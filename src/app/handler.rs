@@ -1410,12 +1410,13 @@ impl ApplicationHandler for App {
                     && !state.match_state.network_wait.dialog_open()
                     && !crate::app::input::campaign_input::is_locked(state)
                 {
-                    // VeraX: over the battlefield the wheel changes the view
+                    // Optional player setting: over the battlefield the wheel changes the view
                     // distance tier, anchored on the tactical centre. Over the
                     // sidebar and the bottom strip it keeps gamemd's native
                     // SidebarUp/SidebarDown routing.
-                    #[cfg(feature = "verax")]
-                    if crate::app::input::camera::cursor_over_battlefield(state) {
+                    if state.persistence.options_profile.mouse_wheel_zoom
+                        && crate::app::input::camera::cursor_over_battlefield(state)
+                    {
                         crate::app::input::camera::cycle_view_distance(state, lines);
                         state.platform.window.request_redraw();
                         return;

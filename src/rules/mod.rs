@@ -112,9 +112,6 @@ pub const PHOBOS_ENABLED: bool = cfg!(feature = "phobos");
 /// Whether this binary includes NPatch-specific behavior. A placeholder: no
 /// chain reads it yet, and builds without the feature keep every stock path.
 pub const NPATCH_ENABLED: bool = cfg!(feature = "npatch");
-/// Whether this binary includes VERA20K's own optional extension behaviors.
-/// Builds without the feature retain the stock input and gameplay paths.
-pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;

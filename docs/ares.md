@@ -13,9 +13,9 @@ cargo run --release --bin vera20k --features ares
 Ares builds identify themselves in the window title and startup log. Saves retain the build
 capability and cannot load in another capability combination, even with identical retail INIs.
 
-Ares is one of four orthogonal capabilities: it combines with `phobos`, `npatch` and `verax`
-(`--features ares,phobos,npatch,verax`), and every implemented feature must keep working when the
-others are compiled in. The rule and the pattern for two extensions touching one native site are in
+Ares is one of three orthogonal capabilities: it combines with `phobos` and `npatch`
+(`--features ares,phobos,npatch`), and every implemented feature must keep working when the others
+are compiled in. The rule and the pattern for two extensions touching one native site are in
 [NPatch placeholder](npatch.md#cross-extension-compatibility).
 
 For ordinary selected-map offline loading, Ares Country loading fields are read
@@ -48,6 +48,14 @@ Supported extensions:
 - [Per-type SHP building palettes](ares-building-palettes.md)
 - [EVA voice tags and Side selection](ares-eva.md)
 - [Generic production prerequisites](ares-prerequisites.md)
+- [Factory-source restrictions](../src/sim/production/can_build.rs) (`BuiltAt`,
+  `Factory.ExplicitOnly`) and [Country plan qualification](../tools/rules_oracle/ares_factory_owners.md)
+  (`FactoryOwners`, forbidden Countries and permanent plans).
+- [NoManualFire](../src/app/input/context_order.rs) blocks ordinary manual attacks;
+  C4 and infiltration remain incomplete.
+- [Ground warhead AttachEffect](ares-attach-effect.md): lifetime, animation, and
+  speed/firepower multipliers. Armor/ROF, cloak/Temporal, self-effects and airborne
+  paths remain outside this chain; manual game acceptance remains pending.
 - [GenericWarhead](ares-generic-warhead.md)
 - [House survival](ares-house-survival.md)
 - [Superweapon building gates](ares-superweapon-building-gates.md)

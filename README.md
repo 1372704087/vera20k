@@ -47,6 +47,22 @@ Download the installer for Windows, macOS or Linux from the
 [releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
 Yuri's Revenge and sets up VERA20K in a new folder.
 
+To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
+[offline client setup](integrations/cncnet/README.md).
+
+## Contributing
+
+Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
+it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
+
+Contributors can take responsibility for engine areas, with broad freedom to make changes that
+move VERA20K forward.
+
+Maintainers will help with review, integration and merging. You'll keep full credit for your
+contribution.
+
+Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
+
 ## Settings
 
 Use **Options** for sound and controls, and **Vera Options** for VERA-specific features.
@@ -57,6 +73,9 @@ Player preferences, keyboard shortcuts and lobby choices are saved in `VERA.INI`
 - **Linux:** `~/.local/share/VERA20k/VERA.INI`, or your XDG data folder.
 
 `config.toml` sets the game folder and can select another settings folder.
+
+Enable **Mouse Wheel Zoom** in **Vera Options**, or set `[VERA] MouseWheelZoom=yes`
+in `VERA.INI` (default `no`).
 
 If `VERA.INI` is missing, VERA creates it and imports existing preferences once. With no
 old settings, it starts empty and VERA uses built-in defaults until settings are saved.
@@ -116,32 +135,11 @@ VERA20K plays like the original game by default. Every new feature, including ex
 mods such as Ares, must stay off until it is turned on with one of:
 
 - **A VERA player option**, in **Options → Vera Options**, saved under `[VERA]` in `VERA.INI`.
-- **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md),
-  `--features phobos` for [Phobos](docs/phobos.md), or `--features verax` for
-  [VeraX](docs/verax.md).
-- **An in-game lobby option**, chosen for each match.
+- **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md).
 - **An INI key**, set by a mod or a map.
 
-`VERA.INI` is for player preferences. Unit, weapon and other gameplay rules belong in
-the mod's rules, art, mode or map INIs, such as `RULESMD.INI` and `ARTMD.INI`.
-
-To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
-[offline client setup](integrations/cncnet/README.md).
-
-## Contributing
-
-Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
-it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
-
-Contributors can take responsibility for engine areas, with broad freedom to make changes that
-move VERA20K forward.
-
-Maintainers will help with review, integration and merging. You'll keep full credit for your
-contribution.
-
-For each new option, document its file, section, key, default and effect.
-
-Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
+Sound, graphics and controls are saved in `VERA.INI`. Gameplay rules come from lobby
+settings, mods or maps.
 
 ## Support
 
@@ -164,3 +162,14 @@ Licensed under the [GPLv3](LICENSE-GPL). This repository contains no game files.
 Conquer and Red Alert are trademarks of Electronic Arts Inc., and the screenshots and the app
 icon, Red Alert 2's red star, show game art owned by Electronic Arts. VERA20K is not affiliated
 with or endorsed by Electronic Arts.
+
+## Documentation
+
+- [Build and run](#build-and-run): requirements and building from source.
+- [INI profiles](docs/ini-roots.md): choosing rules, art and AI files.
+- [Ares](docs/ares.md), [Phobos](docs/phobos.md) and [NPatch](docs/npatch.md): extension support and limitations.
+- [Engine overview](docs/index.md): code layout and how the engine fits together.
+- [Developer tools](tools/README.md): builds, tests and asset inspection.
+- [Map testing](tools/map_observation.md): scripted scenarios, screenshots and match observations.
+- [Native comparisons](tools/native_oracle.md): comparing behavior with the original game.
+- [Ghidra workflow](docs/ghidra-workflow.md): inspecting the original engine.

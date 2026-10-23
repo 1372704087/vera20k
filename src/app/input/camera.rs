@@ -116,31 +116,50 @@ pub(crate) fn restore_tactical_view(
     let Some(saved) = saved else {
         return;
     };
-    state.match_state.input.zoom_level = saved.zoom;
-    state.match_state.input.zoom_target = saved.zoom;
-    let (width, height) = tactical_viewport_size(state);
-    let top_left = tactical_camera_top_left(
-        (
-            saved.view_center_world_pixels[0],
-            saved.view_center_world_pixels[1],
-        ),
-        width as f32,
-        height as f32,
-        saved.zoom,
+    let viewport = tactical_viewport_size(state);
+    restore_camera_input(
+        &mut state.match_state.input,
+        &saved,
+        viewport,
+        state.persistence.options_profile.mouse_wheel_zoom,
     );
     let point = clamp_camera_point_for_state(
         state,
-        top_left,
+        (
+            state.match_state.input.camera_x,
+            state.match_state.input.camera_y,
+        ),
         state.render_width() as f32,
         state.render_height() as f32,
     );
     state.match_state.input.camera_x = point.0;
     state.match_state.input.camera_y = point.1;
-    state
-        .match_state
-        .input
-        .pending_camera_scroll
-        .restore_saved_view(&saved);
+}
+
+/// Restore the local camera transaction before the map-specific clamp. The
+/// player's wheel preference can replace saved zoom, but never the saved
+/// center or cinematic focus. Options' whole-frame Zoom is independent.
+fn restore_camera_input(
+    input: &mut crate::app::input::state::MatchInputState,
+    saved: &crate::sim::snapshot::SavedTacticalView,
+    viewport: (u32, u32),
+    mouse_wheel_zoom: bool,
+) {
+    let zoom = if mouse_wheel_zoom { saved.zoom } else { 1.0 };
+    input.zoom_level = zoom;
+    input.zoom_target = zoom;
+    let point = tactical_camera_top_left(
+        (
+            saved.view_center_world_pixels[0],
+            saved.view_center_world_pixels[1],
+        ),
+        viewport.0 as f32,
+        viewport.1 as f32,
+        zoom,
+    );
+    input.camera_x = point.0;
+    input.camera_y = point.1;
+    input.pending_camera_scroll.restore_saved_view(saved);
 }
 
 impl PendingCameraScroll {
@@ -1461,13 +1480,12 @@ pub(crate) fn apply_zoom(state: &mut AppState, delta_lines: f32) {
     state.match_state.input.zoom_target = new_target;
 }
 
-/// VeraX view-distance tiers. The window size never changes; the camera's
+/// Optional view-distance tiers. The window size never changes; the camera's
 /// world-per-pixel scale does, so the battlefield covers the tier's logical
 /// resolution at a 1280x800 reference frame while the frame stays the window's.
 ///
 /// Wheel up selects the next smaller view distance (zoom in); wheel down
 /// selects the next larger one. Cycling clamps at both ends.
-#[cfg(feature = "verax")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) enum ViewDistanceTier {
     Small,
@@ -1477,7 +1495,6 @@ pub(crate) enum ViewDistanceTier {
     Huge,
 }
 
-#[cfg(feature = "verax")]
 impl ViewDistanceTier {
     pub(crate) const ALL: [Self; 4] = [Self::Small, Self::Default, Self::Large, Self::Huge];
 
@@ -1535,12 +1552,11 @@ impl ViewDistanceTier {
     }
 }
 
-/// Apply one mouse-wheel notch's VeraX view-distance step, anchored on the
+/// Apply one mouse-wheel notch's view-distance step, anchored on the
 /// tactical viewport's centre so the battlefield grows or shrinks around it.
 /// A wheel-up notch (`lines > 0`) selects the smaller view distance.
-#[cfg(feature = "verax")]
 pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
-    if lines == 0.0 {
+    if !lines.is_finite() || lines == 0.0 {
         return;
     }
     let current = ViewDistanceTier::nearest(state.match_state.input.zoom_target);
@@ -1553,6 +1569,15 @@ pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
         return;
     }
 
+    set_view_distance(state, next);
+}
+
+/// Restore the stock tactical scale when the player turns wheel zoom off.
+pub(crate) fn reset_view_distance(state: &mut AppState) {
+    set_view_distance(state, ViewDistanceTier::Default);
+}
+
+fn set_view_distance(state: &mut AppState, tier: ViewDistanceTier) {
     let (width, height) = tactical_viewport_size(state);
     let anchor = [width as f32 / 2.0, height as f32 / 2.0];
     let zoom = state.match_state.input.zoom_level;
@@ -1561,16 +1586,15 @@ pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
         anchor[1] / zoom + state.match_state.input.camera_y,
     ];
     state.match_state.input.zoom_anchor_screen = anchor;
-    state.match_state.input.zoom_target = next.zoom();
+    state.match_state.input.zoom_target = tier.zoom();
 }
 
 /// Whether the cursor is over the battlefield rather than the sidebar column
 /// or the bottom command strip, in the frame pixels the cursor uses.
-#[cfg(feature = "verax")]
 pub(crate) fn cursor_over_battlefield(state: &AppState) -> bool {
     let (width, height) = tactical_viewport_size(state);
     let (x, y) = state.cursor_position();
-    x < width as f32 && y < height as f32
+    x >= 0.0 && y >= 0.0 && x < width as f32 && y < height as f32
 }
 
 /// Animate zoom_level toward zoom_target each frame, adjusting the camera so
@@ -2901,7 +2925,7 @@ mod fast_scroll_tests;
 #[path = "camera_bounds_tests.rs"]
 mod camera_bounds_tests;
 
-#[cfg(all(test, feature = "verax"))]
+#[cfg(test)]
 #[test]
 fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
     let expected = [

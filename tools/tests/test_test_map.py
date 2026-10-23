@@ -67,6 +67,27 @@ class TestMapRegistryTests(unittest.TestCase):
             self.assertEqual(run_test_map.main(["flat", "--interactive"]), 0)
             interactive.assert_called_once_with(MAPS[0], [])
 
+    def test_interactive_preview_has_a_base_unit_and_preserves_explicit_spawns(self):
+        executable = ROOT / "target" / "recorded-game"
+        for requested in (None, "SMCV:1,E2:2"):
+            environment = {} if requested is None else {"RA2_DEBUG_SPAWN_UNITS": requested}
+            with (
+                self.subTest(spawns=requested),
+                mock.patch.dict(run_test_map.os.environ, environment, clear=True),
+                mock.patch.object(run_test_map.cargo_run, "invoke", return_value=0),
+                mock.patch.object(
+                    run_test_map.cargo_run, "resolve_binary", return_value=(executable, "fast")
+                ),
+                mock.patch.object(run_test_map.subprocess, "call", return_value=0) as launch,
+            ):
+                self.assertEqual(run_test_map.interactive(MAPS[0], []), 0)
+                spawns = launch.call_args.kwargs["env"].get("RA2_DEBUG_SPAWN_UNITS")
+                self.assertIsInstance(spawns, str)
+                if requested is None:
+                    self.assertIn("AMCV", [entry.split(":")[0] for entry in spawns.split(",")])
+                else:
+                    self.assertEqual(spawns, requested)
+
     def test_interactive_build_resolves_owned_binary_before_launch(self):
         executable = ROOT / "target" / "recorded-game"
         with (

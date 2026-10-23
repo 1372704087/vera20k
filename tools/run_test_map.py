@@ -20,7 +20,9 @@ default), everything after `--` reaches sim-bench unchanged, and `--debug`
 skips the release build sim-bench's timings are documented for. A map name
 can also follow `play` explicitly. `--interactive` launches a fast-profile
 client with `RA2_QUICKPLAY` naming the map, which needs a display and the
-retail archives, like any ordinary local run. Builds use `tools.cargo_run`;
+retail archives, like any ordinary local run. Interactive previews seed a small
+stock YR force including an MCV, so an empty map does not end in defeat;
+`RA2_DEBUG_SPAWN_UNITS` overrides that force. Builds use `tools.cargo_run`;
 the recorded executable starts after its build lock has been released.
 
 Neither mode needs a map from the retail install; the rules and archives still
@@ -145,7 +147,13 @@ def headless(entry: TestMap, scenario: str, release: bool, extra: Sequence[str])
 def interactive(entry: TestMap, extra: Sequence[str]) -> int:
     return run(
         "vera20k", "vera20k", "fast", (),
-        {"RA2_QUICKPLAY": str(entry.absolute)}, cargo_extra=extra,
+        {
+            "RA2_QUICKPLAY": str(entry.absolute),
+            "RA2_DEBUG_SPAWN_UNITS": os.environ.get(
+                "RA2_DEBUG_SPAWN_UNITS", "AMCV:1,MTNK:2,E1:2"
+            ),
+        },
+        cargo_extra=extra,
     )
 
 

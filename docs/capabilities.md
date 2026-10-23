@@ -69,3 +69,6 @@ these runs do not need its loose maps. Existing tests that name retail maps
 still need those files. Map names also work after an explicit `play`
 subcommand. Builds use `tools/cargo_run.py`, then launch its recorded binary
 after releasing the build lock; interactive runs use the `fast` profile.
+Interactive previews start with a small stock YR force including an MCV, so
+the empty map stays playable. Set `RA2_DEBUG_SPAWN_UNITS` to choose another
+force or types for a different ruleset.

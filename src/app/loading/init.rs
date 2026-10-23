@@ -2328,12 +2328,16 @@ impl MapLoadInitial {
 pub(crate) fn load_csf(
     asset_manager: &AssetManager,
 ) -> anyhow::Result<crate::assets::csf_file::CsfFile> {
-    let bytes = asset_manager
-        .get_ref("ra2md.csf")
-        .ok_or_else(|| anyhow::anyhow!("required retail string table ra2md.csf is missing"))?;
-    let csf = crate::assets::csf_file::CsfFile::from_bytes(bytes)
-        .map_err(|err| anyhow::anyhow!("could not parse required ra2md.csf: {err:#}"))?;
-    log::info!("Loaded CSF string table: ra2md.csf");
+    let (csf, supplements) =
+        crate::assets::csf_file::CsfFile::load_active(|name| asset_manager.get_ref(name)).map_err(
+            |err| match err {
+                crate::assets::error::AssetError::AssetNotFound { .. } => {
+                    anyhow::anyhow!("required retail string table ra2md.csf is missing")
+                }
+                err => anyhow::anyhow!("could not parse required ra2md.csf: {err:#}"),
+            },
+        )?;
+    log::info!("Loaded CSF string table: ra2md.csf; supplements={supplements:?}");
     Ok(csf)
 }
 

@@ -22,7 +22,8 @@ pub(crate) use view::view;
 pub(crate) use wol::{
     WolStartUser, guest_users_listed, kicked_key, local_left, map_status, play_player_left,
     player_choices, player_ready, preview_request, resident_seed, send_first_choices, user_joined,
-    user_kicked, user_left, verify, verify_cursor_moved, verify_layout, verify_mouse, verify_poll_scroll,
+    user_kicked, user_left, verify, verify_cursor_moved, verify_layout, verify_mouse,
+    verify_poll_scroll,
 };
 
 use super::{App, AppState};
@@ -644,7 +645,7 @@ impl App {
                 host: false,
                 flavor: SetupFlavor::Lan,
             },
-            [NetworkVacancy::Open; 8],
+            [NetworkVacancy::Open; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
             acceptance.observer_row,
         ) {
             log::error!("Could not admit LAN join: {error:#}");
@@ -667,7 +668,7 @@ fn install_setup(
     state: &mut AppState,
     launch: SkirmishLaunchSession,
     dialog: SetupDialog,
-    vacancies: [NetworkVacancy; 8],
+    vacancies: [NetworkVacancy; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
     observer_row: Option<u8>,
 ) -> anyhow::Result<()> {
     let host = dialog.host;
@@ -704,7 +705,7 @@ fn install_setup(
         }
     }
     if host {
-        for (row, vacancy) in vacancies.into_iter().enumerate() {
+        for (row, vacancy) in vacancies.iter().copied().enumerate().take(8) {
             if state
                 .match_state
                 .session
@@ -742,6 +743,25 @@ fn install_setup(
                 map.player_capacity,
             )?;
             debug_assert!(removed.is_empty(), "new host has no remote peers");
+        }
+        // VERA profile rows8..29 follow capacity admission: expanding the
+        // initial eight rows opens the new suffix. Restore saved Closed rows
+        // through the same row-kind owner afterward; Open rows and any removed
+        // out-of-capacity AI keep the map owner's result. Native rows above
+        // were restored in their original order (FUN_005ED5A0).
+        for (row, vacancy) in vacancies.into_iter().enumerate().skip(8) {
+            if vacancy == NetworkVacancy::Closed
+                && state
+                    .match_state
+                    .session
+                    .network_vacancy(row as u8)
+                    .is_some()
+            {
+                state
+                    .match_state
+                    .session
+                    .set_network_vacancy(row as u8, vacancy)?;
+            }
         }
         if let Some(file) = state
             .match_state

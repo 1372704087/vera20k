@@ -72,7 +72,7 @@ impl App {
             state,
             launch,
             dialog,
-            [NetworkVacancy::Open; 8],
+            [NetworkVacancy::Open; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
             observer_row,
         ) {
             log::error!("Could not admit WOL join: {error:#}");

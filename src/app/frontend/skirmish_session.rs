@@ -374,7 +374,8 @@ impl MultiplayerShellRuntime {
 
     /// Restore Session+208's LAN or Session+284's WOL profile (5ED5A0 with
     /// the profile in EDX). Slot01..07 describe visible rows1..7; row0 is the
-    /// new local host. 697F10 uses defaults2/2 for both.
+    /// new local host. 697F10 uses defaults2/2 for both. The same process
+    /// profile retains VERA network rows8..29 without adding disk keys.
     pub(crate) fn new_network_setup(
         &mut self,
         profile: SetupProfile,
@@ -386,7 +387,8 @@ impl MultiplayerShellRuntime {
         room: crate::app::match_runtime::session::NetworkRoom,
     ) -> anyhow::Result<(
         SkirmishLaunchSession,
-        [crate::app::match_runtime::session::NetworkVacancy; 8],
+        [crate::app::match_runtime::session::NetworkVacancy;
+            crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
     )> {
         use crate::app::match_runtime::session::NetworkVacancy;
         use crate::skirmish_launch::{
@@ -455,7 +457,8 @@ impl MultiplayerShellRuntime {
         } else {
             LaunchTeam::None
         };
-        let mut vacancies = [NetworkVacancy::Open; 8];
+        let mut vacancies =
+            [NetworkVacancy::Open; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT];
         let mut opponents = Vec::new();
         for (index, persisted) in snapshot.slots.iter().enumerate() {
             let row = (index + 1) as u8;
@@ -467,6 +470,14 @@ impl MultiplayerShellRuntime {
                 6 => Some(AiDifficulty::Hard),
                 _ => None,
             };
+            // A fallback smaller map cannot admit an extended saved AI. This
+            // read leaves the retained profile intact; map/mode admission below
+            // remains owned by MatchSession::select_network_map. Native rows
+            // keep their existing restore-then-capacity ordering.
+            if row >= 8 && i32::from(row) >= selected.player_capacity && difficulty.is_some() {
+                vacancies[usize::from(row)] = NetworkVacancy::Closed;
+                continue;
+            }
             if let Some(difficulty) = difficulty.filter(|_| !observe && !self.lan_observer()) {
                 opponents.push(SkirmishAiSlot {
                     raw_slot_index: row,
@@ -514,8 +525,10 @@ impl MultiplayerShellRuntime {
         &mut self,
         profile: SetupProfile,
         launch: &SkirmishLaunchSession,
-        vacancies: [Option<crate::app::match_runtime::session::NetworkVacancy>; 8],
-        row_choices: [Option<crate::skirmish_launch::SkirmishLocalSlot>; 8],
+        vacancies: [Option<crate::app::match_runtime::session::NetworkVacancy>;
+            crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
+        row_choices: [Option<crate::skirmish_launch::SkirmishLocalSlot>;
+            crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
         catalog: &crate::app::scenario_catalog::ScenarioCatalog,
     ) {
         use crate::app::match_runtime::session::NetworkVacancy;
@@ -2014,7 +2027,10 @@ mod tests {
             )
             .unwrap();
         assert!(wol.opponents.is_empty());
-        assert_eq!(wol_vacancies, [NetworkVacancy::Open; 8]);
+        assert_eq!(
+            wol_vacancies,
+            [NetworkVacancy::Open; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT]
+        );
         owner.set_lan_observer(true);
         let (observer, _) = owner
             .new_network_setup(
@@ -2029,6 +2045,127 @@ mod tests {
             .unwrap();
         assert!(observer.local_player().is_observer());
         assert!(observer.opponents.is_empty());
+    }
+
+    #[test]
+    fn network_profiles_retain_extended_rows_without_extending_the_ini_format() {
+        use crate::app::match_runtime::session::NetworkVacancy;
+        use crate::map::skirmish_scenarios::{SkirmishScenarioRecord, SkirmishScenarioSource};
+        use crate::skirmish_launch::{
+            AiDifficulty, LaunchStartPosition, LaunchTeam, SkirmishAiSlot,
+        };
+        let mut map_ini = "[Basic]\nGameMode=standard\nMaxPlayers=30\n[Waypoints]\n".to_owned();
+        for row in 0..30 {
+            map_ini.push_str(&format!("{row}={}\n", 10010 + row));
+        }
+        let catalog = crate::app::scenario_catalog::ScenarioCatalog::from_records(vec![
+            SkirmishScenarioRecord::concrete_from_ini(
+                0,
+                SkirmishScenarioSource::Synthetic,
+                "large.mmx",
+                &IniFile::from_str(&map_ini),
+            ),
+        ]);
+        let small_catalog = crate::app::scenario_catalog::ScenarioCatalog::from_records(vec![
+            SkirmishScenarioRecord::concrete_from_ini(
+                0,
+                SkirmishScenarioSource::Synthetic,
+                "small.mmx",
+                &IniFile::from_str("[Basic]\nGameMode=standard\n"),
+            ),
+        ]);
+        let mut owner = runtime(
+            MultiplayerSetupSnapshot::from_global_defaults(defaults(), SetupProfile::Skirmish),
+            1,
+        );
+        let offline_before = owner.snapshot.clone();
+        let modes = [mode()];
+        for profile in [SetupProfile::Lan, SetupProfile::Wol] {
+            let other = if profile == SetupProfile::Lan {
+                SetupProfile::Wol
+            } else {
+                SetupProfile::Lan
+            };
+            let other_before = owner.network_snapshot(other).clone();
+            let (mut launch, mut vacancies) = owner
+                .new_network_setup(
+                    profile,
+                    &catalog,
+                    &modes,
+                    Default::default(),
+                    Default::default(),
+                    false,
+                    Default::default(),
+                )
+                .unwrap();
+            let ai = SkirmishAiSlot {
+                raw_slot_index: 1,
+                country: LaunchCountry::from_country_index(8),
+                country_random: false,
+                color_index: 7,
+                color_random: false,
+                start_position: LaunchStartPosition::Auto,
+                team: LaunchTeam::Team(3),
+                difficulty: AiDifficulty::Hard,
+            };
+            launch.opponents = vec![
+                ai.clone(),
+                SkirmishAiSlot {
+                    raw_slot_index: 24,
+                    ..ai
+                },
+            ];
+            launch.ai_player_count = 2;
+            launch.rebuild_house_roster();
+            vacancies[2] = NetworkVacancy::Closed;
+            *vacancies.get_mut(29).expect("extended profile row29") = NetworkVacancy::Closed;
+            owner.remember_network_setup(
+                profile,
+                &launch,
+                vacancies.map(Some),
+                std::array::from_fn(|_| None),
+                &catalog,
+            );
+            let retained = owner.network_snapshot(profile).clone();
+            // A temporarily unavailable large map must not discard the held AI
+            // choice or manufacture an AI outside the fallback map's capacity.
+            let (fallback, _) = owner
+                .new_network_setup(
+                    profile,
+                    &small_catalog,
+                    &modes,
+                    Default::default(),
+                    Default::default(),
+                    false,
+                    Default::default(),
+                )
+                .unwrap();
+            assert_eq!(fallback.opponents.as_slice(), &launch.opponents[..1]);
+            assert_eq!(owner.network_snapshot(profile), &retained);
+            let (restored, restored_vacancies) = owner
+                .new_network_setup(
+                    profile,
+                    &catalog,
+                    &modes,
+                    Default::default(),
+                    Default::default(),
+                    false,
+                    Default::default(),
+                )
+                .unwrap();
+            assert_eq!(restored.opponents, launch.opponents);
+            assert_eq!(&restored_vacancies[..8], &vacancies[..8]);
+            assert_eq!(restored_vacancies.get(29), Some(&NetworkVacancy::Closed));
+            assert_eq!(owner.network_snapshot(other), &other_before);
+            assert_eq!(owner.snapshot, offline_before);
+            let disk_keys = retained.ini_updates();
+            assert!(disk_keys.iter().any(|(key, _)| key == "Slot07"));
+            assert!(
+                !disk_keys
+                    .iter()
+                    .any(|(key, _)| key == "Slot08" || key == "Slot29")
+            );
+        }
     }
 
     #[test]

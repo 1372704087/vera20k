@@ -4146,6 +4146,106 @@ mod tests {
 
     #[test]
     #[ignore = "requires active-retail RA2_DIR and an audio output device"]
+    fn retail_power_on_position_stop_precedes_one_shot_release() {
+        use std::time::{Duration, Instant};
+
+        // Building43FC34 calls750D40 before destructor43BD1A Release. The
+        // former hard-stops a live positional one-shot at zero gain; the
+        // latter alone leaves its current buffer playing (406096..4060E7).
+        let (_, assets) = crate::rules::retail_ini_fixture::retail_assets().unwrap();
+        let definitions = crate::rules::retail_ini_fixture::retail_audio_definitions().unwrap();
+        let loaded_index = crate::rules::retail_ini_fixture::retail_audio_index();
+        let audio_index = loaded_index.map(|loaded| &loaded.index);
+        let entry = definitions.sounds().get("PowerOn").unwrap();
+        assert_eq!(entry.control, 0);
+        assert_eq!(entry.sounds, ["gpowon"]);
+        let mut player = SfxPlayer::new().expect("selected regression requires audio output");
+        let mut service = TestAudioService::default();
+        let epoch = Instant::now();
+        for position_first in [false, true] {
+            player.stop_all();
+            player
+                .observe_pcm(PcmObservationConfig {
+                    sound_ids: vec!["PowerOn".into()],
+                    max_events: 1,
+                    max_samples_per_event: 262_144,
+                })
+                .unwrap();
+            assert!(player.play_animation_sound_spatial(
+                7,
+                "PowerOn",
+                SpatialGain::CENTRED_FULL,
+                definitions.sounds(),
+            ));
+            let deadline = Instant::now() + Duration::from_secs(10);
+            loop {
+                service.pump(
+                    &mut player,
+                    epoch.elapsed().as_millis() as u64,
+                    definitions.sounds(),
+                    definitions.eva(),
+                    &assets,
+                    audio_index,
+                );
+                if player.pcm_observer.as_ref().unwrap().pulled_nonzero() {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "the device did not pull PowerOn");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let before = player.pcm_observer.as_ref().unwrap().recorded_samples();
+            if position_first {
+                player.update_looping_sound(7, None, definitions.sounds());
+            }
+            player.release_animation_sound(7);
+            assert!(player.handle_sound_id(7).is_none());
+            while !player.observed_pcm_settled() {
+                service.pump(
+                    &mut player,
+                    epoch.elapsed().as_millis() as u64,
+                    definitions.sounds(),
+                    definitions.eva(),
+                    &assets,
+                    audio_index,
+                );
+                assert!(
+                    Instant::now() < deadline,
+                    "the device did not finish PowerOn"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            let report = player.finish_pcm_observation().unwrap();
+            assert!(!report.truncated);
+            assert_eq!(report.outputs.len(), 1);
+            let output = &report.outputs[0];
+            assert!(output.source_ended && !output.truncated);
+            assert_eq!(output.resolved_samples, ["gpowon"]);
+            if position_first {
+                assert!(
+                    output.sample_bits.len() < output.source_sample_count,
+                    "zero-gain position must cut the actual source short before Release"
+                );
+            } else {
+                assert!(output.sample_bits.len() >= output.source_sample_count);
+                assert!(
+                    output.sample_bits[before..]
+                        .iter()
+                        .any(|bits| f32::from_bits(*bits) != 0.0),
+                    "Release alone leaves the current one-shot audible"
+                );
+                assert_eq!(output.actions.last().unwrap().kind, "completed");
+            }
+            eprintln!(
+                "PowerOn position_first={position_first}: before={before} pulled={} decoded={}",
+                output.sample_bits.len(),
+                output.source_sample_count
+            );
+        }
+        player.stop_all();
+    }
+
+    #[test]
+    #[ignore = "requires active-retail RA2_DIR and an audio output device"]
     fn retail_squid_one_shot_device_release_detach_and_hard_stop() {
         let mut service = TestAudioService::default();
         use std::io::Write;

@@ -4270,8 +4270,12 @@ class MapObservationTests(unittest.TestCase):
         cell['terrain_objects'][0]['native_id'] = -(1 << 31)
         cell['terrain_objects'][1]['native_id'] = None
         observation._terrain(cell, [74, 32], 'terrain')
+        cell['terrain_objects'][0].update(health=-(1 << 31), max_health=(1 << 31) - 1)
+        cell['terrain_objects'][1].update(health=200, max_health=200)
+        observation._terrain(cell, [74, 32], 'terrain')
         for key, value in (('id', True), ('id', 0), ('frame', True), ('active', 1),
-                           ('native_id', True), ('native_id', 1 << 31)):
+                           ('native_id', True), ('native_id', 1 << 31),
+                           ('health', True), ('max_health', 1 << 31)):
             bad = deepcopy(cell)
             bad['terrain_objects'][0][key] = value
             with self.assertRaises(observation.ValidationError):

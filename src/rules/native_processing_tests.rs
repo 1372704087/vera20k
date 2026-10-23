@@ -1950,7 +1950,7 @@ fn native_startup_prepass_repeat_and_reset_keep_each_phase_on_one_registry_owner
          [Animations]\n0=A\n\
          [BuildingTypes]\n0=B\n\
          [Countries]\n0=HOUSE\n\
-         [General]\nDamageFireTypes=SEED,PREANIM\n\
+         [General]\nDamageFireTypes=SEED,PREANIM\nTreeStrength=375\n\
          [A]\nNext=RULES_ANIM_BODY_IGNORED\n\
          [B]\nPrimary=W\nExplosion=BA\nFreeUnit=U\nSecretBuilding=B2\n\
          [B2]\nPrimary=W2\n\
@@ -1974,6 +1974,7 @@ fn native_startup_prepass_repeat_and_reset_keep_each_phase_on_one_registry_owner
         &crate::rules::sound_ini::EvaRegistry::default(),
     )
     .expect("synthetic startup processes");
+    assert_eq!(startup.registry_state().rules_tree_strength, 25);
     assert_eq!(boundaries, [1, 2, 4, 5, 12]);
     assert_eq!(
         startup.events()[..4]
@@ -2031,6 +2032,8 @@ fn native_startup_prepass_repeat_and_reset_keep_each_phase_on_one_registry_owner
     let retained_state = repeat.into_registry_state_discarding_events();
     let (prepass, prepass_boundaries) =
         process_native_noncampaign_rules_prepass_inner(retained_state, &root);
+    // ReadGeneral671DD2 runs in this prefix before TypeReset6686C0.
+    assert_eq!(prepass.registry_state().rules_tree_strength, 375);
     assert_eq!(
         prepass_boundaries,
         if crate::rules::ARES_ENABLED {
@@ -2067,6 +2070,7 @@ fn native_startup_prepass_repeat_and_reset_keep_each_phase_on_one_registry_owner
     let reset_state = prepass
         .into_registry_state_discarding_events()
         .destructive_reset();
+    assert_eq!(reset_state.rules_tree_strength, 375);
     let processed = RulesLayerStack::new(root)
         .process_with_fixed_art_and_registry_state(&fixed_art, reset_state)
         .expect("post-reset full Process succeeds");

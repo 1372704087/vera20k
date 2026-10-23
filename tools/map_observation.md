@@ -2301,6 +2301,8 @@ report unallocated cells explicitly without stamping the shared Dummy.
 Terrain member rows also retain nullable signed `native_id`, independently of
 their stable `id`. Older receipts may omit it; omission stays unobserved rather
 than implying zero or a missing native identity. Reading it allocates no ID.
+New member rows also report signed `health` and `max_health` from that same
+Terrain owner. Older receipts may omit both; observation does not apply damage.
 
 V5 actor rows add `building`, null for Foot objects. Structures read their sole
 body state, queued body request, construction control, complete serialized

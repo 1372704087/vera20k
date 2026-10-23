@@ -389,12 +389,15 @@ pub(crate) fn commit_start(state: &mut AppState, agreed_seed: u32) {
     };
     if accepted_random_map.is_none()
         && guest_staging.is_none()
-        && state.match_state.session_mode() == SessionMode::Wol
+        && matches!(
+            state.match_state.session_mode(),
+            SessionMode::Lan | SessionMode::Wol
+        )
         && selected.as_deref().is_some_and(|file| {
             file.eq_ignore_ascii_case(crate::map::skirmish_scenarios::RANDMAP_SED)
         })
     {
-        // An online rematch reuses the accepted W table after the first match
+        // A network rematch reuses the accepted W table after the first match
         // consumed its presentation preview. Full_Init6873E6 copies these
         // same Scenario+11C0 cells; it does not require regenerating a preview.
         let staging = state.frontend.multiplayer_shell_runtime.start_staging();
@@ -491,8 +494,23 @@ pub(crate) fn commit_map_selection(
             .session
             .network_map_metadata()
             .is_none_or(|current| current.display_name != metadata.display_name);
+    // Use Map can reselect an already-uploaded source. Ask the same map
+    // identity owner as received HostSetup before replacing its selection;
+    // unchanged physical/effective bytes retain their image and marker bounds.
+    let mut selected = state
+        .match_state
+        .session
+        .network_setup()
+        .ok_or_else(|| anyhow::anyhow!("no admitted setup"))?
+        .clone();
+    selected.mode = crate::skirmish_launch::SkirmishLaunchMode::from_game_mode(mode);
+    selected.selected_map_file = Some(file.clone());
+    let map_changed = state
+        .match_state
+        .session
+        .network_map_requires_verification(&selected, &metadata)?;
     let removed = state.match_state.session.select_network_map(
-        crate::skirmish_launch::SkirmishLaunchMode::from_game_mode(mode),
+        selected.mode,
         file.clone(),
         map.player_capacity,
     )?;
@@ -510,7 +528,7 @@ pub(crate) fn commit_map_selection(
         .set_preferred_game_mode(mode_id);
     state.frontend.skirmish_preview_texture = None;
     if let Some(protocol) = state.frontend.network_setup_protocol.as_mut() {
-        protocol.clear_received_preview();
+        protocol.invalidate_received_preview(map_changed);
     }
     if super::dialog(state).wol() {
         // C2 ChooseMap 0x790F68: acceptance clears only for a new

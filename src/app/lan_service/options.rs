@@ -21,6 +21,19 @@ use crate::skirmish_launch::{
 use crate::util::native_string::{narrow_utf16_c_string, narrow_widened, widen_bytes};
 
 pub(super) fn publish_options(state: &mut AppState) -> Result<bool> {
+    // Generated dependency preparation can exceed a discovery-query interval.
+    // A backpressured retry must yield before that work, allowing the existing
+    // transport owner to drain. queue_payload retains its final ACK recheck.
+    if state
+        .match_state
+        .lan_service
+        .as_ref()
+        .ok_or_else(|| anyhow!("no LAN service"))?
+        .queued_setup_count()
+        != 0
+    {
+        return Ok(false);
+    }
     let agreement = crate::app::shell_network_setup::agreement::local(state)?;
     let random_map = crate::app::shell_network_setup::maps::host_generated_manifest(state)?;
     let session = &state.match_state.session;

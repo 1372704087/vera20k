@@ -466,7 +466,13 @@ impl NetworkSetupProtocol {
         self.received_preview_bounds = bounds;
     }
 
-    fn clear_received_preview(&mut self) {
+    /// Only an admitted map-identity change invalidates the derived image and
+    /// marker bounds (5E74E0..5E7513). Reusing the same source after an upload
+    /// completed must not depend on another physical transfer to restore them.
+    fn invalidate_received_preview(&mut self, map_changed: bool) {
+        if !map_changed {
+            return;
+        }
         self.received_preview = None;
         self.received_preview_bounds = None;
         self.awaiting_preview_file = false;

@@ -193,6 +193,83 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_host_map_selection_retains_verified_preview_bounds() {
+        use crate::app::match_runtime::session::{
+            MatchSession, NetworkMapMetadata, NetworkReturnContext,
+        };
+        let fixture: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/map_observation.command-bar.example.json",
+        ))
+        .unwrap();
+        let launch: crate::skirmish_launch::SkirmishLaunchSession =
+            serde_json::from_value(fixture["launch"].clone()).unwrap();
+        let mut session = MatchSession::default();
+        session.enter_network(NetworkReturnContext::Wol);
+        session
+            .accept_network_setup(launch.clone(), true, None)
+            .unwrap();
+        let mut metadata = NetworkMapMetadata {
+            display_name: "Authored map".into(),
+            player_capacity: 8,
+            official: false,
+            byte_length: 1234,
+            digest: "native digest".into(),
+            source_sha256: "a".repeat(64),
+            effective_digest: "b".repeat(64),
+        };
+        session
+            .accept_network_map_metadata(metadata.clone(), None, true)
+            .unwrap();
+        let bounds = crate::map::preview::PreviewSourceBounds {
+            origin_x: 200,
+            origin_y: 10,
+            width: 80,
+            height: 90,
+            start_points: vec![crate::map::preview::PreviewStartPoint { x: 220, y: 30 }],
+        };
+        let mut protocol = super::super::NetworkSetupProtocol::new(
+            crate::ui::multiplayer_setup::SetupDialog {
+                host: true,
+                flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
+            },
+            false,
+        );
+        protocol.received_preview = Some((
+            1,
+            crate::map::preview::DecodedPreview {
+                width: 1,
+                height: 1,
+                rgba: vec![0, 0, 0, 255],
+            },
+        ));
+        protocol.accept_preview_bounds(Some(bounds.clone()));
+        let mut selected = launch;
+        selected.options.short_game = !selected.options.short_game;
+        let changed = session
+            .network_map_requires_verification(&selected, &metadata)
+            .unwrap();
+        assert!(!changed);
+        protocol.invalidate_received_preview(changed);
+        assert_eq!(protocol.received_preview_bounds(), Some(&bounds));
+        assert!(
+            protocol.received_preview().is_some(),
+            "same-source Use Map lost the completed preview"
+        );
+        metadata.effective_digest = "c".repeat(64);
+        let changed = session
+            .network_map_requires_verification(&selected, &metadata)
+            .unwrap();
+        assert!(
+            changed,
+            "changed include closure must invalidate the image and markers"
+        );
+        protocol.invalidate_received_preview(changed);
+        assert!(
+            protocol.received_preview_bounds().is_none() && protocol.received_preview().is_none()
+        );
+    }
+
+    #[test]
     fn generated_staging_requires_canonical_complete_seed_capacity() {
         let mut stage = crate::map::preview::ScenarioStartStaging {
             width: 80,

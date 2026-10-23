@@ -488,7 +488,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
                     .network_setup_protocol
                     .as_mut()
                     .expect("setup owns protocol");
-                protocol.clear_received_preview();
+                protocol.invalidate_received_preview(map_changed);
                 // Native's receive blocks until it ends, so a file still in
                 // flight belongs to the map before this change.
                 protocol.awaiting_preview_file = false;

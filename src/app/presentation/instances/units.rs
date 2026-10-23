@@ -21,7 +21,7 @@ use crate::render::draw_state::{DrawState, FX_SHADOW};
 use crate::render::native_z::{
     SHP_DRAW_Z_ADJUST_PX, ZGradient, pack_voxel_z_gradient, pack_z_gradient,
 };
-use crate::render::sprite_atlas::ShpSpriteKey;
+use crate::render::sprite_atlas::{HARVEST_OVERLAY_IMAGE, ShpSpriteKey};
 use crate::render::tactical_draw_plan::RenderZPolicy;
 use crate::render::unit_atlas::{
     UnitSpriteEntry, UnitSpriteKey, VxlLayer, canonical_turret_facing, canonical_unit_facing,
@@ -658,11 +658,11 @@ pub(crate) fn build_unit_instances(
 
         // OREGATH is an SHP sprite from sprite_atlas, but remains an owned piece
         // of its harvester's Ground slot so atlas identity cannot re-sort it.
-        if let Some(frame) = harvest_overlay_frame(state.rules(), sim, entity, display_binary_frame)
+        if let Some(overlay) = harvest_overlay(state.rules(), sim, entity, display_binary_frame)
             && let Some((page, instance)) = emit_harvest_overlay(
                 state,
                 entity,
-                frame,
+                &overlay,
                 {
                     let arm = harvest_arm_screen_position(entity, sim.session().binary_frame());
                     (
@@ -2031,6 +2031,20 @@ fn emit_turret_unit_sprites(
     }
 }
 
+/// Frames per facing in `OREGATH.SHP`, the literal `15` of
+/// `0x0073D1E2..0x0073D273`.
+const STOCK_GATHER_FRAMES_PER_DIR: i32 = 15;
+
+/// `UnitClass::DrawIt @ 0x0073CEC0`'s gather overlay: which SHP it draws and
+/// which frame of that SHP. Phobos' `UnitClass_DrawIt_OreGath @ 0x73D223` hook
+/// selects both from the resource the harvester is standing on.
+struct HarvestOverlay<'a> {
+    /// The sprite atlas identity: the literal OREGATH, or the `Image=` of the
+    /// `OreGathering.Anims=` type this cell selects.
+    image: &'a str,
+    frame: u16,
+}
+
 /// `UnitClass::DrawIt @ 0x0073CEC0`'s OREGATH.SHP frame, when it draws one: a
 /// `Harvester=` type (`+0xE0E` of the unit's own type `+0x6C4`) whose unit is
 /// harvesting (`+0x6D2`), whose locomotor is not moving now (`[loco+0x80]` at
@@ -2038,16 +2052,15 @@ fn emit_turret_unit_sprites(
 /// no Temporal weapon is warping (`+0x278`), warping out (vt+0x1D4) or warping
 /// in (vt+0x1D8) (`0x0073D0DB..0x0073D221`). So a miner hopping to its next
 /// ore cell shows none.
-fn harvest_overlay_frame(
-    rules: Option<&crate::rules::ruleset::RuleSet>,
+fn harvest_overlay<'a>(
+    rules: Option<&'a crate::rules::ruleset::RuleSet>,
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     display_binary_frame: u32,
-) -> Option<u16> {
-    let harvester = rules
-        .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
-        .is_some_and(|object| object.harvester);
-    if !harvester
+) -> Option<HarvestOverlay<'a>> {
+    let rules = rules?;
+    let object = sim.interner().object_type(entity.type_ref(), rules)?;
+    if !object.harvester
         || !entity
             .miner
             .as_ref()
@@ -2055,34 +2068,89 @@ fn harvest_overlay_frame(
         || entity.temporal.chain_head().is_some()
         || entity.is_warped_out()
         || entity.is_warping_in()
-        || rules.is_some_and(|rules| {
-            crate::sim::movement::motion_query::is_moving_now(
-                entity,
-                crate::sim::movement::SpeedRules::new(rules, sim.interner(), sim.houses()),
-                display_binary_frame,
-            )
-        })
+        || crate::sim::movement::motion_query::is_moving_now(
+            entity,
+            crate::sim::movement::SpeedRules::new(rules, sim.interner(), sim.houses()),
+            display_binary_frame,
+        )
     {
         return None;
     }
     let frame = sim.session().binary_frame();
-    oregath_frame(
-        entity.body_frame_counter.get(),
-        frame,
-        entity.body_facing_current(frame),
-    )
+    let facing = entity.body_facing_current(frame);
+    let counter = entity.body_frame_counter.get();
+    #[cfg(feature = "phobos")]
+    if let Some((image, frames_per_dir)) = gather_animation(rules, object, sim, entity) {
+        return Some(HarvestOverlay {
+            image,
+            frame: oregath_frame(counter, frame, facing, frames_per_dir)?,
+        });
+    }
+    Some(HarvestOverlay {
+        image: HARVEST_OVERLAY_IMAGE,
+        frame: oregath_frame(counter, frame, facing, STOCK_GATHER_FRAMES_PER_DIR)?,
+    })
 }
 
-/// OREGATH.SHP's frame (`0x0073D1E2..0x0073D273`): `(Foot+0x538 + Frame) % 15`,
-/// a signed remainder, in the row `7 - ((((Current >> 12) + 1) >> 1) & 7)` of
-/// the body facing (`+0x388`), 15 frames to a row. A negative index draws
-/// nothing.
-fn oregath_frame(body_frame_counter: u32, frame: u32, body_facing: u16) -> Option<u16> {
-    let within = (body_frame_counter as i32).wrapping_add(frame as i32) % 15;
+/// Phobos' `UnitClass_DrawIt_OreGath @ 0x73D223` selection: the cell's
+/// `GetContainedTiberiumIndex @ 0x00485010` indexes `OreGathering.Tiberiums=`,
+/// and the slot it answers picks the animation and its frames per facing. An
+/// empty `Tiberiums=` list means slot 0 for every resource; an empty `Anims=`
+/// list keeps OREGATH.SHP and only takes the custom frame count. `None` means
+/// the cell holds no resource, which leaves the stock draw.
+#[cfg(feature = "phobos")]
+fn gather_animation<'a>(
+    rules: &'a crate::rules::ruleset::RuleSet,
+    object: &crate::rules::object_type::ObjectType,
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+) -> Option<(&'a str, i32)> {
+    let gathering = object.ore_gathering();
+    let resource = crate::sim::tiberium::tiberium_cell_view(
+        sim.overlay_grid().as_ref()?,
+        rules.overlay_registry(),
+        &rules.tiberium_types,
+        (entity.position.rx(), entity.position.ry()),
+    )?;
+    let slot = if gathering.tiberiums.is_empty() {
+        0
+    } else {
+        gathering
+            .tiberiums
+            .iter()
+            .position(|index| *index == i32::from(resource.tiberium_type.0))?
+    };
+    let image = gathering
+        .anims
+        .get(slot)
+        .and_then(|anim| rules.harvest_overlay_image(anim));
+    // A slot past the shorter list, or a non-positive frame count, would read
+    // out of the vector or divide-fault the native `%`; both keep the stock
+    // 15-frame row here.
+    let frames = gathering
+        .frames_per_dir
+        .get(slot)
+        .filter(|frames| **frames > 0)
+        .copied()
+        .unwrap_or(STOCK_GATHER_FRAMES_PER_DIR);
+    Some((image.unwrap_or(HARVEST_OVERLAY_IMAGE), frames))
+}
+
+/// The gather overlay's frame (`0x0073D1E2..0x0073D273`): `(Foot+0x538 + Frame)
+/// % frames`, a signed remainder, in the row
+/// `7 - ((((Current >> 12) + 1) >> 1) & 7)` of the body facing (`+0x388`),
+/// `frames` frames to a row. A negative index draws nothing.
+fn oregath_frame(
+    body_frame_counter: u32,
+    frame: u32,
+    body_facing: u16,
+    frames_per_dir: i32,
+) -> Option<u16> {
+    let within = (body_frame_counter as i32).wrapping_add(frame as i32) % frames_per_dir;
     let row = 7 - i32::from(crate::util::direction_tables::dir_from_facing16(
         body_facing,
     ));
-    u16::try_from(row * 15 + within).ok()
+    u16::try_from(row * frames_per_dir + within).ok()
 }
 
 /// `UnitClass::DrawIt`'s OREGATH point (`0x0073D122..0x0073D1D6`): the render
@@ -2101,14 +2169,13 @@ fn harvest_arm_screen_position(
     crate::render::locomotor_visual::facing_step_screen_position(entity, eighth, 30)
 }
 
-/// Emit the oregath.shp harvest overlay sprite at `frame`
-/// ([`harvest_overlay_frame`]) on the arm point `arm`
-/// ([`harvest_arm_screen_position`]), from the sprite atlas (keyed as
-/// "OREGATH").
+/// Emit the harvest overlay sprite [`harvest_overlay`] selected (OREGATH.SHP,
+/// or a Phobos `OreGathering.Anims=` type's own image) on the arm point `arm`
+/// ([`harvest_arm_screen_position`]), from the sprite atlas keyed by that image.
 fn emit_harvest_overlay(
     state: &AppState,
     entity: &crate::sim::game_entity::GameEntity,
-    frame: u16,
+    overlay: &HarvestOverlay<'_>,
     arm: (f32, f32),
     z: u8,
     tint: [f32; 3],
@@ -2118,9 +2185,9 @@ fn emit_harvest_overlay(
     let sprite_atlas = state.match_state.match_presentation.sprite_atlas.as_ref()?;
     let key = ShpSpriteKey {
         palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
-        type_id: "OREGATH".to_string(),
+        type_id: overlay.image.to_string(),
         facing: 0,
-        frame,
+        frame: overlay.frame,
         house_color: HouseColorIndex::default(),
     };
     let entry = sprite_atlas.get(&key)?;
@@ -2187,17 +2254,28 @@ mod tests {
     /// row is `(Foot+0x538 + Frame) % 15`, signed (`0x0073D25C..0x0073D273`).
     #[test]
     fn oregath_frame_rounds_the_facing_row_and_adds_the_global_frame() {
-        assert_eq!(oregath_frame(0, 0, 0x0000), Some(105));
-        assert_eq!(oregath_frame(0, 0, 0x0FFF), Some(105));
-        assert_eq!(oregath_frame(0, 0, 0x1000), Some(90));
-        assert_eq!(oregath_frame(0, 0, 0x2FFF), Some(90));
-        assert_eq!(oregath_frame(0, 0, 0x3000), Some(75));
-        assert_eq!(oregath_frame(0, 0, 0xEFFF), Some(0));
-        assert_eq!(oregath_frame(0, 0, 0xF000), Some(105));
+        assert_eq!(oregath_frame(0, 0, 0x0000, 15), Some(105));
+        assert_eq!(oregath_frame(0, 0, 0x0FFF, 15), Some(105));
+        assert_eq!(oregath_frame(0, 0, 0x1000, 15), Some(90));
+        assert_eq!(oregath_frame(0, 0, 0x2FFF, 15), Some(90));
+        assert_eq!(oregath_frame(0, 0, 0x3000, 15), Some(75));
+        assert_eq!(oregath_frame(0, 0, 0xEFFF, 15), Some(0));
+        assert_eq!(oregath_frame(0, 0, 0xF000, 15), Some(105));
         // (7 + 20) % 15 in row 6.
-        assert_eq!(oregath_frame(7, 20, 0x2000), Some(102));
+        assert_eq!(oregath_frame(7, 20, 0x2000, 15), Some(102));
         // A negative sum leaves a negative remainder, which row 0 cannot hold.
-        assert_eq!(oregath_frame(u32::MAX - 20, 0, 0xE000), None);
+        assert_eq!(oregath_frame(u32::MAX - 20, 0, 0xE000, 15), None);
+    }
+
+    /// Phobos' `UnitClass_DrawIt_OreGath @ 0x73D223` keeps the same row and
+    /// signed remainder with `OreGathering.FramesPerDir=` in place of the
+    /// literal 15.
+    #[test]
+    fn oregath_frame_uses_the_custom_frames_per_facing_row() {
+        assert_eq!(oregath_frame(0, 0, 0x0000, 10), Some(70));
+        assert_eq!(oregath_frame(3, 24, 0x0000, 10), Some(77));
+        // The same facing at the stock count lands in a different row.
+        assert_eq!(oregath_frame(0, 0, 0x0000, 15), Some(105));
     }
 
     /// All51 active RGB565 rows execute original Unit73BF7B..73C166.

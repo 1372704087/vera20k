@@ -4918,6 +4918,14 @@ impl RuleSet {
                     .phobos_super_weapon_metadata
                     .insert(name.to_ascii_uppercase(), availability);
             }
+            for (name, gathering) in processed.ore_gathering_states() {
+                if let Some(unit) = rules.object_list.iter_mut().find(|object| {
+                    object.category == ObjectCategory::Vehicle
+                        && object.id.eq_ignore_ascii_case(name)
+                }) {
+                    unit.project_ore_gathering(gathering);
+                }
+            }
         }
         #[cfg(feature = "ares")]
         {
@@ -7851,6 +7859,38 @@ impl RuleSet {
     /// Read the same bound ART owner used during construction and gameplay.
     pub fn art(&self) -> &crate::rules::art_data::ArtRegistry {
         &self.art_registry
+    }
+
+    /// The SHP identity Phobos draws for one `OreGathering.Anims=` type: that
+    /// AnimType's `Image=`, which defaults to its own section name. A type with
+    /// no reached ART body has no image here.
+    #[cfg(feature = "phobos")]
+    pub fn harvest_overlay_image(&self, anim_name: &str) -> Option<&str> {
+        self.art_registry
+            .anim_runtime_config(anim_name)
+            .map(|config| config.image())
+    }
+
+    /// Every distinct gather-overlay image the registered VehicleTypes name, in
+    /// first-mention order. The sprite atlas preloads these beside the literal
+    /// OREGATH.SHP, which it loads from the rules alone and not from the units
+    /// currently on the map.
+    #[cfg(feature = "phobos")]
+    pub fn harvest_overlay_images(&self) -> Vec<&str> {
+        let mut images: Vec<&str> = Vec::new();
+        for object in &self.object_list {
+            if object.category != ObjectCategory::Vehicle {
+                continue;
+            }
+            for anim in &object.ore_gathering().anims {
+                if let Some(image) = self.harvest_overlay_image(anim)
+                    && !images.iter().any(|seen| seen.eq_ignore_ascii_case(image))
+                {
+                    images.push(image);
+                }
+            }
+        }
+        images
     }
 
     /// AnimTypeArray8B4154's retained constructor order, including types

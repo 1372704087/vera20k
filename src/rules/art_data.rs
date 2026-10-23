@@ -400,6 +400,11 @@ pub struct AnimTypeRuntimeConfig {
     pub tiberium_chain_reaction: bool,
     pub is_tiberium: bool,
     pub hide_if_no_ore: bool,
+    /// Phobos `AnimTypeExt::HideIfNoOre_Threshold` (`src/Ext/AnimType/Body.h`,
+    /// read as a `Valueable<int>` with constructor default 0): the smallest
+    /// contained tiberium value at which a `HideIfNoOre=` anim still draws.
+    #[cfg(feature = "phobos")]
+    pub hide_if_no_ore_threshold: i32,
     pub is_animated_tiberium: bool,
     pub tiberium_spread_radius: i32,
     /// The Type references (`TiberiumSpawnType=`, `Spawns=`, `Warhead=`,
@@ -811,6 +816,8 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         tiberium_chain_reaction: section.read_bool("TiberiumChainReaction", false),
         is_tiberium: section.read_bool("IsTiberium", false),
         hide_if_no_ore: section.read_bool("HideIfNoOre", false),
+        #[cfg(feature = "phobos")]
+        hide_if_no_ore_threshold: section.read_ares_int("HideIfNoOre.Threshold", 0),
         is_animated_tiberium: section.read_bool("IsAnimatedTiberium", false),
         tiberium_spread_radius: section.read_int("TiberiumSpreadRadius", 0),
         // The Type references (`TiberiumSpawnType=`, `Spawns=`, `Warhead=`,
@@ -1022,6 +1029,13 @@ const fn header_end(raw_count: i32, shadow: bool) -> i32 {
 }
 
 impl AnimTypeRuntimeConfig {
+    /// The `Image=` SHP identity `AnimTypeClass::GetImage` draws: Phobos'
+    /// `OreGathering.Anims=` overlay selects it per gather animation.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn image(&self) -> &str {
+        &self.image
+    }
+
     /// AnimType `End` (`+0x2C0`), which `AnimClass::DrawIt`'s `Translucent=`
     /// ladder divides (`0x004230AC`). A bound type carries the loaded value;
     /// for one not yet bound, it is what binding would load from a SHP of

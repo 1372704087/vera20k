@@ -767,6 +767,11 @@ pub enum LifecycleOutput {
     ObjectSelected {
         stable_id: u64,
     },
+    /// UpdateBunker459315 clears Techno+214 before deselecting the entering
+    /// tank. The client's existing control-group index owns the membership.
+    ControlGroupCleared {
+        stable_id: u64,
+    },
     /// DispatchPointerExpired7258D0 reaches navigation733160 at7259B1
     /// for a Techno abstract pointer, regardless of announce-control or Alive.
     ObjectPointerExpired {

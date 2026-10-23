@@ -623,6 +623,20 @@ impl MatchInputState {
         false
     }
 
+    /// UpdateBunker459315 writes the installed tank's group to -1 once.
+    /// Keep that mutation in the existing local membership owner so recall,
+    /// status labels and saved local views observe the same removal.
+    pub(crate) fn apply_control_group_output(
+        &mut self,
+        output: &crate::sim::world::LifecycleOutput,
+    ) {
+        if let crate::sim::world::LifecycleOutput::ControlGroupCleared { stable_id } = output {
+            for group in &mut self.control_groups {
+                group.retain(|id| id != stable_id);
+            }
+        }
+    }
+
     /// New-scenario installation discards references into the outgoing world.
     pub(crate) fn reset_targeting_for_new_world(&mut self) {
         self.reset_cheer_clock();

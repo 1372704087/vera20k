@@ -4731,6 +4731,144 @@ mod control_group_tests {
         sim.entities_mut_for_test().insert(entity);
     }
 
+    /// UpdateBunker459315 clears +214; TeamRecall731305 tests that field.
+    /// The live tank must lose its old group in both recall and the save.
+    #[test]
+    fn bunker_install_clears_retained_group_and_saved_recall_once() {
+        use crate::app::input::state::{MatchInputState, PreparedSavedLocalView};
+        use crate::sim::command::Command;
+        use crate::sim::docking::bunker_link::BunkerLink;
+        use crate::sim::mission::MissionType;
+        use crate::sim::snapshot::saved_local_view::SavedLocalView;
+        use crate::ui::sidebar::gadget_flash::SidebarGadgetState;
+        use crate::util::save_codec;
+
+        let Some(rules) = crate::rules::retail_ini_fixture::retail_unlayered_rules_with_art()
+        else {
+            return;
+        };
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+        let owner = sim.intern("Americans");
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(owner));
+        sim.session_mut_for_test().set_game_mode(
+            crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+        );
+        let bunker = sim
+            .spawn_object("NATBNK", "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        // Keep both skirmish houses alive through the Unload visits.
+        sim.spawn_object("NATBNK", "Russians", 20, 20, 0, &rules)
+            .unwrap();
+        let tank = sim
+            .spawn_object("LTNK", "Americans", 4, 10, 0, &rules)
+            .unwrap();
+        let peer = sim
+            .spawn_object("LTNK", "Americans", 14, 12, 0, &rules)
+            .unwrap();
+        let mut input = MatchInputState::new(Default::default());
+        reassign_control_group(&mut input.control_groups, 1, &[tank, peer], &sim);
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::clicked_mission(
+                tank,
+                MissionType::Enter,
+                crate::sim::combat::TargetKind::Entity(bunker),
+            ),
+            Some(&rules),
+        ));
+        for _ in 0..900 {
+            let frame = sim
+                .advance_app_frame(
+                    &[],
+                    &rules,
+                    None,
+                    33,
+                    crate::sim::world::TickLane::Ordinary,
+                    Default::default(),
+                )
+                .unwrap();
+            for output in frame.lifecycle_outputs {
+                input.apply_control_group_output(&output);
+            }
+            if sim.entities().get(tank).unwrap().bunker.link() == BunkerLink::Installed(bunker) {
+                break;
+            }
+        }
+        assert_eq!(
+            sim.entities().get(tank).unwrap().bunker.link(),
+            BunkerLink::Installed(bunker)
+        );
+        assert_eq!(input.control_groups[1], [peer]);
+        assert_eq!(
+            team_walk_members(Some(&sim), &input.control_groups[1]),
+            [peer]
+        );
+        assert!(
+            sim.entities().get(tank).is_some(),
+            "membership cleared before deletion"
+        );
+
+        assert!(sim.apply_command(
+            "Americans",
+            &Command::DeployMcv { entity_id: tank },
+            Some(&rules)
+        ));
+        for _ in 0..300 {
+            let grid = sim.path_grid_snapshot();
+            sim.advance_tick(&[], Some(&rules), grid.as_deref(), None, 33);
+            if sim.entities().get(tank).unwrap().bunker.link() == BunkerLink::None {
+                break;
+            }
+        }
+        assert_eq!(
+            sim.entities().get(tank).unwrap().bunker.link(),
+            BunkerLink::None,
+            "mission={:?}, logic={}, cell=({},{}), frame={}",
+            sim.entities().get(tank).unwrap().mission,
+            sim.entities()
+                .get(tank)
+                .unwrap()
+                .in_logic_vector
+                .is_member(),
+            sim.entities().get(tank).unwrap().position.rx(),
+            sim.entities().get(tank).unwrap().position.ry(),
+            sim.session().binary_frame(),
+        );
+        for output in sim.take_lifecycle_outputs_for_test() {
+            input.apply_control_group_output(&output);
+        }
+        assert_eq!(
+            team_walk_members(Some(&sim), &input.control_groups[1]),
+            [peer]
+        );
+
+        let mut sidebar = SidebarGadgetState::new();
+        let saved = input
+            .capture_saved_local_view(&sim, &rules, &sidebar)
+            .unwrap();
+        let decoded: SavedLocalView =
+            save_codec::deserialize(&save_codec::serialize(&saved).unwrap()).unwrap();
+        let mut restored = MatchInputState::new(Default::default());
+        PreparedSavedLocalView::new(decoded, &sim, &rules)
+            .unwrap()
+            .commit_into(&mut restored, &mut sidebar);
+        assert_eq!(restored.control_groups[1], [peer]);
+        assert_eq!(
+            team_walk_members(Some(&sim), &restored.control_groups[1]),
+            [peer]
+        );
+        reassign_control_group(&mut restored.control_groups, 2, &[tank], &sim);
+        for output in sim.take_lifecycle_outputs_for_test() {
+            restored.apply_control_group_output(&output);
+        }
+        assert_eq!(
+            restored.control_groups[2],
+            [tank],
+            "installation clears only once"
+        );
+    }
+
     #[test]
     fn team_assignment_and_recall_apply_owner_eligibility_without_erasing_latent_members() {
         use crate::sim::world::Simulation;

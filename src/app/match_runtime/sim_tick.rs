@@ -1513,6 +1513,9 @@ fn advance_one_simulation_frame(
                         },
                     );
                 }
+                LifecycleOutput::ControlGroupCleared { .. } => {
+                    state.match_state.input.apply_control_group_output(&output);
+                }
                 LifecycleOutput::SidebarConstructionOption { .. }
                 | LifecycleOutput::SidebarRecalculated { .. }
                 | LifecycleOutput::ProductionBeginAttempted { .. }

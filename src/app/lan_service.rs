@@ -222,6 +222,31 @@ impl LanService {
         self.setup_scope
     }
 
+    /// Read-only observations for the real process-loss capture. Admission,
+    /// countdowns, map work and cancellation remain in their existing owners.
+    pub(super) fn setup_peer_lease(&self, endpoint: SocketAddrV4, now: u32) -> Option<(u32, u32)> {
+        let record = self.peer_admissions.get(&endpoint)?;
+        record.heartbeat_sequence?;
+        Some((record.lease?.remaining(now), SETUP_PEER_LEASE))
+    }
+
+    pub(super) fn setup_peer_cleanup_pending(&self, endpoint: SocketAddrV4) -> bool {
+        self.peer_admissions.contains_key(&endpoint)
+            || self
+                .pending_admissions
+                .iter()
+                .any(|entry| entry.endpoint == endpoint)
+            || self
+                .pending_setup
+                .iter()
+                .any(|(_, destination)| *destination == direct(endpoint))
+            || self.maps.has_peer(endpoint)
+    }
+
+    pub(super) fn setup_map_work_active(&self) -> bool {
+        self.maps.active()
+    }
+
     /// Physical source, effective map and generated preview/staging are one
     /// admission through the retained transfer owner, for this exact options.
     fn setup_maps_verified(&self) -> bool {
@@ -229,7 +254,10 @@ impl LanService {
             .is_some_and(|scope| self.maps.current_verified(scope))
     }
 
-    fn setup_roster_complete(&self, session: &super::match_runtime::session::MatchSession) -> bool {
+    pub(super) fn setup_roster_complete(
+        &self,
+        session: &super::match_runtime::session::MatchSession,
+    ) -> bool {
         let Some(launch) = session.network_setup() else {
             return false;
         };
@@ -302,7 +330,7 @@ impl LanService {
                 .is_some_and(|expected| expected.rules_digest == proof.rules_digest)
     }
 
-    fn queued_setup_count(&self) -> usize {
+    pub(super) fn queued_setup_count(&self) -> usize {
         self.pending_setup.len()
             + self
                 .transport

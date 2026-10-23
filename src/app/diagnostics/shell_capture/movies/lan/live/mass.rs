@@ -25,6 +25,9 @@ struct Batch {
     accepted: BTreeMap<u64, Option<(i16, i16)>>,
     executed: BTreeMap<u64, Option<(i16, i16)>>,
     quiet: Option<(u32, Vec<DriveCoord>)>,
+    first_pending_path_frame: Option<u32>,
+    last_move_observation_frame: Option<u32>,
+    move_observation_frames: u32,
 }
 
 impl MassInput {
@@ -67,16 +70,48 @@ impl MassInput {
             }
             let current = positions(state, &self.selected)?;
             if batch.kind == "Move" {
-                let (since, _) = batch.quiet.get_or_insert_with(|| (frame, Vec::new()));
-                if frame.saturating_sub(*since) < 20 {
-                    return Ok(false);
-                }
                 let moved = current
                     .iter()
                     .zip(&self.positions)
                     .filter(|(now, before)| now != before)
                     .count();
-                ensure!(moved > 0, "full-selection Move caused no gameplay movement");
+                let pending: BTreeSet<_> = if moved == 0 {
+                    simulation(state)?
+                        .pending_path_search_actor_ids()
+                        .filter(|id| self.selected_set.contains(id))
+                        .collect()
+                } else {
+                    BTreeSet::new()
+                };
+                if !pending.is_empty() && batch.first_pending_path_frame.is_none() {
+                    log::info!(
+                        "Mass capture Move waits for {} selected path requests at frame{}; path_stats={:?}; actors={}",
+                        pending.len(),
+                        frame,
+                        simulation(state)?.path_batch_stats(),
+                        movement_sample(&self.selected, &self.positions, &current, batch, &pending)
+                    );
+                }
+                if !batch
+                    .observe_move(frame, moved, !pending.is_empty())
+                    .with_context(|| {
+                        format!(
+                            "frame{frame}, path_stats={:?}, actors={}",
+                            simulation(state)
+                                .ok()
+                                .and_then(|sim| sim.path_batch_stats()),
+                            movement_sample(
+                                &self.selected,
+                                &self.positions,
+                                &current,
+                                batch,
+                                &pending
+                            )
+                        )
+                    })?
+                {
+                    return Ok(false);
+                }
                 self.finish_batch(state, frame, moved, 0)?;
             } else {
                 let sim = simulation(state)?;
@@ -145,6 +180,9 @@ impl MassInput {
                 accepted: BTreeMap::new(),
                 executed: BTreeMap::new(),
                 quiet: None,
+                first_pending_path_frame: None,
+                last_move_observation_frame: None,
+                move_observation_frames: 0,
             });
         }
         Ok(self.order == 4 && self.pending.is_none())
@@ -310,7 +348,10 @@ impl MassInput {
             "accepted_actor_count":batch.accepted.len(),"executed_actor_count":batch.executed.len(),
             "accepted_ids_digest":ids_digest(accepted.iter().copied()),"executed_ids_digest":ids_digest(batch.executed.keys().copied()),
             "targets_digest":crate::util::sha256::sha256_hex(&target_bytes),"omitted_ids":[],"moved_actor_count":moved,
-            "stable_stopped_actor_count":stopped,"sent_frontier_before":batch.sent_before,"sent_frontier_after":sent}));
+            "stable_stopped_actor_count":stopped,"sent_frontier_before":batch.sent_before,"sent_frontier_after":sent,
+            "first_pending_path_frame":batch.first_pending_path_frame,
+            "move_observation_frames":batch.move_observation_frames,
+            "positions":if batch.kind == "Move" {Some(json!({"actor_ids":self.selected,"before":self.positions,"after":positions(state,&self.selected)?}))} else {None}}));
         log::info!(
             "Mass capture {} admitted all {} actors",
             batch.kind,
@@ -328,6 +369,30 @@ impl MassInput {
     }
 }
 impl Batch {
+    fn observe_move(&mut self, frame: u32, moved: usize, waiting_for_path: bool) -> Result<bool> {
+        // The live path owner bounds searches across all Houses. Dispatching
+        // every Move does not imply that every actor has received a path yet.
+        // Keep the existing capture wall/frame deadline. Pending path work
+        // pauses observation; it never erases accrued no-motion evidence.
+        if moved == 0 && waiting_for_path {
+            self.first_pending_path_frame.get_or_insert(frame);
+            // A render gap can cover multiple native frames. Re-anchor on
+            // the first unqueued observation rather than counting that gap.
+            self.last_move_observation_frame = None;
+            return Ok(false);
+        }
+        let elapsed = self
+            .last_move_observation_frame
+            .replace(frame)
+            .map_or(0, |last| frame.saturating_sub(last));
+        self.move_observation_frames = self.move_observation_frames.saturating_add(elapsed);
+        if self.move_observation_frames < 20 {
+            return Ok(false);
+        }
+        ensure!(moved > 0, "full-selection Move caused no gameplay movement");
+        Ok(true)
+    }
+
     fn covers(&self, expected: &BTreeSet<u64>) -> bool {
         self.accepted.len() == expected.len()
             && self.executed.len() == expected.len()
@@ -351,6 +416,9 @@ mod tests {
             accepted: expected.iter().map(|&id| (id, Some((10, 10)))).collect(),
             executed: (0..256).map(|id| (id, Some((10, 10)))).collect(),
             quiet: None,
+            first_pending_path_frame: None,
+            last_move_observation_frame: None,
+            move_observation_frames: 0,
         };
         assert!(
             !batch.covers(&expected),
@@ -359,6 +427,72 @@ mod tests {
         batch.executed = batch.accepted.clone();
         assert!(batch.covers(&expected));
     }
+
+    #[test]
+    fn dispatched_move_waits_for_real_path_work_but_still_requires_displacement() {
+        let mut batch = Batch {
+            kind: "Move",
+            issued_frame: 50,
+            submitted: 1,
+            sent_before: 0,
+            accepted: BTreeMap::new(),
+            executed: BTreeMap::new(),
+            quiet: None,
+            first_pending_path_frame: None,
+            last_move_observation_frame: None,
+            move_observation_frames: 0,
+        };
+        assert!(!batch.observe_move(51, 0, true).unwrap());
+        assert!(!batch.observe_move(130, 0, true).unwrap());
+        assert_eq!(batch.first_pending_path_frame, Some(51));
+        assert!(!batch.observe_move(131, 0, false).unwrap());
+        assert!(!batch.observe_move(150, 0, false).unwrap());
+        assert!(
+            batch.observe_move(151, 0, false).is_err(),
+            "no movement still fails after path work drains"
+        );
+        assert!(
+            batch.observe_move(151, 1, false).unwrap(),
+            "only actual displacement completes Move"
+        );
+        let mut intermittent = Batch {
+            first_pending_path_frame: None,
+            last_move_observation_frame: None,
+            move_observation_frames: 0,
+            ..batch
+        };
+        assert!(!intermittent.observe_move(51, 0, false).unwrap());
+        assert!(!intermittent.observe_move(61, 0, false).unwrap());
+        assert!(!intermittent.observe_move(100, 0, true).unwrap());
+        assert!(!intermittent.observe_move(110, 0, false).unwrap());
+        assert!(!intermittent.observe_move(119, 0, false).unwrap());
+        assert!(
+            intermittent.observe_move(120, 0, false).is_err(),
+            "later pending requests cannot erase prior no-motion evidence"
+        );
+    }
+}
+
+/// Bound failure logs while retaining every actor's exact positions in the
+/// successful batch receipt. The sample includes all actors of the two-player
+/// scale fixture's small guest cohort.
+fn movement_sample(
+    ids: &[u64],
+    before: &[DriveCoord],
+    current: &[DriveCoord],
+    batch: &Batch,
+    pending: &BTreeSet<u64>,
+) -> Value {
+    json!(
+        ids.iter()
+            .enumerate()
+            .take(32)
+            .map(|(index, actor)| json!({
+                "actor":actor,"before":before[index],"current":current[index],
+                "executed_target":batch.executed.get(actor),"pending_path":pending.contains(actor)
+            }))
+            .collect::<Vec<_>>()
+    )
 }
 
 fn ids_digest(ids: impl Iterator<Item = u64>) -> String {

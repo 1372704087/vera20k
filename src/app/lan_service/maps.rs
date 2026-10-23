@@ -407,6 +407,17 @@ pub(super) struct Transfers {
 }
 
 impl Transfers {
+    pub(super) fn has_peer(&self, endpoint: SocketAddrV4) -> bool {
+        self.peers.iter().any(|peer| peer.endpoint == endpoint)
+    }
+
+    pub(super) fn active(&self) -> bool {
+        self.key.is_some()
+            || self.worker.is_some()
+            || self.pending_job.is_some()
+            || !self.peers.is_empty()
+    }
+
     pub(super) fn cancel(&mut self) {
         self.generation = self.generation.wrapping_add(1);
         self.key = None;

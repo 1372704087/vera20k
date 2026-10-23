@@ -44,6 +44,7 @@ mod battle;
 mod failure;
 mod mass;
 mod online;
+mod setup_crash;
 
 const HOST_NAME: &str = "LiveHost";
 const GUEST_NAME: &str = "LiveGuest";
@@ -92,6 +93,7 @@ pub(super) struct LiveLanCapture {
     battle: Option<battle::BattleOpening>,
     mass: Option<mass::MassInput>,
     failure: Option<failure::FailureCapture>,
+    setup_crash: Option<setup_crash::SetupCrashCapture>,
 }
 
 impl LiveLanCapture {
@@ -132,10 +134,15 @@ impl LiveLanCapture {
         config: Option<LiveLanConfig>,
         rounds: Option<online::LiveRoundFlow>,
     ) -> Self {
+        let setup_crash = config
+            .as_ref()
+            .and_then(|config| config.setup_crash)
+            .map(setup_crash::SetupCrashCapture::new);
         Self {
             target,
             config,
             rounds,
+            setup_crash,
             frame_budget: None,
             expected_players: 2,
             phase: Phase::Main,
@@ -321,6 +328,9 @@ impl LiveLanCapture {
     }
 
     pub(super) fn ready(&self) -> bool {
+        if let Some(crash) = &self.setup_crash {
+            return crash.ready();
+        }
         self.rounds
             .as_ref()
             .map_or(self.phase == Phase::Finished, online::LiveRoundFlow::ready)
@@ -377,6 +387,16 @@ impl LiveLanCapture {
             self.rounds = Some(rounds);
             if controls {
                 return result;
+            }
+        }
+        if let Some(mut crash) = self.setup_crash.take() {
+            // This pre-GO checkpoint holds ordinary Accept/Start/kick inputs,
+            // while the same LAN poll/map/lease owners continue normally. In
+            // particular, its wait cannot hit the generic1000-frame join guard.
+            let result = crash.after_present(self, state, rendered, frame);
+            self.setup_crash = Some(crash);
+            if result? {
+                return Ok(());
             }
         }
         self.entered_setup |= state.match_state.session.network_setup().is_some();
@@ -965,6 +985,9 @@ impl LiveLanCapture {
     }
 
     pub(super) fn receipt(&self, state: &AppState) -> Result<Value> {
+        if let Some(crash) = &self.setup_crash {
+            return crash.receipt();
+        }
         if let Some(online) = &self.rounds {
             return online.receipt(state);
         }

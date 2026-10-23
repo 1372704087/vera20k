@@ -1096,6 +1096,23 @@ pub(crate) struct LiveOnlineConfig {
     pub failure_prefix_output: Option<PathBuf>,
 }
 
+/// The victim is terminated externally by the owned-process runner. This
+/// chooses only the capture checkpoint; the LAN service retains its real lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LanSetupCrash {
+    Host,
+    Guest,
+}
+
+impl LanSetupCrash {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Host => "host",
+            Self::Guest => "guest",
+        }
+    }
+}
+
 /// Explicit sockets for the physical two-process LAN diagnostic. They do not
 /// replace any gameplay/session identity and are unavailable to other captures.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1104,7 +1121,9 @@ pub(crate) struct LiveLanConfig {
     pub peer: std::net::SocketAddrV4,
     /// Host-only logical catalog name; RandMap.Sed drives the normal generator.
     pub map: Option<String>,
-    /// Written before an external LAN proxy is armed; contains no secrets.
+    /// Optional real pre-GO process-loss checkpoint. It never changes a timer.
+    pub setup_crash: Option<LanSetupCrash>,
+    /// Written before an external LAN proxy/process fault; contains no secrets.
     pub failure_prefix_output: Option<PathBuf>,
 }
 
@@ -1175,6 +1194,7 @@ where
     let mut lan_bind = None;
     let mut lan_peer = None;
     let mut lan_map = None;
+    let mut lan_setup_crash = None;
     let mut online_account = None;
     let mut online_host = None;
     let mut online_map = None;
@@ -1242,6 +1262,14 @@ where
                 next_utf8(&mut args, "value after --lan-map")?,
                 "--lan-map",
             )?,
+            "--lan-setup-crash" => {
+                let victim = match next_utf8(&mut args, "value after --lan-setup-crash")?.as_str() {
+                    "host" => LanSetupCrash::Host,
+                    "guest" => LanSetupCrash::Guest,
+                    _ => bail!("--lan-setup-crash requires host or guest"),
+                };
+                set_once(&mut lan_setup_crash, victim, "--lan-setup-crash")?;
+            }
             "--online-account" => set_once(
                 &mut online_account,
                 next_utf8(&mut args, "value after --online-account")?,
@@ -1455,7 +1483,22 @@ where
             );
             crate::map::source::validate_network_map_name(file)?;
         }
-        let failure_prefix_output = if matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.desync_failure())
+        ensure!(
+            lan_setup_crash.is_none()
+                || matches!(
+                    checkpoint,
+                    ShellCaptureCheckpoint::Lan(
+                        movies::LanTarget::LiveHost | movies::LanTarget::LiveGuest
+                    )
+                ),
+            "--lan-setup-crash requires a normal LAN live host or guest checkpoint"
+        );
+        ensure!(
+            lan_setup_crash.is_none() || lan_map.is_none(),
+            "editable LAN crash checkpoint currently uses a resident map; an in-flight transfer fault needs its own observed progress gate"
+        );
+        let failure_prefix_output = if lan_setup_crash.is_some()
+            || matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.desync_failure())
         {
             let mut path = output_dir.as_os_str().to_owned();
             path.push(".prefix.json");
@@ -1469,11 +1512,15 @@ where
             bind,
             peer,
             map: lan_map,
+            setup_crash: lan_setup_crash,
             failure_prefix_output,
         })
     } else {
         ensure!(
-            lan_bind.is_none() && lan_peer.is_none() && lan_map.is_none(),
+            lan_bind.is_none()
+                && lan_peer.is_none()
+                && lan_map.is_none()
+                && lan_setup_crash.is_none(),
             "LAN socket options require a live LAN checkpoint"
         );
         None
@@ -2694,6 +2741,7 @@ mod tests {
                 bind: "127.0.0.1:31000".parse().unwrap(),
                 peer: "127.0.0.1:31010".parse().unwrap(),
                 map: None,
+                setup_crash: None,
                 failure_prefix_output: None,
             })
         );
@@ -2780,6 +2828,39 @@ mod tests {
         );
         values[1] = "lan-live-desync-guest".into();
         assert!(parse_launch_args(values).is_ok());
+    }
+
+    #[test]
+    fn editable_lan_crash_checkpoint_requires_a_real_pair_and_owned_prefix() {
+        let output = new_output_path("lan-setup-crash");
+        let mut values = valid_args(&output);
+        values[1] = "lan-live-host".into();
+        values.extend(args(&[
+            "--lan-bind",
+            "127.0.0.1:31000",
+            "--lan-peer",
+            "127.0.0.1:31010",
+            "--lan-setup-crash",
+            "guest",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture")
+        };
+        let lan = request.live_lan.unwrap();
+        assert_eq!(lan.setup_crash, Some(LanSetupCrash::Guest));
+        assert_eq!(
+            lan.failure_prefix_output,
+            Some(PathBuf::from(format!("{}.prefix.json", output.display())))
+        );
+        values[1] = "lan-live-guest".into();
+        *values.last_mut().unwrap() = "host".into();
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values[1] = "lan-battle-guest".into();
+        assert!(parse_launch_args(values.clone()).is_err());
+        values[1] = "lan-live-guest".into();
+        *values.last_mut().unwrap() = "timeout".into();
+        assert!(parse_launch_args(values).is_err());
     }
 
     #[test]

@@ -15,7 +15,6 @@
 //! - `techno_ai.rs` — per-object AI dispatch within each turn
 
 pub(crate) mod authored_load_host;
-mod bounce_terrain;
 pub mod bridge_orchestrator;
 #[cfg(any(test, feature = "test-support"))]
 pub mod bridge_test_evidence;
@@ -26,6 +25,7 @@ pub(crate) mod building_anim;
 mod building_scatter;
 mod building_upgrade_art;
 mod camera_home;
+mod bounce_terrain;
 mod cell_content;
 mod crash;
 mod disk_laser;
@@ -37,8 +37,8 @@ pub(crate) mod entry_test_fixture;
 mod frame_channel;
 mod frame_effects;
 mod network_commands;
-mod object_entry;
 mod queued_command;
+mod object_entry;
 mod sinking;
 mod time_warp;
 mod trigger_chrono;
@@ -47,14 +47,8 @@ mod voxel_anim_effects;
 pub(crate) use voxel_anim_effects::BounceContactDamage;
 mod unit_repair_seek;
 pub(crate) use frame_channel::FrameChannel;
-pub use frame_effects::{
-    FrameEffects, LocalPlanningBoundary, NetworkCommandBoundary, NetworkCommandError,
-    OutcomeWaitBoundary, SoundBoundary,
-};
-pub use network_commands::{
-    NetworkCommandQueues, NetworkInterruption, NetworkQueueContext, NetworkQueueError,
-    NetworkQueuePass,
-};
+pub use network_commands::{NetworkCommandQueues, NetworkQueueError, NetworkQueueContext, NetworkQueuePass, NetworkInterruption};
+pub use frame_effects::{FrameEffects, LocalPlanningBoundary, NetworkCommandBoundary, NetworkCommandError, SoundBoundary, OutcomeWaitBoundary};
 pub(crate) use type_tech_levels::TypeTechLevels;
 #[cfg(test)]
 mod unit_unlimbo_tests;
@@ -120,9 +114,9 @@ pub(crate) use world_orders::CapturedInfantryType;
 pub use world_orders::EngineerBuildingAction;
 pub use world_orders::UnitRepairAction;
 pub use world_orders::{EntryBaseAction, EntryClickAction};
-mod fog_objects;
 mod projectile_collision;
 mod shroud_refresh;
+mod fog_objects;
 mod substrate;
 mod techno_ai;
 mod track_cell_recalc;
@@ -210,11 +204,11 @@ mod suicide_fire_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub use lifecycle_tests::common_raw_terrain_cell as common_raw_test_terrain_cell;
 #[cfg(test)]
-mod overlay_explodes_tests;
-#[cfg(test)]
 mod team_script_vm_tests;
 #[cfg(test)]
 mod voxel_water_expiry_tests;
+#[cfg(test)]
+mod overlay_explodes_tests;
 
 pub(crate) use crash::CrashLatch;
 pub(crate) use display_registry::entity_layer;
@@ -1625,7 +1619,8 @@ pub struct Simulation {
     pending_commands: crate::sim::command_queue::DoList<queued_command::QueuedCommand>,
     /// Locally issued events retain their shared OutList occupancy until
     /// the post-Logic transfer. Already-admitted/deferred work stays above.
-    local_commands: crate::sim::command_queue::LocalCommandStage<queued_command::QueuedCommand>,
+    local_commands:
+        crate::sim::command_queue::LocalCommandStage<queued_command::QueuedCommand>,
     /// While the dispatcher temporarily owns the FIFO, this derived count
     /// reserves its occupied native slots for callbacks that admit new work.
     /// Balanced at the dispatch boundary, never saved or hashed.
@@ -2118,7 +2113,8 @@ impl Simulation {
                     if !object.can_be_occupied || passenger_ids.is_empty() {
                         return None;
                     }
-                    let (foundation_w, foundation_h) = object.foundation.dimensions();
+                    let (foundation_w, foundation_h) =
+                        object.foundation.dimensions();
                     Some(
                         crate::sim::passenger::garrison_eject::DestroyedGarrisonBuilding {
                             building_id: stable_id,
@@ -2685,7 +2681,7 @@ impl Simulation {
                             );
                             crate::sim::combat::combat_aoe::AreaDamageReceiver::Terrain(
                                 crate::sim::combat::TerrainDamageEvent {
-                                    damage_writeback: None,
+                    damage_writeback: None,
                                     stable_id,
                                     rx,
                                     ry,
@@ -4998,13 +4994,7 @@ impl Simulation {
         // commits the sight reveal before this action returns.
         for (stable_id, _, reveal) in membership_updates {
             if reveal {
-                self.reveal_uncached_object_sight(
-                    stable_id,
-                    false,
-                    false,
-                    None,
-                    UninitContext::new(rules, None),
-                );
+                self.reveal_uncached_object_sight(stable_id, false, false, None, UninitContext::new(rules, None));
             }
         }
 
@@ -7453,11 +7443,7 @@ impl Simulation {
         // death reaches the gate on the next frame. Each house's strategy tick
         // (`house_strategy.rs`) and building choice follow its own gate.
         let generated = match self.house_rung(
-            rules,
-            overlay_registry,
-            self.session.tick() > 0,
-            effects,
-            cursor,
+            rules, overlay_registry, self.session.tick() > 0, effects, cursor,
         ) {
             Ok(generated) => generated,
             Err(cursor) => return Ok(FrameTailResult::OutcomeWait(cursor)),
@@ -7479,34 +7465,15 @@ impl Simulation {
         }
 
         let context = if let Some(sync) = &self.frame_sync_checksum {
-            let checksum = sync.checksum.as_ref().map_err(|error| {
-                FrameAdvanceError::new(
-                    self.session.tick(),
-                    self.session.binary_frame(),
-                    0,
-                    format!("multiplayer checksum: {error}"),
-                )
-            })?;
+            let checksum = sync.checksum.as_ref().map_err(|error|
+                FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                    format!("multiplayer checksum: {error}")))?;
             effects.record_frame_checksum(sync.frame, checksum.value);
-            Some(NetworkQueueContext {
-                frame: sync.frame,
-                checksum: checksum.value,
-            })
-        } else {
-            None
-        };
+            Some(NetworkQueueContext { frame: sync.frame, checksum: checksum.value })
+        } else { None };
 
-        self.run_network_command_tail(
-            commands,
-            rules,
-            overlay_registry,
-            tick_ms,
-            execute_tick,
-            executed_commands,
-            spawned_entities,
-            effects,
-            context,
-        )
+        self.run_network_command_tail(commands, rules, overlay_registry, tick_ms,
+            execute_tick, executed_commands, spawned_entities, effects, context)
     }
 
     /// Resume point inside Queue_AI after Logic and its CRC publication. Both
@@ -7530,18 +7497,10 @@ impl Simulation {
                     commands.extend(std::mem::take(&mut self.frame_command_admissions));
                     return Ok(FrameTailResult::Interrupted(reason));
                 }
-                Err(error) => {
-                    return Err(FrameAdvanceError::new(
-                        self.session.tick(),
-                        self.session.binary_frame(),
-                        0,
-                        format!("network exchange: {error}"),
-                    ));
-                }
+                Err(error) => return Err(FrameAdvanceError::new(self.session.tick(),
+                    self.session.binary_frame(), 0, format!("network exchange: {error}"))),
             }
-        } else {
-            None
-        };
+        } else { None };
         if pass == Some(NetworkQueuePass::Waiting) {
             commands.extend(std::mem::take(&mut self.frame_command_admissions));
             return Ok(FrameTailResult::Waiting(context.expect("network context")));
@@ -7550,9 +7509,7 @@ impl Simulation {
         // Queue_AI follows Logic, including Strip and House-generated events.
         // Keep local occupancy until this transfer; the earlier app drain is
         // only for already-admitted commands and local frame ingress.
-        if pass.is_none() {
-            self.transfer_local_commands();
-        }
+        if pass.is_none() { self.transfer_local_commands(); }
 
         // EventClass dispatch is a Main_Tick tail rung: the complete live
         // Logic walk observes frame N's pre-command state, so an accepted
@@ -7578,11 +7535,7 @@ impl Simulation {
             }
             Err((NetworkCommandError::Unavailable(cause), _, _)) => {
                 return Err(FrameAdvanceError::new(
-                    self.session.tick(),
-                    self.session.binary_frame(),
-                    0,
-                    cause,
-                ));
+                    self.session.tick(), self.session.binary_frame(), 0, cause));
             }
             Err((NetworkCommandError::Interrupted(reason), _, _)) => {
                 return Ok(FrameTailResult::Interrupted(reason));
@@ -7590,23 +7543,14 @@ impl Simulation {
         };
         commands.extend(std::mem::take(&mut self.frame_command_admissions));
         #[cfg(any(test, feature = "test-support"))]
-        {
-            self.replaying_recorded_commands = false;
-        }
+        { self.replaying_recorded_commands = false; }
         if failure.is_some() {
             //64CCEB's modal precedes Queue_AI clearing GameActive648266.
             //No retirement, staged MegaMission execution or frame commit yet.
-            return Ok(FrameTailResult::Checksum(
-                failure.expect("checksum failure"),
-            ));
+            return Ok(FrameTailResult::Checksum(failure.expect("checksum failure")));
         }
         Ok(FrameTailResult::Complete(self.commit_frame_tail(
-            rules,
-            overlay_registry,
-            tick_ms,
-            execute_tick,
-            effects,
-        )))
+            rules, overlay_registry, tick_ms, execute_tick, effects)))
     }
 
     /// MainTick55DE7E..55DEA4 is also reached after a CRC modal returns.
@@ -7853,17 +7797,10 @@ impl Simulation {
 
     pub(crate) fn validate_frame_continuation_for_restore(&self) -> Result<(), &'static str> {
         if let Some(FrameContinuation::Outcome(pending)) = &self.frame_continuation {
-            let owner = self
-                .houses
-                .order()
-                .get(pending.cursor.index)
+            let owner = self.houses.order().get(pending.cursor.index)
                 .ok_or("outcome cursor has no House")?;
-            let kind = self.houses.get(owner).and_then(|house| {
-                house.pending_outcome(
-                    self.session.binary_frame() as i32,
-                    self.session.game_mode_nonzero(),
-                )
-            });
+            let kind = self.houses.get(owner).and_then(|house| house.pending_outcome(
+                self.session.binary_frame() as i32, self.session.game_mode_nonzero()));
             if kind != Some(pending.cursor.kind) {
                 return Err("outcome cursor disagrees with the waiting House result");
             }
@@ -7883,37 +7820,18 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
         if self.pending_outcome_wait().is_none() {
-            return Err(FrameAdvanceError::new(
-                self.session.tick(),
-                self.session.binary_frame(),
-                0,
-                "no House outcome wait is pending".to_owned(),
-            ));
+            return Err(FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                "no House outcome wait is pending".to_owned()));
         }
         let Some(FrameContinuation::Outcome(mut pending)) = self.frame_continuation.take() else {
             unreachable!("checked House outcome continuation")
         };
         let effects = effects.with_overlay_registry(overlay_registry);
-        let result = self.run_late_region(
-            &mut pending.frame.commands,
-            rules,
-            overlay_registry,
-            pending.tick_ms,
-            pending.frame.execute_tick,
-            &mut pending.frame.executed_commands,
-            &mut pending.frame.spawned_entities,
-            effects,
-            Some(pending.cursor),
-        )?;
-        let output = self.complete_or_suspend_frame(
-            pending.frame,
-            pending.tick_ms,
-            result,
-            rules,
-            overlay_registry,
-            #[cfg(feature = "telemetry")]
-            None,
-        );
+        let result = self.run_late_region(&mut pending.frame.commands, rules, overlay_registry,
+            pending.tick_ms, pending.frame.execute_tick, &mut pending.frame.executed_commands,
+            &mut pending.frame.spawned_entities, effects, Some(pending.cursor))?;
+        let output = self.complete_or_suspend_frame(pending.frame, pending.tick_ms, result,
+            rules, overlay_registry, #[cfg(feature = "telemetry")] None);
         self.unit_voice_visit_interest.clear();
         Ok(self.collect_frame_output(output, effects))
     }
@@ -7948,12 +7866,7 @@ impl Simulation {
             unreachable!("checked wait continuation")
         };
         self.frame_continuation = Some(FrameContinuation::Interrupted(
-            NetworkInterruptionContinuation {
-                interruption,
-                tick_ms: pending.tick_ms,
-                frame: pending.frame,
-            },
-        ));
+            NetworkInterruptionContinuation { interruption, tick_ms: pending.tick_ms, frame: pending.frame }));
         true
     }
 
@@ -7966,16 +7879,9 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
-        if !matches!(
-            self.frame_continuation,
-            Some(FrameContinuation::Checksum(_) | FrameContinuation::Interrupted(_))
-        ) {
-            return Err(FrameAdvanceError::new(
-                self.session.tick(),
-                self.session.binary_frame(),
-                0,
-                "no checksum modal frame is pending".to_owned(),
-            ));
+        if !matches!(self.frame_continuation, Some(FrameContinuation::Checksum(_) | FrameContinuation::Interrupted(_))) {
+            return Err(FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                "no checksum modal frame is pending".to_owned()));
         }
         let (tick_ms, frame) = match self.frame_continuation.take() {
             Some(FrameContinuation::Checksum(pending)) => (pending.tick_ms, pending.frame),
@@ -7994,23 +7900,13 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
         if !self.pending_network_wait() {
-            return Err(FrameAdvanceError::new(
-                self.session.tick(),
-                self.session.binary_frame(),
-                0,
-                "no network wait frame is pending".to_owned(),
-            ));
+            return Err(FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                "no network wait frame is pending".to_owned()));
         }
         let Some(FrameContinuation::Waiting(pending)) = self.frame_continuation.take() else {
             unreachable!("checked wait continuation")
         };
-        Ok(self.finish_aborted_network_frame(
-            pending.frame,
-            pending.tick_ms,
-            rules,
-            overlay_registry,
-            effects,
-        ))
+        Ok(self.finish_aborted_network_frame(pending.frame, pending.tick_ms, rules, overlay_registry, effects))
     }
 
     fn finish_aborted_network_frame(
@@ -8022,21 +7918,10 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> SimFrameOutput {
         let effects = effects.with_overlay_registry(overlay_registry);
-        let committed = self.commit_frame_tail(
-            rules,
-            overlay_registry,
-            tick_ms,
-            frame.execute_tick,
-            effects,
-        );
-        let mut frame = self.finish_master_frame(
-            frame,
-            committed,
-            rules,
-            overlay_registry,
-            #[cfg(feature = "telemetry")]
-            None,
-        );
+        let committed = self.commit_frame_tail(rules, overlay_registry,
+            tick_ms, frame.execute_tick, effects);
+        let mut frame = self.finish_master_frame(frame, committed, rules, overlay_registry,
+            #[cfg(feature = "telemetry")] None);
         // This is the terminal match frame even when its native commit ran.
         frame.tick.state_hash = Some(self.state_hash());
         self.unit_voice_visit_interest.clear();
@@ -8053,28 +7938,17 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Result<SimFrameOutput, FrameAdvanceError> {
         if !self.pending_network_wait() {
-            return Err(FrameAdvanceError::new(
-                self.session.tick(),
-                self.session.binary_frame(),
-                0,
-                "no network wait frame is pending".to_owned(),
-            ));
+            return Err(FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                "no network wait frame is pending".to_owned()));
         }
         let Some(FrameContinuation::Waiting(mut pending)) = self.frame_continuation.take() else {
             unreachable!("checked wait continuation")
         };
         let effects = effects.with_overlay_registry(overlay_registry);
-        let result = self.run_network_command_tail(
-            &mut pending.frame.commands,
-            rules,
-            overlay_registry,
-            pending.tick_ms,
-            pending.frame.execute_tick,
-            &mut pending.frame.executed_commands,
-            &mut pending.frame.spawned_entities,
-            effects,
-            Some(pending.context),
-        );
+        let result = self.run_network_command_tail(&mut pending.frame.commands,
+            rules, overlay_registry, pending.tick_ms, pending.frame.execute_tick,
+            &mut pending.frame.executed_commands, &mut pending.frame.spawned_entities,
+            effects, Some(pending.context));
         let result = match result {
             Ok(result) => result,
             Err(error) => {
@@ -8082,15 +7956,9 @@ impl Simulation {
                 return Err(error);
             }
         };
-        let output = self.complete_or_suspend_frame(
-            pending.frame,
-            pending.tick_ms,
-            result,
-            rules,
-            overlay_registry,
-            #[cfg(feature = "telemetry")]
-            None,
-        );
+        let output = self.complete_or_suspend_frame(pending.frame, pending.tick_ms,
+            result, rules, overlay_registry,
+            #[cfg(feature = "telemetry")] None);
         Ok(self.collect_frame_output(output, effects))
     }
 
@@ -8153,16 +8021,8 @@ impl Simulation {
             network_waiting,
             outcome_waiting,
         } = frame;
-        let lighting_events = if outcome_waiting {
-            Vec::new()
-        } else {
-            self.take_lighting_events()
-        };
-        let trigger_effects = if outcome_waiting {
-            Vec::new()
-        } else {
-            std::mem::take(&mut self.trigger_effects)
-        };
+        let lighting_events = if outcome_waiting { Vec::new() } else { self.take_lighting_events() };
+        let trigger_effects = if outcome_waiting { Vec::new() } else { std::mem::take(&mut self.trigger_effects) };
         // Preserve the established terminal-frame gate: these are committed
         // light-vector facts and the next admitted frame clears the producer
         // buffer before combat runs.
@@ -8175,31 +8035,11 @@ impl Simulation {
         // a possible later frame wait. They are already-observed process
         // presentation effects, so hand them off even when Logic suspends.
         let screen_shake_updates = self.screen_shake_updates.take();
-        let lifecycle_outputs = if outcome_waiting {
-            Vec::new()
-        } else {
-            self.lifecycle_outputs.take()
-        };
-        let multiplayer_checksum = if outcome_waiting {
-            None
-        } else {
-            self.frame_sync_checksum.take()
-        };
-        let overlay_updates = if outcome_waiting {
-            Vec::new()
-        } else {
-            std::mem::take(&mut self.frame_overlay_updates)
-        };
-        let overlay_removals = if outcome_waiting {
-            Vec::new()
-        } else {
-            std::mem::take(&mut self.frame_overlay_removals)
-        };
-        let fire_events = if outcome_waiting {
-            Vec::new()
-        } else {
-            self.fire_events.take()
-        };
+        let lifecycle_outputs = if outcome_waiting { Vec::new() } else { self.lifecycle_outputs.take() };
+        let multiplayer_checksum = if outcome_waiting { None } else { self.frame_sync_checksum.take() };
+        let overlay_updates = if outcome_waiting { Vec::new() } else { std::mem::take(&mut self.frame_overlay_updates) };
+        let overlay_removals = if outcome_waiting { Vec::new() } else { std::mem::take(&mut self.frame_overlay_removals) };
+        let fire_events = if outcome_waiting { Vec::new() } else { self.fire_events.take() };
         let sound_events = self.sound_events.take();
         let sound_events_delivered = effects.delivered_sound_events();
         assert!(sound_events_delivered <= sound_events.len());
@@ -8243,12 +8083,8 @@ impl Simulation {
         effects: FrameEffects<'_>,
     ) -> Result<MasterFrameOutput, FrameAdvanceError> {
         if self.frame_continuation.is_some() {
-            return Err(FrameAdvanceError::new(
-                self.session.tick(),
-                self.session.binary_frame(),
-                0,
-                "pending frame must be resumed before another Logic visit".to_owned(),
-            ));
+            return Err(FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
+                "pending frame must be resumed before another Logic visit".to_owned()));
         }
         #[cfg(feature = "telemetry")]
         let mut frame_clock = self
@@ -8461,7 +8297,11 @@ impl Simulation {
         if let Some(overlay_registry) = overlay_registry {
             #[cfg(any(test, feature = "test-support"))]
             self.trace_master_frame_rung(MasterFrameTestRung::CrateRegen);
-            let regen = crate::sim::crates::tick_crate_regeneration(self, rules, overlay_registry);
+            let regen = crate::sim::crates::tick_crate_regeneration(
+                self,
+                rules,
+                overlay_registry,
+            );
             if regen.visible != 0 {
                 // Native Mark mutates live CellClass land/zone/bridge state
                 // synchronously. Rust's BridgeRuntimeState records are a
@@ -8517,28 +8357,14 @@ impl Simulation {
             None,
         )?;
         profile_phase!(LATE_AI);
-        bridge_state_changed |= self
-            .trigger_effects
-            .iter()
+        bridge_state_changed |= self.trigger_effects.iter()
             .any(|effect| matches!(effect, TriggerEffect::BridgeStateChanged));
         let frame = FrameCompletion {
-            commands,
-            execute_tick,
-            executed_commands,
-            spawned_entities,
-            destroyed_structure,
-            ownership_changed,
-            bridge_state_changed,
+            commands, execute_tick, executed_commands, spawned_entities,
+            destroyed_structure, ownership_changed, bridge_state_changed,
         };
-        Ok(self.complete_or_suspend_frame(
-            frame,
-            tick_ms,
-            tail_result,
-            rules,
-            overlay_registry,
-            #[cfg(feature = "telemetry")]
-            frame_clock,
-        ))
+        Ok(self.complete_or_suspend_frame(frame, tick_ms, tail_result, rules, overlay_registry,
+            #[cfg(feature = "telemetry")] frame_clock))
     }
 
     fn complete_or_suspend_frame(
@@ -8550,76 +8376,40 @@ impl Simulation {
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         #[cfg(feature = "telemetry")] frame_clock: Option<crate::sim::frame_profile::FrameClock>,
     ) -> MasterFrameOutput {
-        let frame_committed = if let FrameTailResult::Complete(committed) = result {
-            committed
-        } else {
+        let frame_committed = if let FrameTailResult::Complete(committed) = result { committed } else {
             let tick = TickResult {
-                tick: self.session.tick(),
-                frame_committed: false,
-                executed_commands: frame.executed_commands,
-                state_hash: None,
-                terminal_score_finalized: false,
-                spawned_entities: frame.spawned_entities,
-                destroyed_structure: frame.destroyed_structure,
-                ownership_changed: frame.ownership_changed,
-                bridge_state_changed: frame.bridge_state_changed,
+                tick: self.session.tick(), frame_committed: false,
+                executed_commands: frame.executed_commands, state_hash: None, terminal_score_finalized: false,
+                spawned_entities: frame.spawned_entities, destroyed_structure: frame.destroyed_structure,
+                ownership_changed: frame.ownership_changed, bridge_state_changed: frame.bridge_state_changed,
             };
             let (network_failure, network_waiting, outcome_waiting) = match result {
                 FrameTailResult::Checksum(failure) => {
-                    self.frame_continuation =
-                        Some(FrameContinuation::Checksum(NetworkFailureContinuation {
-                            failure,
-                            tick_ms,
-                            frame,
-                        }));
+                    self.frame_continuation = Some(FrameContinuation::Checksum(
+                        NetworkFailureContinuation { failure, tick_ms, frame }));
                     (Some(failure), false, false)
                 }
                 FrameTailResult::Waiting(context) => {
-                    self.frame_continuation =
-                        Some(FrameContinuation::Waiting(NetworkWaitContinuation {
-                            context,
-                            tick_ms,
-                            frame,
-                        }));
+                    self.frame_continuation = Some(FrameContinuation::Waiting(
+                        NetworkWaitContinuation { context, tick_ms, frame }));
                     (None, true, false)
                 }
                 FrameTailResult::Interrupted(interruption) => {
                     self.frame_continuation = Some(FrameContinuation::Interrupted(
-                        NetworkInterruptionContinuation {
-                            interruption,
-                            tick_ms,
-                            frame,
-                        },
-                    ));
+                        NetworkInterruptionContinuation { interruption, tick_ms, frame }));
                     (None, false, false)
                 }
                 FrameTailResult::OutcomeWait(cursor) => {
-                    self.frame_continuation =
-                        Some(FrameContinuation::Outcome(HouseOutcomeContinuation {
-                            cursor,
-                            tick_ms,
-                            frame,
-                        }));
+                    self.frame_continuation = Some(FrameContinuation::Outcome(
+                        HouseOutcomeContinuation { cursor, tick_ms, frame }));
                     (None, false, true)
                 }
                 FrameTailResult::Complete(_) => unreachable!(),
             };
-            return MasterFrameOutput {
-                tick,
-                admitted_commands: Vec::new(),
-                network_failure,
-                network_waiting,
-                outcome_waiting,
-            };
+            return MasterFrameOutput { tick, admitted_commands: Vec::new(), network_failure, network_waiting, outcome_waiting };
         };
-        self.finish_master_frame(
-            frame,
-            frame_committed,
-            rules,
-            overlay_registry,
-            #[cfg(feature = "telemetry")]
-            frame_clock,
-        )
+        self.finish_master_frame(frame, frame_committed, rules, overlay_registry,
+            #[cfg(feature = "telemetry")] frame_clock)
     }
 
     /// Finish the same frame after the single commit/pending-delete tail.
@@ -8629,19 +8419,10 @@ impl Simulation {
         frame_committed: bool,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-        #[cfg(feature = "telemetry")] mut frame_clock: Option<
-            crate::sim::frame_profile::FrameClock,
-        >,
+        #[cfg(feature = "telemetry")] mut frame_clock: Option<crate::sim::frame_profile::FrameClock>,
     ) -> MasterFrameOutput {
-        let FrameCompletion {
-            commands,
-            execute_tick: _,
-            executed_commands,
-            mut spawned_entities,
-            destroyed_structure,
-            ownership_changed,
-            mut bridge_state_changed,
-        } = frame;
+        let FrameCompletion { commands, execute_tick: _, executed_commands,
+            mut spawned_entities, destroyed_structure, ownership_changed, mut bridge_state_changed } = frame;
         macro_rules! profile_phase {
             ($phase:ident) => {
                 #[cfg(feature = "telemetry")]

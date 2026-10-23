@@ -22,7 +22,7 @@
   #error Define AppVersion, Build, PackageDir, OutputDir and OutputBaseFilename
 #endif
 #if Ver < EncodeVer(6, 7, 0)
-  #error Compile with Inno Setup 6.7.0 or later, the first to accept the blank WizardSmallImageFile below
+  #error Compile with Inno Setup 6.7.0 or later
 #endif
 
 [Setup]
@@ -46,11 +46,9 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
 WizardStyle=modern
+DisableWelcomePage=no
 ShowLanguageDialog=auto
-; Red Alert 2's own icon: the 32-bit images of retail game.exe's icon group.
-SetupIconFile={#SourcePath}vera20k.ico
-; No picture at the top right of the wizard's pages.
-WizardSmallImageFile=
+; Use Inno Setup's built-in setup icon and wizard images.
 UninstallDisplayIcon={app}\vera20k.exe
 UninstallDisplayName=VERA20K
 SourceDir={#PackageDir}
@@ -62,6 +60,10 @@ SolidCompression=yes
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "{#SourcePath}ChineseSimplified.isl"
+
+[Messages]
+english.WelcomeLabel2=This will install [name/ver] on your computer.%n%nVERA20K is a community-led rewrite of the Red Alert 2: Yuri's Revenge engine.%n%nYou will need the game files from your own copy of Yuri's Revenge 1.001.
+chinesesimplified.WelcomeLabel2=即将在您的计算机上安装 [name/ver]。%n%nVERA20K 是由社区开发的《红色警戒 2：尤里的复仇》引擎重写项目。%n%n运行游戏需要您自己拥有的《尤里的复仇》1.001 版游戏文件。
 
 [CustomMessages]
 english.GameDirCaption=Yuri's Revenge folder

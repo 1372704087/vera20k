@@ -248,7 +248,7 @@ fn start_factory(
     };
     // The NPSE per-type `AIBuildLimit=` runs where `Factory_AI` fetched the
     // type: at limit the category's choice slot clears and the start skips.
-    if aibuild_limit_blocks(sim, rules, owner, object) {
+    if crate::rules::NPATCH_ENABLED && aibuild_limit_blocks(sim, rules, owner, object) {
         clear_aibuild_limit_choice(sim, owner, object.category);
         return;
     }
@@ -349,11 +349,9 @@ fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category:
     let Some(house) = sim.houses.get_mut(&owner) else {
         return;
     };
-    match category {
-        ObjectCategory::Building => house.ai_production_mut().clear_building_choice(),
-        ObjectCategory::Infantry => house.ai_unit_choices_mut().clear(UnitChoiceKind::Infantry),
-        ObjectCategory::Vehicle => house.ai_unit_choices_mut().clear(UnitChoiceKind::Unit),
-        ObjectCategory::Aircraft => house.ai_unit_choices_mut().clear(UnitChoiceKind::Aircraft),
+    match UnitChoiceKind::of(category) {
+        Some(kind) => house.ai_unit_choices_mut().clear(kind),
+        None => house.ai_production_mut().clear_building_choice(),
     }
 }
 

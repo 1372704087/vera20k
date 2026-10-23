@@ -3124,7 +3124,11 @@ impl ObjectType {
             prerequisite_override: Vec::new(),
             // ReadInt over the constructor's 0x7FFFFFFF (`0x00713152`).
             build_limit: section.read_int("BuildLimit", i32::MAX),
-            aibuild_limit: section.read_int("AIBuildLimit", i32::MAX),
+            aibuild_limit: if crate::rules::NPATCH_ENABLED {
+                section.read_int("AIBuildLimit", i32::MAX)
+            } else {
+                i32::MAX
+            },
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),

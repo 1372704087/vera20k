@@ -353,6 +353,7 @@ fn without_aibuild_limit_the_war_factories_clone_the_choice() {
 /// production start) a factoryless building skips and the choice slot
 /// clears (`0xC335C4..0xC33616`) — the clone production never exceeds the
 /// limit.
+#[cfg(feature = "npatch")]
 #[test]
 fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
     let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=1");
@@ -375,6 +376,7 @@ fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
 /// A non-positive `AIBuildLimit=` compares by magnitude against the
 /// produced and owned counts (the native negated signed compares), so
 /// `-1` blocks once one tank exists.
+#[cfg(feature = "npatch")]
 #[test]
 fn aibuild_limit_non_positive_compares_the_magnitude() {
     let (mut f, weap_1, _) = ore_limit_fixture("AIBuildLimit=-1");
@@ -391,5 +393,23 @@ fn aibuild_limit_non_positive_compares_the_magnitude() {
             .ai_unit_choices()
             .get(crate::sim::ai_unit_choice::UnitChoiceKind::Unit),
         -1
+    );
+}
+
+/// Even an authored zero cap cannot affect a build without NPatch.
+#[cfg(not(feature = "npatch"))]
+#[test]
+fn aibuild_limit_is_ignored_without_npatch() {
+    let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=0");
+    assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
+    ore_limit_visit(&mut f, weap_1);
+    ore_limit_visit(&mut f, weap_2);
+    assert!(ore_limit_holds(&f, weap_1) && ore_limit_holds(&f, weap_2));
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        0,
+        "the ignored extension does not invalidate the standing choice",
     );
 }

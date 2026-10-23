@@ -759,6 +759,7 @@ pub struct GeneralRules {
     /// to a dropped object. Its timing is the AnimType's own art.
     pub parachute_shp: Option<String>,
     /// Parsed `[General] VehicleParachute=` value (uppercased AnimType name),
+    /// read only with the explicit NPatch capability.
     /// `None` if unset or empty: the NPSE canopy an airdropped non-infantry
     /// object takes instead of `Parachute=` (`ObjectClass::Paradrop`'s
     /// `0x5F5ADD` hook, cave `0xC2B0E4`..`0xC2FA8A`: infantry keeps
@@ -3570,9 +3571,11 @@ impl GeneralRules {
             // The NPSE cave reads the name through the 0x80-byte ReadString
             // (`0xC30FF8..0xC3100F`), empty keeping the constructor's none,
             // and the name comparison is ASCII-insensitive.
-            vehicle_parachute: {
+            vehicle_parachute: if crate::rules::NPATCH_ENABLED {
                 let name = general.read_string("VehicleParachute", "", 0x80);
                 (!name.is_empty()).then(|| name.to_ascii_uppercase())
+            } else {
+                None
             },
             amer_paradrop: ParadropList::read_counts(general, "AmerParaDropNum"),
             ally_paradrop: ParadropList::read_counts(general, "AllyParaDropNum"),

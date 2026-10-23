@@ -262,8 +262,8 @@ impl crate::sim::world::Simulation {
     }
 }
 
-/// The canopy a dropped object gets. Infantry always takes
-/// `[General] Parachute=`; anything else takes the NPSE
+/// The canopy a dropped object gets. Without NPatch, or for infantry, use
+/// `[General] Parachute=`; other objects with NPatch take the NPSE
 /// `[General] VehicleParachute=` when it is set and `Parachute=` otherwise
 /// (`ObjectClass::Paradrop`'s hook `0x5F5ADD` -> cave `0xC2B0E4`:
 /// `0xC2FA75..0xC2FA8A`). The cave's first arm sends an object whose type
@@ -274,7 +274,9 @@ fn parachute_anim_name<'r>(
     rules: &'r crate::rules::ruleset::RuleSet,
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<&'r str> {
-    if entity.category() == crate::map::entities::EntityCategory::Infantry {
+    if !crate::rules::NPATCH_ENABLED
+        || entity.category() == crate::map::entities::EntityCategory::Infantry
+    {
         rules.general.parachute_shp.as_deref()
     } else {
         rules
@@ -491,18 +493,21 @@ mod canopy_tests {
         assert_eq!(sim.substrate.anims.iter().count(), 0);
     }
 
-    /// The NPSE branch (`0xC2B0E4`..`0xC2FA8A`): the fixture's object is a
-    /// Unit (a tank), so with `[General] VehicleParachute=` set the canopy is
-    /// that anim, and the landing wind-down finds it through the same
-    /// branch.
+    /// The production attachment and wind-down honor the compiled capability,
+    /// even when a caller supplies an extension name directly on GeneralRules.
     #[test]
-    fn an_airdropped_vehicle_takes_the_vehicle_parachute() {
+    fn vehicle_parachute_attachment_and_landing_require_npatch() {
         let (mut sim, mut rules, id) = fixture();
         rules.general.vehicle_parachute = Some("VEHCHUTE".to_string());
         let anim_id = sim.attach_parachute_anim(&rules, id).expect("canopy");
+        let expected = if crate::rules::NPATCH_ENABLED {
+            "VEHCHUTE"
+        } else {
+            "PARACH"
+        };
         assert_eq!(
             sim.interner.resolve(sim.anim(anim_id).unwrap().type_id()),
-            "VEHCHUTE"
+            expected
         );
         crate::sim::world::Simulation::wind_down_parachute_anim(
             &sim.interner,
@@ -570,15 +575,18 @@ mod canopy_tests {
         );
     }
 
-    /// The reader: the name uppercases (the AnimType comparison is
-    /// ASCII-insensitive), an empty or absent key stays none.
+    /// NPatch admits the extension key; other builds ignore it. Empty and
+    /// absent keys keep the constructor default in either build.
     #[test]
-    fn the_vehicle_parachute_reader_uppercases_and_defaults_to_none() {
+    fn vehicle_parachute_reader_requires_npatch_and_defaults_to_none() {
         let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
             "[General]\nVehicleParachute=vehchute\n",
         ))
         .unwrap();
-        assert_eq!(rules.general.vehicle_parachute.as_deref(), Some("VEHCHUTE"));
+        assert_eq!(
+            rules.general.vehicle_parachute.as_deref(),
+            crate::rules::NPATCH_ENABLED.then_some("VEHCHUTE")
+        );
         let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
             "[General]\nVehicleParachute=\n",
         ))

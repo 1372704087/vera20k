@@ -100,7 +100,9 @@ and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 VERA20K plays like the original game by default. Every new feature, including extensions from
 mods such as Ares, must stay off until it is turned on with one of:
 
-- **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md).
+- **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md),
+  `--features phobos` for [Phobos](docs/phobos.md), or `--features verax` for
+  [VeraX](docs/verax.md).
 - **An in-game lobby option**, chosen for each match.
 - **An INI key**, set by a mod or a map.
 

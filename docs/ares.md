@@ -13,9 +13,9 @@ cargo run --release --bin vera20k --features ares
 Ares builds identify themselves in the window title and startup log. Saves retain the build
 capability and cannot load in another capability combination, even with identical retail INIs.
 
-Ares is one of three orthogonal capabilities: it combines with `phobos` and `npatch`
-(`--features ares,phobos,npatch`), and every implemented feature must keep working when the others
-are compiled in. The rule and the pattern for two extensions touching one native site are in
+Ares is one of four orthogonal capabilities: it combines with `phobos`, `npatch` and `verax`
+(`--features ares,phobos,npatch,verax`), and every implemented feature must keep working when the
+others are compiled in. The rule and the pattern for two extensions touching one native site are in
 [NPatch placeholder](npatch.md#cross-extension-compatibility).
 
 For ordinary selected-map offline loading, Ares Country loading fields are read

@@ -53,6 +53,10 @@ fn main() -> Result<()> {
         "NPatch support compiled in: {} (placeholder)",
         vera20k::rules::NPATCH_ENABLED
     );
+    log::info!(
+        "VeraX support compiled in: {} (placeholder)",
+        vera20k::rules::VERAX_ENABLED
+    );
     if let Some(path) = &log_path {
         log::info!("Log file: {}", path.display());
     }

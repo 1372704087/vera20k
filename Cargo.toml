@@ -48,6 +48,9 @@ ares = ["vera20k-core/ares"]
 phobos = ["vera20k-core/phobos"]
 # Placeholder for the NPatch capability; no chain reads it yet.
 npatch = ["vera20k-core/npatch"]
+# VERA20K's own first-party extension capability; placeholder until its first
+# chain lands.
+verax = ["vera20k-core/verax"]
 # The Ctrl+Shift dev chord: renderer-native diagnostic overlays (grid, heightmap,
 # pathgrid, foot path, fog), the debug pause and quicksave/quickload. Captures
 # rely on it (literal Ctrl+Shift+M/N quicksave/quickload).

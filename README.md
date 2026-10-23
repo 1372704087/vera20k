@@ -47,6 +47,21 @@ Download the installer for Windows, macOS or Linux from the
 [releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
 Yuri's Revenge and sets up VERA20K in a new folder.
 
+## Contributing
+
+Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
+it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
+
+Contributors can take responsibility for engine areas, with broad freedom to make changes that
+move VERA20K forward.
+
+Maintainers will help with review, integration and merging. You'll keep full credit for your
+contribution.
+
+For each new option, document its file, section, key, default and effect.
+
+Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
+
 ## Settings
 
 Use **Options** for sound and controls, and **Vera Options** for VERA-specific features.
@@ -129,21 +144,6 @@ the mod's rules, art, mode or map INIs, such as `RULESMD.INI` and `ARTMD.INI`.
 
 To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
 [offline client setup](integrations/cncnet/README.md).
-
-## Contributing
-
-Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
-it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
-
-Contributors can take responsibility for engine areas, with broad freedom to make changes that
-move VERA20K forward.
-
-Maintainers will help with review, integration and merging. You'll keep full credit for your
-contribution.
-
-For each new option, document its file, section, key, default and effect.
-
-Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
 
 ## Support
 

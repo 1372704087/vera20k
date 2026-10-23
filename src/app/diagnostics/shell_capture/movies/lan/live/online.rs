@@ -419,13 +419,26 @@ impl LiveRoundFlow {
             .as_ref()
             .and_then(|live| live.wait_info())
             .map(|wait| wait.kind);
+        let live_phase = state
+            .match_state
+            .live_network
+            .as_ref()
+            .and_then(|live| live.phase());
         log::info!(
-            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}, setup_humans={setup_humans:?}, bound_rows={bound_rows:?}, seed_present={seed_present}, map_capacity={map_capacity:?}, setup_capacity={setup_capacity:?}, selected_map_present={selected_map_present}, local_row={local_row:?}, local_start={local_start:?}, accept_enabled={accept_enabled:?}, desired_start={desired_start:?}, lobby_shown={lobby_shown}, lobby_wait={lobby_wait}, lobby_message={lobby_message}, slide_first_paint={}, active_slide={:?}",
+            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}, live_phase={live_phase:?}, setup_humans={setup_humans:?}, bound_rows={bound_rows:?}, seed_present={seed_present}, map_capacity={map_capacity:?}, setup_capacity={setup_capacity:?}, selected_map_present={selected_map_present}, local_row={local_row:?}, local_start={local_start:?}, accept_enabled={accept_enabled:?}, desired_start={desired_start:?}, lobby_shown={lobby_shown}, lobby_wait={lobby_wait}, lobby_message={lobby_message}, slide_first_paint={}, active_slide={:?}",
             self.phase,
             state.frontend.shell_exit.is_some(),
             state.frontend.shell_first_paint_slide.is_some(),
             state.frontend.shell_slide_active_shell,
         );
+        if let (Some(sim), Some(live)) = (sim, state.match_state.live_network.as_ref()) {
+            crate::app::match_runtime::network_match::log_live_progress(
+                session,
+                sim,
+                live,
+                "heartbeat",
+            );
+        }
     }
 
     /// First-time accounts pass through the same location and auto-login

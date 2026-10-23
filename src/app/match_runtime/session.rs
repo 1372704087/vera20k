@@ -337,6 +337,12 @@ impl WallBucketTimer {
         }
     }
 
+    /// Diagnostic projection of the actual countdown, including recovery
+    /// restarts. The native expiry comparison remains in remaining().
+    pub(crate) fn deadline_bucket(self) -> Option<u32> {
+        self.start.map(|start| start.wrapping_add(self.duration))
+    }
+
     /// `0x004F1B20`: a never-started timer returns its duration; otherwise
     /// `duration - elapsed` while elapsed (wrapping) is below it, else 0.
     pub(crate) fn remaining(self, now_bucket: u32) -> u32 {

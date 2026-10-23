@@ -82,6 +82,7 @@ fn rejected_broadcast_retains_unsent_commands_and_codec_until_retry() {
         assert!(sim.issue_local_command(CommandEnvelope::synchronized(record, 7)));
     }
     let mut exchange = CommandExchange::new([3]).unwrap();
+    assert_eq!(exchange.retained_send(), None);
     let mut attempts = Vec::new();
     let mut queues = sim.network_command_queues();
     let result = exchange
@@ -104,6 +105,15 @@ fn rejected_broadcast_retains_unsent_commands_and_codec_until_retry() {
     assert!(accepted > 0 && accepted < 128);
     assert_eq!(exchange.sent_commands(), accepted as u64);
     assert_eq!(queues.local_len(), 128 - accepted);
+    assert_eq!(
+        exchange.retained_send(),
+        Some(RetainedSendProgress {
+            frame: 15,
+            remaining: 128 - accepted,
+            total: 128,
+            frontier: 128,
+        })
+    );
     assert_eq!(attempts.len(), 2);
     assert!(
         attempts
@@ -130,6 +140,7 @@ fn rejected_broadcast_retains_unsent_commands_and_codec_until_retry() {
         SendPoll::Complete { commands: 128 }
     );
     assert_eq!(exchange.sent_commands(), 128);
+    assert_eq!(exchange.retained_send(), None);
     assert_eq!(queues.local_len(), 0);
     assert_eq!(queues.synchronized_len(), 128);
 }

@@ -132,7 +132,14 @@ pub(crate) fn destroy_connection(
     if !session.disconnect_network_participant(source_index, error.code()) {
         return None;
     }
+    log::warn!(
+        "Network connection destroyed: source={source_index}, house={:?}, reason={}, native_frame={}, startup_pending={startup_pending}",
+        sim.houses().index_of(owner),
+        error.code(),
+        sim.session().binary_frame(),
+    );
     if let Some((live, house)) = live {
+        log_live_progress(session, sim, live, "destroy_connection");
         //5DA85D removes the private connection after the Human guard, before
         //the reason-specific effects. Progress shares that connection's life.
         live.remove_peer(house);
@@ -566,6 +573,66 @@ pub(crate) fn house_source(session: &MatchSession, sim: &Simulation, house: i32)
     session.network_owner_source(sim.interner().resolve(*owner))
 }
 
+/// Numeric projections only: never format transports, endpoints, errors or
+/// packet bodies. The peer vector is bounded by the admitted match roster.
+/// UDP counters cover the retained aggregate since the last live poll, not
+/// lifetime traffic; the existing report consumer/reset semantics are unchanged.
+pub(crate) fn log_live_progress(
+    session: &MatchSession,
+    sim: &Simulation,
+    live: &crate::net::live_commands::LiveCommandSession,
+    point: &'static str,
+) {
+    if !log::log_enabled!(log::Level::Info) {
+        return;
+    }
+    let peers: Vec<_> = live
+        .peers()
+        .iter()
+        .map(|peer| {
+            let house = peer.house_id();
+            (
+                house_source(session, sim, i32::from(house)),
+                house,
+                peer.frame(),
+                peer.advertised_commands(),
+                peer.received_commands(),
+                live.queued_send_count(house),
+                live.peer_response_time(house),
+            )
+        })
+        .collect();
+    let report = live.service_report();
+    let udp_counts = report.map(|report| {
+        (
+            report.received_datagrams,
+            report.sent_datagrams,
+            report.malformed_datagrams,
+            report.rejected_connections,
+            report.rejected_global,
+            report.discarded_global_sends,
+            report.send_would_block,
+            report.failed_peer,
+        )
+    });
+    let io_failure = report.and_then(|report| report.first_io_error.as_ref());
+    log::info!(
+        "Network progress: point={point}, local_source={:?}, native_frame={}, phase={:?}, wait={:?}, sent_commands={}, retained_send={:?}, frame_wait={:?}, local_commands={}, synchronized_commands={}, mirror_allowance={}, udp_poll_received_sent_malformed_private_rejected_global_rejected_discarded_sends_would_block_failed_peer={udp_counts:?}, udp_poll_io_failure={}, udp_poll_os_error={:?}, peers_source_house_frame_advertised_received_send_queued_rtt_buckets={peers:?}",
+        local_source(session),
+        sim.session().binary_frame(),
+        live.phase(),
+        live.wait_info(),
+        live.sent_commands(),
+        live.retained_send(),
+        live.frame_wait(),
+        sim.pending_local_command_count(),
+        sim.synchronized_network_command_count(),
+        sim.network_mirror_allowance(),
+        io_failure.is_some(),
+        io_failure.and_then(|failure| failure.error.raw_os_error()),
+    );
+}
+
 ///Global NET_KICK proposal64AAE0: a fixed455-byte packet, independent of
 ///EventClass FRAMEINFO (which happens to share opcode0x1C).
 pub(crate) fn encode_kick_proposal(
@@ -982,7 +1049,35 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
         }
         //64B410 chooses the first minimum signed peer frame. Recovery restarts
         //all three countdowns but retains entry, page, votes and peer+14.
-        if let Some(source) = lowest_record(state) {
+        let source = lowest_record(state);
+        let runtime = state.match_state.sim_runtime.as_ref();
+        let house = source.and_then(|source| {
+            source_house(&state.match_state.session, &runtime?.simulation, source)
+        });
+        let wait = state
+            .match_state
+            .network_wait
+            .wait
+            .as_ref()
+            .expect("expired wait");
+        log::warn!(
+            "Network ordinary wait expired: now_bucket={now}, entered_bucket={}, deadline_bucket={:?}, period_buckets={}, remaining_buckets={}, native_frame={:?}, source={source:?}, house={house:?}, reason={}",
+            wait.entry,
+            wait.timeout_timer.deadline_bucket(),
+            wait.periods.1,
+            wait.timeout_timer.remaining(now),
+            runtime.map(|runtime| runtime.simulation.session().binary_frame()),
+            ConnectionError::Lost.code(),
+        );
+        if let (Some(runtime), Some(live)) = (runtime, state.match_state.live_network.as_ref()) {
+            log_live_progress(
+                &state.match_state.session,
+                &runtime.simulation,
+                live,
+                "ordinary_wait_expired",
+            );
+        }
+        if let Some(source) = source {
             kick(state, source, ConnectionError::Lost);
         }
         if let Some(wait) = state.match_state.network_wait.wait.as_mut() {
@@ -1169,6 +1264,7 @@ mod tests {
         let wait = owner.wait.as_mut().unwrap();
         wait.votes.insert(1, vec![0]);
         wait.page = Some(ConnectionPage::default());
+        assert_eq!(wait.timeout_timer.deadline_bucket(), Some(2500));
         wait.restart_timers(2500);
         owner.observe_live_wait(LiveWaitInfo {
             response_time_at_entry: 500,
@@ -1177,6 +1273,7 @@ mod tests {
         let wait = owner.wait.as_ref().unwrap();
         assert_eq!(wait.entry, 100);
         assert_eq!(wait.periods, (423, 2400));
+        assert_eq!(wait.timeout_timer.deadline_bucket(), Some(4900));
         assert!(wait.page.is_some());
         assert_eq!(wait.votes.get(&1), Some(&vec![0]));
         assert_eq!(wait.dialog_timer.remaining(2922), 1);

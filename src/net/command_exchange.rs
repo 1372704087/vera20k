@@ -151,6 +151,16 @@ struct SendingFrame {
     header: FrameInfo,
 }
 
+/// Read-only projection of the retained transaction; no encoded bytes or
+/// independently maintained send/backpressure state escape the exchange.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetainedSendProgress {
+    pub frame: u32,
+    pub remaining: usize,
+    pub total: usize,
+    pub frontier: u64,
+}
+
 impl CommandExchange {
     pub fn new(peers: impl IntoIterator<Item = i8>) -> Result<Self, CommandExchangeError> {
         let mut exchange = Self::default();
@@ -172,6 +182,15 @@ impl CommandExchange {
 
     pub fn sending(&self) -> bool {
         self.sending.is_some()
+    }
+
+    pub fn retained_send(&self) -> Option<RetainedSendProgress> {
+        self.sending.map(|sending| RetainedSendProgress {
+            frame: sending.frame,
+            remaining: sending.remaining,
+            total: sending.total,
+            frontier: sending.frontier,
+        })
     }
 
     /// UpdatePeerFrameLag652187..6521B2: only after a source advances its

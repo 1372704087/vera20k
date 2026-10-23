@@ -101,6 +101,25 @@ impl Simulation {
     pub fn network_command_queues(&mut self) -> NetworkCommandQueues<'_> {
         NetworkCommandQueues::new(self)
     }
+
+    pub fn synchronized_network_command_count(&self) -> usize {
+        self.pending_commands.native_len()
+    }
+
+    /// Shared read-only admission fact for the sender and diagnostics. Reading
+    /// this allowance neither reserves mirrors nor changes either command queue.
+    pub fn network_mirror_allowance(&self) -> usize {
+        let synchronized = self.synchronized_network_command_count();
+        if self.session.game_mode().is_network() {
+            let source_house = self.local_command_house().unwrap_or(0);
+            NETWORK_COMMAND_CAPACITY.saturating_sub(synchronized).min(
+                NETWORK_SOURCE_DOLIST_CAPACITY
+                    .saturating_sub(self.pending_commands.native_house_len(source_house)),
+            )
+        } else {
+            NETWORK_LOCAL_MIRROR_LIMIT.saturating_sub(synchronized)
+        }
+    }
 }
 
 impl<'a> NetworkCommandQueues<'a> {
@@ -156,21 +175,11 @@ impl<'a> NetworkCommandQueues<'a> {
     }
 
     pub fn synchronized_len(&self) -> usize {
-        self.sim.pending_commands.native_len()
+        self.sim.synchronized_network_command_count()
     }
 
     pub fn mirror_allowance(&self) -> usize {
-        if self.sim.session.game_mode().is_network() {
-            let source_house = self.sim.local_command_house().unwrap_or(0);
-            NETWORK_COMMAND_CAPACITY
-                .saturating_sub(self.synchronized_len())
-                .min(
-                    NETWORK_SOURCE_DOLIST_CAPACITY
-                        .saturating_sub(self.sim.pending_commands.native_house_len(source_house)),
-                )
-        } else {
-            NETWORK_LOCAL_MIRROR_LIMIT.saturating_sub(self.synchronized_len())
-        }
+        self.sim.network_mirror_allowance()
     }
 
     /// Borrow the prefix the native encoder may attempt. A semantic fallback
@@ -345,6 +354,7 @@ mod tests {
     #[test]
     fn network_commit_preserves_unsent_headers_and_records_only_accepted_mirrors() {
         let mut sim = Simulation::new();
+        let initial_allowance = sim.network_mirror_allowance();
         let records: Vec<_> = [3, 4, 5]
             .into_iter()
             .map(|speed| {
@@ -379,6 +389,8 @@ mod tests {
             Some(&mirror)
         );
         assert_eq!(sim.frame_command_admissions.len(), 1);
+        assert_eq!(sim.synchronized_network_command_count(), 1);
+        assert_eq!(sim.network_mirror_allowance(), initial_allowance - 1);
         assert!(matches!(&sim.frame_command_admissions[0].payload,
             Command::SynchronizedRecord { record } if record == &mirror));
     }

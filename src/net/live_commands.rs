@@ -19,7 +19,8 @@ pub use startup::{StartupAgreement, StartupError};
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
 
 use super::command_exchange::{
-    CommandExchange, CommandExchangeError, CommandPeerProgress, FrameWait, SendPoll,
+    CommandExchange, CommandExchangeError, CommandPeerProgress, FrameWait, RetainedSendProgress,
+    SendPoll,
 };
 use super::lockstep::NetworkSendPolicy;
 use super::reliable::{Delivery, LanConnections, RetryTiming};
@@ -99,6 +100,17 @@ enum FramePhase {
 pub enum LiveWaitKind {
     Initial,
     Ordinary,
+}
+
+/// Diagnostic projection of the existing retained visit. This does not
+/// distinguish backpressure causes; queue and mirror facts remain authoritative.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveCommandPhase {
+    InitialBarrier,
+    Sending,
+    Waiting,
+    Finished,
+    Failed,
 }
 
 /// The current648710 invocation, borrowed as facts by the app's existing
@@ -267,6 +279,33 @@ impl LiveCommandSession {
         self.exchange.sent_commands()
     }
 
+    pub fn retained_send(&self) -> Option<RetainedSendProgress> {
+        self.exchange.retained_send()
+    }
+
+    pub fn phase(&self) -> Option<LiveCommandPhase> {
+        self.current.map(|current| match current.phase {
+            FramePhase::InitialBarrier { .. } => LiveCommandPhase::InitialBarrier,
+            FramePhase::Sending { .. } => LiveCommandPhase::Sending,
+            FramePhase::Waiting { .. } => LiveCommandPhase::Waiting,
+            FramePhase::Finished(_) => LiveCommandPhase::Finished,
+            FramePhase::Failed => LiveCommandPhase::Failed,
+        })
+    }
+
+    pub fn queued_send_count(&self, house: i8) -> Option<usize> {
+        self.transport
+            .connections()
+            .queued_send_count(i32::from(house))
+    }
+
+    /// Existing reliable response history, in16ms wall-clock buckets.
+    pub fn peer_response_time(&self, house: i8) -> Option<u32> {
+        self.transport
+            .connections()
+            .mean_response_time(i32::from(house))
+    }
+
     ///Manager ResponseTime542450 uses private histories, excluding primary
     ///global traffic. Its optional extra channel has no direct-LAN owner.
     pub fn response_time(&self) -> u32 {
@@ -351,6 +390,12 @@ impl LiveCommandSession {
     /// the same poll does not erase an earlier failure diagnostic.
     pub fn take_service_report(&mut self) -> Option<UdpServiceReport> {
         self.last_service.take()
+    }
+
+    /// The same aggregate consumed by take_service_report, reset at each poll.
+    /// Readers must project numeric counters, never Debug-format its errors.
+    pub fn service_report(&self) -> Option<&UdpServiceReport> {
+        self.last_service.as_ref()
     }
 
     pub fn awaiting_initial_barrier(&self) -> bool {

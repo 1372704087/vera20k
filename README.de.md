@@ -69,6 +69,10 @@ Ohne alte Einstellungen bleibt die Datei zunächst leer; VERA verwendet die inte
 Standardwerte, bis Einstellungen gespeichert werden. Die Originaldateien `RA2MD.INI` und
 `KeyboardMD.ini` werden nur für den Import gelesen und nie überschrieben.
 
+`VERARULES.INI` im selben Ordner enthält optionale Änderungen am Spielverhalten. Die Datei
+enthält zunächst auskommentierte Beispiele; die Regeln der Mission oder Karte bleiben maßgeblich.
+Zum Bearbeiten und Überschreiben siehe [persönliche Regeln](docs/personal-rules.md).
+
 ## Architektur
 
 Die Engine besteht aus drei Hauptteilen:
@@ -83,13 +87,6 @@ Diese Trennung unterstützt einen deterministischen Spielablauf.
 Die Pfeile zeigen den Datenfluss:
 
 ![Die Anwendung sendet Befehle an die Simulation, die den Weltzustand zurückgibt; die Anwendung sendet Zeichendaten an das Rendering.](docs/images/architecture.de.png)
-
-## Systemanforderungen
-
-- **Spiel:** Red Alert 2: Yuri's Revenge 1.001.
-- **Betriebssystem:** Windows 10+, Linux (glibc 2.35+, z. B. Ubuntu 22.04 oder Steam Deck) oder
-  macOS 11+ auf Apple Silicon.
-- **Grafik:** Vulkan, DirectX 12 oder Metal.
 
 ## Kompilieren und starten
 

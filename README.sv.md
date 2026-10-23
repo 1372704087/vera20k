@@ -68,6 +68,10 @@ Om det inte finns några gamla inställningar börjar filen tom och VERA använd
 standardvärden tills inställningar sparas. Originalfilerna `RA2MD.INI` och `KeyboardMD.ini`
 läses bara vid import och skrivs aldrig över.
 
+`VERARULES.INI` i samma mapp innehåller valfria ändringar av spelreglerna. Filen innehåller från
+början bortkommenterade exempel och låter uppdrags- och kartregler styra. Se
+[personliga regler](docs/personal-rules.md) för hur du redigerar och åsidosätter dem.
+
 ## Arkitektur
 
 Motorn har tre huvuddelar:
@@ -82,13 +86,6 @@ Denna uppdelning stöder deterministiskt spel.
 Pilarna visar dataflödet:
 
 ![Applikationen skickar kommandon till simuleringen, som returnerar världstillståndet; applikationen skickar renderingsdata till renderingen.](docs/images/architecture.sv.png)
-
-## Systemkrav
-
-- **Spelet:** Red Alert 2: Yuri's Revenge 1.001.
-- **OS:** Windows 10+, Linux (glibc 2.35+, t.ex. Ubuntu 22.04 eller Steam Deck) eller macOS 11+ på
-  Apple Silicon.
-- **Grafik:** Vulkan, DirectX 12 eller Metal.
 
 ## Bygg och kör
 

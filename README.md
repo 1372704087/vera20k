@@ -81,6 +81,10 @@ If `VERA.INI` is missing, VERA creates it and imports existing preferences once.
 old settings, it starts empty and VERA uses built-in defaults until settings are saved.
 The original `RA2MD.INI` and `KeyboardMD.ini` are only read for import, never overwritten.
 
+`VERARULES.INI`, in the same folder, contains optional gameplay changes. It starts with
+commented examples and leaves mission/map rules in control. See [personal rules](docs/personal-rules.md)
+for editing and overriding them.
+
 ## Architecture
 
 The engine has three main parts:
@@ -95,13 +99,6 @@ This separation supports deterministic gameplay.
 Arrows show data flow:
 
 ![Application sends commands to simulation, which returns world state; application sends draw data to rendering.](docs/images/architecture.png)
-
-## System requirements
-
-- **Game:** Red Alert 2: Yuri's Revenge 1.001.
-- **OS:** Windows 10+, Linux (glibc 2.35+, e.g. Ubuntu 22.04 or Steam Deck), or macOS 11+ on
-  Apple Silicon.
-- **Graphics:** Vulkan, DirectX 12 or Metal.
 
 ## Build and run
 

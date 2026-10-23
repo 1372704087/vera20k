@@ -112,9 +112,7 @@ To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
 Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
 it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
 
-Maintainers will help with review, integration and merging. We'll also help wire optional
-behavior to the appropriate INI keys or other [opt-in settings](#customization), keeping the
-original game as the default. You don't need to solve every integration detail on your own.
+Maintainers will help with review, integration and merging.
 
 Keep PRs small:
 

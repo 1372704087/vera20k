@@ -221,7 +221,11 @@ pub(crate) fn recalc_base_plan(
     // times, consecutively, and 0 keeps the stock single node.
     let planning_repeats = |candidate: &ObjectType| -> usize {
         let count = candidate.ai_planning_count;
-        if count > 1 { count as usize } else { 1 }
+        if crate::rules::NPATCH_ENABLED && count > 1 {
+            count as usize
+        } else {
+            1
+        }
     };
     let mut final_values = Vec::with_capacity(priority.len());
     final_values.extend(priority[..3].iter().flat_map(|candidate| {
@@ -434,13 +438,18 @@ mod tests {
     }
 
     #[test]
-    fn ai_planning_count_plans_the_type_repeatedly() {
+    fn ai_planning_count_respects_the_build_capability() {
         let rules = basic_rules(
             "7=TEST\n\
              [TEST]\n\
              Owner=Americans,Russians,YuriCountry\n\
              AIBuildThis=yes\nTechLevel=1\nFoundation=1x1\nAIPlanningCount=3\n",
             "",
+        );
+        let expected = if crate::rules::NPATCH_ENABLED { 3 } else { 1 };
+        assert_eq!(
+            rules.object("TEST").unwrap().ai_planning_count,
+            if crate::rules::NPATCH_ENABLED { 3 } else { 0 },
         );
         let (plan, _) =
             generated_values(&rules, "Americans", 0, HouseDifficulty::Normal, 0xC057_0F01);
@@ -452,11 +461,11 @@ mod tests {
             .expect("the counted type is planned");
         assert_eq!(
             values.iter().filter(|value| **value == test_index).count(),
-            3,
-            "the plan holds AIPlanningCount nodes of the type"
+            expected,
+            "only an NPatch build honors the requested copies"
         );
         assert!(
-            values[first..first + 3]
+            values[first..first + expected]
                 .iter()
                 .all(|value| *value == test_index),
             "the repeats are consecutive at the type's own position"

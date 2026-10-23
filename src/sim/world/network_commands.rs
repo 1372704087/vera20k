@@ -61,6 +61,40 @@ pub struct NetworkCommandQueues<'a> {
 }
 
 impl Simulation {
+    /// SessionClass::Am_I_Master697E70, called by ProcessNetwork647B8A.
+    /// LAN697ECD..697F0D selects the first human, undefeated House. WOL's
+    /// explicit publisher697E81..697ECA survives ordinary defeat/Observe;
+    /// DestroyConnection5DAA48..5DAA77 replaces it only after source loss.
+    /// Source: original gamemd.exe instructions at those callers.
+    ///
+    /// The relay has no native direct-peer nomination664440. Its replacement
+    /// is the first remaining admitted human in shared House order, after
+    /// synchronized EXIT/REMOVEPLAYER retires the old timing row. Neither a
+    /// local peer list nor a second cached host participates in this decision.
+    pub(super) fn network_timing_host_house(&self) -> Option<i8> {
+        let timing = self.session.network_command_timing()?;
+        let wol = self.session.game_mode() == crate::sim::scenario_session::ScenarioGameMode::Wol;
+        let eligible = |house_id: i8| {
+            timing.admits_source(house_id)
+                && usize::try_from(house_id)
+                    .ok()
+                    .and_then(|index| self.houses.order().get(index))
+                    .and_then(|owner| self.houses.get(owner))
+                    .is_some_and(|house| {
+                        house.is_human() && !house.left_game() && (wol || !house.is_defeated())
+                    })
+        };
+        if wol && eligible(timing.host_house()) {
+            return Some(timing.host_house());
+        }
+        self.houses
+            .order()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, _)| i8::try_from(index).ok())
+            .find(|&house| eligible(house))
+    }
+
     /// Borrow the existing EventClass queues for a post-Logic network pass.
     /// The caller cannot replace their owners or retain the borrow across a
     /// simulation visit.
@@ -84,6 +118,11 @@ impl<'a> NetworkCommandQueues<'a> {
 
     pub fn timing(&self) -> Option<&crate::sim::command_queue::NetworkCommandTiming> {
         self.sim.session.network_command_timing()
+    }
+
+    /// The same canonical publisher used when accepting EVENT_TIMING.
+    pub fn timing_host_house(&self) -> Option<i8> {
+        self.sim.network_timing_host_house()
     }
 
     pub fn install_timing(

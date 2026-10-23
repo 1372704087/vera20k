@@ -2835,9 +2835,25 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
         )
         .map_err(|_| anyhow::anyhow!("host House index cannot be encoded by the command channel"))?
     };
-    let source_houses: Vec<_> = std::iter::once(local_house)
-        .chain(connections.peers().map(|(house, _)| house as i8))
-        .collect();
+    // The loading wait may already have retired a source684596. Initialize
+    // timing from MatchSession's accepted connected roster before the first
+    // shared frame; private transport cleanup is drained by its existing owner.
+    let source_houses = state
+        .match_state
+        .session
+        .network_connected_source_indices()
+        .iter()
+        .map(|&source| {
+            let house = super::match_runtime::network_match::source_house(
+                &state.match_state.session,
+                sim,
+                source,
+            )
+            .ok_or_else(|| anyhow::anyhow!("connected source has no constructed House"))?;
+            i8::try_from(house)
+                .map_err(|_| anyhow::anyhow!("connected House index cannot be encoded"))
+        })
+        .collect::<anyhow::Result<Vec<_>>>()?;
     let online_timing = if state.match_state.session_mode() == SessionMode::Wol {
         Some(
             state
@@ -2896,19 +2912,19 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
             crate::net::live_commands::LiveCommandMode::Lan
         },
     )?;
-    state
+    let mut queues = state
         .match_state
         .sim_runtime
         .as_mut()
         .expect("constructed world")
         .simulation
-        .network_command_queues()
-        .install_timing(
-            host_house,
-            std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
-            source_houses,
-        );
-    if host_house == local_house
+        .network_command_queues();
+    queues.install_timing(
+        host_house,
+        std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
+        source_houses,
+    );
+    if queues.timing_host_house() == Some(local_house)
         && let Some(timing) = online_timing
     {
         live.configure_precalculated_timing(timing.precalc_max_ahead, timing.precalc_frame_rate);

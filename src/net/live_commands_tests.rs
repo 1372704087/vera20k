@@ -1237,6 +1237,7 @@ fn real_udp_timing_commands_apply_precalc_then_adapt_to_the_slowest_peer() {
     let (mut a, rules, _) = stop_scene();
     let (mut b, _, _) = stop_scene();
     for sim in [&mut a, &mut b] {
+        sim.session.set_game_mode(ScenarioGameMode::Wol);
         sim.session
             .install_network_command_timing(1, std::num::NonZeroU8::new(5).unwrap(), [0, 1]);
     }
@@ -1305,6 +1306,149 @@ fn real_udp_timing_commands_apply_precalc_then_adapt_to_the_slowest_peer() {
         a.session.network_command_timing(),
         b.session.network_command_timing()
     );
+}
+
+#[test]
+fn three_udp_clients_keep_adaptive_timing_after_the_original_publisher_exits() {
+    let mut transports: [LanUdpTransport; 3] = std::array::from_fn(|_| transport());
+    let addresses: [SocketAddrV4; 3] =
+        std::array::from_fn(|index| transports[index].primary_addr().unwrap());
+    for (index, transport) in transports.iter_mut().enumerate() {
+        for (peer, address) in addresses.iter().enumerate() {
+            if peer != index {
+                transport
+                    .connections_mut()
+                    .add_peer(peer as i32, *address)
+                    .unwrap();
+            }
+        }
+    }
+    let mut boundaries: Vec<_> = transports
+        .into_iter()
+        .enumerate()
+        .map(|(index, transport)| {
+            let live = LiveCommandSession::new(
+                transport,
+                index as i8,
+                73,
+                NonZeroU32::new(5).unwrap(),
+                LiveCommandMode::Lan,
+            )
+            .unwrap();
+            let mut boundary = Boundary::new(live);
+            boundary.process_millis = Some(if index == 2 { 50 } else { 20 });
+            boundary
+        })
+        .collect();
+    let (first, rules, _) = stop_scene();
+    let mut worlds = [first, stop_scene().0, stop_scene().0];
+    for (index, sim) in worlds.iter_mut().enumerate() {
+        let third = sim.interner.intern("Gamma");
+        sim.houses
+            .register(HouseState::new(third, 2, None, true, 0, 10));
+        sim.spawn_object("AMCV", "Gamma", 30, 30, 0, &rules)
+            .unwrap();
+        sim.session
+            .set_current_house_for_test(Some(sim.houses.order()[index]));
+        sim.session.install_network_command_timing(
+            0,
+            std::num::NonZeroU8::new(5).unwrap(),
+            [0, 1, 2],
+        );
+    }
+    // Admit enough ordinary synchronized records to reach native's adaptive
+    // gate. EXIT itself then crosses all three real reliable UDP connections.
+    for _ in 0..5 {
+        assert!(
+            worlds[1].issue_local_command(CommandEnvelope::synchronized(
+                crate::sim::command::GameSpeedRecord {
+                    house_id: 1,
+                    frame: 0,
+                    speed: 3
+                }
+                .encode()
+                .unwrap(),
+                0,
+            ))
+        );
+    }
+    assert!(
+        worlds[0].issue_local_command(CommandEnvelope::synchronized(
+            crate::sim::command::ExitRecord {
+                house_id: 0,
+                frame: 0
+            }
+            .encode()
+            .unwrap(),
+            0,
+        ))
+    );
+    let mut retired = false;
+    for frame in 0..=300 {
+        let start = Instant::now();
+        let mut completed = [retired, false, false];
+        let mut checksums = [None; 3];
+        while !completed.iter().all(|done| *done) {
+            for index in 0..3 {
+                if completed[index] {
+                    continue;
+                }
+                boundaries[index]
+                    .now
+                    .set(1000 + frame * 10 + (start.elapsed().as_millis() / 16) as u32);
+                let output = production_frame(&mut worlds[index], &rules, &boundaries[index]);
+                assert!(output.network_failure.is_none());
+                if let Some(sync) = output.multiplayer_checksum {
+                    checksums[index] = Some(sync.checksum.unwrap().value);
+                }
+                // Local EXIT4C7917 skips MainTick55DE7E's frame commit.
+                // Consume the same terminal edge as the app instead of running
+                // that exited world's Logic again on its unchanged frame10.
+                if let Some(owner) = worlds[index].take_executed_exit_owner() {
+                    assert_eq!(index, 0, "only the original publisher leaves");
+                    assert_eq!(owner, worlds[index].houses.order()[0]);
+                    assert_eq!(frame, 10, "EXIT keeps its admitted execution frame");
+                    assert!(worlds[index].quit_requested());
+                    assert!(!output.tick.frame_committed);
+                    completed[index] = true;
+                } else {
+                    completed[index] = output.tick.frame_committed;
+                }
+            }
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "host-loss timing frame{frame} stalled"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(checksums[1], checksums[2], "surviving frame{frame} CRC");
+        if !retired
+            && worlds
+                .iter()
+                .all(|sim| sim.houses[&sim.houses.order()[0]].left_game())
+        {
+            for boundary in &mut boundaries[1..] {
+                assert!(boundary.live.borrow_mut().remove_peer(0));
+                assert_eq!(boundary.live.borrow().peers().len(), 1);
+            }
+            retired = true;
+        }
+    }
+    assert!(
+        retired,
+        "the transmitted EXIT never executed on every client"
+    );
+    for sim in &mut worlds[1..] {
+        assert_eq!(sim.network_command_queues().timing_host_house(), Some(1));
+        let timing = sim.session.network_command_timing().unwrap();
+        assert_eq!(timing.maximum_processing_millis([1, 2]), Some(50));
+        assert_eq!(timing.frames_per_second(), 20);
+    }
+    assert_eq!(
+        worlds[1].session.network_command_timing(),
+        worlds[2].session.network_command_timing()
+    );
+    assert_eq!(worlds[1].state_hash(), worlds[2].state_hash());
 }
 
 #[test]

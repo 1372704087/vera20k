@@ -2223,6 +2223,14 @@ impl Simulation {
                 // every sender: House+0x248, then Flag_To_Die when no other
                 // human House is undefeated (0x005E2BA0).
                 house.mark_left_game();
+                // Execute_DoList64C9B1 destroys this source on every peer.
+                // Retire its existing NodeNameTag timing row at the same shared
+                // event, before later records may choose another publisher.
+                if let Some(index) = self.houses.index_of(owner)
+                    && let Ok(house_id) = i8::try_from(index)
+                {
+                    self.session.retire_network_command_source(house_id);
+                }
                 if self.other_undefeated_humans(owner) == 0 {
                     self.flag_house_to_die(owner);
                 }
@@ -2294,6 +2302,11 @@ impl Simulation {
                     return false;
                 }
                 self.flag_house_to_die(owner);
+                // REMOVEPLAYER is synchronized source loss, distinct from
+                // DESTRUCT/defeat: a connected WOL observer remains a publisher.
+                if let Ok(house_id) = i8::try_from(*house_index) {
+                    self.session.retire_network_command_source(house_id);
+                }
                 true
             }
             // Event4C6ED2 resolves Techno and detaches planning6386E0 above,

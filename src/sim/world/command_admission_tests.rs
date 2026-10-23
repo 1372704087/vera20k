@@ -8,6 +8,7 @@ fn native_dolist_world() -> Simulation {
     sim.houses
         .register(HouseState::new(owner, 0, None, true, 0, 10));
     sim.session.set_game_mode(ScenarioGameMode::Wol);
+    sim.session.install_network_timing(10);
     sim.session.game_options_mut_for_test().game_speed = 3;
     sim
 }
@@ -99,6 +100,126 @@ fn admitted_host_timing_retimes_future_events_and_resets_for_new_match() {
     let fresh = sim.session.network_command_timing().unwrap();
     assert_eq!(fresh.frames_per_second(), 30);
     assert_eq!(fresh.maximum_processing_millis([0, 1]), None);
+}
+
+#[test]
+fn lan_timing_uses_live_house_order_instead_of_the_setup_host() {
+    use crate::sim::command::TimingRecord;
+    use std::num::NonZeroU8;
+    let mut sim = native_dolist_world();
+    let first = sim.houses.order()[0];
+    let other = sim.interner.intern("SetupHost");
+    sim.houses
+        .register(HouseState::new(other, 1, None, true, 0, 10));
+    sim.session.set_game_mode(ScenarioGameMode::Lan);
+    sim.session.install_network_timing(10);
+    sim.session
+        .install_network_command_timing(1, NonZeroU8::new(5).unwrap(), [0, 1]);
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(0));
+    sim.admit_native_command_record(
+        TimingRecord {
+            house_id: 0,
+            frame: 0,
+            max_ahead: 10,
+            frames_per_second: 45,
+            frame_send_rate: NonZeroU8::new(5).unwrap(),
+        }
+        .encode()
+        .unwrap(),
+    );
+    sim.advance_tick(&[], None, None, None, 33);
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .frames_per_second(),
+        45
+    );
+    sim.houses
+        .get_mut(&first)
+        .unwrap()
+        .set_is_defeated_for_test(true);
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(1));
+}
+
+#[test]
+fn wol_defeat_keeps_the_publisher_until_shared_exit_or_removal() {
+    use crate::sim::command::{ExitRecord, TimingRecord};
+    use std::num::NonZeroU8;
+    let mut sim = native_dolist_world();
+    for (index, name) in [(1, "Publisher"), (2, "Survivor")] {
+        let owner = sim.interner.intern(name);
+        sim.houses
+            .register(HouseState::new(owner, index, None, true, 0, 10));
+    }
+    let publisher = sim.houses.order()[1];
+    let survivor = sim.houses.order()[2];
+    sim.session.set_current_house_for_test(Some(survivor));
+    sim.session.install_network_timing(10);
+    sim.session
+        .install_network_command_timing(1, NonZeroU8::new(5).unwrap(), [0, 1, 2]);
+    sim.houses
+        .get_mut(&publisher)
+        .unwrap()
+        .set_is_defeated_for_test(true);
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(1));
+    sim.admit_native_command_record(
+        TimingRecord {
+            house_id: 1,
+            frame: 0,
+            max_ahead: 10,
+            frames_per_second: 45,
+            frame_send_rate: NonZeroU8::new(5).unwrap(),
+        }
+        .encode()
+        .unwrap(),
+    );
+    sim.advance_tick(&[], None, None, None, 33);
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .frames_per_second(),
+        45
+    );
+    sim.admit_native_command_record(
+        ExitRecord {
+            house_id: 1,
+            frame: 1,
+        }
+        .encode()
+        .unwrap(),
+    );
+    sim.advance_tick(&[], None, None, None, 33);
+    assert!(sim.houses[&publisher].left_game());
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(0));
+
+    let removed = sim.encode_remove_player_record(survivor, 0).unwrap();
+    sim.admit_native_command_record(removed);
+    for (house_id, frames_per_second) in [(1, 60), (2, 25)] {
+        sim.admit_native_command_record(
+            TimingRecord {
+                house_id,
+                frame: 2,
+                max_ahead: 10,
+                frames_per_second,
+                frame_send_rate: NonZeroU8::new(5).unwrap(),
+            }
+            .encode()
+            .unwrap(),
+        );
+    }
+    sim.advance_tick(&[], None, None, None, 33);
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(2));
+    let timing = sim.session.network_command_timing().unwrap();
+    assert_eq!(timing.frames_per_second(), 25);
+    assert!(!timing.admits_source(0) && !timing.admits_source(1));
+
+    // A source already removed by the loading wait must not fail installation
+    // or make a connected-but-defeated stale publisher authoritative again.
+    sim.network_command_queues()
+        .install_timing(1, NonZeroU8::new(5).unwrap(), [2]);
+    assert_eq!(sim.network_command_queues().timing_host_house(), Some(2));
 }
 
 #[test]

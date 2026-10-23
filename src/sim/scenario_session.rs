@@ -1198,19 +1198,29 @@ impl ScenarioSession {
         self.network_command_timing.as_ref()
     }
 
+    /// Retire the existing admitted timing row at a shared EXIT/REMOVEPLAYER
+    /// tail. Local transport loss alone must not change shared timing state.
+    pub(crate) fn retire_network_command_source(&mut self, house: i8) {
+        if let Some(timing) = self.network_command_timing.as_mut() {
+            timing.retire_source(house);
+        }
+    }
+
     /// EventClass::Execute4C800C / 4C80B1. Transport validates source headers;
-    /// only the admitted host can change shared timing. No wall clock enters
-    /// this owner. Execute_DoList supplies its persistent retiming window.
+    /// Simulation supplies the same live publisher decision used by the local
+    /// producer. No wall clock enters this owner. Execute_DoList supplies its
+    /// persistent retiming window.
     pub(crate) fn apply_network_timing_record(
         &mut self,
         record: &crate::sim::command::CommandRecord,
         window: &mut crate::sim::command_queue::DoListRetimeWindow,
+        publisher: Option<i8>,
     ) {
         let Some(timing) = self.network_command_timing.as_mut() else {
             return;
         };
         if let Some(event) = crate::sim::command::TimingRecord::decode(record) {
-            if event.house_id != timing.host_house() {
+            if publisher != Some(event.house_id) {
                 return;
             }
             let ahead = window.apply_timing_update(

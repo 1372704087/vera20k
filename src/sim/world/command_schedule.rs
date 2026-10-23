@@ -1270,7 +1270,10 @@ impl DoListHost<QueuedCommand> for WorldCommandHost<'_, '_, '_> {
                 crate::sim::command::TIMING_OPCODE | crate::sim::command::PROCESS_TIME_OPCODE
             )
         {
-            self.sim.session.apply_network_timing_record(record, window);
+            let publisher = self.sim.network_timing_host_house();
+            self.sim
+                .session
+                .apply_network_timing_record(record, window, publisher);
             return;
         }
         let command = match entry {

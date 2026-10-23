@@ -40,7 +40,11 @@ impl NetworkCommandTiming {
     ) -> Self {
         let processing_millis: BTreeMap<_, _> =
             houses.into_iter().map(|house| (house, None)).collect();
-        assert!(host_house >= 0 && processing_millis.contains_key(&host_house));
+        // The authenticated WOL publisher can already be absent after the
+        // loading wait's DestroyConnection684596. Session697E70 then falls
+        // back to a remaining source; installation must keep those live rows.
+        assert!(host_house >= 0 && !processing_millis.is_empty());
+        assert!(processing_millis.keys().all(|house| *house >= 0));
         Self {
             host_house,
             frame_send_rate,
@@ -51,6 +55,8 @@ impl NetworkCommandTiming {
         }
     }
 
+    /// Startup's authenticated publisher preference. Live authority is derived
+    /// from the existing admitted rows and House state by Simulation.
     pub const fn host_house(&self) -> i8 {
         self.host_house
     }
@@ -67,6 +73,16 @@ impl NetworkCommandTiming {
         houses.into_iter().try_fold(0u16, |maximum, house| {
             Some(maximum.max(self.processing_millis.get(&house).copied().flatten()?))
         })
+    }
+
+    pub(crate) fn admits_source(&self, house: i8) -> bool {
+        self.processing_millis.contains_key(&house)
+    }
+
+    /// NodeNameTag removal5DAA8A..5DAB38 retires its timing sample too.
+    /// EXIT/REMOVEPLAYER call this only at their synchronized command tail.
+    pub(crate) fn retire_source(&mut self, house: i8) {
+        self.processing_millis.remove(&house);
     }
 
     pub(crate) fn record_processing_millis(&mut self, house: i8, milliseconds: u16) {

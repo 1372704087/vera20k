@@ -38,7 +38,8 @@ pub(crate) enum ConnectionError {
     /// `TXT_LEFT_GAME`, nothing queued by DestroyConnection itself.
     Left,
     /// 1: the connection was lost. `TXT_CONNECTION_LOST`; Flag_To_Die at
-    /// frame 0, REMOVEPLAYER otherwise.
+    /// frame 0, REMOVEPLAYER otherwise. Installed VERA timing also needs
+    /// synchronized source retirement when a live frame-zero vote removes it.
     Lost,
 }
 
@@ -130,9 +131,15 @@ pub(crate) fn destroy_connection(
         live.remove_peer(house);
     }
     if error == ConnectionError::Lost {
-        if sim.session().binary_frame() == 0 {
+        let frame = sim.session().binary_frame();
+        if frame == 0 {
             sim.flag_house_to_die(owner);
-        } else {
+        }
+        // VERA UDP/relay adaptation: native5DA86A..5DA87A only flags at zero.
+        // A vote can remove a source after live timing was installed but
+        // before the initial frame commits. Reuse the existing shared event
+        // so its timing row retires through DoList, never a local peer list.
+        if frame != 0 || sim.session().network_command_timing().is_some() {
             // EVENT_REMOVEPLAYER from PlayerPtr with the House's index
             // (0x005DA898..0x005DA8F0); it kills the House on every peer.
             let local = sim.session().current_house();
@@ -1394,6 +1401,111 @@ mod tests {
         assert!(
             receive_departure(&mut session, &mut sim, &mut live, &mut wait, endpoint).is_none()
         );
+    }
+
+    #[test]
+    fn initial_live_host_loss_retires_timing_only_when_the_shared_record_executes() {
+        use crate::net::reliable::{LanConnectionConfig, LanConnections, RetryTiming};
+        use crate::net::udp::{LanUdpTransport, UdpBindConfig};
+        use std::net::{Ipv4Addr, SocketAddrV4};
+        use std::num::{NonZeroU8, NonZeroU32};
+
+        for installed in [false, true] {
+            let (mut session, mut sim) = vote_fixture();
+            let launch = session.network_setup().unwrap().clone();
+            session.enter_network(super::super::session::NetworkReturnContext::Wol);
+            session.accept_network_setup(launch, false, None).unwrap();
+            session.prepare_wol_timing([0; 2], false).unwrap();
+            let endpoint = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30125);
+            let remote_name = session.network_setup().unwrap().humans[0].name.clone();
+            session
+                .bind_network_endpoint(&remote_name, endpoint)
+                .unwrap();
+            session.freeze_network_start(19).unwrap();
+            let local = sim.houses().order()[0];
+            let remote = sim.houses().order()[1];
+            sim.session_mut_for_test().set_game_mode(SessionMode::Wol);
+            sim.session_mut_for_test()
+                .set_current_house_for_test(Some(local));
+            sim.install_network_timing(session.network_max_ahead_frames().unwrap());
+            if installed {
+                sim.network_command_queues()
+                    .install_timing(1, NonZeroU8::new(5).unwrap(), [0, 1]);
+            }
+            let timing = sim.session().network_command_timing().cloned();
+            let mut live = installed.then(|| {
+                let mut connections = LanConnections::new(
+                    LanConnectionConfig::default(),
+                    RetryTiming::LAN_GUEST_COMPLETED_GLOBAL,
+                );
+                connections.add_peer(1, endpoint).unwrap();
+                let bind = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+                let transport = LanUdpTransport::bind(
+                    UdpBindConfig {
+                        primary: bind,
+                        alternate: bind,
+                    },
+                    connections,
+                )
+                .unwrap();
+                crate::net::live_commands::LiveCommandSession::new(
+                    transport,
+                    0,
+                    19,
+                    NonZeroU32::new(5).unwrap(),
+                    LiveCommandMode::Wol,
+                )
+                .unwrap()
+            });
+            assert_eq!(sim.session().binary_frame(), 0);
+            let removed = destroy_connection(
+                &mut session,
+                &mut sim,
+                0,
+                ConnectionError::Lost,
+                live.as_mut(),
+            )
+            .unwrap();
+            assert_eq!(removed.owner, remote);
+            assert_eq!(removed.key, "TXT_CONNECTION_LOST");
+            assert_eq!(session.network_connected_source_indices(), &[1]);
+            if let Some(live) = live.as_ref() {
+                assert!(live.peers().is_empty());
+                assert!(live.connections().peers().next().is_none());
+            }
+            assert!(sim.houses()[&remote].is_to_die());
+            assert_eq!(sim.session().network_command_timing(), timing.as_ref());
+            let records = sim
+                .network_command_queues()
+                .local_records()
+                .unwrap()
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            if !installed {
+                assert!(
+                    records.is_empty(),
+                    "loading before timing installation stays native"
+                );
+                continue;
+            }
+            assert_eq!(sim.network_command_queues().timing_host_house(), Some(1));
+            assert_eq!(
+                records.len(),
+                1,
+                "live frame-zero source loss must be shared"
+            );
+            let record = &records[0];
+            assert_eq!(record.opcode(), crate::sim::command::REMOVE_PLAYER_OPCODE);
+            // Fixture source0 is remote House1; local source1 is House0.
+            assert_eq!(record.house_id(), 0);
+            assert_eq!(record.frame_stamp(), 0);
+            assert_eq!(&record.payload()[..4], &1_i32.to_le_bytes());
+            let output = sim.advance_tick(&[], None, None, None, 33);
+            assert_eq!(output.executed_commands, 1);
+            assert_eq!(sim.network_command_queues().local_len(), 0);
+            assert_eq!(sim.network_command_queues().timing_host_house(), Some(0));
+        }
     }
 
     fn votes(entries: &[(usize, &[usize])]) -> BTreeMap<usize, Vec<usize>> {

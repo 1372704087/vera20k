@@ -635,7 +635,7 @@ impl LiveCommandSession {
         let Some(shared) = queues.timing() else {
             return;
         };
-        let host = shared.host_house() == self.local_house;
+        let host = queues.timing_host_house() == Some(self.local_house);
         let rate = shared.frame_send_rate();
         // A cache for this retained frame only; ScenarioSession is the owner
         // changed by EVENT_TIMING after dispatch, before the next poll.

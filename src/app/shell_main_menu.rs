@@ -89,6 +89,12 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
             .interpolation
             .set_enabled(enabled);
     }
+    fn store_mouse_wheel_zoom(&mut self, enabled: bool) {
+        self.persistence.options_profile.mouse_wheel_zoom = enabled;
+        if !enabled {
+            crate::app::input::camera::reset_view_distance(self);
+        }
+    }
     fn store_wol_test_service(&mut self, wol_test_service: bool) {
         // The next Internet visit picks its provider from it.
         self.persistence.options_profile.wol_test_service = wol_test_service;
@@ -1235,7 +1241,7 @@ Details: {details}"
         };
         match message_box.purpose {
             // OK -> quit (result 0). Dismiss the confirmation first, persist
-            // settings to RA2MD.INI, then run the graceful cascade (music fade
+            // settings to VERA.INI, then run the graceful cascade (music fade
             // → trailing-voice wait → hard stop → exit) via render_frame instead
             // of exiting immediately. The screen fade-to-black is sub-step 4b-ii-b.
             ShellMessageBoxPurpose::ExitGame

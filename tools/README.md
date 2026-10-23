@@ -130,6 +130,18 @@ by the runner. Other Cargo/test arguments and the caller's environment pass thro
 Tests must select `--lib`. The runner does not give a new worktree the ignored `ini/`
 and `config.toml`; `python -m tools.prepare_checkout` does.
 
+To extract retail INIs into a fresh clone's `ini/`, build the extractor through
+the shared owner, then resolve its recorded executable:
+
+```sh
+python -m tools.cargo_run -- build --bin extract-ini
+python -m tools.cargo_run --resolve extract-ini --profile debug
+```
+
+Run the returned absolute path with your Yuri's Revenge game folder as its
+argument. Quote both paths; in PowerShell, prefix the executable path with `&`.
+If the argument is omitted, the extractor reads `RA2_DIR`, then `config.toml`.
+
 A label preserves every executable reported by **that Cargo invocation**, including
 fresh cache hits, under `<git-common-dir>/owned-builds/artifacts/<label>`.
 Executables retain their original basename inside numbered subdirectories.
@@ -372,7 +384,9 @@ folders without `__init__.py`; it excludes generated `.claude` mirrors and the
 machine-local `ghidra-up` skill. It prints every module and its test count, fails
 on import errors or empty test modules, and propagates test failures. Focus a
 module with ordinary `python -m unittest <module> -v` when investigating a failure.
-Agents run it before every PR that changes tools or skills (AGENTS.md). The
+Agents run it once on the final candidate for Python tool or skill-script
+changes (AGENTS.md). Markdown-only skills need content, link and example checks
+plus relevant tooling such as skill sync; they do not need the full suite. The
 `python-tools` workflow runs the same suite and the skill-mirror check on Linux,
 macOS and Windows when a maintainer dispatches it. No Cargo, game executable, GPU
 or retail install is needed; Unicorn exercises synthetic x86 in the runner failure tests.

@@ -50,6 +50,25 @@ Yuri's Revenge aus [Steam](https://store.steampowered.com/app/2229850/) oder der
 und richtet VERA20K in einem neuen Ordner ein. Dort kommen künftig auch Mods und neue Inhalte hin,
 sodass die Spieldateien nie verändert werden.
 
+Wie du Einzelspieler-Gefechte oder Kampagnen von YR über einen CnCNet-Client startest, steht in der
+[Offline-Client-Einrichtung](integrations/cncnet/README.md).
+
+## Einstellungen
+
+Nutze **Options** für Ton und Steuerung und **Vera Options** für VERA-spezifische Funktionen.
+Spielereinstellungen, Tastenkürzel und Lobby-Einstellungen werden in `VERA.INI` gespeichert:
+
+- **Windows-Installer:** neben `vera20k.exe`.
+- **macOS:** `~/Library/Application Support/VERA20k/VERA.INI`.
+- **Linux:** `~/.local/share/VERA20k/VERA.INI` oder in deinem XDG-Datenordner.
+
+`config.toml` legt den Spielordner fest und kann einen anderen Einstellungsordner vorgeben.
+
+Wenn `VERA.INI` fehlt, erstellt VERA die Datei und importiert vorhandene Einstellungen einmalig.
+Ohne alte Einstellungen bleibt die Datei zunächst leer; VERA verwendet die integrierten
+Standardwerte, bis Einstellungen gespeichert werden. Die Originaldateien `RA2MD.INI` und
+`KeyboardMD.ini` werden nur für den Import gelesen und nie überschrieben.
+
 ## Architektur
 
 Die Engine besteht aus drei Hauptteilen:
@@ -106,18 +125,20 @@ ursprüngliche Engine mit Ghidra, übertragen dann ihr Verhalten nach Rust und p
 VERA20K spielt sich standardmäßig wie das Originalspiel. Jede neue Funktion, auch Erweiterungen
 aus Mods wie Ares, muss ausgeschaltet bleiben, bis sie auf einem dieser Wege aktiviert wird:
 
+- **Eine VERA-Spieleroption** unter **Options → Vera Options**, gespeichert im Abschnitt `[VERA]` in `VERA.INI`.
 - **Eine Build-Option**, z. B. `--features ares` für die unterstützten [Ares-Erweiterungen](docs/ares.md).
 - **Eine Lobby-Option im Spiel**, die für jede Partie gewählt wird.
 - **Ein INI-Schlüssel**, den eine Mod oder eine Karte setzt.
 
-Wie du Einzelspieler-Gefechte oder Kampagnen von YR über einen CnCNet-Client startest, steht in der
-[Offline-Client-Einrichtung](integrations/cncnet/README.md).
+Einstellungen für Ton, Grafik und Steuerung werden in `VERA.INI` gespeichert. Die Spielregeln
+stammen aus den Lobby-Einstellungen, Mods oder Karten.
 
 ## Mitmachen
 
 Hilfe ist willkommen. Du kannst Code schreiben, die Engine refaktorieren, das Spiel testen,
 Ideen einbringen oder es neben dem Original spielen und uns sagen, was sich falsch anfühlt.
 Öffne einen PR, und wir kümmern uns um den Rest.
+
 Diskutiert wird auf [Discord](https://discord.gg/kmjRUn5m5F) und in der QQ-Gruppe (1097193563).
 
 ## Unterstützen

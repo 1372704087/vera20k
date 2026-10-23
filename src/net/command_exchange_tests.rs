@@ -456,3 +456,120 @@ fn initial_mismatch_preserves_native_progress_and_reset_clears_every_session_fie
     assert!(exchange.remove_peer(2));
     assert!(exchange.initial_ready());
 }
+
+/// Generated strip events use the ordinary packet, private reliable UDP and
+/// simulation receivers before disposing the held product on both clients.
+#[test]
+fn local_prerequisite_loss_publishes_one_raw_cancellation_stream() {
+    use crate::net::command_exchange::{CommandExchange, SendPoll};
+    use crate::net::lan_messages::SessionScope;
+    use crate::net::lockstep::NetworkSendPolicy;
+    use crate::net::reliable::{Delivery, LanConnectionConfig, LanConnections, RetryTiming};
+    use crate::net::udp::{LanUdpTransport, UdpBindConfig};
+    use std::net::{Ipv4Addr, SocketAddrV4};
+    use std::time::{Duration, Instant};
+
+    crate::sim::production::prerequisite_loss_cancellation_fixture(|sender, receiver, records| {
+        // Use the same packet, private reliability and scoped UDP owners as live
+        // play. No record/ACK is injected into the receiver or retired by the test.
+        let mut wires: [LanUdpTransport; 2] = std::array::from_fn(|_| {
+            LanUdpTransport::bind(
+                UdpBindConfig {
+                    primary: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
+                    alternate: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
+                },
+                LanConnections::new(
+                    LanConnectionConfig::default(),
+                    RetryTiming {
+                        retry_delta: 1,
+                        max_retries: u32::MAX,
+                        timeout: u32::MAX,
+                    },
+                ),
+            )
+            .unwrap()
+        });
+        for wire in &mut wires {
+            wire.set_lan_scope(SessionScope {
+                epoch: [7; 16],
+                revision: 1,
+            })
+            .unwrap();
+        }
+        let [outbound, inbound] = &mut wires;
+        outbound
+            .connections_mut()
+            .add_peer(1, inbound.primary_addr().unwrap())
+            .unwrap();
+        inbound
+            .connections_mut()
+            .add_peer(0, outbound.primary_addr().unwrap())
+            .unwrap();
+        let mut send = CommandExchange::new([1]).unwrap();
+        let mut receive = CommandExchange::new([0]).unwrap();
+        assert_eq!(
+            send.send_frame(
+                &mut sender.network_command_queues(),
+                0,
+                0,
+                0,
+                0,
+                NetworkSendPolicy::EveryFrame,
+                |bytes, reliable| {
+                    assert!(reliable);
+                    outbound
+                        .connections_mut()
+                        .broadcast(bytes, Delivery::Reliable)
+                },
+            )
+            .unwrap(),
+            SendPoll::Complete {
+                commands: records.len()
+            }
+        );
+        assert_eq!(sender.pending_local_command_count(), 0);
+        let started = Instant::now();
+        loop {
+            let now = 2 + (started.elapsed().as_millis() / 16) as u32;
+            for wire in [&mut *outbound, &mut *inbound] {
+                let report = wire.service(now);
+                assert!(
+                    report.first_io_error.is_none() && report.failed_peer.is_none(),
+                    "{report:?}"
+                );
+                assert_eq!(
+                    report.rejected_connections + report.malformed_datagrams,
+                    0,
+                    "{report:?}"
+                );
+            }
+            while let Some(message) = inbound.pop_received() {
+                assert_eq!((message.peer_id, message.delivery), (0, Delivery::Reliable));
+                receive
+                    .receive(
+                        i8::try_from(message.peer_id).unwrap(),
+                        &message.payload,
+                        0,
+                        &mut receiver.network_command_queues(),
+                        0,
+                    )
+                    .unwrap();
+            }
+            if receive.peers()[0].received_commands() == records.len() as u64
+                && outbound.connections().queued_send_count(1) == Some(0)
+            {
+                break;
+            }
+            assert!(
+                started.elapsed() < Duration::from_secs(2),
+                "cancellation UDP/ACK did not drain"
+            );
+            std::thread::yield_now();
+        }
+        assert_eq!(send.sent_commands(), records.len() as u64);
+        assert_eq!(
+            receive.peers()[0].advertised_commands(),
+            records.len() as u64
+        );
+    });
+}

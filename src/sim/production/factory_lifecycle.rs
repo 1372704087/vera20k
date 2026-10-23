@@ -1115,10 +1115,10 @@ pub(in crate::sim) fn step_factories(sim: &mut Simulation) {
     *sim.production.factories_mut() = registry;
 }
 
-/// `StripClass::Recalculate @ 0x006AA600` over the builds of every human
-/// house, as a player's strip runs it when the house's tech tree is
-/// rechecked (`HouseClass::Update @ 0x004F926C`). A type the strip no longer
-/// keeps ([`strip_keeps`]) sends ABANDON (event `0x10`) when it is its
+/// `StripClass::Recalculate @ 0x006AA600` over the current player's builds.
+/// HouseClass::Update004F8440 (4F9265..4F92E2) admits the sidebar only for
+/// PlayerPtr; remote Houses still run their superweapon recheck. A type it no
+/// longer keeps ([`strip_keeps`]) sends ABANDON (event `0x10`) when it is its
 /// category's active build, whose cameo holds the factory (`0x006AA7B6`),
 /// and ABANDON_ALL (event `0x2E`) when the house has a factory for the
 /// type's kind (`HouseClass::GetPrimaryFactory @ 0x00500510` with build
@@ -1132,18 +1132,21 @@ pub(in crate::sim) fn step_factories(sim: &mut Simulation) {
 /// No RNG/timer/detach writes occur here; event execution reuses the owning
 /// factory's cancellation/promotion and held-object lifecycle.
 ///
-/// Residual: native client-local sidebar entry order and saturated/network
-/// OutList transport are separate mechanisms. VERA represents every human
-/// strip in deterministic House order; a single rejected stock MGTK cameo
-/// has no cross-entry ordering ambiguity. TAction106 now requests this same
-/// House recheck. Other unported trigger writers and unpowered-factory cameo
+/// EventCtor4C6970 captures the type selector before publication: ABANDON10
+/// at6AA7D5 precedes ABANDON_ALL2E at6AA8C0 for the same rejected cameo.
+/// Reuse the ordinary production encoder; the shared OutList owns admission
+/// and network retiming. Source: original gamemd.exe instructions.
+///
+/// Residual: native sidebar entry order remains separate from the retained
+/// Factory build-type order used here. TAction106 requests this same House
+/// recheck. Other unported trigger writers and unpowered-factory cameo
 /// admission remain separate existing gaps.
 pub(in crate::sim) fn recalculate_strips(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,
 ) -> Vec<crate::sim::command::CommandEnvelope> {
-    use crate::sim::command::{Command, CommandEnvelope};
+    use crate::sim::command::{CommandEnvelope, ProductionEvent};
     if !sim.houses.get(&owner).is_some_and(|house| house.is_human()) {
         return Vec::new();
     }
@@ -1174,22 +1177,16 @@ pub(in crate::sim) fn recalculate_strips(
     let mut events = Vec::new();
     let execute_tick = sim.session.tick().saturating_add(1);
     for (type_id, own_factory, kind_factory) in abandons {
-        if own_factory {
-            events.push(CommandEnvelope::new(
-                owner,
-                execute_tick,
-                Command::CancelProductionByType {
-                    type_id,
-                    all: false,
-                },
-            ));
-        }
-        if kind_factory {
-            events.push(CommandEnvelope::new(
-                owner,
-                execute_tick,
-                Command::CancelProductionByType { type_id, all: true },
-            ));
+        for event in [
+            own_factory.then_some(ProductionEvent::Abandon),
+            kind_factory.then_some(ProductionEvent::AbandonAll),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if let Some(record) = sim.encode_production_record(owner, event, type_id, rules) {
+                events.push(CommandEnvelope::synchronized(record, execute_tick));
+            }
         }
     }
     events

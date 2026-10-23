@@ -172,13 +172,14 @@ impl Simulation {
                 }
                 self.lifecycle_outputs
                     .emit(super::LifecycleOutput::SidebarRecalculated { owner });
+                // HouseClass::Update004F8440 (4F9265..4F92E2) calls the sidebar
+                // only for PlayerPtr. Other humans receive its ABANDON records;
+                // they must not publish their own copy of that player's strip.
+                // Source: original gamemd.exe instructions.
+                generated.extend(crate::sim::production::recalculate_strips(
+                    self, rules, owner,
+                ));
             }
-            // Strip recalculation precedes4F92F6/4F92FD's Super
-            // revoke/grant passes. Carry generated ABANDON events
-            // to MainTick's post-Logic647260 dispatcher.
-            generated.extend(crate::sim::production::recalculate_strips(
-                self, rules, owner,
-            ));
             crate::sim::superweapon::update_owned_supers(self, rules, owner);
             crate::sim::superweapon::grant_provided_supers(self, rules, owner);
         }

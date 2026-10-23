@@ -317,15 +317,19 @@ fn captured_alternate_refreshes_cameos_then_retracts_queued_product_on_loss() {
     let cancellation_order = events
         .iter()
         .map(|event| {
-            assert_eq!(event.owner, owner);
             assert_eq!(event.execute_tick, sim.session.tick() + 1);
-            match event.payload {
-                crate::sim::command::Command::CancelProductionByType { type_id, all } => {
-                    assert_eq!(type_id, query);
-                    all
-                }
-                ref other => panic!("unexpected prerequisite-loss output {other:?}"),
-            }
+            let crate::sim::command::Command::SynchronizedRecord { record } = &event.payload else {
+                panic!("prerequisite-loss cancellation must retain its native record");
+            };
+            let event = crate::sim::command::ProductionRecord::decode(record).unwrap();
+            assert_eq!(event.house_id, 0);
+            assert_eq!(
+                event.type_index,
+                rules
+                    .type_array_index(crate::rules::object_type::ObjectCategory::Vehicle, "Q")
+                    .unwrap()
+            );
+            event.event == crate::sim::command::ProductionEvent::AbandonAll
         })
         .collect::<Vec<_>>();
     assert_eq!(

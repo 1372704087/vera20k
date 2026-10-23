@@ -381,6 +381,27 @@ impl LiveRoundFlow {
             .map_or((false, false, false), |lobby| {
                 (lobby.shown, lobby.wait.is_some(), lobby.message().is_some())
             });
+        let session = &state.match_state.session;
+        let setup = session.network_setup();
+        let setup_humans = setup.map(|launch| launch.humans.len());
+        let bound_rows = setup.map(|launch| {
+            launch
+                .humans
+                .iter()
+                .filter(|human| human.raw_slot_index.is_some())
+                .count()
+        });
+        let seed_present = session.network_start_seed().is_some();
+        let map_capacity = session
+            .network_map_metadata()
+            .map(|metadata| metadata.player_capacity);
+        let setup_capacity = session.network_setup_capacity();
+        let selected_map_present = setup.is_some_and(|launch| launch.selected_map_file.is_some());
+        let local = setup.and_then(|launch| launch.humans.get(launch.local_player_index));
+        let local_row = local.and_then(|human| human.raw_slot_index);
+        let local_start = local.map(|human| human.slot.start_position);
+        let accept_enabled = setup::view(state).map(|view| view.accept_enabled);
+        let desired_start = self.config.as_ref().and_then(|config| config.start);
         let sim = state
             .match_state
             .sim_runtime
@@ -399,7 +420,7 @@ impl LiveRoundFlow {
             .and_then(|live| live.wait_info())
             .map(|wait| wait.kind);
         log::info!(
-            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}, lobby_shown={lobby_shown}, lobby_wait={lobby_wait}, lobby_message={lobby_message}, slide_first_paint={}, active_slide={:?}",
+            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}, setup_humans={setup_humans:?}, bound_rows={bound_rows:?}, seed_present={seed_present}, map_capacity={map_capacity:?}, setup_capacity={setup_capacity:?}, selected_map_present={selected_map_present}, local_row={local_row:?}, local_start={local_start:?}, accept_enabled={accept_enabled:?}, desired_start={desired_start:?}, lobby_shown={lobby_shown}, lobby_wait={lobby_wait}, lobby_message={lobby_message}, slide_first_paint={}, active_slide={:?}",
             self.phase,
             state.frontend.shell_exit.is_some(),
             state.frontend.shell_first_paint_slide.is_some(),

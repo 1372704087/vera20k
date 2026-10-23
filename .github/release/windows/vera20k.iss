@@ -1,5 +1,5 @@
 ; Windows installer for VERA20K. The Release workflow (.github/workflows/release.yml)
-; compiles it with the Inno Setup 6 compiler on GitHub's Windows runner:
+; compiles it with the Inno Setup compiler pinned in the workflow:
 ;
 ;   ISCC /DAppVersion=<x.y.z> /DBuild=<YYYYMMDD-HHMMSS> /DPackageDir=<package folder>
 ;        /DOutputDir=<dir> /DOutputBaseFilename=<name> vera20k.iss
@@ -15,14 +15,11 @@
 ; A silent install takes the game folder from /GAMEDIR=<folder>, or else uses
 ; the one it would offer.
 ;
-; ChineseSimplified.isl is Inno Setup's own translation, from jrsoftware/issrc at
-; 6ef32198e (Files/Languages); the Inno Setup 6 compiler does not ship it.
-
 #ifndef AppVersion
   #error Define AppVersion, Build, PackageDir, OutputDir and OutputBaseFilename
 #endif
-#if Ver < EncodeVer(6, 7, 0)
-  #error Compile with Inno Setup 6.7.0 or later
+#if Ver < EncodeVer(7, 1, 0)
+  #error Compile with Inno Setup 7.1.0 or later
 #endif
 
 [Setup]
@@ -59,7 +56,7 @@ SolidCompression=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
-Name: "chinesesimplified"; MessagesFile: "{#SourcePath}ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Messages]
 english.WelcomeLabel2=This will install [name/ver] on your computer.%n%nVERA20K is a community-led rewrite of the Red Alert 2: Yuri's Revenge engine.%n%nYou will need the game files from your own copy of Yuri's Revenge 1.001.

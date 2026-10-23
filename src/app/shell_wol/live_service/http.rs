@@ -626,6 +626,14 @@ pub(super) fn run(
                     result
                 };
                 let completed = result.is_ok();
+                if let Err(error) = result {
+                    // Static operation names and numeric status only: request
+                    // bodies, headers and transport errors can carry secrets.
+                    log::warn!(
+                        "Online command failed: operation={operation}, status={}",
+                        error.status()
+                    );
+                }
                 match result {
                     Ok(()) => {
                         let _ = output.send(Response::CommandCompleted { id, operation });

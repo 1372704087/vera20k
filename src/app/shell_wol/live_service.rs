@@ -1076,7 +1076,10 @@ fn options(state: &AppState) -> Result<wire::Options> {
         .selected_map_file
         .as_deref()
         .ok_or_else(|| anyhow!("no selected map"))?;
-    let metadata = crate::app::shell_network_setup::local_map_metadata(state, file)?;
+    let metadata =
+        crate::app::shell_network_setup::local_map_metadata(state, file).inspect_err(|_| {
+            log::warn!("Online host map metadata could not be prepared");
+        })?;
     Ok(wire::Options {
         launch,
         map_metadata: metadata.into(),
@@ -1383,6 +1386,10 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         ),
         http::Response::Event(event) => {
             if apply_event(state, service, &event.kind, event.payload).is_err() {
+                log::warn!(
+                    "Online lobby update rejected: host_options={}",
+                    event.kind == "options"
+                );
                 notice(state, "The server sent an invalid lobby update.");
             }
         }
@@ -1663,7 +1670,9 @@ fn apply_event(
             service_event(state, WolServiceEvent::UserLeft(name));
         }
         "options" => {
-            let p: wire::OptionsEvent = decode(payload)?;
+            let p: wire::OptionsEvent = decode(payload).inspect_err(|_| {
+                log::warn!("Online host options could not be decoded");
+            })?;
             if p.revision < service.revision {
                 return Ok(());
             }
@@ -1704,12 +1713,20 @@ fn apply_event(
                 state
                     .match_state
                     .session
-                    .canonicalize_online_roster(&names)?;
-                let options = p.options.into_options(&local)?;
+                    .canonicalize_online_roster(&names)
+                    .inspect_err(|_| {
+                        log::warn!("Online host options roster was not admitted");
+                    })?;
+                let options = p.options.into_options(&local).inspect_err(|_| {
+                    log::warn!("Online host options had no admitted local player");
+                })?;
                 crate::app::shell_network_setup::service_event(
                     state,
                     NetworkSetupEvent::HostSetup(options),
-                )?;
+                )
+                .inspect_err(|_| {
+                    log::warn!("Online host setup was not admitted");
+                })?;
             }
             maps::received_options(state, service, generated)?;
             // The owner is ready without a guest Accept button, but still proves its

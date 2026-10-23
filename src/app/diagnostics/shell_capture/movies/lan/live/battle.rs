@@ -1009,7 +1009,10 @@ impl BattleOpening {
                     );
                     ensure!(
                         frame == previous.native_frame + 1 && (frame - 1) % period == 0,
-                        "paid repair did not occur on its global native Logic frame"
+                        "paid repair did not occur on its global native Logic frame: previous={}, current={frame}, period={period}, before_health={}, after_health={}",
+                        previous.native_frame,
+                        previous.health,
+                        current.health
                     );
                     ensure!(
                         current.health - previous.health

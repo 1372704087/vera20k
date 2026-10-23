@@ -14,6 +14,102 @@ fn native_dolist_world() -> Simulation {
 }
 
 #[test]
+fn borrowed_execution_observer_reports_actual_timing_acceptance() {
+    use crate::sim::command::{
+        PROCESS_TIME_OPCODE, ProcessTimeRecord, TIMING_OPCODE, TimingRecord,
+    };
+    use std::cell::RefCell;
+    use std::num::NonZeroU8;
+    let mut sim = native_dolist_world();
+    for (index, name) in [(1, "Publisher"), (2, "Unadmitted")] {
+        let owner = sim.interner.intern(name);
+        sim.houses
+            .register(HouseState::new(owner, index, None, true, 0, 10));
+    }
+    sim.network_command_queues()
+        .install_timing(1, NonZeroU8::new(5).unwrap(), [0, 1]);
+    for house in [0, 1] {
+        sim.admit_native_command_record(
+            TimingRecord {
+                house_id: house,
+                frame: 0,
+                frames_per_second: if house == 1 { 45 } else { 60 },
+                max_ahead: 10,
+                frame_send_rate: NonZeroU8::new(5).unwrap(),
+            }
+            .encode()
+            .unwrap(),
+        );
+    }
+    for house in [0, 2] {
+        sim.admit_native_command_record(
+            ProcessTimeRecord {
+                house_id: house,
+                frame: 0,
+                milliseconds: 12,
+            }
+            .encode()
+            .unwrap(),
+        );
+    }
+    let observed = RefCell::new(Vec::new());
+    let observer = |sim: &Simulation, record: &crate::sim::command::CommandRecord, applied| {
+        observed.borrow_mut().push((
+            record.opcode(),
+            record.house_id(),
+            applied,
+            sim.network_timing_host_house(),
+            sim.session
+                .network_command_timing()
+                .unwrap()
+                .frames_per_second(),
+        ));
+    };
+    sim.advance_master_frame(
+        &[],
+        RuleSet::empty_for_test(),
+        None,
+        33,
+        crate::sim::world::TickLane::Ordinary,
+        false,
+        FrameEffects::default().with_command_applied(&observer),
+    )
+    .unwrap();
+    let rows = observed.into_inner();
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows.iter()
+            .any(|row| row.0 == TIMING_OPCODE && row.1 == 0 && !row.2)
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.0 == PROCESS_TIME_OPCODE && row.1 == 0 && row.2)
+    );
+    assert!(
+        rows.iter()
+            .any(|row| row.0 == PROCESS_TIME_OPCODE && row.1 == 2 && !row.2)
+    );
+    assert!(
+        rows.iter()
+            .any(|row| *row == (TIMING_OPCODE, 1, true, Some(1), 45))
+    );
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .maximum_processing_millis([0]),
+        Some(12)
+    );
+    assert_eq!(
+        sim.session
+            .network_command_timing()
+            .unwrap()
+            .maximum_processing_millis([2]),
+        None
+    );
+}
+
+#[test]
 fn admitted_host_timing_retimes_future_events_and_resets_for_new_match() {
     use crate::sim::command::{CommandRecord, ProcessTimeRecord, TimingRecord};
     use std::num::NonZeroU8;

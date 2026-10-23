@@ -36,7 +36,7 @@ fn setup_control_at_row(
     }
     anyhow::bail!("setup page navigation did not reach the participant")
 }
-use crate::app::diagnostics::shell_capture::LiveLanConfig;
+use crate::app::diagnostics::shell_capture::{LiveLanConfig, LiveLanTransport};
 use crate::net::udp::UdpBindConfig;
 use crate::ui::multiplayer_setup::{SetupAction, SetupColumn};
 
@@ -461,31 +461,40 @@ impl LiveLanCapture {
                         state,
                     ))? =>
             {
-                // The normal hidden-window diagnostics suppress physical LAN.
-                // This explicit target installs the same service before Network
-                // opens; it alone owns the sockets through shell/loading/play.
+                // Hidden-window transcript captures suppress physical LAN.
+                // Live captures install the real owner before normal Network
+                // input opens the shell; it retains sockets through gameplay.
                 LanCapture::isolated_root(state)?;
                 ensure!(
                     state.match_state.lan_service.is_none(),
                     "LAN transport was already installed"
                 );
-                let config = self.config.as_ref().expect("LAN socket configuration");
-                let alternate =
-                    std::net::SocketAddrV4::new(*config.bind.ip(), config.bind.port() + 2);
-                state.match_state.lan_service = Some(crate::app::lan_service::LanService::open_on(
-                    UdpBindConfig {
-                        primary: config.bind,
-                        alternate,
-                    },
-                    &[config.peer],
-                )?);
-                App::leave_shell_dialog(
+                let config = self.config.as_ref().expect("LAN transport configuration");
+                state.match_state.lan_service = Some(match config.transport {
+                    LiveLanTransport::ProductionBroadcast => {
+                        crate::app::lan_service::LanService::open(
+                            crate::app::match_runtime::frame_pacer::wall_clock_bucket(),
+                        )?
+                    }
+                    LiveLanTransport::Explicit { bind, peer } => {
+                        let alternate = std::net::SocketAddrV4::new(*bind.ip(), bind.port() + 2);
+                        crate::app::lan_service::LanService::open_on(
+                            UdpBindConfig {
+                                primary: bind,
+                                alternate,
+                            },
+                            &[peer],
+                        )?
+                    }
+                });
+                click_main_menu(
                     state,
-                    crate::app::frontend::shell_transition::ShellExitThen::MainMenu(
-                        crate::ui::main_menu_shell::MainMenuShellAction::Network,
-                    ),
+                    crate::ui::main_menu_shell::MainMenuControlId::Network0x578,
+                )?;
+                self.event(
+                    frame,
+                    "real UDP service installed; MainMenu Network clicked",
                 );
-                self.event(frame, "real UDP service installed; MainMenu Network");
                 self.phase = Phase::Lobby;
             }
             Phase::Lobby if rendered == PresentedShell::LanLobby && lobby_settled(state) => {
@@ -543,7 +552,7 @@ impl LiveLanCapture {
                     self.rounds = Some(rounds);
                     result?
                 } else if rendered == PresentedShell::NetworkSetup && setup_settled(state, true) {
-                    self.prepare_host_setup(state, selected.as_deref())?;
+                    self.prepare_host_setup(state, selected.as_deref(), self.expected_players)?;
                     true
                 } else {
                     false
@@ -656,7 +665,7 @@ impl LiveLanCapture {
             _ => {}
         }
         if self.phase == Phase::Running {
-            self.observe_run(state, frame)?;
+            self.observe_run(state, frame, self.expected_players)?;
         }
         Ok(())
     }
@@ -725,6 +734,7 @@ impl LiveLanCapture {
         &mut self,
         state: &mut AppState,
         selected_map: Option<&str>,
+        players: usize,
     ) -> Result<()> {
         let mode = state
             .frontend
@@ -741,7 +751,7 @@ impl LiveLanCapture {
             .position(|map| {
                 (map.kind == crate::map::skirmish_scenarios::SkirmishScenarioKind::ConcreteMap
                     || selected_map.is_some_and(|file| file.eq_ignore_ascii_case("RandMap.Sed")))
-                    && map.player_capacity >= self.expected_players as i32
+                    && map.player_capacity >= players as i32
                     && selected_map.is_none_or(|file| map.file_name.eq_ignore_ascii_case(file))
                     && crate::map::skirmish_scenarios::is_valid_map(map, mode, false)
             })
@@ -793,7 +803,12 @@ impl LiveLanCapture {
         Ok(())
     }
 
-    fn observe_run(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+    fn observe_run(
+        &mut self,
+        state: &mut AppState,
+        frame: u32,
+        active_players: usize,
+    ) -> Result<()> {
         if let Some(failure) = self.failure.as_mut().filter(|failure| failure.armed()) {
             if failure.step(state, frame, &mut self.route)? {
                 MoviesCapture::restore_neutral_pointer(state);
@@ -854,7 +869,7 @@ impl LiveLanCapture {
             .as_ref()
             .context("real live transport")?;
         ensure!(
-            live.peers().len() + 1 == self.expected_players,
+            live.peers().len() + 1 == active_players,
             "live diagnostic peer disappeared"
         );
         let wait = format!("{:?}", live.wait_info());
@@ -890,6 +905,12 @@ impl LiveLanCapture {
             return Ok(());
         }
         if self.battle.is_some() {
+            // Wait_For_Players is inside an unfinished native MainTick: Logic
+            // may already have repaired a building, but DoList and the frame
+            // commit are still pending. Observe only its committed result.
+            if simulation.pending_network_wait() {
+                return Ok(());
+            }
             let host = self.host();
             let battle = self.battle.as_mut().expect("battle target");
             battle.step(state, committed, host, &mut self.actions)?;
@@ -1038,12 +1059,14 @@ impl LiveLanCapture {
         Ok(
             json!({"target":format!("{:?}",self.target),"service_boundary":if self.target.online() {"independent App processes; real HTTPS/UDP relay; ordinary frame boundary"} else {"two independent App processes; real UDP/global/private queues; ordinary frame boundary"},
             "scope":if self.target.desync_failure() { "real300-frame CRC and strong-hash prefix followed by external scoped FRAMEINFO corruption, actual checksum CE Stop and ordinary LAN lobby cleanup" } else if self.failure.is_some() { "shared 300-frame prefix followed by real peer disappearance and ordinary wait recovery or Quit; bounded runtime validation, not whole-match/native parity" } else if self.target.online() {"observed production match before real outcome; tactical commands and simulation checksums"} else if self.battle.is_some() { "kick/rejoin, Battle opening, tactical barracks rally through raw ARCHIVE, two automatic paid GI deliveries and natural rally walks per Human, tactical GI Move/object Attack, post-command rifle damage and raw Stop, then separation; bounded runtime validation, not whole-match/native parity" } else { "kick/rejoin, 300 native frames and local Move/Stop; bounded runtime validation, not whole-match/native parity" },
-            "participant_count":self.expected_players,
+            "participant_count":self.startup.as_ref().and_then(|startup|startup["sources"].as_array()).map_or(self.expected_players,Vec::len),
+            "configured_participant_count":self.expected_players,"active_participant_count":live.map(|live|live.peers().len()+1),
             "active_mobile_count":sim.entities().values_sorted().filter(|entity|entity.is_alive() && !entity.in_limbo() && matches!(entity.category(),crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).count(),
             "required_frames":through.unwrap_or(self.required_frames()),"battle":self.battle.as_ref().map(|battle| battle.receipt(state)).transpose()?,
             "failure":self.failure.as_ref().map(|failure| failure.receipt()),"mass_input":self.mass.as_ref().map(mass::MassInput::receipt),
             "kick_observed":self.kick_observed,
-            "bind":self.config.as_ref().map(|config|config.bind.to_string()),"peer":self.config.as_ref().map(|config|config.peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,
+            "production_broadcast":self.config.as_ref().map(|config|matches!(config.transport,LiveLanTransport::ProductionBroadcast)),
+            "bind":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(bind,_)|bind.to_string()),"peer":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(_,peer)|peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,
             "native_checksums":checksums,"simulation_hashes":hashes,
             "simulation_hash_interval":crate::sim::replay::PLAY_HASH_INTERVAL.get(),
             "actions":self.actions,"observed_movement":self.observed_movement,"stopped_position":self.stopped_position,"route":self.route,
@@ -1052,6 +1075,27 @@ impl LiveLanCapture {
             "mobile_objects":sim.entities().values_sorted().filter(|entity| matches!(entity.category(), crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).map(|entity| json!({"id":entity.stable_id(),"owner":sim.interner().resolve(entity.owner()),"position":entity.position,"alive":entity.is_alive()})).collect::<Vec<_>>() }),
         )
     }
+}
+
+/// Reuse the rendered hitbox and ordinary pointer handlers for both network
+/// entry routes; never inject a main-menu result from the capture driver.
+fn click_main_menu(
+    state: &mut AppState,
+    control: crate::ui::main_menu_shell::MainMenuControlId,
+) -> Result<()> {
+    let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
+    let rect = layout
+        .buttons
+        .iter()
+        .find(|button| button.id == control)
+        .context("rendered multiplayer main-menu button")?
+        .rect;
+    set_window_pointer_to_rect_center(state, rect);
+    App::handle_main_menu_shell_mouse_move(state);
+    App::handle_main_menu_shell_mouse_down(state);
+    App::handle_main_menu_shell_mouse_up(state);
+    MoviesCapture::restore_neutral_pointer(state);
+    Ok(())
 }
 
 /// Read committed observations from the one diagnostic replay owner. This
@@ -1125,9 +1169,5 @@ fn startup_receipt(state: &AppState) -> Result<Value> {
         .as_ref()
         .context("simulation")?
         .simulation;
-    Ok(
-        json!({"seed":state.match_state.session.network_start_seed(),"map":launch.selected_map_file,
-        "max_ahead":state.match_state.session.network_max_ahead_frames(),"local_source":launch.local_player_index,
-        "sources":launch.humans.iter().enumerate().map(|(source,human)| json!({"source":source,"name":human.name,"raw_row":human.raw_slot_index,"slot":human.slot,"house":crate::app::match_runtime::network_match::source_house(&state.match_state.session,sim,source),"endpoint":state.match_state.session.network_endpoint(source).map(|address|address.to_string())})).collect::<Vec<_>>() }),
-    )
+    crate::app::diagnostics::shell_capture::network_startup_receipt(state, launch, Some(sim))
 }

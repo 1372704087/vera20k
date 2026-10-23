@@ -48,7 +48,26 @@ pub(crate) struct OnlineCleanup {
     retired: Option<RetiredService>,
     // Derived receipt only: reset per retirement, set by that owner's exact
     // logout acknowledgement. It never controls retries or worker shutdown.
-    logout_acknowledged: bool,
+    logout_receipt: Option<LogoutReceipt>,
+}
+
+#[derive(Clone, Copy)]
+struct LogoutReceipt {
+    request_id: u64,
+    failures: u8,
+    acknowledged_uptime_ms: u64,
+}
+
+/// Nonsecret read-only facts from the existing retry/retirement owner. No
+/// diagnostic may change its command identity, retry timing or stop boundary.
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub(crate) struct LogoutObservation {
+    pub pending: bool,
+    pub request_id: Option<u64>,
+    pub failures: u8,
+    pub acknowledged: bool,
+    pub acknowledged_uptime_ms: Option<u64>,
+    pub worker_closed: bool,
 }
 
 struct RetiredService {
@@ -62,7 +81,29 @@ impl OnlineCleanup {
     }
 
     pub(crate) fn logout_acknowledged(&self) -> bool {
-        self.logout_acknowledged
+        self.logout_receipt.is_some()
+    }
+
+    pub(crate) fn logout_observation(&self) -> LogoutObservation {
+        let command = self
+            .retired
+            .as_ref()
+            .and_then(|retired| retired.service.logging_out.as_ref());
+        LogoutObservation {
+            pending: self.pending(),
+            request_id: command
+                .map(|command| command.request_id)
+                .or(self.logout_receipt.map(|receipt| receipt.request_id)),
+            failures: command.map_or_else(
+                || self.logout_receipt.map_or(0, |receipt| receipt.failures),
+                |command| command.failures,
+            ),
+            acknowledged: self.logout_acknowledged(),
+            acknowledged_uptime_ms: self
+                .logout_receipt
+                .map(|receipt| receipt.acknowledged_uptime_ms),
+            worker_closed: self.logout_acknowledged() && !self.pending(),
+        }
     }
 
     fn leave(&mut self, visit: &mut super::WolVisit, now: Instant) {
@@ -74,7 +115,7 @@ impl OnlineCleanup {
     fn retire(&mut self, mut service: LiveService, now: Instant) {
         // New online workers are deferred while one retiring visit exists.
         assert!(self.retired.is_none(), "one online exit owner at a time");
-        self.logout_acknowledged = false;
+        self.logout_receipt = None;
         service.auth_attempt = service.auth_attempt.wrapping_add(1);
         service.start_preparation = None;
         service.pending_choices = None;
@@ -109,14 +150,20 @@ impl OnlineCleanup {
                     "finish" => retired.service.finish_completed(id),
                     "leave" => retired.service.leave_completed(id),
                     "logout" => {
-                        let matches = retired
+                        let receipt = retired
                             .service
                             .logging_out
                             .as_ref()
-                            .is_some_and(|logout| logout.request_id == id);
+                            .filter(|logout| logout.request_id == id)
+                            .map(|logout| LogoutReceipt {
+                                request_id: id,
+                                failures: logout.failures,
+                                acknowledged_uptime_ms:
+                                    crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+                            });
                         retired.service.logout_completed(id);
-                        if matches {
-                            self.logout_acknowledged = true;
+                        if let Some(receipt) = receipt {
+                            self.logout_receipt = Some(receipt);
                             retired.service.stopping.store(true, Ordering::Release);
                         }
                     }
@@ -507,6 +554,36 @@ fn put_service(state: &mut AppState, service: LiveService) {
             .online_cleanup
             .retire(service, Instant::now());
     }
+}
+
+/// The authenticated match identity retained by the existing live service.
+pub(crate) fn online_match_id(state: &AppState) -> Option<&str> {
+    state
+        .frontend
+        .wol
+        .as_ref()?
+        .live_service
+        .as_ref()?
+        .match_id
+        .as_deref()
+}
+
+/// Admission facts only; used by the opt-in exit fault observer before it
+/// clicks the ordinary Back button. All cleanup state remains in LiveService.
+pub(crate) fn online_exit_ready(state: &AppState) -> bool {
+    state.frontend.wol.as_ref().is_some_and(|visit| {
+        visit.provider == WolProvider::Online
+            && visit.pending_service_request_count() == 0
+            && visit.live_service.as_ref().is_some_and(|service| {
+                !service.player_id.is_empty()
+                    && service.match_id.is_none()
+                    && service.finishing.is_none()
+                    && service.leaving.is_none()
+                    && service.logging_out.is_none()
+                    && service.pending.is_none()
+                    && service.start_preparation.is_none()
+            })
+    }) && !state.frontend.online_cleanup.pending()
 }
 
 pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
@@ -2202,6 +2279,10 @@ mod completion_tests {
         let _ = cleanup.poll(now);
         let _ = cleanup.poll(now + Duration::from_secs(1));
         assert!(input.try_recv().is_err());
+        let observation = cleanup.logout_observation();
+        assert_eq!(observation.request_id, Some(id));
+        assert_eq!(observation.failures, 1);
+        assert!(observation.pending && !observation.acknowledged && !observation.worker_closed);
         let _ = cleanup.poll(now + Duration::from_secs(2));
         let http::Request::Command {
             id: retry,
@@ -2269,9 +2350,16 @@ mod completion_tests {
             "relogin waits for the old worker to stop"
         );
         assert!(cleanup.pending() && cleanup.logout_acknowledged());
+        let observation = cleanup.logout_observation();
+        assert_eq!(observation.request_id, Some(id));
+        assert_eq!(observation.failures, 1);
+        assert!(observation.acknowledged && !observation.worker_closed);
         drop(output);
         assert!(cleanup.poll(now + Duration::from_secs(3)).is_none());
         assert!(!cleanup.pending() && cleanup.logout_acknowledged());
+        let observation = cleanup.logout_observation();
+        assert_eq!(observation.request_id, Some(id));
+        assert!(observation.worker_closed && observation.acknowledged_uptime_ms.is_some());
     }
 
     #[test]

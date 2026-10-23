@@ -1271,9 +1271,14 @@ impl DoListHost<QueuedCommand> for WorldCommandHost<'_, '_, '_> {
             )
         {
             let publisher = self.sim.network_timing_host_house();
-            self.sim
+            let applied = self
+                .sim
                 .session
                 .apply_network_timing_record(record, window, publisher);
+            // The same borrowed post-dispatch observation covers the native
+            // EventClass4C800C/4C80B1 tail, including rejected publishers.
+            self.frame_effects
+                .command_applied(self.sim, record, applied);
             return;
         }
         let command = match entry {

@@ -1368,7 +1368,7 @@ impl ApplicationHandler for App {
                         if btn_state.is_pressed() {
                             Self::handle_main_menu_shell_mouse_down(state);
                         } else {
-                            Self::handle_main_menu_shell_mouse_up(state, event_loop);
+                            Self::handle_main_menu_shell_mouse_up(state);
                         }
                     }
                 } else if state.frontend.screen == GameScreen::InGame {

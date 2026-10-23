@@ -71,7 +71,7 @@ impl Simulation {
     /// is the first remaining admitted human in shared House order, after
     /// synchronized EXIT/REMOVEPLAYER retires the old timing row. Neither a
     /// local peer list nor a second cached host participates in this decision.
-    pub(super) fn network_timing_host_house(&self) -> Option<i8> {
+    pub fn network_timing_host_house(&self) -> Option<i8> {
         let timing = self.session.network_command_timing()?;
         let wol = self.session.game_mode() == crate::sim::scenario_session::ScenarioGameMode::Wol;
         let eligible = |house_id: i8| {

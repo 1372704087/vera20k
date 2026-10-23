@@ -4,7 +4,6 @@
 
 use super::*;
 use crate::app::diagnostics::shell_capture::LanSetupCrash;
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -32,34 +31,7 @@ fn sidecar(prefix: &Path, kind: &str) -> PathBuf {
     PathBuf::from(name)
 }
 
-fn write_atomic(path: &Path, value: &Value) -> Result<()> {
-    ensure!(!path.try_exists()?, "stale fault receipt exists");
-    let pending = sidecar(path, "pending");
-    write_new_file(&pending, &serde_json::to_vec_pretty(value)?)?;
-    // One writer owns each named sidecar. Publish only its complete immutable
-    // bytes; a reader never sees an incomplete Ready/kill-boundary receipt.
-    fs::rename(pending, path)?;
-    Ok(())
-}
-
-fn read_control(path: &Path) -> Result<Option<Value>> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error.into()),
-    };
-    ensure!(
-        metadata.is_file() && !metadata.file_type().is_symlink() && metadata.len() <= 4096,
-        "invalid fault control file"
-    );
-    let mut bytes = Vec::new();
-    fs::File::open(path)?.take(4097).read_to_end(&mut bytes)?;
-    ensure!(
-        bytes.len() <= 4096,
-        "fault control file grew beyond its bound"
-    );
-    Ok(Some(serde_json::from_slice(&bytes)?))
-}
+use crate::app::diagnostics::shell_capture::fault_files::{read_control, write_atomic};
 
 fn control_id<'a>(control: &'a Value, phase: &str) -> Result<&'a str> {
     let id = control["fault_id"]
@@ -93,6 +65,35 @@ fn same_identity(first: &Value, next: &Value) -> bool {
     .all(|field| first[*field] == next[*field])
 }
 
+/// Project the exact admitted members using the map facts this client owns.
+/// MPGameOptions::ParsePacket5E3D10's K arm5E4C3D..57 accepts peer map
+/// statuses only on host screens C2/BC. A guest retains its own K1; it does
+/// not acquire a positive K row for the host. Source: gamemd.exe instructions.
+fn setup_members(
+    session: &crate::app::match_runtime::session::MatchSession,
+    transfer: bool,
+) -> Option<Vec<Value>> {
+    let launch = session.network_setup()?;
+    if launch.humans.len() != 2 {
+        return None;
+    }
+    launch
+        .humans
+        .iter()
+        .enumerate()
+        .map(|(source, human)| {
+            let row = human.raw_slot_index?;
+            if !transfer
+                && (session.host() || source == launch.local_player_index)
+                && session.network_map_status(source) != Some(1)
+            {
+                return None;
+            }
+            Some(json!({"name":human.name,"raw_row":row}))
+        })
+        .collect()
+}
+
 /// One read-only projection is reused for initial, requested-Ready and
 /// post-kill observations. Admission/map/timer decisions remain app-owned.
 fn snapshot(
@@ -119,17 +120,15 @@ fn snapshot(
         .as_ref()
         .context("editable setup")?;
     let transfer = victim == LanSetupCrash::MapHost;
-    if launch.humans.len() != 2
-        || !service.setup_roster_complete(session)
+    let Some(members) = setup_members(session, transfer) else {
+        return Ok(None);
+    };
+    if !service.setup_roster_complete(session)
         || !protocol.editable()
         || protocol.lan_go_send_pending()
         || (!transfer && protocol.blocking_map_transfer())
         || (!transfer && protocol.transfer_progress().is_some())
         || session.network_start_seed().is_none()
-        || launch.humans.iter().enumerate().any(|(source, human)| {
-            human.raw_slot_index.is_none()
-                || (!transfer && session.network_map_status(source) != Some(1))
-        })
     {
         return Ok(None);
     }
@@ -175,12 +174,16 @@ fn snapshot(
         }
         (admission.clone(), None)
     };
-    let config = core.config.as_ref().context("real LAN sockets")?;
-    let Some(source) = session.network_endpoint_source(config.peer) else {
+    let (bind, peer_endpoint) = core
+        .config
+        .as_ref()
+        .and_then(|config| config.transport.explicit_endpoints())
+        .context("setup crash requires explicit LAN sockets")?;
+    let Some(source) = session.network_endpoint_source(peer_endpoint) else {
         return Ok(None);
     };
     let Some((remaining, period)) = service
-        .setup_peer_lease(config.peer, now)
+        .setup_peer_lease(peer_endpoint, now)
         .filter(|(remaining, _)| *remaining > 0)
     else {
         return Ok(None);
@@ -192,16 +195,11 @@ fn snapshot(
         "wrong admitted crash peer"
     );
     let scope = service.setup_scope().context("admitted setup scope")?;
-    let members = launch
-        .humans
-        .iter()
-        .map(|human| json!({"name":human.name,"raw_row":human.raw_slot_index}))
-        .collect::<Vec<_>>();
     Ok(Some(
         json!({"schema":"vera20k.lan-setup-crash-prefix.v1", "victim":victim.as_str(),
         "account":if core.host() {HOST_NAME} else {GUEST_NAME},"host":HOST_NAME,"external_fault_pending":true,
-        "setup":{"scope":scope,"members":members,"local_endpoint":config.bind.to_string(),
-            "peer_endpoint":config.peer.to_string(),"peer_name":peer.name,"peer_source":source,
+        "setup":{"scope":scope,"members":members,"local_endpoint":bind.to_string(),
+            "peer_endpoint":peer_endpoint.to_string(),"peer_name":peer.name,"peer_source":source,
             "peer_raw_row":peer.raw_slot_index,"map_admission":map_admission,"map_download":map_download,
             "queued_setup_count":service.queued_setup_count(),
             "editable":true,"go_pending":false,"loading":false,"gameplay_started":false,
@@ -261,7 +259,7 @@ impl SetupCrashCapture {
                 !sidecar(prefix_path, "killed").try_exists()?,
                 "kill arrived before requested Ready"
             );
-            let Some(control) = read_control(&sidecar(prefix_path, "prepare"))? else {
+            let Some(control) = read_control(&sidecar(prefix_path, "prepare"), 4096)? else {
                 return Ok(false);
             };
             let id = control_id(&control, "prepare")?.to_owned();
@@ -291,13 +289,13 @@ impl SetupCrashCapture {
             boundary.ready_at.elapsed() <= FAULT_BOUNDARY_LIMIT,
             "owned kill acknowledgement missed the fresh survivor boundary"
         );
-        let original_prepare = read_control(&sidecar(prefix_path, "prepare"))?
+        let original_prepare = read_control(&sidecar(prefix_path, "prepare"), 4096)?
             .context("fault preparation disappeared")?;
         ensure!(
             control_id(&original_prepare, "prepare")? == boundary.id,
             "fault preparation identity changed"
         );
-        let Some(control) = read_control(&sidecar(prefix_path, "killed"))? else {
+        let Some(control) = read_control(&sidecar(prefix_path, "killed"), 4096)? else {
             return Ok(false);
         };
         ensure!(
@@ -414,18 +412,22 @@ impl SetupCrashCapture {
                 .as_u64()
                 .context("kill observation bucket")? as u32,
         );
-        let config = core.config.as_ref().context("real LAN sockets")?;
+        let (_, peer_endpoint) = core
+            .config
+            .as_ref()
+            .and_then(|config| config.transport.explicit_endpoints())
+            .context("setup crash requires explicit LAN sockets")?;
         let peer_retired = state
             .match_state
             .session
-            .network_endpoint_source(config.peer)
+            .network_endpoint_source(peer_endpoint)
             .is_none()
             && state
                 .match_state
                 .lan_service
                 .as_ref()
                 .is_some_and(|service| {
-                    !service.setup_peer_cleanup_pending(config.peer)
+                    !service.setup_peer_cleanup_pending(peer_endpoint)
                         && service.queued_setup_count() == 0
                 });
         if self.recovered.is_none()
@@ -536,5 +538,56 @@ impl SetupCrashCapture {
             "prefix":self.prefix,"fault_id":boundary.id,"ready":boundary.ready,
             "kill_observed":boundary.killed,"recovered":self.recovered,"returned":self.returned}),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
+
+    #[test]
+    fn setup_member_projection_respects_host_only_peer_map_status() {
+        let profile: Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/map_observation.command-bar.example.json",
+        ))
+        .unwrap();
+        let mut launch: crate::skirmish_launch::SkirmishLaunchSession =
+            serde_json::from_value(profile["launch"].clone()).unwrap();
+        launch.opponents.clear();
+        launch.ai_player_count = 0;
+        launch.humans[0].name = HOST_NAME.into();
+        let mut guest = launch.humans[0].clone();
+        guest.name = GUEST_NAME.into();
+        guest.raw_slot_index = Some(1);
+        launch.humans.push(guest);
+        launch.local_player_index = 1;
+        let expected = vec![
+            json!({"name":HOST_NAME,"raw_row":0}),
+            json!({"name":GUEST_NAME,"raw_row":1}),
+        ];
+
+        let mut guest = MatchSession::default();
+        guest.enter_network(NetworkReturnContext::LanLobby);
+        guest
+            .accept_network_setup(launch.clone(), false, None)
+            .unwrap();
+        guest.invalidate_network_agreement().unwrap();
+        assert_eq!(guest.network_map_status(0), Some(0));
+        assert_eq!(guest.network_map_status(1), Some(1));
+        assert_eq!(setup_members(&guest, false), Some(expected.clone()));
+
+        launch.local_player_index = 0;
+        let mut host = MatchSession::default();
+        host.enter_network(NetworkReturnContext::LanLobby);
+        host.accept_network_setup(launch, true, None).unwrap();
+        assert!(setup_members(&host, false).is_none());
+        host.set_network_map_status(1, 1).unwrap();
+        assert_eq!(setup_members(&host, false), Some(expected.clone()));
+
+        guest.set_network_map_status(1, 0).unwrap();
+        assert!(setup_members(&guest, false).is_none());
+        assert_eq!(setup_members(&guest, true), Some(expected));
+        assert_eq!(guest.network_map_status(1), Some(0));
     }
 }

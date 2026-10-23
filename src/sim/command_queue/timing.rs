@@ -85,11 +85,14 @@ impl NetworkCommandTiming {
         self.processing_millis.remove(&house);
     }
 
-    pub(crate) fn record_processing_millis(&mut self, house: i8, milliseconds: u16) {
+    pub(crate) fn record_processing_millis(&mut self, house: i8, milliseconds: u16) -> bool {
         // EventClass4C80B1 looks up a NodeNameTag by its bound House, so an AI
         // or an unadmitted House cannot create a new process-timing row.
         if let Some(value) = self.processing_millis.get_mut(&house) {
             *value = Some(milliseconds);
+            true
+        } else {
+            false
         }
     }
 

@@ -23,6 +23,8 @@ use crate::ui::main_menu_dialogs::options::OptionsPage;
 use crate::ui::main_menu_shell::MainMenuMovieBase;
 use crate::ui::shell::static_reveal::Kind1PaintWindow;
 
+pub(crate) mod fault_files;
+pub(crate) mod loading_host_loss;
 mod movies;
 mod score;
 mod skirmish;
@@ -1078,8 +1080,8 @@ pub struct ShellCaptureRequest {
     live_online: Option<LiveOnlineConfig>,
 }
 
-/// Nonsecret inputs for an ordinary online UI run. The password is read once
-/// from stdin when the login page opens and is never part of this Debug value.
+/// Nonsecret inputs for an ordinary online UI run. Password lines are read
+/// from stdin at each actual login and never become part of this Debug value.
 #[derive(Debug, Clone)]
 pub(crate) struct LiveOnlineConfig {
     pub account: String,
@@ -1094,6 +1096,12 @@ pub(crate) struct LiveOnlineConfig {
     pub mass_input: bool,
     /// Public coordinator nonce; only diagnostic Observe input waits for ACK.
     pub network_checkpoint: Option<String>,
+    /// Public nonce for the later exit/HTTPS-retry/reentry acceptance only.
+    pub exit_checkpoint: Option<String>,
+    /// External owned kill during first loading, followed by a normal two-player rematch.
+    pub loading_host_loss: Option<String>,
+    pub loading_output: Option<PathBuf>,
+    pub exit_prefix_output: Option<PathBuf>,
     /// Nonsecret real-command/checksum prefix, written before external faults.
     pub failure_prefix_output: Option<PathBuf>,
 }
@@ -1121,12 +1129,33 @@ impl LanSetupCrash {
     }
 }
 
-/// Explicit sockets for the physical two-process LAN diagnostic. They do not
-/// replace any gameplay/session identity and are unavailable to other captures.
+/// Only socket routing differs between these diagnostic modes. Production
+/// broadcast delegates all defaults to the ordinary LAN service owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LiveLanTransport {
+    ProductionBroadcast,
+    Explicit {
+        bind: std::net::SocketAddrV4,
+        peer: std::net::SocketAddrV4,
+    },
+}
+
+impl LiveLanTransport {
+    pub(crate) fn explicit_endpoints(
+        self,
+    ) -> Option<(std::net::SocketAddrV4, std::net::SocketAddrV4)> {
+        match self {
+            Self::ProductionBroadcast => None,
+            Self::Explicit { bind, peer } => Some((bind, peer)),
+        }
+    }
+}
+
+/// Physical LAN capture inputs do not replace gameplay/session identity and
+/// are unavailable to captures that inject their service transcript.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct LiveLanConfig {
-    pub bind: std::net::SocketAddrV4,
-    pub peer: std::net::SocketAddrV4,
+    pub transport: LiveLanTransport,
     /// Host-only logical catalog name; RandMap.Sed drives the normal generator.
     pub map: Option<String>,
     /// Optional real pre-GO process-loss checkpoint. It never changes a timer.
@@ -1175,6 +1204,13 @@ impl ShellCaptureRequest {
     }
 }
 
+fn public_coordinator_nonce(value: &str) -> bool {
+    value.len() == 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+}
+
 /// Parse the normal/capture launch boundary without changing ordinary no-arg
 /// startup. Capture mode is deliberately strict so a misspelled automation
 /// command cannot open an interactive window.
@@ -1199,6 +1235,7 @@ where
     let mut cursor_x = None;
     let mut cursor_y = None;
     let mut output_dir = None;
+    let mut lan_production_broadcast = false;
     let mut lan_bind = None;
     let mut lan_peer = None;
     let mut lan_map = None;
@@ -1214,6 +1251,8 @@ where
     let mut online_simple = false;
     let mut online_mass = false;
     let mut online_network_checkpoint = None;
+    let mut online_exit_checkpoint = None;
+    let mut online_loading_host_loss = None;
 
     while let Some(flag) = args.next() {
         let flag = flag
@@ -1251,6 +1290,13 @@ where
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("missing value after --output"))?;
                 set_once(&mut output_dir, PathBuf::from(value), "--output")?;
+            }
+            "--lan-production-broadcast" => {
+                ensure!(
+                    !lan_production_broadcast,
+                    "duplicate --lan-production-broadcast"
+                );
+                lan_production_broadcast = true;
             }
             "--lan-bind" => set_once(
                 &mut lan_bind,
@@ -1328,6 +1374,16 @@ where
                 next_utf8(&mut args, "value after --online-network-checkpoint")?,
                 "--online-network-checkpoint",
             )?,
+            "--online-loading-host-loss" => set_once(
+                &mut online_loading_host_loss,
+                next_utf8(&mut args, "value after --online-loading-host-loss")?,
+                "--online-loading-host-loss",
+            )?,
+            "--online-exit-checkpoint" => set_once(
+                &mut online_exit_checkpoint,
+                next_utf8(&mut args, "value after --online-exit-checkpoint")?,
+                "--online-exit-checkpoint",
+            )?,
             "--online-simple-input" => {
                 ensure!(!online_simple, "duplicate --online-simple-input");
                 online_simple = true;
@@ -1366,6 +1422,21 @@ where
     let online_failure =
         matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.online_failure());
     let live = matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.live() && !target.online());
+    if lan_production_broadcast {
+        ensure!(
+            matches!(
+                checkpoint,
+                ShellCaptureCheckpoint::Lan(
+                    movies::LanTarget::LiveHost | movies::LanTarget::LiveGuest
+                )
+            ),
+            "--lan-production-broadcast requires a normal LAN live host or guest checkpoint"
+        );
+        ensure!(
+            lan_bind.is_none() && lan_peer.is_none() && lan_setup_crash.is_none(),
+            "--lan-production-broadcast cannot override sockets or combine with a fault checkpoint"
+        );
+    }
     let live_online = if online {
         ensure!(
             online_password_stdin,
@@ -1426,12 +1497,35 @@ where
                     && online_simple
                     && !online_mass
                     && frames >= 600
-                    && nonce.len() == 32
-                    && nonce
-                        .bytes()
-                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    && public_coordinator_nonce(nonce)
             }),
             "network checkpoint requires a normal simple online pair, at least600 frames and a32-digit lowercase hex nonce"
+        );
+        ensure!(
+            online_exit_checkpoint.as_ref().is_none_or(|nonce| {
+                !online_failure
+                    && online_network_checkpoint.is_none()
+                    && players == 2
+                    && online_simple
+                    && !online_mass
+                    && public_coordinator_nonce(nonce)
+            }),
+            "exit checkpoint requires a normal simple online pair and a32-digit lowercase hex nonce; other external faults are separate runs"
+        );
+        ensure!(
+            online_loading_host_loss.as_ref().is_none_or(|nonce| {
+                !online_failure
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_map.is_none()
+                    && online_start.is_none()
+                    && players == 3
+                    && online_simple
+                    && !online_mass
+                    && frames >= 1024
+                    && public_coordinator_nonce(nonce)
+            }),
+            "loading host loss requires a normal simple three-player online match, at least1024 frames and a32-digit lowercase hex nonce; map/start overrides and other faults are separate runs"
         );
         ensure!(
             players == 2 || online_simple || online_mass,
@@ -1444,6 +1538,14 @@ where
                 || players <= 8,
             "random maps support two to eight players"
         );
+        if online_loading_host_loss.is_some() {
+            for kind in ["ready", "complete", "killed", "prefix", "removed"] {
+                ensure!(
+                    !loading_host_loss::sidecar(&output_dir, kind).try_exists()?,
+                    "loading fault output already exists"
+                );
+            }
+        }
         Some(LiveOnlineConfig {
             account,
             host,
@@ -1464,6 +1566,20 @@ where
                 None
             },
             network_checkpoint: online_network_checkpoint,
+            exit_prefix_output: if online_exit_checkpoint.is_some() {
+                let mut path = output_dir.as_os_str().to_owned();
+                path.push(".exit.json");
+                let path = PathBuf::from(path);
+                ensure!(!path.exists(), "exit checkpoint output already exists");
+                Some(path)
+            } else {
+                None
+            },
+            exit_checkpoint: online_exit_checkpoint,
+            loading_output: online_loading_host_loss
+                .as_ref()
+                .map(|_| output_dir.clone()),
+            loading_host_loss: online_loading_host_loss,
         })
     } else {
         ensure!(
@@ -1477,33 +1593,40 @@ where
                 && online_frames.is_none()
                 && !online_simple
                 && !online_mass
-                && online_network_checkpoint.is_none(),
+                && online_network_checkpoint.is_none()
+                && online_exit_checkpoint.is_none()
+                && online_loading_host_loss.is_none(),
             "online options require an online live checkpoint"
         );
         None
     };
     let live_lan = if live {
-        let bind = lan_bind.context("live LAN capture requires --lan-bind")?;
-        let peer = lan_peer.context("live LAN capture requires --lan-peer")?;
-        ensure!(
-            (1..=u16::MAX - 2).contains(&bind.port()),
-            "--lan-bind needs a nonzero port with room for alternate port+2"
-        );
-        ensure!(
-            !bind.ip().is_broadcast() && !bind.ip().is_multicast(),
-            "--lan-bind is not a unicast bind address"
-        );
-        ensure!(
-            peer.port() != 0
-                && !peer.ip().is_unspecified()
-                && !peer.ip().is_broadcast()
-                && !peer.ip().is_multicast(),
-            "--lan-peer needs a unicast IPv4 endpoint"
-        );
-        ensure!(
-            peer != bind && !(peer.ip() == bind.ip() && peer.port() == bind.port() + 2),
-            "LAN peer overlaps a local socket"
-        );
+        let transport = if lan_production_broadcast {
+            LiveLanTransport::ProductionBroadcast
+        } else {
+            let bind = lan_bind.context("live LAN capture requires --lan-bind")?;
+            let peer = lan_peer.context("live LAN capture requires --lan-peer")?;
+            ensure!(
+                (1..=u16::MAX - 2).contains(&bind.port()),
+                "--lan-bind needs a nonzero port with room for alternate port+2"
+            );
+            ensure!(
+                !bind.ip().is_broadcast() && !bind.ip().is_multicast(),
+                "--lan-bind is not a unicast bind address"
+            );
+            ensure!(
+                peer.port() != 0
+                    && !peer.ip().is_unspecified()
+                    && !peer.ip().is_broadcast()
+                    && !peer.ip().is_multicast(),
+                "--lan-peer needs a unicast IPv4 endpoint"
+            );
+            ensure!(
+                peer != bind && !(peer.ip() == bind.ip() && peer.port() == bind.port() + 2),
+                "LAN peer overlaps a local socket"
+            );
+            LiveLanTransport::Explicit { bind, peer }
+        };
         if let Some(file) = lan_map.as_deref() {
             ensure!(
                 matches!(
@@ -1550,15 +1673,15 @@ where
             None
         };
         Some(LiveLanConfig {
-            bind,
-            peer,
+            transport,
             map: lan_map,
             setup_crash: lan_setup_crash,
             failure_prefix_output,
         })
     } else {
         ensure!(
-            lan_bind.is_none()
+            !lan_production_broadcast
+                && lan_bind.is_none()
                 && lan_peer.is_none()
                 && lan_map.is_none()
                 && lan_setup_crash.is_none(),
@@ -2602,6 +2725,29 @@ fn entry_sequence_manifest(
     }
 }
 
+/// One read-only startup projection for normal gameplay and the real loader.
+/// Source membership remains the frozen launch; House IDs come only from the
+/// constructed world supplied by its owner, never a previous resident runtime.
+pub(crate) fn network_startup_receipt(
+    state: &AppState,
+    launch: &crate::skirmish_launch::SkirmishLaunchSession,
+    sim: Option<&crate::sim::world::Simulation>,
+) -> Result<serde_json::Value> {
+    Ok(serde_json::json!({
+        "match_id":crate::app::shell_wol::online_match_id(state),
+        "seed":state.match_state.session.network_start_seed(),
+        "map":launch.selected_map_file,
+        "max_ahead":state.match_state.session.network_max_ahead_frames(),
+        "local_source":launch.local_player_index,
+        "sources":launch.humans.iter().enumerate().map(|(source,human)|serde_json::json!({
+            "source":source,"name":human.name,"raw_row":human.raw_slot_index,"slot":human.slot,
+            "house":sim.and_then(|sim|crate::app::match_runtime::network_match::source_house(
+                &state.match_state.session,sim,source)),
+            "endpoint":state.match_state.session.network_endpoint(source).map(|address|address.to_string())
+        })).collect::<Vec<_>>()
+    }))
+}
+
 fn write_new_file(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut file = OpenOptions::new()
         .write(true)
@@ -2779,8 +2925,10 @@ mod tests {
         assert_eq!(
             request.live_lan,
             Some(LiveLanConfig {
-                bind: "127.0.0.1:31000".parse().unwrap(),
-                peer: "127.0.0.1:31010".parse().unwrap(),
+                transport: LiveLanTransport::Explicit {
+                    bind: "127.0.0.1:31000".parse().unwrap(),
+                    peer: "127.0.0.1:31010".parse().unwrap(),
+                },
                 map: None,
                 setup_crash: None,
                 failure_prefix_output: None,
@@ -2794,6 +2942,86 @@ mod tests {
         assert!(parse_launch_args(values.clone()).is_ok());
         values[1] = "lan-0xbb-steady".into();
         assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn production_lan_broadcast_needs_no_socket_overrides() {
+        let output = new_output_path("lan-production-broadcast");
+        let mut values = valid_args(&output);
+        values[1] = "lan-live-host".into();
+        values.extend(args(&[
+            "--lan-production-broadcast",
+            "--lan-map",
+            "host-only.map",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        let config = request.live_lan.unwrap();
+        assert_eq!(config.transport, LiveLanTransport::ProductionBroadcast);
+        assert_eq!(config.map.as_deref(), Some("host-only.map"));
+        values.truncate(values.len() - 2);
+        values[1] = "lan-live-guest".into();
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
+            panic!("capture");
+        };
+        assert_eq!(
+            request.live_lan.unwrap().transport,
+            LiveLanTransport::ProductionBroadcast
+        );
+    }
+
+    #[test]
+    fn production_lan_broadcast_rejects_socket_or_fault_overrides() {
+        let output = new_output_path("lan-production-conflict");
+        let mut values = valid_args(&output);
+        values[1] = "lan-live-host".into();
+        values.push("--lan-production-broadcast".into());
+        for extra in [
+            args(&["--lan-bind", "127.0.0.1:31000"]),
+            args(&["--lan-peer", "127.0.0.1:31010"]),
+            args(&["--lan-setup-crash", "guest"]),
+        ] {
+            let mut invalid = values.clone();
+            invalid.extend(extra);
+            assert!(
+                parse_launch_args(invalid)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("cannot override sockets or combine with a fault")
+            );
+        }
+        values.push("--lan-production-broadcast".into());
+        assert!(
+            parse_launch_args(values)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate --lan-production-broadcast")
+        );
+    }
+
+    #[test]
+    fn production_lan_broadcast_requires_normal_full_round_targets() {
+        let output = new_output_path("lan-production-target");
+        for target in [
+            "lan-battle-host",
+            "lan-live-timeout-host",
+            "lan-live-desync-guest",
+            "online-live-host",
+            "lan-0xbb-steady",
+        ] {
+            let mut values = valid_args(&output);
+            values[1] = target.into();
+            values.push("--lan-production-broadcast".into());
+            assert!(
+                parse_launch_args(values)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("requires a normal LAN live host or guest"),
+                "{target}"
+            );
+        }
     }
 
     #[test]
@@ -3043,6 +3271,83 @@ mod tests {
         values[frames] = "300".into();
         assert!(parse_launch_args(values.clone()).is_err());
         values[frames] = "600".into();
+        values[1] = "online-live-timeout-host".into();
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn loading_host_loss_requires_the_normal_three_player_input_route() {
+        let output = new_output_path("online-loading-host-loss");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-guest".into();
+        values.extend(args(&[
+            "--online-account",
+            "Guest",
+            "--online-host",
+            "Host",
+            "--online-password-stdin",
+            "--online-simple-input",
+            "--online-players",
+            "3",
+            "--online-frames",
+            "1024",
+            "--online-loading-host-loss",
+            "0123456789abcdef0123456789abcdef",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        let config = request.live_online.unwrap();
+        assert_eq!(config.players, 3);
+        assert_eq!(config.loading_output, Some(output));
+        assert_eq!(
+            config.loading_host_loss.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        let count = values.iter().position(|value| value == "3").unwrap();
+        values[count] = "2".into();
+        assert!(parse_launch_args(values.clone()).is_err());
+        values[count] = "3".into();
+        values.extend(args(&["--online-map", "custom.map"]));
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn exit_reentry_checkpoint_uses_a_separate_public_nonce_and_normal_pair() {
+        let output = new_output_path("online-exit-checkpoint");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-guest".into();
+        values.extend(args(&[
+            "--online-account",
+            "Guest",
+            "--online-host",
+            "Host",
+            "--online-password-stdin",
+            "--online-simple-input",
+            "--online-exit-checkpoint",
+            "0123456789abcdef0123456789abcdef",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        let config = request.live_online.unwrap();
+        assert!(config.failure_prefix_output.is_none());
+        assert!(
+            config
+                .exit_prefix_output
+                .unwrap()
+                .to_string_lossy()
+                .ends_with(".exit.json")
+        );
+        assert_eq!(
+            config.exit_checkpoint.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        *values.last_mut().unwrap() = "short".into();
+        assert!(parse_launch_args(values.clone()).is_err());
+        *values.last_mut().unwrap() = "0123456789abcdef0123456789abcdef".into();
         values[1] = "online-live-timeout-host".into();
         assert!(parse_launch_args(values).is_err());
     }

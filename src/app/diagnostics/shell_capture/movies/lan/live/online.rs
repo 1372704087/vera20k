@@ -7,6 +7,10 @@ use crate::app::diagnostics::shell_capture::LiveOnlineConfig;
 use crate::ui::wol_lobby;
 use std::io::{BufRead, Read};
 
+mod exit_reentry;
+use crate::app::diagnostics::shell_capture::loading_host_loss::LoadingHostLoss;
+use exit_reentry::ExitReentry;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RoundPhase {
     LanEntry,
@@ -25,6 +29,7 @@ enum RoundPhase {
     Observe,
     Results,
     Returning,
+    ExitFault,
     ExitWelcome,
     MainReturn,
     Finished,
@@ -45,6 +50,8 @@ pub(super) struct LiveRoundFlow {
     failure_prefix_written: bool,
     network_checkpoint: Option<Value>,
     network_checkpoint_started: Option<Instant>,
+    exit_reentry: Option<ExitReentry>,
+    loading_host_loss: Option<LoadingHostLoss>,
 }
 
 impl LiveRoundFlow {
@@ -62,6 +69,10 @@ impl LiveRoundFlow {
         } else {
             RoundPhase::LanEntry
         };
+        let loading_host_loss = config
+            .as_ref()
+            .and_then(|config| config.loading_host_loss.as_ref())
+            .map(|_| LoadingHostLoss::default());
         Self {
             config,
             random_map_input: None,
@@ -77,6 +88,8 @@ impl LiveRoundFlow {
             failure_prefix_written: false,
             network_checkpoint: None,
             network_checkpoint_started: None,
+            exit_reentry: None,
+            loading_host_loss,
         }
     }
 
@@ -95,7 +108,7 @@ impl LiveRoundFlow {
                 return Ok(false);
             }
             self.random_map_input = None;
-            core.prepare_host_setup(state, Some("RandMap.Sed"))?;
+            core.prepare_host_setup(state, Some("RandMap.Sed"), self.round_players())?;
             self.record(
                 frame,
                 "Generated seed, preview and start positions published",
@@ -122,7 +135,7 @@ impl LiveRoundFlow {
             self.record(frame, "Choose Map opened for normal random-map generation");
             return Ok(false);
         }
-        core.prepare_host_setup(state, selected_map)?;
+        core.prepare_host_setup(state, selected_map, self.round_players())?;
         self.record(frame, "Battle map and player slots configured");
         Ok(true)
     }
@@ -132,6 +145,31 @@ impl LiveRoundFlow {
     }
     fn players(&self) -> usize {
         self.config.as_ref().map_or(2, |config| config.players)
+    }
+    fn round_players(&self) -> usize {
+        if self.loading_host_loss.is_some() && !self.rounds.is_empty() {
+            2
+        } else {
+            self.players()
+        }
+    }
+    fn input_host(&self, core: &LiveLanCapture) -> bool {
+        if let Some(loss) = self
+            .loading_host_loss
+            .as_ref()
+            .filter(|_| !self.rounds.is_empty())
+        {
+            loss.rematch_host() == Some(self.online_config().account.as_str())
+        } else {
+            core.host()
+        }
+    }
+    fn discovery_host(&self) -> &str {
+        self.loading_host_loss
+            .as_ref()
+            .filter(|_| !self.rounds.is_empty())
+            .and_then(LoadingHostLoss::rematch_host)
+            .unwrap_or(&self.online_config().host)
     }
     pub(super) fn controls(&self, core: &LiveLanCapture) -> bool {
         self.config.is_some() || self.phase != RoundPhase::LanEntry || core.phase == Phase::Running
@@ -314,8 +352,25 @@ impl LiveRoundFlow {
             };
             (page, visit.pending_service_request_count())
         });
+        let sim = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|runtime| &runtime.simulation);
+        let native_frame = sim.map(|sim| sim.session().binary_frame());
+        let fps = sim
+            .and_then(|sim| sim.session().network_command_timing())
+            .map(|timing| timing.frames_per_second());
+        let max_ahead = sim.and_then(|sim| sim.session().network_max_ahead_frames());
+        let local_commands = sim.map(|sim| sim.pending_local_command_count());
+        let live_wait = state
+            .match_state
+            .live_network
+            .as_ref()
+            .and_then(|live| live.wait_info())
+            .map(|wait| wait.kind);
         log::info!(
-            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}",
+            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}",
             self.phase,
             state.frontend.shell_exit.is_some(),
         );
@@ -403,11 +458,17 @@ impl LiveRoundFlow {
         frame: u32,
     ) -> Result<()> {
         self.heartbeat(state, rendered);
+        if let Some(exit) = &self.exit_reentry {
+            ensure!(
+                exit.started.elapsed() < Duration::from_secs(180),
+                "online exit/reentry checkpoint expired"
+            );
+        }
         if self.login_questions(state, rendered, frame)? {
             return Ok(());
         }
         if self.config.is_some()
-            && !core.host()
+            && !self.input_host(core)
             && matches!(self.phase, RoundPhase::GuestSetup | RoundPhase::Loading)
             && lobby_ready(state, rendered)
         {
@@ -440,12 +501,10 @@ impl LiveRoundFlow {
                     !state.persistence.options_profile.wol_test_service,
                     "online capture requires the offline WOL test service to be disabled"
                 );
-                App::leave_shell_dialog(
+                click_main_menu(
                     state,
-                    crate::app::frontend::shell_transition::ShellExitThen::MainMenu(
-                        crate::ui::main_menu_shell::MainMenuShellAction::WwOnline,
-                    ),
-                );
+                    crate::ui::main_menu_shell::MainMenuControlId::WwOnline0x684,
+                )?;
                 self.record(frame, "Multiplayer Internet selected");
                 self.phase = RoundPhase::Welcome;
             }
@@ -484,7 +543,8 @@ impl LiveRoundFlow {
                 let mut password = read_password()?;
                 App::handle_wol_key(state, None, true, Some(&password));
                 password.clear();
-                let control = if self.online_config().create_account {
+                let create = self.online_config().create_account && !self.reentering();
+                let control = if create {
                     crate::ui::wol_login::MANAGE
                 } else {
                     crate::ui::wol_login::LOGIN
@@ -507,7 +567,7 @@ impl LiveRoundFlow {
                 );
                 self.record(
                     frame,
-                    if self.online_config().create_account {
+                    if create {
                         "Create Account submitted"
                     } else {
                         "Login submitted"
@@ -516,7 +576,11 @@ impl LiveRoundFlow {
                 self.phase = RoundPhase::Lobby;
             }
             RoundPhase::Lobby if lobby_ready(state, rendered) => {
-                if core.host() {
+                if self.reentering() {
+                    self.observe_reentry_lobby(state, frame)?;
+                    return Ok(());
+                }
+                if self.input_host(core) {
                     let layout = crate::app::shell_wol::lobby::layout(state);
                     click(
                         state,
@@ -550,7 +614,7 @@ impl LiveRoundFlow {
                 }
             }
             RoundPhase::Discover if lobby_ready(state, rendered) => {
-                let expected = format!("{}'s_game", self.online_config().host);
+                let expected = format!("{}'s_game", self.discovery_host());
                 let selected = state
                     .frontend
                     .wol
@@ -604,7 +668,13 @@ impl LiveRoundFlow {
                 }
             }
             RoundPhase::HostSetup => {
-                let selected = self.online_config().map.clone();
+                let selected = self
+                    .loading_host_loss
+                    .as_ref()
+                    .filter(|_| !self.rounds.is_empty())
+                    .and_then(LoadingHostLoss::rematch_map)
+                    .map(str::to_owned)
+                    .or_else(|| self.online_config().map.clone());
                 if self.prepare_host_map(core, state, rendered, frame, selected.as_deref())? {
                     self.phase = RoundPhase::HostReady;
                 }
@@ -619,7 +689,7 @@ impl LiveRoundFlow {
                 }
                 let session = &state.match_state.session;
                 let ready = session.network_setup().is_some_and(|launch| {
-                    launch.humans.len() == self.players()
+                    launch.humans.len() == self.round_players()
                         && launch.humans.iter().enumerate().all(|(i, human)| {
                             human.raw_slot_index.is_some()
                                 && session.network_player_ready(i)
@@ -662,7 +732,7 @@ impl LiveRoundFlow {
                     .session
                     .network_setup()
                     .is_some_and(|launch| {
-                        launch.humans.len() == self.players()
+                        launch.humans.len() == self.round_players()
                             && launch
                                 .humans
                                 .iter()
@@ -684,6 +754,13 @@ impl LiveRoundFlow {
                     "online match has no production command transport"
                 );
                 core.startup = Some(startup_receipt(state)?);
+                if let Some(loss) = self.loading_host_loss.as_mut() {
+                    loss.begin_round(
+                        self.config.as_ref().context("loading-loss config")?,
+                        state,
+                        self.rounds.len() + 1,
+                    )?;
+                }
                 core.phase = Phase::Running;
                 self.record(
                     frame,
@@ -692,7 +769,13 @@ impl LiveRoundFlow {
                 self.phase = RoundPhase::Running;
             }
             RoundPhase::Running => {
-                core.observe_run(state, frame)?;
+                let active_players = if let Some(loss) = self.loading_host_loss.as_mut() {
+                    loss.collect(state, self.rounds.len() + 1, core.required_frames())?;
+                    2
+                } else {
+                    self.players()
+                };
+                core.observe_run(state, frame, active_players)?;
                 if self.rounds.is_empty()
                     && self
                         .config
@@ -716,27 +799,18 @@ impl LiveRoundFlow {
                         self.phase = RoundPhase::HoldFailureGuest;
                         return Ok(());
                     }
+                    if let Some(loss) = self.loading_host_loss.as_mut() {
+                        loss.finish_round(state, self.rounds.len() + 1, core.required_frames())?;
+                    }
                     self.current_round = Some(json!({"runtime":core.round_receipt(state)?}));
                     self.result_rows.clear();
                     if let Some(failure) = &core.failure {
                         if failure.returned() {
-                            ensure!(
-                                if self.config.is_some() {
-                                    lobby_ready(state, rendered)
-                                } else {
-                                    rendered == PresentedShell::LanLobby && lobby_settled(state)
-                                },
-                                "expected network failure did not settle the service lobby"
-                            );
-                            let mut round = self.current_round.take().context("failure round")?;
-                            round["returned_to_lobby"] = json!(true);
-                            self.rounds.push(round);
-                            self.record(frame, if core.target.desync_failure() {
-                                "Actual checksum CE Stop returned to the settled LAN lobby"
-                            } else {
-                                "Expected connection Quit returned to the authenticated online lobby"
-                            });
-                            self.phase = RoundPhase::Finished;
+                            // Logical cleanup may finish during the final
+                            // transition render, still presented as Other.
+                            // The existing return owner waits for the actual
+                            // settled lobby before committing this receipt.
+                            self.phase = RoundPhase::Returning;
                         } else {
                             self.record(
                                 frame,
@@ -748,7 +822,17 @@ impl LiveRoundFlow {
                     }
                     // Alternate the player choosing Observe so both ends exercise
                     // the local defeat path as well as the surviving player's result.
-                    let observe = if self.players() > 2 {
+                    let observe = if self.loading_host_loss.is_some() {
+                        // The initial host was externally killed. Exactly one
+                        // live survivor chooses Observe; the next room reverses
+                        // that normal input role without changing game state.
+                        (self
+                            .loading_host_loss
+                            .as_ref()
+                            .and_then(LoadingHostLoss::rematch_host)
+                            == Some(self.online_config().account.as_str()))
+                            == (self.rounds.len() == 1)
+                    } else if self.players() > 2 {
                         !core.host()
                     } else {
                         core.host() == (self.rounds.len() == 1)
@@ -837,6 +921,22 @@ impl LiveRoundFlow {
                 let score = json!({"game_number":model.game_number,"elapsed_seconds":model.elapsed_seconds,
                     "rows":model.rows.iter().map(|row|json!({"name":row.name,"kills":row.kills,
                         "losses":row.losses,"built":row.built,"score":row.score})).collect::<Vec<_>>()});
+                if self.loading_host_loss.is_some() {
+                    let startup =
+                        &self.current_round.as_ref().context("round")?["runtime"]["startup"];
+                    let names = startup["sources"]
+                        .as_array()
+                        .context("result startup sources")?;
+                    ensure!(
+                        self.result_rows.len() == self.round_players()
+                            && names.len() == self.result_rows.len()
+                            && names.iter().all(|source| self
+                                .result_rows
+                                .iter()
+                                .any(|row| source["name"] == row[0])),
+                        "results did not display the complete admitted round roster"
+                    );
+                }
                 self.current_round.as_mut().context("completed round")?["result"] = score;
                 self.current_round.as_mut().context("completed round")?["result"]["displayed_table_rows"] =
                     json!(self.result_rows);
@@ -869,6 +969,17 @@ impl LiveRoundFlow {
                     state.match_state.session.network_setup().is_none(),
                     "finished round retained setup"
                 );
+                // The exit fault targets logout only after the final match's
+                // existing finish/leave owner has actually acknowledged cleanup.
+                if self.rounds.len() == 1
+                    && self
+                        .config
+                        .as_ref()
+                        .is_some_and(|config| config.exit_checkpoint.is_some())
+                    && !crate::app::shell_wol::online_exit_ready(state)
+                {
+                    return Ok(());
+                }
                 let mut round = self
                     .current_round
                     .take()
@@ -877,11 +988,32 @@ impl LiveRoundFlow {
                 self.rounds.push(round);
                 self.record(
                     frame,
-                    "Returned to service lobby through normal result continuation",
+                    if core
+                        .failure
+                        .as_ref()
+                        .is_some_and(|failure| failure.returned())
+                    {
+                        if core.target.desync_failure() {
+                            "Actual checksum CE Stop returned to the settled LAN lobby"
+                        } else {
+                            "Expected connection Quit returned to the authenticated online lobby"
+                        }
+                    } else {
+                        "Returned to service lobby through normal result continuation"
+                    },
                 );
                 if core.failure.is_some() {
                     self.phase = RoundPhase::Finished;
                 } else if self.rounds.len() == 2 {
+                    if self
+                        .config
+                        .as_ref()
+                        .is_some_and(|config| config.exit_checkpoint.is_some())
+                    {
+                        self.begin_exit_checkpoint(state, frame)?;
+                        self.phase = RoundPhase::ExitFault;
+                        return Ok(());
+                    }
                     if self.config.is_some() {
                         let rect = crate::app::shell_wol::lobby::layout(state)
                             .page
@@ -909,6 +1041,20 @@ impl LiveRoundFlow {
                     };
                 }
             }
+            RoundPhase::ExitFault => {
+                if self.exit_block_applied(state, rendered, frame)? {
+                    let rect = crate::app::shell_wol::lobby::layout(state)
+                        .page
+                        .button_rect(wol_lobby::BACK)
+                        .context("WOL lobby Back button")?;
+                    click(state, rect);
+                    self.record(
+                        frame,
+                        "Scoped HTTPS block acknowledged; actual lobby Back clicked",
+                    );
+                    self.phase = RoundPhase::ExitWelcome;
+                }
+            }
             RoundPhase::ExitWelcome
                 if rendered == PresentedShell::WolWelcome
                     && MoviesCapture::slide_settled(state, ShellSlideKind::WolWelcome) =>
@@ -930,6 +1076,9 @@ impl LiveRoundFlow {
                         state,
                     ))? =>
             {
+                if !self.observe_exit_cleanup(state, frame)? {
+                    return Ok(());
+                }
                 if state.frontend.online_cleanup.pending() {
                     return Ok(());
                 }
@@ -970,7 +1119,11 @@ impl LiveRoundFlow {
                     frame,
                     "Settled Main Menu and acknowledged quiescent cleanup observed",
                 );
-                self.phase = RoundPhase::Finished;
+                self.phase = if self.observe_exit_menu(state, frame)? {
+                    RoundPhase::Finished
+                } else {
+                    RoundPhase::Main
+                };
             }
             _ => {}
         }
@@ -998,6 +1151,8 @@ impl LiveRoundFlow {
             "players":self.players(),"required_frames":self.config.as_ref().map_or(300, |config|config.frames),"simple_input":self.config.as_ref().is_none_or(|config|config.simple_input),
             "failure_prefix":self.config.as_ref().and_then(|config|config.failure_prefix_output.as_ref()),
             "network_checkpoint":self.network_checkpoint,
+            "exit_reentry":self.exit_reentry.as_ref().map(ExitReentry::receipt),
+            "loading_host_loss":self.loading_host_loss.as_ref().map(|loss|loss.receipt(self.online_config())).transpose()?,
             "scope":if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),

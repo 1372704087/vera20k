@@ -40,11 +40,19 @@ pub(crate) struct CommandExecutionObservation {
     pub frame: u32,
     pub record: crate::sim::command::CommandRecord,
     pub applied: bool,
-    pub actor: u64,
+    pub actor: Option<u64>,
+    pub timing: Option<CommandTimingObservation>,
     pub destination: Option<crate::sim::components::NavTargetRef>,
     pub cell: Option<(u16, u16)>,
     pub mission: Option<(i32, i32)>,
 }
+pub(crate) struct CommandTimingObservation {
+    pub publisher: Option<i8>,
+    pub fps: Option<u16>,
+    pub frame_send_rate: Option<u8>,
+    pub max_ahead: Option<i32>,
+}
+
 #[derive(Default)]
 pub(crate) struct CommandExecutionLog {
     records: Vec<CommandExecutionObservation>,
@@ -60,19 +68,33 @@ impl CommandExecutionLog {
         let actor = crate::sim::command::MegaMissionRecord::decode(record)
             .map(|r| r.source_id)
             .or_else(|| crate::sim::command::StopRecord::decode(record).map(|r| r.entity_id));
-        let Some(actor) = actor.and_then(|id| u64::try_from(id).ok()) else {
+        let actor = actor.and_then(|id| u64::try_from(id).ok());
+        let is_timing = matches!(
+            record.opcode(),
+            crate::sim::command::TIMING_OPCODE | crate::sim::command::PROCESS_TIME_OPCODE
+        );
+        if actor.is_none() && !is_timing {
             return;
-        };
+        }
         if self.records.len() >= 131072 {
             self.overflowed = true;
             return;
         }
-        let entity = sim.entities().get(actor);
+        let entity = actor.and_then(|actor| sim.entities().get(actor));
         self.records.push(CommandExecutionObservation {
             frame: sim.session().binary_frame(),
             record: record.clone(),
             applied,
             actor,
+            timing: sim
+                .session()
+                .network_command_timing()
+                .map(|timing| CommandTimingObservation {
+                    publisher: sim.network_timing_host_house(),
+                    fps: Some(timing.frames_per_second()),
+                    frame_send_rate: Some(timing.frame_send_rate().get()),
+                    max_ahead: sim.session().network_max_ahead_frames(),
+                }),
             destination: entity.and_then(|e| e.navigation.nav_com()),
             cell: entity.map(|e| (e.position.rx(), e.position.ry())),
             mission: entity.map(|e| (e.mission.current().raw(), e.mission.queued().raw())),

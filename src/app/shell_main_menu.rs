@@ -1150,10 +1150,7 @@ Details: {details}"
         state.frontend.shell_status_line.repaint();
     }
 
-    pub(super) fn handle_main_menu_shell_mouse_up(
-        state: &mut AppState,
-        _event_loop: &ActiveEventLoop,
-    ) {
+    pub(super) fn handle_main_menu_shell_mouse_up(state: &mut AppState) {
         let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
         let (x, y) = state.match_state.input.cursor_px();

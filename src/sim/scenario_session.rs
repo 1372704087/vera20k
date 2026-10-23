@@ -1209,19 +1209,20 @@ impl ScenarioSession {
     /// EventClass::Execute4C800C / 4C80B1. Transport validates source headers;
     /// Simulation supplies the same live publisher decision used by the local
     /// producer. No wall clock enters this owner. Execute_DoList supplies its
-    /// persistent retiming window.
+    /// persistent retiming window. Returns the actual receiver admission for
+    /// borrowed post-dispatch diagnostics; this adds no timing policy.
     pub(crate) fn apply_network_timing_record(
         &mut self,
         record: &crate::sim::command::CommandRecord,
         window: &mut crate::sim::command_queue::DoListRetimeWindow,
         publisher: Option<i8>,
-    ) {
+    ) -> bool {
         let Some(timing) = self.network_command_timing.as_mut() else {
-            return;
+            return false;
         };
         if let Some(event) = crate::sim::command::TimingRecord::decode(record) {
             if publisher != Some(event.house_id) {
-                return;
+                return false;
             }
             let ahead = window.apply_timing_update(
                 event.frame,
@@ -1235,8 +1236,11 @@ impl ScenarioSession {
             );
             self.network_max_ahead_frames = Some(i32::from(ahead));
             timing.apply(event, ahead);
+            true
         } else if let Some(event) = crate::sim::command::ProcessTimeRecord::decode(record) {
-            timing.record_processing_millis(event.house_id, event.milliseconds);
+            timing.record_processing_millis(event.house_id, event.milliseconds)
+        } else {
+            false
         }
     }
     pub const fn start_header(&self) -> crate::map::preview::ScenarioStartHeader {

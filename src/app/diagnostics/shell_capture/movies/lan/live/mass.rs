@@ -12,6 +12,7 @@ pub(super) struct MassInput {
     replay_cursor: usize,
     order: usize,
     pending: Option<Batch>,
+    capacity_wait: Option<Value>,
     batches: Vec<Value>,
     observed_by_house: BTreeMap<i8, [u64; 2]>,
     executed_by_house: BTreeMap<i8, [u64; 2]>,
@@ -24,6 +25,7 @@ struct Batch {
     sent_before: u64,
     accepted: BTreeMap<u64, Option<(i16, i16)>>,
     executed: BTreeMap<u64, Option<(i16, i16)>>,
+    capacity_wait: Option<Value>,
     quiet: Option<(u32, Vec<DriveCoord>)>,
     first_pending_path_frame: Option<u32>,
     last_move_observation_frame: Option<u32>,
@@ -147,6 +149,25 @@ impl MassInput {
                 battle::projected_selection(state) == self.selected,
                 "full selection changed before the next command"
             );
+            // Capacity includes the existing DoList's retained slots, even
+            // after an earlier batch executed. Wait before issuing any normal
+            // input; capture wall/frame bounds and all-actor proofs still apply.
+            let available = simulation(state)?.available_local_command_slots();
+            if available < self.selected.len() {
+                if self.capacity_wait.is_none() {
+                    let wait = json!({"order":self.order,"frame":frame,
+                        "selected_actor_count":self.selected.len(),"input":command_input_context(state)?});
+                    log::info!("Mass capture waits for full-selection input capacity: {wait}");
+                    self.capacity_wait = Some(wait);
+                }
+                return Ok(false);
+            }
+            let input_before = command_input_context(state)?;
+            let capacity_wait = self.capacity_wait.take().map(|wait| {
+                let release = json!({"waiting":wait,"released_frame":frame,"input":input_before});
+                log::info!("Mass capture full-selection input capacity released: {release}");
+                release
+            });
             self.positions = positions(state, &self.selected)?;
             let before = simulation(state)?.pending_local_command_count();
             let sent_before = state
@@ -168,8 +189,9 @@ impl MassInput {
                 .context("local command FIFO shrank during input")?;
             ensure!(
                 submitted == self.selected.len(),
-                "{kind} queued {submitted} of {} selected actors",
-                self.selected.len()
+                "{kind} queued {submitted} of {} selected actors at frame{frame}; before={input_before}, after={}",
+                self.selected.len(),
+                command_input_context(state)?
             );
             log::info!("Mass capture {} submitted {} actors", kind, submitted);
             self.pending = Some(Batch {
@@ -179,6 +201,7 @@ impl MassInput {
                 sent_before,
                 accepted: BTreeMap::new(),
                 executed: BTreeMap::new(),
+                capacity_wait,
                 quiet: None,
                 first_pending_path_frame: None,
                 last_move_observation_frame: None,
@@ -258,6 +281,9 @@ impl MassInput {
             } else {
                 continue;
             };
+            let Some(actor) = execution.actor else {
+                continue;
+            };
             if execution.applied {
                 self.executed_by_house.entry(record.house_id()).or_default()
                     [usize::from(kind == "Stop")] += 1;
@@ -267,14 +293,14 @@ impl MassInput {
             };
             if kind != batch.kind
                 || record.frame_stamp() < batch.issued_frame as i32
-                || !self.selected_set.contains(&execution.actor)
+                || !self.selected_set.contains(&actor)
             {
                 continue;
             }
             ensure!(
                 execution.applied,
                 "{kind} receiver rejected selected actor {}",
-                execution.actor
+                actor
             );
             ensure!(
                 execution.frame >= batch.issued_frame,
@@ -294,19 +320,19 @@ impl MassInput {
                     ensure!(
                         moving_to_target || already_at_target,
                         "Move execution did not install or reach its target for actor {}",
-                        execution.actor
+                        actor
                     );
                 }
                 None => ensure!(
                     execution.mission.is_some() && execution.destination.is_none(),
                     "Stop execution retained a destination for actor {}",
-                    execution.actor
+                    actor
                 ),
             }
             ensure!(
-                batch.executed.insert(execution.actor, target).is_none(),
+                batch.executed.insert(actor, target).is_none(),
                 "duplicate executed {kind} for selected actor {}",
-                execution.actor
+                actor
             );
         }
         Ok(())
@@ -350,6 +376,7 @@ impl MassInput {
             "targets_digest":crate::util::sha256::sha256_hex(&target_bytes),"omitted_ids":[],"moved_actor_count":moved,
             "stable_stopped_actor_count":stopped,"sent_frontier_before":batch.sent_before,"sent_frontier_after":sent,
             "first_pending_path_frame":batch.first_pending_path_frame,
+            "capacity_wait":batch.capacity_wait,
             "move_observation_frames":batch.move_observation_frames,
             "positions":if batch.kind == "Move" {Some(json!({"actor_ids":self.selected,"before":self.positions,"after":positions(state,&self.selected)?}))} else {None}}));
         log::info!(
@@ -415,6 +442,7 @@ mod tests {
             sent_before: 0,
             accepted: expected.iter().map(|&id| (id, Some((10, 10)))).collect(),
             executed: (0..256).map(|id| (id, Some((10, 10)))).collect(),
+            capacity_wait: None,
             quiet: None,
             first_pending_path_frame: None,
             last_move_observation_frame: None,
@@ -437,6 +465,7 @@ mod tests {
             sent_before: 0,
             accepted: BTreeMap::new(),
             executed: BTreeMap::new(),
+            capacity_wait: None,
             quiet: None,
             first_pending_path_frame: None,
             last_move_observation_frame: None,
@@ -497,6 +526,18 @@ fn movement_sample(
 
 fn ids_digest(ids: impl Iterator<Item = u64>) -> String {
     crate::util::sha256::sha256_hex(&ids.flat_map(u64::to_le_bytes).collect::<Vec<_>>())
+}
+// Bounded read-only input facts: never record chat text or mutate a refusal.
+fn command_input_context(state: &AppState) -> Result<Value> {
+    let sim = simulation(state)?;
+    Ok(json!({"available":sim.available_local_command_slots(),
+        "pending_local":sim.pending_local_command_count(),
+        "input_locked":crate::app::input::campaign_input::is_locked(state),
+        "scenario_paused":sim.session().scenario_paused(),
+        "network_failure":sim.pending_network_failure(),
+        "network_interruption":sim.pending_network_interruption(),
+        "chat_editing":state.match_state.match_presentation.message_list.editing(),
+        "planning":state.match_state.input.planning.active()}))
 }
 fn simulation(state: &AppState) -> Result<&crate::sim::world::Simulation> {
     Ok(&state

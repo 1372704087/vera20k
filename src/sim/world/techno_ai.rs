@@ -1472,6 +1472,22 @@ fn techno_common_steps(
     // Building Update froze this sample before Temporal and its common AI.
     if let Some(sample) = turret_rotate_sample {
         sim.visit_turret_rotate_sound(id, sample, rules, effects);
+        // Techno6FA027..6FA04F: every Turret-enabled visit re-drives
+        // +488 at the live Location after its controls and latch writes.
+        // A zero gain must stop it before this visit's later C4 expiry,
+        // or another object's hit, can release a still-audible decay.
+        if let Some(entity) = sim.substrate.entities.get(id)
+            && sim
+                .object_type(entity.type_ref(), rules)
+                .is_some_and(|object| object.has_turret)
+        {
+            effects.update_looping_sound(
+                sim,
+                rules,
+                super::turret_rotate_sound::turret_rotate_sound_owner(id),
+                Simulation::movement_sound_world(entity),
+            );
+        }
     }
     veterancy_promotion_step(
         &mut sim.interner,

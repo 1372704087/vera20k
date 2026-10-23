@@ -572,6 +572,11 @@ fn drain_sound_events_inner(state: &mut AppState, redrive_owners: bool) {
             sfx.stop_animation_sound(owner);
             continue;
         };
+        // Techno6FA04F updates the turret handle at its reached AI visit.
+        // A tail poll could restart it after a later Stop/Release boundary.
+        if crate::sim::world::turret_rotate_sound_techno(owner).is_some() {
+            continue;
+        }
         // `ObjectClass::AI` replays an object's `+0x3C`/`+0x50` handles with
         // `VocClass::PlayAt` on each visit (the sim's `AnimationStarted`);
         // 750D40 never runs on them.

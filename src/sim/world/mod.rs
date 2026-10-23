@@ -98,6 +98,7 @@ pub(crate) use move_sound::MoveSoundState;
 pub(crate) use playfield_membership::PlayfieldMembership;
 pub(crate) use selection_voice::DeployVoiceSuppression;
 pub(crate) use turret_rotate_sound::TurretRotateLatch;
+pub use turret_rotate_sound::turret_rotate_sound_techno;
 #[cfg(test)]
 mod main_sound_identity_tests;
 #[cfg(test)]

@@ -1092,6 +1092,8 @@ pub(crate) struct LiveOnlineConfig {
     pub frames: u32,
     pub simple_input: bool,
     pub mass_input: bool,
+    /// Public coordinator nonce; only diagnostic Observe input waits for ACK.
+    pub network_checkpoint: Option<String>,
     /// Nonsecret real-command/checksum prefix, written before external faults.
     pub failure_prefix_output: Option<PathBuf>,
 }
@@ -1102,6 +1104,7 @@ pub(crate) struct LiveOnlineConfig {
 pub(crate) enum LanSetupCrash {
     Host,
     Guest,
+    MapHost,
 }
 
 impl LanSetupCrash {
@@ -1109,7 +1112,12 @@ impl LanSetupCrash {
         match self {
             Self::Host => "host",
             Self::Guest => "guest",
+            Self::MapHost => "map-host",
         }
+    }
+
+    pub(crate) fn host(self) -> bool {
+        matches!(self, Self::Host | Self::MapHost)
     }
 }
 
@@ -1205,6 +1213,7 @@ where
     let mut online_frames = None;
     let mut online_simple = false;
     let mut online_mass = false;
+    let mut online_network_checkpoint = None;
 
     while let Some(flag) = args.next() {
         let flag = flag
@@ -1266,7 +1275,8 @@ where
                 let victim = match next_utf8(&mut args, "value after --lan-setup-crash")?.as_str() {
                     "host" => LanSetupCrash::Host,
                     "guest" => LanSetupCrash::Guest,
-                    _ => bail!("--lan-setup-crash requires host or guest"),
+                    "map-host" => LanSetupCrash::MapHost,
+                    _ => bail!("--lan-setup-crash requires host, guest or map-host"),
                 };
                 set_once(&mut lan_setup_crash, victim, "--lan-setup-crash")?;
             }
@@ -1313,6 +1323,11 @@ where
                 ensure!(!online_mass, "duplicate --online-mass-input");
                 online_mass = true;
             }
+            "--online-network-checkpoint" => set_once(
+                &mut online_network_checkpoint,
+                next_utf8(&mut args, "value after --online-network-checkpoint")?,
+                "--online-network-checkpoint",
+            )?,
             "--online-simple-input" => {
                 ensure!(!online_simple, "duplicate --online-simple-input");
                 online_simple = true;
@@ -1405,6 +1420,20 @@ where
             "online frame observation must cover300 to1000000 frames"
         );
         ensure!(
+            online_network_checkpoint.as_ref().is_none_or(|nonce| {
+                !online_failure
+                    && players == 2
+                    && online_simple
+                    && !online_mass
+                    && frames >= 600
+                    && nonce.len() == 32
+                    && nonce
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+            }),
+            "network checkpoint requires a normal simple online pair, at least600 frames and a32-digit lowercase hex nonce"
+        );
+        ensure!(
             players == 2 || online_simple || online_mass,
             "more than two players requires --online-simple-input or --online-mass-input"
         );
@@ -1425,7 +1454,7 @@ where
             frames,
             simple_input: online_simple || online_mass || online_failure,
             mass_input: online_mass,
-            failure_prefix_output: if online_failure {
+            failure_prefix_output: if online_failure || online_network_checkpoint.is_some() {
                 let mut path = output_dir.as_os_str().to_owned();
                 path.push(".prefix.json");
                 let path = PathBuf::from(path);
@@ -1434,6 +1463,7 @@ where
             } else {
                 None
             },
+            network_checkpoint: online_network_checkpoint,
         })
     } else {
         ensure!(
@@ -1446,7 +1476,8 @@ where
                 && online_start.is_none()
                 && online_frames.is_none()
                 && !online_simple
-                && !online_mass,
+                && !online_mass
+                && online_network_checkpoint.is_none(),
             "online options require an online live checkpoint"
         );
         None
@@ -1494,8 +1525,18 @@ where
             "--lan-setup-crash requires a normal LAN live host or guest checkpoint"
         );
         ensure!(
-            lan_setup_crash.is_none() || lan_map.is_none(),
-            "editable LAN crash checkpoint currently uses a resident map; an in-flight transfer fault needs its own observed progress gate"
+            match lan_setup_crash {
+                Some(LanSetupCrash::MapHost) => match checkpoint {
+                    ShellCaptureCheckpoint::Lan(movies::LanTarget::LiveHost) => lan_map
+                        .as_deref()
+                        .is_some_and(|map| !crate::map::rmg::is_seed_selection(map)),
+                    ShellCaptureCheckpoint::Lan(movies::LanTarget::LiveGuest) => lan_map.is_none(),
+                    _ => false,
+                },
+                Some(_) => lan_map.is_none(),
+                None => true,
+            },
+            "map-host requires an authored host map; resident host/guest crash uses the resident map"
         );
         let failure_prefix_output = if lan_setup_crash.is_some()
             || matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.desync_failure())
@@ -2864,6 +2905,36 @@ mod tests {
     }
 
     #[test]
+    fn interrupted_map_host_checkpoint_requires_authored_host_selection() {
+        let output = new_output_path("lan-map-crash");
+        let mut values = valid_args(&output);
+        values[1] = "lan-live-host".into();
+        values.extend(args(&[
+            "--lan-bind",
+            "127.0.0.1:31000",
+            "--lan-peer",
+            "127.0.0.1:31010",
+            "--lan-setup-crash",
+            "map-host",
+        ]));
+        assert!(parse_launch_args(values.clone()).is_err());
+        values[1] = "lan-live-guest".into();
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values[1] = "lan-live-host".into();
+        values.extend(args(&["--lan-map", "transfer.yrm"]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        assert_eq!(
+            request.live_lan.unwrap().setup_crash,
+            Some(LanSetupCrash::MapHost)
+        );
+        *values.last_mut().unwrap() = "RandMap.Sed".into();
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
     fn live_lan_capture_rejects_overlapping_and_invalid_socket_parameters() {
         let output = new_output_path("live-lan-invalid");
         for (bind, peer) in [
@@ -2942,6 +3013,37 @@ mod tests {
             "Peer",
             "--online-password-stdin",
         ]));
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn network_checkpoint_requires_a_normal_pair_and_a_bounded_public_nonce() {
+        let output = new_output_path("online-network-checkpoint");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-password-stdin",
+            "--online-simple-input",
+            "--online-frames",
+            "600",
+            "--online-network-checkpoint",
+            "0123456789abcdef0123456789abcdef",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        assert_eq!(
+            request.live_online.unwrap().network_checkpoint.as_deref(),
+            Some("0123456789abcdef0123456789abcdef")
+        );
+        let frames = values.iter().position(|value| value == "600").unwrap();
+        values[frames] = "300".into();
+        assert!(parse_launch_args(values.clone()).is_err());
+        values[frames] = "600".into();
+        values[1] = "online-live-timeout-host".into();
         assert!(parse_launch_args(values).is_err());
     }
 

@@ -1000,8 +1000,24 @@ impl LiveLanCapture {
     }
 
     fn observed_receipt(&self, state: &AppState) -> Result<Value> {
+        self.observed_receipt_through(state, None)
+    }
+
+    fn observed_receipt_through(&self, state: &AppState, through: Option<u32>) -> Result<Value> {
+        let checksums = if let Some(frame) = through {
+            self.checksums
+                .get(..frame as usize)
+                .context("uncommitted checkpoint prefix")?
+        } else {
+            &self.checksums
+        };
+        let hashes = if let Some(frame) = through {
+            recorded_simulation_hashes(state, Some(u64::from(frame)))?
+        } else {
+            self.simulation_hashes.clone()
+        };
         ensure!(
-            !self.simulation_hashes.is_empty(),
+            !hashes.is_empty(),
             "live capture has no recorded simulation hashes"
         );
         let sim = &state
@@ -1024,11 +1040,11 @@ impl LiveLanCapture {
             "scope":if self.target.desync_failure() { "real300-frame CRC and strong-hash prefix followed by external scoped FRAMEINFO corruption, actual checksum CE Stop and ordinary LAN lobby cleanup" } else if self.failure.is_some() { "shared 300-frame prefix followed by real peer disappearance and ordinary wait recovery or Quit; bounded runtime validation, not whole-match/native parity" } else if self.target.online() {"observed production match before real outcome; tactical commands and simulation checksums"} else if self.battle.is_some() { "kick/rejoin, Battle opening, tactical barracks rally through raw ARCHIVE, two automatic paid GI deliveries and natural rally walks per Human, tactical GI Move/object Attack, post-command rifle damage and raw Stop, then separation; bounded runtime validation, not whole-match/native parity" } else { "kick/rejoin, 300 native frames and local Move/Stop; bounded runtime validation, not whole-match/native parity" },
             "participant_count":self.expected_players,
             "active_mobile_count":sim.entities().values_sorted().filter(|entity|entity.is_alive() && !entity.in_limbo() && matches!(entity.category(),crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).count(),
-            "required_frames":self.required_frames(),"battle":self.battle.as_ref().map(|battle| battle.receipt(state)).transpose()?,
+            "required_frames":through.unwrap_or(self.required_frames()),"battle":self.battle.as_ref().map(|battle| battle.receipt(state)).transpose()?,
             "failure":self.failure.as_ref().map(|failure| failure.receipt()),"mass_input":self.mass.as_ref().map(mass::MassInput::receipt),
             "kick_observed":self.kick_observed,
             "bind":self.config.as_ref().map(|config|config.bind.to_string()),"peer":self.config.as_ref().map(|config|config.peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,
-            "native_checksums":self.checksums,"simulation_hashes":self.simulation_hashes,
+            "native_checksums":checksums,"simulation_hashes":hashes,
             "simulation_hash_interval":crate::sim::replay::PLAY_HASH_INTERVAL.get(),
             "actions":self.actions,"observed_movement":self.observed_movement,"stopped_position":self.stopped_position,"route":self.route,
             "final_native_frame":sim.session().binary_frame(),"checksum_failure":format!("{:?}",sim.pending_network_failure()),

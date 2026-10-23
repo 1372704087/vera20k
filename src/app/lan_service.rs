@@ -247,6 +247,12 @@ impl LanService {
         self.maps.active()
     }
 
+    /// Current authored-map bytes that have actually arrived but have not yet
+    /// reached installation. No progress or admission state is changed.
+    pub(super) fn setup_map_download(&self) -> Option<(&str, usize, usize)> {
+        self.maps.incomplete_map_download(self.setup_scope?)
+    }
+
     /// Physical source, effective map and generated preview/staging are one
     /// admission through the retained transfer owner, for this exact options.
     fn setup_maps_verified(&self) -> bool {

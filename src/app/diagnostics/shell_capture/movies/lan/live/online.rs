@@ -43,6 +43,8 @@ pub(super) struct LiveRoundFlow {
     last_refresh: Instant,
     last_heartbeat: Instant,
     failure_prefix_written: bool,
+    network_checkpoint: Option<Value>,
+    network_checkpoint_started: Option<Instant>,
 }
 
 impl LiveRoundFlow {
@@ -73,6 +75,8 @@ impl LiveRoundFlow {
             last_refresh: Instant::now(),
             last_heartbeat: Instant::now(),
             failure_prefix_written: false,
+            network_checkpoint: None,
+            network_checkpoint_started: None,
         }
     }
 
@@ -143,17 +147,22 @@ impl LiveRoundFlow {
             .push(json!({"render_frame":frame,"action":action,"round":self.rounds.len()+1}));
     }
 
-    fn write_failure_prefix(
+    fn write_prefix(
         &mut self,
         core: &LiveLanCapture,
         state: &AppState,
         frame: u32,
+        network: bool,
     ) -> Result<()> {
-        if self.failure_prefix_written {
+        if if network {
+            self.network_checkpoint.is_some()
+        } else {
+            self.failure_prefix_written
+        } {
             return Ok(());
         }
         ensure!(
-            core.checksums.len() == REQUIRED_FRAMES as usize,
+            core.checksums.len() >= REQUIRED_FRAMES as usize,
             "failure prefix did not retain every real checksum"
         );
         let (path, schema, account, host) = if let Some(config) = &self.config {
@@ -162,7 +171,11 @@ impl LiveRoundFlow {
                     .failure_prefix_output
                     .as_ref()
                     .context("failure prefix path")?,
-                "vera20k.online-failure-prefix.v1",
+                if network {
+                    "vera20k.online-network-prefix.v1"
+                } else {
+                    "vera20k.online-failure-prefix.v1"
+                },
                 config.account.as_str(),
                 config.host.as_str(),
             )
@@ -177,12 +190,105 @@ impl LiveRoundFlow {
                 HOST_NAME,
             )
         };
+        let nonce = self
+            .config
+            .as_ref()
+            .and_then(|config| config.network_checkpoint.as_ref());
+        let prefix_frame = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("prefix world")?
+            .simulation
+            .session()
+            .binary_frame();
+        let primary_port = state
+            .match_state
+            .live_network
+            .as_ref()
+            .context("prefix transport")?
+            .primary_addr()?
+            .port();
         let prefix = json!({"schema":schema,"account":account,"host":host,
-            "external_fault_pending":true,"runtime":core.observed_receipt(state)?});
+            "checkpoint_id":nonce,"prefix_frame":prefix_frame,"primary_port":primary_port,
+            "external_fault_pending":true,"runtime":core.observed_receipt_through(state,network.then_some(REQUIRED_FRAMES))?});
         write_new_file(path, &serde_json::to_vec_pretty(&prefix)?)?;
-        self.failure_prefix_written = true;
+        if network {
+            self.network_checkpoint = Some(
+                json!({"checkpoint_id":nonce,"prefix_frame":prefix_frame,"primary_port":primary_port,"ack":null}),
+            );
+            self.network_checkpoint_started = Some(Instant::now());
+        } else {
+            self.failure_prefix_written = true;
+        }
         self.record(frame, "Real300-frame command/checksum prefix saved; external fault may begin after both receipts agree");
         Ok(())
+    }
+
+    /// The game keeps ticking. Only this movie's later Observe click waits
+    /// for the external helper's proven tuple change; no game timer is touched.
+    fn network_checkpoint_ready(&mut self, state: &AppState) -> Result<bool> {
+        let Some(checkpoint) = self.network_checkpoint.as_mut() else {
+            return Ok(true);
+        };
+        if !checkpoint["ack"].is_null() {
+            return Ok(true);
+        }
+        ensure!(
+            self.network_checkpoint_started
+                .context("checkpoint start")?
+                .elapsed()
+                < std::time::Duration::from_secs(120),
+            "external network checkpoint deadline expired"
+        );
+        let path = self
+            .config
+            .as_ref()
+            .and_then(|config| config.failure_prefix_output.as_ref())
+            .context("checkpoint path")?
+            .with_extension("applied.json");
+        let file = match std::fs::File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(error.into()),
+        };
+        ensure!(
+            file.metadata()?.len() <= 1024,
+            "network checkpoint control exceeds its bound"
+        );
+        let applied: Value = serde_json::from_reader(file.take(1025))?;
+        ensure!(
+            applied.as_object().is_some_and(|value| value.len() == 3)
+                && applied["checkpoint_id"] == checkpoint["checkpoint_id"]
+                && applied["prefix_frame"] == checkpoint["prefix_frame"]
+                && applied["applied"] == true,
+            "network checkpoint control belongs to another prefix"
+        );
+        let sim = &state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("checkpoint world")?
+            .simulation;
+        let port = state
+            .match_state
+            .live_network
+            .as_ref()
+            .context("checkpoint live transport")?
+            .primary_addr()?
+            .port();
+        ensure!(
+            state.frontend.screen == GameScreen::InGame
+                && sim.terminal_score_snapshot().is_none()
+                && sim.session().binary_frame()
+                    >= checkpoint["prefix_frame"]
+                        .as_u64()
+                        .context("checkpoint frame")? as u32
+                && Some(u64::from(port)) == checkpoint["primary_port"].as_u64(),
+            "network checkpoint ended or replaced its live socket before acknowledgement"
+        );
+        checkpoint["ack"] = json!({"native_frame":sim.session().binary_frame(),"tick":sim.session().tick(),"primary_port":port});
+        Ok(true)
     }
 
     fn heartbeat(&mut self, state: &AppState, rendered: PresentedShell) {
@@ -587,12 +693,25 @@ impl LiveRoundFlow {
             }
             RoundPhase::Running => {
                 core.observe_run(state, frame)?;
+                if self.rounds.is_empty()
+                    && self
+                        .config
+                        .as_ref()
+                        .is_some_and(|config| config.network_checkpoint.is_some())
+                {
+                    if core.checksums.len() >= REQUIRED_FRAMES as usize {
+                        self.write_prefix(core, state, frame, true)?;
+                    }
+                    if !self.network_checkpoint_ready(state)? {
+                        return Ok(());
+                    }
+                }
                 if core.failure.as_ref().is_some_and(|failure| failure.armed()) {
-                    self.write_failure_prefix(core, state, frame)?;
+                    self.write_prefix(core, state, frame, false)?;
                 }
                 if core.phase == Phase::Finished {
                     if core.target == LanTarget::OnlineFailureGuest {
-                        self.write_failure_prefix(core, state, frame)?;
+                        self.write_prefix(core, state, frame, false)?;
                         self.record(frame, "Guest remains live for external termination; no Observe or fabricated departure");
                         self.phase = RoundPhase::HoldFailureGuest;
                         return Ok(());
@@ -878,6 +997,7 @@ impl LiveRoundFlow {
             "fixed_start":self.config.as_ref().and_then(|config|config.start),
             "players":self.players(),"required_frames":self.config.as_ref().map_or(300, |config|config.frames),"simple_input":self.config.as_ref().is_none_or(|config|config.simple_input),
             "failure_prefix":self.config.as_ref().and_then(|config|config.failure_prefix_output.as_ref()),
+            "network_checkpoint":self.network_checkpoint,
             "scope":if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),

@@ -118,21 +118,63 @@ fn snapshot(
         .network_setup_protocol
         .as_ref()
         .context("editable setup")?;
+    let transfer = victim == LanSetupCrash::MapHost;
     if launch.humans.len() != 2
         || !service.setup_roster_complete(session)
         || !protocol.editable()
         || protocol.lan_go_send_pending()
-        || protocol.blocking_map_transfer()
-        || protocol.transfer_progress().is_some()
-        || service.queued_setup_count() != 0
+        || (!transfer && protocol.blocking_map_transfer())
+        || (!transfer && protocol.transfer_progress().is_some())
         || session.network_start_seed().is_none()
-        || core.map_admission.is_none()
         || launch.humans.iter().enumerate().any(|(source, human)| {
-            human.raw_slot_index.is_none() || session.network_map_status(source) != Some(1)
+            human.raw_slot_index.is_none()
+                || (!transfer && session.network_map_status(source) != Some(1))
         })
     {
         return Ok(None);
     }
+    // Current admitted identity, not a momentarily empty socket FIFO, arms
+    // the fault. Ordinary lossy presence and reliable download-window requests
+    // may be queued on a healthy peer. Cleanup below still requires zero work.
+    let (map_admission, map_download) = if transfer && !core.host() {
+        let Some(metadata) = session.network_map_metadata() else {
+            return Ok(None);
+        };
+        let Some((digest, completed, total)) = service.setup_map_download() else {
+            return Ok(None);
+        };
+        if session.network_local_map_source().is_some()
+            || session.network_local_map_effective_digest().is_some()
+            || session.network_map_status(launch.local_player_index) == Some(1)
+            || digest != metadata.source_sha256
+            || total != usize::try_from(metadata.byte_length)?
+            || protocol.transfer_progress()
+                != Some((u32::try_from(completed)?, u32::try_from(total)?))
+        {
+            return Ok(None);
+        }
+        (
+            json!({"file":launch.selected_map_file,"generated":false,"verified":false,"source":null,
+                "source_sha256":metadata.source_sha256,"byte_length":metadata.byte_length,
+                "effective_digest":metadata.effective_digest,"capacity":metadata.player_capacity}),
+            Some(
+                json!({"source_sha256":digest,"completed_bytes":completed,"total_bytes":total,
+                "local_source_installed":false,"local_k1":session.network_map_status(launch.local_player_index)}),
+            ),
+        )
+    } else {
+        let Some(admission) = core
+            .map_admission
+            .as_ref()
+            .filter(|admission| admission["file"].as_str() == launch.selected_map_file.as_deref())
+        else {
+            return Ok(None);
+        };
+        if session.network_map_status(launch.local_player_index) != Some(1) {
+            return Ok(None);
+        }
+        (admission.clone(), None)
+    };
     let config = core.config.as_ref().context("real LAN sockets")?;
     let Some(source) = session.network_endpoint_source(config.peer) else {
         return Ok(None);
@@ -160,7 +202,8 @@ fn snapshot(
         "account":if core.host() {HOST_NAME} else {GUEST_NAME},"host":HOST_NAME,"external_fault_pending":true,
         "setup":{"scope":scope,"members":members,"local_endpoint":config.bind.to_string(),
             "peer_endpoint":config.peer.to_string(),"peer_name":peer.name,"peer_source":source,
-            "peer_raw_row":peer.raw_slot_index,"map_admission":core.map_admission,
+            "peer_raw_row":peer.raw_slot_index,"map_admission":map_admission,"map_download":map_download,
+            "queued_setup_count":service.queued_setup_count(),
             "editable":true,"go_pending":false,"loading":false,"gameplay_started":false,
             "observed_bucket":now,"lease_remaining":remaining,"lease_period":period,"render_frame":frame}}),
     ))
@@ -353,7 +396,7 @@ impl SetupCrashCapture {
                 .is_some_and(|armed| armed.elapsed() < Duration::from_secs(120)),
             "editable LAN crash did not recover through its ordinary lease"
         );
-        if core.host() == (self.victim == LanSetupCrash::Host) {
+        if core.host() == self.victim.host() {
             return Ok(true);
         }
         if !self.observe_boundary(core, state, rendered, frame, now)? {

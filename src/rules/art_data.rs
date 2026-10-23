@@ -1900,45 +1900,6 @@ impl ArtRegistry {
         None
     }
 
-    /// Resolve the effective image id for an overlay.
-    ///
-    /// Follows the overlay resolution order: art `[NAME].Image=` first, then
-    /// rules `[NAME].Image=`.
-    pub fn resolve_overlay_image_id(&self, overlay_name: &str, rules_ini: &IniFile) -> String {
-        let upper_name: String = overlay_name.to_uppercase();
-        let mut image_id: String = upper_name.clone();
-
-        if let Some(art_image) = self
-            .get(&upper_name)
-            .and_then(|entry| normalize_id(entry.image.as_deref().unwrap_or_default()))
-        {
-            image_id = art_image;
-        }
-        if let Some(rules_image) = rules_ini
-            .section(overlay_name)
-            .and_then(|section| section.read_name("Image", 0x19))
-            .and_then(normalize_id)
-        {
-            image_id = rules_image;
-        }
-
-        image_id
-    }
-
-    /// Exact overlay convention flags used by filename generation.
-    pub fn overlay_convention_flags(&self, overlay_name: &str, image_id: &str) -> (bool, bool) {
-        let name_entry: Option<&ArtEntry> = self.get(overlay_name);
-        let image_entry: Option<&ArtEntry> = self.get(image_id);
-
-        let uses_theater: bool = image_entry.map(|e| e.theater).unwrap_or(false)
-            || name_entry.map(|e| e.theater).unwrap_or(false);
-        let uses_new_theater: bool = image_entry.map(|e| e.new_theater).unwrap_or(false)
-            || name_entry.map(|e| e.new_theater).unwrap_or(false)
-            || self.should_use_new_theater(image_id);
-
-        (uses_theater, uses_new_theater)
-    }
-
     /// Check whether `NewTheater` substitution should be applied.
     fn should_use_new_theater(&self, upper_image: &str) -> bool {
         if has_hardcoded_new_theater_prefix(upper_image) {
@@ -2159,91 +2120,6 @@ pub fn anim_shp_candidates(
     }
 
     candidates
-}
-
-/// Generate filename candidates for overlay SHPs.
-///
-/// This function only applies conventions. Callers should resolve `image_id`
-/// through `ArtRegistry::resolve_overlay_image_id()` first.
-pub fn overlay_shp_candidates(
-    art: Option<&ArtRegistry>,
-    overlay_name: &str,
-    image_id: &str,
-    theater_ext: &str,
-    theater_name: &str,
-) -> Vec<String> {
-    let upper_name: String = overlay_name.to_uppercase();
-    let upper_image: String = image_id.to_uppercase();
-    let (uses_theater, uses_new_theater): (bool, bool) = art
-        .map(|registry| registry.overlay_convention_flags(&upper_name, &upper_image))
-        .unwrap_or((false, has_hardcoded_new_theater_prefix(&upper_image)));
-    let mut candidates: Vec<String> = Vec::with_capacity(6);
-
-    if uses_new_theater {
-        let subbed: String = apply_theater_letter(&upper_image, theater_name);
-        push_candidate(
-            &mut candidates,
-            format!("{}.{}", subbed, theater_ext.to_ascii_uppercase()),
-        );
-        push_candidate(&mut candidates, format!("{}.SHP", subbed));
-
-        let generic: String = apply_generic_letter(&upper_image);
-        if generic != subbed && generic != upper_image {
-            push_candidate(
-                &mut candidates,
-                format!("{}.{}", generic, theater_ext.to_ascii_uppercase()),
-            );
-            push_candidate(&mut candidates, format!("{}.SHP", generic));
-        }
-    }
-
-    if uses_theater {
-        push_candidate(
-            &mut candidates,
-            format!("{}.{}", upper_image, theater_ext.to_ascii_uppercase()),
-        );
-        push_candidate(&mut candidates, format!("{}.SHP", upper_image));
-    } else {
-        push_candidate(&mut candidates, format!("{}.SHP", upper_image));
-        push_candidate(
-            &mut candidates,
-            format!("{}.{}", upper_image, theater_ext.to_ascii_uppercase()),
-        );
-    }
-
-    candidates
-}
-
-/// Build the one primary filename and one generic-letter retry used by
-/// `OverlayTypeClass::GetSHP` for map-pack placement eligibility.
-///
-/// Keep this separate from [`overlay_shp_candidates`]: render loading probes a
-/// deliberately broader compatibility list, while the native object-type
-/// loader constructs exactly one name and only retries after forcing its
-/// second character to `G`.
-pub fn native_overlay_shp_names(
-    art: &ArtRegistry,
-    image_id: &str,
-    theater_ext: &str,
-    theater_name: &str,
-) -> [String; 2] {
-    let upper_image = image_id.to_ascii_uppercase();
-    // ObjectTypeClass has already resolved `Image=` at this point; its two
-    // filename flags come from that resolved art section, not from the broad
-    // name/image convention union used by render probing.
-    let image_entry = art.get(&upper_image);
-    let uses_theater = image_entry.is_some_and(|entry| entry.theater);
-    let uses_new_theater = image_entry.is_some_and(|entry| entry.new_theater);
-
-    crate::rules::object_image::ObjectImageLoad {
-        image: upper_image,
-        theater: uses_theater,
-        new_theater: uses_new_theater,
-        generic_retry: true,
-    }
-    .shp_names(theater_ext, theater_name)
-    .try_into()
-    .expect("ObjectType SHP loading has one primary and one retry")
 }
 
 /// Generate VXL/HVA filenames for a voxel model.

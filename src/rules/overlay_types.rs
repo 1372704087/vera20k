@@ -1,11 +1,11 @@
 //! Rules-owned overlay type registry — overlay ID to name, flags, and
 //! tiberium/wall/crate semantics parsed from rules.ini `[OverlayTypes]` and
-//! per-overlay sections (with art.ini image overrides).
+//! per-overlay sections and the retained native fixed-ART reader.
 //!
 //! Declaration order is authoritative: `[OverlayTypes]` list position IS the
 //! overlay ID, and every name/first-match lookup preserves it. High-bridge
-//! stamp geometry lives in `map::bridge_facts`; render-only SHP name
-//! resolution lives in `render::overlay_assets`.
+//! stamp geometry lives in `map::bridge_facts`; reached SHP requests are
+//! immutable projections of the process type owner.
 //!
 //! ## Dependency rules
 //! - Part of rules/ and depends only on rules siblings plus std.
@@ -14,6 +14,9 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::terrain_rules::{LandType, SpeedCostProfile, TerrainRules};
 use crate::rules::tiberium_type::{TiberiumType, TiberiumTypeId, TiberiumTypeRegistry};
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
+
+use crate::rules::object_image::ObjectImageState;
 
 #[cfg(any(test, feature = "test-support"))]
 const STOCK_FLAT_RIPARIUS_VARIANT_COUNT: usize = 12;
@@ -170,8 +173,9 @@ pub struct OverlayTypeFlags {
     pub overrides: bool,
     /// Parsed `CellAnim=` AnimType identity (`OverlayTypeClass+0x29C`).
     ///
-    /// `OverlayTypeClass::ReadINI @ 0x005FE770` resolves this name through
-    /// `AnimTypeClass::FindByName`; it is not the overlay's own SHP image.
+    /// OverlayRead5FE897 resolves through AnimTypeFindOrAllocate428B80;
+    /// this is separate from the Overlay's own SHP. Implicit construction
+    /// remains the factory residual noted at this registry's projection.
     pub cell_anim: Option<String>,
     /// IsRubble=yes — explicitly returns reduced ZoneType 0 after earlier overlay checks.
     pub is_rubble: bool,
@@ -214,7 +218,7 @@ pub struct OverlayTypeFlags {
     pub strength: u16,
     /// DamageLevels= from art.ini — number of damage stages for walls.
     /// Only meaningful when wall=true. Default 1.
-    pub damage_levels: u16,
+    pub damage_levels: i32,
 }
 
 impl Default for OverlayTypeFlags {
@@ -296,7 +300,7 @@ pub fn native_mark_overlay_data(flags: &OverlayTypeFlags) -> u8 {
 ///
 /// Built from the [OverlayTypes] section of rules.ini.
 /// Overlay IDs 0..N map to the names listed in order.
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct OverlayTypeRegistry {
     /// Overlay ID -> name (indexed by preserved internal [OverlayTypes] IDs).
     names: Vec<String>,
@@ -304,6 +308,8 @@ pub struct OverlayTypeRegistry {
     flags: Vec<OverlayTypeFlags>,
     /// Inherited ObjectTypeClass AlphaImage buffer (`+0x213`, char[25]), by ID.
     alpha_images: Vec<String>,
+    /// Immutable projection; ProcessedType remains the mutable reader owner.
+    images: Vec<ObjectImageState>,
 }
 
 impl OverlayTypeRegistry {
@@ -313,7 +319,44 @@ impl OverlayTypeRegistry {
     /// RA2/YR may skip some numeric keys, but internal overlay ids still follow
     /// the ordered list rather than reserving holes for every missing raw key.
     /// Returns an empty registry if the section is missing.
+    /// Compatibility fixtures execute the shared fresh reader/postpass; real
+    /// loads project their already processed owner with from_processed_rules.
     pub fn from_ini(ini: &IniFile, art_ini: Option<&IniFile>) -> Self {
+        let empty_art = IniFile::empty();
+        let processed = crate::rules::native_processing::RulesLayerStack::new(ini.clone())
+            .process_with_fixed_art_and_registry_state_recovering(
+                art_ini.unwrap_or(&empty_art),
+                crate::rules::native_processing::NativeRulesRegistryState::default(),
+                crate::rules::native_processing::RulesProcessContext::ScenarioReset(
+                    crate::rules::object_image::ImageTheater::from_map(ini),
+                ),
+                &crate::rules::sound_ini::EvaRegistry::default(),
+            )
+            .unwrap_or_else(|failure| {
+                panic!(
+                    "Overlay fixture must satisfy native Rules processing: {}",
+                    failure.into_parts().0
+                )
+            });
+        Self::from_processed_rules(&processed)
+    }
+
+    /// Project the one retained process authority without replaying a read or
+    /// image load. RMG preview uses this same projection without a RuleSet.
+    pub fn from_processed_rules(
+        processed: &crate::rules::native_processing::ProcessedRulesLayers,
+    ) -> Self {
+        let mut registry = Self::from_projected_ini(processed.ini());
+        for (index, (_, damage_levels, image)) in processed.overlay_type_image_states().enumerate()
+        {
+            registry.flags[index].damage_levels = damage_levels;
+            registry.images.push(image.clone());
+        }
+        assert_eq!(registry.names.len(), registry.images.len());
+        registry
+    }
+
+    fn from_projected_ini(ini: &IniFile) -> Self {
         let section = match ini.section("OverlayTypes") {
             Some(s) => s,
             None => {
@@ -322,6 +365,7 @@ impl OverlayTypeRegistry {
                     names: Vec::new(),
                     flags: Vec::new(),
                     alpha_images: Vec::new(),
+                    images: Vec::new(),
                 };
             }
         };
@@ -337,6 +381,7 @@ impl OverlayTypeRegistry {
                 names: Vec::new(),
                 flags: Vec::new(),
                 alpha_images: Vec::new(),
+                images: Vec::new(),
             };
         }
 
@@ -347,9 +392,10 @@ impl OverlayTypeRegistry {
         let clear_speed_costs = clear_semantics.map(|semantics| semantics.speed_costs);
         let clear_ground_blocked =
             clear_semantics.is_some_and(|semantics| semantics.ground_blocked);
-        // `OverlayTypeClass::ReadINI @ 0x005FE770` uses
-        // `AnimTypeClass::FindByName`: an unknown CellAnim name leaves +0x29C
-        // null rather than becoming an unresolved filename.
+        // OverlayRead5FE897 calls AnimTypeFindOrAllocate428B80. This
+        // compatibility projection currently keeps only already registered
+        // names; implicit CellAnim construction/ART-read chronology remains
+        // a separate factory residual, outside the no-CellAnim wall chain.
         let registered_anim_types: HashSet<String> = ini
             .section("Animations")
             .map(|section| {
@@ -394,14 +440,6 @@ impl OverlayTypeRegistry {
                 let radar_color = type_section
                     .is_present("RadarColor")
                     .then(|| type_section.read_color_rgb("RadarColor", [0; 3], None));
-                // `0x005FE8BE`: ReadInt from the art INI section the Image
-                // names, over the constructor's 1 (e.g. [GASAND]
-                // DamageLevels=2).
-                let image = type_section.read_name("Image", 0x19).unwrap_or(name);
-                let damage_levels = art_ini.map_or(1, |art| {
-                    u16::try_from(art.section_or_empty(image).read_int("DamageLevels", 1))
-                        .unwrap_or(1)
-                });
                 flags.push(OverlayTypeFlags {
                     tiberium,
                     chain_reaction: type_section.read_bool("ChainReaction", false),
@@ -438,7 +476,7 @@ impl OverlayTypeRegistry {
                     land_ground_blocked,
                     radar_color,
                     strength,
-                    damage_levels,
+                    damage_levels: 1,
                 });
             } else {
                 alpha_images.push(String::new());
@@ -464,6 +502,30 @@ impl OverlayTypeRegistry {
             names,
             flags,
             alpha_images,
+            images: Vec::new(),
+        }
+    }
+
+    /// OverlayRead5FE928, InitTheater5FE620 and saved Load5FEAF0's
+    /// reached requests, in first-success order. Resource availability never
+    /// changes the retained Image/latch or infers lazy owned Shape+A8.
+    pub fn shp_candidates(&self, name: &str, theater_ext: &str, theater_name: &str) -> Vec<String> {
+        self.names
+            .iter()
+            .position(|id| id.eq_ignore_ascii_case(name))
+            .and_then(|index| self.images.get(index))
+            .into_iter()
+            .flat_map(|image| image.shp_loads())
+            .flat_map(|load| load.shp_names(theater_ext, theater_name))
+            .collect()
+    }
+
+    pub(crate) fn hash_configuration<H: Hasher>(&self, state: &mut H) {
+        b"overlay-image-history-v1".hash(state);
+        self.names.hash(state);
+        self.images.hash(state);
+        for flags in &self.flags {
+            flags.damage_levels.hash(state);
         }
     }
 
@@ -473,6 +535,7 @@ impl OverlayTypeRegistry {
             names: Vec::new(),
             flags: Vec::new(),
             alpha_images: Vec::new(),
+            images: Vec::new(),
         }
     }
 
@@ -695,6 +758,66 @@ pub(crate) fn retained_overlay_land(flags: &OverlayTypeFlags, slope_type: u8) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn retail_wall_image_override_retains_damage_stages_through_a_hit() {
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(
+            &IniFile::from_str("[Map]\nTheater=SNOW\n[GAWALL]\nImage=TIB01\n"),
+        ) else {
+            return;
+        };
+        let registry = retail.rules.overlay_registry();
+        let wall = registry.id_for_name("GAWALL").unwrap();
+        // OverlayRead5FE8A6..5FE8C3 uses the retained dword as default:
+        // ART[TIB01]'s missing key keeps ART[GAWALL]'s prior three stages.
+        assert_eq!(registry.flags(wall).unwrap().damage_levels, 3);
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::from_overlay_entries(
+            &[crate::map::overlay::OverlayEntry {
+                rx: 2,
+                ry: 2,
+                overlay_id: wall,
+                frame: 0,
+            }],
+            5,
+            5,
+        );
+        let mut rng = crate::sim::rng::SimRng::new(123);
+        let before = rng.native_state_hex();
+        let result =
+            crate::sim::overlay_grid::damage_wall_overlay(&mut grid, registry, 2, 2, 300, &mut rng);
+        // DestroyOverlay480EDD compares stage1 against retained3 before
+        // its penultimate/connection check. This hit needs no RNG draw.
+        assert!(result.destroyed_cells.is_empty());
+        assert_eq!(grid.cell(2, 2).overlay_id, Some(wall));
+        assert_eq!(grid.cell(2, 2).overlay_data, 0x10);
+        assert_eq!(rng.native_state_hex(), before);
+    }
+
+    #[test]
+    fn signed_damage_stages_keep_native_width_and_removal_order() {
+        let rules =
+            IniFile::from_str("[OverlayTypes]\n0=MIN\n1=WIDE\n[MIN]\nWall=yes\n[WIDE]\nWall=yes\n");
+        let art =
+            IniFile::from_str("[MIN]\nDamageLevels=-2147483648\n[WIDE]\nDamageLevels=65537\n");
+        let registry = OverlayTypeRegistry::from_ini(&rules, Some(&art));
+        assert_eq!(registry.flags(0).unwrap().damage_levels, i32::MIN);
+        assert_eq!(registry.flags(1).unwrap().damage_levels, 65537);
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(5, 5);
+        grid.place_overlay(1, 2, 0, 0);
+        grid.place_overlay(3, 2, 1, 0);
+        let mut rng = crate::sim::rng::SimRng::new(123);
+        let before = rng.native_state_hex();
+        // DestroyOverlay480EDD signed JGE precedes DEC480EE1. The MIN
+        // value removes despite wrapping(levels-1); WIDE must not narrow to1.
+        crate::sim::overlay_grid::damage_wall_overlay(&mut grid, &registry, 1, 2, 1, &mut rng);
+        crate::sim::overlay_grid::damage_wall_overlay(&mut grid, &registry, 3, 2, 1, &mut rng);
+        assert_eq!(grid.cell(1, 2).overlay_id, None);
+        assert_eq!(
+            (grid.cell(3, 2).overlay_id, grid.cell(3, 2).overlay_data),
+            (Some(1), 0x10)
+        );
+        assert_eq!(rng.native_state_hex(), before);
+    }
 
     #[test]
     fn mark_data_tests_land_five_not_road() {

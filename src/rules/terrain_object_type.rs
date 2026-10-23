@@ -272,7 +272,7 @@ impl TerrainTypeReadState {
             // Object LoadSHP5F9203/5F923E clears then skips TerrainType.
             // Only fresh non-theater71DF9C..71DFC0 reloads ImageFile.SHP
             // before the optional GetColor71DFD0..71DFF5.
-            image: image.shp_load().map(|load| load.image.clone()),
+            image: image.shp_loads().first().map(|load| load.image.clone()),
             radar_color: section.raw_value("RadarColor").map(str::to_string),
         });
     }

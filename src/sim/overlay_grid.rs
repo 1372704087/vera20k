@@ -1382,7 +1382,7 @@ fn damage_wall_recursive(
     let damage_level = new_data >> 4;
 
     // At penultimate damage level: chain-damage cardinal neighbors.
-    if flags.damage_levels > 2 && u16::from(damage_level) == flags.damage_levels.saturating_sub(1) {
+    if flags.damage_levels > 2 && i32::from(damage_level) == flags.damage_levels.wrapping_sub(1) {
         const CARDINAL: [(i32, i32); 4] = [(0, -1), (1, 0), (0, 1), (-1, 0)];
         for (dx, dy) in CARDINAL {
             let Some((base_x, base_y)) =
@@ -1423,10 +1423,13 @@ fn damage_wall_recursive(
     let post_chain_data =
         native_runtime_overlay_target_state(grid, resolved_terrain.as_deref(), target).1;
     let post_chain_level = post_chain_data >> 4;
-    let penultimate = flags.damage_levels.saturating_sub(1);
     let connected = post_chain_data & 0x0F != 0;
-    let retain = u16::from(post_chain_level) < penultimate
-        || (u16::from(post_chain_level) == penultimate && connected);
+    // DestroyOverlay480EDD..480EEA tests signed stage<levels BEFORE DEC.
+    // In particular i32::MIN removes, rather than wrapping its penultimate
+    // into a positive value and retaining the wall.
+    let stage = i32::from(post_chain_level);
+    let retain =
+        stage < flags.damage_levels && (stage != flags.damage_levels.wrapping_sub(1) || connected);
     if damage != -1 && retain {
         // The native state write preceded the chain. Export a real-cell render
         // mutation only; the shared dummy's pair stays live through its handle.

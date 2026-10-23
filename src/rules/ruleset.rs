@@ -4227,6 +4227,8 @@ pub struct RuleSet {
     /// uppercase section name. Distinct from `terrain_rules` (land semantics);
     /// these are per-decoration-object types parsed from `[TerrainTypes]`.
     pub terrain_object_types: HashMap<String, TerrainObjectType>,
+    /// Immutable projection of the process-resident Overlay type reader.
+    overlay_registry: crate::rules::overlay_types::OverlayTypeRegistry,
     /// Rules-driven bridge destruction defaults.
     pub bridge_rules: BridgeRules,
     /// Scenario-start crate counts and crate overlay images from `[CrateRules]`.
@@ -4386,6 +4388,11 @@ impl RuleSet {
 
     pub(crate) fn reveal_trigger_radius(&self) -> i32 {
         self.reveal_trigger_radius
+    }
+
+    /// The immutable Overlay projection from this same processed Rules owner.
+    pub fn overlay_registry(&self) -> &crate::rules::overlay_types::OverlayTypeRegistry {
+        &self.overlay_registry
     }
 
     /// Build from the active ordered rules sources.
@@ -5733,6 +5740,8 @@ impl RuleSet {
             terrain_rules,
             tiberium_types,
             terrain_object_types,
+            overlay_registry:
+                crate::rules::overlay_types::OverlayTypeRegistry::from_processed_rules(processed),
             bridge_rules,
             crate_rules,
             powerups,
@@ -6199,6 +6208,9 @@ impl RuleSet {
         // v34: Country starting-veterancy; optional extensions add domains below.
         b"rules-simulation-config-v34".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
+        // OverlayRead5FE8BE / InitTheater5FE620 retain typed history that a
+        // flattened Image key cannot recover; saved resource plans matter too.
+        self.overlay_registry.hash_configuration(&mut hasher);
         // Bullet46BEE0 retains this byte even when a later raw value is
         // invalid. Equal flattened INIs can therefore have different flight
         // damage. Preserve the previous hash domain for all-false stock rules.
@@ -6897,7 +6909,7 @@ impl RuleSet {
                     (
                         (
                             &p.image,
-                            &p.image_load,
+                            &p.image_loads,
                             p.voxel_image_load(),
                             p.voxel,
                             p.theater,

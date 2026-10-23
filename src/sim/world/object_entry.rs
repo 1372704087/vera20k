@@ -1099,7 +1099,7 @@ fn full_foot_entry<'a>(
                 //51C1BB..51C223: a wall at damage stage DamageLevels (+0x2A0)
                 //is no wall to Infantry. Otherwise the primary warhead needs
                 //Wall= (772AC0); Infantry has no crusher or Wood= route.
-                if u16::from(live_overlay.overlay_data >> 4) != flags.damage_levels {
+                if i32::from(live_overlay.overlay_data >> 4) != flags.damage_levels {
                     if !combat_weapon::is_armed(e, obj) || !warhead.is_some_and(|w| w.wall) {
                         return Ok(7);
                     }

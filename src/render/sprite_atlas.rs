@@ -1590,10 +1590,11 @@ fn projectile_shp_candidates(
     theater_ext: &str,
     theater_name: &str,
 ) -> Vec<String> {
-    let Some(load) = &projectile.image_load else {
-        return Vec::new();
-    };
-    load.shp_names(theater_ext, theater_name)
+    projectile
+        .image_loads
+        .iter()
+        .flat_map(|load| load.shp_names(theater_ext, theater_name))
+        .collect()
 }
 
 /// Every frame of every drawable BulletType; a `FirersPalette=` type in each
@@ -2471,12 +2472,14 @@ fn load_shp_source<'a>(
                     theater_name,
                 )
             } else if let Some(object) = object {
-                // ObjectTypeLoadSHP5F9070 and TechnoRead715820 record the
-                // final attempt; current Image or a fresh ART redirect cannot
-                // replace it or manufacture a fallback after a plain miss.
+                // ObjectTypeLoadSHP5F9070 and TechnoRead715820 retain the
+                // reached request order; current Image or a fresh ART redirect
+                // cannot replace it or manufacture another fallback.
                 object
-                    .shp_image_load()?
-                    .shp_names(theater_ext, theater_name)
+                    .shp_image_loads()
+                    .iter()
+                    .flat_map(|load| load.shp_names(theater_ext, theater_name))
+                    .collect()
             } else {
                 art_data::object_shp_candidates(art, &image, theater_ext, theater_name)
             }

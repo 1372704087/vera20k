@@ -576,9 +576,9 @@ pub struct ObjectType {
     /// another; it names the art.ini section of the type's sprite or voxel.
     /// The ordered Rules processor owns it (`ObjectImageState`).
     pub image: String,
-    /// Reached SHP request (ObjectTypeLoadSHP5F9070 or TechnoRead715820),
-    /// independent of current ImageFile and later resource calls.
-    shp_image_load: Option<crate::rules::object_image::ObjectImageLoad>,
+    /// Reached first-success SHP requests (ObjectTypeLoadSHP5F9070 or
+    /// TechnoRead715820), independent of current ImageFile.
+    shp_image_loads: Vec<crate::rules::object_image::ObjectImageLoad>,
     /// Entry ImageFile at the last LoadVoxel5F8110, including a saved load
     /// that precedes an Arctic SHP mutation.
     voxel_image_load: Option<String>,
@@ -2161,13 +2161,13 @@ impl ObjectType {
         state: &crate::rules::object_image::ObjectImageState,
     ) {
         self.image = state.image().to_string();
-        self.shp_image_load = state.shp_load().cloned();
+        self.shp_image_loads = state.shp_loads().to_vec();
         self.voxel_image_load = state.voxel_load().map(str::to_string);
     }
 
     /// Immutable load request consumed by the client SHP atlas.
-    pub fn shp_image_load(&self) -> Option<&crate::rules::object_image::ObjectImageLoad> {
-        self.shp_image_load.as_ref()
+    pub fn shp_image_loads(&self) -> &[crate::rules::object_image::ObjectImageLoad] {
+        &self.shp_image_loads
     }
 
     pub(crate) fn voxel_image_load(&self) -> Option<&str> {
@@ -3035,7 +3035,7 @@ impl ObjectType {
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),
             // Constructor value; only the ordered Process owner reads it.
             image: id.to_owned(),
-            shp_image_load: None,
+            shp_image_loads: Vec::new(),
             voxel_image_load: None,
             power: section.read_int("Power", 0),
             // Only the ordered Rules processor reads it: a later layer's

@@ -668,18 +668,16 @@ fn anim_theater_letter_needs_the_native_name_pattern() {
 }
 
 #[test]
-fn test_resolve_overlay_image_id_and_candidates() {
-    let art_ini: IniFile = IniFile::from_str("[LOBRDG27]\nImage=LOBRDGX\nTheater=yes\n");
-    let rules_ini: IniFile = IniFile::from_str("[LOBRDG27]\nImage=LOBRDGY\n");
-    let reg: ArtRegistry = ArtRegistry::from_ini(&art_ini);
-
-    let image_id: String = reg.resolve_overlay_image_id("LOBRDG27", &rules_ini);
-    assert_eq!(image_id, "LOBRDGY");
-
-    let candidates: Vec<String> =
-        overlay_shp_candidates(Some(&reg), "LOBRDG27", &image_id, "tem", "TEMPERATE");
-    assert_eq!(candidates, vec!["LOBRDGY.TEM", "LOBRDGY.SHP"]);
-    assert!(!candidates.iter().any(|name| name.contains("LOBRDG26")));
+fn overlay_image_projection_ignores_own_art_redirect_and_flags() {
+    let art = IniFile::from_str("[LOBRDG27]\nImage=LOBRDGX\nTheater=yes\n");
+    let rules = IniFile::from_str("[OverlayTypes]\n0=LOBRDG27\n[LOBRDG27]\nImage=LOBRDGY\n");
+    let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&rules, Some(&art));
+    // OverlayRead5FE78B inherits ObjectRead5F933B: only Rules Image is
+    // read, then flags from ART[that Image], not ART[the type's own ID].
+    assert_eq!(
+        overlays.shp_candidates("LOBRDG27", "TEM", "TEMPERATE"),
+        ["LOBRDGY.SHP"]
+    );
 }
 
 #[test]

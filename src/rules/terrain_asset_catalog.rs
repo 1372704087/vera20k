@@ -224,9 +224,13 @@ mod tests {
         assert_eq!(swapped.image, "SECOND");
         // TechnoRead715820/715825 replaces the parent's shape with one
         // plain Image.SHP attempt even when Voxel skipped the parent load.
-        assert_eq!(swapped.shp_image_load().unwrap().image, "SECOND");
+        assert_eq!(swapped.shp_image_loads().first().unwrap().image, "SECOND");
         assert_eq!(
-            swapped.shp_image_load().unwrap().shp_names("SNO", "SNOW"),
+            swapped
+                .shp_image_loads()
+                .first()
+                .unwrap()
+                .shp_names("SNO", "SNOW"),
             ["SECOND.SHP"]
         );
         // ObjectLoadSHP5F90A0's latch survives a later Image overwrite. The

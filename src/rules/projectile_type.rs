@@ -145,9 +145,9 @@ pub struct ProjectileType {
     pub airburst_weapon: Option<String>,
     /// Current native Image25 text; SHP admission is separately retained below.
     pub image: Option<String>,
-    /// Last admitted native5F9070 load, independently of the later Image text.
-    /// None means no reader load; an empty name is an actual .SHP/.GHP attempt.
-    pub image_load: Option<ObjectImageLoad>,
+    /// Admitted native5F9070 requests, independently of later Image text.
+    /// An empty list means no load; an empty name is an actual .SHP/.GHP attempt.
+    pub image_loads: Vec<ObjectImageLoad>,
     /// Last native5F8110 VXL/HVA load attempt. Empty is an actual empty-name
     /// attempt; None means no reached voxel load since construction.
     voxel_image_load: Option<String>,
@@ -301,7 +301,7 @@ impl ProjectileArtState {
 
     pub(crate) fn apply_to(&self, image: &ObjectImageState, projectile: &mut ProjectileType) {
         projectile.image = (!image.image().is_empty()).then(|| image.image().to_string());
-        projectile.image_load = image.shp_load().cloned();
+        projectile.image_loads = image.shp_loads().to_vec();
         projectile.voxel_image_load = image.voxel_load().map(str::to_string);
         projectile.color_scheme = self.color_scheme;
         projectile.degenerates = self.degenerates;
@@ -402,7 +402,7 @@ impl ProjectileType {
             shrapnel_weapon: None,
             airburst_weapon: None,
             image: None,
-            image_load: None,
+            image_loads: Vec::new(),
             voxel_image_load: None,
             voxel: false,
             theater: false,

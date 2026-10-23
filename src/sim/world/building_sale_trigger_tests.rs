@@ -157,8 +157,6 @@ fn campaign_scene(map_name: &str, remove_home: bool) -> HeadlessScenario {
     rules.bind_animation_sequences(&sequences);
     let overlay_shps = crate::rules::effect_asset_catalog::resolved_overlay_shp_ids(
         &overlays,
-        &rules_ini,
-        rules.art(),
         &assets,
         theater.extension,
         &map.header.theater,

@@ -143,7 +143,7 @@ fn projectile_voxel_load_retains_attempt_identity_independently_of_shp_and_invis
         assert!(kind.inviso, "{body}");
         assert_eq!(kind.voxel_image_load(), expected, "{body}");
         assert_eq!(
-            kind.image_load.as_ref().map(|load| load.image.as_str()),
+            kind.image_loads.first().map(|load| load.image.as_str()),
             expected_shp,
             "base non-Voxel SHP load precedes Bullet Inviso: {body}"
         );
@@ -184,7 +184,7 @@ fn compare(actual: &ProjectileType, expected: &Value, context: &str) {
         expected["trailer"].as_str(),
         "{context} Trailer"
     );
-    let image_load = actual.image_load.as_ref().map(|load| {
+    let image_load = actual.image_loads.first().map(|load| {
         serde_json::json!({
             "image": load.image, "theater": load.theater, "new_theater": load.new_theater,
         })
@@ -219,7 +219,7 @@ fn retained_projectile_art_matches_original_full_readers_across_layers_and_owner
             &format!("{identity} constructor"),
         );
         assert!(
-            unread.image_load.is_none(),
+            unread.image_loads.is_empty(),
             "constructor Image text cannot load an asset"
         );
         let mut stack: Option<RulesLayerStack> = None;

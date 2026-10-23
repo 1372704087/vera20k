@@ -33,7 +33,7 @@ fn retail_mirage_catalog_loads_without_placed_terrain() {
             .map(|row| row["name"].as_str().unwrap())
             .collect::<Vec<_>>()
     );
-    let registry = OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
+    let registry = retail.rules.overlay_registry().clone();
     let gpu = Gpu::new();
     let batch = BatchRenderer::new_with_device(
         &gpu.device,
@@ -55,7 +55,6 @@ fn retail_mirage_catalog_loads_without_placed_terrain() {
         "TEMPERATE",
         &registry,
         &retail.rules,
-        &retail.processed_rules,
         None,
         &[],
     )

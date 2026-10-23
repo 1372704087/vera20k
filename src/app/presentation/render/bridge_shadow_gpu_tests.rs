@@ -158,28 +158,14 @@ fn retail_wall_shadow_atlas_covers_physical_material_domains() {
         if !flags.wall {
             continue;
         }
-        let image = fixture
-            .rules
-            .art()
-            .resolve_overlay_image_id(name, &fixture.rules_ini);
-        // The independent native-loader filename owner admits one primary and
-        // one generic retry, unlike the atlas's compatibility candidate list.
-        let candidates = crate::rules::art_data::native_overlay_shp_names(
-            fixture.rules.art(),
-            &image,
+        let (winner, shp) = crate::rules::effect_asset_catalog::load_overlay_shape(
+            &fixture.assets,
+            &fixture.registry,
+            name,
             fixture.theater.extension,
             "TEMPERATE",
-        );
-        let (winner, bytes) = candidates
-            .iter()
-            .find_map(|candidate| {
-                fixture
-                    .assets
-                    .get_ref(candidate)
-                    .map(|bytes| (candidate, bytes))
-            })
-            .expect("physical Wall SHP");
-        let shp = crate::assets::shp_file::ShpFile::from_bytes(bytes).unwrap();
+        )
+        .expect("physical Wall SHP selected by the processed image plan");
         let half = shp.frames.len() / 2;
         let mut populated = 0;
         for state in 0..=u8::MAX {
@@ -206,6 +192,10 @@ fn retail_wall_shadow_atlas_covers_physical_material_domains() {
             assert!(atlas.shadow_entry(name, 47).is_some());
         }
         if name == "GAFWLL" {
+            let candidates =
+                fixture
+                    .registry
+                    .shp_candidates(name, fixture.theater.extension, "TEMPERATE");
             assert!(fixture.assets.get_ref(&candidates[0]).is_none());
             assert_eq!(winner.as_str(), "GGFWLL.SHP");
         }
@@ -352,7 +342,6 @@ struct RetailBridgeFixture {
     assets: AssetManager,
     theater: crate::map::theater::TheaterData,
     rules: crate::rules::ruleset::RuleSet,
-    rules_ini: IniFile,
     registry: OverlayTypeRegistry,
     names: BTreeMap<u8, String>,
 }
@@ -379,15 +368,14 @@ impl RetailBridgeFixture {
                     IniFile::from_bytes(bytes).unwrap()
                 })
             });
-        let (mut rules, rules_ini, art, _) =
-            crate::app::loading::init_helpers::load_rules_with_merged_ini(
-                &assets,
-                Some(&mode),
-                map.as_ref(),
-            )
-            .unwrap();
+        let (mut rules, _, art, _) = crate::app::loading::init_helpers::load_rules_with_merged_ini(
+            &assets,
+            Some(&mode),
+            map.as_ref(),
+        )
+        .unwrap();
         rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
-        let registry = OverlayTypeRegistry::from_ini(&rules_ini, Some(&art));
+        let registry = rules.overlay_registry().clone();
         let theater = crate::map::theater::load_theater(&mut assets, "TEMPERATE").unwrap();
         if packet["inputs"]["building"].is_object() {
             // The same loader order as the app: theater archives precede the
@@ -428,7 +416,6 @@ impl RetailBridgeFixture {
             assets,
             theater,
             rules,
-            rules_ini,
             registry,
             names,
         }
@@ -447,8 +434,6 @@ impl RetailBridgeFixture {
             self.theater.extension,
             "TEMPERATE",
             &self.registry,
-            &self.rules_ini,
-            self.rules.art(),
             &rubble_arts,
         )
         .unwrap()

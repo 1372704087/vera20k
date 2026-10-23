@@ -14,7 +14,8 @@ fn retail_snow_seal_uses_the_retained_arctic_image() {
         snow.rules
             .object("GHOST")
             .unwrap()
-            .shp_image_load()
+            .shp_image_loads()
+            .first()
             .unwrap()
             .image,
         "SEALA"

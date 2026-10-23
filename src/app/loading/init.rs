@@ -1999,7 +1999,7 @@ impl MapLoadInitial {
             Some(&match_launch_descriptor.session().mode.override_file),
         )
         .expect("select the generated-map mode INI layer");
-        let (mut rules, rules_ini, art_ini, native_rules_receipt) =
+        let (mut rules, _, art_ini, native_rules_receipt) =
             crate::app::loading::init_helpers::load_rules_with_prefix_for_test(
                 asset_manager,
                 crate::rules::process_owner::NativeScenarioRulesPrefix::RandomMap(
@@ -2011,7 +2011,7 @@ impl MapLoadInitial {
         rules.install_art_data(ArtRegistry::from_ini(&art_ini));
         let infantry_sequences =
             crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art_ini);
-        let overlay_registry = OverlayTypeRegistry::from_ini(&rules_ini, Some(&art_ini));
+        let overlay_registry = rules.overlay_registry().clone();
         // Stage the one Simulation before terrain Fill, as the match load does:
         // the prefix cursors, Fill and every later load constructor mutate the
         // identity that reaches gameplay.
@@ -2809,7 +2809,7 @@ pub(crate) fn load_map_from_initial(
             campaign_named_ini.as_ref(),
         )
     };
-    let (loaded_rules, rules_ini, fixed_art_ini, native_rules_receipt) = native_rules_owner
+    let (loaded_rules, _, fixed_art_ini, native_rules_receipt) = native_rules_owner
         .load_scenario(rules_prefix, &map_data.ini)
         .map_err(|error| anyhow::anyhow!("failed native scenario rules rebuild: {error}"))?
         .into_parts();
@@ -2833,8 +2833,7 @@ pub(crate) fn load_map_from_initial(
     progress.milestone(35);
     progress.milestone(45);
     let csf = Some(load_csf(asset_manager)?);
-    let overlay_registry: OverlayTypeRegistry =
-        OverlayTypeRegistry::from_ini(&rules_ini, Some(&fixed_art_ini));
+    let overlay_registry = rules.overlay_registry().clone();
     // Campaign House construction and its map reads precede Map Resize/Fill.
     // The same roster later supplies presentation and post-load consumers.
     let house_roster =
@@ -3125,8 +3124,6 @@ pub(crate) fn load_map_from_initial(
                 .expect("authored materialization retained its pending Fill owner");
             let overlay_shp_ids = resolved_overlay_shp_ids(
                 &overlay_registry,
-                &rules_ini,
-                rules.art(),
                 asset_manager,
                 theater_ext,
                 &map_data.header.theater,
@@ -3469,7 +3466,6 @@ pub(crate) fn load_map_from_initial(
         batch,
         theater_ext,
         &map_data.header.theater,
-        &rules_ini,
         &rules,
         &overlay_registry,
         overlay_iso_palette.as_ref(),

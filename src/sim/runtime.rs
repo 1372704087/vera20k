@@ -31,16 +31,25 @@ pub struct SimResources {
 }
 
 impl SimResources {
-    /// Empty pre-bind resources for fixture and fallback construction.
-    pub fn empty() -> Self {
+    /// Bind the immutable Overlay projection from the supplied RuleSet.
+    /// ProcessedRulesLayers owns its reader history; this cache cannot start
+    /// empty independently of the rules consumed by the same simulation.
+    pub fn new(rules: RuleSet) -> Self {
         Self {
-            overlay_registry: crate::rules::overlay_types::OverlayTypeRegistry::empty(),
-            rules: crate::rules::ruleset::RuleSet::from_ini(
-                &crate::rules::ini_parser::IniFile::from_str(""),
-            )
-            .expect("empty rules parse"),
+            overlay_registry: rules.overlay_registry().clone(),
+            rules,
             terrain_template: None,
         }
+    }
+
+    /// Empty pre-bind resources for fixture and fallback construction.
+    pub fn empty() -> Self {
+        Self::new(
+            crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+                "",
+            ))
+            .expect("empty rules parse"),
+        )
     }
 }
 

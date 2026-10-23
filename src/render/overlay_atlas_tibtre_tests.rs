@@ -24,7 +24,7 @@ fn retail_tibtre_decode_and_atlas_pairs_match_original_shape_draw() {
         &gpu.queue,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     );
-    let registry = OverlayTypeRegistry::from_ini(&retail.processed_rules, Some(&retail.fixed_art));
+    let registry = retail.rules.overlay_registry().clone();
     for name in ["TEMPERATE", "SNOW", "URBAN", "NEWURBAN", "DESERT", "LUNAR"] {
         let theater = crate::map::theater::load_theater(&mut assets, name).unwrap();
         retail
@@ -52,7 +52,6 @@ fn retail_tibtre_decode_and_atlas_pairs_match_original_shape_draw() {
             name,
             &registry,
             &retail.rules,
-            &retail.processed_rules,
             None,
             &[],
         )

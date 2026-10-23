@@ -3715,6 +3715,24 @@ mod tests {
 
     #[test]
     fn verified_download_keeps_advertised_name_until_freeze_and_rejects_stale_identity() {
+        use crate::map::source::{TransferResource, install_received_asset, load_received_asset};
+        let directory = crate::map::source::test_support::TestDirectory::new("session-map-lease");
+        let bytes = b"[RandomMap]\nSeed=123\n";
+        let digest = crate::util::sha256::sha256_hex(bytes);
+        let source = install_received_asset(
+            directory.path(),
+            bytes.to_vec(),
+            &digest,
+            bytes.len(),
+            TransferResource::Seed,
+        )
+        .unwrap()
+        .source;
+        let pin = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(directory.path().join(format!(".{digest}.sed.pin")))
+            .unwrap();
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::Wol);
         let mut launch = network_fixture();
@@ -3726,19 +3744,14 @@ mod tests {
             display_name: "Shared map".into(),
             player_capacity: 8,
             official: false,
-            byte_length: 100,
+            byte_length: bytes.len() as i32,
             digest: String::new(),
-            source_sha256: "a".repeat(64),
+            source_sha256: digest.clone(),
             effective_digest: "c".repeat(64),
         };
         session
             .accept_network_map_metadata(metadata.clone(), None, true)
             .unwrap();
-        let source = crate::map::source::LoadedMapSource::Loose {
-            path: std::env::temp_dir().join("verified-download.map"),
-            payload_len: 100,
-            source_sha256: metadata.source_sha256.clone(),
-        };
         session
             .accept_verified_network_map_source(source.clone(), "c".repeat(64))
             .unwrap();
@@ -3757,13 +3770,24 @@ mod tests {
         assert!(session.network_local_map_source().is_none());
         assert!(
             session
-                .accept_verified_network_map_source(source.clone(), "c".repeat(64))
+                .accept_verified_network_map_source(source, "c".repeat(64))
                 .is_err()
         );
-        metadata.source_sha256 = "a".repeat(64);
+        pin.try_lock()
+            .expect("a rejected stale completion releases its lease");
+        pin.unlock().unwrap();
+        metadata.source_sha256 = digest.clone();
         session
             .accept_network_map_metadata(metadata, None, true)
             .unwrap();
+        let source = load_received_asset(
+            directory.path(),
+            &digest,
+            bytes.len(),
+            TransferResource::Seed,
+        )
+        .unwrap()
+        .source;
         session
             .accept_verified_network_map_source(source, "c".repeat(64))
             .unwrap();
@@ -3779,6 +3803,13 @@ mod tests {
         assert!(prepared.local_map_source().is_some());
         session.return_to_network_lobby();
         assert!(session.network_local_map_source().is_none());
+        assert!(
+            pin.try_lock().is_err(),
+            "frozen startup retains the admitted source"
+        );
+        drop(prepared);
+        pin.try_lock()
+            .expect("lobby return and final startup drop release the source");
     }
 
     #[test]

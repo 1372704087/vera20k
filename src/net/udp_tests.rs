@@ -81,14 +81,16 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
         let ticket = Ticket {
             room: [11; 16],
             source,
-            expires: now + 600,
+            expires: now + 120,
             nonce: [source + 1; 16],
+            player: [source + 1; 16],
+            generation: 1,
         }
         .sign(&key)
         .unwrap();
         let packet_key = derive_packet_key(&key, &ticket);
         client
-            .enable_relay(address, &ticket, *packet_key.expose_for_https())
+            .enable_relay(address, &ticket, *packet_key.expose_for_https(), [17; 32])
             .unwrap();
     }
     first
@@ -185,8 +187,10 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
     let renewed = Ticket {
         room: [11; 16],
         source: 0,
-        expires: now + 1200,
+        expires: now + 240,
         nonce: [99; 16],
+        player: [1; 16],
+        generation: 1,
     }
     .sign(&key)
     .unwrap();
@@ -211,11 +215,11 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
     };
     let endpoint = first.primary_addr().unwrap();
     first
-        .renew_relay(address, &renewed, *renewed_key.expose_for_https())
+        .renew_relay(address, &renewed, *renewed_key.expose_for_https(), [17; 32])
         .unwrap();
     assert_eq!(
         first.relay_expires(),
-        Some(now + 600),
+        Some(now + 120),
         "candidate must not replace an unconfirmed route"
     );
     assert_eq!(
@@ -232,7 +236,7 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
     let mut lost_ready = false;
     let mut got_private = false;
     let mut got_global = false;
-    while first.relay_expires() != Some(now + 1200) || !got_private || !got_global {
+    while first.relay_expires() != Some(now + 240) || !got_private || !got_global {
         tick += 1;
         first.service(tick);
         second.service(tick);
@@ -269,15 +273,17 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
     assert_eq!(first.relay_peer_round_trips(), Some(first_sample));
     assert!(
         first
-            .renew_relay(address, &renewed, *renewed_key.expose_for_https())
+            .renew_relay(address, &renewed, *renewed_key.expose_for_https(), [17; 32])
             .is_ok(),
         "duplicate grant is idempotent"
     );
     let stale = Ticket {
         room: [11; 16],
         source: 0,
-        expires: now + 600,
+        expires: now + 120,
         nonce: [1; 16],
+        player: [1; 16],
+        generation: 1,
     }
     .sign(&key)
     .unwrap();
@@ -286,15 +292,18 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
             .renew_relay(
                 address,
                 &stale,
-                *derive_packet_key(&key, &stale).expose_for_https()
+                *derive_packet_key(&key, &stale).expose_for_https(),
+                [17; 32]
             )
             .is_err()
     );
     let foreign = Ticket {
         room: [11; 16],
         source: 1,
-        expires: now + 1800,
+        expires: now + 300,
         nonce: [100; 16],
+        player: [2; 16],
+        generation: 1,
     }
     .sign(&key)
     .unwrap();
@@ -303,7 +312,8 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
             .renew_relay(
                 address,
                 &foreign,
-                *derive_packet_key(&key, &foreign).expose_for_https()
+                *derive_packet_key(&key, &foreign).expose_for_https(),
+                [17; 32]
             )
             .is_err()
     );
@@ -1120,7 +1130,7 @@ fn scoped_lan_keeps_full_private_payload_and_retires_to_plain_discovery() {
         wire.connections_mut().add_peer(peer, address).unwrap();
     }
     assert_eq!(
-        left.enable_relay(right_address, &[], [0; 32])
+        left.enable_relay(right_address, &[], [0; 32], [0; 32])
             .unwrap_err()
             .kind(),
         io::ErrorKind::AlreadyExists

@@ -1,14 +1,20 @@
-# VERA20k lobby protocol v1
+# VERA20k lobby protocol v2
 
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens, passwords,
 relay tickets and packet keys must never be logged. Names are ASCII letters, digits,
 `_` or `-`, 1–24 bytes, unique without case. Passwords are 12–128 bytes. Accounts
 and session tokens are independent of the legacy WOL nickname/password format.
+Request bodies are at most 64 KiB and 64 nested containers; every JSON string and
+property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
+not replaced, before any event or persistent state is created.
 
 `POST /v1/accounts` creates an account and signs in. `POST /v1/sessions` signs in.
-Both accept `{nickname,password}` and return
+Both accept `{nickname,password,protocol:2}` and return
 `{player_id,nickname,token,expires_at}`. `expires_at` is a Unix timestamp in seconds.
 Failed requests return `{error:{code,message}}`; messages must not echo credentials.
+The HTTP paths retain `/v1`; `protocol:2` is the required client capability.
+Older/missing capabilities and pre-v2 sessions receive 426 `upgrade_required`.
+`GET /health` reports `protocol:2`.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and
@@ -16,8 +22,13 @@ within a session and retries are idempotent. Responses and
 Sequences increase within a session. An event appears once logically even when
 responses are repeated. `GET /v1/channels?kind=0|41` returns `{kind,channels}`.
 Clients poll at most once per second. Responses contain at most 256 events and
-256 KiB from a 1,024-event history;
+256 KiB of UTF-8 JSON. Critical history is bounded to 1,024 events/2 MiB per session;
 expired cursors fail explicitly rather than silently dropping state.
+Chat, locale and buddy observations have a separate best-effort 64-event/128 KiB
+retention budget and cannot evict critical events. Options and per-player
+choice/readiness/map observations coalesce to the newest state within the same
+room. Sequence gaps are valid; an empty fully drained reply advances the cursor
+past discarded soft events. Only actual critical-history eviction expires a cursor.
 
 Channel: `{id,kind,max_users,users,tournament,flags,game_flags,ping,name,ex_info}`.
 `kind` is 0 for chat and 41 for a game. The other fields are presentation metadata,
@@ -84,7 +95,7 @@ Event kinds and payloads:
 | `chat` | `{from:<Member>,text,private,action}` |
 | `game_started` | `{match_id,revision,version,rules_digest,seed,users:[{player_id,name,flags,source_index}],relay:<RelayGrant>}` |
 | `start_confirmed` | `{match_id}` |
-| `timing_confirmed` | `{match_id,pings:[integer]}` |
+| `timing_confirmed` | `{match_id,pings:[integer],relay:<RelayGrant>}` |
 | `relay_renewed` | `{match_id,relay:<RelayGrant>}` |
 | `map_available` | `{digest,byte_length,resource?}` |
 | `start_rejected` | `{message}` |
@@ -94,10 +105,16 @@ Event kinds and payloads:
 | `kicked` | `{channel:<Channel>,user:<Member>,by:<Member>}` |
 | `error` | `{code,message}` |
 
-RelayGrant is `{address,ticket,packet_key,source_index}`. Address is `IPv4:port`;
+RelayGrant is `{address,ticket,packet_key,payload_key,source_index}`. Address is `IPv4:port`;
 ticket is the signed relay protocol ticket encoded base64url without padding and
 packet_key is 32 bytes encoded the same way. Credentials are unique to each user
-and each new match. `source_index` is the immutable canonical user index, 0–29.
+and each new match. `payload_key` is a random 32-byte match payload-encryption key
+shared by the participants and encoded the same way. It is delivered only over
+authenticated HTTPS, stored only in private match state, and never placed in a
+relay ticket or disclosed to the relay. It remains unchanged through bootstrap,
+timing confirmation and renewal. The HTTPS lobby is a trusted key distributor:
+a compromised lobby could disclose or replace payload keys; relay-blind payload
+encryption does not protect against that compromise. `source_index` is the immutable canonical user index, 0–29.
 The relay room uses the fresh `match_id`, including for rematches. The server sends
 `game_started` only after all current participants agree to revision, version,
 rules digest and map metadata and are ready. The client still performs authenticated
@@ -119,10 +136,22 @@ Clients then measure actual peer round trips through their reliable UDP owner.
 Every `latency_ready` report contains each other canonical source exactly once;
 the service sends the same per-source maxima in `timing_confirmed` to everyone.
 Only then does game loading start. Each barrier has a 30-second timeout.
-During play, clients renew their relay admission every 30 minutes. The server
-selects the source from authenticated frozen membership, issues a fresh two-hour
-grant and extends the active match lease. Clients authenticate the replacement
+Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
+ticket which the client must authenticate before loading. During play, clients
+renew before their remaining ticket lifetime falls below 30 seconds. The server
+selects the source from authenticated frozen membership, issues a fresh 300-second
+grant and extends the private match lease. Clients authenticate the replacement
 on the existing socket before promoting it; game/reliable queues remain intact.
+
+V2 relay tickets are 98 bytes: version 2 at 0; match UUID 1..17; source 17;
+little-endian expiry 18..26; random nonce 26..42; stable opaque player UUID 42..58;
+little-endian nonzero admission generation 58..66; HMAC-SHA256 66..98. The ticket
+domain is `VERA20k relay ticket v2\0`; packet-key derivation uses
+`VERA20k relay packet key v2\0`. The server increments a durable per-account
+generation transactionally only on a fresh match, never on renewal. The relay
+permits only that principal's newest generation/match, evicts its older membership,
+and retains the generation floor for the maximum 300-second ticket lifetime.
+Cancelling a start cannot accumulate long-lived rooms using two accounts.
 
 Every live VERA event packet, including FRAMESYNC probes, starts with bytes
 `56 43 4d 01` (`VCM`, version 1), then an immutable little-endian `u64` command
@@ -162,8 +191,17 @@ upload is hash-checked before `map_available`. Authenticated room members use
 `{digest,byte_length,offset,data,complete}`. An unfinished upload returns
 `map_pending` (409); a changed selection returns `map_changed` (409). Changing
 only roster/settings revisions preserves the blob. A map change or room cleanup
-removes it. Uploads/downloads have a separate 600-request/minute/session budget;
-ordinary commands and events share 180/minute. Clients verify and install into a
+removes it. Uploads/downloads have a separate 600-request/minute/account budget;
+ordinary commands and events share 600/minute/account. Action limits additionally
+bound starts to 12 per 10 minutes, chat to 30/minute and 24 KiB/minute, and room chat
+to 120/minute. Control payloads are bounded to 4 MiB/minute/account and room fanout
+to 128 MiB/minute. Map upload/download bytes each have a 32 MiB/minute account budget.
+Canonical options are limited to 24 KiB, choice objects use the exact canonical
+slot schema, and unknown request/option fields are rejected. The actor also caps
+pending requests/parsed bodies at 128/4 MiB and individual events at 64 KiB. Active
+sessions/public-room membership are capped at 256; accounts at 10,000, with bounded
+signup and login rates. These are service admission limits, not gameplay timers.
+Clients verify and install into a
 local cache, preserve existing installed maps, and still require user readiness.
 Generated maps transfer the `.SED` bytes as the map and the separate native PCX
 preview with `resource:"preview"` (512KiB maximum). Preview downloads use the

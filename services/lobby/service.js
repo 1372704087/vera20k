@@ -1,17 +1,38 @@
 // The service owns accounts, room membership and agreement, never simulation.
 // Storage is synchronous inside a SQLite Durable Object transaction. Requests
 // are serialized across asynchronous password hashing and relay signing too.
+import { byteLength, record, playerName, validChannel, validJsonTree, validOptions, validSlot, uuid } from './validation.js';
+
 const encoder = new TextEncoder();
+const PROTOCOL = 2;
 const MAX_EVENTS = 1024;
+const MAX_EVENT_BYTES = 65536;
+const MAX_CRITICAL_BYTES = 2 * 1024 * 1024;
+const MAX_SOFT_EVENTS = 64;
+const MAX_SOFT_BYTES = 128 * 1024;
 const EVENT_BATCH = 256;
 const SESSION_SECONDS = 24 * 60 * 60;
 const MATCH_SECONDS = 2 * 60 * 60;
+const BOOTSTRAP_GRANT_SECONDS = 120;
+const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
+const MAX_SESSIONS = 256;
+const MAX_ACCOUNTS = 10000;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
 const copy = (value) => structuredClone(value);
 const pendingMatch = (value) => value?.phase === 'connecting' || value?.phase === 'probing';
+const softEvent = (kind) => ['chat', 'locales', 'buddies', 'located'].includes(kind);
+const stateEvent = (kind) => ['options', 'ready', 'map_status', 'choices'].includes(kind);
+const ACTIONS = {
+  join: [24, 60], create: [12, 60], leave: [24, 60], logout: [12, 60],
+  options: [240, 60], choices: [120, 60], ready: [180, 60], map_status: [180, 60],
+  advertise: [180, 60], start: [12, 600], finish: [24, 60], relay_ready: [24, 60],
+  latency_ready: [24, 60], renew_relay: [12, 60], map_upload: [600, 60],
+  chat: [30, 60], ping: [240, 60], locales: [30, 60], set_locale: [12, 60],
+  buddies: [30, 60], add_buddy: [30, 60], remove_buddy: [30, 60], locate: [30, 60], kick: [30, 60],
+};
 
 export class ApiError extends Error {
   constructor(status, code, message) {
@@ -100,26 +121,31 @@ function channelView(room) {
 
 // This codec is shared with services/relay-protocol: fixed-width little-endian
 // ticket, domain-separated HMACs. The server key never leaves secret bindings.
-export async function relayGrant(secretHex, address, matchId, sourceIndex, now) {
+export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime) {
   requireThat(/^[0-9a-f]{64}$/i.test(secretHex ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   requireThat(/^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/.test(address ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   const secret = Uint8Array.from(secretHex.match(/../g), (pair) => parseInt(pair, 16));
   const key = await crypto.subtle.importKey('raw', secret, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const ticket = new Uint8Array(74);
-  ticket[0] = 1;
+  requireThat(uuid(matchId) && uuid(playerId) && Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < MAX_PLAYERS &&
+    Number.isSafeInteger(generation) && generation > 0 && (lifetime === BOOTSTRAP_GRANT_SECONDS || lifetime === GRANT_SECONDS) &&
+    typeof payloadKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(payloadKey), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
+  const ticket = new Uint8Array(98);
+  ticket[0] = PROTOCOL;
   ticket.set(Uint8Array.from(matchId.replaceAll('-', '').match(/../g), (pair) => parseInt(pair, 16)), 1);
   ticket[17] = sourceIndex;
-  new DataView(ticket.buffer).setBigUint64(18, BigInt(now + MATCH_SECONDS), true);
+  new DataView(ticket.buffer).setBigUint64(18, BigInt(now + lifetime), true);
   ticket.set(randomBytes(16), 26);
+  ticket.set(Uint8Array.from(playerId.replaceAll('-', '').match(/../g), (pair) => parseInt(pair, 16)), 42);
+  new DataView(ticket.buffer).setBigUint64(58, BigInt(generation), true);
   const sign = async (domain, bytes) => {
     const prefix = encoder.encode(domain);
     const input = new Uint8Array(prefix.length + bytes.length);
     input.set(prefix); input.set(bytes, prefix.length);
     return new Uint8Array(await crypto.subtle.sign('HMAC', key, input));
   };
-  ticket.set(await sign('VERA20k relay ticket v1\0', ticket.subarray(0, 42)), 42);
-  const packetKey = await sign('VERA20k relay packet key v1\0', ticket);
-  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), source_index: sourceIndex };
+  ticket.set(await sign('VERA20k relay ticket v2\0', ticket.subarray(0, 66)), 66);
+  const packetKey = await sign('VERA20k relay packet key v2\0', ticket);
+  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), payload_key: payloadKey, source_index: sourceIndex };
 }
 
 export class SqlStore {
@@ -128,6 +154,12 @@ export class SqlStore {
     this.transaction = transaction;
     sql.exec('CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
     sql.exec('CREATE TABLE IF NOT EXISTS events (session TEXT NOT NULL, sequence INTEGER NOT NULL, value TEXT NOT NULL, PRIMARY KEY(session, sequence))');
+    if (!sql.exec("SELECT name FROM pragma_table_info('events') WHERE name = 'important'").toArray().length) {
+      sql.exec('ALTER TABLE events ADD COLUMN important INTEGER NOT NULL DEFAULT 1');
+      sql.exec("UPDATE events SET important = 0 WHERE json_extract(value,'$.kind') IN ('chat','locales','buddies','located')");
+    }
+    if (!sql.exec("SELECT name FROM pragma_table_info('events') WHERE name = 'state_scope'").toArray().length)
+      sql.exec("ALTER TABLE events ADD COLUMN state_scope TEXT NOT NULL DEFAULT ''");
   }
   get(key) {
     const row = this.sql.exec('SELECT value FROM state WHERE key = ?', key).toArray()[0];
@@ -138,12 +170,28 @@ export class SqlStore {
   }
   delete(key) { this.sql.exec('DELETE FROM state WHERE key = ?', key); }
   deletePrefix(prefix) { this.sql.exec('DELETE FROM state WHERE key >= ? AND key < ?', prefix, `${prefix}\uffff`); }
+  count(prefix) { return this.sql.exec('SELECT count(*) AS count FROM state WHERE key >= ? AND key < ?', prefix, `${prefix}\uffff`).toArray()[0].count; }
   list(prefix) {
     return this.sql.exec('SELECT value FROM state WHERE key >= ? AND key < ? ORDER BY key', prefix, `${prefix}\uffff`).toArray().map((row) => JSON.parse(row.value));
   }
-  event(sessionId, sequence, value) {
-    this.sql.exec('INSERT INTO events VALUES (?,?,?)', sessionId, sequence, JSON.stringify(value));
-    this.sql.exec('DELETE FROM events WHERE session = ? AND sequence <= ?', sessionId, sequence - MAX_EVENTS);
+  event(sessionId, sequence, value, scope = '') {
+    const serialized = JSON.stringify(value);
+    requireThat(byteLength(serialized) <= MAX_EVENT_BYTES, 'event_too_large', 'The lobby update is too large.');
+    if (scope && stateEvent(value.kind)) {
+      // These are replaceable state projections, not lifecycle transitions.
+      this.sql.exec("DELETE FROM events WHERE session = ? AND state_scope = ? AND json_extract(value,'$.kind') = ? AND json_extract(value,'$.payload.from') IS ?",
+        sessionId, scope, value.kind, value.payload.from ?? null);
+    }
+    this.sql.exec('INSERT INTO events(session,sequence,value,important,state_scope) VALUES (?,?,?,?,?)', sessionId, sequence, serialized, softEvent(value.kind) ? 0 : 1, scope);
+    const usage = [[0, 0], [0, 0]], cutoff = [-1, -1];
+    for (const row of this.sql.exec('SELECT sequence,important,length(CAST(value AS BLOB)) AS bytes FROM events WHERE session = ? ORDER BY sequence DESC', sessionId).toArray()) {
+      const bucket = usage[row.important]; bucket[0]++; bucket[1] += row.bytes;
+      if (bucket[0] > (row.important ? MAX_EVENTS : MAX_SOFT_EVENTS) ||
+        bucket[1] > (row.important ? MAX_CRITICAL_BYTES : MAX_SOFT_BYTES)) cutoff[row.important] = Math.max(cutoff[row.important], row.sequence);
+    }
+    for (let important = 0; important < 2; important++) if (cutoff[important] >= 0)
+      this.sql.exec('DELETE FROM events WHERE session = ? AND important = ? AND sequence <= ?', sessionId, important, cutoff[important]);
+    return cutoff[1];
   }
   events(sessionId, after) {
     return this.sql.exec(`SELECT value FROM events WHERE session = ? AND sequence > ? ORDER BY sequence LIMIT ${EVENT_BATCH}`, sessionId, after).toArray().map((row) => JSON.parse(row.value));
@@ -161,15 +209,22 @@ export class LobbyService {
     this.clock = clock;
     this.bodyTimeoutMs = bodyTimeoutMs;
     this.tail = Promise.resolve();
+    this.pendingRequests = 0;
+    this.pendingBytes = 0;
     if (!store.get('room:public')) store.put('room:public', {
-      id: 'public', owner: null, capacity: 4096, kind: 0,
+      id: 'public', owner: null, capacity: 256, kind: 0,
       channel: { name: 'Lob_41_0', kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
       members: [], revision: 0, phase: 'lobby', ready: {}, maps: {}, agreements: {}, created: this.clock(),
     });
+    const publicRoom = store.get('room:public');
+    if (publicRoom.capacity !== 256) { publicRoom.capacity = 256; store.put('room:public', publicRoom); }
   }
 
   async fetch(request) {
+    let reserved = false, queuedBytes = 0;
     try {
+      requireThat(this.pendingRequests < 128, 'busy', 'The lobby is busy. Please retry.', 429);
+      this.pendingRequests++; reserved = true;
       // Ingress reads cannot hold the actor's mutation queue. A client that
       // never finishes its body loses only its own request at the deadline.
       if (request.method === 'POST') {
@@ -177,11 +232,15 @@ export class LobbyService {
           const key = await sha256(request.headers.get('CF-Connecting-IP') ?? 'local');
           this.store.transaction(() => this.rateLimit(`ingress-auth:${key}`, 120, 60));
         } else {
-          const { sessionId } = await this.authenticated(request);
-          this.store.transaction(() => this.rateLimit(`ingress-session:${sessionId}`, 900, 60));
+          const { session } = await this.authenticated(request);
+          this.store.transaction(() => this.rateLimit(`ingress-account:${session.player_id}`, 900, 60));
         }
       }
       const body = request.method === 'POST' ? await this.readBody(request) : null;
+      const bytes = body ? byteLength(body) : 0;
+      requireThat(this.pendingBytes + bytes <= 4 * 1024 * 1024, 'busy', 'The lobby is busy. Please retry.', 429);
+      queuedBytes = bytes;
+      this.pendingBytes += queuedBytes;
       const result = this.tail.then(() => this.handle(request, body));
       this.tail = result.catch(() => {});
       return await result;
@@ -189,6 +248,9 @@ export class LobbyService {
       const known = error instanceof ApiError;
       return this.json({ error: { code: known ? error.code : 'service_unavailable',
         message: known ? error.message : 'The lobby service is unavailable. Please try again.' } }, known ? error.status : 503);
+    } finally {
+      if (reserved) this.pendingRequests--;
+      this.pendingBytes -= queuedBytes;
     }
   }
 
@@ -234,16 +296,17 @@ export class LobbyService {
     try {
       const body = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(bytes));
       requireThat(body && typeof body === 'object' && !Array.isArray(body), 'invalid_request', 'A JSON object is required.');
+      requireThat(validJsonTree(body), 'invalid_request', 'Invalid JSON strings or nesting.');
       return body;
     } catch { throw new ApiError(400, 'invalid_request', 'Invalid JSON request.'); }
   }
 
-  rateLimit(key, maximum, seconds) {
+  rateLimit(key, maximum, seconds, cost = 1) {
     const now = this.clock();
     const old = this.store.get(`rate:${key}`);
     const rate = old && old.until > now ? old : { count: 0, until: now + seconds };
-    requireThat(rate.count < maximum, 'rate_limited', 'Please wait before trying again.', 429);
-    rate.count++;
+    requireThat(rate.count + cost <= maximum, 'rate_limited', 'Please wait before trying again.', 429);
+    rate.count += cost;
     this.store.put(`rate:${key}`, rate);
   }
 
@@ -253,22 +316,24 @@ export class LobbyService {
     const sessionId = await sha256(authorization.slice(7));
     const session = this.store.get(`session:${sessionId}`);
     requireThat(session && session.expires_at > this.clock(), 'unauthorized', 'Sign in again.', 401);
+    requireThat(session.protocol === PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     return { sessionId, session };
   }
 
   async handle(request, body) {
     const url = new URL(request.url);
-    if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: 1 });
+    if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: PROTOCOL });
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
       const origin = request.headers.get('CF-Connecting-IP') ?? 'local';
-      this.rateLimit(`auth:${await sha256(origin)}`, 60, 300);
+      const address = await sha256(origin);
+      this.rateLimit(`auth:${address}`, 60, 300);
       this.reap();
-      return this.authenticate(body, url.pathname === '/v1/accounts');
+      return this.authenticate(body, url.pathname === '/v1/accounts', address);
     }
     const { sessionId, session } = await this.authenticated(request);
     const mapRequest = url.pathname.startsWith('/v1/maps/') || body?.operation === 'map_upload';
     // A thirty-player host legitimately bursts options, pings and readiness as peers join.
-    this.rateLimit(`${mapRequest ? 'map' : 'session'}:${sessionId}`, 600, 60);
+    this.rateLimit(`${mapRequest ? 'map' : 'session'}:${session.player_id}`, 600, 60);
     session.seen = this.clock(); this.store.put(`session:${sessionId}`, session);
     this.reap();
     if (url.pathname.startsWith('/v1/maps/') && request.method === 'GET')
@@ -283,6 +348,7 @@ export class LobbyService {
       return this.json(this.events(sessionId, after));
     }
     if (url.pathname === '/v1/commands' && request.method === 'POST') {
+      requireThat(record(body, ['request_id', 'operation', 'payload'], ['after']), 'invalid_request', 'Unexpected request fields.');
       requireThat(typeof body.request_id === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(body.request_id), 'invalid_request', 'A request ID is required.');
       requireThat(typeof body.operation === 'string' && body.payload && typeof body.payload === 'object', 'invalid_request', 'An operation and payload are required.');
       const duplicate = session.requests.find((item) => item.id === body.request_id);
@@ -293,6 +359,7 @@ export class LobbyService {
         requireThat(duplicate.fingerprint === fingerprint, 'request_conflict', 'Request ID was already used.', 409);
         return this.json(this.events(sessionId, after));
       }
+      this.admitAction(session, body.operation, body.payload);
       // Hold already-pending events before the mutation can retire the oldest
       // retained row. A reply never reports failure after committing a command
       // just because that command appended one more event at the history edge.
@@ -314,17 +381,23 @@ export class LobbyService {
     throw new ApiError(404, 'not_found', 'Endpoint not found.');
   }
 
-  async authenticate(body, create) {
+  async authenticate(body, create, address) {
+    requireThat(body.protocol === PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
+    requireThat(record(body, ['nickname', 'password', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
     const { nickname, password } = body;
-    requireThat(typeof nickname === 'string' && /^[A-Za-z0-9_-]{1,24}$/.test(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
+    requireThat(playerName(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
     requireThat(typeof password === 'string' && encoder.encode(password).length >= 12 && encoder.encode(password).length <= 128,
       'invalid_password', 'Use a password of 12–128 bytes.');
     const accountKey = `account:${nickname.toLowerCase()}`;
+    this.rateLimit(`login:${accountKey}`, 30, 300);
     let account = this.store.get(accountKey);
     if (create) {
       requireThat(!account, 'name_unavailable', 'That player name is unavailable.', 409);
+      this.rateLimit(`signup:${address}`, 40, 3600);
+      this.rateLimit('signup:global', 256, 3600);
+      requireThat(this.store.count('account:') < MAX_ACCOUNTS, 'service_full', 'The lobby service is full.', 503);
       const salt = base64url(randomBytes(16));
-      account = { player_id: crypto.randomUUID(), nickname, salt, verifier: await passwordHash(password, salt), locale: 0, buddies: [] };
+      account = { player_id: crypto.randomUUID(), nickname, salt, verifier: await passwordHash(password, salt), locale: 0, buddies: [], admission_generation: 0 };
     } else {
       const candidate = await passwordHash(password, account?.salt ?? 'unknown-account-dummy-salt');
       requireThat(account && sameSecret(candidate, account.verifier), 'unauthorized', 'The name or password is incorrect.', 401);
@@ -332,8 +405,8 @@ export class LobbyService {
     const token = base64url(randomBytes(32));
     const id = await sha256(token);
     const now = this.clock();
-    const session = { id, player_id: account.player_id, nickname: account.nickname, account_key: accountKey,
-      expires_at: now + SESSION_SECONDS, seen: now, channel_id: null, match_id: null, sequence: 0, ack: 0, requests: [] };
+    const session = { id, player_id: account.player_id, nickname: account.nickname, account_key: accountKey, protocol: PROTOCOL,
+      expires_at: now + SESSION_SECONDS, seen: now, channel_id: null, match_id: null, sequence: 0, ack: 0, critical_floor: 0, requests: [] };
     this.store.transaction(() => {
       if (create) this.store.put(accountKey, account);
       // A new sign-in replaces prior device sessions of this account. It cannot
@@ -342,40 +415,76 @@ export class LobbyService {
         requireThat(!previous.match_id, 'match_active', 'This account already has an active match.', 409);
         this.leave(previous); this.store.delete(`session:${previous.id}`); this.store.deleteEvents(previous.id);
       }
+      requireThat(this.store.count('session:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
       this.store.put(`session:${id}`, session);
     });
     return this.json({ player_id: account.player_id, nickname: account.nickname, token, expires_at: session.expires_at });
   }
 
-  emit(sessionId, kind, payload) {
+  emit(sessionId, kind, payload, scope = '') {
     const session = this.store.get(`session:${sessionId}`);
     if (!session) return;
     session.sequence++;
-    this.store.event(sessionId, session.sequence, { sequence: session.sequence, kind, payload });
+    const removed = this.store.event(sessionId, session.sequence, { sequence: session.sequence, kind, payload }, scope);
+    session.critical_floor = Math.max(session.critical_floor ?? 0, removed);
     this.store.put(`session:${sessionId}`, session);
   }
 
   broadcast(room, kind, payload, except = null) {
-    for (const member of room.members) if (member.session_id !== except) this.emit(member.session_id, kind, payload);
+    for (const member of room.members) if (member.session_id !== except) this.emit(member.session_id, kind, payload, room.id);
   }
 
   events(sessionId, after) {
     const session = this.store.get(`session:${sessionId}`);
     this.validateCursor(session, after);
     if (after > session.ack) { session.ack = after; this.store.put(`session:${sessionId}`, session); }
-    let length = 0;
+    let length = 64;
     const events = [];
-    for (const event of this.store.events(sessionId, after)) {
-      length += JSON.stringify(event).length;
-      if (length > 256 * 1024 && events.length) break;
+    const retained = this.store.events(sessionId, after);
+    for (const event of retained) {
+      length += byteLength(event) + 1;
+      if (length > 256 * 1024) break;
       events.push(event);
     }
-    return { events, cursor: events.at(-1)?.sequence ?? after };
+    const complete = events.length === retained.length && retained.length < EVENT_BATCH;
+    // Pruned chat/state projections leave intentional sequence gaps. A fully
+    // drained reply must advance over them, including an empty cleanup reply.
+    return { events, cursor: complete ? session.sequence : events.at(-1)?.sequence ?? after };
   }
 
   validateCursor(session, after) {
     requireThat(Number.isSafeInteger(after) && after >= 0 && after <= session.sequence, 'invalid_cursor', 'Invalid event cursor.', 409);
-    requireThat(after >= session.sequence - MAX_EVENTS, 'history_expired', 'Lobby history expired. Sign in again.', 409);
+    requireThat(after >= (session.critical_floor ?? 0), 'history_expired', 'Lobby history expired. Sign in again.', 409);
+  }
+
+  admitAction(session, operation, payload) {
+    requireThat(Object.hasOwn(ACTIONS, operation), 'unknown_operation', 'Unknown lobby operation.');
+    const agreement = ['revision', 'version', 'rules_digest', 'map_digest', 'effective_map_digest'];
+    const shapes = {
+      join: [['channel'], ['key']], create: [['channel'], ['key']], leave: [[], []], logout: [[], []],
+      options: [['options'], []], choices: [['row', 'slot', 'observer'], []],
+      ready: [[...agreement, 'ready'], ['staging_digest']], map_status: [[...agreement, 'status'], ['staging_digest']],
+      advertise: [['channel'], []], start: [[...agreement.filter((key) => key !== 'map_digest'), 'users'], ['map_digest', 'staging_digest']],
+      finish: [['match_id'], []], relay_ready: [['match_id'], []], latency_ready: [['match_id', 'pings'], []],
+      renew_relay: [['match_id'], []], map_upload: [['digest', 'byte_length', 'offset', 'data'], ['resource']],
+      chat: [['text', 'to'], ['action']], ping: [[], []], locales: [['names'], []], set_locale: [['locale'], []],
+      buddies: [[], []], add_buddy: [['name'], []], remove_buddy: [['name'], []], locate: [['name'], []], kick: [['name'], []],
+    };
+    requireThat(record(payload, ...shapes[operation]), 'invalid_request', 'Unexpected command fields.');
+    const [maximum, period] = ACTIONS[operation], bytes = byteLength(payload);
+    this.rateLimit(`action:${session.player_id}:${operation}`, maximum, period);
+    this.rateLimit(`bytes:${session.player_id}:${operation === 'map_upload' ? 'map' : 'control'}`,
+      operation === 'map_upload' ? 32 * 1024 * 1024 : 4 * 1024 * 1024, 60, bytes);
+    if (operation === 'chat') this.rateLimit(`chat-bytes:${session.player_id}`, 24 * 1024, 60, bytes);
+    const room = session.channel_id && this.store.get(`room:${session.channel_id}`);
+    if (room && ['chat', 'options', 'choices', 'ready', 'map_status', 'advertise', 'start', 'kick'].includes(operation)) {
+      this.rateLimit(`room:${room.id}:${operation === 'chat' ? 'chat' : 'control'}`, operation === 'chat' ? 120 : 1800, 60);
+      this.rateLimit(`room-bytes:${room.id}`, 128 * 1024 * 1024, 60, bytes * room.members.length);
+    }
+    if (operation === 'choices') requireThat(validSlot(payload.slot), 'invalid_request', 'Invalid player settings.');
+    if (operation === 'options') requireThat(validOptions(payload.options), 'invalid_options', 'Invalid game settings.');
+    if (['finish', 'relay_ready', 'latency_ready', 'renew_relay'].includes(operation))
+      requireThat(uuid(payload.match_id), 'invalid_request', 'Invalid match identity.');
   }
 
   room(session, host = false) {
@@ -410,6 +519,7 @@ export class LobbyService {
       'invalid_map_chunk', 'Invalid map offset.');
     const chunk = this.store.get(`${resource.chunkPrefix}${offset}`);
     requireThat(chunk, 'map_pending', 'The host is preparing the map.', 409);
+    this.rateLimit(`download-bytes:${session.player_id}`, 32 * 1024 * 1024, 60, chunk.data.length);
     return this.json({ digest: upload.digest, byte_length: upload.byte_length, offset, data: chunk.data,
       ...(resource.resource === 'preview' ? { resource: 'preview' } : {}),
       complete: offset + chunk.length === upload.byte_length });
@@ -498,7 +608,15 @@ export class LobbyService {
       requireThat(match?.id === payload.match_id && match.phase === 'playing' && user &&
         !match.finished.includes(session.player_id), 'unknown_match', 'No matching active game.', 409);
       return { relay: await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-        match.id, user.source_index, this.clock()) };
+        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS) };
+    }
+    if (operation === 'latency_ready') {
+      const { match, canonical } = this.latencyReport(session, payload);
+      const complete = Object.keys({ ...match.latencies, [session.player_id]: canonical }).length === match.users.length;
+      const grants = complete ? await Promise.all(match.users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY,
+        this.env.RELAY_ADDRESS, match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
+        match.payload_key, GRANT_SECONDS))) : null;
+      return { match, canonical, grants };
     }
     if (operation === 'map_upload') {
       const room = this.room(session, true);
@@ -565,13 +683,39 @@ export class LobbyService {
         agreement.map_digest === room.options.map_metadata.source_sha256, 'agreement_mismatch', 'Every player must have the same map, rules and game version.', 409);
     }
     const matchId = crypto.randomUUID();
+    const payloadKey = base64url(randomBytes(32));
     const seed = new DataView(randomBytes(4).buffer).getUint32(0, true);
     const users = names.map((name, index) => {
       const member = room.members.find((member) => member.name === name);
-      return { player_id: member.player_id, name, source_index: index, flags: member.player_id === room.owner ? 1 : 0 };
+      const participant = this.store.get(`session:${member.session_id}`);
+      requireThat(participant?.protocol === PROTOCOL && !participant.match_id, 'not_ready', 'Every player must use the current online protocol.', 409);
+      const account = this.store.get(participant.account_key);
+      const generation = (account.admission_generation ?? 0) + 1;
+      requireThat(Number.isSafeInteger(generation) && generation > 0, 'service_unavailable', 'Online admission is unavailable.', 503);
+      return { player_id: member.player_id, name, source_index: index, flags: member.player_id === room.owner ? 1 : 0,
+        admission_generation: generation };
     });
-    const grants = await Promise.all(users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS, matchId, user.source_index, this.clock())));
-    return { matchId, seed, users, grants };
+    const grants = await Promise.all(users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
+      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS)));
+    return { matchId, seed, users, grants, payloadKey };
+  }
+
+  latencyReport(session, payload) {
+    requireThat(session.match_id === payload.match_id, 'unknown_match', 'No matching active game.', 409);
+    const match = this.store.get(`match:${session.match_id}`);
+    requireThat(match?.phase === 'probing' && match.expires > this.clock(), 'not_ready', 'The game is not measuring peer latency.', 409);
+    const source = match.users.find((user) => user.player_id === session.player_id)?.source_index;
+    const reports = payload.pings;
+    requireThat(Array.isArray(reports) && reports.length === match.users.length - 1 &&
+      new Set(reports.map((report) => report?.source_index)).size === reports.length &&
+      reports.every((report) => record(report, ['source_index', 'round_trip_ms']) && Number.isInteger(report.source_index) && report.source_index >= 0 &&
+        report.source_index < match.users.length && report.source_index !== source &&
+        Number.isInteger(report.round_trip_ms) && report.round_trip_ms >= 0 && report.round_trip_ms <= 30000),
+      'invalid_latency', 'A measured round trip for every other player is required.');
+    const canonical = copy(reports).sort((left, right) => left.source_index - right.source_index);
+    requireThat(!match.latencies[session.player_id] || JSON.stringify(match.latencies[session.player_id]) === JSON.stringify(canonical),
+      'latency_changed', 'The latency report was already accepted.', 409);
+    return { match, canonical };
   }
 
   command(sessionId, operation, payload, prepared) {
@@ -586,13 +730,13 @@ export class LobbyService {
       let room;
       if (operation === 'create') {
         const channel = payload.channel;
-        requireThat(channel && channel.kind === 41 && typeof channel.name === 'string' && channel.name.length > 0 && channel.name.length <= 80,
+        requireThat(validChannel(channel),
           'invalid_room', 'Invalid room settings.');
         // A playing room retains the frozen match's cleanup state while other
         // players view results; it no longer reserves a discoverable lobby name.
         requireThat(!this.store.list('room:').some((room) => room.phase !== 'playing' &&
           room.channel.name.toLowerCase() === channel.name.toLowerCase()), 'name_unavailable', 'That room name is already in use.', 409);
-        requireThat(this.store.list('room:').length < 1024, 'service_full', 'The lobby service is full.', 503);
+        requireThat(this.store.count('room:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
         room = { id: crypto.randomUUID(), kind: 41, owner: session.player_id,
           capacity: Math.max(2, Math.min(MAX_PLAYERS, Number(channel.max_users) || 6)),
           channel: { kind: 41, name: channel.name, tournament: 0, flags: Number(channel.flags) || 0,
@@ -605,6 +749,7 @@ export class LobbyService {
         requireThat(room.kind === 0 || sameSecret(room.key ?? '', prepared.key), 'room_password', 'The room password is incorrect.', 403);
         requireThat(room.members.length < room.capacity || session.channel_id === room.id, 'room_full', 'This room is full.', 409);
       }
+      this.rateLimit(`room-joins:${room.id}`, 60, 60);
       if (session.channel_id === room.id) {
         this.emit(sessionId, 'joined', { channel: channelView(room), members: room.members.map((member) => memberView(member, room)) }); return;
       }
@@ -649,22 +794,7 @@ export class LobbyService {
       return;
     }
     if (operation === 'latency_ready') {
-      requireThat(session.match_id === payload.match_id, 'unknown_match', 'No matching active game.', 409);
-      const match = this.store.get(`match:${session.match_id}`);
-      requireThat(match?.phase === 'probing' && match.expires > this.clock(), 'not_ready', 'The game is not measuring peer latency.', 409);
-      const source = match.users.find((user) => user.player_id === session.player_id)?.source_index;
-      const reports = payload.pings;
-      requireThat(Array.isArray(reports) && reports.length === match.users.length - 1 &&
-        new Set(reports.map((report) => report?.source_index)).size === reports.length &&
-        reports.every((report) => Number.isInteger(report?.source_index) && report.source_index >= 0 &&
-          report.source_index < match.users.length && report.source_index !== source &&
-          Number.isInteger(report.round_trip_ms) && report.round_trip_ms >= 0 && report.round_trip_ms <= 30000),
-        'invalid_latency', 'A measured round trip for every other player is required.');
-      const canonical = copy(reports).sort((left, right) => left.source_index - right.source_index);
-      match.latencies ??= {};
-      requireThat(!match.latencies[session.player_id] ||
-        JSON.stringify(match.latencies[session.player_id]) === JSON.stringify(canonical),
-        'latency_changed', 'The latency report was already accepted.', 409);
+      const { match, canonical, grants } = prepared;
       match.latencies[session.player_id] = canonical;
       if (Object.keys(match.latencies).length === match.users.length) {
         // Every client receives the same complete timing input. Local RTTs
@@ -675,8 +805,10 @@ export class LobbyService {
         match.phase = 'playing'; match.expires = this.clock() + MATCH_SECONDS;
         const room = this.store.get(`room:${match.room_id}`);
         room.phase = 'playing'; this.store.put(`room:${room.id}`, room);
-        for (const other of this.store.list('session:').filter((value) => value.match_id === match.id))
-          this.emit(other.id, 'timing_confirmed', { match_id: match.id, pings });
+        for (const other of this.store.list('session:').filter((value) => value.match_id === match.id)) {
+          const user = match.users.find((user) => user.player_id === other.player_id);
+          this.emit(other.id, 'timing_confirmed', { match_id: match.id, pings, relay: grants[user.source_index] });
+        }
       }
       this.store.put(`match:${match.id}`, match);
       return;
@@ -684,9 +816,9 @@ export class LobbyService {
     if (operation === 'ping') return;
     if (['locales', 'set_locale', 'buddies', 'add_buddy', 'remove_buddy', 'locate'].includes(operation)) {
       const account = this.store.get(session.account_key);
-      if (operation === 'set_locale') { requireThat(Number.isInteger(payload.locale), 'invalid_request', 'Invalid locale.'); account.locale = payload.locale; this.store.put(session.account_key, account); }
+      if (operation === 'set_locale') { requireThat(Number.isInteger(payload.locale) && payload.locale >= 0 && payload.locale <= 2147483647, 'invalid_request', 'Invalid locale.'); account.locale = payload.locale; this.store.put(session.account_key, account); }
       if (operation === 'locales') {
-        requireThat(Array.isArray(payload.names) && payload.names.length <= 64, 'invalid_request', 'Invalid player list.');
+        requireThat(Array.isArray(payload.names) && payload.names.length <= 64 && payload.names.every(playerName), 'invalid_request', 'Invalid player list.');
         const locales = payload.names.filter((name) => typeof name === 'string').map((name) => ({ name, locale: this.store.get(`account:${name.toLowerCase()}`)?.locale ?? 0 }));
         this.emit(sessionId, 'locales', { locales });
       }
@@ -699,6 +831,7 @@ export class LobbyService {
       }
       if (operation === 'buddies' || operation.endsWith('_buddy')) this.emit(sessionId, 'buddies', { names: account.buddies });
       if (operation === 'locate') {
+        requireThat(playerName(payload.name), 'invalid_request', 'Invalid player name.');
         const room = this.store.list('room:').find((room) => room.members.some((member) => member.name === payload.name));
         this.emit(sessionId, 'located', { channel: room ? channelView(room) : null });
       }
@@ -708,7 +841,7 @@ export class LobbyService {
     requireThat(room.phase === 'lobby', 'match_active', 'The game has already started.', 409);
     if (operation === 'chat') {
       requireThat(typeof payload.text === 'string' && payload.text.length > 0 && encoder.encode(payload.text).length <= 2048 &&
-        Array.isArray(payload.to) && payload.to.length <= MAX_PLAYERS, 'invalid_request', 'Invalid chat message.');
+        Array.isArray(payload.to) && payload.to.length <= MAX_PLAYERS && payload.to.every(playerName), 'invalid_request', 'Invalid chat message.');
       const from = memberView(room.members.find((member) => member.session_id === sessionId), room);
       for (const member of room.members) {
         if (member.session_id !== sessionId && (!payload.to.length || payload.to.includes(member.name)))
@@ -735,6 +868,7 @@ export class LobbyService {
         Array.isArray(options.vacancies) && options.vacancies.length <= MAX_PLAYERS &&
         options.vacancies.every((item) => ['open', 'closed', 'observer', 'waiting'].includes(item)), 'invalid_options', 'Invalid game settings.');
       const canonical = copy(options);
+      requireThat(humans.every((human) => room.members.some((member) => member.name === human.name)), 'invalid_options', 'The options name a player outside this room.');
       canonical.launch.local_player_index = 0;
       if (canonical.map_metadata.source_sha256 !== room.options?.map_metadata?.source_sha256 ||
         JSON.stringify(canonical.random_map?.preview) !== JSON.stringify(room.options?.random_map?.preview)) this.clearMap(room.id);
@@ -750,7 +884,7 @@ export class LobbyService {
         ...(prepared.resource.resource === 'preview' ? { resource: 'preview' } : {}) });
     } else if (operation === 'advertise') {
       const channel = payload.channel;
-      requireThat(channel && typeof channel.ex_info === 'string' && channel.ex_info.length <= 512, 'invalid_request', 'Invalid advertisement.');
+      requireThat(validChannel(channel), 'invalid_request', 'Invalid advertisement.');
       room.channel.ex_info = channel.ex_info;
       room.channel.game_flags = Number(channel.game_flags) || 0;
     } else if (operation === 'choices') {
@@ -778,16 +912,19 @@ export class LobbyService {
         this.broadcast(room, 'map_status', { from: session.nickname, status: payload.status, revision: room.revision }, sessionId);
       }
     } else if (operation === 'start') {
-      const { matchId, seed, users, grants } = prepared;
+      const { matchId, seed, users, grants, payloadKey } = prepared;
       const match = { id: matchId, room_id: room.id, users, finished: [], ready: [], latencies: {}, phase: 'connecting',
-        expires: this.clock() + 30, options: room.options, revision: room.revision };
+        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey };
       this.store.put(`match:${matchId}`, match);
       room.phase = 'connecting'; room.match_id = matchId;
       for (const user of users) {
         const member = room.members.find((member) => member.player_id === user.player_id);
         const other = this.store.get(`session:${member.session_id}`); other.match_id = matchId; this.store.put(`session:${other.id}`, other);
+        const account = this.store.get(other.account_key); account.admission_generation = user.admission_generation;
+        this.store.put(other.account_key, account);
         this.emit(other.id, 'game_started', { match_id: matchId, revision: room.revision, version: payload.version,
-          rules_digest: payload.rules_digest, seed, users, relay: grants[user.source_index] });
+          rules_digest: payload.rules_digest, seed,
+          users: users.map(({ admission_generation, ...publicUser }) => publicUser), relay: grants[user.source_index] });
       }
     } else if (operation === 'kick') {
       const target = room.members.find((member) => member.name === payload.name && member.player_id !== room.owner);
@@ -822,11 +959,13 @@ export class LobbyService {
       }
       this.store.expireRates(now);
       for (const session of this.store.list('session:')) {
-        if (session.expires_at <= now || session.seen + 120 <= now) {
+        if (session.protocol !== PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
           // Polling continues in the HTTPS worker while the game loads/plays.
           // A dead process must not strand its account or the match's final
-          // cleanup until the two-hour relay credential expires. Gameplay
+          // cleanup until the private match lease expires. Gameplay
           // disconnect/timeout decisions remain with the peer simulation.
+          // Upgraded clients cannot finish an unsupported old session. Retire
+          // only that session through the same membership/room cleanup owner.
           if (session.match_id) this.finish(session);
           const current = this.store.get(`session:${session.id}`);
           if (current) this.leave(current);

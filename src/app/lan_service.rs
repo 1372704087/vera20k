@@ -1261,9 +1261,10 @@ pub(crate) fn renew_online_relay(
     address: SocketAddrV4,
     ticket: &[u8],
     key: [u8; 32],
+    payload_key: [u8; 32],
 ) -> anyhow::Result<()> {
     if let Some(live) = state.match_state.live_network.as_mut() {
-        return Ok(live.renew_relay(address, ticket, key)?);
+        return Ok(live.renew_relay(address, ticket, key, payload_key)?);
     }
     let transport = state
         .match_state
@@ -1271,7 +1272,7 @@ pub(crate) fn renew_online_relay(
         .as_mut()
         .and_then(|service| service.transport.as_mut())
         .ok_or_else(|| anyhow::anyhow!("online renewal has no admitted route"))?;
-    Ok(transport.renew_relay(address, ticket, key)?)
+    Ok(transport.renew_relay(address, ticket, key, payload_key)?)
 }
 
 /// Apply the same agreed timing vector on every client before freezing the

@@ -1849,6 +1849,7 @@ mod fresh_transport_tests {
         let mut initial = MapLoadInitial::from_test_map_source(
             map("7=Renamed\n8=Explicit,0\n"),
             LoadedMapSource::Loose {
+                cache_lease: Default::default(),
                 path: PathBuf::from("LOCAL.MAP"),
                 payload_len: 1,
                 source_sha256: crate::util::sha256::sha256_hex(b"local retention control"),
@@ -2634,6 +2635,7 @@ pub(crate) fn load_map_initial_with_assets(
             LoadedMap {
                 map: MapFile::from_bytes(&bytes)?,
                 source: LoadedMapSource::Loose {
+                    cache_lease: Default::default(),
                     path: PathBuf::from("testmap1.map"),
                     payload_len: bytes.len(),
                     source_sha256: crate::util::sha256::sha256_hex(&bytes),

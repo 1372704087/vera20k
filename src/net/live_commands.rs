@@ -223,8 +223,10 @@ impl LiveCommandSession {
         address: SocketAddrV4,
         ticket: &[u8],
         key: [u8; 32],
+        payload_key: [u8; 32],
     ) -> io::Result<()> {
-        self.transport.renew_relay(address, ticket, key)
+        self.transport
+            .renew_relay(address, ticket, key, payload_key)
     }
 
     pub fn connections(&self) -> super::udp::UdpReadGuard<'_, LanConnections> {

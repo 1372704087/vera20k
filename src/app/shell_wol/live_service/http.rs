@@ -107,6 +107,9 @@ pub(super) enum Response {
         attempt: u64,
         code: u32,
     },
+    UpgradeRequired {
+        attempt: u64,
+    },
     Channels(ChannelList),
     Event(Envelope),
     CommandCompleted {
@@ -525,7 +528,7 @@ pub(super) fn run(
                 let result = client
                     .request(
                         path,
-                        Some(&json!({"nickname": nickname, "password": password})),
+                        Some(&json!({"nickname": nickname, "password": password, "protocol": 2})),
                     )
                     .and_then(|value| {
                         serde_json::from_value::<Session>(value)
@@ -564,6 +567,9 @@ pub(super) fn run(
                             attempt,
                             code: 0x8004_0064,
                         });
+                    }
+                    Err(RequestFailure::Status(426)) => {
+                        let _ = output.send(Response::UpgradeRequired { attempt });
                     }
                     Err(_) => {
                         let _ = output.send(Response::LoginFailed { attempt, code: 0 });

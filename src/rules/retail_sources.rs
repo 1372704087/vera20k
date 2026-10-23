@@ -5,7 +5,7 @@
 //! describe exactly the consumed buffer, including loose-file winners.
 use std::sync::Arc;
 
-use crate::assets::asset_manager::AssetManager;
+use crate::assets::asset_manager::{AssetManager, AssetResolutionRef};
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ini_parser::directives::{
     DirectiveDiagnostic, DirectiveOptions, include_identity, process_directives,
@@ -14,6 +14,9 @@ use crate::rules::process_owner::NativeRulesProcessOwner;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 use crate::util::sha256::sha256_hex;
+
+const MAX_INCLUDED_SOURCE_BYTES: usize = 32 * 1024 * 1024;
+const INCLUDE_BYTES_EXCEEDED: &str = "INI included sources exceed the 32 MiB expansion budget";
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct IniSourceIdentity {
@@ -72,6 +75,8 @@ pub(crate) fn expand_ini_with_assets(
     String,
 > {
     let mut included_sources = Vec::new();
+    let mut included_bytes = 0usize;
+    let mut exceeded_budget = false;
     let expanded = process_directives(
         ini,
         name,
@@ -85,13 +90,26 @@ pub(crate) fn expand_ini_with_assets(
             if resolved.bytes.is_empty() {
                 return Ok(None);
             }
-            let child = select_physical_ini(assets, &logical)?;
+            let Some(total) = included_bytes
+                .checked_add(resolved.bytes.len())
+                .filter(|&total| total <= MAX_INCLUDED_SOURCE_BYTES)
+            else {
+                exceeded_budget = true;
+                return Err(INCLUDE_BYTES_EXCEEDED.into());
+            };
+            // Charge every physical read, including repeated DAG references,
+            // before parsing or retaining another child snapshot.
+            included_bytes = total;
+            let child = parse_physical_ini(&logical, resolved)?;
             included_sources.push(child.source);
             Ok(Some(child.ini))
         },
         options,
-    )
-    .map_err(|error| error.to_string())?;
+    );
+    if exceeded_budget {
+        return Err(INCLUDE_BYTES_EXCEEDED.into());
+    }
+    let expanded = expanded.map_err(|error| error.to_string())?;
     for diagnostic in &expanded.diagnostics {
         log::warn!("INI directive: {diagnostic}");
     }
@@ -102,6 +120,10 @@ fn select_physical_ini(assets: &AssetManager, name: &str) -> Result<SelectedIni,
     let selected = assets
         .resolve_ref(name)
         .ok_or_else(|| format!("retail INI {name} is unavailable"))?;
+    parse_physical_ini(name, selected)
+}
+
+fn parse_physical_ini(name: &str, selected: AssetResolutionRef<'_>) -> Result<SelectedIni, String> {
     log::info!(
         "Loading {name} ({} bytes) from {}",
         selected.bytes.len(),

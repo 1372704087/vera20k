@@ -15,6 +15,8 @@ use crate::util::sha256::sha256_hex;
 
 const MAP_EXTENSIONS: [&str; 5] = ["mmx", "yro", "map", "mpr", "yrm"];
 pub const MAX_TRANSFER_MAP_BYTES: usize = 8 * 1024 * 1024;
+mod cache;
+pub use cache::CacheLease;
 
 /// Exact source whose bytes were parsed into the active map.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -25,6 +27,9 @@ pub enum LoadedMapSource {
         payload_len: usize,
         /// Hash of the consumed file buffer, including the wrapper for .mmx.
         source_sha256: String,
+        /// Retain an installed download until the last active consumer drops it.
+        #[serde(skip)]
+        cache_lease: CacheLease,
     },
     Mix {
         logical_name: String,
@@ -173,6 +178,7 @@ fn read_loose_map_input_bounded(path: &Path, limit: Option<usize>) -> Result<Map
         "map exceeds transfer size limit"
     );
     let source = LoadedMapSource::Loose {
+        cache_lease: Default::default(),
         path: path.to_path_buf(),
         payload_len: bytes.len(),
         source_sha256: sha256_hex(&bytes),
@@ -390,7 +396,10 @@ pub fn load_map_ini_by_name_or_path_with_assets(
 /// Read upload bytes through the same loose-before-MIX source selection as
 /// metadata and gameplay, with a hard allocation bound.
 pub enum TransferMapSource {
-    Loose(PathBuf),
+    Loose {
+        path: PathBuf,
+        cache_lease: CacheLease,
+    },
     Memory(Vec<u8>),
 }
 
@@ -399,7 +408,12 @@ pub fn prepare_transfer_map_source(
     assets: &AssetManager,
 ) -> Result<TransferMapSource> {
     match source {
-        LoadedMapSource::Loose { path, .. } => Ok(TransferMapSource::Loose(path.clone())),
+        LoadedMapSource::Loose {
+            path, cache_lease, ..
+        } => Ok(TransferMapSource::Loose {
+            path: path.clone(),
+            cache_lease: cache_lease.clone(),
+        }),
         LoadedMapSource::Mix { logical_name, .. } => {
             let resolved = assets
                 .resolve_ref(logical_name)
@@ -423,12 +437,14 @@ pub fn transfer_file_source(path: &Path, resource: TransferResource) -> Result<L
 impl TransferMapSource {
     pub fn read(self, expected_digest: &str, expected_length: usize) -> Result<Vec<u8>> {
         let bytes = match self {
-            Self::Loose(path) => read_loose_map_input_bounded(
-                &path,
-                Some(expected_length.min(MAX_TRANSFER_MAP_BYTES)),
-            )?
-            .bytes
-            .into_owned(),
+            Self::Loose { path, cache_lease } => {
+                let input = read_loose_map_input_bounded(
+                    &path,
+                    Some(expected_length.min(MAX_TRANSFER_MAP_BYTES)),
+                )?;
+                drop(cache_lease);
+                input.bytes.into_owned()
+            }
             Self::Memory(bytes) => bytes,
         };
         anyhow::ensure!(
@@ -526,6 +542,24 @@ pub fn install_received_asset(
     length: usize,
     resource: TransferResource,
 ) -> Result<LoadedTransferAsset> {
+    install_received_asset_with_limits(
+        directory,
+        bytes,
+        digest,
+        length,
+        resource,
+        cache::Limits::default(),
+    )
+}
+
+fn install_received_asset_with_limits(
+    directory: &Path,
+    bytes: Vec<u8>,
+    digest: &str,
+    length: usize,
+    resource: TransferResource,
+    limits: cache::Limits,
+) -> Result<LoadedTransferAsset> {
     use std::io::Write;
     use std::sync::atomic::{AtomicU64, Ordering};
     anyhow::ensure!(valid_source_sha256(digest), "invalid map source identity");
@@ -538,43 +572,45 @@ pub fn install_received_asset(
         "received map checksum differs"
     );
     let content = decode_transfer(&bytes, resource)?;
-    std::fs::create_dir_all(directory)?;
-    let directory = std::fs::canonicalize(directory)?;
-    let path = directory.join(format!("{digest}.{}", resource.extension()));
+    let cache = cache::Cache::open(directory, true, limits)?;
+    let path = cache.path(digest, resource)?;
+    let already_cached = read_loose_map_input_bounded(&path, Some(resource.limit()))
+        .is_ok_and(|previous| previous.bytes.as_ref() == bytes.as_slice());
+    cache.make_room(&path, if already_cached { 0 } else { length })?;
+    if !already_cached {
+        static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
+        let (stage, mut file) = loop {
+            let id = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
+            let stage = cache
+                .directory()
+                .join(format!(".map-{}-{id}.tmp", std::process::id()));
+            match std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&stage)
+            {
+                Ok(file) => break (stage, file),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(error) => return Err(error.into()),
+            }
+        };
+        let result = (|| -> std::io::Result<()> {
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            drop(file);
+            std::fs::rename(&stage, &path)
+        })();
+        if result.is_err() {
+            let _ = std::fs::remove_file(&stage);
+        }
+        result?;
+    }
     let source = LoadedMapSource::Loose {
-        path: path.clone(),
+        cache_lease: cache.pin(&path)?,
+        path,
         payload_len: length,
         source_sha256: digest.to_owned(),
     };
-    if let Ok(previous) = read_loose_map_input_bounded(&path, Some(resource.limit()))
-        && previous.bytes.as_ref() == bytes.as_slice()
-    {
-        return Ok(LoadedTransferAsset { source, content });
-    }
-    static NEXT_STAGE: AtomicU64 = AtomicU64::new(0);
-    let (stage, mut file) = loop {
-        let id = NEXT_STAGE.fetch_add(1, Ordering::Relaxed);
-        let stage = directory.join(format!(".map-{}-{id}.tmp", std::process::id()));
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&stage)
-        {
-            Ok(file) => break (stage, file),
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
-            Err(error) => return Err(error.into()),
-        }
-    };
-    let result = (|| -> std::io::Result<()> {
-        file.write_all(&bytes)?;
-        file.sync_all()?;
-        drop(file);
-        std::fs::rename(&stage, &path)
-    })();
-    if result.is_err() {
-        let _ = std::fs::remove_file(&stage);
-    }
-    result?;
     Ok(LoadedTransferAsset { source, content })
 }
 
@@ -588,16 +624,19 @@ pub fn load_received_asset(
         valid_source_sha256(digest) && length > 0 && length <= resource.limit(),
         "invalid cached map identity"
     );
-    let directory = std::fs::canonicalize(directory)?;
-    let input = read_loose_map_input_bounded(
-        &directory.join(format!("{digest}.{}", resource.extension())),
-        Some(resource.limit()),
-    )?;
+    let cache = cache::Cache::open(directory, false, cache::Limits::default())?;
+    let path = cache.path(digest, resource)?;
+    let mut input = read_loose_map_input_bounded(&path, Some(resource.limit()))?;
     anyhow::ensure!(
         input.source.physical_identity() == Some((length, digest)),
         "cached map identity differs"
     );
     let content = decode_transfer(&input.bytes, resource)?;
+    cache.make_room(&path, 0)?;
+    let LoadedMapSource::Loose { cache_lease, .. } = &mut input.source else {
+        unreachable!("loose cache input");
+    };
+    *cache_lease = cache.pin(&path)?;
     Ok(LoadedTransferAsset {
         source: input.source,
         content,
@@ -785,6 +824,199 @@ mod tests {
     const SOURCE_TEST_MAP_SHA256: &str =
         "889a91e6c8652968c930f40cfe998f2c0f4152d3f4b10b6af1a8c8e9a7c6e814";
 
+    fn install_test_seed(
+        directory: &Path,
+        bytes: &[u8],
+        limits: cache::Limits,
+    ) -> Result<LoadedTransferAsset> {
+        install_received_asset_with_limits(
+            directory,
+            bytes.to_vec(),
+            &sha256_hex(bytes),
+            bytes.len(),
+            TransferResource::Seed,
+            limits,
+        )
+    }
+
+    #[test]
+    fn cache_quota_preserves_active_files_and_retires_unpinned_entries() {
+        let root = TestDirectory::new("cache-active-pins");
+        let old = b"[RandomMap]\nSeed=1\n";
+        let current = b"[RandomMap]\nSeed=2\n";
+        let next = b"[RandomMap]\nSeed=3\n";
+        let limits = cache::Limits {
+            bytes: (old.len() * 2) as u64,
+            files: 2,
+        };
+        let old_path = root.path().join(format!("{}.sed", sha256_hex(old)));
+        std::fs::write(&old_path, old).unwrap();
+        // An independent shared handle models a different running game's pin.
+        let old_pin = root.path().join(format!(".{}.sed.pin", sha256_hex(old)));
+        let other_game = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create_new(true)
+            .open(&old_pin)
+            .unwrap();
+        other_game.lock_shared().unwrap();
+        let active = install_test_seed(root.path(), current, limits).unwrap();
+        assert!(install_test_seed(root.path(), next, limits).is_err());
+        assert_eq!(std::fs::read(&old_path).unwrap(), old);
+        assert!(
+            !root
+                .path()
+                .join(format!("{}.sed", sha256_hex(next)))
+                .exists()
+        );
+
+        drop(other_game);
+        let next = install_test_seed(root.path(), next, limits).unwrap();
+        assert!(!old_path.exists());
+        assert!(
+            !old_pin.exists(),
+            "eviction retires its stable lock sidecar"
+        );
+        let LoadedMapSource::Loose { path, .. } = &active.source else {
+            panic!("cached seed");
+        };
+        let path = path.clone();
+        assert_eq!(std::fs::read(&path).unwrap(), current);
+        let serialized = serde_json::to_value(&active.source).unwrap();
+        assert!(serialized.get("cache_lease").is_none());
+        let restored: LoadedMapSource = serde_json::from_value(serialized).unwrap();
+        assert_eq!(restored, active.source);
+        let retained = active.source.clone();
+        drop(active);
+        let replacement = b"[RandomMap]\nSeed=4\n";
+        assert!(install_test_seed(root.path(), replacement, limits).is_err());
+        drop(retained);
+        install_test_seed(root.path(), replacement, limits).unwrap();
+        assert!(
+            !path.exists(),
+            "the final source clone releases its cache pin"
+        );
+        drop(next);
+    }
+
+    #[test]
+    fn concurrent_cache_installs_cannot_overrun_exact_capacity() {
+        let root = TestDirectory::new("cache-concurrent-quota");
+        let first = b"[RandomMap]\nSeed=1\n";
+        let second = b"[RandomMap]\nSeed=2\n";
+        let limits = cache::Limits {
+            bytes: first.len() as u64,
+            files: 1,
+        };
+        let barrier = std::sync::Barrier::new(2);
+        let results = std::thread::scope(|scope| {
+            let one = scope.spawn(|| {
+                barrier.wait();
+                install_test_seed(root.path(), first, limits)
+            });
+            let two = scope.spawn(|| {
+                barrier.wait();
+                install_test_seed(root.path(), second, limits)
+            });
+            [one.join().unwrap(), two.join().unwrap()]
+        });
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        let data: Vec<_> = std::fs::read_dir(root.path())
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "sed"))
+            .collect();
+        assert_eq!(data.len(), 1);
+        let installed = std::fs::read(&data[0]).unwrap();
+        assert!(installed == first || installed == second);
+        assert!(install_test_seed(root.path(), b"[RandomMap]\nSeed=10\n", limits).is_err());
+        assert_eq!(std::fs::read(&data[0]).unwrap(), installed);
+        assert!(std::fs::read_dir(root.path()).unwrap().all(|entry| {
+            !entry
+                .unwrap()
+                .path()
+                .extension()
+                .is_some_and(|ext| ext == "tmp")
+        }));
+        let assets = AssetManager::from_loose_root_for_test(root.path());
+        let loaded = results
+            .iter()
+            .find_map(|result| result.as_ref().ok())
+            .unwrap();
+        let upload = prepare_transfer_map_source(&loaded.source, &assets).unwrap();
+        let replacement = if installed == first { second } else { first };
+        drop(results);
+        assert!(
+            install_test_seed(root.path(), replacement, limits).is_err(),
+            "a queued upload must retain the file after setup releases its source"
+        );
+        assert_eq!(
+            upload
+                .read(&sha256_hex(&installed), installed.len())
+                .unwrap(),
+            installed
+        );
+        install_test_seed(root.path(), replacement, limits).unwrap();
+        assert!(
+            !data[0].exists(),
+            "completed upload releases the final lease"
+        );
+    }
+
+    #[test]
+    fn cache_quota_counts_foreign_files_without_deleting_or_following_them() {
+        let root = TestDirectory::new("cache-foreign-files");
+        let directory = root.path().join("cache");
+        std::fs::create_dir(&directory).unwrap();
+        let old = b"[RandomMap]\nSeed=1\n";
+        let received = b"[RandomMap]\nSeed=2\n";
+        let misleading = format!("{}.sed", sha256_hex(b"[RandomMap]\nSeed=3\n"));
+        let old_path = directory.join(format!("{}.sed", sha256_hex(old)));
+        std::fs::write(&old_path, old).unwrap();
+        std::fs::write(directory.join("notes.txt"), b"keep").unwrap();
+        std::fs::write(directory.join(&misleading), b"foreign").unwrap();
+        std::fs::write(directory.join(".map-999999-0.tmp"), b"partial").unwrap();
+        let orphan = directory.join(format!(".{}.sed.pin", "0".repeat(64)));
+        std::fs::write(&orphan, []).unwrap();
+        #[cfg(unix)]
+        {
+            root.write("outside.sed", b"outside");
+            std::os::unix::fs::symlink(
+                root.path().join("outside.sed"),
+                directory.join(format!("{}.sed", sha256_hex(b"[RandomMap]\nSeed=4\n"))),
+            )
+            .unwrap();
+        }
+        let limits = cache::Limits {
+            bytes: (received.len() + 4 + 7 + 7) as u64,
+            files: 4,
+        };
+        install_test_seed(&directory, received, limits).unwrap();
+        assert!(!old_path.exists());
+        assert!(!orphan.exists());
+        assert_eq!(std::fs::read(directory.join("notes.txt")).unwrap(), b"keep");
+        assert_eq!(
+            std::fs::read(directory.join(&misleading)).unwrap(),
+            b"foreign"
+        );
+        assert_eq!(
+            std::fs::read(directory.join(".map-999999-0.tmp")).unwrap(),
+            b"partial"
+        );
+        assert!(
+            install_test_seed(&directory, received, cache::Limits { files: 3, ..limits }).is_err(),
+            "a cache hit must also respect a pre-existing over-quota directory"
+        );
+        #[cfg(unix)]
+        {
+            assert!(install_test_seed(&directory, b"[RandomMap]\nSeed=4\n", limits).is_err());
+            assert_eq!(
+                std::fs::read(root.path().join("outside.sed")).unwrap(),
+                b"outside"
+            );
+        }
+    }
+
     #[test]
     fn seed_and_preview_keep_distinct_verified_loader_formats() {
         let root = TestDirectory::new("received-generated-assets");
@@ -954,7 +1186,14 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            std::fs::read_dir(&cache).unwrap().count(),
+            std::fs::read_dir(&cache)
+                .unwrap()
+                .filter(|entry| {
+                    let path = entry.as_ref().unwrap().path();
+                    path.file_name().unwrap() != ".vera20k-cache.lock"
+                        && !path.extension().is_some_and(|ext| ext == "pin")
+                })
+                .count(),
             1,
             "no staged files escape"
         );
@@ -1023,6 +1262,7 @@ mod tests {
         assert_eq!(
             loaded.source,
             LoadedMapSource::Loose {
+                cache_lease: Default::default(),
                 path: directory.path().join("Arena.map"),
                 payload_len: SOURCE_TEST_MAP.len(),
                 source_sha256: SOURCE_TEST_MAP_SHA256.to_string(),
@@ -1049,6 +1289,7 @@ mod tests {
         assert_eq!(
             loaded.source,
             LoadedMapSource::Loose {
+                cache_lease: Default::default(),
                 path: directory.path().join("Arena.mmx"),
                 payload_len: archive.len(),
                 source_sha256: sha256_hex(&archive),

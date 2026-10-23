@@ -494,8 +494,11 @@ impl LanUdpTransport {
         address: SocketAddrV4,
         ticket: &[u8],
         packet_key: [u8; 32],
+        payload_key: [u8; 32],
     ) -> io::Result<()> {
-        let result = self.lock().enable_relay(address, ticket, packet_key);
+        let result = self
+            .lock()
+            .enable_relay(address, ticket, packet_key, payload_key);
         self.wake();
         result
     }
@@ -515,8 +518,9 @@ impl LanUdpTransport {
         address: SocketAddrV4,
         ticket: &[u8],
         key: [u8; 32],
+        payload_key: [u8; 32],
     ) -> io::Result<()> {
-        let result = self.lock().renew_relay(address, ticket, key);
+        let result = self.lock().renew_relay(address, ticket, key, payload_key);
         self.wake();
         result
     }
@@ -743,6 +747,7 @@ impl UdpIo {
         address: SocketAddrV4,
         ticket: &[u8],
         packet_key: [u8; 32],
+        payload_key: [u8; 32],
     ) -> io::Result<()> {
         if self.lan_scope.is_some() {
             return Err(io::Error::new(
@@ -760,7 +765,8 @@ impl UdpIo {
                 "invalid relay address",
             ));
         }
-        let session = ClientSession::new(ticket, packet_key).map_err(relay_io_error)?;
+        let session =
+            ClientSession::new(ticket, packet_key, payload_key).map_err(relay_io_error)?;
         self.relay = Some(RelayRoute {
             address,
             session,
@@ -796,6 +802,7 @@ impl UdpIo {
         address: SocketAddrV4,
         ticket: &[u8],
         key: [u8; 32],
+        payload_key: [u8; 32],
     ) -> io::Result<()> {
         let route = self
             .relay
@@ -816,7 +823,11 @@ impl UdpIo {
             return Ok(());
         }
         let current = route.renewing.as_ref().unwrap_or(&route.session);
-        route.renewing = Some(current.renewal(ticket, key).map_err(relay_io_error)?);
+        route.renewing = Some(
+            current
+                .renewal(ticket, key, payload_key)
+                .map_err(relay_io_error)?,
+        );
         route.last_probe = None;
         Ok(())
     }
@@ -1170,6 +1181,7 @@ fn drain_socket(
             report.malformed_datagrams += 1;
             continue;
         };
+        let decrypted;
         let (datagram, source, received_scope) = if let Some(route) = relay.as_mut() {
             if source != route.address || length > vera20k_relay_protocol::MAX_DATAGRAM {
                 report.malformed_datagrams += 1;
@@ -1209,8 +1221,9 @@ fn drain_socket(
             match route.session.receive(&bytes[..length]) {
                 Ok(ServerEvent::Payload { source, bytes }) => {
                     route.last_response = Some(now_ticks);
+                    decrypted = bytes;
                     (
-                        bytes,
+                        decrypted.as_bytes(),
                         relay_peer_endpoint(source).expect("authenticated source range"),
                         None,
                     )

@@ -147,6 +147,7 @@ fn admitted_network_start_preserves_canonical_humans_and_host_seed_in_fresh_load
     let initial = crate::app::loading::init::MapLoadInitial::from_test_map_source(
         prefix_test_map(&[(0, 20, 24), (1, 42, 46)]),
         crate::map::source::LoadedMapSource::Loose {
+            cache_lease: Default::default(),
             path: std::path::PathBuf::from("mp01t4.map"),
             payload_len: 23,
             source_sha256: crate::util::sha256::sha256_hex(b"synthetic network map"),
@@ -936,6 +937,7 @@ fn load_descriptor_source_family_format_matrix() {
     ];
     for source in [
         crate::map::source::LoadedMapSource::Loose {
+            cache_lease: Default::default(),
             path: std::path::PathBuf::from("mp01t4.map"),
             payload_len: 17,
             source_sha256: crate::util::sha256::sha256_hex(b"synthetic map fixture"),
@@ -1039,6 +1041,7 @@ fn accepted_and_resolved_legacy_share_one_stock_cursor_shape() {
 
     let starts = [(0, 20, 24), (1, 42, 46)];
     let source = crate::map::source::LoadedMapSource::Loose {
+        cache_lease: Default::default(),
         path: std::path::PathBuf::from("mp01t4.map"),
         payload_len: 23,
         source_sha256: crate::util::sha256::sha256_hex(b"synthetic map fixture"),
@@ -1136,6 +1139,7 @@ fn generic_manual_and_unresolved_legacy_reject_before_receipt_or_staging() {
     let authored = crate::app::loading::init::MapLoadInitial::from_test_map_source(
         prefix_test_map(&starts),
         crate::map::source::LoadedMapSource::Loose {
+            cache_lease: Default::default(),
             path: std::path::PathBuf::from("manual.map"),
             payload_len: 1,
             source_sha256: crate::util::sha256::sha256_hex(b"synthetic map fixture"),
@@ -1296,6 +1300,7 @@ fn authored_prefix_rejects_random_map_staging_for_loose_and_mix_sources() {
     let starts = [(0, 20, 24), (1, 42, 46)];
     let sources = [
         crate::map::source::LoadedMapSource::Loose {
+            cache_lease: Default::default(),
             path: std::path::PathBuf::from(selected),
             payload_len: 1,
             source_sha256: crate::util::sha256::sha256_hex(b"synthetic map fixture"),
@@ -1530,6 +1535,7 @@ fn loading_request_moves_exact_startup_authority_once() {
     let initial = MapLoadInitial::from_test_map_source(
         prefix_test_map(&[(0, 20, 24), (1, 42, 46)]),
         crate::map::source::LoadedMapSource::Loose {
+            cache_lease: Default::default(),
             path: PathBuf::from("mp01t4.map"),
             payload_len: 1,
             source_sha256: crate::util::sha256::sha256_hex(b"synthetic map fixture"),

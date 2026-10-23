@@ -1377,6 +1377,11 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(code)));
         }
+        http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
+            state.frontend.wol_account.password.clear();
+            service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
+            notice(state, "Update VERA20k to use secure online multiplayer.");
+        }
         http::Response::Channels(list) => service_event(
             state,
             WolServiceEvent::Channels {
@@ -1489,7 +1494,9 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             service.clear_cleanup();
             service_event(state, WolServiceEvent::NetStatus(super::NET_STATUS_LOST))
         }
-        http::Response::Authenticated { .. } | http::Response::LoginFailed { .. } => {}
+        http::Response::Authenticated { .. }
+        | http::Response::LoginFailed { .. }
+        | http::Response::UpgradeRequired { .. } => {}
     }
 }
 
@@ -1500,9 +1507,39 @@ fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T> {
 struct DecodedRelayGrant {
     ticket: Vec<u8>,
     key: [u8; 32],
+    payload_key: [u8; 32],
 }
 
-fn decode_relay_grant(grant: &wire::RelayGrant) -> Result<DecodedRelayGrant> {
+fn relay_uuid(value: &str) -> Result<[u8; 16]> {
+    ensure!(
+        value.len() == 36
+            && [8, 13, 18, 23]
+                .into_iter()
+                .all(|i| value.as_bytes()[i] == b'-'),
+        "invalid relay identity"
+    );
+    let compact = value.replace('-', "");
+    ensure!(
+        compact.len() == 32 && compact.is_ascii(),
+        "invalid relay identity"
+    );
+    let mut bytes = [0; 16];
+    for (index, byte) in bytes.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&compact[index * 2..index * 2 + 2], 16)
+            .map_err(|_| anyhow!("invalid relay identity"))?;
+    }
+    Ok(bytes)
+}
+
+fn decode_relay_grant(
+    grant: &wire::RelayGrant,
+    match_id: &str,
+    player_id: &str,
+) -> Result<DecodedRelayGrant> {
+    ensure!(
+        grant.ticket.len() <= 160 && grant.packet_key.len() == 43 && grant.payload_key.len() == 43,
+        "invalid relay grant"
+    );
     let ticket = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(&grant.ticket)
         .map_err(|_| anyhow!("invalid relay grant"))?;
@@ -1511,13 +1548,24 @@ fn decode_relay_grant(grant: &wire::RelayGrant) -> Result<DecodedRelayGrant> {
         .map_err(|_| anyhow!("invalid relay grant"))?
         .try_into()
         .map_err(|_| anyhow!("invalid relay grant"))?;
+    let payload_key = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&grant.payload_key)
+        .map_err(|_| anyhow!("invalid relay grant"))?
+        .try_into()
+        .map_err(|_| anyhow!("invalid relay grant"))?;
     let parsed =
         crate::net::udp::RelayTicket::parse(&ticket).map_err(|_| anyhow!("invalid relay grant"))?;
     ensure!(
-        parsed.source == grant.source_index,
+        parsed.source == grant.source_index
+            && parsed.room == relay_uuid(match_id)?
+            && parsed.player == relay_uuid(player_id)?,
         "relay grant identity differs"
     );
-    Ok(DecodedRelayGrant { ticket, key })
+    Ok(DecodedRelayGrant {
+        ticket,
+        key,
+        payload_key,
+    })
 }
 
 fn poll_renewal(state: &AppState, service: &mut LiveService) {
@@ -1535,15 +1583,15 @@ fn poll_renewal(state: &AppState, service: &mut LiveService) {
         .map(|duration| duration.as_secs())
         .unwrap_or(0);
     let now = Instant::now();
-    // Two-hour grants renew after30min. Retry a missing reply without replacing
-    // the live route or resetting the event cursor, using monotonic retry time.
-    if unix_now.saturating_add(90 * 60) < expires
+    // Short-lived grants renew before expiry. Retry a missing reply without
+    // replacing the live route or resetting the event cursor.
+    if unix_now.saturating_add(30) < expires
         || service.next_renewal_attempt.is_some_and(|next| now < next)
     {
         return;
     }
     let match_id = match_id.clone();
-    service.next_renewal_attempt = Some(now + Duration::from_secs(30));
+    service.next_renewal_attempt = Some(now + Duration::from_secs(10));
     service.command("renew_relay", json!({"match_id":match_id}));
 }
 
@@ -1566,12 +1614,13 @@ fn apply_event(
             if service.match_id.as_ref() != Some(&renewed.match_id) {
                 return Ok(());
             }
-            let grant = decode_relay_grant(&renewed.relay)?;
+            let grant = decode_relay_grant(&renewed.relay, &renewed.match_id, &service.player_id)?;
             crate::app::lan_service::renew_online_relay(
                 state,
                 renewed.relay.address,
                 &grant.ticket,
                 grant.key,
+                grant.payload_key,
             )?;
         }
         "joined" | "created" => {
@@ -1904,6 +1953,7 @@ fn apply_event(
             struct TimingConfirmed {
                 match_id: String,
                 pings: Vec<i32>,
+                relay: wire::RelayGrant,
             }
             let timing: TimingConfirmed = decode(payload)?;
             let pending = service
@@ -1914,6 +1964,14 @@ fn apply_event(
                 pending.match_id == timing.match_id && pending.latencies_reported,
                 "timing was not measured for this start"
             );
+            let grant = decode_relay_grant(&timing.relay, &timing.match_id, &service.player_id)?;
+            crate::app::lan_service::renew_online_relay(
+                state,
+                timing.relay.address,
+                &grant.ticket,
+                grant.key,
+                grant.payload_key,
+            )?;
             crate::app::lan_service::apply_online_timing(state, &timing.pings)?;
             let count = state
                 .match_state
@@ -2027,7 +2085,7 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
             "setup source order differs"
         );
     }
-    let grant = decode_relay_grant(&start.relay)?;
+    let grant = decode_relay_grant(&start.relay, &start.match_id, &service.player_id)?;
     let connections = LanConnections::new(
         LanConnectionConfig {
             max_peers: 29,
@@ -2047,7 +2105,12 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         },
         connections,
     )?;
-    transport.enable_relay(start.relay.address, &grant.ticket, grant.key)?;
+    transport.enable_relay(
+        start.relay.address,
+        &grant.ticket,
+        grant.key,
+        grant.payload_key,
+    )?;
     transport.start_io_pump(crate::app::match_runtime::frame_pacer::wall_clock_bucket)?;
     for user in &start.users {
         state.match_state.session.bind_network_endpoint(
@@ -2137,6 +2200,45 @@ fn poll_relay(state: &mut AppState, service: &mut LiveService) -> Result<()> {
 #[cfg(test)]
 mod completion_tests {
     use super::*;
+
+    #[test]
+    fn relay_grant_requires_match_player_and_encryption_key_agreement() {
+        use crate::net::udp::{
+            RelayTicket as Ticket,
+            test_support::{SecretKey, derive_packet_key},
+        };
+        let match_id = "11111111-1111-1111-1111-111111111111";
+        let player_id = "22222222-2222-2222-2222-222222222222";
+        let signing_key = SecretKey::new([9; 32]);
+        let ticket = Ticket {
+            room: [0x11; 16],
+            player: [0x22; 16],
+            source: 1,
+            generation: 1,
+            expires: 300,
+            nonce: [3; 16],
+        }
+        .sign(&signing_key)
+        .unwrap();
+        let encode = |bytes: &[u8]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes);
+        let mut grant = wire::RelayGrant {
+            address: "127.0.0.1:5000".parse().unwrap(),
+            ticket: encode(&ticket),
+            packet_key: encode(derive_packet_key(&signing_key, &ticket).expose_for_https()),
+            payload_key: encode(&[7; 32]),
+            source_index: 1,
+        };
+        assert_eq!(
+            decode_relay_grant(&grant, match_id, player_id)
+                .unwrap()
+                .payload_key,
+            [7; 32]
+        );
+        assert!(decode_relay_grant(&grant, player_id, player_id).is_err());
+        assert!(decode_relay_grant(&grant, match_id, match_id).is_err());
+        grant.payload_key.clear();
+        assert!(decode_relay_grant(&grant, match_id, player_id).is_err());
+    }
 
     fn control_service(
         match_id: Option<&str>,

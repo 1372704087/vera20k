@@ -251,6 +251,7 @@ pub(super) struct RelayGrant {
     pub address: std::net::SocketAddrV4,
     pub ticket: String,
     pub packet_key: String,
+    pub payload_key: String,
     pub source_index: u8,
 }
 

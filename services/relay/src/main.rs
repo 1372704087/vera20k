@@ -23,6 +23,7 @@ struct TrafficCounts {
     full: u64,
     rate_limited: u64,
     counter_exhausted: u64,
+    entropy_unavailable: u64,
 }
 
 impl TrafficCounts {
@@ -36,13 +37,14 @@ impl TrafficCounts {
             RelayError::Full => &mut self.full,
             RelayError::RateLimited => &mut self.rate_limited,
             RelayError::CounterExhausted => &mut self.counter_exhausted,
+            RelayError::EntropyUnavailable => &mut self.entropy_unavailable,
         };
         *count += 1;
     }
 
     fn report(&self, seconds: u64, rooms: usize) {
         eprintln!(
-            "VERA20k relay interval_s={seconds} rooms={rooms} received={} forwarded={} send_errors={} malformed={} authentication={} expired={} replay={} unregistered={} full={} rate_limited={} counter_exhausted={}",
+            "VERA20k relay interval_s={seconds} rooms={rooms} received={} forwarded={} send_errors={} malformed={} authentication={} expired={} replay={} unregistered={} full={} rate_limited={} counter_exhausted={} entropy_unavailable={}",
             self.received,
             self.forwarded,
             self.send_errors,
@@ -54,6 +56,7 @@ impl TrafficCounts {
             self.full,
             self.rate_limited,
             self.counter_exhausted,
+            self.entropy_unavailable,
         );
     }
 }

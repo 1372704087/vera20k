@@ -31,3 +31,12 @@ The source schema is configured in `cloudflare.config.ts` using the official
 [Cloudflare configuration API](https://developers.cloudflare.com/cf/projects/cloudflare-config/).
 Deployments preserve the existing SQLite data. Health is exposed at `/health`;
 credentials and request bodies are excluded from application logging.
+
+Protocol 2 is a coordinated client/lobby/relay upgrade. Deploy the v2 relay and
+matching clients with this service; v1 clients and stored v1 sessions receive
+`upgrade_required`. Initial grants last 120 seconds and playing grants 300 seconds.
+Each account has one monotonically ordered relay admission, so cancelled starts
+cannot retain a pool of valid rooms. Payload encryption keys are delivered only
+to the match participants over HTTPS and are never sent to the relay.
+The HTTPS lobby is trusted with these keys. Relay-blind encryption does not
+protect against a compromised lobby or participant.

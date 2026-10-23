@@ -1362,6 +1362,7 @@ impl LanCapture {
             path,
             payload_len,
             source_sha256,
+            ..
         } = source
         else {
             bail!("transferred map was not parsed from the delivered loose file")

@@ -382,14 +382,21 @@ mod tests {
             let ticket = RelayTicket {
                 room: [11; 16],
                 source,
-                expires: now + 600,
+                expires: now + 300,
                 nonce: [source + 1; 16],
+                player: [source + 1; 16],
+                generation: 1,
             }
             .sign(&key)
             .unwrap();
             let packet_key = derive_packet_key(&key, &ticket);
             transport
-                .enable_relay(relay_address, &ticket, *packet_key.expose_for_https())
+                .enable_relay(
+                    relay_address,
+                    &ticket,
+                    *packet_key.expose_for_https(),
+                    [55; 32],
+                )
                 .unwrap();
         }
         let departure =

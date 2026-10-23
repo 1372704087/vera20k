@@ -611,8 +611,11 @@ begin
   GameInstallDetails.ScrollBars := ssVertical;
   GameInstallDetails.WordWrap := True;
   GameInstallDetails.Text := CustomMessage('GameInstallChoose');
+  { Inno omits SubCaptionLabel for an empty initial caption, but the report
+    updates it below. Inno 7.1.0: Setup.WizardForm.CustomPages.pas:754-770. }
   GameCheckPage := CreateOutputMsgMemoPage(GameDirPage.ID,
-    CustomMessage('GameCheckCaption'), CustomMessage('GameCheckDescription'), '', '');
+    CustomMessage('GameCheckCaption'), CustomMessage('GameCheckDescription'),
+    CustomMessage('GameCheckRequired'), '');
 end;
 
 procedure CheckGameFiles();
@@ -652,6 +655,11 @@ begin
       GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckOptional')
     else
       GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckReady');
+    GameCheckPage.SubCaptionLabel.AdjustHeight();
+    GameCheckPage.RichEditViewer.Top := GameCheckPage.SubCaptionLabel.Top +
+      GameCheckPage.SubCaptionLabel.Height + ScaleY(10);
+    GameCheckPage.RichEditViewer.Height := GameCheckPage.SurfaceHeight -
+      GameCheckPage.RichEditViewer.Top;
   finally
     WizardForm.Cursor := crDefault;
     WizardForm.NextButton.Enabled := True;

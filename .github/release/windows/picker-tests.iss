@@ -13,6 +13,8 @@ var
   Candidates, SavedInstallations: TGameInstallations;
   First, Second, Manual, ReportText, TestKey: String;
 begin
+  AssertPicker(GameCheckPage.SubCaptionLabel <> nil, 'game-data report has a status label');
+  GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckOptional');
   First := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\尤里 one'));
   Second := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\game two'));
   Manual := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\manual folder'));

@@ -19,27 +19,102 @@ pub(crate) fn sidecar(output: &Path, kind: &str) -> PathBuf {
 
 /// Ephemeral borrow for one loading pump. Only the expired diagnostic snapshot
 /// travels across the existing disconnect callback; it is not a second timer.
-pub(crate) struct LoadingObserver<'a> {
+pub(crate) struct HostLossObserver<'a> {
     config: &'a LiveOnlineConfig,
     frame: u32,
     uptime_ms: u128,
     expired: Option<Value>,
 }
 
+pub(crate) enum LoadingObserver<'a> {
+    HostLoss(HostLossObserver<'a>),
+    Startup(super::startup_host_loss::StartupLoadingObserver<'a>),
+}
+
 impl ShellCaptureSession {
     pub(crate) fn loading_observer(&self) -> Option<LoadingObserver<'_>> {
         let config = self.request.live_online.as_ref()?;
-        config.loading_host_loss.as_ref()?;
-        Some(LoadingObserver {
-            config,
-            frame: self.frames_seen,
-            uptime_ms: self.started_at?.elapsed().as_millis(),
-            expired: None,
-        })
+        let uptime_ms = self.started_at?.elapsed().as_millis();
+        if config.startup_host_loss.is_some() {
+            Some(LoadingObserver::Startup(
+                super::startup_host_loss::StartupLoadingObserver::new(
+                    config,
+                    self.frames_seen,
+                    u128::from(crate::app::match_runtime::frame_pacer::wall_clock_ms()),
+                ),
+            ))
+        } else {
+            config.loading_host_loss.as_ref()?;
+            Some(LoadingObserver::HostLoss(HostLossObserver {
+                config,
+                frame: self.frames_seen,
+                uptime_ms,
+                expired: None,
+            }))
+        }
     }
 }
 
 impl LoadingObserver<'_> {
+    pub(crate) fn observe(
+        &mut self,
+        state: &AppState,
+        view: NetworkLoadingObservation<'_>,
+    ) -> Result<()> {
+        match self {
+            Self::HostLoss(observer) => observer.observe(state, view),
+            Self::Startup(_) => Ok(()),
+        }
+    }
+
+    /// This diagnostic decision is queried only after the ordinary complete
+    /// decision and terminal100 publication. The LoadingSession retains the
+    /// single result if its opt-in victim has not handed it to installation.
+    pub(crate) fn defer_install(
+        &mut self,
+        state: &AppState,
+        view: NetworkLoadingObservation<'_>,
+    ) -> Result<bool> {
+        match self {
+            Self::HostLoss(_) => Ok(false),
+            Self::Startup(observer) => observer.defer_install(state, view),
+        }
+    }
+
+    pub(crate) fn before_install(&mut self) -> Result<()> {
+        match self {
+            Self::HostLoss(_) => Ok(()),
+            Self::Startup(observer) => observer.before_install(),
+        }
+    }
+
+    pub(crate) fn removed(
+        &mut self,
+        state: &AppState,
+        sim: &mut Simulation,
+        timed_out: &[usize],
+    ) -> Result<()> {
+        match self {
+            Self::HostLoss(observer) => observer.removed(state, sim, timed_out),
+            Self::Startup(_) => {
+                ensure!(
+                    timed_out.is_empty(),
+                    "startup fault reached a loading timeout before install"
+                );
+                Ok(())
+            }
+        }
+    }
+
+    pub(crate) fn installed(&self, state: &mut AppState) -> Result<()> {
+        match self {
+            Self::HostLoss(observer) => observer.installed(state),
+            Self::Startup(observer) => observer.installed(state),
+        }
+    }
+}
+
+impl HostLossObserver<'_> {
     pub(crate) fn observe(
         &mut self,
         state: &AppState,
@@ -165,54 +240,17 @@ impl LoadingObserver<'_> {
     }
 
     fn snapshot(&self, state: &AppState, view: &NetworkLoadingObservation<'_>) -> Result<Value> {
-        let launch = view
-            .startup
-            .launch_session()
-            .context("network loading startup")?;
-        let crate::app::match_bootstrap::LoadingStartup::Network(startup) = view.startup else {
-            bail!("loading host loss requires an admitted network startup");
-        };
-        let metadata = state
-            .match_state
-            .session
-            .network_map_metadata()
-            .context("loading map metadata")?;
-        let physical = startup
-            .local_map_source()
-            .and_then(|source| source.physical_identity())
-            .context("verified local loading map")?;
-        ensure!(
-            physical.0 == usize::try_from(metadata.byte_length)?
-                && physical.1 == metadata.source_sha256
-                && startup.effective_map_digest() == Some(metadata.effective_digest.as_str()),
-            "loading map source is outside the accepted agreement"
-        );
-        let progress: Vec<_> = view
-            .rows
-            .participants
-            .iter()
-            .enumerate()
-            .map(|(source, row)| {
-                let progress = row.remote_progress.as_ref().unwrap_or(view.progress);
-                json!({"source":source,"percent":progress.current_percent()})
-            })
-            .collect();
-        Ok(json!({
-            "checkpoint_id":self.config.loading_host_loss,"account":self.config.account,
-            "host":self.config.host,"players":3,"process_id":std::process::id(),
-            "render_frame":self.frame,"uptime_ms":self.uptime_ms,
-            "startup":network_startup_receipt(state, launch, view.simulation)?,
-            "map_admission":{"source_sha256":metadata.source_sha256,
-                "effective_digest":metadata.effective_digest,"byte_length":metadata.byte_length,
-                "capacity":metadata.player_capacity},
-            "loading":{"stage":view.stage,"local_progress":view.progress.current_percent(),
-                "progress":progress,"frame":view.simulation.map_or(0, |sim|sim.session().binary_frame()),
-                "tick":view.simulation.map_or(0, |sim|sim.session().tick()),
-                "timeout_start":view.timeout.map(|timer|timer.start_frame()),
-                "timeout_period":view.timeout.map(|timer|timer.duration()),
-                "timeout_remaining":view.timeout.map(|timer|timer.remaining(view.observed_bucket)),
-                "observed_bucket":view.observed_bucket}
-        }))
+        loading_snapshot(
+            self.config,
+            state,
+            view,
+            self.frame,
+            self.uptime_ms,
+            self.config
+                .loading_host_loss
+                .as_deref()
+                .context("loading checkpoint")?,
+        )
     }
 
     /// Called immediately after the ordinary684536->5DA750 loading removal,
@@ -637,4 +675,64 @@ fn publisher_name(state: &AppState, sim: &Simulation) -> Option<String> {
             ) == Some(house))
             .then(|| human.name.clone())
         })
+}
+
+/// One physical/effective-map and source/House projection shared by both loading
+/// observations. It never trusts a previous resident world or copies progress.
+pub(super) fn loading_snapshot(
+    config: &LiveOnlineConfig,
+    state: &AppState,
+    view: &NetworkLoadingObservation<'_>,
+    frame: u32,
+    uptime_ms: u128,
+    checkpoint_id: &str,
+) -> Result<Value> {
+    let launch = view
+        .startup
+        .launch_session()
+        .context("network loading startup")?;
+    let crate::app::match_bootstrap::LoadingStartup::Network(startup) = view.startup else {
+        bail!("loading host loss requires an admitted network startup");
+    };
+    let metadata = state
+        .match_state
+        .session
+        .network_map_metadata()
+        .context("loading map metadata")?;
+    let physical = startup
+        .local_map_source()
+        .and_then(|source| source.physical_identity())
+        .context("verified local loading map")?;
+    ensure!(
+        physical.0 == usize::try_from(metadata.byte_length)?
+            && physical.1 == metadata.source_sha256
+            && startup.effective_map_digest() == Some(metadata.effective_digest.as_str()),
+        "loading map source is outside the accepted agreement"
+    );
+    let progress: Vec<_> = view
+        .rows
+        .participants
+        .iter()
+        .enumerate()
+        .map(|(source, row)| {
+            let progress = row.remote_progress.as_ref().unwrap_or(view.progress);
+            json!({"source":source,"percent":progress.current_percent()})
+        })
+        .collect();
+    Ok(json!({
+        "checkpoint_id":checkpoint_id,"account":config.account,
+        "host":config.host,"players":3,"process_id":std::process::id(),
+        "render_frame":frame,"uptime_ms":uptime_ms,
+        "startup":network_startup_receipt(state, launch, view.simulation)?,
+        "map_admission":{"source_sha256":metadata.source_sha256,
+            "effective_digest":metadata.effective_digest,"byte_length":metadata.byte_length,
+            "capacity":metadata.player_capacity},
+        "loading":{"stage":view.stage,"local_progress":view.progress.current_percent(),
+            "progress":progress,"frame":view.simulation.map_or(0, |sim|sim.session().binary_frame()),
+            "tick":view.simulation.map_or(0, |sim|sim.session().tick()),
+            "timeout_start":view.timeout.map(|timer|timer.start_frame()),
+            "timeout_period":view.timeout.map(|timer|timer.duration()),
+            "timeout_remaining":view.timeout.map(|timer|timer.remaining(view.observed_bucket)),
+            "observed_bucket":view.observed_bucket}
+    }))
 }

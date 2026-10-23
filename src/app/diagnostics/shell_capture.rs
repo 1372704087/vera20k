@@ -28,6 +28,7 @@ pub(crate) mod loading_host_loss;
 mod movies;
 mod score;
 mod skirmish;
+pub(crate) mod startup_host_loss;
 pub(crate) use skirmish::PresentedShell;
 
 pub(crate) const CAPTURE_FLAG: &str = "--shell-capture";
@@ -1100,6 +1101,8 @@ pub(crate) struct LiveOnlineConfig {
     pub exit_checkpoint: Option<String>,
     /// External owned kill during first loading, followed by a normal two-player rematch.
     pub loading_host_loss: Option<String>,
+    /// External owned kill after ordinary100, before the original host installs live gameplay.
+    pub startup_host_loss: Option<String>,
     pub loading_output: Option<PathBuf>,
     pub exit_prefix_output: Option<PathBuf>,
     /// Nonsecret real-command/checksum prefix, written before external faults.
@@ -1253,6 +1256,7 @@ where
     let mut online_network_checkpoint = None;
     let mut online_exit_checkpoint = None;
     let mut online_loading_host_loss = None;
+    let mut online_startup_host_loss = None;
 
     while let Some(flag) = args.next() {
         let flag = flag
@@ -1378,6 +1382,11 @@ where
                 &mut online_loading_host_loss,
                 next_utf8(&mut args, "value after --online-loading-host-loss")?,
                 "--online-loading-host-loss",
+            )?,
+            "--online-startup-host-loss" => set_once(
+                &mut online_startup_host_loss,
+                next_utf8(&mut args, "value after --online-startup-host-loss")?,
+                "--online-startup-host-loss",
             )?,
             "--online-exit-checkpoint" => set_once(
                 &mut online_exit_checkpoint,
@@ -1517,6 +1526,7 @@ where
                 !online_failure
                     && online_network_checkpoint.is_none()
                     && online_exit_checkpoint.is_none()
+                    && online_startup_host_loss.is_none()
                     && online_map.is_none()
                     && online_start.is_none()
                     && players == 3
@@ -1526,6 +1536,21 @@ where
                     && public_coordinator_nonce(nonce)
             }),
             "loading host loss requires a normal simple three-player online match, at least1024 frames and a32-digit lowercase hex nonce; map/start overrides and other faults are separate runs"
+        );
+        ensure!(
+            online_startup_host_loss.as_ref().is_none_or(|nonce| {
+                !online_failure
+                    && online_loading_host_loss.is_none()
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_map.is_none()
+                    && online_start.is_none()
+                    && players == 3
+                    && online_simple
+                    && !online_mass
+                    && public_coordinator_nonce(nonce)
+            }),
+            "startup host loss requires a normal simple three-player online match and a32-digit lowercase hex nonce; loading/map/start and other faults are separate runs"
         );
         ensure!(
             players == 2 || online_simple || online_mass,
@@ -1543,6 +1568,14 @@ where
                 ensure!(
                     !loading_host_loss::sidecar(&output_dir, kind).try_exists()?,
                     "loading fault output already exists"
+                );
+            }
+        }
+        if online_startup_host_loss.is_some() {
+            for kind in ["ready", "install", "prefix", "killed", "failure", "ack"] {
+                ensure!(
+                    !startup_host_loss::sidecar(&output_dir, kind).try_exists()?,
+                    "startup fault output already exists"
                 );
             }
         }
@@ -1578,8 +1611,10 @@ where
             exit_checkpoint: online_exit_checkpoint,
             loading_output: online_loading_host_loss
                 .as_ref()
+                .or(online_startup_host_loss.as_ref())
                 .map(|_| output_dir.clone()),
             loading_host_loss: online_loading_host_loss,
+            startup_host_loss: online_startup_host_loss,
         })
     } else {
         ensure!(
@@ -1595,7 +1630,8 @@ where
                 && !online_mass
                 && online_network_checkpoint.is_none()
                 && online_exit_checkpoint.is_none()
-                && online_loading_host_loss.is_none(),
+                && online_loading_host_loss.is_none()
+                && online_startup_host_loss.is_none(),
             "online options require an online live checkpoint"
         );
         None

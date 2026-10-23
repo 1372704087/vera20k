@@ -432,6 +432,21 @@ fn loading_replacement_and_terminal_retirement_preserve_cache_and_admission_orde
         .load_file_from_mix("sentinel.bin")
         .unwrap();
     assert!(std::sync::Arc::ptr_eq(&original.bytes, &cached.bytes));
+    // A completed observer handoff retains that same result and cache after
+    // the real wait has finished. Cancel/replacement must return its lease too.
+    let pending = slot.as_mut().unwrap();
+    let LoadingStage::AwaitingPeers { result, .. } = std::mem::replace(
+        &mut pending.stage,
+        LoadingStage::Selected(LoadingRequest::generic_map_load("auto")),
+    ) else {
+        unreachable!()
+    };
+    pending.stage = LoadingStage::ReadyToInstall { result };
+    let cached = audio_service_asset_manager(&assets, slot.as_ref())
+        .unwrap()
+        .load_file_from_mix("sentinel.bin")
+        .unwrap();
+    assert!(std::sync::Arc::ptr_eq(&original.bytes, &cached.bytes));
     // The installer's resource-only cleanup must preserve the replacement
     // admission until its actual L0 observation commits.
     retire_loading_attempt(&mut slot, &mut assets);

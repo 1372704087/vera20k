@@ -28,7 +28,7 @@ pub enum StartupError {
 /// Pairs bind shared raw setup row to constructed House. LAN source vectors
 /// are local-first, so their ordinal or socket address must never be hashed.
 /// Active rows are fixed at install after the native loading wait.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct StartupAgreement {
     houses: Vec<(u8, i8)>,
     active: u32,
@@ -180,6 +180,10 @@ impl StartupHandshake {
             ready: 1u32 << local_row,
             phase: Phase::Pending,
         })
+    }
+
+    pub(super) fn agreement(&self) -> &StartupAgreement {
+        &self.agreement
     }
 
     pub(super) fn pending(&self) -> bool {

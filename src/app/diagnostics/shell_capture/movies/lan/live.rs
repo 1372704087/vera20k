@@ -113,11 +113,18 @@ impl LiveLanCapture {
         target: LanTarget,
         config: crate::app::diagnostics::shell_capture::LiveOnlineConfig,
     ) -> Self {
+        let startup_failure = config
+            .startup_host_loss
+            .as_ref()
+            .map(|_| failure::FailureCapture::startup(config.clone()));
         let frames = config.frames;
         let players = config.players;
         let simple = config.simple_input;
         let mass = config.mass_input;
         let mut capture = Self::new_config(target, None, Some(online::LiveRoundFlow::new(config)));
+        if let Some(failure) = startup_failure {
+            capture.failure = Some(failure);
+        }
         capture.frame_budget = Some(frames);
         capture.expected_players = players;
         if simple {
@@ -358,8 +365,12 @@ impl LiveLanCapture {
             .failure
             .as_ref()
             .is_some_and(|failure| failure.expects_checksum());
+        let expected_startup = self
+            .failure
+            .as_ref()
+            .is_some_and(|failure| failure.is_startup() && failure.armed());
         ensure!(
-            state.match_state.network_failure.is_none() || expected_checksum,
+            state.match_state.network_failure.is_none() || expected_checksum || expected_startup,
             "unexpected network failure modal during live capture"
         );
         if let Some(runtime) = &state.match_state.sim_runtime {
@@ -369,7 +380,10 @@ impl LiveLanCapture {
                 runtime.simulation.pending_network_failure()
             );
             ensure!(
-                runtime.simulation.pending_network_interruption().is_none(),
+                runtime.simulation.pending_network_interruption().is_none()
+                    || (expected_startup
+                        && runtime.simulation.pending_network_interruption()
+                            == Some(crate::sim::world::NetworkInterruption::ConnectionFailed)),
                 "live LAN interrupted: {:?}",
                 runtime.simulation.pending_network_interruption()
             );

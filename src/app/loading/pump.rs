@@ -529,6 +529,11 @@ enum LoadingStage {
         result: Box<MapLoadResult>,
         wait: NetworkLoadWait,
     },
+    /// Complete has already been decided and terminal100 published. A bounded
+    /// diagnostic may defer handoff; this same loading owner retains the result.
+    ReadyToInstall {
+        result: Box<MapLoadResult>,
+    },
 }
 
 impl LoadingStage {
@@ -536,7 +541,9 @@ impl LoadingStage {
         match self {
             Self::Selected(request) => request.startup(),
             Self::Prepared(prepared) => prepared.request.startup(),
-            Self::AwaitingPeers { result, .. } => &result.scenario.startup,
+            Self::AwaitingPeers { result, .. } | Self::ReadyToInstall { result } => {
+                &result.scenario.startup
+            }
         }
     }
 }
@@ -568,6 +575,7 @@ impl LoadingSession {
             LoadingStage::AwaitingPeers { result, wait } => {
                 (result.scenario.simulation.as_ref(), Some(wait.timeout))
             }
+            LoadingStage::ReadyToInstall { result } => (result.scenario.simulation.as_ref(), None),
             _ => (None, None),
         };
         Some(NetworkLoadingObservation {
@@ -803,7 +811,8 @@ impl LoadingSession {
         if let LoadingStage::Prepared(prepared) = &mut self.stage {
             prepared.cancel_rules_prefix(assets);
         }
-        if let LoadingStage::AwaitingPeers { result, .. } = &mut self.stage
+        if let LoadingStage::AwaitingPeers { result, .. } | LoadingStage::ReadyToInstall { result } =
+            &mut self.stage
             && let Some(manager) = result.asset_manager.take()
         {
             assets.return_from_loading(manager);
@@ -1225,7 +1234,9 @@ pub(crate) fn loading_map_source(state: &AppState) -> Option<&crate::map::source
     match &state.frontend.loading_session.as_ref()?.stage {
         LoadingStage::Prepared(prepared) => Some(prepared.initial.map_source()),
         LoadingStage::Selected(_) => None,
-        LoadingStage::AwaitingPeers { result, .. } => Some(&result.scenario.map_source),
+        LoadingStage::AwaitingPeers { result, .. } | LoadingStage::ReadyToInstall { result } => {
+            Some(&result.scenario.map_source)
+        }
     }
 }
 
@@ -1298,6 +1309,9 @@ fn pump_loading_after_present(
     let Some(session) = state.frontend.loading_session.take() else {
         return Ok(LoadingPump::Pending);
     };
+    if matches!(session.stage, LoadingStage::ReadyToInstall { .. }) {
+        return finish_network_load(state, session, observer);
+    }
     if matches!(session.stage, LoadingStage::AwaitingPeers { .. }) {
         return poll_network_load_wait(state, session, observer);
     }
@@ -1611,7 +1625,9 @@ fn ensure_job_asset_manager(state: &mut AppState) -> anyhow::Result<()> {
 
 fn loading_asset_manager(session: &LoadingSession) -> Option<&AssetManager> {
     match &session.stage {
-        LoadingStage::AwaitingPeers { result, .. } => result.asset_manager.as_ref(),
+        LoadingStage::AwaitingPeers { result, .. } | LoadingStage::ReadyToInstall { result } => {
+            result.asset_manager.as_ref()
+        }
         _ => session.job.asset_manager.as_ref(),
     }
 }
@@ -1669,7 +1685,7 @@ fn ensure_session_job_asset_manager(
 fn poll_network_load_wait(
     state: &mut AppState,
     mut session: LoadingSession,
-    observer: Option<
+    mut observer: Option<
         &mut crate::app::diagnostics::shell_capture::loading_host_loss::LoadingObserver<'_>,
     >,
 ) -> anyhow::Result<LoadingPump> {
@@ -1679,7 +1695,7 @@ fn poll_network_load_wait(
     let native = session.native.as_ref().expect("network source progress");
     let now = (crate::app::match_runtime::frame_pacer::wall_clock_ms() >> 4) as i32;
     let poll = wait.poll(now, native.progress_row.total_fraction(&native.progress));
-    if let Some(observer) = observer
+    if let Some(observer) = observer.as_deref_mut()
         && let Some(view) = session.network_observation(
             if poll == NetworkLoadPoll::TimedOut {
                 "timed_out"
@@ -1703,12 +1719,15 @@ fn poll_network_load_wait(
                 as i32,
         );
     }
-    if matches!(poll, NetworkLoadPoll::Complete | NetworkLoadPoll::TimedOut) {
-        let timed_out = if poll == NetworkLoadPoll::TimedOut {
-            native.progress_row.incomplete_remote_indices()
-        } else {
-            Vec::new()
+    if poll == NetworkLoadPoll::Complete {
+        let LoadingStage::AwaitingPeers { result, .. } = session.stage else {
+            unreachable!()
         };
+        session.stage = LoadingStage::ReadyToInstall { result };
+        return finish_network_load(state, session, observer);
+    }
+    if poll == NetworkLoadPoll::TimedOut {
+        let timed_out = native.progress_row.incomplete_remote_indices();
         let LoadingStage::AwaitingPeers { result, .. } = session.stage else {
             unreachable!()
         };
@@ -1717,6 +1736,35 @@ fn poll_network_load_wait(
         state.frontend.loading_session = Some(session);
         Ok(LoadingPump::Pending)
     }
+}
+
+/// Consuming handoff after the native wait has completed exactly once. A
+/// deferred diagnostic uses this existing stage on later frames without
+/// re-polling timers, regenerating the scenario or publishing progress again.
+fn finish_network_load(
+    state: &mut AppState,
+    session: LoadingSession,
+    observer: Option<
+        &mut crate::app::diagnostics::shell_capture::loading_host_loss::LoadingObserver<'_>,
+    >,
+) -> anyhow::Result<LoadingPump> {
+    if let Some(observer) = observer
+        && let Some(view) = session.network_observation(
+            "ready_to_install",
+            (crate::app::match_runtime::frame_pacer::wall_clock_ms() >> 4) as i32,
+        )
+        && observer.defer_install(state, view)?
+    {
+        state.frontend.loading_session = Some(session);
+        return Ok(LoadingPump::Pending);
+    }
+    let LoadingStage::ReadyToInstall { result } = session.stage else {
+        unreachable!()
+    };
+    Ok(LoadingPump::Finished {
+        result,
+        timed_out: Vec::new(),
+    })
 }
 
 impl LoadingJob {
@@ -1750,7 +1798,7 @@ fn prepare_loading_session(
         next_frame,
     } = session;
     let stage = match stage {
-        stage @ LoadingStage::AwaitingPeers { .. } => stage,
+        stage @ (LoadingStage::AwaitingPeers { .. } | LoadingStage::ReadyToInstall { .. }) => stage,
         LoadingStage::Prepared(prepared) => LoadingStage::Prepared(prepared),
         LoadingStage::Selected(request) => {
             let ra2_dir = job
@@ -2454,6 +2502,9 @@ pub(crate) fn after_loading_frame_presented(
                 && let Some(sim) = result.scenario.simulation.as_mut()
             {
                 observer.removed(state, sim, &timed_out)?;
+            }
+            if let Some(observer) = observer.as_mut() {
+                observer.before_install()?;
             }
             log::debug!(target: "vera20k::loading_attempt", "install_begin");
             super::transitions::finish_fresh_scenario_read(state, *result);

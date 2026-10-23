@@ -640,11 +640,33 @@ impl LiveRoundFlow {
                         lobby.ui.game_rows.len(),
                         layout.page.scale,
                     );
-                    ensure!(
-                        row >= lobby.ui.game_list.top_index
-                            && row < lobby.ui.game_list.top_index + geometry.visible_rows,
-                        "configured online game is outside the visible list"
-                    );
+                    if row < lobby.ui.game_list.top_index
+                        || row >= lobby.ui.game_list.top_index + geometry.visible_rows
+                    {
+                        let rect = if let Some(bar) = geometry.scrollbar {
+                            let y = if row < lobby.ui.game_list.top_index {
+                                bar.y + 1
+                            } else {
+                                bar.y + bar.h - 2 - geometry.metrics.arrow_h
+                            };
+                            RectPx::new(bar.x + 1, y, bar.w - 2, geometry.metrics.arrow_h)
+                        } else {
+                            // replace_games preserves the old top row by name.
+                            // With a newly shorter list its ordinary mouse input
+                            // reconciles that stale viewport before any row click.
+                            ensure!(
+                                lobby.ui.game_list.top_index > geometry.max_top,
+                                "offscreen online game has no ordinary scroll input"
+                            );
+                            RectPx::new(layout.games.x, layout.games.y, layout.games.w, 1)
+                        };
+                        click(state, rect);
+                        self.record(
+                            frame,
+                            "Game list scrolled toward the configured discovered room",
+                        );
+                        return Ok(()); // Re-read the row on its next presented frame.
+                    }
                     let rect = geometry.row(row - lobby.ui.game_list.top_index);
                     click(state, rect);
                     click(
@@ -769,6 +791,16 @@ impl LiveRoundFlow {
                 self.phase = RoundPhase::Running;
             }
             RoundPhase::Running => {
+                let startup_failure = core
+                    .failure
+                    .as_ref()
+                    .is_some_and(|failure| failure.is_startup());
+                if startup_failure {
+                    let failure = core.failure.as_mut().expect("startup observer");
+                    if !failure.arm_startup(state, frame)? {
+                        return Ok(());
+                    }
+                }
                 let active_players = if let Some(loss) = self.loading_host_loss.as_mut() {
                     loss.collect(state, self.rounds.len() + 1, core.required_frames())?;
                     2
@@ -789,7 +821,8 @@ impl LiveRoundFlow {
                         return Ok(());
                     }
                 }
-                if core.failure.as_ref().is_some_and(|failure| failure.armed()) {
+                if !startup_failure && core.failure.as_ref().is_some_and(|failure| failure.armed())
+                {
                     self.write_prefix(core, state, frame, false)?;
                 }
                 if core.phase == Phase::Finished {
@@ -802,7 +835,11 @@ impl LiveRoundFlow {
                     if let Some(loss) = self.loading_host_loss.as_mut() {
                         loss.finish_round(state, self.rounds.len() + 1, core.required_frames())?;
                     }
-                    self.current_round = Some(json!({"runtime":core.round_receipt(state)?}));
+                    self.current_round = Some(if startup_failure {
+                        json!({"startup_failure":core.failure.as_ref().expect("startup observer").receipt()})
+                    } else {
+                        json!({"runtime":core.round_receipt(state)?})
+                    });
                     self.result_rows.clear();
                     if let Some(failure) = &core.failure {
                         if failure.returned() {
@@ -980,6 +1017,17 @@ impl LiveRoundFlow {
                 {
                     return Ok(());
                 }
+                let startup_failure = core
+                    .failure
+                    .as_ref()
+                    .is_some_and(|failure| failure.is_startup());
+                if startup_failure {
+                    let failure = core.failure.as_mut().expect("startup observer");
+                    failure.record_startup_lobby(state, frame)?;
+                    self.current_round
+                        .as_mut()
+                        .context("startup failure round")?["startup_failure"] = failure.receipt();
+                }
                 let mut round = self
                     .current_round
                     .take()
@@ -993,7 +1041,9 @@ impl LiveRoundFlow {
                         .as_ref()
                         .is_some_and(|failure| failure.returned())
                     {
-                        if core.target.desync_failure() {
+                        if startup_failure {
+                            "Actual startup ConnectionFailed OK returned to the presented authenticated online lobby"
+                        } else if core.target.desync_failure() {
                             "Actual checksum CE Stop returned to the settled LAN lobby"
                         } else {
                             "Expected connection Quit returned to the authenticated online lobby"
@@ -1002,7 +1052,15 @@ impl LiveRoundFlow {
                         "Returned to service lobby through normal result continuation"
                     },
                 );
-                if core.failure.is_some() {
+                if startup_failure {
+                    let rect = crate::app::shell_wol::lobby::layout(state)
+                        .page
+                        .button_rect(wol_lobby::BACK)
+                        .context("WOL lobby Back button")?;
+                    click(state, rect);
+                    self.record(frame, "Presented authenticated lobby reached after startup failure; normal Back clicked");
+                    self.phase = RoundPhase::ExitWelcome;
+                } else if core.failure.is_some() {
                     self.phase = RoundPhase::Finished;
                 } else if self.rounds.len() == 2 {
                     if self
@@ -1131,8 +1189,18 @@ impl LiveRoundFlow {
     }
 
     pub(super) fn receipt(&self, state: &AppState) -> Result<Value> {
+        let startup_failure = self
+            .config
+            .as_ref()
+            .is_some_and(|config| config.startup_host_loss.is_some());
         ensure!(
-            self.ready() && self.rounds.len() == if self.failure_prefix_written { 1 } else { 2 },
+            self.ready()
+                && self.rounds.len()
+                    == if self.failure_prefix_written || startup_failure {
+                        1
+                    } else {
+                        2
+                    },
             "network outcome capture is incomplete"
         );
         ensure!(
@@ -1153,7 +1221,7 @@ impl LiveRoundFlow {
             "network_checkpoint":self.network_checkpoint,
             "exit_reentry":self.exit_reentry.as_ref().map(ExitReentry::receipt),
             "loading_host_loss":self.loading_host_loss.as_ref().map(|loss|loss.receipt(self.online_config())).transpose()?,
-            "scope":if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
+            "scope":if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),
         )

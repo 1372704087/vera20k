@@ -4411,14 +4411,6 @@ impl RuleSet {
                 processed.side_projection(),
             ),
         )?;
-        for (name, state, image) in processed.terrain_type_read_states() {
-            if let Some(terrain) = rules
-                .terrain_object_types
-                .get_mut(&name.to_ascii_uppercase())
-            {
-                state.project_into(terrain, image);
-            }
-        }
         let mut native_identity_counts = HashMap::new();
         for (category, id, _) in processed.techno_type_states() {
             *native_identity_counts
@@ -5598,20 +5590,10 @@ impl RuleSet {
         let mission_control = MissionControl::from_ini(ini);
 
         // Parse [TerrainTypes] registry → per-type sections (TIBTRE01, TREE01, etc.).
-        let mut terrain_object_types: HashMap<String, TerrainObjectType> = HashMap::new();
-        let terrain_names: Vec<String> = parse_registry(ini, "TerrainTypes");
-        for name in &terrain_names {
-            if let Some(section) = ini.section(name) {
-                terrain_object_types.insert(
-                    name.to_ascii_uppercase(),
-                    TerrainObjectType::from_ini_section_with_tree_strength(
-                        name,
-                        section,
-                        general.tree_strength,
-                    ),
-                );
-            }
-        }
+        let terrain_object_types: HashMap<String, TerrainObjectType> = processed
+            .terrain_type_projections()
+            .map(|terrain| (terrain.name.to_ascii_uppercase(), terrain))
+            .collect();
         log::info!(
             "TerrainTypes: {} loaded ({} with SpawnsTiberium=yes)",
             terrain_object_types.len(),
@@ -6118,6 +6100,16 @@ impl RuleSet {
         self.terrain_object_types.get(&name.to_ascii_uppercase())
     }
 
+    /// Incremental projection of the retained FindOrAllocate71E2A0 result.
+    /// Existing types keep their bound assets; no global Rules/ART rebuild.
+    pub(crate) fn install_map_terrain_type(&mut self, terrain: TerrainObjectType) {
+        // This name-keyed projection covers distinct short stored IDs.
+        // Repeated >24-byte inputs can allocate equal-ID native slots; their
+        // separate per-slot identity remains outside this projection's scope.
+        self.terrain_object_types
+            .insert(terrain.name.to_ascii_uppercase(), terrain);
+    }
+
     /// Look up a weapon by ID (case-insensitive, gamemd parity).
     pub fn weapon(&self, id: &str) -> Option<&WeaponType> {
         Self::lookup_ci(&self.weapons, id)
@@ -6350,7 +6342,7 @@ impl RuleSet {
         // defaults across Process calls. Equal current text can admit
         // different Strength, Logic members, targets or occupation, so identify
         // the effective fields as well as the current source layers.
-        b"terrain-strength-logic-targeting-occupation-and-foundation-v4".hash(&mut hasher);
+        b"terrain-strength-logic-targeting-occupation-and-foundation-v5".hash(&mut hasher);
         self.terrain_object_types
             .iter()
             .map(|(name, terrain)| {
@@ -6363,6 +6355,7 @@ impl RuleSet {
                         terrain.raw_occupation_bits(false),
                         terrain.raw_occupation_bits(true),
                         terrain.foundation.as_str(),
+                        terrain.has_occupy_list(),
                     ),
                 )
             })

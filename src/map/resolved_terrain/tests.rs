@@ -1500,6 +1500,10 @@ fn authored_fill_defers_all_executable_projection() {
     );
     map.replace_unconsumed_overlay_data(OverlayDataPack::from_cells([(2, 3, 99)]))
         .expect("fixture overlay data remains unconsumed");
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[TerrainTypes]\n0=TREE\n[TREE]\nTemperateOccupationBits=7\n",
+    ))
+    .expect("admitted Terrain blocker");
 
     let mut eager_scenario_rng = SimRng::new(0x401);
     let mut eager_fill_calls = 0usize;
@@ -1518,7 +1522,7 @@ fn authored_fill_defers_all_executable_projection() {
             Some(&assets),
             None,
             None,
-            None,
+            Some(&rules.terrain_object_types),
             true,
             2,
             &mut eager_fill,

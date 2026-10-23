@@ -2193,13 +2193,8 @@ impl Simulation {
                 component: "ResolvedTerrainGrid",
             },
         )?;
-        let mut source_object_cells: BTreeSet<(u16, u16)> = self
-            .terrain_objects
-            .objects()
-            .values()
-            .filter(|terrain| terrain.is_live())
-            .map(crate::sim::terrain_object::TerrainObjectState::cell)
-            .collect();
+        let mut source_object_cells: BTreeSet<(u16, u16)> =
+            self.terrain_objects.cell_index().keys().copied().collect();
         source_object_cells.extend(
             self.substrate
                 .occupancy
@@ -8456,8 +8451,11 @@ mod tests {
             terrain
         };
         for terrain in [&damaged, &destroyed, &spawner] {
-            sim.terrain_objects
-                .insert_constructed(terrain.clone(), terrain.stable_id() == spawner_id);
+            sim.terrain_objects.insert_constructed(
+                terrain.clone(),
+                terrain.stable_id() == spawner_id,
+                true,
+            );
             assert!(sim.register_terrain_object(terrain.stable_id(), &rules));
             mark_terrain_raw_occupation(
                 &mut sim.substrate.raw_cell_occupation,

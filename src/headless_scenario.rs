@@ -397,6 +397,7 @@ pub fn load_with_launch_and_ini(
         &theater,
         &assets,
         &mut rules,
+        &mut native_rules_owner,
         &overlay_registry,
         &overlay_shp_ids,
         signed_new_ini_format,
@@ -699,6 +700,177 @@ mod retail_construction_tests {
             SimRng::new(u64::from(seed)).logical_state(),
             "no theater TMP selection means the Main cursor stays at its seed"
         );
+    }
+
+    #[test]
+    #[ignore = "requires RA2_DIR with installed retail RA2/YR assets"]
+    fn retail_authored_unknown_terrain_allocates_before_instance_and_clears_ore_without_membership()
+    {
+        use crate::map::source::test_support::TestDirectory;
+        use crate::util::ini_writer::{replace_ini_section, set_ini_values};
+
+        let (ra2, assets) = crate::rules::retail_ini_fixture::retail_assets()
+            .expect("set RA2_DIR to the retail RA2/YR install directory");
+        let battle =
+            crate::rules::retail_ini_fixture::retail_battle_rules().expect("retail Battle rules");
+        assert!(
+            assets.get_ref("SMOKEY.SHP").is_some(),
+            "same-name physical image exists"
+        );
+        assert!(
+            battle.fixed_art.section("SMOKEY").is_some(),
+            "stock Anim ART exists"
+        );
+        let ore_id = battle
+            .rules
+            .overlay_registry()
+            .id_for_name("TIB01")
+            .unwrap();
+        let bytes = assets
+            .resolve_ref("XMP03T4.MAP")
+            .expect("retail Anytown")
+            .bytes;
+        let map = MapFile::from_bytes(bytes).expect("retail map parser");
+        let known = map.terrain_objects.first().expect("retail Terrain control");
+        let source = map
+            .overlays
+            .iter()
+            .find(|entry| {
+                entry.overlay_id == ore_id && (entry.rx, entry.ry) != (known.rx, known.ry)
+            })
+            .expect("retail ore cell");
+        let source_key = (u32::from(source.ry) * 1000 + u32::from(source.rx)).to_string();
+        let known_key = (u32::from(known.ry) * 1000 + u32::from(known.rx)).to_string();
+        // Full_Init68774F processes this orphan body before Read_Map_Section
+        // 71CA70 reaches FindOrAllocate71E2A0. Late allocation must not read it.
+        let bytes = set_ini_values(bytes, "Basic", &[("NewINIFormat", "4")]);
+        let bytes = set_ini_values(
+            &bytes,
+            "SMOKEY",
+            &[
+                ("Strength", "9000"),
+                ("Foundation", "2x2"),
+                ("SpawnsTiberium", "yes"),
+                ("Image", "TREE01"),
+            ],
+        );
+        let directory = TestDirectory::new("late-terrain-factory");
+        directory.write(
+            "control.map",
+            &replace_ini_section(&bytes, "Terrain", &[(&known_key, "TREE01")]),
+        );
+        directory.write(
+            "late.map",
+            &replace_ini_section(
+                &bytes,
+                "Terrain",
+                &[(&source_key, "SMOKEY"), (&known_key, "TREE01")],
+            ),
+        );
+        let control_path = directory.path().join("control.map");
+        let late_path = directory.path().join("late.map");
+        let control =
+            load(&ra2, control_path.to_str().unwrap(), 31).expect("control authored load");
+        let late = load(&ra2, late_path.to_str().unwrap(), 31).expect("late factory authored load");
+        assert!(
+            control
+                .runtime
+                .resources
+                .rules
+                .terrain_object_type_case_insensitive("SMOKEY")
+                .is_none()
+        );
+        assert_eq!(
+            late.sim().terrain_objects().objects().len(),
+            2,
+            "TerrainReadMap71CAD2/71CB6E constructs the missing type and then its instance"
+        );
+        let control_id = control
+            .sim()
+            .terrain_objects()
+            .objects()
+            .values()
+            .next()
+            .unwrap()
+            .native_unique_id()
+            .unwrap();
+        let unknown = late
+            .sim()
+            .terrain_objects()
+            .objects()
+            .values()
+            .find(|object| late.sim().interner.resolve(object.type_ref()) == "SMOKEY")
+            .expect("live ctor-only Terrain instance");
+        // TerrainTypeCtor71DA80 at71DB11 spends an ID before instance71BC19;
+        // the following known TREE01 constructor must observe both allocations.
+        assert_eq!(unknown.native_unique_id(), Some(control_id.wrapping_add(1)));
+        let known_id = late
+            .sim()
+            .terrain_objects()
+            .id_at((known.rx, known.ry))
+            .unwrap();
+        assert_eq!(
+            late.sim()
+                .terrain_objects()
+                .get(known_id)
+                .unwrap()
+                .native_unique_id(),
+            Some(control_id.wrapping_add(2))
+        );
+        assert_eq!((unknown.health(), unknown.max_health()), (-1, -1));
+        assert!(unknown.is_live() && !unknown.in_logic_vector());
+        assert!(
+            late.sim()
+                .display_layers()
+                .layer_of(unknown.stable_id())
+                .is_some()
+        );
+        assert_eq!(
+            late.runtime
+                .resources
+                .rules
+                .terrain_shape_filename("SMOKEY"),
+            None
+        );
+        // Ctor-null Occupy_List71DAF1/71DE40 visits no Cell in MapPlaceDown,
+        // but TerrainUnlimbo71D0E2..71D12B still clears the source ore.
+        assert_eq!(
+            late.sim().terrain_objects().id_at((source.rx, source.ry)),
+            None
+        );
+        assert_eq!(
+            late.sim()
+                .substrate
+                .raw_cell_occupation
+                .ground_bits(source.rx, source.ry)
+                & 0x1C,
+            0
+        );
+        assert_eq!(
+            late.sim()
+                .resolved_terrain
+                .as_ref()
+                .unwrap()
+                .cell(source.rx, source.ry)
+                .unwrap()
+                .terrain_object_occupation,
+            None
+        );
+        let control_cell = control
+            .sim()
+            .overlay_grid
+            .as_ref()
+            .unwrap()
+            .cell(source.rx, source.ry);
+        assert_eq!(control_cell.overlay_id, Some(ore_id));
+        assert_eq!(control_cell.overlay_data, source.frame);
+        let cleared = late
+            .sim()
+            .overlay_grid
+            .as_ref()
+            .unwrap()
+            .cell(source.rx, source.ry);
+        assert_eq!((cleared.overlay_id, cleared.overlay_data), (None, 0));
     }
 
     /// F09 certification: the shared GPU-free funnel produces a deterministic,

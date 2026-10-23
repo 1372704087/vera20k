@@ -3135,6 +3135,7 @@ pub(crate) fn load_map_from_initial(
                 theater,
                 asset_manager,
                 &mut rules,
+                native_rules_owner,
                 &overlay_registry,
                 &overlay_shp_ids,
                 signed_new_ini_format,

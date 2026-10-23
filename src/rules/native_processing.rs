@@ -631,6 +631,11 @@ impl ProcessedRulesLayers {
                 continue;
             }
             for member in members {
+                if let Some(terrain) = member.terrain_type_read_state.as_mut() {
+                    // TerrainTypeLoad71E21D..71E22D binds its retained index
+                    // even when no ReadINI ever initialized the cached list.
+                    terrain.restore_occupy_list();
+                }
                 let image = &mut member.object_image;
                 // ObjectLoad5F9856/985C clears shape/ownership after raw load.
                 image.clear_shp();
@@ -659,31 +664,55 @@ impl ProcessedRulesLayers {
         Ok(())
     }
 
-    /// Retained constructor and admitted reader state of the Terrain members.
-    pub(crate) fn terrain_type_read_states(
+    /// Project each actual Terrain member, including constructor-only Types.
+    /// A same-named type in another family owns a different body and image.
+    pub(crate) fn terrain_type_projections(
         &self,
-    ) -> impl Iterator<
-        Item = (
-            &str,
-            &crate::rules::terrain_object_type::TerrainTypeReadState,
-            &ObjectImageState,
-        ),
-    > {
+    ) -> impl Iterator<Item = crate::rules::terrain_object_type::TerrainObjectType> + '_ {
         self.native_type_construction_trace
             .registry_state()
             .families
             .get(&RulesTypeFamily::Terrain)
             .into_iter()
             .flatten()
-            .filter_map(|member| {
-                member.terrain_type_read_state.as_ref().map(|state| {
-                    (
-                        member.native_stored_id.as_str(),
-                        state,
-                        &member.object_image,
-                    )
-                })
-            })
+            .filter_map(ProcessedType::terrain_projection)
+    }
+
+    /// TerrainReadMap71CAD2 calls FindOrAllocate71E2A0 immediately before
+    /// this row's instance constructor. No Rules/ART pass is replayed here.
+    pub(crate) fn find_or_allocate_map_terrain_type(
+        &mut self,
+        incoming: &str,
+    ) -> Option<(
+        crate::rules::terrain_object_type::TerrainObjectType,
+        Option<NativeTypeConstructionEvent>,
+    )> {
+        if incoming.is_empty() || is_native_none_type_name(incoming) {
+            return None;
+        }
+        let state = &mut self.native_type_construction_trace.registry_state;
+        let mut constructors = Vec::new();
+        let index = find_or_construct_type(
+            &mut state.families,
+            &mut state.techno_type_order,
+            &mut constructors,
+            RulesTypeFamily::Terrain,
+            incoming,
+        );
+        let members = &state.families[&RulesTypeFamily::Terrain];
+        let terrain = members[index]
+            .terrain_projection()
+            .expect("Terrain factory initializes its retained subclass state");
+        if !constructors.is_empty() {
+            let mut registry = IniSection::new("TerrainTypes".into());
+            for (index, member) in members.iter().enumerate() {
+                registry.set(&index.to_string(), &member.native_stored_id);
+            }
+            self.ini.replace_first_section(registry);
+            // Leave shared compatibility text intact: e.g. SMOKEY already
+            // belongs to Anim. Terrain projects its own empty body above.
+        }
+        Some((terrain, constructors.pop()))
     }
 
     /// Ordered immutable Overlay projection. ProcessedType retains the input
@@ -3643,6 +3672,17 @@ struct WeaponReadState {
 }
 
 impl ProcessedType {
+    fn terrain_projection(&self) -> Option<crate::rules::terrain_object_type::TerrainObjectType> {
+        let mut terrain = crate::rules::terrain_object_type::TerrainObjectType::from_retained(
+            &self.native_stored_id,
+            &self.body,
+            self.terrain_type_read_state.as_ref()?,
+            &self.object_image,
+        );
+        terrain.bind_armor(self.armor_id);
+        Some(terrain)
+    }
+
     fn new(native_stored_id: String) -> Self {
         Self {
             body: IniSection::new(native_stored_id.clone()),
@@ -3716,6 +3756,79 @@ impl ProcessedType {
             airburst_weapon: None,
         }
     }
+}
+
+/// One family lookup/constructor for Process and late native factories.
+fn find_existing_type(
+    families: &HashMap<RulesTypeFamily, Vec<ProcessedType>>,
+    family: RulesTypeFamily,
+    incoming: &str,
+) -> Option<usize> {
+    families
+        .get(&family)?
+        .iter()
+        .position(|member| member.native_stored_id.eq_ignore_ascii_case(incoming))
+}
+
+fn find_or_construct_type(
+    families: &mut HashMap<RulesTypeFamily, Vec<ProcessedType>>,
+    techno_type_order: &mut Vec<(RulesTypeFamily, usize)>,
+    events: &mut Vec<NativeTypeConstructionEvent>,
+    family: RulesTypeFamily,
+    incoming: &str,
+) -> usize {
+    if let Some(index) = find_existing_type(families, family, incoming) {
+        return index;
+    }
+    let members = families.entry(family).or_default();
+    // AbstractTypeClass::Constructor @ 0x00410800 stores only 0x18 bytes.
+    // Lookup above compares that stored ID against the full input, so a
+    // repeated >24-byte spelling can construct another equal stored ID.
+    let native_stored_id = abstract_type_stored_id(incoming);
+    let index = members.len();
+    members.push(ProcessedType::new(native_stored_id.clone()));
+    #[cfg(feature = "ares")]
+    if family == RulesTypeFamily::Side {
+        members[index].ares_side = Some(AresSideState::default());
+    }
+    #[cfg(feature = "ares")]
+    if family == RulesTypeFamily::Country {
+        members[index].country_veterancy.ares.loading =
+            crate::rules::country_loading::AresCountryLoading::for_country_id(&native_stored_id);
+    }
+    #[cfg(feature = "ares")]
+    if family == RulesTypeFamily::Building {
+        members[index].explicit_factory = Some(AresExplicitFactory::default());
+    }
+    if family == RulesTypeFamily::Terrain {
+        members[index].armor_id = ArmorId::WOOD;
+        members[index].terrain_type_read_state =
+            Some(crate::rules::terrain_object_type::TerrainTypeReadState::new());
+    }
+    if crate::rules::ARES_ENABLED && family == RulesTypeFamily::Warhead {
+        members[index].ares_verses = Some(AresWarheadVerses::default());
+        members[index].ares_warhead = Some(Default::default());
+    }
+    if family.object_category().is_some() {
+        #[cfg(feature = "ares")]
+        {
+            members[index].emp_type = Some(Default::default());
+        }
+        #[cfg(feature = "ares")]
+        {
+            members[index].factory_owners = Some(AresFactoryOwners::default());
+        }
+        // TechnoType constructors71181D..711832 /711ABD..711ACB append
+        // to the shared vector at allocation time, including lazy Types.
+        techno_type_order.push((family, index));
+    }
+    if let Some(family) = family.native_constructor_family() {
+        events.push(NativeTypeConstructionEvent {
+            family,
+            native_stored_id,
+        });
+    }
+    index
 }
 
 #[derive(Debug)]
@@ -3956,10 +4069,7 @@ impl RulesPassProcessor {
     }
 
     fn find_existing(&self, family: RulesTypeFamily, incoming: &str) -> Option<usize> {
-        self.families
-            .get(&family)?
-            .iter()
-            .position(|member| member.native_stored_id.eq_ignore_ascii_case(incoming))
+        find_existing_type(&self.families, family, incoming)
     }
 
     fn country_index_of_name(&self, incoming: &str) -> i32 {
@@ -4086,64 +4196,15 @@ impl RulesPassProcessor {
             .then(|| self.find_or_construct(RulesTypeFamily::ParticleSystem, incoming))
     }
 
-    /// The lookup and construction every Type factory shares once its own
-    /// null answers are excluded.
+    /// Every Process and late factory uses the same lookup/constructor body.
     fn find_or_construct(&mut self, family: RulesTypeFamily, incoming: &str) -> usize {
-        if let Some(index) = self.find_existing(family, incoming) {
-            return index;
-        }
-        let members = self.family_mut(family);
-        // AbstractTypeClass::Constructor @ 0x00410800 stores only 0x18 bytes.
-        // Lookup above compares that stored ID against the full input, so a
-        // repeated >24-byte spelling can construct another equal stored ID.
-        let native_stored_id = abstract_type_stored_id(incoming);
-        let index = members.len();
-        members.push(ProcessedType::new(native_stored_id.clone()));
-        #[cfg(feature = "ares")]
-        if family == RulesTypeFamily::Side {
-            members[index].ares_side = Some(AresSideState::default());
-        }
-        #[cfg(feature = "ares")]
-        if family == RulesTypeFamily::Country {
-            members[index].country_veterancy.ares.loading =
-                crate::rules::country_loading::AresCountryLoading::for_country_id(
-                    &native_stored_id,
-                );
-        }
-        #[cfg(feature = "ares")]
-        if family == RulesTypeFamily::Building {
-            members[index].explicit_factory = Some(AresExplicitFactory::default());
-        }
-        if family == RulesTypeFamily::Terrain {
-            members[index].armor_id = ArmorId::WOOD;
-            members[index].terrain_type_read_state =
-                Some(crate::rules::terrain_object_type::TerrainTypeReadState::new());
-        }
-        if crate::rules::ARES_ENABLED && family == RulesTypeFamily::Warhead {
-            members[index].ares_verses = Some(AresWarheadVerses::default());
-            members[index].ares_warhead = Some(Default::default());
-        }
-        if family.object_category().is_some() {
-            #[cfg(feature = "ares")]
-            {
-                members[index].emp_type = Some(Default::default());
-            }
-            #[cfg(feature = "ares")]
-            {
-                members[index].factory_owners = Some(AresFactoryOwners::default());
-            }
-            // TechnoType constructors71181D..711832 /711ABD..711ACB append
-            // to the shared vector at allocation time, including lazy Types.
-            self.techno_type_order.push((family, index));
-        }
-        if let Some(family) = family.native_constructor_family() {
-            self.native_type_construction_events
-                .push(NativeTypeConstructionEvent {
-                    family,
-                    native_stored_id,
-                });
-        }
-        index
+        find_or_construct_type(
+            &mut self.families,
+            &mut self.techno_type_order,
+            &mut self.native_type_construction_events,
+            family,
+            incoming,
+        )
     }
 
     fn allocate_colors(&mut self, pass: &IniFile) {

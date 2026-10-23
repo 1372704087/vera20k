@@ -587,6 +587,187 @@ fn retail_saved_resources_prepare_cold() {
 }
 
 #[test]
+fn unknown_terrain_type_load_validates_then_commits_and_resaves_its_same_owner() {
+    use crate::sim::terrain_spawn::{
+        TerrainConstructionMode, TerrainConstructionRules, construct_terrain_objects_with_rules,
+    };
+
+    let Some(mut save) = incoming_save(
+        "TEMPERATE",
+        "[Terrain]\n5005=SMOKEY\n05005=TREE01\n[SMOKEY]\nStrength=9000\n",
+    ) else {
+        return;
+    };
+    // This existing persistence fixture has a declared synthetic prefix; the
+    // headless retail regression covers the complete fresh Scenario prefix.
+    *save.incoming.simulation.native_unique_ids_mut_for_test() =
+        Some(crate::sim::native_identity::NativeUniqueIdCursor::for_synthetic_simulation());
+    let overlays = save.incoming.resources.overlay_registry.clone();
+    let rng = save.incoming.simulation.rng_state();
+    construct_terrain_objects_with_rules(
+        &mut save.incoming.simulation,
+        save.map.terrain_objects(),
+        &mut TerrainConstructionRules::Authored {
+            rules: &mut save.incoming.resources.rules,
+            owner: &mut save.owner,
+        },
+        false,
+        TerrainConstructionMode::Authored(&overlays),
+    )
+    .unwrap();
+    assert_eq!(save.incoming.simulation.rng_state(), rng);
+    let unknown = save
+        .incoming
+        .simulation
+        .terrain_objects()
+        .objects()
+        .values()
+        .find(|object| {
+            save.incoming
+                .simulation
+                .interner()
+                .resolve(object.type_ref())
+                == "SMOKEY"
+        })
+        .unwrap();
+    let unknown_id = unknown.stable_id();
+    let native_id = unknown.native_unique_id();
+    let known_id = save
+        .incoming
+        .simulation
+        .terrain_objects()
+        .id_at((5, 5))
+        .unwrap();
+    assert_ne!(known_id, unknown_id);
+    assert!(
+        !save
+            .incoming
+            .resources
+            .rules
+            .terrain_object_type_case_insensitive("SMOKEY")
+            .unwrap()
+            .has_occupy_list()
+    );
+    let cursor = save.incoming.simulation.native_identity_cursor();
+    let hash = save.incoming.resources.rules.simulation_config_hash();
+    let bytes = snapshot_bytes(&save.incoming, &save.owner, &save.map, None, hash);
+    let bad = snapshot_bytes(&save.incoming, &save.owner, &save.map, None, hash ^ 1);
+    let before = save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap();
+    let clock = || LOAD_CLOCK_MS;
+    let frontend = frontend_main();
+    let cache = TileVariantSelectorCache::default();
+    let view = SavedGamePreparationView {
+        repository: &save.repository,
+        current_simulation: None,
+        frontend_main: &frontend,
+        rules_owner: &save.owner,
+        tile_cache: &cache,
+        load_clock: &clock,
+    };
+    let rejected = save
+        .assets
+        .prepare_saved_load(|assets| PreparedSavedGame::prepare_resources(&bad, &view, assets));
+    assert!(matches!(
+        rejected,
+        Err(PreparedLoadError::Snapshot(
+            SnapshotError::RulesMismatch { .. }
+        ))
+    ));
+    let prepared = save
+        .assets
+        .prepare_saved_load(|assets| PreparedSavedGame::prepare_resources(&bytes, &view, assets))
+        .unwrap();
+    // TerrainTypeLoad71E22D binds index0 while CellLoad483B9F restores only
+    // the saved known member. The initial saved digest remains mandatory.
+    assert_ne!(prepared.resources.rules.simulation_config_hash(), hash);
+    assert!(
+        prepared
+            .resources
+            .rules
+            .terrain_object_type_case_insensitive("SMOKEY")
+            .unwrap()
+            .has_occupy_list()
+    );
+    assert_eq!(
+        prepared.resources.rules.terrain_shape_filename("SMOKEY"),
+        None
+    );
+    assert_eq!(
+        prepared
+            .world
+            .simulation
+            .terrain_objects()
+            .members_at((5, 5))
+            .collect::<Vec<_>>(),
+        [known_id]
+    );
+    assert_eq!(
+        prepared
+            .world
+            .simulation
+            .terrain_objects()
+            .get(unknown_id)
+            .unwrap()
+            .native_unique_id(),
+        native_id
+    );
+    assert_eq!(prepared.world.simulation.native_identity_cursor(), cursor);
+    assert_eq!(
+        save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap(),
+        before
+    );
+
+    let PreparedSavedResources {
+        world,
+        resources,
+        processed_rules,
+        map,
+        ..
+    } = prepared;
+    let (simulation, _) = world.into_committed(SharedCellDummy::fresh(), &frontend);
+    save.owner.install_saved_scenario_rules(processed_rules);
+    let runtime = SimRuntime {
+        simulation,
+        resources,
+    };
+    let loaded_hash = runtime.resources.rules.simulation_config_hash();
+    let bytes = snapshot_bytes(&runtime, &save.owner, &map, None, loaded_hash);
+    let view = SavedGamePreparationView {
+        repository: &save.repository,
+        current_simulation: None,
+        frontend_main: &frontend,
+        rules_owner: &save.owner,
+        tile_cache: &cache,
+        load_clock: &clock,
+    };
+    let again = save
+        .assets
+        .prepare_saved_load(|assets| PreparedSavedGame::prepare_resources(&bytes, &view, assets))
+        .unwrap();
+    assert_eq!(again.resources.rules.simulation_config_hash(), loaded_hash);
+    assert_eq!(again.world.simulation.native_identity_cursor(), cursor);
+    assert_eq!(
+        again
+            .world
+            .simulation
+            .terrain_objects()
+            .members_at((5, 5))
+            .collect::<Vec<_>>(),
+        [known_id]
+    );
+    assert_eq!(
+        again
+            .world
+            .simulation
+            .terrain_objects()
+            .get(unknown_id)
+            .unwrap()
+            .native_unique_id(),
+        native_id
+    );
+}
+
+#[test]
 fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
     let Some(mut save) = incoming_save(
         "SNOW",

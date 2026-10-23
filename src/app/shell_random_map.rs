@@ -206,6 +206,7 @@ fn random_map_preview_cells(
             let Some(kind) = rules
                 .rules
                 .terrain_object_type_case_insensitive(&object.name)
+                .filter(|kind| kind.has_occupy_list())
             else {
                 continue;
             };

@@ -172,6 +172,7 @@ fn campaign_scene(map_name: &str, remove_home: bool) -> HeadlessScenario {
         &theater,
         &assets,
         &mut rules,
+        &mut native_rules,
         &overlays,
         &overlay_shps,
         format,

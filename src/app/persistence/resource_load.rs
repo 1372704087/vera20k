@@ -193,6 +193,10 @@ impl PreparedSavedGame {
             crate::rules::terrain_asset_catalog::TerrainAssetLoadPhase::Saved,
         )
         .map_err(|error| PreparedLoadError::Resources(error.to_string()))?;
+        // The saved hash was checked above against the unchanged incoming
+        // Type state. TerrainTypeLoad71E22D now binds even a ctor-null list;
+        // carry that legitimate same-envelope mutation into runtime admission.
+        snapshot.rules_hash = rules.simulation_config_hash();
         let (mut resources, processed_rules, map) =
             saved.into_restored_parts(rules, overlay_registry, SharedCellDummy::fresh())?;
         let rules = &resources.rules;

@@ -1583,7 +1583,11 @@ mod tests {
             let mut overlays = OverlayGrid::new(32, 32);
             overlays.place_overlay(20, 20, 0, 0);
             let mut objects = crate::sim::terrain_object::TerrainObjectStore::default();
-            objects.insert_constructed(TerrainObjectState::for_test(8, tree_ref, 20, 20), false);
+            objects.insert_constructed(
+                TerrainObjectState::for_test(8, tree_ref, 20, 20),
+                false,
+                true,
+            );
             let mut rng = SimRng::new(0x489608);
             let mut prelude = ObserveDummy::default();
             let result = apply_aoe_damage_with_terrain_and_scenario(
@@ -4467,6 +4471,7 @@ mod tests {
                     terrain
                 },
                 false,
+                true,
             );
         }
 

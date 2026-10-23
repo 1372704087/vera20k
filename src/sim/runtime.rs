@@ -849,7 +849,7 @@ pub enum ScenarioPopulationError {
     #[error(transparent)]
     GeneratedTechno(#[from] crate::sim::world::GeneratedTechnoInitError),
     #[error(transparent)]
-    NativeIdentity(#[from] crate::sim::native_identity::NativeMapTubeConstructionError),
+    Terrain(#[from] crate::sim::terrain_spawn::TerrainConstructionError),
 }
 
 pub fn populate_staged_scenario_with_generated_inits<F>(
@@ -873,14 +873,14 @@ where
         map_data,
         resolved_terrain,
         theater_name,
-        rules,
+        crate::sim::terrain_spawn::TerrainConstructionRules::Projected(rules),
         overlay_registry,
         overlay_grid,
         None,
         bridge_destroyability_mode,
         descriptor,
         generated_inits,
-        initialize_houses_before_objects,
+        |sim, _| initialize_houses_before_objects(sim),
     )
 }
 
@@ -889,7 +889,7 @@ fn populate_staged_scenario_inner<F>(
     map_data: &crate::map::map_file::MapFile,
     resolved_terrain: &crate::map::resolved_terrain::ResolvedTerrainGrid,
     theater_name: &str,
-    rules: &crate::rules::ruleset::RuleSet,
+    mut construction_rules: crate::sim::terrain_spawn::TerrainConstructionRules<'_>,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     overlay_grid: Option<&crate::sim::overlay_grid::OverlayGrid>,
     authored_overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -899,8 +899,9 @@ fn populate_staged_scenario_inner<F>(
     initialize_houses_before_objects: F,
 ) -> Result<(), ScenarioPopulationError>
 where
-    F: FnOnce(&mut Simulation),
+    F: FnOnce(&mut Simulation, &RuleSet),
 {
+    let rules = construction_rules.rules();
     if !sim.trigger_definitions_prepared() {
         // Generated/compatibility callers have no process asset ingress.
         // Prepare their actual map definitions before the first attachment;
@@ -920,7 +921,7 @@ where
     // Keep scenario state on the staged owner throughout construction and
     // handoff. Later live Tag construction can safely publish into this owner.
     sim.session.install_waypoints(&map_data.waypoints);
-    initialize_houses_before_objects(sim);
+    initialize_houses_before_objects(sim, rules);
     // Frame tripwire: every MP start waypoint must sit inside the session
     // bounds (= the fog window, cell-array frame). A start outside means the
     // descriptor was fed wrong-frame bounds (e.g. raw [Map] Size=) and the
@@ -986,13 +987,14 @@ where
     } else {
         TerrainConstructionMode::Compatibility
     };
-    let constructed = crate::sim::terrain_spawn::construct_terrain_objects_with_mode(
+    let constructed = crate::sim::terrain_spawn::construct_terrain_objects_with_rules(
         sim,
         &map_data.terrain_objects,
-        rules,
+        &mut construction_rules,
         theater_name.eq_ignore_ascii_case("SNOW"),
         terrain_mode,
     )?;
+    let rules = construction_rules.rules();
     if constructed > 0 {
         log::info!("Constructed {constructed} map terrain objects before map entities");
     }
@@ -1163,7 +1165,7 @@ pub enum AuthoredScenarioLoadError {
         >,
     ),
     #[error(transparent)]
-    GeneratedTechno(#[from] crate::sim::world::GeneratedTechnoInitError),
+    Population(#[from] ScenarioPopulationError),
 }
 
 /// Consume the fresh authored map-load corridor on the one staged Simulation.
@@ -1177,6 +1179,7 @@ pub fn finalize_and_populate_staged_authored_scenario<F>(
     theater_data: &crate::map::theater::TheaterData,
     assets: &crate::assets::asset_manager::AssetManager,
     rules: &mut RuleSet,
+    rules_owner: &mut crate::rules::process_owner::NativeRulesProcessOwner,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     overlay_shp_ids: &std::collections::BTreeSet<u8>,
     signed_new_ini_format: i32,
@@ -1243,24 +1246,23 @@ where
     };
     let overlay_grid = crate::sim::overlay_grid::OverlayGrid::from_finalized_map_payload(payload);
 
-    match populate_staged_scenario_inner(
+    populate_staged_scenario_inner(
         sim,
         map_data,
         &terrain,
         theater_name,
-        rules,
+        crate::sim::terrain_spawn::TerrainConstructionRules::Authored {
+            rules,
+            owner: rules_owner,
+        },
         Some(overlay_registry),
         Some(&overlay_grid),
         Some(overlay_registry),
         bridge_destroyability_mode,
         descriptor,
         None,
-        |sim| initialize_houses_before_objects(sim, rules),
-    ) {
-        Ok(()) => {}
-        Err(ScenarioPopulationError::GeneratedTechno(error)) => return Err(error.into()),
-        Err(ScenarioPopulationError::NativeIdentity(error)) => return Err(error.into()),
-    }
+        initialize_houses_before_objects,
+    )?;
 
     let mut terrain = sim
         .take_resolved_terrain_for_load()

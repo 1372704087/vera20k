@@ -2892,6 +2892,11 @@ impl MapObservation {
             .and_then(|count| count.checked_add(frame.missing_actor_ids.len()))
             .and_then(|count| count.checked_add(frame.terrain.len()))
             .and_then(|count| {
+                frame.terrain.iter().try_fold(count, |count, cell| {
+                    count.checked_add(cell["terrain_instances"].as_array().map_or(0, Vec::len))
+                })
+            })
+            .and_then(|count| {
                 count.checked_add(
                     frame
                         .audio_state
@@ -4173,13 +4178,29 @@ impl TacticalCaptureSession {
             let terrain_object = sim.terrain_objects().cell_index().get(&at)
                 .and_then(|id| sim.terrain_objects().objects().get(id));
             let animation = terrain_object.and_then(|object| sim.terrain_objects().animations().get(&object.stable_id()));
-            let terrain_members: Vec<_> = sim.terrain_objects().members_at(at).map(|id| {
-                let object = sim.terrain_objects().get(id).expect("indexed Terrain remains represented");
+            let terrain_row = |object: &crate::sim::terrain_object::TerrainObjectState| {
+                let id = object.stable_id();
                 let animation = sim.terrain_objects().animations().get(&id);
                 json!({"id": id, "native_id": object.native_unique_id(), "name": sim.interner().resolve(object.type_ref()),
                     "health": object.health(), "max_health": object.max_health(),
                     "frame": animation.map(|animation| animation.current_frame()),
                     "active": animation.map(|animation| animation.is_active())})
+            };
+            let member_ids: Vec<_> = sim.terrain_objects().members_at(at).collect();
+            let terrain_members: Vec<_> = member_ids.iter().map(|id| {
+                terrain_row(sim.terrain_objects().get(*id).expect("indexed Terrain remains represented"))
+            }).collect();
+            // Location, Cell content, Display and Logic are independent native
+            // memberships. Observe the retained owner even when Occupy_List
+            // placed no Cell member; this never constructs or marks an object.
+            let terrain_instances: Vec<_> = sim.terrain_objects().objects().values()
+                .filter(|object| object.cell() == at).map(|object| {
+                    let mut row = terrain_row(object);
+                    row["lifecycle"] = json!(object.lifecycle());
+                    row["cell_member"] = json!(member_ids.contains(&object.stable_id()));
+                    row["display_layer"] = json!(sim.display_layers().layer_of(object.stable_id()).map(|layer| layer.index()));
+                    row["in_logic_vector"] = json!(object.in_logic_vector());
+                    row
             }).collect();
             // Observe the same viewer plane consumed by drawing and picking;
             // never reveal a cell or create missing visibility state for capture.
@@ -4200,6 +4221,7 @@ impl TacticalCaptureSession {
                 "local_visibility": local_visibility,
                 "overlay": overlay.map(|overlay| json!({"id": overlay.overlay_id, "density": overlay.overlay_data})),
                 "terrain_objects": terrain_members,
+                "terrain_instances": terrain_instances,
                 "terrain_object": terrain_object.map(|object| json!({"name": sim.interner().resolve(object.type_ref()),
                     "frame": animation.map(|animation| animation.current_frame()),
                     "active": animation.map(|animation| animation.is_active())})),

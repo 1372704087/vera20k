@@ -4289,6 +4289,31 @@ class MapObservationTests(unittest.TestCase):
         with self.assertRaises(observation.ValidationError):
             observation._terrain(bad, [74, 32], 'terrain')
 
+    def test_terrain_instances_observe_live_objects_outside_cell_content(self):
+        cell = self.unallocated_cell([73, 31])
+        cell.update(overlay={'id': None, 'density': 0}, terrain_object=None,
+                    terrain_objects=[], terrain_instances=[dict(
+                        id=19, native_id=1040000, name='VERA_UNREAD', health=-1, max_health=-1,
+                        frame=None, active=None, lifecycle='Live', cell_member=False,
+                        display_layer=2, in_logic_vector=False)])
+        observation._terrain(cell, [73, 31], 'terrain')
+        for key, value in (('cell_member', True), ('display_layer', 5),
+                           ('in_logic_vector', 0), ('lifecycle', 'Missing')):
+            bad = deepcopy(cell)
+            bad['terrain_instances'][0][key] = value
+            with self.assertRaises(observation.ValidationError):
+                observation._terrain(bad, [73, 31], 'terrain')
+        bad = deepcopy(cell)
+        bad['terrain_instances'].append(deepcopy(bad['terrain_instances'][0]))
+        with self.assertRaises(observation.ValidationError):
+            observation._terrain(bad, [73, 31], 'terrain')
+        # A saved type's binding does not add its instance to the Cell chain.
+        # Both omission on legacy captures and a retained Limbo row are valid.
+        cell['terrain_instances'][0].update(lifecycle='Limbo', display_layer=None)
+        observation._terrain(cell, [73, 31], 'terrain')
+        cell.pop('terrain_instances')
+        observation._terrain(cell, [73, 31], 'terrain')
+
     def test_unit_extension_retains_animation_lifetime_and_compares_observations(self):
         self.scripted_profile()
         self.actor_frames = {step: [dict(self.actor(category='Unit'), unit=self.unit())]

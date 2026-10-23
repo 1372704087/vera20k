@@ -407,10 +407,10 @@ pub fn construct_terrain_objects(
     rules: &crate::rules::ruleset::RuleSet,
     snow_theater: bool,
 ) -> usize {
-    construct_terrain_objects_with_mode(
+    construct_terrain_objects_with_rules(
         sim,
         terrain_objects,
-        rules,
+        &mut TerrainConstructionRules::Projected(rules),
         snow_theater,
         TerrainConstructionMode::Compatibility,
     )
@@ -421,23 +421,81 @@ pub fn construct_terrain_objects(
 /// clearing. RMG5A2C05 constructs a drill before painting its resource, so
 /// generated materialization must retain that already-painted cell.
 #[derive(Clone, Copy)]
-pub(crate) enum TerrainConstructionMode<'a> {
+pub enum TerrainConstructionMode<'a> {
     Compatibility,
     Generated,
     Authored(&'a OverlayTypeRegistry),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum TerrainConstructionError {
+    #[error(transparent)]
+    NativeIdentity(#[from] crate::sim::native_identity::NativeMapTubeConstructionError),
+    #[error(transparent)]
+    Rules(#[from] crate::rules::error::RulesError),
+}
+
+/// Borrowed construction policy, never another Rules registry. Ordinary map
+/// reading can mutate its continuing family; generated/compatibility inputs
+/// retain the already projected types their earlier construction selected.
+pub enum TerrainConstructionRules<'a> {
+    Projected(&'a crate::rules::ruleset::RuleSet),
+    Authored {
+        rules: &'a mut crate::rules::ruleset::RuleSet,
+        owner: &'a mut crate::rules::process_owner::NativeRulesProcessOwner,
+    },
+}
+
+impl TerrainConstructionRules<'_> {
+    pub(crate) fn rules(&self) -> &crate::rules::ruleset::RuleSet {
+        match self {
+            Self::Projected(rules) => rules,
+            Self::Authored { rules, .. } => rules,
+        }
+    }
+
+    fn find_or_allocate(
+        &mut self,
+        incoming: &str,
+    ) -> Result<
+        Option<(
+            &crate::rules::terrain_object_type::TerrainObjectType,
+            Option<crate::rules::native_processing::NativeTypeConstructionEvent>,
+        )>,
+        crate::rules::error::RulesError,
+    > {
+        match self {
+            Self::Projected(rules) => Ok(rules
+                .terrain_object_type_case_insensitive(incoming)
+                .map(|terrain| (terrain, None))),
+            Self::Authored { rules, owner } => {
+                let Some((name, constructor)) =
+                    owner.find_or_allocate_map_terrain_type(incoming, rules)?
+                else {
+                    return Ok(None);
+                };
+                Ok(Some((
+                    rules
+                        .terrain_object_type_case_insensitive(&name)
+                        .expect("retained map factory result has its typed projection"),
+                    constructor,
+                )))
+            }
+        }
+    }
 }
 
 /// One TerrainCtor71BB90 port for every source. Create_ID at71BC19 precedes
 /// zero-cell/Unlimbo admission, including a later failed placement. Authored
 /// input completes Recalc then clears a source resource; RMG has already run
 /// that suffix before painting. Both spend the same numeric identity.
-pub(crate) fn construct_terrain_objects_with_mode(
+pub fn construct_terrain_objects_with_rules(
     sim: &mut crate::sim::world::Simulation,
     terrain_objects: &[crate::map::overlay::TerrainObject],
-    rules: &crate::rules::ruleset::RuleSet,
+    rules: &mut TerrainConstructionRules<'_>,
     snow_theater: bool,
     mode: TerrainConstructionMode<'_>,
-) -> Result<usize, crate::sim::native_identity::NativeMapTubeConstructionError> {
+) -> Result<usize, TerrainConstructionError> {
     let old_terrain_ids = sim
         .terrain_objects
         .objects()
@@ -451,10 +509,15 @@ pub(crate) fn construct_terrain_objects_with_mode(
 
     let mut constructed = 0usize;
     for obj in terrain_objects {
-        let Some(t) = rules.terrain_object_type_case_insensitive(&obj.name) else {
+        let Some((t, constructor)) = rules.find_or_allocate(&obj.name)? else {
             continue;
         };
-        let type_ref = sim.interner.intern(&obj.name);
+        // TerrainReadMap71CA70 at71CAD2 -> TypeCtor71DA80 at71DB11
+        // constructs only on a miss, before this instance's71BC19 identity.
+        if let Some(_constructor) = constructor {
+            sim.next_native_load_id()?;
+        }
+        let type_ref = sim.interner.intern(&t.name);
         // TerrainCtor71BC19 -> AbstractCreate_ID410230 -> Scenario68BCB0,
         // original instructions: one numeric increment, no RNG draw.
         let stable_id = sim.substrate.allocate_stable_id();
@@ -474,21 +537,26 @@ pub(crate) fn construct_terrain_objects_with_mode(
         )
         .with_native_unique_id(native_unique_id);
         let occupation_bits = terrain_state.occupation_bits();
+        let occupy_list_bound = t.has_occupy_list();
         sim.terrain_objects
-            .insert_constructed(terrain_state, t.spawns_tiberium);
+            .insert_constructed(terrain_state, t.spawns_tiberium, occupy_list_bound);
         constructed += 1;
         // TerrainCtor71BC34..71BC86 (original instructions) retains the
         // zero-cell identity but skips Unlimbo, including resource clearing.
         if !sim.terrain_objects.get(stable_id).unwrap().is_live() {
             continue;
         }
-        let registered = sim.register_terrain_object(stable_id, rules);
+        let registered = sim.register_terrain_object(stable_id, rules.rules());
         debug_assert!(registered);
-        mark_terrain_raw_occupation(
-            &mut sim.substrate.raw_cell_occupation,
-            (obj.rx, obj.ry),
-            occupation_bits,
-        );
+        // TypeCtor71DAF1 leaves Occupy_List null; MapPlaceDown568432
+        // visits no Cell, independently of successful Unlimbo/Display.
+        if occupy_list_bound {
+            mark_terrain_raw_occupation(
+                &mut sim.substrate.raw_cell_occupation,
+                (obj.rx, obj.ry),
+                occupation_bits,
+            );
+        }
         if let TerrainConstructionMode::Authored(overlay_registry) = mode {
             let terrain_snapshot = sim
                 .terrain_objects
@@ -496,10 +564,12 @@ pub(crate) fn construct_terrain_objects_with_mode(
                 .get(&stable_id)
                 .expect("new Terrain remains registered")
                 .clone();
-            crate::sim::terrain_object::mark_terrain_occupation(
-                &terrain_snapshot,
-                sim.resolved_terrain.as_mut(),
-            );
+            if occupy_list_bound {
+                crate::sim::terrain_object::mark_terrain_occupation(
+                    &terrain_snapshot,
+                    sim.resolved_terrain.as_mut(),
+                );
+            }
             if let Some(grid) = sim.overlay_grid.as_mut() {
                 let source = grid.cell(obj.rx, obj.ry);
                 let before = (source.overlay_id.map_or(-1, i32::from), source.overlay_data);
@@ -1531,10 +1601,10 @@ mod tests {
             );
             sim.substrate.raw_cell_occupation.mark_ground(2, 2, 0xA3);
             assert_eq!(
-                construct_terrain_objects_with_mode(
+                construct_terrain_objects_with_rules(
                     &mut sim,
                     &objects,
-                    &rules,
+                    &mut TerrainConstructionRules::Projected(&rules),
                     snow,
                     TerrainConstructionMode::Authored(&registry),
                 )
@@ -1665,10 +1735,10 @@ mod tests {
         let before_id = sim.native_unique_ids.as_ref().unwrap().current_raw();
         let rng = sim.scenario_rng.native_state_hex();
         assert_eq!(
-            construct_terrain_objects_with_mode(
+            construct_terrain_objects_with_rules(
                 &mut sim,
                 &objects,
-                &rules,
+                &mut TerrainConstructionRules::Projected(&rules),
                 false,
                 TerrainConstructionMode::Authored(&registry),
             )
@@ -1798,6 +1868,183 @@ mod tests {
     }
 
     #[test]
+    fn unknown_terrain_restores_type_binding_without_rebuilding_cell_membership_before_pickup() {
+        use crate::rules::native_processing::ProcessedRulesLayers;
+        use crate::rules::process_owner::NativeScenarioRulesPrefix;
+        use crate::sim::native_identity::NativeUniqueIdCursor;
+        use crate::sim::snapshot::GameSnapshot;
+        use crate::sim::world::{Simulation, UninitContext};
+
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let mut owner = crate::rules::retail_ini_fixture::retail_rules_owner(&assets);
+        let map = IniFile::from_str(
+            "[Map]\nTheater=TEMPERATE\n[Terrain]\n2002=sMoKeY\n02002=TREE01\n\
+             [sMoKeY]\nStrength=9000\n",
+        );
+        let mode =
+            crate::rules::retail_sources::select_mode_ini(&assets, Some("MPBattleMD.INI")).unwrap();
+        let (mut rules, _, _, _) = owner
+            .load_scenario(NativeScenarioRulesPrefix::NonCampaign(mode.as_ref()), &map)
+            .unwrap()
+            .into_parts();
+        let overlays = rules.overlay_registry().clone();
+        let mut sim = Simulation::with_seed(31);
+        sim.session_mut_for_test().set_map_width_for_test(4);
+        sim.session_mut_for_test().set_map_height_for_test(4);
+        // This phase fixture deliberately omits the full Scenario prefix;
+        // the headless regression exercises it through actual retail loading.
+        sim.native_unique_ids = Some(NativeUniqueIdCursor::for_synthetic_simulation());
+        let grid = resolved_grid(4, 4);
+        sim.install_resolved_terrain_for_new_map(grid.clone());
+        sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(4, 4));
+        let americans = sim.interner.intern("Americans");
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                americans, 0, None, true, 0, 10,
+            ));
+        construct_terrain_objects_with_rules(
+            &mut sim,
+            &crate::map::overlay::parse_terrain_objects(&map, 4),
+            &mut TerrainConstructionRules::Authored {
+                rules: &mut rules,
+                owner: &mut owner,
+            },
+            false,
+            TerrainConstructionMode::Authored(&overlays),
+        )
+        .unwrap();
+        let unknown = sim
+            .terrain_objects
+            .objects()
+            .values()
+            .find(|object| sim.interner.resolve(object.type_ref()) == "sMoKeY")
+            .unwrap();
+        let unknown_id = unknown.stable_id();
+        let native_id = unknown.native_unique_id();
+        let known_id = sim.terrain_objects.id_at((2, 2)).unwrap();
+        let known_raw_bits = sim.substrate.raw_cell_occupation.ground_bits(2, 2) & 0x1C;
+        assert_ne!(
+            known_raw_bits, 0,
+            "retail known member must mark occupation"
+        );
+        let cursor = sim.native_identity_cursor();
+        let bytes = GameSnapshot::save_validated(
+            &sim,
+            0,
+            rules.simulation_config_hash(),
+            "unknown Terrain",
+            0,
+        );
+
+        // Older self-describing processed records lack the new cache field.
+        // Their actual read history must preserve TREE01's bound footprint
+        // while leaving the constructor-only member null.
+        let mut legacy = serde_json::to_value(owner.saved_scenario_rules().unwrap()).unwrap();
+        let members =
+            legacy["native_type_construction_trace"]["registry_state"]["families"]["Terrain"]
+                .as_array_mut()
+                .unwrap();
+        for name in ["TREE01", "sMoKeY"] {
+            let member = members
+                .iter_mut()
+                .find(|member| member["native_stored_id"] == name)
+                .unwrap();
+            member["terrain_type_read_state"]
+                .as_object_mut()
+                .unwrap()
+                .remove("occupy_list_bound");
+        }
+        let mut processed: ProcessedRulesLayers = serde_json::from_value(legacy).unwrap();
+        let before_load = owner.project_saved_scenario_rules(&processed).unwrap();
+        assert!(
+            before_load
+                .terrain_object_type_case_insensitive("TREE01")
+                .unwrap()
+                .has_occupy_list()
+        );
+        assert!(
+            !before_load
+                .terrain_object_type_case_insensitive("SMOKEY")
+                .unwrap()
+                .has_occupy_list()
+        );
+
+        // Fresh MapPickUp56884C sees the null list and cannot unmark the
+        // older Cell member. TerrainLimbo's independent suffix still runs.
+        sim.uninit_with_context(unknown_id, UninitContext::with_rules(&rules));
+        assert_eq!(
+            sim.substrate.raw_cell_occupation.ground_bits(2, 2) & 0x1C,
+            known_raw_bits
+        );
+        assert_eq!(sim.terrain_objects.id_at((2, 2)), Some(known_id));
+
+        // TypeLoad71E22D binds table0 (initialized by71D580), while CellLoad
+        //483B9F keeps its saved FirstObject. RemoveContent47EAF7 then unmarks
+        // even though this restored unknown is absent from that Cell chain.
+        processed.restore_object_image_loads("TEMPERATE").unwrap();
+        let loaded_rules = owner.project_saved_scenario_rules(&processed).unwrap();
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.restore_after_snapshot_load().unwrap();
+        restored.rebuild_caches_after_load(grid, Default::default(), &loaded_rules);
+        restored
+            .restore_map_authority_after_snapshot_load(&loaded_rules, &overlays, None)
+            .unwrap();
+        restored.resolve_type_handles(&loaded_rules);
+        assert_eq!(
+            restored
+                .terrain_objects
+                .members_at((2, 2))
+                .collect::<Vec<_>>(),
+            [known_id]
+        );
+        assert_eq!(
+            restored
+                .terrain_objects
+                .get(unknown_id)
+                .unwrap()
+                .native_unique_id(),
+            native_id
+        );
+        restored.uninit_with_context(unknown_id, UninitContext::with_rules(&loaded_rules));
+        assert_eq!(
+            restored.substrate.raw_cell_occupation.ground_bits(2, 2) & 0x1C,
+            0
+        );
+        assert_eq!(restored.terrain_objects.id_at((2, 2)), Some(known_id));
+        restored.process_pending_delete_with(
+            &loaded_rules,
+            Some(&overlays),
+            Default::default(),
+            1,
+            true,
+        );
+        assert!(restored.terrain_objects.get(unknown_id).is_none());
+        assert!(restored.terrain_objects.get(known_id).unwrap().is_live());
+        assert_eq!(
+            restored.native_identity_cursor(),
+            cursor,
+            "retirement refunds no identity"
+        );
+        let unit = restored
+            .spawn_object_with_overlay_registry(
+                "MTNK",
+                "Americans",
+                1,
+                2,
+                0,
+                &loaded_rules,
+                &overlays,
+            )
+            .expect("later ordinary constructor");
+        assert_eq!(
+            restored.entities().get(unit).unwrap().native_unique_id(),
+            cursor.unwrap().wrapping_add(1) as i32
+        );
+    }
+
+    #[test]
     fn authored_terrain_retains_native_id_projects_zero_occupation_then_clears_resource() {
         use crate::map::overlay::{OverlayEntry, TerrainObject};
         use crate::sim::world::Simulation;
@@ -1832,14 +2079,14 @@ mod tests {
             .expect("native cursor")
             .current_raw();
 
-        let constructed = construct_terrain_objects_with_mode(
+        let constructed = construct_terrain_objects_with_rules(
             &mut sim,
             &[TerrainObject {
                 rx: 2,
                 ry: 2,
                 name: "TERR0".to_string(),
             }],
-            &rules,
+            &mut TerrainConstructionRules::Projected(&rules),
             false,
             TerrainConstructionMode::Authored(&overlays),
         )

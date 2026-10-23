@@ -19,7 +19,6 @@ use crate::rules::color_scheme::{
     ColorSchemeEntry, scheme_entry_by_name, scheme_entry_for_priority,
 };
 use crate::rules::house_colors::{DEFAULT_SCHEME_ENTRY, HouseColorIndex};
-use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::scenario_bootstrap::normalized_launch_slots;
@@ -120,7 +119,6 @@ pub(crate) fn build_overlay_presentation(
     batch: &BatchRenderer,
     theater_ext: &str,
     theater_name: &str,
-    rules_ini: &IniFile,
     rules: &RuleSet,
     overlay_registry: &OverlayTypeRegistry,
     theater_iso_palette: Option<&Palette>,
@@ -230,7 +228,6 @@ pub(crate) fn build_overlay_presentation(
             &overlay_names,
             theater_ext,
             theater_name,
-            rules_ini,
             art_registry,
         );
 
@@ -252,7 +249,6 @@ pub(crate) fn build_overlay_presentation(
             theater_name,
             overlay_registry,
             rules,
-            rules_ini,
             Some(&rules.smudge_types),
             &rubble_arts,
         )
@@ -271,8 +267,6 @@ pub(crate) fn build_overlay_presentation(
             theater_ext,
             theater_name,
             overlay_registry,
-            rules_ini,
-            art_registry,
             &rubble_arts,
         )
     });

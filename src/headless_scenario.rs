@@ -28,7 +28,6 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::map::theater;
 use crate::map::tile_variant_selector::TileVariantSelectorCache;
 use crate::map::waypoints;
-use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::sim::intern::InternedId;
 use crate::sim::scenario_bootstrap::ScenarioBootstrapRng;
 use crate::sim::scenario_session::ScenarioDescriptor;
@@ -229,7 +228,7 @@ pub fn load_with_launch_and_ini(
         &assets,
         Some(&launch.session().mode.override_file),
     )?;
-    let (mut rules, rules_ini, art_ini, native_rules_receipt) = native_rules_owner
+    let (mut rules, _, art_ini, native_rules_receipt) = native_rules_owner
         .load_scenario(
             crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(
                 mode_override.as_ref(),
@@ -248,7 +247,7 @@ pub fn load_with_launch_and_ini(
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art_ini));
     let infantry_sequences =
         crate::rules::infantry_sequence::parse_infantry_sequence_registry(&art_ini);
-    let overlay_registry = OverlayTypeRegistry::from_ini(&rules_ini, Some(&art_ini));
+    let overlay_registry = rules.overlay_registry().clone();
     let house_roster = crate::map::houses::parse_house_roster(
         &map.ini,
         rules.color_schemes.as_slice(),
@@ -380,8 +379,6 @@ pub fn load_with_launch_and_ini(
     rules.bind_animation_sequences(&infantry_sequences);
     let overlay_shp_ids = crate::rules::effect_asset_catalog::resolved_overlay_shp_ids(
         &overlay_registry,
-        &rules_ini,
-        rules.art(),
         &assets,
         theater.extension,
         &map.header.theater,

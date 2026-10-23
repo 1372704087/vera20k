@@ -59,7 +59,7 @@ pub(crate) enum ObjectImageKind {
     Terrain,
 }
 
-/// Inputs of a reached SHP load. A failed attempt still replaces the old one.
+/// Inputs of one reached SHP load in a first-success request plan.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ObjectImageLoad {
     pub image: String,
@@ -82,9 +82,6 @@ impl ObjectImageLoad {
             "SHP".to_string()
         };
         let primary = format!("{upper_image}.{extension}");
-        if !self.generic_retry {
-            return vec![primary];
-        }
         let [substituted, generic_retry] =
             crate::rules::art_data::theater_shp_names(&primary, theater_name);
         let first = if !self.theater && self.new_theater {
@@ -92,11 +89,15 @@ impl ObjectImageLoad {
         } else {
             primary
         };
-        vec![first, generic_retry]
+        if self.generic_retry {
+            vec![first, generic_retry]
+        } else {
+            vec![first]
+        }
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct ObjectImageState {
     image: String,
     alternate_arctic_art: bool,
@@ -104,7 +105,9 @@ pub(crate) struct ObjectImageState {
     theater: bool,
     new_theater: bool,
     voxel: bool,
-    shp_load: Option<ObjectImageLoad>,
+    /// Reached loads in first-success order. Unconditional loads replace
+    /// this plan; a native Shape==null suffix appends to it.
+    shp_loads: Vec<ObjectImageLoad>,
     voxel_load: Option<String>,
 }
 
@@ -119,7 +122,7 @@ impl ObjectImageState {
             theater: false,
             new_theater: false,
             voxel: false,
-            shp_load: None,
+            shp_loads: Vec::new(),
             voxel_load: None,
         }
     }
@@ -179,24 +182,50 @@ impl ObjectImageState {
         }
         // 5F9203/5F920D clears the previous shape; among these callers,
         // Terrain's RTTI37 skips loading. Other callers try this ImageFile.
-        self.shp_load = (kind != ObjectImageKind::Terrain).then(|| ObjectImageLoad {
-            image: self.image.clone(),
-            theater: self.theater,
-            new_theater: self.new_theater,
-            generic_retry: true,
-        });
+        self.shp_loads.clear();
+        if kind != ObjectImageKind::Terrain {
+            self.shp_loads.push(self.shp_request(true));
+        }
     }
 
     /// TechnoRead715820/715825, TerrainRead71DF9E..71DFC0 and
     /// AnimResolve427B7B load Image.SHP once, without the alternate-art
     /// prefix or generic retry. A miss replaces the previous shape with null.
     pub(crate) fn load_plain_shp(&mut self) {
-        self.shp_load = Some(ObjectImageLoad {
+        self.shp_loads = vec![ObjectImageLoad {
             image: self.image.clone(),
             theater: false,
             new_theater: false,
             generic_retry: false,
-        });
+        }];
+    }
+
+    fn shp_request(&self, generic_retry: bool) -> ObjectImageLoad {
+        ObjectImageLoad {
+            image: self.image.clone(),
+            theater: self.theater,
+            new_theater: self.new_theater,
+            generic_retry,
+        }
+    }
+
+    /// OverlayType InitTheater5FE645..5FE719 replaces Shape for Theater
+    /// or NewTheater, without replaying LoadSHP's Arctic prefix. The normal
+    /// constructor's deferred+2AF is false; lazy owned shapes remain a separate
+    /// resource lifecycle boundary, not inferred from an available file.
+    pub(crate) fn init_overlay_theater(&mut self) {
+        if self.theater || self.new_theater {
+            self.shp_loads = vec![self.shp_request(true)];
+        }
+    }
+
+    /// OverlayTypeLoad5FEB69..5FEBF1 loads this single suffix only while
+    /// the preceding generic SHP attempts left Shape null. Non-theater art
+    /// applies the theater letter even without NewTheater; it never retries G.
+    pub(crate) fn append_saved_overlay_shp(&mut self) {
+        let mut suffix = self.shp_request(false);
+        suffix.new_theater = !suffix.theater;
+        self.shp_loads.push(suffix);
     }
 
     /// LoadVoxel5F8110 formats the entry ImageFile independently of Voxel.
@@ -206,7 +235,7 @@ impl ObjectImageState {
 
     /// ObjectLoad5F9856..5F985C clears the saved resource pointer/ownership.
     pub(crate) fn clear_shp(&mut self) {
-        self.shp_load = None;
+        self.shp_loads.clear();
     }
 
     pub(crate) fn replace_image(&mut self, input: &IniSection, default: &str) {
@@ -229,10 +258,8 @@ impl ObjectImageState {
     pub(crate) fn validate_saved_state(&self) -> Result<(), crate::rules::error::RulesError> {
         let valid_name = |name: &str| name.chars().count() <= 24 && !name.contains('\0');
         if !valid_name(&self.image)
-            || self
-                .shp_load
-                .as_ref()
-                .is_some_and(|load| !valid_name(&load.image))
+            || self.shp_loads.iter().any(|load| !valid_name(&load.image))
+            || self.shp_loads.len() > 2
             || self
                 .voxel_load
                 .as_deref()
@@ -257,8 +284,8 @@ impl ObjectImageState {
     pub(crate) fn voxel(&self) -> bool {
         self.voxel
     }
-    pub(crate) fn shp_load(&self) -> Option<&ObjectImageLoad> {
-        self.shp_load.as_ref()
+    pub(crate) fn shp_loads(&self) -> &[ObjectImageLoad] {
+        &self.shp_loads
     }
     pub(crate) fn voxel_load(&self) -> Option<&str> {
         self.voxel_load.as_deref()

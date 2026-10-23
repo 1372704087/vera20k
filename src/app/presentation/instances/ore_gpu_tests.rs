@@ -51,16 +51,6 @@ impl Probe {
     ) -> Self {
         let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("physical retail root"));
         let mut assets = AssetManager::new(&root, MediaArchiveMode::STOCK_DIGITAL).unwrap();
-        let mode = crate::rules::ini_parser::IniFile::from_bytes(
-            assets.get_ref("MPBattleMD.ini").unwrap(),
-        )
-        .unwrap();
-        let (_, rules_ini, _, _) = crate::app::loading::init_helpers::load_rules_with_merged_ini(
-            &assets,
-            Some(&mode),
-            Some(&scene.map.ini),
-        )
-        .unwrap();
         let theater =
             crate::map::theater::load_theater(&mut assets, &scene.map.header.theater).unwrap();
         let material_sources = packet["inputs"]["material_sources"].as_array();
@@ -151,7 +141,6 @@ impl Probe {
                 &scene.map.header.theater,
                 registry,
                 rules,
-                &rules_ini,
                 None,
                 &[],
             )
@@ -168,8 +157,6 @@ impl Probe {
                     theater.extension,
                     &scene.map.header.theater,
                     registry,
-                    &rules_ini,
-                    rules.art(),
                     &[],
                 )
                 .expect("production Cell shadow atlas");

@@ -11,7 +11,6 @@ use crate::render::shroud_buffer::ShroudBuffer;
 use crate::render::terrain_draw_gpu_tests::{
     Gpu, assert_native_color_and_depth, camera, clear, encoded, extent,
 };
-use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::sim::smudge_grid::SmudgeGrid;
 use serde_json::Value;
 
@@ -152,7 +151,7 @@ fn retail_crater11_matches_original_cell_raster() {
     let mode =
         crate::rules::ini_parser::IniFile::from_bytes(assets.get_ref("MPBattleMD.ini").unwrap())
             .unwrap();
-    let (mut rules, rules_ini, art, _) =
+    let (mut rules, _, art, _) =
         crate::app::loading::init_helpers::load_rules_with_merged_ini(&assets, Some(&mode), None)
             .unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
@@ -161,7 +160,7 @@ fn retail_crater11_matches_original_cell_raster() {
         theater.extension,
         crate::rules::terrain_asset_catalog::TerrainAssetLoadPhase::Fresh,
     );
-    let registry = OverlayTypeRegistry::from_ini(&rules_ini, Some(&art));
+    let registry = rules.overlay_registry().clone();
     for source in packet["inputs"]["sources"].as_array().unwrap() {
         let name = source["name"].as_str().unwrap();
         if let Some(outer) = source["outer"]
@@ -228,7 +227,6 @@ fn retail_crater11_matches_original_cell_raster() {
             "TEMPERATE",
             &registry,
             &rules,
-            &rules_ini,
             Some(&rules.smudge_types),
             &[],
         )
@@ -513,15 +511,6 @@ fn retail_paid_destruction_and_replacement_reach_smudge_rendering() {
 
     let mut assets = AssetManager::new(&root, MediaArchiveMode::STOCK_DIGITAL).unwrap();
     let theater = crate::map::theater::load_theater(&mut assets, "TEMPERATE").unwrap();
-    let mode =
-        crate::rules::ini_parser::IniFile::from_bytes(assets.get_ref("MPBattleMD.ini").unwrap())
-            .unwrap();
-    let (_, rules_ini, _, _) = crate::app::loading::init_helpers::load_rules_with_merged_ini(
-        &assets,
-        Some(&mode),
-        Some(&scene.map.ini),
-    )
-    .unwrap();
     let gpu = Gpu::new();
     let size = [192, 160];
     let format = wgpu::TextureFormat::Bgra8UnormSrgb;
@@ -541,7 +530,6 @@ fn retail_paid_destruction_and_replacement_reach_smudge_rendering() {
         "TEMPERATE",
         &scene.runtime.resources.overlay_registry,
         rules,
-        &rules_ini,
         Some(&rules.smudge_types),
         &[],
     )

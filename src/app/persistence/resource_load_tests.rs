@@ -42,7 +42,7 @@ fn bound_saved_world(
     let map = loaded.map;
     let theater =
         theater::load_theater(assets, &map.header.theater).expect("retail saved-world theater");
-    let (mut rules, processed, fixed_art, _) = owner
+    let (mut rules, _, fixed_art, _) = owner
         .load_scenario(
             crate::rules::process_owner::NativeScenarioRulesPrefix::NonCampaign(Some(mode)),
             &map.ini,
@@ -56,8 +56,7 @@ fn bound_saved_world(
         theater.extension,
         &map.header.theater,
     );
-    let overlay_registry =
-        crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&processed, Some(&fixed_art));
+    let overlay_registry = rules.overlay_registry().clone();
     let mut simulation = super::super::tests::load_fixture_simulation(false);
     let terrain = {
         let main_rng = simulation.main_rng().draws();
@@ -591,7 +590,8 @@ fn retail_saved_resources_prepare_cold() {
 fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
     let Some(mut save) = incoming_save(
         "SNOW",
-        "[BlimpBombP]\nImage=ZBOMB\nInviso=yes\nAlternateArcticArt=yes\n",
+        "[BlimpBombP]\nImage=ZBOMB\nInviso=yes\nAlternateArcticArt=yes\n\
+         [GAWALL]\nImage=SEAL\nAlternateArcticArt=yes\n",
     ) else {
         return;
     };
@@ -604,6 +604,21 @@ fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
         .unwrap();
     assert!(bullet.voxel && bullet.inviso);
     assert_eq!(bullet.image.as_deref(), Some("ZBOMB"));
+    let wall = save
+        .incoming
+        .resources
+        .overlay_registry
+        .id_for_name("GAWALL")
+        .unwrap();
+    assert_eq!(
+        save.incoming
+            .resources
+            .overlay_registry
+            .flags(wall)
+            .unwrap()
+            .damage_levels,
+        3
+    );
     let clock = || LOAD_CLOCK_MS;
     let frontend = frontend_main();
     let cache = TileVariantSelectorCache::default();
@@ -652,11 +667,31 @@ fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
     let bullet = prepared.resources.rules.projectile("BlimpBombP").unwrap();
     assert_eq!(bullet.image.as_deref(), Some("ZBOMBA"));
     assert_eq!(bullet.voxel_image_load(), Some("ZBOMB"));
-    assert_eq!(bullet.image_load.as_ref().unwrap().image, "ZBOMBA");
+    assert_eq!(bullet.image_loads[0].image, "ZBOMBA");
     assert_eq!(
         prepared.resources.rules.object("GHOST").unwrap().image,
         "SEALA"
     );
+    // OverlayLoad5FEB45 followed by InitTheater5BE668 must project the
+    // updated image owner into both gameplay flags and physical binding.
+    assert_eq!(
+        prepared
+            .resources
+            .overlay_registry
+            .flags(wall)
+            .unwrap()
+            .damage_levels,
+        3
+    );
+    let (filename, _) = crate::rules::effect_asset_catalog::load_overlay_shape(
+        &save.assets,
+        &prepared.resources.overlay_registry,
+        "GAWALL",
+        "SNO",
+        "SNOW",
+    )
+    .unwrap();
+    assert_eq!(filename, "SEALA.SHP");
     assert_eq!(
         save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap(),
         before
@@ -705,6 +740,15 @@ fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
         Some("ZBOMBA"),
         "next Load uses its new entry image"
     );
+    let (filename, _) = crate::rules::effect_asset_catalog::load_overlay_shape(
+        &save.assets,
+        &again.resources.overlay_registry,
+        "GAWALL",
+        "SNO",
+        "SNOW",
+    )
+    .unwrap();
+    assert_eq!(filename, "SEALA.SHP", "Overlay's saved latch prevents AA");
 }
 
 #[test]

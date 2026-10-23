@@ -368,8 +368,8 @@ fn assert_retail_wall_fire_profile(
         native_type["strength"].as_u64().unwrap()
     );
     assert_eq!(
-        u64::from(flags.damage_levels),
-        native_type["damage_levels"].as_u64().unwrap()
+        i64::from(flags.damage_levels),
+        native_type["damage_levels"].as_i64().unwrap()
     );
     let damage_levels = flags.damage_levels;
     if wall_name == "GAWALL" {

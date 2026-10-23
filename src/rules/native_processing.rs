@@ -300,6 +300,11 @@ impl RulesLayerStack {
         if let Some(root) = root_color_add_reread {
             processor.rules_color_add.apply_pass(root);
         }
+        if matches!(context, RulesProcessContext::ScenarioReset(_)) {
+            // Read_Map4AD071 / RMG59A201: all Overlay types receive this
+            // postpass after the incoming scenario's ordered Rules reads.
+            processor.init_overlay_theater();
+        }
         let (ini, native_type_construction_trace, powerups) = processor.finish();
         Ok(ProcessedRulesLayers {
             ini,
@@ -618,7 +623,9 @@ impl ProcessedRulesLayers {
             if family.object_category().is_none()
                 && !matches!(
                     family,
-                    RulesTypeFamily::Terrain | RulesTypeFamily::Projectile
+                    RulesTypeFamily::Terrain
+                        | RulesTypeFamily::Projectile
+                        | RulesTypeFamily::Overlay
                 )
             {
                 continue;
@@ -640,6 +647,13 @@ impl ProcessedRulesLayers {
                     ObjectImageKind::Ordinary
                 };
                 image.load_unowned_shp(kind, theater);
+                if family == RulesTypeFamily::Overlay {
+                    // OverlayLoad5FEB3E/45 loads VXL before unconditional
+                    // generic SHP, then5FEBEC tries its suffix only on null.
+                    image.append_saved_overlay_shp();
+                    // MouseLoad5BE668 reaches the subsequent theater pass.
+                    image.init_overlay_theater();
+                }
             }
         }
         Ok(())
@@ -669,6 +683,26 @@ impl ProcessedRulesLayers {
                         &member.object_image,
                     )
                 })
+            })
+    }
+
+    /// Ordered immutable Overlay projection. ProcessedType retains the input
+    /// fields and resource requests; registry construction performs no reads.
+    pub(crate) fn overlay_type_image_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, i32, &ObjectImageState)> {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .get(&RulesTypeFamily::Overlay)
+            .into_iter()
+            .flatten()
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    member.overlay_damage_levels,
+                    &member.object_image,
+                )
             })
     }
 
@@ -3128,6 +3162,9 @@ struct ProcessedType {
     // Mandatory on load: a missing Arctic latch cannot be reconstructed from
     // a flattened Image key or inferred from whether its name ends in A.
     object_image: ObjectImageState,
+    /// OverlayCtor5FE265 starts at1; OverlayRead5FE8A6..5FE8C3 retains
+    /// the full signed dword through each fixed-ART Image-section read.
+    overlay_damage_levels: i32,
     /// Constructor711351=0; fixed ART ReadInt71592A..715948 keeps the
     /// current value as default across Image changes and later Rules passes.
     #[serde(default)]
@@ -3599,6 +3636,7 @@ impl ProcessedType {
         Self {
             body: IniSection::new(native_stored_id.clone()),
             object_image: ObjectImageState::new(&native_stored_id),
+            overlay_damage_levels: 1,
             voxel_shadow_index: 0,
             tech_level: crate::rules::object_type::DEFAULT_TECH_LEVEL,
             projectile_art: ProjectileArtState::new(),
@@ -5996,16 +6034,47 @@ impl RulesPassProcessor {
         let mut index = 0;
         while index < self.family_len(family) {
             if let Some((_id, raw, _effective)) = self.begin_rules_member_read(family, index, pass)
-                && family == RulesTypeFamily::Terrain
             {
                 let theater = self.image_theater;
                 let member = &mut self.family_mut(family)[index];
-                let state = member.terrain_type_read_state.get_or_insert_with(
-                    crate::rules::terrain_object_type::TerrainTypeReadState::new,
-                );
-                state.read_pass(&raw, fixed_art, &mut member.object_image, theater);
+                match family {
+                    RulesTypeFamily::Terrain => {
+                        let state = member.terrain_type_read_state.get_or_insert_with(
+                            crate::rules::terrain_object_type::TerrainTypeReadState::new,
+                        );
+                        state.read_pass(&raw, fixed_art, &mut member.object_image, theater);
+                    }
+                    RulesTypeFamily::Overlay => {
+                        // OverlayRead5FE78B first calls ObjectRead. Its fixed
+                        // ART cache retains a successful pre-Arctic section;
+                        // only a miss permits lookup under the mutated Image.
+                        let cached_art = member.object_image.read_ini(
+                            &raw,
+                            fixed_art,
+                            ObjectImageKind::Ordinary,
+                            theater,
+                        );
+                        let art = cached_art.unwrap_or_else(|| {
+                            fixed_art.section_or_empty(member.object_image.image())
+                        });
+                        member.overlay_damage_levels =
+                            art.read_int("DamageLevels", member.overlay_damage_levels);
+                        //5FE8F1..5FE92D: plain Image.SHP, independently of
+                        // Voxel; no Arctic prefix or generic retry here.
+                        if !member.object_image.theater() {
+                            member.object_image.load_plain_shp();
+                        }
+                    }
+                    _ => {}
+                }
             }
             index += 1;
+        }
+    }
+
+    fn init_overlay_theater(&mut self) {
+        for member in self.family_mut(RulesTypeFamily::Overlay) {
+            member.object_image.init_overlay_theater();
         }
     }
 

@@ -134,10 +134,7 @@ impl PreparedSavedGame {
         let mut rules = view
             .rules_owner
             .project_saved_scenario_rules(saved.processed_rules())?;
-        let overlay_registry = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
-            saved.processed_rules().ini(),
-            Some(view.rules_owner.fixed_art()),
-        );
+        let overlay_registry = rules.overlay_registry().clone();
         init_helpers::bind_rules_art_metadata(
             &mut rules,
             view.rules_owner.fixed_art(),
@@ -174,6 +171,10 @@ impl PreparedSavedGame {
         let mut rules = view
             .rules_owner
             .project_saved_scenario_rules(saved.processed_rules())?;
+        // OverlayLoad5FEB45 and MouseLoad5BE668 can replace the restored
+        // shape policy. Refresh this immutable projection from the same
+        // incoming record, rather than retaining its pre-load registry.
+        let overlay_registry = rules.overlay_registry().clone();
         init_helpers::bind_rules_art_metadata(
             &mut rules,
             view.rules_owner.fixed_art(),
@@ -287,7 +288,6 @@ impl PreparedSavedGame {
         let PreparedSavedResources {
             world,
             resources,
-            processed_rules,
             map,
             theater,
             ..
@@ -334,7 +334,6 @@ impl PreparedSavedGame {
             batch,
             theater.extension,
             theater_name,
-            processed_rules.ini(),
             rules,
             &resources.overlay_registry,
             Some(&theater.iso_palette),

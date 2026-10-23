@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::shp_file::ShpFile;
 use crate::rules::art_data;
-use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 
@@ -468,8 +467,6 @@ pub fn log_unbound_combat_explosion_roots(unbound: usize) {
 /// reads it on graphical and headless loads alike.
 pub fn resolved_overlay_shp_ids(
     registry: &OverlayTypeRegistry,
-    rules_ini: &IniFile,
-    art: &art_data::ArtRegistry,
     asset_manager: &AssetManager,
     theater_ext: &str,
     theater_name: &str,
@@ -480,18 +477,32 @@ pub fn resolved_overlay_shp_ids(
         let Some(name) = registry.name(overlay_id) else {
             continue;
         };
-        let image_id = art.resolve_overlay_image_id(name, rules_ini);
-        let native_names =
-            art_data::native_overlay_shp_names(art, &image_id, theater_ext, theater_name);
-        if native_names
-            .iter()
-            .filter_map(|candidate| asset_manager.load_file_from_mix(candidate))
-            .any(|loaded| ShpFile::from_bytes(&loaded.bytes).is_ok())
-        {
+        if load_overlay_shape(asset_manager, registry, name, theater_ext, theater_name).is_some() {
             available.insert(overlay_id);
         }
     }
     available
+}
+
+/// Resolve the reached OverlayRead5FE928 / InitTheater5FE620 / saved
+/// Load5FEAF0 plan once, using native cached LoadFileFromMIX5B40B0 selection.
+/// The first physical SHP is the resident image even if its frames are empty.
+/// Authored admission, drawing and radar all consume this same resource owner.
+pub fn load_overlay_shape(
+    asset_manager: &AssetManager,
+    registry: &OverlayTypeRegistry,
+    name: &str,
+    theater_ext: &str,
+    theater_name: &str,
+) -> Option<(String, ShpFile)> {
+    registry
+        .shp_candidates(name, theater_ext, theater_name)
+        .into_iter()
+        .find_map(|candidate| {
+            let loaded = asset_manager.load_file_from_mix(&candidate)?;
+            let shp = ShpFile::from_bytes(&loaded.bytes).ok()?;
+            Some((candidate, shp))
+        })
 }
 
 fn authoritative_effect_roots(rules: &RuleSet) -> BTreeSet<String> {
@@ -526,6 +537,44 @@ mod tests {
     use super::*;
     use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
+
+    #[test]
+    fn saved_overlay_suffix_runs_only_after_generic_shape_misses() {
+        let Some((_, retail)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let bytes = retail.get_ref("SEAL.SHP").unwrap();
+        let root = TestRoot::new();
+        for name in ["GTFALL.SHP", "GAPRIM.SHP", "GTPRIM.SHP"] {
+            std::fs::write(root.path().join(name), bytes).unwrap();
+        }
+        let assets = AssetManager::from_loose_root_for_test(root.path());
+        let mut processed =
+            crate::rules::native_processing::RulesLayerStack::new(IniFile::from_str(
+                "[OverlayTypes]\n0=FALL\n1=PRIM\n[FALL]\nImage=GAFALL\n[PRIM]\nImage=GAPRIM\n",
+            ))
+            .process()
+            .unwrap();
+        let registry = OverlayTypeRegistry::from_processed_rules(&processed);
+        assert!(load_overlay_shape(&assets, &registry, "FALL", "TEM", "TEMPERATE").is_none());
+        // OverlayLoad5FEB45 tries generic GAFALL/GGFALL first;5FEBEC
+        // appends one theater-letter attempt only while Shape is null.
+        processed.restore_object_image_loads("TEMPERATE").unwrap();
+        let registry = OverlayTypeRegistry::from_processed_rules(&processed);
+        assert_eq!(
+            load_overlay_shape(&assets, &registry, "FALL", "TEM", "TEMPERATE")
+                .unwrap()
+                .0,
+            "GTFALL.SHP"
+        );
+        assert_eq!(
+            load_overlay_shape(&assets, &registry, "PRIM", "TEM", "TEMPERATE")
+                .unwrap()
+                .0,
+            "GAPRIM.SHP",
+            "a resident generic primary wins over the available suffix"
+        );
+    }
 
     #[test]
     fn available_count_preserves_existing_shadow_and_scheduler_semantics() {

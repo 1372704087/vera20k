@@ -98,7 +98,6 @@ fn build_random_map_preview_grid(
 /// source remains NativeRulesProcessOwner; dropping the job retires this cache.
 struct RandomMapPreviewOverlayRules {
     registry: crate::rules::overlay_types::OverlayTypeRegistry,
-    ini: crate::rules::ini_parser::IniFile,
     art: crate::rules::art_data::ArtRegistry,
 }
 
@@ -109,13 +108,10 @@ impl RandomMapPreviewOverlayRules {
         theater: &str,
     ) -> Option<Self> {
         let processed = owner.random_map_preview_projection(mode, theater).ok()?;
-        let ini = processed.ini().clone();
         Some(Self {
-            registry: crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
-                &ini,
-                Some(owner.fixed_art()),
+            registry: crate::rules::overlay_types::OverlayTypeRegistry::from_processed_rules(
+                &processed,
             ),
-            ini,
             art: crate::rules::art_data::ArtRegistry::from_ini(owner.fixed_art()),
         })
     }
@@ -150,7 +146,6 @@ fn random_map_preview_cells(
                 &names,
                 theater_ext,
                 &map_file.header.theater,
-                &rules.ini,
                 &rules.art,
             )
         }

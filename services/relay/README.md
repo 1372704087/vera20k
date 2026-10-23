@@ -27,3 +27,8 @@ Set the Worker's public `RELAY_ADDRESS` to the server's IPv4 address and port.
 Clients obtain individual signed tickets and packet keys over authenticated HTTPS;
 they never receive the server signing key. Restarting the relay requires matches
 to reconnect or fail through the client's existing timeout handling.
+
+The service journal reports aggregate traffic and rejection counts once a minute.
+These counts contain no player, endpoint, room identity, ticket or packet contents.
+Use them to distinguish rate limits, expired grants and authentication failures
+from packet loss and client timeouts.

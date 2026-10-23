@@ -4,9 +4,59 @@
 use std::io;
 use std::net::{SocketAddr, UdpSocket};
 use std::path::PathBuf;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use vera20k_relay_protocol::{MAX_DATAGRAM, RelayServer, SecretKey};
+use vera20k_relay_protocol::{MAX_DATAGRAM, RelayError, RelayServer, SecretKey};
+
+/// Aggregate operational counts only. No request, endpoint, room identity,
+/// authentication material or error body enters the relay's journal.
+#[derive(Default)]
+struct TrafficCounts {
+    received: u64,
+    forwarded: u64,
+    send_errors: u64,
+    malformed: u64,
+    authentication: u64,
+    expired: u64,
+    replay: u64,
+    unregistered: u64,
+    full: u64,
+    rate_limited: u64,
+    counter_exhausted: u64,
+}
+
+impl TrafficCounts {
+    fn reject(&mut self, error: RelayError) {
+        let count = match error {
+            RelayError::Malformed => &mut self.malformed,
+            RelayError::Authentication => &mut self.authentication,
+            RelayError::Expired => &mut self.expired,
+            RelayError::Replay => &mut self.replay,
+            RelayError::Unregistered => &mut self.unregistered,
+            RelayError::Full => &mut self.full,
+            RelayError::RateLimited => &mut self.rate_limited,
+            RelayError::CounterExhausted => &mut self.counter_exhausted,
+        };
+        *count += 1;
+    }
+
+    fn report(&self, seconds: u64, rooms: usize) {
+        eprintln!(
+            "VERA20k relay interval_s={seconds} rooms={rooms} received={} forwarded={} send_errors={} malformed={} authentication={} expired={} replay={} unregistered={} full={} rate_limited={} counter_exhausted={}",
+            self.received,
+            self.forwarded,
+            self.send_errors,
+            self.malformed,
+            self.authentication,
+            self.expired,
+            self.replay,
+            self.unregistered,
+            self.full,
+            self.rate_limited,
+            self.counter_exhausted,
+        );
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = load_key()?;
@@ -15,8 +65,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     socket.set_read_timeout(Some(Duration::from_secs(1)))?;
     let mut server = RelayServer::new(SecretKey::new(key), 1024);
     let mut buffer = [0u8; MAX_DATAGRAM + 1];
+    let mut counts = TrafficCounts::default();
+    let mut reported_at = Instant::now();
     eprintln!("VERA20k relay listening on {}", socket.local_addr()?);
     loop {
+        let elapsed = reported_at.elapsed().as_secs();
+        if elapsed >= 60 {
+            counts.report(elapsed, server.room_count());
+            counts = TrafficCounts::default();
+            reported_at = Instant::now();
+        }
         let (length, source) = match socket.recv_from(&mut buffer) {
             Ok(packet) => packet,
             Err(error)
@@ -31,19 +89,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Err(error) => return Err(error.into()),
         };
+        counts.received += 1;
         let SocketAddr::V4(source) = source else {
+            counts.malformed += 1;
             continue;
         };
         if length > MAX_DATAGRAM {
+            counts.malformed += 1;
             continue;
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         // Rejections expose no packet, key, ticket, address or player data.
         // Ordinary UDP loss is handled by the existing client reliable owner.
-        if let Ok(forward) = server.process(source, &buffer[..length], now) {
-            for datagram in forward {
-                let _ = socket.send_to(&datagram.bytes, datagram.endpoint);
+        match server.process(source, &buffer[..length], now) {
+            Ok(forward) => {
+                for datagram in forward {
+                    match socket.send_to(&datagram.bytes, datagram.endpoint) {
+                        Ok(_) => counts.forwarded += 1,
+                        Err(_) => counts.send_errors += 1,
+                    }
+                }
             }
+            Err(error) => counts.reject(error),
         }
     }
 }

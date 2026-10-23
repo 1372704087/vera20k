@@ -1408,6 +1408,7 @@ impl ApplicationHandler for App {
                 if state.frontend.screen == GameScreen::InGame
                     && !state.match_state.paused()
                     && !state.match_state.network_wait.dialog_open()
+                    && !crate::app::input::campaign_input::is_locked(state)
                 {
                     // VeraX: over the battlefield the wheel changes the view
                     // distance tier, anchored on the tactical centre. Over the

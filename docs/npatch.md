@@ -15,10 +15,10 @@ addresses like every other chain.
 
 ## Cross-extension compatibility
 
-The three capabilities — `ares`, `phobos`, `npatch` — are orthogonal and mixable:
+The four capabilities — `ares`, `phobos`, `npatch`, `verax` — are orthogonal and mixable:
 
 ```sh
-cargo run --release --bin vera20k --features ares,phobos,npatch
+cargo run --release --bin vera20k --features ares,phobos,npatch,verax
 ```
 
 Every implemented feature must keep working when the other capabilities are compiled in. A chain

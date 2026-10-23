@@ -1461,6 +1461,116 @@ pub(crate) fn apply_zoom(state: &mut AppState, delta_lines: f32) {
     state.match_state.input.zoom_target = new_target;
 }
 
+/// VeraX view-distance tiers. The window size never changes; the camera's
+/// world-per-pixel scale does, so the battlefield covers the tier's logical
+/// resolution at a 1280x800 reference frame while the frame stays the window's.
+///
+/// Wheel up selects the next smaller view distance (zoom in); wheel down
+/// selects the next larger one. Cycling clamps at both ends.
+#[cfg(feature = "verax")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ViewDistanceTier {
+    Small,
+    #[default]
+    Default,
+    Large,
+    Huge,
+}
+
+#[cfg(feature = "verax")]
+impl ViewDistanceTier {
+    pub(crate) const ALL: [Self; 4] = [Self::Small, Self::Default, Self::Large, Self::Huge];
+
+    /// Multiplier of the 1280x800 reference viewport.
+    pub(crate) const fn scale(self) -> f32 {
+        match self {
+            Self::Small => 0.8,
+            Self::Default => 1.0,
+            Self::Large => 1.25,
+            Self::Huge => 1.5,
+        }
+    }
+
+    /// Camera zoom that makes the viewport span `scale` times the window.
+    pub(crate) const fn zoom(self) -> f32 {
+        1.0 / self.scale()
+    }
+
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Small => "Small view",
+            Self::Default => "Default view",
+            Self::Large => "Large view",
+            Self::Huge => "Huge view",
+        }
+    }
+
+    /// The tier whose zoom is closest to `zoom`; a save or a mid-animation
+    /// value keeps the cycle anchored to a known step.
+    fn nearest(zoom: f32) -> Self {
+        Self::ALL
+            .into_iter()
+            .min_by(|a, b| (a.zoom() - zoom).abs().total_cmp(&(b.zoom() - zoom).abs()))
+            .unwrap_or(Self::Default)
+    }
+
+    /// One step toward a larger view distance, clamped at `Huge`.
+    fn larger(self) -> Self {
+        match self {
+            Self::Small => Self::Default,
+            Self::Default | Self::Large => Self::Large,
+            Self::Huge => Self::Huge,
+        }
+    }
+
+    /// One step toward a smaller view distance, clamped at `Small`.
+    fn smaller(self) -> Self {
+        match self {
+            Self::Small => Self::Small,
+            Self::Default => Self::Small,
+            Self::Large | Self::Huge => Self::Large,
+        }
+    }
+}
+
+/// Apply one mouse-wheel notch's VeraX view-distance step, anchored on the
+/// tactical viewport's centre so the battlefield grows or shrinks around it.
+/// A wheel-up notch (`lines > 0`) selects the smaller view distance.
+#[cfg(feature = "verax")]
+pub(crate) fn cycle_view_distance(state: &mut AppState, lines: f32) {
+    if lines == 0.0 {
+        return;
+    }
+    let current = ViewDistanceTier::nearest(state.match_state.input.zoom_target);
+    let next = if lines > 0.0 {
+        current.smaller()
+    } else {
+        current.larger()
+    };
+    if next == current {
+        return;
+    }
+
+    let (width, height) = tactical_viewport_size(state);
+    let anchor = [width as f32 / 2.0, height as f32 / 2.0];
+    let zoom = state.match_state.input.zoom_level;
+    state.match_state.input.zoom_anchor_world = [
+        anchor[0] / zoom + state.match_state.input.camera_x,
+        anchor[1] / zoom + state.match_state.input.camera_y,
+    ];
+    state.match_state.input.zoom_anchor_screen = anchor;
+    state.match_state.input.zoom_target = next.zoom();
+}
+
+/// Whether the cursor is over the battlefield rather than the sidebar column
+/// or the bottom command strip, in the frame pixels the cursor uses.
+#[cfg(feature = "verax")]
+pub(crate) fn cursor_over_battlefield(state: &AppState) -> bool {
+    let (width, height) = tactical_viewport_size(state);
+    let (x, y) = state.cursor_position();
+    x < width as f32 && y < height as f32
+}
+
 /// Animate zoom_level toward zoom_target each frame, adjusting the camera so
 /// the anchor world point stays at the anchor screen position.
 pub(crate) fn animate_zoom(state: &mut AppState) {
@@ -2788,6 +2898,35 @@ mod fast_scroll_tests;
 #[cfg(test)]
 #[path = "camera_bounds_tests.rs"]
 mod camera_bounds_tests;
+
+#[cfg(all(test, feature = "verax"))]
+#[test]
+fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
+    let expected = [
+        (0.8, 1024, 640),
+        (1.0, 1280, 800),
+        (1.25, 1600, 1000),
+        (1.5, 1920, 1200),
+    ];
+    for (tier, (scale, width, height)) in ViewDistanceTier::ALL.into_iter().zip(expected) {
+        assert_eq!(tier.scale(), scale, "{}", tier.name());
+        assert_eq!((1280.0 * tier.scale()) as u32, width, "{}", tier.name());
+        assert_eq!((800.0 * tier.scale()) as u32, height, "{}", tier.name());
+        assert!(
+            (tier.zoom() - 1.0 / tier.scale()).abs() < f32::EPSILON,
+            "{}",
+            tier.name()
+        );
+    }
+    assert_eq!(ViewDistanceTier::Small.smaller(), ViewDistanceTier::Small);
+    assert_eq!(ViewDistanceTier::Small.larger(), ViewDistanceTier::Default);
+    assert_eq!(ViewDistanceTier::Huge.larger(), ViewDistanceTier::Huge);
+    assert_eq!(ViewDistanceTier::Huge.smaller(), ViewDistanceTier::Large);
+    // The cycle reads the tier nearest a saved or mid-animation zoom.
+    assert_eq!(ViewDistanceTier::nearest(0.79), ViewDistanceTier::Large);
+    assert_eq!(ViewDistanceTier::nearest(1.0), ViewDistanceTier::Default);
+    assert_eq!(ViewDistanceTier::nearest(1.2), ViewDistanceTier::Small);
+}
 
 /// Half a tile on **both** axes from the tile corner — the Y half is the one
 /// that used to be missing, which put every camera move 15 px north of the

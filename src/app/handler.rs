@@ -1409,10 +1409,19 @@ impl ApplicationHandler for App {
                     && !state.match_state.paused()
                     && !state.match_state.network_wait.dialog_open()
                 {
+                    // VeraX: over the battlefield the wheel changes the view
+                    // distance tier, anchored on the tactical centre. Over the
+                    // sidebar and the bottom strip it keeps gamemd's native
+                    // SidebarUp/SidebarDown routing.
+                    #[cfg(feature = "verax")]
+                    if crate::app::input::camera::cursor_over_battlefield(state) {
+                        crate::app::input::camera::cycle_view_distance(state, lines);
+                        state.platform.window.request_redraw();
+                        return;
+                    }
                     // Every wheel notch scrolls the active build strip by one
-                    // row, wherever the cursor is. gamemd routes the wheel
-                    // message straight to the SidebarUp / SidebarDown commands
-                    // and has no world zoom for it to reach.
+                    // row. gamemd routes the wheel message straight to the
+                    // SidebarUp / SidebarDown commands and has no world zoom.
                     dispatch::sidebar_wheel_scroll(state, lines);
                 }
             }

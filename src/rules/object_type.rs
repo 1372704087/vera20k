@@ -588,6 +588,17 @@ pub struct ObjectType {
     /// caps a positive limit by the house's tracked count of the type and a
     /// non-positive one by the count it has produced.
     pub build_limit: i32,
+    /// `[BuildingTypes] AIPlanningCount=` — the NPSE count of plan nodes a
+    /// computer house's base plan gives this building. The techno reader
+    /// extension chain reads it with the current field as its default and
+    /// stores the result through `al` (`0xC2E223..0xC2E237`), so the
+    /// effective range is one unsigned byte; the extension constructor
+    /// zeroes it (`0xC3039B`), so absent means the stock single node. The
+    /// `AI_RecalcBuildOptions` append loop (`0x5056C1` hook, cave
+    /// `0xC2C331..0xC2C367`) re-enters the candidate head until its
+    /// per-candidate counter reaches the count, so a positive count plans
+    /// that many consecutive nodes of the type.
+    pub ai_planning_count: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,
     /// Requires spy infiltration of a Soviet Battle Lab to unlock.
@@ -3110,6 +3121,7 @@ impl ObjectType {
             prerequisite_override: Vec::new(),
             // ReadInt over the constructor's 0x7FFFFFFF (`0x00713152`).
             build_limit: section.read_int("BuildLimit", i32::MAX),
+            ai_planning_count: building_int(section, category, "AIPlanningCount") & 0xFF,
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),

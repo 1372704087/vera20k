@@ -213,17 +213,23 @@ pub(crate) fn recalc_base_plan(
         priority.len() >= 3,
         "active Recalc priority contains its three native seed entries"
     );
+    // The NPSE per-type `AIPlanningCount=` duplicates a planned type's node
+    // at its own position: the append loop's skip merge (`0x5056C1` ->
+    // cave `0xC2C331..0xC2C367`) re-enters the candidate head
+    // (`0x00505544`) until the per-candidate counter reaches the type's
+    // byte-sized count, so a positive count appends the candidate that many
+    // times, consecutively, and 0 keeps the stock single node.
+    let planning_repeats = |candidate: &ObjectType| -> usize {
+        let count = candidate.ai_planning_count;
+        if count > 1 { count as usize } else { 1 }
+    };
     let mut final_values = Vec::with_capacity(priority.len());
-    final_values.extend(
-        priority[..3]
-            .iter()
-            .map(|candidate| candidate.base_plan_type_index),
-    );
-    final_values.extend(
-        priority[3..]
-            .iter()
-            .map(|candidate| candidate.base_plan_type_index),
-    );
+    final_values.extend(priority[..3].iter().flat_map(|candidate| {
+        std::iter::repeat(candidate.base_plan_type_index).take(planning_repeats(candidate))
+    }));
+    final_values.extend(priority[3..].iter().flat_map(|candidate| {
+        std::iter::repeat(candidate.base_plan_type_index).take(planning_repeats(candidate))
+    }));
 
     let defense_count = match side_index {
         0 => rules.allied_base_defense_counts[difficulty.table_index()],
@@ -425,6 +431,62 @@ mod tests {
             .iter()
             .map(|node| node.type_or_control)
             .collect()
+    }
+
+    #[test]
+    fn ai_planning_count_plans_the_type_repeatedly() {
+        let rules = basic_rules(
+            "7=TEST\n\
+             [TEST]\n\
+             Owner=Americans,Russians,YuriCountry\n\
+             AIBuildThis=yes\nTechLevel=1\nFoundation=1x1\nAIPlanningCount=3\n",
+            "",
+        );
+        let (plan, _) =
+            generated_values(&rules, "Americans", 0, HouseDifficulty::Normal, 0xC057_0F01);
+        let values = values(&plan);
+        let test_index = rules.object("TEST").unwrap().base_plan_type_index;
+        let first = values
+            .iter()
+            .position(|value| *value == test_index)
+            .expect("the counted type is planned");
+        assert_eq!(
+            values.iter().filter(|value| **value == test_index).count(),
+            3,
+            "the plan holds AIPlanningCount nodes of the type"
+        );
+        assert!(
+            values[first..first + 3]
+                .iter()
+                .all(|value| *value == test_index),
+            "the repeats are consecutive at the type's own position"
+        );
+        let con_index = rules.object("CON").unwrap().base_plan_type_index;
+        assert_eq!(
+            values.iter().filter(|value| **value == con_index).count(),
+            1,
+            "a type without the key keeps the stock single node"
+        );
+    }
+
+    #[test]
+    fn without_ai_planning_count_a_planned_type_stays_single() {
+        let rules = basic_rules(
+            "7=TEST\n\
+             [TEST]\n\
+             Owner=Americans,Russians,YuriCountry\n\
+             AIBuildThis=yes\nTechLevel=1\nFoundation=1x1\n",
+            "",
+        );
+        assert_eq!(rules.object("TEST").unwrap().ai_planning_count, 0);
+        let (plan, _) =
+            generated_values(&rules, "Americans", 0, HouseDifficulty::Normal, 0xC057_0F01);
+        let values = values(&plan);
+        let test_index = rules.object("TEST").unwrap().base_plan_type_index;
+        assert_eq!(
+            values.iter().filter(|value| **value == test_index).count(),
+            1
+        );
     }
 
     #[test]

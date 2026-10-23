@@ -397,52 +397,46 @@ fn live_object_context<'a>(
     ))
 }
 
-/// `TerrainClass::Read_Map_Section` — construct one retained terrain object per
-/// map `[Terrain]` entry.
+/// Compatibility construction without a native fresh-map prefix.
 ///
-/// gamemd reads `[Terrain]` while the map sections are being walked, *before*
-/// `[Units]`, `[Aircraft]`, `[Infantry]` and `[Structures]`, so every tree
-/// already owns its cell (occupation bits committed) by the time the first map
-/// object is placed. Callers must run this before the map-entity spawn pass.
-///
-/// Returns the number of terrain objects constructed.
+/// Admitted authored/generated scenarios use the same constructor below with
+/// an explicit mode, retaining every native numeric identity.
 pub fn construct_terrain_objects(
     sim: &mut crate::sim::world::Simulation,
     terrain_objects: &[crate::map::overlay::TerrainObject],
     rules: &crate::rules::ruleset::RuleSet,
     snow_theater: bool,
 ) -> usize {
-    construct_terrain_objects_inner(sim, terrain_objects, rules, snow_theater, None)
-        .expect("compatibility Terrain construction does not require a native-ID cursor")
-}
-
-/// Fresh-authored variant. Each successful Terrain constructor spends and
-/// retains its native ID, projects its exact occupation into the same live
-/// CellClass grid, completes that immediate Recalc result, and only then clears
-/// a same-cell resource overlay without a second Recalc. The final authored
-/// Init sweep repairs the post-clear attributes.
-pub(crate) fn construct_authored_terrain_objects(
-    sim: &mut crate::sim::world::Simulation,
-    terrain_objects: &[crate::map::overlay::TerrainObject],
-    rules: &crate::rules::ruleset::RuleSet,
-    snow_theater: bool,
-    overlay_registry: &OverlayTypeRegistry,
-) -> Result<usize, crate::sim::native_identity::NativeMapTubeConstructionError> {
-    construct_terrain_objects_inner(
+    construct_terrain_objects_with_mode(
         sim,
         terrain_objects,
         rules,
         snow_theater,
-        Some(overlay_registry),
+        TerrainConstructionMode::Compatibility,
     )
+    .expect("compatibility Terrain construction does not require a native-ID cursor")
 }
 
-fn construct_terrain_objects_inner(
+/// Native identity admission is independent of authored Unlimbo resource
+/// clearing. RMG5A2C05 constructs a drill before painting its resource, so
+/// generated materialization must retain that already-painted cell.
+#[derive(Clone, Copy)]
+pub(crate) enum TerrainConstructionMode<'a> {
+    Compatibility,
+    Generated,
+    Authored(&'a OverlayTypeRegistry),
+}
+
+/// One TerrainCtor71BB90 port for every source. Create_ID at71BC19 precedes
+/// zero-cell/Unlimbo admission, including a later failed placement. Authored
+/// input completes Recalc then clears a source resource; RMG has already run
+/// that suffix before painting. Both spend the same numeric identity.
+pub(crate) fn construct_terrain_objects_with_mode(
     sim: &mut crate::sim::world::Simulation,
     terrain_objects: &[crate::map::overlay::TerrainObject],
     rules: &crate::rules::ruleset::RuleSet,
     snow_theater: bool,
-    authored_overlay_registry: Option<&OverlayTypeRegistry>,
+    mode: TerrainConstructionMode<'_>,
 ) -> Result<usize, crate::sim::native_identity::NativeMapTubeConstructionError> {
     let old_terrain_ids = sim
         .terrain_objects
@@ -461,13 +455,15 @@ fn construct_terrain_objects_inner(
             continue;
         };
         let type_ref = sim.interner.intern(&obj.name);
-        // TerrainClass construction reaches AbstractClass::Create_ID
-        // @ 0x00410230, which draws from ScenarioClass::NextUniqueID
-        // @ 0x0068BCB0 just like every other modeled runtime object.
+        // TerrainCtor71BC19 -> AbstractCreate_ID410230 -> Scenario68BCB0,
+        // original instructions: one numeric increment, no RNG draw.
         let stable_id = sim.substrate.allocate_stable_id();
-        let native_unique_id = authored_overlay_registry
-            .map(|_| sim.next_native_load_id())
-            .transpose()?;
+        let native_unique_id = match mode {
+            TerrainConstructionMode::Compatibility => None,
+            TerrainConstructionMode::Generated | TerrainConstructionMode::Authored(_) => {
+                Some(sim.next_native_load_id()?)
+            }
+        };
         let terrain_state = TerrainObjectState::new(
             stable_id,
             type_ref,
@@ -493,7 +489,7 @@ fn construct_terrain_objects_inner(
             (obj.rx, obj.ry),
             occupation_bits,
         );
-        if let Some(overlay_registry) = authored_overlay_registry {
+        if let TerrainConstructionMode::Authored(overlay_registry) = mode {
             let terrain_snapshot = sim
                 .terrain_objects
                 .objects()
@@ -1535,8 +1531,14 @@ mod tests {
             );
             sim.substrate.raw_cell_occupation.mark_ground(2, 2, 0xA3);
             assert_eq!(
-                construct_authored_terrain_objects(&mut sim, &objects, &rules, snow, &registry)
-                    .unwrap(),
+                construct_terrain_objects_with_mode(
+                    &mut sim,
+                    &objects,
+                    &rules,
+                    snow,
+                    TerrainConstructionMode::Authored(&registry),
+                )
+                .unwrap(),
                 1
             );
             let id = sim.terrain_objects.cell_index()[&(2, 2)];
@@ -1663,8 +1665,14 @@ mod tests {
         let before_id = sim.native_unique_ids.as_ref().unwrap().current_raw();
         let rng = sim.scenario_rng.native_state_hex();
         assert_eq!(
-            construct_authored_terrain_objects(&mut sim, &objects, &rules, false, &registry,)
-                .unwrap(),
+            construct_terrain_objects_with_mode(
+                &mut sim,
+                &objects,
+                &rules,
+                false,
+                TerrainConstructionMode::Authored(&registry),
+            )
+            .unwrap(),
             2
         );
         let zero = sim
@@ -1824,7 +1832,7 @@ mod tests {
             .expect("native cursor")
             .current_raw();
 
-        let constructed = construct_authored_terrain_objects(
+        let constructed = construct_terrain_objects_with_mode(
             &mut sim,
             &[TerrainObject {
                 rx: 2,
@@ -1833,7 +1841,7 @@ mod tests {
             }],
             &rules,
             false,
-            &overlays,
+            TerrainConstructionMode::Authored(&overlays),
         )
         .expect("authored Terrain construction");
 

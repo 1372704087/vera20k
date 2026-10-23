@@ -442,7 +442,7 @@ pub(crate) fn populate_staged_app_scenario<F>(
     descriptor: &crate::sim::scenario_session::ScenarioDescriptor,
     generated_inits: Option<&crate::sim::world::GeneratedTechnoInitTable>,
     initialize_houses_before_objects: F,
-) -> Result<(), crate::sim::world::GeneratedTechnoInitError>
+) -> Result<(), crate::sim::runtime::ScenarioPopulationError>
 where
     F: FnOnce(&mut Simulation),
 {

@@ -4176,7 +4176,7 @@ impl TacticalCaptureSession {
             let terrain_members: Vec<_> = sim.terrain_objects().members_at(at).map(|id| {
                 let object = sim.terrain_objects().get(id).expect("indexed Terrain remains represented");
                 let animation = sim.terrain_objects().animations().get(&id);
-                json!({"id": id, "name": sim.interner().resolve(object.type_ref()),
+                json!({"id": id, "native_id": object.native_unique_id(), "name": sim.interner().resolve(object.type_ref()),
                     "frame": animation.map(|animation| animation.current_frame()),
                     "active": animation.map(|animation| animation.is_active())})
             }).collect();

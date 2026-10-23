@@ -10,19 +10,23 @@ end;
 
 procedure RunPickerTests();
 var
-  Candidates: TArrayOfString;
+  Candidates, SavedInstallations: TGameInstallations;
   First, Second, Manual, ReportText, TestKey: String;
 begin
   First := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\尤里 one'));
   Second := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\game two'));
   Manual := NormalizeGameDir(ExpandConstant('{src}\picker fixtures\manual folder'));
   AssertPicker(ForceDirectories(First) and ForceDirectories(Second), 'create fixtures');
-  AddCandidate(Candidates, First);
-  AddCandidate(Candidates, Uppercase(First) + '\.\');
-  AddCandidate(Candidates, Second);
-  AddCandidate(Candidates, First + '\');
-  AddCandidate(Candidates, First + '\not present');
+  AddCandidate(Candidates, First, gsManual);
+  AddCandidate(Candidates, Uppercase(First) + '\.\', gsDetected);
+  AddCandidate(Candidates, Second, gsEAApp);
+  AddCandidate(Candidates, First + '\', gsSteam);
+  AddCandidate(Candidates, First, gsManual);
+  AddCandidate(Candidates, First, gsDetected);
+  AddCandidate(Candidates, First + '\not present', gsSteam);
   AssertPicker(GetArrayLength(Candidates) = 2, 'dedup, existing-only, damaged-copy discovery');
+  AssertPicker(Candidates[0].Source = gsSteam, 'duplicate keeps storefront over manual/generic discovery');
+  AssertPicker(Candidates[1].Source = gsEAApp, 'EA discovery is retained');
   TestKey := 'Software\VERA20K-Picker-Tests';
   try
     AssertPicker(RegWriteStringValue(HKCU, TestKey, 'InstallPath', First), 'write test folder registration');
@@ -34,12 +38,10 @@ begin
     RegDeleteKeyIncludingSubkeys(HKCU, TestKey);
   end;
 
-  SetArrayLength(Installations, 2);
-  Installations[0].Folder := First;
+  Installations := Candidates;
   Installations[0].Language := '0';
   Installations[0].RequiredIssues := 'cameomd.mix: unavailable';
   Installations[0].OptionalIssues := '';
-  Installations[1].Folder := Second;
   Installations[1].Language := '2';
   Installations[1].RequiredIssues := '';
   Installations[1].OptionalIssues := 'test-song.wav: unavailable';
@@ -50,8 +52,9 @@ begin
   AssertPicker(PreferredGameDir(Manual) = Manual, 'explicit undetected choice preserved');
   ReportText := InstallationReport(Installations[1]);
   AssertPicker((Pos(Second, ReportText) > 0) and
+    (Pos(CustomMessage('GameSourceEAApp'), ReportText) > 0) and
     (Pos(CustomMessage('GameLanguage2'), ReportText) > 0) and
-    (Pos('test-song.wav', ReportText) > 0), 'path, CSF language, optional missing content');
+    (Pos('test-song.wav', ReportText) > 0), 'path, source, CSF language, optional missing content');
   AssertPicker(Pos('cameomd.mix', InstallationReport(Installations[0])) > 0, 'required missing content');
   AssertPicker(GameLanguageName('') = CustomMessage('GameLanguageUnknown'), 'unknown language');
   AssertPicker(GameLanguageName('10') = CustomMessage('GameLanguageUnknown'), 'explicit unknown language');
@@ -78,13 +81,27 @@ begin
   AssertPicker(GameInstallList.Checked[1], 'recommended radio selection');
   AssertPicker(Pos(CustomMessage('GameInstallRecommended'), GameInstallList.ItemSubItem[1]) > 0,
     'recommended row annotation');
+  AssertPicker((Pos(CustomMessage('GameSourceSteam'), GameInstallList.ItemSubItem[0]) > 0) and
+    (Pos(CustomMessage('GameSourceEAApp'), GameInstallList.ItemSubItem[1]) > 0), 'storefront row labels');
   AssertPicker(GameInstallList.Height >= ScaleY(48), 'list has usable height');
   AssertPicker(GameInstallDetails.Height >= ScaleY(48), 'details have usable height');
-  AssertPicker(GameInstallDetails.Top + GameInstallDetails.Height <= GameDirPage.SurfaceHeight,
-    'details fit standard wizard');
+  AssertPicker(GameInstallDetails.Top + GameInstallDetails.Height + ScaleY(8) <= GameInstallNote.Top,
+    'note stays below picker details');
+  AssertPicker((GameInstallNote.Height > 0) and
+    (GameInstallNote.Top + GameInstallNote.Height <= GameDirPage.SurfaceHeight),
+    'reassurance note fits standard wizard');
   GameDirPage.Values[0] := Manual;
   AssertPicker(not GameInstallList.Checked[0] and not GameInstallList.Checked[1], 'manual edit clears radio');
-  AssertPicker(GameInstallDetails.Text = CustomMessage('GameInstallManual'), 'manual edit clears stale content');
+  AssertPicker((Pos(CustomMessage('GameInstallManual'), GameInstallDetails.Text) > 0) and
+    (Pos(CustomMessage('GameSourceManual'), GameInstallDetails.Text) > 0) and
+    (Pos('test-song.wav', GameInstallDetails.Text) = 0), 'manual label replaces stale content');
+  SavedInstallations := Installations;
+  SetArrayLength(Installations, 0);
+  RefreshInstallationList();
+  AssertPicker(Pos(CustomMessage('GameSourceManual'), GameInstallDetails.Text) > 0,
+    'manual selection is labelled when no installation was detected');
+  Installations := SavedInstallations;
+  RefreshInstallationList();
   UpdatingSelection := True;
   GameInstallList.Checked[0] := True;
   UpdatingSelection := False;

@@ -74,6 +74,12 @@ english.GameInstallOptional=Ready; optional content unavailable
 english.GameInstallMissing=Required files missing or unreadable
 english.GameInstallRecommended=Recommended
 english.GameInstallLanguage=Language: %1
+english.GameInstallSource=Source: %1
+english.GameSourceSteam=Steam
+english.GameSourceEAApp=EA App
+english.GameSourceManual=Manually selected
+english.GameSourceDetected=Detected installation
+english.GameInstallUntouched=Uses your existing game files. Your original installation stays untouched.
 english.GameInstallChecking=Checking detected installations...
 english.GameInstallChoose=Select an installation above to see its missing content. You can also browse for another folder.
 english.GameInstallManual=Click Next to check the chosen folder.
@@ -109,6 +115,12 @@ chinesesimplified.GameInstallOptional=可以使用；部分可选内容不可用
 chinesesimplified.GameInstallMissing=必需文件缺失或无法读取
 chinesesimplified.GameInstallRecommended=推荐
 chinesesimplified.GameInstallLanguage=语言：%1
+chinesesimplified.GameInstallSource=来源：%1
+chinesesimplified.GameSourceSteam=Steam
+chinesesimplified.GameSourceEAApp=EA App
+chinesesimplified.GameSourceManual=手动选择
+chinesesimplified.GameSourceDetected=检测到的安装
+chinesesimplified.GameInstallUntouched=使用您现有的游戏文件，不会改动原版游戏安装。
 chinesesimplified.GameInstallChecking=正在检查检测到的游戏安装……
 chinesesimplified.GameInstallChoose=选择上方的安装可查看缺失内容，也可以浏览其他文件夹。
 chinesesimplified.GameInstallManual=点击“下一步”检查所选文件夹。
@@ -155,16 +167,20 @@ Filename: "{app}\vera20k.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProg
 
 [Code]
 type
+  TGameSource = (gsManual, gsDetected, gsSteam, gsEAApp);
   TGameInstallation = record
     Folder, Language, RequiredIssues, OptionalIssues: String;
+    Source: TGameSource;
   end;
+  TGameInstallations = array of TGameInstallation;
 
 var
   GameDirPage: TInputDirWizardPage;
   GameCheckPage: TOutputMsgMemoWizardPage;
   GameInstallList: TNewCheckListBox;
   GameInstallDetails: TNewMemo;
-  Installations: array of TGameInstallation;
+  GameInstallNote: TNewStaticText;
+  Installations: TGameInstallations;
   RecommendedInstall: Integer;
   InstallationsScanned, UpdatingSelection: Boolean;
   RequiredIssues, OptionalIssues: String;
@@ -202,7 +218,7 @@ begin
   end;
 end;
 
-procedure AddCandidate(var Candidates: TArrayOfString; Dir: String);
+procedure AddCandidate(var Candidates: TGameInstallations; Dir: String; Source: TGameSource);
 var
   I, Count: Integer;
 begin
@@ -213,18 +229,26 @@ begin
     Exit;
   Count := GetArrayLength(Candidates);
   for I := 0 to Count - 1 do
-    if CompareText(Candidates[I], Dir) = 0 then
+    if CompareText(Candidates[I].Folder, Dir) = 0 then
+    begin
+      { Keep a known source when an explicit/previous path names the same copy.
+        Only Steam/EA discovery identifies a storefront; never guess by name. }
+      if ((Candidates[I].Source = gsManual) and (Source <> gsManual)) or
+        ((Candidates[I].Source = gsDetected) and (Source in [gsSteam, gsEAApp])) then
+        Candidates[I].Source := Source;
       Exit;
+    end;
   SetArrayLength(Candidates, Count + 1);
-  Candidates[Count] := Dir;
+  Candidates[Count].Folder := Dir;
+  Candidates[Count].Source := Source;
 end;
 
 { A machine-wide entry, in the registry view of 32-bit programs, then 64-bit ones. }
-procedure AddMachineEntry(var Candidates: TArrayOfString; SubKey, ValueName: String;
-  IsExecutable: Boolean);
+procedure AddMachineEntry(var Candidates: TGameInstallations; SubKey, ValueName: String;
+  IsExecutable: Boolean; Source: TGameSource);
 begin
-  AddCandidate(Candidates, RegistryDir(HKLM32, SubKey, ValueName, IsExecutable));
-  AddCandidate(Candidates, RegistryDir(HKLM64, SubKey, ValueName, IsExecutable));
+  AddCandidate(Candidates, RegistryDir(HKLM32, SubKey, ValueName, IsExecutable), Source);
+  AddCandidate(Candidates, RegistryDir(HKLM64, SubKey, ValueName, IsExecutable), Source);
 end;
 
 { The folder of a `"path"  "<folder>"` line of Steam's libraryfolders.vdf, with
@@ -251,7 +275,7 @@ end;
   The libraries are Steam's own folder and each "path" of its
   steamapps\libraryfolders.vdf, the files OpenRA's SteamSourceResolver reads.
   Steam names its folder with forward slashes in HKCU and backslashes in HKLM. }
-procedure AddSteamLibraries(var Candidates: TArrayOfString; Steam: String);
+procedure AddSteamLibraries(var Candidates: TGameInstallations; Steam: String);
 var
   Lines: TArrayOfString;
   I: Integer;
@@ -261,7 +285,7 @@ begin
     Exit;
   StringChangeEx(Steam, '/', '\', True);
   Log('Steam folder: ' + Steam);
-  AddCandidate(Candidates, AddBackslash(Steam) + 'steamapps\common\Command & Conquer Red Alert II');
+  AddCandidate(Candidates, AddBackslash(Steam) + 'steamapps\common\Command & Conquer Red Alert II', gsSteam);
   if LoadStringsFromFile(AddBackslash(Steam) + 'steamapps\libraryfolders.vdf', Lines) then
     for I := 0 to GetArrayLength(Lines) - 1 do
     begin
@@ -269,36 +293,36 @@ begin
       if Folder <> '' then
       begin
         Log('Steam library: ' + Folder);
-        AddCandidate(Candidates, AddBackslash(Folder) + 'steamapps\common\Command & Conquer Red Alert II');
+        AddCandidate(Candidates, AddBackslash(Folder) + 'steamapps\common\Command & Conquer Red Alert II', gsSteam);
       end;
     end;
 end;
 
 { Collect every existing known installation, including incomplete copies.
   Normalize and deduplicate registry views, Steam libraries and default paths. }
-function DetectGameDirs(): TArrayOfString;
+function DetectGameDirs(): TGameInstallations;
 var
-  Candidates: TArrayOfString;
+  Candidates: TGameInstallations;
 begin
-  AddCandidate(Candidates, ExpandConstant('{param:GAMEDIR|}'));
-  AddCandidate(Candidates, GetPreviousData('GameDir', ''));
-  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Red Alert 2', 'InstallPath', True);
-  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Yuri''s Revenge', 'InstallPath', True);
-  AddMachineEntry(Candidates, 'Software\Electronic Arts\EA Games\Command and Conquer The First Decade', 'r2_folder', False);
-  AddMachineEntry(Candidates, 'Software\EA Games\Command and Conquer Red Alert II', 'Install Dir', False);
+  AddCandidate(Candidates, ExpandConstant('{param:GAMEDIR|}'), gsManual);
+  AddCandidate(Candidates, GetPreviousData('GameDir', ''), gsManual);
+  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Red Alert 2', 'InstallPath', True, gsDetected);
+  AddMachineEntry(Candidates, 'SOFTWARE\Westwood\Yuri''s Revenge', 'InstallPath', True, gsDetected);
+  AddMachineEntry(Candidates, 'Software\Electronic Arts\EA Games\Command and Conquer The First Decade', 'r2_folder', False, gsDetected);
+  AddMachineEntry(Candidates, 'Software\EA Games\Command and Conquer Red Alert II', 'Install Dir', False, gsEAApp);
   AddSteamLibraries(Candidates, RegistryDir(HKCU, 'Software\Valve\Steam', 'SteamPath', False));
   AddSteamLibraries(Candidates, RegistryDir(HKLM32, 'SOFTWARE\Valve\Steam', 'InstallPath', False));
   AddSteamLibraries(Candidates, RegistryDir(HKLM64, 'SOFTWARE\Valve\Steam', 'InstallPath', False));
-  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'));
-  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'));
-  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'));
-  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'));
-  AddCandidate(Candidates, ExpandConstant('{commonpf32}\Origin Games\Command and Conquer Red Alert II'));
-  AddCandidate(Candidates, ExpandConstant('{commonpf64}\Origin Games\Command and Conquer Red Alert II'));
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'), gsDetected);
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer The First Decade\Command & Conquer Red Alert(tm) II\RA2'), gsDetected);
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'), gsDetected);
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command & Conquer Die ersten 10 Jahre\Command & Conquer Red Alert(tm) II\RA2'), gsDetected);
+  AddCandidate(Candidates, ExpandConstant('{commonpf32}\Origin Games\Command and Conquer Red Alert II'), gsDetected);
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\Origin Games\Command and Conquer Red Alert II'), gsDetected);
   { The EA app's default games folder, with the folder name HasanForge/
     redalert2-recomp's README gives an EA app install. }
-  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command and Conquer Red Alert II'));
-  AddCandidate(Candidates, 'C:\Westwood\RA2');
+  AddCandidate(Candidates, ExpandConstant('{commonpf64}\EA Games\Command and Conquer Red Alert II'), gsEAApp);
+  AddCandidate(Candidates, 'C:\Westwood\RA2', gsDetected);
   Result := Candidates;
 end;
 
@@ -321,6 +345,7 @@ begin
 end;
 
 { Run our bundled reader, never a program from the selected game folder.
+  Refresh the report fields while keeping the source recorded at discovery.
   Required/optional policy and nested MIX resolution belong to the game. }
 procedure InspectGameFolder(Dir: String; var Installation: TGameInstallation);
 var
@@ -381,6 +406,17 @@ begin
   end;
 end;
 
+function GameSourceName(Source: TGameSource): String;
+begin
+  case Source of
+    gsManual: Result := CustomMessage('GameSourceManual');
+    gsSteam: Result := CustomMessage('GameSourceSteam');
+    gsEAApp: Result := CustomMessage('GameSourceEAApp');
+  else
+    Result := CustomMessage('GameSourceDetected');
+  end;
+end;
+
 function InstallationStatus(Installation: TGameInstallation): String;
 begin
   if Installation.RequiredIssues <> '' then
@@ -394,6 +430,7 @@ end;
 function InstallationReport(Installation: TGameInstallation): String;
 begin
   Result := Installation.Folder + #13#10 +
+    FmtMessage(CustomMessage('GameInstallSource'), [GameSourceName(Installation.Source)]) + #13#10 +
     FmtMessage(CustomMessage('GameInstallLanguage'), [GameLanguageName(Installation.Language)]) + #13#10 +
     InstallationStatus(Installation);
   if Installation.RequiredIssues <> '' then
@@ -456,7 +493,8 @@ begin
     GameInstallList.Items.Clear();
     for I := 0 to GetArrayLength(Installations) - 1 do
     begin
-      Summary := GameLanguageName(Installations[I].Language) + ' | ' +
+      Summary := GameSourceName(Installations[I].Source) + ' | ' +
+        GameLanguageName(Installations[I].Language) + ' | ' +
         InstallationStatus(Installations[I]);
       if I = RecommendedInstall then
         Summary := CustomMessage('GameInstallRecommended') + ' | ' + Summary;
@@ -467,10 +505,11 @@ begin
     GameInstallList.ItemIndex := Selected;
     if Selected >= 0 then
       GameInstallDetails.Text := InstallationReport(Installations[Selected])
-    else if GetArrayLength(Installations) = 0 then
+    else if (GetArrayLength(Installations) = 0) and (GameDir() = '') then
       GameInstallDetails.Text := CustomMessage('GameInstallNone')
     else
-      GameInstallDetails.Text := CustomMessage('GameInstallManual');
+      GameInstallDetails.Text := FmtMessage(CustomMessage('GameInstallSource'), [GameSourceName(gsManual)]) + #13#10 +
+        CustomMessage('GameInstallManual');
   finally
     UpdatingSelection := False;
   end;
@@ -504,7 +543,6 @@ end;
 
 procedure ScanGameInstallations();
 var
-  Candidates: TArrayOfString;
   I: Integer;
 begin
   if InstallationsScanned then
@@ -514,11 +552,10 @@ begin
   GameInstallDetails.Text := CustomMessage('GameInstallChecking');
   GameInstallDetails.Repaint();
   try
-    Candidates := DetectGameDirs();
-    SetArrayLength(Installations, GetArrayLength(Candidates));
-    for I := 0 to GetArrayLength(Candidates) - 1 do
+    Installations := DetectGameDirs();
+    for I := 0 to GetArrayLength(Installations) - 1 do
     begin
-      InspectGameFolder(Candidates[I], Installations[I]);
+      InspectGameFolder(Installations[I].Folder, Installations[I]);
       Log('Detected game installation: ' + InstallationReport(Installations[I]));
     end;
     Log('Detected game installations: ' + IntToStr(GetArrayLength(Installations)));
@@ -552,7 +589,15 @@ begin
   GameDirPage.Values[0] := NormalizeGameDir(ExpandConstant('{param:GAMEDIR|}'));
   GameDirPage.Edits[0].OnChange := @GameFolderEdited;
   ListTop := GameDirPage.Edits[0].Top + GameDirPage.Edits[0].Height + ScaleY(8);
-  Space := GameDirPage.SurfaceHeight - ListTop - ScaleY(8);
+  GameInstallNote := TNewStaticText.Create(GameDirPage);
+  GameInstallNote.Parent := GameDirPage.Surface;
+  GameInstallNote.AutoSize := False;
+  GameInstallNote.WordWrap := True;
+  GameInstallNote.Width := GameDirPage.SurfaceWidth;
+  GameInstallNote.Caption := CustomMessage('GameInstallUntouched');
+  GameInstallNote.AdjustHeight();
+  GameInstallNote.Top := GameDirPage.SurfaceHeight - GameInstallNote.Height;
+  Space := GameInstallNote.Top - ListTop - ScaleY(16);
   GameInstallList := TNewCheckListBox.Create(GameDirPage);
   GameInstallList.Parent := GameDirPage.Surface;
   GameInstallList.SetBounds(0, ListTop, GameDirPage.SurfaceWidth, Space div 2);
@@ -580,10 +625,14 @@ begin
   WizardForm.Cursor := crHourGlass;
   try
     { Recheck the chosen folder, including manual paths, before installation. }
+    Selected := FindInstallation(GameDir());
+    if Selected >= 0 then
+      Checked := Installations[Selected]
+    else
+      Checked.Source := gsManual;
     InspectGameFolder(GameDir(), Checked);
     if Checked.Folder <> '' then
     begin
-      Selected := FindInstallation(Checked.Folder);
       if Selected < 0 then
       begin
         Selected := GetArrayLength(Installations);

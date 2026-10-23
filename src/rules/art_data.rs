@@ -551,8 +551,6 @@ pub enum AnimAssetBindError {
     InvalidDamageFireOffset,
     #[error("required animation type [{0}] is absent from merged art data")]
     MissingAnimType(String),
-    #[error("required SHP for animation type [{0}] was not found")]
-    MissingShp(String),
     #[error("animation SHP [{name}] has an invalid signed frame count {count}")]
     InvalidFrameCount { name: String, count: i32 },
     #[error(
@@ -1589,10 +1587,24 @@ impl ArtRegistry {
         let image_id = self.resolve_anim_image_id(name);
         let candidates =
             anim_shp_candidates(Some(self), name, &image_id, theater_ext, theater_name);
-        let data = candidates
+        let Some(data) = candidates
             .iter()
             .find_map(|candidate| asset_manager.get_ref(candidate))
-            .ok_or_else(|| AnimAssetBindError::MissingShp(name.to_string()))?;
+        else {
+            // AnimTypeClass::LoadImageAndResolveFrameBounds427B50 retains a
+            // null GetImage result when both file lookups miss; ReadINI427D00
+            // still succeeds. Its loaded bounds stay zero before the explicit
+            // End/LoopEnd reads, including retained -1 lazy bounds. The absence
+            // of an image is not the absence of an AnimClass: Start/Middle may
+            // still spawn particles. Native controls: imageless_anim.json and
+            // the missing-image rows of anim_theater_flags.json.
+            let bound = self.anim_runtime_configs.get_mut(name).unwrap();
+            bound.raw_shp_frame_count = Some(0);
+            bound.raw_shp_height = Some(0);
+            bound.end = config.explicit_end.unwrap_or(0);
+            bound.loop_end = config.explicit_loop_end.unwrap_or(0);
+            return Ok(());
+        };
         let header_word = |offset: usize| {
             data.get(offset..offset + 2)
                 .map(|bytes| i32::from(i16::from_le_bytes([bytes[0], bytes[1]])))

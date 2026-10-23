@@ -2,7 +2,7 @@
 //!
 //! Distinct from `terrain_rules` (which parses LAND types like Clear/Rough/Water).
 //! These are per-object-type definitions for terrain decorations — currently
-//! all terrain objects contribute their theater-selected occupation byte to
+//! bound terrain objects contribute their theater-selected occupation byte to
 //! resolved terrain. Animation fields drive retained Terrain AI, including
 //! the TIBTRE (Tiberium Tree) midpoint's forced ore spread.
 
@@ -79,6 +79,17 @@ pub struct TerrainObjectType {
     snow_occupation_bits: i32,
     /// Art `Foundation=`. Defaults to 1x1 until art.ini merge patches it.
     pub foundation: String,
+    /// TerrainType+2B8 is null after71DAF1, independently of index+298.
+    /// ReadINI71DF96 and saved Load71E22D bind that index's static list.
+    #[serde(default = "legacy_bound_terrain_field")]
+    occupy_list_bound: bool,
+    /// A reached resource request, not proof that a physical SHP exists.
+    #[serde(default = "legacy_bound_terrain_field")]
+    shape_requested: bool,
+}
+
+fn legacy_bound_terrain_field() -> bool {
+    true
 }
 
 impl TerrainObjectType {
@@ -96,14 +107,6 @@ impl TerrainObjectType {
         section: &IniSection,
         tree_strength: i32,
     ) -> Self {
-        let armor = section
-            .read_name("Armor", 0x80)
-            .unwrap_or("wood")
-            .to_ascii_lowercase();
-        // ReadDouble -> `FSTP dword [ESI+0x2A4]` (`0x0071E073`) over the
-        // constructor's zero (`0x0071DACD`).
-        let animation_probability =
-            section.read_double_to_float("AnimationProbability", NativeF32Bits::POSITIVE_ZERO);
         let mut read_state = TerrainTypeReadState::new();
         let mut image = crate::rules::object_image::ObjectImageState::new(name);
         read_state.read_pass(
@@ -113,8 +116,25 @@ impl TerrainObjectType {
             crate::rules::object_image::ImageTheater::Uninitialized,
             tree_strength,
         );
+        Self::from_retained(name, section, &read_state, &image)
+    }
 
-        Self {
+    /// Immutable projection of this family's actual retained body. A late
+    /// FindOrAllocate71E2A0 never reads an earlier same-named Rules/ART body.
+    pub(crate) fn from_retained(
+        name: &str,
+        section: &IniSection,
+        read_state: &TerrainTypeReadState,
+        image: &crate::rules::object_image::ObjectImageState,
+    ) -> Self {
+        let armor = section
+            .read_name("Armor", 0x80)
+            .unwrap_or("wood")
+            .to_ascii_lowercase();
+        let animation_probability =
+            section.read_double_to_float("AnimationProbability", NativeF32Bits::POSITIVE_ZERO);
+
+        let mut terrain = Self {
             name: name.to_string(),
             image_file: image.image().to_string(),
             theater: image.theater(),
@@ -147,7 +167,11 @@ impl TerrainObjectType {
             foundation: foundation::FOUNDATION_TABLE[usize::from(read_state.foundation)]
                 .name
                 .to_string(),
-        }
+            occupy_list_bound: read_state.has_occupy_list(),
+            shape_requested: image.theater() || !image.shp_loads().is_empty(),
+        };
+        read_state.project_into(&mut terrain, image);
+        terrain
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -168,6 +192,14 @@ impl TerrainObjectType {
 
     pub(crate) fn uses_theater_shape(&self) -> bool {
         self.theater
+    }
+
+    pub(crate) fn shape_requested(&self) -> bool {
+        self.shape_requested
+    }
+
+    pub fn has_occupy_list(&self) -> bool {
+        self.occupy_list_bound && foundation::foundation_dimensions(&self.foundation) != (0, 0)
     }
 
     pub fn armor_id(&self) -> crate::rules::armor::ArmorId {
@@ -208,6 +240,10 @@ pub(crate) struct TerrainRadarColorReadPass {
 pub(crate) struct TerrainTypeReadState {
     strength: i32,
     foundation: u8,
+    /// Missing in older processed saves: admitted reads already identify
+    /// their bound list. New constructor-only state explicitly retains null.
+    #[serde(default)]
+    occupy_list_bound: Option<bool>,
     #[serde(default)]
     reads: Vec<TerrainRadarColorReadPass>,
     is_logic: bool,
@@ -222,6 +258,7 @@ impl TerrainTypeReadState {
             // TerrainTypeCtor71DBAC overwrites ObjectType Strength to -1.
             strength: -1,
             foundation: foundation::DEFAULT_FOUNDATION_ID,
+            occupy_list_bound: Some(false),
             reads: Vec::new(),
             is_logic: true,
             is_veinhole: false,
@@ -261,6 +298,7 @@ impl TerrainTypeReadState {
         // miss clears the cache and permits lookup under the mutated name.
         let image_art = cached_art.unwrap_or_else(|| fixed_art.section_or_empty(image.image()));
         self.foundation = foundation::read_foundation(image_art, self.foundation);
+        self.occupy_list_bound = Some(true);
         // Original instructions: ObjectTypeClass::ReadINI5F9499..5F94C2
         // reads LegalTarget with its current value. TerrainTypeClass::ReadINI
         //71DEEA..71DF0C then reads IsVeinhole and, when true, clears IsLogic
@@ -297,7 +335,19 @@ impl TerrainTypeReadState {
         terrain.foundation = foundation::FOUNDATION_TABLE[usize::from(self.foundation)]
             .name
             .to_string();
+        terrain.occupy_list_bound = self.has_occupy_list();
+        terrain.shape_requested = image.theater() || !image.shp_loads().is_empty();
         terrain.radar_color_read_passes.clone_from(&self.reads);
+    }
+
+    fn has_occupy_list(&self) -> bool {
+        self.occupy_list_bound.unwrap_or(!self.reads.is_empty())
+    }
+
+    /// TerrainTypeLoad71E21D..71E22D rebinds the retained Foundation index;
+    /// it does not place any already saved Terrain instance into Cell content.
+    pub(crate) fn restore_occupy_list(&mut self) {
+        self.occupy_list_bound = Some(true);
     }
 
     pub(crate) fn validate_saved_state(&self) -> Result<(), crate::rules::error::RulesError> {

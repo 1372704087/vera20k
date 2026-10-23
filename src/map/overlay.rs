@@ -242,7 +242,10 @@ pub fn parse_terrain_objects(ini: &IniFile, signed_new_ini_format: i32) -> Vec<T
         let Some(name) = section.read_name(key, 0x80) else {
             continue;
         };
-        let name = name.to_uppercase();
+        // FindOrAllocate71E2D8 compares case-insensitively, but a new type's
+        // AbstractTypeCtor41088D retains the input spelling. The selected
+        // family member, not this reader, supplies the instance's identity.
+        let name = name.to_string();
 
         let ry: u16 = (pos / radix) as u16;
         let rx: u16 = (pos % radix) as u16;

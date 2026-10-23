@@ -112,6 +112,7 @@ impl TerrainAssetCatalog {
                 name,
                 TerrainShapeBinding {
                     filename: (count.is_some()
+                        && terrain.shape_requested()
                         && (phase == TerrainAssetLoadPhase::Fresh || terrain.uses_theater_shape()))
                     .then_some(filename),
                     frame_count: spawner.then_some(count).flatten(),

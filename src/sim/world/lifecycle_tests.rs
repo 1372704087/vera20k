@@ -5875,6 +5875,7 @@ fn gsi_05_02_mixed_fixture() -> (Simulation, [u64; 6]) {
             terrain
         },
         false,
+        true,
     );
     assert!(
         sim.register_terrain_object(terrain_id, crate::rules::ruleset::RuleSet::empty_for_test())
@@ -8594,6 +8595,7 @@ fn gsi_05_02_graph_restore_allows_static_terrain_and_requires_fired_objects() {
             terrain
         },
         false,
+        true,
     );
     terrain
         .restore_after_snapshot_load()

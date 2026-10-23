@@ -455,9 +455,10 @@ impl TerrainObjectStore {
             }
         }
         for (&id, object) in &self.objects {
-            if object.is_live() != seen.contains(&id) {
-                return Err(format!("Terrain {id} lifetime and cell membership differ"));
-            }
+            // TerrainTypeCtor71DA80 at71DAF1 leaves Occupy_List null;
+            // TerrainTypeOccupyList71DE40 returns a sentinel-only list while
+            // ObjectUnlimbo5F4EC0 still succeeds. CellLoad483B9F restores its own head;
+            // later TypeLoad binding must not invent missing membership.
             let mut links = BTreeSet::new();
             let mut next = object.next_in_cell;
             while let Some(link) = next {
@@ -532,18 +533,24 @@ impl TerrainObjectStore {
         self.membership_epoch = next_epoch;
     }
 
-    /// Only an Unlimbo'd constructor takes a cell; the null-cell constructor
-    /// retains its identity without Cell/Logic/Display admission (71BC34).
+    /// Unlimbo admits Cell content only when the current Type Occupy_List
+    /// visits it. A live ctor-only type has no Cell member (71DAF1/568432).
+    /// The null-cell constructor skips Display too (71BC34).
     pub(crate) fn insert_constructed(
         &mut self,
         mut terrain: TerrainObjectState,
         spawns_tiberium: bool,
+        occupy_list_bound: bool,
     ) {
         let cell = terrain.cell();
         terrain.spawns_tiberium = spawns_tiberium;
         let live = terrain.is_live();
         if live {
-            terrain.next_in_cell = self.cells.insert(cell, terrain.stable_id);
+            if occupy_list_bound {
+                terrain.next_in_cell = self.cells.insert(cell, terrain.stable_id);
+            }
+            // The same epoch invalidates the all-live Terrain neighbor halo,
+            // including live instances whose empty footprint adds no head.
             self.membership_epoch = self.membership_epoch.wrapping_add(1);
         }
         self.touched.note(terrain.stable_id, self.objects.len());
@@ -660,6 +667,7 @@ impl TerrainObjectStore {
         stable_id: u64,
         raw_occupation: &mut RawCellOccupationGrid,
         resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+        occupy_list_bound: bool,
     ) -> bool {
         let Some(snapshot) = self.objects.get(&stable_id).cloned() else {
             return false;
@@ -670,13 +678,18 @@ impl TerrainObjectStore {
 
         let source_cell = snapshot.cell();
         raw_occupation.clear_ground(source_cell.0, source_cell.1, TERRAIN_LIMBO_CLEAR_BIT);
-        self.unlink(stable_id);
-        unmark_terrain_raw_occupation(raw_occupation, source_cell, snapshot.occupation_bits);
-        if let Some(grid) = resolved_terrain {
-            let occupation = self
-                .id_at(source_cell)
-                .map(|id| self.objects[&id].occupation_bits);
-            grid.set_terrain_object_occupation(source_cell, occupation);
+        // MapPickUp56884C uses the CURRENT type list. A saved ctor-only
+        // TypeLoad71E22D binds1x1 without changing its saved Cell membership;
+        // RemoveContent47EAF7 still unmarks after failing to find that member.
+        if occupy_list_bound {
+            self.unlink(stable_id);
+            unmark_terrain_raw_occupation(raw_occupation, source_cell, snapshot.occupation_bits);
+            if let Some(grid) = resolved_terrain {
+                let occupation = self
+                    .id_at(source_cell)
+                    .map(|id| self.objects[&id].occupation_bits);
+                grid.set_terrain_object_occupation(source_cell, occupation);
+            }
         }
         if let Some(terrain) = self.objects.get_mut(&stable_id) {
             terrain.lifecycle = TerrainObjectLifecycle::Limbo;
@@ -697,6 +710,7 @@ impl TerrainObjectStore {
         stable_id: u64,
         raw_occupation: &mut RawCellOccupationGrid,
         resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+        occupy_list_bound: bool,
     ) -> bool {
         if !self
             .objects
@@ -705,7 +719,12 @@ impl TerrainObjectStore {
         {
             return false;
         }
-        self.limbo(stable_id, raw_occupation, resolved_terrain);
+        self.limbo(
+            stable_id,
+            raw_occupation,
+            resolved_terrain,
+            occupy_list_bound,
+        );
         self.objects.get_mut(&stable_id).unwrap().lifecycle = TerrainObjectLifecycle::Destroyed;
         true
     }
@@ -805,11 +824,17 @@ impl TerrainObjectStore {
         navigation_changed_cells: &mut Vec<(u16, u16)>,
         lethal: TerrainLethalDamage,
         resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+        occupy_list_bound: bool,
     ) -> bool {
         if !finalizing_terrain.contains(&lethal.stable_id) {
             return false;
         }
-        let finalized = self.uninit(lethal.stable_id, raw_occupation, resolved_terrain);
+        let finalized = self.uninit(
+            lethal.stable_id,
+            raw_occupation,
+            resolved_terrain,
+            occupy_list_bound,
+        );
         if finalized {
             if !navigation_changed_cells.contains(&lethal.cell) {
                 navigation_changed_cells.push(lethal.cell);
@@ -946,6 +971,7 @@ impl TerrainAreaState {
         &mut self,
         lethal: TerrainLethalDamage,
         resolved_terrain: Option<&mut ResolvedTerrainGrid>,
+        occupy_list_bound: bool,
     ) -> bool {
         self.store.finalize_lethal(
             &mut self.raw_occupation,
@@ -953,6 +979,7 @@ impl TerrainAreaState {
             &mut self.navigation_changed_cells,
             lethal,
             resolved_terrain,
+            occupy_list_bound,
         )
     }
 }
@@ -1031,7 +1058,12 @@ pub(crate) fn damage_terrain_object_at_cell(
             TerrainDamageResult::Damaged { remaining }
         }
         TerrainAreaReceiveResult::Lethal(lethal) => {
-            if area_state.finalize_lethal(lethal, resolved_terrain) {
+            let terrain = area_state.store.get(lethal.stable_id).unwrap();
+            let occupy_list_bound = rules
+                .terrain_object_type_case_insensitive(interner.resolve(terrain.type_ref()))
+                .unwrap()
+                .has_occupy_list();
+            if area_state.finalize_lethal(lethal, resolved_terrain, occupy_list_bound) {
                 TerrainDamageResult::Destroyed
             } else {
                 TerrainDamageResult::Ignored
@@ -1397,8 +1429,8 @@ mod tests {
             "nested Wood=yes C4 reentry must not receive or finalize twice"
         );
 
-        assert!(area.finalize_lethal(lethal, Some(&mut grid)));
-        assert!(!area.finalize_lethal(lethal, Some(&mut grid)));
+        assert!(area.finalize_lethal(lethal, Some(&mut grid), true));
+        assert!(!area.finalize_lethal(lethal, Some(&mut grid), true));
         assert!(!area.is_finalizing(stable_id));
         assert_eq!(area.navigation_changed_cells(), &[(1, 1)]);
         assert_eq!(

@@ -9590,6 +9590,7 @@ fn projectile_shrapnel_is_admitted_by_a_tree_heading_the_bullets_cell() {
     sim.terrain_objects.insert_constructed(
         crate::sim::terrain_object::TerrainObjectState::for_test(900, tree_type, 5, 5),
         false,
+        true,
     );
     assert_eq!(commit_shrapnel_at_5_5(&mut sim, &rules).len(), 1);
 }

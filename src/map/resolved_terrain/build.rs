@@ -355,12 +355,14 @@ impl ResolvedTerrainGrid {
             .then_some(map.terrain_objects.iter())
             .into_iter()
             .flatten()
-            .map(|obj| {
-                let occupation = terrain_object_types
+            .filter_map(|obj| {
+                let terrain_type = terrain_object_types
                     .and_then(|types| types.get(&obj.name.to_ascii_uppercase()))
-                    .map(|terrain_type| terrain_type.raw_occupation_bits(snow_theater))
-                    .unwrap_or(7);
-                ((obj.rx, obj.ry), occupation)
+                    .filter(|terrain_type| terrain_type.has_occupy_list())?;
+                Some((
+                    (obj.rx, obj.ry),
+                    terrain_type.raw_occupation_bits(snow_theater),
+                ))
             })
             .collect();
 

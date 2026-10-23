@@ -434,6 +434,28 @@ impl NativeRulesProcessOwner {
         }
     }
 
+    /// TerrainReadMap71CAD2 -> FindOrAllocate71E2A0 mutates the continuing
+    /// family registry, then TerrainCtor71CB6E spends its own identity. The
+    /// caller consumes the move-only new-Type receipt before that instance.
+    pub(crate) fn find_or_allocate_map_terrain_type(
+        &mut self,
+        incoming: &str,
+        rules: &mut RuleSet,
+    ) -> Result<Option<(String, Option<NativeTypeConstructionEvent>)>, RulesError> {
+        let Some(NativeRulesRegistryOwner::Scenario(processed)) = self.registry.as_mut() else {
+            return Err(RulesError::MissingScenarioRegistry);
+        };
+        let Some((terrain, constructor)) = processed.find_or_allocate_map_terrain_type(incoming)
+        else {
+            return Ok(None);
+        };
+        let name = terrain.name.clone();
+        if constructor.is_some() {
+            rules.install_map_terrain_type(terrain);
+        }
+        Ok(Some((name, constructor)))
+    }
+
     /// Prepare the compatibility projection without mutating process authority.
     /// The shared app loader subsequently binds current ART/theater assets.
     pub fn project_saved_scenario_rules(

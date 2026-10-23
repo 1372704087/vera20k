@@ -3192,6 +3192,19 @@ impl Simulation {
         true
     }
 
+    /// Pickup reads the current Type cache, not construction-time instance
+    /// state: TerrainTypeLoad71E22D can bind a formerly null Occupy_List.
+    /// Resource-free synthetic callers retain their explicit legacy policy.
+    fn terrain_occupy_list_bound(&self, stable_id: u64, rules: &RuleSet) -> bool {
+        self.terrain_objects
+            .get(stable_id)
+            .and_then(|terrain| {
+                rules
+                    .terrain_object_type_case_insensitive(self.interner.resolve(terrain.type_ref()))
+            })
+            .is_none_or(|terrain_type| terrain_type.has_occupy_list())
+    }
+
     pub fn register_projectile(&mut self, stable_id: u64, flat: bool) -> bool {
         if self.projectiles.get(stable_id).is_none() {
             return false;
@@ -3249,10 +3262,12 @@ impl Simulation {
             if was_live {
                 self.notify_pointer_expired(stable_id, context);
             }
+            let occupy_list_bound = self.terrain_occupy_list_bound(stable_id, context.rules());
             self.terrain_objects.uninit(
                 stable_id,
                 &mut self.substrate.raw_cell_occupation,
                 self.resolved_terrain.as_mut(),
+                occupy_list_bound,
             );
             self.finish_terrain_navigation_changes(context.rules(), &[cell]);
         }
@@ -3290,12 +3305,14 @@ impl Simulation {
         for _ in 0..3 {
             self.notify_pointer_expired(lethal.stable_id, context);
         }
+        let occupy_list_bound = self.terrain_occupy_list_bound(lethal.stable_id, context.rules());
         let finalized = self.terrain_objects.finalize_lethal(
             &mut self.substrate.raw_cell_occupation,
             finalizing,
             navigation_changed_cells,
             lethal,
             self.resolved_terrain.as_mut(),
+            occupy_list_bound,
         );
         if finalized {
             let retired = self.retire_non_entity_object(lethal.stable_id, context);
@@ -6192,10 +6209,12 @@ impl Simulation {
             // already-InLimbo prefix performs no unmark or extra expiry.
             if (game_state as u8) != 0 {
                 let cell = self.terrain_objects.get(stable_id).unwrap().cell();
+                let occupy_list_bound = self.terrain_occupy_list_bound(stable_id, rules);
                 self.terrain_objects.limbo(
                     stable_id,
                     &mut self.substrate.raw_cell_occupation,
                     self.resolved_terrain.as_mut(),
+                    occupy_list_bound,
                 );
                 self.finish_terrain_navigation_changes(rules, &[cell]);
             }

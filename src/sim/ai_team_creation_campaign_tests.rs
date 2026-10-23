@@ -90,7 +90,11 @@ fn campaign_without_a_factory_creates_recruits_and_finishes_after_reload() {
     let mut loaded = GameSnapshot::load(&bytes).unwrap().sim;
     loaded.restore_after_snapshot_load().unwrap();
     crate::sim::arena_fixture::flat_ground(&mut loaded, &rules);
+    // Native load resets Scenario RNG and discards active planning tokens
+    // (ClearScene6370B0 / TechnoLoad70BF79); apply both to the control.
     sim.scenario_rng = SimRng::new(0);
+    sim.reset_planning_after_player_load();
+    assert_eq!(sim.state_hash(), loaded.state_hash());
     let mut formed = false;
     for _ in 0..40 {
         if let Some(team) = loaded.team_script_vm.team(team_id) {

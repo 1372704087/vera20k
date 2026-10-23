@@ -1781,13 +1781,17 @@ def _terrain_render(value: Any, label: str) -> None:
 
 def _terrain_object(value: Any, label: str, *, member: bool = False) -> int | None:
     obj = require_object(value, label)
-    require_exact_keys(obj, ('name', 'frame', 'active', *(('id',) if member else ())), label)
+    native_extension = ('native_id',) if member and 'native_id' in obj else ()
+    require_exact_keys(obj, ('name', 'frame', 'active', *(('id',) if member else ()),
+                             *native_extension), label)
     if not isinstance(obj['name'], str) or not obj['name']:
         raise ValidationError(f'{label}.name must be nonempty')
     if obj['frame'] is not None:
         _bounded_int(obj['frame'], f'{label}.frame', -(1 << 31), (1 << 31) - 1)
     if obj['active'] is not None and type(obj['active']) is not bool:
         raise ValidationError(f'{label}.active must be boolean or null')
+    if native_extension and obj['native_id'] is not None:
+        _bounded_int(obj['native_id'], f'{label}.native_id', -(1 << 31), (1 << 31) - 1)
     return _bounded_int(obj['id'], f'{label}.id', 1, (1 << 64) - 1) if member else None
 
 

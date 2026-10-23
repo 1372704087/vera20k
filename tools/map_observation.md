@@ -2298,6 +2298,9 @@ coordinate is explicit; observation does not invent one or initialize gameplay.
 Foot fields are null for structures. Terrain rows read only allocated real cells,
 report current tile/subtile, presentation tile, level/slope and bridge fields, and
 report unallocated cells explicitly without stamping the shared Dummy.
+Terrain member rows also retain nullable signed `native_id`, independently of
+their stable `id`. Older receipts may omit it; omission stays unobserved rather
+than implying zero or a missing native identity. Reading it allocates no ID.
 
 V5 actor rows add `building`, null for Foot objects. Structures read their sole
 body state, queued body request, construction control, complete serialized

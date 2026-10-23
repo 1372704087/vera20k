@@ -42,9 +42,9 @@ enum TerrainLocation {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct TerrainObjectState {
     stable_id: u64,
-    /// Load-only numeric `AbstractClass` identity. Stable Rust storage remains
-    /// the runtime owner, but retaining this value prevents later constructor
-    /// chronology from becoming an unobservable counter approximation.
+    /// Retained numeric Abstract+10 identity, separate from the stable handle.
+    /// TerrainCtor71BC19 assigns it before placement; ObjectUnlimbo5F4EC0
+    /// reads it for Logic admission. Native saved Load71CEB6 restores it.
     #[serde(default)]
     native_unique_id: Option<i32>,
     /// LogicClass membership is reconstructed from the serialized mixed order.
@@ -70,6 +70,7 @@ pub struct TerrainObjectState {
 impl std::hash::Hash for TerrainObjectState {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.stable_id.hash(state);
+        self.native_unique_id.hash(state);
         self.type_ref.hash(state);
         self.location.hash(state);
         self.next_in_cell.hash(state);
@@ -281,7 +282,7 @@ impl TerrainObjectState {
         self.lifecycle
     }
 
-    /// Fresh-authored construction spends and retains a native ID.
+    /// Every admitted fresh constructor spends and retains a native ID.
     pub(crate) fn with_native_unique_id(mut self, native_unique_id: Option<i32>) -> Self {
         self.native_unique_id = native_unique_id;
         self

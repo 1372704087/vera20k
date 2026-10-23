@@ -1475,7 +1475,8 @@ impl WolCapture {
                     ensure!(
                         channel.name == format!("{NICKNAME}'s_game")
                             && channel.kind == GAME_CHANNEL
-                            && channel.max_users == 7
+                            && channel.max_users
+                                == crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as i32
                             && key.is_empty(),
                         "unexpected created channel {channel:?}"
                     );

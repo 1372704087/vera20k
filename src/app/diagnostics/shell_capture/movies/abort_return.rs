@@ -126,6 +126,11 @@ impl AbortReturnInput {
         choice: Option<AbortButton>,
         advance: bool,
     ) -> Result<Self> {
+        // Queue_Options647040 publishes an event; EventClass4C7929..4C7939
+        // opens the menu only when that event executes. Network diagnostics
+        // await the ordinary frame owner, as live Observe already does; their
+        // frozen MatchSession start is not an offline exact-step L0 receipt.
+        let advance = advance && !state.match_state.session_mode().is_network();
         // Ordinary world Escape resolves the actual binding before
         // Options enters B5, exactly as the window handler does.
         ensure!(

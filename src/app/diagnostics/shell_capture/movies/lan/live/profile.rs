@@ -123,10 +123,37 @@ impl ProfileCheck {
                         .is_some_and(|choice| choice.value == value),
                 "profile popup changed before its rendered choice click"
             );
-            let rect = ui
+            let popup = ui
                 .popup_geometry(&view, &layout)
-                .and_then(|popup| popup.row_rect(index))
-                .context("visible presented profile item")?;
+                .context("presented profile popup geometry")?;
+            let Some(rect) = popup.row_rect(index) else {
+                // Player shows only three rows. Scroll the retained absolute
+                // item into view through the normal input owner, then require
+                // a new presentation before selecting it.
+                let geometry = popup.scroll_geometry();
+                let bar = geometry.scrollbar.context("profile popup scrollbar")?;
+                let down = index >= popup.first + popup.visible_rows;
+                let (x, y) =
+                    crate::ui::shell::list::scrollbar_arrow_origins(bar, geometry.metrics.arrow_h)
+                        [usize::from(down)];
+                setup_click(
+                    state,
+                    RectPx::new(x, y, bar.w - 2, geometry.metrics.arrow_h),
+                );
+                ensure!(
+                    state.frontend.multiplayer_setup.as_ref().is_some_and(|ui| {
+                        ui.popup.control == Some(control)
+                            && if down {
+                                ui.popup.top_index > popup.first
+                            } else {
+                                ui.popup.top_index < popup.first
+                            }
+                    }),
+                    "profile popup scrollbar did not advance toward the retained item"
+                );
+                self.popup = Some((control, index, value));
+                return Ok(ProfileStep::Waiting);
+            };
             setup_click(state, rect);
             ensure!(
                 state

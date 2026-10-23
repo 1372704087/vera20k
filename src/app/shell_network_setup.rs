@@ -849,7 +849,7 @@ pub(crate) fn show_statics(state: &mut AppState) {
     }
 }
 
-fn remember_setup(state: &mut AppState) {
+pub(crate) fn remember_setup(state: &mut AppState) {
     let profile = profile(dialog(state));
     let session = &state.match_state.session;
     if session.host()

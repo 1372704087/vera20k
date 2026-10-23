@@ -5190,6 +5190,17 @@ pub(crate) fn request_setup_back(state: &mut AppState) -> anyhow::Result<()> {
         .as_mut()
         .ok_or_else(|| anyhow::anyhow!("no LAN service"))?
         .begin_departure(&state.match_state.session, DepartureReason::Back, now)?;
+    // LAN host Back (BC WndProc005DE520, original5DE733..5DE742) calls
+    // Snapshot5ED400 before publishing result2. Preserve that same profile
+    // before VERA's asynchronous departure lock makes teardown read-only.
+    if state
+        .frontend
+        .network_setup_protocol
+        .as_ref()
+        .is_some_and(|protocol| protocol.editable())
+    {
+        super::shell_network_setup::remember_setup(state);
+    }
     super::shell_network_setup::lock_lan_departure(state);
     Ok(())
 }

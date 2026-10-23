@@ -373,6 +373,14 @@ impl LiveRoundFlow {
             };
             (page, visit.pending_service_request_count())
         });
+        let (lobby_shown, lobby_wait, lobby_message) = state
+            .frontend
+            .wol
+            .as_ref()
+            .and_then(|visit| visit.lobby())
+            .map_or((false, false, false), |lobby| {
+                (lobby.shown, lobby.wait.is_some(), lobby.message().is_some())
+            });
         let sim = state
             .match_state
             .sim_runtime
@@ -391,9 +399,11 @@ impl LiveRoundFlow {
             .and_then(|live| live.wait_info())
             .map(|wait| wait.kind);
         log::info!(
-            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}",
+            "Network capture heartbeat: phase={:?}, page={page}, presented={rendered:?}, shell_exit={}, pending_requests={pending}, native_frame={native_frame:?}, timing_fps={fps:?}, max_ahead={max_ahead:?}, local_commands={local_commands:?}, live_wait={live_wait:?}, lobby_shown={lobby_shown}, lobby_wait={lobby_wait}, lobby_message={lobby_message}, slide_first_paint={}, active_slide={:?}",
             self.phase,
             state.frontend.shell_exit.is_some(),
+            state.frontend.shell_first_paint_slide.is_some(),
+            state.frontend.shell_slide_active_shell,
         );
     }
 

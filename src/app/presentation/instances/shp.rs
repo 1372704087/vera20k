@@ -545,6 +545,7 @@ pub(crate) fn build_shp_instances_from_inputs(
             palette_light,
             sim,
             rules,
+            crate::app::presentation::lighting::TechnoDraw::Shape,
         );
         let colour_word = match rules {
             Some(rules) => {
@@ -808,6 +809,7 @@ pub(crate) fn build_shp_instances_from_inputs(
                         selected_palette_light,
                         sim,
                         rules,
+                        crate::app::presentation::lighting::TechnoDraw::Voxel,
                     );
                 emit_building_turret_vxl(
                     unit_atlas,
@@ -1827,6 +1829,7 @@ fn emit_unit_terrain_body(
         palette_light,
         sim,
         Some(&runtime.resources.rules),
+        crate::app::presentation::lighting::TechnoDraw::Shape,
     );
     let depth = compute_sprite_depth_params(
         input.axis.origin_y,

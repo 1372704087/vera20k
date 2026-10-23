@@ -110,3 +110,111 @@ fn shield_tint_visible_to_houses_reads_affected_house_flags() {
     // One unmatched token fails the read, so the field keeps its value.
     assert_eq!(entry("Bad").bits(), 0xF);
 }
+
+#[test]
+fn shield_nullable_fields_retain_failed_reads_and_reset_to_type_defaults() {
+    let mut catalog = ShieldTypeCatalog::default();
+    catalog.apply_pass(&IniFile::from_str(
+        "[ShieldTypes]\n0=Shield\n[Shield]\nStrength=100\nInitialStrength=$12\n\
+         ConditionYellow=0.75\nConditionRed=0.25\nApplyArmorMult=yes\n\
+         HitFlash.FixedSize=6\nPips.Building.Empty=5\nPips.Background=CUSTOM.SHP\n\
+         Respawn.Rate=0.125\nSelfHealing.Rate=0.25\n",
+    ));
+    catalog.apply_pass(&IniFile::from_str(
+        "[Shield]\nInitialStrength=bad\nConditionYellow=bad\nConditionRed=\n\
+         ApplyArmorMult=bad\nHitFlash.FixedSize=bad\nPips.Building.Empty=bad\n\
+         Respawn.Rate=bad\nSelfHealing.Rate=bad\n",
+    ));
+    let shield = catalog.entry("Shield").unwrap();
+    assert_eq!(
+        shield.initial_strength(),
+        12,
+        "Phobos's $ prefix is decimal"
+    );
+    assert_eq!(shield.condition_yellow(0.5), 0.75);
+    assert_eq!(shield.condition_red(0.5), 0.25);
+    assert!(shield.apply_armor_mult(false));
+    assert_eq!(shield.hit_flash_fixed_size, Some(6));
+    assert_eq!(shield.pips_building_empty(), Some(5));
+    assert_eq!(
+        (shield.respawn_rate(), shield.self_healing_rate()),
+        (112, 225)
+    );
+
+    catalog.apply_pass(&IniFile::from_str(
+        "[Shield]\nInitialStrength=<DeFaUlT>\nConditionYellow=none\nConditionRed=<none>\n\
+         ApplyArmorMult=<default>\nHitFlash.FixedSize=<default>\n\
+         Pips.Building.Empty=<default>\nPips.Background=<default>\n\
+         Respawn.Rate=<default>\nSelfHealing.Rate=<default>\n",
+    ));
+    let shield = catalog.entry("Shield").unwrap();
+    assert_eq!(shield.initial_strength(), 100);
+    assert_eq!(shield.condition_yellow(0.5), 0.5);
+    assert_eq!(shield.condition_red(0.5), 0.5);
+    assert!(shield.apply_armor_mult(true));
+    assert_eq!(shield.hit_flash_fixed_size, None);
+    assert_eq!(shield.pips_building_empty(), None);
+    assert_eq!(shield.pips_background(), None);
+    // Each rate uses a fresh nullable scratch; clearing it retains stored frames.
+    assert_eq!(
+        (shield.respawn_rate(), shield.self_healing_rate()),
+        (112, 225)
+    );
+}
+
+#[test]
+fn shield_nullable_warhead_and_global_values_keep_ordered_layer_defaults() {
+    let mut ini = IniFile::from_str("");
+    ini.merge_rules_projection(&IniFile::from_str(
+        "[WH]\nShield.AbsorbPercent=50%\nShield.PassPercent=0.25\n\
+         Shield.ReceivedDamage.Minimum=5\nShield.ReceivedDamage.Maximum=80\n\
+         [AudioVisual]\nConditionYellow=0.75\nConditionRed=0.5\n\
+         Shield.ConditionYellow=0.25\nShield.ConditionRed=0.125\n\
+         Pips.Shield.Background=CUSTOM.SHP\nPips.Shield.Building.Empty=7\n",
+    ));
+    ini.merge_rules_projection(&IniFile::from_str(
+        "[WH]\nShield.AbsorbPercent=bad\nShield.PassPercent=\n\
+         Shield.ReceivedDamage.Minimum=bad\nShield.ReceivedDamage.Maximum=<none>\n\
+         [AudioVisual]\nShield.ConditionYellow=bad\nShield.ConditionRed=<default>\n\
+         Pips.Shield.Background=<default>\nPips.Shield.Building.Empty=bad\n",
+    ));
+    let warhead = ShieldWarheadRules::from_section(ini.section("WH").unwrap());
+    assert_eq!(warhead.absorb_percent, Some(0.5));
+    assert_eq!(warhead.pass_percent, Some(0.25));
+    assert_eq!(warhead.received_minimum, Some(5));
+    assert_eq!(warhead.received_maximum, None);
+    let globals = ShieldGlobals::from_ini(&ini);
+    assert_eq!(
+        (globals.condition_yellow, globals.condition_red),
+        (0.25, 0.5)
+    );
+    assert_eq!(globals.pips_background(), None);
+    assert_eq!(globals.pips_building_empty(), Some(7));
+
+    ini.merge_rules_projection(&IniFile::from_str(
+        "[WH]\nShield.AbsorbPercent=<default>\nShield.PassPercent=<default>\n\
+         Shield.ReceivedDamage.Minimum=<default>\n",
+    ));
+    let warhead = ShieldWarheadRules::from_section(ini.section("WH").unwrap());
+    assert_eq!((warhead.absorb_percent, warhead.pass_percent), (None, None));
+    assert_eq!(warhead.received_minimum, None);
+}
+
+#[test]
+fn invalid_shield_nullable_values_preserve_unset_defaults() {
+    let ini = IniFile::from_str(
+        "[ShieldTypes]\n0=Shield\n[Shield]\nStrength=100\nInitialStrength=bad\n\
+         ConditionYellow=bad\nApplyArmorMult=bad\n\
+         [WH]\nShield.AbsorbPercent=bad\nShield.PassPercent=1e400\n\
+         Shield.ReceivedDamage.Minimum=bad\n",
+    );
+    let mut catalog = ShieldTypeCatalog::default();
+    catalog.apply_pass(&ini);
+    let shield = catalog.entry("Shield").unwrap();
+    assert_eq!(shield.initial_strength(), 100);
+    assert_eq!(shield.condition_yellow(0.5), 0.5);
+    assert!(shield.apply_armor_mult(true));
+    let warhead = ShieldWarheadRules::from_section(ini.section("WH").unwrap());
+    assert_eq!((warhead.absorb_percent, warhead.pass_percent), (None, None));
+    assert_eq!(warhead.received_minimum, None);
+}

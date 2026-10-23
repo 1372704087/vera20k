@@ -417,6 +417,7 @@ pub(crate) fn build_unit_instances(
             palette_light,
             sim,
             state.rules(),
+            crate::app::presentation::lighting::TechnoDraw::Voxel,
         );
         let (body_tint, body_light) = crate::app::presentation::lighting::unit_voxel_effect_light(
             entity,
@@ -2258,7 +2259,12 @@ mod tests {
             sim.session_mut_for_test()
                 .set_binary_frame_for_test(int(&row["frame"]) as u32);
             let (lit_tint, lit) = crate::app::presentation::lighting::techno_effect_light(
-                &unit, tint, light, &sim, None,
+                &unit,
+                tint,
+                light,
+                &sim,
+                None,
+                crate::app::presentation::lighting::TechnoDraw::Voxel,
             );
             let (lit_tint, lit) = crate::app::presentation::lighting::unit_voxel_effect_light(
                 &unit,

@@ -89,6 +89,7 @@ receiver input.
   applies falloff and the shield armour's Verses.
 - `AbsorbPercent` takes damage from the shield; `PassPercent` takes it from
   health, measured on the raw receiver value (not the shield-armour kernel).
+  Both signs use these coefficients and matching warhead overrides.
 - `ReceivedDamage.Minimum/Maximum` and the warhead multipliers clamp the
   shield packet.
 - A packet that exceeds the remaining points breaks the shield. With
@@ -126,14 +127,17 @@ open.
 
 `TechnoExt::OnEarlyUpdate -> ShieldClass::AI` runs from
 `TechnoClass_AI @ 0x6F9E50+0x5`. VERA's `sim::shield::tick` runs at the same
-place, before the object's category AI in `sim::world::techno_ai`.
+boundary after the category's Temporal prologue in `sim::world::techno_ai`.
+Temporal-beam visits pause recovery through `ShieldClass::AI_Temporal` semantics;
+normal recovery runs only after the object can resume its Techno AI.
 
 For a broken shield the respawn timer counts down and restores
 `Respawn` (percent of `Strength` when in -1..=1, otherwise the literal amount);
 for a damaged shield the self-healing timer does the same with `SelfHealing`.
 Rates are `* 900` frames. `Powered` shields go offline while their building is
-without power, and offlining or warping pauses the active recovery timer resuming
-where it stopped.
+without power. Offlining or a temporal beam pauses the active recovery timer,
+resuming where it stopped. A Chronosphere warp suppresses recovery while the
+object is immobilized, but its countdown continues until warp-in resumes AI.
 
 ## Where VERA20K owns it
 

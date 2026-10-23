@@ -18,8 +18,8 @@
 
 use crate::rules::phobos_shields::ShieldType;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::combat::damage::DefenceDivisors;
 use crate::sim::combat::EntityDamageEvent;
+use crate::sim::combat::damage::DefenceDivisors;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
 
@@ -429,7 +429,7 @@ fn shield_stage(
     let arms_multiplier = warhead.interaction(armor).multiplier();
     let apply_armor_mult = ty.apply_armor_mult(rules.shield_globals.apply_armor_mult);
 
-    let (shield_damage, health_damage) = if receiver_input >= 0 {
+    let n_damage = if receiver_input >= 0 {
         let mut n_damage = receiver_input;
         if apply_armor_mult {
             let multiplier = divisor_multiplier(divisors);
@@ -441,7 +441,7 @@ fn shield_stage(
                 ((f64::from(n_damage) / multiplier) as i32).max(0)
             };
         }
-        let n_damage = crate::sim::combat::damage::kernel::apply_warhead_damage(
+        crate::sim::combat::damage::kernel::apply_warhead_damage(
             n_damage,
             warhead.cell_spread_f64,
             warhead.percent_at_max_f64,
@@ -449,42 +449,40 @@ fn shield_stage(
             event.distance_leptons,
             sim.session.no_damage(),
             rules.combat_damage.max_damage,
-        );
-        let affects = warhead.shield.affects(state.type_name());
-        let absorb = if affects {
-            warhead
-                .shield
-                .absorb_percent
-                .unwrap_or_else(|| ty.absorb_percent())
-        } else {
-            ty.absorb_percent()
-        };
-        let pass = if affects {
-            warhead
-                .shield
-                .pass_percent
-                .unwrap_or_else(|| ty.pass_percent())
-        } else {
-            ty.pass_percent()
-        };
-        (
-            (f64::from(n_damage) * absorb) as i32,
-            (f64::from(receiver_input) * pass) as i32,
         )
     } else {
-        (
-            -(crate::sim::combat::damage::kernel::apply_warhead_damage(
-                -receiver_input,
-                warhead.cell_spread_f64,
-                warhead.percent_at_max_f64,
-                arms_multiplier,
-                event.distance_leptons,
-                sim.session.no_damage(),
-                rules.combat_damage.max_damage,
-            )),
-            (f64::from(receiver_input) * ty.pass_percent()) as i32,
+        -crate::sim::combat::damage::kernel::apply_warhead_damage(
+            -receiver_input,
+            warhead.cell_spread_f64,
+            warhead.percent_at_max_f64,
+            arms_multiplier,
+            event.distance_leptons,
+            sim.session.no_damage(),
+            rules.combat_damage.max_damage,
         )
     };
+    // Phobos `ShieldClass::ReceiveDamage`, installed at `0x701900+0x6`:
+    // src/New/Entity/ShieldClass.cpp (b90ab4b), applies these coefficients
+    // after both signs of the damage kernel, including healing warheads.
+    let affects = warhead.shield.affects(state.type_name());
+    let absorb = if affects {
+        warhead
+            .shield
+            .absorb_percent
+            .unwrap_or_else(|| ty.absorb_percent())
+    } else {
+        ty.absorb_percent()
+    };
+    let pass = if affects {
+        warhead
+            .shield
+            .pass_percent
+            .unwrap_or_else(|| ty.pass_percent())
+    } else {
+        ty.pass_percent()
+    };
+    let shield_damage = (f64::from(n_damage) * absorb) as i32;
+    let health_damage = (f64::from(receiver_input) * pass) as i32;
 
     let original_shield_damage = shield_damage;
     let min = warhead
@@ -697,14 +695,29 @@ pub(crate) fn tick(sim: &mut Simulation, id: u64, rules: &RuleSet) {
         return;
     }
 
-    // Temporal pauses the recovery timers.
-    state.temporal = entity.is_warped_out();
+    // Phobos `ShieldClass::AI_Temporal` (src/New/Entity/ShieldClass.cpp,
+    // b90ab4b) pauses recovery during the leaf's TemporalClass::Update;
+    // frozen leaves skip `TechnoClass::AI @ 0x6F9E50` entirely. Persist
+    // the pause without entering the normal AI's resume/recovery block.
+    state.temporal = entity.temporal.is_warped();
     if state.temporal {
         if state.hp <= 0 {
             state.timers.respawn.pause(frame);
         } else {
             state.timers.self_healing.pause(frame);
         }
+        if let Some(entity) = sim.substrate.entities.get_mut(id) {
+            entity.shield = Some(state);
+        }
+        return;
+    }
+
+    // Chronosphere skips ShieldClass::AI through IsImmobilized (+0x27C),
+    // but never calls AI_Temporal: its global-frame countdown keeps running.
+    // The latch also gates the launch frame before BeingWarpedOut is set.
+    // Teleport Process state 2 clears it at 0x7198E4 as warp-in begins.
+    if entity.chrono_warp_latch() || entity.ai_frozen() {
+        return;
     }
 
     // `OnlineCheck` for a Powered shield type.

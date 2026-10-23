@@ -5,7 +5,7 @@ use crate::rules::ini_parser::IniFile;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER};
 use crate::sim::game_entity::GameEntity;
-use crate::sim::world::{FrameEffects, Simulation};
+use crate::sim::world::{FrameEffects, ObjectAiCtx, Simulation};
 
 const VERSES: &str = "Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%";
 
@@ -73,6 +73,20 @@ fn health(sim: &Simulation) -> i32 {
     sim.substrate.entities.get(1).unwrap().health.current()
 }
 
+fn arm_chrono_warp(sim: &mut Simulation) {
+    use crate::rules::locomotor_type::LocomotorKind;
+    use crate::sim::movement::{locomotor::LocomotorState, teleport_movement::ChronoWarp};
+    let frame = sim.session.binary_frame();
+    let entity = sim.substrate.entities.get_mut(1).unwrap();
+    let destination = crate::sim::movement::ground_pose::object_get_coords(entity, None);
+    let mut locomotor = LocomotorState::for_test_kind(LocomotorKind::Teleport);
+    locomotor
+        .teleport_runtime_mut()
+        .unwrap()
+        .arm_chrono(ChronoWarp::new(destination, frame));
+    entity.locomotor = Some(locomotor);
+}
+
 #[test]
 fn absorbed_damage_leaves_health_untouched() {
     let rules = rules("AbsorbPercent=1.0", "");
@@ -115,6 +129,57 @@ fn pass_percent_reaches_health_while_the_shield_holds() {
 
     assert_eq!(shield(&sim).hp(), 60);
     assert_eq!(health(&sim), 190, "25% of the raw hit passes through");
+}
+
+/// Phobos `ShieldClass::ReceiveDamage` applies absorption after either sign
+/// of `MapClass::GetTotalDamage` (hook `0x701900+0x6`).
+#[test]
+fn healing_uses_the_shield_absorption_and_warhead_override() {
+    let rules = rules("AbsorbPercent=0.25", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 160);
+    assert_eq!(shield(&sim).hp(), 60);
+    hit(&mut sim, &rules, -40);
+    assert_eq!(
+        shield(&sim).hp(),
+        70,
+        "the shield absorbs a quarter of the heal"
+    );
+
+    let overridden = self::rules("AbsorbPercent=0.25", "Shield.AbsorbPercent=0.5");
+    hit(&mut sim, &overridden, -40);
+    assert_eq!(
+        shield(&sim).hp(),
+        90,
+        "the warhead overrides absorption for healing too"
+    );
+    assert_eq!(health(&sim), 200);
+}
+
+#[test]
+fn a_healing_warhead_can_override_absorption_to_passthrough() {
+    let rules = rules(
+        "AbsorbPercent=1.0\nPassPercent=0",
+        "Shield.AbsorbPercent=0\nShield.PassPercent=0.5",
+    );
+    let (mut sim, _) = scene(&rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .health
+        .set_for_test(100);
+    hit(&mut sim, &rules, -40);
+    assert_eq!(
+        shield(&sim).hp(),
+        100,
+        "zero absorption leaves the shield full"
+    );
+    assert_eq!(
+        health(&sim),
+        120,
+        "only the warhead's passthrough reaches the hull"
+    );
 }
 
 #[test]
@@ -165,6 +230,135 @@ fn broken_shield_respawns_after_its_rate() {
         50,
         "0.1 minutes = 90 frames restores half"
     );
+}
+
+/// TemporalClass::Update's Phobos hook calls `ShieldClass::AI_Temporal`;
+/// the frozen leaf then skips Techno AI (`UnitClass::AI @ 0x736204`).
+#[test]
+fn temporal_freeze_preserves_recovery_time_until_the_object_resumes() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[VehicleTypes]\n0=TEST\n1=WARPER\n\
+         [Warheads]\n0=WH\n\
+         [TEST]\nStrength=200\nArmor=heavy\nShieldType=TestShield\n\
+         [WARPER]\nStrength=100\nPrimary=Beam\n\
+         [Beam]\nDamage=1\nWarhead=WH\n\
+         [WH]\nTemporal=yes\n{VERSES}\n\
+         [ShieldTypes]\n0=TestShield\n\
+         [TestShield]\nStrength=100\nSelfHealing=0.25\nSelfHealing.Rate=0.1\nRespawn=0.5\nRespawn.Rate=0.1\n"
+    ))).unwrap();
+    let mut sim = Simulation::with_seed(1);
+    let target = sim
+        .spawn_object("TEST", "Neutral", 10, 10, 0, &rules)
+        .unwrap();
+    let warper = sim
+        .spawn_object("WARPER", "Neutral", 11, 10, 0, &rules)
+        .unwrap();
+    let points = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .shield
+            .as_ref()
+            .unwrap()
+            .hp()
+    };
+    sim.substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = 40;
+    super::tick(&mut sim, target, &rules);
+    sim.session.set_binary_frame_for_test(30);
+    sim.temporal_initiate_warp(warper, Some(target), &rules, None, FrameEffects::default());
+    assert!(sim.substrate.entities.get(target).unwrap().ai_frozen());
+    sim.object_ai_visit_one(target, Some(&rules), ObjectAiCtx::default());
+    sim.session.set_binary_frame_for_test(300);
+    sim.object_ai_visit_one(target, Some(&rules), ObjectAiCtx::default());
+    assert_eq!(
+        points(&sim),
+        40,
+        "recovery stayed paused throughout the warp"
+    );
+    Simulation::temporal_let_go(
+        &mut sim.substrate,
+        &mut sim.houses,
+        &mut sim.power_states,
+        warper,
+    );
+    sim.object_ai_visit_one(target, Some(&rules), ObjectAiCtx::default());
+    sim.session.set_binary_frame_for_test(359);
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(points(&sim), 40, "the saved recovery time has not elapsed");
+    sim.session.set_binary_frame_for_test(360);
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(points(&sim), 65, "recovery resumes at the saved deadline");
+}
+
+#[test]
+fn chronosphere_launch_latch_suppresses_due_recovery_before_warp_out() {
+    let rules = rules("SelfHealing=0.25\nSelfHealing.Rate=0.1", "");
+    let (mut sim, _) = scene(&rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = 40;
+    super::tick(&mut sim, 1, &rules);
+    sim.session.set_binary_frame_for_test(90);
+    arm_chrono_warp(&mut sim);
+    assert!(sim.substrate.entities.get(1).unwrap().chrono_warp_latch());
+    assert!(!sim.substrate.entities.get(1).unwrap().is_warped_out());
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 40, "IsImmobilized gates the due heal");
+}
+
+/// Phobos calls AI_Temporal only from TemporalClass, not Chronosphere.
+/// The latter skips AI at +0x27C without pausing its global-frame timers.
+#[test]
+fn chronosphere_skips_recovery_but_keeps_the_original_countdown() {
+    let rules = rules("SelfHealing=0.25\nSelfHealing.Rate=0.1", "");
+    let (mut sim, _) = scene(&rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = 40;
+    super::tick(&mut sim, 1, &rules);
+    sim.session.set_binary_frame_for_test(30);
+    arm_chrono_warp(&mut sim);
+    sim.process_chrono_warp(1, &rules, ObjectAiCtx::default())
+        .unwrap();
+    assert!(sim.substrate.entities.get(1).unwrap().is_warped_out());
+    super::tick(&mut sim, 1, &rules);
+    sim.session.set_binary_frame_for_test(90);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 40, "a frozen leaf cannot heal yet");
+    // State 2 (0x7198DA..0x7198EE) clears the latch and warp-out byte,
+    // keeping WarpingIn set: normal Shield AI may now run.
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .locomotor
+        .as_mut()
+        .unwrap()
+        .teleport_runtime_mut()
+        .unwrap()
+        .chrono_mut()
+        .unwrap()
+        .set_bytes(false, false, true);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 65, "the pre-warp deadline remains due");
 }
 
 #[test]

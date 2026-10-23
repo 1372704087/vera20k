@@ -290,6 +290,13 @@ pub(crate) fn shield_tint(
     }
 }
 
+/// Selects the native draw hook that orders custom tint and effect intensity.
+#[derive(Clone, Copy)]
+pub(crate) enum TechnoDraw {
+    Shape,
+    Voxel,
+}
+
 /// TechnoClass's flash and curtain arms on a draw's intensity. The signed
 /// flash countdown's bit 1 selects the flash at vt+0x464: TechnoClass
 /// `0x0070D190` chooses 2000/500; BuildingClass `0x00456F80` adds/subtracts
@@ -318,6 +325,7 @@ pub(crate) fn techno_effect_light(
     light: crate::render::palette_light::PaletteLight,
     sim: &Simulation,
     rules: Option<&RuleSet>,
+    draw: TechnoDraw,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
     let custom = rules.map_or(0, |rules| shield_tint(entity, sim, rules).1);
     techno_effect_light_at(
@@ -327,6 +335,7 @@ pub(crate) fn techno_effect_light(
         sim.session().binary_frame(),
         sim.airstrike_tint_active(entity.stable_id()),
         custom,
+        draw,
     )
 }
 
@@ -354,7 +363,7 @@ pub(crate) fn building_anim_light(
             light,
             TintLightState {
                 building: true,
-                aircraft: false,
+                custom_before_effects: false,
                 flashed: sample.flashed(),
                 curtain: sample.invulnerability(),
                 airstrike: sample.airstrike(),
@@ -371,6 +380,7 @@ pub(crate) fn building_anim_light(
             sim.session().binary_frame().wrapping_sub(1),
             sim.airstrike_tint_active(building.stable_id()),
             custom,
+            TechnoDraw::Shape,
         )
     };
     (tint, light.with_brightness(light.brightness() & 0xFFFF))
@@ -383,13 +393,15 @@ fn techno_effect_light_at(
     frame: u32,
     airstrike_active: bool,
     custom_intensity: i32,
+    draw: TechnoDraw,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
     effect_light(
         tint,
         light,
         TintLightState {
             building: entity.category() == crate::map::entities::EntityCategory::Structure,
-            aircraft: entity.category() == crate::map::entities::EntityCategory::Aircraft,
+            custom_before_effects: matches!(draw, TechnoDraw::Voxel)
+                && entity.category() != crate::map::entities::EntityCategory::Unit,
             flashed: entity.flashing.flashed(),
             curtain: entity.invulnerability.as_ref(),
             airstrike: &entity.airstrike_tint,
@@ -402,9 +414,11 @@ fn techno_effect_light_at(
 
 struct TintLightState<'a> {
     building: bool,
-    /// `0x00706786` adds the custom intensity before the curtain/airstrike
-    /// stages; every other class adds it after them.
-    aircraft: bool,
+    /// TechnoClass_DrawVoxel_TintColor (0x706786) adds custom intensity
+    /// before curtain/airstrike for aircraft and building voxel guns. Unit
+    /// composites and SHP draws add it after those effects.
+    /// https://github.com/Phobos-developers/Phobos/blob/b90ab4bcba3f4b0b8ce74d2119ac0d561eaccc8f/src/Ext/Techno/Hooks.Tint.cpp#L252-L280
+    custom_before_effects: bool,
     flashed: bool,
     curtain: Option<&'a crate::sim::superweapon::invulnerability::InvulnerabilityState>,
     airstrike: &'a crate::sim::superweapon::airstrike_tint::AirstrikeTintState,
@@ -432,9 +446,7 @@ fn effect_light(
     } else {
         500
     };
-    // `0x00706786` (voxel aircraft) sums the custom tint before the two
-    // effect stages; the other class hooks sum it after them.
-    let flashed = if state.aircraft {
+    let flashed = if state.custom_before_effects {
         flashed.wrapping_add(state.custom_intensity)
     } else {
         flashed
@@ -451,7 +463,7 @@ fn effect_light(
     } else {
         flashed
     };
-    let tinted = if state.aircraft {
+    let tinted = if state.custom_before_effects {
         tinted
     } else {
         tinted.wrapping_add(state.custom_intensity)

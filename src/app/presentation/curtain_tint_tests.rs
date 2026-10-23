@@ -97,6 +97,46 @@ fn the_voxel_draw_curtain_arm_matches_native() {
     assert_curtain_arm_matches("draw_curtain_arm");
 }
 
+/// Phobos TechnoClass_DrawVoxel_TintColor (0x706786) adds a shield's custom
+/// intensity once before the curtain, including for building turret voxels.
+/// SHP bodies keep their separate after-curtain hook (0x706389).
+#[test]
+fn building_voxel_shield_intensity_precedes_the_curtain_without_changing_shp() {
+    let rows = oracle()["draw_curtain_arm"].as_array().unwrap();
+    let row = |intensity| {
+        rows.iter()
+            .find(|row| {
+                row["kind"] == "building"
+                    && row["stage"] == 6
+                    && row["intensity"] == intensity
+                    && row["flash"] == 0
+            })
+            .unwrap()
+    };
+    let original = row(1000);
+    let with_custom = row(1500);
+    let custom = int(&with_custom["intensity"]) - int(&original["intensity"]);
+    let building = curtained(original);
+    let draw = |kind| {
+        techno_effect_light_at(
+            &building,
+            TINT,
+            PaletteLight::color_scheme([1000; 3], int(&original["intensity"])),
+            int(&original["frame"]) as u32,
+            false,
+            custom,
+            kind,
+        )
+        .1
+        .brightness()
+    };
+    assert_eq!(draw(TechnoDraw::Voxel), int(&with_custom["out_intensity"]));
+    assert_eq!(
+        draw(TechnoDraw::Shape),
+        int(&original["out_intensity"]) + custom
+    );
+}
+
 fn assert_curtain_arm_matches(section: &str) {
     let oracle = oracle();
     let rows = oracle[section].as_array().unwrap();
@@ -114,6 +154,11 @@ fn assert_curtain_arm_matches(section: &str) {
             sim.session().binary_frame(),
             row["airstrike"] == "self",
             0,
+            if section == "draw_curtain_arm" {
+                TechnoDraw::Voxel
+            } else {
+                TechnoDraw::Shape
+            },
         );
         let out = int(&row["out_intensity"]);
         assert_eq!(light.brightness(), out, "{row}");
@@ -240,7 +285,7 @@ fn infantry_shp_material_matches_original_gi_draws() {
         gi.berserk
             .set_active_for_test(row["input"]["berserk"].as_bool().unwrap());
         let light = body_palette_light(&grid, (10, 20), body_extra_light(&gi, rules, &sim, None));
-        let (_, light) = techno_effect_light(&gi, [1.; 3], light, &sim, None);
+        let (_, light) = techno_effect_light(&gi, [1.; 3], light, &sim, None, TechnoDraw::Shape);
         assert_eq!(
             light.brightness(),
             int(&row["body"]["intensity"]),
@@ -557,7 +602,8 @@ fn building_animation_retains_the_pre_techno_airstrike_sample() {
     sim.session_mut_for_test().set_binary_frame_for_test(1011);
     let input = PaletteLight::color_scheme([1000; 3], 500);
     let (_, retained) = building_anim_light(&building, TINT, input, &sim, None);
-    let (_, body) = techno_effect_light_at(&building, TINT, input, 1010, true, 0);
+    let (_, body) =
+        techno_effect_light_at(&building, TINT, input, 1010, true, 0, TechnoDraw::Shape);
     assert_eq!(retained.brightness(), 1000);
     let native: Value =
         serde_json::from_str(crate::test_fixture::text("tools/airstrike_tint.json")).unwrap();

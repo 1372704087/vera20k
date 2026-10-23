@@ -547,7 +547,14 @@ fn retained_stock_grizzly_berserk_material_matches_original_pixels() {
                 .set_binary_frame_for_test(arm["frame"].as_u64().unwrap() as u32);
             let light = PaletteLight::color_scheme([1000; 3], int(&arm["intensity"]))
                 .with_colour_word(int(&arm["word"]) as u16);
-            let (tint, light) = techno_effect_light(&unit, [1.; 3], light, &sim, None);
+            let (tint, light) = techno_effect_light(
+                &unit,
+                [1.; 3],
+                light,
+                &sim,
+                None,
+                crate::app::presentation::lighting::TechnoDraw::Voxel,
+            );
             let (tint, light) = unit_voxel_effect_light(
                 &unit,
                 tint,

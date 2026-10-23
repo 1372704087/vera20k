@@ -401,15 +401,12 @@ impl ShieldTypeCatalog {
             };
             let entry = &mut self.types[index];
             entry.strength = section.read_int("Strength", entry.strength);
-            if section.is_present("InitialStrength") {
-                entry.initial_strength = Some(section.read_int("InitialStrength", 0));
-            }
-            if section.is_present("ConditionYellow") {
-                entry.condition_yellow = Some(section.read_double("ConditionYellow", 0.0));
-            }
-            if section.is_present("ConditionRed") {
-                entry.condition_red = Some(section.read_double("ConditionRed", 0.0));
-            }
+            entry.initial_strength =
+                section.read_phobos_nullable_int("InitialStrength", entry.initial_strength);
+            entry.condition_yellow =
+                section.read_phobos_nullable_double("ConditionYellow", entry.condition_yellow);
+            entry.condition_red =
+                section.read_phobos_nullable_double("ConditionRed", entry.condition_red);
             entry.armor = section.read_string("Armor", &entry.armor, 0x80);
             entry.inherit_armor_from_techno =
                 section.read_bool("InheritArmorFromTechno", entry.inherit_armor_from_techno);
@@ -419,15 +416,14 @@ impl ShieldTypeCatalog {
             if let Some(tokens) = section.read_list("InheritArmor.Disallowed", 0x80) {
                 entry.inherit_armor_disallowed = tokens.into_iter().map(str::to_owned).collect();
             }
-            if section.is_present("ApplyArmorMult") {
-                entry.apply_armor_mult = Some(section.read_bool("ApplyArmorMult", false));
-            }
+            entry.apply_armor_mult =
+                section.read_phobos_nullable_bool("ApplyArmorMult", entry.apply_armor_mult);
             entry.powered = section.read_bool("Powered", entry.powered);
             entry.respawn = section.read_double("Respawn", entry.respawn);
-            // `Respawn.Rate` is nullable ingame minutes; a present value is
-            // multiplied by 900 into frames, an absent one retains.
-            if section.is_present("Respawn.Rate") {
-                entry.respawn_rate = (section.read_double("Respawn.Rate", 0.0) * 900.0) as i32;
+            // ShieldTypeClass::LoadFromINI uses a fresh Nullable<double>
+            // scratch per pass; unset/reset/invalid rates retain stored frames.
+            if let Some(minutes) = section.read_phobos_nullable_double("Respawn.Rate", None) {
+                entry.respawn_rate = (minutes * 900.0) as i32;
             }
             entry.respawn_restart_in_combat =
                 section.read_bool("Respawn.RestartInCombat", entry.respawn_restart_in_combat);
@@ -445,9 +441,8 @@ impl ShieldTypeCatalog {
                     .map(str::to_owned);
             }
             entry.self_healing = section.read_double("SelfHealing", entry.self_healing);
-            if section.is_present("SelfHealing.Rate") {
-                entry.self_healing_rate =
-                    (section.read_double("SelfHealing.Rate", 0.0) * 900.0) as i32;
+            if let Some(minutes) = section.read_phobos_nullable_double("SelfHealing.Rate", None) {
+                entry.self_healing_rate = (minutes * 900.0) as i32;
             }
             entry.self_healing_restart_in_combat = section.read_bool(
                 "SelfHealing.RestartInCombat",
@@ -473,9 +468,8 @@ impl ShieldTypeCatalog {
                 .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
                 .unwrap_or_else(|| entry.hit_anim.clone());
             entry.hit_flash = section.read_bool("HitFlash", entry.hit_flash);
-            if section.is_present("HitFlash.FixedSize") {
-                entry.hit_flash_fixed_size = Some(section.read_int("HitFlash.FixedSize", 0));
-            }
+            entry.hit_flash_fixed_size =
+                section.read_phobos_nullable_int("HitFlash.FixedSize", entry.hit_flash_fixed_size);
             entry.hit_flash_red = section.read_bool("HitFlash.Red", entry.hit_flash_red);
             entry.hit_flash_green = section.read_bool("HitFlash.Green", entry.hit_flash_green);
             entry.hit_flash_blue = section.read_bool("HitFlash.Blue", entry.hit_flash_blue);
@@ -494,15 +488,13 @@ impl ShieldTypeCatalog {
                 section.read_int("ReceivedDamage.Maximum", entry.received_damage_maximum);
             entry.pips = read_pip_triplet(section, "Pips", entry.pips);
             entry.pips_building = read_pip_triplet(section, "Pips.Building", entry.pips_building);
-            if section.is_present("Pips.Background") {
-                entry.pips_background = section
-                    .read_name("Pips.Background", 0x80)
-                    .filter(|name| !is_none_name(name))
-                    .map(str::to_owned);
-            }
-            if section.is_present("Pips.Building.Empty") {
-                entry.pips_building_empty = Some(section.read_int("Pips.Building.Empty", 0));
-            }
+            entry.pips_background = section.read_phobos_nullable_with(
+                "Pips.Background",
+                entry.pips_background.take(),
+                |name| Some(name.to_owned()),
+            );
+            entry.pips_building_empty =
+                section.read_phobos_nullable_int("Pips.Building.Empty", entry.pips_building_empty);
             entry.pips_hide_if_no_strength =
                 section.read_bool("Pips.HideIfNoStrength", entry.pips_hide_if_no_strength);
             if section.is_present("Tint.Color") {
@@ -569,18 +561,14 @@ impl ShieldWarheadRules {
             .read_list("Shield.Penetrate.Types", 0x80)
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
-        if section.is_present("Shield.AbsorbPercent") {
-            rules.absorb_percent = Some(section.read_double("Shield.AbsorbPercent", 0.0));
-        }
-        if section.is_present("Shield.PassPercent") {
-            rules.pass_percent = Some(section.read_double("Shield.PassPercent", 0.0));
-        }
-        if section.is_present("Shield.ReceivedDamage.Minimum") {
-            rules.received_minimum = Some(section.read_int("Shield.ReceivedDamage.Minimum", 0));
-        }
-        if section.is_present("Shield.ReceivedDamage.Maximum") {
-            rules.received_maximum = Some(section.read_int("Shield.ReceivedDamage.Maximum", 0));
-        }
+        rules.absorb_percent =
+            section.read_phobos_nullable_double("Shield.AbsorbPercent", rules.absorb_percent);
+        rules.pass_percent =
+            section.read_phobos_nullable_double("Shield.PassPercent", rules.pass_percent);
+        rules.received_minimum = section
+            .read_phobos_nullable_int("Shield.ReceivedDamage.Minimum", rules.received_minimum);
+        rules.received_maximum = section
+            .read_phobos_nullable_int("Shield.ReceivedDamage.Maximum", rules.received_maximum);
         rules.received_min_multiplier = section.read_double(
             "Shield.ReceivedDamage.MinMultiplier",
             rules.received_min_multiplier,
@@ -675,23 +663,23 @@ impl ShieldGlobals {
         let condition_red = audio.read_double("ConditionRed", defaults.condition_red);
         Self {
             apply_armor_mult: combat.read_bool("ShieldApplyArmorMult", defaults.apply_armor_mult),
-            condition_yellow: audio.read_double("Shield.ConditionYellow", condition_yellow),
-            condition_red: audio.read_double("Shield.ConditionRed", condition_red),
+            condition_yellow: audio
+                .read_phobos_nullable_double("Shield.ConditionYellow", None)
+                .unwrap_or(condition_yellow),
+            condition_red: audio
+                .read_phobos_nullable_double("Shield.ConditionRed", None)
+                .unwrap_or(condition_red),
             pips: read_pip_triplet(&audio, "Pips.Shield", defaults.pips),
             pips_building: read_pip_triplet(&audio, "Pips.Shield.Building", defaults.pips_building),
-            pips_background: if audio.is_present("Pips.Shield.Background") {
-                audio
-                    .read_name("Pips.Shield.Background", 0x80)
-                    .filter(|name| !is_none_name(name))
-                    .map(str::to_owned)
-            } else {
-                defaults.pips_background
-            },
-            pips_building_empty: if audio.is_present("Pips.Shield.Building.Empty") {
-                Some(audio.read_int("Pips.Shield.Building.Empty", 0))
-            } else {
-                defaults.pips_building_empty
-            },
+            pips_background: audio.read_phobos_nullable_with(
+                "Pips.Shield.Background",
+                defaults.pips_background,
+                |name| Some(name.to_owned()),
+            ),
+            pips_building_empty: audio.read_phobos_nullable_int(
+                "Pips.Shield.Building.Empty",
+                defaults.pips_building_empty,
+            ),
         }
     }
 

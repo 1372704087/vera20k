@@ -1798,7 +1798,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.estimated_health.get().hash(hasher);
     entity.type_ref().hash(hasher);
     (entity.category() as u8).hash(hasher);
-    entity.type_facts.foundation().hash(hasher);
+    // Keep the stock name encoding used before Foundation became an enum.
+    // Custom values still fold their full dimensions, cells and exit outline.
+    let foundation = entity.type_facts.foundation();
+    match foundation {
+        crate::rules::foundation::Foundation::Stock(_) => foundation.name().hash(hasher),
+        #[cfg(feature = "ares")]
+        _ => foundation.hash(hasher),
+    }
     entity.type_facts.building_hidden_occupancy().hash(hasher);
     entity.type_facts.base_reservation_spacing().hash(hasher);
     if entity.type_facts.build_const_eligible() {
@@ -2636,6 +2643,42 @@ mod lifecycle_hash_tests {
             .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
         let before = sim.state_hash();
         mutate(sim.substrate.entities.get_mut(1).expect("fixture entity"));
+        assert_ne!(before, sim.state_hash());
+    }
+
+    #[cfg(feature = "ares")]
+    #[test]
+    fn custom_foundation_geometry_changes_state_hash_despite_equal_names() {
+        let rows = crate::rules::foundation::custom_tests::native_rows();
+        let first = crate::rules::foundation::custom_tests::rules(&rows[0])
+            .object("CUSTOM_TEST")
+            .unwrap()
+            .foundation
+            .clone();
+        let second = crate::rules::foundation::custom_tests::rules(&rows[1])
+            .object("CUSTOM_TEST")
+            .unwrap()
+            .foundation
+            .clone();
+        assert_eq!(first.name(), second.name());
+        let mut entity = GameEntity::test_default_of_category(
+            1,
+            "CUSTOM_TEST",
+            "Americans",
+            5,
+            5,
+            crate::map::entities::EntityCategory::Structure,
+        );
+        entity.type_facts.set_foundation_for_test(first);
+        let mut sim = Simulation::new();
+        sim.substrate.entities.insert(entity);
+        let before = sim.state_hash();
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .type_facts
+            .set_foundation_for_test(second);
         assert_ne!(before, sim.state_hash());
     }
 

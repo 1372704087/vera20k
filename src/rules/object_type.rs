@@ -574,8 +574,14 @@ pub struct ObjectType {
     pub requires_stolen_third_tech: bool,
     /// ObjectType+1F8 `Image=`, the type's ID unless a reached pass names
     /// another; it names the art.ini section of the type's sprite or voxel.
-    /// The ordered Rules processor reads it (`TechnoTypeReferences`).
+    /// The ordered Rules processor owns it (`ObjectImageState`).
     pub image: String,
+    /// Reached SHP request (ObjectTypeLoadSHP5F9070 or TechnoRead715820),
+    /// independent of current ImageFile and later resource calls.
+    shp_image_load: Option<crate::rules::object_image::ObjectImageLoad>,
+    /// Entry ImageFile at the last LoadVoxel5F8110, including a saved load
+    /// that precedes an Arctic SHP mutation.
+    voxel_image_load: Option<String>,
     /// Signed Power read result for Buildings. Constructor45DEF6/45DEFC
     /// starts output/drain at0;461060..4610A0 passes their reconstructed
     /// signed value to ReadInt5276D0. The existing reached-history reader
@@ -2150,6 +2156,24 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    pub(crate) fn project_image_state(
+        &mut self,
+        state: &crate::rules::object_image::ObjectImageState,
+    ) {
+        self.image = state.image().to_string();
+        self.shp_image_load = state.shp_load().cloned();
+        self.voxel_image_load = state.voxel_load().map(str::to_string);
+    }
+
+    /// Immutable load request consumed by the client SHP atlas.
+    pub fn shp_image_load(&self) -> Option<&crate::rules::object_image::ObjectImageLoad> {
+        self.shp_image_load.as_ref()
+    }
+
+    pub(crate) fn voxel_image_load(&self) -> Option<&str> {
+        self.voxel_image_load.as_deref()
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn additional_super_weapons(&self) -> &[String] {
         &self.additional_super_weapons
@@ -3011,6 +3035,8 @@ impl ObjectType {
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),
             // Constructor value; only the ordered Process owner reads it.
             image: id.to_owned(),
+            shp_image_load: None,
+            voxel_image_load: None,
             power: section.read_int("Power", 0),
             // Only the ordered Rules processor reads it: a later layer's
             // non-negative value keeps an earlier drain.

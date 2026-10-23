@@ -4402,12 +4402,12 @@ impl RuleSet {
                 processed.side_projection(),
             ),
         )?;
-        for (name, state) in processed.terrain_type_read_states() {
+        for (name, state, image) in processed.terrain_type_read_states() {
             if let Some(terrain) = rules
                 .terrain_object_types
                 .get_mut(&name.to_ascii_uppercase())
             {
-                state.project_into(terrain);
+                state.project_into(terrain, image);
             }
         }
         let mut native_identity_counts = HashMap::new();
@@ -4706,12 +4706,13 @@ impl RuleSet {
                 object.project_explicit_factory(state);
             }
         }
-        for (category, name, references) in processed.techno_reference_states() {
+        for (category, name, references, image) in processed.techno_reference_states() {
             if let Some(object) = rules
                 .object_list
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
+                object.project_image_state(image);
                 references.apply_to(object);
             }
         }
@@ -4846,13 +4847,13 @@ impl RuleSet {
         }
         // The registry processor owns native read timing and retained values;
         // the runtime definition receives that result, not another ART read.
-        for (name, art) in processed.projectile_art_states() {
+        for (name, art, image) in processed.projectile_art_states() {
             if let Some(projectile) = rules
                 .projectiles
                 .values_mut()
                 .find(|projectile| projectile.id.eq_ignore_ascii_case(name))
             {
-                art.apply_to(projectile);
+                art.apply_to(image, projectile);
             }
         }
         for (name, (airburst, shrapnel)) in processed.projectile_weapon_states() {

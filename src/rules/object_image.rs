@@ -1,0 +1,266 @@
+//! Retained ObjectType image fields and reached image-load attempts.
+//!
+//! ProcessedType owns this state. Resource catalogs resolve the attempts;
+//! constructing or projecting a RuleSet cannot execute another native read.
+//! This covers the proven unowned Rules-read and saved-load boundary. Lazy
+//! owned-shape transitions remain with their resource lifecycle callers.
+
+use crate::rules::ini_parser::{IniFile, IniSection};
+
+/// Scenario's theater at a Rules/resource phase, not another scenario owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ImageTheater {
+    Uninitialized,
+    Temperate,
+    Snow,
+    Urban,
+    Desert,
+    NewUrban,
+    Lunar,
+}
+
+impl ImageTheater {
+    /// FindTheater48DBE0 scans the six names at7E1B78 with case-insensitive
+    /// comparison; Snow is ordinal1. Unknown names return-1.
+    pub(crate) fn from_name(name: &str) -> Self {
+        if name.eq_ignore_ascii_case("SNOW") {
+            Self::Snow
+        } else if name.eq_ignore_ascii_case("TEMPERATE") {
+            Self::Temperate
+        } else {
+            [
+                ("URBAN", Self::Urban),
+                ("DESERT", Self::Desert),
+                ("NEWURBAN", Self::NewUrban),
+                ("LUNAR", Self::Lunar),
+            ]
+            .into_iter()
+            .find(|(candidate, _)| name.eq_ignore_ascii_case(candidate))
+            .map_or(Self::Uninitialized, |(_, theater)| theater)
+        }
+    }
+
+    /// Full_Init687633..687649 invokes ReadTheater475870 with default0
+    /// before resetting Types. This reads the raw map, not the merged Rules.
+    pub(crate) fn from_map(map: &IniFile) -> Self {
+        let name = map.section_or_empty("Map").read_string("Theater", "", 0x80);
+        if name.is_empty() {
+            Self::Temperate
+        } else {
+            Self::from_name(&name)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ObjectImageKind {
+    Ordinary,
+    Animation,
+    Terrain,
+}
+
+/// Inputs of a reached SHP load. A failed attempt still replaces the old one.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct ObjectImageLoad {
+    pub image: String,
+    pub theater: bool,
+    pub new_theater: bool,
+    /// Generic LoadSHP retries G; direct Image.SHP readers load once.
+    pub(crate) generic_retry: bool,
+}
+
+impl ObjectImageLoad {
+    /// ObjectTypeLoadSHP5F9119..5F91DD chooses the extension, then applies
+    /// NewTheater only without Theater. Failed loads5F9258/5F9276 retry with
+    /// the second filename character forced to G, even if it is unchanged.
+    /// Direct TechnoRead715820 and TerrainRead71DFC0 loads have no retry.
+    pub fn shp_names(&self, theater_ext: &str, theater_name: &str) -> Vec<String> {
+        let upper_image = self.image.to_ascii_uppercase();
+        let extension = if self.theater {
+            theater_ext.to_ascii_uppercase()
+        } else {
+            "SHP".to_string()
+        };
+        let primary = format!("{upper_image}.{extension}");
+        if !self.generic_retry {
+            return vec![primary];
+        }
+        let [substituted, generic_retry] =
+            crate::rules::art_data::theater_shp_names(&primary, theater_name);
+        let first = if !self.theater && self.new_theater {
+            substituted
+        } else {
+            primary
+        };
+        vec![first, generic_retry]
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct ObjectImageState {
+    image: String,
+    alternate_arctic_art: bool,
+    arctic_applied: bool,
+    theater: bool,
+    new_theater: bool,
+    voxel: bool,
+    shp_load: Option<ObjectImageLoad>,
+    voxel_load: Option<String>,
+}
+
+impl ObjectImageState {
+    /// ObjectTypeConstructor5F7090/5F7148/5F714E: ImageFile starts with
+    /// stored ID; the alternate-art input and applied latch both start false.
+    pub(crate) fn new(stored_id: &str) -> Self {
+        Self {
+            image: stored_id.chars().take(24).collect(),
+            alternate_arctic_art: false,
+            arctic_applied: false,
+            theater: false,
+            new_theater: false,
+            voxel: false,
+            shp_load: None,
+            voxel_load: None,
+        }
+    }
+
+    /// ObjectTypeReadINI5F933B/5F9460/5F95F4..5F964D. ART retains the
+    /// pre-load section: its pointer cache can survive mutation of ImageFile.
+    pub(crate) fn read_ini<'a>(
+        &mut self,
+        input: &IniSection,
+        fixed_art: &'a IniFile,
+        kind: ObjectImageKind,
+        theater: ImageTheater,
+    ) -> Option<&'a IniSection> {
+        self.read_input(input);
+        let art = fixed_art.section(&self.image);
+        self.read_art(art);
+        self.load_for_read(kind, theater);
+        art
+    }
+
+    pub(crate) fn read_input(&mut self, input: &IniSection) {
+        self.image = input.read_string("Image", &self.image, 25);
+        self.alternate_arctic_art =
+            input.read_bool("AlternateArcticArt", self.alternate_arctic_art);
+    }
+
+    pub(crate) fn read_art(&mut self, art: Option<&IniSection>) {
+        if let Some(art) = art {
+            (self.theater, self.new_theater) = crate::rules::object_type::read_object_theater_flags(
+                art,
+                (self.theater, self.new_theater),
+            );
+            self.voxel = art.read_bool("Voxel", self.voxel);
+        }
+    }
+
+    pub(crate) fn load_for_read(&mut self, kind: ObjectImageKind, theater: ImageTheater) {
+        if !self.voxel && kind != ObjectImageKind::Animation {
+            self.load_unowned_shp(kind, theater);
+        }
+    }
+
+    /// ObjectTypeLoadSHP5F9070..5F9119 mutates ImageFile once while snow,
+    /// alternate art and an unowned entry shape admit it. Ordinary cached
+    /// loads5F924E/5F926E never set ownership+A8; ObjectLoad5F985C clears it
+    /// before every saved-family call here. This is the proven unowned
+    /// read/saved boundary, not the lazy owned-shape lifecycle. A miss never
+    /// undoes the name or latch.
+    pub(crate) fn load_unowned_shp(&mut self, kind: ObjectImageKind, theater: ImageTheater) {
+        if self.alternate_arctic_art && theater == ImageTheater::Snow {
+            if !self.arctic_applied {
+                self.image = self.image.chars().chain(['A']).take(24).collect();
+                self.arctic_applied = true;
+            }
+        } else {
+            self.arctic_applied = false;
+        }
+        // 5F9203/5F920D clears the previous shape; among these callers,
+        // Terrain's RTTI37 skips loading. Other callers try this ImageFile.
+        self.shp_load = (kind != ObjectImageKind::Terrain).then(|| ObjectImageLoad {
+            image: self.image.clone(),
+            theater: self.theater,
+            new_theater: self.new_theater,
+            generic_retry: true,
+        });
+    }
+
+    /// TechnoRead715820/715825, TerrainRead71DF9E..71DFC0 and
+    /// AnimResolve427B7B load Image.SHP once, without the alternate-art
+    /// prefix or generic retry. A miss replaces the previous shape with null.
+    pub(crate) fn load_plain_shp(&mut self) {
+        self.shp_load = Some(ObjectImageLoad {
+            image: self.image.clone(),
+            theater: false,
+            new_theater: false,
+            generic_retry: false,
+        });
+    }
+
+    /// LoadVoxel5F8110 formats the entry ImageFile independently of Voxel.
+    pub(crate) fn load_voxel(&mut self) {
+        self.voxel_load = Some(self.image.clone());
+    }
+
+    /// ObjectLoad5F9856..5F985C clears the saved resource pointer/ownership.
+    pub(crate) fn clear_shp(&mut self) {
+        self.shp_load = None;
+    }
+
+    pub(crate) fn replace_image(&mut self, input: &IniSection, default: &str) {
+        self.image = input.read_string("Image", default, 25);
+    }
+
+    pub(crate) fn read_anim_theater_flags(&mut self, own_art: &IniSection) {
+        if !self.image.is_empty() {
+            (self.theater, self.new_theater) = crate::rules::object_type::read_object_theater_flags(
+                own_art,
+                (self.theater, self.new_theater),
+            );
+        }
+    }
+
+    /// ObjectType's Image25 read5F933B and arctic copy5F90DF..5F90EF keep
+    /// at most24 source characters plus the terminating NUL. Load descriptors
+    /// retain prior contents of that same buffer. Later reads can validly
+    /// change Image without changing a prior descriptor or the arctic latch.
+    pub(crate) fn validate_saved_state(&self) -> Result<(), crate::rules::error::RulesError> {
+        let valid_name = |name: &str| name.chars().count() <= 24 && !name.contains('\0');
+        if !valid_name(&self.image)
+            || self
+                .shp_load
+                .as_ref()
+                .is_some_and(|load| !valid_name(&load.image))
+            || self
+                .voxel_load
+                .as_deref()
+                .is_some_and(|name| !valid_name(name))
+        {
+            return Err(crate::rules::error::RulesError::InvalidSavedState(
+                "invalid retained ObjectType image name",
+            ));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn image(&self) -> &str {
+        &self.image
+    }
+    pub(crate) fn theater(&self) -> bool {
+        self.theater
+    }
+    pub(crate) fn new_theater(&self) -> bool {
+        self.new_theater
+    }
+    pub(crate) fn voxel(&self) -> bool {
+        self.voxel
+    }
+    pub(crate) fn shp_load(&self) -> Option<&ObjectImageLoad> {
+        self.shp_load.as_ref()
+    }
+    pub(crate) fn voxel_load(&self) -> Option<&str> {
+        self.voxel_load.as_deref()
+    }
+}

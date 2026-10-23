@@ -91,7 +91,7 @@ impl PreparedSavedGame {
         assets: &mut AssetManager,
     ) -> Result<PreparedSavedResources, PreparedLoadError> {
         let mut snapshot = GameSnapshot::load_with_resources(bytes)?;
-        let saved = snapshot
+        let mut saved = snapshot
             .take_scenario_resources()
             .ok_or(SnapshotError::MissingScenarioResources)?;
         let elapsed_clock =
@@ -166,6 +166,32 @@ impl PreparedSavedGame {
             }
             .into());
         }
+        // Native family TypeLoad mutates retained image history after raw
+        // fields arrive (Terrain71E211/18, Infantry5249AD/B4). Validate the
+        // pre-load resource digest first, then derive the runtime projection
+        // from this same incoming record. Outgoing authority remains borrowed.
+        saved.restore_object_image_loads(&theater_name)?;
+        let mut rules = view
+            .rules_owner
+            .project_saved_scenario_rules(saved.processed_rules())?;
+        init_helpers::bind_rules_art_metadata(
+            &mut rules,
+            view.rules_owner.fixed_art(),
+            assets,
+            theater.extension,
+            &theater_name,
+        );
+        init_helpers::bind_rules_asset_closure(
+            &mut rules,
+            view.rules_owner.fixed_art(),
+            &overlay_registry,
+            saved.scheduler_anim_roots(),
+            assets,
+            theater.extension,
+            &theater_name,
+            crate::rules::terrain_asset_catalog::TerrainAssetLoadPhase::Saved,
+        )
+        .map_err(|error| PreparedLoadError::Resources(error.to_string()))?;
         let (mut resources, processed_rules, map) =
             saved.into_restored_parts(rules, overlay_registry, SharedCellDummy::fresh())?;
         let rules = &resources.rules;

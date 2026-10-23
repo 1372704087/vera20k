@@ -106,8 +106,9 @@ impl RandomMapPreviewOverlayRules {
     fn from_process(
         owner: &crate::rules::process_owner::NativeRulesProcessOwner,
         mode: Option<&crate::rules::ini_parser::IniFile>,
+        theater: &str,
     ) -> Option<Self> {
-        let processed = owner.random_map_preview_projection(mode).ok()?;
+        let processed = owner.random_map_preview_projection(mode, theater).ok()?;
         let ini = processed.ini().clone();
         Some(Self {
             registry: crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
@@ -504,8 +505,9 @@ pub(super) fn prepare_random_map_generation(
             asset_manager.get(name)
         });
     let tech_types = crate::app::loading::init_helpers::load_neutral_tech_types(native_rules);
-    let preview_overlay_rules = native_rules
-        .and_then(|owner| RandomMapPreviewOverlayRules::from_process(owner, mode_rules_override));
+    let preview_overlay_rules = native_rules.and_then(|owner| {
+        RandomMapPreviewOverlayRules::from_process(owner, mode_rules_override, theater_name)
+    });
     Some(PreparedRandomMapGeneration {
         theater,
         terrain_rules,
@@ -1738,7 +1740,7 @@ mod tests {
             .unwrap();
         let mode = crate::rules::ini_parser::IniFile::from_str("[TIB01]\nRadarColor=140,0,140\n");
         let mode_projection =
-            RandomMapPreviewOverlayRules::from_process(&rules, Some(&mode)).unwrap();
+            RandomMapPreviewOverlayRules::from_process(&rules, Some(&mode), "TEMPERATE").unwrap();
         control.overlays[0].frame = 1;
         let colored = random_map_preview_cells(
             &control,

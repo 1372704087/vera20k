@@ -1212,23 +1212,20 @@ impl ArtRegistry {
             let report = section.read_name("Report", 0x80).map(str::to_owned);
             let start_sound = section.read_name("StartSound", 0x80).map(str::to_owned);
             let anim_runtime_config = parse_anim_runtime_config(section);
-            // ObjectType::ReadINI5F92D0 reads these from the one-hop Image25
-            // section. AnimType::ReadINI427D00 then rereads its own section
-            // using those values as defaults. Fresh AnimTypes have no image:
-            // the base reader skips LoadSHP for their RTTI5 (428E50).
-            let image_section = ini.section(&anim_runtime_config.image);
-            let (mut anim_theater, mut anim_new_theater) = image_section
-                .map(|image_section| {
-                    crate::rules::object_type::read_object_theater_flags(
-                        image_section,
-                        (false, false),
-                    )
-                })
-                .unwrap_or_default();
-            if !anim_runtime_config.image.is_empty() {
-                anim_theater = section.read_bool("Theater", anim_theater);
-                anim_new_theater = section.read_bool("NewTheater", anim_new_theater);
-            }
+            // ObjectType::ReadINI5F92D0 selects the one-hop Image25 ART.
+            // This is a fresh AnimType: its base reader skips LoadSHP for
+            // RTTI5 (428E50), and427D00 can read its own theater flags before
+            // any shape resolves. Later Process reads depend on actual shape
+            // success and remain outside this fresh metadata projection.
+            let mut anim_image = crate::rules::object_image::ObjectImageState::new(&section.name);
+            anim_image.read_ini(
+                section,
+                ini,
+                crate::rules::object_image::ObjectImageKind::Animation,
+                crate::rules::object_image::ImageTheater::Uninitialized,
+            );
+            anim_image.read_anim_theater_flags(section);
+            let (anim_theater, anim_new_theater) = (anim_image.theater(), anim_image.new_theater());
             let extra_light: i32 = section.read_int("ExtraLight", 0);
             let queueing_cell = section.read_minmax("QueueingCell", [0, 0]);
             // Multi-pad parser: read DockingOffset0..7 from art.ini.
@@ -1822,12 +1819,13 @@ impl ArtRegistry {
     ///
     /// gamemd-derived: `TechnoTypeClass::ReadINI @ 0x00712170` reads art
     /// `Cameo=` from the section named by `ImageFile` (`+0x1F8`), which
-    /// `ObjectTypeClass::ReadINI` fills from the rules `Image=` key with the
-    /// type ID as default (`0x005F9335`). The read at `0x0071599F` takes the
+    /// `ObjectTypeClass::ReadINI` reads from the rules `Image=` key with the
+    /// retained Image as default, initially the type ID (`0x005F9335`).
+    /// The read at `0x0071599F` takes the
     /// section from `LEA ESI,[EBP+0x1F8]` (`0x007157B5`); the art section's
-    /// own `Image=` redirect is never the cameo section, and a BuildingType
-    /// rewrites `ImageFile` from art only after the base read (`0x0046C1DA`
-    /// follows the `CALL 0x712170` at `0x0045FE6B`). Stock: `[MTNK]`
+    /// own `Image=` redirect is never the cameo section. Building's later
+    /// `InitTheater @ 0x0045F230` reads that redirect at `0x0045F945` into a
+    /// separate filename without changing ImageFile. Stock: `[MTNK]`
     /// (`Image=GTNK`) shows `GTNKICON`, not `[MTNK]`'s `MTNKICON`, and
     /// `[YENGINEER]` (`Image=ENGINEER`) shows `ENGNICON`.
     ///
@@ -2237,19 +2235,15 @@ pub fn native_overlay_shp_names(
     let uses_theater = image_entry.is_some_and(|entry| entry.theater);
     let uses_new_theater = image_entry.is_some_and(|entry| entry.new_theater);
 
-    let (primary_stem, extension) = if uses_theater {
-        (upper_image, theater_ext.to_ascii_uppercase())
-    } else {
-        let stem = if uses_new_theater {
-            apply_theater_letter(&upper_image, theater_name)
-        } else {
-            upper_image
-        };
-        (stem, "SHP".to_string())
-    };
-    let primary = format!("{primary_stem}.{extension}");
-    let generic_retry = apply_generic_letter(&primary);
-    [primary, generic_retry]
+    crate::rules::object_image::ObjectImageLoad {
+        image: upper_image,
+        theater: uses_theater,
+        new_theater: uses_new_theater,
+        generic_retry: true,
+    }
+    .shp_names(theater_ext, theater_name)
+    .try_into()
+    .expect("ObjectType SHP loading has one primary and one retry")
 }
 
 /// Generate VXL/HVA filenames for a voxel model.

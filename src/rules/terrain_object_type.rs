@@ -104,8 +104,14 @@ impl TerrainObjectType {
         // constructor's zero (`0x0071DACD`).
         let animation_probability =
             section.read_double_to_float("AnimationProbability", NativeF32Bits::POSITIVE_ZERO);
-        let mut read_state = TerrainTypeReadState::new(name);
-        read_state.read_pass(section, &crate::rules::ini_parser::IniFile::empty());
+        let mut read_state = TerrainTypeReadState::new();
+        let mut image = crate::rules::object_image::ObjectImageState::new(name);
+        read_state.read_pass(
+            section,
+            &crate::rules::ini_parser::IniFile::empty(),
+            &mut image,
+            crate::rules::object_image::ImageTheater::Uninitialized,
+        );
         // Terrain ctor71DBAC initializes Strength=-1. ObjectType5F94D3 reads
         // with that current default; Terrain71DEC8..71DEDC substitutes
         // Rules+1144 when the stored result is exactly -1, including an
@@ -114,8 +120,8 @@ impl TerrainObjectType {
 
         Self {
             name: name.to_string(),
-            image_file: read_state.image.clone(),
-            theater: read_state.theater,
+            image_file: image.image().to_string(),
+            theater: image.theater(),
             alpha_image: section.read_object_alpha_image(""),
             is_logic: read_state.is_logic,
             spawns_tiberium: section.read_bool("SpawnsTiberium", false),
@@ -203,13 +209,10 @@ pub(crate) struct TerrainRadarColorReadPass {
 }
 
 /// Process-owned TerrainType state that cannot be reconstructed from a merged
-/// section: inherited Image, ordered color inputs and the IsVeinhole post-read.
+/// section: ordered color inputs and the IsVeinhole post-read. Inherited image
+/// fields live in the same ProcessedType's ObjectImageState.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TerrainTypeReadState {
-    #[serde(default)]
-    image: String,
-    theater: bool,
-    new_theater: bool,
     foundation: u8,
     #[serde(default)]
     reads: Vec<TerrainRadarColorReadPass>,
@@ -219,13 +222,9 @@ pub(crate) struct TerrainTypeReadState {
 }
 
 impl TerrainTypeReadState {
-    /// ObjectTypeClass::Constructor @0x005F7090 copies the stored type ID into
-    /// the inherited ImageFile buffer at +0x1F8 before the first ReadINI.
-    pub(crate) fn new(type_id: &str) -> Self {
+    /// Fresh Terrain subclass fields, alongside its inherited image owner.
+    pub(crate) fn new() -> Self {
         Self {
-            image: type_id.to_string(),
-            theater: false,
-            new_theater: false,
             foundation: foundation::DEFAULT_FOUNDATION_ID,
             reads: Vec::new(),
             is_logic: true,
@@ -242,15 +241,19 @@ impl TerrainTypeReadState {
         &mut self,
         section: &crate::rules::ini_parser::IniSection,
         fixed_art: &crate::rules::ini_parser::IniFile,
+        image: &mut crate::rules::object_image::ObjectImageState,
+        theater: crate::rules::object_image::ImageTheater,
     ) {
-        self.image = section.read_string("Image", &self.image, 0x19);
-        let image_art = fixed_art.section_or_empty(&self.image);
-        (self.theater, self.new_theater) = crate::rules::object_type::read_object_theater_flags(
-            image_art,
-            (self.theater, self.new_theater),
+        let cached_art = image.read_ini(
+            section,
+            fixed_art,
+            crate::rules::object_image::ObjectImageKind::Terrain,
+            theater,
         );
-        // TerrainType ReadINI71DF61..71DF96 reads this same retained Image,
-        // using the current Foundation as default through shared ReadFoundation.
+        // INI ReadFoundation71DF79 reuses the ImageFile pointer cached by
+        // ObjectRead5F9592..5F962E. A hit retains the pre-Arctic section; a
+        // miss clears the cache and permits lookup under the mutated name.
+        let image_art = cached_art.unwrap_or_else(|| fixed_art.section_or_empty(image.image()));
         self.foundation = foundation::read_foundation(image_art, self.foundation);
         // Original instructions: ObjectTypeClass::ReadINI5F9499..5F94C2
         // reads LegalTarget with its current value. TerrainTypeClass::ReadINI
@@ -262,21 +265,28 @@ impl TerrainTypeReadState {
             self.is_logic = false;
             self.legal_target = true;
         }
+        if !image.theater() {
+            image.load_plain_shp();
+        }
         self.reads.push(TerrainRadarColorReadPass {
             // Object LoadSHP5F9203/5F923E clears then skips TerrainType.
             // Only fresh non-theater71DF9C..71DFC0 reloads ImageFile.SHP
             // before the optional GetColor71DFD0..71DFF5.
-            image: (!self.theater).then(|| self.image.clone()),
+            image: image.shp_load().map(|load| load.image.clone()),
             radar_color: section.raw_value("RadarColor").map(str::to_string),
         });
     }
 
-    pub(crate) fn project_into(&self, terrain: &mut TerrainObjectType) {
+    pub(crate) fn project_into(
+        &self,
+        terrain: &mut TerrainObjectType,
+        image: &crate::rules::object_image::ObjectImageState,
+    ) {
         terrain.is_logic = self.is_logic;
         terrain.is_veinhole = self.is_veinhole;
         terrain.legal_target = self.legal_target;
-        terrain.image_file.clone_from(&self.image);
-        terrain.theater = self.theater;
+        terrain.image_file = image.image().to_string();
+        terrain.theater = image.theater();
         terrain.foundation = foundation::FOUNDATION_TABLE[usize::from(self.foundation)]
             .name
             .to_string();

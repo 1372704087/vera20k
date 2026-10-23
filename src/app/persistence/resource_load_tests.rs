@@ -311,10 +311,9 @@ fn assert_incoming_resources(
         prepared.resources.rules.object("MTNK").unwrap().strength,
         321
     );
-    assert_eq!(
-        prepared.resources.rules.simulation_config_hash(),
-        incoming.resources.rules.simulation_config_hash()
-    );
+    // TypeLoad can replace image-load attempts after the saved digest has
+    // passed. Compare the retained fields/assets below, not a pre-load digest
+    // with the post-load projection. The wrong-digest control still rejects.
     assert!(
         !prepared
             .resources
@@ -440,7 +439,7 @@ struct IncomingSave {
     repository: SaveRepository,
 }
 
-fn incoming_save() -> Option<IncomingSave> {
+fn incoming_save(theater: &str, extra_rules: &str) -> Option<IncomingSave> {
     let (root, mut assets) = retail_assets()?;
     let mut owner = retail_rules_owner(&assets);
     assets
@@ -452,7 +451,10 @@ fn incoming_save() -> Option<IncomingSave> {
         .expect("retail Battle INI")
         .ini;
     let directory = TestDirectory::new("saved-retail-resources");
-    directory.write("incoming.map", map_text("TEMPERATE", 321, 8).as_bytes());
+    directory.write(
+        "incoming.map",
+        format!("{}{extra_rules}", map_text(theater, 321, 8)).as_bytes(),
+    );
     directory.write("outgoing.map", map_text("SNOW", 654, 6).as_bytes());
     let source_path = directory.path().join("incoming.map");
     let source_name = source_path.to_str().unwrap();
@@ -519,7 +521,7 @@ fn frontend_main() -> crate::sim::rng::MainRng {
 
 #[test]
 fn retail_saved_resources_prepare_cold() {
-    let Some(save) = incoming_save() else {
+    let Some(save) = incoming_save("TEMPERATE", "") else {
         return;
     };
     let IncomingSave {
@@ -586,8 +588,128 @@ fn retail_saved_resources_prepare_cold() {
 }
 
 #[test]
+fn arctic_type_load_validates_before_mutation_and_resaves_the_same_owner() {
+    let Some(mut save) = incoming_save(
+        "SNOW",
+        "[BlimpBombP]\nImage=ZBOMB\nInviso=yes\nAlternateArcticArt=yes\n",
+    ) else {
+        return;
+    };
+    let before = save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap();
+    let bullet = save
+        .incoming
+        .resources
+        .rules
+        .projectile("BlimpBombP")
+        .unwrap();
+    assert!(bullet.voxel && bullet.inviso);
+    assert_eq!(bullet.image.as_deref(), Some("ZBOMB"));
+    let clock = || LOAD_CLOCK_MS;
+    let frontend = frontend_main();
+    let cache = TileVariantSelectorCache::default();
+    let view = SavedGamePreparationView {
+        repository: &save.repository,
+        current_simulation: None,
+        frontend_main: &frontend,
+        rules_owner: &save.owner,
+        tile_cache: &cache,
+        load_clock: &clock,
+    };
+    let rejected = save.assets.prepare_saved_load(|assets| {
+        PreparedSavedGame::prepare_resources(&save.bad_rules, &view, assets)
+    });
+    assert!(matches!(
+        rejected,
+        Err(PreparedLoadError::Snapshot(
+            SnapshotError::RulesMismatch { .. }
+        ))
+    ));
+    let rejected = save.assets.prepare_saved_load(|assets| {
+        PreparedSavedGame::prepare_resources(&save.bad_follow, &view, assets)
+    });
+    assert!(matches!(
+        rejected,
+        Err(PreparedLoadError::LocalView(
+            SavedLocalViewError::MissingEntityReference {
+                field: "Follow",
+                ..
+            }
+        ))
+    ));
+    assert_eq!(
+        save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap(),
+        before
+    );
+
+    let prepared = save
+        .assets
+        .prepare_saved_load(|assets| {
+            PreparedSavedGame::prepare_resources(&save.bytes, &view, assets)
+        })
+        .unwrap();
+    // BulletLoad46C6E1/E8 always requests entry VXL before Arctic SHP,
+    // even for saved Voxel/Inviso. Missing ZBOMBA.SHP cannot undo the latch.
+    let bullet = prepared.resources.rules.projectile("BlimpBombP").unwrap();
+    assert_eq!(bullet.image.as_deref(), Some("ZBOMBA"));
+    assert_eq!(bullet.voxel_image_load(), Some("ZBOMB"));
+    assert_eq!(bullet.image_load.as_ref().unwrap().image, "ZBOMBA");
+    assert_eq!(
+        prepared.resources.rules.object("GHOST").unwrap().image,
+        "SEALA"
+    );
+    assert_eq!(
+        save_codec::serialize(save.owner.saved_scenario_rules().unwrap()).unwrap(),
+        before
+    );
+
+    let PreparedSavedResources {
+        world,
+        resources,
+        processed_rules,
+        map,
+        ..
+    } = prepared;
+    let (simulation, _) = world.into_committed(SharedCellDummy::fresh(), &frontend);
+    save.owner.install_saved_scenario_rules(processed_rules);
+    let runtime = SimRuntime {
+        simulation,
+        resources,
+    };
+    let bytes = snapshot_bytes(
+        &runtime,
+        &save.owner,
+        &map,
+        None,
+        runtime.resources.rules.simulation_config_hash(),
+    );
+    let view = SavedGamePreparationView {
+        rules_owner: &save.owner,
+        repository: &save.repository,
+        current_simulation: None,
+        frontend_main: &frontend,
+        tile_cache: &cache,
+        load_clock: &clock,
+    };
+    let again = save
+        .assets
+        .prepare_saved_load(|assets| PreparedSavedGame::prepare_resources(&bytes, &view, assets))
+        .unwrap();
+    let bullet = again.resources.rules.projectile("BlimpBombP").unwrap();
+    assert_eq!(
+        bullet.image.as_deref(),
+        Some("ZBOMBA"),
+        "saved latch prevents AA"
+    );
+    assert_eq!(
+        bullet.voxel_image_load(),
+        Some("ZBOMBA"),
+        "next Load uses its new entry image"
+    );
+}
+
+#[test]
 fn retail_saved_resources_prepare_cross_map_and_roll_back_late_failure() {
-    let Some(save) = incoming_save() else {
+    let Some(save) = incoming_save("TEMPERATE", "") else {
         return;
     };
     let IncomingSave {

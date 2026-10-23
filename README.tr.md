@@ -50,6 +50,9 @@ Windows, macOS veya Linux yükleyicisini
 aldığınız Yuri's Revenge'i bulur ve VERA20K'yi yeni bir klasöre kurar. Modlar ve yeni içerikler de
 oraya gidecek; böylece oyunun kendi dosyaları hiç değiştirilmez.
 
+Tek oyunculu YR çatışmalarını veya senaryolarını bir CnCNet istemcisinden başlatmak için
+[çevrimdışı istemci kurulumuna](integrations/cncnet/README.md) bakın.
+
 ## Ayarlar
 
 Ses ve kontroller için **Options**, VERA'ya özgü özellikler için **Vera Options** menüsünü kullanın.
@@ -126,19 +129,14 @@ her yeni özellik, şu yollardan biriyle açılana kadar kapalı kalmalıdır:
 - **Bir oyun içi lobi seçeneği**: her maç için seçilir.
 - **Bir INI anahtarı**: bir mod ya da harita tarafından ayarlanır.
 
-`VERA.INI` oyuncu tercihleri içindir. Birim, silah ve diğer oynanış kuralları modun
-`RULESMD.INI` ve `ARTMD.INI` gibi kural, grafik, oyun modu veya harita INI dosyalarına aittir.
-
-Tek oyunculu YR çatışmalarını veya senaryolarını bir CnCNet istemcisinden başlatmak için
-[çevrimdışı istemci kurulumuna](integrations/cncnet/README.md) bakın.
+Ses, grafik ve kontrol ayarları `VERA.INI` dosyasına kaydedilir. Oynanış kuralları lobi
+ayarlarından, modlardan veya haritalardan gelir.
 
 ## Katkıda bulunma
 
 Yardımlarınızı bekliyoruz. Kod yazabilir, motoru yeniden düzenleyebilir, oyunu test edebilir,
 fikirlerinizi paylaşabilir veya orijinal oyunla yan yana oynayıp neyin yanlış hissettirdiğini
 bize anlatabilirsiniz. Bir PR açın, gerisini biz hallederiz.
-
-Her yeni seçenek için dosyayı, bölümü, anahtarı, varsayılan değeri ve etkisini belgeleyin.
 
 Tartışmalar [Discord](https://discord.gg/kmjRUn5m5F) üzerinden ve QQ grubunda (1097193563) yürür.
 

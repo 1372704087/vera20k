@@ -38,8 +38,11 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 - **Campaigns:** Missions can launch; support remains incomplete.
 - **AI:** Parts of the original AI handle base building and scripted attacks.
 - **Ongoing work:** Gameplay accuracy, visuals and performance.
-- **Multiplayer:** Network play is not available yet.
-- **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
+- **Multiplayer:** LAN and online play are available in current source builds on
+  macOS and Linux. See [hosting, joining and rematches](#multiplayer).
+- **Scale:** Two consecutive online matches passed functional validation with
+  30 independent client processes and more than 20,000 active mobile units per match.
+  Linux clients shared VMs; this does not establish smooth, real-time performance.
 
 ## Download and play
 
@@ -90,6 +93,39 @@ cargo run --release --bin vera20k
 ```
 
 The build writes several GB into `target/`.
+
+## Multiplayer
+
+These steps describe the current macOS and Linux source builds. All players should
+use the same VERA20K build and matching game rules.
+
+**LAN:** Choose **Network** from the main menu and enter your player name. The host
+chooses **New**; other players select that game and choose **Join**. Discovery needs
+a local network that carries UDP broadcast. Allow VERA20K through the local firewall
+on UDP ports 1234 and 1236.
+
+**Online:** Choose **Internet → Custom Match**. Enter your player name and password,
+then choose **Create Account** for a new account or **Login** for an existing one.
+Names use 1–24 ASCII letters, digits, underscores or hyphens; passwords use 12–128
+UTF-8 bytes. Choose your location if prompted. The current build connects to the
+project's deployed lobby and gameplay relay automatically. The client keeps login
+tokens in memory and does not save passwords.
+
+Each player needs a separate account. A new login replaces that account's previous
+sessions; if it already has an active match, the new login is refused.
+
+1. Online hosts choose **Create Game**, set a game name and optional room password,
+   then confirm. Other players select the game and choose **Join Game**.
+2. The host chooses the map and match settings. Each guest chooses their player
+   settings and presses **Accept** when ready. Changed settings can require guests
+   to accept again.
+3. The host presses **Start Game**. Map checks, loading and the synchronized start
+   run through the normal game screens.
+4. After the match, press **Continue** on the results screen to return to the lobby.
+   Create and join another game there for a rematch. Use **Main Menu** in the LAN
+   lobby, or **Back → Main Menu** online, to leave.
+
+See [Networking](docs/Networking.md) for transport and compatibility details.
 
 ## How we work
 

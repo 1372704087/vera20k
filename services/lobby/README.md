@@ -17,9 +17,15 @@ mode-0600 JSON file outside the repository containing `RELAY_TICKET_KEY`, then r
 relay's systemd credential. The CLI's authentication stays in its own credential
 storage. No provider token or server key belongs in the build or client.
 
-Compile the game with `VERA20K_LOBBY_URL` set to the resulting HTTPS endpoint.
-Clients also accept that environment variable for staging. They use verified TLS
-and decline redirects, keep login sessions in memory, and never persist passwords.
+The client defaults to the deployed lobby at
+`https://vera20k-lobby.hnr-enok.workers.dev`. Normal players use
+**Internet → Custom Match** without configuring a server address; see the
+[player instructions](../../README.md#multiplayer).
+
+For a separate deployment, set `VERA20K_LOBBY_URL` at build time or use its runtime
+environment override for staging. Clients require HTTPS, verify TLS and decline
+redirects. The client keeps login tokens in memory and does not save passwords.
+The lobby stores account password verifiers and session records in SQLite.
 
 The source schema is configured in `cloudflare.config.ts` using the official
 [Cloudflare configuration API](https://developers.cloudflare.com/cf/projects/cloudflare-config/).

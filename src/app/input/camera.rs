@@ -1518,7 +1518,8 @@ impl ViewDistanceTier {
     fn larger(self) -> Self {
         match self {
             Self::Small => Self::Default,
-            Self::Default | Self::Large => Self::Large,
+            Self::Default => Self::Large,
+            Self::Large => Self::Huge,
             Self::Huge => Self::Huge,
         }
     }
@@ -1528,7 +1529,8 @@ impl ViewDistanceTier {
         match self {
             Self::Small => Self::Small,
             Self::Default => Self::Small,
-            Self::Large | Self::Huge => Self::Large,
+            Self::Large => Self::Default,
+            Self::Huge => Self::Large,
         }
     }
 }
@@ -2920,6 +2922,10 @@ fn view_distance_tiers_match_the_1280_reference_and_clamp_at_the_ends() {
     }
     assert_eq!(ViewDistanceTier::Small.smaller(), ViewDistanceTier::Small);
     assert_eq!(ViewDistanceTier::Small.larger(), ViewDistanceTier::Default);
+    assert_eq!(ViewDistanceTier::Default.larger(), ViewDistanceTier::Large);
+    assert_eq!(ViewDistanceTier::Default.smaller(), ViewDistanceTier::Small);
+    assert_eq!(ViewDistanceTier::Large.larger(), ViewDistanceTier::Huge);
+    assert_eq!(ViewDistanceTier::Large.smaller(), ViewDistanceTier::Default);
     assert_eq!(ViewDistanceTier::Huge.larger(), ViewDistanceTier::Huge);
     assert_eq!(ViewDistanceTier::Huge.smaller(), ViewDistanceTier::Large);
     // The cycle reads the tier nearest a saved or mid-animation zoom.

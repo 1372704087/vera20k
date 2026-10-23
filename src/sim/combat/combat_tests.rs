@@ -912,19 +912,33 @@ fn retail_bridge_repair_hut_area_hit_returns_before_the_techno_receiver() {
             .is_none()
         };
         assert!(resolve(&sim), "IC {iron_curtain}: no receiver outcome");
-        assert_eq!(
-            wave_post_object_damage(
-                &event,
-                &sim.substrate.entities,
-                &rules,
-                &sim.interner,
-                &sim.houses,
-                sim.house_alliances.as_map(),
-                false,
-                0,
-                None,
-            ),
+        #[cfg(feature = "phobos")]
+        let wave = wave_post_object_damage(
+            &event,
+            &sim.substrate.entities,
+            &rules,
+            &sim.interner,
+            &sim.houses,
+            sim.house_alliances.as_map(),
+            false,
+            0,
             None,
+            Some(&sim),
+        );
+        #[cfg(not(feature = "phobos"))]
+        let wave = wave_post_object_damage(
+            &event,
+            &sim.substrate.entities,
+            &rules,
+            &sim.interner,
+            &sim.houses,
+            sim.house_alliances.as_map(),
+            false,
+            0,
+            None,
+        );
+        assert_eq!(
+            wave, None,
             "IC {iron_curtain}: the Wave packet is untouched"
         );
     }

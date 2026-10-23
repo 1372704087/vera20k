@@ -1104,6 +1104,58 @@ pub(crate) fn commit_entities(
             receiver_event.damage = writeback.read(world, rules);
         }
         let event = &receiver_event;
+        // Phobos `TechnoClass_ReceiveDamage @ 0x701900+0x6` runs the shield
+        // before gamemd's receiver body and replaces `args->Damage` with the
+        // surviving damage. The stage owns the mutation here, before the
+        // otherwise-immutable resolver is entered.
+        #[cfg(feature = "phobos")]
+        let shield_receipt = {
+            let warhead = rules.warhead(world.interner.resolve(event.warhead_ref));
+            let target = world.substrate.entities.get(target_id);
+            match (target, warhead) {
+                (Some(target), Some(_)) => {
+                    let target_type = world.interner.object_type(target.type_ref(), rules);
+                    let divisors = super::receiver_divisors(
+                        target,
+                        target_type,
+                        rules,
+                        &world.interner,
+                        &world.houses,
+                    );
+                    let input = event.damage;
+                    crate::sim::shield::pre_receive_damage(world, rules, event, input, &divisors)
+                }
+                _ => None,
+            }
+        };
+        #[cfg(feature = "phobos")]
+        let receiver_outcome = match shield_receipt {
+            Some(receipt) => resolve_receive_damage_with_input(
+                event,
+                &world.substrate.entities,
+                rules,
+                &world.interner,
+                &world.houses,
+                world.house_alliances.as_map(),
+                scenario_no_damage,
+                current_tick,
+                world.resolved_terrain.as_ref(),
+                receipt.remaining,
+                receipt.remaining == 0,
+            ),
+            None => resolve_receive_damage(
+                event,
+                &world.substrate.entities,
+                rules,
+                &world.interner,
+                &world.houses,
+                world.house_alliances.as_map(),
+                scenario_no_damage,
+                current_tick,
+                world.resolved_terrain.as_ref(),
+            ),
+        };
+        #[cfg(not(feature = "phobos"))]
         let receiver_outcome = resolve_receive_damage(
             event,
             &world.substrate.entities,

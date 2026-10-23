@@ -115,6 +115,10 @@ pub struct GameEntity {
     #[cfg(feature = "ares")]
     #[serde(default)]
     attach_effects: attach_effect::AttachEffects,
+    /// Phobos ShieldClass state: shield points and their recovery timers.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub shield: Option<crate::sim::shield::ShieldState>,
     /// Low word of the one raw Scenario RNG draw performed by the active-retail
     /// `TechnoClass` constructor (`0x006F3254`, stored at native `+0x3C8`).
     /// Later report-selection consumers read this persistent value; placement
@@ -1752,6 +1756,8 @@ impl GameEntity {
             produce_cash: crate::sim::credit_income::ProduceCash::new(construction_frame),
             drain: Default::default(),
             parasite: crate::sim::combat::parasite::FootParasite::new(construction_frame),
+            #[cfg(feature = "phobos")]
+            shield: None,
         }
     }
 

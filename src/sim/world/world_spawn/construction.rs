@@ -127,6 +127,21 @@ impl Simulation {
         }
 
         stamp_scoring_flags(ge, obj, rules);
+        // Phobos `TechnoClass_Init` (`Hooks.cpp:297..301`): allocate the
+        // ShieldClass only when the bound type resolves and its `Strength` is
+        // above zero; `SetHP(InitialStrength.Get(Strength))` clamps at creation.
+        #[cfg(feature = "phobos")]
+        if let Some(object) = obj
+            && let Some(name) = object.shield_type()
+            && let Some(ty) = rules.shield_type(name)
+            && ty.strength() > 0
+        {
+            ge.shield = Some(crate::sim::shield::ShieldState::new(
+                name.to_owned(),
+                ty.initial_strength(),
+                ty.strength(),
+            ));
+        }
         if let Some(object) = obj {
             ge.sight.stamp_type_sight(object.sight);
         }

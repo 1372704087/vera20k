@@ -267,7 +267,8 @@ export class LobbyService {
     }
     const { sessionId, session } = await this.authenticated(request);
     const mapRequest = url.pathname.startsWith('/v1/maps/') || body?.operation === 'map_upload';
-    this.rateLimit(`${mapRequest ? 'map' : 'session'}:${sessionId}`, mapRequest ? 600 : 180, 60);
+    // A thirty-player host legitimately bursts options, pings and readiness as peers join.
+    this.rateLimit(`${mapRequest ? 'map' : 'session'}:${sessionId}`, 600, 60);
     session.seen = this.clock(); this.store.put(`session:${sessionId}`, session);
     this.reap();
     if (url.pathname.startsWith('/v1/maps/') && request.method === 'GET')

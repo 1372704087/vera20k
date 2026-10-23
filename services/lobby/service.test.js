@@ -224,6 +224,53 @@ test('signed-in players behind one NAT have independent command budgets', async 
   }
 });
 
+test('thirty-player setup traffic delivers final options within a bounded control window', async () => {
+  const f = fixture(); const users = [await f.account('Host')];
+  for (let i = 1; i < 30; i++) users.push(await f.account(`Guest${i}`));
+  const host = users[0], humans = [{ name: 'Host', raw_slot_index: 0 }], received = [];
+  let cursor = 0, requestId = 0;
+  const snapshot = () => ({ ...options, seed: 123, vacancies: Array(30).fill('open'),
+    launch: { ...options.launch, humans: [...humans] } });
+  async function command(operation, payload = {}) {
+    const result = await f.request('/v1/commands', host.token,
+      { request_id: `setup30_${++requestId}`, after: cursor, operation, payload });
+    assert.equal(result.status, 200, `${operation} remains admitted during thirty-player setup`);
+    cursor = result.body.cursor; received.push(...result.body.events);
+  }
+  async function proveOptions() {
+    for (const event of received.splice(0)) if (event.kind === 'options') {
+      await command('map_status', { status: 1, ...agreement(event.payload.revision) });
+      await command('ready', { ready: true, ...agreement(event.payload.revision) });
+    }
+  }
+  await command('create', { channel, key: '' });
+  await command('options', { options: snapshot() }); await proveOptions();
+  await command('advertise', { channel }); await command('ping');
+  for (let i = 1; i < users.length; i++) {
+    f.advance(1);
+    assert.equal((await f.command(users[i], 'join', { channel: channel.name, key: '' })).status, 200);
+    humans.push({ name: users[i].nickname, raw_slot_index: i });
+    // Ordinary join producer: roster/options, ping, advertisement; one worker poll per second.
+    await command('options', { options: snapshot() });
+    await command('options', { options: snapshot() });
+    await command('ping'); await command('advertise', { channel });
+    const polled = await f.request(`/v1/events?after=${cursor}`, host.token);
+    assert.equal(polled.status, 200); cursor = polled.body.cursor;
+    received.push(...polled.body.events); await proveOptions();
+    if (i % 5 === 0) await command('ping');
+  }
+  const delivered = await f.request('/v1/events?after=0', users.at(-1).token);
+  assert.equal(delivered.status, 200);
+  const final = delivered.body.events.filter((event) => event.kind === 'options').at(-1).payload.options;
+  assert.deepEqual(final.launch.humans, humans); assert.equal(final.seed, 123);
+  let limited = false;
+  for (let i = 0; i < 600 && !limited; i++) {
+    const result = await f.request(`/v1/events?after=${cursor}`, host.token);
+    assert.ok(result.status === 200 || result.status === 429); limited = result.status === 429;
+  }
+  assert.equal(limited, true, 'the per-session control bucket remains bounded');
+});
+
 test('one poll drains more than the permitted aggregate thirty-player chat rate', async () => {
   const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
   await room(f, host, guest);

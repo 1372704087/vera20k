@@ -1480,12 +1480,12 @@ fn advance_one_simulation_frame(
                 state
                     .match_state
                     .input
-                    .apply_building_placement_output(&cursor_clear, local_house);
+                    .apply_lifecycle_output(&cursor_clear, local_house);
             }
             if state
                 .match_state
                 .input
-                .apply_building_placement_output(&output, local_house)
+                .apply_lifecycle_output(&output, local_house)
             {
                 update_building_placement_preview(state);
             }
@@ -1513,9 +1513,6 @@ fn advance_one_simulation_frame(
                         },
                     );
                 }
-                LifecycleOutput::ControlGroupCleared { .. } => {
-                    state.match_state.input.apply_control_group_output(&output);
-                }
                 LifecycleOutput::SidebarConstructionOption { .. }
                 | LifecycleOutput::SidebarRecalculated { .. }
                 | LifecycleOutput::ProductionBeginAttempted { .. }
@@ -1526,6 +1523,7 @@ fn advance_one_simulation_frame(
                 | LifecycleOutput::BuildingPlacementSucceeded { .. }
                 | LifecycleOutput::BuildingProductionAbandoned { .. }
                 | LifecycleOutput::FollowReleased { .. }
+                | LifecycleOutput::ControlGroupMemberRemoved { .. }
                 | LifecycleOutput::ObjectSelected { .. } => {}
                 LifecycleOutput::ObjectPointerExpired { stable_id } => {
                     state

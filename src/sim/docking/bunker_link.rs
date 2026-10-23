@@ -109,8 +109,9 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
 /// Bunker install state 5 (459301..459337): reciprocal links, deselection,
 /// state 6, then Guard5/1. Unit virtual+150 is Object deselect5F44A0, not
 /// Limbo: preserve coordinates, track, radio contacts and Logic membership.
-/// UpdateBunker459315 clears +214 before Deselect; the lifecycle output
-/// removes membership from the app input owner's existing group lists.
+/// UpdateBunker458E50/459315 clears +214 before deselection. The ordered
+/// lifecycle fact reaches the existing local-input group owner before its
+/// next input or save boundary; there is no simulation copy of membership.
 pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64, rules: &RuleSet) {
     if !sim
         .substrate
@@ -128,7 +129,7 @@ pub fn install_bunker_link(sim: &mut Simulation, building_id: u64, unit_id: u64,
         u.bunker.link = BunkerLink::Installed(building_id);
     }
     sim.lifecycle_outputs
-        .emit(LifecycleOutput::ControlGroupCleared { stable_id: unit_id });
+        .emit(LifecycleOutput::ControlGroupMemberRemoved { stable_id: unit_id });
     sim.object_deselect(unit_id);
     if let Some(rt) = sim
         .substrate
@@ -804,7 +805,7 @@ mod tests {
             .filter(|output| {
                 matches!(
                     output,
-                    crate::sim::world::LifecycleOutput::ControlGroupCleared { .. }
+                    crate::sim::world::LifecycleOutput::ControlGroupMemberRemoved { .. }
                         | crate::sim::world::LifecycleOutput::FollowReleased { .. }
                 )
             })
@@ -812,7 +813,7 @@ mod tests {
         assert_eq!(
             group_and_follow,
             [
-                crate::sim::world::LifecycleOutput::ControlGroupCleared { stable_id: 1 },
+                crate::sim::world::LifecycleOutput::ControlGroupMemberRemoved { stable_id: 1 },
                 crate::sim::world::LifecycleOutput::FollowReleased { stable_id: 1 },
             ],
             "UpdateBunker clears membership before Deselect releases Follow"

@@ -391,6 +391,20 @@ impl LanUdpTransport {
         Ok(())
     }
 
+    fn stop_io_pump(&mut self) {
+        if let Some(pump) = self.pump.take() {
+            pump.stop.store(true, Ordering::Release);
+            pump.worker.thread().unpark();
+            // Never join under the I/O mutex. The worker holds the only other
+            // Arc and exits before the exact socket pair can be closed.
+            if let Err(panic) = pump.worker.join() {
+                if !thread::panicking() {
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        }
+    }
+
     fn check_worker(&self) {
         if let Some(pump) = &self.pump {
             assert!(
@@ -552,6 +566,20 @@ impl LanUdpTransport {
         self.lock().set_retry_timing(timing, apply_to_global);
     }
 
+    /// Quiesce the worker and give terminal queued control one physical service
+    /// pass before the caller drops these same sockets. A wake-only `service`
+    /// can lose its final attempt when Drop stops the worker first.
+    /// Sample the fresh wall bucket under the I/O lock, after the worker joins.
+    /// This is a bounded attempt, not an ACK drain or a change to retry policy;
+    /// ordinary Drop still discards unsent traffic without sampling a clock.
+    pub fn service_before_close(&mut self, wall_bucket: fn() -> u32) -> UdpServiceReport {
+        self.stop_io_pump();
+        let mut io = self.lock();
+        let report = io.service(wall_bucket(), IO_PUMP_RECEIVE_BUDGET);
+        io.pending_report.accumulate(report);
+        std::mem::take(&mut io.pending_report)
+    }
+
     /// In worker mode, the caller's now may predate lengthy Logic/render work.
     /// Never apply it to I/O state. Wake the sole physical service owner and
     /// consume its aggregate once; manual-clock consumers retain exact service.
@@ -591,17 +619,7 @@ impl LanUdpTransport {
 
 impl Drop for LanUdpTransport {
     fn drop(&mut self) {
-        if let Some(pump) = self.pump.take() {
-            pump.stop.store(true, Ordering::Release);
-            pump.worker.thread().unpark();
-            // Never join under the I/O mutex. The worker holds the only other
-            // Arc and exits before the exact socket pair can be closed.
-            if let Err(panic) = pump.worker.join() {
-                if !thread::panicking() {
-                    std::panic::resume_unwind(panic);
-                }
-            }
-        }
+        self.stop_io_pump();
     }
 }
 
@@ -1456,3 +1474,122 @@ fn record_io_error(
 #[cfg(test)]
 #[path = "udp_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+    use crate::net::lan_messages::{LanMessage, LanMessageKind, LanNamedMessage};
+    use crate::net::reliable::{Delivery, LanConnectionConfig, RetryTiming};
+
+    fn paused_bucket() -> u32 {
+        0
+    }
+
+    fn closing_bucket() -> u32 {
+        32
+    }
+
+    fn queued_departure() -> (LanUdpTransport, UdpSocket, UdpBindConfig, Vec<u8>) {
+        let sink = UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        sink.set_nonblocking(true).unwrap();
+        let mut wire = LanUdpTransport::bind(
+            UdpBindConfig {
+                primary: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
+                alternate: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0),
+            },
+            LanConnections::new(
+                LanConnectionConfig::default(),
+                RetryTiming {
+                    retry_delta: 10,
+                    max_retries: u32::MAX,
+                    timeout: u32::MAX,
+                },
+            ),
+        )
+        .unwrap();
+        let binds = UdpBindConfig {
+            primary: wire.primary_addr().unwrap(),
+            alternate: wire.alternate_addr().unwrap(),
+        };
+        wire.set_broadcast_targets(&[ipv4_addr(&sink).unwrap()])
+            .unwrap();
+        wire.start_io_pump(paused_bucket).unwrap();
+        let payload = LanMessage::named(LanNamedMessage::Departure, "ClosingPeer")
+            .unwrap()
+            .as_bytes()
+            .to_vec();
+        assert!(wire.global_mut().send(
+            &payload,
+            GlobalDestination::BROADCAST,
+            Delivery::Unreliable,
+            0,
+        ));
+        // No worker scheduling interleaving can cross the retry gate at0.
+        // The ordinary App service argument cannot override the worker clock.
+        assert_eq!(wire.service(32).sent_datagrams, 0);
+        assert_eq!(wire.global().queued_send_count(), 1);
+        assert_eq!(
+            sink.recv_from(&mut [0; UDP_DATAGRAM_CAPACITY])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+        (wire, sink, binds, payload)
+    }
+
+    #[test]
+    fn final_service_attempts_departure_before_drop_from_the_original_socket() {
+        let (mut wire, sink, binds, payload) = queued_departure();
+        let timing = wire.retry_timing();
+        let report = wire.service_before_close(closing_bucket);
+        assert_eq!(report.sent_datagrams, 1);
+        assert!(report.first_io_error.is_none());
+        assert!(wire.pump.is_none());
+
+        sink.set_nonblocking(false).unwrap();
+        sink.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut datagram = [0; UDP_DATAGRAM_CAPACITY];
+        let (length, source) = sink.recv_from(&mut datagram).unwrap();
+        assert_eq!(source, SocketAddr::V4(binds.primary));
+        let frame = &datagram[CHECKSUM_LEN..length];
+        assert_eq!(
+            u32::from_le_bytes(datagram[..CHECKSUM_LEN].try_into().unwrap()),
+            udp_checksum(frame)
+        );
+        let mut decoded = GlobalChannel::new(GlobalConfig::default(), timing);
+        decoded
+            .receive(binds.primary, 0, frame, 32, &mut |_, _| {
+                panic!("unreliable Departure must not request an ACK")
+            })
+            .unwrap();
+        let received = decoded.pop_received().unwrap();
+        assert_eq!(received.payload, payload);
+        let departure = LanMessage::decode(&received.payload).unwrap();
+        assert_eq!(departure.kind(), LanMessageKind::Departure);
+        assert_eq!(departure.name(), "ClosingPeer");
+
+        drop(wire);
+        let _primary = UdpSocket::bind(binds.primary).unwrap();
+        let _alternate = UdpSocket::bind(binds.alternate).unwrap();
+        sink.set_nonblocking(true).unwrap();
+        assert_eq!(
+            sink.recv_from(&mut datagram).unwrap_err().kind(),
+            io::ErrorKind::WouldBlock,
+            "terminal Drop must not make another attempt"
+        );
+    }
+
+    #[test]
+    fn ordinary_drop_discards_departure_and_releases_both_sockets() {
+        let (wire, sink, binds, _) = queued_departure();
+        drop(wire);
+        let _primary = UdpSocket::bind(binds.primary).unwrap();
+        let _alternate = UdpSocket::bind(binds.alternate).unwrap();
+        assert_eq!(
+            sink.recv_from(&mut [0; UDP_DATAGRAM_CAPACITY])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::WouldBlock
+        );
+    }
+}

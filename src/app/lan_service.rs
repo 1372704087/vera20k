@@ -3852,10 +3852,7 @@ pub(crate) fn close(state: &mut AppState) {
             .as_mut()
             .and_then(|service| service.transport.as_mut())
         {
-            let now = super::match_runtime::frame_pacer::frame_bucket(
-                super::match_runtime::frame_pacer::wall_clock_ms(),
-            );
-            transport.service(now);
+            transport.service_before_close(super::match_runtime::frame_pacer::wall_clock_bucket);
         }
     }
     state.match_state.lan_service = None;

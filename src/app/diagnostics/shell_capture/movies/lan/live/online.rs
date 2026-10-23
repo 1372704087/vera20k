@@ -557,6 +557,7 @@ impl LiveRoundFlow {
                             self.phase = RoundPhase::ExitWelcome;
                         } else {
                             lobby_button(state, crate::ui::lan_shell::BACK)?;
+                            MoviesCapture::restore_neutral_pointer(state);
                             self.phase = RoundPhase::MainReturn;
                         }
                         self.record(frame,"Extended and native profile rows retained after actual Back/Create; return to Menu");

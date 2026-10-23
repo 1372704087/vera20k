@@ -132,7 +132,6 @@ mods such as Ares, must stay off until it is turned on with one of:
 
 - **A VERA player option**, in **Options → Vera Options**, saved under `[VERA]` in `VERA.INI`.
 - **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md).
-- **An in-game lobby option**, chosen for each match.
 - **An INI key**, set by a mod or a map.
 
 Use `VERA.INI` for settings such as sound, graphics and controls, and the lobby or mod/map INI

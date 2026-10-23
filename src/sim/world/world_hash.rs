@@ -663,10 +663,6 @@ impl Simulation {
             b"path-batch-v2".hash(hasher);
             batch.hash(hasher);
         }
-        // Whether target scans are batched; their answers live within a pass.
-        if self.scan_batch.is_some() {
-            b"scan-batch-v1".hash(hasher);
-        }
 
         self.substrate.fold_raw_cell_occupation(hasher);
         self.substrate.fold_hidden_occupation(hasher);
@@ -798,6 +794,9 @@ impl Simulation {
             };
             parallel::any_index(entities.len(), |index| {
                 let entity = entities[index];
+                if entity.patrol_post.cell() == Some(NativeCellIdentity::Dummy) {
+                    return true;
+                }
                 [
                     entity.attack_target.target(),
                     entity.suspended_attack_target.target(),
@@ -1621,6 +1620,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     {
         b"phobos-techno-placement-v1".hash(hasher);
         entity.phobos_placement.hash(hasher);
+        if let Some(shield) = &entity.shield {
+            b"phobos-shield-v1".hash(hasher);
+            shield.hash(hasher);
+        }
     }
     if entity.tracking_facts.naval_combatant() {
         // Retained across reload: later Remove_Tracking must use the same
@@ -1794,7 +1797,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.estimated_health.get().hash(hasher);
     entity.type_ref().hash(hasher);
     (entity.category() as u8).hash(hasher);
-    entity.type_facts.foundation().hash(hasher);
+    // Keep the stock name encoding used before Foundation became an enum.
+    // Custom values still fold their full dimensions, cells and exit outline.
+    let foundation = entity.type_facts.foundation();
+    match foundation {
+        crate::rules::foundation::Foundation::Stock(_) => foundation.name().hash(hasher),
+        #[cfg(feature = "ares")]
+        _ => foundation.hash(hasher),
+    }
     entity.type_facts.building_hidden_occupancy().hash(hasher);
     entity.type_facts.base_reservation_spacing().hash(hasher);
     if entity.type_facts.build_const_eligible() {
@@ -2194,6 +2204,19 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             }
         }
     }
+    // BuildingCtor43B8DC..43B907 and GetCount4581F0: independent vector,
+    // not Cargo+114. The unique empty/zero constructor state adds no bytes,
+    // preserving unrelated replay controls. A nonzero signed +69C still
+    // contributes even when pointer expiry has emptied the vector.
+    let occupants = role.occupants();
+    if entity.category() == crate::map::entities::EntityCategory::Structure
+        && (!occupants.is_empty() || occupants.fire_index() != 0)
+    {
+        b"building-occupants-694-69c".hash(hasher);
+        occupants.count().hash(hasher);
+        occupants.ids().hash(hasher);
+        occupants.fire_index().hash(hasher);
+    }
     // Spawn-manager pool: slot states, timers and targets are
     // deterministic sim state that no other field covers. (Native
     // folds only the manager-level fields into its CRC and leaves the
@@ -2295,6 +2318,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 
     hash_mission_com(&entity.mission, hasher);
     hash_mission_leaf(&entity.mission_leaf, hasher);
+    if let Some(post) = entity.patrol_post.cell() {
+        b"foot-patrol-post-v1".hash(hasher);
+        post.hash(hasher);
+    }
     entity.removal_facts.occupier().hash(hasher);
     entity.passive_scan.timer().hash(hasher);
     // Passive-acquire bookkeeping. `passively_acquired_target` gates
@@ -2632,6 +2659,42 @@ mod lifecycle_hash_tests {
             .insert(GameEntity::test_default(1, "MTNK", "Americans", 5, 5));
         let before = sim.state_hash();
         mutate(sim.substrate.entities.get_mut(1).expect("fixture entity"));
+        assert_ne!(before, sim.state_hash());
+    }
+
+    #[cfg(feature = "ares")]
+    #[test]
+    fn custom_foundation_geometry_changes_state_hash_despite_equal_names() {
+        let rows = crate::rules::foundation::custom_tests::native_rows();
+        let first = crate::rules::foundation::custom_tests::rules(&rows[0])
+            .object("CUSTOM_TEST")
+            .unwrap()
+            .foundation
+            .clone();
+        let second = crate::rules::foundation::custom_tests::rules(&rows[1])
+            .object("CUSTOM_TEST")
+            .unwrap()
+            .foundation
+            .clone();
+        assert_eq!(first.name(), second.name());
+        let mut entity = GameEntity::test_default_of_category(
+            1,
+            "CUSTOM_TEST",
+            "Americans",
+            5,
+            5,
+            crate::map::entities::EntityCategory::Structure,
+        );
+        entity.type_facts.set_foundation_for_test(first);
+        let mut sim = Simulation::new();
+        sim.substrate.entities.insert(entity);
+        let before = sim.state_hash();
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .type_facts
+            .set_foundation_for_test(second);
         assert_ne!(before, sim.state_hash());
     }
 

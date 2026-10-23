@@ -32,7 +32,8 @@ pass is independent of this setting and still scales the whole frame, UI include
 ## Namespace
 
 `--features verax` compiles `rules::VERAX_ENABLED`. New VeraX-only readers take their keys under
-`#[cfg(feature = "verax")]` and cite their native addresses like every other chain. VeraX is one of
+`#[cfg(feature = "verax")]`. Document intentional VERA behavior explicitly and cite native
+addresses for behavior derived from the original engine. VeraX is one of
 four orthogonal capabilities: it combines with `ares`, `phobos` and `npatch`
 (`--features ares,phobos,npatch,verax`). The compatibility rule and the pattern for two extensions
 touching one native site are in

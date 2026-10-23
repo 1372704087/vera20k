@@ -588,6 +588,20 @@ pub struct ObjectType {
     /// caps a positive limit by the house's tracked count of the type and a
     /// non-positive one by the count it has produced.
     pub build_limit: i32,
+    /// `[TechnoTypes] AIBuildLimit=` — the NPSE per-type cap on a computer
+    /// house's production of this type. The techno reader extension chain
+    /// reads it with the current field as its default into the per-type
+    /// extension at `TechnoType+0xA90` (`+0x40` there; the reader block runs
+    /// `0xC27249..0xC2725A`, entered at `0xC308F3`), whose constructor writes
+    /// `0x7FFFFFFF` (`0xC32950`), so absent means no limit. The
+    /// `BuildingClass::Factory_AI` fetch hook (`0x45033C`, cave
+    /// `0xC335A0..0xC33726`) compares it with the house's owned counter per
+    /// class (`+0x5500/+0x5514/+0x5528/+0x553C`) when positive and with its
+    /// produced and owned counters when non-positive; at limit the
+    /// category's choice slot clears (`+0x564C/+0x5650/+0x5654/+0x5658`) and
+    /// the start skips — buildings included, so `choose_building` moves on
+    /// to the next plan node.
+    pub aibuild_limit: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,
     /// Requires spy infiltration of a Soviet Battle Lab to unlock.
@@ -3110,6 +3124,7 @@ impl ObjectType {
             prerequisite_override: Vec::new(),
             // ReadInt over the constructor's 0x7FFFFFFF (`0x00713152`).
             build_limit: section.read_int("BuildLimit", i32::MAX),
+            aibuild_limit: section.read_int("AIBuildLimit", i32::MAX),
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),

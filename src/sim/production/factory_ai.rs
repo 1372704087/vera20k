@@ -48,10 +48,13 @@
 //!   `Exit_Object` arms a human's placement takes, including the Infantry
 //!   arm's Cloning Vat copies. Its residual: the refinery arm's Unit exit.
 
+use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
+use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
+use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
@@ -243,6 +246,12 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
+    // The NPSE per-type `AIBuildLimit=` runs where `Factory_AI` fetched the
+    // type: at limit the category's choice slot clears and the start skips.
+    if aibuild_limit_blocks(sim, rules, owner, object) {
+        clear_aibuild_limit_choice(sim, owner, object.category);
+        return;
+    }
     let factory_naval = sim
         .substrate
         .entities
@@ -291,6 +300,61 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
         .entities
         .get(building)
         .is_some_and(|entity| entity.ai_placement_timer.expired(frame))
+}
+
+/// The NPSE per-type `AIBuildLimit=` side of the `Factory_AI` fetch hook
+/// (cave `0xC335A0..0xC33726`): whether `owner` is at `object`'s limit. A
+/// positive limit compares the house's tracked count of the type
+/// (`Add_Tracking @ 0x004FF700` counts the limbo factory object from
+/// production start, so clone production fills up to the limit and never
+/// exceeds it); a non-positive one compares its produced and tracked counts
+/// by magnitude (the native negated signed compares, so an explicit `0`
+/// blocks the type outright). The constructor default `i32::MAX`
+/// (`0xC32950`) never triggers.
+fn aibuild_limit_blocks(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    object: &ObjectType,
+) -> bool {
+    let limit = object.aibuild_limit;
+    let owned = sim
+        .interner
+        .get(&object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(type_id, house)| {
+            house
+                .tracking()
+                .owned_count(EntityCategory::from(object.category), type_id)
+        });
+    if limit > 0 {
+        return owned >= limit;
+    }
+    let produced = rules
+        .type_array_index(object.category, &object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(index, house)| {
+            house.produced_count(object.category, index)
+        });
+    produced.wrapping_neg() <= limit || owned.wrapping_neg() <= limit
+}
+
+/// The at-limit arm: the native hook writes `-1` into the category's
+/// production choice slot (`+0x564C` building, `+0x5650` unit,
+/// `+0x5654` infantry, `+0x5658` aircraft; the second-queue slot
+/// `+0x16130` of its own feature is not ported) before the start skips —
+/// buildings included, so `choose_building` picks the next plan node and a
+/// capped type does not wedge the house's building production.
+fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category: ObjectCategory) {
+    let Some(house) = sim.houses.get_mut(&owner) else {
+        return;
+    };
+    match category {
+        ObjectCategory::Building => house.ai_production_mut().clear_building_choice(),
+        ObjectCategory::Infantry => house.ai_unit_choices_mut().clear(UnitChoiceKind::Infantry),
+        ObjectCategory::Vehicle => house.ai_unit_choices_mut().clear(UnitChoiceKind::Unit),
+        ObjectCategory::Aircraft => house.ai_unit_choices_mut().clear(UnitChoiceKind::Aircraft),
+    }
 }
 
 /// `BuildingClass+0x550..+0x558`, the wait before the building's computer

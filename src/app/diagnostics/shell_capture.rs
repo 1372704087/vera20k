@@ -1078,6 +1078,8 @@ pub struct ShellCaptureRequest {
     cursor_x: u32,
     cursor_y: u32,
     output_dir: PathBuf,
+    /// Diagnostic wall-time override; production session timers keep their owners.
+    timeout: Option<Duration>,
     live_lan: Option<LiveLanConfig>,
     live_online: Option<LiveOnlineConfig>,
 }
@@ -1264,6 +1266,7 @@ where
     let mut cursor_x = None;
     let mut cursor_y = None;
     let mut output_dir = None;
+    let mut timeout = None;
     let mut lan_production_broadcast = false;
     let mut lan_bind = None;
     let mut lan_peer = None;
@@ -1324,6 +1327,21 @@ where
                     .next()
                     .ok_or_else(|| anyhow::anyhow!("missing value after --output"))?;
                 set_once(&mut output_dir, PathBuf::from(value), "--output")?;
+            }
+            "--shell-capture-timeout-seconds" => {
+                let seconds = parse_u32(
+                    next_utf8(&mut args, "value after --shell-capture-timeout-seconds")?,
+                    "--shell-capture-timeout-seconds",
+                )?;
+                ensure!(
+                    seconds > 0,
+                    "--shell-capture-timeout-seconds must be greater than zero"
+                );
+                set_once(
+                    &mut timeout,
+                    Duration::from_secs(u64::from(seconds)),
+                    "--shell-capture-timeout-seconds",
+                )?;
             }
             "--lan-production-broadcast" => {
                 ensure!(
@@ -1849,6 +1867,7 @@ where
         cursor_x,
         cursor_y,
         output_dir,
+        timeout,
         live_lan,
         live_online,
     }))
@@ -2269,6 +2288,9 @@ impl ShellCaptureSession {
     }
 
     fn timeout(&self) -> Duration {
+        if let Some(timeout) = self.request.timeout {
+            return timeout;
+        }
         if let Some(capture) = &self.skirmish {
             capture.timeout()
         } else if let Some(capture) = &self.movies {
@@ -2416,9 +2438,9 @@ impl ShellCaptureSession {
             .started_at
             .context("shell capture was not initialized")?;
         ensure!(
-            started_at.elapsed() <= CAPTURE_TIMEOUT,
+            started_at.elapsed() <= self.timeout(),
             "shell capture timed out after {} seconds",
-            CAPTURE_TIMEOUT.as_secs()
+            self.timeout().as_secs()
         );
 
         let snapshot = MainMenuCaptureSnapshot::from_state(state);
@@ -2723,7 +2745,8 @@ impl ShellCaptureSession {
                     }),
                 "entry-sequence retained readback identity changed"
             );
-            let remaining = CAPTURE_TIMEOUT
+            let remaining = self
+                .timeout()
                 .checked_sub(started_at.elapsed())
                 .context("entry sequence timeout expired during deferred readback")?;
             ensure!(
@@ -4070,6 +4093,34 @@ mod tests {
     }
 
     #[test]
+    fn capture_timeout_requires_one_positive_capture_only_value() {
+        let output = new_output_path("timeout-args");
+        let mut zero = valid_args(&output);
+        zero.extend(args(&["--shell-capture-timeout-seconds", "0"]));
+        assert!(
+            parse_launch_args(zero)
+                .unwrap_err()
+                .to_string()
+                .contains("must be greater than zero")
+        );
+
+        let mut duplicate = valid_args(&output);
+        duplicate.extend(args(&[
+            "--shell-capture-timeout-seconds",
+            "3500",
+            "--shell-capture-timeout-seconds",
+            "3600",
+        ]));
+        assert!(
+            parse_launch_args(duplicate)
+                .unwrap_err()
+                .to_string()
+                .contains("duplicate shell-capture option --shell-capture-timeout-seconds")
+        );
+        assert!(parse_launch_args(args(&["--shell-capture-timeout-seconds", "3500"])).is_err());
+    }
+
+    #[test]
     fn live_network_frame_budget_covers_two_rounds_and_keeps_stills_bounded() {
         let output = new_output_path("live-frame-budget");
         let values = valid_args(&output);
@@ -4089,7 +4140,8 @@ mod tests {
             "Host",
             "--online-password-stdin",
         ]));
-        let AppLaunchMode::ShellCapture(request) = parse_launch_args(online).unwrap() else {
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(online.clone()).unwrap()
+        else {
             panic!("capture");
         };
         let two_rounds = 2 * request.live_online.as_ref().unwrap().frames;
@@ -4114,6 +4166,20 @@ mod tests {
             ShellCaptureSession::new(request).max_capture_frames(),
             310_000
         );
+
+        online.extend(args(&["--shell-capture-timeout-seconds", "3500"]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(online).unwrap() else {
+            panic!("capture");
+        };
+        let mut session = ShellCaptureSession::new(request);
+        assert_eq!(session.timeout(), Duration::from_secs(3500));
+        assert_eq!(session.max_capture_frames(), 447_500);
+        session.started_at = Some(Instant::now());
+        let remaining = session
+            .readback_timeout()
+            .expect("override reaches readback");
+        assert!(remaining > Duration::from_secs(2400));
+        assert!(remaining <= Duration::from_secs(3500));
     }
 
     #[test]

@@ -303,14 +303,15 @@ fn shield_stage(
 
     let mut state = target.shield.clone()?;
     let ty = rules.shield_type(state.type_name())?;
+    let shield_was_active = state.is_active();
 
     // Keep ShieldClass::ReceiveDamage's early returns inside its body. The
     // enclosing hook applies the recovery policy once to the surviving packet.
-    let remaining = (|| {
+    let shield_return = (|| {
         // `!health || Temporal || damage == 0` returns the damage unchanged.
         let temporal = target.is_warped_out();
         let mut remaining = receiver_input;
-        if !state.is_active() || temporal || receiver_input == 0 {
+        if !shield_was_active || temporal || receiver_input == 0 {
             return remaining;
         }
 
@@ -347,77 +348,80 @@ fn shield_stage(
             return remaining;
         }
 
-        // `pWHExt->CanTargetHouse(pSourceHouse, pTechno) && !pWH->Temporal`.
-        // A temporal warhead skips absorption and leaves no health damage, exactly
-        // as the enclosing `if` makes both damage terms zero.
+        // Phobos ShieldClass.cpp:204..244 initializes both packet terms to
+        // zero. House/Temporal gates skip their calculation, not the clamp.
         let source_house = event.source_house.or_else(|| {
             sim.substrate
                 .entities
                 .get(event.attacker_id)
                 .map(|attacker| attacker.owner())
         });
-        if !can_target_house(warhead, source_house, target.owner(), sim) || warhead.temporal {
-            return 0;
-        }
-
         let armor = shield_armor(ty, Some(target_type));
         let arms_multiplier = warhead.interaction(armor).multiplier();
         let apply_armor_mult = ty.apply_armor_mult(rules.shield_globals.apply_armor_mult);
 
-        let n_damage = if receiver_input >= 0 {
-            let mut n_damage = receiver_input;
-            if apply_armor_mult {
-                let multiplier = divisor_multiplier(divisors);
-                // A zero multiplier's native divide is an infinity; its x86
-                // conversion is INT_MIN, and `Math::max(..., 0)` answers 0.
-                n_damage = if multiplier == 0.0 {
-                    0
+        let mut armor_multiplier = 1.0;
+        let (shield_damage, health_damage) =
+            if can_target_house(warhead, source_house, target.owner(), sim) && !warhead.temporal {
+                let n_damage = if receiver_input >= 0 {
+                    let mut n_damage = receiver_input;
+                    if apply_armor_mult {
+                        armor_multiplier = divisor_multiplier(divisors);
+                        // A zero multiplier's native divide is an infinity; its x86
+                        // conversion is INT_MIN, and `Math::max(..., 0)` answers 0.
+                        n_damage = if armor_multiplier == 0.0 {
+                            0
+                        } else {
+                            ((f64::from(n_damage) / armor_multiplier) as i32).max(0)
+                        };
+                    }
+                    crate::sim::combat::damage::kernel::apply_warhead_damage(
+                        n_damage,
+                        warhead.cell_spread_f64,
+                        warhead.percent_at_max_f64,
+                        arms_multiplier,
+                        event.distance_leptons,
+                        sim.session.no_damage(),
+                        rules.combat_damage.max_damage,
+                    )
                 } else {
-                    ((f64::from(n_damage) / multiplier) as i32).max(0)
+                    -crate::sim::combat::damage::kernel::apply_warhead_damage(
+                        -receiver_input,
+                        warhead.cell_spread_f64,
+                        warhead.percent_at_max_f64,
+                        arms_multiplier,
+                        event.distance_leptons,
+                        sim.session.no_damage(),
+                        rules.combat_damage.max_damage,
+                    )
                 };
-            }
-            crate::sim::combat::damage::kernel::apply_warhead_damage(
-                n_damage,
-                warhead.cell_spread_f64,
-                warhead.percent_at_max_f64,
-                arms_multiplier,
-                event.distance_leptons,
-                sim.session.no_damage(),
-                rules.combat_damage.max_damage,
-            )
-        } else {
-            -crate::sim::combat::damage::kernel::apply_warhead_damage(
-                -receiver_input,
-                warhead.cell_spread_f64,
-                warhead.percent_at_max_f64,
-                arms_multiplier,
-                event.distance_leptons,
-                sim.session.no_damage(),
-                rules.combat_damage.max_damage,
-            )
-        };
-        // Phobos `ShieldClass::ReceiveDamage`, installed at `0x701900+0x6`:
-        // src/New/Entity/ShieldClass.cpp (b90ab4b), applies these coefficients
-        // after both signs of the damage kernel, including healing warheads.
-        let affects = warhead.shield.affects(state.type_name());
-        let absorb = if affects {
-            warhead
-                .shield
-                .absorb_percent
-                .unwrap_or_else(|| ty.absorb_percent())
-        } else {
-            ty.absorb_percent()
-        };
-        let pass = if affects {
-            warhead
-                .shield
-                .pass_percent
-                .unwrap_or_else(|| ty.pass_percent())
-        } else {
-            ty.pass_percent()
-        };
-        let shield_damage = (f64::from(n_damage) * absorb) as i32;
-        let health_damage = (f64::from(receiver_input) * pass) as i32;
+                // Phobos `ShieldClass::ReceiveDamage`, installed at `0x701900+0x6`:
+                // src/New/Entity/ShieldClass.cpp (b90ab4b), applies these coefficients
+                // after both signs of the damage kernel, including healing warheads.
+                let affects = warhead.shield.affects(state.type_name());
+                let absorb = if affects {
+                    warhead
+                        .shield
+                        .absorb_percent
+                        .unwrap_or_else(|| ty.absorb_percent())
+                } else {
+                    ty.absorb_percent()
+                };
+                let pass = if affects {
+                    warhead
+                        .shield
+                        .pass_percent
+                        .unwrap_or_else(|| ty.pass_percent())
+                } else {
+                    ty.pass_percent()
+                };
+                (
+                    (f64::from(n_damage) * absorb) as i32,
+                    (f64::from(receiver_input) * pass) as i32,
+                )
+            } else {
+                (0, 0)
+            };
 
         let original_shield_damage = shield_damage;
         let min = warhead
@@ -441,11 +445,6 @@ fn shield_stage(
                     break_shield(&mut state, ty, frame);
                     remaining = health_damage;
                 } else {
-                    let armor_multiplier = if apply_armor_mult {
-                        divisor_multiplier(divisors)
-                    } else {
-                        1.0
-                    };
                     let verses = f64::from_bits(arms_multiplier.bits());
                     let raw_residue =
                         f64::from(original_shield_damage - state.hp) * armor_multiplier / verses;
@@ -486,11 +485,18 @@ fn shield_stage(
         remaining
     })();
 
-    // The hook restarts recovery on real damage, whether or not the shield
-    // itself absorbed it.
+    // Phobos Hooks.ReceiveDamage.cpp:155..163 writes only nonnegative
+    // shield returns into args->Damage; a negative return keeps the caller's
+    // original healing packet for the ordinary receiver.
+    let remaining = if shield_was_active && shield_return >= 0 {
+        shield_return
+    } else {
+        receiver_input
+    };
     let restart = restart_is_due(
         receiver_input,
         remaining,
+        shield_was_active,
         warhead,
         restart_armor(&state, ty, warhead, target_type),
     );
@@ -531,15 +537,21 @@ fn restart_armor(
     }
 }
 
-/// Native hook lines 170..175: a positive non-Psychedelic packet restarts
-/// both recovery timers when the shield absorbed any of it, or when the
-/// warhead's techno Verses product reaches one point.
+/// Phobos Hooks.ReceiveDamage.cpp:153..177 (b90ab4bc): an active shield's
+/// nonnegative reduced return restarts both timers, including Psychedelic.
+/// Independently, a positive non-Psychedelic packet restarts them when damage
+/// was reduced or the effective Verses product reaches one point. Timer
+/// restarts use the same frame/rate, so satisfying both branches is idempotent.
 fn restart_is_due(
     receiver_input: i32,
     remaining: i32,
+    shield_was_active: bool,
     warhead: &crate::rules::warhead_type::WarheadType,
     armor: crate::rules::armor::ArmorId,
 ) -> bool {
+    if shield_was_active && remaining >= 0 && receiver_input > remaining {
+        return true;
+    }
     if receiver_input <= 0 || warhead.psychedelic {
         return false;
     }

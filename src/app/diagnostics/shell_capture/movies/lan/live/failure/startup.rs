@@ -4,7 +4,9 @@
 
 use super::*;
 use crate::app::diagnostics::shell_capture::fault_files::{read_control, write_atomic};
-use crate::app::diagnostics::shell_capture::startup_host_loss::{read_killed, sidecar};
+use crate::app::diagnostics::shell_capture::startup_host_loss::{
+    StartupVoteControl, read_killed, read_vote, sidecar,
+};
 use crate::app::diagnostics::shell_capture::{LiveOnlineConfig, network_startup_receipt};
 use crate::app::match_runtime::network_failure;
 use crate::sim::world::{NetworkInterruption, Simulation};
@@ -13,6 +15,8 @@ pub(super) struct StartupCapture {
     config: LiveOnlineConfig,
     prefix: Option<Value>,
     control: Option<Value>,
+    dialog_ready: Option<Value>,
+    vote_control: Option<StartupVoteControl>,
     vote: Option<Value>,
     modal: Option<Value>,
     failure: Option<Value>,
@@ -28,6 +32,8 @@ impl StartupCapture {
             config,
             prefix: None,
             control: None,
+            dialog_ready: None,
+            vote_control: None,
             vote: None,
             modal: None,
             failure: None,
@@ -44,7 +50,8 @@ impl StartupCapture {
             modal["pressed_render"] = json!(self.pressed_render);
             modal["released_render"] = json!(self.released_render);
         }
-        json!({"process_id":std::process::id(),"prefix":self.prefix,"control":self.control,"vote":self.vote,
+        json!({"process_id":std::process::id(),"prefix":self.prefix,"control":self.control,
+            "dialog_ready":self.dialog_ready,"vote_control":self.vote_control,"vote":self.vote,
             "modal":modal,"failure":self.failure,"ack":self.ack,"lobby_return":self.lobby_return})
     }
 }
@@ -325,20 +332,108 @@ impl FailureCapture {
                     && sim.pending_network_wait(),
                 "startup membership changed without its ConnectionFailed modal"
             );
-            if let Some(page) = state.match_state.network_wait.page() {
+            // This observer runs after presentation. The renderer uses this
+            // same predicate before drawing the complete native EA shell.
+            if crate::app::frontend::skirmish_shell_render::connection_shell_drawable(state) {
+                let page = state
+                    .match_state
+                    .network_wait
+                    .page()
+                    .context("rendered EA")?;
                 ensure!(
-                    elapsed >= held.dialog_period && page.rows.len() == 3,
+                    elapsed >= held.dialog_period
+                        && page.rows.len() == 3
+                        && page.visible_range() == (0..3)
+                        && page.countdown.is_some(),
                     "startup EA does not display the complete native Initial wait"
                 );
-                if self.dialog.is_none() {
+                if startup.dialog_ready.is_none() {
+                    // Wait_For_Players648DC0..648DEC clears early proposals
+                    // when each EA opens. Wait for both observed dialogs rather
+                    // than assuming the two native waits opened together.
+                    // `opened_bucket` is our first post-presentation observation;
+                    // painted_elapsed belongs to the native page's last repaint.
                     self.dialog = Some(
-                        json!({"entry_bucket":held.info.entered_at,"observed_bucket":now,
+                        json!({"entry_bucket":held.info.entered_at,"opened_bucket":now,"observed_bucket":now,
+                        "native_painted_elapsed":page.painted_elapsed,
+                        "native_painted_bucket":held.info.entered_at.wrapping_add(u32::try_from(page.painted_elapsed)?),
                         "dialog_period":held.dialog_period,"timeout_period":held.timeout_period,
                         "held_frame":held.frame,"rows":page.rows.iter().map(|row|json!({
                             "source":row.source_index,"name":row.name})).collect::<Vec<_>>()}),
                     );
+                    let mut ready = prefix.clone();
+                    for key in ["install", "loading", "progress_peers", "certificate"] {
+                        ready
+                            .as_object_mut()
+                            .context("startup prefix object")?
+                            .remove(key);
+                    }
+                    ready["schema"] = json!("vera20k.startup-host-dialog.v1");
+                    ready["prefix_render_frame"] = prefix["render_frame"].clone();
+                    ready["render_frame"] = json!(render);
+                    ready["uptime_ms"] =
+                        json!(crate::app::match_runtime::frame_pacer::wall_clock_ms());
+                    ready["world_held"] = json!(true);
+                    ready["rng_held"] = json!(true);
+                    ready["control"] = startup.control.clone().context("owned kill control")?;
+                    ready["dialog"] = self.dialog.clone().context("EA observation")?;
+                    write_atomic(
+                        &sidecar(
+                            startup
+                                .config
+                                .loading_output
+                                .as_ref()
+                                .context("startup output")?,
+                            "dialog",
+                        ),
+                        &ready,
+                    )?;
+                    startup.dialog_ready = Some(ready);
+                    route.push(json!({"render_frame":render,"native_frame":0,
+                        "action":"complete Initial EA presented; awaiting both survivor dialog proofs"}));
+                    return Ok(false);
                 }
                 if startup.vote.is_none() {
+                    let ready = startup
+                        .dialog_ready
+                        .as_ref()
+                        .context("presented EA proof")?;
+                    let rows = json!(
+                        page.rows
+                            .iter()
+                            .map(|row| json!({
+                        "source":row.source_index,"name":row.name}))
+                            .collect::<Vec<_>>()
+                    );
+                    ensure!(
+                        rows == ready["dialog"]["rows"],
+                        "startup EA rows changed after its ready proof"
+                    );
+                    let launch = state
+                        .match_state
+                        .session
+                        .network_setup()
+                        .context("startup original roster")?;
+                    let survivors: Vec<_> = launch
+                        .humans
+                        .iter()
+                        .filter(|human| human.name != startup.config.host)
+                        .map(|human| human.name.as_str())
+                        .collect();
+                    let Some(control) = read_vote(&startup.config, ready, &survivors)? else {
+                        return Ok(false);
+                    };
+                    ensure!(
+                        ready["render_frame"]
+                            .as_u64()
+                            .is_some_and(|ready| u64::from(render) > ready)
+                            && startup
+                                .vote_control
+                                .as_ref()
+                                .is_none_or(|old| old == &control),
+                        "startup vote grant changed or preceded its presented dialog proof"
+                    );
+                    startup.vote_control = Some(control);
                     let row = page
                         .rows
                         .iter()
@@ -375,7 +470,7 @@ impl FailureCapture {
                     startup.vote = Some(json!({"render_frame":render,"observed_bucket":now,
                         "source_index":peer_source,"physical_row":physical,"point":point}));
                     MoviesCapture::restore_neutral_pointer(state);
-                    route.push(json!({"render_frame":render,"native_frame":0,"action":"actual Initial EA original-host row clicked after acknowledged owned kill"}));
+                    route.push(json!({"render_frame":render,"native_frame":0,"action":"actual Initial EA original-host row clicked after both survivor dialog proofs"}));
                 }
             }
             return Ok(false);
@@ -383,6 +478,8 @@ impl FailureCapture {
         ensure!(
             failure == Some(NetworkInterruption::ConnectionFailed)
                 && self.dialog.is_some()
+                && startup.dialog_ready.is_some()
+                && startup.vote_control.is_some()
                 && startup.vote.is_some()
                 && !connected.contains(&peer_source)
                 && !live.awaiting_initial_barrier()
@@ -434,6 +531,9 @@ impl FailureCapture {
             snapshot["rng_held"] = json!(true);
             snapshot["victim_to_die"] = json!(false);
             snapshot["dialog"] = self.dialog.clone().context("EA observation")?;
+            snapshot["dialog_ready"] = startup.dialog_ready.clone().context("EA ready proof")?;
+            snapshot["vote_control"] =
+                serde_json::to_value(startup.vote_control.as_ref().context("EA vote grant")?)?;
             snapshot["vote"] = startup.vote.clone().context("EA vote")?;
             snapshot["modal"] = startup.modal.clone().context("ConnectionFailed modal")?;
             write_atomic(

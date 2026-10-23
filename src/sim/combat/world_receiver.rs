@@ -1113,9 +1113,9 @@ pub(crate) fn commit_entities(
             let warhead = rules.warhead(world.interner.resolve(event.warhead_ref));
             let target = world.substrate.entities.get(target_id);
             match (target, warhead) {
-                (Some(target), Some(warhead)) => {
+                (Some(target), Some(_)) => {
                     let target_type = world.interner.object_type(target.type_ref(), rules);
-                    let divisors = super::receiver_call::receiver_divisors(
+                    let divisors = super::receiver_divisors(
                         target,
                         target_type,
                         rules,
@@ -1141,6 +1141,7 @@ pub(crate) fn commit_entities(
                 current_tick,
                 world.resolved_terrain.as_ref(),
                 receipt.remaining,
+                receipt.remaining == 0,
             ),
             None => resolve_receive_damage(
                 event,

@@ -891,6 +891,11 @@ fn shield_bar_instances(
     let Some(ty) = rules.shield_type(shield.type_name()) else {
         return Vec::new();
     };
+    // `0x6F65D1`/`0x6F683C` skip the whole shield bar, background included,
+    // while the shield is broken and nothing will respawn it.
+    if shield.broken_non_respawning(ty) {
+        return Vec::new();
+    }
     let globals = rules.shield_globals();
     if shield.hp() <= 0 && ty.pips_hide_if_no_strength() {
         return Vec::new();

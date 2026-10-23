@@ -211,7 +211,7 @@ fn ignore_defenses_skips_the_shield_stage() {
     // leaves the caller's damage untouched.
     let input = event.damage;
     let target_type = sim.interner.object_type(target.type_ref(), &rules);
-    let divisors = crate::sim::combat::receiver_call::receiver_divisors(
+    let divisors = crate::sim::combat::receiver_divisors(
         target,
         target_type,
         &rules,
@@ -243,7 +243,7 @@ fn pre_stage_absorbs_before_the_receiver() {
     let target = sim.substrate.entities.get(1).unwrap();
     let input = event.damage;
     let target_type = sim.interner.object_type(target.type_ref(), &rules);
-    let divisors = crate::sim::combat::receiver_call::receiver_divisors(
+    let divisors = crate::sim::combat::receiver_divisors(
         target,
         target_type,
         &rules,
@@ -260,4 +260,83 @@ fn pre_stage_absorbs_before_the_receiver() {
 fn creation_clamps_initial_strength_to_the_type_strength() {
     let state = ShieldState::new("TestShield".to_owned(), 500, 100);
     assert_eq!(state.hp(), 100);
+}
+
+/// `Math::clamp` answers its minimum when `minimum > maximum`; `Ord::clamp`
+/// would panic instead.
+#[test]
+fn a_reversed_received_damage_range_clamps_to_the_native_minimum() {
+    let rules = rules("ReceivedDamage.Minimum=50\nReceivedDamage.Maximum=10", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+
+    assert_eq!(shield(&sim).hp(), 50);
+    assert_eq!(health(&sim), 200);
+}
+
+/// `CanTargetHouse(...) && !pWH->Temporal` failing makes both damage terms
+/// zero, so the shield and the hull are untouched.
+#[test]
+fn a_temporal_warhead_leaves_the_shield_and_health_untouched() {
+    let rules = rules("", "Temporal=yes");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+
+    assert_eq!(shield(&sim).hp(), 100);
+    assert_eq!(health(&sim), 200);
+}
+
+/// `WarheadTypeExt::CanTargetHouse`'s owner/ally/enemy gates.
+#[test]
+fn a_warhead_that_cannot_target_the_owners_house_skips_absorption() {
+    let rules = rules("", "AffectsOwner=no\nAffectsAllies=no\nAffectsEnemies=yes");
+    let (mut sim, _) = scene(&rules);
+    let owner = sim.interner.intern("Neutral");
+    let enemy = sim.interner.intern("Other");
+    let warhead = rules.warhead("WH").unwrap();
+
+    assert!(!can_target_house(warhead, Some(owner), owner, &sim));
+    assert!(can_target_house(warhead, Some(enemy), owner, &sim));
+}
+
+/// The wave lookahead reads the surviving damage without consuming the
+/// shield; the commit path then absorbs the hit exactly once.
+#[test]
+fn the_wave_preview_reports_the_surviving_damage_without_consuming_the_shield() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    let warhead_ref = sim.interner.intern("WH");
+    let event = EntityDamageEvent::area(1, 40, 0, RAD_NO_ATTACKER, None, warhead_ref);
+
+    assert_eq!(preview_receive_damage(&sim, &rules, &event, 40), Some(0));
+    assert_eq!(shield(&sim).hp(), 100, "the preview wrote no state");
+
+    let target = sim.substrate.entities.get(1).unwrap();
+    let target_type = sim.interner.object_type(target.type_ref(), &rules);
+    let divisors = crate::sim::combat::receiver_divisors(
+        target,
+        target_type,
+        &rules,
+        &sim.interner,
+        &sim.houses,
+    );
+    let receipt =
+        pre_receive_damage(&mut sim, &rules, &event, 40, &divisors).expect("a shield owns the hit");
+    assert_eq!(receipt.remaining, 0);
+    assert_eq!(shield(&sim).hp(), 60);
+}
+
+/// `IsBrokenAndNonRespawning` gates the shield bar: a broken shield with no
+/// `Respawn=` draw is suppressed, a respawning one keeps its empty bar.
+#[test]
+fn a_broken_shield_draws_only_while_it_can_respawn() {
+    let fixed = rules("Respawn=0", "");
+    let ty = fixed.shield_type("TestShield").unwrap();
+    let mut state = ShieldState::new("TestShield".to_owned(), 100, 100);
+    state.hp = 0;
+    assert!(state.broken_non_respawning(ty));
+
+    let respawning = rules("Respawn=0.5", "");
+    let ty = respawning.shield_type("TestShield").unwrap();
+    assert!(!state.broken_non_respawning(ty));
 }

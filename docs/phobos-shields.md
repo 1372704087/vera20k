@@ -168,6 +168,10 @@ stays open:
 - A building slot anim whose type lacks `ShouldUseCellDrawer=` keeps its cell
   light without the shield `Tint.Intensity`; its colour word still carries
   `Tint.Color`.
+- `IsBrokenAndNonRespawning` gates the bar from the shield type's `Respawn=`
+  only; the warhead `Respawn` timer modifier that can override it is not read.
+- A negative hit on a shield does not remove the attacker's parasite
+  (`ShieldClass.cpp` `ParasiteEatingMe` arm).
 - `BreakAnim`, `HitAnim`, `HitFlash*`, `IdleAnim*`, `Respawn.Anim` and the
   `BreakWeapon`/`Respawn.Weapon` detonations: no animation or self-fire is
   spawned.

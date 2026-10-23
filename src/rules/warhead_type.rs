@@ -108,6 +108,12 @@ pub struct WarheadType {
     /// `WarheadTypeClass+0x179` (ReadINI `0x0075d9f2`, key string
     /// `0x00847cc8`).
     pub affects_allies: bool,
+    /// Phobos `AffectsOwner`; `None` falls back to [`Self::affects_allies`].
+    pub affects_owner: Option<bool>,
+    /// Phobos `AffectsEnemies`, default true.
+    pub affects_enemies: bool,
+    /// Phobos `AffectsNeutral`, default true.
+    pub affects_neutral: bool,
     /// Psychic-damage immunity selector (distinct from Psychedelic).
     /// `WarheadTypeClass+0x178` (ReadINI `0x0075d9d2`, key string
     /// `0x00847cd8`).
@@ -443,6 +449,11 @@ impl WarheadType {
             fire: section.read_bool("Fire", false),
             penetrates_bunker: section.read_bool("PenetratesBunker", false),
             affects_allies: section.read_bool("AffectsAllies", true),
+            affects_owner: section
+                .is_present("AffectsOwner")
+                .then(|| section.read_bool("AffectsOwner", false)),
+            affects_enemies: section.read_bool("AffectsEnemies", true),
+            affects_neutral: section.read_bool("AffectsNeutral", true),
             psychic_damage: section.read_bool("PsychicDamage", false),
             // Conventional, AnimList and EMEffect keep the constructor's false
             // and empty values (`0x0075CF89`, `0x0075CFB3`): the ordered Rules

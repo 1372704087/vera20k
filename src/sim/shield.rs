@@ -19,7 +19,7 @@
 use crate::rules::phobos_shields::ShieldType;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::damage::DefenceDivisors;
-use crate::sim::combat::receiver_call::EntityDamageEvent;
+use crate::sim::combat::EntityDamageEvent;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::Simulation;
 
@@ -129,7 +129,7 @@ impl ShieldState {
     }
 
     /// `ShieldClass::IsBrokenAndNonRespawning`: no points and no recovery.
-    pub(crate) fn broken_non_respawning(&self, ty: &ShieldType) -> bool {
+    pub fn broken_non_respawning(&self, ty: &ShieldType) -> bool {
         self.hp <= 0 && ty.respawn() == 0.0
     }
 }
@@ -164,6 +164,19 @@ fn safe_multiply(value: i32, multiplier: f64) -> i32 {
     }
 }
 
+/// `Math::clamp(value, min, max)`: `value < min` first, then `value > max`.
+/// Unlike `Ord::clamp`, a reversed min/max pair yields `min` instead of
+/// panicking.
+fn clamp_native(value: i32, min: i32, max: i32) -> i32 {
+    if value < min {
+        min
+    } else if value > max {
+        max
+    } else {
+        value
+    }
+}
+
 /// `ShieldClass::GetArmorType`: inherit the techno armor when the shield type
 /// asks for it and the type's name gates allow it, otherwise the shield type's
 /// own armor.
@@ -190,6 +203,42 @@ fn shield_armor(
     crate::rules::armor::armor_index(ty.armor())
 }
 
+/// `WarheadTypeExt::CanTargetHouse` (`src/Ext/WarheadType/Body.cpp:9..35`):
+/// neutral, owner and ally/enemy gates in that native order. A null source
+/// house passes, as native does. `HouseClass::IsNeutral` reads the house's
+/// passive flag, which VERA stamps from `MultiplayPassive=`.
+fn can_target_house(
+    warhead: &crate::rules::warhead_type::WarheadType,
+    source_house: Option<crate::sim::intern::InternedId>,
+    target_owner: crate::sim::intern::InternedId,
+    sim: &Simulation,
+) -> bool {
+    let Some(source) = source_house else {
+        return true;
+    };
+    if !warhead.affects_neutral
+        && sim
+            .houses
+            .get(&target_owner)
+            .is_some_and(|house| house.multiplay_passive())
+    {
+        return false;
+    }
+    let affects_allies = warhead.affects_allies;
+    if warhead.affects_owner.unwrap_or(affects_allies) && target_owner == source {
+        return true;
+    }
+    let allied = crate::map::houses::is_allied_with(
+        sim.house_alliances(),
+        sim.interner.resolve(source),
+        sim.interner.resolve(target_owner),
+    );
+    if affects_allies && allied {
+        return target_owner != source;
+    }
+    warhead.affects_enemies && !allied
+}
+
 /// The result of the shield's pre-damage stage: the damage that continues to
 /// the native Techno receiver, or `None` when no shield owns this hit.
 pub(crate) struct ShieldReceipt {
@@ -206,6 +255,43 @@ pub(crate) fn pre_receive_damage(
     receiver_input: i32,
     divisors: &DefenceDivisors,
 ) -> Option<ShieldReceipt> {
+    let result = shield_stage(sim, rules, event, receiver_input, divisors)?;
+    if let Some(target) = sim.substrate.entities.get_mut(event.target_id) {
+        target.shield = Some(result.state);
+    }
+    Some(ShieldReceipt {
+        remaining: result.remaining,
+    })
+}
+
+/// The same stage without writing the shield state: the surviving damage the
+/// receiver would see. The wave lookahead needs the value before its commit
+/// runs the real stage, which applies the absorption exactly once.
+pub(crate) fn preview_receive_damage(
+    sim: &Simulation,
+    rules: &RuleSet,
+    event: &EntityDamageEvent,
+    receiver_input: i32,
+) -> Option<i32> {
+    let target = sim.substrate.entities.get(event.target_id)?;
+    let target_type = sim.interner.object_type(target.type_ref(), rules)?;
+    let divisors = crate::sim::combat::receiver_divisors(
+        target,
+        Some(target_type),
+        rules,
+        &sim.interner,
+        &sim.houses,
+    );
+    shield_stage(sim, rules, event, receiver_input, &divisors).map(|result| result.remaining)
+}
+
+fn shield_stage(
+    sim: &Simulation,
+    rules: &RuleSet,
+    event: &EntityDamageEvent,
+    receiver_input: i32,
+    divisors: &DefenceDivisors,
+) -> Option<ShieldStageResult> {
     // The installed hook sits inside `if (!args->IgnoreDefenses)`.
     if event.receiver_flags.ignore_defenses {
         return None;
@@ -223,13 +309,16 @@ pub(crate) fn pre_receive_damage(
     let mut remaining = receiver_input;
     if !state.is_active() || temporal || receiver_input == 0 {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
             remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            restart_is_due(
+                receiver_input,
+                remaining,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
 
@@ -244,13 +333,16 @@ pub(crate) fn pre_receive_damage(
     });
     if invulnerable {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
             remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            restart_is_due(
+                receiver_input,
+                remaining,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
     // `CanBePenetrated`: a penetrating warhead passes straight through, and
@@ -260,24 +352,30 @@ pub(crate) fn pre_receive_damage(
         && (warhead.shield.penetrate || (warhead.psychedelic && !ty.immune_to_berserk()))
     {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
             remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            restart_is_due(
+                receiver_input,
+                remaining,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
     if target_type.immune {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
             remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            restart_is_due(
+                receiver_input,
+                remaining,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
     let type_immune = target_type.type_immune
@@ -290,28 +388,40 @@ pub(crate) fn pre_receive_damage(
             });
     if type_immune {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
             remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            restart_is_due(
+                receiver_input,
+                remaining,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
 
     // `pWHExt->CanTargetHouse(pSourceHouse, pTechno) && !pWH->Temporal`.
-    // A temporal warhead bypasses shield absorption (the target-side Temporal
-    // machinery owns it); the house gates are the stock receiver's.
-    if warhead.temporal {
+    // A temporal warhead skips absorption and leaves no health damage, exactly
+    // as the enclosing `if` makes both damage terms zero.
+    let source_house = event.source_house.or_else(|| {
+        sim.substrate
+            .entities
+            .get(event.attacker_id)
+            .map(|attacker| attacker.owner())
+    });
+    if !can_target_house(warhead, source_house, target.owner(), sim) || warhead.temporal {
         return finish_stage(
-            sim,
-            event,
-            state,
+            &state,
             &ty,
             frame,
-            remaining,
-            restart_is_due(receiver_input, remaining, warhead, target_type),
+            0,
+            restart_is_due(
+                receiver_input,
+                0,
+                warhead,
+                restart_armor(&state, &ty, warhead, target_type),
+            ),
         );
     }
 
@@ -323,10 +433,13 @@ pub(crate) fn pre_receive_damage(
         let mut n_damage = receiver_input;
         if apply_armor_mult {
             let multiplier = divisor_multiplier(divisors);
-            if multiplier != 0.0 {
-                n_damage = (f64::from(n_damage) / multiplier) as i32;
-                n_damage = n_damage.max(0);
-            }
+            // A zero multiplier's native divide is an infinity; its x86
+            // conversion is INT_MIN, and `Math::max(..., 0)` answers 0.
+            n_damage = if multiplier == 0.0 {
+                0
+            } else {
+                ((f64::from(n_damage) / multiplier) as i32).max(0)
+            };
         }
         let n_damage = crate::sim::combat::damage::kernel::apply_warhead_damage(
             n_damage,
@@ -382,7 +495,8 @@ pub(crate) fn pre_receive_damage(
         .shield
         .received_maximum
         .unwrap_or_else(|| ty.received_damage_maximum());
-    let shield_damage = shield_damage.clamp(
+    let shield_damage = clamp_native(
+        shield_damage,
         safe_multiply(min, warhead.shield.received_min_multiplier),
         safe_multiply(max, warhead.shield.received_max_multiplier),
     );
@@ -439,8 +553,31 @@ pub(crate) fn pre_receive_damage(
 
     // The hook restarts recovery on real damage, whether or not the shield
     // itself absorbed it.
-    let restart = restart_is_due(receiver_input, remaining, warhead, target_type);
-    finish_stage(sim, event, state, &ty, frame, remaining, restart)
+    let restart = restart_is_due(
+        receiver_input,
+        remaining,
+        warhead,
+        restart_armor(&state, &ty, warhead, target_type),
+    );
+    finish_stage(&state, &ty, frame, remaining, restart)
+}
+
+/// `GeneralUtils::GetWarheadVersusArmor(WH, Techno, Type)`: the shield's own
+/// armor while it is active and the warhead cannot penetrate it, else the
+/// techno's.
+fn restart_armor(
+    state: &ShieldState,
+    ty: &ShieldType,
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target_type: &crate::rules::object_type::ObjectType,
+) -> crate::rules::armor::ArmorId {
+    let penetrated = warhead.shield.penetration_allowed(state.type_name())
+        && (warhead.shield.penetrate || (warhead.psychedelic && !ty.immune_to_berserk()));
+    if state.is_active() && !penetrated {
+        shield_armor(ty, Some(target_type))
+    } else {
+        target_type.armor_id()
+    }
 }
 
 /// Native hook lines 170..175: a positive non-Psychedelic packet restarts
@@ -450,41 +587,37 @@ fn restart_is_due(
     receiver_input: i32,
     remaining: i32,
     warhead: &crate::rules::warhead_type::WarheadType,
-    target_type: &crate::rules::object_type::ObjectType,
+    armor: crate::rules::armor::ArmorId,
 ) -> bool {
     if receiver_input <= 0 || warhead.psychedelic {
         return false;
     }
     receiver_input.wrapping_sub(remaining) > 0 || {
-        let verses = f64::from_bits(
-            warhead
-                .interaction(target_type.armor_id())
-                .multiplier()
-                .bits(),
-        );
+        let verses = f64::from_bits(warhead.interaction(armor).multiplier().bits());
         verses * f64::from(receiver_input) >= 1.0
     }
 }
 
-/// Commit the shield's state after its receive stage and return the surviving
-/// damage. The shield object is always written back, including when nothing
-/// was absorbed, so timer restarts persist.
+/// The shield's receive-stage outcome: the state to write on commit and the
+/// damage that continues to the native receiver.
+struct ShieldStageResult {
+    state: ShieldState,
+    remaining: i32,
+}
+
+/// Finish the stage's state locally; the committing caller writes it back.
 fn finish_stage(
-    sim: &mut Simulation,
-    event: &EntityDamageEvent,
-    mut state: ShieldState,
+    state: &ShieldState,
     ty: &ShieldType,
     frame: i32,
     remaining: i32,
     restart: bool,
-) -> Option<ShieldReceipt> {
+) -> Option<ShieldStageResult> {
+    let mut state = state.clone();
     if restart {
         restart_recovery_in_combat(&mut state, ty, frame);
     }
-    if let Some(target) = sim.substrate.entities.get_mut(event.target_id) {
-        target.shield = Some(state);
-    }
-    Some(ShieldReceipt { remaining })
+    Some(ShieldStageResult { state, remaining })
 }
 
 /// The techno armour multiplier `GetCurrentArmorMultiplier` reads for the

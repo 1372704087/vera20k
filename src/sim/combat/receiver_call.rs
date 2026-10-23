@@ -340,11 +340,13 @@ pub(super) fn resolve_receive_damage(
         current_tick,
         terrain,
         event.damage,
+        false,
     )
 }
 
 /// [`resolve_receive_damage`] with the Phobos shield stage's surviving damage
-/// substituted for the caller-owned receiver input.
+/// substituted for the caller-owned receiver input. `skip_low_damage_check`
+/// mirrors `0x7019D8` when the shield wrote a zero packet.
 pub(super) fn resolve_receive_damage_with_input(
     event: &EntityDamageEvent,
     entities: &EntityStore,
@@ -356,6 +358,7 @@ pub(super) fn resolve_receive_damage_with_input(
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
     receiver_input: i32,
+    skip_low_damage_check: bool,
 ) -> Option<ResolvedReceiveDamage> {
     let distance_leptons = event.distance_leptons;
     let receiver_flags = event.receiver_flags;
@@ -472,6 +475,7 @@ pub(super) fn resolve_receive_damage_with_input(
         psychedelic: warhead.psychedelic,
         psionics_immune: target_type.is_some_and(|object| object.immune_to_psionics),
         target_is_building,
+        skip_low_damage_check,
     };
     // `HouseClass::GetArmorMultForType @ 0x0050BD30` on the target's owner:
     // its HouseType's per-category float. The difficulty and country
@@ -535,20 +539,51 @@ pub(crate) fn wave_post_object_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+    #[cfg(feature = "phobos")] simulation: Option<&crate::sim::world::Simulation>,
 ) -> Option<i32> {
     let event = prepare_infantry_receiver(event, entities, rules, interner, terrain);
-    resolve_receive_damage(
-        &event,
-        entities,
-        rules,
-        interner,
-        houses,
-        alliances,
-        scenario_no_damage,
-        current_tick,
-        terrain,
-    )
-    .and_then(|resolved| resolved.outcome.post_object_damage)
+    // The shield hook writes its surviving value into the caller pointer
+    // before Techno's body; preview the stage without committing it, because
+    // the receiver commit that follows applies the absorption exactly once.
+    #[cfg(feature = "phobos")]
+    let shield_remaining = simulation.and_then(|simulation| {
+        crate::sim::shield::preview_receive_damage(simulation, rules, &event, event.damage)
+    });
+    #[cfg(not(feature = "phobos"))]
+    let shield_remaining: Option<i32> = None;
+    let resolved = match shield_remaining {
+        Some(remaining) => resolve_receive_damage_with_input(
+            &event,
+            entities,
+            rules,
+            interner,
+            houses,
+            alliances,
+            scenario_no_damage,
+            current_tick,
+            terrain,
+            remaining,
+            remaining == 0,
+        ),
+        None => resolve_receive_damage(
+            &event,
+            entities,
+            rules,
+            interner,
+            houses,
+            alliances,
+            scenario_no_damage,
+            current_tick,
+            terrain,
+        ),
+    };
+    match shield_remaining {
+        // A later Techno body write, when there is one, wins over the shield's.
+        Some(remaining) => {
+            resolved.map(|resolved| resolved.outcome.post_object_damage.unwrap_or(remaining))
+        }
+        None => resolved.and_then(|resolved| resolved.outcome.post_object_damage),
+    }
 }
 
 /// TechnoClass::ReceiveDamage builds the anger-node increment from the final

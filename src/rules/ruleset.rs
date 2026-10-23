@@ -522,6 +522,14 @@ pub struct GeneralRules {
     /// that fired or missed goes back to state 1 and picks a new firing spot.
     /// Retail: yes.
     pub curley_shuffle: bool,
+    /// `[General] EnableAIBuildLimitation=` — the NPSE switch (manual): with
+    /// yes, the computer's production attempt checks the type's `BuildLimit=`
+    /// like a production event does, and a plan at its limit skips. The
+    /// shipped NPSE 2.0 build (`2.0 #359`) reads no such key — its techno
+    /// reader hook at `0xC27249` reads a per-type `AIBuildLimit=<int>`
+    /// instead — so this follows the manual's global switch. Default no: the
+    /// computer's production ignores `BuildLimit=` as stock does.
+    pub enable_ai_build_limitation: bool,
     /// `[General] RepairRate=` in minutes — `RulesClass+0x16E0`.
     ///
     /// The self-heal pulse (`FUN_0070BE80`) divides the frame counter by
@@ -2310,6 +2318,7 @@ impl Default for GeneralRules {
             game_speed_bias: 1.0,
             veteran_armor: 1.0,
             curley_shuffle: false,
+            enable_ai_build_limitation: false,
             repair_rate_minutes: 0.016,
             // Rules665696..6656B0 initializes the current-default fields
             // before ReadGeneral66E6E2..66E74B. Retail overrides are separate.
@@ -3453,6 +3462,10 @@ impl GeneralRules {
             game_speed_bias: general.read_double("GameSpeedBias", defaults.game_speed_bias),
             veteran_armor: general.read_double("VeteranArmor", 1.0),
             curley_shuffle: general.read_bool("CurleyShuffle", defaults.curley_shuffle),
+            enable_ai_build_limitation: general.read_bool(
+                "EnableAIBuildLimitation",
+                defaults.enable_ai_build_limitation,
+            ),
             repair_rate_minutes: general.read_double("RepairRate", defaults.repair_rate_minutes),
             // `RulesClass+0x30/+0x34/+0x38/+0x3C`, read by the General reader at
             // `0x0066D530`. ReadInt66E6F3/70D/727/740 retains each current
@@ -6357,8 +6370,14 @@ impl RuleSet {
             b"phobos-shield-types-v1".hash(&mut hasher);
             self.shield_types.hash(&mut hasher);
             self.shield_globals.apply_armor_mult.hash(&mut hasher);
-            self.shield_globals.condition_yellow.to_bits().hash(&mut hasher);
-            self.shield_globals.condition_red.to_bits().hash(&mut hasher);
+            self.shield_globals
+                .condition_yellow
+                .to_bits()
+                .hash(&mut hasher);
+            self.shield_globals
+                .condition_red
+                .to_bits()
+                .hash(&mut hasher);
             self.shield_globals.pips.hash(&mut hasher);
             self.shield_globals.pips_building.hash(&mut hasher);
             self.shield_globals.pips_background.hash(&mut hasher);

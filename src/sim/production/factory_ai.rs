@@ -57,6 +57,7 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
+use super::can_build::check_build_limit;
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
 use super::factory_lifecycle::{
     BuiltObject, abandon_production, record_last_built, start_active_production,
@@ -243,6 +244,20 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
+    // NPSE `[General] EnableAIBuildLimitation=`: with yes, the computer's
+    // production attempt consults the stock `CheckBuildLimit @ 0x0050B370`
+    // (owned plus factory-held against a positive `BuildLimit=`, produced
+    // against a non-positive one; the stock CanBuild outer route answers a
+    // non-human house Yes before its limit is asked) and a plan at its limit
+    // skips. The manual's warning holds: buildings cannot skip — the native
+    // build keeps trying and refunding one production forever, wedging the
+    // standing choice. Not starting reaches the same visible result without
+    // the churn: the choice stays set (`choose_building` fills only a
+    // cleared slot) and nothing is charged, so the residual is the two
+    // transient frames of the native attempt, not any player-visible state.
+    if rules.general.enable_ai_build_limitation && check_build_limit(sim, rules, owner, object) {
+        return;
+    }
     let factory_naval = sim
         .substrate
         .entities

@@ -282,3 +282,106 @@ fn a_failed_exit_abandons_the_object_and_refunds_it() {
         "a failed ExitObject does not consume the lifetime limit"
     );
 }
+
+const LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
+    [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
+    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+    [PLAIN]\nStrength=1000\nCost=100\n\
+    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+    [TANK]\nStrength=300\nSpeed=5\nCost=100\nBuildLimit=1\n\
+    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+    [Clear]\nBuildable=yes\n";
+
+/// The shared fixture plus two computer war factories and the preset vehicle
+/// choice, for the NPSE build-limitation switch tests. The tests drive
+/// `factory_ai` directly, so no strategy pass rewrites the preset choice.
+fn limit_fixture(general: &str) -> (Fixture, u64, u64) {
+    let rules = format!(
+        "[General]\n{general}PlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{}",
+        LIMIT_RULES_TAIL
+    );
+    let mut f = fixture_with(&rules);
+    let weap_1 = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 8, 8, 0, &f.rules)
+        .unwrap();
+    let weap_2 = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 8, 12, 0, &f.rules)
+        .unwrap();
+    f.sim
+        .houses
+        .get_mut(&f.owner)
+        .unwrap()
+        .ai_unit_choices_mut()
+        .set(crate::sim::ai_unit_choice::UnitChoiceKind::Unit, 0);
+    (f, weap_1, weap_2)
+}
+
+fn limit_holds(f: &Fixture, building: u64) -> bool {
+    f.sim
+        .production
+        .factories()
+        .building_factory(building)
+        .and_then(|factory| factory.object())
+        .is_some()
+}
+
+fn limit_visit(f: &mut Fixture, building: u64) {
+    factory_ai(
+        &mut f.sim,
+        &f.rules,
+        building,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+}
+
+/// Stock: the computer's production never asks the build limit (the CanBuild
+/// outer route answers a non-human house Yes first), so it produces past
+/// `BuildLimit=`.
+#[test]
+fn without_the_switch_the_computer_produces_past_the_build_limit() {
+    let (mut f, weap_1, _) = limit_fixture("");
+    assert!(!f.rules.general.enable_ai_build_limitation);
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    limit_visit(&mut f, weap_1);
+    assert!(
+        limit_holds(&f, weap_1),
+        "the factory starts at the limit without the switch"
+    );
+}
+
+/// `[General] EnableAIBuildLimitation=yes`: the plan at its `BuildLimit=`
+/// skips (`CheckBuildLimit @ 0x0050B370` counts what the house owns and what
+/// its factories hold).
+#[test]
+fn enable_ai_build_limitation_skips_the_unit_plan_at_the_limit() {
+    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
+    assert!(f.rules.general.enable_ai_build_limitation);
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    limit_visit(&mut f, weap_1);
+    assert!(
+        limit_holds(&f, weap_1) == false,
+        "the plan skips at the limit"
+    );
+}
+
+/// The computer still fills up to the limit: the first factory starts while
+/// nothing is owned or held, and the second waits because one more would
+/// exceed `BuildLimit=1`.
+#[test]
+fn enable_ai_build_limitation_fills_to_the_limit_before_it_skips() {
+    let (mut f, weap_1, weap_2) = limit_fixture("EnableAIBuildLimitation=yes\n");
+    limit_visit(&mut f, weap_1);
+    assert!(
+        limit_holds(&f, weap_1),
+        "the first tank is within the limit"
+    );
+    limit_visit(&mut f, weap_2);
+    assert!(!limit_holds(&f, weap_2), "one more would exceed the limit");
+}

@@ -3567,7 +3567,9 @@ impl GeneralRules {
             // Rules671D80: signed ReadInt, constructor665650 defaults0.
             infantry_blink_disguise_time: general.read_int("InfantryBlinkDisguiseTime", 0),
             tree_targeting: combat_damage.read_bool("TreeTargeting", false),
-            tree_strength: general.read_int("TreeStrength", defaults.tree_strength),
+            // The ordered General owner retains this across Type resets and
+            // projects it before Terrain parsing; this is only the ctor value.
+            tree_strength: defaults.tree_strength,
             condition_yellow: condition_yellow_native,
             condition_red: condition_red_native,
             cloaking_stages: general.read_int("CloakingStages", 9),
@@ -5327,6 +5329,7 @@ impl RuleSet {
         let mut building_ids: Vec<String> = Vec::new();
         let production: ProductionRules = ProductionRules::from_ini(ini);
         let mut general: GeneralRules = GeneralRules::from_ini(ini);
+        general.tree_strength = processed.tree_strength();
         let (_, color_indexes) = processed.color_add_state();
         general.laser_target_color = color_indexes.laser_target_color();
         general.iron_curtain_color = color_indexes.iron_curtain_color();
@@ -6345,15 +6348,16 @@ impl RuleSet {
             .hash(&mut hasher);
         // TerrainTypeReadINI71DEA0 retains post-read writes and ReadInt
         // defaults across Process calls. Equal current text can admit
-        // different Logic members, targets or occupation, so identify the
-        // effective fields as well as the current source layers.
-        b"terrain-logic-targeting-occupation-and-foundation-v3".hash(&mut hasher);
+        // different Strength, Logic members, targets or occupation, so identify
+        // the effective fields as well as the current source layers.
+        b"terrain-strength-logic-targeting-occupation-and-foundation-v4".hash(&mut hasher);
         self.terrain_object_types
             .iter()
             .map(|(name, terrain)| {
                 (
                     name.to_ascii_uppercase(),
                     (
+                        terrain.strength,
                         terrain.is_logic(),
                         terrain.legal_target,
                         terrain.raw_occupation_bits(false),
@@ -6421,6 +6425,7 @@ impl RuleSet {
         // Process-resident Gravity and Weapon postpass results can differ for
         // identical current source stacks because earlier passes retained them.
         self.general.gravity.hash(&mut hasher);
+        self.general.tree_strength.hash(&mut hasher);
         self.general.infantry_repair_step.hash(&mut hasher);
         self.general.unit_repair_rate.to_bits().hash(&mut hasher);
         self.general

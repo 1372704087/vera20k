@@ -1782,8 +1782,10 @@ def _terrain_render(value: Any, label: str) -> None:
 def _terrain_object(value: Any, label: str, *, member: bool = False) -> int | None:
     obj = require_object(value, label)
     native_extension = ('native_id',) if member and 'native_id' in obj else ()
+    health_extension = ('health', 'max_health') if member and any(
+        key in obj for key in ('health', 'max_health')) else ()
     require_exact_keys(obj, ('name', 'frame', 'active', *(('id',) if member else ()),
-                             *native_extension), label)
+                             *native_extension, *health_extension), label)
     if not isinstance(obj['name'], str) or not obj['name']:
         raise ValidationError(f'{label}.name must be nonempty')
     if obj['frame'] is not None:
@@ -1792,6 +1794,8 @@ def _terrain_object(value: Any, label: str, *, member: bool = False) -> int | No
         raise ValidationError(f'{label}.active must be boolean or null')
     if native_extension and obj['native_id'] is not None:
         _bounded_int(obj['native_id'], f'{label}.native_id', -(1 << 31), (1 << 31) - 1)
+    for key in health_extension:
+        _bounded_int(obj[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
     return _bounded_int(obj['id'], f'{label}.id', 1, (1 << 64) - 1) if member else None
 
 

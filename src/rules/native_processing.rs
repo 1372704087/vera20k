@@ -1737,6 +1737,14 @@ impl ProcessedRulesLayers {
             .rules_gravity
     }
 
+    /// Rules+1144 survives Type reset and supplies each admitted Terrain
+    /// reader's fallback when Strength is -1 (ReadGeneral671DD2..671DEB).
+    pub(crate) fn tree_strength(&self) -> i32 {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_tree_strength
+    }
+
     pub(crate) fn detail(&self) -> DetailRules {
         self.native_type_construction_trace
             .registry_state()
@@ -2449,6 +2457,7 @@ pub(crate) struct NativeRulesRegistryState {
     rules_fog_rate: NativeF64Bits,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
+    rules_tree_strength: i32,
     rules_wind_direction: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
@@ -2522,6 +2531,7 @@ impl Default for NativeRulesRegistryState {
             rules_fog_rate: general.fog_rate,
             rules_difficulty_rows: general.difficulty_rows,
             rules_gravity: general.gravity,
+            rules_tree_strength: general.tree_strength,
             rules_wind_direction: general.wind_direction(),
             rules_missile_rot_var: general.missile_rot_var,
             rules_safety_altitude: general.safety_altitude,
@@ -2888,6 +2898,7 @@ impl NativeRulesRegistryState {
             rules_fog_rate: self.rules_fog_rate,
             rules_difficulty_rows: self.rules_difficulty_rows,
             rules_gravity: self.rules_gravity,
+            rules_tree_strength: self.rules_tree_strength,
             rules_drop_zone_radius: self.rules_drop_zone_radius,
             rules_wind_direction: self.rules_wind_direction,
             rules_missile_rot_var: self.rules_missile_rot_var,
@@ -3738,6 +3749,7 @@ struct RulesPassProcessor {
     rules_fog_rate: NativeF64Bits,
     rules_difficulty_rows: [crate::rules::ruleset::DifficultyRules; 3],
     rules_gravity: i32,
+    rules_tree_strength: i32,
     rules_wind_direction: i32,
     rules_missile_rot_var: f64,
     rules_safety_altitude: i32,
@@ -3804,6 +3816,7 @@ impl RulesPassProcessor {
             rules_fog_rate: registry_state.rules_fog_rate,
             rules_difficulty_rows: registry_state.rules_difficulty_rows,
             rules_gravity: registry_state.rules_gravity,
+            rules_tree_strength: registry_state.rules_tree_strength,
             rules_wind_direction: registry_state.rules_wind_direction,
             rules_missile_rot_var: registry_state.rules_missile_rot_var,
             rules_safety_altitude: registry_state.rules_safety_altitude,
@@ -4498,6 +4511,11 @@ impl RulesPassProcessor {
         // as defaults; RulesClass keeps them across Full_Init's reset.
         self.rules_prism_support = self.rules_prism_support.read_pass(section);
         self.rules_spotlight.read_pass(section);
+        // RulesCtor666DF8 starts TreeStrength at25. ReadGeneral671DD2..
+        //671DEB retains the current signed dword; Process668EE8 reaches this
+        // before TypeData668EF0. This same boundary handles General prepasses,
+        // and RulesClass survives the destructive Type reset6686C0.
+        self.rules_tree_strength = section.read_int("TreeStrength", self.rules_tree_strength);
         self.rules_talk_bubble_time = section.read_talk_bubble_time(self.rules_talk_bubble_time);
 
         for &(key, family, is_list) in SITES {
@@ -6036,13 +6054,20 @@ impl RulesPassProcessor {
             if let Some((_id, raw, _effective)) = self.begin_rules_member_read(family, index, pass)
             {
                 let theater = self.image_theater;
+                let tree_strength = self.rules_tree_strength;
                 let member = &mut self.family_mut(family)[index];
                 match family {
                     RulesTypeFamily::Terrain => {
                         let state = member.terrain_type_read_state.get_or_insert_with(
                             crate::rules::terrain_object_type::TerrainTypeReadState::new,
                         );
-                        state.read_pass(&raw, fixed_art, &mut member.object_image, theater);
+                        state.read_pass(
+                            &raw,
+                            fixed_art,
+                            &mut member.object_image,
+                            theater,
+                            tree_strength,
+                        );
                     }
                     RulesTypeFamily::Overlay => {
                         // OverlayRead5FE78B first calls ObjectRead. Its fixed
@@ -6446,6 +6471,7 @@ impl RulesPassProcessor {
                     rules_fog_rate: self.rules_fog_rate,
                     rules_difficulty_rows: self.rules_difficulty_rows,
                     rules_gravity: self.rules_gravity,
+                    rules_tree_strength: self.rules_tree_strength,
                     rules_wind_direction: self.rules_wind_direction,
                     rules_missile_rot_var: self.rules_missile_rot_var,
                     rules_safety_altitude: self.rules_safety_altitude,

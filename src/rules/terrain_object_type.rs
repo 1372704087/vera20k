@@ -111,12 +111,8 @@ impl TerrainObjectType {
             &crate::rules::ini_parser::IniFile::empty(),
             &mut image,
             crate::rules::object_image::ImageTheater::Uninitialized,
+            tree_strength,
         );
-        // Terrain ctor71DBAC initializes Strength=-1. ObjectType5F94D3 reads
-        // with that current default; Terrain71DEC8..71DEDC substitutes
-        // Rules+1144 when the stored result is exactly -1, including an
-        // authored -1. Original execution: tools/spatial_oracle/terrain_strength.
-        let strength = section.read_int("Strength", -1);
 
         Self {
             name: name.to_string(),
@@ -132,11 +128,7 @@ impl TerrainObjectType {
             // armor-name lookup, over the constructor's Wood (`0x0071DBB6`).
             armor_id: crate::rules::armor::armor_index(&armor),
             armor,
-            strength: if strength == -1 {
-                tree_strength
-            } else {
-                strength
-            },
+            strength: read_state.strength,
             immune: section.read_bool("Immune", false),
             legal_target: read_state.legal_target,
             is_flammable: section.read_bool("IsFlammable", false),
@@ -209,10 +201,12 @@ pub(crate) struct TerrainRadarColorReadPass {
 }
 
 /// Process-owned TerrainType state that cannot be reconstructed from a merged
-/// section: ordered color inputs and the IsVeinhole post-read. Inherited image
-/// fields live in the same ProcessedType's ObjectImageState.
+/// section: current Strength, ordered color inputs and the IsVeinhole
+/// post-read. Inherited image fields live in the same ProcessedType's
+/// ObjectImageState.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct TerrainTypeReadState {
+    strength: i32,
     foundation: u8,
     #[serde(default)]
     reads: Vec<TerrainRadarColorReadPass>,
@@ -225,6 +219,8 @@ impl TerrainTypeReadState {
     /// Fresh Terrain subclass fields, alongside its inherited image owner.
     pub(crate) fn new() -> Self {
         Self {
+            // TerrainTypeCtor71DBAC overwrites ObjectType Strength to -1.
+            strength: -1,
             foundation: foundation::DEFAULT_FOUNDATION_ID,
             reads: Vec::new(),
             is_logic: true,
@@ -243,7 +239,17 @@ impl TerrainTypeReadState {
         fixed_art: &crate::rules::ini_parser::IniFile,
         image: &mut crate::rules::object_image::ObjectImageState,
         theater: crate::rules::object_image::ImageTheater,
+        tree_strength: i32,
     ) {
+        // ObjectTypeReadINI5F94D3..5F94ED reads over CURRENT Strength.
+        // TerrainTypeReadINI71DEC8..71DEDC substitutes this pass's current
+        // Rules+1144 only when that stored result is exactly -1. Missing type
+        // sections never enter this body; an explicit -1 repeats the fallback.
+        // Original single-pass controls: spatial_oracle/terrain_strength.
+        self.strength = section.read_int("Strength", self.strength);
+        if self.strength == -1 {
+            self.strength = tree_strength;
+        }
         let cached_art = image.read_ini(
             section,
             fixed_art,
@@ -282,6 +288,7 @@ impl TerrainTypeReadState {
         terrain: &mut TerrainObjectType,
         image: &crate::rules::object_image::ObjectImageState,
     ) {
+        terrain.strength = self.strength;
         terrain.is_logic = self.is_logic;
         terrain.is_veinhole = self.is_veinhole;
         terrain.legal_target = self.legal_target;
@@ -416,6 +423,201 @@ mod tests {
             ),
             row["strength"].as_i64().unwrap()
         );
+    }
+
+    #[test]
+    fn retail_tree_strength_retains_pass_value_before_later_general_override() {
+        use crate::rules::ruleset::RuleSet;
+        use crate::sim::world::Simulation;
+
+        let Some(stock) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let constructed_health = |rules: &RuleSet| {
+            let mut sim = Simulation::new();
+            crate::sim::terrain_spawn::construct_terrain_objects(
+                &mut sim,
+                &[crate::map::overlay::TerrainObject {
+                    rx: 3,
+                    ry: 4,
+                    name: "TREE01".to_owned(),
+                }],
+                rules,
+                false,
+            );
+            let tree = sim.terrain_objects().objects().values().next().unwrap();
+            (tree.health(), tree.max_health())
+        };
+        let established = stock
+            .rules
+            .terrain_object_type_case_insensitive("TREE01")
+            .unwrap()
+            .strength;
+        assert_eq!(established, 200, "stock ROOT's admitted TREE01 fallback");
+        assert_eq!(constructed_health(&stock.rules), (established, established));
+
+        let fallback = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(
+            &IniFile::from_str("[General]\nTreeStrength=375\n[TREE01]\nStrength=-1\n"),
+        )
+        .unwrap();
+        assert_eq!(
+            fallback
+                .rules
+                .terrain_object_type_case_insensitive("TREE01")
+                .unwrap()
+                .strength,
+            375
+        );
+        assert_eq!(constructed_health(&fallback.rules), (375, 375));
+
+        let later_general = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(
+            &IniFile::from_str("[General]\nTreeStrength=375\n"),
+        )
+        .unwrap();
+        assert_eq!(later_general.rules.general.tree_strength, 375);
+        // ObjectTypeReadINI5F94D3 retains current Strength; TerrainTypeReadINI
+        // 71DEC8 substitutes only -1. TerrainCtor71BC28 copies it into health.
+        assert_eq!(
+            constructed_health(&later_general.rules),
+            (established, established)
+        );
+        assert_eq!(
+            later_general
+                .rules
+                .terrain_object_type_case_insensitive("TREE01")
+                .unwrap()
+                .strength,
+            established
+        );
+    }
+
+    #[test]
+    fn retained_tree_strength_survives_saved_rules_and_damaged_snapshot_continuation() {
+        use crate::rules::native_processing::{
+            ProcessedRulesLayers, RulesLayerKind, RulesLayerStack,
+        };
+        use crate::sim::combat::world_receiver::apply_area_damage;
+        use crate::sim::snapshot::GameSnapshot;
+        use crate::sim::world::{FrameEffects, Simulation};
+        use crate::util::save_codec;
+
+        let Some(battle) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let (_, assets) = crate::rules::retail_ini_fixture::retail_scenario_assets().unwrap();
+        let mut owner = crate::rules::retail_ini_fixture::retail_rules_owner(&assets);
+        let continued = |strength: i32| {
+            let mut layers = RulesLayerStack::new((*battle.authored_rules).clone());
+            layers.push(
+                RulesLayerKind::GameMode,
+                IniFile::from_str(&format!("[TREE01]\nStrength={strength}\n")),
+            );
+            let first = layers.process_with_fixed_art(&battle.fixed_art).unwrap();
+            let (_, trace) = first.into_ini_and_native_type_construction_trace();
+            RulesLayerStack::new(IniFile::from_str(
+                "[General]\nTreeStrength=375\n[TREE01]\nStrength=$invalid\n",
+            ))
+            .process_with_fixed_art_and_registry_state(
+                &battle.fixed_art,
+                trace.into_registry_state_discarding_events(),
+            )
+            .unwrap()
+        };
+        let processed = continued(200);
+        let rules = owner.project_saved_scenario_rules(&processed).unwrap();
+        let other_history = owner.project_saved_scenario_rules(&continued(375)).unwrap();
+        assert_eq!(rules.source_ini_hash(), other_history.source_ini_hash());
+        assert_ne!(
+            rules.simulation_config_hash(),
+            other_history.simulation_config_hash(),
+            "the effective Terrain Strength must identify equal current source text"
+        );
+
+        // TerrainTypeLoad71E1D0 restores the retained field; it never repeats
+        // ReadINI71DEC8's TreeStrength substitution during saved projection.
+        let bytes = save_codec::serialize(&processed).unwrap();
+        let saved: ProcessedRulesLayers = save_codec::deserialize(&bytes).unwrap();
+        let restored_rules = owner.project_saved_scenario_rules(&saved).unwrap();
+        owner.install_saved_scenario_rules(saved);
+        assert_eq!(restored_rules.general.tree_strength, 375);
+        assert_eq!(
+            restored_rules
+                .terrain_object_type_case_insensitive("TREE01")
+                .unwrap()
+                .strength,
+            200
+        );
+        assert_eq!(
+            rules.simulation_config_hash(),
+            restored_rules.simulation_config_hash()
+        );
+
+        let template = crate::map::resolved_terrain::test_retail_clear_grid(8, 8);
+        let mut sim = Simulation::new();
+        sim.session_mut_for_test().set_map_width_for_test(8);
+        sim.session_mut_for_test().set_map_height_for_test(8);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.install_resolved_terrain_for_new_map(template.clone());
+        sim.install_overlay_grid_for_load(crate::sim::overlay_grid::OverlayGrid::new(8, 8));
+        crate::sim::terrain_spawn::construct_terrain_objects(
+            &mut sim,
+            &[crate::map::overlay::TerrainObject {
+                rx: 3,
+                ry: 4,
+                name: "TREE01".to_owned(),
+            }],
+            &rules,
+            false,
+        );
+        let id = sim.terrain_objects().id_at((3, 4)).unwrap();
+        let impact = sim.terrain_objects().get(id).unwrap().world_coord();
+        let hit = |sim: &mut Simulation, rules: &crate::rules::ruleset::RuleSet| {
+            let weapon = rules.weapon("105mm").unwrap();
+            let warhead = rules.warhead(weapon.warhead.as_deref().unwrap()).unwrap();
+            let warhead_ref = sim.interner.intern(&warhead.id);
+            apply_area_damage(
+                sim,
+                rules,
+                Some(rules.overlay_registry()),
+                impact,
+                weapon.damage,
+                warhead,
+                (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
+                FrameEffects::default(),
+            );
+        };
+        hit(&mut sim, &rules);
+        let health = sim.terrain_objects().get(id).unwrap().health();
+        assert!(health > 0 && health < 200, "stock AP must damage the tree");
+        let bytes = GameSnapshot::save_validated(
+            &sim,
+            1,
+            rules.simulation_config_hash(),
+            "retained Terrain Strength",
+            0,
+        );
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.restore_after_snapshot_load().unwrap();
+        restored.rebuild_caches_after_load(template, Default::default(), &restored_rules);
+        restored
+            .restore_map_authority_after_snapshot_load(
+                &restored_rules,
+                restored_rules.overlay_registry(),
+                None,
+            )
+            .unwrap();
+        restored.intern_rule_type_ids(&restored_rules);
+        restored.resolve_type_handles(&restored_rules);
+        let tree = restored.terrain_objects().get(id).unwrap();
+        assert_eq!((tree.health(), tree.max_health()), (health, 200));
+        hit(&mut sim, &rules);
+        hit(&mut restored, &restored_rules);
+        assert_eq!(
+            sim.terrain_objects().get(id).unwrap().health(),
+            restored.terrain_objects().get(id).unwrap().health()
+        );
+        assert!(restored.terrain_objects().get(id).unwrap().health() < health);
     }
 
     #[test]

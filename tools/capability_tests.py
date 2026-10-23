@@ -4,7 +4,7 @@
 The capability list lives HERE and nowhere else: this registry is the single
 stated home of the optional feature flags, and `tools/tests/
 test_capability_tests.py` fails when a Cargo.toml feature is missing from it or
-a registered name is not a feature, so adding a fifth flag cannot silently skip
+a registered name is not a feature, so adding another flag cannot silently skip
 coverage. `.github/workflows/capability-tests.yml` runs `check` on every push.
 
 Usage (from the checkout root, Python >= 3.12):

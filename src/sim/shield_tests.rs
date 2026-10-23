@@ -534,3 +534,17 @@ fn a_broken_shield_draws_only_while_it_can_respawn() {
     let ty = respawning.shield_type("TestShield").unwrap();
     assert!(!state.broken_non_respawning(ty));
 }
+
+/// ShieldClass::CanBePenetrated checks the Psychedelic arm before the
+/// generic Shield.Penetrate flag (Phobos b90ab4bc, receive hook 0x701900).
+#[test]
+fn a_berserk_immune_shield_absorbs_a_normally_penetrating_psychedelic_hit() {
+    let rules = rules(
+        "ImmuneToBerserk=yes",
+        "Psychedelic=yes\nShield.Penetrate=yes",
+    );
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+    assert_eq!(shield(&sim).hp(), 60, "the shield intercepts the packet");
+    assert_eq!(health(&sim), 200);
+}

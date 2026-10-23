@@ -889,7 +889,7 @@ fn shield_bar_instances(
     bracket_delta: f32,
     strip: &mut TechnoExtras,
 ) {
-    let Some(shield) = entity.shield.as_ref() else {
+    let Some(shield) = entity.shield() else {
         return;
     };
     let Some(ty) = rules.shield_type(shield.type_name()) else {
@@ -1290,8 +1290,7 @@ pub(crate) fn techno_extras_for_parent(
             sy - 28.0 + if infantry { 1.0 } else { 0.0 },
         );
         let type_delta = entity
-            .shield
-            .as_ref()
+            .shield()
             .and_then(|shield| rules.shield_type(shield.type_name()))
             .map_or(0.0, |ty| ty.bracket_delta() as f32);
         shield_bar_instances(

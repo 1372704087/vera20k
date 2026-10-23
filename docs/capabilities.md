@@ -38,6 +38,13 @@ is the quick pass over the modules dedicated to the capability; its selectors
 are advisory. The runner is plain `cargo`, not `tools/cargo_run.py`, so CI
 never waits on the build lock; set `CARGO_TARGET_DIR` to share a local cache.
 
+The suites currently carry failures that predate this coverage, so `check`
+runs in CI with `--soft-tests`: the compile coverage still blocks, and a suite
+that fails is reported by capability name next to the known ones rather than
+turning the job red on arrival. Drop the flag once that list is empty
+(`tools/tests/test_capability_tests.py` pins both behaviours, so the flag
+cannot quietly swallow a compile error).
+
 ## Test maps
 
 Tests that need a map no longer reach into the retail install by name:

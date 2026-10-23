@@ -10,7 +10,9 @@ anything; the wider Python suite (`python-tools.yml`) is manual.
 import tomllib
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tools import capability_tests
 from tools.capability_tests import BY_NAME, CAPABILITIES, COMBINATIONS, features_of
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,3 +65,29 @@ class CapabilityRegistryTests(unittest.TestCase):
         for combination in COMBINATIONS:
             for feature in features_of(combination):
                 self.assertIn(feature, self.features, f"combination feature {feature!r}")
+
+
+class CheckSequenceTests(unittest.TestCase):
+    """The compile coverage blocks; a capability suite's known failures do not."""
+
+    def run_check(self, test_status: int, soft_tests: bool) -> int:
+        with (
+            mock.patch.object(capability_tests, "command_build", return_value=0),
+            mock.patch.object(capability_tests, "command_test", return_value=test_status),
+            mock.patch.object(capability_tests, "run_cargo", return_value=0),
+        ):
+            return capability_tests.command_check([], soft_tests=soft_tests)
+
+    def test_soft_tests_reports_suite_failures_without_failing(self):
+        self.assertEqual(self.run_check(test_status=101, soft_tests=True), 0)
+
+    def test_suite_failures_block_without_the_flag(self):
+        self.assertEqual(self.run_check(test_status=101, soft_tests=False), 101)
+
+    def test_compile_failures_block_even_with_soft_tests(self):
+        with (
+            mock.patch.object(capability_tests, "command_build", return_value=2),
+            mock.patch.object(capability_tests, "command_test", return_value=0),
+            mock.patch.object(capability_tests, "run_cargo", return_value=0),
+        ):
+            self.assertEqual(capability_tests.command_check([], soft_tests=True), 2)

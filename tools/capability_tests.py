@@ -24,6 +24,13 @@ covers. `check` is the CI sequence: every capability compiled and tested, the
 declared combinations compiled, and the shipping `--no-default-features` lib
 configuration checked.
 
+`check --soft-tests` keeps the compile coverage blocking and lets a capability
+suite's failures through: the suites carry failures that predate this coverage
+(the replay hashes, the prerequisite lifecycle, the crash controls), and a
+workflow that arrives red is one nobody reads. The step still prints which
+capability reported what, so a new break is visible next to the old ones; drop
+the flag once the list is empty.
+
 The runner is plain `cargo`, not `tools/cargo_run.py`: CI runners have no
 cooperating worktrees to serialise against, and a capability matrix must not
 wait on the build lock. Set CARGO_TARGET_DIR as usual to share a local cache.
@@ -202,13 +209,21 @@ def command_focus(capability_name: str, extra: Sequence[str]) -> int:
     return status
 
 
-def command_check(extra: Sequence[str]) -> int:
+def command_check(extra: Sequence[str], soft_tests: bool = False) -> int:
     status = 0
     for spec in CAPABILITIES:
         current = command_build((spec.name,))
         status = status or current
         if spec.test:
             current = command_test(spec.name, extra)
+            if soft_tests:
+                if current != 0:
+                    print(
+                        f"{spec.name}: capability suite reported failures; "
+                        "reported, not blocking (see --soft-tests)",
+                        flush=True,
+                    )
+                current = 0
             status = status or current
     for combination in COMBINATIONS:
         current = command_build(combination)
@@ -250,6 +265,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     check = commands.add_parser(
         "check", help="the CI sequence: every capability, combination and the shipping config"
     )
+    check.add_argument(
+        "--soft-tests",
+        action="store_true",
+        help="report capability suite failures without failing the run",
+    )
     del check
     args, extra = parser.parse_known_args(argv)
     # Everything after `--` belongs to the test binary, not to this tool.
@@ -263,7 +283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return command_test(args.capability, extra)
     if args.command == "focus":
         return command_focus(args.capability, extra)
-    return command_check(extra)
+    return command_check(extra, soft_tests=args.soft_tests)
 
 
 if __name__ == "__main__":

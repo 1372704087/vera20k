@@ -120,6 +120,10 @@ mods such as Ares, must stay off until it is turned on with one of:
 - **An in-game lobby option**, chosen for each match.
 - **An INI key**, set by a mod or a map.
 
+Use `VERA.INI` for settings such as sound, graphics and controls, and the lobby or mod/map INI
+files for gameplay rules.
+Keep these in the same build; only add build options for platform differences or optional libraries.
+
 `VERA.INI` is for player preferences. Unit, weapon and other gameplay rules belong in
 the mod's rules, art, mode or map INIs, such as `RULESMD.INI` and `ARTMD.INI`.
 

@@ -227,15 +227,15 @@ impl LiveCommandSession {
         self.transport.renew_relay(address, ticket, key)
     }
 
-    pub fn connections(&self) -> &LanConnections {
+    pub fn connections(&self) -> super::udp::UdpReadGuard<'_, LanConnections> {
         self.transport.connections()
     }
 
-    pub fn global(&self) -> &super::global::GlobalChannel {
+    pub fn global(&self) -> super::udp::UdpReadGuard<'_, super::global::GlobalChannel> {
         self.transport.global()
     }
 
-    pub fn global_mut(&mut self) -> &mut super::global::GlobalChannel {
+    pub fn global_mut(&mut self) -> super::udp::UdpWriteGuard<'_, super::global::GlobalChannel> {
         self.transport.global_mut()
     }
 
@@ -625,7 +625,8 @@ impl LiveCommandSession {
                         context.checksum,
                         self.policy,
                         |bytes, guaranteed| {
-                            let accepted = transport.connections().peers().next().is_none()
+                            let no_peers = transport.connections().peers().next().is_none();
+                            let accepted = no_peers
                                 || transport.connections_mut().broadcast(
                                     bytes,
                                     if guaranteed {
@@ -708,7 +709,8 @@ impl LiveCommandSession {
     fn flush_startup(&mut self) {
         let transport = &mut self.transport;
         self.startup.flush(|bytes| {
-            transport.connections().peers().next().is_none()
+            let no_peers = transport.connections().peers().next().is_none();
+            no_peers
                 || transport
                     .connections_mut()
                     .broadcast(bytes, Delivery::Reliable)
@@ -857,25 +859,7 @@ fn retain_service_report(current: &mut Option<UdpServiceReport>, next: UdpServic
         *current = Some(next);
         return;
     };
-    current.received_datagrams += next.received_datagrams;
-    current.sent_datagrams += next.sent_datagrams;
-    current.malformed_datagrams += next.malformed_datagrams;
-    current.rejected_connections += next.rejected_connections;
-    current.rejected_global += next.rejected_global;
-    current.discarded_global_sends += next.discarded_global_sends;
-    current.send_would_block += next.send_would_block;
-    if next.last_rejection.is_some() {
-        current.last_rejection = next.last_rejection;
-    }
-    if next.last_global_rejection.is_some() {
-        current.last_global_rejection = next.last_global_rejection;
-    }
-    if next.failed_peer.is_some() {
-        current.failed_peer = next.failed_peer;
-    }
-    if current.first_io_error.is_none() {
-        current.first_io_error = next.first_io_error;
-    }
+    current.accumulate(next);
 }
 
 fn probe_due(start: u32, now: u32, interval: i32) -> bool {

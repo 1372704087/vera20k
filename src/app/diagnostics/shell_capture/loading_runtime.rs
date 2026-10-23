@@ -279,7 +279,7 @@ pub(crate) fn progress_receipt(state: &AppState) -> Result<Option<Value>> {
         .and_then(|live| {
             let global = live.global();
             Some((
-                global.loading_observation()?,
+                global.loading_observation()?.clone(),
                 global.authenticated_acknowledgments(),
             ))
         })

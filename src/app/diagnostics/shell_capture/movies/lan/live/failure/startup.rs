@@ -50,9 +50,10 @@ impl StartupCapture {
 }
 
 fn private_peers(live: &crate::net::live_commands::LiveCommandSession) -> Value {
+    let peers = live.connections().peers().collect::<Vec<_>>();
     json!(
-        live.connections()
-            .peers()
+        peers
+            .into_iter()
             .map(|(house, endpoint)| { json!({"house":house,"endpoint":endpoint.to_string()}) })
             .collect::<Vec<_>>()
     )

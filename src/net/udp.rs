@@ -10,6 +10,11 @@
 use std::collections::VecDeque;
 use std::io;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
+use std::ops::{Deref, DerefMut};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread::{self, JoinHandle, Thread};
+use std::time::Duration;
 
 use vera20k_relay_protocol::{ClientSession, RelayError, ServerEvent};
 pub use vera20k_relay_protocol::{
@@ -36,6 +41,10 @@ pub const DEFAULT_ALTERNATE_PORT: u16 = 1236;
 /// Original recvfrom7B3EDD supplies a640-byte datagram buffer.
 pub const UDP_DATAGRAM_CAPACITY: usize = 640;
 const CHECKSUM_LEN: usize = 4;
+// VERA physical scheduling only: leave the guard between bounded receive
+// passes, even when peers continuously replenish the socket. No extra inbox.
+const IO_PUMP_RECEIVE_BUDGET: usize = 256;
+const IO_PUMP_INTERVAL: Duration = Duration::from_millis(6);
 // VERA-only match boundary, outside the native checksum/connection codec.
 // Scope admission precedes every global/private ACK, sequence and receive cache.
 const LAN_SCOPE_MAGIC: &[u8; 4] = b"VLS\x01";
@@ -116,6 +125,46 @@ pub struct UdpServiceReport {
     pub send_would_block: usize,
     pub failed_peer: Option<i32>,
     pub first_io_error: Option<UdpIoFailure>,
+}
+
+impl UdpServiceReport {
+    /// Manager541820 fails its service result on discarded global sends or
+    /// a failed private peer. I/O diagnostics have their separate consumers.
+    pub fn delivery_failed(&self) -> bool {
+        self.discarded_global_sends != 0 || self.failed_peer.is_some()
+    }
+
+    /// Same first-I/O-error/last-rejection policy for worker passes and a live poll.
+    pub(crate) fn accumulate(&mut self, next: Self) {
+        self.received_datagrams += next.received_datagrams;
+        self.sent_datagrams += next.sent_datagrams;
+        self.malformed_datagrams += next.malformed_datagrams;
+        self.rejected_connections += next.rejected_connections;
+        self.rejected_global += next.rejected_global;
+        self.discarded_global_sends += next.discarded_global_sends;
+        self.send_would_block += next.send_would_block;
+        if next.last_rejection.is_some() {
+            self.last_rejection = next.last_rejection;
+        }
+        if next.last_global_rejection.is_some() {
+            self.last_global_rejection = next.last_global_rejection;
+        }
+        if next.failed_peer.is_some() {
+            self.failed_peer = next.failed_peer;
+        }
+        if self.first_io_error.is_none() {
+            self.first_io_error = next.first_io_error;
+        }
+    }
+}
+
+/// A derived global frontier and its still-unconsumed service failure, read
+/// under one I/O-owner lock. Empty after a timeout is not an acknowledged drain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GlobalTransportObservation {
+    pub queued_sends: usize,
+    pub response_time: u32,
+    pub pending_delivery_failure: bool,
 }
 
 #[derive(Debug)]
@@ -213,10 +262,16 @@ impl UdpSendQueue {
     }
 }
 
-/// Owns both socket lifetimes and exactly one reliable connection owner.
-/// Dropping this value closes both sockets and all of those connections.
-#[derive(Debug)]
+/// Owns one socket pair and its reliable/global/relay state through lobby,
+/// loading and gameplay. The optional physical I/O worker moves with this value;
+/// application decoding and simulation admission remain on the calling thread.
 pub struct LanUdpTransport {
+    io: Arc<Mutex<UdpIo>>,
+    pump: Option<IoPump>,
+}
+
+#[derive(Debug)]
+struct UdpIo {
     primary: UdpSocket,
     alternate: UdpSocket,
     primary_send: UdpSendQueue,
@@ -226,6 +281,328 @@ pub struct LanUdpTransport {
     broadcast_targets: Vec<SocketAddrV4>,
     relay: Option<RelayRoute>,
     lan_scope: Option<LanScopeState>,
+    pending_report: UdpServiceReport,
+}
+
+struct IoPump {
+    stop: Arc<AtomicBool>,
+    worker: JoinHandle<()>,
+}
+
+/// A short read of the existing I/O owner. Do not hold this guard across a
+/// second transport access, application callback, JSON construction or file I/O.
+pub struct UdpReadGuard<'a, T> {
+    io: MutexGuard<'a, UdpIo>,
+    project: fn(&UdpIo) -> &T,
+}
+
+impl<T> Deref for UdpReadGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        (self.project)(&self.io)
+    }
+}
+
+/// Mutates the same owner and wakes its worker after releasing the guard.
+pub struct UdpWriteGuard<'a, T> {
+    io: Option<MutexGuard<'a, UdpIo>>,
+    project: fn(&UdpIo) -> &T,
+    project_mut: fn(&mut UdpIo) -> &mut T,
+    wake: Option<Thread>,
+}
+
+impl<T> Deref for UdpWriteGuard<'_, T> {
+    type Target = T;
+    fn deref(&self) -> &T {
+        (self.project)(self.io.as_ref().expect("live I/O guard"))
+    }
+}
+
+impl<T> DerefMut for UdpWriteGuard<'_, T> {
+    fn deref_mut(&mut self) -> &mut T {
+        (self.project_mut)(self.io.as_mut().expect("live I/O guard"))
+    }
+}
+
+impl<T> Drop for UdpWriteGuard<'_, T> {
+    fn drop(&mut self) {
+        drop(self.io.take());
+        if let Some(wake) = &self.wake {
+            wake.unpark();
+        }
+    }
+}
+
+impl std::fmt::Debug for LanUdpTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let io = self.lock();
+        f.debug_struct("LanUdpTransport")
+            .field("primary", &ipv4_addr(&io.primary))
+            .field("alternate", &ipv4_addr(&io.alternate))
+            .field("background_io", &self.pump.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl LanUdpTransport {
+    /// Bind remains synchronous for explicit/manual-clock core consumers.
+    pub fn bind(config: UdpBindConfig, connections: LanConnections) -> io::Result<Self> {
+        Ok(Self {
+            io: Arc::new(Mutex::new(UdpIo::bind(config, connections)?)),
+            pump: None,
+        })
+    }
+
+    /// VERA scheduling adaptation, not a native background-thread claim.
+    /// UDPInterface7B3AA0 services Windows read/write notifications on its
+    /// caller; this worker preserves its queues/ACK/retry bodies during long
+    /// Logic/render/capture work. The App injects its existing native wall
+    /// bucket function, and only this worker samples it after taking the lock.
+    /// Thread creation is fallible; failure leaves a synchronous transport.
+    pub fn start_io_pump(&mut self, wall_bucket: fn() -> u32) -> io::Result<()> {
+        if self.pump.is_some() {
+            self.check_worker();
+            return Ok(());
+        }
+        self.lock().pending_report = UdpServiceReport::default();
+        let io = Arc::clone(&self.io);
+        let stop = Arc::new(AtomicBool::new(false));
+        let worker_stop = Arc::clone(&stop);
+        let worker = thread::Builder::new()
+            .name("vera20k-udp-io".into())
+            .spawn(move || {
+                while !worker_stop.load(Ordering::Acquire) {
+                    {
+                        let mut io = io.lock().expect("UDP I/O owner poisoned");
+                        if worker_stop.load(Ordering::Acquire) {
+                            break;
+                        }
+                        // Sampling before lock acquisition could time packets
+                        // with a stale frame-start sample after contention.
+                        let report = io.service(wall_bucket(), IO_PUMP_RECEIVE_BUDGET);
+                        io.pending_report.accumulate(report);
+                    }
+                    // Scheduling request only; spurious/late wakes still
+                    // recheck stop and resample the clock on the next pass.
+                    thread::park_timeout(IO_PUMP_INTERVAL);
+                }
+            })?;
+        self.pump = Some(IoPump { stop, worker });
+        Ok(())
+    }
+
+    fn check_worker(&self) {
+        if let Some(pump) = &self.pump {
+            assert!(
+                !pump.worker.is_finished(),
+                "UDP I/O worker stopped unexpectedly"
+            );
+        }
+    }
+
+    fn lock(&self) -> MutexGuard<'_, UdpIo> {
+        self.check_worker();
+        self.io.lock().expect("UDP I/O owner poisoned")
+    }
+
+    fn wake(&self) {
+        if let Some(pump) = &self.pump {
+            pump.worker.thread().unpark();
+        }
+    }
+
+    fn read<T>(&self, project: fn(&UdpIo) -> &T) -> UdpReadGuard<'_, T> {
+        UdpReadGuard {
+            io: self.lock(),
+            project,
+        }
+    }
+
+    fn write<T>(
+        &mut self,
+        project: fn(&UdpIo) -> &T,
+        project_mut: fn(&mut UdpIo) -> &mut T,
+    ) -> UdpWriteGuard<'_, T> {
+        UdpWriteGuard {
+            io: Some(self.lock()),
+            project,
+            project_mut,
+            wake: self.pump.as_ref().map(|pump| pump.worker.thread().clone()),
+        }
+    }
+
+    pub fn connections(&self) -> UdpReadGuard<'_, LanConnections> {
+        self.read(|io| &io.connections)
+    }
+
+    pub fn connections_mut(&mut self) -> UdpWriteGuard<'_, LanConnections> {
+        self.write(|io| &io.connections, |io| &mut io.connections)
+    }
+
+    pub fn global(&self) -> UdpReadGuard<'_, GlobalChannel> {
+        self.read(|io| &io.global)
+    }
+
+    pub fn global_mut(&mut self) -> UdpWriteGuard<'_, GlobalChannel> {
+        self.write(|io| &io.global, |io| &mut io.global)
+    }
+
+    /// Keep a terminal queue change paired with its service result even when
+    /// the physical worker runs between the App's poll and admission decision.
+    /// Leave the report for its ordinary consumer; this snapshot consumes none.
+    pub fn global_observation(&self) -> GlobalTransportObservation {
+        let io = self.lock();
+        GlobalTransportObservation {
+            queued_sends: io.global.queued_send_count(),
+            response_time: io.global.mean_response_time(),
+            pending_delivery_failure: io.pending_report.delivery_failed(),
+        }
+    }
+
+    pub fn prepare_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
+        self.lock().prepare_lan_scope(scope)
+    }
+
+    pub fn set_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
+        self.lock().set_lan_scope(scope)
+    }
+
+    pub fn lan_scope(&self) -> Option<SessionScope> {
+        self.lock().lan_scope()
+    }
+
+    pub fn clear_lan_scope(&mut self) {
+        self.lock().clear_lan_scope();
+    }
+
+    pub fn enable_relay(
+        &mut self,
+        address: SocketAddrV4,
+        ticket: &[u8],
+        packet_key: [u8; 32],
+    ) -> io::Result<()> {
+        let result = self.lock().enable_relay(address, ticket, packet_key);
+        self.wake();
+        result
+    }
+
+    pub fn relay_ready(&self) -> bool {
+        self.lock().relay_ready()
+    }
+    pub fn relay_source(&self) -> Option<u8> {
+        self.lock().relay_source()
+    }
+    pub fn relay_expires(&self) -> Option<u64> {
+        self.lock().relay_expires()
+    }
+
+    pub fn renew_relay(
+        &mut self,
+        address: SocketAddrV4,
+        ticket: &[u8],
+        key: [u8; 32],
+    ) -> io::Result<()> {
+        let result = self.lock().renew_relay(address, ticket, key);
+        self.wake();
+        result
+    }
+
+    pub fn retire_relay(&mut self) {
+        self.lock().retire_relay();
+    }
+
+    pub fn begin_relay_peer_probes(&mut self, sources: &[u8]) -> io::Result<()> {
+        let result = self.lock().begin_relay_peer_probes(sources);
+        self.wake();
+        result
+    }
+
+    pub fn relay_peer_round_trips(&self) -> Option<Vec<(u8, u32)>> {
+        self.lock().relay_peer_round_trips()
+    }
+    pub fn primary_addr(&self) -> io::Result<SocketAddrV4> {
+        self.lock().primary_addr()
+    }
+    pub fn alternate_addr(&self) -> io::Result<SocketAddrV4> {
+        self.lock().alternate_addr()
+    }
+    pub fn retry_timing(&self) -> super::reliable::RetryTiming {
+        self.lock().retry_timing()
+    }
+    pub fn clear_pending_sends(&mut self) {
+        self.lock().clear_pending_sends();
+    }
+    pub fn reset_session(&mut self) {
+        self.lock().reset_session();
+    }
+    pub fn set_broadcast_targets(&mut self, targets: &[SocketAddrV4]) -> io::Result<()> {
+        self.lock().set_broadcast_targets(targets)
+    }
+    pub fn response_time(&self) -> u32 {
+        self.lock().response_time()
+    }
+    pub fn reset_response_time(&mut self, clear: bool) {
+        self.lock().reset_response_time(clear);
+    }
+    pub fn set_retry_timing(
+        &mut self,
+        timing: super::reliable::RetryTiming,
+        apply_to_global: bool,
+    ) {
+        self.lock().set_retry_timing(timing, apply_to_global);
+    }
+
+    /// In worker mode, the caller's now may predate lengthy Logic/render work.
+    /// Never apply it to I/O state. Wake the sole physical service owner and
+    /// consume its aggregate once; manual-clock consumers retain exact service.
+    pub fn service(&mut self, now_ticks: u32) -> UdpServiceReport {
+        if self.pump.is_some() {
+            self.wake();
+            std::mem::take(&mut self.lock().pending_report)
+        } else {
+            self.lock().service(now_ticks, usize::MAX)
+        }
+    }
+
+    pub fn pop_received(&mut self) -> Option<ReceivedMessage> {
+        let message = self.lock().pop_received();
+        self.wake();
+        message
+    }
+
+    pub fn pop_global_received(&mut self) -> Option<GlobalMessage> {
+        let message = {
+            let mut io = self.lock();
+            if self.pump.is_some() {
+                // The old App pop -> service -> pop loop retires a consumed
+                // head before inspecting the next control. Physical service
+                // is asynchronous now; keep that LOGICAL receive step here,
+                // through the same owner, with no clock, I/O or new inbox.
+                // Indexed loading consumption and every unconsumed entry keep
+                // their original order. Manual service semantics stay native.
+                io.global.retire_consumed();
+            }
+            io.pop_global_received()
+        };
+        self.wake();
+        message
+    }
+}
+
+impl Drop for LanUdpTransport {
+    fn drop(&mut self) {
+        if let Some(pump) = self.pump.take() {
+            pump.stop.store(true, Ordering::Release);
+            pump.worker.thread().unpark();
+            // Never join under the I/O mutex. The worker holds the only other
+            // Arc and exits before the exact socket pair can be closed.
+            if let Err(panic) = pump.worker.join() {
+                if !thread::panicking() {
+                    std::panic::resume_unwind(panic);
+                }
+            }
+        }
+    }
 }
 
 /// Only the physical route changes. Reliable delivery, endpoint lookup and
@@ -256,11 +633,11 @@ impl std::fmt::Debug for RelayRoute {
     }
 }
 
-impl LanUdpTransport {
+impl UdpIo {
     /// Explicit bind addresses allow independent clients/tests to select
     /// interfaces or ephemeral ports. A failure drops any socket already
     /// opened by this call; no partially open transport escapes.
-    pub fn bind(config: UdpBindConfig, connections: LanConnections) -> io::Result<Self> {
+    fn bind(config: UdpBindConfig, connections: LanConnections) -> io::Result<Self> {
         let primary = UdpSocket::bind(config.primary)?;
         primary.set_nonblocking(true)?;
         let alternate = UdpSocket::bind(config.alternate)?;
@@ -282,6 +659,7 @@ impl LanUdpTransport {
             broadcast_targets: Vec::new(),
             relay: None,
             lan_scope: None,
+            pending_report: UdpServiceReport::default(),
         })
     }
 
@@ -289,7 +667,7 @@ impl LanUdpTransport {
     /// remain plain, while an already-active peer's exact-scoped global loading
     /// data/ACKs can be received. The application owns the scope and validates
     /// it inside loading progress too; no private traffic is admitted yet.
-    pub fn prepare_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
+    fn prepare_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
         if self.relay.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -320,20 +698,20 @@ impl LanUdpTransport {
     /// plain private packets and ACKs never do. Existing raw attempts retain
     /// their original encoding, and reliable owners retain retry/sequence state.
     /// The scope is public session identity, not authentication or a secret.
-    pub fn set_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
+    fn set_lan_scope(&mut self, scope: SessionScope) -> io::Result<()> {
         self.prepare_lan_scope(scope)?;
         self.lan_scope = Some(LanScopeState::Active(scope));
         Ok(())
     }
 
-    pub fn lan_scope(&self) -> Option<SessionScope> {
+    fn lan_scope(&self) -> Option<SessionScope> {
         self.lan_scope.map(LanScopeState::scope)
     }
 
     /// Returning to discovery must not reframe a previous match's queued
     /// messages under an unscoped lobby or a later match. Reuse the same
     /// manager reset540A80/540B40; no second reliability history is introduced.
-    pub fn clear_lan_scope(&mut self) {
+    fn clear_lan_scope(&mut self) {
         if self.lan_scope.is_some() {
             self.reset_session();
         }
@@ -342,7 +720,7 @@ impl LanUdpTransport {
     /// Configure a ticket granted over authenticated HTTPS. The ticket and
     /// its per-client key are deliberately absent from Debug and diagnostics.
     /// `relay_ready` changes only after a real UDP challenge/response round trip.
-    pub fn enable_relay(
+    fn enable_relay(
         &mut self,
         address: SocketAddrV4,
         ticket: &[u8],
@@ -379,23 +757,23 @@ impl LanUdpTransport {
         Ok(())
     }
 
-    pub fn relay_ready(&self) -> bool {
+    fn relay_ready(&self) -> bool {
         self.relay
             .as_ref()
             .is_some_and(|route| route.session.is_ready())
     }
 
-    pub fn relay_source(&self) -> Option<u8> {
+    fn relay_source(&self) -> Option<u8> {
         self.relay.as_ref().map(|route| route.session.source())
     }
 
-    pub fn relay_expires(&self) -> Option<u64> {
+    fn relay_expires(&self) -> Option<u64> {
         self.relay.as_ref().map(|route| route.session.expires())
     }
 
     /// Rotate only the outer credential. Existing private/global queues,
     /// packet sequence numbers, sockets and virtual endpoints remain intact.
-    pub fn renew_relay(
+    fn renew_relay(
         &mut self,
         address: SocketAddrV4,
         ticket: &[u8],
@@ -427,7 +805,7 @@ impl LanUdpTransport {
 
     /// Finished online matches keep the socket owner for the lobby, while
     /// dropping the expired identity and every old-match datagram.
-    pub fn retire_relay(&mut self) {
+    fn retire_relay(&mut self) {
         self.reset_session();
         self.relay = None;
         self.broadcast_targets.clear();
@@ -436,7 +814,7 @@ impl LanUdpTransport {
     /// Measure the complete peer path using the existing global reliable
     /// send/ACK queue. Call after every member has completed relay admission.
     /// This probe has no second retry timer and no application command payload.
-    pub fn begin_relay_peer_probes(&mut self, sources: &[u8]) -> io::Result<()> {
+    fn begin_relay_peer_probes(&mut self, sources: &[u8]) -> io::Result<()> {
         let route = self
             .relay
             .as_mut()
@@ -490,7 +868,7 @@ impl LanUdpTransport {
 
     /// One actual round-trip measurement per remote canonical source, in ms.
     /// A zero is a measured sub-bucket RTT, never an absent observation.
-    pub fn relay_peer_round_trips(&self) -> Option<Vec<(u8, u32)>> {
+    fn relay_peer_round_trips(&self) -> Option<Vec<(u8, u32)>> {
         self.relay
             .as_ref()?
             .peer_probes
@@ -500,39 +878,23 @@ impl LanUdpTransport {
             .collect()
     }
 
-    pub fn primary_addr(&self) -> io::Result<SocketAddrV4> {
+    fn primary_addr(&self) -> io::Result<SocketAddrV4> {
         ipv4_addr(&self.primary)
     }
 
-    pub fn alternate_addr(&self) -> io::Result<SocketAddrV4> {
+    fn alternate_addr(&self) -> io::Result<SocketAddrV4> {
         ipv4_addr(&self.alternate)
-    }
-
-    pub fn connections(&self) -> &LanConnections {
-        &self.connections
-    }
-
-    pub fn connections_mut(&mut self) -> &mut LanConnections {
-        &mut self.connections
     }
 
     /// Timing is manager state; constructing private peers after GO inherits
     /// the active settings instead of reinstating lobby defaults.
-    pub fn retry_timing(&self) -> super::reliable::RetryTiming {
+    fn retry_timing(&self) -> super::reliable::RetryTiming {
         self.connections.retry_timing()
-    }
-
-    pub fn global(&self) -> &GlobalChannel {
-        &self.global
-    }
-
-    pub fn global_mut(&mut self) -> &mut GlobalChannel {
-        &mut self.global
     }
 
     /// Interface7B1D10 clears both raw send FIFOs. This does not reset the
     ///independent reliable/global owners or discard their pending messages.
-    pub fn clear_pending_sends(&mut self) {
+    fn clear_pending_sends(&mut self) {
         self.primary_send.pending.clear();
         self.alternate_send.pending.clear();
     }
@@ -540,17 +902,18 @@ impl LanUdpTransport {
     /// Manager initialization540A80/540B40 begins a fresh outer lobby visit:
     /// discard private/global traffic and raw attempts, retaining this portable
     /// socket pair and its configured discovery targets.
-    pub fn reset_session(&mut self) {
+    fn reset_session(&mut self) {
         self.clear_pending_sends();
         self.connections.reset();
         self.global.reset();
         self.lan_scope = None;
+        self.pending_report = UdpServiceReport::default();
     }
 
     /// UDPInterface's target list7B2FF0/7B2F90. The caller explicitly chooses
     /// IPv4 LAN discovery targets; retail LAN's IPX broadcast is excluded.
     /// Preserve insertion order while avoiding duplicate wire broadcasts.
-    pub fn set_broadcast_targets(&mut self, targets: &[SocketAddrV4]) -> io::Result<()> {
+    fn set_broadcast_targets(&mut self, targets: &[SocketAddrV4]) -> io::Result<()> {
         self.primary.set_broadcast(!targets.is_empty())?;
         self.broadcast_targets.clear();
         for target in targets {
@@ -564,7 +927,7 @@ impl LanUdpTransport {
     /// Manager542450 takes an unsigned maximum over private RTTs and its
     /// optional +50 channel; it never reads the primary +48 global channel.
     /// The optional channel is not represented by this direct-LAN transport.
-    pub fn response_time(&self) -> u32 {
+    fn response_time(&self) -> u32 {
         self.connections
             .peers()
             .filter_map(|(id, _)| self.connections.mean_response_time(id))
@@ -574,16 +937,12 @@ impl LanUdpTransport {
     /// IPXManager::ResetResponseTime542EC0 forwards the caller's flag to
     /// private peers and always clears the primary-global history. Socket,
     /// raw datagram and reliable delivery ownership are unaffected.
-    pub fn reset_response_time(&mut self, clear: bool) {
+    fn reset_response_time(&mut self, clear: bool) {
         self.connections.reset_response_time(clear);
         self.global.reset_response_time(true);
     }
 
-    pub fn set_retry_timing(
-        &mut self,
-        timing: super::reliable::RetryTiming,
-        apply_to_global: bool,
-    ) {
+    fn set_retry_timing(&mut self, timing: super::reliable::RetryTiming, apply_to_global: bool) {
         self.connections.set_timing(timing);
         if apply_to_global {
             self.global.set_timing(timing);
@@ -596,7 +955,7 @@ impl LanUdpTransport {
     /// the separate CDEF router connection; that connection is not owned here.
     /// Ordinary queued sends also use primary UDP7B3C5B. The connection
     /// owner alone decides retries, sequence order and peer failure identity.
-    pub fn service(&mut self, now_ticks: u32) -> UdpServiceReport {
+    fn service(&mut self, now_ticks: u32, receive_budget: usize) -> UdpServiceReport {
         let mut report = UdpServiceReport::default();
         if let Some(route) = self.relay.as_mut() {
             if route
@@ -670,6 +1029,7 @@ impl LanUdpTransport {
             &mut self.global,
             &self.broadcast_targets,
             now_ticks,
+            receive_budget,
             &mut report,
         );
         drain_socket(
@@ -683,6 +1043,7 @@ impl LanUdpTransport {
             &mut self.global,
             &self.broadcast_targets,
             now_ticks,
+            receive_budget,
             &mut report,
         );
         // Manager542197 services the global channel first, discarding failed
@@ -731,11 +1092,11 @@ impl LanUdpTransport {
         report
     }
 
-    pub fn pop_received(&mut self) -> Option<ReceivedMessage> {
+    fn pop_received(&mut self) -> Option<ReceivedMessage> {
         self.connections.pop_received()
     }
 
-    pub fn pop_global_received(&mut self) -> Option<GlobalMessage> {
+    fn pop_global_received(&mut self) -> Option<GlobalMessage> {
         self.global.pop_received()
     }
 }
@@ -761,12 +1122,13 @@ fn drain_socket(
     global: &mut GlobalChannel,
     broadcast_targets: &[SocketAddrV4],
     now_ticks: u32,
+    receive_budget: usize,
     report: &mut UdpServiceReport,
 ) {
     // One extra byte distinguishes a full valid native buffer from an
     // oversized/truncated datagram on platforms whose recvfrom truncates.
     let mut bytes = [0; vera20k_relay_protocol::MAX_DATAGRAM + 1];
-    loop {
+    for _ in 0..receive_budget {
         let (length, source) = match socket.recv_from(&mut bytes) {
             Ok(packet) => packet,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,

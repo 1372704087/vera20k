@@ -202,10 +202,13 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
         Delivery::Reliable,
         0
     ));
-    let counts = (
-        first.connections().queued_send_count(29),
-        first.global().queued_send_count(),
-    );
+    let counts = {
+        let io = first.lock();
+        (
+            io.connections.queued_send_count(29),
+            io.global.queued_send_count(),
+        )
+    };
     let endpoint = first.primary_addr().unwrap();
     first
         .renew_relay(address, &renewed, *renewed_key.expose_for_https())
@@ -216,10 +219,13 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
         "candidate must not replace an unconfirmed route"
     );
     assert_eq!(
-        (
-            first.connections().queued_send_count(29),
-            first.global().queued_send_count()
-        ),
+        {
+            let io = first.lock();
+            (
+                io.connections.queued_send_count(29),
+                io.global.queued_send_count(),
+            )
+        },
         counts
     );
     assert_eq!(first.relay_peer_round_trips(), Some(first_sample.clone()));
@@ -424,7 +430,7 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
     );
     let mut report = UdpServiceReport::default();
     for sequence in 0..130 {
-        transport.primary_send.send(
+        transport.lock().primary_send.send(
             endpoint,
             &connection_frame(1, sequence, b"pooled or heap"),
             None,
@@ -433,7 +439,7 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
             &mut |_, _| Err(io::ErrorKind::PermissionDenied.into()),
         );
     }
-    transport.alternate_send.send(
+    transport.lock().alternate_send.send(
         endpoint,
         b"alternate",
         None,
@@ -441,18 +447,19 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
         &mut report,
         &mut |_, _| Err(io::ErrorKind::PermissionDenied.into()),
     );
-    assert_eq!(transport.primary_send.pending.len(), 130);
-    assert_eq!(transport.alternate_send.pending.len(), 1);
+    assert_eq!(transport.lock().primary_send.pending.len(), 130);
+    assert_eq!(transport.lock().alternate_send.pending.len(), 1);
     let mut alternate = Vec::new();
     transport
+        .lock()
         .alternate_send
         .service(UdpChannel::Alternate, &mut report, &mut |bytes, _| {
             alternate.extend_from_slice(bytes);
             Ok(bytes.len())
         });
     assert_eq!(alternate, datagram(b"alternate"));
-    assert_eq!(transport.primary_send.pending.len(), 130);
-    transport.alternate_send.send(
+    assert_eq!(transport.lock().primary_send.pending.len(), 130);
+    transport.lock().alternate_send.send(
         endpoint,
         b"discard",
         None,
@@ -461,8 +468,8 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
         &mut |_, _| Err(io::ErrorKind::PermissionDenied.into()),
     );
     transport.clear_pending_sends();
-    assert!(transport.primary_send.pending.is_empty());
-    assert!(transport.alternate_send.pending.is_empty());
+    assert!(transport.lock().primary_send.pending.is_empty());
+    assert!(transport.lock().alternate_send.pending.is_empty());
     assert_eq!(transport.connections().queued_send_count(1), Some(1));
 }
 
@@ -473,7 +480,7 @@ fn portable_service_retries_one_retained_head_without_new_protocol_send() {
     let endpoint = ipv4_addr(&sink).unwrap();
     let mut report = UdpServiceReport::default();
     for frame in [b"first".as_slice(), b"second".as_slice()] {
-        transport.primary_send.send(
+        transport.lock().primary_send.send(
             endpoint,
             frame,
             None,
@@ -487,7 +494,7 @@ fn portable_service_retries_one_retained_head_without_new_protocol_send() {
         let report = transport.service(1);
         assert_eq!(report.sent_datagrams, 1);
         assert!(report.first_io_error.is_none());
-        assert_eq!(transport.primary_send.pending.len(), remaining);
+        assert_eq!(transport.lock().primary_send.pending.len(), remaining);
         let (length, source) = sink.recv_from(&mut bytes).unwrap();
         assert_eq!(source, SocketAddr::V4(transport.primary_addr().unwrap()));
         assert_eq!(&bytes[..length], datagram(frame));
@@ -506,7 +513,7 @@ fn generated_ack_joins_the_same_fifo_behind_retained_raw_datagrams() {
         .unwrap();
     let mut report = UdpServiceReport::default();
     for frame in [b"first".as_slice(), b"second".as_slice()] {
-        receiver.primary_send.send(
+        receiver.lock().primary_send.send(
             ipv4_addr(&sink).unwrap(),
             frame,
             None,
@@ -524,7 +531,7 @@ fn generated_ack_joins_the_same_fifo_behind_retained_raw_datagrams() {
     let deadline = Instant::now() + Duration::from_secs(2);
     let mut bytes = [0; 64];
     loop {
-        match receiver.alternate.peek_from(&mut bytes) {
+        match receiver.lock().alternate.peek_from(&mut bytes) {
             Ok(_) => break,
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 assert!(Instant::now() < deadline);
@@ -542,7 +549,7 @@ fn generated_ack_joins_the_same_fifo_behind_retained_raw_datagrams() {
     }
     // The received command queues its ACK behind the second old datagram.
     assert_eq!(receiver.pop_received().unwrap().payload, b"command");
-    assert_eq!(receiver.primary_send.pending.len(), 1);
+    assert_eq!(receiver.lock().primary_send.pending.len(), 1);
     assert_eq!(receiver.service(1).sent_datagrams, 1);
     let (length, source) = sender.recv_from(&mut bytes).unwrap();
     assert_eq!(source, SocketAddr::V4(receiver.primary_addr().unwrap()));
@@ -682,7 +689,7 @@ fn manager_response_reset_keeps_sockets_raw_queues_and_pending_channel_traffic()
     wire.global_mut()
         .receive(peer, 0, &global_frame, 123, &mut |_, _| {})
         .unwrap();
-    wire.primary_send.send(
+    wire.lock().primary_send.send(
         peer,
         &connection_frame(2, 9, &[]),
         None,
@@ -690,7 +697,7 @@ fn manager_response_reset_keeps_sockets_raw_queues_and_pending_channel_traffic()
         &mut UdpServiceReport::default(),
         &mut |_, _| Err(io::ErrorKind::PermissionDenied.into()),
     );
-    wire.alternate_send.send(
+    wire.lock().alternate_send.send(
         peer,
         &connection_frame(2, 10, &[]),
         None,
@@ -700,10 +707,13 @@ fn manager_response_reset_keeps_sockets_raw_queues_and_pending_channel_traffic()
     );
     wire.set_broadcast_targets(&[peer]).unwrap();
     let sockets = (wire.primary_addr().unwrap(), wire.alternate_addr().unwrap());
-    let raw = (
-        format!("{:?}", wire.primary_send),
-        format!("{:?}", wire.alternate_send),
-    );
+    let raw = {
+        let io = wire.lock();
+        (
+            format!("{:?}", io.primary_send),
+            format!("{:?}", io.alternate_send),
+        )
+    };
     wire.reset_response_time(false);
     assert_eq!(wire.connections().mean_response_time(1), Some(11));
     assert_eq!(
@@ -720,13 +730,16 @@ fn manager_response_reset_keeps_sockets_raw_queues_and_pending_channel_traffic()
         sockets
     );
     assert_eq!(
-        (
-            format!("{:?}", wire.primary_send),
-            format!("{:?}", wire.alternate_send)
-        ),
+        {
+            let io = wire.lock();
+            (
+                format!("{:?}", io.primary_send),
+                format!("{:?}", io.alternate_send),
+            )
+        },
         raw
     );
-    assert_eq!(wire.broadcast_targets, [peer]);
+    assert_eq!(wire.lock().broadcast_targets, [peer]);
     assert_eq!(wire.pop_received().unwrap().payload, b"private receive");
     assert_eq!(
         wire.pop_global_received().unwrap().payload,
@@ -964,9 +977,15 @@ fn dropping_transport_closes_both_bound_sockets_and_all_connection_state() {
             .send_to(10, b"queued", Delivery::Reliable)
     );
     let mut report = UdpServiceReport::default();
+    let mut io = first.lock();
+    let UdpIo {
+        primary_send,
+        alternate_send,
+        ..
+    } = &mut *io;
     for (queue, channel) in [
-        (&mut first.primary_send, UdpChannel::Primary),
-        (&mut first.alternate_send, UdpChannel::Alternate),
+        (primary_send, UdpChannel::Primary),
+        (alternate_send, UdpChannel::Alternate),
     ] {
         queue.send(
             SocketAddrV4::new(Ipv4Addr::LOCALHOST, 1234),
@@ -978,11 +997,12 @@ fn dropping_transport_closes_both_bound_sockets_and_all_connection_state() {
         );
         assert_eq!(queue.pending.len(), 1);
     }
+    drop(io);
     drop(first);
     let fresh = LanUdpTransport::bind(config, connections()).unwrap();
     assert_eq!(fresh.connections().peers().len(), 0);
-    assert!(fresh.primary_send.pending.is_empty());
-    assert!(fresh.alternate_send.pending.is_empty());
+    assert!(fresh.lock().primary_send.pending.is_empty());
+    assert!(fresh.lock().alternate_send.pending.is_empty());
     assert_eq!(fresh.primary_addr().unwrap(), config.primary);
     assert_eq!(fresh.alternate_addr().unwrap(), config.alternate);
 }
@@ -1005,7 +1025,7 @@ fn fresh_session_clears_raw_private_and_global_traffic_without_rebinding() {
         Delivery::Reliable,
         0
     ));
-    wire.primary_send.send(
+    wire.lock().primary_send.send(
         destination,
         b"old raw",
         None,
@@ -1046,7 +1066,7 @@ fn take_wire_datagrams(wire: &LanUdpTransport, count: usize) -> Vec<Vec<u8>> {
     let mut packets = Vec::new();
     let mut bytes = [0; UDP_DATAGRAM_CAPACITY + 1];
     while packets.len() < count {
-        match wire.primary.recv_from(&mut bytes) {
+        match wire.lock().primary.recv_from(&mut bytes) {
             Ok((length, _)) => packets.push(bytes[..length].to_vec()),
             Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
                 assert!(
@@ -1125,14 +1145,27 @@ fn scoped_lan_keeps_full_private_payload_and_retires_to_plain_discovery() {
                 && packet.starts_with(LAN_SCOPE_MAGIC))
     );
     for packet in &packets {
-        left.primary.send_to(packet, right_address).unwrap();
+        left.lock().primary.send_to(packet, right_address).unwrap();
     }
     assert_eq!(received(&mut right).payload, payload);
     assert_eq!(
         right.pop_global_received().unwrap().payload,
         b"match side channel"
     );
-    left.service(2);
+    // send_to can finish before the loopback ACK is visible to recv_from.
+    // Keep the protocol clock fixed while waiting for both real receipts.
+    let deadline = Instant::now() + Duration::from_secs(2);
+    loop {
+        let report = left.service(2);
+        assert!(report.first_io_error.is_none(), "{report:?}");
+        let private_retired = left.connections().queued_send_count(1) == Some(0);
+        let global_retired = left.global().queued_send_count() == 0;
+        if private_retired && global_retired {
+            break;
+        }
+        assert!(Instant::now() < deadline, "scoped UDP ACKs did not arrive");
+        std::thread::yield_now();
+    }
     assert_eq!(left.connections().queued_send_count(1), Some(0));
     assert_eq!(left.global().queued_send_count(), 0);
 
@@ -1144,7 +1177,7 @@ fn scoped_lan_keeps_full_private_payload_and_retires_to_plain_discovery() {
     assert_eq!(right.lan_scope(), None);
     assert!(left.connections().peers().next().is_none());
     for packet in &packets {
-        left.primary.send_to(packet, right_address).unwrap();
+        left.lock().primary.send_to(packet, right_address).unwrap();
     }
     assert_eq!(malformed_after_receipt(&mut right, 3, 2), 2);
     assert!(right.pop_received().is_none());
@@ -1211,7 +1244,7 @@ fn loading_scope_bridge_survives_lost_progress_before_both_peers_activate() {
         .iter()
         .find(|packet| packet.ends_with(b"first order"))
         .unwrap();
-    host.primary.send_to(private, guest_address).unwrap();
+    host.lock().primary.send_to(private, guest_address).unwrap();
     assert_eq!(malformed_after_receipt(&mut guest, 1, 1), 1);
     assert!(
         guest.pop_received().is_none(),
@@ -1305,7 +1338,7 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
     assert_eq!(left.service(1).sent_datagrams, 3);
     let old_packets = take_wire_datagrams(&right, 3);
     for packet in &old_packets {
-        left.primary.send_to(packet, right_address).unwrap();
+        left.lock().primary.send_to(packet, right_address).unwrap();
     }
     assert_eq!(malformed_after_receipt(&mut right, 1, 3), 0);
     let old_acks = take_wire_datagrams(&left, 2);
@@ -1334,7 +1367,7 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
     assert_eq!(left.service(1).sent_datagrams, 2);
     let current_packets = take_wire_datagrams(&right, 2);
     for ack in &old_acks {
-        right.primary.send_to(ack, left_address).unwrap();
+        right.lock().primary.send_to(ack, left_address).unwrap();
     }
     assert_eq!(malformed_after_receipt(&mut left, 1, 2), 2);
     assert_eq!(
@@ -1348,13 +1381,13 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
         "old ACK retired the new global sequence0"
     );
     for packet in &old_packets {
-        left.primary.send_to(packet, right_address).unwrap();
+        left.lock().primary.send_to(packet, right_address).unwrap();
     }
     assert_eq!(malformed_after_receipt(&mut right, 1, 3), 3);
     assert!(right.pop_received().is_none());
     assert!(right.pop_global_received().is_none());
     for packet in &current_packets {
-        left.primary.send_to(packet, right_address).unwrap();
+        left.lock().primary.send_to(packet, right_address).unwrap();
     }
     assert_eq!(received(&mut right).payload, b"current orders");
     assert_eq!(
@@ -1379,7 +1412,7 @@ fn rematch_rejects_old_ack_data_and_frame_sync_before_reliable_state() {
         .iter()
         .find(|packet| packet.ends_with(&old_sync))
         .unwrap();
-    left.primary.send_to(packet, right_address).unwrap();
+    left.lock().primary.send_to(packet, right_address).unwrap();
     assert_eq!(malformed_after_receipt(&mut right, 4, 1), 1);
     assert!(right.pop_received().is_none());
 }

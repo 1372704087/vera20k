@@ -467,7 +467,17 @@ fn local_prerequisite_loss_publishes_one_raw_cancellation_stream() {
     use crate::net::reliable::{Delivery, LanConnectionConfig, LanConnections, RetryTiming};
     use crate::net::udp::{LanUdpTransport, UdpBindConfig};
     use std::net::{Ipv4Addr, SocketAddrV4};
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    // The production App injects frame_pacer::wall_clock_bucket. Core cannot
+    // depend on App; this stateless integration-test wall clock uses real time.
+    fn wall_bucket() -> u32 {
+        (SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_millis()
+            / 16) as u32
+    }
 
     crate::sim::production::prerequisite_loss_cancellation_fixture(|sender, receiver, records| {
         // Use the same packet, private reliability and scoped UDP owners as live
@@ -489,12 +499,17 @@ fn local_prerequisite_loss_publishes_one_raw_cancellation_stream() {
             )
             .unwrap()
         });
+        let binds: [_; 2] = std::array::from_fn(|side| UdpBindConfig {
+            primary: wires[side].primary_addr().unwrap(),
+            alternate: wires[side].alternate_addr().unwrap(),
+        });
         for wire in &mut wires {
             wire.set_lan_scope(SessionScope {
                 epoch: [7; 16],
                 revision: 1,
             })
             .unwrap();
+            wire.start_io_pump(wall_bucket).unwrap();
         }
         let [outbound, inbound] = &mut wires;
         outbound
@@ -505,6 +520,14 @@ fn local_prerequisite_loss_publishes_one_raw_cancellation_stream() {
             .connections_mut()
             .add_peer(0, outbound.primary_addr().unwrap())
             .unwrap();
+        for bytes in [b"first control".as_slice(), b"second control".as_slice()] {
+            assert!(outbound.global_mut().send(
+                bytes,
+                crate::net::global::GlobalDestination::direct(inbound.primary_addr().unwrap()),
+                Delivery::Reliable,
+                0
+            ));
+        }
         let mut send = CommandExchange::new([1]).unwrap();
         let mut receive = CommandExchange::new([0]).unwrap();
         assert_eq!(
@@ -528,48 +551,93 @@ fn local_prerequisite_loss_publishes_one_raw_cancellation_stream() {
             }
         );
         assert_eq!(sender.pending_local_command_count(), 0);
+        // Both main consumers now stop servicing, popping and decoding.
+        // This getter only takes a read guard; it cannot send, ACK or wake.
+        // Reliable retirement must therefore happen entirely in the SAME
+        // transport owners' background pumps before ordinary admission resumes.
         let started = Instant::now();
         loop {
-            let now = 2 + (started.elapsed().as_millis() / 16) as u32;
-            for wire in [&mut *outbound, &mut *inbound] {
-                let report = wire.service(now);
-                assert!(
-                    report.first_io_error.is_none() && report.failed_peer.is_none(),
-                    "{report:?}"
-                );
-                assert_eq!(
-                    report.rejected_connections + report.malformed_datagrams,
-                    0,
-                    "{report:?}"
-                );
-            }
-            while let Some(message) = inbound.pop_received() {
-                assert_eq!((message.peer_id, message.delivery), (0, Delivery::Reliable));
-                receive
-                    .receive(
-                        i8::try_from(message.peer_id).unwrap(),
-                        &message.payload,
-                        0,
-                        &mut receiver.network_command_queues(),
-                        0,
-                    )
-                    .unwrap();
-            }
-            if receive.peers()[0].received_commands() == records.len() as u64
-                && outbound.connections().queued_send_count(1) == Some(0)
-            {
+            let private_done = outbound.connections().queued_send_count(1) == Some(0);
+            let global_done = outbound.global().queued_send_count() == 0;
+            if private_done && global_done {
                 break;
             }
             assert!(
                 started.elapsed() < Duration::from_secs(2),
-                "cancellation UDP/ACK did not drain"
+                "reliable UDP/ACK did not retire while main consumers were idle"
             );
-            std::thread::yield_now();
+            std::thread::sleep(Duration::from_millis(2));
         }
+        assert_eq!(
+            receive.peers()[0].received_commands(),
+            0,
+            "physical I/O must not admit application commands"
+        );
+        // An intentionally stale caller sample must not timestamp active I/O.
+        for wire in [&mut *outbound, &mut *inbound] {
+            let report = wire.service(u32::MAX);
+            assert!(
+                report.first_io_error.is_none() && report.failed_peer.is_none(),
+                "{report:?}"
+            );
+            assert_eq!(
+                report.rejected_connections + report.rejected_global + report.malformed_datagrams,
+                0,
+                "{report:?}"
+            );
+            assert!(
+                report.received_datagrams > 0 && report.sent_datagrams > 0,
+                "{report:?}"
+            );
+        }
+        // Same App FIFO can inspect both owned controls without waiting for
+        // another physical-service pass to retire the first consumed head.
+        assert_eq!(
+            inbound.pop_global_received().unwrap().payload,
+            b"first control"
+        );
+        assert_eq!(
+            inbound.pop_global_received().unwrap().payload,
+            b"second control"
+        );
+        assert!(inbound.pop_global_received().is_none());
+        while let Some(message) = inbound.pop_received() {
+            assert_eq!((message.peer_id, message.delivery), (0, Delivery::Reliable));
+            receive
+                .receive(
+                    i8::try_from(message.peer_id).unwrap(),
+                    &message.payload,
+                    0,
+                    &mut receiver.network_command_queues(),
+                    0,
+                )
+                .unwrap();
+        }
+        assert_eq!(receive.peers()[0].received_commands(), records.len() as u64);
+        assert!(inbound.pop_received().is_none());
         assert_eq!(send.sent_commands(), records.len() as u64);
         assert_eq!(
             receive.peers()[0].advertised_commands(),
             records.len() as u64
         );
+        // Final drop stops/unparks/joins the SAME workers before closing sockets.
+        // Rebinding proves no worker/Arc retains either old socket afterward.
+        drop(wires);
+        for bind in binds {
+            drop(
+                LanUdpTransport::bind(
+                    bind,
+                    LanConnections::new(
+                        LanConnectionConfig::default(),
+                        RetryTiming {
+                            retry_delta: 1,
+                            max_retries: u32::MAX,
+                            timeout: u32::MAX,
+                        },
+                    ),
+                )
+                .unwrap(),
+            );
+        }
     });
 }

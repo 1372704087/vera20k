@@ -485,7 +485,7 @@ impl LiveLanCapture {
                     "LAN transport was already installed"
                 );
                 let config = self.config.as_ref().expect("LAN transport configuration");
-                state.match_state.lan_service = Some(match config.transport {
+                let mut service = match config.transport {
                     LiveLanTransport::ProductionBroadcast => {
                         crate::app::lan_service::LanService::open(
                             crate::app::match_runtime::frame_pacer::wall_clock_bucket(),
@@ -501,7 +501,9 @@ impl LiveLanCapture {
                             &[peer],
                         )?
                     }
-                });
+                };
+                service.start_io_pump()?;
+                state.match_state.lan_service = Some(service);
                 click_main_menu(
                     state,
                     crate::ui::main_menu_shell::MainMenuControlId::Network0x578,

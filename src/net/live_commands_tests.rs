@@ -247,15 +247,13 @@ fn poll_pair(
         );
         std::thread::yield_now();
     }
-    while left
-        .connections()
-        .peers()
-        .any(|(house, _)| left.connections().queued_send_count(house) != Some(0))
-        || right
-            .connections()
+    while [&*left, &*right].into_iter().any(|live| {
+        let connections = live.connections();
+        let pending = connections
             .peers()
-            .any(|(house, _)| right.connections().queued_send_count(house) != Some(0))
-    {
+            .any(|(house, _)| connections.queued_send_count(house) != Some(0));
+        pending
+    }) {
         let now = 1000 + (start.elapsed().as_millis() / 16) as u32;
         left.service_transport(now);
         right.service_transport(now);

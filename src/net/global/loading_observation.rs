@@ -24,7 +24,7 @@ pub enum LoadingObservation {
     },
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct LoadingObservationLog {
     records: Vec<LoadingObservation>,
     overflowed: bool,

@@ -2048,6 +2048,7 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         connections,
     )?;
     transport.enable_relay(start.relay.address, &grant.ticket, grant.key)?;
+    transport.start_io_pump(crate::app::match_runtime::frame_pacer::wall_clock_bucket)?;
     for user in &start.users {
         state.match_state.session.bind_network_endpoint(
             &user.name,

@@ -172,10 +172,15 @@ impl FailureCapture {
             .as_ref()
             .context("failure live transport")?;
         let frame = sim.session().binary_frame();
+        let private_peers = live.connections().peers().collect::<Vec<_>>();
+        let (global_sends, global_receives) = {
+            let global = live.global();
+            (global.queued_send_count(), global.queued_receive_count())
+        };
         self.last_live = Some(json!({"frame":frame,"sent_commands":live.sent_commands(),
-            "private_peers":live.connections().peers().map(|(id,endpoint)|json!({"house":id,"endpoint":endpoint.to_string()})).collect::<Vec<_>>(),
-            "progress_peers":live.peers().len(),"global_sends":live.global().queued_send_count(),
-            "global_receives":live.global().queued_receive_count()}));
+            "private_peers":private_peers.into_iter().map(|(id,endpoint)|json!({"house":id,"endpoint":endpoint.to_string()})).collect::<Vec<_>>(),
+            "progress_peers":live.peers().len(),"global_sends":global_sends,
+            "global_receives":global_receives}));
 
         if live.peers().is_empty() {
             return self.observe_recovery(state, render, now, route);

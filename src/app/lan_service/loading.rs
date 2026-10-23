@@ -86,7 +86,7 @@ impl<'a> LoadingNetworkService<'a> {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("loading transport was retired"))?;
         transport.service(now);
-        let global = transport.global_mut();
+        let mut global = transport.global_mut();
         //Global53FFA0/540030 already support indexed inspection/consumption.
         //Progress may pass an unrelated queued control, but that control keeps
         //its original FIFO slot for the ordinary app reducer after this phase.
@@ -127,6 +127,7 @@ impl<'a> LoadingNetworkService<'a> {
             }
             global.consume_received(index);
         }
+        drop(global);
         //The UDP owner retires consumed entries and physically sends ACKs;
         //private startup data, unrelated globals and dedup history stay intact.
         transport.service(now);
@@ -562,7 +563,7 @@ mod tests {
         let mut now = loading_bucket();
         let mut controls = 0;
         loop {
-            LanService::flush_setup_queue(&mut host.pending_setup, live.global_mut());
+            LanService::flush_setup_queue(&mut host.pending_setup, &mut *live.global_mut());
             live.service_transport(now);
             LoadingNetworkService::borrow(&mut guest_session, Some(&mut guest), false)
                 .unwrap()
@@ -620,7 +621,7 @@ mod tests {
         assert_eq!(controls, slots);
         assert!(host.pending_setup.is_empty());
         assert_eq!(live.global().queued_send_count(), 0);
-        let log = live.global().loading_observation().unwrap();
+        let log = live.global().loading_observation().unwrap().clone();
         assert!(!log.overflowed());
         let (sequence, destination) = log
             .records()
@@ -644,7 +645,8 @@ mod tests {
             .global()
             .loading_observation()
             .unwrap()
-            .records();
+            .records()
+            .to_vec();
         assert!(records.iter().any(|r| matches!(
             r,
             crate::net::global::LoadingObservation::Applied {

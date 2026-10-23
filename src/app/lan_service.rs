@@ -140,12 +140,14 @@ impl LanService {
         }
     }
 
+    /// Bounded owned snapshot for receipt generation only. Release the I/O
+    /// guard before the capture performs JSON construction or file work.
     pub(crate) fn loading_observation(
         &self,
-    ) -> Option<(&crate::net::global::LoadingObservationLog, bool)> {
+    ) -> Option<(crate::net::global::LoadingObservationLog, bool)> {
         let global = self.transport.as_ref()?.global();
         Some((
-            global.loading_observation()?,
+            global.loading_observation()?.clone(),
             global.authenticated_acknowledgments(),
         ))
     }
@@ -173,6 +175,19 @@ impl LanService {
         )?;
         transport.set_broadcast_targets(discovery_targets)?;
         Ok(Self::with_transport(transport))
+    }
+
+    /// Normal App activation; explicit/manual-clock fixture constructors stay synchronous.
+    pub(crate) fn start_io_pump(&mut self) -> std::io::Result<()> {
+        self.transport
+            .as_mut()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::NotConnected,
+                    "LAN transport is not installed",
+                )
+            })?
+            .start_io_pump(super::match_runtime::frame_pacer::wall_clock_bucket)
     }
 
     fn with_transport(transport: LanUdpTransport) -> Self {
@@ -362,6 +377,18 @@ impl LanService {
                 .map_or(0, |transport| transport.global().queued_send_count())
     }
 
+    fn go_transport_observation(&self, service_ok: bool) -> Option<SetupTransportObservation> {
+        // Guest GO5DD950..97D observes service success and its queue together.
+        // A worker may have timed out the last Type13 since the earlier poll;
+        // read that pending failure with the frontier before any App callback.
+        let observed = self.transport.as_ref()?.global_observation();
+        Some(SetupTransportObservation {
+            queued: self.pending_setup.len() + observed.queued_sends,
+            response_time: observed.response_time,
+            service_ok: service_ok && !observed.pending_delivery_failure,
+        })
+    }
+
     fn can_queue_go(&self, recipients: usize) -> bool {
         self.queued_setup_count() == 0
             && self
@@ -413,7 +440,7 @@ impl LanService {
 
     fn flush_setup(&mut self) {
         if let Some(transport) = self.transport.as_mut() {
-            Self::flush_setup_queue(&mut self.pending_setup, transport.global_mut());
+            Self::flush_setup_queue(&mut self.pending_setup, &mut *transport.global_mut());
         }
     }
 
@@ -1119,7 +1146,10 @@ pub(crate) fn open(state: &mut AppState) {
     let now = super::match_runtime::frame_pacer::frame_bucket(
         super::match_runtime::frame_pacer::wall_clock_ms(),
     );
-    match LanService::open(now) {
+    match LanService::open(now).and_then(|mut service| {
+        service.start_io_pump()?;
+        Ok(service)
+    }) {
         Ok(service) => state.match_state.lan_service = Some(service),
         Err(error) => {
             log::error!("LAN socket initialization failed: {error}");
@@ -1466,7 +1496,7 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
                         .and_then(|service| service.transport.as_mut())
                         .map(|transport| transport.global_mut())
                 };
-                if let Some(global) = global {
+                if let Some(mut global) = global {
                     global.observe_loading_application(
                         source,
                         incoming.sequence,
@@ -4034,6 +4064,73 @@ mod tests {
     }
 
     #[test]
+    fn go_drain_observes_worker_failure_with_the_empty_queue() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        use std::time::{Duration, Instant};
+
+        static BUCKET: AtomicU32 = AtomicU32::new(0);
+        fn bucket() -> u32 {
+            BUCKET.load(Ordering::Acquire)
+        }
+        let sink = std::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        sink.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let std::net::SocketAddr::V4(destination) = sink.local_addr().unwrap() else {
+            unreachable!()
+        };
+        let mut service = service();
+        let transport = service.transport.as_mut().unwrap();
+        transport.global_mut().set_timing(RetryTiming {
+            retry_delta: 0,
+            max_retries: u32::MAX,
+            timeout: 0,
+        });
+        transport.start_io_pump(bucket).unwrap();
+        assert!(
+            service
+                .queue_go(&LanMessage::ready_to_go(), &[direct(destination)])
+                .unwrap()
+        );
+
+        // The first real send succeeds, but this socket deliberately never
+        // sends an ACK. Hold the fixture clock while the main poll reads OK.
+        BUCKET.store(1, Ordering::Release);
+        let mut bytes = [0; crate::net::udp::UDP_DATAGRAM_CAPACITY];
+        let (length, _) = sink.recv_from(&mut bytes).unwrap();
+        assert!(length > 20);
+        assert_eq!(&bytes[20..24], &0x13_u32.to_le_bytes());
+        let earlier = service.transport.as_mut().unwrap().service(1);
+        let earlier_ok = earlier.discarded_global_sends == 0 && earlier.failed_peer.is_none();
+        assert!(earlier_ok);
+        assert_eq!(service.queued_setup_count(), 1);
+
+        // Interleave the existing retry/timeout/discard body AFTER that poll
+        // and BEFORE the GO admission observation. No injected queue/report.
+        BUCKET.store(2, Ordering::Release);
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while service.queued_setup_count() != 0 {
+            assert!(Instant::now() < deadline, "GO reply did not time out");
+            std::thread::yield_now();
+        }
+        let observation = service.go_transport_observation(earlier_ok).unwrap();
+        assert_eq!(observation.queued, 0);
+        assert!(
+            !observation.service_ok,
+            "a timed-out GO reply must not become a successful empty drain"
+        );
+        // The admission snapshot must leave diagnostics for their ordinary
+        // consumer instead of silently eating the worker's failure report.
+        assert_eq!(
+            service
+                .transport
+                .as_mut()
+                .unwrap()
+                .service(2)
+                .discarded_global_sends,
+            1
+        );
+    }
+
+    #[test]
     fn admission_proofs_bind_current_attempt_scope_full_build_and_selected_rules() {
         let mut service = service();
         let host = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30123);
@@ -4426,7 +4523,7 @@ mod tests {
         let ack = global_receive(&mut guest, host_address, &departure)
             .pop()
             .unwrap();
-        let global = guest.transport.as_mut().unwrap().global_mut();
+        let mut global = guest.transport.as_mut().unwrap().global_mut();
         assert_eq!(global.pop_received().unwrap().payload, b"previous setup");
         global.retire_consumed();
         assert_eq!(
@@ -4435,6 +4532,7 @@ mod tests {
                 .kind(),
             LanMessageKind::Departure
         );
+        drop(global);
         assert!(
             host.departure_ready(64, true).is_none(),
             "direct receipt is still unacknowledged"
@@ -4544,7 +4642,7 @@ mod tests {
         for frame in global_frames(&mut host, 64) {
             global_receive(&mut guest, host_address, &frame);
         }
-        let global = guest.transport.as_mut().unwrap().global_mut();
+        let mut global = guest.transport.as_mut().unwrap().global_mut();
         for expected in [
             b"roster".as_slice(),
             b"options one",
@@ -4597,7 +4695,7 @@ mod tests {
         global_frames(&mut host, 33);
         assert_eq!(host.queued_setup_count(), 1);
         assert!(!host.queue_go(&go, &[direct(guest_address)]).unwrap());
-        let global = guest.transport.as_mut().unwrap().global_mut();
+        let mut global = guest.transport.as_mut().unwrap().global_mut();
         let mut reassembly = Reassembly::default();
         assert!(
             reassembly
@@ -4613,6 +4711,7 @@ mod tests {
             Some((SetupKind::Options, payload))
         );
         global.retire_consumed();
+        drop(global);
         global_receive(&mut host, guest_address, &delayed_ack);
         global_frames(&mut host, 34);
         assert!(host.queue_go(&go, &[direct(guest_address)]).unwrap());
@@ -4828,13 +4927,14 @@ mod tests {
         // channels; returning through Setup Back does not reset them.
         service.clear_setup();
         assert_eq!(service.transport.as_ref().unwrap().retry_timing(), timing);
-        let global = service.transport.as_mut().unwrap().global_mut();
+        let mut global = service.transport.as_mut().unwrap().global_mut();
         // Guest5DD9FD leaves primary-global at60/-1/600, separately from
         // the private20/-1/160 above. Back must preserve that timing too.
         global.service(21, &mut |_, _| panic!("private timing leaked into global"));
         let mut sends = 0;
         global.service(61, &mut |_, _| sends += 1);
         assert_eq!(sends, 1);
+        drop(global);
         service.restart_visit();
         assert_eq!(
             service.transport.as_ref().unwrap().retry_timing(),
@@ -4859,7 +4959,7 @@ mod tests {
         let transport = service.transport.as_mut().unwrap();
         let local = transport.primary_addr().unwrap();
         let remote = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30123);
-        let connections = transport.connections_mut();
+        let mut connections = transport.connections_mut();
         connections.add_peer(7, remote).unwrap();
         assert!(connections.send_to(7, b"prior private traffic", Delivery::Reliable));
         let mut sent = Vec::new();
@@ -4876,6 +4976,7 @@ mod tests {
             .unwrap();
         connections.service(131, &mut |_, _| {});
         assert_eq!(connections.mean_response_time(7), Some(100));
+        drop(connections);
         assert_eq!(transport.global().mean_response_time(), 0);
         assert_eq!(transport.response_time(), 100);
 
@@ -5071,7 +5172,7 @@ mod tests {
 fn service_transport(state: &mut AppState, now: u32) -> bool {
     if let Some(live) = state.match_state.live_network.as_mut() {
         if let Some(service) = state.match_state.lan_service.as_mut() {
-            LanService::flush_setup_queue(&mut service.pending_setup, live.global_mut());
+            LanService::flush_setup_queue(&mut service.pending_setup, &mut *live.global_mut());
         }
         live.service_transport(now);
         true
@@ -5082,14 +5183,22 @@ fn service_transport(state: &mut AppState, now: u32) -> bool {
         .and_then(|s| s.transport.as_mut())
     {
         let report = transport.service(now);
-        report.discarded_global_sends == 0 && report.failed_peer.is_none()
+        !report.delivery_failed()
     } else {
         true
     }
 }
 
 fn advance_go(state: &mut AppState, now: u32, service_ok: bool) {
-    if !service_ok
+    let Some(observation) = state
+        .match_state
+        .lan_service
+        .as_ref()
+        .and_then(|service| service.go_transport_observation(service_ok))
+    else {
+        return;
+    };
+    if !observation.service_ok
         && super::shell_network_setup::lan_go_receive_mode(state)
             != super::shell_network_setup::LanGoReceiveMode::Normal
     {
@@ -5098,20 +5207,19 @@ fn advance_go(state: &mut AppState, now: u32, service_ok: bool) {
         super::shell_network_setup::fail_go_handoff(state);
         return;
     }
-    let Some(service) = state.match_state.lan_service.as_ref() else {
-        return;
-    };
-    let Some(transport) = service.transport.as_ref() else {
-        return;
-    };
-    let queued = service.queued_setup_count();
+    let queued = observation.queued;
     if queued != 0 {
         // VERA's larger setup can remain outside the native160-slot owner.
         // Do not enter or complete the native GO drain until both are empty.
         return;
     }
-    let response = transport.global().mean_response_time();
-    if !super::shell_network_setup::observe_lan_go_transport(state, now, queued, service_ok) {
+    let response = observation.response_time;
+    if !super::shell_network_setup::observe_lan_go_transport(
+        state,
+        now,
+        queued,
+        observation.service_ok,
+    ) {
         return;
     }
     let host = state.match_state.session.host();
@@ -5139,6 +5247,13 @@ fn advance_go(state: &mut AppState, now: u32, service_ok: bool) {
     if let Err(error) = result {
         log::error!("LAN start handoff failed: {error:#}");
     }
+}
+
+/// One derived observation for the existing GO admission owner. No retained state.
+struct SetupTransportObservation {
+    queued: usize,
+    response_time: u32,
+    service_ok: bool,
 }
 
 fn advance_departure(state: &mut AppState, now: u32, service_ok: bool) -> bool {

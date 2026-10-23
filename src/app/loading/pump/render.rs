@@ -259,12 +259,16 @@ fn native_loading_row_layout(
     campaign: Option<&CampaignLoadingPresentation>,
     scale: ShellScale,
     source_index: usize,
+    participant_count: usize,
 ) -> Option<LoadingProgressRowLayout> {
     if progress.current_value() == 0.0 {
         return None;
     }
     let placement = campaign.map_or(
-        LoadingProgressRowPlacement::StandardSkirmish(render_size),
+        LoadingProgressRowPlacement::StandardSkirmish {
+            render_size,
+            participants: participant_count,
+        },
         |campaign| LoadingProgressRowPlacement::Campaign(campaign.layout.progress_point),
     );
     Some(layout_loading_progress_row(
@@ -767,6 +771,7 @@ fn build_native_loading_frame_plan(
             campaign,
             scale,
             0,
+            1,
         ) {
             push_loading_participant_row(
                 &mut instances,
@@ -798,6 +803,7 @@ fn build_native_loading_frame_plan(
                 None,
                 scale,
                 index,
+                progress_row.participants.len(),
             ) else {
                 continue;
             };

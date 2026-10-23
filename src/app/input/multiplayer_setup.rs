@@ -381,6 +381,9 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) {
 /// Original scrollbar timers: one callback, no catch-up burst; no wheel or
 /// arrow-key path exists in the native ComboDropWin/list subclasses.
 pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
+    if crate::app::shell_network_setup::verify(state).is_some() {
+        return crate::app::shell_network_setup::verify_poll_scroll(state);
+    }
     if transfer_active(state) {
         return None;
     }

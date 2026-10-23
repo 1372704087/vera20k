@@ -2725,13 +2725,13 @@ impl WolCapture {
         )?;
         // Start Game Now (0x794BA0) keeps C2 up under its verify 0x130.
         let names = |state: &AppState| {
-            setup::verify(state).map(|verify| (verify.names.clone(), verify.checked))
+            setup::verify(state).map(|verify| (verify.names.clone(), verify.checked.clone()))
         };
         ensure!(
             setup_requests(state).is_empty()
                 && state.frontend.shell_exit.is_none()
                 && names(state).is_some_and(|(names, checked)| {
-                    names == [NICKNAME.to_owned(), PEER.to_owned()] && checked == [false; 8]
+                    names == [NICKNAME.to_owned(), PEER.to_owned()] && checked == [false; 2]
                 }),
             "OnGameStart did not open 0x130 over C2: {:?}",
             names(state)

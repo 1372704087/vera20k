@@ -3001,7 +3001,7 @@ fn gsi_04_07_a_human_unit_does_not_charge_an_unseen_shooter() {
     }));
 }
 
-/// `ShouldRetaliate 0x00708AF7..0x00708B09` refuses only Verses at or below
+/// Stock `ShouldRetaliate 0x00708AF7..0x00708B09` refuses only Verses at or below
 /// the single `0.01`: a 1% warhead still retaliates, a bare `0.005` (which
 /// GetFireError's zero-Verses test lets through; `0.5%` would parse to 0) and
 /// 0% do not. And a weapon whose
@@ -3010,10 +3010,15 @@ fn gsi_04_07_a_human_unit_does_not_charge_an_unseen_shooter() {
 /// heal test would allow.
 #[test]
 fn gsi_04_07_retaliation_verses_and_healer_gates() {
-    assert!(retaliates(RetaliationCase {
-        verses: "1%",
-        ..Default::default()
-    }));
+    // Ares3.0 parser100523E0 and retaliation hook100543E0 replace the stock
+    // threshold: tools/rules_oracle/ares_armor.json `parse_1%` has Retaliate=false.
+    assert_eq!(
+        retaliates(RetaliationCase {
+            verses: "1%",
+            ..Default::default()
+        }),
+        !crate::rules::ARES_ENABLED,
+    );
     assert!(!retaliates(RetaliationCase {
         verses: "0.005",
         ..Default::default()

@@ -333,6 +333,12 @@ pub struct WarheadType {
     /// -> warhead `+0x1C4`. Native RAISES this to `min_debris` when it is
     /// lower (`0x0075DAE0`); it never lowers `min_debris` to meet it.
     pub max_debris: i32,
+    /// Phobos warhead shield overrides (`Shield.Penetrate`,
+    /// `Shield.AffectTypes`, `Shield.Penetrate.Types`, absorb/pass and
+    /// received-damage bounds). Phobos `WarheadTypeExt` reads them after the
+    /// stock keys; a build without the capability carries only the defaults.
+    #[cfg(feature = "phobos")]
+    pub shield: crate::rules::phobos_shields::ShieldWarheadRules,
 }
 
 impl WarheadType {
@@ -492,6 +498,8 @@ impl WarheadType {
             debris_maximums,
             min_debris,
             max_debris,
+            #[cfg(feature = "phobos")]
+            shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
         }
     }
 }

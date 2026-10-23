@@ -25,8 +25,8 @@
 //! - sim/ NEVER depends on render/, ui/, audio/, net/.
 
 pub mod aim_coord;
-mod attack_target;
 mod airburst;
+mod attack_target;
 pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
@@ -51,7 +51,7 @@ mod object_health;
 pub(crate) mod parasite;
 mod projectile_delivery;
 pub mod radiation_beam;
-mod receiver_call;
+pub(crate) mod receiver_call;
 mod receiver_health;
 mod record_kill;
 pub(crate) mod rof;
@@ -114,9 +114,9 @@ mod prone_damage_tests;
 #[cfg(test)]
 mod radiation_beam_tests;
 #[cfg(test)]
-mod shrapnel_chain_tests;
-#[cfg(test)]
 mod screen_shake_tests;
+#[cfg(test)]
+mod shrapnel_chain_tests;
 #[cfg(test)]
 mod unit_damage_response_tests;
 #[cfg(test)]
@@ -135,11 +135,11 @@ pub use in_range::can_fire_at_target;
 pub use in_range::{MaplessTarget, can_fire_at_target_in_query, mapless_in_range};
 pub use object_health::{Health, health_category};
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
-pub use receiver_call::{DamageWriteback, TerrainDamageEvent};
 pub(crate) use receiver_call::{
     BaseDefenseResponseCallSite, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags,
     wave_post_object_damage,
 };
+pub use receiver_call::{DamageWriteback, TerrainDamageEvent};
 pub(crate) use receiver_health::BerserkState;
 pub(crate) use record_kill::{KillCallback, KillRecord, KillSource};
 pub use techno_death::FatalLifecycleStage;
@@ -158,6 +158,8 @@ use attack_target::{attack_world_z_leptons, cell_center_coords, target_coords};
 use projectile_delivery::{
     ProjectileDelivery, bullet_type, classify_projectile_delivery, projectile_arm_delay,
 };
+#[cfg(feature = "phobos")]
+use receiver_call::resolve_receive_damage_with_input;
 use receiver_call::{
     BuildingReceivePrelude, ResolvedReceiveDamage, apply_building_receive_prelude,
     area_near_center_ic_isolation_armed, near_center_ic_isolation_armed,

@@ -1,0 +1,263 @@
+//! Phobos shield damage absorption and recovery regressions.
+
+use super::*;
+use crate::rules::ini_parser::IniFile;
+use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::{EntityDamageEvent, RAD_NO_ATTACKER};
+use crate::sim::game_entity::GameEntity;
+use crate::sim::world::{FrameEffects, Simulation};
+
+const VERSES: &str = "Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%";
+
+/// A vehicle whose `TEST` type binds `ShieldType=TestShield`.
+fn rules(shield: &str, warhead: &str) -> RuleSet {
+    let ini = IniFile::from_str(&format!(
+        "[VehicleTypes]\n0=TEST\n\
+         [Warheads]\n0=WH\n\
+         [TEST]\nStrength=200\nArmor=heavy\nShieldType=TestShield\n\
+         [ShieldTypes]\n0=TestShield\n\
+         [TestShield]\nStrength=100\nInitialStrength=100\nArmor=none\n{shield}\n\
+         [WH]\nCellSpread=0\nPercentAtMax=1\n{VERSES}\n{warhead}\n"
+    ));
+    RuleSet::from_ini(&ini).expect("shield fixture rules")
+}
+
+fn scene(rules: &RuleSet) -> (Simulation, u64) {
+    let mut sim = Simulation::with_seed(1);
+    let owner = sim.interner.intern("Neutral");
+    let type_ref = sim.interner.intern("TEST");
+    let mut entity = GameEntity::test_default(1, "TEST", "Neutral", 10, 10);
+    entity.set_owner_for_test(owner);
+    entity.set_type_ref_for_test(type_ref);
+    entity.health.set_for_test(200);
+    entity.lifecycle.set_in_limbo_for_test(false);
+    entity.lifecycle.set_cell_marked_for_test(true);
+    let shield = rules.shield_type("TestShield").expect("fixture type");
+    entity.shield = Some(ShieldState::new(
+        "TestShield".to_owned(),
+        shield.initial_strength(),
+        shield.strength(),
+    ));
+    sim.substrate.entities.insert(entity);
+    (sim, 1)
+}
+
+fn hit(sim: &mut Simulation, rules: &RuleSet, damage: i32) {
+    let warhead = sim.interner.intern("WH");
+    sim.commit_noncombat_aoe_hits(
+        rules,
+        None,
+        &[EntityDamageEvent::area(
+            1,
+            damage,
+            0,
+            RAD_NO_ATTACKER,
+            None,
+            warhead,
+        )],
+        FrameEffects::default(),
+    );
+}
+
+fn shield(sim: &Simulation) -> &ShieldState {
+    sim.substrate
+        .entities
+        .get(1)
+        .unwrap()
+        .shield
+        .as_ref()
+        .unwrap()
+}
+
+fn health(sim: &Simulation) -> i32 {
+    sim.substrate.entities.get(1).unwrap().health.current()
+}
+
+#[test]
+fn absorbed_damage_leaves_health_untouched() {
+    let rules = rules("AbsorbPercent=1.0", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+
+    assert_eq!(health(&sim), 200, "the shield took the whole hit");
+    assert_eq!(shield(&sim).hp(), 60);
+}
+
+#[test]
+fn overkill_breaks_the_shield_and_passes_the_residue() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 150);
+
+    assert_eq!(shield(&sim).hp(), 0, "the shield broke");
+    assert_eq!(
+        health(&sim),
+        150,
+        "the 50 beyond the shield's 100 points reaches the hull"
+    );
+}
+
+#[test]
+fn absorb_over_damage_drops_the_residue() {
+    let rules = rules("AbsorbOverDamage=yes", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 150);
+
+    assert_eq!(shield(&sim).hp(), 0);
+    assert_eq!(health(&sim), 200, "over-damage is absorbed, not passed");
+}
+
+#[test]
+fn pass_percent_reaches_health_while_the_shield_holds() {
+    let rules = rules("PassPercent=0.25", "");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+
+    assert_eq!(shield(&sim).hp(), 60);
+    assert_eq!(health(&sim), 190, "25% of the raw hit passes through");
+}
+
+#[test]
+fn penetrating_warhead_bypasses_the_shield() {
+    let rules = rules("", "Shield.Penetrate=yes");
+    let (mut sim, _) = scene(&rules);
+    hit(&mut sim, &rules, 40);
+
+    assert_eq!(shield(&sim).hp(), 100, "the shield is untouched");
+    assert_eq!(health(&sim), 160, "the whole hit reaches the hull");
+}
+
+#[test]
+fn self_healing_restores_points_on_its_rate() {
+    let rules = rules("SelfHealing=0.25\nSelfHealing.Rate=0.2", "");
+    let (mut sim, _) = scene(&rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = 40;
+    sim.session.set_binary_frame_for_test(0);
+
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 40, "the first visit starts the timer");
+    sim.session.set_binary_frame_for_test(180);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 65, "0.2 minutes = 180 frames adds 25");
+}
+
+#[test]
+fn broken_shield_respawns_after_its_rate() {
+    let rules = rules("Respawn=0.5\nRespawn.Rate=0.1", "");
+    let (mut sim, _) = scene(&rules);
+    sim.session.set_binary_frame_for_test(0);
+    hit(&mut sim, &rules, 150);
+    assert_eq!(shield(&sim).hp(), 0);
+
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(shield(&sim).hp(), 0, "the respawn timer is still running");
+    sim.session.set_binary_frame_for_test(90);
+    super::tick(&mut sim, 1, &rules);
+    assert_eq!(
+        shield(&sim).hp(),
+        50,
+        "0.1 minutes = 90 frames restores half"
+    );
+}
+
+#[test]
+fn construction_binds_the_shield_type() {
+    let rules = rules("", "");
+    let mut sim = Simulation::with_seed(1);
+    let id = sim
+        .spawn_object("TEST", "Neutral", 10, 10, 0, &rules)
+        .expect("the fixture unit spawns");
+    let shield = sim
+        .entities()
+        .get(id)
+        .and_then(|entity| entity.shield.as_ref())
+        .expect("ShieldType= allocated the shield");
+    assert_eq!(shield.hp(), 100);
+}
+
+#[test]
+fn an_offline_shield_absorbs_nothing() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .online = false;
+    hit(&mut sim, &rules, 40);
+    assert_eq!(shield(&sim).hp(), 100);
+    assert_eq!(health(&sim), 160);
+}
+
+#[test]
+fn ignore_defenses_skips_the_shield_stage() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    let warhead_ref = sim.interner.intern("WH");
+    let mut event = EntityDamageEvent::area(1, 40, 0, RAD_NO_ATTACKER, None, warhead_ref);
+    event.receiver_flags.ignore_defenses = true;
+    let target = sim.substrate.entities.get(1).unwrap();
+    // The Infantry head already ran before this stage; a non-Infantry target
+    // leaves the caller's damage untouched.
+    let input = event.damage;
+    let target_type = sim.interner.object_type(target.type_ref(), &rules);
+    let divisors = crate::sim::combat::receiver_call::receiver_divisors(
+        target,
+        target_type,
+        &rules,
+        &sim.interner,
+        &sim.houses,
+    );
+    assert!(
+        pre_receive_damage(&mut sim, &rules, &event, input, &divisors).is_none(),
+        "the installed hook sits inside `if (!IgnoreDefenses)`"
+    );
+    assert_eq!(shield(&sim).hp(), 100);
+}
+
+#[test]
+fn control_hit_reaches_health_without_a_shield() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    sim.substrate.entities.get_mut(1).unwrap().shield = None;
+    hit(&mut sim, &rules, 40);
+    assert_eq!(health(&sim), 160);
+}
+
+#[test]
+fn pre_stage_absorbs_before_the_receiver() {
+    let rules = rules("", "");
+    let (mut sim, _) = scene(&rules);
+    let warhead_ref = sim.interner.intern("WH");
+    let event = EntityDamageEvent::area(1, 40, 0, RAD_NO_ATTACKER, None, warhead_ref);
+    let target = sim.substrate.entities.get(1).unwrap();
+    let input = event.damage;
+    let target_type = sim.interner.object_type(target.type_ref(), &rules);
+    let divisors = crate::sim::combat::receiver_call::receiver_divisors(
+        target,
+        target_type,
+        &rules,
+        &sim.interner,
+        &sim.houses,
+    );
+    let receipt = pre_receive_damage(&mut sim, &rules, &event, input, &divisors)
+        .expect("a shield owns the hit");
+    assert_eq!(receipt.remaining, 0);
+    assert_eq!(shield(&sim).hp(), 60);
+}
+
+#[test]
+fn creation_clamps_initial_strength_to_the_type_strength() {
+    let state = ShieldState::new("TestShield".to_owned(), 500, 100);
+    assert_eq!(state.hp(), 100);
+}

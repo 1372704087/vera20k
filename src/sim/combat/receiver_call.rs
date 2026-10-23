@@ -280,6 +280,41 @@ pub(super) fn prepare_infantry_receiver(
     prepared
 }
 
+/// `HouseClass::GetArmorMultForType @ 0x0050BD30` and the STRONGER rank
+/// divisor for one receiver: the native defence-divide input. The Phobos
+/// shield pre-stage and the receiver share it, so both divide the same damage.
+pub(crate) fn receiver_divisors(
+    target: &crate::sim::game_entity::GameEntity,
+    target_type: Option<&crate::rules::object_type::ObjectType>,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    houses: &crate::sim::houses::Houses,
+) -> damage::DefenceDivisors {
+    let house_type_armor = houses.get(&target.owner()).map_or(1.0, |house| {
+        target_type.map_or(1.0, |object| {
+            rules.country_armor_mult_for_type(interner.resolve(house.house_type_id()), object)
+        })
+    });
+    let rank_armor = target_type
+        .is_some_and(|object| {
+            super::veterancy::has_weapon_ability(
+                target.veterancy.rank_kind(),
+                object,
+                crate::rules::object_type::Ability::Stronger,
+            )
+        })
+        .then(|| {
+            crate::util::native_x87::NativeF64Bits::from_bits(rules.general.veteran_armor.to_bits())
+        });
+    damage::DefenceDivisors {
+        house_type_armor: crate::util::native_x87::NativeF32Bits::from_bits(
+            house_type_armor.to_bits(),
+        ),
+        unit_armor: target.crate_multipliers.armor(),
+        rank_armor,
+    }
+}
+
 /// Build the native ReceiveDamage value ABI for one ordered area or direct
 /// receiver record and run the shared receiver exactly once. The returned
 /// signed HP delta is the only health input consumed by `commit_damage_events`.
@@ -293,6 +328,34 @@ pub(super) fn resolve_receive_damage(
     scenario_no_damage: bool,
     current_tick: u64,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+) -> Option<ResolvedReceiveDamage> {
+    resolve_receive_damage_with_input(
+        event,
+        entities,
+        rules,
+        interner,
+        houses,
+        alliances,
+        scenario_no_damage,
+        current_tick,
+        terrain,
+        event.damage,
+    )
+}
+
+/// [`resolve_receive_damage`] with the Phobos shield stage's surviving damage
+/// substituted for the caller-owned receiver input.
+pub(super) fn resolve_receive_damage_with_input(
+    event: &EntityDamageEvent,
+    entities: &EntityStore,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    houses: &crate::sim::houses::Houses,
+    alliances: &HouseAllianceMap,
+    scenario_no_damage: bool,
+    current_tick: u64,
+    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
+    receiver_input: i32,
 ) -> Option<ResolvedReceiveDamage> {
     let distance_leptons = event.distance_leptons;
     let receiver_flags = event.receiver_flags;
@@ -348,8 +411,8 @@ pub(super) fn resolve_receive_damage(
         .source_house
         .or_else(|| source.map(|entity| entity.owner()));
     // The concrete Infantry head already ran before Foot's prefix. Its signed
-    // result is Techno's original-sign snapshot for the IC/FS gate.
-    let receiver_input = event.damage;
+    // result is Techno's original-sign snapshot for the IC/FS gate; the Phobos
+    // shield stage may have replaced it with the surviving damage.
 
     let allied = |asker: InternedId, other: InternedId| {
         crate::map::houses::is_allied_with(
@@ -413,29 +476,7 @@ pub(super) fn resolve_receive_damage(
     // `HouseClass::GetArmorMultForType @ 0x0050BD30` on the target's owner:
     // its HouseType's per-category float. The difficulty and country
     // `Armor=` product (`House+0x1A0`) is never read here.
-    let house_type_armor = houses.get(&target.owner()).map_or(1.0, |house| {
-        target_type.map_or(1.0, |object| {
-            rules.country_armor_mult_for_type(interner.resolve(house.house_type_id()), object)
-        })
-    });
-    let rank_armor = target_type
-        .is_some_and(|object| {
-            super::veterancy::has_weapon_ability(
-                target.veterancy.rank_kind(),
-                object,
-                crate::rules::object_type::Ability::Stronger,
-            )
-        })
-        .then(|| {
-            crate::util::native_x87::NativeF64Bits::from_bits(rules.general.veteran_armor.to_bits())
-        });
-    let divisors = damage::DefenceDivisors {
-        house_type_armor: crate::util::native_x87::NativeF32Bits::from_bits(
-            house_type_armor.to_bits(),
-        ),
-        unit_armor: target.crate_multipliers.armor(),
-        rank_armor,
-    };
+    let divisors = receiver_divisors(target, target_type, rules, interner, houses);
     // `arg6` stays on the ordered call: its Unit-class consumer is the crew
     // block, which the concrete death reads from the killing event.
     let outcome = damage::receive::receive_damage(

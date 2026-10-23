@@ -699,6 +699,11 @@ fn techno_ai_shell(
     // (reference/Steam `0x0043FCC7..0x0043FCF9`) is taken after damage fire,
     // before `TemporalClass::Update` and the `TechnoClass::AI_Update` call at
     // `0x0043FE56`, whose early block consumes it. Only a structure writes it.
+    // Phobos `TechnoClass_AI @ 0x6F9E50+0x5` -> `TechnoExt::OnEarlyUpdate`
+    // -> `UpdateShield`, i.e. the shield's own recovery visit at the very
+    // start of the object's Techno AI body.
+    #[cfg(feature = "phobos")]
+    crate::sim::shield::tick(sim, id, rules);
     let mut turret_rotate_sample = false;
     if category == EntityCategory::Structure {
         sim.update_building_damage_fire(id, rules);

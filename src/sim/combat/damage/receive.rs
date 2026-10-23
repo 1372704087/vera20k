@@ -55,11 +55,13 @@ pub(crate) fn receive_damage(
         reached_survivor_postlude: false,
     };
 
-    // Nonnegative receiver divides (`0x0070192B..0x00701933` skips them for
+    // Positive receiver divides (`0x0070192B..0x00701933` skips them for
     // ignoreDefenses or a heal). gamemd runs them BEFORE the immunity gates
-    // (TypeImmune included), so the gates are evaluated below.
+    // (TypeImmune included), so the gates are evaluated below. A zero packet
+    // skips them too: the divides' min-1 floor must not turn a fully absorbed
+    // Phobos shield hit (or any zero damage call) into one point.
     let mut dmg = incoming;
-    if !gates.ignore_defenses && dmg >= 0 {
+    if !gates.ignore_defenses && dmg > 0 {
         dmg = defence_divides(dmg, divisors);
     }
 

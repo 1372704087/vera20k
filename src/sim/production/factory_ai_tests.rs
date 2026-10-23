@@ -357,6 +357,7 @@ fn without_the_switch_the_computer_produces_past_the_build_limit() {
 /// `[General] EnableAIBuildLimitation=yes`: the plan at its `BuildLimit=`
 /// skips (`CheckBuildLimit @ 0x0050B370` counts what the house owns and what
 /// its factories hold).
+#[cfg(feature = "npatch")]
 #[test]
 fn enable_ai_build_limitation_skips_the_unit_plan_at_the_limit() {
     let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
@@ -374,6 +375,7 @@ fn enable_ai_build_limitation_skips_the_unit_plan_at_the_limit() {
 /// The computer still fills up to the limit: the first factory starts while
 /// nothing is owned or held, and the second waits because one more would
 /// exceed `BuildLimit=1`.
+#[cfg(feature = "npatch")]
 #[test]
 fn enable_ai_build_limitation_fills_to_the_limit_before_it_skips() {
     let (mut f, weap_1, weap_2) = limit_fixture("EnableAIBuildLimitation=yes\n");
@@ -384,4 +386,20 @@ fn enable_ai_build_limitation_fills_to_the_limit_before_it_skips() {
     );
     limit_visit(&mut f, weap_2);
     assert!(!limit_holds(&f, weap_2), "one more would exceed the limit");
+}
+
+/// An NPatch key cannot change production in a build without the capability.
+#[cfg(not(feature = "npatch"))]
+#[test]
+fn enable_ai_build_limitation_is_ignored_without_npatch() {
+    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
+    assert!(!f.rules.general.enable_ai_build_limitation);
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    limit_visit(&mut f, weap_1);
+    assert!(
+        limit_holds(&f, weap_1),
+        "the stock build ignores the extension key"
+    );
 }

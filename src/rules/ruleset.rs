@@ -3462,10 +3462,11 @@ impl GeneralRules {
             game_speed_bias: general.read_double("GameSpeedBias", defaults.game_speed_bias),
             veteran_armor: general.read_double("VeteranArmor", 1.0),
             curley_shuffle: general.read_bool("CurleyShuffle", defaults.curley_shuffle),
-            enable_ai_build_limitation: general.read_bool(
-                "EnableAIBuildLimitation",
-                defaults.enable_ai_build_limitation,
-            ),
+            enable_ai_build_limitation: crate::rules::NPATCH_ENABLED
+                && general.read_bool(
+                    "EnableAIBuildLimitation",
+                    defaults.enable_ai_build_limitation,
+                ),
             repair_rate_minutes: general.read_double("RepairRate", defaults.repair_rate_minutes),
             // `RulesClass+0x30/+0x34/+0x38/+0x3C`, read by the General reader at
             // `0x0066D530`. ReadInt66E6F3/70D/727/740 retains each current

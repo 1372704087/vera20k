@@ -255,7 +255,10 @@ fn start_factory(
     // the churn: the choice stays set (`choose_building` fills only a
     // cleared slot) and nothing is charged, so the residual is the two
     // transient frames of the native attempt, not any player-visible state.
-    if rules.general.enable_ai_build_limitation && check_build_limit(sim, rules, owner, object) {
+    if crate::rules::NPATCH_ENABLED
+        && rules.general.enable_ai_build_limitation
+        && check_build_limit(sim, rules, owner, object)
+    {
         return;
     }
     let factory_naval = sim

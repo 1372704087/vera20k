@@ -584,7 +584,7 @@ pub(crate) fn build_shp_instances_from_inputs(
             };
             let point_move = building_zshape_point_move(entity, art_entry);
             let foundation: (u16, u16) = object_type
-                .map(|o| crate::rules::foundation::foundation_dimensions(&o.foundation))
+                .map(|o| o.foundation.dimensions())
                 .unwrap_or((1, 1));
             let zshape = input.building_zshape && foundation.0 <= ZSHAPE_MAX_FOUNDATION_WIDTH;
             let origin = native_z::zshape_origin(

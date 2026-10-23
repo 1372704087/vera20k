@@ -908,8 +908,7 @@ impl ProcessedRulesLayers {
         let warhead_count = families.get(&RulesTypeFamily::Warhead).map_or(0, Vec::len);
         let particle_count = families.get(&RulesTypeFamily::Particle).map_or(0, Vec::len);
         if families.values().flatten().any(|member| {
-            usize::from(member.building_foundation)
-                >= crate::rules::foundation::FOUNDATION_TABLE.len()
+            !member.building_foundation.valid()
                 || member
                     .weapon
                     .projectile
@@ -985,14 +984,27 @@ impl ProcessedRulesLayers {
 
     /// BuildingType +EF0 after each reached ReadINI body, retained with its
     /// native process registry rather than reconstructed from merged Rules keys.
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn building_foundation_states(&self) -> impl Iterator<Item = (&str, u8)> {
+        self.building_foundation_geometries()
+            .map(|(name, foundation)| (name, foundation.selector()))
+    }
+
+    pub(crate) fn building_foundation_geometries(
+        &self,
+    ) -> impl Iterator<Item = (&str, &crate::rules::foundation::Foundation)> {
         self.native_type_construction_trace
             .registry_state()
             .families
             .get(&RulesTypeFamily::Building)
             .into_iter()
             .flatten()
-            .map(|member| (member.native_stored_id.as_str(), member.building_foundation))
+            .map(|member| {
+                (
+                    member.native_stored_id.as_str(),
+                    &member.building_foundation,
+                )
+            })
     }
 
     /// BuildingType+154B after each reached Rules body; current-default ReadBool.
@@ -3247,7 +3259,7 @@ struct ProcessedType {
     terrain_type_read_state: Option<crate::rules::terrain_object_type::TerrainTypeReadState>,
     /// BuildingType45DF13 initializes +EF0 to zero; ReadINI461225..46125D
     /// updates it from fixed ART after ObjectType5F933B reads effective Image.
-    building_foundation: u8,
+    building_foundation: crate::rules::foundation::Foundation,
     /// Constructor45DEBC..45DEC8 clears BuildingType+EBC/EC0/EC4.
     building_target_coord_offset: [i32; 3],
     /// BuildingTypeClass ctor45DD90 clears both triples; reached
@@ -3706,7 +3718,7 @@ impl ProcessedType {
             ares_side: None,
             anim_art_read: false,
             terrain_type_read_state: None,
-            building_foundation: 0,
+            building_foundation: crate::rules::foundation::Foundation::default(),
             building_target_coord_offset: [0; 3],
             building_half_damage_smoke_location1: [0; 3],
             building_half_damage_smoke_location2: [0; 3],
@@ -5449,18 +5461,20 @@ impl RulesPassProcessor {
                             "HalfDamageSmokeLocation2",
                             member.building_half_damage_smoke_location2,
                         );
-                        member.building_foundation =
-                            crate::rules::foundation::read_building_foundation(
-                                member.building_foundation,
-                                &image,
-                                &native_stored_id,
-                                |section, current| {
-                                    crate::rules::foundation::read_foundation(
-                                        fixed_art.section_or_empty(section),
-                                        current,
-                                    )
-                                },
-                            );
+                        member.building_foundation.read_stock_pass(
+                            &image,
+                            &native_stored_id,
+                            |section, current| {
+                                crate::rules::foundation::read_foundation(
+                                    fixed_art.section_or_empty(section),
+                                    current,
+                                )
+                            },
+                        );
+                        #[cfg(feature = "ares")]
+                        member
+                            .building_foundation
+                            .read_custom_pass(fixed_art.section_or_empty(&image));
                         if let Some(unit) = self.resolve_scalar_from(
                             &raw,
                             "FreeUnit",

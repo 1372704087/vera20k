@@ -4777,16 +4777,13 @@ impl RuleSet {
                 building.set_secret_lab(config.clone());
             }
         }
-        for (name, foundation_id) in processed.building_foundation_states() {
+        for (name, foundation_id) in processed.building_foundation_geometries() {
             if let Some(building) = rules
                 .object_list
                 .iter_mut()
                 .find(|object| object.category == ObjectCategory::Building && object.id == name)
             {
-                building.foundation = crate::rules::foundation::FOUNDATION_TABLE
-                    [usize::from(foundation_id)]
-                .name
-                .to_owned();
+                building.foundation = foundation_id.clone();
                 building.base_reservation_spacing = building
                     .base_reservation_writer_eligible()
                     .then_some(rules.ai_base_spacing);
@@ -6206,6 +6203,16 @@ impl RuleSet {
         // OverlayRead5FE8BE / InitTheater5FE620 retain typed history that a
         // flattened Image key cannot recover; saved resource plans matter too.
         self.overlay_registry.hash_configuration(&mut hasher);
+        // Fixed ART foundation state is not covered by the layered RULES
+        // source hash. Include retained declared/list/outline geometry, also
+        // when a later rules pass no longer authors the original custom key.
+        b"building-foundation-v1".hash(&mut hasher);
+        self.object_list
+            .iter()
+            .filter(|object| object.category == ObjectCategory::Building)
+            .map(|object| (object.id.to_ascii_uppercase(), &object.foundation))
+            .collect::<BTreeMap<_, _>>()
+            .hash(&mut hasher);
         // Bullet46BEE0 retains this byte even when a later raw value is
         // invalid. Equal flattened INIs can therefore have different flight
         // damage. Preserve the previous hash domain for all-false stock rules.
@@ -7163,8 +7170,7 @@ impl RuleSet {
     /// launch calculation. Original execution: building_brackets.json and
     /// spatial_oracle/height_factor.json; consumers do not copy this query.
     pub fn building_dimensions(&self, object: &ObjectType) -> [i32; 3] {
-        let [width, height] =
-            crate::rules::foundation::foundation_dimensions_leptons(&object.foundation);
+        let [width, height] = object.foundation.dimensions_leptons();
         [
             width,
             height,
@@ -11967,10 +11973,7 @@ Projectile=Invisible
         for id in ["GAYARD", "NAYARD", "YAYARD"] {
             let object = rules.object(id).unwrap();
             assert!(!object.build_const_eligible, "{id}");
-            assert_eq!(
-                crate::rules::foundation::foundation_dimensions(&object.foundation),
-                (4, 4)
-            );
+            assert_eq!(object.foundation.dimensions(), (4, 4));
         }
         assert!(
             !rules.object("WRONG").unwrap().build_const_eligible,

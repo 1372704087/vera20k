@@ -594,7 +594,7 @@ pub struct ObjectType {
     /// Bio-Reactor output 100, GAGAP drain 9000).
     pub extra_power: crate::rules::building_extra_power::BuildingExtraPower,
     /// Building foundation footprint (e.g., "3x2", "1x1"). Buildings only.
-    pub foundation: String,
+    pub foundation: crate::rules::foundation::Foundation,
     /// Pixel offset for health bar / selection bracket Y position.
     /// Negative values shift the bar UP (above taller sprites). Default 0.
     /// Parsed from `PixelSelectionBracketDelta` in rules.ini.
@@ -2768,8 +2768,7 @@ impl ObjectType {
     /// gamemd-derived: `BuildingClass` vtable `+0x80` resolves through
     /// `0x00457620` to `BuildingTypeClass__Is1x1WithUndeploy @ 0x00465D40`.
     pub fn is_1x1_with_undeploy(&self) -> bool {
-        self.undeploys_into.is_some()
-            && crate::rules::foundation::foundation_dimensions(&self.foundation) == (1, 1)
+        self.undeploys_into.is_some() && self.foundation.dimensions() == (1, 1)
     }
 
     /// The slot the per-class House and HouseType factor getters select by the
@@ -3044,10 +3043,7 @@ impl ObjectType {
             // Building ctor45DF13 initializes +EF0=0 (1x1). ReadINI461225
             // reads Foundation from ART only, never this RULES section.
             // Pass processing projects the shared reader; ART binding does not.
-            foundation: crate::rules::foundation::FOUNDATION_TABLE
-                [usize::from(crate::rules::foundation::DEFAULT_FOUNDATION_ID)]
-            .name
-            .to_owned(),
+            foundation: crate::rules::foundation::Foundation::default(),
             pixel_selection_bracket_delta: section.read_int("PixelSelectionBracketDelta", 0),
             // Replaced by the ordered retained Type reader in RuleSet.
             lepton_mind_control_offset: DEFAULT_LEPTON_MIND_CONTROL_OFFSET,
@@ -4486,7 +4482,7 @@ mod tests {
         );
         // This gate consumes a loaded native field; ART input provenance and
         // every table dimension are tested by building_foundation_pass_matches_original_art_reads.
-        obj.foundation = "4x4".to_owned();
+        obj.foundation = "4x4".into();
         assert!(!obj.is_1x1_with_undeploy());
 
         assert!(rules.object("MODDEPLOY").unwrap().is_1x1_with_undeploy());

@@ -2606,8 +2606,7 @@ impl Simulation {
                 .get(&image)
                 .map(|entry| entry.damage_fire_offsets.clone())
                 .unwrap_or_default();
-            let (foundation_w, foundation_h) =
-                crate::rules::foundation::foundation_dimensions(&foundation);
+            let (foundation_w, foundation_h) = foundation.dimensions();
             let foundation_sum = i32::from(foundation_w).wrapping_add(i32::from(foundation_h));
             let location = crate::sim::movement::ground_pose::object_location(
                 self.substrate.entities.get(building_id).unwrap(),
@@ -4152,7 +4151,7 @@ mod tests {
         );
         building
             .type_facts
-            .set_foundation_for_test("4x4".to_string());
+            .set_foundation_for_test("4x4".to_string().into());
         sim.substrate.entities.insert(building);
         sim.reveal(id);
         (sim, rules, id)

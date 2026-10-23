@@ -274,11 +274,12 @@ jobs:
             $p = Start-Process $setup -Wait -PassThru -ArgumentList $arguments
             return $p.ExitCode
           }
-          # Only the two masters the installer checks; nothing here is game data.
+          # Tiny authored MIX/CSF fixtures exercise the bundled real reader.
+          # No retail data or validation bypass is used in the installer.
           function New-Game([string]$Dir) {
             if (-not [IO.Path]::IsPathRooted($Dir)) { $Dir = Join-Path $root $Dir }
             New-Item -ItemType Directory -Force $Dir | Out-Null
-            foreach ($f in 'ra2md.mix', 'ra2.mix') { Set-Content (Join-Path $Dir $f) '' }
+            Copy-Item '.github\release\windows\test-game\*' $Dir -Exclude README.md
             return $Dir
           }
           function Read-Config { Get-Content (Join-Path $app 'config.toml') -Raw -Encoding utf8 }
@@ -301,11 +302,28 @@ jobs:
           New-Item -ItemType Directory -Force $empty | Out-Null
           if ((Install $empty) -eq 0) { throw 'setup accepted a folder without Yuri''s Revenge' }
           if (Test-Path (Join-Path $app 'vera20k.exe')) { throw 'a refused setup installed files' }
+          $report = Get-Content $log -Raw -Encoding utf8
+          foreach ($f in 'ra2md.mix', 'ra2.mix', 'ra2md.csf', 'rulesmd.ini', 'artmd.ini', 'aimd.ini') {
+            if (-not $report.Contains($f)) { throw "setup did not report missing $f" }
+          }
+
+          # Having both masters is insufficient if another required archive
+          # is missing. A later choice retries with fresh results.
+          $partial = New-Game 'incomplete'
+          Remove-Item (Join-Path $partial 'cameomd.mix')
+          if ((Install $partial) -eq 0) { throw 'setup accepted missing required cameo data' }
+          if (-not (Get-Content $log -Raw -Encoding utf8).Contains('cameomd.mix')) {
+            throw 'setup did not name the missing required archive'
+          }
 
           # A fresh install writes config.toml from the example.
           $first = New-Game 'game one'
           $code = Install $first
           if ($code -ne 0) { Get-Content $log; throw "setup failed with exit code $code" }
+          $report = Get-Content $log -Raw -Encoding utf8
+          if (-not $report.Contains('test-song.wav') -or -not $report.Contains('Optional content')) {
+            throw 'setup did not warn about optional music'
+          }
           foreach ($f in 'vera20k.exe', 'config.toml', 'config.toml.example', 'README.txt',
                          'LICENSE-GPL', 'THIRD_PARTY_LICENSES.html') {
             if (-not (Test-Path (Join-Path $app $f))) { throw "setup did not install $f" }

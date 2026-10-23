@@ -67,13 +67,29 @@ english.GameDirCaption=Yuri's Revenge folder
 english.GameDirDescription=Where is Yuri's Revenge installed?
 english.GameDirSubCaption=VERA20K plays with the files of your own copy of Yuri's Revenge 1.001. Choose the folder that has ra2md.mix and ra2.mix, usually the one with gamemd.exe.
 english.GameDirPrompt=Yuri's Revenge folder:
-english.GameDirMissing=This folder does not contain Yuri's Revenge:%n%n%1%n%nChoose the folder that has ra2md.mix and ra2.mix, usually the one with gamemd.exe.
+english.GameCheckCaption=Game files
+english.GameCheckDescription=Review the files in the selected game folder.
+english.GameCheckRequired=Required files are missing or unreadable. Click Back to choose another folder.
+english.GameCheckOptional=Optional content is unavailable. You can continue, or click Back to choose another folder.
+english.GameCheckReady=The required game files were found. Click Next to continue.
+english.GameCheckRequiredHeading=Required files - must be fixed:
+english.GameCheckOptionalHeading=Optional content - installation can continue:
+english.GameCheckFailed=Setup could not check this folder. Choose another folder or try again.%n%1
+english.GameCheckNoFolder=No game folder was selected.
 english.ConfigNotWritten=Setup could not write %1.
 chinesesimplified.GameDirCaption=《尤里的复仇》文件夹
 chinesesimplified.GameDirDescription=《尤里的复仇》安装在哪里？
 chinesesimplified.GameDirSubCaption=VERA20K 使用你自己的《尤里的复仇》1.001 版游戏文件。请选择包含 ra2md.mix 和 ra2.mix 的文件夹，通常就是 gamemd.exe 所在的文件夹。
 chinesesimplified.GameDirPrompt=《尤里的复仇》文件夹：
-chinesesimplified.GameDirMissing=这个文件夹里没有《尤里的复仇》：%n%n%1%n%n请选择包含 ra2md.mix 和 ra2.mix 的文件夹，通常就是 gamemd.exe 所在的文件夹。
+chinesesimplified.GameCheckCaption=游戏文件
+chinesesimplified.GameCheckDescription=检查所选游戏文件夹中的文件。
+chinesesimplified.GameCheckRequired=必需文件缺失或无法读取。请点击“上一步”选择其他文件夹。
+chinesesimplified.GameCheckOptional=部分可选内容不可用。您可以继续安装，或点击“上一步”选择其他文件夹。
+chinesesimplified.GameCheckReady=已找到必需的游戏文件。点击“下一步”继续。
+chinesesimplified.GameCheckRequiredHeading=必需文件 - 必须修复：
+chinesesimplified.GameCheckOptionalHeading=可选内容 - 可以继续安装：
+chinesesimplified.GameCheckFailed=安装程序无法检查此文件夹。请选择其他文件夹或重试。%n%1
+chinesesimplified.GameCheckNoFolder=尚未选择游戏文件夹。
 chinesesimplified.ConfigNotWritten=安装程序无法写入 %1。
 
 [Files]
@@ -96,6 +112,8 @@ Filename: "{app}\vera20k.exe"; WorkingDir: "{app}"; Description: "{cm:LaunchProg
 [Code]
 var
   GameDirPage: TInputDirWizardPage;
+  GameCheckPage: TOutputMsgMemoWizardPage;
+  RequiredIssues, OptionalIssues: String;
 
 { VERA20K mounts both masters; without either it cannot start (AssetManager::new). }
 function IsGameDir(Dir: String): Boolean;
@@ -244,6 +262,85 @@ begin
     CustomMessage('GameDirDescription'), CustomMessage('GameDirSubCaption'), False, '');
   GameDirPage.Add(CustomMessage('GameDirPrompt'));
   GameDirPage.Values[0] := InitialGameDir();
+  GameCheckPage := CreateOutputMsgMemoPage(GameDirPage.ID,
+    CustomMessage('GameCheckCaption'), CustomMessage('GameCheckDescription'), '', '');
+end;
+
+function ReadReport(FileName: String): String;
+var
+  Lines: TArrayOfString;
+  I: Integer;
+begin
+  if not LoadStringsFromFile(FileName, Lines) then
+    RaiseException('Cannot read ' + FileName);
+  Result := '';
+  for I := 0 to GetArrayLength(Lines) - 1 do
+    Result := Result + Lines[I] + #13#10;
+  Result := Trim(Result);
+end;
+
+{ Run our bundled reader, never a program from the selected game folder.
+  Required/optional policy and nested MIX resolution belong to the game. }
+procedure CheckGameFiles();
+var
+  ReportDir, Params, ReportText: String;
+  ExitCode: Integer;
+begin
+  RequiredIssues := '';
+  OptionalIssues := '';
+  WizardForm.NextButton.Enabled := False;
+  WizardForm.Cursor := crHourGlass;
+  try
+    try
+      if GameDir() = '' then
+        RaiseException(CustomMessage('GameCheckNoFolder'));
+      if not FileExists(ExpandConstant('{tmp}\vera20k.exe')) then
+        ExtractTemporaryFile('vera20k.exe');
+      ReportDir := ExpandConstant('{tmp}\game-data-check');
+      if not ForceDirectories(ReportDir) then
+        RaiseException('Cannot create ' + ReportDir);
+      { A retry must never read an older folder's results. }
+      if FileExists(ReportDir + '\required.txt') and
+        not DeleteFile(ReportDir + '\required.txt') then
+        RaiseException('Cannot clear required.txt');
+      if FileExists(ReportDir + '\optional.txt') and
+        not DeleteFile(ReportDir + '\optional.txt') then
+        RaiseException('Cannot clear optional.txt');
+      { The final dot also quotes drive roots safely: no trailing backslash
+        immediately before the Windows command line's closing quote. }
+      Params := '--check-game-data "' + AddBackslash(GameDir()) + '." "' + ReportDir + '"';
+      if not Exec(ExpandConstant('{tmp}\vera20k.exe'), Params,
+        ExpandConstant('{tmp}'), SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+        RaiseException(SysErrorMessage(ExitCode));
+      if (ExitCode <> 0) and (ExitCode <> 1) then
+        RaiseException('Game-data checker exit code ' + IntToStr(ExitCode));
+      RequiredIssues := ReadReport(ReportDir + '\required.txt');
+      OptionalIssues := ReadReport(ReportDir + '\optional.txt');
+      if ((ExitCode = 0) and (RequiredIssues <> '')) or
+        ((ExitCode = 1) and (RequiredIssues = '')) then
+        RaiseException('Game-data checker returned an inconsistent report');
+    except
+      RequiredIssues := FmtMessage(CustomMessage('GameCheckFailed'), [GetExceptionMessage]);
+    end;
+    ReportText := GameDir();
+    if RequiredIssues <> '' then
+      ReportText := ReportText + #13#10#13#10 +
+        CustomMessage('GameCheckRequiredHeading') + #13#10 + RequiredIssues;
+    if OptionalIssues <> '' then
+      ReportText := ReportText + #13#10#13#10 +
+        CustomMessage('GameCheckOptionalHeading') + #13#10 + OptionalIssues;
+    GameCheckPage.RichEditViewer.Lines.Text := ReportText;
+    Log('Game-data check: ' + ReportText);
+    if RequiredIssues <> '' then
+      GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckRequired')
+    else if OptionalIssues <> '' then
+      GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckOptional')
+    else
+      GameCheckPage.SubCaptionLabel.Caption := CustomMessage('GameCheckReady');
+  finally
+    WizardForm.Cursor := crDefault;
+    WizardForm.NextButton.Enabled := True;
+  end;
 end;
 
 { A silent install calls this too, for every page, and exits when it returns
@@ -251,12 +348,21 @@ end;
 function NextButtonClick(CurPageID: Integer): Boolean;
 begin
   Result := True;
-  if (CurPageID = GameDirPage.ID) and not IsGameDir(GameDir()) then
+  if CurPageID = GameDirPage.ID then
   begin
-    SuppressibleMsgBox(FmtMessage(CustomMessage('GameDirMissing'), [GameDir()]),
-      mbError, MB_OK, IDOK);
-    Result := False;
-  end;
+    CheckGameFiles();
+    { Interactive installs show the full report with Back available. Silent
+      installs record it in /LOG and stop before installing required failures. }
+    Result := not WizardSilent() or (RequiredIssues = '');
+  end
+  else if CurPageID = GameCheckPage.ID then
+    Result := RequiredIssues = '';
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  if CurPageID = GameCheckPage.ID then
+    WizardForm.NextButton.Enabled := RequiredIssues = '';
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);

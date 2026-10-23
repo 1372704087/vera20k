@@ -1045,6 +1045,38 @@ fn scan_catalog_availability(entries: &mut [ThemeEntry], assets: &AssetManager) 
     }
 }
 
+/// Installer diagnostics use the playlist's own catalog and availability scan,
+/// without initializing an audio device or decoding whole songs.
+pub(crate) fn missing_install_music(assets: &AssetManager) -> Vec<String> {
+    let mut missing = Vec::new();
+    for name in [THEME_INI_NAME, RA2_THEME_INI_NAME] {
+        let selected = match crate::rules::retail_sources::select_ini(assets, name) {
+            Ok(selected) => selected,
+            Err(error) => {
+                if name == THEME_INI_NAME {
+                    missing.push(format!("{name}: {error}"));
+                }
+                continue;
+            }
+        };
+        let mut entries = catalog_from_ini(&selected.ini);
+        scan_catalog_availability(&mut entries, assets);
+        for entry in entries {
+            if entry.sound.is_empty() {
+                continue;
+            }
+            let wav = format!("{}.wav", entry.sound);
+            if !entry.available {
+                let issue = format!("{wav}: music track unavailable");
+                if !missing.contains(&issue) {
+                    missing.push(issue);
+                }
+            }
+        }
+    }
+    missing
+}
+
 /// Catalog load `0x00720590`: every non-empty `[Themes]` value in source
 /// order becomes an entry keyed by that value (duplicates re-read the existing
 /// entry); `0x00720480` fills the section fields with the ctor defaults

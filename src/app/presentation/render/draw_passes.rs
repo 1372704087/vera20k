@@ -812,6 +812,30 @@ pub(super) fn dispatch_draw_passes(
         "super_timer_text",
     );
 
+    // --- Step 10.7: build description ---
+    // GScreenClass_DrawText's Phobos VersionDescription (`0x4F4583`): the
+    // black box and red text at the tactical view's top right, same
+    // screen-fixed tactical clip as the timer lines above.
+    draw_pooled_ui_passthrough(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_ref()
+            .map(|o| o.white_texture()),
+        "build_text_fill",
+    );
+    draw_pooled_ui_passthrough(
+        &mut pass,
+        &state.renderer.batch_renderer,
+        pool,
+        Some(state.renderer.bit_font.atlas()),
+        "build_text_text",
+    );
+
     // TacticalDraw6D4B25->6D4E20 is its last battlefield draw: centred
     // GRFXTXT frame, or white text if the shape/converter is unavailable.
     // Keep the tactical clip and draw before sidebar copy/Chrono capture.
@@ -918,33 +942,6 @@ pub(super) fn dispatch_draw_passes(
         pool,
         Some(state.renderer.bit_font.atlas()),
         "tooltip_text",
-    );
-    // GScreenClass_DrawText's Phobos hook (`0x4F4583`): the black box and
-    // red text at the tactical view's top right. Native draws it in
-    // `GScreenClass::RenderFrame_main` (0x4F4480) after the three
-    // `TacticalClass::Draw` passes, `MessageListClass::Draw` (0x4F455D),
-    // the CCToolTip draw (0x4F4570) and the debug-stats overlay (0x4F457E),
-    // just before the mouse restore (0x4F4593) — so the box paints over
-    // the message rows and the tooltips, and the Chronosphere capture has
-    // already run under it. The lanes stay empty outside Phobos builds.
-    draw_pooled_ui_passthrough(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        state
-            .match_state
-            .match_presentation
-            .selection_overlay
-            .as_ref()
-            .map(|o| o.white_texture()),
-        "build_text_fill",
-    );
-    draw_pooled_ui_passthrough(
-        &mut pass,
-        &state.renderer.batch_renderer,
-        pool,
-        Some(state.renderer.bit_font.atlas()),
-        "build_text_text",
     );
     // State 7's 0xCF window over the live battlefield (0x0077D840).
     if let Some(page) = page_draw.as_ref() {
@@ -1239,10 +1236,6 @@ mod tests {
             "pass.set_scissor_rect(0, 0, state.render_width(), state.render_height());",
         );
         let first_screen_submission = source_offset("\"message_text\"");
-        let tooltip_lanes = source_offset("\"tooltip_text\"");
-        let build_fill = source_offset("\"build_text_fill\"");
-        let build_text = source_offset("\"build_text_text\"");
-        let software_cursor = source_offset("\"software_cursor\"");
 
         // Original6D4648,6D4656,6D465F: IonBlast DrawAll between the first
         // rally pass and the object loop.
@@ -1274,24 +1267,13 @@ mod tests {
         assert!(screen_fixed < sidebar_blit);
         assert!(sidebar_blit < full_window_scissor);
         assert!(full_window_scissor < first_screen_submission);
-        // GScreenClass_DrawText's Phobos hook (0x4F4583) runs inside native
-        // RenderFrame_main after the tactical passes, MessageList, the
-        // tooltip and the debug stats, just before the mouse restore: the
-        // box paints over the message rows and tooltips, and the Chrono
-        // capture has already distorted the battlefield under it.
-        assert!(outcome_shape < build_fill);
-        assert!(chrono_capture < build_fill);
-        assert!(sidebar_blit < build_fill);
-        assert!(first_screen_submission < build_fill);
-        assert!(tooltip_lanes < build_fill);
-        assert!(build_fill < build_text);
-        assert!(build_text < software_cursor);
 
         let timer_tail = &SOURCE[sparkle..outcome_start];
         assert_eq!(
             timer_tail.matches(".draw").count() + timer_tail.matches("draw_pooled").count(),
-            3,
-            "PixelFX and the two timer submissions precede the native result draw"
+            5,
+            "PixelFX, the two timer submissions and the two Phobos build-description \
+             submissions (empty outside Phobos builds) precede the native result draw"
         );
     }
 

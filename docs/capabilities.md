@@ -19,7 +19,9 @@ which the capability workflow runs before it compiles anything (the Python
 suite, `python-tools.yml`, runs the same guards but is manual), so a fifth flag
 cannot silently skip coverage. The CI workflow
 `.github/workflows/capability-tests.yml` runs the tool's `check`, not a
-hand-written command list, so the registry is the coverage.
+hand-written command list, so the registry is the coverage. The guard also
+checks `src/Cargo.toml`: core features must be enabled through a registered
+client capability or its test dependency.
 
 ## Running one capability
 
@@ -35,12 +37,14 @@ python -m tools.capability_tests check                       # the CI sequence
 `test` is the complete run: the capability's own tests are gated inside
 broadly-named modules, so no module selector list can be exhaustive. `focus`
 is the quick pass over the modules dedicated to the capability; its selectors
-are advisory. The runner is plain `cargo`, not `tools/cargo_run.py`, so CI
-never waits on the build lock; set `CARGO_TARGET_DIR` to share a local cache.
+are advisory. Local builds use `tools/cargo_run.py` for build coordination.
+GitHub Actions jobs use plain `cargo` because they have no cooperating
+worktrees; set `CARGO_TARGET_DIR` to share a local cache.
 
 The suites currently carry failures that predate this coverage, so `check`
-runs in CI with `--soft-tests`: the compile coverage still blocks, and a suite
-that fails is reported by capability name next to the known ones rather than
+runs in CI with `--soft-tests`: library and test compilation/linking still
+block, and a suite that fails is reported by capability name next to the known
+ones rather than
 turning the job red on arrival. Drop the flag once that list is empty
 (`tools/tests/test_capability_tests.py` pins both behaviours, so the flag
 cannot quietly swallow a compile error).
@@ -61,4 +65,6 @@ python -m tools.run_test_map flat --interactive       # launch the client on the
 ```
 
 The rules and archives still come from the retail install through `RA2_DIR`;
-only the map dependency is gone.
+only the map dependency is gone. Map names also work after an explicit `play`
+subcommand. Builds use `tools/cargo_run.py`, then launch its recorded binary
+after releasing the build lock; interactive runs use the `fast` profile.

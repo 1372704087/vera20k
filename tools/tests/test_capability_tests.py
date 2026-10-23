@@ -7,6 +7,7 @@ must fail here. The capability workflow runs this module before it compiles
 anything; the wider Python suite (`python-tools.yml`) is manual.
 """
 
+import os
 import tomllib
 import unittest
 from pathlib import Path
@@ -17,11 +18,33 @@ from tools.capability_tests import BY_NAME, CAPABILITIES, COMBINATIONS, features
 
 ROOT = Path(__file__).resolve().parents[2]
 MANIFEST = ROOT / "Cargo.toml"
+CORE_MANIFEST = ROOT / "src" / "Cargo.toml"
 
 
 def manifest_features() -> dict[str, list[str]]:
     with MANIFEST.open("rb") as handle:
         return tomllib.load(handle)["features"]
+
+
+def uncovered_core_features(root: dict, core: dict[str, list[str]]) -> set[str]:
+    forwarded = {
+        value.removeprefix("vera20k-core/")
+        for values in root["features"].values()
+        for value in values
+        if value.startswith("vera20k-core/")
+    }
+    # Client tests enable test-support through their core dev-dependency.
+    for table in ("dependencies", "dev-dependencies"):
+        forwarded.update(root.get(table, {}).get("vera20k-core", {}).get("features", ()))
+    if "default" in core:
+        forwarded.add("default")
+    pending, covered = list(forwarded), set()
+    while pending:
+        name = pending.pop()
+        if name not in covered:
+            covered.add(name)
+            pending.extend(core.get(name, ()))
+    return set(core) - covered
 
 
 class CapabilityRegistryTests(unittest.TestCase):
@@ -45,6 +68,16 @@ class CapabilityRegistryTests(unittest.TestCase):
         unknown = registered - set(self.features)
         self.assertEqual(unknown, set(), "registered features that are not manifest features")
 
+    def test_every_core_feature_is_covered_by_the_client_or_its_tests(self):
+        with MANIFEST.open("rb") as handle:
+            root = tomllib.load(handle)
+        with CORE_MANIFEST.open("rb") as handle:
+            core = tomllib.load(handle)["features"]
+        self.assertEqual(
+            uncovered_core_features(root, core), set(),
+            "src/Cargo.toml features no build covers; forward them from a registered client capability",
+        )
+
     def test_capability_names_are_unique_and_combination_names_known(self):
         names = [spec.name for spec in CAPABILITIES]
         self.assertEqual(len(names), len(set(names)), "duplicate capability names")
@@ -65,6 +98,11 @@ class CapabilityRegistryTests(unittest.TestCase):
         for combination in COMBINATIONS:
             for feature in features_of(combination):
                 self.assertIn(feature, self.features, f"combination feature {feature!r}")
+
+    def test_core_only_feature_cannot_skip_coverage(self):
+        root = {"features": {"phobos": ["vera20k-core/phobos"]}}
+        core = {"phobos": ["radiation"], "radiation": [], "unregistered": []}
+        self.assertEqual(uncovered_core_features(root, core), {"unregistered"})
 
 
 class CheckSequenceTests(unittest.TestCase):
@@ -91,3 +129,27 @@ class CheckSequenceTests(unittest.TestCase):
             mock.patch.object(capability_tests, "run_cargo", return_value=0),
         ):
             self.assertEqual(capability_tests.command_check([], soft_tests=True), 2)
+
+    def test_test_compilation_failure_blocks_soft_tests_without_running_suite(self):
+        with (
+            mock.patch.object(capability_tests, "CAPABILITIES", CAPABILITIES[:1]),
+            mock.patch.object(capability_tests, "COMBINATIONS", ()),
+            mock.patch.object(capability_tests, "command_build", return_value=0),
+            mock.patch.object(capability_tests, "command_test", return_value=0) as test,
+            mock.patch.object(
+                capability_tests,
+                "run_cargo",
+                side_effect=lambda args: 101 if "--no-run" in args else 0,
+            ),
+        ):
+            self.assertEqual(capability_tests.command_check([], soft_tests=True), 101)
+            test.assert_not_called()
+
+    def test_only_github_actions_uses_direct_cargo(self):
+        with mock.patch.object(capability_tests, "invoke", return_value=0) as invoke:
+            with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": ""}):
+                self.assertEqual(capability_tests.run_cargo(["check", "--lib"]), 0)
+                self.assertFalse(invoke.call_args.kwargs["isolated_ci"])
+            with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}):
+                self.assertEqual(capability_tests.run_cargo(["check", "--lib"]), 0)
+                self.assertTrue(invoke.call_args.kwargs["isolated_ci"])

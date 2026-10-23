@@ -17,9 +17,11 @@ Usage (from the checkout root, Python >= 3.12):
 The headless run goes through `sim-bench`, whose scenario and flags pass
 through: `--scenario` selects the shape's scenario (each entry carries its
 default), everything after `--` reaches sim-bench unchanged, and `--debug`
-skips the release build sim-bench's timings are documented for. `--interactive`
-launches the client with `RA2_QUICKPLAY` naming the map, which needs a display
-and the retail archives, like any ordinary local run.
+skips the release build sim-bench's timings are documented for. A map name
+can also follow `play` explicitly. `--interactive` launches a fast-profile
+client with `RA2_QUICKPLAY` naming the map, which needs a display and the
+retail archives, like any ordinary local run. Builds use `tools.cargo_run`;
+the recorded executable starts after its build lock has been released.
 
 Neither mode needs a map from the retail install; the rules and archives still
 come from it through `RA2_DIR`, as every other run does.
@@ -32,6 +34,8 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Sequence
+
+from tools import cargo_run
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -103,18 +107,31 @@ def test_map(name: str) -> TestMap:
         ) from None
 
 
-def run(command: Sequence[str], env_extra: dict[str, str] | None = None) -> int:
+def run(
+    binary: str,
+    package: str,
+    profile: str,
+    arguments: Sequence[str],
+    env_extra: dict[str, str] | None = None,
+    cargo_extra: Sequence[str] = (),
+) -> int:
+    command = ["build", "-p", package, "--bin", binary]
+    if profile != "debug":
+        command += ["--profile", profile]
+    status = cargo_run.invoke([*command, *cargo_extra], cwd=ROOT)
+    if status != 0:
+        return status
+    executable, _ = cargo_run.resolve_binary(ROOT, binary, profile)
+    if executable is None:
+        print(f"no recorded {profile} executable for {binary} after build", file=sys.stderr)
+        return 2
+    command = [str(executable), *arguments]
     print(f"+ {' '.join(command)}", flush=True)
-    env = {**os.environ, **(env_extra or {})}
-    return subprocess.call(command, cwd=ROOT, env=env)
+    return subprocess.call(command, cwd=ROOT, env={**os.environ, **(env_extra or {})})
 
 
 def headless(entry: TestMap, scenario: str, release: bool, extra: Sequence[str]) -> int:
-    command = ["cargo", "run", "-p", "vera20k-core", "--bin", "sim-bench"]
-    if release:
-        command.append("--release")
-    command += [
-        "--",
+    arguments = [
         "--map",
         str(entry.absolute),
         "--scenario",
@@ -122,12 +139,14 @@ def headless(entry: TestMap, scenario: str, release: bool, extra: Sequence[str])
         *entry.extra,
         *extra,
     ]
-    return run(command)
+    return run("sim-bench", "vera20k-core", "release" if release else "debug", arguments)
 
 
 def interactive(entry: TestMap, extra: Sequence[str]) -> int:
-    command = ["cargo", "run", "--bin", "vera20k", *extra]
-    return run(command, {"RA2_QUICKPLAY": str(entry.absolute)})
+    return run(
+        "vera20k", "vera20k", "fast", (),
+        {"RA2_QUICKPLAY": str(entry.absolute)}, cargo_extra=extra,
+    )
 
 
 def command_list() -> int:
@@ -139,6 +158,9 @@ def command_list() -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] in BY_NAME:
+        argv.insert(0, "play")
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter,

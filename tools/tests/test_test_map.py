@@ -7,7 +7,9 @@ fails instead of silently diverging from the shape its entry documents.
 
 import unittest
 from pathlib import Path
+from unittest import mock
 
+from tools import run_test_map
 from tools.scale_map import build_map
 from tools.run_test_map import MAPS
 
@@ -54,3 +56,41 @@ class TestMapRegistryTests(unittest.TestCase):
         for entry in MAPS:
             self.assertTrue(entry.scenario, entry.name)
             self.assertIn("tools.scale_map", " ".join(entry.regenerate), entry.name)
+
+    def test_documented_headless_command_forwards_scenario_and_ticks(self):
+        with mock.patch.object(run_test_map, "headless", return_value=7) as headless:
+            self.assertEqual(run_test_map.main(["match", "--ticks", "300"]), 7)
+            headless.assert_called_once_with(MAPS[1], "match", True, ["--ticks", "300"])
+
+    def test_documented_interactive_command_selects_client(self):
+        with mock.patch.object(run_test_map, "interactive", return_value=0) as interactive:
+            self.assertEqual(run_test_map.main(["flat", "--interactive"]), 0)
+            interactive.assert_called_once_with(MAPS[0], [])
+
+    def test_interactive_build_resolves_owned_binary_before_launch(self):
+        executable = ROOT / "target" / "recorded-game"
+        with (
+            mock.patch.object(run_test_map.cargo_run, "invoke", return_value=0) as build,
+            mock.patch.object(
+                run_test_map.cargo_run, "resolve_binary", return_value=(executable, "fast")
+            ) as resolve,
+            mock.patch.object(run_test_map.subprocess, "call", return_value=7) as launch,
+        ):
+            self.assertEqual(run_test_map.interactive(MAPS[0], ["--features", "phobos"]), 7)
+            build.assert_called_once_with(
+                ["build", "-p", "vera20k", "--bin", "vera20k", "--profile", "fast",
+                 "--features", "phobos"], cwd=ROOT,
+            )
+            resolve.assert_called_once_with(ROOT, "vera20k", "fast")
+            self.assertEqual(launch.call_args.args[0], [str(executable)])
+            self.assertEqual(launch.call_args.kwargs["env"]["RA2_QUICKPLAY"], str(MAPS[0].absolute))
+
+    def test_failed_map_build_does_not_launch_an_old_binary(self):
+        with (
+            mock.patch.object(run_test_map.cargo_run, "invoke", return_value=101),
+            mock.patch.object(run_test_map.cargo_run, "resolve_binary") as resolve,
+            mock.patch.object(run_test_map.subprocess, "call") as launch,
+        ):
+            self.assertEqual(run_test_map.headless(MAPS[1], "match", True, []), 101)
+            resolve.assert_not_called()
+            launch.assert_not_called()

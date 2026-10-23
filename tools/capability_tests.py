@@ -24,25 +24,27 @@ covers. `check` is the CI sequence: every capability compiled and tested, the
 declared combinations compiled, and the shipping `--no-default-features` lib
 configuration checked.
 
-`check --soft-tests` keeps the compile coverage blocking and lets a capability
-suite's failures through: the suites carry failures that predate this coverage
+`check --soft-tests` keeps library and test compilation blocking and lets a
+capability suite's failures through: the suites carry failures that predate
+this coverage
 (the replay hashes, the prerequisite lifecycle, the crash controls), and a
 workflow that arrives red is one nobody reads. The step still prints which
 capability reported what, so a new break is visible next to the old ones; drop
 the flag once the list is empty.
 
-The runner is plain `cargo`, not `tools/cargo_run.py`: CI runners have no
-cooperating worktrees to serialise against, and a capability matrix must not
-wait on the build lock. Set CARGO_TARGET_DIR as usual to share a local cache.
+Local commands use `tools/cargo_run.py` for shared build coordination. Only
+GitHub Actions uses plain `cargo`: its hosted jobs have no cooperating
+worktrees. Set CARGO_TARGET_DIR as usual to share a local cache.
 """
 from __future__ import annotations
 
 import argparse
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Sequence
+
+from tools.cargo_run import invoke
 
 ROOT = Path(__file__).resolve().parents[1]
 CORE = "vera20k-core"
@@ -149,9 +151,7 @@ def features_of(names: Sequence[str]) -> list[str]:
 
 
 def run_cargo(args: Sequence[str]) -> int:
-    command = ["cargo", *args]
-    print(f"+ {' '.join(command)}", flush=True)
-    return subprocess.call(command, cwd=ROOT, env={**os.environ})
+    return invoke(list(args), cwd=ROOT, isolated_ci=os.environ.get("GITHUB_ACTIONS") == "true")
 
 
 def command_build(names: Sequence[str]) -> int:
@@ -215,6 +215,14 @@ def command_check(extra: Sequence[str], soft_tests: bool = False) -> int:
         current = command_build((spec.name,))
         status = status or current
         if spec.test:
+            # cargo check --lib does not compile cfg(test) code or link the
+            # test binaries. These failures must block even with soft suites.
+            current = run_cargo(
+                ["test", "--no-run", "--workspace", "--lib", "--features", spec.flag]
+            )
+            status = status or current
+            if current != 0:
+                continue
             current = command_test(spec.name, extra)
             if soft_tests:
                 if current != 0:

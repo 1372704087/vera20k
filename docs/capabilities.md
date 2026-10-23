@@ -43,9 +43,9 @@ worktrees; set `CARGO_TARGET_DIR` to share a local cache.
 
 The suites currently carry failures that predate this coverage, so `check`
 runs in CI with `--soft-tests`: library and test compilation/linking still
-block, and a suite that fails is reported by capability name next to the known
-ones rather than
-turning the job red on arrival. Drop the flag once that list is empty
+block, and Cargo continues to the other crate when one crate's tests fail.
+Suite failures are reported by capability name without turning the job red
+on arrival. Drop the flag once that list is empty
 (`tools/tests/test_capability_tests.py` pins both behaviours, so the flag
 cannot quietly swallow a compile error).
 

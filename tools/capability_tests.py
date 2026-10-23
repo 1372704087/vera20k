@@ -172,6 +172,7 @@ def command_test(capability_name: str, extra: Sequence[str]) -> int:
             "test",
             "--workspace",
             "--lib",
+            "--no-fail-fast",
             "--features",
             spec.flag,
             "--",

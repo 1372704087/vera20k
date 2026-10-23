@@ -108,6 +108,11 @@ class CapabilityRegistryTests(unittest.TestCase):
 class CheckSequenceTests(unittest.TestCase):
     """The compile coverage blocks; a capability suite's known failures do not."""
 
+    def test_suite_keeps_running_other_crates_after_a_test_binary_fails(self):
+        with mock.patch.object(capability_tests, "run_cargo", return_value=101) as run:
+            self.assertEqual(capability_tests.command_test("phobos", ()), 101)
+        self.assertIn("--no-fail-fast", run.call_args.args[0])
+
     def run_check(self, test_status: int, soft_tests: bool) -> int:
         with (
             mock.patch.object(capability_tests, "command_build", return_value=0),

@@ -59,6 +59,8 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
 
 [Messages]
+; Standard wizard/uninstaller footer; always name the compiler actually used.
+BeveledLabel=Inno Setup {#DecodeVer(Ver)}
 english.WelcomeLabel2=This will install [name/ver] on your computer.%n%nVERA20K is a community-led rewrite of the Red Alert 2: Yuri's Revenge engine.%n%nYou will need the game files from your own copy of Yuri's Revenge 1.001.
 chinesesimplified.WelcomeLabel2=即将在您的计算机上安装 [name/ver]。%n%nVERA20K 是由社区开发的《红色警戒 2：尤里的复仇》引擎重写项目。%n%n运行游戏需要您自己拥有的《尤里的复仇》1.001 版游戏文件。
 

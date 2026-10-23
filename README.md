@@ -117,6 +117,9 @@ To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
 Help is welcome. You can write code, refactor the engine, test the game, share ideas, or play
 it next to the original and tell us what feels wrong. Open a PR and we'll take it from there.
 
+Contributors can take responsibility for engine areas, with broad freedom to make changes that
+move VERA20K forward.
+
 Maintainers will help with review, integration and merging. You'll keep full credit for your
 contribution.
 

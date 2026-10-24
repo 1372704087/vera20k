@@ -282,3 +282,134 @@ fn a_failed_exit_abandons_the_object_and_refunds_it() {
         "a failed ExitObject does not consume the lifetime limit"
     );
 }
+
+const ORE_LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
+    [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
+    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+    [PLAIN]\nStrength=1000\nCost=100\n\
+    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+    [TANK]\nStrength=300\nSpeed=5\nCost=100\n{TAIL}\n\
+    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+    [Clear]\nBuildable=yes\n";
+
+/// The shared fixture plus two computer war factories and the preset vehicle
+/// choice, for the NPSE per-type `AIBuildLimit=` tests. The tests drive
+/// `factory_ai` directly, so no strategy pass rewrites the preset choice.
+fn ore_limit_fixture(tank_tail: &str) -> (Fixture, u64, u64) {
+    let rules = format!(
+        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{}",
+        ORE_LIMIT_RULES_TAIL.replace("{TAIL}", tank_tail)
+    );
+    let mut f = fixture_with(&rules);
+    let weap_1 = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 8, 8, 0, &f.rules)
+        .unwrap();
+    let weap_2 = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 8, 12, 0, &f.rules)
+        .unwrap();
+    f.sim
+        .houses
+        .get_mut(&f.owner)
+        .unwrap()
+        .ai_unit_choices_mut()
+        .set(crate::sim::ai_unit_choice::UnitChoiceKind::Unit, 0);
+    (f, weap_1, weap_2)
+}
+
+fn ore_limit_holds(f: &Fixture, building: u64) -> bool {
+    f.sim
+        .production
+        .factories()
+        .building_factory(building)
+        .and_then(|factory| factory.object())
+        .is_some()
+}
+
+fn ore_limit_visit(f: &mut Fixture, building: u64) {
+    factory_ai(
+        &mut f.sim,
+        &f.rules,
+        building,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+}
+
+/// No `AIBuildLimit=` (`i32::MAX`, the constructor default `0xC32950`): the
+/// war factories clone the standing choice as stock does.
+#[test]
+fn without_aibuild_limit_the_war_factories_clone_the_choice() {
+    let (mut f, weap_1, weap_2) = ore_limit_fixture("");
+    assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
+    ore_limit_visit(&mut f, weap_1);
+    ore_limit_visit(&mut f, weap_2);
+    assert!(ore_limit_holds(&f, weap_1) && ore_limit_holds(&f, weap_2));
+}
+
+/// `AIBuildLimit=1`: a factory starts while the house tracks nothing, and
+/// once the first tank is in production (the limbo object tracks from
+/// production start) a factoryless building skips and the choice slot
+/// clears (`0xC335C4..0xC33616`) — the clone production never exceeds the
+/// limit.
+#[cfg(feature = "npatch")]
+#[test]
+fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
+    let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=1");
+    ore_limit_visit(&mut f, weap_1);
+    assert!(ore_limit_holds(&f, weap_1), "below the limit it starts");
+    ore_limit_visit(&mut f, weap_2);
+    assert!(
+        !ore_limit_holds(&f, weap_2),
+        "the held tank already reaches the limit"
+    );
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(crate::sim::ai_unit_choice::UnitChoiceKind::Unit),
+        -1,
+        "the at-limit arm cleared the unit choice slot"
+    );
+}
+
+/// A non-positive `AIBuildLimit=` compares by magnitude against the
+/// produced and owned counts (the native negated signed compares), so
+/// `-1` blocks once one tank exists.
+#[cfg(feature = "npatch")]
+#[test]
+fn aibuild_limit_non_positive_compares_the_magnitude() {
+    let (mut f, weap_1, _) = ore_limit_fixture("AIBuildLimit=-1");
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    ore_limit_visit(&mut f, weap_1);
+    assert!(
+        !ore_limit_holds(&f, weap_1),
+        "one owned tank is already at the magnitude"
+    );
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(crate::sim::ai_unit_choice::UnitChoiceKind::Unit),
+        -1
+    );
+}
+
+/// Even an authored zero cap cannot affect a build without NPatch.
+#[cfg(not(feature = "npatch"))]
+#[test]
+fn aibuild_limit_is_ignored_without_npatch() {
+    let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=0");
+    assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
+    ore_limit_visit(&mut f, weap_1);
+    ore_limit_visit(&mut f, weap_2);
+    assert!(ore_limit_holds(&f, weap_1) && ore_limit_holds(&f, weap_2));
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        0,
+        "the ignored extension does not invalidate the standing choice",
+    );
+}

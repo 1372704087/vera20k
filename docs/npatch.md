@@ -23,6 +23,13 @@ Per-building `AIPlanningCount=` repeats eligible base-plan candidates before see
 counts 1–127, while zero and high-bit counts retain one entry. The existing planner and RNG
 owners handle the resulting candidate vector.
 
+Per-type `AIBuildLimit=` limits AI production using the existing tracked and produced-count
+owners (`Factory_AI`, `0xC335A0..0xC33726`). Positive limits include limbo factory objects;
+non-positive limits compare the magnitude against both counters, and zero blocks the type.
+Reaching a cap clears the standing choice, without advancing the base plan. A capped building
+can therefore stall construction. VERA still has one vehicle choice slot; NPSE's separate
+naval AI choice remains a separate unimplemented mechanism.
+
 ## Cross-extension compatibility
 
 The three capabilities — `ares`, `phobos`, `npatch` — are orthogonal and mixable:

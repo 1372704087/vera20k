@@ -31,7 +31,7 @@ use crate::ui::shell::menu_page::{MenuPageButtonRect, MenuPageLayout, MenuPageSp
 use crate::ui::shell::slide::PanelArt;
 use crate::ui::wol_shell::{
     BOX_NO, BOX_OK, BOX_YES, StaticAlign, WAIT_CHECK_STATUS, WAIT_DISCONNECT, WOL_LOBBY_TITLE_KEY,
-    WolBoxButtons,
+    WolBoxButtons, WolTextCaption,
 };
 
 /// Icon and group-box children sit over the background, under the text.
@@ -473,7 +473,10 @@ pub(crate) fn render_wol_page(
         for (text, rect) in &layout.texts {
             let caption = match filled.iter().find(|(id, _)| Some(*id) == text.id) {
                 Some((_, value)) => value.as_str().into(),
-                None => resolve_csf(state, text.key),
+                None => match text.caption {
+                    WolTextCaption::Csf(key) => resolve_csf(state, key),
+                    WolTextCaption::Literal(value) => value.into(),
+                },
             };
             if caption.is_empty() {
                 continue;

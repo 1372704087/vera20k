@@ -180,25 +180,33 @@ pub enum StaticAlign {
     Right,
 }
 
-/// A text static of the left side: id (status help), caption key, template
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WolTextCaption {
+    Csf(&'static str),
+    Literal(&'static str),
+}
+
+use WolTextCaption::{Csf, Literal};
+
+/// A text static of the left side: id (status help), caption, template
 /// rect and alignment. Kind 0: painted at once, without a reveal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct WolTextStatic {
     pub id: Option<u16>,
-    pub key: &'static str,
+    pub caption: WolTextCaption,
     pub dlu: (i32, i32, i32, i32),
     pub align: StaticAlign,
 }
 
 const fn text(
     id: Option<u16>,
-    key: &'static str,
+    caption: WolTextCaption,
     dlu: (i32, i32, i32, i32),
     align: StaticAlign,
 ) -> WolTextStatic {
     WolTextStatic {
         id,
-        key,
+        caption,
         dlu,
         align,
     }
@@ -210,119 +218,169 @@ const fn text(
 /// values keep `GUI:UnknownStats` and `0x6EF` and `0x797` stay empty.
 pub const WOL_TEXT_STATICS: [WolTextStatic; 20] = [
     // The persona heading: centred (`0x50020001`), empty caption.
-    text(Some(0x06EF), "", (86, 41, 254, 12), StaticAlign::Center),
+    text(
+        Some(0x06EF),
+        Csf(""),
+        (86, 41, 254, 12),
+        StaticAlign::Center,
+    ),
     text(
         None,
-        "GUI:IconGlossary",
+        Csf("GUI:IconGlossary"),
         (60, 167, 308, 13),
         StaticAlign::Center,
     ),
     text(
         None,
-        "GUI:LadderWins",
+        Csf("GUI:LadderWins"),
         (87, 63, 115, 12),
         StaticAlign::Right,
     ),
     text(
         None,
-        "GUI:LadderLosses",
+        Csf("GUI:LadderLosses"),
         (87, 79, 115, 12),
         StaticAlign::Right,
     ),
     text(
         None,
-        "GUI:Disconnects",
+        Csf("GUI:Disconnects"),
         (87, 95, 115, 12),
         StaticAlign::Right,
     ),
     text(
         None,
-        "GUI:LadderRank",
+        Csf("GUI:LadderRank"),
         (87, 111, 115, 12),
         StaticAlign::Right,
     ),
     text(
         None,
-        "GUI:LadderPoints",
+        Csf("GUI:LadderPoints"),
         (87, 127, 115, 12),
         StaticAlign::Right,
     ),
     text(
         Some(0x06F0),
-        "GUI:UnknownStats",
+        Csf("GUI:UnknownStats"),
         (214, 63, 110, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x06F1),
-        "GUI:UnknownStats",
+        Csf("GUI:UnknownStats"),
         (214, 79, 110, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x0701),
-        "GUI:UnknownStats",
+        Csf("GUI:UnknownStats"),
         (214, 95, 110, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x06F4),
-        "GUI:UnknownStats",
+        Csf("GUI:UnknownStats"),
         (214, 111, 110, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x06F5),
-        "GUI:UnknownStats",
+        Csf("GUI:UnknownStats"),
         (214, 127, 110, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x0797),
-        "GUI:Blank",
+        Csf("GUI:Blank"),
         (95, 143, 229, 12),
         StaticAlign::Center,
     ),
     text(
         Some(0x074C),
-        "GUI:NormalGameIconDesc",
+        Csf("GUI:NormalGameIconDesc"),
         (89, 200, 257, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x074E),
-        "GUI:ClanGameIconDesc",
+        Csf("GUI:ClanGameIconDesc"),
         (89, 215, 257, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x074F),
-        "GUI:ResolutionLimitIconDesc",
+        Csf("GUI:ResolutionLimitIconDesc"),
         (89, 230, 257, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x0750),
-        "GUI:ObserverAllowedIconDesc",
+        Csf("GUI:ObserverAllowedIconDesc"),
         (89, 245, 257, 12),
         StaticAlign::Left,
     ),
     text(
         Some(0x0753),
-        "GUI:PasswordIconDesc",
+        Csf("GUI:PasswordIconDesc"),
         (89, 260, 257, 12),
         StaticAlign::Left,
     ),
     text(
         None,
-        "GUI:LatencyIconDesc",
+        Csf("GUI:LatencyIconDesc"),
         (103, 275, 243, 12),
         StaticAlign::Left,
     ),
     text(
         None,
-        "GUI:BadgesOfHonor",
+        Csf("GUI:BadgesOfHonor"),
         (113, 290, 221, 12),
+        StaticAlign::Left,
+    ),
+];
+
+const ONLINE_WELCOME_TEXT: [WolTextStatic; 6] = [
+    text(
+        None,
+        Literal("VERA20k Online"),
+        (42, 50, 330, 18),
+        StaticAlign::Left,
+    ),
+    text(
+        None,
+        Literal(
+            "Custom games for VERA20k players.\nMeet in German Bunker to create or join a game.",
+        ),
+        (42, 80, 330, 34),
+        StaticAlign::Left,
+    ),
+    text(
+        None,
+        Literal("GET STARTED"),
+        (42, 134, 330, 12),
+        StaticAlign::Left,
+    ),
+    text(
+        None,
+        Literal(
+            "Select Custom Match to sign in or create an account.\nUse Create Game, or select an available game and Join.",
+        ),
+        (42, 152, 330, 36),
+        StaticAlign::Left,
+    ),
+    text(
+        None,
+        Literal("PLAY AGAINST AI"),
+        (42, 206, 330, 12),
+        StaticAlign::Left,
+    ),
+    text(
+        None,
+        Literal(
+            "Create a game and choose an AI difficulty in an open\nplayer slot before pressing Start.",
+        ),
+        (42, 224, 330, 36),
         StaticAlign::Left,
     ),
 ];
@@ -403,12 +461,20 @@ pub fn compute_layout(
         screen_w as i32,
         screen_h as i32,
     );
-    let texts = WOL_TEXT_STATICS
+    let statics = if information {
+        &WOL_TEXT_STATICS[..]
+    } else {
+        &ONLINE_WELCOME_TEXT[..]
+    };
+    let texts = statics
         .iter()
-        .filter(|_| information)
         .map(|text| {
             let (x, y, w, h) = text.dlu;
-            (*text, child_window(x, y, w, h))
+            let mut rect = child_window(x, y, w, h);
+            if !information {
+                rect.w = rect.w.min((page.right_panel.top.x - rect.x - 24).max(0));
+            }
+            (*text, rect)
         })
         .collect();
     let icons = WOL_ICONS
@@ -638,8 +704,13 @@ mod tests {
             .map(|button| button.id)
             .collect();
         assert_eq!(controls, [CUSTOM_MATCH, MAIN_MENU]);
+        assert!(!layout.texts.is_empty());
+        assert!(layout.icons.is_empty() && layout.group_boxes.is_empty());
         assert!(
-            layout.texts.is_empty() && layout.icons.is_empty() && layout.group_boxes.is_empty()
+            layout
+                .texts
+                .iter()
+                .all(|(text, _)| text.id.is_none() && matches!(text.caption, Literal(_)))
         );
         let first = layout.page.button_rect(CUSTOM_MATCH).unwrap();
         assert_eq!(first, RectPx::new(644, 199, 156, 42));
@@ -670,9 +741,8 @@ mod tests {
         );
         let scaled = compute_responsive_layout(1600, 1200, &WOL_ONLINE_WELCOME_PAGE);
         assert_eq!(scaled.painted_buttons(None).len(), 2);
-        assert!(
-            scaled.texts.is_empty() && scaled.icons.is_empty() && scaled.group_boxes.is_empty()
-        );
+        assert!(!scaled.texts.is_empty());
+        assert!(scaled.icons.is_empty() && scaled.group_boxes.is_empty());
         assert_eq!(
             scaled.page.button_rect(CUSTOM_MATCH),
             Some(RectPx::new(1288, 398, 312, 84))
@@ -737,7 +807,7 @@ mod tests {
         let wins = layout
             .texts
             .iter()
-            .find(|(text, _)| text.key == "GUI:LadderWins")
+            .find(|(text, _)| text.caption == Csf("GUI:LadderWins"))
             .unwrap();
         assert_eq!(wins.1, RectPx::new(131, 102, 174, 21));
         // The executed kind-2 placement: gt18 at (108, 328), the second
@@ -783,7 +853,7 @@ mod tests {
         let wins = scaled
             .texts
             .iter()
-            .find(|(text, _)| text.key == "GUI:LadderWins")
+            .find(|(text, _)| text.caption == Csf("GUI:LadderWins"))
             .unwrap();
         assert_eq!(wins.1, RectPx::new(262, 204, 348, 42));
         assert_eq!(

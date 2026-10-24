@@ -65,6 +65,11 @@ fn insert_structure(
     );
     entity.lifecycle.set_in_limbo_for_test(false);
     entity.lifecycle.set_cell_marked_for_test(false);
+    // These aggregate/map controls supply already-discovered providers.
+    // Controlled campaign Houses require this retained +41B (508FCE).
+    entity
+        .discovery
+        .set_discovered_by_current_house_for_test(true);
     sim.set_next_stable_object_id_for_test(sim.next_stable_object_id().max(stable_id + 1));
     sim.substrate.entities.insert(entity);
     sim.add_entity_occupancy(stable_id);
@@ -703,6 +708,18 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
     let clocks = &sim.substrate.entities.get(2).unwrap().sight_refresh_timers;
     assert_eq!(clocks.timer(a), CdTimer::started(119, 15));
     assert_eq!(clocks.timer(b), CdTimer::started(119, 15));
+    assert_eq!(
+        clocks.last_height(a),
+        208,
+        "only the due viewer sampled height"
+    );
+    assert_eq!(
+        clocks.last_height(b),
+        0,
+        "the other viewer retains constructor264"
+    );
+    assert_eq!(clocks.last_height(c), 0);
+    assert_eq!(clocks.last_height(reverse), 0);
     assert!(
         !clocks.has_timer_for_test(c),
         "nonallied viewer never borrows another viewer's countdown"
@@ -759,6 +776,12 @@ fn shroud_current_sight_live_foot_timer_keeps_viewer_histories_and_snapshot() {
             .timer(c),
         CdTimer::started(119, 15)
     );
+    let clocks = &sim.substrate.entities.get(2).unwrap().sight_refresh_timers;
+    // Process advanced the physical height after a's earlier sight visit.
+    // The newly allied client samples that current height, not a's history.
+    assert_eq!(clocks.last_height(c), 213);
+    assert_eq!(clocks.last_height(a), 208);
+    assert_eq!(clocks.last_height(b), 0);
     assert!(sim.fog.is_cell_revealed(c, 12, 12));
 }
 

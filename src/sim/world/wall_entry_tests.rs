@@ -304,7 +304,6 @@ fn assert_retail_wall_fire_profile(
     // App apply_map_load_result installs these execution modes before the
     // first Logic turn. Headless load deliberately defaults to serial mode.
     scene.runtime.simulation.batch_path_searches();
-    scene.runtime.simulation.batch_target_scans();
     // Periodic frame hashes feed replay and sync checks, which nothing here
     // reads; an interval no tick reaches skips them (11-12% of each frame in
     // this unoptimized test build).
@@ -364,12 +363,12 @@ fn assert_retail_wall_fire_profile(
     assert!(flags.wall);
     assert_eq!(flags.armor_is_wood, native_type["armor"] == 6);
     assert_eq!(
-        u64::from(flags.strength),
-        native_type["strength"].as_u64().unwrap()
+        i64::from(flags.strength),
+        native_type["strength"].as_i64().unwrap()
     );
     assert_eq!(
-        u64::from(flags.damage_levels),
-        native_type["damage_levels"].as_u64().unwrap()
+        i64::from(flags.damage_levels),
+        native_type["damage_levels"].as_i64().unwrap()
     );
     let damage_levels = flags.damage_levels;
     if wall_name == "GAWALL" {
@@ -389,7 +388,7 @@ fn assert_retail_wall_fire_profile(
             )]
         );
         assert!(building.prerequisite_override.is_empty());
-        let foundation = crate::rules::foundation::foundation_def(&building.foundation);
+        let foundation = crate::rules::foundation::foundation_def(building.foundation.name());
         assert_eq!((foundation.width, foundation.height), (1, 1));
         assert_eq!(building.to_overlay.as_deref(), Some("GAWALL"));
         assert_eq!(
@@ -549,7 +548,7 @@ fn assert_retail_wall_fire_profile(
                     .attack_target
                     .target()
                     .is_none(),
-                "Cell7258D0 target expiry is synchronous with removal"
+                "AreaDamage4896BA restores targets synchronously after wall cleanup"
             );
             assert!(sim.dirty_cells.radar().contains(&source));
             assert!(sim.dirty_cells.tactical_for_test().contains(&source));
@@ -1252,7 +1251,6 @@ fn retail_mtnk_move_crushes_fences_through_per_cell_with_body_rocking() {
     )
     .unwrap();
     scene.runtime.simulation.batch_path_searches();
-    scene.runtime.simulation.batch_target_scans();
     // Periodic frame hashes feed replay and sync checks, which nothing here
     // reads; an interval no tick reaches skips them (11-12% of each frame in
     // this unoptimized test build).

@@ -22,7 +22,7 @@ use crate::render::unit_atlas;
 use crate::sim::production;
 use crate::sim::replay::ScenarioServiceInput;
 use crate::sim::trigger_runtime::TriggerEffect;
-use crate::sim::world::{FrameEffects, LifecycleOutput, SimFireEvent, SimFrameOutput, TickLane};
+use crate::sim::world::{FrameEffects, LifecycleOutput, SimFrameOutput, TickLane};
 use crate::ui::game_screen::GameScreen;
 
 /// Directory for Rust-only deterministic diagnostic logs.
@@ -1104,7 +1104,6 @@ fn advance_one_simulation_frame(
         } else {
             None
         };
-        let mut drained_fire_events: Vec<SimFireEvent> = Vec::new();
         let mut drained_lifecycle_outputs: Vec<LifecycleOutput> = Vec::new();
         let mut drained_combat_lights = Vec::new();
         let mut frame_overlay_updates = Vec::new();
@@ -1207,12 +1206,21 @@ fn advance_one_simulation_frame(
                         minimap.admit_radar_event(request, tick, Some(rules))
                     })
                 };
+                let has_radar = &mut state.match_state.match_presentation.has_radar;
+                let radar_anim = &mut state.match_state.match_presentation.radar_anim;
+                let mut set_tactical_radar = |available| {
+                    *has_radar = available;
+                    radar_anim
+                        .as_mut()
+                        .and_then(|radar| radar.set_has_radar(available))
+                };
                 let boundary = super::frame_effects::FrameClientBoundary::new(
                     playback,
                     local_owner_name.as_deref(),
                     &mut state.match_state.match_audio.sound_events,
                     &mut admit_radar,
                 )
+                .with_tactical_radar(&mut set_tactical_radar)
                 .with_planning(
                     &mut state.match_state.input.planning,
                     &mut state.match_state.input.selection_state,
@@ -1228,6 +1236,7 @@ fn advance_one_simulation_frame(
                 )
                 .with_outcome_wait(&mut state.match_state.scenario_outcome);
                 let effects = FrameEffects::for_sound(&boundary)
+                    .with_tactical_radar(&boundary)
                     .with_local_planning(&boundary)
                     .with_network_commands(&boundary)
                     .with_outcome_wait(&boundary)
@@ -1328,7 +1337,6 @@ fn advance_one_simulation_frame(
                 overlay_removals,
                 sound_events: frame_sound_events,
                 sound_events_delivered,
-                fire_events: frame_fire_events,
                 combat_lights,
                 lighting_events,
                 multiplayer_checksum,
@@ -1396,8 +1404,6 @@ fn advance_one_simulation_frame(
                 }
                 sim.prepare_fog_view_for(owner);
             }
-            // Fire events position the weapon report sounds.
-            drained_fire_events = frame_fire_events;
             // The radar event array is the local client's (RadarClass). A
             // match without a minimap renderer has no such client, so nothing
             // is admitted and the radar-gated EVA lines stay silent.
@@ -1477,7 +1483,7 @@ fn advance_one_simulation_frame(
             state,
             &drained_lifecycle_outputs,
         );
-        // Trigger Focus/lock effects precede TacticalAI in this Logic visit.
+        // Authored Team/trigger Focus and lock effects precede TacticalAI in this Logic visit.
         // Coordinates were resolved by simulation before its final hash.
         apply_trigger_effects(state, &trigger_effects);
         // Scroll_Map (0x4A9840 -> 0x6D8530) accumulates mouse requests;
@@ -1529,12 +1535,12 @@ fn advance_one_simulation_frame(
                 state
                     .match_state
                     .input
-                    .apply_building_placement_output(&cursor_clear, local_house);
+                    .apply_lifecycle_output(&cursor_clear, local_house);
             }
             if state
                 .match_state
                 .input
-                .apply_building_placement_output(&output, local_house)
+                .apply_lifecycle_output(&output, local_house)
             {
                 update_building_placement_preview(state);
             }
@@ -1667,11 +1673,6 @@ fn advance_one_simulation_frame(
                 | LifecycleOutput::ClearRedraw { .. } => {}
             }
         }
-        crate::app::presentation::fire_effects::queue_weapon_report_sounds(
-            state,
-            &drained_fire_events,
-        );
-
         // Black-cell census, on a schedule rather than a keypress: nobody hits a debug key
         // at the exact moment they notice the artifact. Spread-out ticks give a time series,
         // which separates "still exploring" from "these cells will never be revealed" — a
@@ -1740,6 +1741,14 @@ fn advance_one_simulation_frame(
                         state.match_state.match_presentation.sprite_atlas.as_ref(),
                         &runtime.simulation,
                         &state.match_state.match_presentation.house_color_map,
+                    ) || !sprite_atlas::atlas_covers_sprite_keys(
+                        state.match_state.match_presentation.sprite_atlas.as_ref(),
+                        &sprite_atlas::collect_fogged_sprite_keys(
+                            &runtime.simulation,
+                            &runtime.resources.rules,
+                            &state.match_state.match_presentation.house_color_map,
+                        ),
+                        Some(&runtime.resources.rules),
                     )
                 }))
     {
@@ -1905,10 +1914,10 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
     let (fw, fh, foundation_str) = rules
         .object(type_id)
         .map(|obj| {
-            let (w, h) = crate::rules::foundation::foundation_dimensions(&obj.foundation);
+            let (w, h) = obj.foundation.dimensions();
             (w, h, obj.foundation.clone())
         })
-        .unwrap_or((1, 1, "1x1".to_string()));
+        .unwrap_or((1, 1, crate::rules::foundation::Foundation::default()));
     // Log at info level once per type_id change so it's visible in console.
     static LAST_LOG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let hash: u64 = type_id
@@ -1932,8 +1941,7 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
     // UpdateFoundationCenter4A91B0 uses center + the type's active offset.
     // Resolve it before admission/ground/shroud, through the shared owner
     // also used by a fresh LeftUp; rendering consumes the resulting Cells.
-    let (rx, ry) =
-        crate::rules::foundation::placement_origin_at_cursor(&foundation_str, cursor_cell);
+    let (rx, ry) = foundation_str.placement_origin_at_cursor(cursor_cell);
     state.match_state.input.building_placement_preview =
         production::placement_preview_for_owner_with_overlays(
             sim,
@@ -1982,6 +1990,11 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
         sim,
         &state.match_state.match_presentation.house_color_map,
     );
+    let frozen_keys = sprite_atlas::collect_fogged_sprite_keys(
+        sim,
+        &rt.resources.rules,
+        &state.match_state.match_presentation.house_color_map,
+    );
     let sprite_rebuild = !sprite_atlas::atlas_covers_world(
         state.match_state.match_presentation.sprite_atlas.as_ref(),
         sim.entities(),
@@ -1989,6 +2002,10 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
         &extra_buildings,
         &anim_remap_keys,
         Some(sim.interner()),
+    ) || !sprite_atlas::atlas_covers_sprite_keys(
+        state.match_state.match_presentation.sprite_atlas.as_ref(),
+        &frozen_keys,
+        bound_rules,
     );
 
     if !unit_rebuild && !sprite_rebuild {
@@ -2045,6 +2062,7 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             &extra_buildings,
             &anim_remap_keys,
             &cell_drawer_type_ids,
+            &frozen_keys,
             Some(&cell_palette),
             existing,
             Some(sim.interner()),

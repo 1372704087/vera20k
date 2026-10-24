@@ -428,8 +428,8 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
                 .interner()
                 .object_type(entity.type_ref(), rules)
                 .map(|obj| obj.foundation.clone())
-                .unwrap_or_else(|| "1x1".to_string());
-            let (fw, fh) = crate::rules::foundation::foundation_dimensions(&foundation);
+                .unwrap_or_default();
+            let (fw, fh) = foundation.dimensions();
             let (ex, ey) = (entity.position.rx(), entity.position.ry());
             if cursor_rx >= ex
                 && u32::from(cursor_rx) < u32::from(ex) + u32::from(fw)
@@ -442,7 +442,9 @@ fn capture_debug(state: &AppState, sim: &Simulation) -> DebugPanel {
                         sim.interner().resolve(entity.type_ref()),
                         TELEMETRY_MAX_NAME_BYTES
                     ),
-                    bounded_text(&foundation, TELEMETRY_MAX_NAME_BYTES),
+                    // The typed Foundation owner carries its name through
+                    // Display; the capture keeps the name it always showed.
+                    bounded_text(&foundation.to_string(), TELEMETRY_MAX_NAME_BYTES),
                     ex,
                     ey,
                     bounded_text(

@@ -16,8 +16,9 @@
 //!
 //! Blowup_All walks TechnoClass::Array, limbo objects included, re-reading the
 //! count each step. An object whose original owner
-//! (`TechnoClass::GetOriginalOwner @ 0x0070F820`) is the house and that the
-//! house still owns dies; one another house mind-controls is instead handed to
+//! (`TechnoClass::GetOriginalOwner @ 0x0070F820`) is the house dies, including
+//! a trigger-transferred building another house owns. A unit-controlled
+//! captive owned by another house is instead handed to
 //! the Civilian-side house when its controller's CaptureManager finds one
 //! (`SetOriginalOwnerToCivilian @ 0x00472330`), and dies only when none
 //! exists. An object being erased first has its Temporal chain released
@@ -221,7 +222,7 @@ impl Simulation {
             let kind = if let Some(kind) = resumed_kind.take() {
                 Some(kind)
             } else {
-                self.assess_house_derived_state(owner, rules);
+                self.assess_house_derived_state(owner, rules, frame_effects);
                 self.update_house_anger_and_activation(owner, rules);
                 self.houses.get(&owner).and_then(|house| {
                     house.pending_outcome(
@@ -445,8 +446,8 @@ impl Simulation {
             // Original gamemd:4FC1EE ->637A10, before Session+300/reveal
             // and the loss announcement. Input owns the exit and2B event;
             // House returns it to MainTick's existing post-Logic dispatcher.
-            // Earlier death cues precede EndPlanningModeSound; MatchOutcome's
-            // synchronous flush later delivers that cue before the local EVA.
+            // Earlier death cues precede EndPlanningModeSound; the reached
+            // Radar setter then delivers it before RadarOn and the local EVA.
             // Executable controls: spatial_oracle/planning_local_defeat.
             context.effects().flush_sound(self, context.rules());
             let commit = context
@@ -473,6 +474,15 @@ impl Simulation {
             self.power_states
                 .house_mut(owner)
                 .set_tactical_map_available();
+            // Local MPlayerDefeated4FC21B reaches Radar656DF0 immediately,
+            // including an Off -> On reversal within this same House visit.
+            // Other network viewers retain their own canonical radar state;
+            // this presentation receiver belongs to the actual local client.
+            if self.session.current_house() == Some(owner) {
+                context
+                    .effects()
+                    .set_tactical_radar_available(self, rules, true);
+            }
         } else if let Some(house) = self.houses.get_mut(&owner) {
             house.mark_map_clear();
         }
@@ -812,8 +822,8 @@ impl Simulation {
 
     /// Blowup_All's predicate (`0x004FC6F1..0x004FC731`) for one Techno:
     /// its original owner (`TechnoClass::GetOriginalOwner @ 0x0070F820`) is
-    /// `house`, and either it still belongs to `house` or no Civilian-side
-    /// house takes it over from the house controlling it.
+    /// `house`. Only a unit-controlled captive owned elsewhere can substitute
+    /// a Civilian-side original owner and escape this sweep.
     fn blown_up_with(
         &mut self,
         id: u64,
@@ -848,7 +858,9 @@ impl Simulation {
         }
         let owner = entity.owner();
         let Some(controller) = entity.mind_control.controller() else {
-            return owner == house;
+            //4FC715 jumps to4FC727 when +2C0 is null. Trigger House control
+            //uses +2CC/+2E0, so the current Owner can differ from `house`.
+            return true;
         };
         // CaptureManagerClass::GetOriginalOwner @ 0x004722F0 (null without a
         // node).

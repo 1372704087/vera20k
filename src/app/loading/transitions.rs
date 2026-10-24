@@ -110,6 +110,8 @@ pub(crate) struct MapPresentationInputs {
     pub(crate) terrain_objects: Vec<crate::map::overlay::TerrainObject>,
     pub(crate) house_roster: HouseRoster,
     pub(crate) lighting_config: crate::map::lighting::LightingConfig,
+    /// Present only for a fresh map, from before authored Overlay admission.
+    pub(crate) lighting_events: Option<Vec<crate::sim::light_sources::LightingEvent>>,
     pub(crate) theater_name: String,
     pub(crate) theater_ext: String,
 }
@@ -236,6 +238,7 @@ pub(crate) fn install_world_presentation(
         map.lighting_config,
         presentation.in_game_options.detail_level,
         live,
+        map.lighting_events.as_deref(),
     );
     // Current MapClass authority, including restored/triggered LocalSize,
     // reaches camera and minimap before either route positions its view.
@@ -312,7 +315,7 @@ pub(crate) fn install_world_presentation(
         let shp =
             crate::assets::shp_file::ShpFile::from_bytes(assets.get_ref("shroud.shp")?).ok()?;
         let (frame_pixels, cw, ch) = crate::render::shroud_buffer::extract_shp_brightness(&shp);
-        Some(crate::render::shroud_buffer::ShroudBuffer::new(
+        let mut buffer = crate::render::shroud_buffer::ShroudBuffer::new(
             &state.renderer.gpu.device,
             &state.renderer.gpu.queue,
             [state.render_width(), state.render_height()],
@@ -320,7 +323,13 @@ pub(crate) fn install_world_presentation(
             frame_pixels,
             [cw, ch],
             crate::render::shroud_buffer::SHROUD_EDGE_LUT,
-        ))
+        );
+        // Cell47EFE0/47F250 use FOG.SHP's raw A bytes when Scenario0x1000
+        // is set. It belongs to this same tactical source, not a sprite atlas.
+        let fog = crate::assets::shp_file::ShpFile::from_bytes(assets.get_ref("fog.shp")?).ok()?;
+        let (frames, width, height) = crate::render::shroud_buffer::extract_shp_brightness(&fog);
+        buffer.install_fog_frames(frames, [width, height]);
+        Some(buffer)
     });
     state.match_state.match_presentation.shroud_buffer = shroud_buffer;
 }
@@ -330,6 +339,13 @@ pub(crate) fn install_world_presentation(
 /// owner suspends/resumes audio; the later Theme queue/Stop(true) belongs to
 /// apply_map_load_result (683E4D..683E66), after this movie returns.
 pub(crate) fn finish_fresh_scenario_read(state: &mut AppState, mut result: init::MapLoadResult) {
+    // Read_INI_Basic689FD6/689FF4 retains these two buffers across fresh
+    // ClearScene reads. Saved restoration instead installs the saved values
+    // directly through install_world_presentation; it must not inherit here.
+    result
+        .scenario
+        .basic
+        .resolve_retained_destinations(&state.match_state.map_basic);
     let action_movie = result.scenario.startup.campaign().and_then(|startup| {
         // Start_Scenario683D9C tests its DL argument before the movie.
         if !startup.plays_action_movie() {
@@ -413,7 +429,6 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
         simulation.install_fresh_process_main(&state.frontend.frontend_main_rng);
         simulation.publish_scenario_started();
         simulation.batch_path_searches();
-        simulation.batch_target_scans();
         crate::sim::runtime::SimRuntime {
             simulation,
             resources: crate::sim::runtime::SimResources {
@@ -435,6 +450,11 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     if let Some(manager) = result.asset_manager {
         state.process_assets.return_from_loading(manager);
     }
+    let lighting_events = state
+        .match_state
+        .sim_runtime
+        .as_mut()
+        .map(|runtime| runtime.simulation.take_lighting_events());
     install_world_presentation(
         state,
         MapPresentationInputs {
@@ -448,6 +468,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
             terrain_objects: result.scenario.terrain_objects,
             house_roster: result.scenario.house_roster,
             lighting_config: result.scenario.map_lighting_config,
+            lighting_events,
             theater_name: result.scenario.theater_name,
             theater_ext: result.scenario.theater_ext,
         },
@@ -524,9 +545,6 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     state.match_state.input.cursor_y = tactical_height as f32 * 0.5;
     state.platform.frame_pacer.reset_for_immediate_frame();
     state.match_state.input.queued_order_mode = render::OrderMode::Move;
-    for group in &mut state.match_state.input.control_groups {
-        group.clear();
-    }
     state.match_state.local_owner_override = result.scenario.initial_local_owner;
     state.match_state.match_audio.reset_for_new_match();
     state.match_state.sandbox_full_visibility = result.scenario.sandbox_full_visibility;

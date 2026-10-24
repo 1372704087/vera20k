@@ -58,6 +58,10 @@ pub enum SuperWeaponKind {
     GenericWarhead,
     /// Ares reinforcement delivery extension.
     UnitDelivery,
+    /// Constructor Type=-1: no recognized name has replaced it. Launch's
+    /// unsigned guard6CC3AC returns without a case; ordinary ClickFire still
+    /// consumes readiness or its one-time grant. This is not an extension.
+    NoEffect,
 }
 
 impl SuperWeaponKind {
@@ -78,6 +82,7 @@ impl SuperWeaponKind {
             Self::PsychicReveal => 11,
             Self::UnitDelivery => 0x101,
             Self::GenericWarhead => -1,
+            Self::NoEffect => -1,
         }
     }
 
@@ -206,6 +211,12 @@ pub struct SuperWeaponType {
     /// the same retention, `0x006CEBD8`): the cue the Force Shield's launch
     /// plays (`0x006CD176`).
     pub start_sound: Option<String>,
+    /// `FlashSidebarTabFrames=` (`SuperWeaponTypeClass+0xE8`): constructor
+    /// default `-1` at `0x006CE5B0`; `ReadINI @ 0x006CEA20` reads the current
+    /// value with `ReadInt @ 0x005276D0`, without a clamp. The native
+    /// `SuperClass::ShouldFlashTab @ 0x006CE1A0` treats -1 as unlimited, zero
+    /// as disabled, and otherwise tests `ReadyFrame + value > current frame`.
+    pub flash_sidebar_tab_frames: i32,
     /// `AIDefendAgainst=` (`+0xEC`, ReadBool at `0x006CEAF7`, constructor
     /// clear): a launch of this type alerts each computer house whose base is
     /// near the target (`HouseClass::Fire_SW @ 0x004FAE50`'s house loop).
@@ -227,16 +238,20 @@ impl SuperWeaponType {
     /// Parse a SuperWeaponType from a rules.ini section
     /// (`SuperWeaponTypeClass::ReadINI`, reads `0x006CEA6D`-`0x006CEDB1`).
     /// Ares extensions require the explicit `ares` build feature.
-    pub fn from_ini_section(id: &str, section: &IniSection) -> Option<Self> {
+    pub fn from_ini_section(id: &str, section: &IniSection) -> Self {
         // Native reads Range and LineMultiplier before Type. The constructor
         // owns the zero defaults; keep the same current-value defaults here.
         let range = section.read_float("Range", 0.0);
         let line_multiplier = section.read_int("LineMultiplier", 0);
         // ReadINI6CEC2D..6CEC7E: each 0x28-byte ReadString is compared
         // against the kind names; a rejected name leaves the prior field.
-        let kind = section.read_string_with("Type", 0x28, None, |current, value| {
-            SuperWeaponKind::from_ini_str(value).or(current)
-        })?;
+        let kind = section
+            .read_string_with("Type", 0x28, None, |current, value| {
+                SuperWeaponKind::from_ini_str(value).or(current)
+            })
+            // Ctor6CE5B0 initializes Type to -1; rejected/missing reads do
+            // not remove the registered type or skip its other fields.
+            .unwrap_or(SuperWeaponKind::NoEffect);
         #[cfg(feature = "ares")]
         let extension_kind = matches!(
             kind,
@@ -244,7 +259,7 @@ impl SuperWeaponType {
         );
         #[cfg(not(feature = "ares"))]
         let extension_kind = false;
-        Some(Self {
+        Self {
             id: id.to_string(),
             // AbstractTypeClass `UIName=`, ReadString 0x20 (`0x00410AFB`).
             ui_name: section.read_name("UIName", 0x20).map(str::to_string),
@@ -281,7 +296,7 @@ impl SuperWeaponType {
                         .unwrap_or("ParaDrop")
                         .to_string(),
                 ),
-                _ => section.read_name("Action", 0x20).map(str::to_string),
+                _ => section.read_action_name("Action").map(str::to_string),
             },
             // ReadString 0x100, then a 24-byte copy (`0x006CEDB1`,
             // `0x006CEDD6`) that names the cameo.
@@ -320,6 +335,9 @@ impl SuperWeaponType {
             unit_delivery: None,
             special_sound: section.read_name("SpecialSound", 0x80).map(str::to_string),
             start_sound: section.read_name("StartSound", 0x80).map(str::to_string),
+            // The native constructor starts at -1; the final projected INI
+            // retains a lower pass when later passes omit this key.
+            flash_sidebar_tab_frames: section.read_int("FlashSidebarTabFrames", -1),
             ai_defend_against: section.read_bool("AIDefendAgainst", false),
             manual_control: section.read_bool("ManualControl", false),
             #[cfg(not(feature = "ares"))]
@@ -347,7 +365,7 @@ impl SuperWeaponType {
                     ),
                 }
             }),
-        })
+        }
     }
 }
 
@@ -578,12 +596,13 @@ DisableableFromShell=yes
 ";
         let ini = IniFile::from_str(ini_text);
         let section = ini.section("LightningStormSpecial").unwrap();
-        let sw = SuperWeaponType::from_ini_section("LightningStormSpecial", section).unwrap();
+        let sw = SuperWeaponType::from_ini_section("LightningStormSpecial", section);
         assert_eq!(sw.kind, SuperWeaponKind::LightningStorm);
         assert_eq!(sw.recharge_time_frames, 9000); // 10 min × 900
         assert!(sw.is_powered);
         assert!(sw.show_timer);
         assert!(sw.disableable_from_shell);
+        assert_eq!(sw.flash_sidebar_tab_frames, -1);
         // The sidebar cameo tooltip shows the localized UIName, not `Name=`
         // and not the section id. Retail value, not a plausible-looking one.
         assert_eq!(sw.ui_name.as_deref(), Some("Name:Storm"));
@@ -591,7 +610,7 @@ DisableableFromShell=yes
     }
 
     #[test]
-    fn retail_battle_nuke_range_fields_follow_production_rules_reader() {
+    fn retail_battle_superweapon_fields_follow_production_rules_reader() {
         let Some(retail) =
             crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
         else {
@@ -600,17 +619,55 @@ DisableableFromShell=yes
         let nuke = retail.rules.super_weapon("NukeSpecial").unwrap();
         assert_eq!(nuke.range, 7.0);
         assert_eq!(nuke.line_multiplier, 2);
+        for id in [
+            "ForceShieldSpecial",
+            "SpyPlaneSpecial",
+            "PsychicRevealSpecial",
+        ] {
+            assert_eq!(
+                retail
+                    .rules
+                    .super_weapon(id)
+                    .expect("retail SuperWeaponType")
+                    .flash_sidebar_tab_frames,
+                120,
+                "the selected retail map pass omits this RULESMD value"
+            );
+        }
+        assert_eq!(
+            nuke.flash_sidebar_tab_frames, -1,
+            "a type without the key keeps the constructor default"
+        );
+
+        let patch = IniFile::from_str("[ForceShieldSpecial]\nFlashSidebarTabFrames=0\n");
+        let Some(overridden) =
+            crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
+        else {
+            return;
+        };
+        assert_eq!(
+            overridden
+                .rules
+                .super_weapon("ForceShieldSpecial")
+                .unwrap()
+                .flash_sidebar_tab_frames,
+            0
+        );
     }
 
     #[test]
-    fn parse_unknown_type_returns_none() {
+    fn parse_unknown_type_keeps_the_native_constructor_dispatch() {
         let ini_text = "\
 [BogusWeapon]
 Type=BogusType
 ";
         let ini = IniFile::from_str(ini_text);
         let section = ini.section("BogusWeapon").unwrap();
-        assert!(SuperWeaponType::from_ini_section("BogusWeapon", section).is_none());
+        let sw = SuperWeaponType::from_ini_section("BogusWeapon", section);
+        assert_eq!(sw.kind, SuperWeaponKind::NoEffect);
+        assert_eq!(sw.kind.native_index(), -1);
+        assert_eq!(sw.recharge_time_frames, CTOR_RECHARGE_FRAMES);
+        assert!(sw.generic_warhead.is_none() && sw.unit_delivery.is_none());
     }
 
     #[cfg(feature = "ares")]
@@ -618,8 +675,7 @@ Type=BogusType
     fn parse_ares_generic_warhead() {
         let ini =
             IniFile::from_str("[Strike]\nType=GenericWarhead\nSW.Warhead=Payload\nSW.Damage=75\n");
-        let sw = SuperWeaponType::from_ini_section("Strike", ini.section("Strike").unwrap())
-            .expect("Ares GenericWarhead is a supported superweapon type");
+        let sw = SuperWeaponType::from_ini_section("Strike", ini.section("Strike").unwrap());
         assert_eq!(
             sw.kind.native_index(),
             -1,
@@ -629,8 +685,7 @@ Type=BogusType
         assert_eq!(sw.action.as_deref(), Some("Attack"));
         let defaults = IniFile::from_str("[Default]\nType=gEnErIcWaRhEaD\n");
         let default_sw =
-            SuperWeaponType::from_ini_section("Default", defaults.section("Default").unwrap())
-                .unwrap();
+            SuperWeaponType::from_ini_section("Default", defaults.section("Default").unwrap());
         assert_eq!(default_sw.generic_warhead.as_ref().unwrap().damage, 0);
         assert_eq!(
             default_sw.generic_warhead.as_ref().unwrap().ai_targeting,
@@ -640,7 +695,7 @@ Type=BogusType
 
     #[cfg(not(feature = "ares"))]
     #[test]
-    fn default_build_rejects_extension_kinds_and_ignores_money_tags() {
+    fn default_build_keeps_unrecognized_types_without_extension_payloads() {
         let ini = IniFile::from_str(
             "[Strike]\nType=GenericWarhead\nSW.Warhead=Payload\nSW.Damage=75\n\
              [Delivery]\nType=UnitDelivery\nDeliver.Types=UNIT\n\
@@ -648,10 +703,13 @@ Type=BogusType
              Action=PsychicReveal\nRange=7\nLineMultiplier=2\nSW.RequiresTarget=unknown-mask\n",
         );
         for id in ["Strike", "Delivery"] {
-            assert!(SuperWeaponType::from_ini_section(id, ini.section(id).unwrap()).is_none());
+            let sw = SuperWeaponType::from_ini_section(id, ini.section(id).unwrap());
+            assert_eq!(sw.kind, SuperWeaponKind::NoEffect);
+            assert!(sw.generic_warhead.is_none() && sw.unit_delivery.is_none());
+            assert!(sw.action.is_none());
+            assert_eq!(sw.money_amount, 0);
         }
-        let stock = SuperWeaponType::from_ini_section("Reveal", ini.section("Reveal").unwrap())
-            .expect("native types remain available with extension tags present");
+        let stock = SuperWeaponType::from_ini_section("Reveal", ini.section("Reveal").unwrap());
         assert_eq!(stock.kind, SuperWeaponKind::PsychicReveal);
         assert_eq!(stock.recharge_time_frames, 1800);
         assert_eq!(stock.action.as_deref(), Some("PsychicReveal"));

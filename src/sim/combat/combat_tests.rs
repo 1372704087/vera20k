@@ -41,7 +41,7 @@ use crate::sim::mission::{MissionDispatchTimer, MissionId, MissionType};
 use crate::sim::occupancy::OccupancyGrid;
 use crate::sim::power_system::PowerState;
 use crate::sim::projectile::ProjectileDetonationReason;
-use crate::sim::rng::{MainRng, SimRng};
+use crate::sim::rng::SimRng;
 use crate::sim::vision::FogState;
 use crate::util::save_codec;
 
@@ -912,19 +912,33 @@ fn retail_bridge_repair_hut_area_hit_returns_before_the_techno_receiver() {
             .is_none()
         };
         assert!(resolve(&sim), "IC {iron_curtain}: no receiver outcome");
-        assert_eq!(
-            wave_post_object_damage(
-                &event,
-                &sim.substrate.entities,
-                &rules,
-                &sim.interner,
-                &sim.houses,
-                sim.house_alliances.as_map(),
-                false,
-                0,
-                None,
-            ),
+        #[cfg(feature = "phobos")]
+        let wave = wave_post_object_damage(
+            &event,
+            &sim.substrate.entities,
+            &rules,
+            &sim.interner,
+            &sim.houses,
+            sim.house_alliances.as_map(),
+            false,
+            0,
             None,
+            Some(&sim),
+        );
+        #[cfg(not(feature = "phobos"))]
+        let wave = wave_post_object_damage(
+            &event,
+            &sim.substrate.entities,
+            &rules,
+            &sim.interner,
+            &sim.houses,
+            sim.house_alliances.as_map(),
+            false,
+            0,
+            None,
+        );
+        assert_eq!(
+            wave, None,
             "IC {iron_curtain}: the Wave packet is untouched"
         );
     }
@@ -1523,11 +1537,17 @@ fn retail_gassed_infantry_scatters_and_fears() {
             rules.object(type_id).unwrap().strength,
             "gas does no damage"
         );
+        assert!(pings.is_empty(), "miner warnings are submitted inline");
         (
             victim.infantry.as_ref().map(|man| man.fear_level()),
             victim.navigation.nav_com().is_some(),
             victim.mission.queued().known(),
-            !pings.is_empty(),
+            sim.sound_events().iter().any(|event| {
+                matches!(
+                    event,
+                    crate::sim::world::SimSoundEvent::UnderAttack { miner: true, .. }
+                )
+            }),
         )
     };
     use MissionType::{Guard, Harmless, Hunt, Move};
@@ -2468,7 +2488,7 @@ fn gsi_04_07_damage_wall_dies_in_the_tail_after_both_attackers_fire() {
             .iter()
             .map(|event| (event.listener_id, event.restored, event.cleared))
             .collect::<Vec<_>>(),
-        vec![(10, false, true), (20, true, true)]
+        vec![(20, true, false), (10, false, true)]
     );
 }
 
@@ -2613,7 +2633,7 @@ fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
             .effects()
             .cell_target_detaches
             .iter()
-            .any(|detach| { detach.listener_id == 20 && detach.restored && detach.cleared })
+            .any(|detach| { detach.listener_id == 20 && detach.restored && !detach.cleared })
     );
     assert_eq!(
         fatal_entities
@@ -2987,7 +3007,7 @@ fn gsi_04_07_a_human_unit_does_not_charge_an_unseen_shooter() {
     }));
 }
 
-/// `ShouldRetaliate 0x00708AF7..0x00708B09` refuses only Verses at or below
+/// Stock `ShouldRetaliate 0x00708AF7..0x00708B09` refuses only Verses at or below
 /// the single `0.01`: a 1% warhead still retaliates, a bare `0.005` (which
 /// GetFireError's zero-Verses test lets through; `0.5%` would parse to 0) and
 /// 0% do not. And a weapon whose
@@ -2996,10 +3016,15 @@ fn gsi_04_07_a_human_unit_does_not_charge_an_unseen_shooter() {
 /// heal test would allow.
 #[test]
 fn gsi_04_07_retaliation_verses_and_healer_gates() {
-    assert!(retaliates(RetaliationCase {
-        verses: "1%",
-        ..Default::default()
-    }));
+    // Ares3.0 parser100523E0 and retaliation hook100543E0 replace the stock
+    // threshold: tools/rules_oracle/ares_armor.json `parse_1%` has Retaliate=false.
+    assert_eq!(
+        retaliates(RetaliationCase {
+            verses: "1%",
+            ..Default::default()
+        }),
+        !crate::rules::ARES_ENABLED,
+    );
     assert!(!retaliates(RetaliationCase {
         verses: "0.005",
         ..Default::default()
@@ -3214,13 +3239,13 @@ fn gsi_04_07_a_garrison_retaliates_with_its_occupants_weapon() {
     occupant.passenger_role =
         crate::sim::passenger::PassengerRole::inside_for_test(GATE_VICTIM, false);
     sim.substrate.entities.insert(occupant);
-    let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1.0);
-    cargo.board_forced_chain(&[(occupant_id, 1.0)]);
     sim.substrate
         .entities
         .get_mut(GATE_VICTIM)
         .unwrap()
-        .passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
+        .passenger_role
+        .occupants_mut()
+        .add(occupant_id);
     assert!(combat_targeting::should_retaliate(
         &sim,
         &rules,
@@ -5180,7 +5205,7 @@ fn selected_death_sounds_for(
 /// The fallback is not owner-gated and draws no RNG.
 #[test]
 fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
+    let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
         "\
 [General]\nFlightLevel=500\n\n\
 [AudioVisual]\nBuildingDieSound=BuildingGenericDie\n\n\
@@ -5194,75 +5219,55 @@ fn a_building_with_no_die_sound_falls_back_to_the_global_building_die_sound() {
     ))
     .expect("building die-sound rules parse");
 
-    const HERE: crate::sim::anim_class::AnimWorldCoord = crate::sim::anim_class::AnimWorldCoord {
-        x: 1152,
-        y: 1920,
-        z: 104,
-    };
-    let selected = |type_name: &str, category: EntityCategory| -> Vec<String> {
-        let rng = MainRng::new(11);
-        let rng_before = rng.state();
-        let mut sounds = Vec::new();
-        super::append_selected_death_sounds(
-            rules.object(type_name).expect("type"),
-            category,
-            rules.general.building_die_sound.as_deref(),
-            true,
-            &rng,
-            HERE,
-            &mut sounds,
+    for (kind, global, expected) in [
+        ("GAPOWR", Some("BuildingGenericDie"), true),
+        ("GATECH", Some("BuildingGenericDie"), false),
+        ("GAPOWR", None, false),
+    ] {
+        let mut rules = rules.clone();
+        rules.general.building_die_sound = global.map(str::to_owned);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 11);
+        let building = sim
+            .spawn_object(kind, "Americans", 12, 12, 0, &rules)
+            .unwrap();
+        let location = crate::sim::movement::ground_pose::object_location(
+            sim.entities().get(building).unwrap(),
+            sim.resolved_terrain.as_ref(),
+        );
+        sim.take_sound_events_for_test();
+        let before = sim.main_rng.state();
+        sim.building_destruction_effects(
+            &rules,
+            building,
+            false,
+            &mut Vec::new(),
+            |world, _| {
+                assert_eq!(
+                    world.sound_events().len(),
+                    usize::from(expected),
+                    "the global request precedes the centre mark"
+                );
+            },
+            crate::sim::world::FrameEffects::empty(),
         );
         assert_eq!(
-            rng.state() == rng_before,
-            rules.object(type_name).expect("type").die_sounds.is_empty(),
-            "the global cue must not draw; only a non-empty DieSound= list does",
+            sim.main_rng.state(),
+            before,
+            "the global cue selects no list item"
         );
-        sounds
-            .into_iter()
-            .map(|(sound, location)| {
-                assert_eq!(location, HERE, "played at the building's own Location");
-                sound
-            })
-            .collect()
-    };
-
-    assert_eq!(
-        selected("GAPOWR", EntityCategory::Structure),
-        ["BuildingGenericDie"],
-        "no DieSound= on the type, so the global crumble cue plays"
-    );
-    assert_eq!(
-        selected("GATECH", EntityCategory::Structure),
-        ["OwnCrumble"],
-        "0x0044174A skips the global when the type has its own list"
-    );
-    assert_eq!(
-        selected("E1", EntityCategory::Infantry),
-        ["DieA"],
-        "the fallback is BuildingClass-only"
-    );
-
-    // A rules file with no BuildingDieSound= leaves the building silent
-    // rather than inventing a cue.
-    let bare = RuleSet::from_ini(&IniFile::from_str(
-        "\
-[General]\nFlightLevel=500\n\n\
-[InfantryTypes]\n\n[VehicleTypes]\n\n[AircraftTypes]\n\n\
-[BuildingTypes]\n0=GAPOWR\n\n[GAPOWR]\nStrength=750\nArmor=wood\n",
-    ))
-    .expect("bare rules parse");
-    let rng = MainRng::new(11);
-    let mut sounds = Vec::new();
-    super::append_selected_death_sounds(
-        bare.object("GAPOWR").expect("type"),
-        EntityCategory::Structure,
-        bare.general.building_die_sound.as_deref(),
-        true,
-        &rng,
-        HERE,
-        &mut sounds,
-    );
-    assert!(sounds.is_empty());
+        if expected {
+            assert!(
+                matches!(sim.sound_events(), [crate::sim::world::SimSoundEvent::VocAtCoord {
+                sound_id, coordinate, flags: 0,
+            }] if sound_id == "BuildingGenericDie" && *coordinate == location)
+            );
+        } else {
+            assert!(
+                sim.sound_events().is_empty(),
+                "own DieSound or absent global contributes no global cue"
+            );
+        }
+    }
 }
 
 /// `BuildingClass::ReceiveDamage @ 0x00442230`: the global
@@ -6128,9 +6133,7 @@ fn garrison_fire_keeps_occupant_anim_and_sound_path() {
     let mut store = EntityStore::new();
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
     building.set_category_for_test(EntityCategory::Structure);
-    let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1.0);
-    cargo.board_forced_chain(&[(1, 1.0)]);
-    building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
+    building.passenger_role.occupants_mut().add(1);
     store.insert(building);
     let mut occupant = make_infantry_entity(1, "E1", 5, 5, 125);
     occupant.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(10, false);
@@ -7269,7 +7272,7 @@ fn a_buildings_death_weapon_detonates_at_its_foundation_centre() {
     derrick.set_type_ref_for_test(sim.interner.intern("DERRICK"));
     derrick
         .type_facts
-        .set_foundation_for_test("3x3".to_string());
+        .set_foundation_for_test("3x3".to_string().into());
     derrick.set_is_voxel_for_test(false);
     derrick.health.set_for_test(100);
     sim.substrate.entities.insert(derrick);
@@ -8848,6 +8851,7 @@ fn deployed_desolator_self_irradiates_and_refires_below_third() {
 
 #[test]
 fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
+    use crate::sim::world::SimSoundEvent;
     // The damage-apply producer, per `BuildingClass::ReceiveDamage @
     // 0x00442230` (sourced, non-zero result, `Insignificant=` clear — no
     // attacker-house test) and `UnitClass::ReceiveDamage 0x007384B9`
@@ -8869,7 +8873,7 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
     .expect("rules parse");
 
     let mut main_rng = SimRng::new(1);
-    let mut run_attack = |victim: GameEntity| -> CombatTickResult {
+    let mut run_attack = |victim: GameEntity| {
         let mut store = EntityStore::new();
         store.insert(victim);
         let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
@@ -8877,57 +8881,75 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
         store.insert(attacker);
         let mut interner = test_interner();
         install_entity_attack_target_for_test(&mut store, 1, 10);
-        tick(&mut store, &rules, &mut interner, 0, &mut main_rng)
+        let mut sounds = Vec::new();
+        let result = tick_combat_with_fog(
+            &mut store,
+            &mut OccupancyGrid::new(),
+            &rules,
+            &mut interner,
+            None,
+            &BTreeMap::new(),
+            Some(&mut sounds),
+            None,
+            None,
+            None,
+            0,
+            100,
+            0,
+            &[],
+            None,
+            &mut main_rng,
+        );
+        let warnings: Vec<_> = sounds
+            .into_iter()
+            .filter_map(|event| match event {
+                SimSoundEvent::UnderAttack {
+                    owner,
+                    miner,
+                    rx,
+                    ry,
+                    ..
+                } => Some((owner, miner, rx, ry)),
+                _ => None,
+            })
+            .collect();
+        (result, warnings)
     };
 
     // Enemy-owned Structure → one base ping for the VICTIM's owner.
     let mut building = make_entity_owned(10, "CAGAS", 8, 5, 800, "Defender");
     building.set_category_for_test(EntityCategory::Structure);
-    let result = run_attack(building);
-    assert_eq!(
-        result.consequences.effects().under_attack_events.len(),
-        1,
-        "structure hit pings"
+    let (result, warnings) = run_attack(building);
+    assert!(
+        result.consequences.effects().under_attack_events.is_empty(),
+        "building warning is already submitted inline"
     );
-    let ev = &result.consequences.effects().under_attack_events[0];
-    assert_eq!(ev.victim_type, test_intern("CAGAS"));
-    assert_eq!(ev.owner, test_intern("Defender"));
-    assert_eq!((ev.rx, ev.ry), (8, 5));
+    assert_eq!(warnings, [(test_intern("Defender"), false, 8, 5)]);
 
     // `Harvester=` vehicle → miner ping (the type flag, `UnitType+0xE0E`,
     // not the Rust miner component).
     let harv = make_entity_owned(10, "HARV", 8, 5, 1000, "Defender");
-    let result = run_attack(harv);
-    assert_eq!(
-        result.consequences.effects().under_attack_events.len(),
-        1,
-        "harvester hit pings"
-    );
-    assert_eq!(
-        result.consequences.effects().under_attack_events[0].victim_type,
-        test_intern("HARV")
-    );
+    let (result, warnings) = run_attack(harv);
+    assert!(result.consequences.effects().under_attack_events.is_empty());
+    assert_eq!(warnings, [(test_intern("Defender"), true, 8, 5)]);
 
     // SAME-owner structure damage → still pings: `BuildingClass::
     // ReceiveDamage` never compares the source's house before
     // `NotifyUnderAttack` (force-fire on an own building announces).
     let mut friendly = make_entity_owned(10, "CAGAS", 8, 5, 800, "Attacker");
     friendly.set_category_for_test(EntityCategory::Structure);
-    let result = run_attack(friendly);
+    let (_, warnings) = run_attack(friendly);
     assert_eq!(
-        result.consequences.effects().under_attack_events.len(),
-        1,
+        warnings,
+        [(test_intern("Attacker"), false, 8, 5)],
         "own-fire pings"
-    );
-    assert_eq!(
-        result.consequences.effects().under_attack_events[0].owner,
-        test_intern("Attacker")
     );
 
     // `Insignificant=yes` building → `BuildingType+0x232` skip.
     let mut prop = make_entity_owned(10, "CATREE", 8, 5, 800, "Defender");
     prop.set_category_for_test(EntityCategory::Structure);
-    let result = run_attack(prop);
+    let (result, warnings) = run_attack(prop);
+    assert!(warnings.is_empty());
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
         "insignificant buildings never ping"
@@ -8939,7 +8961,8 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
     // (`building_retaliation`'s tests).
     let mut slave = make_entity_owned(10, "YAREFN", 8, 5, 800, "Defender");
     slave.set_category_for_test(EntityCategory::Structure);
-    let result = run_attack(slave);
+    let (result, warnings) = run_attack(slave);
+    assert!(warnings.is_empty());
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
         "1x1 UndeploysInto buildings never ping"
@@ -8947,10 +8970,96 @@ fn under_attack_events_fire_for_sourced_structures_and_harvester_types() {
 
     // Plain vehicle (not `Harvester=`, not a structure) → no ping.
     let plain = make_entity_owned(10, "MTNK", 8, 5, 1000, "Defender");
-    let result = run_attack(plain);
+    let (result, warnings) = run_attack(plain);
+    assert!(warnings.is_empty());
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
         "plain unit hits do not ping"
+    );
+}
+
+/// AreaDamage489AB6 completes each ReceiveDamage before its next receiver.
+/// Unit73851D/738530 must finish its warning before Building44297B reaches
+/// HouseNotify4F93E0. Both fresh radar types can admit; stock STANDARD/NORMAL
+/// EVA entries share one pending slot: with an unrelated line playing and an
+/// empty pending slot, reversing these warnings changes the next cue.
+#[test]
+fn retail_area_damage_delivers_miner_warning_before_neighboring_base_warning() {
+    use crate::sim::world::{FrameEffects, SimSoundEvent, SoundBoundary};
+    use std::cell::{Cell, RefCell};
+
+    struct Warnings {
+        delivered: Cell<usize>,
+        seen: RefCell<Vec<(bool, i32)>>,
+        building: u64,
+    }
+    impl SoundBoundary for Warnings {
+        fn consume(&self, sim: &Simulation, _: &RuleSet, events: &[SimSoundEvent]) {
+            for event in &events[self.delivered.get()..] {
+                if let SimSoundEvent::UnderAttack { miner, .. } = event {
+                    let hp = sim.entities().get(self.building).unwrap().health.current();
+                    self.seen.borrow_mut().push((*miner, hp));
+                }
+            }
+            self.delivered.set(events.len());
+        }
+        fn delivered(&self) -> usize {
+            self.delivered.get()
+        }
+    }
+
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let rules = retail.rules;
+    let weapon = rules.weapon("BlimpBomb").unwrap();
+    let warhead = rules.warhead("BlimpHE").unwrap();
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x7385_1D);
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true));
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let local = sim.intern("Americans");
+    sim.session.set_current_house_for_test(Some(local));
+    let miner = sim
+        .spawn_object("HARV", "Americans", 12, 12, 0, &rules)
+        .unwrap();
+    let building = sim
+        .spawn_object("NAFLAK", "Americans", 13, 12, 0, &rules)
+        .unwrap();
+    let source = sim
+        .spawn_object("ZEP", "Russians", 24, 24, 0, &rules)
+        .unwrap();
+    let source_owner = sim.entities().get(source).unwrap().owner();
+    let before_building = sim.entities().get(building).unwrap().health.current();
+    let position = crate::sim::movement::ground_pose::position_world_coord(
+        &sim.entities().get(miner).unwrap().position,
+    );
+    let warhead_id = sim.intern("BlimpHE");
+    let warnings = Warnings {
+        delivered: Cell::new(0),
+        seen: RefCell::new(Vec::new()),
+        building,
+    };
+    let effects = FrameEffects::for_sound(&warnings);
+    crate::sim::combat::world_receiver::apply_area_damage(
+        &mut sim,
+        &rules,
+        None,
+        crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z),
+        weapon.damage,
+        warhead,
+        (source, Some(source_owner), warhead_id),
+        effects,
+    );
+    effects.flush_sound(&sim, &rules);
+    let after_building = sim.entities().get(building).unwrap().health.current();
+    assert!(0 < after_building && after_building < before_building);
+    assert_eq!(
+        *warnings.seen.borrow(),
+        [(true, before_building), (false, after_building)],
+        "the miner warning must reach the client before the later building receiver"
     );
 }
 
@@ -9028,6 +9137,7 @@ fn unit_lost_events_come_from_damage_kills_of_unspawned_non_buildings() {
 /// lost" alone, never "Ore miner under attack" as well.
 #[test]
 fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
+    use crate::sim::world::SimSoundEvent;
     let rules = RuleSet::from_ini(&IniFile::from_str(
         "[InfantryTypes]\n0=E1\n\n\
          [VehicleTypes]\n0=HARV\n\n\
@@ -9041,7 +9151,7 @@ fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
     .expect("rules parse");
 
     let mut main_rng = SimRng::new(1);
-    let mut run_attack = |victim: GameEntity| -> CombatTickResult {
+    let mut run_attack = |victim: GameEntity| {
         let mut store = EntityStore::new();
         store.insert(victim);
         let mut attacker = make_infantry_entity(1, "E1", 5, 5, 125);
@@ -9049,27 +9159,49 @@ fn harvester_killing_blow_announces_unit_lost_without_the_miner_ping() {
         store.insert(attacker);
         let mut interner = test_interner();
         install_entity_attack_target_for_test(&mut store, 1, 10);
-        tick(&mut store, &rules, &mut interner, 0, &mut main_rng)
+        let mut sounds = Vec::new();
+        let result = tick_combat_with_fog(
+            &mut store,
+            &mut OccupancyGrid::new(),
+            &rules,
+            &mut interner,
+            None,
+            &BTreeMap::new(),
+            Some(&mut sounds),
+            None,
+            None,
+            None,
+            0,
+            100,
+            0,
+            &[],
+            None,
+            &mut main_rng,
+        );
+        let warnings = sounds
+            .into_iter()
+            .filter(|event| matches!(event, SimSoundEvent::UnderAttack { .. }))
+            .collect::<Vec<_>>();
+        (result, warnings)
     };
 
     // Non-lethal hit: the `result != 4` arm pings and nothing dies.
-    let result = run_attack(make_entity_owned(10, "HARV", 8, 5, 1000, "Defender"));
-    assert_eq!(
-        result.consequences.effects().under_attack_events.len(),
-        1,
-        "survivor hit pings"
-    );
-    assert_eq!(
-        result.consequences.effects().under_attack_events[0].victim_type,
-        test_intern("HARV")
-    );
+    let (result, warnings) = run_attack(make_entity_owned(10, "HARV", 8, 5, 1000, "Defender"));
+    assert!(result.consequences.effects().under_attack_events.is_empty());
+    assert!(matches!(warnings.as_slice(), [SimSoundEvent::UnderAttack {
+        owner, miner: true, rx: 8, ry: 5, ..
+    }] if *owner == test_intern("Defender")));
     assert!(
         result.consequences.effects().unit_lost_events.is_empty(),
         "nothing died"
     );
 
     // One-shot kill: result 4 skips the ping; only the death arm speaks.
-    let result = run_attack(make_entity_owned(10, "HARV", 8, 5, 10, "Defender"));
+    let (result, warnings) = run_attack(make_entity_owned(10, "HARV", 8, 5, 10, "Defender"));
+    assert!(
+        warnings.is_empty(),
+        "a killing blow never submits a miner warning"
+    );
     assert!(
         result.consequences.effects().under_attack_events.is_empty(),
         "a killing blow never reaches the miner ping"
@@ -9171,7 +9303,9 @@ fn projectile_shrapnel_count_measures_to_the_firers_get_coords() {
     let mut source = make_entity_owned(1, "HQ", 2, 4, 100, "Soviet");
     source.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=3x3`.
-    source.type_facts.set_foundation_for_test("3x3".to_string());
+    source
+        .type_facts
+        .set_foundation_for_test("3x3".to_string().into());
     source.lifecycle.set_cell_marked_for_test(true);
     entities.insert(source);
     // The target stands in the bullet's cell, which SpawnShrapnel requires.
@@ -9232,7 +9366,9 @@ fn projectile_shrapnel_aims_at_a_building_foundation_center() {
     let mut target = make_entity_owned(2, "HQ", 6, 4, 100, "Americans");
     target.set_category_for_test(EntityCategory::Structure);
     // Construction stamps the type's `Foundation=2x2`.
-    target.type_facts.set_foundation_for_test("2x2".to_string());
+    target
+        .type_facts
+        .set_foundation_for_test("2x2".to_string().into());
     target.lifecycle.set_cell_marked_for_test(true);
     entities.insert(target);
     let mut occupancy = OccupancyGrid::rebuild(&entities);
@@ -9451,7 +9587,8 @@ fn projectile_shrapnel_needs_a_non_building_first_object_in_the_bullets_cell() {
     building.insert(firer());
     let mut hq = make_entity_owned(2, "HQ", 5, 5, 100, "Americans");
     hq.set_category_for_test(EntityCategory::Structure);
-    hq.type_facts.set_foundation_for_test("1x1".to_string());
+    hq.type_facts
+        .set_foundation_for_test("1x1".to_string().into());
     building.insert(hq);
     assert!(shrapnel_at_cell_5_5(&rules, building, 1).0.is_empty());
 
@@ -9584,9 +9721,14 @@ fn projectile_shrapnel_is_admitted_by_a_tree_heading_the_bullets_cell() {
         vec![make_entity_owned(1, "MTNK", 2, 2, 100, "Soviet")],
     );
     assert!(commit_shrapnel_at_5_5(&mut sim, &rules).is_empty());
-    sim.terrain_objects
-        .cell_index_mut_for_test()
-        .insert((5, 5), 900);
+    // The cell walker follows represented Terrain instances, not dangling
+    // head IDs. This fixture isolates admission rather than map construction.
+    let tree_type = sim.interner.intern("TREE01");
+    sim.terrain_objects.insert_constructed(
+        crate::sim::terrain_object::TerrainObjectState::for_test(900, tree_type, 5, 5),
+        false,
+    );
+    sim.terrain_objects.add_to_cell(900, (5, 5));
     assert_eq!(commit_shrapnel_at_5_5(&mut sim, &rules).len(), 1);
 }
 
@@ -9901,6 +10043,7 @@ fn gsi_04_10_near_center_iron_curtain_isolates_earlier_terrain_receiver() {
         entity_event.near_center_ic_isolation_eligible = true;
         let receivers = [
             AreaDamageReceiver::Terrain(TerrainDamageEvent {
+                damage_writeback: None,
                 stable_id: terrain_id,
                 rx: 5,
                 ry: 5,
@@ -9991,6 +10134,7 @@ fn gsi_04_10_entity_fatal_hook_and_later_terrain_share_raw_occupation() {
             warhead_ref,
         )),
         AreaDamageReceiver::Terrain(TerrainDamageEvent {
+            damage_writeback: None,
             stable_id: terrain_id,
             rx: 5,
             ry: 5,
@@ -10263,9 +10407,7 @@ fn gsi_08_05_a_garrison_shot_takes_the_f32_occupy_multiplier() {
     let mut store = EntityStore::new();
     let mut building = make_entity(10, "CAGAS", 5, 5, 800);
     building.set_category_for_test(EntityCategory::Structure);
-    let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1.0);
-    cargo.board_forced_chain(&[(1, 1.0)]);
-    building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
+    building.passenger_role.occupants_mut().add(1);
     store.insert(building);
     let mut occupant = make_infantry_entity(1, "E1", 5, 5, 125);
     occupant.passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(10, false);
@@ -10350,10 +10492,11 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     let mut store = EntityStore::new();
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
     building.set_category_for_test(EntityCategory::Structure);
-    let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1.0);
-    cargo.board_forced_chain(&[(1, 1.0)]);
-    cargo.board_forced_chain(&[(3, 1.0)]);
-    building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
+    // Preserve the former supplied Cargo prepend order as occupant input.
+    building
+        .passenger_role
+        .occupants_mut()
+        .set_ids_for_test(vec![3, 1]);
     store.insert(building);
     for id in [1, 3] {
         let mut occupant = make_infantry_entity(id, "E1", 5, 5, 125);
@@ -10368,9 +10511,9 @@ fn gsi_08_12_a_garrison_kill_pays_the_occupant_next_in_line() {
     install_entity_attack_target_for_test(&mut store, 10, 2);
     // The occupant at fire index 0 shoots; the one after it is next in line.
     let (shooter, next) = {
-        let cargo = store.get(10).unwrap().passenger_role.cargo().unwrap();
-        assert_eq!(cargo.garrison_fire_index(), 0);
-        (cargo.passengers()[0], cargo.passengers()[1])
+        let occupants = store.get(10).unwrap().passenger_role.occupants();
+        assert_eq!(occupants.fire_index(), 0);
+        (occupants.ids()[0], occupants.ids()[1])
     };
     tick(&mut store, &rules, &mut interner, 0, &mut SimRng::new(1));
 
@@ -10406,16 +10549,16 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     let mut store = EntityStore::new();
     let mut building = make_entity_owned(10, "CAGAS", 5, 5, 800, "Soviet");
     building.set_category_for_test(EntityCategory::Structure);
-    let mut cargo = crate::sim::passenger::PassengerCargo::new(5, 1.0);
-    cargo.board_forced_chain(&[(1, 1.0)]);
-    cargo.board_forced_chain(&[(3, 1.0)]);
-    building.passenger_role = crate::sim::passenger::PassengerRole::transport(cargo);
+    building
+        .passenger_role
+        .occupants_mut()
+        .set_ids_for_test(vec![3, 1]);
     store.insert(building);
     // Whichever occupant sits at index 0 shoots with the quick gun; the one
     // after it carries the slow gun.
     let (shooter, next) = {
-        let cargo = store.get(10).unwrap().passenger_role.cargo().unwrap();
-        (cargo.passengers()[0], cargo.passengers()[1])
+        let occupants = store.get(10).unwrap().passenger_role.occupants();
+        (occupants.ids()[0], occupants.ids()[1])
     };
     for (id, kind) in [(shooter, "E1"), (next, "E2")] {
         let mut occupant = make_infantry_entity(id, kind, 5, 5, 125);
@@ -10436,11 +10579,7 @@ fn gsi_08_05_a_mixed_garrison_rearms_with_the_next_occupants_weapon() {
     );
     let building = store.get(10).unwrap();
     assert_eq!(
-        building
-            .passenger_role
-            .cargo()
-            .unwrap()
-            .garrison_fire_index(),
+        building.passenger_role.occupants().fire_index(),
         1,
         "the turn passed to the next occupant"
     );
@@ -11056,7 +11195,7 @@ fn a_dying_buildings_debris_leaves_from_its_centre() {
     // Construction stamps the type's `Foundation=3x3`.
     building
         .type_facts
-        .set_foundation_for_test("3x3".to_string());
+        .set_foundation_for_test("3x3".to_string().into());
     let location = (
         8 * 256 + building.position.sub_x().to_num::<i32>(),
         5 * 256 + building.position.sub_y().to_num::<i32>(),
@@ -11130,10 +11269,12 @@ fn gsi_05_14_a_dying_harvester_throws_voxel_tires_and_no_shp_debris() {
         !names.iter().any(|n| n.starts_with("DBRI")),
         "the voxel loop spends the whole budget: {names:?}"
     );
-    // Every piece launches from the wreck's own coordinate, lifted 10 leptons.
+    // ObjectUnlimbo7494E9 retains the wreck Location; only Bounce gets
+    // the constructor's ten-lepton lift74950C before its first AI visit.
     for piece in &result.consequences.effects().voxel_debris {
         assert_eq!(piece.object.duration(), 150);
-        assert_eq!(piece.object.world_coord().z, 10);
+        assert_eq!(piece.object.world_coord().z, 0);
+        assert_eq!(piece.object.bounce().position_leptons().z, 10);
     }
 }
 

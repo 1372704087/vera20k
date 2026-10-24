@@ -14,7 +14,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::assets::asset_manager::AssetManager;
 use crate::assets::shp_file::ShpFile;
 use crate::rules::art_data;
-use crate::rules::ini_parser::IniFile;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 
@@ -68,7 +67,8 @@ impl EffectAssetCatalog {
 
         for name in authoritative_effect_roots(rules) {
             let image_id = rules.art().resolve_effective_image_id(&name, &name);
-            let candidates = art_data::anim_shp_candidates(
+            let candidates = art_data::effect_shp_candidates(
+                crate::rules::art_data::EffectImageKind::Particle,
                 Some(rules.art()),
                 &name,
                 &image_id,
@@ -312,6 +312,22 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     for name in &rules.general.metallic_debris {
         insert(name);
     }
+    // AreaDamage48A34D constructs the retained BarrelExplode; Voxel749F30
+    // constructs its ExpireAnim74A1AF and BounceAnim74A87F. Bind these
+    // producers explicitly rather than depending on another warhead's list.
+    if let Some(name) = rules.general.barrel_explode.as_deref() {
+        insert(name);
+    }
+    for kind in rules.voxel_anim_types_iter() {
+        for name in kind.expire_anim.iter().chain(&kind.bounce_anim) {
+            insert(name);
+        }
+    }
+    // BuildingDestructionEffects441AF3 uses find-only on literal FIRE3.
+    // An orphan ART section must not create a registered Type.
+    if rules.anim_type_names.contains("FIRE3") {
+        insert("FIRE3");
+    }
     // A chunk landing in water below the deck: `Wake=` and the first
     // `SplashList=` entry (`AnimClass::AI 0x00423D46..0x00423DDD`).
     insert(&rules.general.wake.name);
@@ -362,6 +378,13 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     // at once.
     insert(&rules.general.dominator_first_anim);
     insert(&rules.general.dominator_second_anim);
+    // TechnoClass::Install_Drain_Link70FD70 constructs Rules+31C's
+    // DrainAnimationType at70FDF5..70FE14 and attaches it to the drainer.
+    // Bind its physical frames before Fire_At6FDF8C can create the AnimClass;
+    // the same scheduler closure supplies the renderer's animation atlas.
+    if let Some(name) = rules.combat_damage.drain_animation_type.as_deref() {
+        insert(name);
+    }
     // `[CombatDamage] ControlledAnimationType=` and
     // `PermaControlledAnimationType=`: the rings a captured or Dominated
     // object wears (`sim::capture_manager`).
@@ -436,7 +459,7 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
 /// name animations no archive holds (`GAGAP_A`, `GAREFNL4`), so requiring every
 /// art building animation made every retail map fail to load. (Most of the
 /// names that first failed were a separate resolver fault, since fixed in
-/// `art_data::anim_shp_candidates`.)
+/// `art_data::effect_shp_candidates`.)
 pub fn tolerant_anim_class_roots(rules: &RuleSet) -> Vec<String> {
     let mut roots = anim_class_roots(rules);
     roots.extend(
@@ -468,8 +491,6 @@ pub fn log_unbound_combat_explosion_roots(unbound: usize) {
 /// reads it on graphical and headless loads alike.
 pub fn resolved_overlay_shp_ids(
     registry: &OverlayTypeRegistry,
-    rules_ini: &IniFile,
-    art: &art_data::ArtRegistry,
     asset_manager: &AssetManager,
     theater_ext: &str,
     theater_name: &str,
@@ -480,18 +501,32 @@ pub fn resolved_overlay_shp_ids(
         let Some(name) = registry.name(overlay_id) else {
             continue;
         };
-        let image_id = art.resolve_overlay_image_id(name, rules_ini);
-        let native_names =
-            art_data::native_overlay_shp_names(art, &image_id, theater_ext, theater_name);
-        if native_names
-            .iter()
-            .filter_map(|candidate| asset_manager.load_file_from_mix(candidate))
-            .any(|loaded| ShpFile::from_bytes(&loaded.bytes).is_ok())
-        {
+        if load_overlay_shape(asset_manager, registry, name, theater_ext, theater_name).is_some() {
             available.insert(overlay_id);
         }
     }
     available
+}
+
+/// Resolve the reached OverlayRead5FE928 / InitTheater5FE620 / saved
+/// Load5FEAF0 plan once, using native cached LoadFileFromMIX5B40B0 selection.
+/// The first physical SHP is the resident image even if its frames are empty.
+/// Authored admission, drawing and radar all consume this same resource owner.
+pub fn load_overlay_shape(
+    asset_manager: &AssetManager,
+    registry: &OverlayTypeRegistry,
+    name: &str,
+    theater_ext: &str,
+    theater_name: &str,
+) -> Option<(String, ShpFile)> {
+    registry
+        .shp_candidates(name, theater_ext, theater_name)
+        .into_iter()
+        .find_map(|candidate| {
+            let loaded = asset_manager.load_file_from_mix(&candidate)?;
+            let shp = ShpFile::from_bytes(&loaded.bytes).ok()?;
+            Some((candidate, shp))
+        })
 }
 
 fn authoritative_effect_roots(rules: &RuleSet) -> BTreeSet<String> {
@@ -526,6 +561,44 @@ mod tests {
     use super::*;
     use crate::rules::art_data::ArtRegistry;
     use crate::rules::ini_parser::IniFile;
+
+    #[test]
+    fn saved_overlay_suffix_runs_only_after_generic_shape_misses() {
+        let Some((_, retail)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let bytes = retail.get_ref("SEAL.SHP").unwrap();
+        let root = TestRoot::new();
+        for name in ["GTFALL.SHP", "GAPRIM.SHP", "GTPRIM.SHP"] {
+            std::fs::write(root.path().join(name), bytes).unwrap();
+        }
+        let assets = AssetManager::from_loose_root_for_test(root.path());
+        let mut processed =
+            crate::rules::native_processing::RulesLayerStack::new(IniFile::from_str(
+                "[OverlayTypes]\n0=FALL\n1=PRIM\n[FALL]\nImage=GAFALL\n[PRIM]\nImage=GAPRIM\n",
+            ))
+            .process()
+            .unwrap();
+        let registry = OverlayTypeRegistry::from_processed_rules(&processed);
+        assert!(load_overlay_shape(&assets, &registry, "FALL", "TEM", "TEMPERATE").is_none());
+        // OverlayLoad5FEB45 tries generic GAFALL/GGFALL first;5FEBEC
+        // appends one theater-letter attempt only while Shape is null.
+        processed.restore_object_image_loads("TEMPERATE").unwrap();
+        let registry = OverlayTypeRegistry::from_processed_rules(&processed);
+        assert_eq!(
+            load_overlay_shape(&assets, &registry, "FALL", "TEM", "TEMPERATE")
+                .unwrap()
+                .0,
+            "GTFALL.SHP"
+        );
+        assert_eq!(
+            load_overlay_shape(&assets, &registry, "PRIM", "TEM", "TEMPERATE")
+                .unwrap()
+                .0,
+            "GAPRIM.SHP",
+            "a resident generic primary wins over the available suffix"
+        );
+    }
 
     #[test]
     fn available_count_preserves_existing_shadow_and_scheduler_semantics() {
@@ -589,11 +662,11 @@ mod tests {
         assert_eq!(catalog.raw_frame_count("BROKEN"), None);
     }
 
-    /// A root whose SHP is missing is skipped, not fatal, and a bound root's
+    /// A root whose SHP is missing stays a real null-image Anim, and a bound root's
     /// `Next=` chain is bound with it. Retail art names building animations
     /// (`[CAARAY] ActiveAnim=CAARAY_A`) whose sprites never shipped.
     #[test]
-    fn tolerant_binder_skips_missing_roots_and_follows_next_chains() {
+    fn tolerant_binder_keeps_imageless_roots_and_follows_next_chains() {
         let root = TestRoot::new();
         std::fs::write(
             root.path().join("ALPHA.SHP"),
@@ -619,11 +692,16 @@ mod tests {
             "TEMPERATE",
         );
 
-        assert_eq!(skipped, 1, "the missing sprite is counted, not fatal");
+        assert_eq!(skipped, 0, "AnimRead427D00 succeeds with a null image");
         let bound = rules.art().scheduler_anim_types();
         assert!(bound.contains("ALPHA"));
         assert!(bound.contains("BETA"), "Next= chain is bound with its root");
-        assert!(!bound.contains("ABSENT"));
+        assert!(bound.contains("ABSENT"));
+        let absent = rules.art().anim_runtime_config("ABSENT").unwrap();
+        assert_eq!(
+            (absent.raw_shp_frame_count, absent.end, absent.loop_end),
+            (Some(0), 0, 0)
+        );
         assert_eq!(rules.art().anim_runtime_config("BETA").unwrap().end, 4);
     }
 
@@ -866,6 +944,23 @@ mod anim_class_root_tests {
 
     /// `[Powerups]` anims reach the binder; a `<none>` token and an absent
     /// row (the default `0,NONE`) contribute no root.
+    #[test]
+    fn roots_cover_overlay_and_voxel_death_producers() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[General]\nBarrelExplode=MYBLAST\n[VoxelAnims]\n0=MYCHUNK\n\
+             [MYCHUNK]\nExpireAnim=MYEXPIRE\nBounceAnim=MYBOUNCE\n\
+             [Animations]\n999=FIRE3\n",
+        ))
+        .unwrap();
+        let roots = anim_class_roots(&rules);
+        for name in ["MYBLAST", "MYEXPIRE", "MYBOUNCE", "FIRE3"] {
+            assert!(
+                roots.iter().any(|root| root == name),
+                "{name} absent: {roots:?}"
+            );
+        }
+    }
+
     #[test]
     fn roots_cover_powerup_pickup_anims() {
         let rules = RuleSet::from_ini(&IniFile::from_str(

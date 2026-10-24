@@ -26,6 +26,10 @@ mod scenario_fillsilos_retail_tests;
 #[path = "scenario_special_money_retail_tests.rs"]
 mod scenario_special_money_retail_tests;
 
+#[cfg(test)]
+#[path = "building_ai_sale_tag_retail_tests.rs"]
+mod building_ai_sale_tag_retail_tests;
+
 use std::collections::HashMap;
 
 use crate::map::entities::EntityCategory;
@@ -2752,6 +2756,9 @@ impl ScenarioBootstrapRng {
                     campaign_index,
                     restart_carry_over,
                 )?;
+                simulation.session.install_campaign_fog_of_war(
+                    map_data.special_flags.fog_of_war.unwrap_or(false),
+                );
                 simulation.install_native_unique_id_cursor(
                     crate::sim::native_identity::NativeUniqueIdCursor::begin_campaign_prefix(
                         early_events.len(),
@@ -2878,6 +2885,11 @@ impl Simulation {
         crate::sim::world::GeneratedTechnoInitTable,
         crate::sim::world::GeneratedTechnoInitError,
     > {
+        if let Some(lighting) = trace.lighting {
+            self.session
+                .lighting_mut()
+                .install_generated_lighting(lighting);
+        }
         replay_generated_construction_trace_with_rng(
             &mut self.scenario_rng,
             &mut self.native_unique_ids,
@@ -5709,6 +5721,7 @@ mod tests {
             mission: None,
             recruitable_a: true,
             recruitable_b: true,
+            group: -1,
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,

@@ -127,9 +127,12 @@ impl CampaignStartTarget {
     fn explicit_scenario(self) -> Option<&'static str> {
         match self {
             Self::ExplicitFirstLive(scenario) => Some(scenario),
-            Self::Opening(OpeningTarget::RadarAlert | OpeningTarget::RadarRestored) => {
-                Some("SOV02SMD.MAP")
-            }
+            Self::Opening(
+                OpeningTarget::RadarAlert
+                | OpeningTarget::RadarRestored
+                | OpeningTarget::SovietFortresses(_),
+            ) => Some("SOV02SMD.MAP"),
+            Self::Opening(OpeningTarget::SovietGroups(_)) => Some("SOV07TMD.MAP"),
             Self::Restart(RestartTarget::ObjectiveExpiry) => Some("SOV02SMD.MAP"),
             Self::Restart(RestartTarget::AlternateHomeVictory) => Some("SOV06LMD.MAP"),
             Self::Restart(RestartTarget::InheritedTimerVictory) => Some("SOV01UMD.MAP"),
@@ -2013,8 +2016,25 @@ fn installed_campaign_runtime_receipt(state: &AppState) -> Result<Value> {
             "saved_world_restored": state.match_state.startup.restored()},
         "seed": sim.session().seed(), "map_name": sim.session().map_name(), "theater": sim.session().theater(),
         "game_mode_nonzero": sim.session().game_mode_nonzero(), "campaign_mission_counter": mission_counter,
+        "destinations": {"next": state.match_state.map_basic.next_scenario,
+            "alternate": state.match_state.map_basic.alt_next_scenario},
         "campaign_difficulty_rows": {"player": player_difficulty as i32, "computer": computer_difficulty as i32},
         "current_house": {"name": sim.interner().resolve(current), "native_unique_id": current_native_id},
+        "fog": {"enabled": sim.session().game_options().fog_of_war,
+            "shroud_growth": {"enabled": rules.general.shroud_grow,
+                "interval": rules.general.shroud_growth_interval_frames(),
+                "start": sim.session().shroud_growth_timer().start_frame(),
+                "duration": sim.session().shroud_growth_timer().duration()},
+            "regrow_timer": {"start": sim.session().fog_regrow_timer().start_frame(),
+                "duration": sim.session().fog_regrow_timer().duration()},
+            "snapshots": sim.fog().fogged_objects().values().filter_map(|record| {
+                let drawing = record.drawing.as_ref()?;
+                Some(json!({"id": record.id, "viewer": sim.interner().resolve(record.viewer),
+                    "source": record.source_entity_id, "owner": sim.interner().resolve(drawing.owner),
+                    "location": drawing.location, "records": drawing.records.iter().map(|row| {
+                        json!({"type": sim.interner().resolve(row.type_ref), "frame": row.frame})
+                    }).collect::<Vec<_>>()}))
+            }).collect::<Vec<_>>()},
         "flags": {"inert": flags.inert, "tiberium_grows": flags.tiberium_grows,
             "tiberium_spreads": flags.tiberium_spreads, "destroyable_bridges": flags.destroyable_bridges,
             "free_radar": sim.session().free_radar(), "ignore_global_ai_triggers": sim.session().ignore_global_ai_triggers()},

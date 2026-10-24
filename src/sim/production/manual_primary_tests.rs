@@ -133,7 +133,7 @@ fn assert_native_primary_type(rules: &RuleSet, name: &str, expected: &serde_json
             "factory": object.factory_rtti(),
             "build_category": build_category,
             "construction_yard": u8::from(object.construction_yard),
-            "foundation": crate::rules::foundation::foundation_id(&object.foundation),
+            "foundation": object.foundation.selector(),
             "gap_generator": u8::from(object.gap_generator),
             "infantry_absorb": u8::from(object.infantry_absorb),
             "invisible_in_game": u8::from(object.invisible_in_game),
@@ -692,6 +692,7 @@ fn primary_event_failed_building_resolution_preserves_a_live_units_plan() {
                 target_rx: 12,
                 target_ry: 20,
             },
+            None,
         )
         .unwrap();
     let planned = sim.decode_native_command_record(&record, 0).unwrap();

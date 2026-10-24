@@ -47,6 +47,7 @@ pub(crate) mod diagnostics;
 pub(crate) mod display_target;
 mod frame;
 pub mod frontend;
+mod game_data_check;
 mod handler;
 mod in_game;
 pub(crate) mod lan_service;

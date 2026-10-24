@@ -142,6 +142,7 @@ pub(crate) struct PreparedSave<'a> {
     sanitized: Option<String>,
     timestamp: u64,
     sinking_waterlines: Vec<(u64, i16)>,
+    lighting: crate::app::presentation::lighting::MatchLighting,
     sidebar_order: Option<crate::sim::snapshot::SavedSidebarOrder>,
     tactical_view: crate::sim::snapshot::SavedTacticalView,
     local_view: crate::sim::snapshot::saved_local_view::SavedLocalView,
@@ -253,6 +254,7 @@ fn prepare_save<'a>(
         sanitized,
         timestamp: now,
         sinking_waterlines,
+        lighting: presentation.lighting.clone(),
         sidebar_order,
         tactical_view,
         local_view,
@@ -278,9 +280,17 @@ impl PreparedSave<'_> {
         clock: &mut crate::app::match_runtime::frame_pacer::ScenarioElapsedClock,
         destination: SaveDestination<'_>,
     ) -> Result<PathBuf, SaveCommandError> {
+        sim.zone_grid()
+            .ok_or(SaveCommandError::MissingResources("retained navigation"))?;
+        self.resources.capture_live_cell_land(
+            sim.resolved_terrain()
+                .ok_or(SaveCommandError::MissingResources("live terrain"))?,
+        )?;
         let clock_save = clock.begin_save(crate::app::match_runtime::frame_pacer::wall_clock_ms());
         self.resources
             .set_elapsed_buckets(clock_save.accumulated_buckets());
+        let (cell_lighting, anim_intensities) = self.lighting.saved_at(sim);
+        self.local_view.set_lighting(cell_lighting);
         let bytes = crate::sim::snapshot::GameSnapshot::save_validated_with_presentation(
             sim,
             self.map_hash,
@@ -288,6 +298,7 @@ impl PreparedSave<'_> {
             &self.description,
             self.timestamp,
             &self.sinking_waterlines,
+            &anim_intensities,
             self.sidebar_order.as_ref(),
             Some(&self.tactical_view),
             Some(&self.local_view),
@@ -422,6 +433,7 @@ pub(crate) fn try_load_save_file(
                 frontend_main: &state.frontend.frontend_main_rng,
                 rules_owner,
                 tile_cache: &state.process_assets.tile_variant_selector_cache,
+                lighting: &state.match_state.match_presentation.lighting,
                 load_clock: &load_clock,
             },
             &mut assets,

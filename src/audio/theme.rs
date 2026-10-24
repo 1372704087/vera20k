@@ -578,6 +578,37 @@ impl ThemeRuntime {
         self.play_song(index, gates, physical, &mut prepare)
     }
 
+    /// ReadTheme4758F0's name/default tail after the production ReadString128.
+    /// A nonempty unknown name becomes-1; only missing/empty keeps the default.
+    fn read_theme_name(&self, name: Option<&str>, default: i32) -> i32 {
+        name.filter(|name| !name.is_empty())
+            .map_or(default, |name| self.from_name(name))
+    }
+
+    /// Installed Ares1002FB80/1002FC20: ordered Side then Country, or one
+    /// campaign Basic name. Exactly-2 retains retail LOADING; unknown-1 must
+    /// reach the same Play_Song owner. Native: rules_oracle/ares_loading_themes.
+    #[cfg(feature = "ares")]
+    pub(crate) fn play_ares_loading_theme<'a>(
+        &mut self,
+        names: impl IntoIterator<Item = Option<&'a str>>,
+        assets: &AssetManager,
+        gates: ThemeGates,
+        physical: MusicOutputState,
+    ) -> ThemeAction {
+        self.initialize_catalog(assets);
+        let selected = names
+            .into_iter()
+            .fold(THEME_AUTO, |prior, name| self.read_theme_name(name, prior));
+        let selected = if selected == THEME_AUTO {
+            self.from_name("LOADING")
+        } else {
+            selected
+        };
+        let mut prepare = |stem: &str| prepare_track(stem, assets);
+        self.play_song(selected, gates, physical, &mut prepare)
+    }
+
     /// `Main__PrepareSession @ 0x0052D9A0`: `Play(From_Name("INTRO"))`.
     pub(crate) fn play_menu_theme(
         &mut self,
@@ -600,9 +631,7 @@ impl ThemeRuntime {
         physical: MusicOutputState,
     ) -> ThemeAction {
         self.initialize_catalog(assets);
-        let index = requested_section
-            .map(str::trim)
-            .map_or(THEME_NONE, |section| self.from_name(section));
+        let index = self.read_theme_name(requested_section.map(str::trim), THEME_NONE);
         let admitted = self.admitted(gates);
         let action = if index == THEME_NONE {
             self.stop(gates, true, physical)
@@ -1013,6 +1042,38 @@ fn scan_catalog_availability(entries: &mut [ThemeEntry], assets: &AssetManager) 
             .and_then(|wav| wav.native_duration_seconds())
             .unwrap_or(0);
     }
+}
+
+/// Installer diagnostics use the playlist's own catalog and availability scan,
+/// without initializing an audio device or decoding whole songs.
+pub(crate) fn missing_install_music(assets: &AssetManager) -> Vec<String> {
+    let mut missing = Vec::new();
+    for name in [THEME_INI_NAME, RA2_THEME_INI_NAME] {
+        let selected = match crate::rules::retail_sources::select_ini(assets, name) {
+            Ok(selected) => selected,
+            Err(error) => {
+                if name == THEME_INI_NAME {
+                    missing.push(format!("{name}: {error}"));
+                }
+                continue;
+            }
+        };
+        let mut entries = catalog_from_ini(&selected.ini);
+        scan_catalog_availability(&mut entries, assets);
+        for entry in entries {
+            if entry.sound.is_empty() {
+                continue;
+            }
+            let wav = format!("{}.wav", entry.sound);
+            if !entry.available {
+                let issue = format!("{wav}: music track unavailable");
+                if !missing.contains(&issue) {
+                    missing.push(issue);
+                }
+            }
+        }
+    }
+    missing
 }
 
 /// Catalog load `0x00720590`: every non-empty `[Themes]` value in source

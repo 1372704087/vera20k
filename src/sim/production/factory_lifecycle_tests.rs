@@ -2015,7 +2015,9 @@ fn retail_superweapon_construction_survives_revalidation() {
         // PlayerPtr also enables the ordinary foundation visibility check.
         sim.fog.reveal_cells_for_owner(
             owner,
-            crate::rules::foundation::foundation_cell_offsets(&object.foundation)
+            object
+                .foundation
+                .cell_offsets()
                 .into_iter()
                 .map(|(dx, dy)| (10 + dx as u16, 14 + dy as u16)),
         );

@@ -3381,7 +3381,7 @@ impl Simulation {
                     index: value.unwrap_or(0),
                 });
             }
-            31 => self.trigger_grow_shroud(
+            31 => self.grow_shroud(
                 crate::sim::world::UninitContext::new(rules, overlay_registry)
                     .with_effects(frame_effects),
             ),
@@ -5042,6 +5042,10 @@ fn count_techtype(sim: &Simulation, type_id: &str) -> usize {
 #[cfg(test)]
 #[path = "trigger_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "trigger_runtime_factory_owner_tests.rs"]
+mod factory_owner_tests;
 
 #[cfg(test)]
 #[path = "trigger_runtime_duplicate_ini_tests.rs"]

@@ -38,6 +38,15 @@ pub struct SavedScenarioResourcesRef<'a> {
 }
 
 impl<'a> SavedScenarioResourcesRef<'a> {
+    /// Native Cell Save483C10 sees the current Cell body, including after the
+    /// frame's Ground phase. Resource preparation may precede that boundary.
+    pub fn capture_live_cell_land(
+        &mut self,
+        live: &crate::map::resolved_terrain::ResolvedTerrainGrid,
+    ) -> Result<(), SavedTerrainError> {
+        self.terrain.capture_live_cell_land(live)
+    }
+
     pub(crate) fn compatibility(&self) -> crate::rules::compatibility::RulesCompatibility {
         self.processed_rules.compatibility()
     }
@@ -74,6 +83,15 @@ impl<'a> SavedScenarioResourcesRef<'a> {
 impl SavedScenarioResources {
     pub fn processed_rules(&self) -> &ProcessedRulesLayers {
         &self.processed_rules
+    }
+
+    /// Native type Load calls mutate only this incoming, move-owned registry.
+    /// The app admits the saved digest before reaching this resource phase.
+    pub fn restore_object_image_loads(
+        &mut self,
+        theater: &str,
+    ) -> Result<(), crate::rules::error::RulesError> {
+        self.processed_rules.restore_object_image_loads(theater)
     }
 
     pub fn fixed_art_hash(&self) -> u64 {

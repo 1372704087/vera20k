@@ -93,7 +93,7 @@ pub(super) fn dock_exit(
         overlay_registry,
     )?;
     let producer = sim.substrate.entities.get(producer_id)?;
-    let producer_type = sim.object_type(producer.type_ref(), rules)?;
+    let producer_type = sim.entity_object_type(producer, rules)?;
     let (coordinate, facing) =
         dock_exit_coordinate_and_facing(producer, producer_type, (cell.0 as i16, cell.1 as i16));
     Some(DockExit {
@@ -128,8 +128,7 @@ fn dock_exit_coordinate_and_facing(
         [centre(dock.0), centre(dock.1)],
     );
     let facing = crate::util::direction_tables::quantize::round_facing16_to_8(word);
-    let (width, height) =
-        crate::rules::foundation::foundation_dimensions(producer.type_facts.foundation());
+    let (width, height) = producer.type_facts.foundation().dimensions();
     let inward = |cell: i16, base: i16, size: u16| {
         if i32::from(cell) >= i32::from(base) + i32::from(size) {
             cell.wrapping_sub(1)
@@ -194,7 +193,7 @@ impl Simulation {
         self.substrate.entities.get(id).is_some_and(|building| {
             building.category() == crate::map::entities::EntityCategory::Structure
                 && self
-                    .object_type(building.type_ref(), rules)
+                    .entity_object_type(building, rules)
                     .is_some_and(|object| object.weapons_factory)
         })
     }

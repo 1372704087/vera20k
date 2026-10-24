@@ -18,6 +18,10 @@ mod selection_voice_tests;
 #[path = "planning_rules_tests.rs"]
 mod planning_rules_tests;
 
+#[cfg(test)]
+#[path = "object_image_tests.rs"]
+mod object_image_tests;
+
 use std::sync::Arc;
 
 use crate::rules::error::RulesError;
@@ -30,6 +34,7 @@ use crate::rules::native_processing::{
     refresh_native_multiplayer_country_bodies,
 };
 use crate::rules::object_type::ObjectCategory;
+use crate::rules::personal_rules::PersonalRules;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 
@@ -53,6 +58,8 @@ struct NativeRulesSourceSnapshot {
     fixed_sounds: Arc<SoundRegistry>,
     /// The same immutable EVAMD catalog used by process playback.
     fixed_eva: Arc<EvaRegistry>,
+    /// VERA source customization frozen with this process's selected INIs.
+    personal_rules: PersonalRules,
 }
 
 #[derive(Debug)]
@@ -239,6 +246,7 @@ impl NativeRulesProcessOwner {
             fixed_sounds,
             fixed_eva,
             ["RULESMD.INI".into(), "ARTMD.INI".into()],
+            PersonalRules::default(),
         )
     }
 
@@ -251,6 +259,7 @@ impl NativeRulesProcessOwner {
         fixed_sounds: Arc<SoundRegistry>,
         fixed_eva: Arc<EvaRegistry>,
         rules_art_names: [String; 2],
+        personal_rules: PersonalRules,
     ) -> Result<Self, RulesError> {
         let movies = crate::rules::movies::MovieRegistry::from_art(&fixed_art);
         let cold_trace = process_native_rules_cold_start(
@@ -269,6 +278,7 @@ impl NativeRulesProcessOwner {
                 movies,
                 fixed_sounds,
                 fixed_eva,
+                personal_rules,
             },
             registry: Some(NativeRulesRegistryOwner::BeforeReset(cold_trace)),
         })
@@ -339,6 +349,39 @@ impl NativeRulesProcessOwner {
             .map(|(_, _, _, side, _, country)| (country.loading(), side))
     }
 
+    /// Ares1002FB80 reads the retained Country's Side then Country directly
+    /// from CCINI_Rules887048 before Read_Scenario684620. These names use
+    /// ReadTheme4758F0's ReadString128; ThemeRuntime owns name/default binding.
+    /// Mode/map Process projections and ParentCountry are not read here.
+    #[cfg(feature = "ares")]
+    pub fn loading_theme_names(
+        &self,
+        country: crate::rules::ruleset::CountryIdx,
+    ) -> [Option<String>; 2] {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let Some((country, _, _, side, ..)) =
+            state.country_projection().nth(usize::from(country.0))
+        else {
+            return [None, None];
+        };
+        let read = |id: &str| {
+            self.sources
+                .selected_rules_root
+                .section(id)
+                .and_then(|section| section.read_name("LoadingTheme", 128))
+                .map(str::to_owned)
+        };
+        let side = usize::try_from(side)
+            .ok()
+            .and_then(|index| state.side_projection().nth(index))
+            .and_then(|(name, _)| read(name));
+        [side, read(country)]
+    }
+
     /// Early Ares6847B7 loading color, resolved against this same retained
     /// registry before E_multi or the later mode/map Rules reset can change it.
     /// `None` when the Country sets no color, leaving the stock side color.
@@ -382,12 +425,18 @@ impl NativeRulesProcessOwner {
         processed: &ProcessedRulesLayers,
     ) {
         rules.bind_type_sound_references(processed.ini(), &self.sources.fixed_sounds);
+        rules.bind_terrain_type_sound_references(processed, &self.sources.fixed_sounds);
         rules.bind_type_eva_references(processed.ini(), &self.sources.fixed_eva);
     }
 
     /// Immutable startup-selected root for consumers with a root-only native read.
     pub fn selected_rules_root(&self) -> &IniFile {
         &self.sources.selected_rules_root
+    }
+
+    /// Include VERA's extra source and precedence policy in network admission.
+    pub fn personal_rules_compatibility_crc(&self) -> Option<u32> {
+        self.sources.personal_rules.compatibility_crc()
     }
 
     /// Fixed ART snapshot, unaffected by mode/map Rules passes.
@@ -444,6 +493,28 @@ impl NativeRulesProcessOwner {
         }
     }
 
+    /// TerrainReadMap71CAD2 -> FindOrAllocate71E2A0 mutates the continuing
+    /// family registry, then TerrainCtor71CB6E spends its own identity. The
+    /// caller consumes the move-only new-Type receipt before that instance.
+    pub(crate) fn find_or_allocate_map_terrain_type(
+        &mut self,
+        incoming: &str,
+        rules: &mut RuleSet,
+    ) -> Result<Option<(String, Option<NativeTypeConstructionEvent>)>, RulesError> {
+        let Some(NativeRulesRegistryOwner::Scenario(processed)) = self.registry.as_mut() else {
+            return Err(RulesError::MissingScenarioRegistry);
+        };
+        let Some((terrain, constructor)) = processed.find_or_allocate_map_terrain_type(incoming)
+        else {
+            return Ok(None);
+        };
+        let name = terrain.name.clone();
+        if constructor.is_some() {
+            rules.install_map_terrain_type(terrain);
+        }
+        Ok(Some((name, constructor)))
+    }
+
     /// Prepare the compatibility projection without mutating process authority.
     /// The shared app loader subsequently binds current ART/theater assets.
     pub fn project_saved_scenario_rules(
@@ -479,6 +550,7 @@ impl NativeRulesProcessOwner {
         updates: impl IntoIterator<Item = (ObjectCategory, String, i32)>,
         ambient_change: [Option<crate::util::native_x87::NativeF64Bits>; 2],
         upgrade_art_names: impl IntoIterator<Item = (String, u8, String)>,
+        voxel_damage: impl IntoIterator<Item = (String, i32)>,
     ) -> Result<(), RulesError> {
         self.assert_no_prepared_prefix();
         let mut registry = self
@@ -486,7 +558,8 @@ impl NativeRulesProcessOwner {
             .take()
             .expect("native Rules registry transition may not be re-entered")
             .into_registry_state();
-        let result = registry.consume_outgoing_type_runtime_fields(updates, upgrade_art_names);
+        let result =
+            registry.consume_outgoing_type_runtime_fields(updates, upgrade_art_names, voxel_damage);
         if result.is_ok() {
             registry.consume_outgoing_ambient_change_inputs(ambient_change);
         }
@@ -502,6 +575,32 @@ impl NativeRulesProcessOwner {
                 &self.sources.fixed_art,
                 NativeRulesRegistryState::default(),
                 RulesProcessContext::Ordinary,
+                &self.sources.fixed_eva,
+            )
+            .map_err(|failure| failure.into_parts().0)
+    }
+
+    /// RMG InitMapFromSyntheticINI599650 calls ResetTypeRegistriesAndReloadRules
+    /// 6686C0 at59A0F0: root, LANG, then committed Session mode668B8E..668BAA.
+    /// Preview does not Process the synthetic map
+    /// or retain outgoing scenario Type fields. This immutable projection
+    /// supplies preview consumers without replacing the process registry.
+    pub fn random_map_preview_projection(
+        &self,
+        mode_rules_override: Option<&IniFile>,
+        theater_name: &str,
+    ) -> Result<ProcessedRulesLayers, RulesError> {
+        let mut layers = self.startup_layers();
+        if let Some(mode) = mode_rules_override {
+            layers.push(RulesLayerKind::GameMode, self.personalized_layer(mode));
+        }
+        layers
+            .process_with_fixed_art_and_registry_state_recovering(
+                &self.sources.fixed_art,
+                NativeRulesRegistryState::default(),
+                RulesProcessContext::ScenarioReset(
+                    crate::rules::object_image::ImageTheater::from_name(theater_name),
+                ),
                 &self.sources.fixed_eva,
             )
             .map_err(|failure| failure.into_parts().0)
@@ -639,9 +738,10 @@ impl NativeRulesProcessOwner {
             ),
             NativeScenarioRulesPrefix::Campaign(named) => {
                 let state = self.take_pre_reset_state(true);
+                let named = named.map(|ini| self.personalized_layer(ini));
                 let trace = match process_native_campaign_rules_prepass(
                     state,
-                    named,
+                    named.as_ref(),
                     &self.sources.fixed_art,
                     &self.sources.fixed_eva,
                 ) {
@@ -662,7 +762,9 @@ impl NativeRulesProcessOwner {
         let mut processed = match layers.process_with_fixed_art_and_registry_state_recovering(
             &self.sources.fixed_art,
             pre_reset_state,
-            RulesProcessContext::ScenarioReset,
+            RulesProcessContext::ScenarioReset(crate::rules::object_image::ImageTheater::from_map(
+                map_rules_overrides,
+            )),
             &self.sources.fixed_eva,
         ) {
             Ok(processed) => processed,
@@ -721,10 +823,19 @@ impl NativeRulesProcessOwner {
     ) -> RulesLayerStack {
         let mut layers = self.startup_layers();
         if let Some(mode) = mode_rules_override {
-            layers.push(RulesLayerKind::GameMode, mode.clone());
+            layers.push(RulesLayerKind::GameMode, self.personalized_layer(mode));
         }
-        layers.push(RulesLayerKind::Scenario, map_rules_overrides.clone());
+        layers.push(
+            RulesLayerKind::Scenario,
+            self.personalized_layer(map_rules_overrides),
+        );
         layers
+    }
+
+    fn personalized_layer(&self, original: &IniFile) -> IniFile {
+        let mut rules = original.clone();
+        self.sources.personal_rules.apply_later_layer(&mut rules);
+        rules
     }
 }
 
@@ -743,3 +854,53 @@ mod global_controls_tests;
 #[cfg(all(test, feature = "ares"))]
 #[path = "country_loading_prefix_tests.rs"]
 mod country_loading_prefix_tests;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::native_processing::RulesLayerStack;
+
+    #[test]
+    fn retired_voxel_damage_survives_omitted_read_until_type_reset() {
+        let root = IniFile::from_str("[VoxelAnims]\n0=CHUNK\n[CHUNK]\nName=Chunk\n");
+        let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+            root.clone(),
+            None,
+            IniFile::empty(),
+            Arc::default(),
+            Arc::default(),
+        )
+        .unwrap();
+        let loaded = owner
+            .load_scenario(
+                NativeScenarioRulesPrefix::Campaign(None),
+                &IniFile::from_str("[CHUNK]\nDamage=20\n"),
+            )
+            .unwrap();
+        let damage = |rules: &RuleSet| {
+            rules
+                .voxel_anim_type(rules.voxel_anim_type_id_by_name("CHUNK").unwrap())
+                .damage
+        };
+        assert_eq!(damage(&loaded.rules), 20);
+
+        // Voxel74A91B can mutate Type.Damage during a scene. Read74B3D8
+        // uses that current field when the next Process omits Damage.
+        owner
+            .consume_outgoing_scenario_rules([], [None; 2], [], [("CHUNK".into(), 3)])
+            .unwrap();
+        let state = owner.registry.take().unwrap().into_registry_state();
+        let reread = RulesLayerStack::new(root)
+            .process_with_fixed_art_and_registry_state(&IniFile::empty(), state)
+            .unwrap();
+        assert_eq!(damage(&RuleSet::from_processed_rules(&reread).unwrap()), 3);
+
+        // Full_Init's later TypeReset6686C0 deletes the old type; its new
+        // constructor74AD80 starts Damage at zero rather than transplanting3.
+        owner.install_saved_scenario_rules(reread);
+        let reset = owner
+            .load_scenario(NativeScenarioRulesPrefix::Campaign(None), &IniFile::empty())
+            .unwrap();
+        assert_eq!(damage(&reset.rules), 0);
+    }
+}

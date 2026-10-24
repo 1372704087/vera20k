@@ -4791,26 +4791,39 @@ mod tests {
             assert!(sender.send(message.as_bytes(), direct(guest), true));
         }
         sender.transport.as_mut().unwrap().service(31);
-        receiver.transport.as_mut().unwrap().service(32);
-        assert!(receiver.pop_lobby_received(&session).is_none());
         // ACKs can retire every sender entry while the guest's shell still
-        // transitions. Only the existing receive queue retains the packets.
+        // transitions. Both sockets are nonblocking: wait for actual ACKs,
+        // keeping protocol time fixed and every early packet in the queue.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-        while sender
-            .transport
-            .as_ref()
-            .unwrap()
-            .global()
-            .queued_send_count()
-            != 0
-        {
+        loop {
             receiver.transport.as_mut().unwrap().service(32);
+            assert!(receiver.pop_lobby_received(&session).is_none());
             sender.transport.as_mut().unwrap().service(33);
+            if sender
+                .transport
+                .as_ref()
+                .unwrap()
+                .global()
+                .queued_send_count()
+                == 0
+            {
+                break;
+            }
             assert!(
                 std::time::Instant::now() < deadline,
-                "early setup ACKs did not drain"
+                "early setup packets were not acknowledged"
             );
+            std::thread::yield_now();
         }
+        assert_eq!(
+            receiver
+                .transport
+                .as_ref()
+                .unwrap()
+                .global()
+                .queued_receive_count(),
+            messages.len()
+        );
         assert_eq!(
             sender
                 .transport

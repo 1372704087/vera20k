@@ -1779,6 +1779,36 @@ def _terrain_render(value: Any, label: str) -> None:
             _finite_number(component, f'{label}.{key}')
 
 
+def _terrain_object(value: Any, label: str, *, member: bool = False,
+                    instance: bool = False) -> int | None:
+    obj = require_object(value, label)
+    native_extension = ('native_id',) if instance or member and 'native_id' in obj else ()
+    health_extension = ('health', 'max_health') if instance or member and any(
+        key in obj for key in ('health', 'max_health')) else ()
+    instance_extension = ('lifecycle', 'cell_member', 'display_layer', 'in_logic_vector') if instance else ()
+    require_exact_keys(obj, ('name', 'frame', 'active', *(('id',) if member else ()),
+                             *native_extension, *health_extension, *instance_extension), label)
+    if not isinstance(obj['name'], str) or not obj['name']:
+        raise ValidationError(f'{label}.name must be nonempty')
+    if obj['frame'] is not None:
+        _bounded_int(obj['frame'], f'{label}.frame', -(1 << 31), (1 << 31) - 1)
+    if obj['active'] is not None and type(obj['active']) is not bool:
+        raise ValidationError(f'{label}.active must be boolean or null')
+    if native_extension and obj['native_id'] is not None:
+        _bounded_int(obj['native_id'], f'{label}.native_id', -(1 << 31), (1 << 31) - 1)
+    for key in health_extension:
+        _bounded_int(obj[key], f'{label}.{key}', -(1 << 31), (1 << 31) - 1)
+    if instance:
+        if obj['lifecycle'] not in ('Live', 'Limbo', 'Destroyed'):
+            raise ValidationError(f'{label}.lifecycle is unknown')
+        for key in ('cell_member', 'in_logic_vector'):
+            if type(obj[key]) is not bool:
+                raise ValidationError(f'{label}.{key} must be boolean')
+        if obj['display_layer'] is not None:
+            _bounded_int(obj['display_layer'], f'{label}.display_layer', 0, 4)
+    return _bounded_int(obj['id'], f'{label}.id', 1, (1 << 64) - 1) if member else None
+
+
 def _terrain(value: Any, expected_cell: Any, label: str) -> None:
     cell = require_object(value, label)
     fields = ('final_tile_index', 'final_sub_tile', 'presentation_tile', 'level', 'slope',
@@ -1787,8 +1817,11 @@ def _terrain(value: Any, expected_cell: Any, label: str) -> None:
     visibility_extension = ('local_visibility',) if 'local_visibility' in cell else ()
     path_extension = ('path_grid',) if 'path_grid' in cell else ()
     render_extension = ('render',) if 'render' in cell else ()
+    members_extension = ('terrain_objects',) if 'terrain_objects' in cell else ()
+    instances_extension = ('terrain_instances',) if 'terrain_instances' in cell else ()
     require_exact_keys(cell, ('cell', 'allocated', *fields, *extension, *visibility_extension,
-                              *path_extension, *render_extension), label)
+                              *path_extension, *render_extension, *members_extension,
+                              *instances_extension), label)
     if render_extension:
         _terrain_render(cell['render'], f'{label}.render')
     # PathGrid is a separate current projection. Null means no current grid or
@@ -1818,13 +1851,32 @@ def _terrain(value: Any, expected_cell: Any, label: str) -> None:
             _bounded_int(overlay['density'], f'{label}.overlay.density', 0, 255)
         obj = cell['terrain_object']
         if obj is not None:
-            require_exact_keys(require_object(obj, f'{label}.terrain_object'), ('name', 'frame', 'active'), f'{label}.terrain_object')
-            if not isinstance(obj['name'], str) or not obj['name']:
-                raise ValidationError(f'{label}.terrain_object.name must be nonempty')
-            if obj['frame'] is not None:
-                _bounded_int(obj['frame'], f'{label}.terrain_object.frame', -(1 << 31), (1 << 31) - 1)
-            if obj['active'] is not None and type(obj['active']) is not bool:
-                raise ValidationError(f'{label}.terrain_object.active must be boolean or null')
+            _terrain_object(obj, f'{label}.terrain_object')
+    if members_extension:
+        members = require_array(cell['terrain_objects'], f'{label}.terrain_objects')
+        seen = set()
+        for index, obj in enumerate(members):
+            identity = _terrain_object(obj, f'{label}.terrain_objects[{index}]', member=True)
+            if identity in seen:
+                raise ValidationError(f'{label}.terrain_objects repeats id {identity}')
+            seen.add(identity)
+        if extension:
+            head = {key: members[0][key] for key in ('name', 'frame', 'active')} if members else None
+            _require_equal(cell['terrain_object'], head, f'{label}.terrain_object head')
+    if instances_extension:
+        instances = require_array(cell['terrain_instances'], f'{label}.terrain_instances')
+        previous_id = 0
+        listed_members = set()
+        for index, obj in enumerate(instances):
+            identity = _terrain_object(obj, f'{label}.terrain_instances[{index}]',
+                                       member=True, instance=True)
+            if identity <= previous_id:
+                raise ValidationError(f'{label}.terrain_instances IDs are repeated or out of order')
+            previous_id = identity
+            if obj['cell_member']:
+                listed_members.add(identity)
+        if members_extension:
+            _require_equal(listed_members, seen, f'{label}.terrain_instances Cell membership')
     _require_equal(cell['cell'], expected_cell, f'{label}.cell')
     if type(cell['allocated']) is not bool:
         raise ValidationError(f'{label}.allocated must be a boolean')
@@ -2675,7 +2727,9 @@ def _effects(value: Any, profile: Mapping[str, Any], label: str) -> int:
     with_projectiles = profile.get('observe_projectiles', False)
     with_anims = 'observe_anim_types' in profile
     with_waves = profile.get('observe_waves', False)
+    # Voxel rows extend the existing opt-in; preserved older receipts omit them.
     require_exact_keys(effects, ('scenario_rng_cursor',
+                                *(('voxel_anims',) if 'voxel_anims' in effects else ()),
                                 *(('projectiles',) if with_projectiles else ()),
                                 *(('waves',) if with_waves else ()),
                                 *(('animations',) if with_anims else ())), label)
@@ -2686,7 +2740,7 @@ def _effects(value: Any, profile: Mapping[str, Any], label: str) -> int:
         _bounded_int(number, f'{label}.scenario_rng_cursor[{index}]', 0, 249)
     anim_types = {name.translate(ASCII_UPPER) for name in profile.get('observe_anim_types', [])}
     samples = 1
-    for kind in ('projectiles', 'animations', 'waves'):
+    for kind in ('projectiles', 'animations', 'waves', 'voxel_anims'):
         if kind not in effects:
             continue
         rows = require_array(effects[kind], f'{label}.{kind}')
@@ -2697,6 +2751,33 @@ def _effects(value: Any, profile: Mapping[str, Any], label: str) -> int:
         for index, value in enumerate(rows):
             row_label = f'{label}.{kind}[{index}]'
             row = require_object(value, row_label)
+            if kind == 'voxel_anims':
+                require_exact_keys(row, ('stable_id', 'native_id', 'type_id', 'owner_house',
+                                         'stored_leptons', 'duration', 'marked_for_deletion',
+                                         'in_logic_vector', 'object_alive', 'in_limbo',
+                                         'bounce_position_bits', 'bounce_velocity_bits'), row_label)
+                identity = _bounded_int(row['stable_id'], f'{row_label}.stable_id', 1, (1 << 64) - 1)
+                if identity <= previous:
+                    raise ValidationError(f'{row_label}.stable_id is repeated or out of order')
+                previous = identity
+                for field in ('native_id', 'duration'):
+                    _bounded_int(row[field], f'{row_label}.{field}', -(1 << 31), (1 << 31) - 1)
+                for field in ('type_id', 'owner_house'):
+                    if field == 'owner_house' and row[field] is None:
+                        continue
+                    if not require_string(row[field], f'{row_label}.{field}'):
+                        raise ValidationError(f'{row_label}.{field} is empty')
+                _coordinate(row['stored_leptons'], f'{row_label}.stored_leptons', leptons=True)
+                for field in ('bounce_position_bits', 'bounce_velocity_bits'):
+                    bits = require_array(row[field], f'{row_label}.{field}')
+                    if len(bits) != 3:
+                        raise ValidationError(f'{row_label}.{field} must contain three components')
+                    for component in bits:
+                        _bounded_int(component, f'{row_label}.{field} component', 0, (1 << 32) - 1)
+                for field in ('marked_for_deletion', 'in_logic_vector', 'object_alive', 'in_limbo'):
+                    if type(row[field]) is not bool:
+                        raise ValidationError(f'{row_label}.{field} must be a boolean')
+                continue
             if kind == 'waves':
                 require_exact_keys(row, ('stable_id', 'wave_type', 'owner_id', 'in_logic_vector',
                                          'lifetime', 'active_geometry', 'decaying', 'direction_octant',
@@ -2906,6 +2987,7 @@ def _observations(value: Any, profile: Mapping[str, Any], final: Mapping[str, An
         for index, (value, expected) in enumerate(zip(terrain, expected_cells)):
             _terrain(value, expected, f'{row_label}.terrain[{index}]')
         sample_count += len(actors) + len(missing) + len(terrain)
+        sample_count += sum(len(cell.get('terrain_instances', [])) for cell in terrain)
         if effects:
             sample_count += _effects(row['effects'], profile, f'{row_label}.effects')
         if profile.get('observe_lasers', False):

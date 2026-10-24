@@ -1,4 +1,4 @@
-//! Retained setup profiles and their native `RA2MD.INI` codec.
+//! Retained setup profiles and their snapshot codecs for `VERA.INI`.
 //!
 //! The app owns when a profile is loaded and saved. Native Slot01..07 triples
 //! retain their key order, defaults and preservation-safe batched byte update.
@@ -160,7 +160,7 @@ impl MultiplayerSetupSnapshot {
         updates
     }
 
-    /// Apply this snapshot to raw `RA2MD.INI` bytes without rewriting any
+    /// Apply this snapshot to raw `VERA.INI` bytes without rewriting any
     /// unrelated byte. All seventeen keys are composed into one output buffer.
     pub fn update_ini_bytes(&self, content: &[u8]) -> Vec<u8> {
         let updates = self.ini_updates();
@@ -172,7 +172,7 @@ impl MultiplayerSetupSnapshot {
     }
 }
 
-/// Read a raw `RA2MD.INI` buffer using native Skirmish key order and defaults.
+/// Read a raw `VERA.INI` buffer using native Skirmish key order and defaults.
 pub fn read_setup_snapshot(
     content: &[u8],
     defaults: SkirmishGlobalDefaults,

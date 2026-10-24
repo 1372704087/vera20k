@@ -23,7 +23,7 @@ use crate::render::draw_state::DrawState;
 use crate::render::native_z::{
     self, SHP_DRAW_Z_ADJUST_PX, ZGradient, ZSHAPE_MAX_FOUNDATION_WIDTH, pack_z_gradient,
 };
-use crate::render::sprite_atlas::ShpSpriteKey;
+use crate::render::sprite_atlas::{ShpSpriteKey, building_art_palette_context};
 use crate::render::tactical_draw_plan::{BlitPolicy, BuildingPieceKind, SpriteEncoding};
 use crate::render::unit_atlas::{UnitSpriteKey, VxlLayer, canonical_turret_facing};
 use crate::rules::house_colors::HouseColorIndex;
@@ -320,9 +320,18 @@ pub(crate) fn build_shp_instances_from_inputs(
         let draws_buildup =
             image.is_some_and(|image| image != crate::sim::building_art::BuildingImage::Body);
         let unopened_buildup = draws_buildup && !is_building_up && !is_building_down;
-        // The construction animation's stage is the Buildup frame drawn,
-        // reversed while selling (`BuildingClass::GetCurrentFrame`'s BState 0
-        // arm, `sim::building_art::body_frame`).
+        let object_type = rules.and_then(|rules| rules.object(type_str));
+        let art_entry = object_type.and_then(|object| {
+            art_reg.and_then(|registry| registry.resolve_metadata_entry(type_str, &object.image))
+        });
+        // `BuildingClass::GetCurrentFrame @ 0x0043EF90` reflects a gate's
+        // BState-0 frame first, then reflects again for Selling. Pass the same
+        // ART GateStages used by the completed-body path into the shared frame owner.
+        let gate_stages = object_type
+            .filter(|object| object.gate)
+            .map(|_| art_entry.map_or(9, |entry| entry.building_gate_stages));
+        // The construction animation's stage is the Buildup frame drawn; the
+        // shared body_frame owner applies the gate and sale reflections.
         let make_frame = |selling: bool| {
             let make_key: String = format!("{}_MAKE", type_str);
             let total_make_frames: u16 =
@@ -339,7 +348,7 @@ pub(crate) fn build_shp_instances_from_inputs(
                     buildup: [control[0], control[1]],
                     laser_frame: None,
                     firestorm_frame: None,
-                    gate_stages: None,
+                    gate_stages,
                     occupants: None,
                     tech_level: 0,
                     ordinary: [[0, 1]; 4],
@@ -359,27 +368,15 @@ pub(crate) fn build_shp_instances_from_inputs(
         } else {
             match entity.category() {
                 EntityCategory::Structure => {
-                    let obj = rules.and_then(|r| r.object(type_str));
-                    let frame = if let Some(obj) = obj {
-                        let occupant_count = entity
-                            .passenger_role
-                            .cargo()
-                            .map(|c| c.count())
-                            .unwrap_or(0);
-                        let (cy, cr) = rules
-                            .map(|r| (r.general.condition_yellow, r.general.condition_red))
-                            .unwrap_or((0.5, 0.25));
-                        let art = art_reg.and_then(|registry| {
-                            registry.resolve_metadata_entry(type_str, &obj.image)
-                        });
+                    let frame = if let (Some(rules), Some(obj)) = (rules, object_type) {
                         // DrawBody's gate branch replaces GetCurrentFrame while
                         // the gate opens, stands open or closes.
-                        let gate_frame = obj.gate.then(|| {
+                        let gate_frame = gate_stages.map(|gate_stages| {
                             crate::sim::building_art::gate_open_body_frame(
                                 entity,
-                                art.map_or(9, |entry| entry.building_gate_stages),
+                                gate_stages,
                                 obj.strength,
-                                cy,
+                                rules.general.condition_yellow,
                                 sim.session().binary_frame(),
                             )
                         });
@@ -388,29 +385,11 @@ pub(crate) fn build_shp_instances_from_inputs(
                         // damaged frame is base+1, including the first frame
                         // after Construction; it is not always body frame0.
                         let frame = gate_frame.flatten().unwrap_or_else(|| {
-                            crate::sim::building_art::body_frame(
-                                crate::sim::building_art::BodyFrameInput {
-                                    state: entity.building_body_state().unwrap_or(1),
-                                    base_frame: entity.construction_stage_value(),
-                                    laser_frame: obj.laser_fence.then_some(0),
-                                    firestorm_frame: obj.firestorm_wall.then_some(0),
-                                    gate_stages: obj.gate.then_some(
-                                        art.map_or(9, |entry| entry.building_gate_stages),
-                                    ),
-                                    occupants: obj.can_be_occupied.then_some(occupant_count as i32),
-                                    tech_level: sim.object_tech_level(obj),
-                                    selling: entity.building_down(),
-                                    buildup: [0, 1],
-                                    ordinary: art.map_or([[0, 1]; 4], |entry| {
-                                        entry
-                                            .building_body_ranges
-                                            .map(|[start, count, _]| [start, count])
-                                    }),
-                                },
-                                entity.health,
-                                obj.strength,
-                                cy,
-                                cr,
+                            crate::sim::building_art::current_body_frame(
+                                entity,
+                                obj,
+                                rules,
+                                sim.object_tech_level(obj),
                             )
                         });
                         u16::try_from(frame).unwrap_or(0)
@@ -534,15 +513,31 @@ pub(crate) fn build_shp_instances_from_inputs(
         let extra_light = rules.map_or(0, |rules| {
             crate::app::presentation::lighting::body_extra_light(entity, rules, sim, cells.as_ref())
         });
-        let tint = shp_body_tint(
-            input.lighting,
-            (pos.rx(), pos.ry()),
-            entity.category(),
-            extra_light,
-        );
+        // Infantry5192C9 retains Object5F69C0 -> Foot4DBDF0's navigation
+        // Cell for both top-light arms51940A/51943F. A destination alone
+        // does not change it: the active locomotor's head/null-current
+        // projection (or Tube exit) owns this read. Physical position still
+        // owns shroud, depth and the extra's side/ground/height queries.
+        let physical_cell = (pos.rx(), pos.ry());
+        let light_cell = if entity.category() == EntityCategory::Infantry {
+            sim.foot_navigation_coordinate(stable_id)
+                .map(|coord| {
+                    (
+                        crate::util::lepton::lepton_to_cell_packed(coord.x) as u16,
+                        crate::util::lepton::lepton_to_cell_packed(coord.y) as u16,
+                    )
+                })
+                // Incomplete pre-bind/headless actors can lack an active
+                // locomotor or Tube descriptor. Preserve their prior physical
+                // cell fallback; a missing light-grid entry still uses1000.
+                .unwrap_or(physical_cell)
+        } else {
+            physical_cell
+        };
+        let tint = shp_body_tint(input.lighting, light_cell, entity.category(), extra_light);
         let selected_palette_light = crate::app::presentation::lighting::body_palette_light(
             input.lighting,
-            (pos.rx(), pos.ry()),
+            light_cell,
             extra_light,
         );
         let palette_light = if entity.category() == EntityCategory::Structure {
@@ -565,6 +560,8 @@ pub(crate) fn build_shp_instances_from_inputs(
             tint,
             palette_light,
             sim,
+            rules,
+            crate::app::presentation::lighting::TechnoDraw::Shape,
         );
         let colour_word = match rules {
             Some(rules) => {
@@ -605,7 +602,7 @@ pub(crate) fn build_shp_instances_from_inputs(
             };
             let point_move = building_zshape_point_move(entity, art_entry);
             let foundation: (u16, u16) = object_type
-                .map(|o| crate::rules::foundation::foundation_dimensions(&o.foundation))
+                .map(|o| o.foundation.dimensions())
                 .unwrap_or((1, 1));
             let zshape = input.building_zshape && foundation.0 <= ZSHAPE_MAX_FOUNDATION_WIDTH;
             let origin = native_z::zshape_origin(
@@ -827,6 +824,8 @@ pub(crate) fn build_shp_instances_from_inputs(
                         tint,
                         selected_palette_light,
                         sim,
+                        rules,
+                        crate::app::presentation::lighting::TechnoDraw::Voxel,
                     );
                 emit_building_turret_vxl(
                     unit_atlas,
@@ -1235,18 +1234,6 @@ fn factory_unload_art<'a>(
     })
 }
 
-/// A building's own SHP pieces (bib, war-factory door art) draw through its
-/// DrawSHP palette: the theater's with `TerrainPalette=`, else its scheme's.
-fn building_art_palette_context(
-    art: &crate::rules::art_data::ArtEntry,
-) -> crate::render::sprite_atlas::ShpPaletteContext {
-    if art.terrain_palette {
-        crate::render::sprite_atlas::ShpPaletteContext::Cell
-    } else {
-        crate::render::sprite_atlas::ShpPaletteContext::SelectedScheme
-    }
-}
-
 /// `UnderDoorAnim=` (or the roof variant) after the bib
 /// (`BuildingClass::DrawIt @ 0x0043D8EE..0x0043DA73`): frame 1 at or below
 /// `ConditionYellow=`, else 0, at the body's point. Like the bib it is a
@@ -1596,7 +1583,7 @@ fn emit_building_anims(
         let Some(runtime_config) = art_reg.anim_runtime_config(anim_name) else {
             continue;
         };
-        if !runtime_config.art_body_read {
+        if !runtime_config.art_body_read && runtime_config.raw_shp_frame_count.is_none() {
             continue;
         }
         // DrawIt's translucency selection (`0x00423061`): a building being
@@ -1673,6 +1660,7 @@ fn emit_building_anims(
                     tint,
                     attached_palette,
                     sim,
+                    rules,
                 )
             }
         } else {
@@ -1684,13 +1672,20 @@ fn emit_building_anims(
                     config,
                     false,
                     instance.remap().as_ref(),
+                    1000,
                 ),
             )
         };
         // Preserve the existing body's color-word path. The shared pass
         // builder clears it independently for the later shadow.
         let policy = BlitPolicy::z_read(SpriteEncoding::Plain);
-        let palette_light = palette_light.with_colour_word(anim_word(anim_id));
+        // AnimClass::Draw's tint hook (`0x00423420`) ORs the custom shield
+        // tint into the building anim's colour word independently of the
+        // ShouldUseCellDrawer intensity arm.
+        let shield_word = rules.map_or(0, |rules| {
+            crate::app::presentation::lighting::shield_tint(building, sim, rules).0
+        });
+        let palette_light = palette_light.with_colour_word(anim_word(anim_id) | shield_word);
         // DrawIt422CA0 -> 4AED70 retains the Anim's Convert selector. Reducing
         // it to alpha loses the indexed palette/A lookup and packed RGB565
         // blend (spatial_oracle/building_anim_translucency). The inherited
@@ -1823,11 +1818,8 @@ fn emit_unit_terrain_body(
     let Some(atlas) = input.overlay_atlas else {
         return;
     };
-    let Ok(frame) = u8::try_from(frame) else {
-        return;
-    };
     // CC_Draw_Shape draws nothing for a missing or empty frame.
-    let (body, shadow) = atlas.terrain_pieces(type_id, frame);
+    let (body, shadow) = atlas.terrain_pieces(type_id, i32::from(frame));
     let Some(anchor) = body.or(shadow) else {
         return;
     };
@@ -1847,8 +1839,14 @@ fn emit_unit_terrain_body(
     // Techno7060CC..70610A uses Cell+34 and the common/ground light+10C.
     let palette_light = crate::render::palette_light::PaletteLight::cell(grid, cell, false);
     let tint = grid.terrain_object_tint_for_type(cell, false);
-    let (tint, palette_light) =
-        crate::app::presentation::lighting::techno_effect_light(entity, tint, palette_light, sim);
+    let (tint, palette_light) = crate::app::presentation::lighting::techno_effect_light(
+        entity,
+        tint,
+        palette_light,
+        sim,
+        Some(&runtime.resources.rules),
+        crate::app::presentation::lighting::TechnoDraw::Shape,
+    );
     let depth = compute_sprite_depth_params(
         input.axis.origin_y,
         input.axis.world_height,

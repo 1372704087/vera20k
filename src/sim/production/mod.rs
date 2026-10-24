@@ -117,6 +117,12 @@ mod tests;
 mod industrial_plant_retail_tests;
 
 #[cfg(test)]
+mod free_unit_harvest_retail_tests;
+
+#[cfg(test)]
+mod production_start_price_tests;
+
+#[cfg(test)]
 #[path = "production_queue_tests.rs"]
 mod queue_tests;
 
@@ -140,3 +146,6 @@ mod manual_primary_tests;
 
 #[cfg(test)]
 mod native_event_tests;
+
+#[cfg(test)]
+mod typed_identity_tests;

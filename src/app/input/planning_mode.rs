@@ -40,6 +40,9 @@ impl PlanningInputState {
     pub(crate) fn reset(&mut self) {
         *self = Self::default();
     }
+    /// Install supplied state for local-handler comparison fixtures. Player
+    /// load uses reset; it does not restore active YR planning.
+    #[cfg(test)]
     pub(crate) fn restore_active(&mut self, active: bool) {
         self.active = active;
         self.key = None;
@@ -239,6 +242,7 @@ pub(crate) fn queue_orders(
     state: &mut AppState,
     selected: &[u64],
     orders: Vec<CommandEnvelope>,
+    clicked_cell: Option<(u16, u16)>,
 ) -> bool {
     let Some(rt) = state.match_state.sim_runtime.as_mut() else {
         return false;
@@ -246,7 +250,7 @@ pub(crate) fn queue_orders(
     let Some(owner) = rt.simulation.session().current_house() else {
         return false;
     };
-    match queue_orders_in_sim(&mut rt.simulation, owner, selected, orders) {
+    match queue_orders_in_sim(&mut rt.simulation, owner, selected, orders, clicked_cell) {
         Ok(_) => true,
         Err(refusal) => {
             refuse(state, refusal);
@@ -260,6 +264,7 @@ fn queue_orders_in_sim(
     owner: crate::sim::intern::InternedId,
     selected: &[u64],
     orders: Vec<CommandEnvelope>,
+    clicked_cell: Option<(u16, u16)>,
 ) -> Result<bool, PlanningRefusal> {
     //4ABF7F's selection-wide admission precedes4AE750 for primary clicks
     // and ordinary planned missions. It is not a receiver/encoding guard.
@@ -290,7 +295,9 @@ fn queue_orders_in_sim(
             added = true;
             continue;
         }
-        let Some(record) = sim.encode_planning_order_record(order.owner, &order.payload) else {
+        let Some(record) =
+            sim.encode_planning_order_record(order.owner, &order.payload, clicked_cell)
+        else {
             continue;
         };
         sim.issue_local_command(CommandEnvelope::synchronized(record, order.execute_tick));
@@ -453,6 +460,7 @@ mod tests {
                         target_rx: 5,
                         target_ry: 7,
                     },
+                    None,
                 )
                 .unwrap();
             let command = sim.decode_native_command_record(&record, 0).unwrap();
@@ -566,7 +574,8 @@ mod tests {
                     &mut sim,
                     local,
                     &[42],
-                    vec![CommandEnvelope::new(local, 0, payload)]
+                    vec![CommandEnvelope::new(local, 0, payload)],
+                    None,
                 )
                 .is_ok_and(|added| !added)
             );
@@ -615,7 +624,8 @@ mod tests {
                     &mut sim,
                     local,
                     &[42],
-                    vec![CommandEnvelope::new(local, 0, payload.clone())]
+                    vec![CommandEnvelope::new(local, 0, payload.clone())],
+                    None,
                 )
                 .is_ok_and(|added| added),
                 "lost {payload:?}"
@@ -648,7 +658,9 @@ mod tests {
             Command::MoveFlash { rx: 5, ry: 6 },
         ] {
             let envelope = CommandEnvelope::new(local, 0, payload);
-            assert!(queue_orders_in_sim(&mut sim, local, &[42], vec![envelope.clone()]).unwrap());
+            assert!(
+                queue_orders_in_sim(&mut sim, local, &[42], vec![envelope.clone()], None).unwrap()
+            );
             assert_eq!(sim.take_frame_commands_for_test(), vec![envelope]);
         }
         for payload in [
@@ -661,7 +673,8 @@ mod tests {
                     &mut sim,
                     local,
                     &[42],
-                    vec![CommandEnvelope::new(local, 0, payload)]
+                    vec![CommandEnvelope::new(local, 0, payload)],
+                    None,
                 )
                 .unwrap()
             );
@@ -741,7 +754,9 @@ mod tests {
             2,
             Command::TogglePrimaryFactory { entity_id: second },
         );
-        assert!(queue_orders_in_sim(&mut sim, owner, &[second], vec![order.clone()]).unwrap());
+        assert!(
+            queue_orders_in_sim(&mut sim, owner, &[second], vec![order.clone()], None).unwrap()
+        );
         let (opcode, frame_stamp) = {
             let queues = sim.network_command_queues();
             let records = queues.local_records().unwrap();
@@ -825,6 +840,7 @@ mod tests {
                             target_rx: 25,
                             target_ry: 25,
                         },
+                        None,
                     )
                     .unwrap();
                 let envelope = sim.decode_native_command_record(&record, 0).unwrap();
@@ -842,6 +858,7 @@ mod tests {
                     2,
                     Command::TogglePrimaryFactory { entity_id: second },
                 )],
+                None,
             );
             let native = &case["phases"][0];
             let admitted = native["admitted"].as_bool().unwrap();
@@ -902,7 +919,7 @@ mod tests {
                 )
             })
             .collect();
-        assert!(queue_orders_in_sim(&mut sim, local, &[43, 42], orders.clone()).unwrap());
+        assert!(queue_orders_in_sim(&mut sim, local, &[43, 42], orders.clone(), None).unwrap());
         let pending = sim.pending_command_snapshot();
         assert_eq!(pending.len(), 2);
         for (planned, ordinary) in pending.iter().zip(&orders) {
@@ -912,7 +929,7 @@ mod tests {
                 planned.payload,
                 Command::PlanningRecord {
                     record: sim
-                        .encode_planning_order_record(local, &ordinary.payload)
+                        .encode_planning_order_record(local, &ordinary.payload, None)
                         .unwrap()
                 }
             );
@@ -936,14 +953,19 @@ mod tests {
     }
 
     #[test]
-    fn restored_planning_preserves_mode_without_retaining_physical_key() {
+    fn fixture_activation_does_not_retain_physical_key() {
         let mut input = PlanningInputState::default();
         input.key_transition(true, KeyCode::KeyZ, true, false);
         input.restore_active(true);
         assert!(input.active());
         assert!(!input.owns_key(KeyCode::KeyZ));
+        input.key_transition(true, KeyCode::KeyZ, true, false);
+        input.node_deleted(99, Some(7));
+        assert!(input.owns_key(KeyCode::KeyZ));
         input.reset();
         assert!(!input.active());
+        assert!(!input.owns_key(KeyCode::KeyZ));
+        assert_eq!(input.highlighted_node(), None);
     }
 
     #[test]

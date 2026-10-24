@@ -104,6 +104,7 @@
 
 pub mod airstrike;
 pub mod phobos_radiation;
+pub mod phobos_shields;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.
@@ -162,9 +163,11 @@ pub mod movies;
 pub mod native_ini_hash;
 pub mod native_processing;
 pub mod object_type;
+pub mod object_image;
 pub mod overlay_types;
 pub mod particle_system_type;
 pub mod particle_type;
+pub mod personal_rules;
 pub mod powerups;
 pub mod prerequisite;
 pub mod process_owner;

@@ -96,6 +96,23 @@ pub struct BasicSection {
     pub pre_map_select: Option<String>,
 }
 
+impl BasicSection {
+    /// gamemd.exe ScenarioClass::Read_INI_Basic @0x00689E90,
+    /// 689FC0..689FF4 reads Next/Alt with their current buffers as defaults. ClearScene685237 -> SetDefaults
+    /// preserves them; only the constructor683407/68340A clears them.
+    /// Resolve parsed writes against the installed Scenario, not reset fields.
+    /// Physical empty values are omitted by the native INI parser; an actual
+    /// cached Some("") remains an explicit write that clears its buffer.
+    pub fn resolve_retained_destinations(&mut self, prior: &Self) {
+        if self.next_scenario.is_none() {
+            self.next_scenario.clone_from(&prior.next_scenario);
+        }
+        if self.alt_next_scenario.is_none() {
+            self.alt_next_scenario.clone_from(&prior.alt_next_scenario);
+        }
+    }
+}
+
 /// Parsed flags from a map's `[SpecialFlags]` section.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SpecialFlagsSection {
@@ -113,6 +130,9 @@ pub struct SpecialFlagsSection {
     /// Campaign/editor `ScenarioFlags` bit 0x20. While set, direct and area
     /// damage return before mutating world state (`Inert=`).
     pub inert: Option<bool>,
+    /// Campaign/editor ScenarioFlags bit 0x1000, read by
+    /// `ScenarioClass::Read_SpecialFlags @ 0x006B8E69..0x006B8E89`.
+    pub fog_of_war: Option<bool>,
     /// Campaign/editor `ScenarioFlags` bit 0x800 (`HarvesterImmune=`,
     /// `ScenarioClass::Read_SpecialFlags @ 0x006B8EBF..0x006B8ED7`, the
     /// reader's last key). While set, `Evaluate_Candidate`
@@ -129,6 +149,9 @@ impl SpecialFlagsSection {
     /// initializes0x8088: Inert/grows false, spreads/destroyable bridges true.
     /// The passed snapshot is a projection of the existing live authorities.
     pub fn resolve_campaign_defaults(&mut self, prior: Option<&Self>) {
+        // Full_Init686BA2 clears this bit before Read_SpecialFlags, even
+        // when the outgoing campaign retained FogOfWar=yes.
+        self.fog_of_war.get_or_insert(false);
         self.inert
             .get_or_insert(prior.and_then(|flags| flags.inert).unwrap_or(false));
         self.tiberium_grows.get_or_insert(
@@ -262,6 +285,7 @@ pub fn parse_special_flags_section(ini: &IniFile) -> SpecialFlagsSection {
         tiberium_spreads: section.read_bool_value("TiberiumSpreads"),
         destroyable_bridges: section.read_bool_value("DestroyableBridges"),
         inert: section.read_bool_value("Inert"),
+        fog_of_war: section.read_bool_value("FogOfWar"),
         // `0x006B8EBF..0x006B8ED7`, the reader's last key; every read takes
         // the current bit as its default, which the campaign retention pass
         // (`resolve_campaign_defaults`) models.
@@ -273,6 +297,35 @@ pub fn parse_special_flags_section(ini: &IniFile) -> SpecialFlagsSection {
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    #[test]
+    fn fresh_destination_reads_retain_missing_and_physical_empty_keys() {
+        let prior = parse_basic_section(&IniFile::from_str(
+            "[Basic]\nNextScenario=ALL02UMD.MAP\nAltNextScenario=ALL03UMD.MAP\nSkipScore=yes\n",
+        ));
+        let mut incoming = parse_basic_section(&IniFile::from_str(
+            "[Basic]\nNextScenario=\nAltNextScenario=   \nSkipMapSelect=yes\n",
+        ));
+        incoming.resolve_retained_destinations(&prior);
+        assert_eq!(incoming.next_scenario.as_deref(), Some("ALL02UMD.MAP"));
+        assert_eq!(incoming.alt_next_scenario.as_deref(), Some("ALL03UMD.MAP"));
+        assert_eq!(incoming.skip_score, None);
+    }
+
+    #[test]
+    fn a_stored_empty_destination_clears_only_its_native_buffer() {
+        let prior = parse_basic_section(&IniFile::from_str(
+            "[Basic]\nNextScenario=ALL02UMD.MAP\nAltNextScenario=ALL03UMD.MAP\n",
+        ));
+        let mut section = crate::rules::ini_parser::IniSection::new("Basic".into());
+        // Unlike physical empty lines, an actual cached INI entry is a write.
+        section.set("NextScenario", "");
+        let ini = IniFile::from_sections_for_test([section]);
+        let mut incoming = parse_basic_section(&ini);
+        incoming.resolve_retained_destinations(&prior);
+        assert_eq!(incoming.next_scenario.as_deref(), Some(""));
+        assert_eq!(incoming.alt_next_scenario.as_deref(), Some("ALL03UMD.MAP"));
+    }
 
     #[test]
     fn campaign_current_special_bits_match_original_execution() {

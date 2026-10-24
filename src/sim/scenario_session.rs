@@ -23,6 +23,12 @@ pub(crate) use countdown::ScenarioTimerAction;
 /// the binary's only store to it) and no INI key reads it.
 pub const NUKE_LEVEL_UNITS: i32 = 100;
 
+/// ScenarioClass Set_Defaults68375F..68378E anchors both map-regrowth
+/// timers at the current frame, zero on a fresh start, with zero duration.
+const fn initial_map_regrowth_timer() -> CdTimer {
+    CdTimer::started(0, 0)
+}
+
 /// One map-authored global lighting profile in the native integer scales.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct ScenarioLightProfileUnits {
@@ -305,6 +311,22 @@ impl ScenarioLightingState {
             profiles.dominator_change_rate,
             profiles.nuke_change_rate,
         )
+    }
+
+    /// InitMap's direct writes (0059A54E/565/592/5BF/5EC), after synthetic
+    /// Full_Init and before generated constructors. Keep current/target ambient,
+    /// Ground, alternate profiles and transition state from that earlier phase.
+    pub(crate) fn install_generated_lighting(
+        &mut self,
+        value: crate::map::construction_trace::GeneratedLightingOverride,
+    ) {
+        self.normal.ambient_percent = value.ambient_percent;
+        [
+            self.normal.red_percent,
+            self.normal.green_percent,
+            self.normal.blue_percent,
+        ] = value.rgb_percent;
+        self.normal.level_units = value.level_units;
     }
 
     pub fn profile(&self, profile: ScenarioLightingProfile) -> ScenarioLightProfileUnits {
@@ -898,6 +920,14 @@ pub struct ScenarioSession {
     /// Per-match game settings (the lobby options card). Set once at game
     /// start, read-only during gameplay.
     game_options: GameOptions,
+    /// Scenario+1218/+1220, reloaded before GrowShroud by Logic55B26E..278.
+    /// Save689378/Load6894B7 retain both dwords; NoInit683560 leaves them.
+    #[serde(default = "initial_map_regrowth_timer")]
+    shroud_growth_timer: CdTimer,
+    /// Scenario+1224/+122C, restarted before RegrowFog by
+    /// LogicClass::AI55B2DF..55B326. Save/load retains its frame anchor.
+    #[serde(default = "initial_map_regrowth_timer")]
+    fog_regrow_timer: CdTimer,
     /// Monotonic Rust-side simulation ordinal. This is kept separately from
     /// the wrapping native frame so long-running diagnostics and command
     /// bookkeeping do not lose their ordering at the 32-bit wrap.
@@ -985,6 +1015,14 @@ impl ScenarioSession {
         &self.game_options
     }
 
+    pub const fn fog_regrow_timer(&self) -> CdTimer {
+        self.fog_regrow_timer
+    }
+
+    pub const fn shroud_growth_timer(&self) -> CdTimer {
+        self.shroud_growth_timer
+    }
+
     pub const fn tick(&self) -> u64 {
         self.tick
     }
@@ -1021,6 +1059,35 @@ impl ScenarioSession {
     /// Per-match options from the accepted launch, before House creation.
     pub(crate) fn install_game_options(&mut self, options: GameOptions) {
         self.game_options = options;
+    }
+
+    /// Full_Init686BA2 clears the campaign bit before the map's
+    /// Read_SpecialFlags6B8E69..6B8E89 installs its override.
+    pub(super) fn install_campaign_fog_of_war(&mut self, enabled: bool) {
+        self.game_options.fog_of_war = enabled;
+    }
+
+    /// LogicClass::AI55B2DF..55B323: test against the native frame and
+    /// restart before the caller runs RegrowFog. Flag/rate admission belongs
+    /// to that caller, so a disabled flag/rate leaves this timer untouched.
+    pub(crate) fn poll_fog_regrowth(&mut self, interval_frames: i32) -> bool {
+        let frame = self.binary_frame as i32;
+        if !self.fog_regrow_timer.expired(frame) {
+            return false;
+        }
+        self.fog_regrow_timer.start(frame, interval_frames);
+        true
+    }
+
+    /// LogicClass::AI55B228..55B278: restart before the shared GrowShroud
+    /// body can raise discovery callbacks. Admission leaves disabled timers alone.
+    pub(crate) fn poll_shroud_growth(&mut self, interval_frames: i32) -> bool {
+        let frame = self.binary_frame as i32;
+        if !self.shroud_growth_timer.expired(frame) {
+            return false;
+        }
+        self.shroud_growth_timer.start(frame, interval_frames);
+        true
     }
 
     /// In-game Options speed transition (accepted only within range).
@@ -1576,6 +1643,14 @@ impl ScenarioSession {
             b"scenario-countdown-v1".hash(hasher);
             s.scenario_countdown.hash(hasher);
         }
+        if s.shroud_growth_timer != initial_map_regrowth_timer() {
+            b"scenario-shroud-growth-timer-v1".hash(hasher);
+            s.shroud_growth_timer.hash(hasher);
+        }
+        if s.fog_regrow_timer != initial_map_regrowth_timer() {
+            b"scenario-fog-regrow-timer-v1".hash(hasher);
+            s.fog_regrow_timer.hash(hasher);
+        }
         let (money, cap) = s.campaign_money_policy();
         if money != crate::util::native_x87::NativeF64Bits::POSITIVE_ZERO || cap != 0 {
             b"scenario-campaign-money-policy-v1".hash(hasher);
@@ -1820,6 +1895,8 @@ impl ScenarioSession {
             defeat_requested: false,
             scenario_side: 0,
             game_options: GameOptions::default(),
+            shroud_growth_timer: initial_map_regrowth_timer(),
+            fog_regrow_timer: initial_map_regrowth_timer(),
             tick: 0,
             total_sim_ms: 0,
             binary_frame: 0,
@@ -2077,6 +2154,7 @@ mod tests {
                 mission: None,
                 recruitable_a: true,
                 recruitable_b: true,
+                group: -1,
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,

@@ -72,6 +72,7 @@ fn rejected_broadcast_retains_unsent_commands_and_codec_until_retry() {
             house_id: 2,
             frame: 3,
             source_id: actor as i32,
+            auxiliary: crate::sim::command::MegaMissionTarget::Null,
             order: crate::sim::command::MegaMissionOrder::Move {
                 target_x: 10,
                 target_y: 10,

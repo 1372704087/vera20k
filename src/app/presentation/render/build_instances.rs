@@ -39,6 +39,8 @@ pub(super) struct WorldInstances {
     pub cell_body_draws: Vec<instances::CellBodyDraw>,
     /// Represented Display parents in their five retained native layer orders.
     pub object_layers: [super::draw_plan_lowering::ObjectLayerPass; 5],
+    /// Native separate FoggedObject drawing pass before live building bases.
+    pub fogged_objects: super::draw_plan_lowering::ObjectLayerPass,
     /// One BuildingClass::Array-ordered text sweep after Ground2 bodies.
     pub building_status_text: crate::app::presentation::ui_overlays::BuildingStatusTextInstances,
     /// Static smudge decals (craters, scorches) — drawn between terrain and entities.
@@ -260,6 +262,7 @@ pub(super) fn build_world_instances(
             detail: &presentation.detail,
             detail_level: presentation.in_game_options.detail_level,
             lighting: presentation.lighting.grid(),
+            retained_anim_intensities: Some(presentation.lighting.anim_intensities()),
             house_colors: &presentation.house_color_map,
             hidden_super_anims: &presentation.hidden_super_anims,
             show_hidden: presentation.in_game_options.show_hidden,
@@ -411,6 +414,7 @@ pub(super) fn build_world_instances(
         .collect();
     let building_status_text = build_building_status_instances(state, &building_body_opportunities);
     let object_layers = super::draw_plan_lowering::lower_object_instances(planned_objects);
+    let fogged_objects = instances::build_fogged_instances(state);
 
     // PixelFX water/ore sparkles — per-frame 1-pixel cell dots.
     let cell_sparkles: Vec<SpriteInstance> = build_pixel_fx_sparkle_instances(state, sw, sh);
@@ -441,6 +445,7 @@ pub(super) fn build_world_instances(
         cell_bodies,
         cell_body_draws,
         object_layers,
+        fogged_objects,
         building_status_text,
         smudge,
         bridge_body_shadow,
@@ -1024,25 +1029,37 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         .as_ref()
         .map(|csf| csf.text("TXT_HOLD"))
         .unwrap_or_else(|| std::borrow::Cow::Borrowed("On Hold"));
+    // SuperClass::NameReadiness6CC2B0: native drain state labels share the
+    // same status-strip/text owner as ordinary Ready and Hold.
+    let charging_text = state
+        .process_assets
+        .csf
+        .as_ref()
+        .map(|csf| csf.text("TXT_CHARGING"))
+        .unwrap_or_else(|| std::borrow::Cow::Borrowed("Charging"));
+    let active_text = state
+        .process_assets
+        .csf
+        .as_ref()
+        .map(|csf| csf.text("TXT_FIRESTORM_ON"))
+        .unwrap_or_else(|| std::borrow::Cow::Borrowed("Firestorm On"));
+    let status_labels = crate::app::presentation::sidebar_build::CameoStatusLabels {
+        ready: ready_text.as_ref(),
+        hold: hold_text.as_ref(),
+        charging: charging_text.as_ref(),
+        active: active_text.as_ref(),
+    };
     let ready_tint = {
         let theme = crate::app::presentation::sidebar_render::current_sidebar_theme(state);
         crate::render::sidebar_text::side_highlight_color(theme)
     };
     let cameo_layers = view
         .as_ref()
-        .map(|v| build_sidebar_cameo_instances(state, v, ready_text.as_ref(), hold_text.as_ref()))
+        .map(|v| build_sidebar_cameo_instances(state, v, status_labels))
         .unwrap_or_default();
     let mut text_layers = view
         .as_ref()
-        .map(|v| {
-            build_sidebar_text_instances(
-                state,
-                v,
-                ready_text.as_ref(),
-                hold_text.as_ref(),
-                ready_tint,
-            )
-        })
+        .map(|v| build_sidebar_text_instances(state, v, status_labels, ready_tint))
         .unwrap_or_default();
     // Credits counter shares the GAME.FNT sidebar-text layer: gamemd draws it
     // with the same BitFont on the sidebar surface, in the same packed side

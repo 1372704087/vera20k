@@ -40,9 +40,18 @@ def physical_sections(raw):
   if k and v:
    k=k.decode('latin1');assert k not in current,('duplicate-key',k);current[k]=v.decode('latin1')
  return {n:v for n,v in result.items() if v}
+def read_asset_inputs(root,names=None):
+ """Read only selected asset files when a bounded producer supplies names."""
+ if names is None:
+  paths=root.glob('*')
+ else:
+  selected={name.upper() for name in names}
+  paths=(p for p in root.iterdir() if p.name.upper() in selected and p.is_file())
+ return {p.name.upper():p.read_bytes() for p in paths}
+
 class Reader(Lists):
- def __init__(self,root,sections,*,arena_size=0x400000):
-  self.assets={p.name.upper():p.read_bytes() for p in root.glob('*')};self.asset_loaded=[];self.asset_ptr={};self.sound_names=[]
+ def __init__(self,root,sections,*,arena_size=0x400000,asset_names=None):
+  self.assets=read_asset_inputs(root,asset_names);self.asset_loaded=[];self.asset_ptr={};self.sound_names=[]
   super().__init__(arena_size=arena_size)
   # Retail startup installs the CRT floating scanner before ReadDouble5283D0.
   self.invoke(0x7C8F5E,0)
@@ -103,18 +112,18 @@ class Reader(Lists):
    while (v:=struct.unpack('<H',u.mem_read(source+len(s)*2,2))[0]):s.append(chr(v))
    value=''.join(s);raw=uuid.UUID(value).bytes_le;u.mem_write(dest,raw);u.reg_write(UC_X86_REG_EAX,0);u.reg_write(UC_X86_REG_ESP,sp+8);u.reg_write(UC_X86_REG_EIP,0x527B12);events.append(dict(kind='OS_CLSIDFromString',value=value,bytes=raw.hex()));return True
   return False
- def make_ini(self,sections):
-  u=self.u;u.mem_write(INI,bytes(0x40));rows=[]
+ def make_ini(self,sections,*,ini_address=INI,checksum=crc):
+  u=self.u;u.mem_write(ini_address,bytes(0x40));rows=[]
   for name,keys in sections.items():
    sec=self.alloc(0x44);u.mem_write(sec+0xc,dwords(self.cstring(name)));entries=[]
    for key,value in keys.items():
-    entry=self.alloc(0x28);u.mem_write(entry+0xc,dwords(self.cstring(key),self.cstring(value)));entries.append((crc(key),entry))
+    entry=self.alloc(0x28);u.mem_write(entry+0xc,dwords(self.cstring(key),self.cstring(value)));entries.append((checksum(key),entry))
    items=self.alloc(len(entries)*8)
    for i,(key,pointer) in enumerate(sorted(entries,key=lambda x:struct.unpack('<i',dwords(x[0]))[0])):u.mem_write(items+i*8,dwords(key,pointer))
-   u.mem_write(sec+0x2c,dwords(items,len(entries),len(entries),1,0));rows.append((crc(name),sec))
+   u.mem_write(sec+0x2c,dwords(items,len(entries),len(entries),1,0));rows.append((checksum(name),sec))
   items=self.alloc(len(rows)*8)
   for i,(key,pointer) in enumerate(sorted(rows,key=lambda x:struct.unpack('<i',dwords(x[0]))[0])):u.mem_write(items+i*8,dwords(key,pointer))
-  u.mem_write(INI+0x28,dwords(items,len(rows),len(rows),1,0))
+  u.mem_write(ini_address+0x28,dwords(items,len(rows),len(rows),1,0))
  def hook(self,u,p,n,d):
   if p==0x5B40B0:
    name=self.string(u.reg_read(UC_X86_REG_ECX));raw=self.assets.get(name.upper());pointer=0

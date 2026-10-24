@@ -89,6 +89,12 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
             .interpolation
             .set_enabled(enabled);
     }
+    fn store_mouse_wheel_zoom(&mut self, enabled: bool) {
+        self.persistence.options_profile.mouse_wheel_zoom = enabled;
+        if !enabled {
+            crate::app::input::camera::reset_view_distance(self);
+        }
+    }
     fn store_wol_test_service(&mut self, wol_test_service: bool) {
         // The next Internet visit picks its provider from it.
         self.persistence.options_profile.wol_test_service = wol_test_service;
@@ -121,8 +127,19 @@ impl crate::app::persistence::options::launcher::LauncherParentOperations
     }
 
     fn refresh_detail(&mut self) {
-        // Rust-native display invalidation for native `0x004AE450`. The live
-        // presentation reads the projection above on the requested frame.
+        // Display4AE450 resamples synchronously, before the next Logic visit
+        // can copy a Cell's light into a grapple anim. This local operation
+        // never enters Simulation's replay/sync hash.
+        if let Some(runtime) = self.state.match_state.sim_runtime.as_ref()
+            && let Some(terrain) = runtime.simulation.resolved_terrain()
+        {
+            let presentation = &mut self.state.match_state.match_presentation;
+            presentation.lighting.refresh(
+                terrain,
+                &runtime.simulation,
+                presentation.in_game_options.detail_level,
+            );
+        }
         self.state.platform.window.request_redraw();
     }
 
@@ -1192,11 +1209,7 @@ Details: {details}"
         use crate::ui::shell::layout::LaidOutControl;
         use crate::ui::shell::modal;
         let kind = state.frontend.shell_message_box.as_ref()?.labels.kind();
-        let layout = modal::message_box_layout(
-            kind,
-            state.renderer.gpu.config.width as i32,
-            state.renderer.gpu.config.height as i32,
-        );
+        let layout = crate::app::frontend::shell_layout::shell_message_box_layout(state, kind);
         let mut feed = vec![LaidOutControl {
             id: modal::control::OK,
             rect: layout.ok,
@@ -1258,7 +1271,7 @@ Details: {details}"
         };
         match message_box.purpose {
             // OK -> quit (result 0). Dismiss the confirmation first, persist
-            // settings to RA2MD.INI, then run the graceful cascade (music fade
+            // settings to VERA.INI, then run the graceful cascade (music fade
             // → trailing-voice wait → hard stop → exit) via render_frame instead
             // of exiting immediately. The screen fade-to-black is sub-step 4b-ii-b.
             ShellMessageBoxPurpose::ExitGame

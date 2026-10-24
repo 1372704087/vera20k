@@ -114,6 +114,7 @@ fn roundtrip_fixture_save(fixture: &mut Fixture, label: &str) {
         label,
         0,
         &[],
+        &[],
         saved_order.as_ref(),
         None,
         None,
@@ -923,11 +924,9 @@ fn consume_lifecycle_output(
     {
         fixture
             .input
-            .apply_building_placement_output(&cursor_clear, local_house);
+            .apply_lifecycle_output(&cursor_clear, local_house);
     }
-    fixture
-        .input
-        .apply_building_placement_output(output, local_house)
+    fixture.input.apply_lifecycle_output(output, local_house)
 }
 
 fn start_mixed_infantry_queue(fixture: &mut Fixture) -> (u64, u64) {
@@ -2740,11 +2739,9 @@ fn unlinked_abandon_clears_current_before_product_expiry() {
             clears += 1;
             fixture
                 .input
-                .apply_building_placement_output(&cursor_clear, Some(owner));
+                .apply_lifecycle_output(&cursor_clear, Some(owner));
         }
-        fixture
-            .input
-            .apply_building_placement_output(output, Some(owner));
+        fixture.input.apply_lifecycle_output(output, Some(owner));
         if index == expiry {
             assert_current_matches_native(&fixture, &native_expiry["placement"]);
             assert_eq!(clears, 1, "zero-link House prefix precedes product expiry");

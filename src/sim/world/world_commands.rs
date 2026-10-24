@@ -15,8 +15,6 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
-#[cfg(any(test, feature = "test-support"))]
-use crate::sim::combat::combat_aoe::CellTargetDetach;
 use crate::sim::command::{
     ArchiveRecord, BUILDING_OFF_LINE_OPCODE, BUILDING_ON_LINE_OPCODE, BuildingOnLineRecord,
     COMMAND_RECORD_LEN, Command, CommandEnvelope, CommandRecord, CycleProducerRecord, DeployRecord,
@@ -474,6 +472,17 @@ impl Simulation {
     ) -> Option<CommandRecord> {
         let selection =
             production::ProductionSelection::for_type(rules, self.object_type(type_id, rules)?)?;
+        self.encode_selected_production_record(command_owner, event, selection)
+    }
+
+    /// Typed callers retain Select6AAD00's existing RTTI/index/Naval fields.
+    /// The name-only encoder above deliberately keeps broad-name semantics.
+    pub fn encode_selected_production_record(
+        &self,
+        command_owner: InternedId,
+        event: ProductionEvent,
+        selection: production::ProductionSelection,
+    ) -> Option<CommandRecord> {
         let mut record = self.encode_header_event(command_owner, event.opcode())?;
         ProductionRecord {
             house_id: record.house_id(),
@@ -525,7 +534,11 @@ impl Simulation {
             .factories()
             .view(command_owner, category)?
             .complete_object()?;
-        let object = self.object_type(held.type_id, rules)?;
+        let object = self.interner.object_type_in_category(
+            held.type_id,
+            category.object_category(),
+            rules,
+        )?;
         if object.category == crate::rules::object_type::ObjectCategory::Building {
             return None;
         }
@@ -744,6 +757,7 @@ impl Simulation {
             .position(|&owner| owner == command_owner)
             .and_then(|index| i8::try_from(index).ok())?;
         let typed = MegaMissionRecord {
+            auxiliary: MegaMissionTarget::Null,
             house_id,
             frame: self.session.binary_frame() as i32,
             source_id: i32::try_from(source_id).ok()?,
@@ -1057,6 +1071,17 @@ impl Simulation {
             }
             let entity_id = u64::try_from(typed.source_id).ok()?;
             self.substrate.entities.get(entity_id)?;
+            // Keep NavComAux in the native carrier until execution, where
+            // the shared MegaMission receiver applies it after the setters.
+            if typed.auxiliary != MegaMissionTarget::Null {
+                return Some(CommandEnvelope::new(
+                    owner,
+                    execute_tick,
+                    Command::SynchronizedRecord {
+                        record: record.clone(),
+                    },
+                ));
+            }
             let target = |token: MegaMissionTarget| -> Option<Option<combat::TargetKind>> {
                 Some(match token {
                     MegaMissionTarget::Null => None,
@@ -1382,15 +1407,9 @@ impl Simulation {
         // Selling invokes exactly one PostDestructionWallCleanup at the sold
         // cell: N, E, S, W, self. It is not damage's four-cardinal fan-out.
         const CROSS: [(i32, i32); 5] = [(0, -1), (1, 0), (0, 1), (-1, 0), (0, 0)];
-        #[cfg(any(test, feature = "test-support"))]
-        let mut detach_trace: Vec<CellTargetDetach> = Vec::new();
         for (dx, dy) in CROSS {
             let visit = {
                 let mut host = SimulationWallRuntimeHost {
-                    entities: &mut self.substrate.entities,
-                    target_terrain_objects: self.terrain_objects.objects(),
-                    #[cfg(any(test, feature = "test-support"))]
-                    detach_trace: &mut detach_trace,
                     dirty_cells: &mut self.dirty_cells,
                     zone_grid: &mut self.zone_grid,
                     path_grid: &mut self.path_grid,
@@ -1593,27 +1612,38 @@ impl Simulation {
         // Event command receivers clear Plan tokens before applying ordinary
         // orders. Flag2 acknowledges its path without detaching it; use the
         // same payload dispatcher while keeping state installed for callbacks.
-        let decoded_planned;
+        let decoded_native;
+        let mut auxiliary = MegaMissionTarget::Null;
         let planned = matches!(cmd, Command::PlanningRecord { record }
             if record.opcode() == 4 && record.payload()[22] == 2);
-        let cmd = if planned {
-            let Command::PlanningRecord { record } = cmd else {
-                unreachable!()
-            };
+        let native_mission = match cmd {
+            Command::PlanningRecord { record } if planned => Some(record),
+            Command::SynchronizedRecord { record }
+                if record.opcode() == 4 && record.payload()[22] == 0 =>
+            {
+                Some(record)
+            }
+            _ => None,
+        };
+        let cmd = if let Some(record) = native_mission {
             let mut ordinary = record.clone();
             ordinary.payload_mut()[22] = 0;
             let Some(typed) = MegaMissionRecord::decode(&ordinary) else {
                 return false;
             };
+            auxiliary = typed.auxiliary;
+            // Only the temporary semantic projection omits NavComAux. The
+            // queue, plan graph and saved/replayed bytes keep the full token.
+            ordinary.payload_mut()[21] = 0;
             let Some(envelope) = self.decode_native_command_record(&ordinary, self.session.tick())
             else {
                 return false;
             };
-            if let Ok(actor) = u64::try_from(typed.source_id) {
+            if planned && let Ok(actor) = u64::try_from(typed.source_id) {
                 self.planning_acknowledge(actor);
             }
-            decoded_planned = envelope.payload;
-            &decoded_planned
+            decoded_native = envelope.payload;
+            &decoded_native
         } else {
             cmd
         };
@@ -1667,6 +1697,7 @@ impl Simulation {
                     *mission,
                     *target,
                     *destination,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1703,6 +1734,9 @@ impl Simulation {
                     return self.execute_archive_event(entity_id, target);
                 }
                 self.apply_production_record(record, rules, overlay_registry, frame_effects)
+            }
+            Command::AssignControlGroup { group, entity_ids } => {
+                self.assign_control_group(*group, entity_ids)
             }
             Command::Select { entity_ids, .. } => self.apply_selection_snapshot(
                 entity_ids,
@@ -1750,6 +1784,7 @@ impl Simulation {
                     MissionType::Move,
                     None,
                     Some(combat::TargetKind::Cell(*target_rx, *target_ry)),
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1764,6 +1799,7 @@ impl Simulation {
                     MissionType::Move,
                     None,
                     Some(combat::TargetKind::Entity(*target_id)),
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1922,6 +1958,7 @@ impl Simulation {
                     MissionType::Attack,
                     Some(combat::TargetKind::Entity(*target_id)),
                     None,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1937,6 +1974,7 @@ impl Simulation {
                     MissionType::Attack,
                     Some(combat::TargetKind::Cell(*target_rx, *target_ry)),
                     None,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1952,6 +1990,7 @@ impl Simulation {
                     MissionType::AttackMove,
                     *target,
                     *destination,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -1963,6 +2002,7 @@ impl Simulation {
                     MissionType::AreaGuard,
                     *target,
                     None,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -2014,6 +2054,7 @@ impl Simulation {
                     MissionType::Unload,
                     None,
                     None,
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -2333,12 +2374,12 @@ impl Simulation {
                 if !self.entity_owned_by_id(command_owner, *transport_id) {
                     return false;
                 }
-                let has_passengers = self
-                    .substrate
-                    .entities
-                    .get(*transport_id)
-                    .and_then(|t| t.passenger_role.cargo())
-                    .is_some_and(|c| !c.is_empty());
+                let has_passengers = self.substrate.entities.get(*transport_id).is_some_and(|t| {
+                    !t.passenger_role.occupants().is_empty()
+                        || t.passenger_role
+                            .cargo()
+                            .is_some_and(|cargo| !cargo.is_empty())
+                });
                 // A gap generator's self click sends the same Unload
                 // (`0x004434FF..0x00443514`) with no cargo; its mission
                 // toggles the super-charge.
@@ -2448,6 +2489,7 @@ impl Simulation {
                             MissionType::Unload,
                             None,
                             None,
+                            auxiliary,
                             rules,
                             overlay_registry,
                             frame_effects,
@@ -2532,6 +2574,7 @@ impl Simulation {
                     MissionType::Sabotage,
                     None,
                     Some(combat::TargetKind::Entity(*target_building_id)),
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -2580,6 +2623,7 @@ impl Simulation {
                     MissionType::Capture,
                     None,
                     Some(combat::TargetKind::Entity(*target_building_id)),
+                    auxiliary,
                     rules,
                     overlay_registry,
                     frame_effects,
@@ -2893,6 +2937,19 @@ impl Simulation {
         first_human != human(new) || !first_human
     }
 
+    /// ObjectClass::Deselect @ 0x005F44A0: an unselected object does
+    /// nothing; otherwise remove it from selection, then release Follow
+    /// (0x005F4503..0x005F4513). The app owns the retained input ledger.
+    pub(crate) fn object_deselect(&mut self, stable_id: u64) {
+        if let Some(entity) = self.substrate.entities.get_mut(stable_id)
+            && entity.selection.is_selected()
+        {
+            entity.selection.deselect();
+            self.lifecycle_outputs
+                .emit(super::LifecycleOutput::FollowReleased { stable_id });
+        }
+    }
+
     /// `ObjectClass::Select @ 0x005F4520` and the Selected tag event that
     /// `TechnoClass::Select` raises after it (`0x006FBFD0..0x006FBFE4`). A
     /// Select the game makes itself (`logic`) first runs Unselect_All
@@ -2935,14 +2992,7 @@ impl Simulation {
                 .map(|entity| entity.stable_id());
             if first.is_some_and(|first| self.select_unselects_all(first, stable_id)) {
                 for id in self.substrate.entities.keys_sorted() {
-                    if let Some(entity) = self.substrate.entities.get_mut(id)
-                        && entity.selection.is_selected()
-                    {
-                        entity.selection.deselect();
-                        // Deselect's Follow release (`0x005F4503..0x005F4513`).
-                        self.lifecycle_outputs
-                            .emit(super::LifecycleOutput::FollowReleased { stable_id: id });
-                    }
+                    self.object_deselect(id);
                 }
             }
         }
@@ -3229,9 +3279,7 @@ impl Simulation {
     ///    back to Guard (`techno_ai::building_missions`).
     ///
     /// The tail (`0x004C749D..0x004C74BA`) hands a non-NULL third token to
-    /// the NavComAux setter (vt+0x47C). No represented order carries one:
-    /// [`crate::sim::command::MegaMissionRecord::decode`] refuses a non-NULL
-    /// auxiliary kind.
+    /// the NavComAux setter (vt+0x47C), after Set_Destination clears it.
     ///
     /// The arm tests neither the actor's owner (`0x004C71CA` resolves it
     /// independently of the event house) nor friendship nor the actor's
@@ -3247,6 +3295,7 @@ impl Simulation {
         mission: MissionType,
         target: Option<combat::TargetKind>,
         destination: Option<combat::TargetKind>,
+        auxiliary: MegaMissionTarget,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
@@ -3357,6 +3406,24 @@ impl Simulation {
                 overlay_registry,
                 frame_effects,
             );
+        }
+        if foot && auxiliary != MegaMissionTarget::Null {
+            let auxiliary = match auxiliary {
+                MegaMissionTarget::Null => None,
+                MegaMissionTarget::Cell { x, y } => {
+                    Some(combat::TargetKind::Cell(x as u16, y as u16))
+                }
+                MegaMissionTarget::Object { id } => {
+                    u64::try_from(id).ok().map(combat::TargetKind::Entity)
+                }
+            };
+            let auxiliary = self.resolve_event_token(auxiliary);
+            self.substrate
+                .entities
+                .get_mut(entity_id)
+                .unwrap()
+                .navigation
+                .set_nav_com_aux(auxiliary.map(Into::into));
         }
         MegaMissionExecution::Executed
     }
@@ -3950,7 +4017,15 @@ mod tests {
             .get_mut(2)
             .unwrap()
             .type_facts
-            .set_foundation_for_test(retail.rules.object("NATBNK").unwrap().foundation.clone());
+            .set_foundation_for_test(
+                retail
+                    .rules
+                    .object("NATBNK")
+                    .unwrap()
+                    .foundation
+                    .clone()
+                    .into(),
+            );
         // The install's arrival test reads its cell's building list
         // (`0x0047C520`), so the bunker stands on its retail foundation.
         for (rx, ry) in

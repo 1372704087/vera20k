@@ -8,7 +8,9 @@
 pub(crate) mod commands;
 pub(crate) mod options;
 pub(crate) mod options_profile;
+pub(crate) mod profile_file;
 mod resource_load;
+pub(crate) mod rules_profile;
 pub(crate) mod wol_profile;
 pub(crate) use resource_load::{PreparedSavedGame, SavedGamePreparationView};
 
@@ -129,6 +131,7 @@ pub(crate) struct PreparedLoad {
     simulation: Simulation,
     map_restore: SnapshotMapRestoreOutput,
     sinking_waterlines: Vec<(u64, i16)>,
+    anim_intensities: Vec<(u64, i32)>,
     tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
     sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
@@ -137,6 +140,7 @@ pub(crate) struct PreparedLoad {
 pub(crate) struct CommittedLoadPresentation {
     pub(crate) occupied_overlays: Vec<crate::map::overlay::OverlayEntry>,
     pub(crate) sinking_waterlines: Vec<(u64, i16)>,
+    pub(crate) anim_intensities: Vec<(u64, i32)>,
     pub(crate) tactical_view: Option<crate::sim::snapshot::SavedTacticalView>,
     pub(crate) sidebar_order: Option<crate::app::sidebar_projection::PreparedSidebarOrder>,
 }
@@ -253,12 +257,17 @@ impl PreparedLoad {
             current_simulation.terrain_speed_config().clone(),
             overlay_registry.ok_or(PreparedLoadError::MissingOverlayRegistry)?,
             None,
+            None,
         )
     }
 
     /// One world restore for production resource loads and headless fixtures.
     /// The caller supplies the incoming bound resources and only lends the
     /// current process RNG owners; no fresh scenario construction is replayed.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "bound resources and explicit user-file Cell values"
+    )]
     fn prepare_snapshot(
         snapshot: GameSnapshot,
         process: crate::sim::world::SnapshotProcessState<'_>,
@@ -269,6 +278,7 @@ impl PreparedLoad {
         prepare_terrain_assets: Option<
             &mut crate::sim::snapshot::SnapshotTerrainAssetPreparation<'_>,
         >,
+        saved_land: Option<crate::map::resolved_terrain::SavedCellLandValues>,
     ) -> Result<Self, PreparedLoadError> {
         let saved_sidebar_order = snapshot.sidebar_order().cloned();
         let tactical_view = snapshot.tactical_view().cloned();
@@ -287,11 +297,19 @@ impl PreparedLoad {
         crate::sim::production::validate_restored_factory_state(&simulation, rules)?;
         simulation.rebuild_caches_after_load(terrain_template, terrain_speed_config, rules);
 
-        let map_restore = simulation.restore_map_authority_after_snapshot_load(
-            rules,
-            overlay_registry,
-            prepare_terrain_assets,
-        )?;
+        let map_restore = match saved_land {
+            Some(saved_land) => simulation.restore_map_authority_after_user_load(
+                rules,
+                overlay_registry,
+                prepare_terrain_assets,
+                saved_land,
+            )?,
+            None => simulation.restore_map_authority_after_snapshot_load(
+                rules,
+                overlay_registry,
+                prepare_terrain_assets,
+            )?,
+        };
         // Older headless saves may omit types that had never spawned. Add
         // those canonical names without changing any saved ID, then build
         // the handle table; a missing name must never become sidebar ID zero.
@@ -304,6 +322,8 @@ impl PreparedLoad {
         // do not infer +3CA from current height or from the sinking byte.
         let mut sinking_waterlines = snapshot.sinking_waterlines;
         sinking_waterlines.retain(|(id, _)| simulation.entities().contains(*id));
+        let mut anim_intensities = snapshot.anim_intensities;
+        anim_intensities.retain(|(id, _)| simulation.anim(*id).is_some());
         // MouseLoad5BDF70 preserves the four strip lists; no-init5BE9B0
         // resets their progress only. Hydration is fallible and borrows no
         // outgoing projection, so a rejected save cannot replace its order.
@@ -317,6 +337,7 @@ impl PreparedLoad {
             simulation,
             map_restore,
             sinking_waterlines,
+            anim_intensities,
             sidebar_order,
             tactical_view,
         })
@@ -346,6 +367,7 @@ impl PreparedLoad {
             CommittedLoadPresentation {
                 occupied_overlays: self.map_restore.occupied_overlays,
                 sinking_waterlines: self.sinking_waterlines,
+                anim_intensities: self.anim_intensities,
                 sidebar_order: self.sidebar_order,
                 tactical_view: self.tactical_view,
             },

@@ -547,7 +547,7 @@ fn phase_b_interleaves_each_cells_roll_with_its_mark() {
         let mut expected_marks = Vec::new();
         let mut expected = Vec::new();
         let mut owed = 5;
-        for cell in foundation_cells(10, 10, "3x3") {
+        for cell in foundation_cells(10, 10, &"3x3".into()) {
             if owed > 0 && replay.next_range_u32_inclusive(0, 2) == 1 {
                 let engineer = replay.next_range_u32_inclusive(0, 99) < 25;
                 let _constructor = replay.next_u32();
@@ -612,7 +612,7 @@ fn a_captured_yard_rolls_one_in_nine_without_the_engineer_draw() {
     );
     let mut expected_marks = Vec::new();
     let mut owed = 3;
-    for cell in foundation_cells(10, 10, "3x3") {
+    for cell in foundation_cells(10, 10, &"3x3".into()) {
         if owed > 0 && replay.next_range_u32_inclusive(0, 8) == 1 {
             let _constructor = replay.next_u32();
             let _row = replay.next_range_u32(4);
@@ -662,7 +662,7 @@ fn pending_house_death_skips_crew_rolls_but_retains_every_cell_mark() {
             },
             FrameEffects::default(),
         );
-        assert_eq!(marks, foundation_cells(10, 10, "3x3"));
+        assert_eq!(marks, foundation_cells(10, 10, &"3x3".into()));
         if pending {
             assert_eq!(sim.substrate.entities.keys_sorted(), before_ids);
             assert_eq!(sim.scenario_rng.logical_state(), expected);
@@ -737,7 +737,7 @@ fn survivors_of_a_c4_charged_building_attack_an_enemy_planter() {
             );
             let mut expected_marks = Vec::new();
             let mut owed = 5;
-            for cell in foundation_cells(10, 10, "3x3") {
+            for cell in foundation_cells(10, 10, &"3x3".into()) {
                 if owed > 0 && replay.next_range_u32_inclusive(0, 1) == 1 {
                     let engineer = replay.next_range_u32_inclusive(0, 99) < 25;
                     let _constructor = replay.next_u32();
@@ -856,7 +856,7 @@ fn a_bio_reactor_releases_its_absorbed_infantry_before_its_crew() {
     }
     let mut expected_marks = Vec::new();
     let mut owed = 1;
-    for cell in foundation_cells(10, 10, "2x2")
+    for cell in foundation_cells(10, 10, &"2x2".into())
         .into_iter()
         .skip(absorbed.len())
     {
@@ -1509,6 +1509,7 @@ fn a_reselected_escapee_in_planning_mode_selects_its_node_partner() {
                         target_rx: 15,
                         target_ry: 15,
                     },
+                    None,
                 )
                 .expect("planning record");
             let command = sim.decode_native_command_record(&record, 0).unwrap();
@@ -1588,6 +1589,7 @@ fn plan_moves_to(sim: &mut Simulation, rules: &RuleSet, ids: &[u64], cell: (u16,
                     target_rx: cell.0,
                     target_ry: cell.1,
                 },
+                None,
             )
             .expect("planning record");
         let command = sim.decode_native_command_record(&record, 0).unwrap();
@@ -2227,7 +2229,7 @@ fn a_refused_passenger_of_a_sale_books_a_loss_with_no_kill() {
         None,
         reactor,
         None,
-        &foundation_cells(10, 10, "2x2"),
+        &foundation_cells(10, 10, &"2x2".into()),
         crate::sim::world::FrameEffects::default(),
     );
     for &id in &absorbed {

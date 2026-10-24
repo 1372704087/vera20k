@@ -18,6 +18,10 @@ mod tests;
 #[path = "pump/country_loading_tests.rs"]
 mod country_loading_tests;
 
+#[cfg(all(test, feature = "ares"))]
+#[path = "pump/loading_theme_tests.rs"]
+mod loading_theme_tests;
+
 use crate::app::AppState;
 use crate::app::loading::campaign_presentation::CampaignLoadingPresentation;
 use crate::app::loading::composition::{
@@ -1029,6 +1033,7 @@ fn prepare_country_loading_prefix(
             resident.retire_object_type_tech_levels(),
             resident.retire_ambient_change_inputs(),
             resident.retire_building_upgrade_art_names(),
+            resident.retire_voxel_type_damage(),
         )?;
     }
     let preparation = owner.prepare_noncampaign_scenario_prefix();
@@ -1288,10 +1293,49 @@ fn lease_loading_assets_and_play_loading_theme(
     now_ms: u64,
 ) -> LoadingSession {
     session.job.asset_manager = process_assets.lease_for_loading();
+    #[cfg(not(feature = "ares"))]
     if let Some(assets) = audio_service_asset_manager(process_assets, Some(&session)) {
         let _ = audio.play_theme("LOADING", assets, now_ms);
     }
+    // Ares683C70 needs the selected map INI. Its one playback occurs at the
+    // consuming Selected->Prepared transition, before the Rules prefix reset.
+    #[cfg(feature = "ares")]
+    let _ = (audio, now_ms);
     session
+}
+
+/// Installed Ares683C70/683D05 select from the already parsed map (campaign)
+/// or the early process Rules/Country/Side authority (other sessions). Called
+/// only by Selected->Prepared, before E_multi and later mode/map type writes.
+#[cfg(feature = "ares")]
+fn play_ares_loading_theme(
+    process_assets: &crate::app::process_assets::ProcessAssets,
+    audio: &mut crate::app::audio_runtime::AppAudioRuntime,
+    startup: &LoadingStartup,
+    scenario: &crate::rules::ini_parser::IniFile,
+    assets: &AssetManager,
+    wall_ms: u64,
+) {
+    let names = if startup.campaign().is_some() {
+        [
+            scenario
+                .section("Basic")
+                .and_then(|section| section.read_name("LoadingTheme", 128))
+                .map(str::to_owned),
+            None,
+        ]
+    } else {
+        startup
+            .launch_session()
+            .and_then(|launch| launch.humans.first())
+            .and_then(|first| {
+                process_assets
+                    .native_rules()
+                    .map(|owner| owner.loading_theme_names(first.slot.country.index()))
+            })
+            .unwrap_or([None, None])
+    };
+    audio.play_ares_loading_theme(names.iter().map(Option::as_deref), assets, wall_ms);
 }
 
 /// The asset manager the audio service polls Theme with: the resident
@@ -1501,6 +1545,7 @@ fn pump_loading_after_present(
         return Ok(
             match prepare_loading_session(
                 &mut state.process_assets,
+                &mut state.audio,
                 &mut state.frontend.random_map_retention,
                 state
                     .match_state
@@ -1623,6 +1668,7 @@ fn pump_loading_after_present(
                 runtime.simulation.retire_object_type_tech_levels(),
                 runtime.simulation.retire_ambient_change_inputs(),
                 runtime.simulation.retire_building_upgrade_art_names(),
+                runtime.simulation.retire_voxel_type_damage(),
             )?;
         }
         let load_result = {
@@ -1942,6 +1988,7 @@ impl LoadingJob {
 /// sink differs: prepaint must swallow raw8 until the first frame is presented.
 fn prepare_loading_session(
     process_assets: &mut crate::app::process_assets::ProcessAssets,
+    audio: &mut crate::app::audio_runtime::AppAudioRuntime,
     mapgen_retention: &mut crate::app::shell_random_map::RandomMapGenerationRetention,
     mut resident: Option<&mut crate::sim::world::Simulation>,
     mut session: LoadingSession,
@@ -1949,6 +1996,8 @@ fn prepare_loading_session(
     configured_ra2_dir: Option<PathBuf>,
     network: Option<crate::app::lan_service::LoadingNetworkService<'_>>,
 ) -> anyhow::Result<LoadingSession> {
+    #[cfg(not(feature = "ares"))]
+    let _ = audio;
     if let Err(err) =
         ensure_session_job_asset_manager(process_assets, &mut session, configured_ra2_dir)
     {
@@ -2022,6 +2071,15 @@ fn prepare_loading_session(
             match prepared {
                 Ok(prepared) => {
                     #[cfg(feature = "ares")]
+                    play_ares_loading_theme(
+                        process_assets,
+                        audio,
+                        prepared.request.startup(),
+                        &prepared.initial.map_data().ini,
+                        assets,
+                        crate::app::match_runtime::frame_pacer::wall_clock_ms(),
+                    );
+                    #[cfg(feature = "ares")]
                     let mut prepared = prepared;
                     #[cfg(feature = "ares")]
                     if let Some(native) = native.as_mut()
@@ -2086,6 +2144,7 @@ fn prepare_scenario_initial_before_first_frame(state: &mut AppState) -> anyhow::
     };
     state.frontend.loading_session = Some(prepare_loading_session(
         &mut state.process_assets,
+        &mut state.audio,
         &mut state.frontend.random_map_retention,
         state
             .match_state

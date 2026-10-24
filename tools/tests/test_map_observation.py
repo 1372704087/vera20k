@@ -430,6 +430,33 @@ class MapObservationTests(unittest.TestCase):
         self.assertEqual(retained, self.effect_frames[1])
         self.assertNotIn('temporal_paused', retained['animations'][0]['runtime'])
 
+    def test_voxel_effect_rows_retain_location_bounce_and_cleanup(self):
+        self.effect_profile()
+        # Schema fixtures, not native flight/timing expectations.
+        row = {'stable_id': 21, 'native_id': -1, 'type_id': 'PIECE', 'owner_house': None,
+               'stored_leptons': [100, 200, -5], 'duration': -1, 'marked_for_deletion': False,
+               'in_logic_vector': True, 'object_alive': True, 'in_limbo': False,
+               'bounce_position_bits': [0x42c80000, 0x43480000, 0x41200000],
+               'bounce_velocity_bits': [0x3f800000, 0x80000000, 0xbf800000]}
+        self.effect_frames[1]['voxel_anims'] = [row]
+        self.effect_frames[2]['voxel_anims'] = []
+        report = self.run_capture()
+        self.assertEqual(report['status'], 'VALID', report['errors'])
+        frames = report['capture']['observations']['frames']
+        self.assertEqual(frames[1]['effects']['voxel_anims'], [row])
+        self.assertEqual(frames[2]['effects']['voxel_anims'], [])
+        self.assertEqual(observation.validate_run(self.output)['status'], 'VALID')
+        for mutation in (lambda x: x.update(duration=True),
+                         lambda x: x.update(bounce_position_bits=[0, 0]),
+                         lambda x: x.update(bounce_velocity_bits=[0, 0, 1 << 32]),
+                         lambda x: x.update(in_limbo=0)):
+            bad = deepcopy(row); mutation(bad)
+            effects = dict(self.effect_frames[1], voxel_anims=[bad])
+            with self.assertRaises(ValidationError):
+                observation._effects(effects, self.profile, 'bad')
+        with self.assertRaises(ValidationError):
+            observation._effects(dict(self.effect_frames[1], voxel_anims=[row, row]), self.profile, 'bad')
+
     def test_wave_observations_retain_lifetime_and_refuse_malformed_snapshots(self):
         self.profile.update(schema_version=observation.PROFILE_V2, observe_waves=True)
         self.profile_path.write_text(json.dumps(self.profile))
@@ -4263,6 +4290,56 @@ class MapObservationTests(unittest.TestCase):
         observation._terrain(cell, [74, 32], 'terrain')
         cell['terrain_object'] = None
         observation._terrain(cell, [74, 32], 'terrain')
+        cell['terrain_objects'] = [dict(id=20, name='TIBTRE01', frame=2, active=True),
+                                   dict(id=19, name='TIBTRE02', frame=1, active=True)]
+        cell['terrain_object'] = dict(name='TIBTRE01', frame=2, active=True)
+        observation._terrain(cell, [74, 32], 'terrain')
+        cell['terrain_objects'][0]['native_id'] = -(1 << 31)
+        cell['terrain_objects'][1]['native_id'] = None
+        observation._terrain(cell, [74, 32], 'terrain')
+        cell['terrain_objects'][0].update(health=-(1 << 31), max_health=(1 << 31) - 1)
+        cell['terrain_objects'][1].update(health=200, max_health=200)
+        observation._terrain(cell, [74, 32], 'terrain')
+        for key, value in (('id', True), ('id', 0), ('frame', True), ('active', 1),
+                           ('native_id', True), ('native_id', 1 << 31),
+                           ('health', True), ('max_health', 1 << 31)):
+            bad = deepcopy(cell)
+            bad['terrain_objects'][0][key] = value
+            with self.assertRaises(observation.ValidationError):
+                observation._terrain(bad, [74, 32], 'terrain')
+        bad = deepcopy(cell)
+        bad['terrain_objects'][1]['id'] = 20
+        with self.assertRaises(observation.ValidationError):
+            observation._terrain(bad, [74, 32], 'terrain')
+        bad = deepcopy(cell)
+        bad['terrain_object']['frame'] = 9
+        with self.assertRaises(observation.ValidationError):
+            observation._terrain(bad, [74, 32], 'terrain')
+
+    def test_terrain_instances_observe_live_objects_outside_cell_content(self):
+        cell = self.unallocated_cell([73, 31])
+        cell.update(overlay={'id': None, 'density': 0}, terrain_object=None,
+                    terrain_objects=[], terrain_instances=[dict(
+                        id=19, native_id=1040000, name='VERA_UNREAD', health=-1, max_health=-1,
+                        frame=None, active=None, lifecycle='Live', cell_member=False,
+                        display_layer=2, in_logic_vector=False)])
+        observation._terrain(cell, [73, 31], 'terrain')
+        for key, value in (('cell_member', True), ('display_layer', 5),
+                           ('in_logic_vector', 0), ('lifecycle', 'Missing')):
+            bad = deepcopy(cell)
+            bad['terrain_instances'][0][key] = value
+            with self.assertRaises(observation.ValidationError):
+                observation._terrain(bad, [73, 31], 'terrain')
+        bad = deepcopy(cell)
+        bad['terrain_instances'].append(deepcopy(bad['terrain_instances'][0]))
+        with self.assertRaises(observation.ValidationError):
+            observation._terrain(bad, [73, 31], 'terrain')
+        # A saved type's binding does not add its instance to the Cell chain.
+        # Both omission on legacy captures and a retained Limbo row are valid.
+        cell['terrain_instances'][0].update(lifecycle='Limbo', display_layer=None)
+        observation._terrain(cell, [73, 31], 'terrain')
+        cell.pop('terrain_instances')
+        observation._terrain(cell, [73, 31], 'terrain')
 
     def test_unit_extension_retains_animation_lifetime_and_compares_observations(self):
         self.scripted_profile()

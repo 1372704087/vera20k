@@ -496,7 +496,7 @@ mod canopy_tests {
     /// The production attachment and wind-down honor the compiled capability,
     /// even when a caller supplies an extension name directly on GeneralRules.
     #[test]
-    fn vehicle_parachute_attachment_and_landing_require_npatch() {
+    fn vehicle_parachute_selection_and_landing_respect_the_capability() {
         let (mut sim, mut rules, id) = fixture();
         rules.general.vehicle_parachute = Some("VEHCHUTE".to_string());
         let anim_id = sim.attach_parachute_anim(&rules, id).expect("canopy");
@@ -516,15 +516,9 @@ mod canopy_tests {
             id,
         );
         assert_eq!(sim.anim(anim_id).unwrap().runtime().loop_remaining, 0);
-    }
 
-    /// Infantry keeps `Parachute=` even when `VehicleParachute=` is set, and
-    /// a vehicle without the key falls back to `Parachute=` (`0xC2FA75`).
-    #[test]
-    fn infantry_keeps_parachute_and_a_vehicle_falls_back_to_it() {
-        let (mut sim, rules, id) = fixture();
-        let mut rules = rules;
-        rules.general.vehicle_parachute = Some("VEHCHUTE".to_string());
+        // Infantry keeps Parachute next to the vehicle's custom canopy;
+        // an unset vehicle pointer falls back to it (NPSE C2FA75/C2F939).
         let infantry = sim.substrate.allocate_stable_id();
         sim.substrate.entities.insert(
             crate::sim::game_entity::GameEntity::test_default_of_category(

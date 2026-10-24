@@ -121,6 +121,8 @@ pub enum WolTarget {
     LobbyBack,
     /// The Options page's offline test service: login to a settled 0x113.
     TestServiceLobby,
+    /// Modern lobby presentation with sealed local fixture data, no credentials.
+    ModernLobby,
     /// The same, then Create Game: C2 settled.
     TestServiceCreate,
     /// The same, then Join on the first game: C9 settled.
@@ -460,6 +462,7 @@ impl WolTarget {
             || matches!(
                 self,
                 Self::TestServiceLobby
+                    | Self::ModernLobby
                     | Self::TestServiceCreate
                     | Self::TestServiceJoin
                     | Self::GuestChoices
@@ -630,6 +633,7 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0xff-menu", WolTarget::InternetMenu),
     ("wol-game-controls", WolTarget::GameControls),
     ("wol-test-service-lobby", WolTarget::TestServiceLobby),
+    ("wol-modern-lobby", WolTarget::ModernLobby),
     ("wol-test-service-create", WolTarget::TestServiceCreate),
     ("wol-test-service-join", WolTarget::TestServiceJoin),
     ("wol-c2-guest-choices", WolTarget::GuestChoices),
@@ -1879,7 +1883,12 @@ impl WolCapture {
                 let lobby = Self::lobby(state)?;
                 ensure!(
                     lobby.shown
-                        && lobby.ui.lobby_rows.len() == 3
+                        && lobby.ui.lobby_rows.len()
+                            == if self.target == WolTarget::ModernLobby {
+                                1
+                            } else {
+                                3
+                            }
                         && lobby.ui.game_rows.len() == 4
                         && lobby.ui.player_rows.iter().any(|row| row.name == NICKNAME),
                     "the test service did not fill 0x113"

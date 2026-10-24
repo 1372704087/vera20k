@@ -114,6 +114,7 @@ const NETWORK_OPTIONS_CHECKPOINTS: [(&str, movies::NetworkOptionsTarget); 7] = [
 ];
 const CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE: &str = "main-menu-0xe2-network-bounce";
 const CHECKPOINT_WOL_0X10E_STEADY: &str = "wol-0x10e-steady";
+const CHECKPOINT_WOL_ONLINE_WELCOME_STEADY: &str = "wol-online-welcome-steady";
 const CHECKPOINT_WOL_0X10E_ENTRY_PREFIX: &str = "wol-0x10e-entry-tick-";
 const CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH: &str = "wol-0x10e-hover-quick-match";
 const CHECKPOINT_WOL_0X10E_API_MISSING: &str = "wol-0x10e-api-missing";
@@ -277,6 +278,8 @@ pub enum ShellCaptureCheckpoint {
     MainMenu0xE2NetworkBounce,
     /// Main Menu -> Internet: `0x10E` settled.
     Wol0x10ESteady,
+    /// The actual online welcome, without entering login or reading credentials.
+    WolOnlineWelcomeSteady,
     /// Its entry slide held at one tick (`wol-0x10e-entry-tick-<N>`).
     Wol0x10EEntry(u32),
     /// Settled with the pointer on Quick Match.
@@ -544,7 +547,7 @@ impl ShellCaptureCheckpoint {
                 EXPECTED_HEIGHT as i32,
             )
             .tile_count as u32;
-            let last = kind.column(rows).total_ticks() - 1;
+            let last = kind.column(rows, None).total_ticks() - 1;
             ensure!(tick <= last, "{value}: the slide shows ticks 0..={last}");
             return Ok(checkpoint(tick));
         }
@@ -725,6 +728,7 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_OPTIONS_VERA_STEADY => Ok(Self::OptionsVeraSteady),
             CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE => Ok(Self::MainMenu0xE2NetworkBounce),
             CHECKPOINT_WOL_0X10E_STEADY => Ok(Self::Wol0x10ESteady),
+            CHECKPOINT_WOL_ONLINE_WELCOME_STEADY => Ok(Self::WolOnlineWelcomeSteady),
             CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH => Ok(Self::Wol0x10EHoverQuickMatch),
             CHECKPOINT_WOL_0X10E_API_MISSING => Ok(Self::Wol0x10EApiMissing),
             CHECKPOINT_WOL_0X10E_BACK => Ok(Self::Wol0x10EBack),
@@ -936,6 +940,7 @@ impl ShellCaptureCheckpoint {
             }
             Self::MainMenu0xE2NetworkBounce => CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE,
             Self::Wol0x10ESteady => CHECKPOINT_WOL_0X10E_STEADY,
+            Self::WolOnlineWelcomeSteady => CHECKPOINT_WOL_ONLINE_WELCOME_STEADY,
             Self::Wol0x10EEntry(_) => "wol-0x10e-entry",
             Self::Wol0x10EHoverQuickMatch => CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH,
             Self::Wol0x10EApiMissing => CHECKPOINT_WOL_0X10E_API_MISSING,
@@ -1069,26 +1074,37 @@ impl ShellCaptureCheckpoint {
             },
             Self::MainMenu0xE2NetworkBounce => movies::MoviesTarget::NetworkBounce,
             Self::Wol0x10ESteady => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
+                entry_tick: None,
+                hover: None,
+                press: movies::WolPress::None,
+            },
+            Self::WolOnlineWelcomeSteady => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Online,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EEntry(tick) => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: Some(tick),
                 hover: None,
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EHoverQuickMatch => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: Some(WOL_QUICK_MATCH_POINT),
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EApiMissing => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::MyInformation,
             },
             Self::Wol0x10EBack => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::MainMenu,
@@ -1257,6 +1273,26 @@ pub(crate) struct LiveLanConfig {
 }
 
 impl ShellCaptureRequest {
+    /// Only explicit native WOL diagnostics retain the original UI surface.
+    pub(crate) fn legacy_wol_ui(&self) -> bool {
+        match self.checkpoint.movies_target() {
+            Some(movies::MoviesTarget::Wol(target)) => target != movies::WolTarget::ModernLobby,
+            Some(movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
+                ..
+            }) => true,
+            _ => false,
+        }
+    }
+
+    /// Select only the diagnostic visit; never change the saved profile.
+    pub(crate) fn wol_welcome_provider(&self) -> Option<crate::app::shell_wol::WolProvider> {
+        match self.checkpoint.movies_target() {
+            Some(movies::MoviesTarget::WolWelcome { provider, .. }) => Some(provider),
+            _ => None,
+        }
+    }
+
     pub fn checkpoint(&self) -> ShellCaptureCheckpoint {
         self.checkpoint
     }
@@ -2177,6 +2213,7 @@ pub(crate) struct ShellCaptureSession {
     entry_sequence: Option<EntrySequenceState>,
     skirmish: Option<skirmish::SkirmishCapture>,
     movies: Option<movies::MoviesCapture>,
+    wol_welcome_provider_selected: bool,
     score: Option<score::ScoreCapture>,
     campaign_score: Option<score::CampaignScoreCapture>,
     outcome: Option<std::result::Result<(), String>>,
@@ -2304,6 +2341,7 @@ impl ShellCaptureSession {
             entry_sequence,
             skirmish,
             movies,
+            wol_welcome_provider_selected: false,
             score,
             campaign_score,
             outcome: None,
@@ -2410,6 +2448,23 @@ impl ShellCaptureSession {
         state: &mut AppState,
         rendered: PresentedShell,
     ) -> Result<()> {
+        if let Some(visit) = state.frontend.wol.as_mut() {
+            let mut changed = visit.set_legacy_ui(self.request.legacy_wol_ui());
+            if !self.wol_welcome_provider_selected
+                && matches!(visit.page, crate::app::shell_wol::WolPage::Welcome)
+                && let Some(provider) = self.request.wol_welcome_provider()
+            {
+                visit.set_provider(provider);
+                self.wol_welcome_provider_selected = true;
+                changed = true;
+            }
+            if changed {
+                // The ordinary reducer rearms the selected page's entry before
+                // any controlled driver reads its controls. Never touch a profile.
+                crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
+                return Ok(());
+            }
+        }
         if let Some(capture) = &mut self.skirmish {
             capture.after_present(state, rendered, self.frames_seen)?;
         }
@@ -3810,20 +3865,75 @@ mod tests {
 
     #[test]
     fn wol_checkpoints_round_trip() {
+        let AppLaunchMode::ShellCapture(mut request) =
+            parse_launch_args(valid_args(&new_output_path("legacy-wol"))).unwrap()
+        else {
+            panic!("capture");
+        };
         for name in [
             CHECKPOINT_WOL_0X10E_STEADY,
             CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH,
             CHECKPOINT_WOL_0X10E_API_MISSING,
             CHECKPOINT_WOL_0X10E_BACK,
+            "wol-0x10e-entry-tick-0",
         ] {
             let checkpoint = ShellCaptureCheckpoint::parse(name).expect("WOL checkpoint");
-            assert_eq!(checkpoint.as_str(), name);
+            request.checkpoint = checkpoint;
+            assert!(request.legacy_wol_ui());
+            assert_eq!(
+                request.wol_welcome_provider(),
+                Some(crate::app::shell_wol::WolProvider::Unavailable)
+            );
+            if !name.contains("entry-tick") {
+                assert_eq!(checkpoint.as_str(), name);
+            }
+        }
+        for name in ["wol-0x113-login-accepted", "wol-test-service-lobby"] {
+            request.checkpoint = ShellCaptureCheckpoint::parse(name).unwrap();
+            assert!(request.legacy_wol_ui());
+            assert_eq!(request.wol_welcome_provider(), None);
         }
         assert_eq!(
             ShellCaptureCheckpoint::parse("wol-0x10e-entry-tick-17").expect("last tick"),
             ShellCaptureCheckpoint::Wol0x10EEntry(17)
         );
         assert!(ShellCaptureCheckpoint::parse("wol-0x10e-entry-tick-18").is_err());
+    }
+
+    #[test]
+    fn online_welcome_capture_requires_no_login_inputs() {
+        let output = new_output_path("online-welcome");
+        let mut values = valid_args(&output);
+        values[1] = CHECKPOINT_WOL_ONLINE_WELCOME_STEADY.into();
+        let AppLaunchMode::ShellCapture(mut request) = parse_launch_args(values).expect("parse")
+        else {
+            panic!("capture");
+        };
+        assert_eq!(
+            request.checkpoint().as_str(),
+            CHECKPOINT_WOL_ONLINE_WELCOME_STEADY
+        );
+        assert!(request.live_online.is_none());
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::Online)
+        );
+        assert_eq!(
+            request.checkpoint().movies_target(),
+            Some(movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Online,
+                entry_tick: None,
+                hover: None,
+                press: movies::WolPress::None,
+            })
+        );
+        request.checkpoint = ShellCaptureCheckpoint::Lan(movies::LanTarget::OnlineHost);
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(request.wol_welcome_provider(), None);
+        request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-lobby").unwrap();
+        assert!(!request.legacy_wol_ui());
+        assert!(request.live_online.is_none());
     }
 
     #[test]
@@ -4182,7 +4292,7 @@ mod tests {
         )
         .tile_count as u32;
         assert_eq!(
-            ShellSlideKind::MainMenu.column(rows).total_ticks(),
+            ShellSlideKind::MainMenu.column(rows, None).total_ticks(),
             u32::from(ENTRY_SEQUENCE_FRAMES)
         );
     }

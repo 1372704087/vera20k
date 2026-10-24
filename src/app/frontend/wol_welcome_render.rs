@@ -31,7 +31,7 @@ use crate::ui::shell::menu_page::{MenuPageButtonRect, MenuPageLayout, MenuPageSp
 use crate::ui::shell::slide::PanelArt;
 use crate::ui::wol_shell::{
     BOX_NO, BOX_OK, BOX_YES, StaticAlign, WAIT_CHECK_STATUS, WAIT_DISCONNECT, WOL_LOBBY_TITLE_KEY,
-    WOL_WELCOME_PAGE, WolBoxButtons,
+    WolBoxButtons,
 };
 
 /// Icon and group-box children sit over the background, under the text.
@@ -196,7 +196,7 @@ impl Painted {
 
     fn title_key(&self) -> Option<&'static str> {
         match self {
-            Self::Welcome(_) => Some(WOL_WELCOME_PAGE.title_key),
+            Self::Welcome(layout) => Some(layout.page_spec().title_key),
             Self::Login(_) => Some(crate::ui::wol_login::PAGE.title_key),
             Self::Lobby(_) => Some(WOL_LOBBY_TITLE_KEY),
             Self::Options(_) => Some(crate::ui::wol_options::PAGE.title_key),
@@ -656,8 +656,8 @@ pub(crate) fn render_wol_page(
         (_, Some(wave)) => Some(wave.button_draws()),
         (Painted::Backdrop, None) => Some(shell_paint::shuttered_column(page.right_panel)),
         (Painted::Welcome(layout), None) => {
-            spec = Some(&WOL_WELCOME_PAGE);
-            let active = controller.top_id() == Some(WOL_WELCOME_PAGE.dialog);
+            spec = Some(layout.page_spec());
+            let active = controller.top_id() == Some(layout.page_spec().dialog);
             let pressed = active.then(|| controller.pressed()).flatten();
             painted_buttons = layout
                 .painted_buttons(pressed)

@@ -137,6 +137,7 @@ pub(crate) fn paint_wol_lobby_children(
     };
     let font = &state.renderer.bit_font;
     let scale = layout.page.scale;
+    let modern = ui.is_modern();
     let now = Instant::now();
     let text = |value: &str, rect: RectPx, align: ShellAlign, rgb: [f32; 3]| {
         shell_text::draw_in_rect_scaled(
@@ -196,8 +197,13 @@ pub(crate) fn paint_wol_lobby_children(
             }
             None => {
                 if let Some((_, key)) = SORT_BUTTONS.iter().find(|(known, _)| *known == id) {
+                    let caption = if modern && matches!(id, SORT_ALPHA | PLAYER_SORT_ALPHA) {
+                        "Name".to_owned()
+                    } else {
+                        label(state, key)
+                    };
                     paint.texts.push(text(
-                        &label(state, key),
+                        &caption,
                         rect,
                         ShellAlign::H_CENTER | ShellAlign::V_CENTER,
                         SHELL_LABEL_TEXT_RGB,
@@ -324,7 +330,11 @@ pub(crate) fn paint_wol_lobby_children(
         };
         paint.texts.push(text(
             &row.text,
-            cell(rect, GAME_NAME_X, GAME_NAME_W),
+            if modern {
+                cell(rect, 2, GAME_PING_X - 4)
+            } else {
+                cell(rect, GAME_NAME_X, GAME_NAME_W)
+            },
             ShellAlign::V_CENTER,
             rgb,
         ));
@@ -340,7 +350,7 @@ pub(crate) fn paint_wol_lobby_children(
             ShellAlign::V_CENTER,
             rgb,
         ));
-        if let Some(art) = art {
+        if !modern && let Some(art) = art {
             push_icon(
                 &mut paint.icons,
                 art,
@@ -374,10 +384,17 @@ pub(crate) fn paint_wol_lobby_children(
         let rect = players.row(visible);
         paint.texts.push(text(
             &row.name,
-            cell(rect, PLAYER_NAME_X, PLAYER_NAME_W),
+            if modern {
+                cell(rect, 2, 0)
+            } else {
+                cell(rect, PLAYER_NAME_X, PLAYER_NAME_W)
+            },
             ShellAlign::V_CENTER,
             SHELL_LABEL_TEXT_RGB,
         ));
+        if modern {
+            continue;
+        }
         if let Some((tag, _)) = &row.clan {
             paint.texts.push(text(
                 tag,

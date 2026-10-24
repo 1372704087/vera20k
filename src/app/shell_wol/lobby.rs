@@ -40,6 +40,8 @@ use winit::keyboard::KeyCode;
 
 /// The list wait `0x0077F120` gives up after 30 s.
 const LIST_WAIT: Duration = Duration::from_millis(30_000);
+// The initial VERA public lobby; native diagnostic catalogs keep their rooms.
+const PUBLIC_LOBBY_NAME: &str = "Lob_41_2";
 /// `0x00788800`/`0x00789B60`: at most 150 x 100 ms for the leave.
 const LEAVE_WAIT: Duration = Duration::from_millis(15_000);
 /// `SetTimer(0, 30000)`: the game list; `SetTimer(1, 53000)`: the lobbies.
@@ -294,6 +296,13 @@ pub(crate) struct WolLobby {
 }
 
 impl WolLobby {
+    fn set_lobbies(&mut self, mut channels: Vec<WolChannel>) {
+        if self.ui.is_modern() {
+            channels.retain(|channel| channel.name == PUBLIC_LOBBY_NAME);
+        }
+        self.lobbies = channels;
+    }
+
     pub(crate) fn message(&self) -> Option<&WolMessageBox> {
         self.message.as_ref().map(|(message, _)| message)
     }
@@ -306,11 +315,17 @@ impl WolLobby {
 
 pub(crate) fn layout(state: &AppState) -> WolLobbyLayout {
     let (width, height) = shell_layout::shell_screen_size(state);
-    let page = lobby(state).map_or(&crate::ui::wol_lobby::PAGE, |lobby| lobby.ui.page_spec());
+    if let Some(lobby) = lobby(state) {
+        return lobby.ui.layout(
+            width as i32,
+            height as i32,
+            shell_layout::fills_window(state),
+        );
+    }
     if shell_layout::fills_window(state) {
-        WolLobbyLayout::responsive(width as i32, height as i32, page)
+        WolLobbyLayout::responsive(width as i32, height as i32, &crate::ui::wol_lobby::PAGE)
     } else {
-        WolLobbyLayout::new(width as i32, height as i32, page)
+        WolLobbyLayout::new(width as i32, height as i32, &crate::ui::wol_lobby::PAGE)
     }
 }
 
@@ -854,7 +869,7 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
         observer,
         postmatch,
         now,
-        visit.provider == service::WolProvider::Online,
+        !visit.legacy_ui,
     ));
     let _ = App::ensure_skirmish_shell_chrome(state);
     open_art(state);
@@ -882,11 +897,11 @@ fn new_runner(
     observer: bool,
     postmatch: bool,
     now: Instant,
-    online: bool,
+    modern: bool,
 ) -> Box<WolLobby> {
     Box::new(WolLobby {
         runner,
-        ui: WolLobbyState::new(observer, online),
+        ui: WolLobbyState::new(observer, modern),
         games: Vec::new(),
         lobbies: Vec::new(),
         members: Vec::new(),
@@ -923,7 +938,7 @@ pub(super) fn open_buddy_runner(state: &mut AppState) {
         observer,
         false,
         Instant::now(),
-        visit.provider == service::WolProvider::Online,
+        !visit.legacy_ui,
     ));
     if state.match_state.session.network_return_context().is_none() {
         state
@@ -952,7 +967,7 @@ pub(super) fn open_quick_match_runner(state: &mut AppState) {
         false,
         false,
         Instant::now(),
-        visit.provider == service::WolProvider::Online,
+        !visit.legacy_ui,
     ));
     if state.match_state.session.network_return_context().is_none() {
         state
@@ -2519,7 +2534,7 @@ pub(super) fn service_event(state: &mut AppState, event: WolServiceEvent) {
                 state.platform.window.request_redraw();
                 return;
             }
-            lobby.lobbies = channels;
+            lobby.set_lobbies(channels);
             refill_lobbies(state);
             let lobby = lobby_mut(state).expect("checked");
             if let (Step::ListingLobbies { .. }, Runner::QuickMatch) = (&lobby.step, lobby.runner) {
@@ -3606,6 +3621,7 @@ pub(crate) fn status_help(state: &AppState) -> String {
             .and_then(|row| ui.player_rows.get(row))
         {
             None => csf(state, "STT:LobbyListUsers"),
+            Some(row) if ui.is_modern() => row.name.clone(),
             Some(row) => {
                 let member = lobby.members.iter().find(|member| member.name == row.name);
                 user_help(state, &row.name, member)
@@ -3722,6 +3738,58 @@ fn game_help(state: &AppState, row: &WolGameRow) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_test_preference_cannot_load_demo_games_in_ordinary_play() {
+        let saved_test_service = true;
+        assert_eq!(
+            super::super::provider_for_visit(saved_test_service, None),
+            service::WolProvider::Online
+        );
+        assert_eq!(
+            super::super::provider_for_visit(
+                saved_test_service,
+                Some(winit::dpi::PhysicalSize::new(800, 600)),
+            ),
+            service::WolProvider::TestService
+        );
+    }
+
+    #[test]
+    fn normal_test_service_keeps_the_simplified_ui_and_only_german_bunker() {
+        let mut visit = crate::app::shell_wol::WolVisit::open(false);
+        visit.set_provider(service::WolProvider::TestService);
+        assert_eq!(visit.welcome_page_spec().stacked.len(), 1);
+        let channels: Vec<_> = ["Lob_41_0", "Lob_41_1", "Lob_41_2"]
+            .into_iter()
+            .map(|name| WolChannel {
+                name: name.into(),
+                ..Default::default()
+            })
+            .collect();
+        let mut lobby = new_runner(
+            Runner::Lobby,
+            false,
+            false,
+            Instant::now(),
+            !visit.legacy_ui,
+        );
+        lobby.set_lobbies(channels.clone());
+        assert_eq!(lobby.lobbies.len(), 1);
+        assert_eq!(lobby.lobbies[0].name, "Lob_41_2");
+        assert_eq!(lobby.ui.page_spec().stacked.len(), 3);
+        visit.set_legacy_ui(true);
+        let mut legacy = new_runner(
+            Runner::Lobby,
+            false,
+            false,
+            Instant::now(),
+            !visit.legacy_ui,
+        );
+        legacy.set_lobbies(channels);
+        assert_eq!(legacy.lobbies.len(), 3);
+        assert_eq!(legacy.ui.page_spec().stacked.len(), 8);
+    }
 
     #[test]
     fn online_admission_matches_only_its_current_request_and_bounds_the_wait() {

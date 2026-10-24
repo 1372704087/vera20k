@@ -55,6 +55,16 @@ pub(crate) const PLAYER_SORT_ALPHA: u16 = 0x76A;
 pub(crate) const PLAYER_SORT_RANK: u16 = 0x76B;
 pub(crate) const PLAYER_SORT_CLAN: u16 = 0x76C;
 
+/// The modern lobby lists names and ping; legacy service-only columns stay
+/// available to native diagnostics through the same layout and state owners.
+const LEGACY_SORT_CONTROLS: [u16; 5] = [
+    SORT_GAMETYPE,
+    SORT_PASSWORD,
+    SORT_RESLOCK,
+    PLAYER_SORT_CLAN,
+    PLAYER_SORT_RANK,
+];
+
 const fn button(
     id: u16,
     dlu_top: i32,
@@ -88,7 +98,7 @@ pub(crate) const PAGE: MenuPageSpec = MenuPageSpec {
     back: button(BACK, 332, "GUI:Back", "STT:WOLLobbyBack"),
 };
 
-/// The live VERA lobby keeps core play and Options, with Options in the third
+/// The normal VERA lobby keeps core play and Options, with Options in the third
 /// row. The retail page above remains the owner for legacy service diagnostics.
 const ONLINE_PAGE: MenuPageSpec = MenuPageSpec {
     stacked: &[
@@ -234,7 +244,7 @@ pub(crate) struct WolLobbyLayout {
     pub(crate) chat: RectPx,
     pub(crate) emote: RectPx,
     pub(crate) refresh: RectPx,
-    pub(crate) sort_buttons: [(u16, RectPx); 8],
+    pub(crate) sort_buttons: Vec<(u16, RectPx)>,
     pub(crate) observer_image: RectPx,
     pub(crate) observer_toggle: RectPx,
     pub(crate) labels: [(&'static str, RectPx); 2],
@@ -296,7 +306,8 @@ impl WolLobbyLayout {
                 (PLAYER_SORT_ALPHA, px(398, 37, 93, 17)),
                 (PLAYER_SORT_CLAN, px(491, 37, 69, 17)),
                 (PLAYER_SORT_RANK, px(560, 37, 61, 17)),
-            ],
+            ]
+            .into(),
             observer_image: px(594, 10, 28, 21),
             observer_toggle: px(576, 13, 16, 17),
             labels: [
@@ -489,7 +500,7 @@ pub(crate) enum WolLobbyAction {
 /// The dialog's children: list contents, selection, enable state, chat.
 #[derive(Debug, Clone)]
 pub(crate) struct WolLobbyState {
-    online: bool,
+    modern: bool,
     pub(crate) chat: LanChatState,
     pub(crate) lobby_rows: Vec<WolLobbyRow>,
     pub(crate) game_rows: Vec<WolGameRow>,
@@ -513,9 +524,9 @@ pub(crate) struct WolLobbyState {
 }
 
 impl WolLobbyState {
-    pub(crate) fn new(observer: bool, online: bool) -> Self {
+    pub(crate) fn new(observer: bool, modern: bool) -> Self {
         Self {
-            online,
+            modern,
             chat: LanChatState {
                 edit: SavedSeedDescriptionEdit {
                     focused: true,
@@ -542,11 +553,38 @@ impl WolLobbyState {
 
     pub(crate) fn enabled(&self, control: u16) -> bool {
         !self.disabled.contains(&control)
+            && (!self.modern || !LEGACY_SORT_CONTROLS.contains(&control))
             && (PAGE.button(control).is_none() || self.page_spec().button(control).is_some())
     }
 
     pub(crate) fn page_spec(&self) -> &'static MenuPageSpec {
-        if self.online { &ONLINE_PAGE } else { &PAGE }
+        if self.modern { &ONLINE_PAGE } else { &PAGE }
+    }
+
+    pub(crate) fn is_modern(&self) -> bool {
+        self.modern
+    }
+
+    pub(crate) fn layout(&self, width: i32, height: i32, responsive: bool) -> WolLobbyLayout {
+        let mut layout = if responsive {
+            WolLobbyLayout::responsive(width, height, self.page_spec())
+        } else {
+            WolLobbyLayout::new(width, height, self.page_spec())
+        };
+        if self.modern {
+            layout
+                .sort_buttons
+                .retain(|(id, _)| !LEGACY_SORT_CONTROLS.contains(id));
+            let scale = layout.page.scale;
+            for (id, rect) in &mut layout.sort_buttons {
+                match *id {
+                    SORT_ALPHA => *rect = scale.scale_rect(RectPx::new(12, 37, 198, 17)),
+                    PLAYER_SORT_ALPHA => *rect = scale.scale_rect(RectPx::new(322, 37, 299, 17)),
+                    _ => {}
+                }
+            }
+        }
+        layout
     }
 
     /// `SetFocus` on the chat edit `0x540`: its caret blink restarts.
@@ -872,6 +910,46 @@ mod tests {
             assert_eq!(tooltip_key(control, lobby.page_spec()), None);
         }
         assert_eq!(lobby.activate(OPTIONS), Some(WolLobbyAction::Options));
+    }
+
+    #[test]
+    fn modern_body_keeps_useful_controls_and_cannot_activate_legacy_headers() {
+        let mut lobby = WolLobbyState::new(false, true);
+        let layout = lobby.layout(800, 600, false);
+        let legacy = WolLobbyState::new(false, false).layout(800, 600, false);
+        let headers: Vec<_> = layout.sort_buttons.iter().map(|(id, _)| *id).collect();
+        assert_eq!(headers, [SORT_ALPHA, SORT_PING, PLAYER_SORT_ALPHA]);
+        for id in LEGACY_SORT_CONTROLS {
+            let old = legacy.control_rect(id).expect("legacy header");
+            assert_eq!(layout.control_rect(id), None);
+            assert_ne!(
+                layout.control_at(old.x + old.w / 2, old.y + old.h / 2),
+                Some(id)
+            );
+            lobby.set_enabled(id, true);
+            assert!(!lobby.enabled(id));
+            assert_eq!(lobby.activate(id), None);
+        }
+        for id in [
+            SORT_ALPHA,
+            SORT_PING,
+            PLAYER_SORT_ALPHA,
+            REFRESH,
+            EMOTE,
+            GAMES,
+            PLAYERS,
+            LOBBIES,
+            CHAT_LOG,
+            CHAT,
+            OBSERVER_IMAGE,
+            OBSERVER_TOGGLE,
+        ] {
+            let rect = layout.control_rect(id).expect("useful control");
+            assert_eq!(
+                layout.control_at(rect.x + rect.w / 2, rect.y + rect.h / 2),
+                Some(id)
+            );
+        }
     }
 
     #[test]

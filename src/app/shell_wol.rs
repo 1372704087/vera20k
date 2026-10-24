@@ -191,6 +191,8 @@ pub(crate) struct WolVisit {
     /// empty without a nickname.
     pub(crate) welcome_texts: Vec<(u16, String)>,
     provider: WolProvider,
+    /// Full retail controls belong to explicit native UI captures only.
+    legacy_ui: bool,
     live_service: Option<live_service::LiveService>,
     create_account: bool,
     requests: Vec<WolServiceRequest>,
@@ -260,6 +262,7 @@ impl WolVisit {
             flow: None,
             welcome_texts: Vec::new(),
             provider: WolProvider::Unavailable,
+            legacy_ui: false,
             live_service: None,
             create_account: false,
             requests: Vec::new(),
@@ -285,11 +288,24 @@ impl WolVisit {
         }
     }
 
-    /// Diagnostics and tests only: a controlled service will drain the
-    /// requests and inject events. Production keeps `Unavailable` unless
-    /// the Options page chose the test service.
+    /// Diagnostics and tests can select a backend without changing presentation.
     pub(crate) fn set_provider(&mut self, provider: WolProvider) {
         self.provider = provider;
+    }
+
+    pub(crate) fn welcome_page_spec(&self) -> &'static crate::ui::shell::menu_page::MenuPageSpec {
+        if self.legacy_ui {
+            &crate::ui::wol_shell::WOL_WELCOME_PAGE
+        } else {
+            &crate::ui::wol_shell::WOL_ONLINE_WELCOME_PAGE
+        }
+    }
+
+    /// Diagnostics select their presentation independently of the service.
+    pub(crate) fn set_legacy_ui(&mut self, legacy: bool) -> bool {
+        let changed = self.legacy_ui != legacy;
+        self.legacy_ui = legacy;
+        changed
     }
 
     pub(crate) fn take_service_requests(&mut self) -> Vec<WolServiceRequest> {
@@ -474,6 +490,19 @@ pub(crate) fn reenter_after_match(state: &mut AppState) {
     open_lobby(state, true);
 }
 
+fn provider_for_visit(
+    test_service: bool,
+    capture_size: Option<winit::dpi::PhysicalSize<u32>>,
+) -> WolProvider {
+    // Stand-in games and players are diagnostic fixtures. A saved test
+    // preference must never replace the real service in ordinary play.
+    if capture_size.is_some() && test_service {
+        WolProvider::TestService
+    } else {
+        WolProvider::Online
+    }
+}
+
 impl App {
     /// State 2 (`0x0052DD57`) then `WOL_Main`: the lobby music takes over
     /// (`0x0077B2D7..0x0077B31D`) and `0x10E` is created after the empty
@@ -491,11 +520,10 @@ impl App {
         let lobby_music = state.frontend.wol_preferences.lobby_music != 0;
         let saved_shuffle = state.audio.enter_wol_lobby_music(lobby_music, now_ms);
         let mut visit = WolVisit::open(saved_shuffle);
-        if state.persistence.options_profile.wol_test_service {
-            visit.provider = WolProvider::TestService;
-        } else {
-            visit.provider = WolProvider::Online;
-        }
+        visit.provider = provider_for_visit(
+            state.persistence.options_profile.wol_test_service,
+            state.platform.capture_client_size,
+        );
         state.frontend.wol = Some(visit);
         persona::fill_welcome(state);
         // The first mode-loop pass (0x0077B402) applies again.

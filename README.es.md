@@ -40,7 +40,6 @@ palabra sobre su rumbo.
   scripts.
 - **Trabajo en curso:** Fidelidad de la jugabilidad, aspecto visual y rendimiento.
 - **Multijugador:** Las compilaciones actuales del código fuente permiten jugar por LAN y en línea en macOS y Linux.
-  Consulta las [instrucciones para crear, unirse y repetir partidas](README.md#multiplayer) (en inglés).
 - **Escala:** Dos partidas consecutivas en línea superaron la validación funcional con
   30 procesos de cliente independientes y más de 20 000 unidades móviles activas por partida.
   Los clientes Linux compartieron máquinas virtuales; esto no demuestra un rendimiento fluido en tiempo real.

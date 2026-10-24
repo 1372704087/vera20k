@@ -215,6 +215,7 @@ impl Simulation {
             .is_operational()
             == operational
         {
+            self.update_building_working_sound(id, rules, frame_effects);
             return;
         }
         // `0x0043FB6D..0x0043FBE3`: the working sound precedes the dispatcher.

@@ -24,8 +24,7 @@ storage. No provider token or server key belongs in the build or client.
 
 The client defaults to the deployed lobby at
 `https://vera20k-lobby.hnr-enok.workers.dev`. Normal players use
-**Internet → Custom Match** without configuring a server address; see the
-[player instructions](../../README.md#multiplayer).
+**Internet → Custom Match** without configuring a server address.
 
 For a separate deployment, set `VERA20K_LOBBY_URL` at build time or use its runtime
 environment override for staging. Clients require HTTPS, verify TLS and decline

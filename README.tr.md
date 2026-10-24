@@ -39,7 +39,6 @@ oyuncular söylüyor.
 - **Yapay zekâ:** Orijinal yapay zekânın bazı bölümleri üs kurma ve betiklerle yönetilen saldırıları yürütüyor.
 - **Devam eden çalışmalar:** Oynanışın aslına uygunluğu, görseller ve performans.
 - **Çok oyunculu mod:** Güncel kaynak kodu derlemelerinde macOS ve Linux üzerinde LAN ve çevrimiçi oyun kullanılabilir.
-  [Oyun kurma, katılma ve yeniden oynama talimatlarına](README.md#multiplayer) bakın (İngilizce).
 - **Ölçek:** Art arda iki çevrimiçi maç, her maçta 30 bağımsız istemci süreci ve
   20.000'den fazla etkin hareketli birimle işlevsel doğrulamayı geçti.
   Linux istemcileri sanal makineleri paylaştı; bu sonuç akıcı gerçek zamanlı performansı kanıtlamaz.

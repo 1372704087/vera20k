@@ -30,6 +30,13 @@ Reaching a cap clears the standing choice, without advancing the base plan. A ca
 can therefore stall construction. VERA still has one vehicle choice slot; NPSE's separate
 naval AI choice remains a separate unimplemented mechanism.
 
+The legacy `[General] EnableAIBuildLimitation=yes` switch applies the same comparison to
+`BuildLimit=` (NPExt ext173 reader `0xC2D132`, gate `0xC2CF67`). It defaults to no. This is
+compatibility with the [older NPExt release](https://ppmforums.com/topic-29537/npatch-extended-finally-released/);
+NPSE #359 replaced the global switch with `AIBuildLimit=`. If a VERA ruleset explicitly sets
+both, both constraints apply before production starts. Clearing a choice does not skip an
+unsatisfied building-plan node or guarantee the mobile chooser selects an uncapped type.
+
 ## Cross-extension compatibility
 
 The three capabilities — `ares`, `phobos`, `npatch` — are orthogonal and mixable:

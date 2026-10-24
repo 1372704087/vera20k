@@ -750,6 +750,7 @@ pub const REPLAY_VERSION: u32 = 3;
 
 /// The resolved launch and draw-free initial cursor projection contain no
 /// service session, ticket, network endpoint, authentication key or password.
+/// Startup version 2 reconstructs the normal App's batched-path policy.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayStartup {
     version: u32,
@@ -800,6 +801,10 @@ impl ReplayStartup {
                 && sim.session().binary_frame() == 0
                 && sim.session().started(),
             "standalone replay requires a started frame-zero world"
+        );
+        anyhow::ensure!(
+            sim.path_batch_stats().is_some(),
+            "standalone replay requires the normal App's batched paths"
         );
         anyhow::ensure!(
             launch.mode.class == crate::skirmish_modes::MpModeClass::Battle,
@@ -1268,6 +1273,9 @@ impl ReplayRunner {
             None,
         )
         .map_err(anyhow::Error::msg)?;
+        // The ordinary App handoff enables the path-search owner before
+        // recording frame zero. It changes movement timing and is hashed.
+        loaded.runtime.simulation.batch_path_searches();
         let mut playback = ReplayPlayback::prepare(
             &mut loaded.runtime,
             std::sync::Arc::new(replay.clone()),
@@ -1505,7 +1513,22 @@ mod tests {
             "a loaded world cannot remap its existing native identities"
         );
         assert_eq!(scene.sim().native_identity_cursor(), allocated_cursor);
+        assert!(
+            ReplayStartup::capture(
+                &scene.runtime,
+                &launch,
+                &scene.source,
+                scene.map.ini.content_hash(),
+                22,
+                true,
+            )
+            .is_err(),
+            "serial headless paths do not satisfy the normal App replay contract"
+        );
         let sim = &mut scene.runtime.simulation;
+        // Model the ordinary App handoff, including its authoritative path
+        // policy; the headless reconstruction must install the same owner.
+        sim.batch_path_searches();
         assert_eq!(
             sim.houses()[&sim.session().current_house().unwrap()].native_scenario_name(),
             Some("ReplayGuest")

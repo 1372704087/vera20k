@@ -52,6 +52,29 @@ pub(super) fn test_launch_session(country: LaunchCountry) -> SkirmishLaunchSessi
 }
 
 #[test]
+fn recorded_network_mode_stays_in_shell_until_the_world_is_installed() {
+    use crate::app::match_runtime::session::{MatchSession, SessionMode};
+    let startup = LoadingStartup::Replay {
+        session: test_launch_session(LaunchCountry::America),
+        seed: crate::app::match_bootstrap::MatchSeed {
+            value: 73,
+            source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,
+            seed_authority_certifying: false,
+        },
+        game_mode: SessionMode::Wol,
+        native_id_prefix: 0,
+    };
+    let mut session = MatchSession::default();
+    prepare_session_for_loading(&mut session, &startup);
+    assert_eq!(session.shell_mode(), Some(SessionMode::Wol));
+    assert_eq!(session.local_player_name(), Some("Player"));
+    assert!(session.network_return_context().is_none());
+    assert!(session.network_setup().is_none());
+    session.hand_mode_to_world(SessionMode::Wol);
+    assert_eq!(session.shell_mode(), None);
+}
+
+#[test]
 #[ignore = "slow; retail warm/cold ordered online startup"]
 fn sequenced_wol_cold_and_warm_rules_share_world_and_agreement_identity() {
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext, SessionMode};
@@ -140,6 +163,7 @@ fn sequenced_wol_cold_and_warm_rules_share_world_and_agreement_identity() {
             .collect::<Vec<_>>();
         let sim = &mut scene.runtime.simulation;
         crate::app::loading::init::install_startup_session_mode(sim, &startup);
+        sim.batch_path_searches();
         sim.network_command_queues().install_timing(
             bindings[0].1,
             std::num::NonZeroU8::new(1).unwrap(),

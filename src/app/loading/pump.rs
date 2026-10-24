@@ -1210,6 +1210,28 @@ fn service_network_loading_boundary(
     }
 }
 
+fn prepare_session_for_loading(
+    session: &mut crate::app::match_runtime::session::MatchSession,
+    startup: &LoadingStartup,
+) {
+    match startup {
+        LoadingStartup::Network(startup) => session.assert_network_start(startup),
+        // The shell retains the recorded mode until its world is installed;
+        // replay never admits a participant table or live connection.
+        LoadingStartup::Replay {
+            session: launch,
+            game_mode,
+            ..
+        } => session.begin_replay(*game_mode, launch.local_player().name.clone()),
+        startup => session.begin_offline(
+            startup.session_mode(),
+            startup
+                .launch_session()
+                .map(|launch| launch.local_player().name.clone()),
+        ),
+    }
+}
+
 pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     state
         .frontend
@@ -1220,23 +1242,7 @@ pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     crate::app::chrono_screen::retire(state, wall_ms);
     // The shell writes GameMode before the loading screen (`0x0052E10F`
     // Skirmish, `0x0052E175` campaign); the session owner is live from here.
-    match request.startup() {
-        LoadingStartup::Network(startup) => state.match_state.session.assert_network_start(startup),
-        // The existing reconstructed-world handoff retains a recorded WOL
-        // mode without admitting a participant table or live connection.
-        LoadingStartup::Replay {
-            session, game_mode, ..
-        } => state
-            .match_state
-            .session
-            .restore_from_save(*game_mode, Some(&session.local_player().name)),
-        startup => state.match_state.session.begin_offline(
-            startup.session_mode(),
-            startup
-                .launch_session()
-                .map(|launch| launch.local_player().name.clone()),
-        ),
-    }
+    prepare_session_for_loading(&mut state.match_state.session, request.startup());
     let mut session = LoadingSession::from_request(request);
     session.job.ra2_dir = state
         .platform

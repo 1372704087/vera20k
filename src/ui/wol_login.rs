@@ -32,6 +32,8 @@ pub(crate) const NICKNAME_LIMIT: usize = 9;
 pub(crate) const PASSWORD_LIMIT: usize = 8;
 /// Login is enabled only for a password of exactly this length.
 const PASSWORD_LENGTH: usize = 8;
+pub(crate) const ONLINE_PASSWORD_MIN_CHARACTERS: usize = 3;
+const ONLINE_PASSWORD_MAX_BYTES: usize = 128;
 /// The combo lists stored slots 1..31 (`lParam < 0x20`); every lookup scans
 /// slots 1..32 (`< 0x21`).
 const LISTED_SLOTS: std::ops::RangeInclusive<u32> = 1..=31;
@@ -148,7 +150,7 @@ impl LoginPolicy {
     fn password_limit(self) -> usize {
         match self {
             Self::Legacy => PASSWORD_LIMIT,
-            Self::Online => 128,
+            Self::Online => ONLINE_PASSWORD_MAX_BYTES,
         }
     }
 
@@ -161,10 +163,16 @@ impl LoginPolicy {
                     && nickname
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || b"_-".contains(&b))
-                    && (12..=self.password_limit()).contains(&password.len())
+                    && online_password_accepted(password)
             }
         }
     }
+}
+
+/// The modern account policy is shared by the login dialog and capture input.
+pub(crate) fn online_password_accepted(password: &str) -> bool {
+    password.chars().count() >= ONLINE_PASSWORD_MIN_CHARACTERS
+        && password.len() <= ONLINE_PASSWORD_MAX_BYTES
 }
 
 impl WolAccountGlobals {
@@ -946,7 +954,7 @@ mod tests {
         let mut login = WolLoginState::open_online(&mut globals);
         login.insert_text("player", &mut globals, &[]);
         login.focus(PASSWORD);
-        login.insert_text("sensitive", &mut globals, &[]);
+        login.insert_text("q!", &mut globals, &[]);
         assert!(!login.login_enabled);
         assert!(!login.button_enabled(MANAGE));
         assert_eq!(login.edit_key(WolEditKey::Enter, &mut globals, &[]), None);
@@ -960,7 +968,28 @@ mod tests {
             format!("{login:?}"),
             format!("{stored:?}"),
         ] {
-            assert!(!debug.contains("sensitive"));
+            assert!(!debug.contains("q!") && !debug.contains("sensitive"));
         }
+    }
+
+    #[test]
+    fn online_login_accepts_three_characters_for_login_and_account_creation() {
+        let mut globals = WolAccountGlobals::default();
+        let mut login = WolLoginState::open_online(&mut globals);
+        login.insert_text("player", &mut globals, &[]);
+        login.focus(PASSWORD);
+        login.insert_text("ab", &mut globals, &[]);
+        assert!(!login.login_enabled && !login.button_enabled(MANAGE));
+        login.insert_text("c", &mut globals, &[]);
+        assert!(login.login_enabled && login.button_enabled(MANAGE));
+        assert_eq!(
+            login.edit_key(WolEditKey::Enter, &mut globals, &[]),
+            Some(WolLoginAction::Close(LOGIN))
+        );
+
+        // The account policy counts Unicode characters, independently of
+        // the retail NewEdit's existing narrow-character input behavior.
+        assert!(!LoginPolicy::Online.accepts("player", "é界"));
+        assert!(LoginPolicy::Online.accepts("player", "é界a"));
     }
 }

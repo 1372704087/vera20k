@@ -806,6 +806,7 @@ pub(crate) fn render_wol_page(
         (Painted::Lobby(layout), None) => {
             spec = Some(&crate::ui::wol_lobby::PAGE);
             if let Some(lobby) = lobby {
+                spec = Some(lobby.ui.page_spec());
                 painted_buttons = layout
                     .page
                     .buttons

@@ -2,8 +2,9 @@
 
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens, passwords,
 relay tickets and packet keys must never be logged. Names are ASCII letters, digits,
-`_` or `-`, 1–24 bytes, unique without case. Passwords are 12–128 bytes. Accounts
-and session tokens are independent of the legacy WOL nickname/password format.
+`_` or `-`, 1–24 bytes, unique without case. Passwords contain at least 3 Unicode
+scalar characters and at most 128 UTF-8 bytes. Accounts and session tokens are
+independent of the legacy WOL nickname/password format.
 Request bodies are at most 64 KiB and 64 nested containers; every JSON string and
 property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
 not replaced, before any event or persistent state is created.
@@ -40,6 +41,10 @@ not authority. `name` identifies a channel uniquely for compatibility with the
 existing shell. Member: `{player_id,name,flags,squad,clan_name,clan_tag}`. Flags bit 0
 is the channel owner, bit 1 voice; the client adds its own local bit 32768. Servers
 set identity and flags from the authenticated membership, never from user payloads.
+The only public chat channel is German Bunker (`name:"Lob_41_2"`, `id:"public"`).
+The service updates that stored room's name without replacing its membership or
+accounts. Other chat channels are neither listed nor joinable; game rooms remain
+available through `kind:41`.
 
 Commands and their payloads:
 
@@ -83,6 +88,11 @@ of `open`, `closed`, `observer` or `waiting`. A receiver resolves its own
 `launch.local_player_index` from the authenticated player; it never uses the host's.
 `slot` uses `SkirmishLocalSlot` serde. Options are authored only by the room owner;
 the service increments `revision` and clears guest readiness on a material change.
+Starting requires at least one non-observer human and at least two playing
+participants, counting the actual `launch.opponents` AI rows. A host can select
+an AI opponent and start alone; `ai_player_count` without an AI row is insufficient.
+Games with observers cannot include AI players. `start.users` contains exactly
+the canonical human names, including observers, and never includes AI rows.
 
 Event kinds and payloads:
 
@@ -139,6 +149,9 @@ An HTTP reply alone never establishes a UDP peer connection. Each client sends
 Clients then measure actual peer round trips through their reliable UDP owner.
 Every `latency_ready` report contains each other canonical source exactly once;
 the service sends the same per-source maxima in `timing_confirmed` to everyone.
+For one human playing against AI, there are no remote peers: the latency report
+is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players do
+not receive source indices or relay credentials.
 Only then does game loading start. Each barrier has a 30-second timeout.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients

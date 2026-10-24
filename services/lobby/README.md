@@ -4,6 +4,12 @@ The Cloudflare Worker serves `protocol.md`. Its SQLite Durable Object owns playe
 accounts, authenticated sessions, room membership, settings revisions, readiness
 and start agreement. The relay and clients own UDP connectivity and simulation.
 
+German Bunker (`Lob_41_2`) is the only public chat lobby. Its durable `public`
+room id and membership survive the name migration; player-created game rooms
+remain available. Passwords require at least 3 Unicode characters and at most
+128 UTF-8 bytes. A host can start against an explicitly selected AI opponent
+without another human; AI rows remain outside the network roster.
+
 ```sh
 npm ci
 npm test

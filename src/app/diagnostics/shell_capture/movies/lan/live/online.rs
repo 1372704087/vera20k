@@ -1448,13 +1448,14 @@ fn read_password() -> Result<String> {
     {
         bytes.pop();
     }
+    let password = String::from_utf8(bytes)
+        .map_err(|_| anyhow::anyhow!("online password must use ASCII characters"))?;
     ensure!(
-        (12..=128).contains(&bytes.len())
-            && bytes
-                .iter()
+        crate::ui::wol_login::online_password_accepted(&password)
+            && password
+                .bytes()
                 .all(|byte| byte.is_ascii() && !byte.is_ascii_control()),
-        "stdin must provide one 12-128 character password line"
+        "stdin must provide one 3-128 character ASCII password line"
     );
-    String::from_utf8(bytes)
-        .map_err(|_| anyhow::anyhow!("online password must use ASCII characters"))
+    Ok(password)
 }

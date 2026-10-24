@@ -135,8 +135,8 @@ on UDP ports 1234 and 1236.
 
 **Online:** Choose **Internet → Custom Match**. Enter your player name and password,
 then choose **Create Account** for a new account or **Login** for an existing one.
-Names use 1–24 ASCII letters, digits, underscores or hyphens; passwords use 12–128
-UTF-8 bytes. Choose your location if prompted. The current build connects to the
+Names use 1–24 ASCII letters, digits, underscores or hyphens; passwords need at least
+3 characters and at most 128 UTF-8 bytes. Choose your location if prompted. The current build connects to the
 project's deployed lobby and gameplay relay automatically. The client keeps login
 tokens in memory and does not save passwords.
 

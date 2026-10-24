@@ -88,6 +88,17 @@ pub(crate) const PAGE: MenuPageSpec = MenuPageSpec {
     back: button(BACK, 332, "GUI:Back", "STT:WOLLobbyBack"),
 };
 
+/// The live VERA lobby keeps core play and Options, with Options in the third
+/// row. The retail page above remains the owner for legacy service diagnostics.
+const ONLINE_PAGE: MenuPageSpec = MenuPageSpec {
+    stacked: &[
+        button(CREATE, 111, "GUI:CreateGame", "STT:LobbyButtonNew"),
+        button(JOIN, 138, "GUI:JoinGame", "STT:LobbyButtonJoin"),
+        button(OPTIONS, 166, "GUI:WOLOptions", "STT:WOLLobbyOptions"),
+    ],
+    ..PAGE
+};
+
 /// The game list's header buttons and the player list's, with captions.
 pub(crate) const SORT_BUTTONS: [(u16, &str); 8] = [
     (SORT_GAMETYPE, "GUI:GamesortGametype"),
@@ -177,8 +188,8 @@ pub(crate) const PLAYER_RANK_X: i32 = 0xF0;
 
 /// Executed `0x6040B0` help of `0x113`. The lists answer through `0x4E9`
 /// instead (`0x00780E30`, `0x00781090`); the app adapter builds those.
-pub(crate) fn tooltip_key(control: u16) -> Option<&'static str> {
-    if let Some(spec) = PAGE.button(control) {
+pub(crate) fn tooltip_key(control: u16, page: &MenuPageSpec) -> Option<&'static str> {
+    if let Some(spec) = page.button(control) {
         return Some(spec.tooltip_key);
     }
     Some(match control {
@@ -230,19 +241,19 @@ pub(crate) struct WolLobbyLayout {
 }
 
 impl WolLobbyLayout {
-    pub(crate) fn new(width: i32, height: i32) -> Self {
-        Self::build(width, height, ShellScale::RETAIL)
+    pub(crate) fn new(width: i32, height: i32, page: &MenuPageSpec) -> Self {
+        Self::build(width, height, ShellScale::RETAIL, page)
     }
 
-    pub(crate) fn responsive(width: i32, height: i32) -> Self {
-        Self::build(width, height, ShellScale::from_screen(width, height))
+    pub(crate) fn responsive(width: i32, height: i32, page: &MenuPageSpec) -> Self {
+        Self::build(width, height, ShellScale::from_screen(width, height), page)
     }
 
-    fn build(width: i32, height: i32, scale: ShellScale) -> Self {
+    fn build(width: i32, height: i32, scale: ShellScale, spec: &MenuPageSpec) -> Self {
         let mut page = if scale.is_retail() {
-            menu_page::compute_layout(&PAGE, width as u32, height as u32)
+            menu_page::compute_layout(spec, width as u32, height as u32)
         } else {
-            menu_page::compute_responsive_layout(&PAGE, width as u32, height as u32)
+            menu_page::compute_responsive_layout(spec, width as u32, height as u32)
         };
         // Executed relayout 0x60AAB0 -> 0x60C540 -> 0x60C4A0 -> 0x60C0C0
         // (tools/storage_oracle/wol_shell.json): the body keeps its template
@@ -475,36 +486,10 @@ pub(crate) enum WolLobbyAction {
     Popup(WolPopupAction),
 }
 
-/// The controls `0x0078AC10` disables around Create and Join.
-const COMMAND_BUTTONS: [u16; 9] = [
-    CREATE,
-    JOIN,
-    BUDDY,
-    CLAN,
-    TOURNAMENT,
-    NEWS,
-    OPTIONS,
-    PAGE_BUTTON,
-    BACK,
-];
-/// The runner's lobby switch (`0x00787ED8` path) also disables both lists.
-const SWITCH_CONTROLS: [u16; 11] = [
-    LOBBIES,
-    GAMES,
-    JOIN,
-    CREATE,
-    BUDDY,
-    CLAN,
-    TOURNAMENT,
-    NEWS,
-    OPTIONS,
-    PAGE_BUTTON,
-    BACK,
-];
-
 /// The dialog's children: list contents, selection, enable state, chat.
 #[derive(Debug, Clone)]
 pub(crate) struct WolLobbyState {
+    online: bool,
     pub(crate) chat: LanChatState,
     pub(crate) lobby_rows: Vec<WolLobbyRow>,
     pub(crate) game_rows: Vec<WolGameRow>,
@@ -528,8 +513,9 @@ pub(crate) struct WolLobbyState {
 }
 
 impl WolLobbyState {
-    pub(crate) fn new(observer: bool) -> Self {
+    pub(crate) fn new(observer: bool, online: bool) -> Self {
         Self {
+            online,
             chat: LanChatState {
                 edit: SavedSeedDescriptionEdit {
                     focused: true,
@@ -556,6 +542,11 @@ impl WolLobbyState {
 
     pub(crate) fn enabled(&self, control: u16) -> bool {
         !self.disabled.contains(&control)
+            && (PAGE.button(control).is_none() || self.page_spec().button(control).is_some())
+    }
+
+    pub(crate) fn page_spec(&self) -> &'static MenuPageSpec {
+        if self.online { &ONLINE_PAGE } else { &PAGE }
     }
 
     /// `SetFocus` on the chat edit `0x540`: its caret blink restarts.
@@ -576,20 +567,23 @@ impl WolLobbyState {
     /// Create/Join's disable of every command button (and the game list
     /// selection for Create).
     pub(crate) fn disable_commands(&mut self) {
-        for control in COMMAND_BUTTONS {
-            self.set_enabled(control, false);
+        for button in self.page_spec().buttons() {
+            self.set_enabled(button.id, false);
         }
     }
 
     /// Re-enable them; Join takes `join`.
     pub(crate) fn enable_commands(&mut self, join: bool) {
-        for control in COMMAND_BUTTONS {
-            self.set_enabled(control, control != JOIN || join);
+        for button in self.page_spec().buttons() {
+            self.set_enabled(button.id, button.id != JOIN || join);
         }
     }
 
     pub(crate) fn begin_lobby_switch(&mut self) {
-        for control in SWITCH_CONTROLS {
+        for control in [LOBBIES, GAMES]
+            .into_iter()
+            .chain(self.page_spec().buttons().map(|b| b.id))
+        {
             self.set_enabled(control, false);
         }
     }
@@ -597,7 +591,10 @@ impl WolLobbyState {
     /// `0x007A5E40` after a chat lobby joined: everything back, Join as the
     /// still-selected game admits.
     pub(crate) fn lobby_switched(&mut self, join: bool) {
-        for control in SWITCH_CONTROLS {
+        for control in [LOBBIES, GAMES]
+            .into_iter()
+            .chain(self.page_spec().buttons().map(|b| b.id))
+        {
             self.set_enabled(control, control != JOIN || join);
         }
     }
@@ -810,7 +807,8 @@ mod tests {
         let mut checked = 0;
         for (size, case) in corpus["layouts"]["0x113"]["sizes"].as_object().unwrap() {
             let (width, height) = size.split_once('x').unwrap();
-            let layout = WolLobbyLayout::new(width.parse().unwrap(), height.parse().unwrap());
+            let layout =
+                WolLobbyLayout::new(width.parse().unwrap(), height.parse().unwrap(), &PAGE);
             for (key, child) in case["controls"].as_object().unwrap() {
                 let mut native = rect(&child["rect"]);
                 let actual = match key.as_str() {
@@ -835,13 +833,13 @@ mod tests {
         for (key, help) in corpus["help"]["0x113"].as_object().unwrap() {
             let id = u16::from_str_radix(&key[2..], 16).unwrap();
             // The lists' null help is answered through 0x4E9 instead.
-            assert_eq!(tooltip_key(id), help.as_str(), "{key}");
+            assert_eq!(tooltip_key(id, &PAGE), help.as_str(), "{key}");
         }
     }
 
     #[test]
     fn create_and_join_disable_the_command_column_and_join_starts_disabled() {
-        let mut lobby = WolLobbyState::new(false);
+        let mut lobby = WolLobbyState::new(false, false);
         assert!(!lobby.enabled(JOIN) && lobby.enabled(CREATE));
         assert_eq!(lobby.activate(JOIN), None);
         lobby.disable_commands();
@@ -856,6 +854,27 @@ mod tests {
     }
 
     #[test]
+    fn online_sidebar_keeps_core_actions_and_never_reenables_removed_controls() {
+        let mut lobby = WolLobbyState::new(false, true);
+        let layout = WolLobbyLayout::new(800, 600, lobby.page_spec());
+        let controls: Vec<_> = layout.page.buttons.iter().map(|button| button.id).collect();
+        assert_eq!(controls, [CREATE, JOIN, OPTIONS, BACK]);
+        let retail = WolLobbyLayout::new(800, 600, &PAGE);
+        assert_eq!(layout.control_rect(OPTIONS), retail.control_rect(BUDDY));
+        lobby.disable_commands();
+        lobby.enable_commands(true);
+        lobby.begin_lobby_switch();
+        lobby.lobby_switched(true);
+        for control in [BUDDY, CLAN, TOURNAMENT, NEWS, PAGE_BUTTON] {
+            assert!(!lobby.enabled(control));
+            assert_eq!(lobby.activate(control), None);
+            assert_eq!(layout.control_rect(control), None);
+            assert_eq!(tooltip_key(control, lobby.page_spec()), None);
+        }
+        assert_eq!(lobby.activate(OPTIONS), Some(WolLobbyAction::Options));
+    }
+
+    #[test]
     fn refills_find_game_and_private_player_selections_by_name() {
         let row = |name: &str| WolGameRow {
             record: 0,
@@ -867,7 +886,7 @@ mod tests {
             limit_icon: None,
             ping: -1,
         };
-        let mut lobby = WolLobbyState::new(false);
+        let mut lobby = WolLobbyState::new(false, false);
         lobby.replace_games(vec![row("a"), row("b")]);
         lobby.select_game(1, false);
         lobby.replace_games(vec![row("c"), row("a"), row("b")]);
@@ -906,7 +925,7 @@ mod tests {
 
     #[test]
     fn chat_enter_and_emote_read_and_clear_the_edit() {
-        let mut lobby = WolLobbyState::new(false);
+        let mut lobby = WolLobbyState::new(false, false);
         lobby.insert_text("hello");
         assert_eq!(
             lobby.edit_key(LanEditKey::Enter),

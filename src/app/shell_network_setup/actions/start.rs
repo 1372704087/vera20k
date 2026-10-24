@@ -44,7 +44,7 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .iter()
         .filter(|human| !human.is_observer())
         .count() as i32;
-    if humans < 2 {
+    if !has_minimum_players(&launch) {
         message(state, "TXT_ONLY_ONE", &[]);
         return Ok(());
     }
@@ -89,9 +89,9 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         .network_setup_capacity()
         .unwrap_or(0);
     if wol {
-        // C2 0x79071E..0x7908D5: allies, readiness, then capacity. The
-        // missing AI trackbar 0x552 reads 0 through TBM_GETPOS, so only the
-        // humans count against the map.
+        // C2 0x79071E..0x7908D5: allies, readiness, then capacity. VERA's
+        // explicit AI rows share the map with human players, even though
+        // only humans belong to the network/relay roster.
         if all_allied(state, &mode) {
             message(state, "TXT_CANNOT_ALLY", &[]);
             return Ok(());
@@ -99,7 +99,7 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
         if !all_ready(state) {
             return Ok(());
         }
-        if capacity < humans {
+        if capacity < humans + launch.opponents.len() as i32 {
             message(
                 state,
                 "TXT_SCENARIO_TOO_SMALL",
@@ -299,6 +299,18 @@ pub(super) fn request_start(state: &mut AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// VERA's shared LAN/online admission allows a human to play the ordinary
+/// skirmish AI without creating another network participant. Observers and
+/// a stale declared AI count cannot stand in for an actual opponent slot.
+fn has_minimum_players(launch: &SkirmishLaunchSession) -> bool {
+    let humans = launch
+        .humans
+        .iter()
+        .filter(|human| !human.is_observer())
+        .count();
+    humans >= 1 && humans + launch.opponents.len() >= 2
+}
+
 /// The all-allied scan (BC 5DD0EA, C2 0x79071E after team copy 5E9E00):
 /// only a nonobserver human in raw row 0 seeds the comparison. An observer
 /// there bypasses this native gate; do not invent all-pairs.
@@ -393,4 +405,43 @@ fn mode_start(
         }
     }
     Ok(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fixture() -> SkirmishLaunchSession {
+        let profile = crate::test_fixture::json("tools/map_observation.command-bar.example.json");
+        serde_json::from_value(profile["launch"].clone()).unwrap()
+    }
+
+    #[test]
+    fn one_human_can_start_against_an_actual_ai_slot() {
+        let mut launch = fixture();
+        assert_eq!(launch.humans.len(), 1);
+        assert_eq!(launch.opponents.len(), 1);
+        assert!(has_minimum_players(&launch));
+
+        launch.opponents.clear();
+        assert_eq!(launch.ai_player_count, 1);
+        assert!(
+            !has_minimum_players(&launch),
+            "a declared count without an AI House is not an opponent"
+        );
+    }
+
+    #[test]
+    fn observers_do_not_replace_playing_humans_or_opponents() {
+        let mut launch = fixture();
+        launch.humans[0].set_observer(true);
+        assert!(!has_minimum_players(&launch));
+
+        let mut player = fixture().local_player().clone();
+        player.name = "Guest".into();
+        player.raw_slot_index = Some(2);
+        launch.humans.push(player);
+        launch.opponents.clear();
+        assert!(!has_minimum_players(&launch));
+    }
 }

@@ -306,10 +306,11 @@ impl WolLobby {
 
 pub(crate) fn layout(state: &AppState) -> WolLobbyLayout {
     let (width, height) = shell_layout::shell_screen_size(state);
+    let page = lobby(state).map_or(&crate::ui::wol_lobby::PAGE, |lobby| lobby.ui.page_spec());
     if shell_layout::fills_window(state) {
-        WolLobbyLayout::responsive(width as i32, height as i32)
+        WolLobbyLayout::responsive(width as i32, height as i32, page)
     } else {
-        WolLobbyLayout::new(width as i32, height as i32)
+        WolLobbyLayout::new(width as i32, height as i32, page)
     }
 }
 
@@ -848,7 +849,13 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
         state.platform.window.request_redraw();
         return;
     }
-    visit.lobby = Some(new_runner(Runner::Lobby, observer, postmatch, now));
+    visit.lobby = Some(new_runner(
+        Runner::Lobby,
+        observer,
+        postmatch,
+        now,
+        visit.provider == service::WolProvider::Online,
+    ));
     let _ = App::ensure_skirmish_shell_chrome(state);
     open_art(state);
     // The MOTD [0xB73AE0]: one line per strtok("\n") token, a blank row,
@@ -870,10 +877,16 @@ pub(crate) fn open(state: &mut AppState, postmatch: bool) {
     state.platform.window.request_redraw();
 }
 
-fn new_runner(runner: Runner, observer: bool, postmatch: bool, now: Instant) -> Box<WolLobby> {
+fn new_runner(
+    runner: Runner,
+    observer: bool,
+    postmatch: bool,
+    now: Instant,
+    online: bool,
+) -> Box<WolLobby> {
     Box::new(WolLobby {
         runner,
-        ui: WolLobbyState::new(observer),
+        ui: WolLobbyState::new(observer, online),
         games: Vec::new(),
         lobbies: Vec::new(),
         members: Vec::new(),
@@ -905,7 +918,13 @@ pub(super) fn open_buddy_runner(state: &mut AppState) {
     };
     visit.in_game = false;
     visit.page = WolPage::Lobby;
-    visit.lobby = Some(new_runner(Runner::Buddy, observer, false, Instant::now()));
+    visit.lobby = Some(new_runner(
+        Runner::Buddy,
+        observer,
+        false,
+        Instant::now(),
+        visit.provider == service::WolProvider::Online,
+    ));
     if state.match_state.session.network_return_context().is_none() {
         state
             .match_state
@@ -928,7 +947,13 @@ pub(super) fn open_quick_match_runner(state: &mut AppState) {
         return;
     };
     visit.page = WolPage::Lobby;
-    visit.lobby = Some(new_runner(Runner::QuickMatch, false, false, Instant::now()));
+    visit.lobby = Some(new_runner(
+        Runner::QuickMatch,
+        false,
+        false,
+        Instant::now(),
+        visit.provider == service::WolProvider::Online,
+    ));
     if state.match_state.session.network_return_context().is_none() {
         state
             .match_state
@@ -3586,7 +3611,7 @@ pub(crate) fn status_help(state: &AppState) -> String {
                 user_help(state, &row.name, member)
             }
         },
-        Some(control) => tooltip_key(control)
+        Some(control) => tooltip_key(control, ui.page_spec())
             .map(|key| csf(state, key))
             .unwrap_or_default(),
         None => String::new(),

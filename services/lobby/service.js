@@ -6,6 +6,7 @@ import { byteLength, record, playerName, validChannel, validJsonTree, validOptio
 const encoder = new TextEncoder();
 const LOBBY_PROTOCOL = 3;
 const RELAY_PROTOCOL = 2;
+const PUBLIC_LOBBY_NAME = 'Lob_41_2';
 const MAX_EVENTS = 1024;
 const MAX_EVENT_BYTES = 65536;
 const MAX_CRITICAL_BYTES = 2 * 1024 * 1024;
@@ -214,11 +215,15 @@ export class LobbyService {
     this.pendingBytes = 0;
     if (!store.get('room:public')) store.put('room:public', {
       id: 'public', owner: null, capacity: 256, kind: 0,
-      channel: { name: 'Lob_41_0', kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
+      channel: { name: PUBLIC_LOBBY_NAME, kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
       members: [], revision: 0, phase: 'lobby', ready: {}, maps: {}, agreements: {}, created: this.clock(),
     });
     const publicRoom = store.get('room:public');
-    if (publicRoom.capacity !== 256) { publicRoom.capacity = 256; store.put('room:public', publicRoom); }
+    // Retail TXT_LOB_3 is German Bunker; keep the durable room and its members.
+    if (publicRoom.capacity !== 256 || publicRoom.channel.name !== PUBLIC_LOBBY_NAME) {
+      publicRoom.capacity = 256; publicRoom.channel.name = PUBLIC_LOBBY_NAME;
+      store.put('room:public', publicRoom);
+    }
   }
 
   async fetch(request) {
@@ -342,7 +347,8 @@ export class LobbyService {
     if (url.pathname === '/v1/channels' && request.method === 'GET') {
       const kind = Number(url.searchParams.get('kind'));
       requireThat(kind === 0 || kind === 41, 'invalid_request', 'Unknown channel type.');
-      return this.json({ kind, channels: this.store.list('room:').filter((room) => room.kind === kind && room.phase === 'lobby').map(channelView) });
+      return this.json({ kind, channels: this.store.list('room:').filter((room) => room.kind === kind && room.phase === 'lobby'
+        && (kind !== 0 || room.id === 'public')).map(channelView) });
     }
     if (url.pathname === '/v1/events' && request.method === 'GET') {
       const after = Number(url.searchParams.get('after') ?? 0);
@@ -387,8 +393,8 @@ export class LobbyService {
     requireThat(record(body, ['nickname', 'password', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
     const { nickname, password } = body;
     requireThat(playerName(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
-    requireThat(typeof password === 'string' && encoder.encode(password).length >= 12 && encoder.encode(password).length <= 128,
-      'invalid_password', 'Use a password of 12–128 bytes.');
+    requireThat(typeof password === 'string' && Array.from(password).length >= 3 && byteLength(password) <= 128,
+      'invalid_password', 'Use at least 3 characters and at most 128 UTF-8 bytes.');
     const accountKey = `account:${nickname.toLowerCase()}`;
     this.rateLimit(`login:${accountKey}`, 30, 300);
     let account = this.store.get(accountKey);
@@ -661,10 +667,16 @@ export class LobbyService {
     if (operation !== 'start') return {};
     const room = this.room(session, true);
     requireThat(room.kind === 41 && room.phase === 'lobby' && room.options, 'not_ready', 'The room is not ready.', 409);
-    requireThat(room.members.length >= 2 && room.members.length <= MAX_PLAYERS, 'not_ready', 'At least two players are required.', 409);
+    const launch = room.options.launch;
+    const playingHumans = launch.humans.filter((human) => human.role !== 'Observer').length;
+    const computers = launch.opponents.length;
+    requireThat(room.members.length >= 1 && room.members.length <= MAX_PLAYERS && playingHumans >= 1 && playingHumans + computers >= 2,
+      'not_ready', 'At least one human and two playing participants are required.', 409);
+    requireThat(computers === 0 || playingHumans === launch.humans.length,
+      'not_ready', 'AI players cannot join a game with observers.', 409);
     requireThat(payload.revision === room.revision && Array.isArray(payload.users), 'stale_revision', 'The room changed. Accept the settings again.', 409);
-    const names = room.options.launch?.humans?.map((human) => human.name);
-    requireThat(names && names.length === room.members.length && new Set(names).size === names.length &&
+    const names = launch.humans.map((human) => human.name);
+    requireThat(names.length === room.members.length && payload.users.length === names.length && new Set(names).size === names.length &&
       names.every((name, index) => name === payload.users[index] && room.members.some((member) => member.name === name)),
       'roster_mismatch', 'The player list changed. Accept the settings again.', 409);
     requireThat(typeof payload.version === 'string' && payload.version.length > 0 && payload.version.length <= 128 &&
@@ -745,7 +757,8 @@ export class LobbyService {
           key: prepared.key, members: [], revision: 0, options: null, ready: {}, maps: {}, agreements: {}, phase: 'lobby', created: this.clock() };
       } else {
         requireThat(typeof payload.channel === 'string', 'invalid_room', 'Invalid room.');
-        room = this.store.list('room:').find((room) => room.phase === 'lobby' && room.channel.name === payload.channel);
+        room = this.store.list('room:').find((room) => room.phase === 'lobby' && room.channel.name === payload.channel
+          && (room.kind === 41 || room.kind === 0 && room.id === 'public'));
         requireThat(room && room.phase === 'lobby', 'room_unavailable', 'This room is no longer available.', 409);
         requireThat(room.kind === 0 || sameSecret(room.key ?? '', prepared.key), 'room_password', 'The room password is incorrect.', 403);
         requireThat(room.members.length < room.capacity || session.channel_id === room.id, 'room_full', 'This room is full.', 409);

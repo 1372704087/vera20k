@@ -82,6 +82,97 @@ async function room(f, host, guest) {
   return revision;
 }
 
+test('German Bunker replaces the public lobby name while retaining membership and game rooms', async () => {
+  const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
+  await f.command(host, 'join', { channel: f.store.get('room:public').channel.name, key: '' });
+  await f.command(guest, 'create', { channel, key: '' });
+  const publicRoom = f.store.get('room:public');
+  publicRoom.channel.name = 'Lob_41_0'; publicRoom.capacity = 100;
+  f.store.put('room:public', publicRoom);
+  f.store.put('room:other-chat', { ...publicRoom, id: 'other-chat', members: [],
+    channel: { ...publicRoom.channel, name: 'Lob_41_1' } });
+  f.restart();
+  const listed = await f.request('/v1/channels?kind=0', host.token);
+  assert.deepEqual(listed.body.channels.map((value) => [value.id, value.name, value.users, value.max_users]),
+    [['public', 'Lob_41_2', 1, 256]]);
+  assert.deepEqual(f.store.get('room:public').members, publicRoom.members);
+  assert.equal(f.store.get('room:public').revision, publicRoom.revision);
+  assert.equal(f.store.list('session:').find((value) => value.player_id === host.player_id).channel_id, 'public');
+  assert.equal(f.store.count('account:'), 2);
+  assert.equal((await f.request('/v1/channels?kind=41', host.token)).body.channels[0].name, channel.name);
+  assert.equal((await f.command(host, 'join', { channel: 'Lob_41_1', key: '' })).status, 409);
+  const joined = await f.command(host, 'join', { channel: 'Lob_41_2', key: '' });
+  assert.equal(joined.status, 200);
+  assert.equal(joined.body.events.find((event) => event.kind === 'joined').payload.channel.id, 'public');
+});
+
+test('account creation and login share a three-character minimum and 128-byte password ceiling', async () => {
+  const f = fixture();
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'Short', password: 'ab' })).status, 400);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'OneCharacter', password: '界' })).status, 400);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'TwoCharacters', password: '😀😀' })).status, 400);
+  const created = await f.request('/v1/accounts', null, { nickname: 'Short', password: 'abc' });
+  assert.equal(created.status, 200);
+  assert.equal((await f.request('/v1/sessions', null, { nickname: 'Short', password: 'abc' })).status, 200);
+  assert.equal((await f.request('/v1/sessions', null, { nickname: 'Short', password: 'abd' })).status, 401);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'Unicode', password: '界界界' })).status, 200);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'Maximum', password: 'a'.repeat(128) })).status, 200);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'TooLong', password: 'a'.repeat(129) })).status, 400);
+  const account = f.store.get('account:short');
+  assert.equal(Object.hasOwn(account, 'password'), false);
+  assert.notEqual(account.verifier, 'abc');
+});
+
+test('one human plus an explicit AI completes admission and rematch with one transport source', async () => {
+  const f = fixture(); const host = await f.account('Host');
+  const selected = { ...options, launch: { ...options.launch, humans: [human('Host')], ai_player_count: 1,
+    opponents: [{ ...slot, raw_slot_index: 1, difficulty: 'Normal' }],
+    pre_fill_house_roster: { ...options.launch.pre_fill_house_roster, ai_slots: [{ slot_index: 1, valid: true }] } },
+    map_metadata: { ...options.map_metadata, player_capacity: 2 } };
+  let previous;
+  for (let round = 0; round < 2; round++) {
+    assert.equal((await f.command(host, 'create', { channel, key: '' })).status, 200);
+    const published = await f.command(host, 'options', { options: selected });
+    assert.equal(published.status, 200);
+    const revision = published.body.events.filter((event) => event.kind === 'options').at(-1).payload.revision;
+    await f.command(host, 'map_status', { status: 1, ...agreement(revision) });
+    await f.command(host, 'ready', { ready: true, ...agreement(revision) });
+    assert.equal((await f.command(host, 'start', { users: ['Host', 'AI'], ...agreement(revision) })).status, 409);
+    const start = await f.command(host, 'start', { users: ['Host'], ...agreement(revision) });
+    assert.equal(start.status, 200);
+    const begun = start.body.events.filter((event) => event.kind === 'game_started').at(-1).payload;
+    assert.deepEqual(begun.users.map((user) => [user.name, user.source_index]), [['Host', 0]]);
+    assert.equal(begun.relay.source_index, 0);
+    assert.notEqual(begun.match_id, previous);
+    previous = begun.match_id;
+    const connected = await f.command(host, 'relay_ready', { match_id: begun.match_id });
+    assert.equal(connected.body.events.some((event) => event.kind === 'start_confirmed'), true);
+    const measured = await f.command(host, 'latency_ready', { match_id: begun.match_id, pings: [] });
+    assert.equal(measured.status, 200);
+    assert.deepEqual(measured.body.events.find((event) => event.kind === 'timing_confirmed').payload.pings, [0]);
+    assert.equal(f.store.list('match:')[0].users.length, 1);
+    assert.deepEqual(f.store.list('match:')[0].options.launch.opponents, selected.launch.opponents);
+    assert.equal((await f.command(host, 'finish', { match_id: begun.match_id })).status, 200);
+    assert.equal(f.store.count('match:'), 0);
+  }
+});
+
+test('start requires actual opponents and keeps AI out of observer games', async () => {
+  const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
+  await f.command(host, 'create', { channel, key: '' });
+  const declaredOnly = { ...options, launch: { ...options.launch, humans: [human('Host')], ai_player_count: 1 } };
+  let published = await f.command(host, 'options', { options: declaredOnly });
+  let revision = published.body.events.filter((event) => event.kind === 'options').at(-1).payload.revision;
+  assert.equal((await f.command(host, 'start', { users: ['Host'], ...agreement(revision) })).body.error.code, 'not_ready');
+  await f.command(guest, 'join', { channel: channel.name, key: '' });
+  const observing = { ...options, launch: { ...options.launch, humans: [human('Host'), human('Guest', 1, true)],
+    ai_player_count: 1, opponents: [{ ...slot, raw_slot_index: 2, difficulty: 'Hard' }] } };
+  published = await f.command(host, 'options', { options: observing });
+  revision = published.body.events.filter((event) => event.kind === 'options').at(-1).payload.revision;
+  assert.equal((await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) })).body.error.code, 'not_ready');
+  assert.equal(f.store.count('match:'), 0);
+});
+
 test('public chat accepts the legacy client lobby key without weakening game-room keys', async () => {
   const f = fixture(); const host = await f.account('Host'); const guest = await f.account('Guest');
   const publicRoom = (await f.request('/v1/channels?kind=0', guest.token)).body.channels[0];
@@ -467,11 +558,11 @@ test('protocol upgrade is mandatory and a new login cannot reset account action 
   old.protocol = 2; f.store.put(`session:${old.id}`, old);
   assert.equal((await f.request('/v1/channels?kind=0', user.token)).status, 426);
   old.protocol = 3; f.store.put(`session:${old.id}`, old);
-  await f.command(user, 'join', { channel: 'Lob_41_0', key: '' });
+  await f.command(user, 'join', { channel: 'Lob_41_2', key: '' });
   for (let i = 0; i < 30; i++) assert.equal((await f.command(user, 'chat', { text: 'hello', to: [] })).status, 200);
   const renewed = await f.request('/v1/sessions', null, { nickname: 'Player', password: 'long-test-password' });
   assert.equal(renewed.status, 200);
-  await f.command(renewed.body, 'join', { channel: 'Lob_41_0', key: '' });
+  await f.command(renewed.body, 'join', { channel: 'Lob_41_2', key: '' });
   assert.equal((await f.command(renewed.body, 'chat', { text: 'still limited', to: [] })).status, 429);
 });
 
@@ -553,7 +644,7 @@ test('canonical schemas reject fanout padding and state updates stay bounded', a
 
 test('public chat rejects escaped lone surrogates without poisoning recipient polling', async () => {
   const f = fixture(), sender = await f.account('Sender'), reader = await f.account('Reader');
-  for (const user of [sender, reader]) await f.command(user, 'join', { channel: 'Lob_41_0', key: '' });
+  for (const user of [sender, reader]) await f.command(user, 'join', { channel: 'Lob_41_2', key: '' });
   const before = await f.request('/v1/events?after=0', reader.token);
   for (const text of ['\ud800', '\udfff'])
     assert.equal((await f.command(sender, 'chat', { text, to: [] })).status, 400);

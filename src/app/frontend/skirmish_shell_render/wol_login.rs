@@ -166,7 +166,10 @@ pub(crate) fn paint_wol_login_children(
             RectPx::new(rect.x - 100, rect.y + 30, 380, 36)
         });
         paint.texts.push(text(
-            "Name: 1-24 letters, digits, _ or -\nPassword: 12-128 characters",
+            &format!(
+                "Name: 1-24 letters, digits, _ or -\nPassword: at least {} characters",
+                crate::ui::wol_login::ONLINE_PASSWORD_MIN_CHARACTERS
+            ),
             rect,
             ShellAlign::V_CENTER,
             SHELL_LABEL_TEXT_RGB,

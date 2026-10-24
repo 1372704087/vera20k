@@ -139,6 +139,9 @@ mod replay_tests;
 mod lifecycle_tests;
 
 #[cfg(test)]
+pub(crate) use lifecycle_tests::prerequisite_loss_cancellation_fixture;
+
+#[cfg(test)]
 mod manual_primary_tests;
 
 #[cfg(test)]

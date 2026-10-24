@@ -495,14 +495,14 @@ fn hash_mission_leaf(leaf: &crate::sim::mission::MissionLeafState, hasher: &mut 
 impl Simulation {
     /// Read-only Rust diagnostic projections through the existing hash owners.
     /// These are attribution receipts, never gameplay/native golden inputs.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 14] {
+    pub fn state_hash_owners(&self) -> [(&'static str, u64); 15] {
         fn digest(fold: impl FnOnce(&mut StateHasher)) -> u64 {
             let mut hasher = StateHasher::new();
             fold(&mut hasher);
             hasher.finish()
         }
         [
+            ("fold_before_fog", digest(|h| self.fold_before_fog(h))),
             ("houses", digest(|h| self.hash_houses(h))),
             (
                 "entities",
@@ -555,6 +555,15 @@ impl Simulation {
             ("planning", digest(|h| self.planning.hash_state(h))),
             ("projectiles", digest(|h| self.hash_projectiles(h))),
         ]
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 14] {
+        // Preserve the existing snapshot tests' owner selection; the new
+        // production prefix additionally includes clocks and Scenario RNG.
+        self.state_hash_owners()[1..]
+            .try_into()
+            .expect("14 retained owner groups")
     }
 
     /// Deterministic state hash over canonicalized simulation state.
@@ -1055,7 +1064,20 @@ impl Simulation {
             }
             house.side_index().hash(hasher);
             house.is_human().hash(hasher);
-            house.player_control().hash(hasher);
+            if self.session.game_mode().is_network() {
+                // Lifecycle discovery projects every represented human before
+                // shared Event5 reads this notification; it is no longer a
+                // process-local cache in a network world.
+                house.discovered_by_current_house().hash(hasher);
+            }
+            // CreateHouses688109..68810F sets PlayerControl(+1ED) only on
+            // this process's source. LAN/WOL peers intentionally differ in
+            // that local input/EVA selector; IsHuman remains shared authority.
+            // Campaign admission/initial credits still read PlayerControl.
+            // Source: original gamemd.exe instructions.
+            if !self.session.game_mode().is_network() {
+                house.player_control().hash(hasher);
+            }
             (house.difficulty() as i32).hash(hasher);
             house.rof_bias().bits().hash(hasher);
             house.is_defeated().hash(hasher);
@@ -1069,6 +1091,9 @@ impl Simulation {
             house.outcome().hash(hasher);
             house.map_is_clear().hash(hasher);
             house.spy_sat_active().hash(hasher);
+            // The initial sight latch drives future per-House fog callbacks.
+            // Network sight updates every represented human viewpoint, so this
+            // retained invalidation state is shared and must remain checked.
             if house.initial_sight_refresh_pending() {
                 b"house-initial-sight-refresh-v1".hash(hasher);
             }
@@ -1423,8 +1448,12 @@ impl Simulation {
     /// spread over threads in large worlds.
     fn entity_digests(&self, entities: &[&GameEntity]) -> Vec<u64> {
         let frame = self.session.binary_frame();
+        let network = self.session.game_mode().is_network();
         state_hasher::digests(entities, entities.len() >= 4096, |entity, hasher| {
-            hash_entity(entity, frame, hasher)
+            hash_entity(entity, frame, hasher);
+            if network {
+                entity.discovery.hash_network(hasher);
+            }
         })
     }
 

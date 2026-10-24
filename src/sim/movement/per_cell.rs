@@ -1514,18 +1514,16 @@ impl Simulation {
         (rx, ry): (u16, u16),
         context: UninitContext<'_>,
     ) {
-        let Some(viewer) = self.session.current_house() else {
-            return;
-        };
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return;
-        };
-        if entity.discovery.discovered_by_current_house()
-            || !self.fog.is_ground_open(viewer, rx, ry)
-        {
-            return;
+        //6F5140..6F516C runs for PlayerPtr on every native client. Use
+        //each represented human's retained admission and own ground plane.
+        for viewer in self.represented_player_maps() {
+            if self.techno_discovered_by_viewer(id, viewer)
+                || !self.fog.is_ground_open(viewer, rx, ry)
+            {
+                continue;
+            }
+            self.discover_techno(id, viewer, context);
         }
-        self.discover_techno(id, viewer, context);
     }
 
     /// The range stop (`0x004D882F..0x004D896E`): the class

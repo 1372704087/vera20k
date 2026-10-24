@@ -220,12 +220,13 @@ impl MoviesCapture {
         target: MoviesTarget,
         output: &Path,
         live_lan: Option<super::LiveLanConfig>,
+        live_online: Option<super::LiveOnlineConfig>,
     ) -> Self {
         Self {
             target,
             lan: if let MoviesTarget::Lan(target) = target {
                 let mut capture = lan::LanCapture::new(target);
-                capture.configure_live(live_lan);
+                capture.configure_live(live_lan, live_online);
                 Some(capture)
             } else {
                 None

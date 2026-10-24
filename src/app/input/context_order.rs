@@ -1343,20 +1343,27 @@ fn finish_order(
         } else {
             (queued.clone(), queued)
         };
+        let mut accepted = true;
         if !encoded.is_empty() {
-            if let Some(speaker_id) = speaker_id {
-                emit_resolved_order_voice(state, speaker_id, &feedback);
-            }
             if let Some(sim) = state
                 .match_state
                 .sim_runtime
                 .as_mut()
                 .map(|rt| &mut rt.simulation)
             {
-                sim.issue_local_commands(encoded);
+                let network = sim.session().game_mode().is_network();
+                accepted = sim.issue_local_commands(encoded) || !network;
+            }
+            if accepted {
+                if let Some(speaker_id) = speaker_id {
+                    emit_resolved_order_voice(state, speaker_id, &feedback);
+                }
             }
         }
-        true
+        if !accepted {
+            super::messages::post_command_backpressure(state);
+        }
+        accepted
     };
     // Building4437A3 passes announce=true to443860 in planning too.
     // LeftUp4ABF78..4ABF8E refuses before dispatch; admitted clicks announce

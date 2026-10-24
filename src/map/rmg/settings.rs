@@ -53,6 +53,21 @@ impl Default for RmgSettings {
 }
 
 impl RmgSettings {
+    /// Agreement over the resolved settings consumed by generation. File
+    /// selection and per-key defaults remain owned by `load` and `apply`.
+    pub fn multiplayer_digest(&self) -> String {
+        let mut bytes = b"VERA20k RMG settings v1\0".to_vec();
+        for value in [self.min_tiberium, self.max_tiberium, self.max_trees]
+            .into_iter()
+            .chain(self.level_light.iter().copied())
+            .chain(self.vegetation_min)
+            .chain(self.vegetation_max)
+        {
+            bytes.extend_from_slice(&value.to_le_bytes());
+        }
+        crate::util::sha256::sha256_hex(&bytes)
+    }
+
     /// Load from the asset manager, falling back per key to the defaults above.
     pub fn load(assets: &AssetManager) -> Self {
         let mut settings = Self::default();

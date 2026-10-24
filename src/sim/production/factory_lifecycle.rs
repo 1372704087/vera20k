@@ -1196,15 +1196,15 @@ pub(in crate::sim) fn step_factories(sim: &mut Simulation) {
     *sim.production.factories_mut() = registry;
 }
 
-/// `StripClass::Recalculate @ 0x006AA600` over the builds of every human
-/// house, as a player's strip runs it when the house's tech tree is
-/// rechecked (`HouseClass::Update @ 0x004F926C`). A type the strip no longer
-/// keeps ([`strip_keeps`]) sends ABANDON (event `0x10`) when it is its
+/// `StripClass::Recalculate @ 0x006AA600` over the current player's builds.
+/// HouseClass::Update004F8440 (4F9265..4F92E2) admits the sidebar only for
+/// PlayerPtr; remote Houses still run their superweapon recheck. A type it no
+/// longer keeps ([`strip_keeps`]) sends ABANDON (event `0x10`) when it is its
 /// category's active build, whose cameo holds the factory (`0x006AA7B6`),
 /// and ABANDON_ALL (event `0x2E`) when the house has a factory for the
 /// type's kind (`HouseClass::GetPrimaryFactory @ 0x00500510` with build
 /// category 0, so a defense asks the Buildings factory; `0x006AA809..`),
-/// through the existing name or typed native event dispatcher and
+/// through the existing typed native event dispatcher and
 /// [`cancel_production_for_owner`]. Every event is decided before any runs.
 ///
 /// Local MainTick55DC9E -> ProcessCommandQueues647260 (55DE40) executes
@@ -1213,18 +1213,21 @@ pub(in crate::sim) fn step_factories(sim: &mut Simulation) {
 /// No RNG/timer/detach writes occur here; event execution reuses the owning
 /// factory's cancellation/promotion and held-object lifecycle.
 ///
-/// Residual: native client-local sidebar entry order and saturated/network
-/// OutList transport are separate mechanisms. VERA represents every human
-/// strip in deterministic House order; a single rejected stock MGTK cameo
-/// has no cross-entry ordering ambiguity. TAction106 now requests this same
-/// House recheck. Other unported trigger writers and unpowered-factory cameo
+/// EventCtor4C6970 captures the type selector before publication: ABANDON10
+/// at6AA7D5 precedes ABANDON_ALL2E at6AA8C0 for the same rejected cameo.
+/// Reuse the ordinary production encoder; the shared OutList owns admission
+/// and network retiming. Source: original gamemd.exe instructions.
+///
+/// Residual: native sidebar entry order remains separate from the retained
+/// Factory build-type order used here. TAction106 requests this same House
+/// recheck. Other unported trigger writers and unpowered-factory cameo
 /// admission remain separate existing gaps.
 pub(in crate::sim) fn recalculate_strips(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,
 ) -> Vec<crate::sim::command::CommandEnvelope> {
-    use crate::sim::command::{Command, CommandEnvelope, ProductionEvent};
+    use crate::sim::command::{CommandEnvelope, ProductionEvent};
     if !sim.houses.get(&owner).is_some_and(|house| house.is_human()) {
         return Vec::new();
     }
@@ -1257,34 +1260,16 @@ pub(in crate::sim) fn recalculate_strips(
     }
     let mut events = Vec::new();
     let execute_tick = sim.session.tick().saturating_add(1);
-    for (type_id, selection, own_factory, kind_factory) in abandons {
-        // Preserve existing name-only command/replay representation when it
-        // identifies this same type. A colliding cameo must carry its native
-        // Type pointer's selector instead (Strip6AA7B6/6AA809).
-        let name_selects_same_type = sim
-            .object_type(type_id, rules)
-            .and_then(|object| super::ProductionSelection::for_type(rules, object))
-            == Some(selection);
-        for all in [own_factory.then_some(false), kind_factory.then_some(true)]
-            .into_iter()
-            .flatten()
+    for (_, selection, own_factory, kind_factory) in abandons {
+        for event in [
+            own_factory.then_some(ProductionEvent::Abandon),
+            kind_factory.then_some(ProductionEvent::AbandonAll),
+        ]
+        .into_iter()
+        .flatten()
         {
-            if name_selects_same_type {
-                events.push(CommandEnvelope::new(
-                    owner,
-                    execute_tick,
-                    Command::CancelProductionByType { type_id, all },
-                ));
-            } else {
-                let event = if all {
-                    ProductionEvent::AbandonAll
-                } else {
-                    ProductionEvent::Abandon
-                };
-                if let Some(record) = sim.encode_selected_production_record(owner, event, selection)
-                {
-                    events.push(CommandEnvelope::synchronized(record, execute_tick));
-                }
+            if let Some(record) = sim.encode_selected_production_record(owner, event, selection) {
+                events.push(CommandEnvelope::synchronized(record, execute_tick));
             }
         }
     }

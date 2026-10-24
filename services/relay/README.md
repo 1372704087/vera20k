@@ -4,7 +4,7 @@ The relay forwards authenticated datagrams and sequences modern online gameplay.
 It owns the certified match clock and immutable command stream; clients own the
 simulation. Legacy v2 datagram routing remains supported.
 The shared codec in `../relay-protocol` binds each ticket to a match and player,
-authenticates packet contents, rejects replay, and challenges a new source address
+authenticates packet contents, rejects replayed game traffic, and challenges a new source address
 before admitting it. Protocol v2 also encrypts gameplay payloads end to end
 with XChaCha20-Poly1305. The relay forwards ciphertext and never receives the
 match payload key. A new match requires new tickets and a new payload key;
@@ -83,6 +83,14 @@ ticket expired. Only explicit Leave or the certified24-hour match lifetime ends
 participation. Explicit-all-left retains a300-second terminal replay grace before
 exact-file cleanup. No reader acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
+
+Explicit Leave is retried on the original socket until a terminal acknowledgement
+echoes that exact signed request. This idempotent operation alone remains valid
+after ticket expiry: both MACs still verify, and an existing room checks its
+certified source and retained principal/generation. An already expired, absent
+room can acknowledge without recreating membership or storage. Other expired
+operations remain rejected. Menu cleanup retains this transport until the
+acknowledgement; network silence never creates a Leave request.
 
 The unit owns `/var/lib/vera20k-relay` through `StateDirectory=vera20k-relay` and
 `StateDirectoryMode=0700`. The executable requires `STATE_DIRECTORY`, or an

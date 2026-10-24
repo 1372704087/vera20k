@@ -481,6 +481,7 @@ pub enum LoadingStartup {
     Replay {
         session: SkirmishLaunchSession,
         seed: MatchSeed,
+        game_mode: crate::sim::scenario_session::ScenarioGameMode,
     },
     Campaign(PreparedCampaignStartup),
     Accepted(PreparedMatchStartup),
@@ -554,19 +555,19 @@ impl LoadingStartup {
         }
     }
 
-    /// The `GameMode` the shell wrote before this launch: 0 for a campaign
-    /// (`0x0052E175`), 5 for every Battle launch (`0x0052E10F`). A generic map
-    /// load has no campaign either, matching the simulation's own
+    /// The `GameMode` admitted before construction: campaign 0 (`0x0052E175`),
+    /// offline Battle 5 (`0x0052E10F`), or the exact network/recorded mode.
+    /// A generic map load has no campaign, matching the simulation's own
     /// `game_mode_nonzero = campaign.is_none()` classification.
     pub(crate) fn session_mode(&self) -> crate::app::match_runtime::session::SessionMode {
         use crate::app::match_runtime::session::SessionMode;
         match self {
             Self::Network(startup) => startup.mode(),
+            Self::Replay { game_mode, .. } => *game_mode,
             Self::Campaign(_) => SessionMode::Campaign,
-            Self::Accepted(_)
-            | Self::Replay { .. }
-            | Self::UnverifiedLegacy { .. }
-            | Self::Generic { .. } => SessionMode::Skirmish,
+            Self::Accepted(_) | Self::UnverifiedLegacy { .. } | Self::Generic { .. } => {
+                SessionMode::Skirmish
+            }
         }
     }
 

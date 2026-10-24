@@ -300,6 +300,7 @@ impl LoadingRequest {
         Self {
             startup: LoadingStartup::Replay {
                 session: startup.launch_session().clone(),
+                game_mode: startup.game_mode(),
                 seed: crate::app::match_bootstrap::MatchSeed {
                     value: startup.seed(),
                     source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,
@@ -1218,6 +1219,14 @@ pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     // Skirmish, `0x0052E175` campaign); the session owner is live from here.
     match request.startup() {
         LoadingStartup::Network(startup) => state.match_state.session.assert_network_start(startup),
+        // The existing reconstructed-world handoff retains a recorded WOL
+        // mode without admitting a participant table or live connection.
+        LoadingStartup::Replay {
+            session, game_mode, ..
+        } => state
+            .match_state
+            .session
+            .restore_from_save(*game_mode, Some(&session.local_player().name)),
         startup => state.match_state.session.begin_offline(
             startup.session_mode(),
             startup

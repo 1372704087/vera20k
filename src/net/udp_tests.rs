@@ -325,6 +325,117 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
 }
 
 #[test]
+fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledged() {
+    use vera20k_relay_protocol::{MAX_DATAGRAM, RelayServer, SecretKey, Ticket, derive_packet_key};
+
+    let socket = raw_peer();
+    socket.set_nonblocking(true).unwrap();
+    let address = ipv4_addr(&socket).unwrap();
+    let key = SecretKey::new([42; 32]);
+    let mut server = RelayServer::new(key.clone(), 1);
+    let mut wire = transport();
+    let primary = wire.primary_addr().unwrap();
+    let ticket = Ticket {
+        room: [11; 16],
+        source: 0,
+        expires: 1200,
+        nonce: [1; 16],
+        player: [1; 16],
+        generation: 1,
+    }
+    .sign(&key)
+    .unwrap();
+    let packet_key = *derive_packet_key(&key, &ticket).expose_for_https();
+    wire.enable_relay(address, &ticket, packet_key, [17; 32])
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    let mut bytes = [0; MAX_DATAGRAM + 1];
+    while !wire.relay_ready() {
+        wire.service(0);
+        while let Ok((length, SocketAddr::V4(source))) = socket.recv_from(&mut bytes) {
+            for output in server
+                .process_at(source, &bytes[..length], 1000, 0)
+                .unwrap()
+            {
+                socket.send_to(&output.bytes, output.endpoint).unwrap();
+            }
+        }
+        assert!(Instant::now() < deadline, "relay handshake did not finish");
+        std::thread::yield_now();
+    }
+    socket.set_nonblocking(false).unwrap();
+    let cert = OrderingCertificate {
+        room: [11; 16],
+        sources_mask: 1,
+        tick_hz: 45,
+        expires: 2000,
+    }
+    .sign(&key)
+    .unwrap();
+    wire.set_ordering_certificate(cert.to_vec()).unwrap();
+    wire.configure_ordering([7; 32]).unwrap();
+    let (length, SocketAddr::V4(source)) = socket.recv_from(&mut bytes).unwrap() else {
+        panic!("IPv4");
+    };
+    for output in server
+        .process_at(source, &bytes[..length], 1000, 0)
+        .unwrap()
+    {
+        socket.send_to(&output.bytes, output.endpoint).unwrap();
+    }
+    wire.retire_relay();
+    assert!(wire.relay_retirement_pending());
+    assert_eq!(
+        wire.enable_relay(address, &ticket, packet_key, [17; 32])
+            .unwrap_err()
+            .kind(),
+        io::ErrorKind::WouldBlock
+    );
+    wire.service(0);
+    let (length, _) = socket.recv_from(&mut bytes).unwrap();
+    let lost_leave = bytes[..length].to_vec();
+    wire.service(16);
+    let (length, SocketAddr::V4(source)) = socket.recv_from(&mut bytes).unwrap() else {
+        panic!("IPv4");
+    };
+    assert_eq!(&bytes[..length], lost_leave.as_slice());
+    // The first request was lost; lose this retry's ACK after hop expiry too.
+    let lost_ack = server
+        .process_at(source, &bytes[..length], 1350, 350_000)
+        .unwrap();
+    assert_eq!(lost_ack.len(), 1);
+    assert!(wire.relay_retirement_pending());
+    wire.service(32);
+    let (length, SocketAddr::V4(source)) = socket.recv_from(&mut bytes).unwrap() else {
+        panic!("IPv4");
+    };
+    assert_eq!(&bytes[..length], lost_leave.as_slice());
+    let ack = server
+        .process_at(source, &bytes[..length], 1351, 351_000)
+        .unwrap();
+    let mut forged = ack[0].bytes.clone();
+    *forged.last_mut().unwrap() ^= 1;
+    socket.send_to(&forged, ack[0].endpoint).unwrap();
+    wire.service(32);
+    assert!(
+        wire.relay_retirement_pending(),
+        "forged ACK cannot retire the route"
+    );
+    socket.send_to(&ack[0].bytes, ack[0].endpoint).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while wire.relay_retirement_pending() {
+        wire.service(32);
+        assert!(
+            Instant::now() < deadline,
+            "terminal ACK did not retire the route"
+        );
+        std::thread::yield_now();
+    }
+    assert_eq!(wire.relay_source(), None);
+    assert_eq!(wire.primary_addr().unwrap(), primary);
+}
+
+#[test]
 fn raw_send_errors_preserve_owned_bytes_destination_and_fifo_order() {
     let mut queue = UdpSendQueue::default();
     let mut report = UdpServiceReport::default();
@@ -1163,10 +1274,11 @@ fn scoped_lan_keeps_full_private_payload_and_retires_to_plain_discovery() {
         b"match side channel"
     );
     // send_to can finish before the loopback ACK is visible to recv_from.
-    // Keep the protocol clock fixed while waiting for both real receipts.
+    // Keep the original send bucket while waiting for both real receipts;
+    // advancing it would admit a retry before a delayed loopback ACK arrives.
     let deadline = Instant::now() + Duration::from_secs(2);
     loop {
-        let report = left.service(2);
+        let report = left.service(1);
         assert!(report.first_io_error.is_none(), "{report:?}");
         let private_retired = left.connections().queued_send_count(1) == Some(0);
         let global_retired = left.global().queued_send_count() == 0;

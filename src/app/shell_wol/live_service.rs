@@ -568,6 +568,14 @@ pub(crate) fn online_match_id(state: &AppState) -> Option<&str> {
         .as_deref()
 }
 
+/// Both existing cleanup owners must finish before another online admission.
+/// HTTP logout may complete while the same socket still retries its explicit
+/// relay departure; this observation owns no retry or membership state.
+pub(crate) fn online_cleanup_pending(state: &AppState) -> bool {
+    state.frontend.online_cleanup.pending()
+        || crate::app::lan_service::online_retirement_pending(state)
+}
+
 /// Admission facts only; used by the opt-in exit fault observer before it
 /// clicks the ordinary Back button. All cleanup state remains in LiveService.
 pub(crate) fn online_exit_ready(state: &AppState) -> bool {
@@ -583,10 +591,12 @@ pub(crate) fn online_exit_ready(state: &AppState) -> bool {
                     && service.pending.is_none()
                     && service.start_preparation.is_none()
             })
-    }) && !state.frontend.online_cleanup.pending()
+    }) && !online_cleanup_pending(state)
 }
 
 pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
+    crate::app::lan_service::poll_online_retirement(state);
+    let relay_pending = crate::app::lan_service::online_retirement_pending(state);
     let cleanup_deadline = state.frontend.online_cleanup.poll(Instant::now());
     if state
         .frontend
@@ -594,7 +604,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         .as_ref()
         .is_none_or(|visit| visit.provider != WolProvider::Online)
     {
-        return cleanup_deadline;
+        return cleanup_deadline.or_else(|| relay_pending.then(|| Instant::now() + POLL_INTERVAL));
     }
     if cleanup_deadline.is_some() {
         // Welcome/menu navigation remains responsive. Keep this visit's
@@ -607,6 +617,9 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         .as_ref()
         .is_some_and(|visit| visit.live_service.is_none())
     {
+        if relay_pending {
+            return Some(Instant::now() + POLL_INTERVAL);
+        }
         match LiveService::new() {
             Ok(service) => {
                 state
@@ -656,7 +669,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             .map(|visit| visit.take_service_requests())
             .unwrap_or_default();
         for request in requests {
-            if service.admission_blocked()
+            if (service.admission_blocked() || relay_pending)
                 && matches!(
                     request,
                     WolServiceRequest::JoinChannel { .. }

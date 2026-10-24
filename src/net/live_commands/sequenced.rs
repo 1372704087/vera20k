@@ -204,6 +204,7 @@ impl SequencedSession {
 
     fn receive(&mut self, event: OrderEvent) -> Result<(), SequencedError> {
         match event {
+            OrderEvent::Left => return Err(SequencedError::InvalidTimeline),
             OrderEvent::Ready { .. } => {}
             OrderEvent::Status(status) => {
                 if status.tick_hz != self.fps {

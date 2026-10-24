@@ -25,7 +25,7 @@ const ENTRY_OVERHEAD: usize = 128;
 const READY_REQUEST: u8 = 0;
 const SUBMIT_REQUEST: u8 = 1;
 const PULL_REQUEST: u8 = 2;
-const LEAVE_REQUEST: u8 = 3;
+pub(super) const LEAVE_REQUEST: u8 = 3;
 const READY_EVENT: u8 = 0;
 const STATUS_EVENT: u8 = 1;
 const ACK_EVENT: u8 = 2;
@@ -166,11 +166,22 @@ pub enum OrderEntry {
 
 #[derive(Debug)]
 pub enum OrderEvent {
-    Ready { ready_mask: u32, sources_mask: u32 },
+    Ready {
+        ready_mask: u32,
+        sources_mask: u32,
+    },
     Status(OrderStatus),
-    Ack { batch_id: u64, frame: u32 },
+    Ack {
+        batch_id: u64,
+        frame: u32,
+    },
     Entry(OrderEntry),
-    Error { code: OrderError, expected: u64 },
+    Error {
+        code: OrderError,
+        expected: u64,
+    },
+    /// The exact terminal Leave was accepted, or its expired room is gone.
+    Left,
 }
 
 #[derive(Clone)]
@@ -186,6 +197,7 @@ pub(super) struct ClientOrdering {
     certificate: [u8; ORDERING_CERTIFICATE_LEN],
     agreement: [u8; 32],
     last: Option<SealedBatch>,
+    leave: Option<(u64, Vec<u8>)>,
 }
 
 fn order_cipher(key: &SecretKey, room: &[u8; 16], source: u8) -> XChaCha20Poly1305 {
@@ -253,6 +265,7 @@ impl ClientSession {
                 certificate,
                 agreement,
                 last: None,
+                leave: None,
             });
         }
         let mut payload = vec![READY_REQUEST];
@@ -334,10 +347,31 @@ impl ClientSession {
     }
 
     pub fn leave_ordering(&mut self, out: &mut Vec<u8>) -> Result<(), RelayError> {
-        if !self.ready || self.ordering.is_none() {
+        let Some(ordering) = self.ordering.as_ref() else {
             return Err(RelayError::Unregistered);
+        };
+        if let Some((_, bytes)) = &ordering.leave {
+            out.clone_from(bytes);
+            return Ok(());
         }
-        self.encode(CONTROL, BROADCAST, &[LEAVE_REQUEST], out)
+        // Only this irreversible capability can be sent after readiness or
+        // ticket expiry. Cache exact bytes for idempotent terminal retries.
+        self.encode(CONTROL, BROADCAST, &[LEAVE_REQUEST], out)?;
+        self.ordering.as_mut().unwrap().leave = Some((self.sent, out.clone()));
+        Ok(())
+    }
+
+    pub fn ordering_is_configured(&self) -> bool {
+        self.ordering.is_some()
+    }
+
+    pub(super) fn accepts_ordering_leave_ack(&self, sequence: u64) -> bool {
+        self.ordering.as_ref().is_some_and(|ordering| {
+            ordering
+                .leave
+                .as_ref()
+                .is_some_and(|(sent, _)| *sent == sequence)
+        })
     }
 
     pub(super) fn receive_ordering(&mut self, payload: &[u8]) -> Result<OrderEvent, RelayError> {
@@ -462,6 +496,7 @@ struct Source {
     principal: Option<([u8; 16], u64)>,
     last_batch: Option<(u64, u32, Vec<u8>)>,
     pending: usize,
+    leave_packets: RateBudget,
 }
 
 struct Pending {
@@ -854,10 +889,6 @@ impl OrderingRoom {
                 }
                 Ok(output)
             }
-            (LEAVE_REQUEST, 1) => {
-                self.depart(source, now_ms);
-                Ok(vec![self.status(now_ms)])
-            }
             _ => Err(RelayError::Malformed),
         }
     }
@@ -1001,6 +1032,72 @@ mod tests {
     }
 
     #[test]
+    fn terminal_leave_survives_loss_expired_admission_and_deleted_room() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 2000);
+        for participant in [&mut first, &mut second] {
+            connect(&mut server, participant, 0);
+            configure(&mut server, participant, &cert, 0);
+        }
+        server.advance_clock(1000, unix(1000));
+        let mut leave = Vec::new();
+        first.leave_ordering(&mut leave).unwrap();
+        // Lose the first Leave, then let both hop tickets and admissions
+        // expire. Silence alone must not remove either player.
+        server.advance_clock(350_000, unix(350_000));
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().active, 3);
+        let mut forged = leave.clone();
+        *forged.last_mut().unwrap() ^= 1;
+        assert!(matches!(
+            server.process_at(endpoint(&first), &forged, unix(350_000), 350_000),
+            Err(RelayError::Authentication)
+        ));
+        let mut bytes = Vec::new();
+        first
+            .submit_ordering(1, b"expired input", &mut bytes)
+            .unwrap();
+        assert!(matches!(
+            server.process_at(endpoint(&first), &bytes, unix(350_000), 350_000),
+            Err(RelayError::Expired)
+        ));
+        first.probe(&mut bytes).unwrap();
+        assert!(matches!(
+            server.process_at(endpoint(&first), &bytes, unix(350_000), 350_000),
+            Err(RelayError::Expired)
+        ));
+        first.forget_readiness();
+        first.leave_ordering(&mut bytes).unwrap();
+        assert_eq!(bytes, leave, "terminal retry preserves exact authority");
+        let lost_ack = server
+            .process_at(endpoint(&first), &leave, unix(350_000), 350_000)
+            .unwrap();
+        assert_eq!(lost_ack.len(), 1);
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().active, 2);
+        second.leave_ordering(&mut bytes).unwrap();
+        server
+            .process_at(endpoint(&second), &bytes, unix(351_000), 351_000)
+            .unwrap();
+        // Lose all ACKs until after the completed archive's existing grace.
+        server.advance_clock(351_100, unix(351_100));
+        server.advance_clock(652_000, unix(652_000));
+        let room = directory.0.join("05".repeat(16));
+        assert!(!room.exists());
+        assert_eq!(server.room_count(), 0);
+        let ack = server
+            .process_at(endpoint(&first), &leave, unix(652_000), 652_000)
+            .unwrap();
+        assert!(matches!(
+            first.receive(&ack[0].bytes),
+            Ok(ServerEvent::Ordering(OrderEvent::Left))
+        ));
+        assert_eq!(server.room_count(), 0, "terminal ACK never recreates state");
+        assert!(!room.exists());
+    }
+
+    #[test]
     fn cancelled_start_reclaims_the_empty_archive_without_reopening_stale_tickets() {
         let directory = TestDirectory::new();
         let key = SecretKey::new([73; 32]);
@@ -1028,7 +1125,33 @@ mod tests {
             }
             .sign(&key)
             .unwrap();
-            let ready = configure(&mut server, &mut participant, &cert, now_ms);
+            let ready = if attempt == 1 {
+                // Lose this source's first Ready while its peer creates the
+                // room. Local retirement must still cancel that full quorum.
+                let mut lost_ready = Vec::new();
+                participant
+                    .configure_ordering(&cert, [7; 32], &mut lost_ready)
+                    .unwrap();
+                let mut peer_ticket = client(&key, 1).ticket;
+                peer_ticket.room = ticket.room;
+                let signed = peer_ticket.sign(&key).unwrap();
+                let mut peer = ClientSession::new(
+                    &signed,
+                    *derive_packet_key(&key, &signed).expose_for_https(),
+                    [89; 32],
+                )
+                .unwrap();
+                connect(&mut server, &mut peer, now_ms);
+                let ready = configure(&mut server, &mut peer, &cert, now_ms);
+                assert!(
+                    ready
+                        .iter()
+                        .any(|event| matches!(event, OrderEvent::Ready { ready_mask: 2, .. }))
+                );
+                ready
+            } else {
+                configure(&mut server, &mut participant, &cert, now_ms)
+            };
             assert!(ready.iter().any(|event| matches!(event,
                 OrderEvent::Status(status) if !status.started && status.head_frame == 0)));
             let room = directory.0.join(format!("{attempt:02x}").repeat(16));
@@ -1041,8 +1164,7 @@ mod tests {
             assert!(
                 events(&mut server, &mut participant, &bytes, now_ms)
                     .iter()
-                    .any(|event| matches!(event,
-                    OrderEvent::Status(status) if status.active_sources == 0))
+                    .any(|event| matches!(event, OrderEvent::Left))
             );
             server.advance_clock(now_ms, unix(now_ms));
             assert!(!room.exists(), "empty archive reservation must be reusable");
@@ -1544,6 +1666,79 @@ mod tests {
 }
 
 impl RelayServer {
+    pub(super) fn ordering_leave(
+        &mut self,
+        endpoint: SocketAddrV4,
+        message: &Incoming<'_>,
+        now: u64,
+        now_ms: u64,
+    ) -> Result<Vec<ForwardDatagram>, RelayError> {
+        let cost = (SERVER_HEADER + MAC_LEN) as u64;
+        if !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
+            || !self.order_packets.permits(now, 1, INGRESS_PER_SECOND)
+        {
+            return Err(RelayError::RateLimited);
+        }
+        self.advance_ordering_room(message.ticket.room, now_ms);
+        if let Some(room) = self.rooms.get_mut(&message.ticket.room) {
+            if !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
+                || !room.order_packets.permits(now, 1, 8192)
+            {
+                return Err(RelayError::RateLimited);
+            }
+            if let Some(ordering) = room.ordering.as_mut() {
+                if ordering.certificate.sources_mask & (1 << message.ticket.source) == 0 {
+                    return Err(RelayError::Authentication);
+                }
+                let principal = (message.ticket.player, message.ticket.generation);
+                let source = &mut ordering.sources[usize::from(message.ticket.source)];
+                if source.principal.is_some_and(|bound| bound != principal) {
+                    return Err(RelayError::Authentication);
+                }
+                if !source.leave_packets.permits(now, 1, 8) {
+                    return Err(RelayError::RateLimited);
+                }
+                source.leave_packets.charge(now, 1);
+                if ordering.storage_failed {
+                    return Err(RelayError::Unregistered);
+                }
+                // Like Ready, a signed ticket binds a certificate-admitted
+                // source on first contact. Its initial Ready may have been
+                // lost while another source already created this room.
+                source.principal = Some(principal);
+                ordering.depart(message.ticket.source, now_ms);
+            } else {
+                if room.peers.iter().any(|peer| {
+                    peer.ticket.source == message.ticket.source
+                        && (peer.ticket.player != message.ticket.player
+                            || peer.ticket.generation != message.ticket.generation)
+                }) {
+                    return Err(RelayError::Authentication);
+                }
+                room.ordering_cancelled = true;
+            }
+            room.outgoing.charge(now, cost);
+            room.order_packets.charge(now, 1);
+        } else if message.ticket.expires > now {
+            // An unseen live lease may still have Ready in flight. Only an
+            // expired absent room is safely acknowledged without a tombstone.
+            return Err(RelayError::Unregistered);
+        }
+        self.outgoing.charge(now, cost);
+        self.order_packets.charge(now, 1);
+        Ok(vec![ForwardDatagram {
+            endpoint,
+            bytes: encode_server(
+                &message.ticket,
+                &message.key,
+                LEAVE_ACK,
+                message.sequence,
+                message.ticket.source,
+                &[],
+            ),
+        }])
+    }
+
     pub(super) fn retire_superseded_startups(&mut self, ticket: Ticket, now_ms: u64, now: u64) {
         // A higher lobby-signed generation for this principal proves its old
         // membership ended. Source bindings outlive short hop admissions, so
@@ -1723,6 +1918,13 @@ impl RelayServer {
                 || certificate.sources_mask & (1 << message.ticket.source) == 0
             {
                 return Err(RelayError::Authentication);
+            }
+            if self
+                .rooms
+                .get(&message.ticket.room)
+                .is_some_and(|room| room.ordering_cancelled)
+            {
+                return self.ordering_reply(message, error(OrderError::Inactive, 0), now);
             }
             let agreement: [u8; 32] = payload[1 + ORDERING_CERTIFICATE_LEN..].try_into().unwrap();
             let allocation = self

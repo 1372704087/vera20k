@@ -256,8 +256,9 @@ finish/timeout. Postmatch the shell rejoins chat and may create or join another 
 this is a fresh match with fresh relay credentials. A channel owner leaving before
 start closes the room and emits a failure/leave event to the guests. Membership,
 authorization, readiness, sequence history and idle expiration are server-owned.
-An authenticated session idle for 120 seconds is retired, including its service
-match membership; gameplay peer loss remains the simulation's responsibility.
+Idle lobby visits expire after 120 seconds. An unfinished v4 playing membership
+survives that idle interval until explicit finish/leave or the match/session
+lifetime; lost internet does not remove its gameplay source.
 
 `GET /v1/match/resume?match_id=<UUID>` requires the same v4 bearer and its own
 unfinished playing match. It returns `{match_id,cursor,relay}` with a fresh

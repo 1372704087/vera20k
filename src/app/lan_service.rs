@@ -112,6 +112,9 @@ pub(crate) struct LanService {
     maps: maps::Transfers,
     pending_setup: std::collections::VecDeque<(Vec<u8>, GlobalDestination)>,
     transport: Option<LanUdpTransport>,
+    // Explicit visit exit, never inferred from silence or the current screen.
+    // The same socket owner survives until its terminal relay ACK arrives.
+    online_closing: bool,
     online_timing: Option<crate::net::lockstep::WolStartTiming>,
     games: Vec<DiscoveryRecord>,
     /// Radio observations for BB only; never admitted as gameplay endpoints.
@@ -193,6 +196,7 @@ impl LanService {
     fn with_transport(transport: LanUdpTransport) -> Self {
         Self {
             transport: Some(transport),
+            online_closing: false,
             online_timing: None,
             games: Vec::new(),
             observed_participants: Vec::new(),
@@ -1140,6 +1144,13 @@ pub(crate) fn open(state: &mut AppState) {
     if state.platform.capture_client_size.is_some() {
         return;
     }
+    if online_retirement_pending(state) {
+        super::shell_lan::report_error(
+            state,
+            "Waiting to confirm departure from the previous online match.",
+        );
+        return;
+    }
     if state.match_state.lan_service.is_some() {
         return;
     }
@@ -1166,6 +1177,10 @@ pub(crate) fn install_online_transport(
     transport: LanUdpTransport,
     host_name: &str,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !online_retirement_pending(state),
+        "Waiting to confirm departure from the previous online match."
+    );
     anyhow::ensure!(
         state.match_state.live_network.is_none(),
         "a match already owns its transport"
@@ -3856,6 +3871,27 @@ fn project_players(state: &mut AppState) {
 }
 
 pub(crate) fn close(state: &mut AppState) {
+    if let Some(service) = state.match_state.lan_service.as_mut() {
+        if let Some(transport) = service.transport.as_mut()
+            && transport.relay_source().is_some()
+        {
+            service.online_closing = true;
+            transport.retire_relay();
+        }
+        if service.online_closing {
+            // Keep the worker running. A one-shot final service followed by
+            // Drop would lose either Leave or its acknowledgement under loss.
+            if service
+                .transport
+                .as_ref()
+                .is_some_and(LanUdpTransport::relay_retirement_pending)
+            {
+                return;
+            }
+            state.match_state.lan_service = None;
+            return;
+        }
+    }
     if let Ok(message) = LanMessage::named(LanNamedMessage::Departure, &local_name(state)) {
         send(
             state,
@@ -3870,6 +3906,40 @@ pub(crate) fn close(state: &mut AppState) {
             .and_then(|service| service.transport.as_mut())
         {
             transport.service_before_close(super::match_runtime::frame_pacer::wall_clock_bucket);
+        }
+    }
+    state.match_state.lan_service = None;
+}
+
+pub(crate) fn online_retirement_pending(state: &AppState) -> bool {
+    state
+        .match_state
+        .lan_service
+        .as_ref()
+        .is_some_and(|service| {
+            service.online_closing
+                || service
+                    .transport
+                    .as_ref()
+                    .is_some_and(LanUdpTransport::relay_retirement_pending)
+        })
+}
+
+/// Resume only a previously requested online close. This remains reachable
+/// from Main Menu after the HTTP visit and MatchSession context are retired.
+pub(crate) fn poll_online_retirement(state: &mut AppState) {
+    let Some(service) = state
+        .match_state
+        .lan_service
+        .as_mut()
+        .filter(|service| service.online_closing)
+    else {
+        return;
+    };
+    if let Some(transport) = service.transport.as_mut() {
+        transport.service(super::match_runtime::frame_pacer::wall_clock_bucket());
+        if transport.relay_retirement_pending() {
+            return;
         }
     }
     state.match_state.lan_service = None;

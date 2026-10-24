@@ -153,7 +153,7 @@ impl FreshScenarioLoadContextDescriptor {
                 prepared.seed.value,
                 FreshStartupProvenance::NetworkAccepted,
             ),
-            LoadingStartup::Replay { session, seed } => {
+            LoadingStartup::Replay { session, seed, .. } => {
                 (session.clone(), seed.value, FreshStartupProvenance::Replay)
             }
             LoadingStartup::UnverifiedLegacy { session, seed } => (
@@ -355,7 +355,7 @@ impl FreshScenarioLoadContextDescriptor {
                 prepared.seed.value,
                 prepared.launch_session(),
             ),
-            LoadingStartup::Replay { session, seed } => {
+            LoadingStartup::Replay { session, seed, .. } => {
                 (FreshStartupProvenance::Replay, seed.value, session)
             }
             LoadingStartup::UnverifiedLegacy { session, seed } => {

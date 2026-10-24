@@ -775,6 +775,10 @@ impl ReplayStartup {
         self.session.seed() as u32
     }
 
+    pub fn game_mode(&self) -> crate::sim::scenario_session::ScenarioGameMode {
+        self.session.game_mode()
+    }
+
     pub fn capture(
         runtime: &crate::sim::runtime::SimRuntime,
         launch: &crate::skirmish_launch::SkirmishLaunchSession,
@@ -1241,11 +1245,13 @@ impl ReplayRunner {
             startup.launch.clone(),
         )
         .map_err(|error| anyhow::anyhow!("{error}"))?;
-        let mut loaded = crate::headless_scenario::load_with_launch(
+        let mut loaded = crate::headless_scenario::load_with_launch_and_ini(
             retail_dir,
             &replay.header.map_name,
             startup.seed(),
             launch,
+            &Default::default(),
+            startup.game_mode(),
         )
         .map_err(anyhow::Error::msg)?;
         let mut playback = ReplayPlayback::prepare(
@@ -1423,23 +1429,29 @@ mod tests {
     fn authored_ai_match_reconstructs_and_checks_actual_command_hashes() {
         use crate::sim::world::{FrameEffects, TickLane};
         let root = std::path::PathBuf::from(std::env::var_os("RA2_DIR").expect("retail RA2_DIR"));
-        let launch = crate::headless_scenario::battle_session(
+        let mut launch = crate::headless_scenario::battle_session(
             "XMP03T4.MAP",
             &[(
                 crate::skirmish_launch::LaunchCountry::Russia,
                 crate::skirmish_launch::AiDifficulty::Normal,
             )],
         );
-        let mut scene = crate::headless_scenario::load_session(
+        launch.humans[0].name = "ReplayGuest".to_owned();
+        let mut scene = crate::headless_scenario::load_with_launch_and_ini(
             &root,
             "XMP03T4.MAP",
             0x5eed_015,
-            launch.clone(),
+            crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(launch.clone())
+                .unwrap(),
+            &Default::default(),
+            crate::sim::scenario_session::ScenarioGameMode::Wol,
         )
         .unwrap();
         let sim = &mut scene.runtime.simulation;
-        sim.session
-            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+        assert_eq!(
+            sim.houses()[&sim.session().current_house().unwrap()].native_scenario_name(),
+            Some("ReplayGuest")
+        );
         sim.session.install_network_timing(40);
         sim.session
             .install_network_command_timing(0, std::num::NonZeroU8::new(1).unwrap(), [0]);
@@ -1494,7 +1506,7 @@ mod tests {
             every_frame_network: true,
             checksum: Default::default(),
         };
-        for frame in 0..32 {
+        for frame in 0..=32 {
             let mut commands = Vec::new();
             if frame == 10 {
                 let mut record = CommandRecord::encode(0, 0, frame, &[]).unwrap();
@@ -1506,6 +1518,17 @@ mod tests {
                 .write_into(&mut record);
                 commands.push(CommandEnvelope::synchronized(
                     record,
+                    scene.sim().session().tick(),
+                ));
+            }
+            if frame == 32 {
+                commands.push(CommandEnvelope::synchronized(
+                    crate::sim::command::ExitRecord {
+                        house_id: 0,
+                        frame: frame as u32,
+                    }
+                    .encode()
+                    .unwrap(),
                     scene.sim().session().tick(),
                 ));
             }
@@ -1521,6 +1544,17 @@ mod tests {
             let admitted = output.take_admitted_commands();
             log.record_tick(output.tick.tick, admitted, output.tick.state_hash);
         }
+        assert_eq!(log.ticks[31].tick, 32);
+        assert_eq!(
+            log.ticks[32].tick, 32,
+            "EXIT skips the terminal frame commit"
+        );
+        assert!(scene.sim().quit_requested());
+        assert!(log.ticks[32].commands.iter().any(|command| matches!(
+            &command.payload,
+            crate::sim::command::Command::SynchronizedRecord { record }
+                if record.opcode() == crate::sim::command::EXIT_OPCODE
+        )));
         assert!(scene.sim().session().started());
         let decoded: ReplayLog =
             serde_json::from_slice(&serde_json::to_vec(&log).unwrap()).unwrap();
@@ -1528,7 +1562,8 @@ mod tests {
         // ScenarioSession. Reconstruction must retain the loader publication.
         assert!(!decoded.startup.as_ref().unwrap().session.started());
         let verified = ReplayRunner::verify(&root, &decoded).unwrap();
-        assert_eq!(verified.checked_hashes, 32);
+        assert_eq!(verified.checked_hashes, 33);
+        assert_eq!(verified.final_tick, 32);
         assert_eq!(verified.final_state_hash, scene.sim().state_hash());
         let mut corrupted = decoded;
         corrupted.ticks[10].state_hash = Some(1);

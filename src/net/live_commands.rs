@@ -248,7 +248,7 @@ impl LiveCommandSession {
     ///lobby after gameplay. No second transport is constructed during return.
     pub fn into_transport(mut self) -> LanUdpTransport {
         if self.uses_sequenced_lockstep() {
-            let _ = self.transport.leave_ordering();
+            self.transport.retire_relay();
         }
         self.transport
     }

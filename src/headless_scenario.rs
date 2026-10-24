@@ -180,17 +180,26 @@ pub fn load_with_launch(
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
 ) -> Result<HeadlessScenario, String> {
-    load_with_launch_and_ini(retail_dir, map_file_name, seed, launch, &Default::default())
+    load_with_launch_and_ini(
+        retail_dir,
+        map_file_name,
+        seed,
+        launch,
+        &Default::default(),
+        crate::sim::scenario_session::ScenarioGameMode::Skirmish,
+    )
 }
 
-/// Explicit host policy for non-YR callers; no hidden cwd/config reread.
-/// Rules, fixed Art and AI all consume the one resolved provider choice.
+/// Explicit asset policy and launch GameMode; no hidden cwd/config reread.
+/// Rules, fixed Art and AI consume the one resolved provider choice. Replays
+/// retain the recorded mode before any mode-dependent House construction.
 pub fn load_with_launch_and_ini(
     retail_dir: &Path,
     map_file_name: &str,
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
     ini: &crate::util::ini_roots::IniRootConfig,
+    game_mode: crate::sim::scenario_session::ScenarioGameMode,
 ) -> Result<HeadlessScenario, String> {
     let mut assets = AssetManager::new(retail_dir, MediaArchiveMode::STOCK_DIGITAL)
         .and_then(|assets| assets.with_ini_roots(ini))
@@ -304,6 +313,10 @@ pub fn load_with_launch_and_ini(
     let (mut sim, scenario_prefix_projection) = bootstrap_rng
         .into_stock_offline_staged_simulation(&descriptor, bound_scenario_prefix)
         .map_err(|error| format!("stage stock-offline Simulation: {error}"))?;
+    // CreateHouses687FCE..688092 gives WOL humans their node name; other
+    // modes use "<human player>". The House owner hashes that native identity,
+    // so restoring GameMode after construction cannot reconstruct a WOL start.
+    sim.install_session_mode(game_mode);
     let shared_cell_dummy = crate::map::resolved_terrain::SharedCellDummy::fresh();
     shared_cell_dummy.reconstruct_for_map_resize();
     sim.bind_shared_cell_dummy(shared_cell_dummy.clone());

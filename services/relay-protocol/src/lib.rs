@@ -62,6 +62,7 @@ const CONFIRM: u8 = 1;
 const DATA: u8 = 2;
 const PING: u8 = 3;
 const CONTROL: u8 = 4;
+const LEAVE_ACK: u8 = 5;
 const CHALLENGE: u8 = 0;
 const READY: u8 = 1;
 
@@ -490,6 +491,16 @@ impl ClientSession {
                 self.received.accept(sequence)?;
                 Ok(ServerEvent::Ordering(self.receive_ordering(payload)?))
             }
+            LEAVE_ACK
+                if payload.is_empty()
+                    && bytes[45] == self.ticket.source
+                    && self.accepts_ordering_leave_ack(sequence) =>
+            {
+                // This terminal response echoes the exact cached request,
+                // like Challenge. It survives expiry of the peer's independent
+                // server sequence and cannot admit or resume any game traffic.
+                Ok(ServerEvent::Ordering(OrderEvent::Left))
+            }
             DATA if payload.len() > PAYLOAD_HEADER + PAYLOAD_TAG && self.ready => {
                 let target = payload[0];
                 if target != BROADCAST && target != self.ticket.source {
@@ -552,7 +563,14 @@ fn incoming<'a>(key: &SecretKey, bytes: &'a [u8], now: u64) -> Result<Incoming<'
     key.mac(TICKET_DOMAIN, &ticket_bytes[..TICKET_BODY_LEN])
         .verify_slice(&ticket_bytes[TICKET_BODY_LEN..])
         .map_err(|_| RelayError::Authentication)?;
-    if ticket.expires <= now || ticket.expires > now.saturating_add(MAX_TICKET_LIFETIME) {
+    let target = bytes[CLIENT_HEADER - 3];
+    let kind = bytes[4];
+    if ticket.expires > now.saturating_add(MAX_TICKET_LIFETIME)
+        || (ticket.expires <= now
+            && !(kind == CONTROL
+                && target == BROADCAST
+                && bytes[CLIENT_HEADER..CLIENT_HEADER + length] == [sequenced::LEAVE_REQUEST]))
+    {
         return Err(RelayError::Expired);
     }
     let packet_key = derive_packet_key(key, ticket_bytes);
@@ -560,8 +578,6 @@ fn incoming<'a>(key: &SecretKey, bytes: &'a [u8], now: u64) -> Result<Incoming<'
         .mac(CLIENT_DOMAIN, &bytes[..bytes.len() - MAC_LEN])
         .verify_slice(&bytes[bytes.len() - MAC_LEN..])
         .map_err(|_| RelayError::Authentication)?;
-    let target = bytes[CLIENT_HEADER - 3];
-    let kind = bytes[4];
     if (target >= MAX_PEERS && target != BROADCAST)
         || !matches!(kind, HELLO | CONFIRM | DATA | PING | CONTROL)
         || (kind == CONFIRM && length != COOKIE_LEN)
@@ -627,6 +643,9 @@ struct Room {
     outgoing: RateBudget,
     order_packets: RateBudget,
     ordering: Option<sequenced::OrderingRoom>,
+    // Only an explicit signed Leave before the first ordering Ready sets this.
+    // Prevent a delayed Ready from recreating an already canceled startup.
+    ordering_cancelled: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -719,6 +738,9 @@ impl RelayServer {
         self.ingress.charge(now, 1);
         let message = incoming(&self.key, bytes, now)?;
         self.prune(now);
+        if message.kind == CONTROL && message.payload == [sequenced::LEAVE_REQUEST] {
+            return self.ordering_leave(source, &message, now, now_millis);
+        }
         // Only the authenticated room needs a fresh boundary before a
         // submission. The socket loop advances every room independently.
         if message.kind == CONTROL {

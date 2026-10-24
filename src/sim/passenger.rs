@@ -189,17 +189,37 @@ impl PassengerCargo {
     /// identity/type and session rules are immutable, so admission-time
     /// doubles remain the current Size values for this live cargo list.
     fn cargo_total_size(passenger_sizes: &[f64]) -> i32 {
-        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
-
         let mut total = 0_i32;
         for &size in passenger_sizes {
-            let sum = X87::add(
-                X87::load_i32(total),
-                X87::load_f64(NativeF64Bits::from_bits(size.to_bits())),
-            );
-            total = X87::ftol_i32_low_masked(sum);
+            total = Self::total_after(total, size);
         }
         total
+    }
+
+    /// One passenger's binary64 `Size=` applied to a signed cargo total: the
+    /// add and FTOL step CargoTotalSize473460 performs after every passenger.
+    fn total_after(total: i32, size: f64) -> i32 {
+        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
+
+        X87::ftol_i32_low_masked(X87::add(
+            X87::load_i32(total),
+            X87::load_f64(NativeF64Bits::from_bits(size.to_bits())),
+        ))
+    }
+
+    /// Whether a carrier admits one more passenger of binary64 `Size=` into a
+    /// cargo whose signed total is `total`: Receiver 0x0F's
+    /// `total + Size <= Passengers=` and `Size <= SizeLimit=`. `Some` carries
+    /// the cargo total after that admission.
+    ///
+    /// The client's selection planner (AutoLoad) asks it for successive
+    /// passengers without mutating cargo; the arrival radio asks the same
+    /// owner through [`Self::size_fits_capacity`] and
+    /// [`Self::size_within_limit`].
+    pub fn planned_admission(total: i32, size: f64, capacity: i32, size_limit: f64) -> Option<i32> {
+        (Self::size_fits_capacity(total, size, capacity)
+            && Self::size_within_limit(size, size_limit))
+        .then(|| Self::total_after(total, size))
     }
 
     /// Recalculate through the same order-sensitive numeric owner used by

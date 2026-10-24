@@ -80,6 +80,9 @@ Player preferences, keyboard shortcuts and lobby choices are saved in `VERA.INI`
 Enable **Mouse Wheel Zoom** in **Vera Options**, or set `[VERA] MouseWheelZoom=yes`
 in `VERA.INI` (default `no`).
 
+AutoLoad loads selected infantry and vehicles into nearby selected transports with Ctrl+D; rebind
+or clear it under **Options → Keyboard**, `vera20k` category.
+
 If `VERA.INI` is missing, VERA creates it and imports existing preferences once. With no
 old settings, it starts empty and VERA uses built-in defaults until settings are saved.
 The original `RA2MD.INI` and `KeyboardMD.ini` are only read for import, never overwritten.

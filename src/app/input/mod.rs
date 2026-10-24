@@ -2,6 +2,7 @@
 //! command scheduling, camera, cursor, entity picking, sidebar gadget input,
 //! in-game options input, tooltips, and messages.
 
+pub(crate) mod autoload;
 pub(crate) mod camera;
 pub(crate) mod chat;
 pub(crate) mod commands;

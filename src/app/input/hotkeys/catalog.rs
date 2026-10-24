@@ -32,6 +32,12 @@ pub(crate) fn registered_commands() -> &'static [CommandMetadata] {
     &REGISTERED_COMMANDS
 }
 
+/// Original gamemd registration only; the keyboard-page fixture compares it
+/// row for row, so VERA's own command stays outside it.
+pub(crate) fn retail_commands() -> &'static [CommandMetadata] {
+    &REGISTERED_COMMANDS[..RETAIL_COMMAND_COUNT]
+}
+
 /// VERA's own hotkey category, listed after every retail one.
 ///
 /// A category appears in the keyboard page because some command carries its
@@ -41,7 +47,9 @@ pub(crate) fn registered_commands() -> &'static [CommandMetadata] {
 /// commands. The CSF has no entry, so the page shows the key itself.
 pub(crate) const VERA_CATEGORY_KEY: &str = "vera20k";
 
-const REGISTERED_COMMANDS: [CommandMetadata; 87] = [
+const RETAIL_COMMAND_COUNT: usize = 87;
+
+const REGISTERED_COMMANDS: [CommandMetadata; 88] = [
     command!(
         HotkeyCommand::Follow,
         "Follow",
@@ -736,6 +744,17 @@ const REGISTERED_COMMANDS: [CommandMetadata; 87] = [
         "Cmnd:Delete",
         "TXT_INTERFACE",
         "Cmnd:DeleteDesc",
+        None
+    ),
+    // VERA's own command, registered after every retail one. The CSF has no
+    // entry, so the page shows these strings themselves. The category is
+    // [`VERA_CATEGORY_KEY`]; the macro takes a literal.
+    command!(
+        HotkeyCommand::AutoLoad,
+        "AutoLoad",
+        "AutoLoad",
+        "vera20k",
+        "Load the selected infantry and vehicles into nearby transports",
         None
     ),
 ];

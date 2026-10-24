@@ -206,6 +206,11 @@ impl TemporalState {
         self.link.is_some()
     }
 
+    /// `TemporalClass+0x48 WarpRemaining` on this object's own link.
+    pub fn warp_remaining(&self) -> Option<i32> {
+        self.link.as_ref().map(|link| link.warp_remaining)
+    }
+
     /// Every object id this state names, for the snapshot reference check.
     pub(crate) fn references(&self) -> impl Iterator<Item = u64> + '_ {
         self.head.into_iter().chain(

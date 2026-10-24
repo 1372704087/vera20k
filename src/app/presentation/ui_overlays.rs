@@ -90,7 +90,7 @@ pub(crate) fn status_visibility(selected: bool, hovered: bool) -> (bool, bool) {
 /// or discovery+41B. Hover already passed ProcessClickCoords' projected query.
 /// Reuse the body admission owner for lifecycle/cloak instead of adding another
 /// fog interpretation here. Native dispatch controls: health_hover.json.
-fn health_bar_drawable(
+pub(crate) fn health_bar_drawable(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     hovered_id: Option<u64>,
@@ -98,7 +98,7 @@ fn health_bar_drawable(
     rules: Option<&RuleSet>,
 ) -> bool {
     let player = local_owner.and_then(|owner| sim.interner().get(owner));
-    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player);
+    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player, rules);
     draw_pips && admitted_techno_observer(sim, entity, local_owner, rules).is_some()
 }
 
@@ -111,6 +111,7 @@ fn health_strip_visibility(
     entity: &crate::sim::game_entity::GameEntity,
     hovered_id: Option<u64>,
     player: Option<crate::sim::intern::InternedId>,
+    rules: Option<&RuleSet>,
 ) -> (bool, bool) {
     let selected = entity.selection.is_selected();
     let hovered = hovered_id == Some(entity.stable_id())
@@ -123,7 +124,19 @@ fn health_strip_visibility(
                     sim.interner(),
                 )
             }));
-    status_visibility(selected, hovered)
+    // Phobos `TechnoClass_DrawExtras_DrawHealthBar 0x6F5E37` extends the
+    // selected/hovered admission with `HealthBar.Permanent=yes`; this is the
+    // prerequisite the DigitalDisplay documentation names for `ShowType=idle`.
+    #[cfg(feature = "phobos")]
+    let permanent = rules
+        .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
+        .is_some_and(|object| object.health_bar_permanent());
+    #[cfg(not(feature = "phobos"))]
+    let permanent = {
+        let _ = rules;
+        false
+    };
+    status_visibility(selected, hovered || permanent)
 }
 
 /// Retained Display membership and the shared tactical draw admission.
@@ -810,6 +823,11 @@ pub(crate) struct TechnoExtras {
     pub scale: Vec<SpriteInstance>,
     /// Existing House-owned self-heal marker, between scale and group text.
     pub self_heal: Option<SpriteInstance>,
+    /// Phobos DigitalDisplay text, one backing+glyph set per list entry, after
+    /// the control-group label and drawn in list order.
+    pub digital_text: Vec<StatusTextOverlayInstances>,
+    /// Phobos DigitalDisplay custom-SHP glyphs: catalog index + sprite.
+    pub digital_shapes: Vec<(u32, SpriteInstance)>,
     ///709A90's group tail follows this parent's pip scale, not a global sweep.
     pub group: StatusTextOverlayInstances,
     ///6F5E8D..5EDE: after health/pips/group, plain600 at the caller point.
@@ -834,6 +852,16 @@ impl TechnoExtras {
             .chain(self.group.text.iter_mut())
             .chain(self.talk_bubble.iter_mut())
         {
+            instance.position[0] += offset[0];
+            instance.position[1] += offset[1];
+        }
+        for text in &mut self.digital_text {
+            for instance in text.rectangles.iter_mut().chain(text.text.iter_mut()) {
+                instance.position[0] += offset[0];
+                instance.position[1] += offset[1];
+            }
+        }
+        for (_, instance) in &mut self.digital_shapes {
             instance.position[0] += offset[0];
             instance.position[1] += offset[1];
         }
@@ -1160,7 +1188,7 @@ pub(crate) fn techno_extras_for_parent(
         }
     }
     let (draw_background, draw_health) =
-        health_strip_visibility(sim, entity, hovered_id, observer_id);
+        health_strip_visibility(sim, entity, hovered_id, observer_id, rules);
     if !draw_health {
         return strip;
     }
@@ -1874,6 +1902,60 @@ mod tests {
             !admitted(&sim, Some(1)),
             "retained Display cannot resurrect limbo feedback"
         );
+    }
+
+    /// Phobos `HealthBar.Permanent=yes` keeps an idle, unselected unit's
+    /// health bar (and its `ShowType=idle` digital displays) admitted, which
+    /// stock gamemd never does.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn health_bar_permanent_admits_an_idle_unit() {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::ruleset::RuleSet;
+        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
+
+        let fixture = |permanent: bool| {
+            let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=TEST\n[TEST]\nStrength=100\nHealthBar.Permanent={}\n",
+                if permanent { "yes" } else { "no" }
+            )))
+            .unwrap();
+            let mut sim = Simulation::new();
+            let player = sim.intern("Player");
+            let owner = sim.intern("Neutral");
+            let type_ref = sim.intern("TEST");
+            *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                1,
+                20,
+                20,
+                4,
+                0,
+                owner,
+                Health::new(100),
+                type_ref,
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            );
+            entity.lifecycle.set_in_limbo_for_test(false);
+            entity
+                .discovery
+                .set_discovered_by_current_house_for_test(true);
+            sim.entities_mut_for_test().insert(entity);
+            sim.resubmit_entity_display_for_test(1);
+            let admitted = health_bar_drawable(
+                &sim,
+                sim.entities().get(1).unwrap(),
+                None,
+                Some(sim.interner().resolve(player)),
+                Some(&rules),
+            );
+            admitted
+        };
+        assert!(fixture(true));
+        assert!(!fixture(false));
     }
 
     /// Original Building DrawExtras selected/hover dispatch, with raw shroud

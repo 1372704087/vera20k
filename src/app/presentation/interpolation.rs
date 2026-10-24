@@ -911,6 +911,7 @@ mod tests {
                 rectangles: vec![sprite()],
                 text: vec![sprite()],
             },
+            ..Default::default()
         };
         status.translate_for_interpolation([1.5, -2.0]);
         let positions: Vec<_> = status

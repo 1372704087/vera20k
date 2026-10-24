@@ -496,6 +496,24 @@ pub struct ObjectType {
     /// the authored name; the Rules catalog resolves it at use.
     #[cfg(feature = "phobos")]
     shield_type: Option<String>,
+    /// Phobos `TechnoTypeExt::DigitalDisplayTypes` (`DigitalDisplayTypes=`):
+    /// authored `[DigitalDisplayTypes]` names in list order. Empty means the
+    /// techno uses its category's `[AudioVisual]` default list.
+    #[cfg(feature = "phobos")]
+    digital_display_types: Vec<String>,
+    /// Phobos `TechnoTypeExt::DigitalDisplay_Disable`.
+    #[cfg(feature = "phobos")]
+    digital_display_disable: bool,
+    /// Phobos `TechnoTypeExt::DigitalDisplay_Health_FakeAtDisguise`; `None`
+    /// inherits `[AudioVisual] DigitalDisplay.Health.FakeAtDisguise`.
+    #[cfg(feature = "phobos")]
+    digital_display_health_fake_at_disguise: Option<bool>,
+    /// Phobos `TechnoTypeExt::HealthBar_Permanent`: the health bar (and any
+    /// `idle` digital display) stays visible without selection or hover.
+    /// `HealthBar.Permanent` is a prerequisite the DigitalDisplay
+    /// documentation names for `ShowType=idle`.
+    #[cfg(feature = "phobos")]
+    health_bar_permanent: bool,
     /// Canonical Speed percent,0..100 (0 is immobile). TechnoType
     /// ReadINI71464A retains the prior value for -1 across rules passes.
     /// Whole-lepton Type+678 conversion belongs to util::fixed_math.
@@ -2479,6 +2497,30 @@ impl ObjectType {
         self.shield_type.as_deref()
     }
 
+    /// Phobos `DigitalDisplayTypes=`, in authored list order.
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_types(&self) -> &[String] {
+        &self.digital_display_types
+    }
+
+    /// Phobos `DigitalDisplay.Disable=`.
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_disable(&self) -> bool {
+        self.digital_display_disable
+    }
+
+    /// Phobos `DigitalDisplay.Health.FakeAtDisguise=`, `None` when inheriting.
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_health_fake_at_disguise(&self) -> Option<bool> {
+        self.digital_display_health_fake_at_disguise
+    }
+
+    /// Phobos `HealthBar.Permanent=`.
+    #[cfg(feature = "phobos")]
+    pub fn health_bar_permanent(&self) -> bool {
+        self.health_bar_permanent
+    }
+
     /// Native fixed-ART ShadowIndex, retained by the ordered Type reader.
     pub const fn voxel_shadow_index(&self) -> i32 {
         self.voxel_shadow_index
@@ -3134,6 +3176,23 @@ impl ObjectType {
                         && !name.eq_ignore_ascii_case("<none>")
                 })
                 .map(str::to_owned),
+            #[cfg(feature = "phobos")]
+            digital_display_types: section
+                .read_list("DigitalDisplayTypes", 0x100)
+                .map(|tokens| {
+                    tokens
+                        .into_iter()
+                        .map(|token| token.trim().to_owned())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            digital_display_disable: section.read_bool("DigitalDisplay.Disable", false),
+            #[cfg(feature = "phobos")]
+            digital_display_health_fake_at_disguise: section
+                .read_phobos_nullable_bool("DigitalDisplay.Health.FakeAtDisguise", None),
+            #[cfg(feature = "phobos")]
+            health_bar_permanent: section.read_bool("HealthBar.Permanent", false),
             speed: section.read_techno_speed("Speed", 0),
             // TechnoTypeClass ctor/read contract: raw signed ints, with no
             // clamp or conversion. A zero WalkRate is invalid content natively

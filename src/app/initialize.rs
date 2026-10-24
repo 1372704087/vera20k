@@ -631,6 +631,21 @@ impl App {
         if let Some(assets) = startup_asset_manager {
             process_assets.return_from_loading(assets);
         }
+        // Phobos `[Phobos] DigitalDisplay.Enable` (RA2MD.INI, imported into
+        // VERA.INI). The `phobos` build is the capability; the profile key is
+        // the user's switch and defaults to no.
+        // Sealed capture keeps its exact defaults, like the retail options
+        // snapshot, so operator profile state cannot change captured output.
+        #[cfg(feature = "phobos")]
+        let digital_display_enabled = crate::rules::PHOBOS_ENABLED
+            && capture_dimensions.is_none()
+            && game_config.as_ref().is_some_and(|config| {
+                crate::app::persistence::phobos_settings::digital_display_enabled(
+                    config.paths.settings_dir(),
+                )
+            });
+        #[cfg(not(feature = "phobos"))]
+        let digital_display_enabled = false;
         let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -709,6 +724,7 @@ impl App {
                     radar_content_insets: None,
                     has_radar: false,
                     selection_overlay: None,
+                    digital_display_enabled,
                     beacon_art: None,
                     shroud_buffer: None,
                     theater_name: "TEMPERATE".to_string(),

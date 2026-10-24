@@ -178,6 +178,8 @@ fn status_instances<'a>(
         self_heal,
         group_rectangles,
         group_text,
+        digital_text,
+        digital_shapes,
         talk_bubble,
         ..
     } = run
@@ -200,6 +202,14 @@ fn status_instances<'a>(
     {
         first = first.min(index);
         last = last.max(index + 1);
+    }
+    for (_, index) in digital_shapes {
+        first = first.min(*index);
+        last = last.max(*index + 1);
+    }
+    for (rectangles, text) in digital_text {
+        first = first.min(rectangles.start);
+        last = last.max(text.end);
     }
     for range in [fills, scale, group_rectangles, group_text] {
         if !range.is_empty() {
@@ -281,6 +291,8 @@ fn draw_status_group<'a>(
     let ObjectExtrasRun::Status {
         group_rectangles,
         group_text,
+        digital_text,
+        digital_shapes,
         talk_bubble,
         ..
     } = run
@@ -298,6 +310,25 @@ fn draw_status_group<'a>(
         group_rectangles.clone(),
         group_text.clone(),
     );
+    // Phobos DigitalDisplay: each entry's backing then glyphs in list order,
+    // using the same GAME.FNT material.
+    for (rectangles, text) in digital_text {
+        draw_status_text_material(
+            pass,
+            batch,
+            overlay.white_texture(),
+            font,
+            buffer,
+            rectangles.clone(),
+            text.clone(),
+        );
+    }
+    #[cfg(feature = "phobos")]
+    for (catalog, index) in digital_shapes {
+        if let Some(shape) = overlay.digital_shape(*catalog as usize) {
+            batch.draw_with_buffer_passthrough_range(pass, shape.texture(), buffer, *index, 1);
+        }
+    }
     if let (Some(index), Some(shape)) = (talk_bubble, overlay.talk_bubble()) {
         //6F5EDE flags600: ordinary centered, opaque plain53-row Convert,
         //no A/Z access. The existing passthrough material owns this path.

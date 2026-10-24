@@ -152,6 +152,11 @@ impl CaptureManagerState {
         i32::try_from(self.nodes.len()).unwrap_or(i32::MAX)
     }
 
+    /// `+0x3C MaxControlNodes`, the native display maximum.
+    pub fn max_control(&self) -> i32 {
+        self.max_control
+    }
+
     /// `IsOverloading @ 0x004726C0`: no extra pip unless an infinite
     /// manager exceeds its retained capacity. The returned bool is the
     /// native out-parameter (`+0x44 > 0`), which selects the active frame.

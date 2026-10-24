@@ -278,6 +278,25 @@ pub(crate) fn install_world_presentation(
         &state.renderer.batch_renderer,
         state.process_assets.manager(),
     ));
+    // Phobos DigitalDisplay `Shape=`/`Palette=` assets, retained once per match
+    // like `DigitalDisplayTypeClass`'s SHP pointers.
+    #[cfg(feature = "phobos")]
+    if let Some(assets) = state.process_assets.manager()
+        && let Some(rules) = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|runtime| &runtime.resources.rules)
+        && let Some(overlay) = state.match_state.match_presentation.selection_overlay.as_mut()
+    {
+        overlay.load_digital_display_shapes(
+            &state.renderer.gpu.device,
+            &state.renderer.gpu.queue,
+            &state.renderer.batch_renderer,
+            assets,
+            rules.digital_display_types().types(),
+        );
+    }
     // Full_Init 687BB2 -> Init_BeaconArt 4309D0; each row's ColorScheme is
     // its House's (+0x16054).
     state.match_state.match_presentation.beacon_art =

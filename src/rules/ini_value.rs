@@ -1523,6 +1523,14 @@ pub(crate) fn scan_decimal_i32(bytes: &mut &[u8]) -> Option<i32> {
 /// `sscanf(value, "%d,%d,...")` with one `%d` per slot of `out`: each comma is
 /// a literal that must follow the previous number at once. Scanned fields
 /// overwrite `out` in order until the first failure; returns how many did.
+/// One already-copied `%d,%d` value, the parser `ReadMinMax` applies to a
+/// present key. Phobos `Nullable<Vector2D<int>>` reads through the same scan.
+pub(crate) fn parse_minmax_value(raw: &str) -> Option<[i32; 2]> {
+    let mut out = [0; 2];
+    (scan_int_fields(strtrim_ascii(truncate_native_bytes(raw, 63)), &mut out) == out.len())
+        .then_some(out)
+}
+
 fn scan_int_fields(value: &str, out: &mut [i32]) -> usize {
     let mut bytes = value.as_bytes();
     let last = out.len().saturating_sub(1);

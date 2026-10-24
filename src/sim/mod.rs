@@ -165,6 +165,8 @@ pub mod radiation;
 // --- Phobos Shields: per-object shield points, absorption and recovery ---
 #[cfg(feature = "phobos")]
 pub mod shield;
+#[cfg(feature = "phobos")]
+pub mod digital_display;
 
 // --- Passengers, transport, slaves ---
 pub mod parity_digest;

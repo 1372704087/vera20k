@@ -201,6 +201,12 @@ impl NavigationState {
         self.nav_com_aux = None;
     }
 
+    /// FootClass::Set_NavComAux 0x004D94A0 stores the pointer at +0x5A0.
+    /// EventClass::Execute calls it after Set_Destination (0x004C74BA).
+    pub(crate) fn set_nav_com_aux(&mut self, target: Option<NavTargetRef>) {
+        self.nav_com_aux = target;
+    }
+
     /// NavCom stored alone, without the setter's NavComAux clear: the null
     /// setter's re-clear after the locomotor Stop (`0x004D96BC`), a
     /// locomotor's Move_To (Jumpjet's reached cell `0x0054B44B`, Teleport's

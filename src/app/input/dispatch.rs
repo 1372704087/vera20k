@@ -2922,6 +2922,7 @@ mod item83_selection_order_tests {
                         target_rx: 5,
                         target_ry: 7,
                     },
+                    None,
                 )
                 .unwrap();
             let command = sim.decode_native_command_record(&record, 0).unwrap();
@@ -3042,6 +3043,7 @@ mod item83_selection_order_tests {
                         target_rx: 5,
                         target_ry: 7,
                     },
+                    None,
                 )
             } else {
                 sim.encode_plan_connect_record(local, actor, (5, 7))

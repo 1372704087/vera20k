@@ -518,13 +518,13 @@ pub struct ObjectType {
     /// that current value as the key's default. About 33 ticks from rest to full
     /// speed; the wall-clock time follows `GameSpeed=` (criterion A12), so no
     /// frame rate is quoted here.
-    pub accel_factor: SimFixed,
+    pub accel_factor: NativeF64Bits,
     /// Fraction of max speed lost per tick during braking (DeaccelerationFactor=).
-    /// Default 0.002 — not 0.02, which this comment claimed until the constant was
-    /// read: ctor `0x00710BBC`/`0x00710BC6` writes `0x3F60624DD2F1A9FC` to `+0x300`
-    /// (`ReadINI 0x007124A3`, key string `0x008443F4`). The parse below was already
-    /// correct. Applied when within slowdown_distance of destination.
-    pub decel_factor: SimFixed,
+    /// TechnoType ctor710BBC/710BC6 writes double0.002 (3F60624DD2F1A9FC)
+    /// to+300; ReadINI7124A3 retains the current double as its default. Both
+    /// coefficients preserve widened authored floats and distinct constructor
+    /// doubles. Applied when within slowdown_distance of the destination.
+    pub decel_factor: NativeF64Bits,
     /// Whether Drive/Ship locomotors ramp toward target speed (`Accelerates=`).
     /// Defaults to true; `Accelerates=false` is handled by locomotor speed
     /// fraction ownership, not by mutating raw `Speed=`.
@@ -613,6 +613,32 @@ pub struct ObjectType {
     /// caps a positive limit by the house's tracked count of the type and a
     /// non-positive one by the count it has produced.
     pub build_limit: i32,
+    /// `[TechnoTypes] AIBuildLimit=` — the NPSE per-type cap on a computer
+    /// house's production of this type. The techno reader extension chain
+    /// reads it with the current field as its default into the per-type
+    /// extension at `TechnoType+0xA90` (`+0x40` there; the reader block runs
+    /// `0xC27249..0xC2725A`, entered at `0xC308F3`), whose constructor writes
+    /// `0x7FFFFFFF` (`0xC32950`), so absent means no limit. The
+    /// `BuildingClass::Factory_AI` fetch hook (`0x45033C`, cave
+    /// `0xC335A0..0xC33726`) compares it with the house's owned counter per
+    /// class (`+0x5500/+0x5514/+0x5528/+0x553C`) when positive and with its
+    /// produced and owned counters when non-positive; at limit the
+    /// category's choice slot clears (`+0x564C/+0x5650/+0x5654/+0x5658`) and
+    /// the start skips. Clearing a building choice leaves its base-plan node
+    /// unsatisfied, so the planner can select the same capped type again.
+    pub aibuild_limit: i32,
+    /// `[BuildingTypes] AIPlanningCount=` — the NPSE count of plan nodes a
+    /// computer house's base plan gives this building. The techno reader
+    /// extension chain reads it with the current field as its default and
+    /// stores the result through `al` (`0xC2E223..0xC2E237`), so the
+    /// stored value is one byte; the extension constructor
+    /// zeroes it (`0xC3039B`), so absent means the stock single node. The
+    /// `AI_RecalcBuildOptions` append loop (`0x5056C1` hook, cave
+    /// `0xC2C331..0xC2C367`) re-enters the candidate head until its
+    /// per-candidate counter reaches the count with signed CMP/JL. Counts
+    /// 1..127 repeat eligible entries before seed selection; 0 and high-bit
+    /// counts keep one entry, rather than repeating the final priority list.
+    pub ai_planning_count: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,
     /// Requires spy infiltration of a Soviet Battle Lab to unlock.
@@ -762,6 +788,18 @@ pub struct ObjectType {
     /// the sinking edge, plays VoiceSinking, then the held SinkingSound.
     pub sinking_sound: Option<String>,
     pub voice_sinking: Option<String>,
+    /// `VoiceFalling=` — TechnoType+0x54C, constructor `0x00710F07` = -1,
+    /// read at `0x00712FEC` through ReadString128 and `VocClass::FindIndex @
+    /// 0x007514D0`, keeping the prior index for an absent, empty or unknown
+    /// name. `FootClass::AI` plays it as a bomb-dropped object starts falling
+    /// (`0x004DAB3C..0x004DABB1`). No retail type sets it.
+    pub voice_falling: Option<String>,
+    /// `VoiceComment=` — InfantryType+0xE88, an empty vector from the
+    /// constructor (`0x0052372A`), read by `InfantryTypeClass::ReadINI` through
+    /// ReadSoundList (`0x00524193..0x005241AC`) with prior-vector retention.
+    /// The idle fidget plays the first (`0x0051CF42..0x0051CFCB`), a tethered
+    /// arrival the second (`0x0051A812..0x0051A84A`). No retail type sets it.
+    pub voice_comment: Vec<String>,
     /// `TurretRotateSound=` — `TechnoTypeClass+0x560`, the sustained positional
     /// loop a `Turret=yes` object plays while its turret turns.
     ///
@@ -2230,6 +2268,15 @@ impl ObjectType {
         f64::from_bits(self.roll_angle.bits())
     }
 
+    /// Fly4CF7C5..4CF801 stores RollAngle to binary32 with native chop before
+    /// table trig. Negating this stored finite value also preserves the
+    /// negative-turn arm's sign-before-store result.
+    pub fn fly_roll_angle_f32(&self) -> f32 {
+        use crate::util::native_x87::X87Chop53 as X;
+        let angle = X::load_f64(self.roll_angle).expect("finite Fly RollAngle");
+        f32::from_bits(X::store_f32(angle).expect("finite Fly angle store").bits())
+    }
+
     /// Existing typed PitchAngle value shared with Fly approach and normal
     /// Fly rendering. Rendering converts only at the f32 matrix boundary.
     pub fn fly_pitch_angle_radians(&self) -> f32 {
@@ -3095,9 +3142,13 @@ impl ObjectType {
             idle_rate: section.read_int("IdleRate", 0),
             // Double fields (`0x007124A3..0x007124E5`).
             weight: SimFixed::from_num(section.read_double("Weight", 1.0) as f32),
-            accel_factor: SimFixed::from_num(section.read_double("AccelerationFactor", 0.03) as f32),
-            decel_factor: SimFixed::from_num(
-                section.read_double("DeaccelerationFactor", 0.002) as f32
+            accel_factor: section.read_double_bits(
+                "AccelerationFactor",
+                NativeF64Bits::from_bits(0x3f9e_b851_eb85_1eb8),
+            ),
+            decel_factor: section.read_double_bits(
+                "DeaccelerationFactor",
+                NativeF64Bits::from_bits(0x3f60_624d_d2f1_a9fc),
             ),
             accelerates: section.read_bool("Accelerates", true),
             passive: category == ObjectCategory::Vehicle && section.read_bool("Passive", false),
@@ -3177,6 +3228,16 @@ impl ObjectType {
             prerequisite_override: Vec::new(),
             // ReadInt over the constructor's 0x7FFFFFFF (`0x00713152`).
             build_limit: section.read_int("BuildLimit", i32::MAX),
+            aibuild_limit: if crate::rules::NPATCH_ENABLED {
+                section.read_int("AIBuildLimit", i32::MAX)
+            } else {
+                i32::MAX
+            },
+            ai_planning_count: if crate::rules::NPATCH_ENABLED {
+                building_int(section, category, "AIPlanningCount") & 0xFF
+            } else {
+                0
+            },
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),
@@ -3237,6 +3298,8 @@ impl ObjectType {
             // these references against its fixed SOUNDMD catalog.
             sinking_sound: None,
             voice_sinking: None,
+            voice_falling: None,
+            voice_comment: Vec::new(),
             // TechnoTypeClass+0x560 starts at -1. RuleSet's fixed SOUNDMD
             // binder later resolves the layered ReadINI7133BA reference.
             turret_rotate_sound: None,
@@ -4475,6 +4538,7 @@ mod tests {
             "[VehicleTypes]\n0=MTNK\n\
              [MTNK]\nName=Grizzly Battle Tank\nCost=700\nStrength=300\n\
              Armor=heavy\nSpeed=6\nSight=6\nTechLevel=2\n\
+             AccelerationFactor=.03\nDeaccelerationFactor=.002\n\
              Owner=Americans,Alliance\nRequiredHouses=Americans\n\
              Prerequisite=GAWEAP\nPrimary=105mm\n",
         ))
@@ -4488,6 +4552,8 @@ mod tests {
         assert_eq!(obj.strength, 300);
         assert_eq!(obj.armor, "heavy");
         assert_eq!(obj.speed, 6);
+        assert_eq!(obj.accel_factor.bits(), 0x3f9e_b851_e000_0000);
+        assert_eq!(obj.decel_factor.bits(), 0x3f60_624d_e000_0000);
         assert_eq!(obj.tech_level, 2);
         assert_eq!(
             obj.build_time_multiplier,
@@ -4625,6 +4691,8 @@ mod tests {
         assert_eq!(obj.strength, 0);
         assert_eq!(obj.armor, "none");
         assert_eq!(obj.speed, 0);
+        assert_eq!(obj.accel_factor.bits(), 0x3f9e_b851_eb85_1eb8);
+        assert_eq!(obj.decel_factor.bits(), 0x3f60_624d_d2f1_a9fc);
         assert_eq!(obj.walk_rate, 1);
         assert_eq!(obj.idle_rate, 0);
         assert_eq!(obj.sight, 0);

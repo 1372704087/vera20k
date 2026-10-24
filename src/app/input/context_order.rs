@@ -1134,6 +1134,9 @@ fn command_actor_id(command: &Command) -> Option<u64> {
         | Command::ToggleInfantryDeploy { entity_id }
         | Command::DeployMcv { entity_id }
         | Command::UndeployBuilding { entity_id }
+        // BuildingClass::ClickedAction_Cell @ 0x004436F0 emits SELL16 after
+        // ARCHIVE1E; Selection @ 0x004AE750 keeps both at this actor's index.
+        | Command::SellBuilding { entity_id }
         | Command::ArchiveObject { entity_id, .. }
         | Command::Stop { entity_id } => Some(*entity_id),
         Command::Attack { attacker_id, .. }
@@ -1343,20 +1346,27 @@ fn finish_order(
         } else {
             (queued.clone(), queued)
         };
+        let mut accepted = true;
         if !encoded.is_empty() {
-            if let Some(speaker_id) = speaker_id {
-                emit_resolved_order_voice(state, speaker_id, &feedback);
-            }
             if let Some(sim) = state
                 .match_state
                 .sim_runtime
                 .as_mut()
                 .map(|rt| &mut rt.simulation)
             {
-                sim.issue_local_commands(encoded);
+                let network = sim.session().game_mode().is_network();
+                accepted = sim.issue_local_commands(encoded) || !network;
+            }
+            if accepted {
+                if let Some(speaker_id) = speaker_id {
+                    emit_resolved_order_voice(state, speaker_id, &feedback);
+                }
             }
         }
-        true
+        if !accepted {
+            super::messages::post_command_backpressure(state);
+        }
+        accepted
     };
     // Building4437A3 passes announce=true to443860 in planning too.
     // LeftUp4ABF78..4ABF8E refuses before dispatch; admitted clicks announce
@@ -3179,8 +3189,8 @@ fn self_action(
         return None;
     }
     // Unit740023/740107: a unit in a tank bunker skips the transport arm
-    // and offers Deploy whenever CanDeploySlashUnload admits it; its Unload
-    // leaves the bunker (the DEPLOY event, `deploy::issue_order`).
+    // and offers Deploy whenever CanDeploySlashUnload admits it; its normal
+    // Unload mission releases the installed tank from the bunker.
     if entity.category() == EntityCategory::Unit && entity.bunker.link().installed_in().is_some() {
         return Some(Command::DeployMcv {
             entity_id: target.stable_id,
@@ -3200,12 +3210,10 @@ fn self_action(
     }
     if entity.category() == EntityCategory::Structure {
         // Building44731C..447358 keeps self action for cargo/garrisons or
-        // factory primary selection. Repacking is a cell-targeted order.
-        return if entity.bunker.occupant().is_some() {
-            Some(Command::EjectBunker {
-                bunker_id: target.stable_id,
-            })
-        } else if crate::sim::production::can_select_factory_primary(sim, rules, target.stable_id) {
+        // factory primary selection. The tank-bunker link is separate from
+        // those containers and does not grant the Building a self action.
+        // Repacking is a cell-targeted order.
+        return if crate::sim::production::can_select_factory_primary(sim, rules, target.stable_id) {
             // Building4472EC preserves Action4 only for a nonprimary
             // factory; Click443450..443494 queues this target's Event17.
             Some(Command::TogglePrimaryFactory {
@@ -3959,7 +3967,7 @@ fn shot_is_illegal(
 /// A query the sim cannot answer (no map cells) keeps Move: VERA-internal, as
 /// a live gamemd session always has a map.
 #[allow(clippy::too_many_arguments)]
-fn building_cell_orders(
+pub(super) fn building_cell_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -7425,6 +7433,10 @@ mod retail_inactive_unit_tests;
 #[cfg(test)]
 #[path = "context_order_retail_self_deploy_tests.rs"]
 mod retail_self_deploy_tests;
+
+#[cfg(test)]
+#[path = "building_bunker_self_click_tests.rs"]
+mod building_bunker_self_click_tests;
 
 #[cfg(test)]
 #[path = "context_order_retail_ifv_repair_tests.rs"]

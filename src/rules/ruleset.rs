@@ -5529,7 +5529,10 @@ impl RuleSet {
         };
         #[cfg(feature = "phobos")]
         let (digital_display_types, digital_display_globals) = {
-            let digital_display_types = processed.digital_display_types().cloned().unwrap_or_default();
+            let digital_display_types = processed
+                .digital_display_types()
+                .cloned()
+                .unwrap_or_default();
             log::info!(
                 "Phobos digital display types: [{}]",
                 digital_display_types.names().collect::<Vec<_>>().join(", ")
@@ -6348,9 +6351,7 @@ impl RuleSet {
 
     /// Phobos DigitalDisplay globals (`[AudioVisual]`).
     #[cfg(feature = "phobos")]
-    pub fn digital_display_globals(
-        &self,
-    ) -> &crate::rules::digital_display::DigitalDisplayGlobals {
+    pub fn digital_display_globals(&self) -> &crate::rules::digital_display::DigitalDisplayGlobals {
         &self.digital_display_globals
     }
 
@@ -6599,7 +6600,6 @@ impl RuleSet {
                         object.digital_display_types(),
                         object.digital_display_disable(),
                         object.digital_display_health_fake_at_disguise(),
-                        object.health_bar_permanent(),
                         object.placement_preview(),
                         object.placement_preview_shape(),
                         object.placement_preview_shape_frame(),

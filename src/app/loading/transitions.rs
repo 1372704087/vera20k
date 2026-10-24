@@ -287,7 +287,11 @@ pub(crate) fn install_world_presentation(
             .sim_runtime
             .as_ref()
             .map(|runtime| &runtime.resources.rules)
-        && let Some(overlay) = state.match_state.match_presentation.selection_overlay.as_mut()
+        && let Some(overlay) = state
+            .match_state
+            .match_presentation
+            .selection_overlay
+            .as_mut()
     {
         overlay.load_digital_display_shapes(
             &state.renderer.gpu.device,

@@ -68,7 +68,6 @@ Shape.PercentageFrame=false     ; boolean
 DigitalDisplay.Disable=false    ; boolean
 DigitalDisplayTypes=            ; List of DigitalDisplayTypes
 DigitalDisplay.Health.FakeAtDisguise= ; boolean; unset inherits [AudioVisual] (true)
-HealthBar.Permanent=false       ; boolean; prerequisite for ShowType=idle
 ```
 
 ## Value source
@@ -111,8 +110,7 @@ positive, matching Phobos.
 - `PixelSelectionBracketDelta` and the shield type's `BracketDelta` apply to
   both branches. `Offset`, then `Offset.ShieldDelta` (or the Shield info
   type's default `0,-10`), then the building `Top`/`LeftTop` adjustments
-  follow. `ShowType=idle` only runs when the type sets `HealthBar.Permanent=yes`
-  (Phobos `0x6F5E37`), which also keeps the stock health bar visible.
+  follow.
 - Text uses GAME.FNT, `FullShadow`, an optional black background and the
   green/yellow/red `Text.Color` triplet selected by health ratio. The Top
   anchor subtracts the native 12px text height plus 4px when a shield exists.
@@ -127,7 +125,7 @@ positive, matching Phobos.
 - `rules/digital_display.rs` — the `[DigitalDisplayTypes]` catalog, enum
   spellings, defaults and `[AudioVisual]` globals.
 - `rules/object_type.rs` — `DigitalDisplayTypes=`, `DigitalDisplay.Disable=`,
-  `DigitalDisplay.Health.FakeAtDisguise=` and `HealthBar.Permanent=`.
+  and `DigitalDisplay.Health.FakeAtDisguise=`.
 - `rules/native_processing.rs` / `rules/ruleset.rs` — ordered per-pass read,
   immutable projection, config hash and list resolution.
 - `sim/digital_display.rs` — the read-only value projection.
@@ -135,7 +133,9 @@ positive, matching Phobos.
   text/SHP emission.
 - `app/presentation/render/*` — status-run transport and the font/custom-SHP
   materials; `render/selection_overlay.rs` loads the custom SHPs once per match.
-- `app/persistence/phobos_settings.rs` — the `[Phobos]` client switch.
+- `app/persistence/phobos_settings.rs` — the `[Phobos]` client switches.
+- `app/presentation/ui_overlays.rs` — the building health-bar geometry and the
+  foot select bracket, shared with the health and shield bars.
 
 No simulation state is added: the feature is rules plus drawing, so saves keep
 their existing layout apart from the new catalog in the process rules registry.
@@ -144,6 +144,13 @@ The catalog and every per-type binding are hashed under
 
 ## Residuals
 
+- `HealthBar.Permanent=` is not ported. Its `0x6F5E37` hook keeps the
+  disguise checks, adds a shroud test and `HealthBar.Permanent.PipScale`; until
+  that lands, only hovered or selected technos show displays and
+  `ShowType=idle` never draws.
+- `Shape=` gains `.shp` when the name lacks it, as Phobos's SHP reader does,
+  but a later pass naming a file that fails to load replaces the earlier image
+  instead of keeping it.
 - `PassengerKill` and `AutoDeath` have no owners in VERA; those entries never
   draw even when authored.
 - Ares-only `SuperWeapons=` names are available only when the `ares` feature is

@@ -508,12 +508,6 @@ pub struct ObjectType {
     /// inherits `[AudioVisual] DigitalDisplay.Health.FakeAtDisguise`.
     #[cfg(feature = "phobos")]
     digital_display_health_fake_at_disguise: Option<bool>,
-    /// Phobos `TechnoTypeExt::HealthBar_Permanent`: the health bar (and any
-    /// `idle` digital display) stays visible without selection or hover.
-    /// `HealthBar.Permanent` is a prerequisite the DigitalDisplay
-    /// documentation names for `ShowType=idle`.
-    #[cfg(feature = "phobos")]
-    health_bar_permanent: bool,
     /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
     /// default true. The preview also needs the rules global and the client
     /// switch.
@@ -2540,12 +2534,6 @@ impl ObjectType {
         self.digital_display_health_fake_at_disguise
     }
 
-    /// Phobos `HealthBar.Permanent=`.
-    #[cfg(feature = "phobos")]
-    pub fn health_bar_permanent(&self) -> bool {
-        self.health_bar_permanent
-    }
-
     /// Phobos `PlacementPreview=` (per building type).
     #[cfg(feature = "phobos")]
     pub fn placement_preview(&self) -> bool {
@@ -3260,8 +3248,6 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             digital_display_health_fake_at_disguise: section
                 .read_phobos_nullable_bool("DigitalDisplay.Health.FakeAtDisguise", None),
-            #[cfg(feature = "phobos")]
-            health_bar_permanent: section.read_bool("HealthBar.Permanent", false),
             #[cfg(feature = "phobos")]
             placement_preview: category == ObjectCategory::Building
                 && section.read_bool("PlacementPreview", true),

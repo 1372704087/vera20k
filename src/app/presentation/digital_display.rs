@@ -5,9 +5,13 @@
 //! a techno shows and where. `TechnoExt::ProcessDigitalDisplays`
 //! (`src/Ext/Techno/Body.Visuals.cpp`) runs inside `TechnoClass::DrawHealthBar`
 //! at `0x6F65D1` (buildings) and `0x6F683C` (mobiles), so the stock health-bar
-//! admission already bounds this feature: hovered, selected, or a
-//! `HealthBar.Permanent=yes` type. The values themselves come from
-//! `sim::digital_display`, which owns every state read.
+//! admission already bounds this feature: hovered or selected. The values
+//! themselves come from `sim::digital_display`, which owns every state read.
+//!
+//! Residual: `HealthBar.Permanent=` is not ported (its `0x6F5E37` hook keeps
+//! the disguise checks, adds a shroud test and `HealthBar.Permanent.PipScale`),
+//! so an idle techno never reaches the health-bar call and `ShowType=idle`
+//! never draws.
 //!
 //! The native text path is `DSurface::DrawTextA` with
 //! `Align | FullShadow | Background?`; VERA emits the same text through its
@@ -15,7 +19,8 @@
 //! with `BlitterFlags::None` (no canvas-half centering).
 
 use crate::app::presentation::ui_overlays::{
-    StatusTextOverlayInstances, StatusViewport, health_bar_drawable,
+    BuildingBarGeometry, StatusTextOverlayInstances, StatusViewport, foot_select_bracket,
+    health_bar_drawable,
 };
 use crate::map::entities::EntityCategory;
 use crate::render::batch::SpriteInstance;
@@ -96,16 +101,13 @@ pub(crate) fn digital_display_instances(
     let selected = entity.selection.is_selected();
     let hovering = hovered_id == Some(entity.stable_id());
     let frame = sim.session().binary_frame() as i32;
-    // Phobos `TemporalTargetingMe || IsIronCurtained()`; the Force Shield
-    // shares VERA's invulnerability state but is not part of this gate.
+    // Phobos `TemporalTargetingMe || IsIronCurtained()`. `IsIronCurtained`
+    // (`0x0041BF40`) only tests the timer, so a Force Shield counts too.
     let special_state = entity.temporal.is_warped()
-        || entity.invulnerability.as_ref().is_some_and(|state| {
-            state.kind() == crate::sim::superweapon::invulnerability::InvulnKind::IronCurtain
-                && crate::sim::superweapon::invulnerability::is_invulnerable(
-                    Some(state),
-                    frame as u32,
-                )
-        });
+        || crate::sim::superweapon::invulnerability::is_invulnerable(
+            entity.invulnerability.as_ref(),
+            frame as u32,
+        );
     let owner = entity.owner();
     let (sx, sy) = screen_point(sim, entity);
 
@@ -124,11 +126,17 @@ pub(crate) fn digital_display_instances(
                 owner_name,
                 sim.interner().resolve(viewer),
             );
-            let neutral = sim
+            // `CanTargetHouse(flags, Owner, CurrentPlayer)` tests the viewer.
+            let viewer_neutral = sim
                 .houses()
-                .get(&owner)
+                .get(&viewer)
                 .is_some_and(|house| house.multiplay_passive());
-            if !can_target_house(display.visible_to_houses, owner == viewer, neutral, allied) {
+            if !can_target_house(
+                display.visible_to_houses,
+                owner == viewer,
+                viewer_neutral,
+                allied,
+            ) {
                 continue;
             }
         }
@@ -253,7 +261,7 @@ pub(crate) fn digital_display_instances(
 fn can_target_house(
     flags: crate::rules::phobos_shields::AffectedHouse,
     same_house: bool,
-    owner_neutral: bool,
+    viewer_neutral: bool,
     allied: bool,
 ) -> bool {
     use crate::rules::phobos_shields::AffectedHouse;
@@ -263,7 +271,7 @@ fn can_target_house(
     if same_house {
         return flags.contains(AffectedHouse::OWNER);
     }
-    if owner_neutral && flags.contains(AffectedHouse::NEUTRAL) {
+    if viewer_neutral && flags.contains(AffectedHouse::NEUTRAL) {
         return true;
     }
     if allied {
@@ -279,16 +287,10 @@ fn screen_point(sim: &Simulation, entity: &GameEntity) -> (f32, f32) {
     crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z)
 }
 
-/// `TechnoExt::GetFootSelectBracketPosition`: the 8-pip Infantry rectangle or
-/// the 17-pip mobile rectangle, then the configured anchor.
+/// `TechnoExt::GetFootSelectBracketPosition`: the shared foot bracket, then
+/// the configured anchor.
 fn foot_bracket(sx: f32, sy: f32, is_infantry: bool, display: &DigitalDisplayType) -> (f32, f32) {
-    let length = if is_infantry { 8.0 } else { 17.0 };
-    let rect = [
-        sx - length + if is_infantry { 1.0 } else { 0.0 } + 1.0,
-        sy - 28.0 + if is_infantry { 1.0 } else { 0.0 },
-        length * 2.0,
-        length * 3.0,
-    ];
+    let rect = foot_select_bracket(sx, sy, is_infantry);
     (
         rect[0] + rect[2] * display.anchor_horizontal.offset(),
         rect[1] + rect[3] * display.anchor_vertical.offset(),
@@ -305,20 +307,13 @@ fn building_bracket(
     anchor: DigitalBuildingAnchor,
 ) -> (f32, f32) {
     let (sx, sy) = screen_point(sim, entity);
-    let [width, height, z] = rules.building_dimensions(object);
-    let left = (width - width / 2).wrapping_neg();
-    let back = height - height / 2;
-    let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
-    let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
-    let upper_y = ay - crate::util::native_x87::adjust_for_z_standard(z);
-    let num_pips = (ay - by) / 2;
+    let geometry = BuildingBarGeometry::new(rules, object);
     let (foundation_width, foundation_height) = object.foundation.dimensions();
     let length_w = i32::from(foundation_width) * 7 + i32::from(foundation_width) / 2;
     let length_h = i32::from(foundation_height) * 7 + i32::from(foundation_height) / 2;
-    let art_height = z / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
+    let art_height = geometry.height_leptons / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
     let height_px = art_height * 12;
-    let mut x = sx + (ax + 4 * num_pips + 3) as f32;
-    let mut y = sy + (upper_y + 4 - 2 * num_pips) as f32;
+    let (mut x, mut y) = geometry.first_pip(sx, sy);
     match anchor {
         DigitalBuildingAnchor::Top => {}
         DigitalBuildingAnchor::LeftTop => {

@@ -16,7 +16,6 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::veterancy::VeterancyRank;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::intern::InternedId;
-use crate::sim::superweapon::invulnerability::InvulnKind;
 use crate::sim::world::Simulation;
 
 /// Phobos `GetValuesForDisplay` for one display entry. `value < 0` or
@@ -227,7 +226,11 @@ pub fn values_for_display(
             let additional = object.additional_super_weapons();
             #[cfg(not(feature = "ares"))]
             let additional: &[String] = &[];
-            let selected = if info_index > 0 {
+            // `getSuperTimer`: an index within `GetSuperWeaponCount()` (the two
+            // stock slots plus the list) selects that slot, even an empty one;
+            // zero or an index past the end falls back to the first set slot.
+            let count = 2 + additional.len();
+            let selected = if info_index > 0 && info_index as usize <= count {
                 match info_index {
                     1 => object.super_weapon.as_deref(),
                     2 => object.super_weapon2.as_deref(),
@@ -246,10 +249,9 @@ pub fn values_for_display(
             (instance.charge_remaining(frame), instance.charge_duration())
         }
         DigitalInfoType::IronCurtain => {
-            let state = entity
-                .invulnerability
-                .as_ref()
-                .filter(|state| state.kind() == InvulnKind::IronCurtain)?;
+            // `IsIronCurtained` (`0x0041BF40`) only tests the timer, so a Force
+            // Shield counts too.
+            let state = entity.invulnerability.as_ref()?;
             if !crate::sim::superweapon::invulnerability::is_invulnerable(Some(state), frame as u32)
             {
                 return None;
@@ -361,7 +363,7 @@ mod tests {
 
     #[test]
     fn absent_owners_produce_no_display() {
-        let (mut sim, rules) = fixture(VEHICLE);
+        let (sim, rules) = fixture(VEHICLE);
         let type_ref = sim.entities().get(1).unwrap().type_ref();
         let object = sim
             .interner()
@@ -392,7 +394,7 @@ mod tests {
 
     #[test]
     fn zero_maximum_is_kept_for_the_renderer_to_skip() {
-        let (mut sim, rules) = fixture("[VehicleTypes]\n0=TEST\n[TEST]\nStrength=0\nAmmo=0\n");
+        let (sim, rules) = fixture("[VehicleTypes]\n0=TEST\n[TEST]\nStrength=0\nAmmo=0\n");
         let type_ref = sim.entities().get(1).unwrap().type_ref();
         let object = sim
             .interner()

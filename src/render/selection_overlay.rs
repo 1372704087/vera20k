@@ -55,6 +55,7 @@ pub struct SelectionOverlay {
     /// One optional custom SHP per `[DigitalDisplayTypes]` catalog entry, in
     /// catalog order. `None` for an entry without `Shape=` or a missing file;
     /// Phobos then draws that display with the game font.
+    #[cfg(feature = "phobos")]
     digital_shapes: Vec<Option<CenteredShapeStrip>>,
 }
 
@@ -441,6 +442,7 @@ impl SelectionOverlay {
             talk_bubble,
             repair_wrench,
             pips,
+            #[cfg(feature = "phobos")]
             digital_shapes: Vec::new(),
         }
     }

@@ -603,6 +603,37 @@ impl IniSection {
         })
     }
 
+    /// Phobos `Valueable<Point2D>`: `INI_EX::Read2Integers` (ReadString(2048),
+    /// then `Parser<int, 2>`, the [`scan_partial_int_fields`] scan) converts
+    /// each token straight into the value, so a one-token read changes only X
+    /// and a read that converts nothing keeps both.
+    pub fn read_phobos_int_pair(&self, key: &str, current: [i32; 2]) -> [i32; 2] {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            let mut fields = current;
+            scan_partial_int_fields(raw, &mut fields);
+            fields
+        })
+    }
+
+    /// Phobos `Nullable<Point2D>`: the clearing tokens of
+    /// [`Self::read_phobos_nullable_with`], then the same in-place
+    /// `Read2Integers` scan. Only a read that converts both tokens sets the
+    /// value; a partial read updates a value that is already set.
+    pub fn read_phobos_nullable_int_pair(
+        &self,
+        key: &str,
+        current: Option<[i32; 2]>,
+    ) -> Option<[i32; 2]> {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            if raw.eq_ignore_ascii_case("<default>") || is_native_none_type_name(raw) {
+                return None;
+            }
+            let mut fields = current.unwrap_or_default();
+            let values = scan_partial_int_fields(raw, &mut fields);
+            (values == 2 || current.is_some()).then_some(fields)
+        })
+    }
+
     /// Phobos shares Ares's `Parser<int>::TryParse`, including `$%d`.
     pub fn read_phobos_nullable_int(&self, key: &str, current: Option<i32>) -> Option<i32> {
         self.read_phobos_nullable_with(key, current, parse_ares_int)
@@ -1523,14 +1554,6 @@ pub(crate) fn scan_decimal_i32(bytes: &mut &[u8]) -> Option<i32> {
 /// `sscanf(value, "%d,%d,...")` with one `%d` per slot of `out`: each comma is
 /// a literal that must follow the previous number at once. Scanned fields
 /// overwrite `out` in order until the first failure; returns how many did.
-/// One already-copied `%d,%d` value, the parser `ReadMinMax` applies to a
-/// present key. Phobos `Nullable<Vector2D<int>>` reads through the same scan.
-pub(crate) fn parse_minmax_value(raw: &str) -> Option<[i32; 2]> {
-    let mut out = [0; 2];
-    (scan_int_fields(strtrim_ascii(truncate_native_bytes(raw, 63)), &mut out) == out.len())
-        .then_some(out)
-}
-
 fn scan_int_fields(value: &str, out: &mut [i32]) -> usize {
     let mut bytes = value.as_bytes();
     let last = out.len().saturating_sub(1);

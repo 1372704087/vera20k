@@ -62,6 +62,7 @@ pub enum DigitalInfoType {
 }
 
 impl DigitalInfoType {
+    #[cfg(feature = "phobos")]
     /// Phobos `read<DisplayInfoType>` (`TemplateDef.h:1504..1598`):
     /// case-insensitive exact spelling, otherwise the key retains its value.
     fn parse(raw: &str) -> Option<Self> {
@@ -105,6 +106,7 @@ pub enum DigitalTextAlign {
 }
 
 impl DigitalTextAlign {
+    #[cfg(feature = "phobos")]
     fn parse(raw: &str) -> Option<Self> {
         Some(match raw.to_ascii_lowercase().as_str() {
             "left" => Self::Left,
@@ -127,6 +129,7 @@ pub enum DigitalHorizontalAnchor {
 }
 
 impl DigitalHorizontalAnchor {
+    #[cfg(feature = "phobos")]
     fn parse(raw: &str) -> Option<Self> {
         Some(match raw.to_ascii_lowercase().as_str() {
             "left" => Self::Left,
@@ -158,6 +161,7 @@ pub enum DigitalVerticalAnchor {
 }
 
 impl DigitalVerticalAnchor {
+    #[cfg(feature = "phobos")]
     fn parse(raw: &str) -> Option<Self> {
         Some(match raw.to_ascii_lowercase().as_str() {
             "top" => Self::Top,
@@ -191,6 +195,7 @@ pub enum DigitalBuildingAnchor {
 }
 
 impl DigitalBuildingAnchor {
+    #[cfg(feature = "phobos")]
     fn parse(raw: &str) -> Option<Self> {
         Some(match raw.to_ascii_lowercase().as_str() {
             "top" => Self::Top,
@@ -225,6 +230,7 @@ impl DigitalShowType {
         self.0
     }
 
+    #[cfg(feature = "phobos")]
     /// Phobos `read<DisplayShowType>`: comma-separated flags, every token
     /// must match, and a failed token keeps the current value.
     fn parse(raw: &str) -> Option<Self> {
@@ -417,14 +423,9 @@ impl DigitalDisplayTypeCatalog {
                 }
             }
             entry.text_background = section.read_bool("Text.Background", entry.text_background);
-            if section.is_present("Offset") {
-                entry.offset = section.read_minmax("Offset", entry.offset);
-            }
-            entry.offset_shield_delta = section.read_phobos_nullable_with(
-                "Offset.ShieldDelta",
-                entry.offset_shield_delta,
-                crate::rules::ini_value::parse_minmax_value,
-            );
+            entry.offset = section.read_phobos_int_pair("Offset", entry.offset);
+            entry.offset_shield_delta = section
+                .read_phobos_nullable_int_pair("Offset.ShieldDelta", entry.offset_shield_delta);
             entry.align = section.read_string_with("Align", 0x40, entry.align, |current, raw| {
                 DigitalTextAlign::parse(raw).unwrap_or(current)
             });
@@ -448,17 +449,23 @@ impl DigitalDisplayTypeCatalog {
             );
             // `Valueable<SHPStruct*>` retains the loaded pointer when the key
             // is absent; only a present key can set or clear it.
+            // Phobos' SHP reader adds `.shp` when the name lacks it. Residual:
+            // it also keeps the previous image when the named file fails to
+            // load, which a text-only rules read cannot check.
             if section.is_present("Shape") {
-                entry.shape = section.read_name("Shape", 0x100).map(str::to_owned);
+                entry.shape = section.read_name("Shape", 0x100).map(|name| {
+                    if name.to_ascii_lowercase().ends_with(".shp") {
+                        name.to_owned()
+                    } else {
+                        format!("{name}.shp")
+                    }
+                });
             }
             if let Some(palette) = section.read_name("Palette", 0x100) {
                 entry.palette = Some(palette.to_owned());
             }
-            entry.shape_spacing = section.read_phobos_nullable_with(
-                "Shape.Spacing",
-                entry.shape_spacing,
-                crate::rules::ini_value::parse_minmax_value,
-            );
+            entry.shape_spacing =
+                section.read_phobos_nullable_int_pair("Shape.Spacing", entry.shape_spacing);
             entry.shape_percentage_frame =
                 section.read_bool("Shape.PercentageFrame", entry.shape_percentage_frame);
             entry.percentage = section.read_bool("Percentage", entry.percentage);
@@ -668,5 +675,24 @@ mod tests {
         assert_eq!(entry.visible_to_houses, AffectedHouse::ALL);
         assert_eq!(entry.show_type, DigitalShowType::SELECT);
         assert_eq!(entry.align, DigitalTextAlign::Right);
+    }
+
+    /// Phobos `Read2Integers` trims spaces and takes `$`/`h` tokens, writes a
+    /// one-token `Valueable<Point2D>` read into X only, and its SHP reader
+    /// adds `.shp`; gamemd's `ReadMinMax` scan did neither.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn pair_keys_use_the_phobos_scan_and_shape_gains_its_extension() {
+        let ini = IniFile::from_str(
+            "[DigitalDisplayTypes]\n0=A\n[A]\nOffset=5\nOffset.ShieldDelta= 1 , $2\n\
+             Shape.Spacing=Ah,3\nShape=DIGITS\n",
+        );
+        let mut catalog = DigitalDisplayTypeCatalog::default();
+        catalog.apply_pass(&ini);
+        let entry = catalog.entry("A").unwrap();
+        assert_eq!(entry.offset, [5, 0]);
+        assert_eq!(entry.offset_shield_delta, Some([1, 2]));
+        assert_eq!(entry.shape_spacing, Some([10, 3]));
+        assert_eq!(entry.shape.as_deref(), Some("DIGITS.shp"));
     }
 }

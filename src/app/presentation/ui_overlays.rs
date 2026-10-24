@@ -98,7 +98,7 @@ pub(crate) fn health_bar_drawable(
     rules: Option<&RuleSet>,
 ) -> bool {
     let player = local_owner.and_then(|owner| sim.interner().get(owner));
-    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player, rules);
+    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player);
     draw_pips && admitted_techno_observer(sim, entity, local_owner, rules).is_some()
 }
 
@@ -111,7 +111,6 @@ fn health_strip_visibility(
     entity: &crate::sim::game_entity::GameEntity,
     hovered_id: Option<u64>,
     player: Option<crate::sim::intern::InternedId>,
-    rules: Option<&RuleSet>,
 ) -> (bool, bool) {
     let selected = entity.selection.is_selected();
     let hovered = hovered_id == Some(entity.stable_id())
@@ -124,19 +123,64 @@ fn health_strip_visibility(
                     sim.interner(),
                 )
             }));
-    // Phobos `TechnoClass_DrawExtras_DrawHealthBar 0x6F5E37` extends the
-    // selected/hovered admission with `HealthBar.Permanent=yes`; this is the
-    // prerequisite the DigitalDisplay documentation names for `ShowType=idle`.
+    status_visibility(selected, hovered)
+}
+
+/// A building's health-bar geometry. BuildingType464AF0 owns Foundation*256
+/// and fixed ART Height*104; 6F6536/656E project local offsets through
+/// Tactical6D1F10, without the absolute projection's camera or +15 world-row
+/// origin. Phobos's building select bracket starts from the same points.
+pub(crate) struct BuildingBarGeometry {
+    /// The projected foundation edge at Z=0 (6F659E).
+    pub(crate) edge: (i32, i32),
+    /// `edge.1` raised by the ART height.
+    pub(crate) upper_y: i32,
+    /// Both upper projections carry the same Z; it cancels in 6F65BC..CF.
+    pub(crate) num_pips: i32,
+    /// Fixed ART Height*104, in leptons.
     #[cfg(feature = "phobos")]
-    let permanent = rules
-        .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
-        .is_some_and(|object| object.health_bar_permanent());
-    #[cfg(not(feature = "phobos"))]
-    let permanent = {
-        let _ = rules;
-        false
-    };
-    status_visibility(selected, hovered || permanent)
+    pub(crate) height_leptons: i32,
+}
+
+impl BuildingBarGeometry {
+    pub(crate) fn new(rules: &RuleSet, object: &crate::rules::object_type::ObjectType) -> Self {
+        let [width, height, z] = rules.building_dimensions(object);
+        let left = (width - width / 2).wrapping_neg();
+        let back = height - height / 2;
+        let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
+        let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
+        Self {
+            edge: (ax, ay),
+            upper_y: ay - crate::util::native_x87::adjust_for_z_standard(z),
+            num_pips: (ay - by) / 2,
+            #[cfg(feature = "phobos")]
+            height_leptons: z,
+        }
+    }
+
+    /// The first health pip at screen point `(sx, sy)`, which is also Phobos's
+    /// building select-bracket Top anchor.
+    pub(crate) fn first_pip(&self, sx: f32, sy: f32) -> (f32, f32) {
+        (
+            sx + (self.edge.0 + 4 * self.num_pips + 3) as f32,
+            sy + (self.upper_y + 4 - 2 * self.num_pips) as f32,
+        )
+    }
+}
+
+/// Phobos `TechnoExt::GetFootSelectBracketPosition`'s rectangle at screen
+/// point `(sx, sy)`: the 8-pip Infantry or 17-pip mobile bracket, as
+/// `[x, y, width, height]`.
+#[cfg(feature = "phobos")]
+pub(crate) fn foot_select_bracket(sx: f32, sy: f32, infantry: bool) -> [f32; 4] {
+    let length = if infantry { 8.0 } else { 17.0 };
+    let nudge = if infantry { 1.0 } else { 0.0 };
+    [
+        sx - length + nudge + 1.0,
+        sy - 28.0 + nudge,
+        length * 2.0,
+        length * 3.0,
+    ]
 }
 
 /// Retained Display membership and the shared tactical draw admission.
@@ -1188,7 +1232,7 @@ pub(crate) fn techno_extras_for_parent(
         }
     }
     let (draw_background, draw_health) =
-        health_strip_visibility(sim, entity, hovered_id, observer_id, rules);
+        health_strip_visibility(sim, entity, hovered_id, observer_id);
     if !draw_health {
         return strip;
     }
@@ -1206,17 +1250,9 @@ pub(crate) fn techno_extras_for_parent(
         let (Some(rules), Some(object), Some(shape)) = (rules, object, overlay.pips()) else {
             return strip;
         };
-        // BuildingType464AF0 owns Foundation*256 and fixed ART Height*104.
-        //6F6536/656E project local offsets through Tactical6D1F10, without
-        // the absolute projection's camera or +15 world-row origin.
-        let [width, height, z] = rules.building_dimensions(object);
-        let left = (width - width / 2).wrapping_neg();
-        let back = height - height / 2;
-        let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
-        let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
-        let upper_y = ay - crate::util::native_x87::adjust_for_z_standard(z);
-        // Both upper projections carry the same Z; it cancels in6F65BC..CF.
-        let num_pips = (ay - by) / 2;
+        let geometry = BuildingBarGeometry::new(rules, object);
+        let (ax, ay) = geometry.edge;
+        let num_pips = geometry.num_pips;
         if num_pips <= 0 {
             return strip;
         }
@@ -1225,10 +1261,8 @@ pub(crate) fn techno_extras_for_parent(
         // fill. The building bracket is the Top anchor minus (6,3).
         #[cfg(feature = "phobos")]
         {
-            let bracket = (
-                sx + (ax + 4 * num_pips + 3 - 6) as f32,
-                sy + (upper_y + 4 - 2 * num_pips - 3) as f32,
-            );
+            let top = geometry.first_pip(sx, sy);
+            let bracket = (top.0 - 6.0, top.1 - 3.0);
             shield_bar_instances(
                 entity,
                 rules,
@@ -1254,10 +1288,7 @@ pub(crate) fn techno_extras_for_parent(
             1 => 2,
             _ => 1,
         };
-        let start = (
-            sx + (ax + 4 * num_pips + 3) as f32,
-            sy + (upper_y + 4 - 2 * num_pips) as f32,
-        );
+        let start = geometry.first_pip(sx, sy);
         strip.fills.reserve(num_pips as usize);
         //6F6658..6774: filled first, then empty frame0, walking [-4,+2].
         // Building PIPS600 bypasses A and Z; the replay owner preserves both
@@ -1311,10 +1342,8 @@ pub(crate) fn techno_extras_for_parent(
     #[cfg(feature = "phobos")]
     {
         let length = if infantry { 8 } else { 17 };
-        let bracket = (
-            sx - length as f32 + if infantry { 1.0 } else { 0.0 },
-            sy - 28.0 + if infantry { 1.0 } else { 0.0 },
-        );
+        let [left, top, _, _] = foot_select_bracket(sx, sy, infantry);
+        let bracket = (left - 1.0, top);
         let type_delta = entity
             .shield()
             .and_then(|shield| rules.shield_type(shield.type_name()))
@@ -1902,60 +1931,6 @@ mod tests {
             !admitted(&sim, Some(1)),
             "retained Display cannot resurrect limbo feedback"
         );
-    }
-
-    /// Phobos `HealthBar.Permanent=yes` keeps an idle, unselected unit's
-    /// health bar (and its `ShowType=idle` digital displays) admitted, which
-    /// stock gamemd never does.
-    #[cfg(feature = "phobos")]
-    #[test]
-    fn health_bar_permanent_admits_an_idle_unit() {
-        use crate::rules::ini_parser::IniFile;
-        use crate::rules::ruleset::RuleSet;
-        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
-
-        let fixture = |permanent: bool| {
-            let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
-                "[VehicleTypes]\n0=TEST\n[TEST]\nStrength=100\nHealthBar.Permanent={}\n",
-                if permanent { "yes" } else { "no" }
-            )))
-            .unwrap();
-            let mut sim = Simulation::new();
-            let player = sim.intern("Player");
-            let owner = sim.intern("Neutral");
-            let type_ref = sim.intern("TEST");
-            *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
-            let mut entity = GameEntity::new_at_frame_zero_for_test(
-                1,
-                20,
-                20,
-                4,
-                0,
-                owner,
-                Health::new(100),
-                type_ref,
-                EntityCategory::Unit,
-                0,
-                5,
-                false,
-            );
-            entity.lifecycle.set_in_limbo_for_test(false);
-            entity
-                .discovery
-                .set_discovered_by_current_house_for_test(true);
-            sim.entities_mut_for_test().insert(entity);
-            sim.resubmit_entity_display_for_test(1);
-            let admitted = health_bar_drawable(
-                &sim,
-                sim.entities().get(1).unwrap(),
-                None,
-                Some(sim.interner().resolve(player)),
-                Some(&rules),
-            );
-            admitted
-        };
-        assert!(fixture(true));
-        assert!(!fixture(false));
     }
 
     /// Original Building DrawExtras selected/hover dispatch, with raw shroud

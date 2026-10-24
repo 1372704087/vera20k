@@ -533,6 +533,14 @@ pub struct GeneralRules {
     /// reads per-type AIBuildLimit (`0xC27249..0xC2725A`) instead. Both
     /// generations use factory_ai's shared tracked/produced comparison.
     pub enable_ai_build_limitation: bool,
+    /// `[General] DisableParallelAIQueues=` — an NPSE 2.0 extension switch
+    /// read into `Rules+0x2D` by `ReadGeneral` C30303..C3031A through
+    /// ReadBooleanByte5295F0 with the current byte as default. The Rules
+    /// constructor's DWORD store at 66569B clears +2D, so absent means no.
+    /// With yes, Factory_AI C2F07C reserves by produced class, splitting
+    /// vehicles alone on Naval. HouseAiProduction owns the reservation and
+    /// its class-specific exit/abandon release phases. Default no keeps cloning.
+    pub disable_parallel_ai_queues: bool,
     /// `[General] RepairRate=` in minutes — `RulesClass+0x16E0`.
     ///
     /// The self-heal pulse (`FUN_0070BE80`) divides the frame counter by
@@ -2336,6 +2344,7 @@ impl Default for GeneralRules {
             veteran_armor: 1.0,
             curley_shuffle: false,
             enable_ai_build_limitation: false,
+            disable_parallel_ai_queues: false,
             repair_rate_minutes: 0.016,
             // Rules665696..6656B0 initializes the current-default fields
             // before ReadGeneral66E6E2..66E74B. Retail overrides are separate.
@@ -3487,6 +3496,13 @@ impl GeneralRules {
                 && general.read_bool(
                     "EnableAIBuildLimitation",
                     defaults.enable_ai_build_limitation,
+                ),
+            // NPSE reads it with the current field as default into Rules+0x2D
+            // (C30303..C3031A); the constructor's 66569B store leaves 0.
+            disable_parallel_ai_queues: crate::rules::NPATCH_ENABLED
+                && general.read_bool(
+                    "DisableParallelAIQueues",
+                    defaults.disable_parallel_ai_queues,
                 ),
             repair_rate_minutes: general.read_double("RepairRate", defaults.repair_rate_minutes),
             // `RulesClass+0x30/+0x34/+0x38/+0x3C`, read by the General reader at

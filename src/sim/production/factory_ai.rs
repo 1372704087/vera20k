@@ -251,7 +251,17 @@ fn start_factory(
     if crate::sim::credit_income::available_money(&sim.houses, owner) <= 10 {
         return;
     }
-    let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
+    // The producing building's `Naval=` decides which vehicle choice
+    // `Suggest_New_Object` reads (NPSE `0xC2F130`), so resolve it first.
+    let factory_naval = sim
+        .substrate
+        .entities
+        .get(building)
+        .and_then(|entity| sim.entity_object_type(entity, rules))
+        .is_some_and(|ty| ty.naval);
+    let Some(object) =
+        ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti, factory_naval)
+    else {
         return;
     };
     // Both NP generations gate at the fetched type before naval admission:
@@ -263,15 +273,22 @@ fn start_factory(
             || rules.general.enable_ai_build_limitation
                 && ai_build_limit_blocks(sim, rules, owner, object, object.build_limit))
     {
-        clear_aibuild_limit_choice(sim, owner, object.category);
+        clear_aibuild_limit_choice(sim, owner, object);
         return;
     }
-    let factory_naval = sim
-        .substrate
-        .entities
-        .get(building)
-        .and_then(|entity| sim.entity_object_type(entity, rules))
-        .is_some_and(|ty| ty.naval);
+    // NPSE 2.0 Factory_AI C2F07C..C2F11F reserves the fetched type's
+    // class before naval admission, allocation and construction. The House
+    // owner retains failed-start/expired reservations until a native release.
+    #[cfg(feature = "npatch")]
+    if rules.general.disable_parallel_ai_queues
+        && !sim.houses.get_mut(&owner).is_some_and(|house| {
+            house
+                .ai_production_mut()
+                .reserve_parallel(object.category, object.naval)
+        })
+    {
+        return;
+    }
     if object.category == ObjectCategory::Vehicle && object.naval != factory_naval {
         return;
     }
@@ -355,17 +372,16 @@ fn ai_build_limit_blocks(
 /// production choice slot before the start skips — `+0x564C` building
 /// (`0xC3371C`), `+0x5654` infantry (`0xC3360C`), `+0x5658` aircraft, and for
 /// a unit `+0x5650` or the naval queue's `+0x16130` by `UnitType+0xCCE`
-/// (`0xC33570`; legacy ext173 C2D039 uses +160F8 for naval). VERA keeps
-/// one unit slot, so a naval type clears that one; the split is a residual.
+/// (`0xC33570..0xC33592`, NPSE 2.0; legacy ext173 C2D039 uses +160F8).
 /// A capped building is cleared too, and
 /// its plan node stays unsatisfied, so `choose_building` returns the same
 /// type: that is the manual's warning (`AI克隆生产`) that a building at its
 /// limit leaves the computer unable to build anything, not a recovery.
-fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category: ObjectCategory) {
+fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, object: &ObjectType) {
     let Some(house) = sim.houses.get_mut(&owner) else {
         return;
     };
-    match UnitChoiceKind::of(category) {
+    match UnitChoiceKind::of(object.category, object.naval) {
         Some(kind) => house.ai_unit_choices_mut().clear(kind),
         None => house.ai_production_mut().clear_building_choice(),
     }

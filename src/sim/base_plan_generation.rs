@@ -160,6 +160,19 @@ pub(crate) fn recalc_base_plan(
                 && prerequisites_satisfied(candidate, &priority[..pass_start_len], rules)
             {
                 priority.push(candidate);
+                // NPSE per-type `[BuildingTypes] AIPlanningCount=` lands here:
+                // the hook at the append site (`0x5056C1` -> cave
+                // `0xC2C331..0xC2C367`) re-enters the candidate head
+                // (`0x00505544`) until its per-candidate counter reaches the
+                // type's byte-sized count, so the candidate appends that many
+                // consecutive nodes at its own position. The repeats stay
+                // inside collection: they are part of the vector the seed
+                // selection (`0x505714`) and the refinery insertion draw
+                // into, and they repeat one selected candidate rather than
+                // completing another, so they do not advance the pass count.
+                for _ in 1..planning_repeats(candidate) {
+                    priority.push(candidate);
+                }
                 selected[index] = true;
                 remaining = remaining.wrapping_sub(1);
                 progressed = true;
@@ -213,27 +226,17 @@ pub(crate) fn recalc_base_plan(
         priority.len() >= 3,
         "active Recalc priority contains its three native seed entries"
     );
-    // The NPSE per-type `AIPlanningCount=` duplicates a planned type's node
-    // at its own position: the append loop's skip merge (`0x5056C1` ->
-    // cave `0xC2C331..0xC2C367`) re-enters the candidate head
-    // (`0x00505544`) until the per-candidate counter reaches the type's
-    // byte-sized count, so a positive count appends the candidate that many
-    // times, consecutively, and 0 keeps the stock single node.
-    let planning_repeats = |candidate: &ObjectType| -> usize {
-        let count = candidate.ai_planning_count;
-        if crate::rules::NPATCH_ENABLED && count > 1 {
-            count as usize
-        } else {
-            1
-        }
-    };
     let mut final_values = Vec::with_capacity(priority.len());
-    final_values.extend(priority[..3].iter().flat_map(|candidate| {
-        std::iter::repeat(candidate.base_plan_type_index).take(planning_repeats(candidate))
-    }));
-    final_values.extend(priority[3..].iter().flat_map(|candidate| {
-        std::iter::repeat(candidate.base_plan_type_index).take(planning_repeats(candidate))
-    }));
+    final_values.extend(
+        priority[..3]
+            .iter()
+            .map(|candidate| candidate.base_plan_type_index),
+    );
+    final_values.extend(
+        priority[3..]
+            .iter()
+            .map(|candidate| candidate.base_plan_type_index),
+    );
 
     let defense_count = match side_index {
         0 => rules.allied_base_defense_counts[difficulty.table_index()],
@@ -249,6 +252,20 @@ pub(crate) fn recalc_base_plan(
     }
 
     plan.rebuild(final_values);
+}
+
+/// The NPSE per-type `[BuildingTypes] AIPlanningCount=` count of collection
+/// nodes the candidate contributes, `1` for the stock single node. The
+/// extension constructor zeroes the field (`0xC3039B`) and the reader stores
+/// the `ReadInt` result through `al` (`0xC2E223..0xC2E237`), so an absent key
+/// and `0` both keep the stock node; the compiled capability gates the rest.
+fn planning_repeats(candidate: &ObjectType) -> usize {
+    let count = candidate.ai_planning_count;
+    if crate::rules::NPATCH_ENABLED && count > 1 {
+        count as usize
+    } else {
+        1
+    }
 }
 
 fn recalc_candidate_allowed(
@@ -496,6 +513,74 @@ mod tests {
             values.iter().filter(|value| **value == test_index).count(),
             1
         );
+    }
+
+    /// The repeat happens inside candidate collection, so it is part of the
+    /// vector the refinery insertion draws into: the `0x5056C1` hook precedes
+    /// the seed selection `0x505714` and the refinery pass. Repeating the
+    /// assembled values instead would draw over the shorter vector and put the
+    /// duplicates elsewhere.
+    #[cfg(feature = "npatch")]
+    #[test]
+    fn ai_planning_count_repeats_before_the_refinery_draws() {
+        let registry = "7=TEST\n";
+        let plain = planner_rules(
+            "HARV",
+            "Americans",
+            "0,0,0",
+            "9,9,9",
+            "0,0,0",
+            "0,0,0",
+            "0,0,0",
+            registry,
+            "[TEST]\n\
+             Owner=Americans,Russians,YuriCountry\n\
+             AIBuildThis=yes\nTechLevel=1\nFoundation=1x1\n",
+        );
+        let counted = planner_rules(
+            "HARV",
+            "Americans",
+            "2,2,2",
+            "9,9,9",
+            "0,0,0",
+            "0,0,0",
+            "0,0,0",
+            registry,
+            "[TEST]\n\
+             Owner=Americans,Russians,YuriCountry\n\
+             AIBuildThis=yes\nTechLevel=1\nFoundation=1x1\n\
+             AIPlanningCount=2\n",
+        );
+        let seed = 0x5750;
+        // The plain plan is the stock collection order: no key and no
+        // duplicates, so repeating one candidate there yields the counted
+        // collection vector the refinery draws index into.
+        let (plain_plan, _) = generated_values(&plain, "Americans", 0, HouseDifficulty::Hard, seed);
+        let (plan, rng) = generated_values(&counted, "Americans", 0, HouseDifficulty::Hard, seed);
+
+        let test_index = counted.object("TEST").expect("TEST").base_plan_type_index;
+        let refinery = counted.object("REF").expect("REF").base_plan_type_index;
+        let mut expected = values(&plain_plan);
+        let position = expected
+            .iter()
+            .position(|value| *value == test_index)
+            .expect("the counted type is planned");
+        expected.insert(position + 1, test_index);
+        let refinery_index = expected
+            .iter()
+            .take(expected.len() - 1)
+            .position(|value| *value == refinery)
+            .expect("the refinery is planned");
+        let mut expected_rng = SimRng::new(seed);
+        for _ in 0..2 {
+            let drawn = expected_rng.next_range_u32_inclusive(
+                refinery_index as u32,
+                expected.len() as u32 - 1,
+            );
+            expected.insert(drawn as usize + 1, refinery);
+        }
+        assert_eq!(values(&plan), expected);
+        assert_eq!(rng.logical_state(), expected_rng.logical_state());
     }
 
     #[test]

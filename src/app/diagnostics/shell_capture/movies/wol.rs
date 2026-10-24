@@ -4533,18 +4533,9 @@ fn info_file(state: &AppState) -> Result<WolInfoFile> {
     Ok(WolInfoFile::in_directory(config.paths.settings_dir()))
 }
 
-/// The target's persona file, only in the marked isolated root.
+/// The target's persona file, only in the separately marked settings root.
 fn write_wolinfo(state: &AppState, target: WolTarget) -> Result<()> {
-    let root = super::lan::LanCapture::isolated_root(state)?;
-    let config = state
-        .platform
-        .game_config
-        .as_ref()
-        .context("capture game config")?;
-    ensure!(
-        std::fs::canonicalize(config.paths.settings_dir())? == root,
-        "wolinfoMD.ini belongs to the isolated root only"
-    );
+    let root = super::lan::LanCapture::isolated_settings_root(state)?;
     std::fs::write(root.join(WOLINFO_INI), target.wolinfo()).context("write wolinfoMD.ini")
 }
 

@@ -22,7 +22,7 @@ use crate::render::unit_atlas;
 use crate::sim::production;
 use crate::sim::replay::ScenarioServiceInput;
 use crate::sim::trigger_runtime::TriggerEffect;
-use crate::sim::world::{FrameEffects, LifecycleOutput, SimFireEvent, SimFrameOutput, TickLane};
+use crate::sim::world::{FrameEffects, LifecycleOutput, SimFrameOutput, TickLane};
 use crate::ui::game_screen::GameScreen;
 
 /// Directory for Rust-only deterministic diagnostic logs.
@@ -1092,7 +1092,6 @@ fn advance_one_simulation_frame(
         } else {
             None
         };
-        let mut drained_fire_events: Vec<SimFireEvent> = Vec::new();
         let mut drained_lifecycle_outputs: Vec<LifecycleOutput> = Vec::new();
         let mut drained_combat_lights = Vec::new();
         let mut frame_overlay_updates = Vec::new();
@@ -1181,12 +1180,21 @@ fn advance_one_simulation_frame(
                         minimap.admit_radar_event(request, tick, Some(rules))
                     })
                 };
+                let has_radar = &mut state.match_state.match_presentation.has_radar;
+                let radar_anim = &mut state.match_state.match_presentation.radar_anim;
+                let mut set_tactical_radar = |available| {
+                    *has_radar = available;
+                    radar_anim
+                        .as_mut()
+                        .and_then(|radar| radar.set_has_radar(available))
+                };
                 let boundary = super::frame_effects::FrameClientBoundary::new(
                     playback,
                     local_owner_name.as_deref(),
                     &mut state.match_state.match_audio.sound_events,
                     &mut admit_radar,
                 )
+                .with_tactical_radar(&mut set_tactical_radar)
                 .with_planning(
                     &mut state.match_state.input.planning,
                     &mut state.match_state.input.selection_state,
@@ -1201,6 +1209,7 @@ fn advance_one_simulation_frame(
                 )
                 .with_outcome_wait(&mut state.match_state.scenario_outcome);
                 let effects = FrameEffects::for_sound(&boundary)
+                    .with_tactical_radar(&boundary)
                     .with_local_planning(&boundary)
                     .with_network_commands(&boundary)
                     .with_outcome_wait(&boundary)
@@ -1279,7 +1288,6 @@ fn advance_one_simulation_frame(
                 overlay_removals,
                 sound_events: frame_sound_events,
                 sound_events_delivered,
-                fire_events: frame_fire_events,
                 combat_lights,
                 lighting_events,
                 multiplayer_checksum,
@@ -1347,8 +1355,6 @@ fn advance_one_simulation_frame(
                 }
                 sim.prepare_fog_view_for(owner);
             }
-            // Fire events position the weapon report sounds.
-            drained_fire_events = frame_fire_events;
             // The radar event array is the local client's (RadarClass). A
             // match without a minimap renderer has no such client, so nothing
             // is admitted and the radar-gated EVA lines stay silent.
@@ -1428,7 +1434,7 @@ fn advance_one_simulation_frame(
             state,
             &drained_lifecycle_outputs,
         );
-        // Trigger Focus/lock effects precede TacticalAI in this Logic visit.
+        // Authored Team/trigger Focus and lock effects precede TacticalAI in this Logic visit.
         // Coordinates were resolved by simulation before its final hash.
         apply_trigger_effects(state, &trigger_effects);
         // Scroll_Map (0x4A9840 -> 0x6D8530) accumulates mouse requests;
@@ -1480,12 +1486,12 @@ fn advance_one_simulation_frame(
                 state
                     .match_state
                     .input
-                    .apply_building_placement_output(&cursor_clear, local_house);
+                    .apply_lifecycle_output(&cursor_clear, local_house);
             }
             if state
                 .match_state
                 .input
-                .apply_building_placement_output(&output, local_house)
+                .apply_lifecycle_output(&output, local_house)
             {
                 update_building_placement_preview(state);
             }
@@ -1618,11 +1624,6 @@ fn advance_one_simulation_frame(
                 | LifecycleOutput::ClearRedraw { .. } => {}
             }
         }
-        crate::app::presentation::fire_effects::queue_weapon_report_sounds(
-            state,
-            &drained_fire_events,
-        );
-
         // Black-cell census, on a schedule rather than a keypress: nobody hits a debug key
         // at the exact moment they notice the artifact. Spread-out ticks give a time series,
         // which separates "still exploring" from "these cells will never be revealed" — a

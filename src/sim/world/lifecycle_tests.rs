@@ -564,9 +564,7 @@ fn receiver_garrison_survivor_keeps_height_aware_playfield_membership() {
         building
             .type_facts
             .set_foundation_for_test("2x2".to_string().into());
-        let mut cargo = PassengerCargo::new(5, 1.0);
-        cargo.board_forced_chain(&[(passenger_id, 1.0)]);
-        building.passenger_role = PassengerRole::transport(cargo);
+        building.passenger_role.occupants_mut().add(passenger_id);
     }
     assert!(matches!(
         sim.try_reveal_entity_with_context(
@@ -1191,6 +1189,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
         mission: None,
         recruitable_a: true,
         recruitable_b: true,
+        group: -1,
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
@@ -3379,7 +3378,17 @@ fn lifecycle_authority_transport_uninits_passengers_in_cargo_order_before_carrie
     assert!(cargo.passengers().is_empty());
     assert!(cargo.passenger_sizes().is_empty());
     assert_eq!(cargo.total_size(), 0);
-    assert_eq!(cargo.garrison_fire_index(), 0);
+    // A Unit's Cargo teardown has no Building occupant cursor to reset.
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .passenger_role
+            .occupants()
+            .fire_index(),
+        0
+    );
 }
 
 #[test]
@@ -5883,8 +5892,8 @@ fn gsi_05_02_mixed_fixture() -> (Simulation, [u64; 6]) {
             terrain
         },
         false,
-        true,
     );
+    sim.terrain_objects.add_to_cell(terrain_id, (8, 9));
     assert!(
         sim.register_terrain_object(terrain_id, crate::rules::ruleset::RuleSet::empty_for_test())
     );
@@ -6229,6 +6238,7 @@ fn gsi_05_02_lethal_terrain_unregisters_and_inactive_slot_cannot_roundtrip() {
         None,
         &[crate::sim::combat::combat_aoe::AreaDamageReceiver::Terrain(
             crate::sim::combat::TerrainDamageEvent {
+                damage_writeback: None,
                 stable_id: terrain_id,
                 rx: 5,
                 ry: 6,
@@ -6300,6 +6310,7 @@ fn gsi_05_03_terminal_non_entities_remain_resolvable_until_common_drain() {
         None,
         &[crate::sim::combat::combat_aoe::AreaDamageReceiver::Terrain(
             crate::sim::combat::TerrainDamageEvent {
+                damage_writeback: None,
                 stable_id: terrain_id,
                 rx: 5,
                 ry: 6,
@@ -6658,9 +6669,7 @@ fn gsi_05_04_combat_fatal_garrison_recursion_keeps_cell_target() {
             .type_facts
             .set_foundation_for_test("2x2".to_string().into());
         building.health.set_for_test(10);
-        let mut cargo = PassengerCargo::new(5, 1.0);
-        cargo.board_forced_chain(&[(passenger_id, 1.0)]);
-        building.passenger_role = PassengerRole::transport(cargo);
+        building.passenger_role.occupants_mut().add(passenger_id);
     }
     assert!(matches!(
         sim.try_reveal_entity_with_context(
@@ -8605,8 +8614,8 @@ fn gsi_05_02_graph_restore_allows_static_terrain_and_requires_fired_objects() {
             terrain
         },
         false,
-        true,
     );
+    terrain.terrain_objects.add_to_cell(terrain_id, (1, 1));
     terrain
         .restore_after_snapshot_load()
         .expect("static Terrain has no required Logic slot");
@@ -8799,8 +8808,8 @@ fn detach_sweep_clears_target_when_no_mission_was_suspended() {
 }
 
 /// A cell target is not the departing Techno pointer, so the live-object detach
-/// sweep does not match it. CellClass pointer expiry has its own forward,
-/// clear-before-Restore transaction and is tested with wall removal.
+/// sweep does not match it. AreaDamage and cliff callers explicitly invoke
+/// the same restore-first sweep with their retained Cell identity.
 #[test]
 fn detach_sweep_never_matches_a_cell_target() {
     let mut sim = Simulation::new();

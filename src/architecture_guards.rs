@@ -115,6 +115,9 @@ fn raw_ini_walks_have_pinned_production_callers() {
             "raw_entries",
             &[
                 ("rules/ini_parser.rs", 1), // the definition
+                // Copy Hotkey entries into the separate writable profile.
+                ("app/persistence/keyboard.rs", 1),
+                ("app/persistence/profile_file.rs", 1),
                 // `ini-get --reader raw` and the presence report.
                 ("asset_tools/verb_ini.rs", 1),
                 // `[Colors]` entries copied into the processed registry.
@@ -125,9 +128,7 @@ fn raw_ini_walks_have_pinned_production_callers() {
             "registry_ids",
             &[
                 ("rules/ini_parser.rs", 1), // the definition
-                ("rules/overlay_types.rs", 2),
-                // Phobos `[RadiationTypes]`, read only in Phobos builds.
-                ("rules/phobos_radiation.rs", 1),
+                ("rules/overlay_types.rs", 1),
                 // Includes parse_registry copying already resolved stored IDs.
                 ("rules/ruleset.rs", 3),
                 ("rules/smudge_type.rs", 1),

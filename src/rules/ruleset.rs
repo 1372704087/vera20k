@@ -1526,6 +1526,12 @@ pub struct GeneralRules {
     /// Holds the unresolved section name; ID resolution against the
     /// particle-system registry is deferred (matches A2/A3/A4/A5a pattern).
     pub barrel_particle: Option<String>,
+    /// Rules+54, ctor6656D1 null; General66D6A8..66D6D5 retains the
+    /// Anim factory result on missing/empty reads. AreaDamage48A34D.
+    pub barrel_explode: Option<String>,
+    /// Rules+58, ctor6656C0 empty; General66D6E2..66D7B1 preserves
+    /// ordered Voxel factory results. AreaDamage stops at its first passing trial.
+    pub barrel_debris: Vec<String>,
 
     // -- Harvester scan radii and economy --
     /// `Rules+0x1778`, `[General] TiberiumShortScan=` in leptons: the ring
@@ -1757,6 +1763,9 @@ pub struct GeneralRules {
     /// progress against this retained value times900, without truncating it
     /// to a timer first (`0x0044BD32`, `0x0044BD44`).
     pub unit_repair_rate: f64,
+    /// Rules+760; ctor6660AE stores3.0. ReadGeneral671858 uses the
+    /// current double as ReadDouble5283D0 default, without scaling/clamping.
+    pub charge_to_drain_ratio: NativeF64Bits,
     /// Hospital repair: Rules+16D8/16F0, ReadGeneral670DE9/670E57.
     pub infantry_repair_step: i32,
     pub infantry_repair_rate: f64,
@@ -2570,6 +2579,8 @@ impl Default for GeneralRules {
             spy_money_steal_percent: NativeF32Bits::from_bits(0x3F00_0000),
             damage_fire_types: vec![],
             barrel_particle: None,
+            barrel_explode: None,
+            barrel_debris: Vec::new(),
             tiberium_short_scan: 0x600,
             tiberium_long_scan: 0x2000,
             buildup_time: f64::from_bits(0x3FA9_9999_9999_999A),
@@ -2624,6 +2635,7 @@ impl Default for GeneralRules {
             guard_mode_stray: 0,
             // Rules constructor667530/53A retains the double, not frame ticks.
             unit_repair_rate: U_REPAIR_RATE_MINUTES,
+            charge_to_drain_ratio: NativeF64Bits::from_bits(0x4008_0000_0000_0000),
             // Constructor66751A and667540: 1 and double0.016.
             infantry_repair_step: 1,
             infantry_repair_rate: 0.016,
@@ -3819,6 +3831,8 @@ impl GeneralRules {
                 .read_double_to_float("SpyMoneyStealPercent", defaults.spy_money_steal_percent),
             damage_fire_types: defaults.damage_fire_types.clone(),
             barrel_particle: defaults.barrel_particle.clone(),
+            barrel_explode: defaults.barrel_explode.clone(),
+            barrel_debris: defaults.barrel_debris.clone(),
             tiberium_short_scan: general.read_range("TiberiumShortScan", 0x600),
             tiberium_long_scan: general.read_range("TiberiumLongScan", 0x2000),
             buildup_time: general.read_double("BuildupTime", f64::from_bits(0x3FA9_9999_9999_999A)),
@@ -3906,6 +3920,7 @@ impl GeneralRules {
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
             unit_repair_rate: defaults.unit_repair_rate,
+            charge_to_drain_ratio: defaults.charge_to_drain_ratio,
             infantry_repair_step: defaults.infantry_repair_step,
             infantry_repair_rate: defaults.infantry_repair_rate,
             reload_rate: general.read_double("ReloadRate", defaults.reload_rate),
@@ -4178,6 +4193,11 @@ pub struct RuleSet {
     /// leaves it empty, `0x0066641B..0x00666430`): the computer's wall types
     /// (`sim::ai_base_building`).
     pub concrete_wall_types: Vec<String>,
+    /// Original RulesClass::ReadAI672AE0, NSGates673830..673870 and
+    /// EWGates673875..6738A7: ordered BuildingType lists. Constructor
+    ///666437..666468 leaves both empty; omitted/empty reads retain them.
+    pub ns_gate_types: Vec<String>,
+    pub ew_gate_types: Vec<String>,
     /// Source-ordered resolved `[General] HarvesterUnit=` UnitType identities.
     pub harvester_unit_types: Vec<String>,
     /// Signed Hard/Normal/Easy vectors consumed directly by BasePlan Recalc.
@@ -4268,6 +4288,14 @@ pub struct RuleSet {
     pub elevation_model: ElevationModel,
     /// Per-cell radiation-field constants from [Radiation].
     pub radiation: RadiationRules,
+    /// Phobos `[ShieldTypes]` catalog, read per Rules pass by the ordered
+    /// Process owner. Empty in builds without the capability.
+    #[cfg(feature = "phobos")]
+    pub(crate) shield_types: crate::rules::phobos_shields::ShieldTypeCatalog,
+    /// Phobos shield globals: `[CombatDamage] ShieldApplyArmorMult` and
+    /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
+    #[cfg(feature = "phobos")]
+    pub(crate) shield_globals: crate::rules::phobos_shields::ShieldGlobals,
     /// Radar event visual parameters (ping rectangles on minimap).
     pub radar_event_config: RadarEventConfig,
     /// All superweapon types indexed by ID (e.g., "LightningStormSpecial" → SuperWeaponType).
@@ -4527,6 +4555,7 @@ impl RuleSet {
         rules.general.weather_con_bolt_explosion = weather_anim.to_owned();
         rules.general.weapon_nullify_anim = nullify_anim.to_owned();
         rules.combat_damage.splash_list = splash.to_vec();
+        rules.combat_damage.ammo_crate_damage = processed.ammo_crate_damage();
         rules.combat_damage.death_weapon =
             processed.combat_damage_death_weapon().map(str::to_owned);
         for (name, conventional, em_effect, anim_list, debris_types, verses, ares_verses) in
@@ -4610,6 +4639,7 @@ impl RuleSet {
             rules.general.unit_repair_rate,
             rules.general.infantry_repair_rate,
         ) = processed.repair_service_inputs();
+        rules.general.charge_to_drain_ratio = processed.charge_to_drain_ratio();
         let mut weapon_name_counts = HashMap::<String, usize>::new();
         for weapon in processed.weapon_states() {
             *weapon_name_counts
@@ -4907,6 +4937,14 @@ impl RuleSet {
                     .phobos_super_weapon_metadata
                     .insert(name.to_ascii_uppercase(), availability);
             }
+            for (name, gathering) in processed.ore_gathering_states() {
+                if let Some(unit) = rules.object_list.iter_mut().find(|object| {
+                    object.category == ObjectCategory::Vehicle
+                        && object.id.eq_ignore_ascii_case(name)
+                }) {
+                    unit.project_ore_gathering(gathering);
+                }
+            }
         }
         #[cfg(feature = "ares")]
         {
@@ -4955,13 +4993,14 @@ impl RuleSet {
                 particle.warhead = warhead.map(str::to_owned);
             }
         }
-        for (name, references) in processed.voxel_anim_reference_states() {
+        for (name, references, damage) in processed.voxel_anim_reference_states() {
             if let Some(voxel_anim) = rules
                 .voxel_anim_types
                 .iter_mut()
                 .find(|voxel_anim| voxel_anim.name.eq_ignore_ascii_case(name))
             {
                 references.apply_to(voxel_anim);
+                voxel_anim.damage = damage;
             }
         }
         processed.rules_type_references().apply_to(&mut rules);
@@ -5396,6 +5435,18 @@ impl RuleSet {
         let elevation_model = ElevationModel::from_ini(ini);
         let radiation: RadiationRules = RadiationRules::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let (shield_types, shield_globals) = {
+            let shield_types = processed.shield_types().cloned().unwrap_or_default();
+            log::info!(
+                "Phobos shield types: [{}]",
+                shield_types.names().collect::<Vec<_>>().join(", ")
+            );
+            (
+                shield_types,
+                crate::rules::phobos_shields::ShieldGlobals::from_ini(ini),
+            )
+        };
+        #[cfg(feature = "phobos")]
         let radiation = {
             let mut radiation = radiation;
             radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
@@ -5576,11 +5627,8 @@ impl RuleSet {
         let super_weapon_order: Vec<String> = sw_ids.clone();
         for sw_id in &sw_ids {
             if let Some(section) = ini.section(sw_id) {
-                if let Some(sw) = SuperWeaponType::from_ini_section(sw_id, section) {
-                    super_weapons.insert(sw_id.clone(), sw);
-                } else {
-                    log::warn!("SuperWeapon '{}' has unknown Type=, skipping", sw_id);
-                }
+                let sw = SuperWeaponType::from_ini_section(sw_id, section);
+                super_weapons.insert(sw_id.clone(), sw);
             } else {
                 log::trace!(
                     "SuperWeapon '{}' listed in [SuperWeaponTypes] but has no section",
@@ -5725,6 +5773,8 @@ impl RuleSet {
             soviet_base_defense_types: Vec::new(),
             third_base_defense_types: Vec::new(),
             concrete_wall_types: Vec::new(),
+            ns_gate_types: Vec::new(),
+            ew_gate_types: Vec::new(),
             harvester_unit_types: Vec::new(),
             ai_slave_miner_number,
             ai_extra_refineries,
@@ -5761,6 +5811,10 @@ impl RuleSet {
             allied_wall_transparency,
             elevation_model,
             radiation,
+            #[cfg(feature = "phobos")]
+            shield_types,
+            #[cfg(feature = "phobos")]
+            shield_globals,
             radar_event_config,
             super_weapons,
             super_weapon_order,
@@ -6156,6 +6210,19 @@ impl RuleSet {
         Self::lookup_ci(&self.warheads, id)
     }
 
+    /// Phobos `[ShieldTypes]` entry by name (case-insensitive, first spelling
+    /// retained). No entry in a build without the capability.
+    #[cfg(feature = "phobos")]
+    pub fn shield_type(&self, name: &str) -> Option<&crate::rules::phobos_shields::ShieldType> {
+        self.shield_types.entry(name)
+    }
+
+    /// Phobos shield globals (`[CombatDamage]`/`[AudioVisual]`).
+    #[cfg(feature = "phobos")]
+    pub fn shield_globals(&self) -> &crate::rules::phobos_shields::ShieldGlobals {
+        &self.shield_globals
+    }
+
     /// Look up a projectile by ID (case-insensitive, gamemd parity).
     pub fn projectile(&self, id: &str) -> Option<&ProjectileType> {
         Self::lookup_ci(&self.projectiles, id)
@@ -6244,6 +6311,22 @@ impl RuleSet {
             .map(|object| (object.id.to_ascii_uppercase(), &object.foundation))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        // ReadOwners4750D0 retains an explicit zero RequiredHouses mask
+        // through later absent/empty reads. Current-pass source text does
+        // not encode this history; keep ordinary stock hashes unchanged.
+        let mut empty_required_houses: Vec<_> = self
+            .object_list
+            .iter()
+            .filter(|object| {
+                object.required_houses.is_empty() && object.required_houses_mask(self) == 0
+            })
+            .map(|object| (object.category, object.id.to_ascii_uppercase()))
+            .collect();
+        if !empty_required_houses.is_empty() {
+            empty_required_houses.sort_unstable();
+            b"required-houses-explicit-empty-v1".hash(&mut hasher);
+            empty_required_houses.hash(&mut hasher);
+        }
         // Bullet46BEE0 retains this byte even when a later raw value is
         // invalid. Equal flattened INIs can therefore have different flight
         // damage. Preserve the previous hash domain for all-false stock rules.
@@ -6303,6 +6386,21 @@ impl RuleSet {
             self.weapons
                 .iter()
                 .map(|(id, weapon)| (id, &weapon.rad_type))
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
+            b"phobos-shield-types-v1".hash(&mut hasher);
+            self.shield_types.hash(&mut hasher);
+            self.shield_globals.apply_armor_mult.hash(&mut hasher);
+            self.shield_globals.condition_yellow.to_bits().hash(&mut hasher);
+            self.shield_globals.condition_red.to_bits().hash(&mut hasher);
+            self.shield_globals.pips.hash(&mut hasher);
+            self.shield_globals.pips_building.hash(&mut hasher);
+            self.shield_globals.pips_background.hash(&mut hasher);
+            self.shield_globals.pips_building_empty.hash(&mut hasher);
+            // Bound techno `ShieldType=` names, in registry order.
+            self.object_list
+                .iter()
+                .map(|object| (&object.id, object.shield_type()))
                 .collect::<Vec<_>>()
                 .hash(&mut hasher);
         }
@@ -6376,11 +6474,22 @@ impl RuleSet {
             .map(|(name, terrain)| (name.to_ascii_uppercase(), terrain.armor_id()))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            // TerrainTypeExt::LoadFromINI retains these across Process calls.
+            // They change spawner placement, particle births and RNG draws.
+            b"phobos-retained-ore-spawners-v1".hash(&mut hasher);
+            self.terrain_object_types
+                .iter()
+                .map(|(name, terrain)| (name.to_ascii_uppercase(), &terrain.spawns_tiberium_ext))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
+        }
         // TerrainTypeReadINI71DEA0 retains post-read writes and ReadInt
         // defaults across Process calls. Equal current text can admit
         // different Strength, Logic members, targets or occupation, so identify
         // the effective fields as well as the current source layers.
-        b"terrain-strength-logic-targeting-occupation-and-foundation-v5".hash(&mut hasher);
+        b"terrain-strength-logic-targeting-occupation-and-foundation-v6".hash(&mut hasher);
         self.terrain_object_types
             .iter()
             .map(|(name, terrain)| {
@@ -6459,6 +6568,7 @@ impl RuleSet {
         self.general.tree_strength.hash(&mut hasher);
         self.general.infantry_repair_step.hash(&mut hasher);
         self.general.unit_repair_rate.to_bits().hash(&mut hasher);
+        self.general.charge_to_drain_ratio.hash(&mut hasher);
         self.general
             .infantry_repair_rate
             .to_bits()
@@ -6650,6 +6760,18 @@ impl RuleSet {
             b"airburst-weapons-v1".hash(&mut hasher);
             airburst_weapons.hash(&mut hasher);
         }
+        // A later invalid raw token retains BulletType+294. Equal flattened
+        // INIs can therefore differ in the child-fan and parent-cluster gates.
+        let airburst_flags = self
+            .projectiles
+            .iter()
+            .filter(|(_, projectile)| projectile.airburst)
+            .map(|(id, _)| id.to_ascii_uppercase())
+            .collect::<std::collections::BTreeSet<_>>();
+        if !airburst_flags.is_empty() {
+            b"airburst-retained-flag-v1".hash(&mut hasher);
+            airburst_flags.hash(&mut hasher);
+        }
         self.super_weapons
             .iter()
             .map(|(id, super_weapon)| {
@@ -6752,6 +6874,12 @@ impl RuleSet {
                 .hash(&mut hasher);
         }
         self.anim_type_references.hash(&mut hasher);
+        self.combat_damage.ammo_crate_damage.hash(&mut hasher);
+        self.general.barrel_explode.hash(&mut hasher);
+        self.general.barrel_debris.hash(&mut hasher);
+        for kind in &self.voxel_anim_types {
+            kind.damage.hash(&mut hasher);
+        }
         (
             self.combat_damage.flame_damage2(),
             &self.bridge_warheads.c4_name,
@@ -6831,6 +6959,8 @@ impl RuleSet {
                 &self.soviet_base_defense_types,
                 &self.third_base_defense_types,
                 &self.concrete_wall_types,
+                &self.ns_gate_types,
+                &self.ew_gate_types,
             ),
         )
             .hash(&mut hasher);
@@ -7631,6 +7761,11 @@ impl RuleSet {
             .copied()
     }
 
+    /// Parsed VoxelAnim Types in their retained registry order.
+    pub fn voxel_anim_types_iter(&self) -> impl Iterator<Item = &VoxelAnimType> {
+        self.voxel_anim_types.iter()
+    }
+
     /// Look up a `[VoxelAnims]` type by ID. Panics if `id` is out of range.
     pub fn voxel_anim_type(&self, id: VoxelAnimTypeId) -> &VoxelAnimType {
         &self.voxel_anim_types[id.0 as usize]
@@ -7643,8 +7778,7 @@ impl RuleSet {
             .copied()
     }
 
-    /// Number of `[VoxelAnims]` types loaded.
-    #[cfg(any(test, feature = "test-support"))]
+    /// Number of `[VoxelAnims]` types loaded, also used to validate saved IDs.
     pub fn voxel_anim_type_count(&self) -> usize {
         self.voxel_anim_types.len()
     }
@@ -7829,6 +7963,25 @@ impl RuleSet {
     /// Read the same bound ART owner used during construction and gameplay.
     pub fn art(&self) -> &crate::rules::art_data::ArtRegistry {
         &self.art_registry
+    }
+
+    /// Registered AnimType identities selected by Phobos' gather overlay.
+    /// Keep the type identity: its existing image owner resolves retained load
+    /// requests, Image aliases and theater filenames.
+    #[cfg(feature = "phobos")]
+    pub fn harvest_overlay_anim_types(&self) -> Vec<&str> {
+        let mut anims = Vec::new();
+        for object in &self.object_list {
+            if object.category != ObjectCategory::Vehicle {
+                continue;
+            }
+            for anim in &object.ore_gathering().anims {
+                if !anims.contains(&anim.as_str()) {
+                    anims.push(anim.as_str());
+                }
+            }
+        }
+        anims
     }
 
     /// AnimTypeArray8B4154's retained constructor order, including types
@@ -12153,6 +12306,7 @@ Projectile=Invisible
              BuildTech=tech, TECH\n\
              BuildWeapons=weap\n\
              BuildRadar=rad,<none>,RAD\n\
+             NSGates=con,,none,CON\nEWGates=pow,<none>,POW\n\
              [VehicleTypes]\n0=HARV\n1=AUNIT\n\
              [BuildingTypes]\n0=CON\n1=POW\n2=REF\n3=BAR\n4=TECH\n5=WEAP\n6=RAD\n7=POISON\n\
              [HARV]\nStrength=1\n[AUNIT]\nStrength=1\n\
@@ -12174,6 +12328,8 @@ Projectile=Invisible
         );
         assert_eq!(rules.build_weapons_types, ["WEAP"]);
         assert_eq!(rules.build_radar_types, ["RAD", "RAD"]);
+        assert_eq!(rules.ns_gate_types, ["CON", "CON"]);
+        assert_eq!(rules.ew_gate_types, ["POW", "POW"]);
         assert_eq!(
             rules.harvester_unit_types,
             ["HARV", "HARV", " AUNIT"],
@@ -12189,6 +12345,7 @@ Projectile=Invisible
         let mut layers = RulesLayerStack::new(IniFile::from_str(
             "[General]\nHarvesterUnit=HARV\n\
              [AI]\nBuildConst=CON\nBuildPower=POW\nBuildTech=TECH\n\
+             NSGates=CON\nEWGates=POW\n\
              [VehicleTypes]\n0=HARV\n[HARV]\nStrength=1\n\
              [BuildingTypes]\n0=CON\n1=POW\n2=TECH\n3=NEWPOW\n\
              [CON]\nFoundation=1x1\n[POW]\nFoundation=1x1\n\
@@ -12198,7 +12355,7 @@ Projectile=Invisible
             RulesLayerKind::Scenario,
             IniFile::from_str(
                 "[General]\nHarvesterUnit=\nUnrelated=1\n\
-                 [AI]\nBuildConst=\nBuildPower=NEWPOW\n",
+                 [AI]\nBuildConst=\nBuildPower=NEWPOW\nNSGates=\n",
             ),
         );
         let rules = RuleSet::from_rules_layers(&layers).expect("layered Recalc lists");
@@ -12206,6 +12363,8 @@ Projectile=Invisible
         assert_eq!(rules.build_const_types, ["CON"]);
         assert_eq!(rules.build_power_types, ["NEWPOW"]);
         assert_eq!(rules.build_tech_types, ["TECH"]);
+        assert_eq!(rules.ns_gate_types, ["CON"]);
+        assert_eq!(rules.ew_gate_types, ["POW"]);
     }
 
     #[test]
@@ -12874,6 +13033,14 @@ Projectile=Invisible
             (
                 "ConcreteWalls",
                 Box::new(move |rules| rules.concrete_wall_types = names()),
+            ),
+            (
+                "NSGates",
+                Box::new(move |rules| rules.ns_gate_types = names()),
+            ),
+            (
+                "EWGates",
+                Box::new(move |rules| rules.ew_gate_types = names()),
             ),
             (
                 "CrateImg",

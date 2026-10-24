@@ -840,6 +840,7 @@ pub struct MegaMissionRecord {
     pub frame: i32,
     pub source_id: i32,
     pub order: MegaMissionOrder,
+    pub auxiliary: MegaMissionTarget,
 }
 
 impl MegaMissionRecord {
@@ -885,6 +886,10 @@ impl MegaMissionRecord {
         };
         let (target_value, target_kind) = target.token()?;
         let (destination_value, destination_kind) = destination.token()?;
+        let (auxiliary_value, auxiliary_kind) = match self.auxiliary {
+            MegaMissionTarget::Null => (self.source_id, NULL_TARGET_KIND),
+            auxiliary => auxiliary.token()?,
+        };
         let payload = &mut record.payload_mut()[..MEGAMISSION_OWNED_PAYLOAD_LEN];
         payload[MEGAMISSION_SOURCE_VALUE_OFFSET..MEGAMISSION_SOURCE_KIND_OFFSET]
             .copy_from_slice(&self.source_id.to_le_bytes());
@@ -897,8 +902,8 @@ impl MegaMissionRecord {
             .copy_from_slice(&destination_value.to_le_bytes());
         payload[MEGAMISSION_DESTINATION_KIND_OFFSET] = destination_kind;
         payload[MEGAMISSION_AUXILIARY_VALUE_OFFSET..MEGAMISSION_AUXILIARY_KIND_OFFSET]
-            .copy_from_slice(&self.source_id.to_le_bytes());
-        payload[MEGAMISSION_AUXILIARY_KIND_OFFSET] = NULL_TARGET_KIND;
+            .copy_from_slice(&auxiliary_value.to_le_bytes());
+        payload[MEGAMISSION_AUXILIARY_KIND_OFFSET] = auxiliary_kind;
         payload[MEGAMISSION_PLANNING_OFFSET] = 0;
         Ok(())
     }
@@ -927,7 +932,6 @@ impl MegaMissionRecord {
                 .ok()?,
         );
         if payload[MEGAMISSION_SOURCE_KIND_OFFSET] != ABSTRACT_OBJECT_TARGET_KIND
-            || payload[MEGAMISSION_AUXILIARY_KIND_OFFSET] != NULL_TARGET_KIND
             || payload[MEGAMISSION_PLANNING_OFFSET] != 0
         {
             return None;
@@ -938,6 +942,17 @@ impl MegaMissionRecord {
             destination,
             payload[MEGAMISSION_DESTINATION_KIND_OFFSET],
         )?;
+        // EventClass::Execute 0x004C74A2..0x004C74BA resolves this token
+        // separately, after the class destination setter. A NULL kind ignores
+        // its DWORD (Connect63684F retains the template source there).
+        let auxiliary = if payload[MEGAMISSION_AUXILIARY_KIND_OFFSET] == NULL_TARGET_KIND {
+            MegaMissionTarget::Null
+        } else {
+            MegaMissionTarget::from_token(
+                i32::from_le_bytes(payload[17..21].try_into().ok()?),
+                payload[MEGAMISSION_AUXILIARY_KIND_OFFSET],
+            )?
+        };
         let order = match (action, target, destination) {
             (1, target, MegaMissionTarget::Null) => MegaMissionOrder::Attack { target },
             (29, target, destination) => MegaMissionOrder::AttackMove {
@@ -972,6 +987,7 @@ impl MegaMissionRecord {
             frame: record.frame_stamp(),
             source_id,
             order,
+            auxiliary,
         })
     }
 }
@@ -1249,11 +1265,19 @@ pub enum Command {
     /// enclosing CommandEnvelope's owner and execute_tick are diagnostic
     /// metadata only; the record header owns House, frame and processed state.
     SynchronizedRecord { record: CommandRecord },
+    /// Local TeamAssign731060; TeamClear7310D0 is the same eligible clear
+    /// with no selected IDs. Appended to preserve existing variant indices.
+    /// Native hotkey535CC0/Tab6D07FE write directly, without an EventClass
+    /// record or RNG; retain through local frame ingress for saves/replay.
+    AssignControlGroup { group: i32, entity_ids: Vec<u64> },
 }
 
 impl Command {
     pub(crate) fn uses_frame_ingress(&self) -> bool {
-        matches!(self, Self::Select { .. } | Self::SetGameSpeed { .. })
+        matches!(
+            self,
+            Self::Select { .. } | Self::SetGameSpeed { .. } | Self::AssignControlGroup { .. }
+        )
     }
 
     /// Classify local issue, not already-admitted replay/network input. The
@@ -1262,6 +1286,7 @@ impl Command {
     pub(crate) fn consumes_native_outlist_slot(&self) -> bool {
         match self {
             Self::Select { .. }
+            | Self::AssignControlGroup { .. }
             | Self::SetGameSpeed { .. }
             | Self::MoveFlash { .. }
             | Self::CancelPaidSuperWeapon { .. }
@@ -1683,6 +1708,7 @@ mod tests {
                 _ => panic!("uncovered native constructor row {name}"),
             };
             let typed = MegaMissionRecord {
+                auxiliary: MegaMissionTarget::Null,
                 house_id: i8::try_from(i32::from_le_bytes(args[0].to_le_bytes())).unwrap(),
                 frame: i32::try_from(row["frame"].as_i64().unwrap()).unwrap(),
                 source_id: i32::from_le_bytes(args[1].to_le_bytes()),
@@ -1712,6 +1738,7 @@ mod tests {
         for (x, y) in [(999, i16::MAX), (-999, i16::MIN), (-999, 0), (0, 0)] {
             let mut record = CommandRecord::decode_exact(&[0; COMMAND_RECORD_LEN]).unwrap();
             let typed = MegaMissionRecord {
+                auxiliary: MegaMissionTarget::Null,
                 house_id: 0,
                 frame: 1,
                 source_id: 7,
@@ -1727,6 +1754,7 @@ mod tests {
         let mut record = CommandRecord::decode_exact(&[0; COMMAND_RECORD_LEN]).unwrap();
         assert_eq!(
             MegaMissionRecord {
+                auxiliary: MegaMissionTarget::Null,
                 house_id: 0,
                 frame: 1,
                 source_id: 7,
@@ -1744,6 +1772,7 @@ mod tests {
     fn gsi_16_01_megamission_move_rejects_wrong_tokens_action_and_planning() {
         let mut valid = CommandRecord::decode_exact(&[0; COMMAND_RECORD_LEN]).unwrap();
         MegaMissionRecord {
+            auxiliary: MegaMissionTarget::Null,
             house_id: 0,
             frame: 1,
             source_id: 7,
@@ -1773,6 +1802,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn megamission_preserves_the_clicked_cell_separately_from_the_destination() {
+        let mut record = CommandRecord::decode_exact(&[0; COMMAND_RECORD_LEN]).unwrap();
+        let typed = MegaMissionRecord {
+            house_id: 0,
+            frame: 1,
+            source_id: 7,
+            order: MegaMissionOrder::Move {
+                target_x: 11,
+                target_y: 20,
+            },
+            auxiliary: MegaMissionTarget::Cell { x: 10, y: 20 },
+        };
+        typed.write_into(&mut record).unwrap();
+        // EventClass constructor 0x004C68A3/0x004C68B4 stores the two
+        // independent Cell tokens; only the destination is spread later.
+        assert_ne!(&record.payload()[12..17], &record.payload()[17..22]);
+        assert_eq!(MegaMissionRecord::decode(&record), Some(typed));
+    }
+
     /// The object receiver `0x004D74E0` sends Move with the object as its
     /// destination token (`0x004D7C76`), which the constructor writes in the
     /// slot a Move cell takes. A Move with no destination stays outside the
@@ -1781,6 +1830,7 @@ mod tests {
     fn megamission_move_to_object_carries_an_abstract_destination_token() {
         let mut record = CommandRecord::decode_exact(&[0xcc; COMMAND_RECORD_LEN]).unwrap();
         let typed = MegaMissionRecord {
+            auxiliary: MegaMissionTarget::Null,
             house_id: 1,
             frame: 9,
             source_id: 7,
@@ -1804,6 +1854,7 @@ mod tests {
     fn megamission_repair_preserves_its_destination() {
         let mut record = CommandRecord::decode_exact(&[0xcc; COMMAND_RECORD_LEN]).unwrap();
         let typed = MegaMissionRecord {
+            auxiliary: MegaMissionTarget::Null,
             house_id: 1,
             frame: 9,
             source_id: 7,

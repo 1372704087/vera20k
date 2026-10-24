@@ -323,6 +323,28 @@ impl Default for BuildingHiddenOccupancyProfile {
     }
 }
 
+/// Phobos `UnitTypeExt`'s three `OreGathering.*` lists
+/// (`src/Ext/UnitType/Body.{h,cpp}`, read at the `UnitTypeClass_LoadFromINI`
+/// hook in the order Anims, Tiberiums, FramesPerDir). Each
+/// `ValueableVector::Read` clears the vector and re-parses only when its key is
+/// present, so a later Rules layer replaces a whole list or retains it.
+///
+/// The lists are parallel by index: `OreGathering.Tiberiums=` is searched for
+/// the resource the harvester stands on, and the slot it answers selects the
+/// animation and its frame count. `Anims=` drops a token the `AnimType` array
+/// does not hold, so a longer `Tiberiums=` list shifts onto the wrong entry —
+/// Phobos' own alignment, preserved here.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PhobosOreGathering {
+    /// `OreGathering.Anims=`: the resolved `AnimType` section names.
+    pub anims: Vec<String>,
+    /// `OreGathering.Tiberiums=`: the `[Tiberiums]` indices each slot serves.
+    pub tiberiums: Vec<i32>,
+    /// `OreGathering.FramesPerDir=`: frames per facing for each slot.
+    pub frames_per_dir: Vec<i32>,
+}
+
 /// A game object definition parsed from a rules.ini section.
 ///
 /// Fields use sensible defaults when the INI key is absent, matching
@@ -469,6 +491,11 @@ pub struct ObjectType {
     /// reparsing this text later could retroactively bind an unknown Ares name.
     pub armor: String,
     armor_id: crate::rules::armor::ArmorId,
+    /// Phobos `TechnoTypeExt::ShieldType` (`ShieldType=`): the bound
+    /// `[ShieldTypes]` entry, or `None` for an absent/`none` key. Retained as
+    /// the authored name; the Rules catalog resolves it at use.
+    #[cfg(feature = "phobos")]
+    shield_type: Option<String>,
     /// Canonical Speed percent,0..100 (0 is immobile). TechnoType
     /// ReadINI71464A retains the prior value for -1 across rules passes.
     /// Whole-lepton Type+678 conversion belongs to util::fixed_math.
@@ -558,6 +585,9 @@ pub struct ObjectType {
     pub double_owned: bool,
     /// Specific countries that may build this object.
     pub required_houses: Vec<String>,
+    // ReadOwners4750D0 replaces the constructor's -1 even when comma
+    // tokenization produces no entries. Derived from the retained INI body.
+    required_houses_explicitly_empty: bool,
     /// Countries explicitly forbidden from building this (ForbiddenHouses= in rules.ini).
     /// Inverse of Owner — if the player's country is in this list, they cannot build.
     pub forbidden_houses: Vec<String>,
@@ -964,6 +994,10 @@ pub struct ObjectType {
     /// BuildingTypeExt+178, ordered lookup-only `SuperWeapons=` references.
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` lists, retained per
+    /// VehicleType and read by the harvester's gather overlay.
+    #[cfg(feature = "phobos")]
+    ore_gathering: PhobosOreGathering,
     /// `NukeSilo=` (BuildingType `+0x16BA`, ReadBool at `0x00460A45`,
     /// constructor clear at `0x0045E127`): `SuperClass::Launch @ 0x006CC390`
     /// fires a `MultiMissile` weapon from the first such type granting it,
@@ -1091,12 +1125,25 @@ pub struct ObjectType {
     /// UnloadingClass. Empty/missing retains the prior pointer. AnimType
     /// FindOrAllocate428B80 owns registration, before the InitialAmmo read.
     pub deploying_anim: Option<String>,
-    /// Ammo count for aircraft. -1 = unlimited (default), 0+ = finite.
-    /// Aircraft with finite ammo return to a helipad/airfield to reload after depleting.
+    /// Shared TechnoType+684 count limit; -1 is unlimited. Aircraft use
+    /// their release/dock owners; Unit Reload and Building refill read it live.
     pub ammo: i32,
     /// TechnoType+680, ReadINI71474C (InitialAmmo); -1 selects Ammo at
     /// Aircraft InitFromType414033..41404B. Other signed values are retained.
     pub initial_ammo: i32,
+    /// TechnoType+698, raw signed frames. Constructor711122 seeds0;
+    /// ReadINI71486A..71487E retains the current value as ReadInt's default.
+    pub reload: i32,
+    /// TechnoType+69C, constructor711128=-1. ReadINI714884..714898;
+    /// -1 makes StartReloading6FB080 use the ordinary Reload interval.
+    pub empty_reload: i32,
+    /// TechnoType+6A0, constructor71112E=0. ReadINI71489E..7148B2;
+    /// StartReloading6FB080 multiplies it by the signed PipWrap quotient twice.
+    pub reload_increment: i32,
+    /// TechnoType+6B1/+6B4; constructor711163..711169 clears both.
+    /// ReceiveDamage701ADB consumes the pre-Object packet when enabled.
+    pub damage_reduces_readiness: bool,
+    pub readiness_reduction_multiplier: f32,
     /// `TechnoType+0xD24`, exact `ManualReload=`: constructor7114D6 clears
     /// it; ReadBool713352 retains the current value (store713366). Depot
     /// MissionRepairAndProduce reads it before the first RepairTick and may
@@ -2216,6 +2263,18 @@ impl ObjectType {
     pub(crate) fn project_additional_super_weapons(&mut self, names: &[String]) {
         self.additional_super_weapons = names.to_vec();
     }
+
+    /// Phobos `UnitTypeExt`'s gather-overlay lists. Every list is empty for a
+    /// type that authors none, which is the constructor state.
+    #[cfg(feature = "phobos")]
+    pub fn ore_gathering(&self) -> &PhobosOreGathering {
+        &self.ore_gathering
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn project_ore_gathering(&mut self, gathering: &PhobosOreGathering) {
+        self.ore_gathering = gathering.clone();
+    }
     pub(crate) fn emp_rules(&self) -> Option<&crate::rules::ares_emp::EmpTypeRules> {
         self.emp.as_ref()
     }
@@ -2365,6 +2424,12 @@ impl ObjectType {
 
     pub(crate) fn bind_armor(&mut self, armor: crate::rules::armor::ArmorId) {
         self.armor_id = armor;
+    }
+
+    /// Phobos `ShieldType=`: the bound `[ShieldTypes]` entry name.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn shield_type(&self) -> Option<&str> {
+        self.shield_type.as_deref()
     }
 
     /// Native fixed-ART ShadowIndex, retained by the ordered Type reader.
@@ -2781,6 +2846,17 @@ impl ObjectType {
         }
     }
 
+    /// ReadOwners4750D0 / Type reader714531: absent/empty ReadString keeps
+    /// the constructor's -1 (711633), but nonempty comma-only input writes0.
+    /// CanBuild4F79E4 and FirstBuildable505230 both test this raw mask.
+    pub(crate) fn required_houses_mask(&self, rules: &crate::rules::ruleset::RuleSet) -> u32 {
+        if self.required_houses.is_empty() && !self.required_houses_explicitly_empty {
+            u32::MAX
+        } else {
+            rules.house_type_mask(&self.required_houses)
+        }
+    }
+
     /// The AI base planning side filter: `AIBasePlanningSide=` (`+0x6D0`) is
     /// -1 or the house's side (`HouseTypeClass+0xBC`), as
     /// `FirstBuildableFromArray @ 0x005051E0` and `AI_BuildWalls @ 0x0050C340`
@@ -2896,8 +2972,9 @@ impl ObjectType {
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
-        let required_houses: Vec<String> = section
-            .read_list("RequiredHouses", 0x80)
+        let required_tokens = section.read_list("RequiredHouses", 0x80);
+        let required_houses_explicitly_empty = required_tokens.as_ref().is_some_and(Vec::is_empty);
+        let required_houses: Vec<String> = required_tokens
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
@@ -3001,6 +3078,15 @@ impl ObjectType {
             ),
             armor_id: crate::rules::armor::armor_index(&armor),
             armor,
+            #[cfg(feature = "phobos")]
+            shield_type: section
+                .read_name("ShieldType", 0x80)
+                .filter(|name| {
+                    !name.is_empty()
+                        && !name.eq_ignore_ascii_case("none")
+                        && !name.eq_ignore_ascii_case("<none>")
+                })
+                .map(str::to_owned),
             speed: section.read_techno_speed("Speed", 0),
             // TechnoTypeClass ctor/read contract: raw signed ints, with no
             // clamp or conversion. A zero WalkRate is invalid content natively
@@ -3076,6 +3162,7 @@ impl ObjectType {
             // ReadBool over the constructor's 0 at +0xC99 (`0x00712299`).
             double_owned: section.read_bool("DoubleOwned", false),
             required_houses,
+            required_houses_explicitly_empty,
             forbidden_houses,
             // gamemd-derived: `TechnoTypeClass__Constructor @ 0x00710FF0`
             // seeds +0x6D0 to -1; `TechnoTypeClass::ReadINI` around 0x007149FB
@@ -3242,6 +3329,8 @@ impl ObjectType {
             super_weapon2: section.read_name("SuperWeapon2", 0x20).map(str::to_owned),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
+            #[cfg(feature = "phobos")]
+            ore_gathering: PhobosOreGathering::default(),
             nuke_silo: section.read_bool("NukeSilo", false),
             charged_anim_time: section.read_float("ChargedAnimTime", 999.0),
             spy_sat: section.read_bool("SpySat", false),
@@ -3280,6 +3369,15 @@ impl ObjectType {
             deploying_anim: None,
             ammo: section.read_int("Ammo", -1),
             initial_ammo: section.read_int("InitialAmmo", -1),
+            // TechnoTypeClass::ReadINI71486A..7148B2, raw signed frames.
+            // The retained section folds each reached pass with its current
+            // member as the next default; no time conversion or clamp.
+            reload: section.read_int("Reload", 0),
+            empty_reload: section.read_int("EmptyReload", -1),
+            reload_increment: section.read_int("ReloadIncrement", 0),
+            // ReadINI7148B8..7148EB: bool, then ReadDouble stored as float.
+            damage_reduces_readiness: section.read_bool("DamageReducesReadiness", false),
+            readiness_reduction_multiplier: section.read_float("ReadinessReductionMultiplier", 0.0),
 
             // Spawn manager pool. Constructor null; only the ordered Process
             // owner reads `Spawns=`.
@@ -4586,6 +4684,53 @@ mod tests {
         assert!(!obj.is_1x1_with_undeploy());
 
         assert!(rules.object("MODDEPLOY").unwrap().is_1x1_with_undeploy());
+    }
+
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors through the
+    /// production layered reader: an absent key retains the whole list, a
+    /// present one replaces it, and an `Anims=` token the AnimType array lacks
+    /// drops out instead of holding a null slot.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn ore_gathering_lists_replace_retain_and_drop_unknown_anims() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let base = IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA,NOPE,GATHB\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        );
+        let rules = RuleSet::from_rules_layers(&RulesLayerStack::new(base))
+            .expect("authored phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.anims, ["GATHA"], "the unknown token drops out");
+        assert_eq!(gathering.tiberiums, [0, 1]);
+        assert_eq!(gathering.frames_per_dir, [10, 20]);
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        ));
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[HARV]\nOreGathering.Tiberiums=2\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).expect("layered phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.tiberiums, [2], "the named list replaces");
+        assert_eq!(gathering.frames_per_dir, [10, 20], "the others retain");
+
+        let stock = RuleSet::from_rules_layers(&RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[HARV]\nHarvester=yes\n",
+        )))
+        .expect("stock harvester rules");
+        assert_eq!(
+            stock.object("HARV").expect("HARV").ore_gathering(),
+            &crate::rules::object_type::PhobosOreGathering::default(),
+            "a type authoring none keeps every empty list"
+        );
     }
 
     #[test]

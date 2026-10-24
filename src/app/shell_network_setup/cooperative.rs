@@ -372,19 +372,7 @@ pub(super) fn map_used(state: &mut AppState, mode_changed: bool, row: usize) -> 
 /// or prints `TXT_SAVE_CAMP_AVAILABLE`. Ordinary modes' `+0x94` does
 /// nothing.
 pub(super) fn guest_joined(state: &mut AppState) -> anyhow::Result<()> {
-    let mode_id = match state
-        .frontend
-        .skirmish_shell_state
-        .choose_map_modal
-        .as_ref()
-    {
-        Some(modal) => modal.selected_mode_id,
-        None => match state.match_state.session.network_setup() {
-            Some(launch) => launch.mode.id,
-            None => return Ok(()),
-        },
-    };
-    if !is_cooperative(state, mode_id) {
+    if !peer_mode_cooperative(state) {
         return Ok(());
     }
     let inputs = SlotInputs::read(state);
@@ -438,17 +426,34 @@ pub(super) fn guest_joined(state: &mut AppState) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// The host's accepted departure (LAN `0x005E1235`) runs the current
+/// The mode a join or departure calls (`0x005E2FA0`, `0x005E11DC`): Choose
+/// Map's selected game type while it is on top, else the current mode.
+fn peer_mode_cooperative(state: &AppState) -> bool {
+    let mode_id = match state
+        .frontend
+        .skirmish_shell_state
+        .choose_map_modal
+        .as_ref()
+    {
+        Some(modal) => modal.selected_mode_id,
+        None => match state.match_state.session.network_setup() {
+            Some(launch) => launch.mode.id,
+            None => return false,
+        },
+    };
+    is_cooperative(state, mode_id)
+}
+
+/// The host's accepted departure (LAN `0x005E11DC..0x005E1235`) runs that
 /// mode's `+0x90`; only Cooperative's acts. Under Choose Map it drops a
 /// listed saved row; elsewhere a save in use gives way to the reserve's
-/// campaign, whose first map the setup takes and publishes (`0x005E32D0`).
+/// campaign, whose first map the setup takes and publishes.
+/// RESIDUAL: outside Choose Map native refreshes the type and map statics
+/// and runs the throttled publish `0x005E32D0` on every departure, and a
+/// first map missing from the catalog selects index `count`; here only a
+/// found map is selected and published.
 pub(super) fn guest_left(state: &mut AppState) -> anyhow::Result<()> {
-    if !state
-        .match_state
-        .session
-        .network_setup()
-        .is_some_and(|launch| launch.mode.class.uses_cooperative_setup())
-    {
+    if !peer_mode_cooperative(state) {
         return Ok(());
     }
     let chooser_on_top = state

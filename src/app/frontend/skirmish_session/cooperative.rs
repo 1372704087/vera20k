@@ -1091,6 +1091,9 @@ impl CooperativeProgressState {
     /// current map names one of `records` (`"%s.MAP"`) gives a row; the
     /// others are skipped. Then, when coopsave.ini holds the pair's section
     /// and `records` its next map, the saved-campaign row (`+0x49` set).
+    /// RESIDUAL: native gives each row's record to list index = campaign
+    /// index (`0x005C3E5D`), so after a skipped campaign the rows' item data
+    /// shifts; here each row keeps its own record.
     pub(crate) fn chooser_rows(
         &mut self,
         registry: &CooperativeRegistry,

@@ -834,11 +834,19 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             }
         }
         NetworkSetupEvent::HostLeft => {
-            // The setup closes: only +0x90's last step, the names, matters.
-            state
-                .frontend
-                .multiplayer_shell_runtime
-                .clear_network_cooperative_partners();
+            // The setup closes: only Cooperative +0x90's last step, the
+            // names, matters.
+            if state
+                .match_state
+                .session
+                .network_setup()
+                .is_some_and(|launch| launch.mode.class.uses_cooperative_setup())
+            {
+                state
+                    .frontend
+                    .multiplayer_shell_runtime
+                    .clear_network_cooperative_partners();
+            }
             App::leave_shell_dialog(
                 state,
                 shell_transition::ShellExitThen::NetworkSetupBack(dialog),

@@ -129,14 +129,13 @@ impl PlatformState {
         }
     }
 
-    /// Is the match frozen because the window is not the foreground?
-    ///
-    /// True only while the window is deactivated and `pause_on_focus_loss` is
-    /// configured; the single gate for the simulation and the message clock.
+    /// True while the window is deactivated and `pause_on_focus_loss` is
+    /// configured; [`super::AppState::focus_freeze_active`] adds the session
+    /// gate and is the single gate for the simulation and the message clock.
     /// The audio stop is deliberately not part of it: gamemd gates its primary
     /// output on the activation edge itself, so that gate follows
     /// [`Self::window_active`] alone.
-    pub(crate) fn focus_freeze_active(&self) -> bool {
+    pub(crate) fn focus_freeze_configured(&self) -> bool {
         self.pause_on_focus_loss && !self.window_active
     }
 }

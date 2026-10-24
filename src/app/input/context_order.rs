@@ -1291,6 +1291,7 @@ fn finish_order(
     queued: Vec<CommandEnvelope>,
     speaker_id: Option<u64>,
     rally_announce: bool,
+    clicked_cell: Option<(u16, u16)>,
 ) -> bool {
     let admitted = if state.match_state.input.planning.active() {
         let mut queued = queued;
@@ -1305,7 +1306,7 @@ fn finish_order(
             state.match_state.input.selection_order_pending,
         );
         restore_selection_dispatch_order(&mut queued, &selected);
-        crate::app::input::planning_mode::queue_orders(state, &selected, queued)
+        crate::app::input::planning_mode::queue_orders(state, &selected, queued, clicked_cell)
     } else {
         let mut queued = queued;
         restore_selection_dispatch_order(
@@ -1959,6 +1960,7 @@ pub(crate) fn try_queue_context_order(
     // after the sim borrow below ends.
     let mut rally_announce = false;
     let mut consumed_attack_action = false;
+    let mut planning_cell = None;
     let planning = state.match_state.input.planning.active();
 
     if let Some(rt) = state.match_state.sim_runtime.as_mut() {
@@ -2093,7 +2095,9 @@ pub(crate) fn try_queue_context_order(
                 (target_rx, target_ry),
                 owner_id,
             ) {
-                LeftRelease::Dispatch => finish_order(state, queued, speaker_id, rally_announce),
+                LeftRelease::Dispatch => {
+                    finish_order(state, queued, speaker_id, rally_announce, None)
+                }
                 LeftRelease::Nothing => true,
                 LeftRelease::Select => false,
             };
@@ -2124,7 +2128,7 @@ pub(crate) fn try_queue_context_order(
             selected_units.retain(|id| !repair_dispatch.receivers.contains(id));
             selected_ids.retain(|id| !repair_dispatch.receivers.contains(id));
             if selected_ids.is_empty() {
-                let sent = finish_order(state, queued, speaker_id, rally_announce);
+                let sent = finish_order(state, queued, speaker_id, rally_announce, None);
                 return sent || (consumed_attack_action && !repair_dispatch.select_fallback);
             }
         }
@@ -2168,7 +2172,7 @@ pub(crate) fn try_queue_context_order(
                 selected_units.retain(|id| !engineers.contains(id));
                 selected_ids.retain(|id| !engineers.contains(id));
                 if friendly || selected_units.is_empty() {
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
         }
@@ -2198,7 +2202,7 @@ pub(crate) fn try_queue_context_order(
                             .is_some_and(|actor| actor.category() == EntityCategory::Structure)
                 });
                 if selected_ids.is_empty() {
-                    return finish_order(state, queued, speaker_id, rally_announce)
+                    return finish_order(state, queued, speaker_id, rally_announce, None)
                         || consumed_attack_action;
                 }
             }
@@ -2356,7 +2360,7 @@ pub(crate) fn try_queue_context_order(
             .filter(|id| !attack_receivers.contains(id))
             .collect();
         if selected_ids.is_empty() {
-            let sent = finish_order(state, queued, speaker_id, rally_announce);
+            let sent = finish_order(state, queued, speaker_id, rally_announce, None);
             return sent || (consumed_attack_action && !select_fallback);
         }
         selected_units.retain(|id| !attack_receivers.contains(id));
@@ -2432,7 +2436,7 @@ pub(crate) fn try_queue_context_order(
                     );
                 }
                 if consumed_building_action && selected_units.is_empty() {
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
 
@@ -2461,7 +2465,7 @@ pub(crate) fn try_queue_context_order(
                         .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
                 );
                 if selected_units.is_empty() {
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
 
@@ -2474,7 +2478,7 @@ pub(crate) fn try_queue_context_order(
                             .into_iter()
                             .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
                     );
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
 
@@ -2499,7 +2503,7 @@ pub(crate) fn try_queue_context_order(
                             },
                         ));
                     }
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
 
@@ -2521,7 +2525,7 @@ pub(crate) fn try_queue_context_order(
                 )
             {
                 queued.push(CommandEnvelope::new(owner_id, execute_tick, cmd));
-                return finish_order(state, queued, speaker_id, rally_announce);
+                return finish_order(state, queued, speaker_id, rally_announce, None);
             }
             if context_actions_enabled
                 && hover.as_ref().is_some_and(|target| {
@@ -2536,7 +2540,7 @@ pub(crate) fn try_queue_context_order(
                     )
                 })
             {
-                return finish_order(state, queued, speaker_id, rally_announce);
+                return finish_order(state, queued, speaker_id, rally_announce, None);
             }
             if context_actions_enabled
                 && let Some(target) = hover.as_ref()
@@ -2555,7 +2559,7 @@ pub(crate) fn try_queue_context_order(
                         queued.extend(
                             order.map(|order| CommandEnvelope::new(owner_id, execute_tick, order)),
                         );
-                        finish_order(state, queued, speaker_id, rally_announce)
+                        finish_order(state, queued, speaker_id, rally_announce, None)
                     }
                     _ => true,
                 };
@@ -2588,7 +2592,7 @@ pub(crate) fn try_queue_context_order(
                             },
                         ));
                     }
-                    return finish_order(state, queued, speaker_id, rally_announce);
+                    return finish_order(state, queued, speaker_id, rally_announce, None);
                 }
             }
             // The cursor owner's What_Action distinguishes a different allied
@@ -2616,7 +2620,7 @@ pub(crate) fn try_queue_context_order(
                     || consumed_attack_action)
             {
                 return if consumed_building_action || consumed_attack_action {
-                    finish_order(state, queued, speaker_id, rally_announce)
+                    finish_order(state, queued, speaker_id, rally_announce, None)
                 } else {
                     false
                 };
@@ -2707,6 +2711,9 @@ pub(crate) fn try_queue_context_order(
                 // A dispatched release selects nothing, whatever each
                 // receiver sends (`0x004ABE88`).
                 consumed_attack_action = true;
+            }
+            if attack_target.is_none() && force_move_target.is_none() {
+                planning_cell = Some((target_rx, target_ry));
             }
             for stable_id in selected_units {
                 let payload = if let Some(target_id) = attack_target {
@@ -2843,7 +2850,7 @@ pub(crate) fn try_queue_context_order(
         }
     }
 
-    finish_order(state, queued, speaker_id, rally_announce) || consumed_attack_action
+    finish_order(state, queued, speaker_id, rally_announce, planning_cell) || consumed_attack_action
 }
 
 /// A receiver's order when its ClickedAction on a Cell re-asks its What_Action

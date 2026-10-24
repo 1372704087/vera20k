@@ -160,6 +160,7 @@ fn append(sim: &mut Simulation, rules: &RuleSet, owner: InternedId, actor: u64, 
                 target_rx: cell.0,
                 target_ry: cell.1,
             },
+            None,
         )
         .unwrap();
     apply(sim, rules, record);
@@ -541,6 +542,7 @@ fn same_batch_commit_precedes_staged_edit_and_next_batch_commit_starts_path() {
                 target_rx: 12,
                 target_ry: 15,
             },
+            None,
         )
         .unwrap();
     let commit = sim.encode_plan_commit_record(owner).unwrap();
@@ -724,6 +726,7 @@ fn object_nodes_follow_live_xyz_share_and_retain_target_through_connect_delete()
                 attacker_id: 1,
                 target_id: 3,
             },
+            None,
         )
         .unwrap();
     apply(&mut sim, &rules, record);
@@ -743,6 +746,7 @@ fn object_nodes_follow_live_xyz_share_and_retain_target_through_connect_delete()
                 attacker_id: 2,
                 target_id: 3,
             },
+            None,
         )
         .unwrap();
     apply(&mut sim, &rules, record);
@@ -792,6 +796,7 @@ fn object_node_sharing_compares_z_and_screen_hit_box_is_half_open() {
                     attacker_id: actor,
                     target_id: target,
                 },
+                None,
             )
             .unwrap();
         apply(&mut sim, &rules, record);
@@ -826,6 +831,7 @@ fn planning_target_priority_is_secondary_auxiliary_destination() {
     use crate::sim::command::{MegaMissionOrder, MegaMissionRecord, MegaMissionTarget};
     let mut record = CommandRecord::encode(4, 0, 0, &[]).unwrap();
     MegaMissionRecord {
+        auxiliary: MegaMissionTarget::Null,
         house_id: 0,
         frame: 0,
         source_id: 1,
@@ -869,6 +875,7 @@ fn planning_append_rejects_exact_sixteen_and_any_loop() {
                 target_rx: 16,
                 target_ry: 15,
             },
+            None,
         )
         .unwrap();
     assert!(!sim.apply_planning_record(
@@ -888,6 +895,7 @@ fn planning_append_rejects_exact_sixteen_and_any_loop() {
                 target_rx: 16,
                 target_ry: 15,
             },
+            None,
         )
         .unwrap();
     assert!(!sim.apply_planning_record(
@@ -922,14 +930,15 @@ fn connect_rotates_source_loop_suffix_and_preserves_auxiliary_provenance() {
             Some(usize::from(clicked == 0))
         );
         assert!(sim.planning.paths[&2].loop_changed);
+        let template = sim.planning.nodes[&(clicked as u64)].order(1).unwrap();
         let record = sim.planning.nodes[&(clicked as u64)].order(2).unwrap();
         assert_eq!(
             i32::from_le_bytes(record.payload()[0..4].try_into().unwrap()),
             2
         );
         assert_eq!(
-            i32::from_le_bytes(record.payload()[17..21].try_into().unwrap()),
-            1,
+            &record.payload()[17..22],
+            &template.payload()[17..22],
             "connect rewrites only source, preserving native auxiliary provenance"
         );
         let bytes = save_codec::serialize(&sim.planning).unwrap();
@@ -981,6 +990,7 @@ fn cell_attack_and_area_guard_tails_are_terminal_for_append() {
         let (mut sim, rules, owner) = fixture();
         let mut record = CommandRecord::encode(4, 0, 0, &[]).unwrap();
         MegaMissionRecord {
+            auxiliary: MegaMissionTarget::Null,
             house_id: 0,
             frame: 0,
             source_id: 1,
@@ -998,6 +1008,7 @@ fn cell_attack_and_area_guard_tails_are_terminal_for_append() {
                     target_rx: 16,
                     target_ry: 15,
                 },
+                None,
             )
             .unwrap();
         assert!(!sim.apply_planning_record(
@@ -1032,6 +1043,7 @@ fn planned_force_attack_preserves_admitted_friendly_target_through_native_dispat
                 attacker_id: 1,
                 target_id: 2,
             },
+            None,
         )
         .unwrap();
     apply(&mut sim, &rules, record);
@@ -1194,6 +1206,7 @@ fn overlapping_connect_consumption_preserves_occurrences_and_loop_first_record()
                     attacker_id: 1,
                     target_id: 3,
                 },
+                None,
             )
             .unwrap();
         apply(&mut sim, &rules, attack);
@@ -1256,6 +1269,7 @@ fn connect_suffix_copies_the_selected_source_actor_order_at_shared_node() {
                 attacker_id: 3,
                 target_id: 1,
             },
+            None,
         )
         .unwrap();
     apply(&mut sim, &rules, attack);
@@ -1438,6 +1452,7 @@ fn attack_move_loop_keeps_task_badges_on_entry_and_closing_legs() {
                     target: None,
                     destination: Some(TargetKind::Cell(x, y)),
                 },
+                None,
             )
             .unwrap();
         apply(&mut sim, &rules, record);
@@ -1625,6 +1640,7 @@ fn retained_highlight_keeps_hidden_node_coordinates_and_full_membership() {
                 target_rx: 12,
                 target_ry: 15,
             },
+            None,
         )
         .unwrap();
     let envelope = sim
@@ -1893,6 +1909,7 @@ fn finalized_target_pruning_retains_the_empty_token_and_its_house_charge() {
                 attacker_id: 1,
                 target_id: 3,
             },
+            None,
         )
         .unwrap();
     apply(&mut sim, &rules, record);

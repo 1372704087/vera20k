@@ -109,16 +109,18 @@ impl HouseFactoryAbandonment {
 /// Only that fallback requests a held start from the shared Resume owner;
 /// the ordinary online path and Building factories pass false.
 ///
-/// A building never queues. A building cameo's PRODUCE names its type's RTTI
-/// (BuildingType 7, `AddCameo(7, ..)` at `0x00445762`), which Begin_Production
-/// refuses without a scold while that category's factory runs: rate (+0x38)
-/// set and +0x70 clear (`0x004FA520..0x004FA550`). Otherwise, unless it
-/// resumes the same type, StartProduction first abandons whatever the factory
-/// holds, held or finished (`0x004C9C7F..0x004C9C89`, AbandonProduction
-/// `0x004C9FF0`: [`settle_abandoned`]), and a BuildingType always takes the
-/// create path (`0x004C9C95..0x004C9C98`). The sidebar refuses a busy
-/// structure strip, so only a building PRODUCE sent before an earlier one
-/// executed reaches either branch.
+/// A building PRODUCE names its type's RTTI (BuildingType 7,
+/// `AddCameo(7, ..)` at `0x00445762`), which Begin_Production refuses without
+/// a scold while that category's factory runs: rate (+0x38) set and +0x70
+/// clear (`0x004FA520..0x004FA550`). Otherwise, unless it resumes the same
+/// type, StartProduction first abandons whatever the factory holds, held or
+/// finished (`0x004C9C7F..0x004C9C89`, AbandonProduction `0x004C9FF0`:
+/// [`settle_abandoned`]), and a BuildingType always takes the create path
+/// (`0x004C9C95..0x004C9C98`). The sidebar refuses a busy structure strip, so
+/// only a building PRODUCE sent before an earlier one executed reaches either
+/// branch. Phobos `[General] BuildingProductionQueue=yes` skips both the busy
+/// refusal (`0x4FA520`) and the held-product abandon (`0x4C9C7B`), so the
+/// PRODUCE appends to the factory queue instead.
 pub fn enqueue_by_type(
     sim: &mut Simulation,
     rules: &RuleSet,
@@ -177,7 +179,13 @@ pub(crate) fn enqueue_selected(
     };
     let type_interned = sim.interner.intern(type_id);
     let building = obj.category == ObjectCategory::Building;
+    #[cfg(feature = "phobos")]
+    let building_production_queue = rules.general.building_production_queue;
+    #[cfg(not(feature = "phobos"))]
+    let building_production_queue = false;
+    // Phobos `HouseClass_BeginProduction_SkipBuilding 0x4FA520`.
     if selection.rtti == 7
+        && !building_production_queue
         && sim
             .production
             .factories()
@@ -219,7 +227,13 @@ pub(crate) fn enqueue_selected(
         return true;
     }
     let holder = FactoryHolder::House(owner_id, category);
-    if building && let Some(abandoned) = sim.production.factories().pending_abandonment(holder) {
+    // Phobos `FactoryClass_QueueProduction_ForceCheckBuilding 0x4C9C7B`:
+    // with the queue enabled a building PRODUCE appends behind the held
+    // product instead of abandoning it.
+    if building
+        && !building_production_queue
+        && let Some(abandoned) = sim.production.factories().pending_abandonment(holder)
+    {
         settle_abandoned(sim, rules, owner_id, holder, abandoned, effects);
     }
     let enqueue_order = sim.production.next_enqueue_order();

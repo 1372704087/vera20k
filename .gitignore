@@ -48,6 +48,7 @@ Thumbs.db
 !/docs/phobos-placement-preview.md
 !/docs/phobos-sidebar-gdi.md
 !/docs/phobos-building-queue.md
+!/docs/phobos-parallel-ai-queues.md
 !/docs/npatch.md
 !/docs/verax.md
 !/docs/ares-generic-warhead.md

@@ -126,6 +126,11 @@ fn answer_setup(state: &mut AppState, request: NetworkSetupRequest) {
         }
         return;
     }
+    // 0x0078F000: the stand-in server keeps the host's new record.
+    if request == NetworkSetupRequest::Advertise {
+        super::lobby::republish_channel(state);
+        return;
+    }
     // C9 Back waits for the leave's OnPart; C2 Back closes at once.
     if request == NetworkSetupRequest::Leave && !state.match_state.session.host() {
         service_event(state, WolServiceEvent::ChannelLeft);

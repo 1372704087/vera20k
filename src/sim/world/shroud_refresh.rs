@@ -1552,6 +1552,14 @@ impl Simulation {
         else {
             return;
         };
+        // Allied-Building sight-only arms jump past the gap callbacks
+        // (4ADFB9..4ADFBF,4ADE1C..4ADE21). Sight membership alone is not
+        // gap admission. Source: original gamemd.exe instructions.
+        let gap_callbacks: std::collections::BTreeSet<_> = gap_reentry
+            .into_iter()
+            .flatten()
+            .map(|source| source.stable_id)
+            .collect();
         #[cfg(any(test, feature = "test-support"))]
         let fixture_gaps: std::collections::BTreeSet<_> = plan
             .gaps
@@ -1572,7 +1580,7 @@ impl Simulation {
             }
             // The native bracket executes the same gap callback as a live
             // Building edge, including the signed friendly +13C decrement.
-            if self.substrate.entities.get(id).is_some() {
+            if gap_callbacks.contains(&id) && self.substrate.entities.get(id).is_some() {
                 self.refresh_map_callback_gap(id, owner, false, context.rules());
             } else {
                 #[cfg(any(test, feature = "test-support"))]
@@ -1636,7 +1644,7 @@ impl Simulation {
                     self.session.current_house(),
                 );
             }
-            if self.substrate.entities.get(id).is_some() {
+            if gap_callbacks.contains(&id) && self.substrate.entities.get(id).is_some() {
                 self.refresh_map_callback_gap(id, owner, true, context.rules());
             } else {
                 #[cfg(any(test, feature = "test-support"))]

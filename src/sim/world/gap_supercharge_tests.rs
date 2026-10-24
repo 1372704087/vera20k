@@ -345,6 +345,13 @@ fn an_allied_current_house_without_the_gap_keeps_the_charge_through_the_outage()
     assert!(deposits[&owner].active(), "the owner's copy is re-added");
     assert!(!deposits[&player].active(), "the new ally's copy stays 0");
 
+    // Native allied-Building branches4ADFB9/4ADE1C refresh sight only.
+    // A later map reset/reveal must not activate that client's gap copy.
+    sim.reset_shroud_for_owner(player, rules);
+    sim.reveal_map_for_owner(player, rules);
+    assert!(!viewers(&sim)[&player].active());
+    assert!(!sim.fog.is_cell_gap_fog(player, 16, 26));
+
     for x in 0..10 {
         spawn(&mut sim, "GAGAP", 2 + 2 * x, 20);
     }

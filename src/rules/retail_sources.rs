@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use crate::assets::asset_manager::{AssetManager, AssetResolutionRef};
+use crate::assets::error::AssetError;
 use crate::rules::ini_parser::IniFile;
 use crate::rules::ini_parser::directives::{
     DirectiveDiagnostic, DirectiveOptions, include_identity, process_directives,
@@ -84,22 +85,23 @@ pub(crate) fn expand_ini_with_assets(
             // All references share the production VFS root; do not rebase on the
             // including document's host directory or open arbitrary host paths.
             let logical = include_identity(reference);
-            let Some(resolved) = assets.resolve_ref(&logical) else {
-                return Ok(None);
+            let remaining = MAX_INCLUDED_SOURCE_BYTES - included_bytes;
+            let resolved = match assets.resolve_ref_bounded(&logical, remaining) {
+                Ok(Some(resolved)) => resolved,
+                Ok(None) => return Ok(None),
+                Err(AssetError::ReadLimitExceeded { .. }) => {
+                    exceeded_budget = true;
+                    return Err(INCLUDE_BYTES_EXCEEDED.into());
+                }
+                Err(error) => return Err(error.to_string()),
             };
             if resolved.bytes.is_empty() {
                 return Ok(None);
             }
-            let Some(total) = included_bytes
-                .checked_add(resolved.bytes.len())
-                .filter(|&total| total <= MAX_INCLUDED_SOURCE_BYTES)
-            else {
-                exceeded_budget = true;
-                return Err(INCLUDE_BYTES_EXCEEDED.into());
-            };
             // Charge every physical read, including repeated DAG references,
-            // before parsing or retaining another child snapshot.
-            included_bytes = total;
+            // before parsing. Resolution enforces the remaining budget before
+            // reading or retaining the first loose snapshot, not afterwards.
+            included_bytes += resolved.bytes.len();
             let child = parse_physical_ini(&logical, resolved)?;
             included_sources.push(child.source);
             Ok(Some(child.ini))
@@ -288,6 +290,41 @@ mod ini_root_tests;
 mod tests {
     use super::*;
     use crate::map::source::test_support::TestDirectory;
+
+    #[test]
+    fn include_byte_limit_refuses_sparse_source_before_retaining_a_snapshot() {
+        let directory = TestDirectory::new("include-sparse-limit");
+        directory.write("root.ini", b"[#include]\n0=child.ini\n");
+        let child = directory.path().join("child.ini");
+        let sparse = std::fs::File::create(&child).unwrap();
+        sparse.set_len(32 * 1024 * 1024 + 1).unwrap();
+        drop(sparse);
+        let assets = AssetManager::from_loose_root_for_test(directory.path());
+        let error = select_ini_with_options(&assets, "root.ini", DirectiveOptions::default())
+            .err()
+            .expect("even non-strict traversal must refuse an over-budget source");
+        assert!(error.contains("32 MiB expansion budget"));
+
+        // Refusal must leave the lazy source untouched. Retrying through the
+        // same manager after shrinking the physical file consumes its new bytes.
+        let bytes = b"[Unit]\nValue=bounded\n";
+        std::fs::write(child, bytes).unwrap();
+        let selected =
+            select_ini_with_options(&assets, "root.ini", DirectiveOptions::default()).unwrap();
+        assert_eq!(selected.included_sources.len(), 1);
+        assert_eq!(selected.included_sources[0].payload_len, bytes.len());
+        assert_eq!(
+            selected.included_sources[0].source_sha256,
+            sha256_hex(bytes)
+        );
+        assert_eq!(
+            selected
+                .ini
+                .section_or_empty("Unit")
+                .read_string("Value", "", 32),
+            "bounded"
+        );
+    }
 
     #[test]
     fn selected_sources_hash_consumed_bytes_and_survive_disk_changes() {

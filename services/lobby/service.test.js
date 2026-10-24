@@ -21,7 +21,7 @@ function fixture(bodyTimeoutMs = 5000) {
   let requestId = 0;
   const cursors = new Map();
   async function request(path, token, body) {
-    if (body && (path === '/v1/accounts' || path === '/v1/sessions') && body.protocol === undefined) body = { ...body, protocol: 2 };
+    if (body && (path === '/v1/accounts' || path === '/v1/sessions') && body.protocol === undefined) body = { ...body, protocol: 3 };
     const response = await service.fetch(new Request(`https://lobby.invalid${path}`, {
       method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json',
         ...(token ? { authorization: `Bearer ${token}` } : {}) },
@@ -459,10 +459,14 @@ test('protocol upgrade is mandatory and a new login cannot reset account action 
   assert.equal((await f.raw(new Request('https://lobby.invalid/v1/accounts', { method: 'POST',
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nickname: 'Missing', password: 'long-test-password' }) }))).status, 426);
   assert.equal((await f.request('/v1/accounts', null, { nickname: 'Old', password: 'long-test-password', protocol: 1 })).status, 426);
+  assert.equal((await f.request('/v1/accounts', null, { nickname: 'Unsafe', password: 'long-test-password', protocol: 2 })).status, 426);
+  assert.equal((await f.request('/health')).body.protocol, 3);
   const user = await f.account('Player');
   const old = f.store.list('session:')[0]; delete old.protocol; f.store.put(`session:${old.id}`, old);
   assert.equal((await f.request('/v1/channels?kind=0', user.token)).status, 426);
   old.protocol = 2; f.store.put(`session:${old.id}`, old);
+  assert.equal((await f.request('/v1/channels?kind=0', user.token)).status, 426);
+  old.protocol = 3; f.store.put(`session:${old.id}`, old);
   await f.command(user, 'join', { channel: 'Lob_41_0', key: '' });
   for (let i = 0; i < 30; i++) assert.equal((await f.command(user, 'chat', { text: 'hello', to: [] })).status, 200);
   const renewed = await f.request('/v1/sessions', null, { nickname: 'Player', password: 'long-test-password' });
@@ -471,7 +475,7 @@ test('protocol upgrade is mandatory and a new login cannot reset account action 
   assert.equal((await f.command(renewed.body, 'chat', { text: 'still limited', to: [] })).status, 429);
 });
 
-test('upgrade retires a stored v1 active membership without deleting accounts or v2 peers', async () => {
+test('upgrade retires a stored v2 active membership without deleting accounts or v3 peers', async () => {
   const f = fixture(), host = await f.account('Host'), guest = await f.account('Guest');
   const revision = await room(f, host, guest);
   const started = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
@@ -480,13 +484,13 @@ test('upgrade retires a stored v1 active membership without deleting accounts or
   await f.command(host, 'latency_ready', { match_id: id, pings: [{ source_index: 1, round_trip_ms: 10 }] });
   await f.command(guest, 'latency_ready', { match_id: id, pings: [{ source_index: 0, round_trip_ms: 10 }] });
   const old = f.store.list('session:').find((session) => session.player_id === host.player_id);
-  delete old.protocol; f.store.put(`session:${old.id}`, old);
+  old.protocol = 2; f.store.put(`session:${old.id}`, old);
   const account = f.store.get(old.account_key);
   const replacement = await f.request('/v1/sessions', null, { nickname: 'Host', password: 'long-test-password' });
   assert.equal(replacement.status, 200); assert.equal(f.store.get(`session:${old.id}`), null);
   assert.deepEqual(f.store.get(old.account_key), account);
   const currentGuest = f.store.list('session:').find((session) => session.player_id === guest.player_id);
-  assert.equal(currentGuest.protocol, 2); assert.equal(currentGuest.match_id, id);
+  assert.equal(currentGuest.protocol, 3); assert.equal(currentGuest.match_id, id);
   assert.deepEqual(f.store.get(`match:${id}`).finished, [host.player_id]);
   await f.command(guest, 'finish', { match_id: id });
   assert.equal(f.store.get(`match:${id}`), null);

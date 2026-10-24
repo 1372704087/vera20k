@@ -267,7 +267,7 @@ impl App {
         if let Some(icon) = &retail_icon {
             icon.set_dock_icon();
         }
-        let gpu: GpuContext = GpuContext::new(window.clone())?;
+        let gpu: GpuContext = GpuContext::new(window.clone(), event_loop.owned_display_handle())?;
         let batch_renderer: BatchRenderer = BatchRenderer::new(&gpu);
         let status_screen_fill = batch_renderer.create_texture(&gpu, &[255; 4], 1, 1);
         let status_card_glow =

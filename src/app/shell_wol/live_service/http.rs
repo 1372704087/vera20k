@@ -207,6 +207,29 @@ struct Client {
     cursor: u64,
 }
 
+fn decode_session(value: Value, requested_nickname: &str) -> Result<Session, RequestFailure> {
+    let session: Session = serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))?;
+    super::validate_online_identity(&session.player_id, &session.nickname)
+        .map_err(|_| RequestFailure::Status(0))?;
+    // A successful response may preserve the account's original casing, but
+    // cannot replace the account the player asked to sign into. Credentials
+    // remain private; validation errors never contain response field values.
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| RequestFailure::Status(0))?
+        .as_secs();
+    if !session.nickname.eq_ignore_ascii_case(requested_nickname)
+        || session.expires_at <= now
+        || session.token.len() != 43
+        || !base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .decode(&session.token)
+            .is_ok_and(|token| token.len() == 32)
+    {
+        return Err(RequestFailure::Status(0));
+    }
+    Ok(session)
+}
+
 impl Client {
     fn session_failed(&mut self, error: RequestFailure, output: &Sender<Response>) -> bool {
         if matches!(
@@ -528,18 +551,11 @@ pub(super) fn run(
                 let result = client
                     .request(
                         path,
-                        Some(&json!({"nickname": nickname, "password": password, "protocol": 2})),
+                        Some(&json!({"nickname": nickname, "password": password, "protocol": 3})),
                     )
-                    .and_then(|value| {
-                        serde_json::from_value::<Session>(value)
-                            .map_err(|_| RequestFailure::Status(0))
-                    });
+                    .and_then(|value| decode_session(value, &nickname));
                 match result {
-                    Ok(session)
-                        if !session.token.is_empty()
-                            && !session.player_id.is_empty()
-                            && session.expires_at > 0 =>
-                    {
+                    Ok(session) => {
                         client.token = Some(session.token);
                         failed_polls = 0;
                         if output
@@ -553,7 +569,7 @@ pub(super) fn run(
                             break;
                         }
                     }
-                    Ok(_) | Err(RequestFailure::Status(0)) => {
+                    Err(RequestFailure::Status(0)) => {
                         let _ = output.send(Response::LoginFailed { attempt, code: 0 });
                     }
                     Err(RequestFailure::Status(401 | 403)) => {
@@ -677,6 +693,46 @@ pub(super) fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn session_response() -> Value {
+        json!({
+            "player_id": "11111111-1111-1111-1111-111111111111",
+            "nickname": "Player_01234567890123456",
+            "token": base64::engine::general_purpose::URL_SAFE_NO_PAD.encode([0; 32]),
+            "expires_at": u64::MAX,
+        })
+    }
+
+    #[test]
+    fn authentication_response_admits_only_the_requested_safe_nickname() {
+        let response = session_response();
+        let nickname = response["nickname"].as_str().unwrap().to_owned();
+        let accepted = decode_session(response.clone(), &nickname.to_ascii_lowercase()).unwrap();
+        assert_eq!(accepted.nickname, nickname);
+        assert_eq!(accepted.player_id, response["player_id"].as_str().unwrap());
+
+        let mut injected = response.clone();
+        injected["nickname"] = json!("a]\r\n[Ask]\r\nAutoLogin=no\r\n[b");
+        assert!(decode_session(injected.clone(), injected["nickname"].as_str().unwrap()).is_err());
+        let mut substituted = response;
+        substituted["nickname"] = json!("AnotherAccount");
+        assert!(decode_session(substituted, &nickname).is_err());
+    }
+
+    #[test]
+    fn authentication_response_rejects_malformed_player_bearer_and_expiry() {
+        let response = session_response();
+        let nickname = response["nickname"].as_str().unwrap();
+        let mut malformed_player = response.clone();
+        malformed_player["player_id"] = json!("not-a-player-uuid");
+        assert!(decode_session(malformed_player, nickname).is_err());
+        let mut malformed_bearer = response.clone();
+        malformed_bearer["token"] = json!("untrusted\r\nHeader: value");
+        assert!(decode_session(malformed_bearer, nickname).is_err());
+        let mut expired = response.clone();
+        expired["expires_at"] = json!(1);
+        assert!(decode_session(expired, nickname).is_err());
+    }
 
     #[test]
     fn command_failures_keep_safe_room_codes_and_retryable_finish_semantics() {

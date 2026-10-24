@@ -46,6 +46,10 @@ const ISO_MAP_CELL_COUNT: i32 = ISO_MAP_ROW_WIDTH * ISO_MAP_ROW_WIDTH;
 // coordinate header. Untrusted maps must not expand beyond this before parsing.
 const ISO_MAP_MAX_BYTES: usize = ISO_MAP_CELL_COUNT as usize * CELL_RECORD_SIZE + CELL_HEADER_SIZE;
 const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
+// Untrusted wrappers must not multiply a small physical file into unbounded
+// INI parsing work through many entries or repeated/overlapping ranges.
+const MIX_MAP_MAX_CANDIDATES: usize = 64;
+const MIX_MAP_MAX_PARSED_BYTES: usize = 32 * 1024 * 1024;
 
 /// Errors during map file parsing.
 #[derive(Debug)]
@@ -61,6 +65,8 @@ pub enum MapError {
     CellDataTooLarge { actual: usize, maximum: usize },
     TilesetRegistryTooLarge { attempted: usize, maximum: usize },
     TilesetOrdinalOverflow { ordinal: u32, maximum: u32 },
+    WrappedMapWorkLimit,
+    InvalidTransferContent(&'static str),
     Io(std::io::Error),
 }
 
@@ -97,6 +103,12 @@ impl std::fmt::Display for MapError {
                 f,
                 "Theater tileset ordinal {ordinal} exceeds the supported maximum {maximum}"
             ),
+            MapError::WrappedMapWorkLimit => {
+                write!(f, "MIX map selection exceeds its parsing budget")
+            }
+            MapError::InvalidTransferContent(reason) => {
+                write!(f, "Invalid transferred map: {reason}")
+            }
             MapError::Io(e) => write!(f, "IO error: {}", e),
         }
     }
@@ -480,10 +492,77 @@ pub fn load_from_bytes(bytes: Vec<u8>) -> Result<MapFile, MapError> {
 pub(crate) fn ini_from_file_bytes(bytes: Vec<u8>) -> Result<IniFile, MapError> {
     if is_mix_header(&bytes) {
         let archive: MixArchive = MixArchive::from_bytes(bytes)?;
-        pick_map_ini(&archive)
+        pick_map_ini(&archive, false)
     } else {
         Ok(IniFile::from_bytes(&bytes)?)
     }
+}
+
+/// Network-only admission for physical map/seed bytes. Identity remains the
+/// complete original file; this never rewrites or mounts transferred assets.
+/// Plaintext is a format boundary, not a claim that arbitrary text is benign.
+pub(crate) fn ini_from_transfer_bytes(
+    bytes: Vec<u8>,
+    allow_mix: bool,
+) -> Result<IniFile, MapError> {
+    if is_mix_header(&bytes) {
+        if !allow_mix {
+            return Err(MapError::InvalidTransferContent(
+                "seed must be plaintext INI",
+            ));
+        }
+        let archive = MixArchive::from_bytes(bytes)?;
+        if archive.entry_count() > MIX_MAP_MAX_CANDIDATES {
+            return Err(MapError::WrappedMapWorkLimit);
+        }
+        archive.validate_complete_layout(|byte| byte == 0 || is_legacy_text_byte(byte))?;
+        pick_map_ini(&archive, true)
+    } else {
+        validate_transfer_text(&bytes)?;
+        Ok(IniFile::from_bytes(&bytes)?)
+    }
+}
+
+fn is_legacy_text_byte(byte: u8) -> bool {
+    matches!(byte, b'\t' | b'\r' | b'\n' | 0x20..=0x7e | 0x80..=0xff)
+}
+
+fn validate_transfer_text(bytes: &[u8]) -> Result<(), MapError> {
+    if bytes.iter().all(|&byte| is_legacy_text_byte(byte)) {
+        Ok(())
+    } else {
+        Err(MapError::InvalidTransferContent(
+            "INI contains binary control bytes",
+        ))
+    }
+}
+
+fn validate_map_description(ini: &IniFile) -> Result<(), MapError> {
+    let Some(list) = ini
+        .section("MultiMaps")
+        .filter(|section| section.name == "MultiMaps")
+    else {
+        return Err(MapError::InvalidTransferContent(
+            "MIX member is not a map description",
+        ));
+    };
+    let names: std::collections::HashSet<_> = list
+        .keys()
+        .filter_map(|key| list.read_name(key, 0x80))
+        .collect();
+    // Retail descriptions contain [MultiMaps] and the sections its values
+    // name, e.g. [Hills] with Description/CD/player-count/mode metadata.
+    if names.is_empty()
+        || ini
+            .section_names()
+            .into_iter()
+            .any(|name| name != "MultiMaps" && !names.contains(name))
+    {
+        return Err(MapError::InvalidTransferContent(
+            "Unrelated MIX metadata section",
+        ));
+    }
+    Ok(())
 }
 
 /// New-format MIX marker: first two bytes are `0x00 0x00`.
@@ -497,23 +576,44 @@ fn is_mix_header(bytes: &[u8]) -> bool {
 /// ~120-byte `[MultiMaps]` description stub. We try entries in descending
 /// size order and return the first one whose bytes parse as INI containing
 /// a `[Map]` section.
-fn pick_map_ini(archive: &MixArchive) -> Result<IniFile, MapError> {
+fn pick_map_ini(archive: &MixArchive, transferred: bool) -> Result<IniFile, MapError> {
     let mut entries: Vec<_> = archive.entries().to_vec();
     if entries.is_empty() {
         return Err(MapError::MissingIsoMapPack);
     }
     entries.sort_by_key(|a| std::cmp::Reverse(a.size));
-    for entry in &entries {
+    let mut parsed_bytes = 0usize;
+    let mut selected = None;
+    for (index, entry) in entries.iter().enumerate() {
+        if index >= MIX_MAP_MAX_CANDIDATES {
+            return Err(MapError::WrappedMapWorkLimit);
+        }
         let Some(data) = archive.get_by_id(entry.id) else {
             continue;
         };
-        if let Ok(ini) = IniFile::from_bytes(data)
-            && ini.section("Map").is_some()
-        {
-            return Ok(ini);
+        parsed_bytes = parsed_bytes
+            .checked_add(data.len())
+            .filter(|&total| total <= MIX_MAP_MAX_PARSED_BYTES)
+            .ok_or(MapError::WrappedMapWorkLimit)?;
+        if transferred {
+            validate_transfer_text(data)?;
+        }
+        match IniFile::from_bytes(data) {
+            Ok(ini) if ini.section("Map").is_some() => {
+                if !transferred {
+                    return Ok(ini);
+                }
+                if selected.is_some() || ini.section("Map").unwrap().name != "Map" {
+                    return Err(MapError::InvalidTransferContent("Ambiguous MIX map member"));
+                }
+                selected = Some(ini);
+            }
+            Ok(ini) if transferred => validate_map_description(&ini)?,
+            Err(error) if transferred => return Err(error.into()),
+            _ => {}
         }
     }
-    Err(MapError::MissingIsoMapPack)
+    selected.ok_or(MapError::MissingIsoMapPack)
 }
 
 /// Extract the [Map] header fields.
@@ -759,6 +859,51 @@ mod tests {
 
     const ONE_CELL_ISO_MAP_PACK: &str = "DwALABwBAAIA/////wAAABEAAA==";
     const TWO_PIXEL_PREVIEW_PACK: &str = "CgAGABcBAgMEBQYRAAA=";
+
+    fn aliasing_wrapper(aliases: u16, junk_size: usize) -> Vec<u8> {
+        let map = full_map_with_preview("");
+        assert!(junk_size > map.len());
+        let mut bytes = vec![0; 4];
+        bytes.extend_from_slice(&(aliases + 1).to_le_bytes());
+        bytes.extend_from_slice(&u32::try_from(junk_size + map.len()).unwrap().to_le_bytes());
+        for id in 0..aliases {
+            bytes.extend_from_slice(&i32::from(id).to_le_bytes());
+            bytes.extend_from_slice(&0u32.to_le_bytes());
+            bytes.extend_from_slice(&u32::try_from(junk_size).unwrap().to_le_bytes());
+        }
+        bytes.extend_from_slice(&i32::MAX.to_le_bytes());
+        bytes.extend_from_slice(&u32::try_from(junk_size).unwrap().to_le_bytes());
+        bytes.extend_from_slice(&u32::try_from(map.len()).unwrap().to_le_bytes());
+        bytes.resize(bytes.len() + junk_size, b' ');
+        bytes.extend_from_slice(&map);
+        bytes
+    }
+
+    #[test]
+    fn wrapped_map_selection_bounds_candidate_attempts() {
+        // One shared physical range can be named by many index entries. The
+        // physical-file loader selects the inner INI before map decoding;
+        // MapFile::from_bytes intentionally accepts raw INI only.
+        let accepted = load_from_bytes(aliasing_wrapper(63, 256)).expect("64 candidates fit");
+        assert_eq!(accepted.header.theater, "TEMPERATE");
+        assert!(matches!(
+            load_from_bytes(aliasing_wrapper(64, 256)),
+            Err(MapError::WrappedMapWorkLimit)
+        ));
+    }
+
+    #[test]
+    fn wrapped_map_selection_charges_repeated_bytes_to_total_budget() {
+        // The physical body is only ~1 MiB, so a per-file limit alone cannot
+        // bound the repeated INI scans. The next candidate crosses 32 MiB.
+        let accepted = load_from_bytes(aliasing_wrapper(31, 1024 * 1024))
+            .expect("31 MiB plus the selected map fits");
+        assert_eq!(accepted.header.theater, "TEMPERATE");
+        assert!(matches!(
+            load_from_bytes(aliasing_wrapper(32, 1024 * 1024)),
+            Err(MapError::WrappedMapWorkLimit)
+        ));
+    }
 
     #[test]
     fn received_map_rejects_out_of_grid_size_and_cumulative_iso_expansion() {

@@ -41,6 +41,20 @@ const MULTIPLAYER_HANDLE_LIMIT_BYTES: usize = 19;
 const DEFAULT_MULTIPLAYER_HANDLE: &[u8] = b"[New Player]";
 const DEFAULT_MULTIPLAYER_GAME_MODE: i32 = 1;
 
+/// VERA HTTPS account names also become persona INI section names. Keep their
+/// admission shared by the HTTP response, login continuation and handle owner.
+pub(crate) fn validate_online_handle(name: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !name.is_empty()
+            && name.len() <= 24
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte)),
+        "online service returned an invalid player name"
+    );
+    Ok(())
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 enum HandleSource {
     #[default]
@@ -658,14 +672,7 @@ impl MultiplayerShellRuntime {
     /// VERA online account identity is independent of native WOL/Handle byte
     /// limits. Keep one full name for every subsequent setup and rematch reader.
     pub(crate) fn accept_online_handle(&mut self, name: &str) -> anyhow::Result<()> {
-        anyhow::ensure!(
-            !name.is_empty()
-                && name.len() <= 24
-                && name
-                    .bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || b"_-".contains(&byte)),
-            "online service returned an invalid player name"
-        );
+        validate_online_handle(name)?;
         self.local_preferences.handle_bytes = name.as_bytes().to_vec();
         self.local_preferences.handle_source = HandleSource::AuthenticatedOnline;
         Ok(())

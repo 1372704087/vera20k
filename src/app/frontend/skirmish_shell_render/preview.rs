@@ -34,6 +34,17 @@ pub(crate) struct SkirmishPreviewTexture {
     pub received_preview: Option<u32>,
 }
 
+fn preview_fits_texture(width: u32, height: u32, rgba_len: usize, maximum_side: u32) -> bool {
+    width != 0
+        && height != 0
+        && width <= maximum_side
+        && height <= maximum_side
+        && u64::from(width)
+            .checked_mul(u64::from(height))
+            .and_then(|pixels| pixels.checked_mul(4))
+            == Some(rgba_len as u64)
+}
+
 /// A LAN guest whose map did not verify shows the host's `Preview.bin`, or
 /// nothing until it arrives (`0x005E1D3B` skips a null preview).
 pub(super) fn ensure_received_preview_texture(state: &mut AppState) {
@@ -46,6 +57,17 @@ pub(super) fn ensure_received_preview_texture(state: &mut AppState) {
         state.frontend.skirmish_preview_texture = None;
         return;
     };
+    // Network admission bounds the format; the live device can request a
+    // smaller edge limit. Refuse an unavailable surface before wgpu validation.
+    if !preview_fits_texture(
+        preview.width,
+        preview.height,
+        preview.rgba.len(),
+        state.renderer.gpu.device.limits().max_texture_dimension_2d,
+    ) {
+        state.frontend.skirmish_preview_texture = None;
+        return;
+    }
     if state
         .frontend
         .skirmish_preview_texture
@@ -276,6 +298,15 @@ pub(super) fn ensure_random_map_setup_preview_texture(state: &mut AppState) -> b
         state.frontend.skirmish_preview_texture = None;
         return true;
     };
+    if !preview_fits_texture(
+        preview.width,
+        preview.height,
+        preview.rgba.len(),
+        state.renderer.gpu.device.limits().max_texture_dimension_2d,
+    ) {
+        state.frontend.skirmish_preview_texture = None;
+        return true;
+    }
     let generation = modal.preview_generation;
     let already_current = state
         .frontend
@@ -377,6 +408,15 @@ pub(super) fn ensure_map_preview_texture(state: &mut AppState, selected_map_idx:
         state.frontend.skirmish_preview_texture = None;
         return;
     };
+    if !preview_fits_texture(
+        decoded.width,
+        decoded.height,
+        decoded.rgba.len(),
+        state.renderer.gpu.device.limits().max_texture_dimension_2d,
+    ) {
+        state.frontend.skirmish_preview_texture = None;
+        return;
+    }
 
     let texture = state.renderer.batch_renderer.create_texture(
         &state.renderer.gpu,
@@ -449,6 +489,15 @@ pub(super) fn build_preview_surface_instance(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn received_preview_upload_respects_device_edges_and_exact_rgba_shape() {
+        assert!(preview_fits_texture(1024, 1, 4096, 1024));
+        assert!(!preview_fits_texture(1024, 1, 4096, 1023));
+        assert!(!preview_fits_texture(1, 1024, 4096, 1023));
+        assert!(!preview_fits_texture(1024, 1, 4095, 1024));
+        assert!(!preview_fits_texture(0, 1, 0, 1024));
+    }
 
     #[test]
     fn verified_thirty_start_header_projects_every_marker_without_integer_wrap() {

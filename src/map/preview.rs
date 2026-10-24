@@ -406,7 +406,10 @@ fn preview_pack_text(ini: &IniFile) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-fn expected_preview_pixels(width: u32, height: u32) -> Result<usize, PreviewDecodeError> {
+pub(crate) fn expected_preview_pixels(
+    width: u32,
+    height: u32,
+) -> Result<usize, PreviewDecodeError> {
     if !(1..=MAX_PREVIEW_SIDE).contains(&width) || !(1..=MAX_PREVIEW_SIDE).contains(&height) {
         return Err(PreviewDecodeError::PixelBufferTooLarge);
     }

@@ -68,6 +68,7 @@ fn encode_blank(
         depth_stencil_attachment: None,
         timestamp_writes: None,
         occlusion_query_set: None,
+        multiview_mask: None,
     });
     presenter.encode_present(encoder, destination);
 }
@@ -963,6 +964,7 @@ fn encode_native_loading_plan(
             }),
             timestamp_writes: None,
             occlusion_query_set: None,
+            multiview_mask: None,
         });
         batch.draw_with_buffer_passthrough(&mut pass, &atlas.texture, &buffer, count);
         for ((draw, backing_buffer), text_buffer) in text_draws

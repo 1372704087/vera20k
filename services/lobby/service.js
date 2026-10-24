@@ -4,7 +4,8 @@
 import { byteLength, record, playerName, validChannel, validJsonTree, validOptions, validSlot, uuid } from './validation.js';
 
 const encoder = new TextEncoder();
-const PROTOCOL = 2;
+const LOBBY_PROTOCOL = 3;
+const RELAY_PROTOCOL = 2;
 const MAX_EVENTS = 1024;
 const MAX_EVENT_BYTES = 65536;
 const MAX_CRITICAL_BYTES = 2 * 1024 * 1024;
@@ -130,7 +131,7 @@ export async function relayGrant(secretHex, address, matchId, sourceIndex, now, 
     Number.isSafeInteger(generation) && generation > 0 && (lifetime === BOOTSTRAP_GRANT_SECONDS || lifetime === GRANT_SECONDS) &&
     typeof payloadKey === 'string' && /^[A-Za-z0-9_-]{43}$/.test(payloadKey), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   const ticket = new Uint8Array(98);
-  ticket[0] = PROTOCOL;
+  ticket[0] = RELAY_PROTOCOL;
   ticket.set(Uint8Array.from(matchId.replaceAll('-', '').match(/../g), (pair) => parseInt(pair, 16)), 1);
   ticket[17] = sourceIndex;
   new DataView(ticket.buffer).setBigUint64(18, BigInt(now + lifetime), true);
@@ -316,13 +317,13 @@ export class LobbyService {
     const sessionId = await sha256(authorization.slice(7));
     const session = this.store.get(`session:${sessionId}`);
     requireThat(session && session.expires_at > this.clock(), 'unauthorized', 'Sign in again.', 401);
-    requireThat(session.protocol === PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
+    requireThat(session.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     return { sessionId, session };
   }
 
   async handle(request, body) {
     const url = new URL(request.url);
-    if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: PROTOCOL });
+    if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: LOBBY_PROTOCOL });
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
       const origin = request.headers.get('CF-Connecting-IP') ?? 'local';
       const address = await sha256(origin);
@@ -382,7 +383,7 @@ export class LobbyService {
   }
 
   async authenticate(body, create, address) {
-    requireThat(body.protocol === PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
+    requireThat(body.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     requireThat(record(body, ['nickname', 'password', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
     const { nickname, password } = body;
     requireThat(playerName(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
@@ -405,7 +406,7 @@ export class LobbyService {
     const token = base64url(randomBytes(32));
     const id = await sha256(token);
     const now = this.clock();
-    const session = { id, player_id: account.player_id, nickname: account.nickname, account_key: accountKey, protocol: PROTOCOL,
+    const session = { id, player_id: account.player_id, nickname: account.nickname, account_key: accountKey, protocol: LOBBY_PROTOCOL,
       expires_at: now + SESSION_SECONDS, seen: now, channel_id: null, match_id: null, sequence: 0, ack: 0, critical_floor: 0, requests: [] };
     this.store.transaction(() => {
       if (create) this.store.put(accountKey, account);
@@ -688,7 +689,7 @@ export class LobbyService {
     const users = names.map((name, index) => {
       const member = room.members.find((member) => member.name === name);
       const participant = this.store.get(`session:${member.session_id}`);
-      requireThat(participant?.protocol === PROTOCOL && !participant.match_id, 'not_ready', 'Every player must use the current online protocol.', 409);
+      requireThat(participant?.protocol === LOBBY_PROTOCOL && !participant.match_id, 'not_ready', 'Every player must use the current online protocol.', 409);
       const account = this.store.get(participant.account_key);
       const generation = (account.admission_generation ?? 0) + 1;
       requireThat(Number.isSafeInteger(generation) && generation > 0, 'service_unavailable', 'Online admission is unavailable.', 503);
@@ -959,7 +960,7 @@ export class LobbyService {
       }
       this.store.expireRates(now);
       for (const session of this.store.list('session:')) {
-        if (session.protocol !== PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
+        if (session.protocol !== LOBBY_PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
           // Polling continues in the HTTPS worker while the game loads/plays.
           // A dead process must not strand its account or the match's final
           // cleanup until the private match lease expires. Gameplay

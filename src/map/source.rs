@@ -493,23 +493,27 @@ pub struct LoadedTransferAsset {
 fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferContent> {
     if resource == TransferResource::Preview {
         anyhow::ensure!(bytes.len() >= 128, "preview header missing");
+        let width = u16::from_le_bytes([bytes[8], bytes[9]])
+            .checked_sub(u16::from_le_bytes([bytes[4], bytes[5]]))
+            .and_then(|n| n.checked_add(1))
+            .ok_or_else(|| anyhow::anyhow!("invalid preview bounds"))?;
         let height = u16::from_le_bytes([bytes[10], bytes[11]])
             .checked_sub(u16::from_le_bytes([bytes[6], bytes[7]]))
             .and_then(|n| n.checked_add(1))
-            .ok_or_else(|| anyhow::anyhow!("invalid preview bounds"))?
-            as usize;
+            .ok_or_else(|| anyhow::anyhow!("invalid preview bounds"))?;
+        // Transferred PCX and packed-map previews share the safe edge limit;
+        // the network resource retains its stricter total-pixel allowance.
+        let pixels =
+            crate::map::preview::expected_preview_pixels(u32::from(width), u32::from(height))?;
+        anyhow::ensure!(pixels <= 2 * 1024 * 1024, "preview dimensions exceed limit");
         let scan = usize::from(u16::from_le_bytes([bytes[66], bytes[67]]))
             .checked_mul(usize::from(bytes[65]))
-            .and_then(|n| n.checked_mul(height));
+            .and_then(|n| n.checked_mul(usize::from(height)));
         anyhow::ensure!(
             scan.is_some_and(|n| n <= 8 * 1024 * 1024),
             "preview dimensions exceed limit"
         );
-        let image = crate::assets::pcx_file::PcxFile::from_bytes(bytes)?;
-        anyhow::ensure!(
-            usize::from(image.width) * usize::from(image.height) <= 2 * 1024 * 1024,
-            "preview dimensions exceed limit"
-        );
+        let image = crate::assets::pcx_file::PcxFile::from_transfer_bytes(bytes)?;
         return Ok(TransferContent::Preview(
             crate::map::preview::DecodedPreview {
                 width: u32::from(image.width),
@@ -518,7 +522,7 @@ fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferC
             },
         ));
     }
-    let ini = map_file::ini_from_file_bytes(bytes.to_vec())?;
+    let ini = map_file::ini_from_transfer_bytes(bytes.to_vec(), resource == TransferResource::Map)?;
     if resource == TransferResource::Seed {
         anyhow::ensure!(
             ini.section("RandomMap").is_some(),
@@ -1013,6 +1017,171 @@ mod tests {
             assert_eq!(
                 std::fs::read(root.path().join("outside.sed")).unwrap(),
                 b"outside"
+            );
+        }
+    }
+
+    #[test]
+    fn received_preview_checks_each_edge_before_publication() {
+        let root = TestDirectory::new("received-preview-edges");
+        let cache = root.path().join("NetworkMaps");
+        // A 65535x1 PCX used to pass the area limit and reach GPU creation.
+        let wide = crate::assets::pcx_file::encode_direct_rgb(
+            u16::MAX,
+            1,
+            &vec![0; usize::from(u16::MAX) * 3],
+        )
+        .unwrap();
+        assert!(wide.len() < TransferResource::Preview.limit());
+        assert!(
+            install_received_asset(
+                &cache,
+                wide.clone(),
+                &sha256_hex(&wide),
+                wide.len(),
+                TransferResource::Preview,
+            )
+            .is_err()
+        );
+        let tall = crate::assets::pcx_file::encode_direct_rgb(1, 2049, &vec![0; 2049 * 3]).unwrap();
+        assert!(
+            install_received_asset(
+                &cache,
+                tall.clone(),
+                &sha256_hex(&tall),
+                tall.len(),
+                TransferResource::Preview,
+            )
+            .is_err()
+        );
+        assert!(!cache.exists());
+        let boundary =
+            crate::assets::pcx_file::encode_direct_rgb(2048, 1, &vec![0; 2048 * 3]).unwrap();
+        assert!(
+            install_received_asset(
+                &cache,
+                boundary.clone(),
+                &sha256_hex(&boundary),
+                boundary.len(),
+                TransferResource::Preview,
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn received_scenarios_reject_binary_and_unrelated_members_before_publication() {
+        let root = TestDirectory::new("received-scenario-content");
+        let cache = root.path().join("NetworkMaps");
+        let mut binary_map = SOURCE_TEST_MAP.to_vec();
+        binary_map.extend_from_slice(b"\0MZ\x01");
+        let seed = b"[RandomMap]\nSeed=2\n\0MZ\x01".to_vec();
+        let opaque_wrapper = make_new_format_mix_bytes(&[
+            ("Arena.map", SOURCE_TEST_MAP),
+            ("hidden.exe", b"MZ\0\x01"),
+        ]);
+        let unrelated_wrapper = make_new_format_mix_bytes(&[
+            ("Arena.map", SOURCE_TEST_MAP),
+            ("other.ini", b"[Other]\nx=1\n"),
+        ]);
+        let wrapped_seed = make_new_format_mix_bytes(&[("seed.sed", b"[RandomMap]\nSeed=2\n")]);
+        for (bytes, resource) in [
+            (binary_map, TransferResource::Map),
+            (seed, TransferResource::Seed),
+            (opaque_wrapper, TransferResource::Map),
+            (unrelated_wrapper, TransferResource::Map),
+            (wrapped_seed, TransferResource::Seed),
+        ] {
+            assert!(
+                install_received_asset(
+                    &cache,
+                    bytes.clone(),
+                    &sha256_hex(&bytes),
+                    bytes.len(),
+                    resource,
+                )
+                .is_err()
+            );
+        }
+        assert!(!cache.exists(), "type rejection precedes cache publication");
+        let legacy_seed = b"[RandomMap]\r\nSeed=2\r\n; caf\xe9\t\r\n";
+        assert!(
+            install_received_asset(
+                &cache,
+                legacy_seed.to_vec(),
+                &sha256_hex(legacy_seed),
+                legacy_seed.len(),
+                TransferResource::Seed,
+            )
+            .is_ok(),
+            "legacy high-bit text remains supported"
+        );
+    }
+
+    #[test]
+    fn received_wrapper_accounts_for_layout_and_keeps_exact_identity() {
+        let root = TestDirectory::new("received-wrapper-layout");
+        let bytes = make_new_format_mix_bytes(&[
+            (
+                "description.ini",
+                b"[MultiMaps]\n1=Arena\n[Arena]\nDescription=Test\n",
+            ),
+            ("Arena.map", SOURCE_TEST_MAP),
+        ]);
+        let mut checksummed = bytes.clone();
+        checksummed[2..4].copy_from_slice(&1u16.to_le_bytes());
+        let checksum = crate::util::sha1::sha1_bytes(&checksummed[34..]);
+        checksummed.extend_from_slice(&checksum);
+        let digest = sha256_hex(&checksummed);
+        let loaded =
+            install_received_map(root.path(), checksummed.clone(), &digest, checksummed.len())
+                .unwrap();
+        assert_eq!(
+            loaded.source.physical_identity(),
+            Some((checksummed.len(), digest.as_str()))
+        );
+        let LoadedMapSource::Loose { path, .. } = &loaded.source else {
+            panic!("cached wrapper");
+        };
+        assert_eq!(std::fs::read(path).unwrap(), checksummed);
+
+        let mut overlap = bytes.clone();
+        overlap[26..30].copy_from_slice(&0u32.to_le_bytes());
+        let mut duplicate_id = bytes.clone();
+        duplicate_id.copy_within(10..14, 22);
+        let mut trailer = bytes;
+        trailer.extend_from_slice(b"MZunused");
+        let mut bad_checksum = checksummed;
+        *bad_checksum.last_mut().unwrap() ^= 1;
+        for invalid in [overlap, duplicate_id, trailer, bad_checksum] {
+            assert!(
+                install_received_map(
+                    root.path(),
+                    invalid.clone(),
+                    &sha256_hex(&invalid),
+                    invalid.len()
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn transferred_named_retail_wrappers_keep_description_alignment_and_checksum() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let root = TestDirectory::new("received-retail-wrappers");
+        for name in ["Hills.mmx", "Dustbowl.mmx", "RiverRam.yro"] {
+            let bytes = assets
+                .get(name)
+                .unwrap_or_else(|| panic!("missing retail {name}"));
+            let digest = sha256_hex(&bytes);
+            let loaded = install_received_map(root.path(), bytes.clone(), &digest, bytes.len())
+                .unwrap_or_else(|error| panic!("retail {name}: {error}"));
+            assert_eq!(
+                loaded.source.physical_identity(),
+                Some((bytes.len(), digest.as_str()))
             );
         }
     }

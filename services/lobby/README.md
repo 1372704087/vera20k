@@ -10,6 +10,11 @@ npm test
 cf deploy --dry-run
 ```
 
+Cloudflare's tooling currently pins vulnerable Zod and Undici patch versions.
+The scoped package overrides select their compatible security fixes; remove them
+when the upstream configuration and Miniflare packages require patched versions.
+These packages run in local build/deployment tools and are not worker imports.
+
 For deployment, use the authenticated `cf` profile and set
 `VERA20K_RELAY_ADDRESS` to the public relay IPv4 address and port. Keep a temporary
 mode-0600 JSON file outside the repository containing `RELAY_TICKET_KEY`, then run
@@ -32,9 +37,11 @@ The source schema is configured in `cloudflare.config.ts` using the official
 Deployments preserve the existing SQLite data. Health is exposed at `/health`;
 credentials and request bodies are excluded from application logging.
 
-Protocol 2 is a coordinated client/lobby/relay upgrade. Deploy the v2 relay and
-matching clients with this service; v1 clients and stored v1 sessions receive
-`upgrade_required`. Initial grants last 120 seconds and playing grants 300 seconds.
+Lobby capability3 admits the security-fixed clients; older clients and stored
+pre-v3 sessions receive `upgrade_required`. Deploy matching clients and this
+service together. Relay tickets/datagrams remain wire version2 and use the
+existing v2 relay. Unsupported sessions retire through ordinary cleanup; account
+records remain intact. Initial grants last 120 seconds and playing grants 300 seconds.
 Each account has one monotonically ordered relay admission, so cancelled starts
 cannot retain a pool of valid rooms. Payload encryption keys are delivered only
 to the match participants over HTTPS and are never sent to the relay.

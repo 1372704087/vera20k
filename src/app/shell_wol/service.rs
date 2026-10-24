@@ -10,7 +10,7 @@
 use std::time::{Duration, Instant};
 
 use super::{WolBoxThen, WolPage, WolVisit};
-use crate::app::persistence::wol_profile::WolPersona;
+use crate::app::persistence::wol_profile::{WolInfoFile, WolPersona};
 use crate::app::{App, AppState};
 use crate::ui::wol_chat::WolChatLine;
 use crate::ui::wol_lobby::{WolChannel, WolMember};
@@ -1061,6 +1061,31 @@ fn apply(state: &mut AppState, step: WolStep) {
     }
 }
 
+/// Login's persona load/save (`0x00786821..0x007868F9`). VERA's online
+/// nickname must be admitted before LoadRecord can create a file or SaveProfile
+/// can use it as an INI section, including providers bypassing the HTTP worker.
+fn connected_persona(
+    file: Option<&WolInfoFile>,
+    nickname: &str,
+    online: bool,
+    server: Option<&str>,
+    csf: &dyn Fn(&str) -> String,
+) -> anyhow::Result<WolPersona> {
+    if online {
+        crate::app::frontend::skirmish_session::validate_online_handle(nickname)?;
+    }
+    let mut persona =
+        file.map_or_else(WolPersona::default, |file| file.load_persona(nickname, csf));
+    // Modes 4 and 5 retain the connected server and save the named persona.
+    if let Some(server) = server {
+        persona.set_server(server);
+        if let Some(file) = file {
+            file.save_persona(&mut persona, nickname, csf);
+        }
+    }
+    Ok(persona)
+}
+
 /// `0x007864C0`'s success continuation (`0x00786795..0x00786A48`), up to
 /// the locale wait.
 fn connect_succeeded(state: &mut AppState) {
@@ -1074,39 +1099,45 @@ fn connect_succeeded(state: &mut AppState) {
         crate::app::shell_main_menu::MultiplayerSettingsContext::Shell,
     );
     let nickname = state.frontend.wol_account.nickname.clone();
-    let mut persona = super::persona::load(state, &nickname);
     let visit = state.frontend.wol.as_ref().expect("WOL visit");
-    let server = visit.flow.as_ref().map(|flow| flow.server.clone());
-    // Modes 4 and 5 keep the connected server as the persona's (and save
-    // it, the first write of a named section).
-    if let Some(server) = server
-        && matches!(visit.mode.map(WolMode::native), Some(4 | 5))
-    {
-        persona.set_server(server.persona_server());
-        super::persona::save(state, &mut persona, &nickname);
-    }
+    let online = visit.provider == WolProvider::Online;
+    let server = visit
+        .flow
+        .as_ref()
+        .filter(|_| matches!(visit.mode.map(WolMode::native), Some(4 | 5)))
+        .map(|flow| flow.server.clone());
+    let file = super::persona::info_file(state);
+    let persona = connected_persona(
+        file.as_ref(),
+        &nickname,
+        online,
+        server.as_ref().map(WolServer::persona_server),
+        &|key| resolve(state, key),
+    );
+    let Ok(persona) = persona else {
+        if let Some(visit) = state.frontend.wol.as_mut() {
+            visit.authenticated = false;
+            visit.connected = false;
+            visit.requests.push(WolServiceRequest::Logout);
+        }
+        apply(
+            state,
+            WolStep::Message {
+                key: "TXT_CANT_CONNECT",
+                yes_no: false,
+                then: WolBoxThen::Welcome,
+            },
+        );
+        return;
+    };
     // The nickname becomes the session handle [0xA8B380], the persona's
     // Country and Color the MultiPlayer picks, and WriteMultiPlayerSettings
     // 0x006990A0 saves them.
-    let online = visit.provider == WolProvider::Online;
     let runtime = &mut state.frontend.multiplayer_shell_runtime;
     if online {
-        if runtime.accept_online_handle(&nickname).is_err() {
-            if let Some(visit) = state.frontend.wol.as_mut() {
-                visit.authenticated = false;
-                visit.connected = false;
-                visit.requests.push(WolServiceRequest::Logout);
-            }
-            apply(
-                state,
-                WolStep::Message {
-                    key: "TXT_CANT_CONNECT",
-                    yes_no: false,
-                    then: WolBoxThen::Welcome,
-                },
-            );
-            return;
-        }
+        runtime
+            .accept_online_handle(&nickname)
+            .expect("online nickname admitted before persona access");
     } else {
         runtime.set_handle(&nickname);
     }
@@ -1363,6 +1394,31 @@ mod tests {
                 .collect(),
             selected,
         }
+    }
+
+    #[test]
+    fn online_login_validates_before_creating_or_writing_the_persona_file() {
+        use crate::app::persistence::wol_profile::WOLINFO_INI;
+        let directory = crate::map::source::test_support::TestDirectory::new("login-persona");
+        let file = WolInfoFile::in_directory(directory.path());
+        let path = directory.path().join(WOLINFO_INI);
+        let nickname = "a]\r\n[Ask]\r\nAutoLogin=no\r\n[b";
+        let csf = |key: &str| key.to_owned();
+        assert!(connected_persona(Some(&file), nickname, true, Some("Online"), &csf).is_err());
+        assert!(
+            !path.exists(),
+            "rejected identity must not create a profile"
+        );
+        let previous = b"; retained profile\r\n[Ask]\r\nAutoLogin=yes\r\n";
+        directory.write(WOLINFO_INI, previous);
+        assert!(connected_persona(Some(&file), nickname, true, Some("Online"), &csf).is_err());
+        assert_eq!(std::fs::read(&path).unwrap(), previous);
+
+        let persona =
+            connected_persona(Some(&file), "Player_Alpha", true, Some("Online"), &csf).unwrap();
+        assert_eq!(persona.server, "Online");
+        assert!(file.ask_auto_login());
+        assert_eq!(file.load_persona("Player_Alpha", &csf).server, "Online");
     }
 
     #[test]

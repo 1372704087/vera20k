@@ -1,4 +1,4 @@
-# VERA20k lobby protocol v2
+# VERA20k lobby protocol v3
 
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens, passwords,
 relay tickets and packet keys must never be logged. Names are ASCII letters, digits,
@@ -9,12 +9,16 @@ property name must be well-formed Unicode. Escaped unpaired surrogates are rejec
 not replaced, before any event or persistent state is created.
 
 `POST /v1/accounts` creates an account and signs in. `POST /v1/sessions` signs in.
-Both accept `{nickname,password,protocol:2}` and return
+Both accept `{nickname,password,protocol:3}` and return
 `{player_id,nickname,token,expires_at}`. `expires_at` is a Unix timestamp in seconds.
 Failed requests return `{error:{code,message}}`; messages must not echo credentials.
-The HTTP paths retain `/v1`; `protocol:2` is the required client capability.
-Older/missing capabilities and pre-v2 sessions receive 426 `upgrade_required`.
-`GET /health` reports `protocol:2`.
+The HTTP paths retain `/v1`; `protocol:3` is the required client capability.
+Older/missing capabilities and pre-v3 sessions receive 426 `upgrade_required`.
+Lobby capability3 requires the security-fixed map and authentication client.
+Relay tickets and encrypted datagrams retain wire version2; lobby capability and
+relay wire versions are independent. Existing accounts remain intact; unsupported
+sessions retire through ordinary room/match cleanup and cannot renew grants.
+`GET /health` reports `protocol:3`.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and

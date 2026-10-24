@@ -1363,6 +1363,11 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             player_id,
             nickname,
         } if attempt == service.auth_attempt => {
+            if validate_online_identity(&player_id, &nickname).is_err() {
+                state.frontend.wol_account.password.clear();
+                service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
+                return;
+            }
             service.player_id = player_id;
             state.frontend.wol_account.nickname = nickname;
             state.frontend.wol_account.password.clear();
@@ -1529,6 +1534,12 @@ fn relay_uuid(value: &str) -> Result<[u8; 16]> {
             .map_err(|_| anyhow!("invalid relay identity"))?;
     }
     Ok(bytes)
+}
+
+fn validate_online_identity(player_id: &str, nickname: &str) -> Result<()> {
+    crate::app::frontend::skirmish_session::validate_online_handle(nickname)?;
+    relay_uuid(player_id)?;
+    Ok(())
 }
 
 fn decode_relay_grant(

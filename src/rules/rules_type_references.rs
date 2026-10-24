@@ -40,11 +40,7 @@ impl RulesTypeReferences {
         let Some(resolved) = resolved else {
             return;
         };
-        if !POINTERS
-            .iter()
-            .chain(&DEFAULT_PARTICLE_SYSTEMS)
-            .any(|&(kept, _)| kept == key)
-        {
+        if !kept_pointer(key) {
             return;
         }
         match resolved {
@@ -72,7 +68,11 @@ impl RulesTypeReferences {
 
     /// Publish each kept pointer and list; a null pointer is the empty name.
     pub(crate) fn apply_to(&self, rules: &mut RuleSet) {
-        for &(key, publish) in POINTERS.iter().chain(&DEFAULT_PARTICLE_SYSTEMS) {
+        for &(key, publish) in POINTERS
+            .iter()
+            .chain(&DEFAULT_PARTICLE_SYSTEMS)
+            .chain(npatch_pointers())
+        {
             publish(rules, self.pointers.get(key).map_or("", String::as_str));
         }
         for &(key, publish) in LISTS {
@@ -88,6 +88,25 @@ type PublishList = fn(&mut RuleSet, &[String]);
 
 fn named(id: &str) -> Option<String> {
     (!id.is_empty()).then(|| id.to_owned())
+}
+
+/// The extension pointers this build's rules processor keeps: none without
+/// the capability, which never reads their keys.
+fn npatch_pointers() -> &'static [(&'static str, PublishPointer)] {
+    if crate::rules::NPATCH_ENABLED {
+        NPATCH_POINTERS
+    } else {
+        &[]
+    }
+}
+
+/// Whether the processor keeps `key` as a pointer.
+fn kept_pointer(key: &str) -> bool {
+    POINTERS
+        .iter()
+        .chain(&DEFAULT_PARTICLE_SYSTEMS)
+        .chain(npatch_pointers())
+        .any(|&(kept, _)| kept == key)
 }
 
 /// The kept pointers, by reader. Each Rules offset is the constructor's null
@@ -253,6 +272,21 @@ const POINTERS: &[(&str, PublishPointer)] = &[
     }),
     ("ThirdCrew", |rules, id| {
         rules.general.third_crew = named(id);
+    }),
+];
+
+/// The pointers an installed extension keeps, by reader. They are part of the
+/// same retained set as [`POINTERS`] when the capability is compiled in: the
+/// extension's reader runs inside the rules load, so its FindOrAllocate
+/// identity must survive later passes exactly like a vanilla pointer's.
+/// Without the capability nothing reads the key, the type is never allocated,
+/// and the name is not admitted here.
+const NPATCH_POINTERS: &[(&str, PublishPointer)] = &[
+    // NPSE's `[General] VehicleParachute=`: the canopy an airdropped
+    // non-infantry object takes instead of `Parachute=` (`0xC30FF8..0xC3101F`
+    // reads it; `sim::movement::parachute_descent` casts it).
+    ("VehicleParachute", |rules, id| {
+        rules.general.vehicle_parachute = named(id).map(|id| id.to_ascii_uppercase());
     }),
 ];
 

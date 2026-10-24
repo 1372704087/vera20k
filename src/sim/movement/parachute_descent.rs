@@ -174,6 +174,13 @@ impl crate::sim::world::Simulation {
     /// RESIDUAL: a bullet takes `Rules+0xBB8` (`BombParachute=`) at the
     /// uncopied coordinate instead; VERA has no parachuted bullets.
     ///
+    /// RESIDUAL: the presentation canopy lookups still key on `Parachute=`
+    /// alone — `app::presentation::instances::overlays`' canopy-owner test and
+    /// `render::sprite_atlas`' Step 1e pre-load — so a non-infantry canopy
+    /// from `VehicleParachute=` draws through the generic bound-anim path
+    /// without that extra no-remap GlobalAnim variant. The sim-side attachment,
+    /// landing wind-down and frame bounds follow the canopy the type takes.
+    ///
     /// Native copies the owner's drawer (`vtable+0x1E4`) to Anim+0xD4; the
     /// House remap below retains that selection. It also copies the owner's
     /// Cell+0x10A light intensity to Anim+0xFC, separately from the instance

@@ -1386,7 +1386,12 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
-            notice(state, "Update VERA20k to use secure online multiplayer.");
+            // The login has no lobby yet, so a chat line would be lost: the
+            // failure's own box says why.
+            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
+            if !super::service::replace_open_box_body(state, UPDATE) {
+                notice(state, UPDATE);
+            }
         }
         http::Response::Channels(list) => service_event(
             state,

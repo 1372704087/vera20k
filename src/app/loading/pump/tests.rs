@@ -52,6 +52,148 @@ pub(super) fn test_launch_session(country: LaunchCountry) -> SkirmishLaunchSessi
 }
 
 #[test]
+fn recorded_network_mode_stays_in_shell_until_the_world_is_installed() {
+    use crate::app::match_runtime::session::{MatchSession, SessionMode};
+    let startup = LoadingStartup::Replay {
+        session: test_launch_session(LaunchCountry::America),
+        seed: crate::app::match_bootstrap::MatchSeed {
+            value: 73,
+            source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,
+            seed_authority_certifying: false,
+        },
+        game_mode: SessionMode::Wol,
+        native_id_prefix: 0,
+    };
+    let mut session = MatchSession::default();
+    prepare_session_for_loading(&mut session, &startup);
+    assert_eq!(session.shell_mode(), Some(SessionMode::Wol));
+    assert_eq!(session.local_player_name(), Some("Player"));
+    assert!(session.network_return_context().is_none());
+    assert!(session.network_setup().is_none());
+    session.hand_mode_to_world(SessionMode::Wol);
+    assert_eq!(session.shell_mode(), None);
+}
+
+#[test]
+#[ignore = "slow; retail warm/cold ordered online startup"]
+fn sequenced_wol_cold_and_warm_rules_share_world_and_agreement_identity() {
+    use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext, SessionMode};
+    use crate::sim::native_identity::modern_online_native_id_prefix;
+    let root = PathBuf::from(std::env::var_os("RA2_DIR").expect("retail RA2_DIR"));
+    let mut launch = test_launch_session(LaunchCountry::America);
+    launch.selected_map_file = Some("XMP03T4.MAP".into());
+    launch.opponents.clear();
+    launch.ai_player_count = 0;
+    let mut remote = launch.humans[0].clone();
+    remote.name = "Remote".into();
+    remote.raw_slot_index = Some(1);
+    remote.slot.country = LaunchCountry::Russia;
+    remote.slot.color_index = 1;
+    remote.slot.start_position = LaunchStartPosition::Position(1);
+    launch.humans.push(remote);
+    launch.rebuild_house_roster();
+    let mut session = MatchSession::default();
+    session.enter_network(NetworkReturnContext::Wol);
+    session.accept_network_setup(launch, true, Some(7)).unwrap();
+    session.prepare_wol_timing([0], true).unwrap();
+    let startup = session.freeze_network_start(73).unwrap();
+    let LoadingStartup::Network(admitted) = &startup else {
+        unreachable!()
+    };
+    let checkpoint = startup.native_id_prefix();
+    assert_eq!(checkpoint, Some(0));
+    assert_eq!(modern_online_native_id_prefix(SessionMode::Lan, 2), None);
+    assert_eq!(modern_online_native_id_prefix(SessionMode::Wol, 1), None);
+
+    let assets = AssetManager::new(
+        &root,
+        crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+    )
+    .unwrap();
+    let audio = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+    let (_, _, mut process_rules) = crate::rules::retail_sources::load_startup_rules(
+        &assets,
+        std::sync::Arc::clone(audio.sounds()),
+        std::sync::Arc::clone(audio.eva()),
+    )
+    .unwrap()
+    .into_parts();
+    let load = |rules: Option<&mut crate::rules::process_owner::NativeRulesProcessOwner>,
+                prefix| {
+        crate::headless_scenario::load_with_launch_and_ini(
+            &root,
+            "XMP03T4.MAP",
+            73,
+            crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(
+                admitted.launch_session().clone(),
+            )
+            .unwrap(),
+            &Default::default(),
+            SessionMode::Wol,
+            prefix,
+            rules,
+        )
+        .unwrap()
+    };
+    // A real completed prior map load warms this independent process owner.
+    drop(load(Some(&mut process_rules), None));
+    let mut warm = load(Some(&mut process_rules), checkpoint);
+    let mut cold = load(None, checkpoint);
+    let mut agreements = Vec::new();
+    for scene in [&mut warm, &mut cold] {
+        let bindings = admitted
+            .launch_session()
+            .humans
+            .iter()
+            .enumerate()
+            .map(|(source, human)| {
+                (
+                    human.raw_slot_index.unwrap(),
+                    i8::try_from(
+                        crate::app::match_runtime::network_match::source_house(
+                            &session,
+                            scene.sim(),
+                            source,
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let sim = &mut scene.runtime.simulation;
+        crate::app::loading::init::install_startup_session_mode(sim, &startup);
+        sim.batch_path_searches();
+        sim.network_command_queues().install_timing(
+            bindings[0].1,
+            std::num::NonZeroU8::new(1).unwrap(),
+            bindings.iter().map(|&(_, house)| house),
+        );
+        sim.network_command_queues().configure_sequenced_clock(45);
+        agreements.push(
+            crate::net::live_commands::StartupAgreement::new(
+                bindings.iter().copied(),
+                bindings.iter().map(|&(row, _)| row),
+                73,
+                admitted.max_ahead_frames(),
+                45,
+                std::num::NonZeroU32::new(1).unwrap(),
+                sim.state_hash(),
+            )
+            .unwrap(),
+        );
+    }
+    assert_eq!(warm.sim().state_hash(), cold.sim().state_hash());
+    assert_eq!(warm.sim().native_identity_prefix_checkpoint(), Some(0));
+    assert_eq!(
+        warm.sim().native_identity_cursor(),
+        cold.sim().native_identity_cursor()
+    );
+    // The full value object includes every private sequencing-identity input.
+    assert_eq!(agreements[0], agreements[1]);
+}
+
+#[test]
 fn failed_network_load_retries_its_shell_without_installing_an_offline_fallback() {
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext, SessionMode};
     let mut session = MatchSession::default();

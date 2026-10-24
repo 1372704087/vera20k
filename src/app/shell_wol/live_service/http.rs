@@ -57,10 +57,18 @@ pub(super) enum Request {
         nickname: String,
     },
     Channels(u32),
+    /// `GET /v1/stats`; a failure is dropped and the next poll asks again.
+    Stats,
     Command {
         id: u64,
         operation: &'static str,
         payload: Value,
+    },
+    /// `POST /v1/translate`, answered by [`Response::Translated`].
+    Translate {
+        id: u64,
+        text: String,
+        target: &'static str,
     },
 }
 
@@ -109,6 +117,7 @@ pub(super) enum Response {
         attempt: u64,
     },
     Channels(ChannelList),
+    Stats(crate::ui::wol_shell::WolLobbyStats),
     Event(Envelope),
     CommandCompleted {
         id: u64,
@@ -124,6 +133,18 @@ pub(super) enum Response {
     StartRejected {
         id: u64,
     },
+    Translated {
+        id: u64,
+        outcome: Result<String, TranslateFailure>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TranslateFailure {
+    /// No translator, model failure, budget or limit: try again later.
+    Unavailable,
+    /// The lobby refused this line or language (400).
+    Unsupported,
 }
 
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
@@ -203,6 +224,7 @@ struct Client {
     base: String,
     token: Option<String>,
     cursor: u64,
+    active_match: Option<String>,
 }
 
 fn decode_session(value: Value, requested_nickname: &str) -> Result<Session, RequestFailure> {
@@ -230,6 +252,23 @@ fn decode_session(value: Value, requested_nickname: &str) -> Result<Session, Req
 
 impl Client {
     fn session_failed(&mut self, error: RequestFailure, output: &Sender<Response>) -> bool {
+        if error == RequestFailure::LostCursor
+            && let Some(match_id) = self.active_match.clone()
+        {
+            let recovered = self
+                .request(&format!("/v1/match/resume?match_id={match_id}"), None)
+                .and_then(|value| self.accept_match_resume(value, output));
+            // Shell event history is separate from the committed gameplay
+            // journal. Network failures keep the same bearer/identity/cursor
+            // until a matching active-match recovery succeeds.
+            if !matches!(
+                recovered,
+                Err(RequestFailure::Status(401) | RequestFailure::AlreadyFinished)
+            ) {
+                return true;
+            }
+            self.active_match = None;
+        }
         if matches!(
             error,
             RequestFailure::Status(401) | RequestFailure::LostCursor
@@ -256,6 +295,33 @@ impl Client {
         } else {
             false
         }
+    }
+
+    fn accept_match_resume(
+        &mut self,
+        value: Value,
+        output: &Sender<Response>,
+    ) -> Result<(), RequestFailure> {
+        let match_id = value["match_id"]
+            .as_str()
+            .ok_or(RequestFailure::Status(0))?;
+        let cursor = value["cursor"].as_u64().ok_or(RequestFailure::Status(0))?;
+        if self.active_match.as_deref() != Some(match_id) || cursor < self.cursor {
+            return Err(RequestFailure::Status(0));
+        }
+        // The app validates the same grant's exact match/player/crypto binding
+        // before it renews its UDP lease; never replace its gameplay session.
+        serde_json::from_value::<super::wire::RelayGrant>(value["relay"].clone())
+            .map_err(|_| RequestFailure::Status(0))?;
+        output
+            .send(Response::Event(Envelope {
+                sequence: cursor,
+                kind: "relay_renewed".to_owned(),
+                payload: json!({"match_id":match_id,"relay":value["relay"]}),
+            }))
+            .map_err(|_| RequestFailure::Status(0))?;
+        self.cursor = cursor;
+        Ok(())
     }
 
     fn poll_finished(
@@ -339,6 +405,12 @@ impl Client {
         // Each event stays on the same FIFO until the UI may pump messages;
         // emitting one batch would force the consumer to duplicate its tail.
         for event in batch.events {
+            if event.kind == "timing_confirmed"
+                && let Some(id) = event.payload["match_id"].as_str()
+                && super::relay_uuid(id).is_ok()
+            {
+                self.active_match = Some(id.to_owned());
+            }
             output
                 .send(Response::Event(event))
                 .map_err(|_| RequestFailure::Status(0))?;
@@ -364,6 +436,45 @@ impl Client {
     }
 }
 
+/// The model takes about a second, so translation has its own thread and
+/// polling and commands never wait for it. A job carries the current bearer.
+fn spawn_translator(
+    client: &Client,
+    output: &Sender<Response>,
+) -> Option<Sender<(u64, String, String, &'static str)>> {
+    let (jobs, input) = std::sync::mpsc::channel::<(u64, String, String, &'static str)>();
+    let mut translator = Client {
+        stopping: Arc::clone(&client.stopping),
+        agent: client.agent.clone(),
+        base: client.base.clone(),
+        token: None,
+        cursor: 0,
+        active_match: None,
+    };
+    let output = output.clone();
+    std::thread::Builder::new()
+        .name("vera-translate".into())
+        .spawn(move || {
+            for (id, token, text, target) in input {
+                translator.token = Some(token);
+                let body = json!({"text":text,"target":target});
+                let outcome = match translator.request("/v1/translate", Some(&body)) {
+                    Ok(value) => value["text"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or(TranslateFailure::Unavailable),
+                    Err(RequestFailure::Status(400)) => Err(TranslateFailure::Unsupported),
+                    Err(_) => Err(TranslateFailure::Unavailable),
+                };
+                if output.send(Response::Translated { id, outcome }).is_err() {
+                    break;
+                }
+            }
+        })
+        .ok()
+        .map(|_| jobs)
+}
+
 pub(super) fn run(
     base: String,
     input: Receiver<Request>,
@@ -382,7 +493,9 @@ pub(super) fn run(
         base,
         token: None,
         cursor: 0,
+        active_match: None,
     };
+    let translator = spawn_translator(&client, &output);
     let mut failed_polls = 0_u8;
     let mut next_poll = Instant::now();
     loop {
@@ -556,10 +669,11 @@ pub(super) fn run(
                     continue;
                 }
                 client.cursor = 0;
+                client.active_match = None;
                 let result = client
                     .request(
                         "/v1/sessions",
-                        Some(&json!({"nickname": nickname, "protocol": 3})),
+                        Some(&json!({"nickname": nickname, "protocol": 4})),
                     )
                     .and_then(|value| decode_session(value, &nickname));
                 match result {
@@ -617,6 +731,13 @@ pub(super) fn run(
                     }
                 }
             }
+            Some(Request::Stats) => {
+                if let Ok(stats) = client.request("/v1/stats", None).and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))
+                }) {
+                    let _ = output.send(Response::Stats(stats));
+                }
+            }
             Some(Request::Command {
                 id,
                 operation,
@@ -666,6 +787,9 @@ pub(super) fn run(
                 }
                 match result {
                     Ok(()) => {
+                        if matches!(operation, "finish" | "leave" | "logout") {
+                            client.active_match = None;
+                        }
                         let _ = output.send(Response::CommandCompleted { id, operation });
                     }
                     Err(error)
@@ -685,6 +809,18 @@ pub(super) fn run(
                 }
                 if operation == "logout" && completed {
                     client.token = None;
+                }
+            }
+            Some(Request::Translate { id, text, target }) => {
+                let job = client.token.clone().map(|token| (id, token, text, target));
+                if job
+                    .and_then(|job| translator.as_ref()?.send(job).ok())
+                    .is_none()
+                {
+                    let _ = output.send(Response::Translated {
+                        id,
+                        outcome: Err(TranslateFailure::Unavailable),
+                    });
                 }
             }
             None => {}
@@ -786,6 +922,7 @@ mod tests {
             base: String::new(),
             token: Some("synthetic-test-session".to_owned()),
             cursor: 19,
+            active_match: None,
         };
         let mut failures = 0;
         assert_eq!(
@@ -825,6 +962,7 @@ mod tests {
             base: String::new(),
             token: Some("synthetic-test-session".to_owned()),
             cursor: 19,
+            active_match: None,
         };
         let conflict = RequestFailure::response(
             409,
@@ -858,6 +996,7 @@ mod tests {
             base: String::new(),
             token: None,
             cursor: 0,
+            active_match: None,
         };
         let response = json!({"cursor":2,"events":[
             {"sequence":1,"kind":"created","payload":{}},
@@ -883,5 +1022,49 @@ mod tests {
             "replayed batches must not enqueue duplicates"
         );
         assert_eq!(client.cursor, 2);
+    }
+
+    #[test]
+    fn active_match_resume_preserves_identity_and_rejects_another_match_or_old_cursor() {
+        let (output, input) = std::sync::mpsc::channel();
+        let id = "11111111-1111-1111-1111-111111111111";
+        let mut client = Client {
+            stopping: Arc::new(AtomicBool::new(false)),
+            agent: ureq::Agent::new_with_defaults(),
+            base: String::new(),
+            token: Some("synthetic-test-session".to_owned()),
+            cursor: 19,
+            active_match: None,
+        };
+        client
+            .batch(
+                json!({"cursor":20,"events":[{"sequence":20,"kind":"timing_confirmed",
+            "payload":{"match_id":id}}]}),
+                &output,
+            )
+            .unwrap();
+        assert_eq!(client.active_match.as_deref(), Some(id));
+        input.recv().unwrap();
+        // Grant cryptographic binding is tested at the app's existing decoder;
+        // this worker test bounds shell cursor recovery and identity lifetime.
+        let response = json!({"match_id":id,"cursor":30,"relay":{
+            "address":"127.0.0.1:5000","ticket":"test","packet_key":"test",
+            "payload_key":"test","source_index":1,"ordering_certificate":"test"}});
+        let mut other = response.clone();
+        other["match_id"] = json!("22222222-2222-2222-2222-222222222222");
+        assert!(client.accept_match_resume(other, &output).is_err());
+        let mut old = response.clone();
+        old["cursor"] = json!(18);
+        assert!(client.accept_match_resume(old, &output).is_err());
+        assert_eq!(client.cursor, 20);
+        assert!(input.try_recv().is_err());
+        client.accept_match_resume(response, &output).unwrap();
+        assert_eq!(client.cursor, 30);
+        assert!(client.token.is_some());
+        let Response::Event(event) = input.recv().unwrap() else {
+            panic!("missing renewal");
+        };
+        assert_eq!(event.kind, "relay_renewed");
+        assert_eq!(event.payload["match_id"], id);
     }
 }

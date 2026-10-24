@@ -602,7 +602,7 @@ pub(crate) fn prepare(state: &mut AppState, exact_capture: bool) {
         || state
             .match_state
             .presentation_paused(&state.frontend.screen)
-        || state.platform.focus_freeze_active();
+        || state.focus_freeze_active();
     let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32;
     let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
         return;

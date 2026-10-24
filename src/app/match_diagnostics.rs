@@ -33,6 +33,15 @@ pub(crate) struct MatchDiagnosticsState {
     pub(crate) replay_log: Option<ReplayLog>,
     command_executions: Option<CommandExecutionLog>,
     loading_cancel: Option<Vec<LoadingCancelObservation>>,
+    replay_playback: Option<ReplayPlaybackState>,
+    replay_capture_output: Option<PathBuf>,
+    replay_artifact_sha256: Option<String>,
+}
+
+enum ReplayPlaybackState {
+    Loading(std::sync::Arc<ReplayLog>),
+    Playing(crate::sim::replay::ReplayPlayback),
+    Failed(String),
 }
 
 /// One actual post-formation native command dispatch and its immediate
@@ -118,6 +127,161 @@ pub(crate) struct ReplayLogFlush {
 }
 
 impl MatchDiagnosticsState {
+    pub(crate) fn is_replay_playback(&self) -> bool {
+        self.replay_playback.is_some()
+    }
+
+    pub(crate) fn begin_playback(
+        &mut self,
+        replay: std::sync::Arc<ReplayLog>,
+        capture_output: Option<PathBuf>,
+        replay_sha256: String,
+    ) {
+        self.replay_playback = Some(ReplayPlaybackState::Loading(replay));
+        self.replay_capture_output = capture_output;
+        self.replay_artifact_sha256 = Some(replay_sha256);
+    }
+
+    pub(crate) fn install_playback(
+        &mut self,
+        runtime: &mut crate::sim::runtime::SimRuntime,
+        source: &crate::map::source::LoadedMapSource,
+        map_hash: u64,
+    ) -> anyhow::Result<()> {
+        let replay = match self.replay_playback.take() {
+            Some(ReplayPlaybackState::Loading(replay)) => replay,
+            other => {
+                self.replay_playback = other;
+                anyhow::bail!("replay loader lost its immutable startup");
+            }
+        };
+        match crate::sim::replay::ReplayPlayback::prepare(runtime, replay, source, map_hash) {
+            Ok(playback) => {
+                self.replay_playback = Some(ReplayPlaybackState::Playing(playback));
+                Ok(())
+            }
+            Err(error) => {
+                self.replay_playback = Some(ReplayPlaybackState::Failed(format!("{error:#}")));
+                Err(error)
+            }
+        }
+    }
+
+    pub(crate) fn playback_can_advance(&self) -> bool {
+        matches!(&self.replay_playback, Some(ReplayPlaybackState::Playing(playback)) if playback.can_advance())
+    }
+
+    pub(crate) fn playback_status(&self) -> Option<String> {
+        Some(match self.replay_playback.as_ref()? {
+            ReplayPlaybackState::Loading(_) => "Loading replay".to_owned(),
+            ReplayPlaybackState::Failed(error) => format!("Replay failed: {error} — Esc to exit"),
+            ReplayPlaybackState::Playing(playback) => match playback.failure() {
+                Some(error) => format!("Replay failed: {error} — Esc to exit"),
+                None if playback.is_finished() => {
+                    "Replay ended — camera controls available; Esc to exit".to_owned()
+                }
+                None => "Replay — camera controls available; Esc to exit".to_owned(),
+            },
+        })
+    }
+
+    /// Disjoint borrows keep the recorder/observation owner beside playback;
+    /// no caller moves the cursor out or temporarily disables the input gate.
+    pub(crate) fn playback_and_observations_mut(
+        &mut self,
+    ) -> (
+        Option<&mut crate::sim::replay::ReplayPlayback>,
+        Option<&mut CommandExecutionLog>,
+    ) {
+        let playback = match &mut self.replay_playback {
+            Some(ReplayPlaybackState::Playing(playback)) => Some(playback),
+            _ => None,
+        };
+        (playback, self.command_executions.as_mut())
+    }
+
+    pub(crate) fn playback_capture_ready(&self) -> bool {
+        self.replay_capture_output.is_some()
+            && match &self.replay_playback {
+                Some(ReplayPlaybackState::Failed(_)) => true,
+                Some(ReplayPlaybackState::Playing(playback)) => !playback.can_advance(),
+                _ => false,
+            }
+    }
+
+    pub(crate) fn playback_capture_requested(&self) -> bool {
+        self.replay_capture_output.is_some()
+    }
+
+    /// The explicit automation flag captures the same final visible frame.
+    /// Files are exclusively created; ordinary replay never writes a capture
+    /// or exits automatically.
+    pub(crate) fn complete_playback_capture(
+        &mut self,
+        runtime: &crate::sim::runtime::SimRuntime,
+        width: u32,
+        height: u32,
+        pixels: &[u8],
+    ) -> anyhow::Result<()> {
+        use anyhow::Context;
+        use image::ImageEncoder;
+        use std::io::Write;
+        anyhow::ensure!(
+            self.playback_capture_ready(),
+            "replay capture is not complete"
+        );
+        anyhow::ensure!(
+            pixels.len() as u64 == u64::from(width) * u64::from(height) * 4,
+            "replay BGRA readback dimensions differ"
+        );
+        let path = self
+            .replay_capture_output
+            .as_ref()
+            .context("replay capture path")?;
+        let mut rgba = pixels.to_vec();
+        for pixel in rgba.chunks_exact_mut(4) {
+            pixel.swap(0, 2);
+        }
+        let mut png = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut png).write_image(
+            &rgba,
+            width,
+            height,
+            image::ExtendedColorType::Rgba8,
+        )?;
+        let verification = match &self.replay_playback {
+            Some(ReplayPlaybackState::Playing(playback)) if playback.failure().is_none() => {
+                Some(playback.verification(runtime)?)
+            }
+            _ => None,
+        };
+        let receipt = serde_json::json!({
+            "replay_sha256": self.replay_artifact_sha256,
+            "png_sha256": crate::util::sha256::sha256_hex(&png),
+            "width": width, "height": height, "status": self.playback_status(),
+            "verification": verification,
+            "recorded_final_state_hash": match &self.replay_playback {
+                Some(ReplayPlaybackState::Playing(playback)) => playback.recorded_final_hash(), _ => None,
+            },
+        });
+        for (output, bytes) in [
+            (path.clone(), png),
+            (
+                path.with_extension("json"),
+                serde_json::to_vec_pretty(&receipt)?,
+            ),
+        ] {
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(&output)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+        }
+        self.replay_capture_output = None;
+        Ok(())
+    }
+
     pub(crate) fn begin_loading_cancel_observation(&mut self) {
         self.loading_cancel.get_or_insert_with(Vec::new);
     }
@@ -172,6 +336,9 @@ impl MatchDiagnosticsState {
         &mut self,
         runtime: &crate::sim::runtime::SimRuntime,
     ) -> Option<&mut ReplayLog> {
+        if self.is_replay_playback() {
+            return None;
+        }
         // Trainer changes are deliberately outside the ordinary command log.
         // The caller closes the valid prefix before the first such mutation;
         // never emit an apparently replayable continuation afterward.
@@ -191,6 +358,42 @@ impl MatchDiagnosticsState {
                 rules_hash: runtime.resources.rules.simulation_config_hash(),
             })
         }))
+    }
+
+    /// Attach startup only before any commands or scenario service has been
+    /// recorded. The Simulation and accepted launch remain the sole owners.
+    pub(crate) fn retain_replay_startup(
+        &mut self,
+        runtime: &crate::sim::runtime::SimRuntime,
+        launch: Option<&crate::skirmish_launch::SkirmishLaunchSession>,
+        source: Option<&crate::map::source::LoadedMapSource>,
+        map_hash: Option<u64>,
+        every_frame_network: bool,
+    ) {
+        let Some(log) = self.replay_log.as_mut().filter(|log| {
+            log.startup.is_none()
+                && log.ticks.is_empty()
+                && log.initial_scenario_services.is_empty()
+        }) else {
+            return;
+        };
+        let (Some(launch), Some(source), Some(map_hash)) = (launch, source, map_hash) else {
+            return;
+        };
+        match crate::sim::replay::ReplayStartup::capture(
+            runtime,
+            launch,
+            source,
+            map_hash,
+            crate::app::types::SIM_TICK_MS,
+            every_frame_network,
+        ) {
+            Ok(startup) => {
+                log.header.version = crate::sim::replay::REPLAY_VERSION;
+                log.startup = Some(Box::new(startup));
+            }
+            Err(error) => log::debug!("Standalone replay startup unavailable: {error}"),
+        }
     }
 
     /// Persist and consume the active segment. `Ok(None)` when there is no
@@ -383,6 +586,40 @@ mod tests {
 
     fn sample_log() -> ReplayLog {
         sample_log_with(0x1234, "gsi_17_08.map", 0x9abc)
+    }
+
+    #[test]
+    fn playback_owns_input_during_loading_and_failure_without_recording_or_changing_world() {
+        let mut runtime = crate::sim::runtime::SimRuntime::from_simulation(
+            crate::sim::world::Simulation::with_seed(7),
+        );
+        let hash = runtime.simulation.state_hash();
+        let mut diagnostics = MatchDiagnosticsState::default();
+        diagnostics.begin_playback(std::sync::Arc::new(sample_log()), None, "0".repeat(64));
+        assert!(diagnostics.is_replay_playback());
+        assert!(!diagnostics.playback_can_advance());
+        assert!(diagnostics.get_or_begin_replay(&runtime).is_none());
+        assert!(
+            diagnostics
+                .install_playback(
+                    &mut runtime,
+                    &crate::map::source::LoadedMapSource::LegacyFallback {
+                        label: "unused".into()
+                    },
+                    0
+                )
+                .is_err()
+        );
+        assert!(diagnostics.is_replay_playback());
+        assert!(!diagnostics.playback_can_advance());
+        assert!(
+            diagnostics
+                .playback_status()
+                .unwrap()
+                .starts_with("Replay failed")
+        );
+        assert!(diagnostics.get_or_begin_replay(&runtime).is_none());
+        assert_eq!(runtime.simulation.state_hash(), hash);
     }
 
     fn diagnostics_with_segment() -> MatchDiagnosticsState {

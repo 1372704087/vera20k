@@ -1624,6 +1624,12 @@ pub struct GeneralRules {
     /// 0x005276D0` at `0x00671DA7`; the constructor writes 5 (`0x006656EE` →
     /// `0x006657CD`).
     pub maximum_queued_objects: i32,
+    /// Phobos `[General] BuildingProductionQueue=` (default false): a
+    /// BuildingType PRODUCE queues behind a running or completed building
+    /// instead of being dropped or abandoning the held product. The next
+    /// building starts only after the held one is placed.
+    #[cfg(feature = "phobos")]
+    pub building_production_queue: bool,
     /// `Rules+0xD78`, `[General] HarvesterTooFarDistance=` in cells: a
     /// refinery farther than this is approached before the dock is reserved.
     /// `RulesClass::ReadGeneral` reads it through `CCINIClass::ReadInt
@@ -2625,6 +2631,8 @@ impl Default for GeneralRules {
             slave_miner_scan_correction: 0x300,
             slave_miner_kick_frame_delay: 0x7FFF_FFFF,
             maximum_queued_objects: 5,
+            #[cfg(feature = "phobos")]
+            building_production_queue: false,
             harvester_too_far_distance: 5,
             approach_target_reset_multiplier: 1,
             chrono_harv_too_far_distance: 50,
@@ -3894,6 +3902,8 @@ impl GeneralRules {
             slave_miner_scan_correction: general.read_range("SlaveMinerScanCorrection", 0x300),
             slave_miner_kick_frame_delay: general.read_int("SlaveMinerKickFrameDelay", 0x7FFF_FFFF),
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
+            #[cfg(feature = "phobos")]
+            building_production_queue: general.read_bool("BuildingProductionQueue", false),
             harvester_too_far_distance: general.read_int("HarvesterTooFarDistance", 5),
             approach_target_reset_multiplier: general.read_int("ApproachTargetResetMultiplier", 1),
             chrono_harv_too_far_distance: general.read_int("ChronoHarvTooFarDistance", 50),
@@ -4180,6 +4190,11 @@ pub struct RuleSet {
     side_extensions: Vec<(i32, bool, i32)>,
     /// Uppercase side identity -> source-order index.
     side_indices: HashMap<String, SideIdx>,
+    /// Phobos `[SOMESIDE] Sidebar.GDIPositions=`, in `[Sides]` order.
+    /// The first side defaults to GDI positions; all others default to the
+    /// NOD table. Unlike SideExt+88 this is read without the Ares feature.
+    #[cfg(feature = "phobos")]
+    side_gdi_positions: Vec<bool>,
     /// Effective side for each country after `[Sides]` membership and the
     /// per-country `Side=` override have both run.
     country_sides: Vec<Option<SideIdx>>,
@@ -5526,6 +5541,17 @@ impl RuleSet {
         };
         let radar_event_config: RadarEventConfig = RadarEventConfig::from_ini(ini);
         let countries = country_side_registry.rules;
+        #[cfg(feature = "phobos")]
+        let side_gdi_positions: Vec<bool> = country_side_registry
+            .side_ids
+            .iter()
+            .enumerate()
+            .map(|(index, name)| {
+                ini.section(name).map_or(index == 0, |section| {
+                    section.read_bool("Sidebar.GDIPositions", index == 0)
+                })
+            })
+            .collect();
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
         let house_color_ramps =
             crate::rules::house_colors::HouseColorRamps::from_schemes(&color_schemes);
@@ -5806,6 +5832,8 @@ impl RuleSet {
             country_ids: country_side_registry.country_ids,
             country_indices: country_side_registry.country_indices,
             side_ids: country_side_registry.side_ids,
+            #[cfg(feature = "phobos")]
+            side_gdi_positions,
             #[cfg(feature = "ares")]
             side_extensions: country_side_registry.side_extensions,
             side_indices: country_side_registry.side_indices,
@@ -6451,6 +6479,11 @@ impl RuleSet {
         }
         #[cfg(feature = "phobos")]
         {
+            b"phobos-sidebar-gdi-positions-v1".hash(&mut hasher);
+            self.side_gdi_positions.hash(&mut hasher);
+        }
+        #[cfg(feature = "phobos")]
+        {
             b"phobos-radiation-types-v1".hash(&mut hasher);
             self.radiation.radiation_types.hash(&mut hasher);
             // Bound weapon `RadType=` names, in registry order.
@@ -7084,6 +7117,8 @@ impl RuleSet {
         self.general.lightning_warhead.hash(&mut hasher);
         self.general.weather_con_bolt_explosion.hash(&mut hasher);
         self.general.weapon_nullify_anim.hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        self.general.building_production_queue.hash(&mut hasher);
         self.combat_damage.splash_list.hash(&mut hasher);
         self.combat_damage.death_weapon.hash(&mut hasher);
         // The live family order is independent of HashMap iteration and may
@@ -7679,6 +7714,16 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or
+    /// out-of-range side falls back to the first-side default (index 0 true).
+    #[cfg(feature = "phobos")]
+    pub fn side_gdi_positions(&self, index: i32) -> bool {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_gdi_positions.get(index).copied())
+            .unwrap_or(index == 0)
     }
 
     /// Resolve a side index back to its source spelling.
@@ -9732,6 +9777,30 @@ CellSpread=0
         assert_eq!(rules.side_index("north"), Some(SideIdx(0)));
         assert_eq!(rules.side_index("SOUTH"), Some(SideIdx(1)));
         assert_eq!(rules.side_name(SideIdx(0)), Some("North"));
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn sidebar_gdi_positions_default_the_first_side_and_read_side_sections() {
+        let ini = IniFile::from_str(
+            "[Countries]\n0=Alpha\n1=Beta\n2=Gamma\n\
+             [Sides]\nNorth=Alpha\nSouth=Beta\nThird=Gamma\n\
+             [North]\nSidebar.GDIPositions=no\n\
+             [Third]\nSidebar.GDIPositions=yes\n",
+        );
+        let rules = RuleSet::from_ini(&ini).expect("side sections parse");
+        assert!(!rules.side_gdi_positions(0), "explicit no");
+        assert!(!rules.side_gdi_positions(1), "default non-first side");
+        assert!(rules.side_gdi_positions(2), "explicit yes");
+        assert!(!rules.side_gdi_positions(99), "missing side is NOD");
+        assert!(!rules.side_gdi_positions(-1), "negative side is NOD");
+
+        let defaults = RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Alpha\n1=Beta\n[Sides]\nNorth=Alpha\nSouth=Beta\n",
+        ))
+        .expect("default side positions parse");
+        assert!(defaults.side_gdi_positions(0));
+        assert!(!defaults.side_gdi_positions(1));
     }
 
     #[test]

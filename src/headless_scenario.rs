@@ -99,6 +99,8 @@ pub struct HeadlessScenario {
     /// resources - no independently swappable execution inputs remain.
     pub runtime: crate::sim::runtime::SimRuntime,
     pub map: MapFile,
+    /// Identity of the exact map payload consumed by this construction.
+    pub source: crate::map::source::LoadedMapSource,
 }
 
 impl HeadlessScenario {
@@ -178,17 +180,30 @@ pub fn load_with_launch(
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
 ) -> Result<HeadlessScenario, String> {
-    load_with_launch_and_ini(retail_dir, map_file_name, seed, launch, &Default::default())
+    load_with_launch_and_ini(
+        retail_dir,
+        map_file_name,
+        seed,
+        launch,
+        &Default::default(),
+        crate::sim::scenario_session::ScenarioGameMode::Skirmish,
+        None,
+        None,
+    )
 }
 
-/// Explicit host policy for non-YR callers; no hidden cwd/config reread.
-/// Rules, fixed Art and AI all consume the one resolved provider choice.
+/// Explicit asset policy and launch GameMode; no hidden cwd/config reread.
+/// Rules, fixed Art and AI consume the one resolved provider choice. Replays
+/// retain the recorded mode before any mode-dependent House construction.
 pub fn load_with_launch_and_ini(
     retail_dir: &Path,
     map_file_name: &str,
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
     ini: &crate::util::ini_roots::IniRootConfig,
+    game_mode: crate::sim::scenario_session::ScenarioGameMode,
+    accepted_native_id_prefix: Option<u32>,
+    process_rules: Option<&mut crate::rules::process_owner::NativeRulesProcessOwner>,
 ) -> Result<HeadlessScenario, String> {
     let mut assets = AssetManager::new(retail_dir, MediaArchiveMode::STOCK_DIGITAL)
         .and_then(|assets| assets.with_ini_roots(ini))
@@ -198,7 +213,16 @@ pub fn load_with_launch_and_ini(
                 retail_dir.display()
             )
         })?;
-    load_with_assets(retail_dir, map_file_name, seed, launch, &mut assets)
+    load_with_assets(
+        retail_dir,
+        map_file_name,
+        seed,
+        launch,
+        &mut assets,
+        game_mode,
+        accepted_native_id_prefix,
+        process_rules,
+    )
 }
 
 /// Reuse the production headless scenario load after retail scenario discovery
@@ -211,7 +235,16 @@ pub(crate) fn load_with_registered_scenario_assets(
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
     assets: &mut AssetManager,
 ) -> Result<HeadlessScenario, String> {
-    load_with_assets(retail_dir, map_file_name, seed, launch, assets)
+    load_with_assets(
+        retail_dir,
+        map_file_name,
+        seed,
+        launch,
+        assets,
+        crate::sim::scenario_session::ScenarioGameMode::Skirmish,
+        None,
+        None,
+    )
 }
 
 fn load_with_assets(
@@ -220,22 +253,33 @@ fn load_with_assets(
     seed: u32,
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
     assets: &mut AssetManager,
+    game_mode: crate::sim::scenario_session::ScenarioGameMode,
+    accepted_native_id_prefix: Option<u32>,
+    process_rules: Option<&mut crate::rules::process_owner::NativeRulesProcessOwner>,
 ) -> Result<HeadlessScenario, String> {
-    let mut map =
+    let loaded_map =
         crate::map::source::load_map_by_name_or_path_with_assets(retail_dir, map_file_name, assets)
-            .map_err(|error| format!("load map {map_file_name}: {error}"))?
-            .map;
+            .map_err(|error| format!("load map {map_file_name}: {error}"))?;
+    let source = loaded_map.source;
+    let mut map = loaded_map.map;
     // Preserve the process-owned cold Rules registry before theater archive
     // priority changes. The same owner then performs the active noncampaign
     // reset/rebuild and transfers its move-only native-ID receipt.
     let audio_definitions = crate::rules::audio_sources::AudioDefinitions::select(&assets);
-    let (_, _, mut native_rules_owner) = crate::rules::retail_sources::load_startup_rules(
-        &assets,
-        std::sync::Arc::clone(audio_definitions.sounds()),
-        std::sync::Arc::clone(audio_definitions.eva()),
-    )
-    .ok_or_else(|| "load native startup rules".to_string())?
-    .into_parts();
+    let mut cold_rules_owner;
+    let native_rules_owner = if let Some(owner) = process_rules {
+        owner
+    } else {
+        let (_, _, owner) = crate::rules::retail_sources::load_startup_rules(
+            &assets,
+            std::sync::Arc::clone(audio_definitions.sounds()),
+            std::sync::Arc::clone(audio_definitions.eva()),
+        )
+        .ok_or_else(|| "load native startup rules".to_string())?
+        .into_parts();
+        cold_rules_owner = owner;
+        &mut cold_rules_owner
+    };
     let scenario_prefix_plan =
         crate::sim::scenario_bootstrap::prepare_stock_offline_scenario_prefix_plan(
             &launch,
@@ -321,6 +365,14 @@ fn load_with_assets(
     let (mut sim, scenario_prefix_projection) = bootstrap_rng
         .into_stock_offline_staged_simulation(&descriptor, bound_scenario_prefix)
         .map_err(|error| format!("stage stock-offline Simulation: {error}"))?;
+    // CreateHouses687FCE..688092 gives WOL humans their node name; other
+    // modes use "<human player>". The House owner hashes that native identity,
+    // so restoring GameMode after construction cannot reconstruct a WOL start.
+    sim.install_session_mode(game_mode);
+    if let Some(checkpoint) = accepted_native_id_prefix {
+        sim.install_accepted_native_id_prefix(checkpoint)
+            .map_err(|error| format!("replay native-ID prefix: {error}"))?;
+    }
     let shared_cell_dummy = crate::map::resolved_terrain::SharedCellDummy::fresh();
     shared_cell_dummy.reconstruct_for_map_resize();
     sim.bind_shared_cell_dummy(shared_cell_dummy.clone());
@@ -417,7 +469,7 @@ fn load_with_assets(
         &theater,
         &assets,
         &mut rules,
-        &mut native_rules_owner,
+        native_rules_owner,
         &overlay_registry,
         &overlay_shp_ids,
         signed_new_ini_format,
@@ -482,6 +534,7 @@ fn load_with_assets(
             },
         },
         map,
+        source,
     })
 }
 

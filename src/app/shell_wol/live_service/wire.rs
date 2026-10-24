@@ -253,6 +253,7 @@ pub(super) struct RelayGrant {
     pub packet_key: String,
     pub payload_key: String,
     pub source_index: u8,
+    pub ordering_certificate: String,
 }
 
 #[derive(Deserialize)]

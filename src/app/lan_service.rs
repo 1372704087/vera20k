@@ -112,6 +112,9 @@ pub(crate) struct LanService {
     maps: maps::Transfers,
     pending_setup: std::collections::VecDeque<(Vec<u8>, GlobalDestination)>,
     transport: Option<LanUdpTransport>,
+    // Explicit visit exit, never inferred from silence or the current screen.
+    // The same socket owner survives until its terminal relay ACK arrives.
+    online_closing: bool,
     online_timing: Option<crate::net::lockstep::WolStartTiming>,
     games: Vec<DiscoveryRecord>,
     /// Radio observations for BB only; never admitted as gameplay endpoints.
@@ -120,8 +123,6 @@ pub(crate) struct LanService {
     pending_host: Option<SocketAddrV4>,
     admitted_host: Option<(String, SocketAddrV4)>,
     departure: Option<DepartureWait>,
-    deferred_match:
-        std::collections::VecDeque<super::match_runtime::session::NetworkLoadingRequest>,
     /// Native5DF9E0's independent discovery/query/presence timers.
     discovery_timer: super::match_runtime::session::WallBucketTimer,
     query_timer: super::match_runtime::session::WallBucketTimer,
@@ -193,6 +194,7 @@ impl LanService {
     fn with_transport(transport: LanUdpTransport) -> Self {
         Self {
             transport: Some(transport),
+            online_closing: false,
             online_timing: None,
             games: Vec::new(),
             observed_participants: Vec::new(),
@@ -200,7 +202,6 @@ impl LanService {
             pending_host: None,
             admitted_host: None,
             departure: None,
-            deferred_match: Default::default(),
             discovery_timer: Default::default(),
             query_timer: Default::default(),
             presence_timer: Default::default(),
@@ -986,7 +987,6 @@ impl LanService {
         self.deferred_setup.clear();
         self.pending_setup.clear();
         self.setup_reassembly = Default::default();
-        self.deferred_match.clear();
         self.force_query = false;
         self.force_presence = true;
     }
@@ -1140,6 +1140,13 @@ pub(crate) fn open(state: &mut AppState) {
     if state.platform.capture_client_size.is_some() {
         return;
     }
+    if online_retirement_pending(state) {
+        super::shell_lan::report_error(
+            state,
+            "Waiting to confirm departure from the previous online match.",
+        );
+        return;
+    }
     if state.match_state.lan_service.is_some() {
         return;
     }
@@ -1166,6 +1173,10 @@ pub(crate) fn install_online_transport(
     transport: LanUdpTransport,
     host_name: &str,
 ) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !online_retirement_pending(state),
+        "Waiting to confirm departure from the previous online match."
+    );
     anyhow::ensure!(
         state.match_state.live_network.is_none(),
         "a match already owns its transport"
@@ -1343,6 +1354,9 @@ pub(crate) fn poll(state: &mut AppState, now_ms: u64) {
         return;
     }
     let service_ok = service_transport(state, now);
+    if mode == Some(SessionMode::Lan) && cooperative::poll(state, now) {
+        return;
+    }
     if mode == Some(SessionMode::Wol) {
         // WOL room/configuration events stay with its HTTPS control plane.
         // Loading progress and in-match side channels share the same native
@@ -1703,6 +1717,28 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
                         }
                     };
                     super::shell_network_setup::service_event(state, event)?;
+                } else if text.starts_with(b"C0") {
+                    // 0x005E43CE: the host's campaign text. Like player
+                    // choices it names the session, not one options revision.
+                    ensure_host_source(state, incoming.source)?;
+                    let proof = message
+                        .session_proof()?
+                        .ok_or_else(|| anyhow::anyhow!("co-op campaign has no LAN scope"))?;
+                    if !state
+                        .match_state
+                        .lan_service
+                        .as_ref()
+                        .and_then(|service| service.setup_scope())
+                        .is_some_and(|scope| scope.epoch == proof.scope.epoch)
+                        || proof.version != super::shell_network_setup::agreement::version()
+                    {
+                        return Ok(());
+                    }
+                    let text = crate::util::native_string::widen_bytes(text);
+                    super::shell_network_setup::service_event(
+                        state,
+                        super::shell_network_setup::NetworkSetupEvent::CooperativeCampaign(text),
+                    )?;
                 } else {
                     options::receive_options(state, incoming.source, &message)?;
                 }
@@ -3007,7 +3043,19 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
     // Freeze shared setup-row/House bindings and loading-survivor set exactly
     // once. The existing canonical world hash includes the installed shared
     // timing rows; no first probe, vote or local clock can replace this value.
-    let frame_send_rate = online_timing.map_or(5, |timing| timing.frame_send_rate as u32);
+    let ordering_clock = state
+        .match_state
+        .lan_service
+        .as_ref()
+        .and_then(|service| service.transport.as_ref())
+        .and_then(|transport| transport.ordering_certificate())
+        .map(|bytes| crate::net::udp::OrderingCertificate::parse(&bytes))
+        .transpose()?
+        .filter(|cert| cert.sources_mask.count_ones() > 1);
+    let frame_send_rate = ordering_clock.map_or_else(
+        || online_timing.map_or(5, |timing| timing.frame_send_rate as u32),
+        |_| 1,
+    );
     let rate =
         std::num::NonZeroU32::new(frame_send_rate).expect("native multiplayer FrameSendRate");
     let sim = &mut state
@@ -3021,6 +3069,10 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
         std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
         source_houses,
     );
+    if let Some(clock) = ordering_clock {
+        sim.network_command_queues()
+            .configure_sequenced_clock(clock.tick_hz);
+    }
     let publisher = sim.network_timing_host_house();
     let agreement = crate::net::live_commands::StartupAgreement::new(
         full_houses,
@@ -3107,6 +3159,7 @@ pub(crate) fn return_transport(state: &mut AppState) {
     }
 }
 
+pub(crate) mod cooperative;
 mod loading;
 mod maps;
 mod options;
@@ -3217,11 +3270,16 @@ fn drain_match_requests(state: &mut AppState) {
                 }
             }
             NetworkLoadingRequest::Chat { recipients, text } => {
-                let color = state
-                    .match_state
-                    .session
-                    .network_setup()
-                    .map_or(-2, |launch| color_value(launch.local_player()));
+                // BC6's chat writes [0x7EEF2C] (0x0046E126).
+                let color = if state.match_state.session.cooperative_round().is_some() {
+                    crate::ui::wol_chat::PUBLIC_COLOR as i32
+                } else {
+                    state
+                        .match_state
+                        .session
+                        .network_setup()
+                        .map_or(-2, |launch| color_value(launch.local_player()))
+                };
                 let game_name = active_game_name(state).unwrap_or_default();
                 if let Ok(message) =
                     LanMessage::in_game_chat(&local_name(state), color as u32, &game_name, &text)
@@ -3254,15 +3312,8 @@ fn drain_match_requests(state: &mut AppState) {
                     send_sources(state, message.as_bytes(), peers);
                 }
             }
-            // The co-op round service retains these until its packet family
-            // is connected; an ordinary Battle match never emits them.
-            other => state
-                .match_state
-                .lan_service
-                .as_mut()
-                .expect("LAN visit")
-                .deferred_match
-                .push_back(other),
+            // BC6's records; an ordinary Battle match never emits them.
+            other => cooperative::send(state, other),
         }
     }
 }
@@ -3426,6 +3477,16 @@ fn drain_setup_requests(state: &mut AppState) {
             .is_some_and(|service| service.departure.is_some())
         {
             break;
+        }
+        // A guest reads C0 only under the scope the options before it bring.
+        if !deferred.is_empty()
+            && matches!(
+                request,
+                super::shell_network_setup::NetworkSetupRequest::PublishCooperativeCampaign(_)
+            )
+        {
+            deferred.push_back(request);
+            continue;
         }
         match setup_request(state, &request) {
             Ok(true) => {}
@@ -3614,6 +3675,16 @@ fn setup_request(
             short_options(state, if *ready { "A1" } else { "A0" })?
         }
         NetworkSetupRequest::MapStatus(status) => short_options(state, &format!("K{status}"))?,
+        // +0x60's C0 (0x0049D680 through 0x005E3720) to every guest.
+        NetworkSetupRequest::PublishCooperativeCampaign(text) => {
+            if remote_sources(state).is_empty() {
+                return Ok(true);
+            }
+            short_options(state, text)?
+        }
+        // RESIDUAL: mode+64's C1 (0x005C2710) is not encoded. VERA reads no
+        // round assignment after the publish, so guests keep their own.
+        NetworkSetupRequest::PublishCooperativeAssignments(_) => return Ok(true),
         NetworkSetupRequest::PrepareMapForHandoff { .. } => {
             if !state
                 .frontend
@@ -3840,6 +3911,27 @@ fn project_players(state: &mut AppState) {
 }
 
 pub(crate) fn close(state: &mut AppState) {
+    if let Some(service) = state.match_state.lan_service.as_mut() {
+        if let Some(transport) = service.transport.as_mut()
+            && transport.relay_source().is_some()
+        {
+            service.online_closing = true;
+            transport.retire_relay();
+        }
+        if service.online_closing {
+            // Keep the worker running. A one-shot final service followed by
+            // Drop would lose either Leave or its acknowledgement under loss.
+            if service
+                .transport
+                .as_ref()
+                .is_some_and(LanUdpTransport::relay_retirement_pending)
+            {
+                return;
+            }
+            state.match_state.lan_service = None;
+            return;
+        }
+    }
     if let Ok(message) = LanMessage::named(LanNamedMessage::Departure, &local_name(state)) {
         send(
             state,
@@ -3854,6 +3946,40 @@ pub(crate) fn close(state: &mut AppState) {
             .and_then(|service| service.transport.as_mut())
         {
             transport.service_before_close(super::match_runtime::frame_pacer::wall_clock_bucket);
+        }
+    }
+    state.match_state.lan_service = None;
+}
+
+pub(crate) fn online_retirement_pending(state: &AppState) -> bool {
+    state
+        .match_state
+        .lan_service
+        .as_ref()
+        .is_some_and(|service| {
+            service.online_closing
+                || service
+                    .transport
+                    .as_ref()
+                    .is_some_and(LanUdpTransport::relay_retirement_pending)
+        })
+}
+
+/// Resume only a previously requested online close. This remains reachable
+/// from Main Menu after the HTTP visit and MatchSession context are retired.
+pub(crate) fn poll_online_retirement(state: &mut AppState) {
+    let Some(service) = state
+        .match_state
+        .lan_service
+        .as_mut()
+        .filter(|service| service.online_closing)
+    else {
+        return;
+    };
+    if let Some(transport) = service.transport.as_mut() {
+        transport.service(super::match_runtime::frame_pacer::wall_clock_bucket());
+        if transport.relay_retirement_pending() {
+            return;
         }
     }
     state.match_state.lan_service = None;

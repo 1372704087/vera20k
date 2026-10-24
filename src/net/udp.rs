@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use vera20k_relay_protocol::{ClientSession, RelayError, ServerEvent};
 pub use vera20k_relay_protocol::{
-    MAX_PEERS as RELAY_MAX_PEERS, Ticket as RelayTicket, peer_endpoint as relay_peer_endpoint,
+    MAX_PEERS as RELAY_MAX_PEERS, OrderingCertificate, Ticket as RelayTicket,
+    peer_endpoint as relay_peer_endpoint,
 };
 
 #[cfg(any(test, feature = "test-support"))]
@@ -513,6 +514,83 @@ impl LanUdpTransport {
         self.lock().relay_expires()
     }
 
+    /// HTTPS admission supplies a lobby-signed immutable match clock/roster.
+    /// The UDP owner retains only this transport capability, never simulation.
+    pub fn set_ordering_certificate(&mut self, certificate: Vec<u8>) -> io::Result<()> {
+        let mut io = self.lock();
+        let route = io
+            .relay
+            .as_mut()
+            .filter(|route| route.retiring.is_none())
+            .ok_or_else(|| io::Error::other("no relay route"))?;
+        let parsed = vera20k_relay_protocol::OrderingCertificate::parse(&certificate)
+            .map_err(relay_io_error)?;
+        if parsed.sources_mask & (1 << route.session.source()) == 0 {
+            return Err(io::Error::other(
+                "ordering certificate excludes local source",
+            ));
+        }
+        route.ordering_certificate = Some(certificate);
+        Ok(())
+    }
+
+    pub fn ordering_certificate(&self) -> Option<Vec<u8>> {
+        self.lock().relay.as_ref()?.ordering_certificate.clone()
+    }
+
+    pub fn configure_ordering(&mut self, agreement: [u8; 32]) -> io::Result<()> {
+        self.send_ordering(|route| {
+            let cert = route
+                .ordering_certificate
+                .as_ref()
+                .ok_or(RelayError::Unregistered)?;
+            route
+                .session
+                .configure_ordering(cert, agreement, &mut route.encoded)
+        })
+    }
+
+    pub fn submit_ordering(&mut self, batch_id: u64, bytes: &[u8]) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route
+                .session
+                .submit_ordering(batch_id, bytes, &mut route.encoded)
+        })
+    }
+
+    pub fn pull_ordering(&mut self, next_sequence: u64) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route
+                .session
+                .pull_ordering(next_sequence, &mut route.encoded)
+        })
+    }
+
+    pub fn leave_ordering(&mut self) -> io::Result<()> {
+        self.send_ordering(|route| route.session.leave_ordering(&mut route.encoded))
+    }
+
+    fn send_ordering(
+        &mut self,
+        encode: impl FnOnce(&mut RelayRoute) -> Result<(), RelayError>,
+    ) -> io::Result<()> {
+        let mut io = self.lock();
+        let io = &mut *io;
+        let route = io
+            .relay
+            .as_mut()
+            .filter(|route| route.retiring.is_none())
+            .ok_or_else(|| io::Error::other("no relay route"))?;
+        encode(route).map_err(relay_io_error)?;
+        io.primary
+            .send_to(&route.encoded, route.address)
+            .map(|_| ())
+    }
+
+    pub fn pop_ordering_received(&mut self) -> Option<vera20k_relay_protocol::OrderEvent> {
+        self.lock().relay.as_mut()?.ordering_inbox.pop_front()
+    }
+
     pub fn renew_relay(
         &mut self,
         address: SocketAddrV4,
@@ -527,6 +605,14 @@ impl LanUdpTransport {
 
     pub fn retire_relay(&mut self) {
         self.lock().retire_relay();
+        self.wake();
+    }
+
+    pub fn relay_retirement_pending(&self) -> bool {
+        self.lock()
+            .relay
+            .as_ref()
+            .is_some_and(|route| route.retiring.is_some())
     }
 
     pub fn begin_relay_peer_probes(&mut self, sources: &[u8]) -> io::Result<()> {
@@ -637,6 +723,15 @@ struct RelayRoute {
     last_probe: Option<u32>,
     last_response: Option<u32>,
     peer_probes: Option<Vec<PeerProbe>>,
+    ordering_certificate: Option<Vec<u8>>,
+    // Dropped excess packets are recovered from the immutable stream cursor.
+    // This bounds worker memory even while the UI/simulation thread is paused.
+    ordering_inbox: VecDeque<vera20k_relay_protocol::OrderEvent>,
+    retiring: Option<RelayRetirement>,
+}
+
+struct RelayRetirement {
+    last_sent: Option<u32>,
 }
 
 struct PeerProbe {
@@ -749,6 +844,16 @@ impl UdpIo {
         packet_key: [u8; 32],
         payload_key: [u8; 32],
     ) -> io::Result<()> {
+        if self
+            .relay
+            .as_ref()
+            .is_some_and(|route| route.retiring.is_some())
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Waiting to confirm departure from the previous online match.",
+            ));
+        }
         if self.lan_scope.is_some() {
             return Err(io::Error::new(
                 io::ErrorKind::AlreadyExists,
@@ -775,6 +880,9 @@ impl UdpIo {
             last_probe: None,
             last_response: None,
             peer_probes: None,
+            ordering_certificate: None,
+            ordering_inbox: VecDeque::new(),
+            retiring: None,
         });
         self.global.require_authenticated_acknowledgments();
         self.broadcast_targets = vec![SocketAddrV4::new(Ipv4Addr::BROADCAST, DEFAULT_LAN_PORT)];
@@ -784,7 +892,7 @@ impl UdpIo {
     fn relay_ready(&self) -> bool {
         self.relay
             .as_ref()
-            .is_some_and(|route| route.session.is_ready())
+            .is_some_and(|route| route.retiring.is_none() && route.session.is_ready())
     }
 
     fn relay_source(&self) -> Option<u8> {
@@ -808,6 +916,11 @@ impl UdpIo {
             .relay
             .as_mut()
             .ok_or_else(|| io::Error::new(io::ErrorKind::NotConnected, "no relay route"))?;
+        if route.retiring.is_some() {
+            // The cached terminal capability remains valid after hop expiry.
+            // A late HTTPS renewal must not replace its ACK/nonce identity.
+            return Ok(());
+        }
         if address != route.address {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidInput,
@@ -832,12 +945,23 @@ impl UdpIo {
         Ok(())
     }
 
-    /// Finished online matches keep the socket owner for the lobby, while
-    /// dropping the expired identity and every old-match datagram.
+    /// Retire game traffic immediately, retaining only the same route's
+    /// explicit terminal request until its authenticated acknowledgement.
     fn retire_relay(&mut self) {
         self.reset_session();
-        self.relay = None;
         self.broadcast_targets.clear();
+        if let Some(route) = self.relay.as_mut()
+            && route.session.ordering_is_configured()
+        {
+            route.renewing = None;
+            route.peer_probes = None;
+            route.ordering_inbox.clear();
+            route
+                .retiring
+                .get_or_insert(RelayRetirement { last_sent: None });
+        } else {
+            self.relay = None;
+        }
     }
 
     /// Measure the complete peer path using the existing global reliable
@@ -987,45 +1111,73 @@ impl UdpIo {
     fn service(&mut self, now_ticks: u32, receive_budget: usize) -> UdpServiceReport {
         let mut report = UdpServiceReport::default();
         if let Some(route) = self.relay.as_mut() {
-            if route
-                .last_response
-                .is_some_and(|last| now_ticks.wrapping_sub(last) > 625)
-            {
-                route.session.forget_readiness();
-            }
-            // Keep the NAT mapping alive even without player input. During
-            // initial admission retry once a second; established routes ping
-            // every two seconds. These wall buckets never enter simulation.
-            let interval = if route.session.is_ready() && route.renewing.is_none() {
-                125
-            } else {
-                62
-            };
-            if route
-                .last_probe
-                .is_none_or(|last| now_ticks.wrapping_sub(last) >= interval)
-            {
-                route.last_probe = Some(now_ticks);
-                for session in std::iter::once(&mut route.session).chain(route.renewing.iter_mut())
+            if let Some(retiring) = route.retiring.as_mut() {
+                if retiring
+                    .last_sent
+                    .is_none_or(|last| now_ticks.wrapping_sub(last) >= 16)
                 {
-                    match session.probe(&mut route.encoded) {
-                        Ok(()) => {
-                            if let Err(error) = self.primary.send_to(&route.encoded, route.address)
-                            {
-                                record_io_error(
-                                    &mut report,
-                                    UdpChannel::Primary,
-                                    UdpIoOperation::Send,
-                                    error,
-                                );
-                            }
-                        }
-                        Err(error) => record_io_error(
+                    retiring.last_sent = Some(now_ticks);
+                    if let Err(error) = route
+                        .session
+                        .leave_ordering(&mut route.encoded)
+                        .map_err(relay_io_error)
+                        .and_then(|()| {
+                            self.primary
+                                .send_to(&route.encoded, route.address)
+                                .map(|_| ())
+                        })
+                    {
+                        record_io_error(
                             &mut report,
                             UdpChannel::Primary,
                             UdpIoOperation::Send,
-                            relay_io_error(error),
-                        ),
+                            error,
+                        );
+                    }
+                }
+            } else {
+                if route
+                    .last_response
+                    .is_some_and(|last| now_ticks.wrapping_sub(last) > 625)
+                {
+                    route.session.forget_readiness();
+                }
+                // Keep the NAT mapping alive even without player input. During
+                // initial admission retry once a second; established routes ping
+                // every two seconds. These wall buckets never enter simulation.
+                let interval = if route.session.is_ready() && route.renewing.is_none() {
+                    125
+                } else {
+                    62
+                };
+                if route
+                    .last_probe
+                    .is_none_or(|last| now_ticks.wrapping_sub(last) >= interval)
+                {
+                    route.last_probe = Some(now_ticks);
+                    for session in
+                        std::iter::once(&mut route.session).chain(route.renewing.iter_mut())
+                    {
+                        match session.probe(&mut route.encoded) {
+                            Ok(()) => {
+                                if let Err(error) =
+                                    self.primary.send_to(&route.encoded, route.address)
+                                {
+                                    record_io_error(
+                                        &mut report,
+                                        UdpChannel::Primary,
+                                        UdpIoOperation::Send,
+                                        error,
+                                    );
+                                }
+                            }
+                            Err(error) => record_io_error(
+                                &mut report,
+                                UdpChannel::Primary,
+                                UdpIoOperation::Send,
+                                relay_io_error(error),
+                            ),
+                        }
                     }
                 }
             }
@@ -1187,6 +1339,16 @@ fn drain_socket(
                 report.malformed_datagrams += 1;
                 continue;
             }
+            if route.retiring.is_some() {
+                match route.session.receive(&bytes[..length]) {
+                    Ok(ServerEvent::Ordering(vera20k_relay_protocol::OrderEvent::Left)) => {
+                        *relay = None;
+                    }
+                    Ok(_) => {} // No late game traffic enters a returned match.
+                    Err(_) => report.malformed_datagrams += 1,
+                }
+                continue;
+            }
             if let Some(event) = route
                 .renewing
                 .as_mut()
@@ -1194,7 +1356,12 @@ fn drain_socket(
             {
                 match event {
                     ServerEvent::Ready => {
-                        route.session = route.renewing.take().expect("admitted candidate");
+                        let mut next = route.renewing.take().expect("admitted candidate");
+                        if next.adopt_ordering_from(&mut route.session).is_err() {
+                            report.malformed_datagrams += 1;
+                            continue;
+                        }
+                        route.session = next;
                         route.last_response = Some(now_ticks);
                         continue;
                     }
@@ -1215,10 +1382,19 @@ fn drain_socket(
                         }
                         continue;
                     }
-                    ServerEvent::Payload { .. } => unreachable!("candidate is promoted on READY"),
+                    ServerEvent::Payload { .. } | ServerEvent::Ordering(_) => {
+                        unreachable!("candidate is promoted on READY")
+                    }
                 }
             }
             match route.session.receive(&bytes[..length]) {
+                Ok(ServerEvent::Ordering(event)) => {
+                    route.last_response = Some(now_ticks);
+                    if route.ordering_inbox.len() < 256 {
+                        route.ordering_inbox.push_back(event);
+                    }
+                    continue;
+                }
                 Ok(ServerEvent::Payload { source, bytes }) => {
                     route.last_response = Some(now_ticks);
                     decrypted = bytes;
@@ -1432,6 +1608,12 @@ fn send_datagram(
     endpoint: SocketAddrV4,
 ) -> io::Result<usize> {
     let result = if let Some(route) = relay.as_mut() {
+        if route.retiring.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "Waiting to confirm departure from the previous online match.",
+            ));
+        }
         let target = if endpoint.ip().is_broadcast() {
             vera20k_relay_protocol::BROADCAST
         } else {

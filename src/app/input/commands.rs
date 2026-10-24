@@ -1278,6 +1278,26 @@ pub(crate) fn try_schedule_command(
     owner: &str,
     payload: Command,
 ) -> Option<u64> {
+    if state.match_state.match_diagnostics.is_replay_playback() {
+        return None;
+    }
+    // The relay owns a fixed match clock. Native connection/speed controls
+    // cannot independently retime this negotiated command timeline.
+    if state
+        .match_state
+        .live_network
+        .as_ref()
+        .is_some_and(|live| live.uses_sequenced_lockstep())
+        && matches!(
+            payload,
+            Command::SetGameSpeed { .. }
+                | Command::LiveGameSpeed { .. }
+                | Command::SetLatencyFudge { .. }
+                | Command::RemovePlayer { .. }
+        )
+    {
+        return None;
+    }
     let runtime = state.match_state.sim_runtime.as_mut()?;
     schedule_rules_command_in_sim(
         &mut runtime.simulation,

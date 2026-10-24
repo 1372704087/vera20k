@@ -45,6 +45,8 @@ Thumbs.db
 !/docs/phobos-harvester-gather-animations.md
 !/docs/phobos-hide-if-no-ore-threshold.md
 !/docs/phobos-placement-preview.md
+!/docs/phobos-sidebar-gdi.md
+!/docs/phobos-building-queue.md
 !/docs/npatch.md
 !/docs/verax.md
 !/docs/ares-generic-warhead.md
@@ -70,6 +72,8 @@ Thumbs.db
 !/docs/images/**
 
 .mcp.json
+# Cloudflare CLI cache: holds the account ID and email wherever `cf` runs.
+.cloudflare/
 /.claude/*
 !/.claude/skills/
 /.claude/skills/ghidra-up/

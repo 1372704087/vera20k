@@ -12,8 +12,10 @@ use std::io;
 use std::net::SocketAddrV4;
 use std::num::NonZeroU32;
 
+mod sequenced;
 mod startup;
 mod timing;
+pub use sequenced::SequencedError;
 pub use startup::{StartupAgreement, StartupError};
 
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
@@ -41,6 +43,14 @@ pub enum LiveCommandMode {
     Wol,
 }
 
+/// Local presentation only; these facts never affect the committed clock or
+/// another participant's progress. A disconnected player keeps their world.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NetworkRecoveryStatus {
+    Reconnecting,
+    CatchingUp { frames: u32 },
+}
+
 impl LiveCommandMode {
     fn initial_probe_interval(self) -> i32 {
         match self {
@@ -52,6 +62,8 @@ impl LiveCommandMode {
 
 #[derive(Debug, thiserror::Error)]
 pub enum LiveCommandError {
+    #[error(transparent)]
+    Sequenced(#[from] SequencedError),
     #[error("invalid local House {0}")]
     InvalidLocalHouse(i8),
     #[error("invalid remote House {0}")]
@@ -147,6 +159,8 @@ pub struct LiveCommandSession {
     mode: LiveCommandMode,
     current: Option<CurrentFrame>,
     last_service: Option<UdpServiceReport>,
+    sequenced: Option<sequenced::SequencedSession>,
+    sequenced_failed: bool,
 }
 
 impl LiveCommandSession {
@@ -187,6 +201,18 @@ impl LiveCommandSession {
         } else {
             NetworkSendPolicy::FrameSendRate2 { frame_send_rate }
         };
+        let sequenced = if mode == LiveCommandMode::Wol
+            && !agreement.is_original_singleton()
+            && transport.ordering_certificate().is_some()
+        {
+            Some(sequenced::SequencedSession::new(
+                &agreement,
+                &transport,
+                local_house,
+            )?)
+        } else {
+            None
+        };
         let startup = startup::StartupHandshake::new(
             agreement,
             local_house,
@@ -205,6 +231,8 @@ impl LiveCommandSession {
             mode,
             current: None,
             last_service: None,
+            sequenced,
+            sequenced_failed: false,
         })
     }
 
@@ -218,8 +246,52 @@ impl LiveCommandSession {
 
     ///Transfer the same socket/global-channel owner back to the session
     ///lobby after gameplay. No second transport is constructed during return.
-    pub fn into_transport(self) -> LanUdpTransport {
+    pub fn into_transport(mut self) -> LanUdpTransport {
+        if self.uses_sequenced_lockstep() {
+            self.transport.retire_relay();
+        }
         self.transport
+    }
+
+    pub fn uses_sequenced_lockstep(&self) -> bool {
+        self.sequenced.is_some()
+    }
+
+    /// Replay records this immutable admission cadence once at startup. Solo
+    /// online Local input and relay commits both dispatch each frame; ordinary
+    /// LAN retains its configured native send cadence.
+    pub fn dispatches_every_frame(&self) -> bool {
+        self.uses_sequenced_lockstep() || self.policy.should_send(1)
+    }
+
+    pub fn has_terminal_network_error(&self) -> bool {
+        self.sequenced_failed
+            || self
+                .sequenced
+                .as_ref()
+                .is_some_and(|session| session.failed())
+    }
+
+    /// Highest complete immutable frame buffered by this client. The relay's
+    /// advertised head alone never admits simulation or skips missing bytes.
+    pub fn committed_frontier(&self) -> u32 {
+        self.sequenced
+            .as_ref()
+            .map_or(0, |session| session.frontier())
+    }
+
+    pub fn fixed_frames_per_second(&self) -> Option<u16> {
+        self.sequenced.as_ref().map(|session| session.fps)
+    }
+
+    pub fn recovery_status(
+        &self,
+        now_millis: u32,
+        current_frame: u32,
+    ) -> Option<NetworkRecoveryStatus> {
+        self.sequenced
+            .as_ref()?
+            .recovery_status(now_millis, current_frame)
     }
 
     pub fn relay_expires(&self) -> Option<u64> {
@@ -261,6 +333,9 @@ impl LiveCommandSession {
             &mut self.last_service,
             self.transport.service(now_wall_bucket),
         );
+        if let Some(session) = &mut self.sequenced {
+            session.service(&mut self.transport, now_wall_bucket.wrapping_shl(4));
+        }
     }
 
     pub fn send_global(
@@ -286,6 +361,9 @@ impl LiveCommandSession {
     }
 
     pub fn sent_commands(&self) -> u64 {
+        if let Some(session) = &self.sequenced {
+            return session.sent_commands();
+        }
         self.exchange.sent_commands()
     }
 
@@ -326,6 +404,9 @@ impl LiveCommandSession {
     /// threshold in WOL. Peer lag comes from Receive64A3F4/652110, not a
     /// new clock or independently maintained progress table.
     pub fn pacing_delay_millis(&self, max_ahead: i32) -> u32 {
+        if self.uses_sequenced_lockstep() {
+            return 0;
+        }
         if self.mode != LiveCommandMode::Wol || max_ahead <= 30 {
             return 0;
         }
@@ -367,7 +448,9 @@ impl LiveCommandSession {
         if !self.exchange.remove_peer(house) {
             return false;
         }
-        self.startup.abort();
+        if !self.uses_sequenced_lockstep() {
+            self.startup.abort();
+        }
         assert!(
             self.transport
                 .connections_mut()
@@ -387,6 +470,9 @@ impl LiveCommandSession {
     /// snapshot remains immutable even while ordinary cleanup removes sockets.
     /// A failed startup remains uncertified throughout that cleanup.
     pub fn startup_pending(&self) -> bool {
+        if let Some(session) = &self.sequenced {
+            return !session.started();
+        }
         !self.startup.released()
     }
 
@@ -409,6 +495,9 @@ impl LiveCommandSession {
     }
 
     pub fn awaiting_initial_barrier(&self) -> bool {
+        if let Some(session) = &self.sequenced {
+            return !session.started();
+        }
         self.current
             .is_some_and(|frame| matches!(frame.phase, FramePhase::InitialBarrier { .. }))
     }
@@ -498,6 +587,18 @@ impl LiveCommandSession {
         logic_frame_rate: u32,
     ) -> Result<NetworkQueuePass, LiveCommandError> {
         self.last_service = None;
+        if self.sequenced_failed {
+            return Err(LiveCommandError::Failed);
+        }
+        if let Some(session) = &mut self.sequenced {
+            retain_service_report(
+                &mut self.last_service,
+                self.transport.service(now_wall_bucket),
+            );
+            let result = session.poll(&mut self.transport, queues, context, now_millis);
+            self.sequenced_failed = result.is_err();
+            return result;
+        }
         let result = self.poll_inner(
             queues,
             context,
@@ -717,6 +818,9 @@ impl LiveCommandSession {
     }
 
     fn flush_startup(&mut self) {
+        if self.uses_sequenced_lockstep() {
+            return;
+        }
         let transport = &mut self.transport;
         self.startup.flush(|bytes| {
             let no_peers = transport.connections().peers().next().is_none();

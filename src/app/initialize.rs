@@ -161,6 +161,7 @@ impl App {
         capture_dimensions: Option<(u32, u32)>,
         startup_options: RetailStartupOptions,
         external_launch: bool,
+        replay_retail_directory: Option<&Path>,
     ) -> Result<AppState> {
         // One parsed retail profile snapshot yields two ordered products: the
         // independent frontend size selected after the early Video read, and the later
@@ -171,6 +172,10 @@ impl App {
         let mut personal_rules = crate::rules::personal_rules::PersonalRules::default();
         let game_config = startup_asset_or_error(
             GameConfig::load().and_then(|config| {
+                let config = match replay_retail_directory {
+                    Some(directory) => config.with_retail_directory(directory.to_owned())?,
+                    None => config,
+                };
                 if capture_dimensions.is_none() {
                     crate::app::persistence::profile_file::import_legacy(&config.paths).map_err(
                         |error| anyhow::Error::new(error).context("Could not prepare VERA.INI"),
@@ -921,7 +926,9 @@ impl App {
         #[cfg(feature = "telemetry-dashboard")]
         attach_dashboard(&mut state);
 
-        if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
+        if replay_retail_directory.is_none()
+            && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY")
+        {
             // The developer shortcut carries an authored-map sandbox through
             // the unverified legacy Battle loader. It has no artificial AI
             // opponent or starting forces; this is not campaign admission.

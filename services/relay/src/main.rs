@@ -65,13 +65,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let key = load_key()?;
     let bind = std::env::var("VERA_RELAY_BIND").unwrap_or_else(|_| "0.0.0.0:5000".to_string());
     let socket = UdpSocket::bind(&bind)?;
-    socket.set_read_timeout(Some(Duration::from_secs(1)))?;
-    let mut server = RelayServer::new(SecretKey::new(key), 1024);
+    socket.set_read_timeout(Some(Duration::from_millis(6)))?;
+    let state_dir = std::env::var_os("STATE_DIRECTORY")
+        .or_else(|| std::env::var_os("VERA_RELAY_STATE_DIR"))
+        .map(PathBuf::from)
+        .ok_or("relay encrypted journal requires STATE_DIRECTORY or VERA_RELAY_STATE_DIR")?;
+    let mut server = RelayServer::with_journal(SecretKey::new(key), 1024, &state_dir)?;
     let mut buffer = [0u8; MAX_DATAGRAM + 1];
     let mut counts = TrafficCounts::default();
     let mut reported_at = Instant::now();
+    let clock_origin = Instant::now();
     eprintln!("VERA20k relay listening on {}", socket.local_addr()?);
     loop {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let monotonic_ms = clock_origin.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        // Clock advancement is independent of datagram arrivals and readers.
+        server.advance_clock(monotonic_ms, now);
         let elapsed = reported_at.elapsed().as_secs();
         if elapsed >= 60 {
             counts.report(elapsed, server.room_count());
@@ -102,9 +111,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             continue;
         }
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let monotonic_ms = clock_origin.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
         // Rejections expose no packet, key, ticket, address or player data.
         // Ordinary UDP loss is handled by the existing client reliable owner.
-        match server.process(source, &buffer[..length], now) {
+        match server.process_at(source, &buffer[..length], now, monotonic_ms) {
             Ok(forward) => {
                 for datagram in forward {
                     match socket.send_to(&datagram.bytes, datagram.endpoint) {

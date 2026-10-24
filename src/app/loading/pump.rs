@@ -296,6 +296,25 @@ pub(crate) struct LoadingRequest {
 }
 
 impl LoadingRequest {
+    pub(crate) fn replay(startup: &crate::sim::replay::ReplayStartup) -> Self {
+        Self {
+            startup: LoadingStartup::Replay {
+                session: startup.launch_session().clone(),
+                game_mode: startup.game_mode(),
+                native_id_prefix: startup
+                    .native_id_prefix()
+                    .expect("validated replay startup"),
+                seed: crate::app::match_bootstrap::MatchSeed {
+                    value: startup.seed(),
+                    source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,
+                    seed_authority_certifying: false,
+                },
+            },
+            accepted_rmg_start_staging: None,
+            random_map_preview: None,
+        }
+    }
+
     pub(crate) fn campaign(startup: crate::app::match_bootstrap::PreparedCampaignStartup) -> Self {
         Self {
             startup: LoadingStartup::Campaign(startup),
@@ -1191,6 +1210,28 @@ fn service_network_loading_boundary(
     }
 }
 
+fn prepare_session_for_loading(
+    session: &mut crate::app::match_runtime::session::MatchSession,
+    startup: &LoadingStartup,
+) {
+    match startup {
+        LoadingStartup::Network(startup) => session.assert_network_start(startup),
+        // The shell retains the recorded mode until its world is installed;
+        // replay never admits a participant table or live connection.
+        LoadingStartup::Replay {
+            session: launch,
+            game_mode,
+            ..
+        } => session.begin_replay(*game_mode, launch.local_player().name.clone()),
+        startup => session.begin_offline(
+            startup.session_mode(),
+            startup
+                .launch_session()
+                .map(|launch| launch.local_player().name.clone()),
+        ),
+    }
+}
+
 pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     state
         .frontend
@@ -1201,15 +1242,7 @@ pub(crate) fn begin_loading(state: &mut AppState, request: LoadingRequest) {
     crate::app::chrono_screen::retire(state, wall_ms);
     // The shell writes GameMode before the loading screen (`0x0052E10F`
     // Skirmish, `0x0052E175` campaign); the session owner is live from here.
-    match request.startup() {
-        LoadingStartup::Network(startup) => state.match_state.session.assert_network_start(startup),
-        startup => state.match_state.session.begin_offline(
-            startup.session_mode(),
-            startup
-                .launch_session()
-                .map(|launch| launch.local_player().name.clone()),
-        ),
-    }
+    prepare_session_for_loading(&mut state.match_state.session, request.startup());
     let mut session = LoadingSession::from_request(request);
     session.job.ra2_dir = state
         .platform

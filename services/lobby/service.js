@@ -4,7 +4,7 @@
 import { byteLength, record, playerName, validChannel, validJsonTree, validOptions, validSlot, uuid } from './validation.js';
 
 const encoder = new TextEncoder();
-const LOBBY_PROTOCOL = 3;
+const LOBBY_PROTOCOL = 4;
 const RELAY_PROTOCOL = 2;
 const PUBLIC_LOBBY_NAME = 'Lob_41_2';
 const MAX_EVENTS = 1024;
@@ -14,14 +14,18 @@ const MAX_SOFT_EVENTS = 64;
 const MAX_SOFT_BYTES = 128 * 1024;
 const EVENT_BATCH = 256;
 const SESSION_SECONDS = 24 * 60 * 60;
-const MATCH_SECONDS = 2 * 60 * 60;
+const MATCH_SECONDS = 24 * 60 * 60;
 const BOOTSTRAP_GRANT_SECONDS = 120;
 const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
 const MAX_SESSIONS = 256;
+const STATS_SECONDS = 10;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
+const TRANSLATION_SECONDS = 24 * 60 * 60;
+// About $0.30/day of model time at most; cached repeats are free.
+const DAILY_TRANSLATIONS = 10000;
 const copy = (value) => structuredClone(value);
 const pendingMatch = (value) => value?.phase === 'connecting' || value?.phase === 'probing';
 const softEvent = (kind) => ['chat', 'locales', 'buddies', 'located'].includes(kind);
@@ -115,7 +119,7 @@ function channelView(room) {
 
 // This codec is shared with services/relay-protocol: fixed-width little-endian
 // ticket, domain-separated HMACs. The server key never leaves secret bindings.
-export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime) {
+export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime, ordering = null) {
   requireThat(/^[0-9a-f]{64}$/i.test(secretHex ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   requireThat(/^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/.test(address ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   const secret = Uint8Array.from(secretHex.match(/../g), (pair) => parseInt(pair, 16));
@@ -139,7 +143,25 @@ export async function relayGrant(secretHex, address, matchId, sourceIndex, now, 
   };
   ticket.set(await sign('VERA20k relay ticket v2\0', ticket.subarray(0, 66)), 66);
   const packetKey = await sign('VERA20k relay packet key v2\0', ticket);
-  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), payload_key: payloadKey, source_index: sourceIndex };
+  let orderingCertificate = null;
+  if (ordering) {
+    requireThat(Number.isInteger(ordering.sources_mask) && ordering.sources_mask > 0 && ordering.sources_mask < 2 ** MAX_PLAYERS &&
+      (ordering.sources_mask & (1 << sourceIndex)) !== 0 && [60, 45, 30, 20, 15, 12, 10].includes(ordering.tick_hz),
+      'relay_unavailable', 'Gameplay clock is unavailable.', 503);
+    const certificate = new Uint8Array(66);
+    certificate.set(encoder.encode('VO1C'));
+    certificate.set(ticket.subarray(1, 17), 4);
+    const view = new DataView(certificate.buffer);
+    view.setUint32(20, ordering.sources_mask, true);
+    view.setUint16(24, ordering.tick_hz, true);
+    // Clock capability survives loading and ticket renewals. Every control
+    // still requires its own live, short-lived authenticated relay ticket.
+    view.setBigUint64(26, BigInt(now + 86400), true);
+    certificate.set(await sign('VERA20k relay ordering certificate v1\0', certificate.subarray(0, 34)), 34);
+    orderingCertificate = base64url(certificate);
+  }
+  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), payload_key: payloadKey,
+    source_index: sourceIndex, ...(orderingCertificate ? { ordering_certificate: orderingCertificate } : {}) };
 }
 
 export class SqlStore {
@@ -191,8 +213,10 @@ export class SqlStore {
     return this.sql.exec(`SELECT value FROM events WHERE session = ? AND sequence > ? ORDER BY sequence LIMIT ${EVENT_BATCH}`, sessionId, after).toArray().map((row) => JSON.parse(row.value));
   }
   deleteEvents(sessionId) { this.sql.exec('DELETE FROM events WHERE session = ?', sessionId); }
-  expireRates(now) {
-    this.sql.exec("DELETE FROM state WHERE key IN (SELECT key FROM state WHERE key LIKE 'rate:%' AND json_extract(value,'$.until') <= ? LIMIT 256)", now);
+  expire(now) {
+    for (const prefix of ['rate:', 'translation:'])
+      this.sql.exec("DELETE FROM state WHERE key IN (SELECT key FROM state WHERE key >= ? AND key < ? AND json_extract(value,'$.until') <= ? LIMIT 256)",
+        prefix, `${prefix}\uffff`, now);
   }
 }
 
@@ -202,9 +226,11 @@ export class LobbyService {
     this.env = env;
     this.clock = clock;
     this.bodyTimeoutMs = bodyTimeoutMs;
+    this.statsCache = null;
     this.tail = Promise.resolve();
     this.pendingRequests = 0;
     this.pendingBytes = 0;
+    this.translations = new Map();
     if (!store.get('room:public')) store.put('room:public', {
       id: 'public', owner: null, capacity: 256, kind: 0,
       channel: { name: PUBLIC_LOBBY_NAME, kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
@@ -239,6 +265,7 @@ export class LobbyService {
       requireThat(this.pendingBytes + bytes <= 4 * 1024 * 1024, 'busy', 'The lobby is busy. Please retry.', 429);
       queuedBytes = bytes;
       this.pendingBytes += queuedBytes;
+      if (request.method === 'POST' && new URL(request.url).pathname === '/v1/translate') return await this.translate(request, body);
       const result = this.tail.then(() => this.handle(request, body));
       this.tail = result.catch(() => {});
       return await result;
@@ -314,13 +341,52 @@ export class LobbyService {
     const sessionId = await sha256(authorization.slice(7));
     const session = this.store.get(`session:${sessionId}`);
     requireThat(session && session.expires_at > this.clock(), 'unauthorized', 'Sign in again.', 401);
-    requireThat(session.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
+    requireThat(session.protocol === LOBBY_PROTOCOL || session.protocol === 3, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     return { sessionId, session };
+  }
+
+  // The model takes about a second, so translation waits beside the mutation
+  // queue. It owns only its rate and cache keys, each changed synchronously.
+  // Readers of one message share one model call and its cached reply.
+  async translate(request, body) {
+    const { session } = await this.authenticated(request);
+    requireThat(session.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to translate chat.', 426);
+    requireThat(record(body, ['text', 'target']) && typeof body.text === 'string' && body.text.trim() !== '' &&
+      byteLength(body.text) <= 2048 && typeof body.target === 'string' && /^[a-z]{2,3}(-[A-Z][a-z]{3})?$/.test(body.target),
+      'invalid_request', 'Invalid translation request.');
+    const unavailable = () => new ApiError(503, 'translation_unavailable', 'Chat translation is unavailable.');
+    if (!this.env.TRANSLATOR) throw unavailable();
+    const key = `translation:${await sha256(JSON.stringify([body.target, body.text]))}`;
+    const cached = this.store.transaction(() => {
+      this.rateLimit(`translate:${session.player_id}`, 60, 60);
+      return this.store.get(key);
+    });
+    if (cached && cached.until > this.clock()) return this.json({ text: cached.text });
+    let pending = this.translations.get(key);
+    if (!pending) {
+      try { this.store.transaction(() => this.rateLimit('translate:budget', DAILY_TRANSLATIONS, 24 * 60 * 60)); }
+      catch { throw unavailable(); }
+      pending = Promise.resolve().then(() => this.env.TRANSLATOR.translate({ text: body.text, target: body.target }))
+        .then((result) => {
+          if (typeof result?.text === 'string') this.store.put(key, { text: result.text, until: this.clock() + TRANSLATION_SECONDS });
+          return result;
+        }, () => ({ error: 'unavailable' }))
+        .finally(() => this.translations.delete(key));
+      this.translations.set(key, pending);
+    }
+    const result = await pending;
+    requireThat(result?.error !== 'invalid_request', 'invalid_request', 'This message cannot be translated.');
+    if (typeof result?.text !== 'string') throw unavailable();
+    return this.json({ text: result.text });
   }
 
   async handle(request, body) {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: LOBBY_PROTOCOL });
+    if (url.pathname === '/v1/stats' && request.method === 'GET') {
+      this.rateLimit(`stats:${await sha256(request.headers.get('CF-Connecting-IP') ?? 'local')}`, 30, 60);
+      return this.json(this.stats());
+    }
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
       const origin = request.headers.get('CF-Connecting-IP') ?? 'local';
       const address = await sha256(origin);
@@ -329,11 +395,33 @@ export class LobbyService {
       return this.authenticate(body, url.pathname === '/v1/accounts', address);
     }
     const { sessionId, session } = await this.authenticated(request);
+    requireThat(session.protocol === LOBBY_PROTOCOL || url.pathname === '/v1/events' ||
+      (url.pathname === '/v1/commands' && ['finish', 'renew_relay', 'leave', 'logout'].includes(body?.operation)),
+      'upgrade_required', 'Update VERA20k to start another online match.', 426);
     const mapRequest = url.pathname.startsWith('/v1/maps/') || body?.operation === 'map_upload';
     // A thirty-player host legitimately bursts options, pings and readiness as peers join.
     this.rateLimit(`${mapRequest ? 'map' : 'session'}:${session.player_id}`, 600, 60);
     session.seen = this.clock(); this.store.put(`session:${sessionId}`, session);
     this.reap();
+    if (url.pathname === '/v1/match/resume' && request.method === 'GET') {
+      const matchId = url.searchParams.get('match_id');
+      const match = this.store.get(`match:${session.match_id}`);
+      const user = match?.users.find((value) => value.player_id === session.player_id);
+      requireThat(session.protocol === LOBBY_PROTOCOL && uuid(matchId) && match?.id === matchId &&
+        match.phase === 'playing' && user && !match.finished.includes(session.player_id),
+        'unknown_match', 'No matching active game.', 409);
+      this.admitAction(session, 'renew_relay', { match_id: matchId });
+      // The relay journal owns gameplay history. Rejoining the SAME active
+      // match may skip stale shell callbacks, without creating membership,
+      // advancing a generation, or accepting a different match's cursor.
+      const relay = await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
+        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
+        match.payload_key, GRANT_SECONDS, match.ordering);
+      session.ack = session.sequence;
+      session.expires_at = this.clock() + SESSION_SECONDS;
+      this.store.put(`session:${sessionId}`, session);
+      return this.json({ match_id: match.id, cursor: session.sequence, relay });
+    }
     if (url.pathname.startsWith('/v1/maps/') && request.method === 'GET')
       return this.downloadMap(session, url);
     if (url.pathname === '/v1/channels' && request.method === 'GET') {
@@ -381,6 +469,37 @@ export class LobbyService {
         : { events: [], cursor: 0 });
     }
     throw new ApiError(404, 'not_found', 'Endpoint not found.');
+  }
+
+  // Public counts only: no names, rooms or identities. The welcome screen
+  // polls them, so one answer serves every reader for ten seconds.
+  stats() {
+    const now = this.clock();
+    if (this.statsCache?.until > now) return this.statsCache.value;
+    const sessions = this.store.list('session:');
+    const playing = new Set(this.store.list('match:').filter((match) => match.phase === 'playing').map((match) => match.id));
+    const games = this.store.get('stats:games') ?? { total: 0, hours: [] };
+    const hour = Math.floor(now / 3600);
+    const value = {
+      online: sessions.length,
+      in_game: sessions.filter((session) => playing.has(session.match_id)).length,
+      open_games: this.store.list('room:').filter((room) => room.kind === 41 && room.phase === 'lobby').length,
+      games_24h: games.hours.filter(([at]) => at > hour - 24).reduce((sum, [, count]) => sum + count, 0),
+      games_total: games.total,
+    };
+    this.statsCache = { until: now + STATS_SECONDS, value };
+    return value;
+  }
+
+  // A game counts once, when its timing is confirmed and play begins.
+  countGame() {
+    const hour = Math.floor(this.clock() / 3600);
+    const games = this.store.get('stats:games') ?? { total: 0, hours: [] };
+    games.total++;
+    games.hours = games.hours.filter(([at]) => at > hour - 24);
+    const current = games.hours.find(([at]) => at === hour);
+    if (current) current[1]++; else games.hours.push([hour, 1]);
+    this.store.put('stats:games', games);
   }
 
   async authenticate(body, create, address) {
@@ -605,14 +724,14 @@ export class LobbyService {
       requireThat(match?.id === payload.match_id && match.phase === 'playing' && user &&
         !match.finished.includes(session.player_id), 'unknown_match', 'No matching active game.', 409);
       return { relay: await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS) };
+        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS, match.ordering ?? null) };
     }
     if (operation === 'latency_ready') {
       const { match, canonical } = this.latencyReport(session, payload);
       const complete = Object.keys({ ...match.latencies, [session.player_id]: canonical }).length === match.users.length;
       const grants = complete ? await Promise.all(match.users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY,
         this.env.RELAY_ADDRESS, match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
-        match.payload_key, GRANT_SECONDS))) : null;
+        match.payload_key, GRANT_SECONDS, match.ordering ?? null))) : null;
       return { match, canonical, grants };
     }
     if (operation === 'map_upload') {
@@ -698,9 +817,11 @@ export class LobbyService {
       return { player_id: member.player_id, name, source_index: index, flags: member.player_id === room.owner ? 1 : 0,
         admission_generation: generation };
     });
+    const ordering = { sources_mask: 2 ** users.length - 1,
+      tick_hz: [60, 45, 30, 20, 15, 12, 10][room.options.launch.options.game_speed] ?? 10 };
     const grants = await Promise.all(users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS)));
-    return { matchId, seed, users, grants, payloadKey };
+      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS, ordering)));
+    return { matchId, seed, users, grants, payloadKey, ordering };
   }
 
   latencyReport(session, payload) {
@@ -807,6 +928,7 @@ export class LobbyService {
         for (const report of Object.values(match.latencies))
           for (const peer of report) pings[peer.source_index] = Math.max(pings[peer.source_index], peer.round_trip_ms);
         match.phase = 'playing'; match.expires = this.clock() + MATCH_SECONDS;
+        this.countGame();
         const room = this.store.get(`room:${match.room_id}`);
         room.phase = 'playing'; this.store.put(`room:${room.id}`, room);
         for (const other of this.store.list('session:').filter((value) => value.match_id === match.id)) {
@@ -920,9 +1042,9 @@ export class LobbyService {
         this.broadcast(room, 'map_status', { from: session.nickname, status: payload.status, revision: room.revision }, sessionId);
       }
     } else if (operation === 'start') {
-      const { matchId, seed, users, grants, payloadKey } = prepared;
+      const { matchId, seed, users, grants, payloadKey, ordering } = prepared;
       const match = { id: matchId, room_id: room.id, users, finished: [], ready: [], latencies: {}, phase: 'connecting',
-        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey };
+        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey, ordering };
       this.store.put(`match:${matchId}`, match);
       room.phase = 'connecting'; room.match_id = matchId;
       for (const user of users) {
@@ -965,13 +1087,17 @@ export class LobbyService {
           room.phase = 'lobby'; delete room.match_id; this.invalidate(room); this.store.put(`room:${room.id}`, room);
         } else this.deleteRoom(match.room_id);
       }
-      this.store.expireRates(now);
+      this.store.expire(now);
       for (const session of this.store.list('session:')) {
-        if (session.protocol !== LOBBY_PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
+        const match = session.match_id ? this.store.get(`match:${session.match_id}`) : null;
+        const recovering = session.protocol === LOBBY_PROTOCOL && match?.phase === 'playing' &&
+          match.ordering && !match.finished.includes(session.player_id);
+        if (![LOBBY_PROTOCOL, 3].includes(session.protocol) || session.expires_at <= now ||
+          (!recovering && session.seen + 120 <= now)) {
           // Polling continues in the HTTPS worker while the game loads/plays.
-          // A dead process must not strand its name or the match's final
-          // cleanup until the private match lease expires. Gameplay
-          // disconnect/timeout decisions remain with the peer simulation.
+          // Idle lobby visits expire normally. An admitted modern player
+          // keeps their identity throughout a recoverable network outage;
+          // only explicit finish/leave or match/session lifetime ends it.
           // Upgraded clients cannot finish an unsupported old session. Retire
           // only that session through the same membership/room cleanup owner.
           if (session.match_id) this.finish(session);

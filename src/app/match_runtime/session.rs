@@ -96,10 +96,35 @@ pub(crate) struct NetworkAiOptions {
 }
 
 impl NetworkAiOptions {
+    /// An active row's words, as the options string writes them.
+    pub(crate) fn of(ai: &crate::skirmish_launch::SkirmishAiSlot) -> Self {
+        Self {
+            difficulty: ai.difficulty.as_i32(),
+            country: if ai.country_random {
+                -2
+            } else {
+                i32::from(ai.country.raw_index())
+            },
+            color: if ai.color_random {
+                -2
+            } else {
+                i32::from(ai.color_index)
+            },
+            start: match ai.start_position {
+                crate::skirmish_launch::LaunchStartPosition::Auto => -2,
+                crate::skirmish_launch::LaunchStartPosition::Position(index) => i32::from(index),
+            },
+            team: match ai.team {
+                crate::skirmish_launch::LaunchTeam::None => -2,
+                crate::skirmish_launch::LaunchTeam::Team(index) => i32::from(index),
+            },
+        }
+    }
+
     /// Fresh BC: BSS difficulty0, cleared country/color, and5DEC98..BD's
     /// explicit -2 start/team fills. Later row transitions retain their own
     /// -1 clears and5EE510's final team write instead of recreating this state.
-    const INITIAL_INACTIVE: Self = Self {
+    pub(crate) const INITIAL_INACTIVE: Self = Self {
         difficulty: 0,
         country: -1,
         color: -1,
@@ -409,6 +434,17 @@ impl MatchSession {
             !mode.is_network(),
             "offline launch cannot start a network session"
         );
+        self.begin_local_loading(mode, local_player_name);
+    }
+
+    /// A replay retains its recorded mode while the shell constructs a world.
+    /// A recorded network mode admits no live participant table or connection;
+    /// the installed world takes ownership through `hand_mode_to_world`.
+    pub(crate) fn begin_replay(&mut self, mode: SessionMode, local_player_name: String) {
+        self.begin_local_loading(mode, Some(local_player_name));
+    }
+
+    fn begin_local_loading(&mut self, mode: SessionMode, local_player_name: Option<String>) {
         self.mode = ModeHolder::Shell(mode);
         self.offline_player_name = local_player_name;
         self.network = None;
@@ -982,29 +1018,7 @@ impl MatchSession {
             return None;
         };
         if let Some(ai) = launch.opponents.iter().find(|ai| ai.raw_slot_index == row) {
-            return Some(NetworkAiOptions {
-                difficulty: ai.difficulty.as_i32(),
-                country: if ai.country_random {
-                    -2
-                } else {
-                    i32::from(ai.country.raw_index())
-                },
-                color: if ai.color_random {
-                    -2
-                } else {
-                    i32::from(ai.color_index)
-                },
-                start: match ai.start_position {
-                    crate::skirmish_launch::LaunchStartPosition::Auto => -2,
-                    crate::skirmish_launch::LaunchStartPosition::Position(index) => {
-                        i32::from(index)
-                    }
-                },
-                team: match ai.team {
-                    crate::skirmish_launch::LaunchTeam::None => -2,
-                    crate::skirmish_launch::LaunchTeam::Team(index) => i32::from(index),
-                },
-            });
+            return Some(NetworkAiOptions::of(ai));
         }
         inactive_ai_options.get(usize::from(row)).copied()
     }

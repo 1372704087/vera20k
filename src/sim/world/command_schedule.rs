@@ -70,7 +70,6 @@ impl Simulation {
         &mut self,
         commands: impl IntoIterator<Item = CommandEnvelope>,
     ) -> bool {
-        #[cfg(any(test, feature = "test-support"))]
         if self.replaying_recorded_commands {
             return false;
         }
@@ -309,7 +308,6 @@ impl Simulation {
         let count = self.local_commands.len();
         let entries: Vec<_> = self.local_commands.take_prefix(count).collect();
         for command in entries {
-            #[cfg(any(test, feature = "test-support"))]
             if self.replaying_recorded_commands {
                 // The recorded accepted stream owns due input. A snapshot
                 // may also retain future input not present in this batch.
@@ -337,7 +335,6 @@ impl Simulation {
     /// tick, and insertion position exactly. It does not sort, retime, normalize,
     /// intern, deduplicate, or apply the negotiated input delay.
     pub fn queue_command(&mut self, command: CommandEnvelope) {
-        #[cfg(any(test, feature = "test-support"))]
         if self.replaying_recorded_commands {
             return;
         }
@@ -598,7 +595,6 @@ impl Simulation {
         }
     }
 
-    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn take_due_replay_commands(
         &mut self,
         commands: impl IntoIterator<Item = CommandEnvelope>,

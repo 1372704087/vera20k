@@ -596,7 +596,7 @@ pub(crate) struct RuntimePassInputs {
     /// The window owns the foreground; gates input polling.
     pub(crate) window_active: bool,
     /// The deactivated window freezes the world
-    /// (`PlatformState::focus_freeze_active`).
+    /// (`AppState::focus_freeze_active`).
     pub(crate) focus_frozen: bool,
     pub(crate) startup_admitted: bool,
     pub(crate) frame_stepping: bool,
@@ -778,6 +778,7 @@ fn advance_in_game_runtime_mode(
     startup_admitted: bool,
     main_tick_pumps_audio: bool,
 ) -> bool {
+    let replaying = state.match_state.match_diagnostics.is_replay_playback();
     // ExecuteDoList64CD0C is a blocking message box inside this frame. Even
     // exact-step diagnostics must not admit another Logic pass while it waits.
     if super::network_failure::pending(state) {
@@ -817,10 +818,29 @@ fn advance_in_game_runtime_mode(
                 );
             // Pure timing consult; pause/menu blocking belongs to the decision.
             let network_fps = super::network_match::frame_budget(state);
-            state
-                .platform
-                .frame_pacer
-                .should_admit(now_ms, game_speed, network_fps, false)
+            if let Some(live) = state
+                .match_state
+                .live_network
+                .as_ref()
+                .filter(|live| live.uses_sequenced_lockstep())
+            {
+                live.has_terminal_network_error()
+                    || state
+                        .match_state
+                        .sim_runtime
+                        .as_ref()
+                        .is_some_and(|runtime| {
+                            super::frame_pacer::LocalFramePacer::admits_canonical_frame(
+                                runtime.simulation.session().binary_frame(),
+                                live.committed_frontier(),
+                            )
+                        })
+            } else {
+                state
+                    .platform
+                    .frame_pacer
+                    .should_admit(now_ms, game_speed, network_fps, false)
+            }
         }
         RuntimeAdvanceMode::ExactOneStep => false,
     };
@@ -829,9 +849,10 @@ fn advance_in_game_runtime_mode(
         RuntimeAdvanceMode::ExactOneStep => crate::app::match_runtime::frame_pacer::wall_clock_ms(),
     };
     let service_live = matches!(mode, RuntimeAdvanceMode::WallClock { .. })
+        && !replaying
         && !state.match_state.match_presentation.in_game_menu.is_open()
         && !state.match_state.debug_pause
-        && !state.platform.focus_freeze_active();
+        && !state.focus_freeze_active();
     if service_live {
         super::scenario_pause::poll(state, wall_ms);
     }
@@ -864,11 +885,11 @@ fn advance_in_game_runtime_mode(
     let mut decision = decide_runtime_pass(RuntimePassInputs {
         exact_step: matches!(mode, RuntimeAdvanceMode::ExactOneStep),
         window_active: state.platform.window_active,
-        focus_frozen: state.platform.focus_freeze_active(),
+        focus_frozen: state.focus_freeze_active(),
         startup_admitted,
         frame_stepping,
         paused: state.match_state.paused(),
-        scenario_paused,
+        scenario_paused: scenario_paused && !replaying,
         menu_open: state.match_state.match_presentation.in_game_menu.is_open(),
         session_mode: state.match_state.session_mode(),
         pacer_timing_admits,
@@ -880,9 +901,20 @@ fn advance_in_game_runtime_mode(
         // Pacing and pause cannot re-admit that frame. Before0xEA opens,
         // Wait_For_Players6497F1..64984D still services tactical input; the
         // existing dialog gate alone suppresses that presentation work.
-        decision.run_sim = true;
+        decision.run_sim = !state
+            .match_state
+            .live_network
+            .as_ref()
+            .is_some_and(|live| live.uses_sequenced_lockstep())
+            || pacer_timing_admits;
         decision.tick_lane = TickLane::Ordinary;
         decision.admitted_by_pacer = matches!(mode, RuntimeAdvanceMode::WallClock { .. });
+    }
+    if replaying {
+        decision.run_sim &= state.match_state.match_diagnostics.playback_can_advance();
+        decision.tactical_mutation = false;
+        // Camera remains available when the last recorded frame is frozen.
+        decision.scroll_input = state.platform.window_active && !state.focus_freeze_active();
     }
     if frame_stepping {
         state.diag.debug_frame_step_requested = false;
@@ -1008,8 +1040,10 @@ fn advance_in_game_runtime_mode(
     if decision.scroll_input {
         crate::app::input::camera::queue_keyboard_scroll(state);
     }
-    if decision.tactical_mutation {
+    if decision.tactical_mutation || replaying {
         crate::app::input::camera::animate_zoom(state);
+    }
+    if decision.tactical_mutation {
         update_building_placement_preview(state);
     }
     decision.run_sim
@@ -1052,6 +1086,7 @@ fn advance_one_simulation_frame(
     mouse_scroll: Option<(f32, f32)>,
     resume: FrameResume,
 ) -> bool {
+    let replaying = state.match_state.match_diagnostics.is_replay_playback();
     let resuming = resume != FrameResume::None;
     // MainTick55D3DA..55DE3A: a House outcome modal can suspend Logic before
     // Queue_AI. Keep its start with the live channel until that boundary, then
@@ -1076,6 +1111,17 @@ fn advance_one_simulation_frame(
 
     if let Some(rt) = state.match_state.sim_runtime.as_ref() {
         let _ = state.match_state.match_diagnostics.get_or_begin_replay(rt);
+        state.match_state.match_diagnostics.retain_replay_startup(
+            rt,
+            state.match_state.session.network_setup(),
+            state.match_state.loaded_map_source.as_ref(),
+            state.match_state.loaded_map_hash,
+            state
+                .match_state
+                .live_network
+                .as_ref()
+                .is_some_and(|live| live.dispatches_every_frame()),
+        );
     }
 
     for _ in 0..1 {
@@ -1121,7 +1167,11 @@ fn advance_one_simulation_frame(
             }
             // Normal play hashes its state once every PLAY_HASH_INTERVAL
             // frames and on the frame that ends the match, for the replay log.
-            sim.hash_state_every(crate::sim::replay::PLAY_HASH_INTERVAL);
+            sim.hash_state_every(if replaying {
+                std::num::NonZeroU64::MIN
+            } else {
+                crate::sim::replay::PLAY_HASH_INTERVAL
+            });
             // Report points need the ledger whether or not a dashboard is
             // attached; `publish_if_due` only runs with a client.
             #[cfg(feature = "telemetry-dashboard")]
@@ -1129,7 +1179,7 @@ fn advance_one_simulation_frame(
             // Delay-zero AnimClass construction can emit StartSound during the
             // final map-load sweep. Keep it until this first tactical drain;
             // `drain(..)` below still consumes every event exactly once.
-            let due_commands = if !resuming && tick_lane == TickLane::Ordinary {
+            let due_commands = if !replaying && !resuming && tick_lane == TickLane::Ordinary {
                 sim.take_due_commands()
             } else {
                 Vec::new()
@@ -1141,12 +1191,11 @@ fn advance_one_simulation_frame(
             // F07: the runtime is the one production frame API — bound
             // resources, no caller-substitutable inputs.
             let mut output = {
-                let command_observations = std::cell::RefCell::new(
-                    state
-                        .match_state
-                        .match_diagnostics
-                        .command_observations_mut(),
-                );
+                let (replay_playback, observations) = state
+                    .match_state
+                    .match_diagnostics
+                    .playback_and_observations_mut();
+                let command_observations = std::cell::RefCell::new(observations);
                 let observing_commands = command_observations.borrow().is_some();
                 let command_applied = |sim: &crate::sim::world::Simulation,
                                        record: &crate::sim::command::CommandRecord,
@@ -1239,24 +1288,43 @@ fn advance_one_simulation_frame(
                     .with_tactical_radar(&boundary)
                     .with_local_planning(&boundary)
                     .with_network_commands(&boundary)
-                    .with_outcome_wait(&boundary)
                     .with_production_strip(&production_visits, &clear_production_request)
                     .with_before_logic(&before_logic);
+                // Recorded completion owns outcome timing during playback;
+                // a local audio wait cannot add a frame or change its hash.
+                let effects = if replaying {
+                    effects
+                } else {
+                    effects.with_outcome_wait(&boundary)
+                };
                 let effects = if observing_commands {
                     effects.with_command_applied(&command_applied)
                 } else {
                     effects
                 };
-                match resume {
-                    FrameResume::ChecksumModal => rt.resume_after_network_failure(effects),
-                    FrameResume::NetworkWait => rt.resume_network_wait(effects),
-                    FrameResume::NetworkLeave => rt.leave_network_wait(effects),
-                    FrameResume::OutcomeWait => rt.resume_outcome_wait(effects),
-                    FrameResume::None => {
-                        rt.advance_frame(&due_commands, SIM_TICK_MS, tick_lane, effects)
+                if let Some(playback) = replay_playback {
+                    match playback.advance(rt, effects) {
+                        Ok(Some(output)) => output,
+                        Ok(None) => return false,
+                        Err(error) => {
+                            let message = format!("Replay failed: {error:#}");
+                            log::error!("{message}");
+                            state.frontend.external_launch_error = Some(message);
+                            return false;
+                        }
                     }
+                } else {
+                    match resume {
+                        FrameResume::ChecksumModal => rt.resume_after_network_failure(effects),
+                        FrameResume::NetworkWait => rt.resume_network_wait(effects),
+                        FrameResume::NetworkLeave => rt.leave_network_wait(effects),
+                        FrameResume::OutcomeWait => rt.resume_outcome_wait(effects),
+                        FrameResume::None => {
+                            rt.advance_frame(&due_commands, SIM_TICK_MS, tick_lane, effects)
+                        }
+                    }
+                    .expect("simulation frame failed; prior world mutations remain")
                 }
-                .expect("simulation frame failed; prior world mutations remain")
             };
             state
                 .match_state

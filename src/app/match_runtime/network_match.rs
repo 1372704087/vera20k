@@ -23,6 +23,14 @@ use crate::ui::shell::connection::{ConnectionPage, ConnectionRow};
 /// The simulation owns FPS/MaxAhead; the live channel owns sampled peer lag.
 /// Presentation and the frame pacer consume the same combined interval.
 pub(crate) fn frame_budget(state: &AppState) -> Option<(u16, u32)> {
+    if let Some(fps) = state
+        .match_state
+        .live_network
+        .as_ref()
+        .and_then(|live| live.fixed_frames_per_second())
+    {
+        return Some((fps, 0));
+    }
     let session = state.match_state.sim_runtime.as_ref()?.simulation.session();
     let timing = session.network_command_timing()?;
     let delay = state.match_state.live_network.as_ref().map_or(0, |live| {
@@ -191,6 +199,11 @@ pub(crate) fn receive_departure(
     wait: &mut NetworkMatchWait,
     endpoint: std::net::SocketAddrV4,
 ) -> Option<ConnectionDestroyed> {
+    // In sequenced play only the relay's committed departure can mutate
+    // gameplay membership. Global shell traffic has no simulation authority.
+    if live.uses_sequenced_lockstep() {
+        return None;
+    }
     let house = live.connections().peer_id(endpoint)?;
     let source = house_source(session, sim, house)?;
     let destroyed = destroy_connection(session, sim, source, ConnectionError::Left, Some(live))?;

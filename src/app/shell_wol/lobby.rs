@@ -1550,11 +1550,7 @@ fn send_create(state: &mut AppState, channel: WolChannel, key: String, observe: 
     // no registry), the nickname's persona Country and Color become the
     // MultiPlayer picks the host node then takes (0x0069B700/0x0069B720).
     let nickname = nickname(state);
-    let persona = super::persona::load(state, &nickname);
-    state
-        .frontend
-        .multiplayer_shell_runtime
-        .set_side_and_color(persona.country, persona.color);
+    super::persona::take_side_and_color(state, &nickname);
     if let Some(lobby) = lobby_mut(state) {
         lobby.step = Step::Creating {
             observe,
@@ -1600,16 +1596,15 @@ fn created_channel(
     }
 }
 
-/// `0x0077E7A0` at Create: the hash, then `0x005E94D0`/`0x005E9580`/
-/// `!0x005E9560` over the slot array `[0xA8DA90]`, and the scenario
-/// `[0xA8B8E0]` (the record at `[0xA8B254]`, as `SelectScenario`
-/// `0x005E7BF0` copies it). WOL entry (`0x00786390` -> `0x005E8B60`)
-/// fills every slot with the Open or Closed sentinel: no AI, no observer
-/// and no open observer slot.
+/// `0x0077E7A0`: the hash, then `0x005E94D0`/`0x005E9580`/`!0x005E9560`
+/// over the slot array `[0xA8DA90]`, and the scenario `[0xA8B8E0]` (the
+/// record at `[0xA8B254]`, as `SelectScenario` `0x005E7BF0` copies it). At
+/// Create the WOL entry (`0x00786390` -> `0x005E8B60`) has filled every slot
+/// with the Open or Closed sentinel, and no setup exists yet: no AI, no
+/// observer and no open observer slot.
 /// RESIDUAL: a setup earlier in the visit leaves its own slots, which
-/// native publishes instead; the C2 republish (`0x0078F000`) that
-/// replaces the record is not ported (chain H).
-fn create_ex_info(state: &AppState) -> String {
+/// native's Create publishes instead.
+fn ex_info(state: &AppState) -> String {
     let index = state.frontend.multiplayer_shell_runtime.scenario_index();
     let scenario = state
         .frontend
@@ -1618,15 +1613,85 @@ fn create_ex_info(state: &AppState) -> String {
         .get(index)
         .map(|record| record.file_name.clone())
         .unwrap_or_default();
+    let (ai_players, observer_taken, observer_open) = slot_ex_info(&state.match_state.session);
     ExInfo {
         version: EX_INFO_VERSION,
         hash: local_ini_hash(state).unwrap_or(0),
-        ai_players: 0,
-        observer_taken: 0,
-        observer_open: 0,
+        ai_players,
+        observer_taken,
+        observer_open,
         scenario,
     }
     .write()
+}
+
+/// The slot words of [`ex_info`]: the AI rows (`0x005E94D0`), a human
+/// observer on the observer row `[0x8316A4]` (`0x005E9580`) and an open
+/// observer row (`!0x005E9560`).
+fn slot_ex_info(session: &crate::app::match_runtime::session::MatchSession) -> (i32, i32, i32) {
+    use crate::app::match_runtime::session::NetworkVacancy;
+    let Some(launch) = session.network_setup() else {
+        return (0, 0, 0);
+    };
+    let rows = 0..crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as u8;
+    let ai = rows
+        .clone()
+        .filter(|row| session.network_display_ai(*row).is_some())
+        .count();
+    let observer_row = session.network_observer_row();
+    let taken = observer_row.is_some()
+        && launch
+            .humans
+            .iter()
+            .any(|human| human.is_observer() && human.raw_slot_index == observer_row);
+    let open = rows
+        .clone()
+        .any(|row| session.network_vacancy(row) == Some(NetworkVacancy::OpenObserver));
+    (ai as i32, i32::from(taken), i32::from(open))
+}
+
+/// `0x0078F000`'s channel limit (`"mode #%s +l %d"`, API+0x9C): the host,
+/// then over the setup's rows (`0x005E64C0`, one more with the observer
+/// preference `[0xAC10C8]` at 1) every human and every Open or open
+/// observer row, and past them every human and open observer row.
+fn republished_limit(
+    session: &crate::app::match_runtime::session::MatchSession,
+    observer_preference: bool,
+) -> Option<i32> {
+    use crate::app::match_runtime::session::NetworkVacancy;
+    let launch = session.network_setup()?;
+    let rows = session.network_setup_capacity()? + i32::from(observer_preference);
+    let mut limit = 1;
+    for row in 1..crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as u8 {
+        let human = launch
+            .humans
+            .iter()
+            .any(|human| human.raw_slot_index == Some(row));
+        let counted = match session.network_vacancy(row) {
+            Some(NetworkVacancy::OpenObserver) => true,
+            Some(NetworkVacancy::Open) => i32::from(row) < rows,
+            _ => human,
+        };
+        limit += i32::from(counted);
+    }
+    Some(limit)
+}
+
+/// `0x0078F000`, the host's republish after its setup changed: the channel
+/// limit and a fresh exInfo (API+0xA8) replace the Create record's.
+/// RESIDUAL: API+0xFC's count (the limit plus the AI rows) has no field in
+/// VERA's channel record.
+pub(crate) fn republish_channel(state: &mut AppState) -> Option<WolChannel> {
+    let observer = state
+        .frontend
+        .multiplayer_shell_runtime
+        .lan_create_observer();
+    let max_users = republished_limit(&state.match_state.session, observer)?;
+    let ex_info = ex_info(state);
+    let current = lobby_mut(state)?.current.as_mut()?;
+    current.max_users = max_users;
+    current.ex_info = ex_info;
+    Some(current.clone())
 }
 
 /// `0x00789B60` after `0xC3` OK.
@@ -1642,7 +1707,7 @@ fn create_confirmed(
     let globals = &mut state.frontend.wol_lobby_globals;
     globals.limit_resolution = limit;
     let lobby_number = globals.lobby_number;
-    let ex_info = create_ex_info(state);
+    let ex_info = ex_info(state);
     let channel = created_channel(&nickname, clan, limit, width, lobby_number, ex_info);
     // The key goes to +0xD7 with spaces made '_'; the popup's observe byte
     // becomes the observer preference [0xAC10C8].
@@ -1825,6 +1890,9 @@ fn popup_action(state: &mut AppState, action: WolPopupAction) {
 
 /// `0x0078AC10`'s 0x540 Enter after `0x005EDD00`.
 fn send_chat(state: &mut AppState, text: Vec<u16>) {
+    if super::translation::command(state, &text) {
+        return;
+    }
     let commands = wol_chat::WolChatCommands {
         page: units(state, "TXT_PAGE_COMMAND"),
         reply: units(state, "TXT_REPLY_COMMAND"),
@@ -2285,11 +2353,7 @@ fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
             })
             .unwrap_or_default();
         if setup::guest_users_listed(state, &users) {
-            let persona = super::persona::load(state, &me);
-            state
-                .frontend
-                .multiplayer_shell_runtime
-                .set_side_and_color(persona.country, persona.color);
+            super::persona::take_side_and_color(state, &me);
             setup::send_first_choices(state);
             if quick_match_runner(state) {
                 super::quick_match::game_joined(state, true);
@@ -2778,6 +2842,12 @@ pub(super) fn message_received(state: &mut AppState, message: ReceivedMessage) {
     }
     let (line, color) = wol_chat::received_line(&sender(&from), &text, private, action);
     echo(state, line, color);
+    let (prefix, _) = wol_chat::received_line(&sender(&from), &[], private, action);
+    super::translation::received(
+        state,
+        &text,
+        super::translation::TranslatedLine::Wol { prefix, color },
+    );
     state.platform.window.request_redraw();
 }
 
@@ -3752,6 +3822,47 @@ fn game_help(state: &AppState, row: &WolGameRow) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `0x0078F000` counts Open rows only within the setup's rows (one more
+    /// with the observer preference) but open observer rows anywhere.
+    #[test]
+    fn republished_limit_counts_open_rows_within_the_setup() {
+        use crate::app::match_runtime::session::{
+            MatchSession, NetworkReturnContext, NetworkVacancy,
+        };
+        let profile: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/map_observation.command-bar.example.json",
+        ))
+        .unwrap();
+        let mut launch: crate::skirmish_launch::SkirmishLaunchSession =
+            serde_json::from_value(profile["launch"].clone()).unwrap();
+        launch.opponents.clear();
+        launch.ai_player_count = 0;
+        let mut guest = launch.local_player().clone();
+        guest.name = "Guest".into();
+        guest.raw_slot_index = Some(1);
+        launch.humans.push(guest);
+        launch.local_player_index = 1;
+        launch.rebuild_house_roster();
+        let mut vacancies =
+            [NetworkVacancy::Closed; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT];
+        vacancies[2] = NetworkVacancy::Open;
+        vacancies[3] = NetworkVacancy::Open;
+        vacancies[5] = NetworkVacancy::OpenObserver;
+        let mut session = MatchSession::default();
+        session.enter_network(NetworkReturnContext::Wol);
+        session
+            .accept_network_setup(launch.clone(), false, None)
+            .unwrap();
+        session
+            .accept_network_host_setup(launch, vacancies, 3, None, false)
+            .unwrap();
+        assert_eq!(session.network_setup_capacity(), Some(3));
+        // Host, guest, row 2 and the observer row; row 3 is past the rows.
+        assert_eq!(republished_limit(&session, false), Some(4));
+        assert_eq!(republished_limit(&session, true), Some(5));
+        assert_eq!(slot_ex_info(&session), (0, 0, 1));
+    }
 
     #[test]
     fn saved_test_preference_cannot_load_demo_games_in_ordinary_play() {

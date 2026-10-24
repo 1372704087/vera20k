@@ -497,6 +497,43 @@ impl App {
         }
     }
 
+    /// Cooperative `+0xA4`'s campaign end (`0x00471420`): the side's score
+    /// art again (`0x0072D300`, `ScoreArt__Load`), the empty backdrop, then
+    /// dialog `0xBC7` with the texts its init writes. No theme changes.
+    pub(crate) fn open_campaign_end_page(
+        state: &mut AppState,
+        model: crate::ui::campaign_score_shell::CampaignEndModel,
+    ) {
+        use crate::ui::campaign_score_shell::{CAMPAIGN_END_DIALOG, CampaignScorePage};
+        state.frontend.campaign_score_art = state.process_assets.manager().and_then(|assets| {
+            crate::render::main_menu_shell_chrome::build_campaign_score_art(
+                &state.renderer.gpu,
+                &state.renderer.batch_renderer,
+                assets,
+                model.side,
+                crate::app::frontend::shell_layout::art_key_screen_width(state),
+            )
+        });
+        if state.frontend.campaign_score_art.is_none() {
+            log::warn!("Could not prepare the campaign-end score art; Continue remains available");
+        }
+        let page = CampaignScorePage::open_campaign_end(
+            model,
+            |key| Self::csf_label(state, key, ""),
+            Instant::now(),
+        );
+        state.frontend.campaign_score_page = Some(page);
+        state.frontend.shell_first_paint_slide = None;
+        state.frontend.screen = GameScreen::MissionResult {
+            title: String::new(),
+            detail: String::new(),
+        };
+        state
+            .frontend
+            .shell_controller
+            .reset_to(CAMPAIGN_END_DIALOG, false);
+    }
+
     fn score_layout(state: &AppState) -> crate::ui::score_shell::ScoreLayout {
         crate::app::frontend::shell_layout::score_layout(state)
     }
@@ -595,12 +632,12 @@ impl App {
         Vec<crate::ui::shell::layout::LaidOutControl>,
         (i32, i32),
     ) {
-        use crate::ui::campaign_score_shell::{CAMPAIGN_SCORE_CONTROLS, CONTINUE_BUTTON};
-
+        let dialog = Self::campaign_score_dialog(state);
         let layout = Self::campaign_score_layout(state);
         // Hover tracks the value statics' help strings. Keep the separate
         // button-only press feed so those static ids are never pressed.
-        let hover_feed = CAMPAIGN_SCORE_CONTROLS
+        let hover_feed = dialog
+            .controls()
             .iter()
             .filter(|control| control.action.is_some() || control.tooltip_key.is_some())
             .filter_map(|control| {
@@ -613,13 +650,13 @@ impl App {
             })
             .collect();
         let press_feed = vec![crate::ui::shell::layout::LaidOutControl {
-            id: CONTINUE_BUTTON,
+            id: dialog.continue_button(),
             rect: layout.continue_button,
         }];
-        state.frontend.shell_controller.ensure_active(
-            crate::ui::campaign_score_shell::CAMPAIGN_SCORE_DIALOG,
-            false,
-        );
+        state
+            .frontend
+            .shell_controller
+            .ensure_active(dialog.id(), false);
         let cursor = state.match_state.input.cursor_px();
         (layout, hover_feed, press_feed, cursor)
     }
@@ -639,28 +676,47 @@ impl App {
             .shell_controller
             .on_pointer_down(x, y, &press_feed);
         if state.frontend.shell_controller.pressed()
-            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+            == Some(Self::campaign_score_dialog(state).continue_button())
         {
             Self::play_main_menu_button_sound(state);
         }
     }
 
+    fn campaign_score_dialog(
+        state: &AppState,
+    ) -> crate::ui::campaign_score_shell::CampaignScoreDialog {
+        state
+            .frontend
+            .campaign_score_page
+            .as_ref()
+            .map_or_else(Default::default, |page| page.dialog)
+    }
+
     /// Native `0x103` Continue (`0x423`, result 1) tears the dialog down with
-    /// its slide before GameExit::Victory advances the campaign.
+    /// its slide before GameExit::Victory advances the campaign; `0xBC7`'s
+    /// (`0x6D1`, result 1) before Main_Game returns to the shell.
     pub(super) fn handle_campaign_score_mouse_up(state: &mut AppState) {
+        use crate::app::frontend::shell_transition::ShellExitThen;
+        use crate::ui::campaign_score_shell::CampaignScoreDialog;
+        let dialog = Self::campaign_score_dialog(state);
         let (_, _, press_feed, (x, y)) = Self::campaign_score_input(state);
         if state
             .frontend
             .shell_controller
             .on_pointer_up(x, y, &press_feed)
-            == Some(crate::ui::campaign_score_shell::CONTINUE_BUTTON)
+            != Some(dialog.continue_button())
         {
-            // `0x423` ends the global VocHandle before the result returns.
-            Self::stop_campaign_score_anim_sound(state);
-            Self::leave_shell_dialog(
-                state,
-                crate::app::frontend::shell_transition::ShellExitThen::CampaignScoreContinue,
-            );
+            return;
+        }
+        match dialog {
+            CampaignScoreDialog::Victory => {
+                // `0x423` ends the global VocHandle before the result returns.
+                Self::stop_campaign_score_anim_sound(state);
+                Self::leave_shell_dialog(state, ShellExitThen::CampaignScoreContinue);
+            }
+            CampaignScoreDialog::CampaignEnd => {
+                Self::leave_shell_dialog(state, ShellExitThen::CampaignEndContinue)
+            }
         }
     }
 
@@ -1514,6 +1570,9 @@ Details: {details}"
             ShellExitThen::WolBack => Self::return_from_wol(state),
             ShellExitThen::ScoreContinue => Self::leave_mission_result_screen(state),
             ShellExitThen::CampaignScoreContinue => Self::leave_mission_result_screen(state),
+            ShellExitThen::CampaignEndContinue => {
+                crate::app::cooperative_round::campaign_end_continue(state)
+            }
             ShellExitThen::WolAction(mode) => Self::commit_wol_action(state, mode),
             ShellExitThen::WolLoginClose(result) => Self::commit_wol_login_close(state, result),
             ShellExitThen::WolLobbyBack => crate::app::shell_wol::lobby::commit_back(state),

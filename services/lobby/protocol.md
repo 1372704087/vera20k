@@ -27,6 +27,10 @@ Relay tickets and encrypted datagrams retain wire version2; lobby capability and
 relay wire versions are independent. Unsupported sessions retire through ordinary
 room/match cleanup and cannot renew grants.
 `GET /health` reports `protocol:4`.
+`GET /v1/stats` needs no bearer and returns `{online,in_game,open_games,games_24h,games_total}`:
+active sessions, those in a playing match, joinable game rooms, and games whose play
+began in the last 24 hours and ever. It names no player or room, is limited to 30
+requests a minute per address, and one answer serves every reader for 10 seconds.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and
@@ -259,6 +263,17 @@ authorization, readiness, sequence history and idle expiration are server-owned.
 Idle lobby visits expire after 120 seconds. An unfinished v4 playing membership
 survives that idle interval until explicit finish/leave or the match/session
 lifetime; lost internet does not remove its gameplay source.
+
+`POST /v1/translate` accepts exactly `{text,target}` from a v4 bearer and returns
+`{text}`: `text` translated into `target`, a language tag such as `en` or `zh-Hans`.
+`text` is non-blank and at most 2048 UTF-8 bytes, the chat limit. Clients translate
+received chat only after the player opts in, and always keep the original visible.
+A deployment without a translator, a failed model call or the service's daily budget
+of 10,000 model calls returns 503 `translation_unavailable`; an unsupported target
+returns 400 `invalid_request`. Each player may ask 60 times a minute. Successful
+replies are cached for 24 hours by `target` and `text`, and readers asking for the
+same message while it is translated share one model call. Translation never waits
+for, or delays, room commands.
 
 `GET /v1/match/resume?match_id=<UUID>` requires the same v4 bearer and its own
 unfinished playing match. It returns `{match_id,cursor,relay}` with a fresh

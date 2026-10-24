@@ -354,6 +354,15 @@ pub(crate) fn receive(state: &mut AppState, source_index: usize, text: &str) {
 pub(crate) fn receive_packet(state: &mut AppState, name: &str, color: i32, text: &str) {
     let rgb = crate::app::input::messages::packet_player_line_rgb(state, color);
     receive_resolved(state, name, text, rgb);
+    let units: Vec<u16> = text.encode_utf16().collect();
+    crate::app::shell_wol::translation::received(
+        state,
+        &units,
+        crate::app::shell_wol::translation::TranslatedLine::Match {
+            name: name.to_owned(),
+            color,
+        },
+    );
 }
 
 fn receive_resolved(state: &mut AppState, name: &str, text: &str, rgb: [f32; 3]) {

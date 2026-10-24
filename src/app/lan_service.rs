@@ -3270,11 +3270,16 @@ fn drain_match_requests(state: &mut AppState) {
                 }
             }
             NetworkLoadingRequest::Chat { recipients, text } => {
-                let color = state
-                    .match_state
-                    .session
-                    .network_setup()
-                    .map_or(-2, |launch| color_value(launch.local_player()));
+                // BC6's chat writes [0x7EEF2C] (0x0046E126).
+                let color = if state.match_state.session.cooperative_round().is_some() {
+                    crate::ui::wol_chat::PUBLIC_COLOR as i32
+                } else {
+                    state
+                        .match_state
+                        .session
+                        .network_setup()
+                        .map_or(-2, |launch| color_value(launch.local_player()))
+                };
                 let game_name = active_game_name(state).unwrap_or_default();
                 if let Ok(message) =
                     LanMessage::in_game_chat(&local_name(state), color as u32, &game_name, &text)

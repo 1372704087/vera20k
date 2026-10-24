@@ -28,6 +28,12 @@ The HTTPS service supplies match-specific relay credentials before the same load
 and command handoff. Both paths transfer selected authored maps or generated
 seed/preview data and verify build, rules and effective-map agreement before start.
 
+Typing `/translate zh` (or `en`, `zh-tw`, `ja`, `ko`, `de`, `fr`, `es`, `pt`) in an
+online chat edit turns on chat translation, saved as `[VERA] TranslateChat=`;
+`/translate off` stops it. Received lobby, room and match chat written in the other
+script (Latin versus CJK) is sent to the lobby's translation service. The original
+stays; its translation follows as a line from the same sender marked `»`.
+
 The app services reliable messages and intermediate progress while loading, and
 continues servicing transport during frame waits. Gameplay uses the same
 OutList/DoList owners as offline play; the transport does not own a second
@@ -199,4 +205,10 @@ The host uses the Soviet co-op campaign through Choose Map; both players take
 B6 Observe at native frame 150, BC6 opens on both after the lost mission, both
 press Continue, and the retried mission must run 90 frames over the same LAN
 admission. The manifest's `lan.cooperative` records the BC6 result and the
-retried startup.
+retried startup. `lan-live-coop-saved-host` replaces the host's Soviet row with Use Saved
+Campaign; seed its settings folder with a `coopsave.ini` section for the pair
+(`LiveHostLiveGuest`), and both players load the saved stage's map.
+`lan-live-coop-final-host` and `lan-live-coop-final-guest` start from a section whose
+`CurrentMap` is the campaign's last stage: at native frame 150 both processes flag every
+human House to win, BC6 offers only Quit, both press it and the campaign-end dialog
+`0xBC7` opens. The host stays on it; the guest presses Continue back to the lobby.

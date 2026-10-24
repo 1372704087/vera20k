@@ -24,6 +24,7 @@ pub(crate) mod persona;
 pub(crate) mod quick_match;
 mod service;
 mod test_service;
+pub(crate) mod translation;
 
 pub(crate) use live_service::OnlineCleanup;
 pub(crate) use live_service::{

@@ -57,10 +57,18 @@ pub(super) enum Request {
         nickname: String,
     },
     Channels(u32),
+    /// `GET /v1/stats`; a failure is dropped and the next poll asks again.
+    Stats,
     Command {
         id: u64,
         operation: &'static str,
         payload: Value,
+    },
+    /// `POST /v1/translate`, answered by [`Response::Translated`].
+    Translate {
+        id: u64,
+        text: String,
+        target: &'static str,
     },
 }
 
@@ -109,6 +117,7 @@ pub(super) enum Response {
         attempt: u64,
     },
     Channels(ChannelList),
+    Stats(crate::ui::wol_shell::WolLobbyStats),
     Event(Envelope),
     CommandCompleted {
         id: u64,
@@ -124,6 +133,18 @@ pub(super) enum Response {
     StartRejected {
         id: u64,
     },
+    Translated {
+        id: u64,
+        outcome: Result<String, TranslateFailure>,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum TranslateFailure {
+    /// No translator, model failure, budget or limit: try again later.
+    Unavailable,
+    /// The lobby refused this line or language (400).
+    Unsupported,
 }
 
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
@@ -415,6 +436,45 @@ impl Client {
     }
 }
 
+/// The model takes about a second, so translation has its own thread and
+/// polling and commands never wait for it. A job carries the current bearer.
+fn spawn_translator(
+    client: &Client,
+    output: &Sender<Response>,
+) -> Option<Sender<(u64, String, String, &'static str)>> {
+    let (jobs, input) = std::sync::mpsc::channel::<(u64, String, String, &'static str)>();
+    let mut translator = Client {
+        stopping: Arc::clone(&client.stopping),
+        agent: client.agent.clone(),
+        base: client.base.clone(),
+        token: None,
+        cursor: 0,
+        active_match: None,
+    };
+    let output = output.clone();
+    std::thread::Builder::new()
+        .name("vera-translate".into())
+        .spawn(move || {
+            for (id, token, text, target) in input {
+                translator.token = Some(token);
+                let body = json!({"text":text,"target":target});
+                let outcome = match translator.request("/v1/translate", Some(&body)) {
+                    Ok(value) => value["text"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .ok_or(TranslateFailure::Unavailable),
+                    Err(RequestFailure::Status(400)) => Err(TranslateFailure::Unsupported),
+                    Err(_) => Err(TranslateFailure::Unavailable),
+                };
+                if output.send(Response::Translated { id, outcome }).is_err() {
+                    break;
+                }
+            }
+        })
+        .ok()
+        .map(|_| jobs)
+}
+
 pub(super) fn run(
     base: String,
     input: Receiver<Request>,
@@ -435,6 +495,7 @@ pub(super) fn run(
         cursor: 0,
         active_match: None,
     };
+    let translator = spawn_translator(&client, &output);
     let mut failed_polls = 0_u8;
     let mut next_poll = Instant::now();
     loop {
@@ -670,6 +731,13 @@ pub(super) fn run(
                     }
                 }
             }
+            Some(Request::Stats) => {
+                if let Ok(stats) = client.request("/v1/stats", None).and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))
+                }) {
+                    let _ = output.send(Response::Stats(stats));
+                }
+            }
             Some(Request::Command {
                 id,
                 operation,
@@ -741,6 +809,18 @@ pub(super) fn run(
                 }
                 if operation == "logout" && completed {
                     client.token = None;
+                }
+            }
+            Some(Request::Translate { id, text, target }) => {
+                let job = client.token.clone().map(|token| (id, token, text, target));
+                if job
+                    .and_then(|job| translator.as_ref()?.send(job).ok())
+                    .is_none()
+                {
+                    let _ = output.send(Response::Translated {
+                        id,
+                        outcome: Err(TranslateFailure::Unavailable),
+                    });
                 }
             }
             None => {}

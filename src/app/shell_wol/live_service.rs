@@ -33,9 +33,10 @@ use crate::ui::wol_chat::WolChatLine;
 // The deployment sets this at build time; a runtime override supports staging.
 const DEFAULT_LOBBY_URL: &str = match option_env!("VERA20K_LOBBY_URL") {
     Some(value) => value,
-    None => "https://vera20k-lobby.hnr-enok.workers.dev",
+    None => "https://lobby.vera20k.org",
 };
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
+const STATS_INTERVAL: Duration = Duration::from_secs(30);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
 
@@ -233,6 +234,7 @@ pub(super) struct LiveService {
     accepted_options: Option<Value>,
     start_preparation: Option<StartPreparation>,
     last_ready_request: Option<(u64, u64)>,
+    next_stats: Option<Instant>,
     pending_choices: Option<PendingChoices>,
     player_id: String,
     member_ids: BTreeMap<String, String>,
@@ -243,6 +245,7 @@ pub(super) struct LiveService {
     logging_out: Option<RetryingCommand>,
     next_renewal_attempt: Option<Instant>,
     maps: maps::Transfers,
+    translations: Translations,
 }
 
 impl Drop for LiveService {
@@ -340,6 +343,65 @@ impl StartPreparation {
     }
 }
 
+// A busy room cannot queue minutes of model calls: a line that finds this
+// many waiting stays untranslated. An unavailable translator pauses them.
+const MAX_PENDING_TRANSLATIONS: usize = 4;
+const TRANSLATION_PAUSE: Duration = Duration::from_secs(60);
+
+/// Received chat lines waiting for `POST /v1/translate`, by request id.
+#[derive(Default)]
+struct Translations {
+    next: u64,
+    pending: BTreeMap<u64, super::translation::TranslatedLine>,
+    paused_until: Option<Instant>,
+}
+
+impl Translations {
+    fn request(
+        &mut self,
+        requests: &Sender<http::Request>,
+        text: &[u16],
+        target: crate::ui::chat_translation::ChatLanguage,
+        line: super::translation::TranslatedLine,
+        now: Instant,
+    ) {
+        let text = String::from_utf16_lossy(text);
+        if self.pending.len() >= MAX_PENDING_TRANSLATIONS
+            || self.paused_until.is_some_and(|until| now < until)
+            || text.len() > 2048
+        {
+            return;
+        }
+        let id = self.next;
+        self.next = self.next.wrapping_add(1);
+        let target = target.tag();
+        if requests
+            .send(http::Request::Translate { id, text, target })
+            .is_ok()
+        {
+            self.pending.insert(id, line);
+        }
+    }
+
+    fn reply(
+        &mut self,
+        id: u64,
+        outcome: Result<String, http::TranslateFailure>,
+        now: Instant,
+    ) -> Option<(super::translation::TranslatedLine, String)> {
+        let line = self.pending.remove(&id)?;
+        match outcome {
+            Ok(text) => Some((line, text)),
+            Err(failure) => {
+                if failure == http::TranslateFailure::Unavailable {
+                    self.paused_until = Some(now + TRANSLATION_PAUSE);
+                }
+                None
+            }
+        }
+    }
+}
+
 struct PendingStart {
     match_id: String,
     host_name: String,
@@ -384,6 +446,7 @@ impl LiveService {
             accepted_options: None,
             start_preparation: None,
             last_ready_request: None,
+            next_stats: None,
             pending_choices: None,
             player_id: String::new(),
             member_ids: BTreeMap::new(),
@@ -394,6 +457,7 @@ impl LiveService {
             logging_out: None,
             next_renewal_attempt: None,
             maps: Default::default(),
+            translations: Translations::default(),
         })
     }
 
@@ -755,9 +819,24 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             maps::poll(state, &mut service);
         }
         poll_renewal(state, &mut service);
+        poll_stats(state, &mut service);
     }
     put_service(state, service);
     Some(Instant::now() + POLL_INTERVAL)
+}
+
+/// The online welcome shows the lobby's public counts, refreshed while open.
+fn poll_stats(state: &AppState, service: &mut LiveService) {
+    let now = Instant::now();
+    let welcome = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| matches!(visit.page, super::WolPage::Welcome));
+    if welcome && service.next_stats.is_none_or(|due| now >= due) {
+        let _ = service.requests.send(http::Request::Stats);
+        service.next_stats = Some(now + STATS_INTERVAL);
+    }
 }
 
 fn notice(state: &mut AppState, text: &str) {
@@ -954,6 +1033,17 @@ fn request_service(state: &mut AppState, service: &mut LiveService, request: Wol
         | WolServiceRequest::SetFindPage { .. } => {}
         WolServiceRequest::RequestMatch { .. } => {
             notice(state, "Choose Custom Match to host or join an online game.")
+        }
+        WolServiceRequest::Translate { text, line } => {
+            if let Some(target) = state.persistence.options_profile.translate_chat {
+                service.translations.request(
+                    &service.requests,
+                    &text,
+                    target,
+                    line,
+                    Instant::now(),
+                );
+            }
         }
     }
 }
@@ -1303,7 +1393,7 @@ fn request_setup(
         }
         NetworkSetupRequest::Kick { name } => service.command("kick", json!({"name":name})),
         NetworkSetupRequest::Advertise => {
-            if let Some(channel) = super::lobby::current_channel(state) {
+            if let Some(channel) = super::lobby::republish_channel(state) {
                 service.command("advertise", json!({"channel":wire::Channel::from(channel)}));
             }
         }
@@ -1386,7 +1476,12 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
-            notice(state, "Update VERA20k to use secure online multiplayer.");
+            // The login has no lobby yet, so a chat line would be lost: the
+            // failure's own box says why.
+            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
+            if !super::service::replace_open_box_body(state, UPDATE) {
+                notice(state, UPDATE);
+            }
         }
         http::Response::Channels(list) => service_event(
             state,
@@ -1395,6 +1490,7 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                 channels: list.channels.into_iter().map(Into::into).collect(),
             },
         ),
+        http::Response::Stats(stats) => super::persona::lobby_stats(state, stats),
         http::Response::Event(event) => {
             if apply_event(state, service, &event.kind, event.payload).is_err() {
                 log::warn!(
@@ -1487,6 +1583,11 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             }
             _ => notice(state, "The online request was not accepted."),
         },
+        http::Response::Translated { id, outcome } => {
+            if let Some((line, text)) = service.translations.reply(id, outcome, Instant::now()) {
+                super::translation::show(state, line, &text);
+            }
+        }
         http::Response::Failure(message) => notice(state, message),
         http::Response::Offline => {
             crate::app::loading::pump::cancel_network_loading(
@@ -2295,6 +2396,7 @@ mod completion_tests {
             accepted_options: None,
             start_preparation: None,
             last_ready_request: None,
+            next_stats: None,
             pending_choices: None,
             player_id: String::new(),
             member_ids: BTreeMap::new(),
@@ -2305,8 +2407,61 @@ mod completion_tests {
             logging_out: None,
             next_renewal_attempt: None,
             maps: Default::default(),
+            translations: Translations::default(),
         };
         (service, input, output)
+    }
+
+    #[test]
+    fn translations_stay_bounded_and_pause_after_an_unavailable_translator() {
+        use super::super::translation::TranslatedLine;
+        use crate::ui::chat_translation::ChatLanguage;
+        let (requests, input) = mpsc::channel();
+        let mut translations = Translations::default();
+        let now = Instant::now();
+        let line = |name: &str| TranslatedLine::Match {
+            name: name.into(),
+            color: 0,
+        };
+        let mut ask = |name, at| {
+            let text: Vec<u16> = "rush".encode_utf16().collect();
+            translations.request(
+                &requests,
+                &text,
+                ChatLanguage::SimplifiedChinese,
+                line(name),
+                at,
+            );
+        };
+        for name in ["A", "B", "C", "D", "E"] {
+            ask(name, now);
+        }
+        let sent: Vec<_> = input
+            .try_iter()
+            .map(|request| match request {
+                http::Request::Translate { id, target, .. } => (id, target),
+                _ => panic!("only translations were asked"),
+            })
+            .collect();
+        assert_eq!(sent, [0, 1, 2, 3].map(|id| (id, "zh-Hans")));
+        let shown = translations.reply(0, Ok("冲".into()), now);
+        assert!(shown.is_some_and(|(shown, text)| shown == line("A") && text == "冲"));
+        let failed = translations.reply(1, Err(http::TranslateFailure::Unavailable), now);
+        assert!(failed.is_none());
+        let mut ask = |name, at| {
+            let text: Vec<u16> = "rush".encode_utf16().collect();
+            translations.request(
+                &requests,
+                &text,
+                ChatLanguage::SimplifiedChinese,
+                line(name),
+                at,
+            );
+        };
+        ask("F", now + TRANSLATION_PAUSE - Duration::from_secs(1));
+        assert_eq!(input.try_iter().count(), 0);
+        ask("G", now + TRANSLATION_PAUSE);
+        assert_eq!(input.try_iter().count(), 1);
     }
 
     fn setup_session() -> crate::app::match_runtime::session::MatchSession {

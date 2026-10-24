@@ -91,7 +91,13 @@ pub enum LanTarget {
     LiveDesyncGuest,
     /// LAN Cooperative through BC6 Continue to the retried mission.
     LiveCoopHost,
+    /// The host takes Use Saved Campaign from a seeded coopsave.ini.
+    LiveCoopSavedHost,
     LiveCoopGuest,
+    /// The saved last stage is won; `0xBC7` stays on the host's screen.
+    LiveCoopFinalHost,
+    /// The final guest presses `0xBC7`'s Continue back to the shell.
+    LiveCoopFinalGuest,
     BattleHost,
     BattleGuest,
     Lobby,
@@ -226,7 +232,10 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-live-desync-host", LanTarget::LiveDesyncHost),
     ("lan-live-desync-guest", LanTarget::LiveDesyncGuest),
     ("lan-live-coop-host", LanTarget::LiveCoopHost),
+    ("lan-live-coop-saved-host", LanTarget::LiveCoopSavedHost),
     ("lan-live-coop-guest", LanTarget::LiveCoopGuest),
+    ("lan-live-coop-final-host", LanTarget::LiveCoopFinalHost),
+    ("lan-live-coop-final-guest", LanTarget::LiveCoopFinalGuest),
     ("lan-battle-host", LanTarget::BattleHost),
     ("lan-battle-guest", LanTarget::BattleGuest),
     ("lan-0xbb-steady", LanTarget::Lobby),
@@ -353,13 +362,23 @@ impl LanTarget {
                 | Self::LiveDesyncHost
                 | Self::LiveDesyncGuest
                 | Self::LiveCoopHost
+                | Self::LiveCoopSavedHost
                 | Self::LiveCoopGuest
+                | Self::LiveCoopFinalHost
+                | Self::LiveCoopFinalGuest
                 | Self::BattleHost
                 | Self::BattleGuest
         )
     }
     pub(crate) fn live_cooperative(self) -> bool {
-        matches!(self, Self::LiveCoopHost | Self::LiveCoopGuest)
+        matches!(
+            self,
+            Self::LiveCoopHost
+                | Self::LiveCoopSavedHost
+                | Self::LiveCoopGuest
+                | Self::LiveCoopFinalHost
+                | Self::LiveCoopFinalGuest
+        )
     }
     fn host_observer(self) -> bool {
         matches!(
@@ -4353,7 +4372,7 @@ impl LanCapture {
     }
     pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
         if let Some(live) = &self.live {
-            return live.owns_simulation_steps();
+            return live.owns_simulation_steps(state);
         }
         self.abort_return()
             && self.phase == LanPhase::Loading
@@ -4481,11 +4500,16 @@ fn click_cooperative_mode(state: &mut AppState) -> Result<Vec<String>> {
 
 /// Select the Soviet campaign row, then Use Map.
 fn use_soviet_campaign_row(state: &mut AppState, labels: &[String]) -> Result<()> {
-    let layout = crate::app::frontend::shell_layout::choose_map_layout(state);
     let row = labels
         .iter()
         .position(|label| label.starts_with("2. "))
         .context("the Soviet campaign row")?;
+    use_chooser_row(state, row)
+}
+
+/// Selects a Cooperative chooser row and presses Use Map.
+fn use_chooser_row(state: &mut AppState, row: usize) -> Result<()> {
+    let layout = crate::app::frontend::shell_layout::choose_map_layout(state);
     let modal = state
         .frontend
         .skirmish_shell_state
@@ -4501,7 +4525,7 @@ fn use_soviet_campaign_row(state: &mut AppState, labels: &[String]) -> Result<()
             .choose_map_modal
             .as_ref()
             .is_some_and(|modal| modal.highlighted_filtered_index == Some(row)),
-        "the Soviet row was not selected"
+        "chooser row {row} was not selected"
     );
     let button = layout.use_map_button;
     chooser_press(state, (button.x + button.w / 2, button.y + button.h / 2));

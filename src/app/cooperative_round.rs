@@ -716,6 +716,10 @@ fn begin_next_mission(state: &mut AppState) {
 /// Result 0: `+0xA4` shows the campaign-end dialog `0xBC7` only after the
 /// last mission's win, then the shell. BC6's records have gone out first;
 /// `0xBC7` services no network.
+/// RESIDUAL: the session keeps its round phase until the shell resumes, so
+/// the round's poll pops and drops packets that arrive while `0xBC7` is
+/// open; native leaves them queued for the lobby. Lobby broadcasts repeat,
+/// so nothing visible is lost.
 fn finish(state: &mut AppState) {
     let campaign_end = state
         .frontend

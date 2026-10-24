@@ -70,13 +70,6 @@ pub(crate) fn render_campaign_score_page(
             _ => None,
         }),
     };
-    // The teardown's tail draws SCRBK at the dialog origin; `0x103` already
-    // has it under the dialog, `0xBC7` only from then on.
-    let draws_background = dialog.draws_background()
-        || wave.as_ref().is_some_and(|wave| {
-            wave.panel_art()
-                .contains(&crate::ui::shell::slide::PanelArt::ScrBackdrop)
-        });
     let animation_frames = state
         .frontend
         .campaign_score_art
@@ -169,8 +162,7 @@ pub(crate) fn render_campaign_score_page(
         .main_menu_shell_chrome
         .as_ref()
         .expect("checked before render");
-    // `0xBC7` runs over the empty backdrop (`0x0052FEC0`), not SCRBK.
-    let mut chrome_sprites = if state.frontend.campaign_score_art.is_none() || !draws_background {
+    let mut chrome_sprites = if state.frontend.campaign_score_art.is_none() {
         crate::app::frontend::main_menu_shell_render::shell_parent_background_instances(
             chrome,
             layout.screen.w,
@@ -231,17 +223,15 @@ pub(crate) fn render_campaign_score_page(
     let text =
         shell_paint::paint_labels_scaled(&state.renderer.bit_font, &labels, layout.scale.factor());
     let mut draws = Vec::with_capacity(6);
-    if let Some(art) = state
-        .frontend
-        .campaign_score_art
-        .as_ref()
-        .filter(|_| draws_background)
-    {
+    if let Some(art) = state.frontend.campaign_score_art.as_ref() {
         let background = layout.background;
         let mut background_sprites = Vec::with_capacity(1);
-        // `0x006C8E80` calls `0x0072E9F0`, which draws SCRBK at
-        // `[0x00B0FC1C]` with its native 472x448 or 632x568 size. At
-        // 1024x768 the origin is the centred (112, 84), never (0, 0).
+        // Paint mode 1's `Background_Overlay` (`0x0072E730` from
+        // `WM_PAINT_Handler 0x00621E90`) draws SCRBK, `0x0060CF00`'s
+        // background shape for both dialogs, at `[0x00B0FC1C]` with its
+        // native 472x448 or 632x568 size (`0x103` also draws it once
+        // before it runs, `0x0072E9F0`). At 1024x768 the origin is the
+        // centred (112, 84), never (0, 0).
         shell_paint::push_entry_sized(
             &mut background_sprites,
             art.background,

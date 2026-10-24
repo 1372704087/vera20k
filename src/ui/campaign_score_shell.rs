@@ -397,12 +397,6 @@ impl CampaignScoreDialog {
         self.controls().iter().find(|control| control.id == id)
     }
 
-    /// `0x103` draws SCRBK before it runs (`0x0072E9F0`); `0xBC7` only the
-    /// empty backdrop (`0x0052FEC0`).
-    pub const fn draws_background(self) -> bool {
-        matches!(self, Self::Victory)
-    }
-
     /// `0x0060B950` moves `0x103`'s text statics up from 800 pixels wide;
     /// `0xBC7`'s keep their template windows at every retail size.
     const fn text_shift(self, screen_w: i32) -> i32 {
@@ -1014,24 +1008,14 @@ impl CampaignScorePage {
     }
 }
 
-impl CampaignScoreControlSpec {
-    pub fn for_id(id: u16) -> Option<&'static Self> {
-        CAMPAIGN_SCORE_CONTROLS
-            .iter()
-            .find(|control| control.id == id)
-    }
-
-    pub fn action_for_id(id: u16) -> Option<CampaignScoreAction> {
-        Self::for_id(id).and_then(|control| control.action)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn spec(id: u16) -> &'static CampaignScoreControlSpec {
-        CampaignScoreControlSpec::for_id(id).unwrap_or_else(|| panic!("0x103/{id:#x}"))
+        CampaignScoreDialog::Victory
+            .control(id)
+            .unwrap_or_else(|| panic!("0x103/{id:#x}"))
     }
 
     #[test]

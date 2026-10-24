@@ -1345,6 +1345,11 @@ pub struct Simulation {
     /// gameplay state; saves occur at frame boundaries.
     #[serde(skip)]
     mission_spawned_entities: bool,
+    /// Presentation invalidation from the shared ownership chokepoint. Drained
+    /// into frame outputs, including changes outside the live object pass.
+    /// The restored match rebuilds its atlases; this is not saved or hashed.
+    #[serde(skip)]
+    ownership_changed_since_output: bool,
     /// Ordered occupied-cell identities finalized at the authoritative frame
     /// boundary. The app drains these into its render-only overlay list.
     #[serde(skip)]
@@ -4301,6 +4306,7 @@ impl Simulation {
             lifecycle_outputs: FrameChannel::default(),
             unit_voice_visit_interest: Default::default(),
             mission_spawned_entities: false,
+            ownership_changed_since_output: false,
             frame_overlay_updates: Vec::new(),
             frame_overlay_removals: Vec::new(),
             terminal_score_snapshot: Default::default(),
@@ -6176,6 +6182,7 @@ impl Simulation {
             UninitContext::new(rules, registry).with_effects(effects),
         );
         self.substrate.entities.change_owner(stable_id, new_owner);
+        self.ownership_changed_since_output = true;
         self.spatial_threat_after_owner_change(stable_id, spatial_threat_cell, rules);
         if category == EntityCategory::Structure {
             self.houses
@@ -8356,13 +8363,16 @@ impl Simulation {
 
     fn complete_or_suspend_frame(
         &mut self,
-        frame: FrameCompletion,
+        mut frame: FrameCompletion,
         tick_ms: u32,
         result: FrameTailResult,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         #[cfg(feature = "telemetry")] frame_clock: Option<crate::sim::frame_profile::FrameClock>,
     ) -> MasterFrameOutput {
+        // A MindControl shot changes an existing SHP's house-colour key.
+        // Publish the atlas invalidation before the next draw, even with no spawn.
+        frame.ownership_changed |= std::mem::take(&mut self.ownership_changed_since_output);
         let frame_committed = if let FrameTailResult::Complete(committed) = result { committed } else {
             let tick = TickResult {
                 tick: self.session.tick(), frame_committed: false,
@@ -8409,7 +8419,7 @@ impl Simulation {
         #[cfg(feature = "telemetry")] mut frame_clock: Option<crate::sim::frame_profile::FrameClock>,
     ) -> MasterFrameOutput {
         let FrameCompletion { commands, execute_tick: _, executed_commands,
-            mut spawned_entities, destroyed_structure, ownership_changed, mut bridge_state_changed } = frame;
+            mut spawned_entities, destroyed_structure, mut ownership_changed, mut bridge_state_changed } = frame;
         macro_rules! profile_phase {
             ($phase:ident) => {
                 #[cfg(feature = "telemetry")]
@@ -8490,6 +8500,8 @@ impl Simulation {
             let (phases, total) = clock.finish();
             self.frame_profile.record(phases, total);
         }
+        // Resuming a suspended frame can transfer ownership in its remaining tail.
+        ownership_changed |= std::mem::take(&mut self.ownership_changed_since_output);
         MasterFrameOutput {
             network_failure: None,
             network_waiting: false,

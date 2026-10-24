@@ -1115,13 +1115,12 @@ fn transport_has_room(
         .passenger_role
         .cargo()
         .map_or(0, |cargo| cargo.total_size());
-    crate::sim::passenger::PassengerCargo::planned_admission(
+    crate::sim::passenger::PassengerCargo::size_fits_transport(
         occupied,
         sender_type.size,
         transport_type.passengers,
         transport_type.size_limit,
     )
-    .is_some()
 }
 
 /// PREPARE_TO_DOCK, `UnitClass::Receive_Radio` case 0x16 (`0x007376AD`):

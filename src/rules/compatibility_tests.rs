@@ -98,6 +98,17 @@ fn stock_rules_hash_records_the_compiled_capability() {
 /// while the features themselves stay mixable.
 #[test]
 fn all_capability_combinations_round_trip_and_describe_themselves() {
+    // save_codec writes a fixed little-endian u32 variant index. Appending
+    // VeraX modes must not reinterpret the existing Ares+Phobos wire tag.
+    let legacy = [4, 0, 0, 0];
+    assert_eq!(
+        crate::util::save_codec::serialize(&RulesCompatibility::AresPhobos).unwrap(),
+        legacy
+    );
+    assert_eq!(
+        crate::util::save_codec::deserialize::<RulesCompatibility>(&legacy).unwrap(),
+        RulesCompatibility::AresPhobos
+    );
     for ares in [false, true] {
         for phobos in [false, true] {
             for npatch in [false, true] {

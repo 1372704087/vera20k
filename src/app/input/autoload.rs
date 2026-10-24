@@ -6,7 +6,7 @@
 //! `EventClass__BuildMegaMissionEnvelope` `0x004C6860`), so every client
 //! replays exactly the same orders. Admission is the engine's own:
 //! [`crate::sim::passenger::can_enter_transport`] and
-//! [`crate::sim::passenger::PassengerCargo::planned_admission`]
+//! [`crate::sim::passenger::PassengerCargo::size_fits_transport`]
 //! (`UnitClass::Receive_Radio @ 0x00737430`, message 0x0F). Nothing here
 //! mutates simulation state.
 //!
@@ -49,15 +49,15 @@ pub(crate) struct PassengerFact {
 }
 
 /// A selected vehicle whose type holds passengers and whose cargo has room.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct TransportFact {
     pub id: u64,
     /// `Passengers=` (`i32`, as Receive_Radio reads it).
     pub capacity: i32,
     /// binary64 `SizeLimit=`.
     pub size_limit: f64,
-    /// The cargo's current signed-int total.
-    pub total: i32,
+    /// A planning copy, updated through the authoritative cargo owner.
+    pub cargo: PassengerCargo,
     pub pos: [i32; 2],
 }
 
@@ -67,26 +67,36 @@ fn dist_sq(a: [i32; 2], b: [i32; 2]) -> i64 {
     dx * dx + dy * dy
 }
 
-/// Whether `transport` admits `passenger` now, ignoring cargo already promised
-/// by this plan. Self-boarding is never planned.
-fn admits(passenger: &PassengerFact, transport: &TransportFact, total: i32) -> bool {
+/// Whether this pair is in range, fits the supplied planned total and passes
+/// the engine's live admission query. Self-boarding is never planned.
+fn admits(
+    passenger: &PassengerFact,
+    transport: &TransportFact,
+    total: i32,
+    eligible: &impl Fn(u64, u64) -> bool,
+) -> bool {
     passenger.id != transport.id
-        && PassengerCargo::planned_admission(
+        && dist_sq(passenger.pos, transport.pos) <= (SEARCH_RANGE_CELLS * LEPTONS_PER_CELL).pow(2)
+        && PassengerCargo::size_fits_transport(
             total,
             passenger.size,
             transport.capacity,
             transport.size_limit,
         )
-        .is_some()
+        && eligible(passenger.id, transport.id)
 }
 
 /// The nearest carrier that could take `passenger` with its current cargo, or
 /// `i64::MAX` when none is in principle eligible. Used only to order each
 /// type's members so crowded selections fill the closest hulls first.
-fn nearest_eligible_dist(passenger: &PassengerFact, transports: &[TransportFact]) -> i64 {
+fn nearest_eligible_dist(
+    passenger: &PassengerFact,
+    transports: &[TransportFact],
+    eligible: &impl Fn(u64, u64) -> bool,
+) -> i64 {
     transports
         .iter()
-        .filter(|transport| admits(passenger, transport, transport.total))
+        .filter(|transport| admits(passenger, transport, transport.cargo.total_size(), eligible))
         .map(|transport| dist_sq(passenger.pos, transport.pos))
         .min()
         .unwrap_or(i64::MAX)
@@ -103,23 +113,11 @@ fn nearest_eligible_dist(passenger: &PassengerFact, transports: &[TransportFact]
 pub(crate) fn assign(
     passengers: &[PassengerFact],
     transports: &[TransportFact],
+    eligible: impl Fn(u64, u64) -> bool,
 ) -> Vec<(u64, u64)> {
     if passengers.is_empty() || transports.is_empty() {
         return Vec::new();
     }
-    let range_sq = (SEARCH_RANGE_CELLS * LEPTONS_PER_CELL).pow(2);
-    let near: Vec<usize> = (0..transports.len())
-        .filter(|&j| {
-            passengers
-                .iter()
-                .any(|passenger| dist_sq(passenger.pos, transports[j].pos) <= range_sq)
-        })
-        .collect();
-    if near.is_empty() {
-        return Vec::new();
-    }
-    let near_transports: Vec<TransportFact> = near.iter().map(|&j| transports[j]).collect();
-
     // Type groups in first-occurrence order; members keep selection order
     // until the nearest-first sort below.
     let mut group_of: Vec<(u32, usize)> = Vec::new();
@@ -137,7 +135,7 @@ pub(crate) fn assign(
 
     let nearest: Vec<i64> = passengers
         .iter()
-        .map(|passenger| nearest_eligible_dist(passenger, &near_transports))
+        .map(|passenger| nearest_eligible_dist(passenger, transports, &eligible))
         .collect();
     for members in &mut groups {
         members.sort_by_key(|&index| (nearest[index], index));
@@ -146,13 +144,14 @@ pub(crate) fn assign(
     let group_count = groups.len();
     let mut cursors = vec![0_usize; group_count];
     let mut alive = vec![true; group_count];
-    let mut totals: Vec<i32> = near_transports
+    let mut cargo: Vec<PassengerCargo> = transports
         .iter()
-        .map(|transport| transport.total)
+        .map(|transport| transport.cargo.clone())
         .collect();
-    let mut assigned_total = vec![0_usize; near_transports.len()];
-    let mut assigned_by_group = vec![vec![0_usize; near_transports.len()]; group_count];
+    let mut assigned_total = vec![0_usize; transports.len()];
+    let mut assigned_by_group = vec![vec![0_usize; transports.len()]; group_count];
     let mut used_as_transport: std::collections::HashSet<u64> = std::collections::HashSet::new();
+    let mut used_as_passenger: std::collections::HashSet<u64> = std::collections::HashSet::new();
     let mut orders: Vec<(u64, u64)> = Vec::new();
 
     while alive.iter().any(|&group_alive| group_alive) && orders.len() < MAX_ORDERS {
@@ -179,8 +178,10 @@ pub(crate) fn assign(
 
             let mut best: Option<usize> = None;
             let mut best_distance = 0_i64;
-            for (slot, transport) in near_transports.iter().enumerate() {
-                if !admits(passenger, transport, totals[slot]) {
+            for (slot, transport) in transports.iter().enumerate() {
+                if used_as_passenger.contains(&transport.id)
+                    || !admits(passenger, transport, cargo[slot].total_size(), &eligible)
+                {
                     continue;
                 }
                 let distance = dist_sq(passenger.pos, transport.pos);
@@ -206,25 +207,17 @@ pub(crate) fn assign(
                 }
             }
             let Some(slot) = best else {
-                // No carrier has room for this type; later members would not
-                // find one either.
-                alive[group] = false;
+                // Admission and range vary by passenger, even within a type.
+                cursors[group] = member + 1;
+                alive[group] = cursors[group] < groups[group].len();
                 continue;
             };
-            let Some(total) = PassengerCargo::planned_admission(
-                totals[slot],
-                passenger.size,
-                near_transports[slot].capacity,
-                near_transports[slot].size_limit,
-            ) else {
-                alive[group] = false;
-                continue;
-            };
-            totals[slot] = total;
+            cargo[slot].board_forced_chain(&[(passenger.id, passenger.size)]);
             assigned_total[slot] += 1;
             assigned_by_group[group][slot] += 1;
-            used_as_transport.insert(near_transports[slot].id);
-            orders.push((passenger.id, near_transports[slot].id));
+            used_as_transport.insert(transports[slot].id);
+            used_as_passenger.insert(passenger.id);
+            orders.push((passenger.id, transports[slot].id));
             cursors[group] = member + 1;
             if cursors[group] >= groups[group].len() {
                 alive[group] = false;
@@ -266,13 +259,22 @@ fn collect_facts(
             continue;
         }
         let pos = object_center_xy(entity);
-        passengers.push(PassengerFact {
-            id,
-            type_key: entity.type_ref().index(),
-            size: object.size,
-            infantry,
-            pos,
-        });
+        // ClickedAction's Enter arm (0x004D76C6) requires vt+A0. A loaded
+        // carrier also keeps its transport role for this AutoLoad plan.
+        if sim.techno_player_controllable(id, rules)
+            && entity
+                .passenger_role
+                .cargo()
+                .is_none_or(PassengerCargo::is_empty)
+        {
+            passengers.push(PassengerFact {
+                id,
+                type_key: entity.type_ref().index(),
+                size: object.size,
+                infantry,
+                pos,
+            });
+        }
         if category == EntityCategory::Unit {
             if let Some(transport) = transport_fact(entity, object, pos) {
                 transports.push(transport);
@@ -287,22 +289,19 @@ fn transport_fact(
     object: &ObjectType,
     pos: [i32; 2],
 ) -> Option<TransportFact> {
-    if object.passengers <= 0 || object.size_limit < 1.0 {
+    if object.passengers <= 0 {
         return None;
     }
-    let total = entity
+    let cargo = entity
         .passenger_role
         .cargo()
-        .map_or(0, PassengerCargo::total_size);
-    // A full hull has no free slot for any passenger.
-    if total >= object.passengers {
-        return None;
-    }
+        .cloned()
+        .unwrap_or_else(|| PassengerCargo::new(object.passengers as u32, object.size_limit));
     Some(TransportFact {
         id: entity.stable_id(),
         capacity: object.passengers,
         size_limit: object.size_limit,
-        total,
+        cargo,
         pos,
     })
 }
@@ -313,18 +312,17 @@ fn transport_fact(
 /// so an order is only sent when a click there would answer ROGER.
 pub(crate) fn autoload_orders(sim: &Simulation, rules: &RuleSet, selected: &[u64]) -> Vec<Command> {
     let (passengers, transports) = collect_facts(sim, rules, selected);
-    assign(&passengers, &transports)
-        .into_iter()
-        .filter(|&(passenger_id, transport_id)| {
-            can_enter_transport(sim, rules, passenger_id, transport_id)
-        })
-        .map(|(passenger_id, transport_id)| Command::MegaMission {
-            entity_id: passenger_id,
-            mission: MissionType::Enter,
-            target: None,
-            destination: Some(TargetKind::Entity(transport_id)),
-        })
-        .collect()
+    assign(&passengers, &transports, |passenger_id, transport_id| {
+        can_enter_transport(sim, rules, passenger_id, transport_id)
+    })
+    .into_iter()
+    .map(|(passenger_id, transport_id)| Command::MegaMission {
+        entity_id: passenger_id,
+        mission: MissionType::Enter,
+        target: None,
+        destination: Some(TargetKind::Entity(transport_id)),
+    })
+    .collect()
 }
 
 /// The Ctrl+D press: plan from the live selection and queue the orders.

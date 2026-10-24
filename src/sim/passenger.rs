@@ -189,37 +189,29 @@ impl PassengerCargo {
     /// identity/type and session rules are immutable, so admission-time
     /// doubles remain the current Size values for this live cargo list.
     fn cargo_total_size(passenger_sizes: &[f64]) -> i32 {
+        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
+
         let mut total = 0_i32;
         for &size in passenger_sizes {
-            total = Self::total_after(total, size);
+            let sum = X87::add(
+                X87::load_i32(total),
+                X87::load_f64(NativeF64Bits::from_bits(size.to_bits())),
+            );
+            total = X87::ftol_i32_low_masked(sum);
         }
         total
     }
 
-    /// One passenger's binary64 `Size=` applied to a signed cargo total: the
-    /// add and FTOL step CargoTotalSize473460 performs after every passenger.
-    fn total_after(total: i32, size: f64) -> i32 {
-        use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits};
-
-        X87::ftol_i32_low_masked(X87::add(
-            X87::load_i32(total),
-            X87::load_f64(NativeF64Bits::from_bits(size.to_bits())),
-        ))
-    }
-
     /// Whether a carrier admits one more passenger of binary64 `Size=` into a
-    /// cargo whose signed total is `total`: Receiver 0x0F's
-    /// `total + Size <= Passengers=` and `Size <= SizeLimit=`. `Some` carries
-    /// the cargo total after that admission.
+    /// cargo whose signed total is `total`: UnitClass::Receive_Radio
+    /// `0x00737430`, message 0x0F, compares `total + Size <= Passengers=` and
+    /// `Size <= SizeLimit=` (original gamemd instructions).
     ///
-    /// The client's selection planner (VeraX AutoLoad) asks it for successive
-    /// passengers without mutating cargo; the arrival radio asks the same
-    /// owner through [`Self::size_fits_capacity`] and
-    /// [`Self::size_within_limit`].
-    pub fn planned_admission(total: i32, size: f64, capacity: i32, size_limit: f64) -> Option<i32> {
-        (Self::size_fits_capacity(total, size, capacity)
-            && Self::size_within_limit(size, size_limit))
-        .then(|| Self::total_after(total, size))
+    /// Both the radio and VeraX's selection planner ask this owner. Planning
+    /// boards into a cargo clone with [`Self::board_forced_chain`], preserving
+    /// CargoTotalSize's head-first, per-passenger truncation order.
+    pub fn size_fits_transport(total: i32, size: f64, capacity: i32, size_limit: f64) -> bool {
+        Self::size_fits_capacity(total, size, capacity) && Self::size_within_limit(size, size_limit)
     }
 
     /// Recalculate through the same order-sensitive numeric owner used by

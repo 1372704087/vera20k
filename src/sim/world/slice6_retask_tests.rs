@@ -400,7 +400,11 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // source. This remains a Rust regression pin, not a native game golden.
 // Previous: 0x619E_E645_0B3E_881C.
 // Hash composition includes constructor planning registration and the shared ammo reload clock.
-const SLICE6_BASELINE_HASH: u64 = 0xAEA5_D31A_37FA_33F9;
+// The native-speed migration (60da53f9c) hashes binary64 Foot/Drive fractions.
+// A temporary projection to the old fixed fields recovers the previous pin,
+// including Stop's rounded fixed0.3; gameplay and absolute RNG checks hold.
+// Previous Rust state pin: 0xAEA5_D31A_37FA_33F9.
+const SLICE6_BASELINE_HASH: u64 = 0x5725_6E95_8F9E_04F8;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

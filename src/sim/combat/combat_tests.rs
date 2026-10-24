@@ -6201,7 +6201,28 @@ fn garrison_fire_keeps_occupant_anim_and_sound_path() {
         ev.report_sound_id.map(|id| interner.resolve(id)),
         Some("GIAttack")
     );
-    assert!(sounds.is_empty());
+    let [
+        SimSoundEvent::VocAt {
+            sound_id,
+            audible_to,
+            rx,
+            ry,
+            sub_x,
+            sub_y,
+            world_z_leptons,
+        },
+    ] = sounds.as_slice()
+    else {
+        panic!("expected one garrison weapon report, got {sounds:?}");
+    };
+    let fire_coord = crate::sim::anim_class::AnimWorldCoord::from(ev.fire_coord);
+    let (fire_rx, fire_ry, fire_sub_x, fire_sub_y, _) = fire_coord.to_cell_sub_z();
+    assert_eq!(sound_id, "GIAttack");
+    assert_eq!(audible_to, &None);
+    assert_eq!(
+        (*rx, *ry, *sub_x, *sub_y, *world_z_leptons),
+        (fire_rx, fire_ry, fire_sub_x, fire_sub_y, fire_coord.z)
+    );
 }
 
 #[test]

@@ -6798,6 +6798,8 @@ fn sale_death_is_ignored_before_ordinary_tail_drain() {
     rules.set_buildup_control_for_test("GAPOWR", [0, 25, 2]);
 
     let mut sim = Simulation::new();
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
     sim.input_delay_ticks = 0;
     let grid = PathGrid::test_all_passable(64, 64);
 

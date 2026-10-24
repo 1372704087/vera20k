@@ -1462,6 +1462,7 @@ mod tests {
                 ));
             sim.session
                 .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+            sim.install_network_timing(10);
             sim.session.set_binary_frame_for_test(frame);
             sim.session.set_tick_for_test(u64::from(frame));
             sim.hash_state_every(std::num::NonZeroU64::MIN);

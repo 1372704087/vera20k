@@ -49,10 +49,10 @@ mod target_laser_gpu_tests;
 pub(crate) use draw_passes::{draw_bridge_shadows, draw_pooled_cell_bodies};
 pub(crate) mod draw_plan_lowering;
 mod merge_passes;
+pub(crate) mod minimap_transaction;
 mod object_stages;
 #[cfg(test)]
 mod object_stages_gpu_tests;
-pub(crate) mod minimap_transaction;
 
 use anyhow::Result;
 #[cfg(feature = "telemetry-dashboard")]
@@ -497,24 +497,36 @@ pub(crate) fn render_game(
         .sim_runtime
         .as_ref()
         .map(|runtime| runtime.view().simulation());
+    let sandbox = state.match_state.sandbox_full_visibility;
     let segments = presentation.line_trails.composite(|id| {
         let sim = sim?;
-        sim.projectiles().get(id).map(|bullet| {
-            presentation
-                .interpolation
-                .sample_point(
-                    crate::app::presentation::interpolation::PointKind::Bullet,
-                    id,
-                    crate::app::presentation::interpolation::PointPose::bullet(bullet),
-                    sim.session().binary_frame(),
-                )
-                .projectile_coord()
-        })
+        let bullet = sim.projectiles().get(id)?;
+        let sampled = presentation.interpolation.sample_point(
+            crate::app::presentation::interpolation::PointKind::Bullet,
+            id,
+            crate::app::presentation::interpolation::PointPose::bullet(bullet),
+            sim.session().binary_frame(),
+        );
+        // VeraX translucent fog hides enemy bullet trails with their bullets.
+        #[cfg(feature = "verax")]
+        if !sandbox
+            && crate::app::presentation::instances::translucent_fog_conceals_bullet(
+                sim,
+                bullet,
+                sampled.coord,
+                local_owner.as_deref(),
+                local_owner
+                    .as_deref()
+                    .and_then(|name| sim.interner().get(name)),
+            )
+        {
+            return None;
+        }
+        Some(sampled.projectile_coord())
     });
     let frame_rate = presentation.detail.borrow().frame_rate();
     presentation.radiation_beams.composite(frame_rate, viewport);
     let shroud = presentation.shroud_buffer.as_ref();
-    let sandbox = state.match_state.sandbox_full_visibility;
     let mut alpha = |point: [i32; 2]| {
         if sandbox {
             127

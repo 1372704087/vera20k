@@ -405,6 +405,52 @@ pub(super) fn build_world_instances(
     if let Some(rt) = state.match_state.sim_runtime.as_ref() {
         instances::assign_tether_redraws(&rt.simulation, &mut planned_objects);
     }
+    // VeraX's translucent fog lifts the A buffer's near-black concealment, so
+    // live enemy objects the local viewer cannot see leave the draw plan fully
+    // (body, shadow, attached anim parts and extras) instead of showing through
+    // the fog. Terrain, overlays and revealed map art stay visible.
+    #[cfg(feature = "verax")]
+    if !state.match_state.sandbox_full_visibility {
+        let viewer_name = crate::app::input::commands::preferred_local_owner_name(state);
+        if let (Some(sim), Some(viewer_name)) = (
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .map(|runtime| &runtime.simulation),
+            viewer_name.as_deref(),
+        ) {
+            let viewer = sim.interner().get(viewer_name);
+            let concealed = |entity: &crate::sim::game_entity::GameEntity| {
+                let owner = sim.interner().resolve(entity.owner());
+                instances::translucent_fog_conceals(
+                    Some(viewer_name),
+                    sim.fog(),
+                    sim.house_alliances(),
+                    &entity.position,
+                    owner,
+                    false,
+                    viewer,
+                )
+            };
+            planned_objects.retain(|parent| {
+                let id = parent.parent.id;
+                if let Some(entity) = sim.entities().get(id) {
+                    return !concealed(entity);
+                }
+                // Building-attached AnimClass parts (idle components, damage
+                // fire) follow their owner object out of the fog, whether the
+                // attachment is the Anim object pointer or a Building slot.
+                sim.anim(id)
+                    .and_then(|anim| {
+                        anim.owner_entity()
+                            .or_else(|| anim.building_slot().map(|(owner, _)| owner))
+                    })
+                    .and_then(|owner_id| sim.entities().get(owner_id))
+                    .is_none_or(|entity| !concealed(entity))
+            });
+        }
+    }
     // Native +99 is set before a Building's body opportunity, independently
     // of successful pixels. Empty body frames still have a retained parent.
     let building_body_opportunities = planned_objects

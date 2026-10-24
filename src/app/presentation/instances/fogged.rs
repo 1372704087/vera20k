@@ -53,6 +53,35 @@ pub(crate) fn build_fogged_instances(state: &AppState) -> ObjectLayerPass {
         .fogged_objects()
         .values()
         .filter(|record| record.viewer == viewer)
+        .filter(|record| {
+            // VeraX translucent fog must not expose enemy buildings the
+            // viewer does not currently see; remembered pictures are that
+            // concealment in the native renderer.
+            #[cfg(feature = "verax")]
+            if let Some(draw) = record.drawing.as_ref() {
+                let owner = sim.interner().resolve(draw.owner);
+                if !crate::app::input::commands::preferred_local_owner_name(state)
+                    .as_deref()
+                    .is_some_and(|local| {
+                        crate::map::houses::is_allied_with(sim.house_alliances(), local, owner)
+                    })
+                {
+                    let cell = (
+                        (draw.location.x / 256) as u16,
+                        (draw.location.y / 256) as u16,
+                    );
+                    if super::helpers::translucent_fog_conceals_cell(
+                        Some(viewer),
+                        Some(sim.fog()),
+                        cell.0,
+                        cell.1,
+                    ) {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
         .filter_map(|record| record.drawing.as_ref().map(|draw| (record.id, draw)))
         .filter(|(_, draw)| draw.visible)
         .collect();

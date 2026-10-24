@@ -739,6 +739,12 @@ struct CellOverlayInputs<'a> {
     viewport: [f32; 2],
     origin_y: f32,
     world_height: f32,
+    /// VeraX translucent fog: walls are objects, so they leave the draw plan
+    /// when the local viewer does not see their cell.
+    #[cfg(feature = "verax")]
+    viewer: Option<crate::sim::intern::InternedId>,
+    #[cfg(feature = "verax")]
+    fog: Option<&'a crate::sim::vision::FogState>,
 }
 
 /// Cell_ContentRendering @ 0x006D6D10 -> DrawOverlay_Body @ 0x0047F6A0 for
@@ -776,6 +782,19 @@ fn build_cell_overlay_bodies(input: &CellOverlayInputs<'_>, bodies: &mut Vec<sup
         }
         let overlay_registry = input.registry;
         let overlay_flags = overlay_registry.and_then(|reg| reg.flags(live_overlay_id));
+        // Walls are owned objects, not scenery: translucent fog keeps terrain,
+        // ore and trees visible but must not expose unseen wall lines.
+        #[cfg(feature = "verax")]
+        if overlay_flags.is_some_and(|flags| flags.wall)
+            && super::helpers::translucent_fog_conceals_cell(
+                input.viewer,
+                input.fog,
+                entry.rx,
+                entry.ry,
+            )
+        {
+            continue;
+        }
         let slope_type = input
             .terrain
             .and_then(|terrain| terrain.cell(entry.rx, entry.ry))
@@ -959,6 +978,18 @@ pub(crate) fn build_overlay_instances(
         .map(|g| (g.origin_y, g.world_height))
         .unwrap_or((0.0, 1.0));
 
+    #[cfg(feature = "verax")]
+    let (viewer, fog) = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map_or((None, None), |runtime| {
+            let sim = &runtime.simulation;
+            let viewer = crate::app::input::commands::preferred_local_owner_name(state)
+                .as_deref()
+                .and_then(|name| sim.interner().get(name));
+            (viewer, Some(sim.fog()))
+        });
     build_cell_overlay_bodies(
         &CellOverlayInputs {
             entries: state.match_state.match_presentation.overlays.as_slice(),
@@ -987,6 +1018,10 @@ pub(crate) fn build_overlay_instances(
             viewport: [sw, sh],
             origin_y,
             world_height,
+            #[cfg(feature = "verax")]
+            viewer,
+            #[cfg(feature = "verax")]
+            fog,
         },
         bodies,
     );

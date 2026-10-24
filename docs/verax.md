@@ -29,6 +29,26 @@ The tiers drive VERA's existing camera zoom (`app/input/camera.rs`), which is cl
 part of the simulation. The saved tactical view retains the current zoom. The Options `Zoom` frame
 pass is independent of this setting and still scales the whole frame, UI included.
 
+## Semi-transparent fog of war
+
+VeraX renders the tactical A-buffer (SHROUD.SHP and FOG.SHP) at half strength, so the map stays
+faintly visible instead of the native near-black. The engine keeps the original A bytes and lifts
+the selector halfway toward the neutral value 127 at sample time, once in the CPU surface sampler
+(`ShroudBuffer::sample_world`) and once in the shared GPU `tactical_a_at`; CPU lines and world
+shaders therefore agree pixel for pixel.
+
+Enemy objects are not revealed by the lift: while the local viewer does not currently see their
+anchor cell, enemy units, buildings, building-attached animation parts, wall overlays with their
+shadows, native remembered building pictures, weapon projectiles and their trails leave the draw
+plan entirely. Own and allied objects always draw. Superweapon effect visuals (ion blast, lightning,
+nuke lighting, chrono/psychic effects) and the dedicated beam/effect owners stay visible. Map
+scenery (terrain, ore, trees, crates, bridges) stays faintly visible, which is the point of the
+translucent fog.
+
+Only rendering changes: visibility, shroud knowledge, targeting and every other simulation rule
+still read the native fog state. Build without `verax` for the original opaque shroud and native
+draw admission.
+
 ## Namespace
 
 `--features verax` compiles `rules::VERAX_ENABLED`. New VeraX-only readers take their keys under

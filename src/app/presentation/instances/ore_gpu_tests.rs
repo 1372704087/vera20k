@@ -302,6 +302,10 @@ impl Probe {
                         viewport: self.size.map(|v| v as f32),
                         origin_y: camera.world_origin_y,
                         world_height: camera.world_height,
+                        #[cfg(feature = "verax")]
+                        viewer: None,
+                        #[cfg(feature = "verax")]
+                        fog: None,
                     },
                     &mut bodies,
                 );

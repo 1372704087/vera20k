@@ -30,6 +30,64 @@ use winit::window::Window;
 /// clamped to the adapter's own maximum anyway.
 pub(crate) const MAX_USEFUL_TEXTURE_DIM: u32 = 16_384;
 
+/// One production frame, backed by either the window or its hidden capture target.
+pub struct GpuFrame {
+    pub texture: wgpu::Texture,
+    surface: Option<wgpu::SurfaceTexture>,
+}
+
+impl GpuFrame {
+    fn from_surface(surface: wgpu::SurfaceTexture) -> Self {
+        Self {
+            texture: surface.texture.clone(),
+            surface: Some(surface),
+        }
+    }
+
+    pub fn present(self) {
+        if let Some(surface) = self.surface {
+            surface.present();
+        }
+    }
+}
+
+/// Derived render target for an explicitly hidden diagnostic window.
+struct CaptureTarget {
+    texture: wgpu::Texture,
+}
+
+impl CaptureTarget {
+    fn new(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> Self {
+        Self {
+            texture: device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("Hidden Capture Frame"),
+                size: wgpu::Extent3d {
+                    width: config.width,
+                    height: config.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: config.format,
+                usage: config.usage,
+                view_formats: &config.view_formats,
+            }),
+        }
+    }
+
+    fn resize(&mut self, device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) {
+        *self = Self::new(device, config);
+    }
+
+    fn frame(&self) -> GpuFrame {
+        GpuFrame {
+            texture: self.texture.clone(),
+            surface: None,
+        }
+    }
+}
+
 /// Borrowed, serialization-ready identity of the adapter selected for this GPU
 /// context. This is observation only: it mirrors the immutable `AdapterInfo`
 /// captured during adapter selection.
@@ -79,6 +137,7 @@ pub struct GpuContext {
     pub surface_format: wgpu::TextureFormat,
     /// Exact identity returned by the adapter that backs this context.
     adapter_info: wgpu::AdapterInfo,
+    capture_target: Option<CaptureTarget>,
 }
 
 impl GpuContext {
@@ -86,12 +145,22 @@ impl GpuContext {
     ///
     /// This blocks on async wgpu calls using [`block_on`]. Safe to call from
     /// winit's sync ApplicationHandler::resumed().
-    pub fn new(window: Arc<Window>, display: OwnedDisplayHandle) -> Result<Self> {
-        block_on(Self::new_async(window, display))
+    /// `hidden_capture` is the startup owner's deliberate capture choice, not
+    /// the current visibility/occlusion of a player's ordinary window.
+    pub fn new(
+        window: Arc<Window>,
+        display: OwnedDisplayHandle,
+        hidden_capture: bool,
+    ) -> Result<Self> {
+        block_on(Self::new_async(window, display, hidden_capture))
     }
 
     /// Async initialization — called by new() via block_on().
-    async fn new_async(window: Arc<Window>, display: OwnedDisplayHandle) -> Result<Self> {
+    async fn new_async(
+        window: Arc<Window>,
+        display: OwnedDisplayHandle,
+        hidden_capture: bool,
+    ) -> Result<Self> {
         // The standard override selects a backend for reproducible
         // shroud GPU comparisons while retaining primary backends by default.
         // wgpu 29 requires the display at instance creation for Wayland EGL:
@@ -212,6 +281,13 @@ impl GpuContext {
             desired_maximum_frame_latency: 2,
         };
         surface.configure(&device, &config);
+        // wgpu-hal 29.0.4 Metal acquire_texture refuses any macOS NSWindow
+        // without NSWindowOcclusionStateVisible, including deliberately hidden
+        // captures. Render those frames offscreen with the same format/usages;
+        // the normal render, loading, readback and capture-driver paths remain
+        // shared. Ordinary occluded windows retain swapchain skip/recovery.
+        // https://docs.rs/wgpu-hal/29.0.4/src/wgpu_hal/metal/surface.rs.html#126-151
+        let capture_target = hidden_capture.then(|| CaptureTarget::new(&device, &config));
 
         log::info!(
             "GPU initialized: {}x{}, format={:?}",
@@ -229,6 +305,7 @@ impl GpuContext {
             config,
             surface_format,
             adapter_info,
+            capture_target,
         })
     }
 
@@ -251,6 +328,9 @@ impl GpuContext {
             .get_mut()
             .unwrap_or_else(PoisonError::into_inner)
             .configure(&self.device, &self.config);
+        if let Some(target) = &mut self.capture_target {
+            target.resize(&self.device, &self.config);
+        }
         log::debug!("Surface resized to {}x{}", width, height);
     }
 
@@ -261,7 +341,10 @@ impl GpuContext {
     /// a lost surface is recreated first, as required by wgpu 29. Timeout and
     /// occlusion skip this redraw. Validation failures remain errors.
     /// https://docs.rs/wgpu/29.0.4/wgpu/enum.CurrentSurfaceTexture.html
-    pub fn acquire_frame(&self) -> Result<Option<wgpu::SurfaceTexture>> {
+    pub fn acquire_frame(&self) -> Result<Option<GpuFrame>> {
+        if let Some(target) = &self.capture_target {
+            return Ok(Some(target.frame()));
+        }
         let mut surface = self.surface.lock().unwrap_or_else(PoisonError::into_inner);
         acquire_with_recovery(|recovery| {
             if let Some(recovery) = recovery {
@@ -280,6 +363,7 @@ impl GpuContext {
             }
             Ok(surface.get_current_texture())
         })
+        .map(|frame| frame.map(GpuFrame::from_surface))
     }
 
     /// Create a depth texture matching the current surface dimensions.
@@ -392,7 +476,7 @@ mod tests {
 
     use wgpu::CurrentSurfaceTexture::{Lost, Occluded, Outdated, Timeout, Validation};
 
-    use super::{SurfaceRecovery, acquire_with_recovery, block_on};
+    use super::{CaptureTarget, SurfaceRecovery, acquire_with_recovery, block_on};
 
     /// Run one acquisition over `results`, the acquire answers in call order;
     /// returns its outcome and recovery requests. Real frame presentation is
@@ -438,6 +522,90 @@ mod tests {
         let (outcome, requests) = acquire_over(vec![Validation]);
         assert!(outcome.unwrap_err().to_string().contains("validation"));
         assert_eq!(requests, [None]);
+    }
+
+    #[test]
+    #[ignore = "requires a wgpu adapter for hidden capture frame readback"]
+    fn hidden_capture_frame_renders_reads_back_and_resizes_without_a_swapchain() {
+        use crate::render::frame_readback::PendingBgra8Readback;
+
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: None,
+            ..Default::default()
+        }))
+        .expect("hidden capture regression requires a GPU adapter");
+        let (device, queue) = block_on(adapter.request_device(&wgpu::DeviceDescriptor::default()))
+            .expect("request hidden capture regression device");
+        let mut config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
+            format: wgpu::TextureFormat::Bgra8UnormSrgb,
+            width: 2,
+            height: 1,
+            present_mode: wgpu::PresentMode::Fifo,
+            alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+            view_formats: vec![],
+            desired_maximum_frame_latency: 2,
+        };
+        let mut target = CaptureTarget::new(&device, &config);
+        let render =
+            |target: &CaptureTarget, config: &wgpu::SurfaceConfiguration, color: wgpu::Color| {
+                let frame = target.frame();
+                assert!(frame.surface.is_none());
+                assert_eq!(frame.texture.format(), config.format);
+                assert_eq!(frame.texture.usage(), config.usage);
+                assert_eq!(frame.texture.width(), config.width);
+                assert_eq!(frame.texture.height(), config.height);
+                let view = frame.texture.create_view(&Default::default());
+                let mut encoder = device.create_command_encoder(&Default::default());
+                {
+                    let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("Hidden capture production frame regression"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view: &view,
+                            resolve_target: None,
+                            depth_slice: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(color),
+                                store: wgpu::StoreOp::Store,
+                            },
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                }
+                let pending = PendingBgra8Readback::encode(
+                    &device,
+                    &mut encoder,
+                    &frame.texture,
+                    config.format,
+                    config.width,
+                    config.height,
+                )
+                .expect("read back the actual capture frame");
+                let submission = queue.submit([encoder.finish()]);
+                frame.present();
+                pending
+                    .finish(&device, submission, std::time::Duration::from_secs(10))
+                    .expect("finish hidden frame readback")
+            };
+        assert_eq!(
+            render(&target, &config, wgpu::Color::RED),
+            [0, 0, 255, 255, 0, 0, 255, 255]
+        );
+        (config.width, config.height) = (1, 2);
+        target.resize(&device, &config);
+        assert_eq!(
+            render(&target, &config, wgpu::Color::BLUE),
+            [255, 0, 0, 255, 255, 0, 0, 255]
+        );
     }
 
     #[test]

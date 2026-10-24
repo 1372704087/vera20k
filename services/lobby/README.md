@@ -29,6 +29,11 @@ mode-0600 JSON file outside the repository containing `RELAY_TICKET_KEY`, then r
 relay's systemd credential. The CLI's authentication stays in its own credential
 storage. No provider token or server key belongs in the build or client.
 
+Chat translation (`POST /v1/translate`) calls a separately deployed Worker through a
+service binding. Set `VERA20K_TRANSLATOR_WORKER` to its name when deploying; without it
+the lobby deploys unbound and reports `translation_unavailable`. Deploy that Worker
+first. The lobby caches its replies and owns the rate limits and daily budget.
+
 The client defaults to the deployed lobby at
 `https://vera20k-lobby.hnr-enok.workers.dev`. Normal players use
 **Internet → Custom Match** without configuring a server address.

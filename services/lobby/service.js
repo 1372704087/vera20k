@@ -22,6 +22,9 @@ const MAX_SESSIONS = 256;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
+const TRANSLATION_SECONDS = 24 * 60 * 60;
+// About $0.30/day of model time at most; cached repeats are free.
+const DAILY_TRANSLATIONS = 10000;
 const copy = (value) => structuredClone(value);
 const pendingMatch = (value) => value?.phase === 'connecting' || value?.phase === 'probing';
 const softEvent = (kind) => ['chat', 'locales', 'buddies', 'located'].includes(kind);
@@ -209,8 +212,10 @@ export class SqlStore {
     return this.sql.exec(`SELECT value FROM events WHERE session = ? AND sequence > ? ORDER BY sequence LIMIT ${EVENT_BATCH}`, sessionId, after).toArray().map((row) => JSON.parse(row.value));
   }
   deleteEvents(sessionId) { this.sql.exec('DELETE FROM events WHERE session = ?', sessionId); }
-  expireRates(now) {
-    this.sql.exec("DELETE FROM state WHERE key IN (SELECT key FROM state WHERE key LIKE 'rate:%' AND json_extract(value,'$.until') <= ? LIMIT 256)", now);
+  expire(now) {
+    for (const prefix of ['rate:', 'translation:'])
+      this.sql.exec("DELETE FROM state WHERE key IN (SELECT key FROM state WHERE key >= ? AND key < ? AND json_extract(value,'$.until') <= ? LIMIT 256)",
+        prefix, `${prefix}\uffff`, now);
   }
 }
 
@@ -223,6 +228,7 @@ export class LobbyService {
     this.tail = Promise.resolve();
     this.pendingRequests = 0;
     this.pendingBytes = 0;
+    this.translations = new Map();
     if (!store.get('room:public')) store.put('room:public', {
       id: 'public', owner: null, capacity: 256, kind: 0,
       channel: { name: PUBLIC_LOBBY_NAME, kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
@@ -257,6 +263,7 @@ export class LobbyService {
       requireThat(this.pendingBytes + bytes <= 4 * 1024 * 1024, 'busy', 'The lobby is busy. Please retry.', 429);
       queuedBytes = bytes;
       this.pendingBytes += queuedBytes;
+      if (request.method === 'POST' && new URL(request.url).pathname === '/v1/translate') return await this.translate(request, body);
       const result = this.tail.then(() => this.handle(request, body));
       this.tail = result.catch(() => {});
       return await result;
@@ -334,6 +341,41 @@ export class LobbyService {
     requireThat(session && session.expires_at > this.clock(), 'unauthorized', 'Sign in again.', 401);
     requireThat(session.protocol === LOBBY_PROTOCOL || session.protocol === 3, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     return { sessionId, session };
+  }
+
+  // The model takes about a second, so translation waits beside the mutation
+  // queue. It owns only its rate and cache keys, each changed synchronously.
+  // Readers of one message share one model call and its cached reply.
+  async translate(request, body) {
+    const { session } = await this.authenticated(request);
+    requireThat(session.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to translate chat.', 426);
+    requireThat(record(body, ['text', 'target']) && typeof body.text === 'string' && body.text.trim() !== '' &&
+      byteLength(body.text) <= 2048 && typeof body.target === 'string' && /^[a-z]{2,3}(-[A-Z][a-z]{3})?$/.test(body.target),
+      'invalid_request', 'Invalid translation request.');
+    const unavailable = () => new ApiError(503, 'translation_unavailable', 'Chat translation is unavailable.');
+    if (!this.env.TRANSLATOR) throw unavailable();
+    const key = `translation:${await sha256(JSON.stringify([body.target, body.text]))}`;
+    const cached = this.store.transaction(() => {
+      this.rateLimit(`translate:${session.player_id}`, 60, 60);
+      return this.store.get(key);
+    });
+    if (cached && cached.until > this.clock()) return this.json({ text: cached.text });
+    let pending = this.translations.get(key);
+    if (!pending) {
+      try { this.store.transaction(() => this.rateLimit('translate:budget', DAILY_TRANSLATIONS, 24 * 60 * 60)); }
+      catch { throw unavailable(); }
+      pending = Promise.resolve().then(() => this.env.TRANSLATOR.translate({ text: body.text, target: body.target }))
+        .then((result) => {
+          if (typeof result?.text === 'string') this.store.put(key, { text: result.text, until: this.clock() + TRANSLATION_SECONDS });
+          return result;
+        }, () => ({ error: 'unavailable' }))
+        .finally(() => this.translations.delete(key));
+      this.translations.set(key, pending);
+    }
+    const result = await pending;
+    requireThat(result?.error !== 'invalid_request', 'invalid_request', 'This message cannot be translated.');
+    if (typeof result?.text !== 'string') throw unavailable();
+    return this.json({ text: result.text });
   }
 
   async handle(request, body) {
@@ -1007,7 +1049,7 @@ export class LobbyService {
           room.phase = 'lobby'; delete room.match_id; this.invalidate(room); this.store.put(`room:${room.id}`, room);
         } else this.deleteRoom(match.room_id);
       }
-      this.store.expireRates(now);
+      this.store.expire(now);
       for (const session of this.store.list('session:')) {
         const match = session.match_id ? this.store.get(`match:${session.match_id}`) : null;
         const recovering = session.protocol === LOBBY_PROTOCOL && match?.phase === 'playing' &&

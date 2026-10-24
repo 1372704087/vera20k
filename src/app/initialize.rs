@@ -631,6 +631,22 @@ impl App {
         if let Some(assets) = startup_asset_manager {
             process_assets.return_from_loading(assets);
         }
+        // Phobos `[Phobos] ShowPlacementPreview` (RA2MD.INI, imported into
+        // VERA.INI). The `phobos` build is the capability; the profile key is
+        // the user's switch. Sealed capture keeps the source default (yes).
+        #[cfg(feature = "phobos")]
+        let show_placement_preview = crate::rules::PHOBOS_ENABLED
+            && if capture_dimensions.is_some() {
+                true
+            } else {
+                game_config.as_ref().map_or(true, |config| {
+                    crate::app::persistence::phobos_settings::show_placement_preview(
+                        config.paths.settings_dir(),
+                    )
+                })
+            };
+        #[cfg(not(feature = "phobos"))]
+        let show_placement_preview = false;
         let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -709,6 +725,9 @@ impl App {
                     radar_content_insets: None,
                     has_radar: false,
                     selection_overlay: None,
+                    show_placement_preview,
+                    #[cfg(feature = "phobos")]
+                    placement_preview_art: Default::default(),
                     beacon_art: None,
                     shroud_buffer: None,
                     theater_name: "TEMPERATE".to_string(),

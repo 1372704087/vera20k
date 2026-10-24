@@ -103,6 +103,7 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
+pub mod placement_preview;
 pub mod phobos_radiation;
 pub mod phobos_shields;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.

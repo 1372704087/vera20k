@@ -99,6 +99,12 @@ pub(crate) struct MatchPresentationState {
     pub(crate) has_radar: bool,
     /// Selection overlay renderer — highlights and drag rectangle.
     pub(crate) selection_overlay: Option<SelectionOverlay>,
+    /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
+    pub(crate) show_placement_preview: bool,
+    /// Phobos placement preview SHP cache for the current placing type.
+    #[cfg(feature = "phobos")]
+    pub(crate) placement_preview_art:
+        std::cell::RefCell<super::placement_preview::PlacementPreviewArt>,
     /// PBEACON/RDRBEACN in each beacon row's House Convert, loaded with the
     /// world (`Init_BeaconArt 0x004309D0`).
     pub(crate) beacon_art: Option<crate::render::beacon_art::BeaconArt>,

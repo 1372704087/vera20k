@@ -834,6 +834,11 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);
     pool.upload(
         &state.renderer.gpu,
+        "placement_ghost",
+        &ui.placement_ghost,
+    );
+    pool.upload(
+        &state.renderer.gpu,
         "factory_rally_first",
         &ui.factory_rally_first,
     );

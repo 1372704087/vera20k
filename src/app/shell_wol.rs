@@ -301,6 +301,10 @@ impl WolVisit {
         }
     }
 
+    pub(crate) fn modern_ui(&self) -> bool {
+        !self.legacy_ui
+    }
+
     /// Diagnostics select their presentation independently of the service.
     pub(crate) fn set_legacy_ui(&mut self, legacy: bool) -> bool {
         let changed = self.legacy_ui != legacy;

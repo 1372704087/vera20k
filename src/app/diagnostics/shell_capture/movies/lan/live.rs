@@ -39,6 +39,7 @@ fn setup_control_at_row(
 use crate::app::diagnostics::shell_capture::{LiveLanConfig, LiveLanTransport};
 use crate::net::udp::UdpBindConfig;
 use crate::ui::multiplayer_setup::{SetupAction, SetupColumn};
+use std::collections::{BTreeMap, BTreeSet};
 
 mod battle;
 mod failure;
@@ -63,6 +64,129 @@ enum Phase {
     Loading,
     Running,
     Finished,
+}
+
+/// Read-only per-round evidence from the real AI House and production owners.
+/// Reset with the capture round; it never drives AI or advances simulation.
+#[derive(Default)]
+struct AiActivity {
+    owner: Option<String>,
+    first_frame: u32,
+    initial_entities: BTreeSet<u64>,
+    factory_progress: BTreeMap<u64, u16>,
+    activity: Option<Value>,
+}
+
+impl AiActivity {
+    fn observe(&mut self, state: &AppState) -> Result<()> {
+        let launch = state
+            .match_state
+            .session
+            .network_setup()
+            .context("AI launch roster")?;
+        ensure!(
+            launch.humans.len() == 1 && launch.opponents.len() == 1,
+            "AI smoke requires exactly one human and one explicit AI row"
+        );
+        let slots = crate::sim::scenario_bootstrap::normalized_launch_slots(launch);
+        let ai = slots
+            .iter()
+            .filter(|slot| !slot.is_human && !slot.observer)
+            .collect::<Vec<_>>();
+        ensure!(
+            ai.len() == 1 && ai[0].source_human_index.is_none(),
+            "AI acquired a human source"
+        );
+        let sim = &state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("AI live simulation")?
+            .simulation;
+        let owner = sim
+            .interner()
+            .get(&ai[0].owner_name)
+            .context("normalized AI owner")?;
+        let house = sim.houses().get(&owner).context("AI House")?;
+        ensure!(
+            !house.is_human() && !house.player_control() && !house.multiplay_passive(),
+            "selected CPU is not an active computer House"
+        );
+        ensure!(
+            sim.entities()
+                .values_sorted()
+                .filter(|entity| entity.is_alive()
+                    && !entity.in_limbo()
+                    && matches!(
+                        entity.category(),
+                        crate::map::entities::EntityCategory::Infantry
+                            | crate::map::entities::EntityCategory::Unit
+                            | crate::map::entities::EntityCategory::Aircraft
+                    ))
+                .count()
+                <= 1000,
+            "AI smoke exceeded its 1000-unit observation limit"
+        );
+        let frame = sim.session().binary_frame();
+        let initialized = self.owner.is_some();
+        if let Some(expected) = &self.owner {
+            ensure!(
+                expected == &ai[0].owner_name,
+                "AI owner changed during the live round"
+            );
+        } else {
+            self.owner = Some(ai[0].owner_name.clone());
+            self.first_frame = frame;
+            self.initial_entities = sim
+                .entities()
+                .values_sorted()
+                .filter(|entity| entity.owner() == owner && entity.is_alive() && !entity.in_limbo())
+                .map(|entity| entity.stable_id())
+                .collect();
+        }
+        for factory in sim.production().factories().iter_insertion_ordered() {
+            if factory.owner() != owner {
+                continue;
+            }
+            let progress = factory.progress();
+            let previous = self
+                .factory_progress
+                .insert(factory.insertion_seq(), progress);
+            if self.activity.is_none()
+                && let Some(previous) = previous.filter(|previous| progress > *previous)
+            {
+                self.activity = Some(json!({"kind":"factory_progress","native_frame":frame,
+                    "factory":factory.insertion_seq(),"from":previous,"to":progress,
+                    "type":factory.object().map(|object|sim.interner().resolve(object.type_id))}));
+            }
+        }
+        if initialized
+            && self.activity.is_none()
+            && let Some(entity) = sim.entities().values_sorted().find(|entity| {
+                entity.owner() == owner
+                    && entity.is_alive()
+                    && !entity.in_limbo()
+                    && !self.initial_entities.contains(&entity.stable_id())
+            })
+        {
+            self.activity = Some(json!({"kind":"new_ai_entity","native_frame":frame,
+                "entity":entity.stable_id(),"type":sim.interner().resolve(entity.type_ref()),
+                "category":format!("{:?}",entity.category())}));
+        }
+        Ok(())
+    }
+
+    fn receipt(&self) -> Result<Value> {
+        ensure!(
+            self.owner.is_some() && self.activity.is_some(),
+            "AI activity was not observed"
+        );
+        Ok(
+            json!({"owner":self.owner,"is_human":false,"player_control":false,"multiplay_passive":false,
+            "first_native_frame":self.first_frame,"initial_live_entities":self.initial_entities.len(),
+            "activity":self.activity}),
+        )
+    }
 }
 
 pub(super) struct LiveLanCapture {
@@ -93,6 +217,7 @@ pub(super) struct LiveLanCapture {
     country_selected: bool,
     battle: Option<battle::BattleOpening>,
     mass: Option<mass::MassInput>,
+    ai: Option<AiActivity>,
     failure: Option<failure::FailureCapture>,
     setup_crash: Option<setup_crash::SetupCrashCapture>,
 }
@@ -122,12 +247,14 @@ impl LiveLanCapture {
         let players = config.players;
         let simple = config.simple_input;
         let mass = config.mass_input;
+        let ai = config.ai.is_some();
         let mut capture = Self::new_config(target, None, Some(online::LiveRoundFlow::new(config)));
         if let Some(failure) = startup_failure {
             capture.failure = Some(failure);
         }
         capture.frame_budget = Some(frames);
         capture.expected_players = players;
+        capture.ai = ai.then(AiActivity::default);
         if simple {
             capture.battle = None;
         }
@@ -178,6 +305,7 @@ impl LiveLanCapture {
             )
             .then(battle::BattleOpening::default),
             mass: None,
+            ai: None,
             failure: match target {
                 LanTarget::LiveTimeoutHost | LanTarget::OnlineTimeoutHost => {
                     Some(failure::FailureCapture::new(failure::Mode::Timeout))
@@ -569,7 +697,13 @@ impl LiveLanCapture {
                     self.rounds = Some(rounds);
                     result?
                 } else if rendered == PresentedShell::NetworkSetup && setup_settled(state, true) {
-                    self.prepare_host_setup(state, selected.as_deref(), self.expected_players)?;
+                    self.prepare_host_setup(
+                        state,
+                        selected.as_deref(),
+                        self.expected_players,
+                        None,
+                        None,
+                    )?;
                     true
                 } else {
                     false
@@ -752,13 +886,20 @@ impl LiveLanCapture {
         state: &mut AppState,
         selected_map: Option<&str>,
         players: usize,
+        mode_id: Option<i32>,
+        ai: Option<crate::skirmish_launch::AiDifficulty>,
     ) -> Result<()> {
         let mode = state
             .frontend
             .skirmish_modes
             .iter()
-            .find(|mode| mode.class == crate::skirmish_modes::MpModeClass::Battle)
-            .context("retail Battle mode")?;
+            .find(|mode| {
+                mode_id.map_or(
+                    mode.class == crate::skirmish_modes::MpModeClass::Battle,
+                    |id| mode.id == id,
+                )
+            })
+            .context("requested retail network mode")?;
         let mode_id = mode.id;
         let map_index = state
             .frontend
@@ -768,16 +909,17 @@ impl LiveLanCapture {
             .position(|map| {
                 (map.kind == crate::map::skirmish_scenarios::SkirmishScenarioKind::ConcreteMap
                     || selected_map.is_some_and(|file| file.eq_ignore_ascii_case("RandMap.Sed")))
-                    && map.player_capacity >= players as i32
+                    && map.player_capacity >= (players + usize::from(ai.is_some())) as i32
                     && selected_map.is_none_or(|file| map.file_name.eq_ignore_ascii_case(file))
                     && crate::map::skirmish_scenarios::is_valid_map(map, mode, false)
             })
-            .context("retail Battle map with two starts")?;
+            .context("retail network map with enough starts")?;
         setup::commit_map_selection(state, mode_id, map_index, None)?;
         self.select_country(state)?;
         // Use the existing action admission, including current control
         // availability. The isolated profile must allow one open peer.
         let row_count = setup::view(state).context("host setup view")?.row_count;
+        let mut retained_ai = false;
         for row in 1..row_count {
             if state
                 .match_state
@@ -790,6 +932,13 @@ impl LiveLanCapture {
                         .any(|human| human.raw_slot_index == Some(row as u8))
                 })
             {
+                continue;
+            }
+            if !retained_ai
+                && ai.is_some()
+                && state.match_state.session.network_display_ai(row as u8) == ai
+            {
+                retained_ai = true;
                 continue;
             }
             let Some(control) = setup_control_at_row(state, SetupColumn::Player, row)? else {
@@ -814,8 +963,10 @@ impl LiveLanCapture {
             .network_setup()
             .context("host setup")?;
         ensure!(
-            launch.opponents.is_empty(),
-            "live diagnostic requires a two-human match without AI"
+            launch.opponents.is_empty()
+                || ai.is_some_and(|difficulty| launch.opponents.len() == 1
+                    && launch.opponents[0].difficulty == difficulty),
+            "live diagnostic retained an unrequested AI row"
         );
         Ok(())
     }
@@ -844,6 +995,9 @@ impl LiveLanCapture {
             .context("live simulation")?
             .simulation;
         let committed = simulation.session().binary_frame();
+        if let Some(ai) = self.ai.as_mut() {
+            ai.observe(state)?;
+        }
         if self.battle.is_none()
             && let Some(actor) = self.actor
         {
@@ -979,6 +1133,12 @@ impl LiveLanCapture {
                     .iter()
                     .all(|peer| peer.frame() >= self.required_frames() as i32))
         {
+            if let Some(ai) = &self.ai {
+                ensure!(
+                    ai.activity.is_some(),
+                    "AI House had no observed factory progress or new live entity"
+                );
+            }
             ensure!(
                 self.observed_movement,
                 "Move never changed the actor's cell"
@@ -1074,15 +1234,16 @@ impl LiveLanCapture {
             "finished live capture lost its transport"
         );
         Ok(
-            json!({"target":format!("{:?}",self.target),"service_boundary":if self.target.online() {"independent App processes; real HTTPS/UDP relay; ordinary frame boundary"} else {"two independent App processes; real UDP/global/private queues; ordinary frame boundary"},
+            json!({"target":format!("{:?}",self.target),"service_boundary":if self.ai.is_some() {"one App process; real HTTPS/UDP relay; ordinary frame boundary"} else if self.target.online() {"independent App processes; real HTTPS/UDP relay; ordinary frame boundary"} else {"two independent App processes; real UDP/global/private queues; ordinary frame boundary"},
             "scope":if self.target.desync_failure() { "real300-frame CRC and strong-hash prefix followed by external scoped FRAMEINFO corruption, actual checksum CE Stop and ordinary LAN lobby cleanup" } else if self.failure.is_some() { "shared 300-frame prefix followed by real peer disappearance and ordinary wait recovery or Quit; bounded runtime validation, not whole-match/native parity" } else if self.target.online() {"observed production match before real outcome; tactical commands and simulation checksums"} else if self.battle.is_some() { "kick/rejoin, Battle opening, tactical barracks rally through raw ARCHIVE, two automatic paid GI deliveries and natural rally walks per Human, tactical GI Move/object Attack, post-command rifle damage and raw Stop, then separation; bounded runtime validation, not whole-match/native parity" } else { "kick/rejoin, 300 native frames and local Move/Stop; bounded runtime validation, not whole-match/native parity" },
             "process_id":std::process::id(),
             "loading_progress":crate::app::diagnostics::shell_capture::loading_runtime::progress_receipt(state)?,
             "participant_count":self.startup.as_ref().and_then(|startup|startup["sources"].as_array()).map_or(self.expected_players,Vec::len),
-            "configured_participant_count":self.expected_players,"active_participant_count":live.map(|live|live.peers().len()+1),
+            "configured_participant_count":self.expected_players,"active_participant_count":live.map(|live|live.peers().len()+1),"cpu_count":usize::from(self.ai.is_some()),
             "active_mobile_count":sim.entities().values_sorted().filter(|entity|entity.is_alive() && !entity.in_limbo() && matches!(entity.category(),crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).count(),
             "required_frames":through.unwrap_or(self.required_frames()),"battle":self.battle.as_ref().map(|battle| battle.receipt(state)).transpose()?,
             "failure":self.failure.as_ref().map(|failure| failure.receipt()),"mass_input":self.mass.as_ref().map(mass::MassInput::receipt),
+            "ai_activity":self.ai.as_ref().map(AiActivity::receipt).transpose()?,
             "kick_observed":self.kick_observed,
             "production_broadcast":self.config.as_ref().map(|config|matches!(config.transport,LiveLanTransport::ProductionBroadcast)),
             "bind":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(bind,_)|bind.to_string()),"peer":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(_,peer)|peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,

@@ -38,6 +38,12 @@ impl MpModeClass {
         matches!(self, Self::Battle | Self::FreeForAll)
     }
 
+    /// AI opponents offered by VERA's custom online setup. This is separate
+    /// from the native offline-mode list and its row-capacity decisions.
+    pub const fn permits_network_ai(self) -> bool {
+        matches!(self, Self::Battle | Self::FreeForAll | Self::ManBattle)
+    }
+
     /// Vtable `+0x4` and `+0x8`, which the sidebar Diplomacy button asks
     /// before choosing the mission briefing over Diplomacy in LAN/WOL
     /// (`0x00653918..0x00653938`). Only Cooperative (vtable `0x007EE27C`)
@@ -339,6 +345,19 @@ pub fn mode_by_id(modes: &[SkirmishGameMode], id: i32) -> Option<&SkirmishGameMo
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn retail_land_rush_can_offer_network_ai_without_joining_the_offline_list() {
+        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("mpmodesmd.ini") else {
+            return;
+        };
+        let modes = super::parse_mpmodes_ini(&ini);
+        let land_rush = super::mode_by_id(&modes, 6).expect("retail Land Rush mode");
+        assert_eq!(land_rush.class, super::MpModeClass::ManBattle);
+        assert!(land_rush.class.permits_network_ai());
+        assert!(!land_rush.class.lists_in_skirmish());
+        assert!(!super::MpModeClass::Cooperative.permits_network_ai());
+    }
 
     #[test]
     fn network_start_validation_keeps_mode_effects_and_failure_order() {

@@ -1169,7 +1169,10 @@ pub(crate) struct LiveOnlineConfig {
     pub host: String,
     pub create_account: bool,
     pub map: Option<String>,
+    /// Real human/service sources; AI rows never become relay participants.
     pub players: usize,
+    pub ai: Option<crate::skirmish_launch::AiDifficulty>,
+    pub mode_id: Option<i32>,
     /// Authored waypoint index, independent of arrival-order source/raw row.
     pub start: Option<u8>,
     pub frames: u32,
@@ -1375,6 +1378,8 @@ where
     let mut online_create = false;
     let mut online_password_stdin = false;
     let mut online_players = None;
+    let mut online_ai = None;
+    let mut online_mode_id = None;
     let mut online_start = None;
     let mut online_frames = None;
     let mut online_simple = false;
@@ -1497,6 +1502,25 @@ where
                     "--online-players",
                 )?,
                 "--online-players",
+            )?,
+            "--online-ai" => {
+                use crate::skirmish_launch::AiDifficulty;
+                let difficulty = match next_utf8(&mut args, "value after --online-ai")?.as_str() {
+                    "easy" => AiDifficulty::Easy,
+                    "normal" => AiDifficulty::Normal,
+                    "hard" => AiDifficulty::Hard,
+                    _ => bail!("--online-ai requires easy, normal or hard"),
+                };
+                set_once(&mut online_ai, difficulty, "--online-ai")?;
+            }
+            "--online-mode-id" => set_once(
+                &mut online_mode_id,
+                i32::try_from(parse_u32(
+                    next_utf8(&mut args, "value after --online-mode-id")?,
+                    "--online-mode-id",
+                )?)
+                .context("--online-mode-id must fit a nonnegative i32")?,
+                "--online-mode-id",
             )?,
             "--online-start" => set_once(
                 &mut online_start,
@@ -1668,8 +1692,9 @@ where
         );
         let players = online_players.unwrap_or(2) as usize;
         ensure!(
-            (2..=crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT).contains(&players),
-            "online players must be between2 and30"
+            (1..=crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT).contains(&players)
+                && (players >= 2 || online_ai.is_some()),
+            "online players must be between2 and30, or one host with explicit --online-ai"
         );
         ensure!(
             !online_failure
@@ -1680,6 +1705,8 @@ where
         );
         let frames = online_frames.unwrap_or(if online_failure {
             300
+        } else if online_ai.is_some() {
+            600
         } else if online_mass {
             1200
         } else if online_simple {
@@ -1691,6 +1718,26 @@ where
             (300..=1_000_000).contains(&frames),
             "online frame observation must cover300 to1000000 frames"
         );
+        if online_ai.is_some() || online_mode_id.is_some() {
+            ensure!(
+                matches!(
+                    checkpoint,
+                    ShellCaptureCheckpoint::Lan(movies::LanTarget::OnlineHost)
+                ) && account == host
+                    && players == 1
+                    && online_ai.is_some()
+                    && frames >= 600
+                    && !online_mass
+                    && !profile_check
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_loading_host_loss.is_none()
+                    && online_startup_host_loss.is_none()
+                    && online_loading_cancel.is_none()
+                    && online_loading_cancel_checkpoint.is_none(),
+                "AI/mode capture requires one online host, explicit AI, at least600 frames and no separate fault/profile/mass case"
+            );
+        }
         ensure!(
             online_network_checkpoint.as_ref().is_none_or(|nonce| {
                 !online_failure
@@ -1745,7 +1792,7 @@ where
             "startup host loss requires a normal simple three-player online match and a32-digit lowercase hex nonce; loading/map/start and other faults are separate runs"
         );
         ensure!(
-            players == 2 || online_simple || online_mass,
+            players <= 2 || online_simple || online_mass,
             "more than two players requires --online-simple-input or --online-mass-input"
         );
         ensure!(
@@ -1804,9 +1851,11 @@ where
             create_account: online_create,
             map: online_map,
             players,
+            ai: online_ai,
+            mode_id: online_mode_id,
             start: online_start.map(|start| start as u8),
             frames,
-            simple_input: online_simple || online_mass || online_failure,
+            simple_input: online_simple || online_mass || online_failure || online_ai.is_some(),
             mass_input: online_mass,
             failure_prefix_output: if online_failure || online_network_checkpoint.is_some() {
                 let mut path = output_dir.as_os_str().to_owned();
@@ -1851,6 +1900,8 @@ where
                 && !online_create
                 && !online_password_stdin
                 && online_players.is_none()
+                && online_ai.is_none()
+                && online_mode_id.is_none()
                 && online_start.is_none()
                 && online_frames.is_none()
                 && !online_simple
@@ -3495,6 +3546,78 @@ mod tests {
         assert_eq!(config.account, "Peer");
         assert_eq!(config.host, "Host");
         assert_eq!(config.players, 2);
+    }
+
+    #[test]
+    fn online_ai_host_capture_keeps_one_human_and_the_requested_retail_mode() {
+        let output = new_output_path("online-ai-host");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-password-stdin",
+            "--online-players",
+            "1",
+            "--online-ai",
+            "hard",
+            "--online-mode-id",
+            "6",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
+            panic!("capture")
+        };
+        let config = request.live_online.unwrap();
+        assert_eq!(config.players, 1);
+        assert_eq!(config.ai, Some(crate::skirmish_launch::AiDifficulty::Hard));
+        assert_eq!(config.mode_id, Some(6));
+        assert_eq!(config.frames, 600);
+        assert!(config.simple_input && !config.mass_input);
+        assert!(!config.create_account);
+    }
+
+    #[test]
+    fn online_ai_capture_requires_a_singleton_host_and_actual_play() {
+        let output = new_output_path("online-ai-admission");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-password-stdin",
+            "--online-players",
+            "1",
+        ]));
+        assert!(parse_launch_args(values.clone()).is_err());
+        values.extend(args(&["--online-ai", "normal"]));
+        assert!(parse_launch_args(values.clone()).is_ok());
+        let mut short = values.clone();
+        short.extend(args(&["--online-frames", "300"]));
+        assert!(parse_launch_args(short).is_err());
+        values[1] = "online-live-guest".into();
+        values.extend(args(&["--online-host", "Host"]));
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn online_ai_options_reject_unknown_difficulties_and_nononline_routes() {
+        let output = new_output_path("online-ai-invalid");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-password-stdin",
+            "--online-players",
+            "1",
+            "--online-ai",
+            "unknown",
+        ]));
+        assert!(parse_launch_args(values.clone()).is_err());
+        *values.last_mut().unwrap() = "easy".into();
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values[1] = "main-menu-0xe2-steady".into();
+        assert!(parse_launch_args(values).is_err());
     }
 
     #[test]

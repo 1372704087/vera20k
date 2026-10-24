@@ -58,6 +58,16 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let launch = session.network_setup()?;
     let protocol = state.frontend.network_setup_protocol.as_ref()?;
     let mode = mode_by_id(&state.frontend.skirmish_modes, launch.mode.id)?;
+    let ai_allowed = if state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.modern_ui())
+    {
+        mode.class.permits_network_ai()
+    } else {
+        mode.class.lists_in_skirmish()
+    };
     let host = session.host();
     let host_name = protocol.wol_host.as_deref();
     let local = launch.humans.get(launch.local_player_index)?;
@@ -208,8 +218,10 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
                 text: label(state, "GUI:Closed"),
                 swatch: None,
             });
-            //5EB060 asks the same vtable+40 used by the Skirmish mode list.
-            if mode.class.lists_in_skirmish() && !observer_only {
+            //5EB060 asks vtable+40. VERA's normal online setup additionally
+            // offers computer opponents in Land Rush (ManBattle); native
+            // diagnostic controls retain the original offline-list gate.
+            if ai_allowed && !observer_only {
                 for (value, key) in [(4, "GUI:AIEasy"), (5, "GUI:AINormal"), (6, "GUI:AIHard")] {
                     players.push(SetupChoice {
                         value,

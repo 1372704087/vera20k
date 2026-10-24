@@ -126,6 +126,11 @@ fn answer_setup(state: &mut AppState, request: NetworkSetupRequest) {
         }
         return;
     }
+    // 0x0078F000: the stand-in server keeps the host's new record.
+    if request == NetworkSetupRequest::Advertise {
+        super::lobby::republish_channel(state);
+        return;
+    }
     // C9 Back waits for the leave's OnPart; C2 Back closes at once.
     if request == NetworkSetupRequest::Leave && !state.match_state.session.host() {
         service_event(state, WolServiceEvent::ChannelLeft);
@@ -747,7 +752,7 @@ fn match_requested(state: &mut AppState) {
         ansi: true,
         options,
     };
-    let players = format!("{local},0,0,0,0,0,0,0,0,{GUEST},1,0,0,0,0,0,0,0");
+    let players = format!("{local},0,0,0,0,0,0,0,{GUEST},1,0,0,0,0,0,0");
     for event in [
         line("Working".into(), true, None),
         line("Pool 2".into(), false, None),

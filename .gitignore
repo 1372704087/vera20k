@@ -69,6 +69,8 @@ Thumbs.db
 !/docs/images/**
 
 .mcp.json
+# Cloudflare CLI cache: holds the account ID and email wherever `cf` runs.
+.cloudflare/
 /.claude/*
 !/.claude/skills/
 /.claude/skills/ghidra-up/

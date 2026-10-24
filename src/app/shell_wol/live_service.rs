@@ -33,7 +33,7 @@ use crate::ui::wol_chat::WolChatLine;
 // The deployment sets this at build time; a runtime override supports staging.
 const DEFAULT_LOBBY_URL: &str = match option_env!("VERA20K_LOBBY_URL") {
     Some(value) => value,
-    None => "https://vera20k-lobby.hnr-enok.workers.dev",
+    None => "https://lobby.vera20k.org",
 };
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
@@ -1375,7 +1375,7 @@ fn request_setup(
         }
         NetworkSetupRequest::Kick { name } => service.command("kick", json!({"name":name})),
         NetworkSetupRequest::Advertise => {
-            if let Some(channel) = super::lobby::current_channel(state) {
+            if let Some(channel) = super::lobby::republish_channel(state) {
                 service.command("advertise", json!({"channel":wire::Channel::from(channel)}));
             }
         }
@@ -1458,7 +1458,12 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
-            notice(state, "Update VERA20k to use secure online multiplayer.");
+            // The login has no lobby yet, so a chat line would be lost: the
+            // failure's own box says why.
+            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
+            if !super::service::replace_open_box_body(state, UPDATE) {
+                notice(state, UPDATE);
+            }
         }
         http::Response::Channels(list) => service_event(
             state,

@@ -34,8 +34,9 @@ service binding. Set `VERA20K_TRANSLATOR_WORKER` to its name when deploying; wit
 the lobby deploys unbound and reports `translation_unavailable`. Deploy that Worker
 first. The lobby caches its replies and owns the rate limits and daily budget.
 
-The client defaults to the deployed lobby at
-`https://vera20k-lobby.hnr-enok.workers.dev`. Normal players use
+The client defaults to the deployed lobby at `https://lobby.vera20k.org`, the
+Worker's custom domain. Its workers.dev and preview URLs stay off because their
+hostnames carry the account's subdomain. Normal players use
 **Internet → Custom Match** without configuring a server address.
 
 For a separate deployment, set `VERA20K_LOBBY_URL` at build time or use its runtime

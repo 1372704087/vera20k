@@ -18,6 +18,7 @@ use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::phobos_radiation::RadiationTypeCatalog;
+use crate::rules::digital_display::DigitalDisplayTypeCatalog;
 use crate::rules::phobos_shields::ShieldTypeCatalog;
 use crate::rules::sound_ini::EvaRegistry;
 
@@ -611,6 +612,16 @@ impl ProcessedRulesLayers {
             .as_ref()
     }
 
+    /// Phobos `[DigitalDisplayTypes]` catalog with the same retained process
+    /// lifetime as Types.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn digital_display_types(&self) -> Option<&DigitalDisplayTypeCatalog> {
+        self.native_type_construction_trace
+            .registry_state
+            .phobos_digital_display_types
+            .as_ref()
+    }
+
     /// Read-only projection of the retained registry's build capability.
     pub(crate) fn compatibility(&self) -> RulesCompatibility {
         self.native_type_construction_trace
@@ -946,6 +957,8 @@ impl ProcessedRulesLayers {
         registry.validate_prerequisites()?;
         registry.validate_radiation_types()?;
         registry.validate_shield_types()?;
+        #[cfg(feature = "phobos")]
+        registry.validate_digital_display_types()?;
         let families = &registry.families;
         let projectile_count = families
             .get(&RulesTypeFamily::Projectile)
@@ -2556,6 +2569,8 @@ pub(crate) struct NativeRulesRegistryState {
     phobos_radiation_types: Option<RadiationTypeCatalog>,
     /// Phobos `[ShieldTypes]` catalog; Process retains it per pass.
     phobos_shield_types: Option<ShieldTypeCatalog>,
+    /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
+    phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     families: HashMap<RulesTypeFamily, Vec<ProcessedType>>,
@@ -2643,6 +2658,8 @@ impl Default for NativeRulesRegistryState {
             phobos_radiation_types: crate::rules::PHOBOS_ENABLED
                 .then(RadiationTypeCatalog::with_default),
             phobos_shield_types: crate::rules::PHOBOS_ENABLED.then(ShieldTypeCatalog::default),
+            phobos_digital_display_types: crate::rules::PHOBOS_ENABLED
+                .then(DigitalDisplayTypeCatalog::default),
             #[cfg(feature = "ares")]
             ares_global_controls: AresGlobalControls::default(),
             families: HashMap::new(),
@@ -2804,6 +2821,16 @@ impl NativeRulesRegistryState {
         if self.phobos_shield_types.is_some() != crate::rules::PHOBOS_ENABLED {
             return Err(RulesError::InvalidSavedState(
                 "saved shield type catalog does not match the compiled capability",
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "phobos")]
+    fn validate_digital_display_types(&self) -> Result<(), RulesError> {
+        if self.phobos_digital_display_types.is_some() != crate::rules::PHOBOS_ENABLED {
+            return Err(RulesError::InvalidSavedState(
+                "saved digital display type catalog does not match the compiled capability",
             ));
         }
         Ok(())
@@ -3986,6 +4013,8 @@ struct RulesPassProcessor {
     phobos_radiation_types: Option<RadiationTypeCatalog>,
     /// Phobos `[ShieldTypes]` catalog; Process retains it per pass.
     phobos_shield_types: Option<ShieldTypeCatalog>,
+    /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
+    phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     ordinary: Option<IniFile>,
@@ -4062,6 +4091,7 @@ impl RulesPassProcessor {
             ares_armors: registry_state.ares_armors,
             phobos_radiation_types: registry_state.phobos_radiation_types,
             phobos_shield_types: registry_state.phobos_shield_types,
+            phobos_digital_display_types: registry_state.phobos_digital_display_types,
             #[cfg(feature = "ares")]
             ares_global_controls: registry_state.ares_global_controls,
             families: registry_state.families,
@@ -4192,6 +4222,8 @@ impl RulesPassProcessor {
         self.allocate_radiation_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_shield_types(pass);
+        #[cfg(feature = "phobos")]
+        self.allocate_digital_display_types(pass);
         // Elevation and Wall contain no Type factories.
         self.allocate_audio_visual_references(pass);
         self.process_special_weapons(pass);
@@ -6627,6 +6659,15 @@ impl RulesPassProcessor {
         }
     }
 
+    /// Phobos `DigitalDisplayTypeClass::LoadFromINIList` + each type's
+    /// `LoadFromINI`, reached on every Rules pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_digital_display_types(&mut self, pass: &IniFile) {
+        if let Some(catalog) = self.phobos_digital_display_types.as_mut() {
+            catalog.apply_pass(pass);
+        }
+    }
+
     fn allocate_audio_visual_references(&mut self, pass: &IniFile) {
         let Some(section) = pass.section("AudioVisual") else {
             return;
@@ -6806,6 +6847,7 @@ impl RulesPassProcessor {
                     ares_armors: self.ares_armors,
                     phobos_radiation_types: self.phobos_radiation_types,
                     phobos_shield_types: self.phobos_shield_types,
+                    phobos_digital_display_types: self.phobos_digital_display_types,
                     #[cfg(feature = "ares")]
                     ares_global_controls: self.ares_global_controls,
                     families: self.families,

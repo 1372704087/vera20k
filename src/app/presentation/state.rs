@@ -99,6 +99,10 @@ pub(crate) struct MatchPresentationState {
     pub(crate) has_radar: bool,
     /// Selection overlay renderer — highlights and drag rectangle.
     pub(crate) selection_overlay: Option<SelectionOverlay>,
+    /// Phobos `[Phobos] DigitalDisplay.Enable` from the imported client
+    /// profile.
+    #[cfg(feature = "phobos")]
+    pub(crate) digital_display_enabled: bool,
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
     #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,

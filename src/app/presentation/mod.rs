@@ -8,6 +8,8 @@ pub(crate) mod building_anim;
 pub(crate) mod combat_lights;
 pub(crate) mod control_links;
 pub(crate) mod detail;
+#[cfg(feature = "phobos")]
+pub(crate) mod digital_display;
 pub(crate) mod electric_bolts;
 pub(crate) mod fire_effects;
 pub(crate) mod house_ui;

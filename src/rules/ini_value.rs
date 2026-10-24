@@ -603,6 +603,37 @@ impl IniSection {
         })
     }
 
+    /// Phobos `Valueable<Point2D>`: `INI_EX::Read2Integers` (ReadString(2048),
+    /// then `Parser<int, 2>`, the [`scan_partial_int_fields`] scan) converts
+    /// each token straight into the value, so a one-token read changes only X
+    /// and a read that converts nothing keeps both.
+    pub fn read_phobos_int_pair(&self, key: &str, current: [i32; 2]) -> [i32; 2] {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            let mut fields = current;
+            scan_partial_int_fields(raw, &mut fields);
+            fields
+        })
+    }
+
+    /// Phobos `Nullable<Point2D>`: the clearing tokens of
+    /// [`Self::read_phobos_nullable_with`], then the same in-place
+    /// `Read2Integers` scan. Only a read that converts both tokens sets the
+    /// value; a partial read updates a value that is already set.
+    pub fn read_phobos_nullable_int_pair(
+        &self,
+        key: &str,
+        current: Option<[i32; 2]>,
+    ) -> Option<[i32; 2]> {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            if raw.eq_ignore_ascii_case("<default>") || is_native_none_type_name(raw) {
+                return None;
+            }
+            let mut fields = current.unwrap_or_default();
+            let values = scan_partial_int_fields(raw, &mut fields);
+            (values == 2 || current.is_some()).then_some(fields)
+        })
+    }
+
     /// Phobos shares Ares's `Parser<int>::TryParse`, including `$%d`.
     pub fn read_phobos_nullable_int(&self, key: &str, current: Option<i32>) -> Option<i32> {
         self.read_phobos_nullable_with(key, current, parse_ares_int)

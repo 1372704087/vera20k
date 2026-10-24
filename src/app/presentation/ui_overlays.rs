@@ -90,7 +90,7 @@ pub(crate) fn status_visibility(selected: bool, hovered: bool) -> (bool, bool) {
 /// or discovery+41B. Hover already passed ProcessClickCoords' projected query.
 /// Reuse the body admission owner for lifecycle/cloak instead of adding another
 /// fog interpretation here. Native dispatch controls: health_hover.json.
-fn health_bar_drawable(
+pub(crate) fn health_bar_drawable(
     sim: &crate::sim::world::Simulation,
     entity: &crate::sim::game_entity::GameEntity,
     hovered_id: Option<u64>,
@@ -124,6 +124,63 @@ fn health_strip_visibility(
                 )
             }));
     status_visibility(selected, hovered)
+}
+
+/// A building's health-bar geometry. BuildingType464AF0 owns Foundation*256
+/// and fixed ART Height*104; 6F6536/656E project local offsets through
+/// Tactical6D1F10, without the absolute projection's camera or +15 world-row
+/// origin. Phobos's building select bracket starts from the same points.
+pub(crate) struct BuildingBarGeometry {
+    /// The projected foundation edge at Z=0 (6F659E).
+    pub(crate) edge: (i32, i32),
+    /// `edge.1` raised by the ART height.
+    pub(crate) upper_y: i32,
+    /// Both upper projections carry the same Z; it cancels in 6F65BC..CF.
+    pub(crate) num_pips: i32,
+    /// Fixed ART Height*104, in leptons.
+    #[cfg(feature = "phobos")]
+    pub(crate) height_leptons: i32,
+}
+
+impl BuildingBarGeometry {
+    pub(crate) fn new(rules: &RuleSet, object: &crate::rules::object_type::ObjectType) -> Self {
+        let [width, height, z] = rules.building_dimensions(object);
+        let left = (width - width / 2).wrapping_neg();
+        let back = height - height / 2;
+        let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
+        let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
+        Self {
+            edge: (ax, ay),
+            upper_y: ay - crate::util::native_x87::adjust_for_z_standard(z),
+            num_pips: (ay - by) / 2,
+            #[cfg(feature = "phobos")]
+            height_leptons: z,
+        }
+    }
+
+    /// The first health pip at screen point `(sx, sy)`, which is also Phobos's
+    /// building select-bracket Top anchor.
+    pub(crate) fn first_pip(&self, sx: f32, sy: f32) -> (f32, f32) {
+        (
+            sx + (self.edge.0 + 4 * self.num_pips + 3) as f32,
+            sy + (self.upper_y + 4 - 2 * self.num_pips) as f32,
+        )
+    }
+}
+
+/// Phobos `TechnoExt::GetFootSelectBracketPosition`'s rectangle at screen
+/// point `(sx, sy)`: the 8-pip Infantry or 17-pip mobile bracket, as
+/// `[x, y, width, height]`.
+#[cfg(feature = "phobos")]
+pub(crate) fn foot_select_bracket(sx: f32, sy: f32, infantry: bool) -> [f32; 4] {
+    let length = if infantry { 8.0 } else { 17.0 };
+    let nudge = if infantry { 1.0 } else { 0.0 };
+    [
+        sx - length + nudge + 1.0,
+        sy - 28.0 + nudge,
+        length * 2.0,
+        length * 3.0,
+    ]
 }
 
 /// Retained Display membership and the shared tactical draw admission.
@@ -810,6 +867,11 @@ pub(crate) struct TechnoExtras {
     pub scale: Vec<SpriteInstance>,
     /// Existing House-owned self-heal marker, between scale and group text.
     pub self_heal: Option<SpriteInstance>,
+    /// Phobos DigitalDisplay text, one backing+glyph set per list entry, after
+    /// the control-group label and drawn in list order.
+    pub digital_text: Vec<StatusTextOverlayInstances>,
+    /// Phobos DigitalDisplay custom-SHP glyphs: catalog index + sprite.
+    pub digital_shapes: Vec<(u32, SpriteInstance)>,
     ///709A90's group tail follows this parent's pip scale, not a global sweep.
     pub group: StatusTextOverlayInstances,
     ///6F5E8D..5EDE: after health/pips/group, plain600 at the caller point.
@@ -834,6 +896,16 @@ impl TechnoExtras {
             .chain(self.group.text.iter_mut())
             .chain(self.talk_bubble.iter_mut())
         {
+            instance.position[0] += offset[0];
+            instance.position[1] += offset[1];
+        }
+        for text in &mut self.digital_text {
+            for instance in text.rectangles.iter_mut().chain(text.text.iter_mut()) {
+                instance.position[0] += offset[0];
+                instance.position[1] += offset[1];
+            }
+        }
+        for (_, instance) in &mut self.digital_shapes {
             instance.position[0] += offset[0];
             instance.position[1] += offset[1];
         }
@@ -1178,17 +1250,9 @@ pub(crate) fn techno_extras_for_parent(
         let (Some(rules), Some(object), Some(shape)) = (rules, object, overlay.pips()) else {
             return strip;
         };
-        // BuildingType464AF0 owns Foundation*256 and fixed ART Height*104.
-        //6F6536/656E project local offsets through Tactical6D1F10, without
-        // the absolute projection's camera or +15 world-row origin.
-        let [width, height, z] = rules.building_dimensions(object);
-        let left = (width - width / 2).wrapping_neg();
-        let back = height - height / 2;
-        let (ax, ay) = crate::util::lepton::project_absolute_lepton_xy(left, back);
-        let (_, by) = crate::util::lepton::project_absolute_lepton_xy(left, back.wrapping_neg());
-        let upper_y = ay - crate::util::native_x87::adjust_for_z_standard(z);
-        // Both upper projections carry the same Z; it cancels in6F65BC..CF.
-        let num_pips = (ay - by) / 2;
+        let geometry = BuildingBarGeometry::new(rules, object);
+        let (ax, ay) = geometry.edge;
+        let num_pips = geometry.num_pips;
         if num_pips <= 0 {
             return strip;
         }
@@ -1197,10 +1261,8 @@ pub(crate) fn techno_extras_for_parent(
         // fill. The building bracket is the Top anchor minus (6,3).
         #[cfg(feature = "phobos")]
         {
-            let bracket = (
-                sx + (ax + 4 * num_pips + 3 - 6) as f32,
-                sy + (upper_y + 4 - 2 * num_pips - 3) as f32,
-            );
+            let top = geometry.first_pip(sx, sy);
+            let bracket = (top.0 - 6.0, top.1 - 3.0);
             shield_bar_instances(
                 entity,
                 rules,
@@ -1226,10 +1288,7 @@ pub(crate) fn techno_extras_for_parent(
             1 => 2,
             _ => 1,
         };
-        let start = (
-            sx + (ax + 4 * num_pips + 3) as f32,
-            sy + (upper_y + 4 - 2 * num_pips) as f32,
-        );
+        let start = geometry.first_pip(sx, sy);
         strip.fills.reserve(num_pips as usize);
         //6F6658..6774: filled first, then empty frame0, walking [-4,+2].
         // Building PIPS600 bypasses A and Z; the replay owner preserves both
@@ -1283,10 +1342,8 @@ pub(crate) fn techno_extras_for_parent(
     #[cfg(feature = "phobos")]
     {
         let length = if infantry { 8 } else { 17 };
-        let bracket = (
-            sx - length as f32 + if infantry { 1.0 } else { 0.0 },
-            sy - 28.0 + if infantry { 1.0 } else { 0.0 },
-        );
+        let [left, top, _, _] = foot_select_bracket(sx, sy, infantry);
+        let bracket = (left - 1.0, top);
         let type_delta = entity
             .shield()
             .and_then(|shield| rules.shield_type(shield.type_name()))

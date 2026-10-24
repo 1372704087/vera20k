@@ -2171,6 +2171,8 @@ fn native_status_controls(fixture: &'static str, type_name: &str, category: Enti
                             scale: scale.clone(),
                             group_rectangles: 0..0,
                             group_text: 0..0,
+                            digital_text: Vec::new(),
+                            digital_shapes: Vec::new(),
                             talk_bubble: None,
                             self_heal: None,
                         });

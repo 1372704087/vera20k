@@ -103,6 +103,7 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
+pub mod digital_display;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
 pub mod phobos_radiation;

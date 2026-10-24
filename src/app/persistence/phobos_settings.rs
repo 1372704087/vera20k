@@ -2,29 +2,54 @@
 //!
 //! Phobos reads `RA2MD.INI [Phobos]` directly each launch. VERA imports that
 //! file once into `VERA.INI` and keeps it the writable profile, so the same
-//! section arrives here from `profile_file`.
-//!
-//! This chain owns the placement-preview switch. Other optional Phobos
-//! client switches keep their own owners.
+//! section arrives here from `profile_file`. Only settings that gate a
+//! compiled extension live here; retail options keep `options_profile`.
 
 use std::path::Path;
 
 use crate::rules::ini_parser::IniFile;
 
-/// `[Phobos] ShowPlacementPreview=`, source default `yes` (b36 key; the old
-/// `ShowBuildingPlacementPreview` is not read).
-pub(crate) fn show_placement_preview(settings_dir: &Path) -> bool {
+/// The `[Phobos]` client switches this build reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PhobosClientSettings {
+    /// `[Phobos] ShowPlacementPreview=`, source default `yes` (b36 key; the
+    /// old `ShowBuildingPlacementPreview` is not read).
+    pub(crate) show_placement_preview: bool,
+    /// `[Phobos] DigitalDisplay.Enable=`, default `no`.
+    pub(crate) digital_display_enabled: bool,
+}
+
+impl Default for PhobosClientSettings {
+    /// The source defaults, also used when there is no readable profile and by
+    /// sealed captures.
+    fn default() -> Self {
+        Self {
+            show_placement_preview: true,
+            digital_display_enabled: false,
+        }
+    }
+}
+
+/// Read the switches from the profile in `settings_dir`.
+pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
+    let defaults = PhobosClientSettings::default();
     let path = super::profile_file::path(settings_dir);
     let Ok(bytes) = std::fs::read(&path) else {
-        return true;
+        return defaults;
     };
     let Ok(ini) = IniFile::from_bytes(&bytes) else {
         log::warn!("Could not parse {} for Phobos settings", path.display());
-        return true;
+        return defaults;
     };
-    ini.section("Phobos").map_or(true, |section| {
-        section.read_bool("ShowPlacementPreview", true)
-    })
+    let Some(section) = ini.section("Phobos") else {
+        return defaults;
+    };
+    PhobosClientSettings {
+        show_placement_preview: section
+            .read_bool("ShowPlacementPreview", defaults.show_placement_preview),
+        digital_display_enabled: section
+            .read_bool("DigitalDisplay.Enable", defaults.digital_display_enabled),
+    }
 }
 
 #[cfg(test)]
@@ -35,7 +60,7 @@ mod tests {
 
     fn profile_with(section: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "vera-placement-settings-{}-{}",
+            "vera-phobos-settings-{}-{}",
             std::process::id(),
             NEXT_PROFILE.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
@@ -45,18 +70,24 @@ mod tests {
     }
 
     #[test]
-    fn missing_profile_keeps_the_source_default() {
-        let missing = std::env::temp_dir().join("vera-placement-settings-missing");
-        assert!(show_placement_preview(&missing));
+    fn missing_profile_or_section_keeps_the_source_defaults() {
+        let missing = std::env::temp_dir().join("vera-phobos-settings-missing");
+        assert_eq!(read(&missing), PhobosClientSettings::default());
         let dir = profile_with("[Options]\nGameSpeed=1\n");
-        assert!(show_placement_preview(&dir));
+        assert_eq!(read(&dir), PhobosClientSettings::default());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
-    fn imported_switch_is_read() {
-        let dir = profile_with("[Phobos]\nShowPlacementPreview=no\n");
-        assert!(!show_placement_preview(&dir));
+    fn imported_switches_are_read() {
+        let dir = profile_with("[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n");
+        assert_eq!(
+            read(&dir),
+            PhobosClientSettings {
+                show_placement_preview: false,
+                digital_display_enabled: true,
+            }
+        );
         std::fs::remove_dir_all(dir).unwrap();
     }
 }

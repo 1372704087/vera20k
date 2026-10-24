@@ -395,6 +395,13 @@ impl SpawnManagerState {
             .count()
     }
 
+    /// Phobos `SpawnManagerClass::CountLaunchingSpawns`: children that are
+    /// alive but not docked, i.e. the complement of
+    /// [`Self::count_docked_spawns`] inside [`Self::count_alive_spawns`].
+    pub fn count_launching_spawns(&self) -> usize {
+        self.count_alive_spawns() - self.count_docked_spawns()
+    }
+
     /// Native `0x006B7D80`, read by the Drive/Ship Process_Movement gate
     /// (0x4B272C / 0x6A1D49) before its no-queue path request: slots waiting
     /// out a kamikaze launch (state 1), plus in-flight children (state 2)

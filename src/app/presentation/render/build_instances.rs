@@ -352,6 +352,35 @@ pub(super) fn build_world_instances(
                     },
                 );
                 status.group = group_labels.remove(&parent.parent.id).unwrap_or_default();
+                // Phobos DigitalDisplay: built here because the GAME.FNT atlas
+                // lives on the renderer; the value/position owner is
+                // presentation::digital_display.
+                #[cfg(feature = "phobos")]
+                if state.match_state.match_presentation.digital_display_enabled
+                    && let Some(rules) = state.rules()
+                {
+                    let digital =
+                        crate::app::presentation::digital_display::digital_display_instances(
+                            sim,
+                            entity,
+                            rules,
+                            overlay,
+                            &state.renderer.bit_font,
+                            hovered,
+                            local_owner.as_deref(),
+                            crate::app::presentation::ui_overlays::StatusViewport {
+                                camera: [
+                                    state.match_state.input.camera_x,
+                                    state.match_state.input.camera_y,
+                                ],
+                                size: [sw, sh],
+                                ignore_visibility: state.match_state.sandbox_full_visibility,
+                            },
+                            true,
+                        );
+                    status.digital_text = digital.texts;
+                    status.digital_shapes = digital.shapes;
+                }
                 if !entity.sinking.is_active() && !entity.passenger_role.is_inside_transport() {
                     if let (Some(frame), Some(shape)) = (
                         state

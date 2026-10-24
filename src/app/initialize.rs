@@ -636,20 +636,18 @@ impl App {
         if let Some(assets) = startup_asset_manager {
             process_assets.return_from_loading(assets);
         }
-        // Phobos `[Phobos] ShowPlacementPreview` (RA2MD.INI, imported into
-        // VERA.INI). The `phobos` build is the capability; the profile key is
-        // the user's switch. Sealed capture keeps the source default (yes).
+        // Phobos `[Phobos]` client switches (RA2MD.INI, imported into
+        // VERA.INI). The `phobos` build is the capability; the profile keys are
+        // the user's switches. Sealed capture keeps the source defaults, like
+        // the retail options snapshot, so operator profile state cannot change
+        // captured output.
         #[cfg(feature = "phobos")]
-        let show_placement_preview = crate::rules::PHOBOS_ENABLED
-            && if capture_dimensions.is_some() {
-                true
-            } else {
-                game_config.as_ref().map_or(true, |config| {
-                    crate::app::persistence::phobos_settings::show_placement_preview(
-                        config.paths.settings_dir(),
-                    )
-                })
-            };
+        let phobos_client = match game_config.as_ref() {
+            Some(config) if capture_dimensions.is_none() => {
+                crate::app::persistence::phobos_settings::read(config.paths.settings_dir())
+            }
+            _ => crate::app::persistence::phobos_settings::PhobosClientSettings::default(),
+        };
         let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -729,7 +727,9 @@ impl App {
                     has_radar: false,
                     selection_overlay: None,
                     #[cfg(feature = "phobos")]
-                    show_placement_preview,
+                    digital_display_enabled: phobos_client.digital_display_enabled,
+                    #[cfg(feature = "phobos")]
+                    show_placement_preview: phobos_client.show_placement_preview,
                     #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),
                     beacon_art: None,

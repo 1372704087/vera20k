@@ -4355,6 +4355,14 @@ pub struct RuleSet {
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
     pub(crate) shield_globals: crate::rules::phobos_shields::ShieldGlobals,
+    /// Phobos `[DigitalDisplayTypes]` catalog, read per Rules pass by the
+    /// ordered Process owner. Empty in builds without the capability.
+    #[cfg(feature = "phobos")]
+    pub(crate) digital_display_types: crate::rules::digital_display::DigitalDisplayTypeCatalog,
+    /// Phobos DigitalDisplay globals: the four `[AudioVisual]` category
+    /// default lists and `DigitalDisplay.Health.FakeAtDisguise`.
+    #[cfg(feature = "phobos")]
+    pub(crate) digital_display_globals: crate::rules::digital_display::DigitalDisplayGlobals,
     /// Phobos placement preview globals (`[AudioVisual] PlacementPreview*`).
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_globals:
@@ -5520,6 +5528,21 @@ impl RuleSet {
             )
         };
         #[cfg(feature = "phobos")]
+        let (digital_display_types, digital_display_globals) = {
+            let digital_display_types = processed
+                .digital_display_types()
+                .cloned()
+                .unwrap_or_default();
+            log::info!(
+                "Phobos digital display types: [{}]",
+                digital_display_types.names().collect::<Vec<_>>().join(", ")
+            );
+            (
+                digital_display_types,
+                crate::rules::digital_display::DigitalDisplayGlobals::from_ini(ini),
+            )
+        };
+        #[cfg(feature = "phobos")]
         let placement_preview_globals =
             crate::rules::phobos_placement_preview::PlacementPreviewGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
@@ -5904,6 +5927,10 @@ impl RuleSet {
             shield_types,
             #[cfg(feature = "phobos")]
             shield_globals,
+            #[cfg(feature = "phobos")]
+            digital_display_types,
+            #[cfg(feature = "phobos")]
+            digital_display_globals,
             #[cfg(feature = "phobos")]
             placement_preview_globals,
             radar_event_config,
@@ -6314,6 +6341,53 @@ impl RuleSet {
         &self.shield_globals
     }
 
+    /// Phobos `[DigitalDisplayTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_types(
+        &self,
+    ) -> &crate::rules::digital_display::DigitalDisplayTypeCatalog {
+        &self.digital_display_types
+    }
+
+    /// Phobos DigitalDisplay globals (`[AudioVisual]`).
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_globals(&self) -> &crate::rules::digital_display::DigitalDisplayGlobals {
+        &self.digital_display_globals
+    }
+
+    /// `TechnoExt::ProcessDigitalDisplays`'s list resolution: an explicit
+    /// `DigitalDisplayTypes=` wins; unknown names are skipped; otherwise the
+    /// category's `[AudioVisual]` default list applies. Yields catalog
+    /// indices in list order without allocating.
+    #[cfg(feature = "phobos")]
+    pub fn digital_display_indices<'a>(
+        &'a self,
+        object: &'a crate::rules::object_type::ObjectType,
+    ) -> impl Iterator<Item = usize> + 'a {
+        let explicit = object.digital_display_types();
+        let names: &[String] = if !explicit.is_empty() {
+            explicit
+        } else {
+            match object.category {
+                crate::rules::object_type::ObjectCategory::Building => {
+                    &self.digital_display_globals.buildings_default
+                }
+                crate::rules::object_type::ObjectCategory::Infantry => {
+                    &self.digital_display_globals.infantry_default
+                }
+                crate::rules::object_type::ObjectCategory::Vehicle => {
+                    &self.digital_display_globals.vehicles_default
+                }
+                crate::rules::object_type::ObjectCategory::Aircraft => {
+                    &self.digital_display_globals.aircraft_default
+                }
+            }
+        };
+        names
+            .iter()
+            .filter_map(|name| self.digital_display_types.index_of(name))
+    }
+
     /// Phobos placement preview globals (`[AudioVisual]`).
     #[cfg(feature = "phobos")]
     pub fn placement_preview_globals(
@@ -6513,6 +6587,9 @@ impl RuleSet {
                 .map(|object| (&object.id, object.shield_type()))
                 .collect::<Vec<_>>()
                 .hash(&mut hasher);
+            b"phobos-digital-display-v1".hash(&mut hasher);
+            self.digital_display_types.hash(&mut hasher);
+            self.digital_display_globals.hash(&mut hasher);
             b"phobos-placement-preview-v1".hash(&mut hasher);
             self.placement_preview_globals.hash(&mut hasher);
             self.object_list
@@ -6520,6 +6597,9 @@ impl RuleSet {
                 .map(|object| {
                     (
                         &object.id,
+                        object.digital_display_types(),
+                        object.digital_display_disable(),
+                        object.digital_display_health_fake_at_disguise(),
                         object.placement_preview(),
                         object.placement_preview_shape(),
                         object.placement_preview_shape_frame(),

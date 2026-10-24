@@ -3,8 +3,8 @@
 
 use super::chrome::*;
 use super::controls::{
-    ControlPaint, NewEditPaint, dropdown_scroll_part, house_color_tint, list_controls,
-    paint_control, push_new_edit_instances, push_popup_instances,
+    ControlPaint, dropdown_scroll_part, house_color_tint, list_controls, paint_control,
+    push_new_edit, push_popup_instances,
 };
 use super::in_game_shell::{
     self, InGameShellFrame, ShellFrameArt, ShellFrameCursor, ShellFrameOverlay,
@@ -19,8 +19,7 @@ use super::text::{
 };
 use super::{
     SHELL_CONTROL_DEPTH, SHELL_CONTROL_TEXT_DEPTH, SHELL_DROPDOWN_DEPTH, SHELL_DROPDOWN_TEXT_DEPTH,
-    SHELL_EDIT_CARET_DEPTH, SHELL_EDIT_FRAME_DEPTH, SHELL_LABEL_TEXT_RGB,
-    SHELL_PARENT_BACKGROUND_DEPTH,
+    SHELL_LABEL_TEXT_RGB, SHELL_PARENT_BACKGROUND_DEPTH,
 };
 use crate::app::AppState;
 use crate::app::frontend::shell_transition::ShellSlideKind;
@@ -427,34 +426,21 @@ pub(crate) fn render_multiplayer_setup(
                 ));
             }
         }
-        let edit = &ui.chat.edit;
-        let field = scale.derive_rect(layout.chat, |rect| {
-            RectPx::new(rect.x + 2, rect.y, rect.w - 1, rect.h + 1)
-        });
-        push_new_edit_instances(
+        push_new_edit(
             &mut controls,
+            &mut texts,
             atlas,
             font,
-            edit,
-            NewEditPaint {
-                frame: scale.derive_rect(layout.chat, |rect| {
-                    RectPx::new(rect.x - 2, rect.y - 2, rect.w + 5, rect.h + 5)
-                }),
-                text: field,
-                background: None,
-                frame_depth: SHELL_EDIT_FRAME_DEPTH,
-                caret_depth: SHELL_EDIT_CARET_DEPTH,
-                caret_visible: ui.caret_visible(now),
-            },
+            &ui.chat.edit,
+            state
+                .platform
+                .ime
+                .composition(crate::app::input::ime::ImeTarget::SetupChat),
+            layout.chat,
+            ui.caret_visible(now),
+            SHELL_CONTROL_TEXT_DEPTH,
             scale,
         );
-        texts.push(text(
-            &String::from_utf16_lossy(&edit.units[edit.first_visible_unit.min(edit.units.len())..]),
-            field,
-            ShellAlign::V_CENTER,
-            SHELL_LABEL_TEXT_RGB,
-            SHELL_CONTROL_TEXT_DEPTH,
-        ));
         let chat = ui
             .chat
             .list

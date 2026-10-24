@@ -534,9 +534,12 @@ pub struct GeneralRules {
     /// generations use factory_ai's shared tracked/produced comparison.
     pub enable_ai_build_limitation: bool,
     /// `[General] DisableParallelAIQueues=` — an NPSE 2.0 extension switch
-    /// read into `Rules+0x2D` by the `ReadGeneral` hook (`0xC302E9..0xC3031A`).
-    /// With yes a computer house serializes its factories per produced type.
-    /// Default no: factories clone one choice in parallel as retail does.
+    /// read into `Rules+0x2D` by `ReadGeneral` C30303..C3031A through
+    /// ReadBooleanByte5295F0 with the current byte as default. The Rules
+    /// constructor's DWORD store at 66569B clears +2D, so absent means no.
+    /// With yes, Factory_AI C2F07C reserves by produced class, splitting
+    /// vehicles alone on Naval. HouseAiProduction owns the reservation and
+    /// its class-specific exit/abandon release phases. Default no keeps cloning.
     pub disable_parallel_ai_queues: bool,
     /// `[General] RepairRate=` in minutes — `RulesClass+0x16E0`.
     ///
@@ -3495,7 +3498,7 @@ impl GeneralRules {
                     defaults.enable_ai_build_limitation,
                 ),
             // NPSE reads it with the current field as default into Rules+0x2D
-            // (`0xC302E9..0xC3031A`); the constructor extension leaves 0.
+            // (C30303..C3031A); the constructor's 66569B store leaves 0.
             disable_parallel_ai_queues: crate::rules::NPATCH_ENABLED
                 && general.read_bool(
                     "DisableParallelAIQueues",

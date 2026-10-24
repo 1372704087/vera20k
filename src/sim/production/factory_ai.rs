@@ -276,20 +276,16 @@ fn start_factory(
         clear_aibuild_limit_choice(sim, owner, object);
         return;
     }
-    // The NPSE `[General] DisableParallelAIQueues=` gate runs where
-    // `Factory_AI` fetched the type, after the build-limit arm and before the
-    // naval mismatch check (`0x45033C` hook, cave `0xC335A0` -> allow path
-    // `0xC2F07C`). The cave reads `Rules+0x2D` and, when set, blocks the start
-    // while the house already counts a producing object of the fetched type's
-    // class; the counters it checks live at `House+0x160D4` (aircraft),
-    // `+0x160D8` (unit, `UnitType+0xCCE` clear), `+0x160DC` (unit,
-    // `UnitType+0xCCE` set), `+0x160E0` (infantry) and `+0x160E4` (building).
-    // `0xCCE` is the `Naval=` byte (`0x00714A77`), so ground and naval units
-    // count apart — the NPSE #333 fix for a global switch that used to stop
-    // naval yards.
+    // NPSE 2.0 Factory_AI C2F07C..C2F11F reserves the fetched type's
+    // class before naval admission, allocation and construction. The House
+    // owner retains failed-start/expired reservations until a native release.
     #[cfg(feature = "npatch")]
     if rules.general.disable_parallel_ai_queues
-        && house_holds_parallel_production(sim, rules, owner, building, object)
+        && !sim.houses.get_mut(&owner).is_some_and(|house| {
+            house
+                .ai_production_mut()
+                .reserve_parallel(object.category, object.naval)
+        })
     {
         return;
     }
@@ -402,42 +398,6 @@ fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, object: &
 #[serde(transparent)]
 pub(crate) struct AiPlacementTimer {
     timer: CdTimer,
-}
-
-/// The NPSE parallel gate's "is the class counter above zero" side
-/// (`0xC2F07C..0xC2F117`): `owner` holds another building's factory whose
-/// current object's type has the same class and `Naval=` as `object`, counted
-/// from production start and released when the object leaves through
-/// `Exit_Object` (`0x443CCA..0x4452F0`) or `AbandonProduction` (`0x4CA004`) —
-/// so a finished object still waiting to leave still counts. The live scan
-/// replaces the native counters (`House+0x160D4..0x160E4`); only `Factory_AI`
-/// starts ever incremented them, so House-holder production stays outside, and
-/// a `PointerExpired` clearing releases here where the native counter would
-/// leak. The cave splits the unit class on `UnitType+0xCCE` (the `Naval=` byte,
-/// `0x00714A77`) into two counters, which is NPSE #333's fix for a global
-/// switch that otherwise stopped the AI's naval yards behind its war
-/// factories; the class split below follows it, so a ground factory never
-/// blocks a naval one and the reverse holds too.
-#[cfg(feature = "npatch")]
-fn house_holds_parallel_production(
-    sim: &Simulation,
-    rules: &RuleSet,
-    owner: InternedId,
-    building: u64,
-    object: &ObjectType,
-) -> bool {
-    sim.production
-        .factories()
-        .keyed_factories()
-        .any(|(holder, factory)| {
-            matches!(holder, FactoryHolder::Building(other) if *other != building)
-                && factory.owner() == owner
-                && factory.object().is_some_and(|held| {
-                    sim.object_type(held.type_id, rules).is_some_and(|ty| {
-                        ty.category == object.category && ty.naval == object.naval
-                    })
-                })
-        })
 }
 
 impl AiPlacementTimer {

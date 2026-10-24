@@ -296,6 +296,13 @@ pub(in crate::sim) fn exit_produced_object(
         );
         if let Some(house) = sim.houses.get_mut(&owner_id) {
             house.ai_unit_choices_mut().clear(kind);
+            // NPSE 2.0 C2EF95 (aircraft), C3395E/C3397F (vehicle),
+            // C2F184 (infantry): release at this prefix, before later
+            // placement/FreeRadio retries can leave the object held.
+            #[cfg(feature = "npatch")]
+            house
+                .ai_production_mut()
+                .release_parallel(product_type.category, producer_type.naval);
         }
     }
     if kind == UnitChoiceKind::Aircraft {

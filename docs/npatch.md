@@ -42,25 +42,18 @@ NPSE #359 replaced the global switch with `AIBuildLimit=`. If a VERA ruleset exp
 both, both constraints apply before production starts. Clearing a choice does not skip an
 unsatisfied building-plan node or guarantee the mobile chooser selects an uncapped type.
 
-`[General] DisableParallelAIQueues=` (default no) suppresses the other half of the cloning
-behavior: a computer house's factories normally all fetch the same standing choice and produce
-it in parallel. NPSE 2.0 reads the switch into `Rules+0x2D` from its `RulesClass::ReadGeneral`
-hook (`0xC302E9..0xC3031A`) and gates `Factory_AI`'s fetched type on it (`0x45033C` hook, cave
-`0xC335A0` -> `0xC2F07C`): the start is skipped while the house already counts a producing object
-of the same class. The cave keeps five counters at `House+0x160D4..0x160E4` — aircraft, unit with
-`UnitType+0xCCE` clear, unit with it set, infantry, building — and `0xCCE` is the `Naval=` byte
-(`0x00714A77`), so ground and naval units count apart: NPSE #333 fixed the switch having stopped
-the AI's naval yards behind its war factories. A per-type `DisableAIParallelProduction=` existed
-in older revisions only; NPSE #331 removed it in favor of the per-type `AIBuildLimit=` above, so
-this port reads no per-type switch. The start gate scans live factory state instead of adding a
-second set of counters, which also releases a production the native counters would leak.
+`[General] DisableParallelAIQueues=` defaults to no and requires `npatch`.
+The native reader preserves the current byte (`0xC30303..0xC3031A`); the Rules
+constructor zeroes it (`0x66569B`). With yes, Factory_AI reserves one of five House
+production counters before compatibility, allocation and construction (`0xC2F07C`):
+aircraft, land vehicles, naval vehicles, infantry and buildings. Only vehicles split
+by `Naval=`. The existing House AI production owner saves and hashes those counters.
 
-The legacy `[General] EnableAIBuildLimitation=yes` switch applies the same comparison to
-`BuildLimit=` (NPExt ext173 reader `0xC2D132`, gate `0xC2CF67`). It defaults to no. This is
-compatibility with the [older NPExt release](https://ppmforums.com/topic-29537/npatch-extended-finally-released/);
-NPSE #359 replaced the global switch with `AIBuildLimit=`. If a VERA ruleset explicitly sets
-both, both constraints apply before production starts. Clearing a choice does not skip an
-unsatisfied building-plan node or guarantee the mobile chooser selects an uncapped type.
+Mobile exits release at their native class admission prefix, before later placement
+can fail; buildings release after successful Unlimbo (`0xC33940`, `0xC2F184`,
+`0xC2F1A3`). Abandonment releases the held object's House before refund (`0xC2EFB4`).
+Failed starts and PointerExpired retain their reservation. Releases run independently
+of the switch and clamp signed negative counts to zero, matching the original hooks.
 
 ## Cross-extension compatibility
 

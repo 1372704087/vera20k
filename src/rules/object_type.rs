@@ -613,6 +613,32 @@ pub struct ObjectType {
     /// caps a positive limit by the house's tracked count of the type and a
     /// non-positive one by the count it has produced.
     pub build_limit: i32,
+    /// `[TechnoTypes] AIBuildLimit=` — the NPSE per-type cap on a computer
+    /// house's production of this type. The techno reader extension chain
+    /// reads it with the current field as its default into the per-type
+    /// extension at `TechnoType+0xA90` (`+0x40` there; the reader block runs
+    /// `0xC27249..0xC2725A`, entered at `0xC308F3`), whose constructor writes
+    /// `0x7FFFFFFF` (`0xC32950`), so absent means no limit. The
+    /// `BuildingClass::Factory_AI` fetch hook (`0x45033C`, cave
+    /// `0xC335A0..0xC33726`) compares it with the house's owned counter per
+    /// class (`+0x5500/+0x5514/+0x5528/+0x553C`) when positive and with its
+    /// produced and owned counters when non-positive; at limit the
+    /// category's choice slot clears (`+0x564C/+0x5650/+0x5654/+0x5658`) and
+    /// the start skips. Clearing a building choice leaves its base-plan node
+    /// unsatisfied, so the planner can select the same capped type again.
+    pub aibuild_limit: i32,
+    /// `[BuildingTypes] AIPlanningCount=` — the NPSE count of plan nodes a
+    /// computer house's base plan gives this building. The techno reader
+    /// extension chain reads it with the current field as its default and
+    /// stores the result through `al` (`0xC2E223..0xC2E237`), so the
+    /// stored value is one byte; the extension constructor
+    /// zeroes it (`0xC3039B`), so absent means the stock single node. The
+    /// `AI_RecalcBuildOptions` append loop (`0x5056C1` hook, cave
+    /// `0xC2C331..0xC2C367`) re-enters the candidate head until its
+    /// per-candidate counter reaches the count with signed CMP/JL. Counts
+    /// 1..127 repeat eligible entries before seed selection; 0 and high-bit
+    /// counts keep one entry, rather than repeating the final priority list.
+    pub ai_planning_count: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,
     /// Requires spy infiltration of a Soviet Battle Lab to unlock.
@@ -762,6 +788,18 @@ pub struct ObjectType {
     /// the sinking edge, plays VoiceSinking, then the held SinkingSound.
     pub sinking_sound: Option<String>,
     pub voice_sinking: Option<String>,
+    /// `VoiceFalling=` — TechnoType+0x54C, constructor `0x00710F07` = -1,
+    /// read at `0x00712FEC` through ReadString128 and `VocClass::FindIndex @
+    /// 0x007514D0`, keeping the prior index for an absent, empty or unknown
+    /// name. `FootClass::AI` plays it as a bomb-dropped object starts falling
+    /// (`0x004DAB3C..0x004DABB1`). No retail type sets it.
+    pub voice_falling: Option<String>,
+    /// `VoiceComment=` — InfantryType+0xE88, an empty vector from the
+    /// constructor (`0x0052372A`), read by `InfantryTypeClass::ReadINI` through
+    /// ReadSoundList (`0x00524193..0x005241AC`) with prior-vector retention.
+    /// The idle fidget plays the first (`0x0051CF42..0x0051CFCB`), a tethered
+    /// arrival the second (`0x0051A812..0x0051A84A`). No retail type sets it.
+    pub voice_comment: Vec<String>,
     /// `TurretRotateSound=` — `TechnoTypeClass+0x560`, the sustained positional
     /// loop a `Turret=yes` object plays while its turret turns.
     ///
@@ -3190,6 +3228,16 @@ impl ObjectType {
             prerequisite_override: Vec::new(),
             // ReadInt over the constructor's 0x7FFFFFFF (`0x00713152`).
             build_limit: section.read_int("BuildLimit", i32::MAX),
+            aibuild_limit: if crate::rules::NPATCH_ENABLED {
+                section.read_int("AIBuildLimit", i32::MAX)
+            } else {
+                i32::MAX
+            },
+            ai_planning_count: if crate::rules::NPATCH_ENABLED {
+                building_int(section, category, "AIPlanningCount") & 0xFF
+            } else {
+                0
+            },
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
             requires_stolen_third_tech: section.read_bool("RequiresStolenThirdTech", false),
@@ -3250,6 +3298,8 @@ impl ObjectType {
             // these references against its fixed SOUNDMD catalog.
             sinking_sound: None,
             voice_sinking: None,
+            voice_falling: None,
+            voice_comment: Vec::new(),
             // TechnoTypeClass+0x560 starts at -1. RuleSet's fixed SOUNDMD
             // binder later resolves the layered ReadINI7133BA reference.
             turret_rotate_sound: None,

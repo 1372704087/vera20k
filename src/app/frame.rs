@@ -1134,7 +1134,12 @@ impl App {
             }
         }
 
-        crate::app::loading::pump::after_loading_frame_presented(state);
+        crate::app::loading::pump::after_loading_frame_presented(
+            state,
+            shell_capture
+                .as_deref()
+                .and_then(|capture| capture.loading_observer()),
+        )?;
         #[cfg(feature = "telemetry-dashboard")]
         crate::app::telemetry_capture::publish_if_due(state);
 

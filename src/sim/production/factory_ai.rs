@@ -48,10 +48,13 @@
 //!   `Exit_Object` arms a human's placement takes, including the Infantry
 //!   arm's Cloning Vat copies. Its residual: the refinery arm's Unit exit.
 
+use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
+use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
+use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
@@ -251,6 +254,18 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
+    // Both NP generations gate at the fetched type before naval admission:
+    // #359 C335A0 reads AIBuildLimit; legacy ext173 C2D15A/C2CF67 uses
+    // BuildLimit when EnableAIBuildLimitation is set. Both constraints apply
+    // when a ruleset explicitly combines the compatibility keys.
+    if crate::rules::NPATCH_ENABLED
+        && (ai_build_limit_blocks(sim, rules, owner, object, object.aibuild_limit)
+            || rules.general.enable_ai_build_limitation
+                && ai_build_limit_blocks(sim, rules, owner, object, object.build_limit))
+    {
+        clear_aibuild_limit_choice(sim, owner, object.category);
+        return;
+    }
     let factory_naval = sim
         .substrate
         .entities
@@ -299,6 +314,61 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
         .entities
         .get(building)
         .is_some_and(|entity| entity.ai_placement_timer.expired(frame))
+}
+
+/// NP `BuildingClass::Factory_AI` count comparison: NPSE #359
+/// C335A0..C33726 for AIBuildLimit, NPExt ext173 C2CF67..C2D129 for the
+/// global switch's BuildLimit. Positive limits compare tracking directly;
+/// Add_Tracking4FF700 already includes limbo factory objects. Non-positive
+/// limits compare both produced and tracked counts after wrapping NEG, with
+/// signed JLE; zero therefore blocks. Reuse the same history/count owners,
+/// without the stock CheckBuildLimit50B370 factory/pad adjustments.
+fn ai_build_limit_blocks(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    object: &ObjectType,
+    limit: i32,
+) -> bool {
+    let owned = sim
+        .interner
+        .get(&object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(type_id, house)| {
+            house
+                .tracking()
+                .owned_count(EntityCategory::from(object.category), type_id)
+        });
+    if limit > 0 {
+        return owned >= limit;
+    }
+    let produced = rules
+        .type_array_index(object.category, &object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(index, house)| {
+            house.produced_count(object.category, index)
+        });
+    produced.wrapping_neg() <= limit || owned.wrapping_neg() <= limit
+}
+
+/// The at-limit arm: the native hook writes `-1` into the category's
+/// production choice slot before the start skips — `+0x564C` building
+/// (`0xC3371C`), `+0x5654` infantry (`0xC3360C`), `+0x5658` aircraft, and for
+/// a unit `+0x5650` or the naval queue's `+0x16130` by `UnitType+0xCCE`
+/// (`0xC33570`; legacy ext173 C2D039 uses +160F8 for naval). VERA keeps
+/// one unit slot, so a naval type clears that one; the split is a residual.
+/// A capped building is cleared too, and
+/// its plan node stays unsatisfied, so `choose_building` returns the same
+/// type: that is the manual's warning (`AI克隆生产`) that a building at its
+/// limit leaves the computer unable to build anything, not a recovery.
+fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category: ObjectCategory) {
+    let Some(house) = sim.houses.get_mut(&owner) else {
+        return;
+    };
+    match UnitChoiceKind::of(category) {
+        Some(kind) => house.ai_unit_choices_mut().clear(kind),
+        None => house.ai_production_mut().clear_building_choice(),
+    }
 }
 
 /// `BuildingClass+0x550..+0x558`, the wait before the building's computer

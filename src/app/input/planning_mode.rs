@@ -288,6 +288,9 @@ fn queue_orders_in_sim(
             // refused as DEPLOY9; a mobile self-click is Unload16.
             // ClickedAction_Cell builds the MoveFlash (`0x004D7EB5`) before
             // its Move reaches Player_Send_Command.
+            let Some(order) = super::commands::encode_ordinary_local_command(sim, order) else {
+                continue;
+            };
             sim.issue_local_command(order);
             added = true;
             continue;
@@ -754,6 +757,14 @@ mod tests {
         assert!(
             queue_orders_in_sim(&mut sim, owner, &[second], vec![order.clone()], None).unwrap()
         );
+        let (opcode, frame_stamp) = {
+            let queues = sim.network_command_queues();
+            let records = queues.local_records().unwrap();
+            assert_eq!(records.len(), 1);
+            (records[0].opcode(), records[0].frame_stamp())
+        };
+        assert_eq!(opcode, 0x11);
+        assert_eq!(frame_stamp, sim.session().binary_frame() as i32);
         assert_eq!(
             sim.pending_command_snapshot(),
             vec![order],
@@ -768,7 +779,9 @@ mod tests {
             simulation: sim,
             resources,
         };
-        for selected in [false, true] {
+        // The raw native stamp controls execution; the preserved diagnostic
+        // issue ordinal 2 above cannot postpone an event issued at frame0.
+        for selected in [true, true] {
             let due = runtime.simulation.take_due_commands();
             runtime
                 .advance_frame(&due, 67, TickLane::Ordinary, FrameEffects::default())

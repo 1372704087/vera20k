@@ -501,7 +501,7 @@ impl App {
         crate::app::frontend::shell_layout::score_layout(state)
     }
 
-    /// Continue, the page's only button, through the shared controller.
+    /// Continue and VERA result paging through the shared controller.
     fn score_input(
         state: &mut AppState,
     ) -> (
@@ -510,7 +510,23 @@ impl App {
         (i32, i32),
     ) {
         let layout = Self::score_layout(state);
-        let feed = Self::menu_page_button_feed(&layout.page);
+        let mut feed = Self::menu_page_button_feed(&layout.page);
+        if state
+            .frontend
+            .score_page
+            .as_ref()
+            .is_some_and(|page| page.page_count() > 1)
+        {
+            for id in [
+                crate::ui::score_shell::PREVIOUS_PAGE,
+                crate::ui::score_shell::NEXT_PAGE,
+            ] {
+                feed.push(crate::ui::shell::layout::LaidOutControl {
+                    id,
+                    rect: layout.paging_button(id).expect("paging button"),
+                });
+            }
+        }
         state
             .frontend
             .shell_controller
@@ -543,13 +559,20 @@ impl App {
     /// its slide; the match then ends and the shell resumes.
     pub(super) fn handle_score_shell_mouse_up(state: &mut AppState) {
         let (_, feed, (x, y)) = Self::score_input(state);
-        if state.frontend.shell_controller.on_pointer_up(x, y, &feed)
-            == Some(crate::ui::score_shell::CONTINUE_BUTTON)
-        {
-            Self::leave_shell_dialog(
+        match state.frontend.shell_controller.on_pointer_up(x, y, &feed) {
+            Some(crate::ui::score_shell::CONTINUE_BUTTON) => Self::leave_shell_dialog(
                 state,
                 crate::app::frontend::shell_transition::ShellExitThen::ScoreContinue,
-            );
+            ),
+            Some(
+                id @ (crate::ui::score_shell::PREVIOUS_PAGE | crate::ui::score_shell::NEXT_PAGE),
+            ) => {
+                if let Some(page) = state.frontend.score_page.as_mut() {
+                    page.change_page(id == crate::ui::score_shell::NEXT_PAGE, Instant::now());
+                }
+                state.platform.window.request_redraw();
+            }
+            _ => {}
         }
     }
 
@@ -681,6 +704,9 @@ impl App {
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
             runtime.simulation.retire_scenario_started();
         }
+        // The accepted match owns the socket until either exit path returns
+        // it to the visit's shared transport owner, including score Continue.
+        crate::app::lan_service::return_transport(state);
         crate::app::match_runtime::sim_tick::flush_replay_log(state);
         Self::capture_returned_multiplayer_scenario(state);
         state.match_state.startup.clear();
@@ -1141,10 +1167,7 @@ Details: {details}"
         state.frontend.shell_status_line.repaint();
     }
 
-    pub(super) fn handle_main_menu_shell_mouse_up(
-        state: &mut AppState,
-        _event_loop: &ActiveEventLoop,
-    ) {
+    pub(super) fn handle_main_menu_shell_mouse_up(state: &mut AppState) {
         let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
         let (x, y) = state.match_state.input.cursor_px();

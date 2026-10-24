@@ -1475,7 +1475,8 @@ impl WolCapture {
                     ensure!(
                         channel.name == format!("{NICKNAME}'s_game")
                             && channel.kind == GAME_CHANNEL
-                            && channel.max_users == 7
+                            && channel.max_users
+                                == crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as i32
                             && key.is_empty(),
                         "unexpected created channel {channel:?}"
                     );
@@ -2697,7 +2698,7 @@ impl WolCapture {
             state,
             NetworkSetupEvent::GameStarted {
                 users: vec![user(NICKNAME, 1), user("Bravo", 0)],
-                pings,
+                pings: pings.to_vec(),
             },
         )?;
         ensure!(
@@ -2720,18 +2721,18 @@ impl WolCapture {
                     user(&NICKNAME.to_uppercase(), 1),
                     user(&PEER.to_lowercase(), 0),
                 ],
-                pings,
+                pings: pings.to_vec(),
             },
         )?;
         // Start Game Now (0x794BA0) keeps C2 up under its verify 0x130.
         let names = |state: &AppState| {
-            setup::verify(state).map(|verify| (verify.names.clone(), verify.checked))
+            setup::verify(state).map(|verify| (verify.names.clone(), verify.checked.clone()))
         };
         ensure!(
             setup_requests(state).is_empty()
                 && state.frontend.shell_exit.is_none()
                 && names(state).is_some_and(|(names, checked)| {
-                    names == [NICKNAME.to_owned(), PEER.to_owned()] && checked == [false; 8]
+                    names == [NICKNAME.to_owned(), PEER.to_owned()] && checked == [false; 2]
                 }),
             "OnGameStart did not open 0x130 over C2: {:?}",
             names(state)
@@ -4590,7 +4591,8 @@ fn unverified_host_options(state: &AppState) -> Result<NetworkSetupEvent> {
         crate::app::shell_network_setup::HostOptions {
             launch,
             map_metadata,
-            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open; 8],
+            vacancies: [crate::app::match_runtime::session::NetworkVacancy::Open;
+                crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
             observer_row: None,
             cooperative_difficulty: 0,
             seed: state.match_state.session.network_start_seed(),

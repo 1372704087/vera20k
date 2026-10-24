@@ -96,6 +96,7 @@ pub struct PreparedNetworkStartup {
     mode: crate::app::match_runtime::session::SessionMode,
     host: bool,
     max_ahead_frames: i32,
+    native_id_prefix: Option<u32>,
     wol_start: crate::app::match_runtime::session::WolStartTerms,
     /// A co-op continuation's carry-over record (`0x004C6210` after
     /// Start_Scenario); a first start restores none.
@@ -111,6 +112,8 @@ impl PreparedNetworkStartup {
         max_ahead_frames: i32,
         wol_start: crate::app::match_runtime::session::WolStartTerms,
     ) -> Self {
+        let native_id_prefix =
+            crate::sim::native_identity::modern_online_native_id_prefix(mode, launch.humans.len());
         Self {
             launch,
             local_map_source: None,
@@ -124,6 +127,7 @@ impl PreparedNetworkStartup {
             mode,
             host,
             max_ahead_frames,
+            native_id_prefix,
             wol_start,
             carry_over: None,
         }
@@ -167,6 +171,9 @@ impl PreparedNetworkStartup {
 
     pub(crate) fn max_ahead_frames(&self) -> i32 {
         self.max_ahead_frames
+    }
+    pub(crate) fn native_id_prefix(&self) -> Option<u32> {
+        self.native_id_prefix
     }
     pub(crate) fn wol_start(&self) -> &crate::app::match_runtime::session::WolStartTerms {
         &self.wol_start
@@ -496,6 +503,16 @@ pub enum LoadingStartup {
 }
 
 impl LoadingStartup {
+    pub(crate) fn native_id_prefix(&self) -> Option<u32> {
+        match self {
+            Self::Network(startup) => startup.native_id_prefix(),
+            Self::Replay {
+                native_id_prefix, ..
+            } => Some(*native_id_prefix),
+            _ => None,
+        }
+    }
+
     pub(crate) fn physical_map_file(&self) -> &str {
         if let Self::Network(startup) = self
             && let Some(crate::map::source::LoadedMapSource::Loose { path, .. }) =

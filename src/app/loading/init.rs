@@ -3026,11 +3026,8 @@ pub(crate) fn load_map_from_initial(
     let (mut staged_simulation, scenario_prefix_projection) =
         bootstrap_rng.into_fresh_staged_simulation(&scenario_descriptor, fresh_prefix)?;
     install_startup_session_mode(&mut staged_simulation, &startup);
-    if let LoadingStartup::Replay {
-        native_id_prefix, ..
-    } = &startup
-    {
-        staged_simulation.install_replay_native_id_prefix(*native_id_prefix)?;
+    if let Some(native_id_prefix) = startup.native_id_prefix() {
+        staged_simulation.install_accepted_native_id_prefix(native_id_prefix)?;
     }
     staged_simulation.bind_shared_cell_dummy(shared_cell_dummy.clone());
     staged_simulation.install_waypoints(&map_data.waypoints);

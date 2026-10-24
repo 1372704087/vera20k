@@ -1500,7 +1500,7 @@ mod tests {
             scene
                 .runtime
                 .simulation
-                .install_replay_native_id_prefix(cold_prefix)
+                .install_accepted_native_id_prefix(cold_prefix)
                 .is_err(),
             "a loaded world cannot remap its existing native identities"
         );

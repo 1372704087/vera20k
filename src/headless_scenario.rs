@@ -202,7 +202,7 @@ pub fn load_with_launch_and_ini(
     launch: crate::sim::scenario_bootstrap::MatchLaunchDescriptor,
     ini: &crate::util::ini_roots::IniRootConfig,
     game_mode: crate::sim::scenario_session::ScenarioGameMode,
-    replay_native_id_prefix: Option<u32>,
+    accepted_native_id_prefix: Option<u32>,
     process_rules: Option<&mut crate::rules::process_owner::NativeRulesProcessOwner>,
 ) -> Result<HeadlessScenario, String> {
     let mut assets = AssetManager::new(retail_dir, MediaArchiveMode::STOCK_DIGITAL)
@@ -328,8 +328,8 @@ pub fn load_with_launch_and_ini(
     // modes use "<human player>". The House owner hashes that native identity,
     // so restoring GameMode after construction cannot reconstruct a WOL start.
     sim.install_session_mode(game_mode);
-    if let Some(checkpoint) = replay_native_id_prefix {
-        sim.install_replay_native_id_prefix(checkpoint)
+    if let Some(checkpoint) = accepted_native_id_prefix {
+        sim.install_accepted_native_id_prefix(checkpoint)
             .map_err(|error| format!("replay native-ID prefix: {error}"))?;
     }
     let shared_cell_dummy = crate::map::resolved_terrain::SharedCellDummy::fresh();

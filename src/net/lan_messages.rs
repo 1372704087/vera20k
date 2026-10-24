@@ -564,6 +564,7 @@ fn c_string(bytes: &[u8]) -> &[u8] {
 #[path = "lan_messages_tests.rs"]
 mod tests;
 
+pub mod cooperative;
 pub mod extended_setup;
 pub mod setup;
 

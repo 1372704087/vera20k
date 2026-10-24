@@ -123,8 +123,6 @@ pub(crate) struct LanService {
     pending_host: Option<SocketAddrV4>,
     admitted_host: Option<(String, SocketAddrV4)>,
     departure: Option<DepartureWait>,
-    deferred_match:
-        std::collections::VecDeque<super::match_runtime::session::NetworkLoadingRequest>,
     /// Native5DF9E0's independent discovery/query/presence timers.
     discovery_timer: super::match_runtime::session::WallBucketTimer,
     query_timer: super::match_runtime::session::WallBucketTimer,
@@ -204,7 +202,6 @@ impl LanService {
             pending_host: None,
             admitted_host: None,
             departure: None,
-            deferred_match: Default::default(),
             discovery_timer: Default::default(),
             query_timer: Default::default(),
             presence_timer: Default::default(),
@@ -990,7 +987,6 @@ impl LanService {
         self.deferred_setup.clear();
         self.pending_setup.clear();
         self.setup_reassembly = Default::default();
-        self.deferred_match.clear();
         self.force_query = false;
         self.force_presence = true;
     }
@@ -1358,6 +1354,9 @@ pub(crate) fn poll(state: &mut AppState, now_ms: u64) {
         return;
     }
     let service_ok = service_transport(state, now);
+    if mode == Some(SessionMode::Lan) && cooperative::poll(state, now) {
+        return;
+    }
     if mode == Some(SessionMode::Wol) {
         // WOL room/configuration events stay with its HTTPS control plane.
         // Loading progress and in-match side channels share the same native
@@ -1718,6 +1717,28 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
                         }
                     };
                     super::shell_network_setup::service_event(state, event)?;
+                } else if text.starts_with(b"C0") {
+                    // 0x005E43CE: the host's campaign text. Like player
+                    // choices it names the session, not one options revision.
+                    ensure_host_source(state, incoming.source)?;
+                    let proof = message
+                        .session_proof()?
+                        .ok_or_else(|| anyhow::anyhow!("co-op campaign has no LAN scope"))?;
+                    if !state
+                        .match_state
+                        .lan_service
+                        .as_ref()
+                        .and_then(|service| service.setup_scope())
+                        .is_some_and(|scope| scope.epoch == proof.scope.epoch)
+                        || proof.version != super::shell_network_setup::agreement::version()
+                    {
+                        return Ok(());
+                    }
+                    let text = crate::util::native_string::widen_bytes(text);
+                    super::shell_network_setup::service_event(
+                        state,
+                        super::shell_network_setup::NetworkSetupEvent::CooperativeCampaign(text),
+                    )?;
                 } else {
                     options::receive_options(state, incoming.source, &message)?;
                 }
@@ -3138,6 +3159,7 @@ pub(crate) fn return_transport(state: &mut AppState) {
     }
 }
 
+pub(crate) mod cooperative;
 mod loading;
 mod maps;
 mod options;
@@ -3285,15 +3307,8 @@ fn drain_match_requests(state: &mut AppState) {
                     send_sources(state, message.as_bytes(), peers);
                 }
             }
-            // The co-op round service retains these until its packet family
-            // is connected; an ordinary Battle match never emits them.
-            other => state
-                .match_state
-                .lan_service
-                .as_mut()
-                .expect("LAN visit")
-                .deferred_match
-                .push_back(other),
+            // BC6's records; an ordinary Battle match never emits them.
+            other => cooperative::send(state, other),
         }
     }
 }
@@ -3457,6 +3472,16 @@ fn drain_setup_requests(state: &mut AppState) {
             .is_some_and(|service| service.departure.is_some())
         {
             break;
+        }
+        // A guest reads C0 only under the scope the options before it bring.
+        if !deferred.is_empty()
+            && matches!(
+                request,
+                super::shell_network_setup::NetworkSetupRequest::PublishCooperativeCampaign(_)
+            )
+        {
+            deferred.push_back(request);
+            continue;
         }
         match setup_request(state, &request) {
             Ok(true) => {}
@@ -3645,6 +3670,16 @@ fn setup_request(
             short_options(state, if *ready { "A1" } else { "A0" })?
         }
         NetworkSetupRequest::MapStatus(status) => short_options(state, &format!("K{status}"))?,
+        // +0x60's C0 (0x0049D680 through 0x005E3720) to every guest.
+        NetworkSetupRequest::PublishCooperativeCampaign(text) => {
+            if remote_sources(state).is_empty() {
+                return Ok(true);
+            }
+            short_options(state, text)?
+        }
+        // RESIDUAL: mode+64's C1 (0x005C2710) is not encoded. VERA reads no
+        // round assignment after the publish, so guests keep their own.
+        NetworkSetupRequest::PublishCooperativeAssignments(_) => return Ok(true),
         NetworkSetupRequest::PrepareMapForHandoff { .. } => {
             if !state
                 .frontend

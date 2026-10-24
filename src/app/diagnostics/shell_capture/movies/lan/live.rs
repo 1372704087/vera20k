@@ -42,6 +42,7 @@ use crate::ui::multiplayer_setup::{SetupAction, SetupColumn};
 use std::collections::{BTreeMap, BTreeSet};
 
 mod battle;
+mod cooperative;
 mod failure;
 mod mass;
 mod online;
@@ -257,6 +258,7 @@ pub(super) struct LiveLanCapture {
     last_wait: Option<String>,
     kick_observed: bool,
     entered_setup: bool,
+    cooperative: Option<cooperative::CooperativeRun>,
     country_selected: bool,
     battle: Option<battle::BattleOpening>,
     mass: Option<mass::MassInput>,
@@ -337,8 +339,12 @@ impl LiveLanCapture {
             stopped_position: None,
             stopped: false,
             last_wait: None,
-            kick_observed: false,
+            // Co-op skips the kick/rejoin pass: its rows follow the campaign.
+            kick_observed: target.live_cooperative(),
             entered_setup: false,
+            cooperative: target
+                .live_cooperative()
+                .then(cooperative::CooperativeRun::new),
             country_selected: false,
             battle: matches!(
                 target,
@@ -375,6 +381,7 @@ impl LiveLanCapture {
                 | LanTarget::LiveTimeoutHost
                 | LanTarget::LiveQuitHost
                 | LanTarget::LiveDesyncHost
+                | LanTarget::LiveCoopHost
                 | LanTarget::BattleHost
         )
     }
@@ -735,7 +742,15 @@ impl LiveLanCapture {
             }
             Phase::HostSetup => {
                 let selected = self.config.as_ref().and_then(|config| config.map.clone());
-                let prepared = if let Some(mut rounds) = self.rounds.take() {
+                let prepared = if let Some(mut run) = self.cooperative.take() {
+                    let result = run.prepare_host(state, rendered, &mut self.route, frame);
+                    self.cooperative = Some(run);
+                    let used = result?;
+                    if used {
+                        self.open_human_rows(state, None)?;
+                    }
+                    used
+                } else if let Some(mut rounds) = self.rounds.take() {
                     let result =
                         rounds.prepare_host_map(self, state, rendered, frame, selected.as_deref());
                     self.rounds = Some(rounds);
@@ -755,7 +770,7 @@ impl LiveLanCapture {
                 if prepared {
                     self.event(
                         frame,
-                        "host selected Battle map and open human rows through normal setup",
+                        "host selected the map and open human rows through normal setup",
                     );
                     self.phase = Phase::HostReady;
                 }
@@ -851,6 +866,9 @@ impl LiveLanCapture {
                     "loaded LAN match has no real command transport"
                 );
                 self.startup = Some(startup_receipt(state)?);
+                if let Some(run) = self.cooperative.as_mut() {
+                    run.match_loaded(state);
+                }
                 self.event(
                     frame,
                     "real GO/loading finished; ordinary simulation running",
@@ -860,7 +878,14 @@ impl LiveLanCapture {
             _ => {}
         }
         if self.phase == Phase::Running {
-            self.observe_run(state, frame, self.expected_players)?;
+            if let Some(run) = self.cooperative.as_mut() {
+                run.step(state, &mut self.route, frame)?;
+                if run.done() {
+                    self.phase = Phase::Finished;
+                }
+            } else {
+                self.observe_run(state, frame, self.expected_players)?;
+            }
         }
         Ok(())
     }
@@ -960,6 +985,16 @@ impl LiveLanCapture {
             .context("retail network map with enough starts")?;
         setup::commit_map_selection(state, mode_id, map_index, None)?;
         self.select_country(state)?;
+        self.open_human_rows(state, ai)
+    }
+
+    /// Open every free row to a human through the setup's Player combos,
+    /// keeping one `ai` row when one is requested.
+    fn open_human_rows(
+        &mut self,
+        state: &mut AppState,
+        ai: Option<crate::skirmish_launch::AiDifficulty>,
+    ) -> Result<()> {
         // Use the existing action admission, including current control
         // availability. The isolated profile must allow one open peer.
         let row_count = setup::view(state).context("host setup view")?.row_count;
@@ -1398,6 +1433,13 @@ impl LiveLanCapture {
         }
         if let Some(online) = &self.rounds {
             return online.receipt(state);
+        }
+        if let Some(run) = &self.cooperative {
+            return Ok(json!({"target":format!("{:?}",self.target),
+                "service_boundary":"two independent App processes; real UDP/global/private queues; ordinary frame boundary",
+                "scope":"LAN Cooperative: C0 campaign, B6 Observe by both, BC6 records and the retried mission's loading over real UDP; bounded runtime validation, not native parity",
+                "process_id":std::process::id(),"startup":self.startup,"route":self.route,
+                "cooperative":run.receipt(state)?}));
         }
         self.round_receipt(state)
     }

@@ -503,6 +503,7 @@ fn production_a_blitter_workload_timing() {
                             end_of_pass_write_index: Some(1),
                         }),
                         occlusion_query_set: None,
+                        multiview_mask: None,
                     });
                     batch.draw_passthrough_range(&mut pass, &texture, &instances, 0, count);
                 }

@@ -37,8 +37,10 @@ ska gå.
 - **Kampanjer:** Uppdrag går att starta; stödet är fortfarande ofullständigt.
 - **AI:** Delar av originalets AI sköter basbygge och skriptstyrda anfall.
 - **Pågående arbete:** Spelbeteende, grafik och prestanda.
-- **Flerspelarläge:** Nätverksspel är ännu inte tillgängligt.
-- **Skala:** Slag med 30 spelare och 20 000 enheter har ännu inte demonstrerats.
+- **Flerspelarläge:** LAN- och onlinespel finns i aktuella källkodsbyggen för macOS och Linux.
+- **Skala:** Två onlinematcher i följd klarade funktionsvalideringen med
+  30 oberoende klientprocesser och fler än 20 000 aktiva rörliga enheter per match.
+  Linux-klienterna delade virtuella maskiner; jämn prestanda i realtid är inte fastställd.
 
 ## Ladda ner och spela
 

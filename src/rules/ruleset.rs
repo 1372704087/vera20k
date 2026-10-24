@@ -522,6 +522,17 @@ pub struct GeneralRules {
     /// that fired or missed goes back to state 1 and picks a new firing spot.
     /// Retail: yes.
     pub curley_shuffle: bool,
+    /// `[General] EnableAIBuildLimitation=` — the older extension build's
+    /// switch (NPExt ext173, manual `AI克隆生产`'s predecessor): with yes, the
+    /// computer's production attempt checks the type's own `BuildLimit=`
+    /// (`Type+0x3B8`) like a production event does, and a plan at its limit
+    /// clears its choice and skips. Read by that build's `ReadGeneral` hook
+    /// `0xC2D132..0xC2D151` into `Rules+0x641`, default the current field, so
+    /// the constructor clears that byte through the +640 DWORD store
+    /// (`0x665F09`), so absent means no. NPSE #359 dropped this key and
+    /// reads per-type AIBuildLimit (`0xC27249..0xC2725A`) instead. Both
+    /// generations use factory_ai's shared tracked/produced comparison.
+    pub enable_ai_build_limitation: bool,
     /// `[General] RepairRate=` in minutes — `RulesClass+0x16E0`.
     ///
     /// The self-heal pulse (`FUN_0070BE80`) divides the frame counter by
@@ -758,6 +769,17 @@ pub struct GeneralRules {
     /// "PARACH"), `None` if unset or empty: the canopy the simulation attaches
     /// to a dropped object. Its timing is the AnimType's own art.
     pub parachute_shp: Option<String>,
+    /// Parsed `[General] VehicleParachute=` value (uppercased AnimType name),
+    /// read only with the explicit NPatch capability.
+    /// `None` if unset or empty: the NPSE canopy an airdropped non-infantry
+    /// object takes instead of `Parachute=` (`ObjectClass::Paradrop`'s
+    /// `0x5F5ADD` hook, cave `0xC2B0E4`..`0xC2FA8A`: infantry keeps
+    /// `Parachute=`, anything else takes this when the Rules+0x400 pointer
+    /// is set — the NPSE reader stores it there, `0xC31005..0xC31017` — and
+    /// `Parachute=` otherwise). Read in the General reader with the 0x80
+    /// string capacity; an empty read retains the previous pointer, while
+    /// `none` clears it through AnimTypeClass::FindOrAllocate @ 0x428B80.
+    pub vehicle_parachute: Option<String>,
     /// `[General] AmerParaDropInf=`/`AmerParaDropNum=` (`+0xC04`/`+0xC20`):
     /// the American Paradrop's planes.
     pub amer_paradrop: ParadropList,
@@ -2313,6 +2335,7 @@ impl Default for GeneralRules {
             game_speed_bias: 1.0,
             veteran_armor: 1.0,
             curley_shuffle: false,
+            enable_ai_build_limitation: false,
             repair_rate_minutes: 0.016,
             // Rules665696..6656B0 initializes the current-default fields
             // before ReadGeneral66E6E2..66E74B. Retail overrides are separate.
@@ -2376,6 +2399,7 @@ impl Default for GeneralRules {
             no_parachute_max_fall_rate: -100,
             paradrop_radius: 1024,
             parachute_shp: None,
+            vehicle_parachute: None,
             amer_paradrop: ParadropList::default(),
             ally_paradrop: ParadropList::default(),
             sov_paradrop: ParadropList::default(),
@@ -3457,6 +3481,13 @@ impl GeneralRules {
             game_speed_bias: general.read_double("GameSpeedBias", defaults.game_speed_bias),
             veteran_armor: general.read_double("VeteranArmor", 1.0),
             curley_shuffle: general.read_bool("CurleyShuffle", defaults.curley_shuffle),
+            // ext173 reads it with the current byte as default into
+            // `Rules+0x641` (`0xC2D132..0xC2D151`, `ReadBooleanByte 0x5295F0`).
+            enable_ai_build_limitation: crate::rules::NPATCH_ENABLED
+                && general.read_bool(
+                    "EnableAIBuildLimitation",
+                    defaults.enable_ai_build_limitation,
+                ),
             repair_rate_minutes: general.read_double("RepairRate", defaults.repair_rate_minutes),
             // `RulesClass+0x30/+0x34/+0x38/+0x3C`, read by the General reader at
             // `0x0066D530`. ReadInt66E6F3/70D/727/740 retains each current
@@ -3561,6 +3592,9 @@ impl GeneralRules {
             hover_dampen: general.read_double_bits("HoverDampen", defaults.hover_dampen),
             paradrop_radius: general.read_int("ParadropRadius", 1024),
             parachute_shp: defaults.parachute_shp.clone(),
+            // The ordered RulesTypeReferences owner publishes the retained
+            // NPSE ReadGeneral pointer (C31005..C31017), like Parachute.
+            vehicle_parachute: defaults.vehicle_parachute.clone(),
             amer_paradrop: ParadropList::read_counts(general, "AmerParaDropNum"),
             ally_paradrop: ParadropList::read_counts(general, "AllyParaDropNum"),
             sov_paradrop: ParadropList::read_counts(general, "SovParaDropNum"),
@@ -5254,6 +5288,16 @@ impl RuleSet {
                 section.and_then(|section| sounds.read_rules_reference(section, "SinkingSound"));
             object.voice_sinking =
                 section.and_then(|section| sounds.read_rules_reference(section, "VoiceSinking"));
+            // TechnoType712FEC reads VoiceFalling (+0x54C) the same way.
+            object.voice_falling =
+                section.and_then(|section| sounds.read_rules_reference(section, "VoiceFalling"));
+            // InfantryType524193 reads VoiceComment (+0xE88) through
+            // ReadSoundList525430; no other type class reads the key.
+            if object.category == crate::rules::object_type::ObjectCategory::Infantry {
+                object.voice_comment = section.map_or_else(Vec::new, |section| {
+                    sounds.read_rules_sound_list(section, "VoiceComment")
+                });
+            }
             // TechnoType7133BA reads TurretRotateSound (+0x560) through
             // ReadString128 and Voc7514D0 for every techno type; the key is not
             // category-gated even though only buildings consume it.
@@ -6385,8 +6429,14 @@ impl RuleSet {
             b"phobos-shield-types-v1".hash(&mut hasher);
             self.shield_types.hash(&mut hasher);
             self.shield_globals.apply_armor_mult.hash(&mut hasher);
-            self.shield_globals.condition_yellow.to_bits().hash(&mut hasher);
-            self.shield_globals.condition_red.to_bits().hash(&mut hasher);
+            self.shield_globals
+                .condition_yellow
+                .to_bits()
+                .hash(&mut hasher);
+            self.shield_globals
+                .condition_red
+                .to_bits()
+                .hash(&mut hasher);
             self.shield_globals.pips.hash(&mut hasher);
             self.shield_globals.pips_building.hash(&mut hasher);
             self.shield_globals.pips_background.hash(&mut hasher);
@@ -6890,6 +6940,9 @@ impl RuleSet {
         )
             .hash(&mut hasher);
         let general = &self.general;
+        if crate::rules::NPATCH_ENABLED {
+            general.vehicle_parachute.hash(&mut hasher);
+        }
         (
             (
                 &general.ore_twinkle,

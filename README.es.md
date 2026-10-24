@@ -39,8 +39,10 @@ palabra sobre su rumbo.
 - **IA:** Partes de la IA original se encargan de construir bases y de los ataques definidos por
   scripts.
 - **Trabajo en curso:** Fidelidad de la jugabilidad, aspecto visual y rendimiento.
-- **Multijugador:** El juego en red aún no está disponible.
-- **Escala:** Todavía no se han demostrado batallas con 30 jugadores y 20 000 unidades.
+- **Multijugador:** Las compilaciones actuales del código fuente permiten jugar por LAN y en línea en macOS y Linux.
+- **Escala:** Dos partidas consecutivas en línea superaron la validación funcional con
+  30 procesos de cliente independientes y más de 20 000 unidades móviles activas por partida.
+  Los clientes Linux compartieron máquinas virtuales; esto no demuestra un rendimiento fluido en tiempo real.
 
 ## Descargar y jugar
 

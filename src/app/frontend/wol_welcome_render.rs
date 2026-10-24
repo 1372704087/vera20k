@@ -456,8 +456,8 @@ pub(crate) fn render_wol_page(
     let mut icon_sprites = Vec::new();
     let mut labels = Vec::new();
     if let (true, Painted::Welcome(layout)) = (children, &painted) {
-        for window in layout.group_boxes {
-            push_group_box(&mut sprites, chrome, window, scale);
+        for window in &layout.group_boxes {
+            push_group_box(&mut sprites, chrome, *window, scale);
         }
         if let Some(art) = art {
             for (file, window) in &layout.icons {

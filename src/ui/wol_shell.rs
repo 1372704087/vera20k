@@ -383,7 +383,7 @@ pub struct WolWelcomeLayout {
     pub status_help: RectPx,
     pub texts: Vec<(WolTextStatic, RectPx)>,
     pub icons: Vec<(&'static str, RectPx)>,
-    pub group_boxes: [RectPx; 2],
+    pub group_boxes: Vec<RectPx>,
 }
 
 pub fn compute_layout(
@@ -392,6 +392,9 @@ pub fn compute_layout(
     spec: &'static MenuPageSpec,
 ) -> WolWelcomeLayout {
     let mut page = menu_page::compute_layout(spec, screen_w, screen_h);
+    // Account statistics and the old icon glossary belong to the legacy
+    // information entry, which the normal online page does not offer.
+    let information = spec.button(MY_INFORMATION).is_some();
     // The heading template is 108x11 DLU here (the family's is 108x10): the
     // relayout keeps the family place and the window is one row taller.
     page.title.h = dlu_rect(423, 4, 108, 11).h + 1;
@@ -402,6 +405,7 @@ pub fn compute_layout(
     );
     let texts = WOL_TEXT_STATICS
         .iter()
+        .filter(|_| information)
         .map(|text| {
             let (x, y, w, h) = text.dlu;
             (*text, child_window(x, y, w, h))
@@ -409,6 +413,7 @@ pub fn compute_layout(
         .collect();
     let icons = WOL_ICONS
         .iter()
+        .filter(|_| information)
         .map(|icon| {
             let (x, y, w, h) = icon.dlu;
             let mut window = child_window(x, y, w, h);
@@ -424,7 +429,11 @@ pub fn compute_layout(
         status_help,
         texts,
         icons,
-        group_boxes: WOL_GROUP_BOXES.map(|(x, y, w, h)| child_window(x, y, w, h)),
+        group_boxes: WOL_GROUP_BOXES
+            .into_iter()
+            .filter(|_| information)
+            .map(|(x, y, w, h)| child_window(x, y, w, h))
+            .collect(),
     }
 }
 
@@ -455,7 +464,11 @@ pub fn compute_responsive_layout(
             .iter()
             .map(|(file, window)| (*file, scale.scale_rect(*window)))
             .collect(),
-        group_boxes: base.group_boxes.map(|window| scale.scale_rect(window)),
+        group_boxes: base
+            .group_boxes
+            .into_iter()
+            .map(|window| scale.scale_rect(window))
+            .collect(),
     }
 }
 
@@ -625,6 +638,9 @@ mod tests {
             .map(|button| button.id)
             .collect();
         assert_eq!(controls, [CUSTOM_MATCH, MAIN_MENU]);
+        assert!(
+            layout.texts.is_empty() && layout.icons.is_empty() && layout.group_boxes.is_empty()
+        );
         let first = layout.page.button_rect(CUSTOM_MATCH).unwrap();
         assert_eq!(first, RectPx::new(644, 199, 156, 42));
         assert_eq!(
@@ -654,6 +670,9 @@ mod tests {
         );
         let scaled = compute_responsive_layout(1600, 1200, &WOL_ONLINE_WELCOME_PAGE);
         assert_eq!(scaled.painted_buttons(None).len(), 2);
+        assert!(
+            scaled.texts.is_empty() && scaled.icons.is_empty() && scaled.group_boxes.is_empty()
+        );
         assert_eq!(
             scaled.page.button_rect(CUSTOM_MATCH),
             Some(RectPx::new(1288, 398, 312, 84))

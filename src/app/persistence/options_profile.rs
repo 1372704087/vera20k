@@ -153,6 +153,10 @@ pub(crate) struct RetailOptionsProfile {
     /// `None`, for an undisturbed test match. Off by default, so retail's
     /// "at least two players" gate stays.
     pub(crate) solo_skirmish: bool,
+    /// `[VERA] TranslateChat=`: the language received online chat is
+    /// translated into, or `None`, the default, for off. Only the `/translate`
+    /// chat command changes it ([`Self::commit_chat_translation`]).
+    pub(crate) translate_chat: Option<crate::ui::chat_translation::ChatLanguage>,
     /// `[VERA] Display=`: the screen the game opens on, by the window system's
     /// own name (`\\.\DISPLAY1`). Absent or empty means the system's choice,
     /// which is how every earlier build behaved. A name no longer attached
@@ -222,6 +226,7 @@ impl Default for RetailOptionsProfile {
             shift_queue_count: DEFAULT_SHIFT_QUEUE_COUNT,
             wol_test_service: false,
             solo_skirmish: false,
+            translate_chat: None,
             display: crate::ui::main_menu_dialogs::options::DisplayTarget::Auto,
         }
     }
@@ -447,6 +452,9 @@ impl RetailOptionsProfile {
             );
             self.wol_test_service = vera.read_bool("WolTestService", self.wol_test_service);
             self.solo_skirmish = vera.read_bool("SoloSkirmish", self.solo_skirmish);
+            if let Some(value) = vera.read_name("TranslateChat", 16) {
+                self.translate_chat = crate::ui::chat_translation::ChatLanguage::from_tag(value);
+            }
             if let Some(value) = vera.read_name("Display", DISPLAY_CAPACITY) {
                 self.display =
                     crate::ui::main_menu_dialogs::options::DisplayTarget::from_ini_value(value);
@@ -612,6 +620,16 @@ impl RetailOptionsProfile {
     /// `INIClass::Save`. Every other section and key is left as it is.
     pub(crate) fn commit_wol_preferences(&self, ra2_dir: &Path) -> io::Result<()> {
         profile_file::update(ra2_dir, |input| self.transform_wol_preferences(input))
+    }
+
+    /// The `/translate` command's writer: `[VERA] TranslateChat=` alone.
+    pub(crate) fn commit_chat_translation(&self, ra2_dir: &Path) -> io::Result<()> {
+        profile_file::update(ra2_dir, |input| self.transform_chat_translation(input))
+    }
+
+    fn transform_chat_translation(&self, input: &[u8]) -> Vec<u8> {
+        let tag = self.translate_chat.map_or("off", |language| language.tag());
+        set_ini_values(input, VERA_SECTION, &[("TranslateChat", tag)])
     }
 
     fn transform_wol_preferences(&self, input: &[u8]) -> Vec<u8> {
@@ -1392,6 +1410,34 @@ ScoreVolume=0.3\nIsScoreShuffle=yes\nSoundLatency=4\nInGameMusic=no\n[VERA]\nZoo
         assert!(reread.retained_profile.wol_test_service);
         assert!(reread.retained_profile.solo_skirmish);
         assert_eq!(reread.retained_profile.shift_queue_count, 7);
+    }
+
+    #[test]
+    fn chat_translation_writes_only_its_own_key_and_reads_back() {
+        use crate::ui::chat_translation::ChatLanguage;
+        let startup = RetailStartupOptions::default();
+        let profile = RetailOptionsProfile {
+            translate_chat: Some(ChatLanguage::SimplifiedChinese),
+            ..RetailOptionsProfile::default()
+        };
+        let output = profile.transform_chat_translation(b"[VERA]\r\nZoom=150\r\n");
+        let text = String::from_utf8(output.clone()).unwrap();
+        assert!(
+            text.contains("Zoom=150") && text.contains("TranslateChat=zh-Hans"),
+            "{text}"
+        );
+        let reread = load_snapshot(&startup, &output);
+        assert_eq!(
+            reread.retained_profile.translate_chat,
+            Some(ChatLanguage::SimplifiedChinese)
+        );
+        let off = RetailOptionsProfile::default().transform_chat_translation(&output);
+        assert_eq!(
+            load_snapshot(&startup, &off)
+                .retained_profile
+                .translate_chat,
+            None
+        );
     }
 
     #[test]

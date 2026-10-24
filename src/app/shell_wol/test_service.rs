@@ -530,7 +530,9 @@ fn answer(state: &mut AppState, request: WolServiceRequest) {
         | WolServiceRequest::Emote { .. }
         // Server-side page/find/language enforcement is not simulated.
         | WolServiceRequest::SetLangFilter(_)
-        | WolServiceRequest::SetFindPage { .. } => return,
+        | WolServiceRequest::SetFindPage { .. }
+        // Translation is online-only; the stand-in service never queues it.
+        | WolServiceRequest::Translate { .. } => return,
     };
     service_event(state, event);
 }

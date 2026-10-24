@@ -1825,6 +1825,9 @@ fn popup_action(state: &mut AppState, action: WolPopupAction) {
 
 /// `0x0078AC10`'s 0x540 Enter after `0x005EDD00`.
 fn send_chat(state: &mut AppState, text: Vec<u16>) {
+    if super::translation::command(state, &text) {
+        return;
+    }
     let commands = wol_chat::WolChatCommands {
         page: units(state, "TXT_PAGE_COMMAND"),
         reply: units(state, "TXT_REPLY_COMMAND"),
@@ -2778,6 +2781,12 @@ pub(super) fn message_received(state: &mut AppState, message: ReceivedMessage) {
     }
     let (line, color) = wol_chat::received_line(&sender(&from), &text, private, action);
     echo(state, line, color);
+    let (prefix, _) = wol_chat::received_line(&sender(&from), &[], private, action);
+    super::translation::received(
+        state,
+        &text,
+        super::translation::TranslatedLine::Wol { prefix, color },
+    );
     state.platform.window.request_redraw();
 }
 

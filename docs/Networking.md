@@ -28,6 +28,12 @@ The HTTPS service supplies match-specific relay credentials before the same load
 and command handoff. Both paths transfer selected authored maps or generated
 seed/preview data and verify build, rules and effective-map agreement before start.
 
+Typing `/translate zh` (or `en`, `zh-tw`, `ja`, `ko`, `de`, `fr`, `es`, `pt`) in an
+online chat edit turns on chat translation, saved as `[VERA] TranslateChat=`;
+`/translate off` stops it. Received lobby, room and match chat written in the other
+script (Latin versus CJK) is sent to the lobby's translation service. The original
+stays; its translation follows as a line from the same sender marked `»`.
+
 The app services reliable messages and intermediate progress while loading, and
 continues servicing transport during frame waits. Gameplay uses the same
 OutList/DoList owners as offline play; the transport does not own a second

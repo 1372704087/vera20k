@@ -520,7 +520,7 @@ pub struct ObjectType {
     placement_preview_palette: Option<String>,
     /// `PlacementPreview.Translucency=`, unset inherits the rules global.
     #[cfg(feature = "phobos")]
-    placement_preview_translucency: Option<crate::rules::placement_preview::Translucency>,
+    placement_preview_translucency: Option<crate::rules::phobos_placement_preview::Translucency>,
     /// Canonical Speed percent,0..100 (0 is immobile). TechnoType
     /// ReadINI71464A retains the prior value for -1 across rules passes.
     /// Whole-lepton Type+678 conversion belongs to util::fixed_math.
@@ -2544,7 +2544,7 @@ impl ObjectType {
     #[cfg(feature = "phobos")]
     pub fn placement_preview_translucency(
         &self,
-    ) -> Option<crate::rules::placement_preview::Translucency> {
+    ) -> Option<crate::rules::phobos_placement_preview::Translucency> {
         self.placement_preview_translucency
     }
 
@@ -3241,7 +3241,7 @@ impl ObjectType {
             placement_preview_translucency: if category == ObjectCategory::Building {
                 section
                     .read_phobos_nullable_int("PlacementPreview.Translucency", None)
-                    .map(crate::rules::placement_preview::Translucency::from_int)
+                    .map(crate::rules::phobos_placement_preview::Translucency::from_int)
             } else {
                 None
             },

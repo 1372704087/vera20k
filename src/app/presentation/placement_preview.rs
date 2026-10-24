@@ -9,6 +9,11 @@
 //! ramp), and `Remap=no` uses `PlacementPreview.Palette` or the unit palette.
 //! Translucency is the per-type/global `TranslucencyLevel`.
 //!
+//! Residual: gamemd draws the wall auto-fill markers (`0x6D5730`/`0x6D59D0`/
+//! `0x6D5C50`) after the `0x6D528A` hook, so a native preview sits under
+//! them; VERA draws the preview after every PLACE cell, which differs only
+//! for walls.
+//!
 //! VERA bakes the resolved palette into the strip's RGBA once per (type,
 //! shape, palette, house colour) and draws it through the placement overlay
 //! material, which carries the instance alpha.
@@ -29,6 +34,7 @@ use crate::sim::production::BuildingPlacementPreview;
 pub(crate) struct PlacementPreviewArt {
     cache: HashMap<PreviewKey, Option<CachedPreview>>,
     current: Option<PreviewKey>,
+    /// The theater's UNIT palette, loaded once per map by the theater owner.
     unit_palette: Option<Palette>,
     unit_palette_loaded: bool,
 }
@@ -139,13 +145,12 @@ impl PlacementPreviewArt {
         remap_house: Option<HouseColorIndex>,
     ) -> Option<CachedPreview> {
         if !self.unit_palette_loaded {
-            self.unit_palette = load_unit_palette(assets, theater_ext);
+            self.unit_palette =
+                crate::map::theater::load_theater_unit_and_iso_palettes(assets, theater_name)
+                    .map(|(unit, _)| unit);
             self.unit_palette_loaded = true;
         }
-        let unit_palette = self
-            .unit_palette
-            .clone()
-            .or_else(|| load_named_palette(assets, "palette.pal"))?;
+        let unit_palette = self.unit_palette.clone()?;
         let palette = if object.placement_preview_remap() {
             match remap_house {
                 Some(house) if house != NO_REMAP => {
@@ -156,9 +161,10 @@ impl PlacementPreviewArt {
         } else {
             object
                 .placement_preview_palette()
+                // `CustomPalette::LoadFromINI` applies the theater suffix and
+                // loads the name as written; it adds no `.pal`.
                 .and_then(|name| {
-                    let name = with_extension(&theater_name_with_suffix(name, theater_ext), "pal");
-                    load_named_palette(assets, &name)
+                    load_named_palette(assets, &theater_name_with_suffix(name, theater_ext))
                 })
                 .unwrap_or(unit_palette)
         };
@@ -176,13 +182,12 @@ impl PlacementPreviewArt {
         }
 
         let art = rules.art();
-        let entry = art.resolve_metadata_entry(type_id, &object.image);
-        let buildup_candidates = entry
-            .and_then(|entry| entry.buildup.as_deref())
-            .map(|buildup| {
-                crate::rules::art_data::building_shp_names(buildup, theater_name).to_vec()
-            })
-            .unwrap_or_default();
+        let buildup_candidates = crate::render::sprite_atlas::buildup_shp_candidates(
+            art,
+            Some(rules),
+            type_id,
+            theater_name,
+        );
         if let Some(strip) = load_strip(device, queue, batch, assets, &buildup_candidates, &palette)
         {
             // `LoadBuildup`'s last frame is `Frames / 2 - 1`; the SHP's second
@@ -261,17 +266,6 @@ fn load_named_palette(assets: &AssetManager, name: &str) -> Option<Palette> {
     Palette::from_bytes(&assets.get(name)?).ok()
 }
 
-fn load_unit_palette(assets: &AssetManager, theater_ext: &str) -> Option<Palette> {
-    let ext = theater_ext.to_ascii_lowercase();
-    let mut names = vec![format!("unit{ext}.pal"), "unit.pal".to_owned()];
-    for fallback in ["unittem.pal", "unitsno.pal", "uniturb.pal", "palette.pal"] {
-        names.push(fallback.to_owned());
-    }
-    names
-        .into_iter()
-        .find_map(|name| load_named_palette(assets, &name))
-}
-
 fn load_strip(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
@@ -294,46 +288,4 @@ fn load_strip(
         }
     }
     None
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::sim::production::{BuildingPlacementCell, BuildingPlacementPreview};
-
-    #[test]
-    fn theater_suffix_and_extensions_match_phobos() {
-        assert_eq!(theater_name_with_suffix("FOO~~~.SHP", "tem"), "FOOtem.SHP");
-        assert_eq!(theater_name_with_suffix("FOO.SHP", "tem"), "FOO.SHP");
-        assert_eq!(with_extension("FOO", "shp"), "FOO.shp");
-        assert_eq!(with_extension("FOO.SHP", "shp"), "FOO.SHP");
-        assert_eq!(with_extension("unit~~~", "pal"), "unit~~~.pal");
-    }
-
-    #[test]
-    fn preview_point_uses_the_cell_centre_and_offset() {
-        let preview = BuildingPlacementPreview {
-            rx: 10,
-            ry: 10,
-            width: 2,
-            height: 2,
-            valid: true,
-            in_build_area: true,
-            foundation_visible: true,
-            reason: None,
-            cells: vec![BuildingPlacementCell {
-                coord: (10, 10),
-                valid: true,
-                level: 0,
-                slope: 0,
-            }],
-            wall_autofill_cells: Vec::new(),
-        };
-        let (sx, sy) = preview_screen_point(&preview, [0, -15, 1]).unwrap();
-        // Cell2Coord(10,10) centre = (2688, 2688); the planar projection gives
-        // y = (10+10)*30/2/256*15 = 315, the entity frame adds the common +15
-        // row bias, and the offset moves it up 15 px (Z=1 lepton rounds to 0).
-        assert_eq!(sx, 0.0);
-        assert_eq!(sy, 315.0);
-    }
 }

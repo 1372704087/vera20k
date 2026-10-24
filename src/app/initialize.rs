@@ -650,8 +650,6 @@ impl App {
                     )
                 })
             };
-        #[cfg(not(feature = "phobos"))]
-        let show_placement_preview = false;
         let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -730,6 +728,7 @@ impl App {
                     radar_content_insets: None,
                     has_radar: false,
                     selection_overlay: None,
+                    #[cfg(feature = "phobos")]
                     show_placement_preview,
                     #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),

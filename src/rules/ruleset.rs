@@ -4358,7 +4358,7 @@ pub struct RuleSet {
     /// Phobos placement preview globals (`[AudioVisual] PlacementPreview*`).
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_globals:
-        crate::rules::placement_preview::PlacementPreviewGlobals,
+        crate::rules::phobos_placement_preview::PlacementPreviewGlobals,
     /// Radar event visual parameters (ping rectangles on minimap).
     pub radar_event_config: RadarEventConfig,
     /// All superweapon types indexed by ID (e.g., "LightningStormSpecial" → SuperWeaponType).
@@ -5521,7 +5521,7 @@ impl RuleSet {
         };
         #[cfg(feature = "phobos")]
         let placement_preview_globals =
-            crate::rules::placement_preview::PlacementPreviewGlobals::from_ini(ini);
+            crate::rules::phobos_placement_preview::PlacementPreviewGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
         let radiation = {
             let mut radiation = radiation;
@@ -6318,7 +6318,7 @@ impl RuleSet {
     #[cfg(feature = "phobos")]
     pub fn placement_preview_globals(
         &self,
-    ) -> &crate::rules::placement_preview::PlacementPreviewGlobals {
+    ) -> &crate::rules::phobos_placement_preview::PlacementPreviewGlobals {
         &self.placement_preview_globals
     }
 

@@ -71,6 +71,7 @@ pub(super) struct UiInstances {
     pub drag: Vec<SpriteInstance>,
     pub placement: Vec<SpriteInstance>,
     /// Phobos placement preview artwork, drawn after the PLACE cells.
+    #[cfg(feature = "phobos")]
     pub placement_ghost: Vec<SpriteInstance>,
     pub target_line: Vec<SpriteInstance>,
     pub tactical_line_calls: Vec<crate::app::presentation::airstrike_lines::TacticalLineCall>,
@@ -959,6 +960,7 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
         software_cursor,
         drag,
         placement: placement_preview.cells,
+        #[cfg(feature = "phobos")]
         placement_ghost: placement_preview.ghost,
         target_line,
         tactical_line_calls,
@@ -990,17 +992,20 @@ fn build_beacon_instances(state: &AppState) -> Vec<Vec<SpriteInstance>> {
     rows
 }
 
-/// Active PLACE cells. Tactical6D5030 suppresses the building ghost outside
-/// the map editor; Cell47EC90 supplies frame0 or slope+2. Keep one ordered
-/// stream rather than regrouping overlapping cells by admitted color.
+/// The PLACE cells and, in Phobos builds, the preview artwork drawn after them.
 struct PlacementPreviewInstances {
     cells: Vec<SpriteInstance>,
+    #[cfg(feature = "phobos")]
     ghost: Vec<SpriteInstance>,
 }
 
+/// Active PLACE cells. Tactical6D5030 suppresses the building ghost outside
+/// the map editor; Cell47EC90 supplies frame0 or slope+2. Keep one ordered
+/// stream rather than regrouping overlapping cells by admitted color.
 fn build_placement_preview(state: &AppState) -> PlacementPreviewInstances {
     let mut out = PlacementPreviewInstances {
         cells: Vec::new(),
+        #[cfg(feature = "phobos")]
         ghost: Vec::new(),
     };
     let Some(preview) = &state.match_state.input.building_placement_preview else {

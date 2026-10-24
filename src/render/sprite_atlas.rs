@@ -104,7 +104,7 @@ fn effect_anim_shp_candidates(
 /// The files a building type's Buildup SHP loads from: its art `Buildup=`
 /// through the theater lookup (`rules::buildup_asset_catalog`), none without
 /// one.
-fn buildup_shp_candidates(
+pub(crate) fn buildup_shp_candidates(
     art: &ArtRegistry,
     rules: Option<&RuleSet>,
     type_id: &str,

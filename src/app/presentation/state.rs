@@ -100,6 +100,7 @@ pub(crate) struct MatchPresentationState {
     /// Selection overlay renderer — highlights and drag rectangle.
     pub(crate) selection_overlay: Option<SelectionOverlay>,
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
+    #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]

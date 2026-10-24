@@ -27,7 +27,7 @@ PlacementPreview.Shape=                 ; .shp name, `~~~` takes the theater suf
 PlacementPreview.ShapeFrame=            ; integer; default 0, or the buildup's last frame
 PlacementPreview.Offset=0,-15,1         ; X,Y,Z leptons (X/Y are pixels)
 PlacementPreview.Remap=yes              ; default yes
-PlacementPreview.Palette=               ; .pal name used when Remap=no
+PlacementPreview.Palette=               ; palette file name (as written) used when Remap=no
 PlacementPreview.Translucency=          ; 0|25|50|75; unset inherits the global
 ```
 
@@ -73,13 +73,15 @@ keyed by type, authored Shape/Palette and placing house colour.
 
 ## Where VERA20K owns it
 
-- `rules/placement_preview.rs` — the `Translucency` value and `[AudioVisual]`
-  globals.
+- `rules/phobos_placement_preview.rs` — the `Translucency` value (through the
+  shared anim translucency table) and `[AudioVisual]` globals.
 - `rules/object_type.rs` — the per-BuildingType `PlacementPreview*` fields.
 - `rules/ruleset.rs` — immutable projection and config hash.
 - `app/persistence/phobos_settings.rs` — the `[Phobos]` client switches.
 - `app/presentation/placement_preview.rs` — SHP/palette resolution, cache and
-  the screen point.
+  the screen point. The unit palette comes from the theater owner
+  (`map::theater::load_theater_unit_and_iso_palettes`) and the buildup files
+  from `render::sprite_atlas::buildup_shp_candidates`.
 - `app/presentation/render/build_instances.rs` /
   `draw_passes.rs` — grid alpha and the preview pass.
 
@@ -95,3 +97,8 @@ keyed by type, authored Shape/Palette and placing house colour.
   shadows and embedded shadows are not part of the placement preview.
 - The client switch default follows the source (`yes`); the UI document says
   `no`. The rules global still defaults to `no`, so both must be enabled.
+- gamemd draws the wall auto-fill markers (`0x6D5730`/`0x6D59D0`/`0x6D5C50`)
+  after the `0x6D528A` hook; VERA draws the preview after every PLACE cell,
+  which differs only while placing walls.
+- No test anchors the preview image, frame or palette choice against retail
+  assets or native output yet.

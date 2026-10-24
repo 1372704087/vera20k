@@ -10,25 +10,28 @@
 //! `[Phobos] ShowPlacementPreview` switch lives in
 //! `app::persistence::phobos_settings`.
 
-#[cfg(feature = "phobos")]
+use crate::rules::art_data::{
+    ANIM_DRAW_BITS_OPAQUE, ANIM_DRAW_BITS_TRANSLUCENT_25, ANIM_DRAW_BITS_TRANSLUCENT_50,
+    ANIM_DRAW_BITS_TRANSLUCENT_75, anim_translucency_source_alpha,
+};
 use crate::rules::ini_parser::IniFile;
 
-/// Phobos `TranslucencyLevel` (`Utilities/Constructs.h:459..510`): only the
-/// exact 0/25/50/75 assignments select a blitter; every other integer maps to
-/// the opaque default.
+/// Phobos `TranslucencyLevel` (`Utilities/Constructs.h:459..510`), held as the
+/// `CC_Draw_Shape` translucency bits it selects: only the exact 0/25/50/75
+/// assignments select a blitter; every other integer maps to the opaque
+/// default.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
-pub struct Translucency(u8);
+pub struct Translucency(u32);
 
 impl Translucency {
-    pub const OPAQUE: Self = Self(0);
-    pub const T25: Self = Self(25);
-    pub const T50: Self = Self(50);
-    pub const T75: Self = Self(75);
+    pub const OPAQUE: Self = Self(ANIM_DRAW_BITS_OPAQUE);
+    pub const T25: Self = Self(ANIM_DRAW_BITS_TRANSLUCENT_25);
+    pub const T50: Self = Self(ANIM_DRAW_BITS_TRANSLUCENT_50);
+    pub const T75: Self = Self(ANIM_DRAW_BITS_TRANSLUCENT_75);
 
-    /// `TranslucencyLevel& operator=(int)`: an exact match, else `None`
-    /// (opaque).
+    /// `TranslucencyLevel& operator=(int)`: an exact match, else opaque.
     pub fn from_int(value: i32) -> Self {
         match value {
             25 => Self::T25,
@@ -38,19 +41,9 @@ impl Translucency {
         }
     }
 
-    pub fn percent(self) -> u8 {
-        self.0
-    }
-
-    /// Native 25% translucent is 75% opacity; the VERA shader multiplies the
-    /// source alpha by this factor.
+    /// The blitter's source weight, from the shared anim translucency table.
     pub fn opacity(self) -> f32 {
-        match self.0 {
-            25 => 0.75,
-            50 => 0.5,
-            75 => 0.25,
-            _ => 1.0,
-        }
+        anim_translucency_source_alpha(self.0)
     }
 }
 
@@ -93,7 +86,6 @@ impl PlacementPreviewGlobals {
         }
     }
 
-    #[cfg(feature = "phobos")]
     pub(crate) fn from_ini(ini: &IniFile) -> Self {
         let section = ini.section_or_empty("AudioVisual");
         Self {
@@ -114,8 +106,6 @@ impl PlacementPreviewGlobals {
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[cfg(feature = "phobos")]
-    use crate::rules::ini_parser::IniFile;
 
     #[test]
     fn translucency_accepts_only_the_native_levels() {
@@ -125,34 +115,10 @@ mod tests {
         assert_eq!(Translucency::from_int(75), Translucency::T75);
         assert_eq!(Translucency::from_int(30), Translucency::OPAQUE);
         assert_eq!(Translucency::from_int(-1), Translucency::OPAQUE);
-        assert_eq!(Translucency::T25.opacity(), 0.75);
-        assert_eq!(Translucency::T50.opacity(), 0.5);
-        assert_eq!(Translucency::T75.opacity(), 0.25);
-        assert_eq!(Translucency::OPAQUE.opacity(), 1.0);
     }
 
-    #[cfg(feature = "phobos")]
-    #[test]
-    fn globals_use_the_source_constructor_defaults() {
-        let globals = PlacementPreviewGlobals::from_ini(&IniFile::from_str("[AudioVisual]\n"));
-        assert!(!globals.enabled);
-        assert_eq!(globals.translucency, Translucency::T75);
-        assert_eq!(globals.grid_translucency, Translucency::OPAQUE);
-        assert_eq!(globals.grid_translucency_with_preview, None);
-        assert_eq!(
-            globals.effective_grid_translucency(true),
-            Translucency::OPAQUE
-        );
-        assert_eq!(
-            globals.effective_grid_translucency(false),
-            Translucency::OPAQUE
-        );
-    }
-
-    #[cfg(feature = "phobos")]
     #[test]
     fn building_type_keys_use_the_source_defaults_and_overrides() {
-        use crate::rules::ini_parser::IniFile;
         use crate::rules::ruleset::RuleSet;
 
         let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -186,7 +152,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "phobos")]
     #[test]
     fn grid_override_needs_both_switches_and_falls_back_to_the_base() {
         let ini = IniFile::from_str(

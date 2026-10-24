@@ -548,8 +548,18 @@ impl App {
             host: true,
             ..dialog(state)
         };
+        // VERA's compact online flow opens a mode that offers AI opponents.
+        // Native diagnostic visits retain their saved mode selection.
+        let prefer_computer_mode = dialog.wol()
+            && !observe
+            && state
+                .frontend
+                .wol
+                .as_ref()
+                .is_some_and(|visit| visit.modern_ui());
         let result = state.frontend.multiplayer_shell_runtime.new_network_setup(
             profile(dialog),
+            prefer_computer_mode,
             &state.frontend.scenario_catalog,
             &state.frontend.skirmish_modes,
             state

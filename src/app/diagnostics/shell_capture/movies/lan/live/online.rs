@@ -158,6 +158,24 @@ impl LiveRoundFlow {
             self.record(frame, "Choose Map opened for normal random-map generation");
             return Ok(false);
         }
+        if ai.is_some() && self.rounds.is_empty() {
+            let restored = state
+                .match_state
+                .session
+                .network_setup()
+                .context("restored online setup")?;
+            ensure!(
+                restored.mode.class.lists_in_skirmish(),
+                "ordinary online setup did not offer computer opponents"
+            );
+            self.record(
+                frame,
+                &format!(
+                    "Restored computer-capable online mode {} before diagnostic map selection",
+                    restored.mode.id
+                ),
+            );
+        }
         core.prepare_host_setup(state, selected_map, self.round_players(), mode_id, ai)?;
         self.record(
             frame,

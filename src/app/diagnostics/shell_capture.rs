@@ -3562,7 +3562,7 @@ mod tests {
             "--online-ai",
             "hard",
             "--online-mode-id",
-            "6",
+            "1",
         ]));
         let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
             panic!("capture")
@@ -3570,7 +3570,7 @@ mod tests {
         let config = request.live_online.unwrap();
         assert_eq!(config.players, 1);
         assert_eq!(config.ai, Some(crate::skirmish_launch::AiDifficulty::Hard));
-        assert_eq!(config.mode_id, Some(6));
+        assert_eq!(config.mode_id, Some(1));
         assert_eq!(config.frames, 600);
         assert!(config.simple_input && !config.mass_input);
         assert!(!config.create_account);

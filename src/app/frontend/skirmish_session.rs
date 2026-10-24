@@ -393,6 +393,7 @@ impl MultiplayerShellRuntime {
     pub(crate) fn new_network_setup(
         &mut self,
         profile: SetupProfile,
+        prefer_computer_mode: bool,
         catalog: &crate::app::scenario_catalog::ScenarioCatalog,
         modes: &[SkirmishGameMode],
         mut options: crate::skirmish_launch::SkirmishLaunchOptions,
@@ -413,6 +414,17 @@ impl MultiplayerShellRuntime {
         let mut mode = mode_by_id(modes, snapshot.game_mode)
             .or_else(|| modes.first())
             .ok_or_else(|| anyhow::anyhow!("network setup has no game mode"))?;
+        // Modern online setup starts on a computer-capable mode. Select on
+        // this working launch only; the retained native profile stays intact.
+        if prefer_computer_mode && !mode.class.lists_in_skirmish() {
+            mode = modes
+                .iter()
+                .find(|mode| mode.class == crate::skirmish_modes::MpModeClass::Battle)
+                .or_else(|| modes.iter().find(|mode| mode.class.lists_in_skirmish()))
+                .ok_or_else(|| {
+                    anyhow::anyhow!("network setup has no computer-capable game mode")
+                })?;
+        }
         // 0x5ED5E7..0x5ED628: a WOL tournament or clan room refuses a mode
         // whose vtable+4 holds (Cooperative) for the default mode 5D5E10.
         let room_only = room.tournament_or_clan();
@@ -1892,6 +1904,69 @@ mod tests {
     }
 
     #[test]
+    fn modern_online_setup_prefers_battle_without_rewriting_the_native_profile() {
+        use crate::map::skirmish_scenarios::{SkirmishScenarioRecord, SkirmishScenarioSource};
+        use crate::skirmish_modes::MpModeClass;
+        let Some(ini) = crate::rules::retail_ini_fixture::retail_ini("mpmodesmd.ini") else {
+            return;
+        };
+        let modes = crate::skirmish_modes::parse_mpmodes_ini(&ini);
+        assert_eq!(mode_by_id(&modes, 6).unwrap().class, MpModeClass::ManBattle);
+        let concrete = |file, filter| {
+            SkirmishScenarioRecord::concrete_from_ini(
+                0,
+                SkirmishScenarioSource::Synthetic,
+                file,
+                &IniFile::from_str(&format!("[Basic]\nGameMode={filter}\n")),
+            )
+        };
+        let catalog = crate::app::scenario_catalog::ScenarioCatalog::from_records(vec![
+            concrete("duel.mmx", "duel"),
+            concrete("standard.mmx", "standard"),
+        ]);
+        let mut owner = runtime(
+            MultiplayerSetupSnapshot::from_global_defaults(defaults(), SetupProfile::Skirmish),
+            1,
+        );
+        owner.wol_snapshot.game_mode = 6;
+        owner.wol_snapshot.scenario_index = 0;
+        let retained = owner.wol_snapshot.clone();
+        let restore = |owner: &mut MultiplayerShellRuntime, prefer| {
+            owner
+                .new_network_setup(
+                    SetupProfile::Wol,
+                    prefer,
+                    &catalog,
+                    &modes,
+                    SkirmishLaunchOptions::default(),
+                    Default::default(),
+                    false,
+                    Default::default(),
+                )
+                .unwrap()
+                .0
+        };
+        let modern = restore(&mut owner, true);
+        assert_eq!(modern.mode.class, MpModeClass::Battle);
+        assert_eq!(modern.selected_map_file.as_deref(), Some("standard.mmx"));
+        assert_eq!(owner.wol_snapshot, retained);
+        let native = restore(&mut owner, false);
+        assert_eq!(native.mode.id, 6);
+        assert_eq!(native.selected_map_file.as_deref(), Some("duel.mmx"));
+        assert_eq!(owner.wol_snapshot, retained);
+        let ffa = modes
+            .iter()
+            .find(|mode| mode.class == MpModeClass::FreeForAll)
+            .unwrap();
+        owner.wol_snapshot.game_mode = ffa.id;
+        let retained = owner.wol_snapshot.clone();
+        let modern = restore(&mut owner, true);
+        assert_eq!(modern.mode.id, ffa.id);
+        assert_eq!(modern.selected_map_file.as_deref(), Some("standard.mmx"));
+        assert_eq!(owner.wol_snapshot, retained);
+    }
+
+    #[test]
     fn wol_room_restore_refuses_cooperative_and_unofficial_maps() {
         use crate::app::match_runtime::session::NetworkRoom;
         use crate::map::skirmish_scenarios::{SkirmishScenarioRecord, SkirmishScenarioSource};
@@ -1927,6 +2002,7 @@ mod tests {
             owner
                 .new_network_setup(
                     SetupProfile::Wol,
+                    false,
                     &catalog,
                     &modes,
                     SkirmishLaunchOptions::default(),
@@ -1974,6 +2050,7 @@ mod tests {
         let (launch, vacancies) = owner
             .new_network_setup(
                 SetupProfile::Lan,
+                false,
                 &catalog,
                 &modes,
                 crate::skirmish_launch::SkirmishLaunchOptions::default(),
@@ -2011,6 +2088,7 @@ mod tests {
         let (wol, wol_vacancies) = owner
             .new_network_setup(
                 SetupProfile::Wol,
+                false,
                 &catalog,
                 &modes,
                 crate::skirmish_launch::SkirmishLaunchOptions::default(),
@@ -2028,6 +2106,7 @@ mod tests {
         let (observer, _) = owner
             .new_network_setup(
                 SetupProfile::Lan,
+                false,
                 &catalog,
                 &modes,
                 crate::skirmish_launch::SkirmishLaunchOptions::default(),
@@ -2083,6 +2162,7 @@ mod tests {
             let (mut launch, mut vacancies) = owner
                 .new_network_setup(
                     profile,
+                    false,
                     &catalog,
                     &modes,
                     Default::default(),
@@ -2125,6 +2205,7 @@ mod tests {
             let (fallback, _) = owner
                 .new_network_setup(
                     profile,
+                    false,
                     &small_catalog,
                     &modes,
                     Default::default(),
@@ -2138,6 +2219,7 @@ mod tests {
             let (restored, restored_vacancies) = owner
                 .new_network_setup(
                     profile,
+                    false,
                     &catalog,
                     &modes,
                     Default::default(),
@@ -2182,6 +2264,7 @@ mod tests {
             owner
                 .new_network_setup(
                     SetupProfile::Wol,
+                    false,
                     &catalog,
                     &[mode()],
                     SkirmishLaunchOptions::default(),

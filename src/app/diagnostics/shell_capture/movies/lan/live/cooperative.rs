@@ -32,6 +32,8 @@ enum CoopPhase {
 
 pub(super) struct CooperativeRun {
     phase: CoopPhase,
+    /// The host takes Use Saved Campaign instead of the Soviet row.
+    saved: bool,
     abort: Option<AbortReturnInput>,
     first_map: Option<String>,
     result: Option<Value>,
@@ -41,9 +43,10 @@ pub(super) struct CooperativeRun {
 }
 
 impl CooperativeRun {
-    pub(super) fn new() -> Self {
+    pub(super) fn new(saved: bool) -> Self {
         Self {
             phase: CoopPhase::OpenChooser,
+            saved,
             abort: None,
             first_map: None,
             result: None,
@@ -84,8 +87,18 @@ impl CooperativeRun {
                         .is_some_and(|modal| modal.statics.is_terminal()) =>
             {
                 let labels = click_cooperative_mode(state)?;
-                use_soviet_campaign_row(state, &labels)?;
-                route.push(json!({"render_frame":frame,"action":"Soviet co-op campaign used","rows":labels}));
+                if self.saved {
+                    let label =
+                        crate::app::App::csf_label(state, "TXT_COOP_USE_SAVE", "TXT_COOP_USE_SAVE");
+                    let row = labels
+                        .iter()
+                        .position(|row| *row == label)
+                        .context("the saved-campaign row")?;
+                    use_chooser_row(state, row)?;
+                } else {
+                    use_soviet_campaign_row(state, &labels)?;
+                }
+                route.push(json!({"render_frame":frame,"action":"co-op campaign row used","saved":self.saved,"rows":labels}));
                 self.phase = CoopPhase::ChooserReturn;
             }
             CoopPhase::ChooserReturn

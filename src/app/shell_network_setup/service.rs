@@ -256,7 +256,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             if dialog.wol() {
                 // The part sink 0x785740 played PlayerLeft and clears the
                 // acceptances itself (super::wol::user_left).
-                clear_cooperative_partners(state);
+                super::cooperative::guest_left(state)?;
                 state.platform.window.request_redraw();
                 return Ok(());
             }
@@ -270,7 +270,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
                 .and_then(|rules| rules.general.player_left_sound())
                 .map(str::to_owned);
             App::play_shell_ui_sound_by_id(state, sound.as_deref());
-            clear_cooperative_partners(state);
+            super::cooperative::guest_left(state)?;
         }
         NetworkSetupEvent::PlayerChoices {
             index,
@@ -834,7 +834,11 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkSetupEvent) -> a
             }
         }
         NetworkSetupEvent::HostLeft => {
-            clear_cooperative_partners(state);
+            // The setup closes: only +0x90's last step, the names, matters.
+            state
+                .frontend
+                .multiplayer_shell_runtime
+                .clear_network_cooperative_partners();
             App::leave_shell_dialog(
                 state,
                 shell_transition::ShellExitThen::NetworkSetupBack(dialog),
@@ -1304,22 +1308,6 @@ pub(crate) fn accept_network_map_source(
         state,
         crate::app::match_runtime::session::NetworkMapAdmission::Present,
     )
-}
-
-fn clear_cooperative_partners(state: &mut AppState) {
-    // Accepted type10 departure5E1235 invokes mode+90. Ordinary modes are
-    // no-ops; Cooperative5C3F80 clears49B760's retained partner buffers.
-    if state
-        .match_state
-        .session
-        .network_setup()
-        .is_some_and(|launch| launch.mode.class.uses_cooperative_setup())
-    {
-        state
-            .frontend
-            .multiplayer_shell_runtime
-            .clear_network_cooperative_partners();
-    }
 }
 
 fn finish_go(state: &mut AppState) -> anyhow::Result<()> {

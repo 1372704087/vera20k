@@ -5,10 +5,12 @@
 //! rendered to palette indices and shelf-packed into as few pages as the GPU
 //! texture limit allows. Each sprite resolves its indices through one of the
 //! atlas's palette rows (`ShpPalettes`): its render palette, house ramp
-//! included. When a new (type, house colour) appears mid-match, only its missing
-//! sprites are rendered and appended to a growth page (`atlas_growth`); the
-//! pages already resident are never repacked or re-uploaded. Keys with nothing
-//! to draw are remembered, so no refresh retries them.
+//! included. Logical keys of the same immutable source/frame share its index
+//! rectangle while keeping their own palette and draw metadata. When a new
+//! (type, house colour) appears mid-match, missing physical frames append to a
+//! growth page (`atlas_growth`); resident rectangles are reused without moving
+//! or re-uploading them. Keys with nothing to draw are remembered, so no
+//! refresh retries them.
 //!
 //! ## Frame selection
 //! - Buildings (Structure): always frame 0 (no rotation).
@@ -35,8 +37,8 @@ use crate::rules::house_colors::{HouseColorIndex, HouseColorRamps};
 use crate::rules::projectile_type::ProjectileType;
 use crate::rules::ruleset::RuleSet;
 
-/// Edge of a growth page: 16 MiB of palette indices, room for the sprites of
-/// about ten new (type, house colour) pairs.
+/// Edge of a growth page: 16 MiB of newly needed physical frame indices.
+/// New palette/context aliases reuse their existing rectangles.
 const GROWTH_PAGE_SIZE: u32 = 4096;
 const INFANTRY_FACING_STEP: u8 = crate::util::direction::FACING_UNITS_PER_DIRECTION;
 const INFANTRY_FACING_BUCKETS: u8 = 8;
@@ -604,6 +606,11 @@ pub struct SpriteAtlas {
     pub pages: Vec<SpriteAtlasPage>,
     /// Lookup: (type_id, facing, frame, house_color) → UV rectangle + offset + page.
     entries: HashMap<ShpSpriteKey, ShpSpriteEntry>,
+    /// Derived allocation index for these pages, not another asset/pixel cache.
+    /// Source contents plus selected decoded frame identify immutable indices;
+    /// logical entries retain their own palette, canvas and draw offsets.
+    /// Updated after placement/upload and dropped with the atlas on map load.
+    physical_frames: HashMap<ShpPhysicalFrame, ShpFramePlacement>,
     /// Building type → number of make (build-up) animation frames.
     /// Key is the base type_id (e.g., "GACNST"), not the "_MAKE" suffixed key.
     pub make_frame_counts: HashMap<String, u16>,
@@ -693,6 +700,7 @@ impl SpriteAtlas {
         Self {
             pages,
             entries,
+            physical_frames: HashMap::new(),
             make_frame_counts: HashMap::new(),
             active_anim_frame_counts: HashMap::new(),
             object_shp_frame_counts: HashMap::new(),
@@ -749,7 +757,7 @@ impl SpriteAtlas {
         self.get(&projectile_key(type_id, projectile_type, frame, scheme))
     }
 
-    /// Number of unique sprites across all pages.
+    /// Number of logical draw keys across all pages, including frame aliases.
     pub fn sprite_count(&self) -> usize {
         self.entries.len()
     }
@@ -795,6 +803,45 @@ impl SpriteAtlas {
             .is_some_and(|colors| colors.contains(&color))
     }
 
+    /// Admit one logical key only after its physical rectangle was uploaded.
+    /// Every alias reuses the rectangle while retaining its own draw metadata.
+    fn admit_placed_sprite(
+        &mut self,
+        sprite: &RenderedShpSprite<'_>,
+        placement: ShpFramePlacement,
+    ) {
+        match atlas_entry(
+            sprite,
+            placement.origin,
+            placement.page,
+            placement.page_size,
+        ) {
+            Some(entry) => {
+                self.physical_frames
+                    .insert(sprite.physical_frame(), placement);
+                self.entries.insert(sprite.key.clone(), entry);
+            }
+            None => {
+                log::warn!(
+                    "Sprite atlas page {} exceeds the u8 page index",
+                    placement.page
+                );
+                self.unrenderable.insert(sprite.key.clone());
+            }
+        }
+    }
+
+    fn admit_aliases(&mut self, sprites: Vec<RenderedShpSprite<'_>>) {
+        for sprite in sprites {
+            if let Some(placement) = self.physical_frames.get(&sprite.physical_frame()).copied() {
+                self.admit_placed_sprite(&sprite, placement);
+            } else {
+                // The representative did not fit a page or its u8 page index.
+                self.unrenderable.insert(sprite.key);
+            }
+        }
+    }
+
     /// Place sprites rendered after the map-load pack on growth pages and
     /// upload the rows they fill, one write per page and texture. A sprite
     /// no page can hold is remembered as unrenderable. `palettes` is this
@@ -807,6 +854,7 @@ impl SpriteAtlas {
         sprites: Vec<RenderedShpSprite<'_>>,
         palettes: ShpPalettes,
     ) {
+        let (sprites, aliases) = separate_physical_frames(sprites, &self.physical_frames);
         let max_dim = device.limits().max_texture_dimension_2d;
         self.palettes = palettes;
         let old_rows = self
@@ -857,15 +905,14 @@ impl SpriteAtlas {
             );
             let page_size = [texture.width, texture.height];
             for (origin, sprite) in group.sprites {
-                match atlas_entry(&sprite, origin, group.page, page_size) {
-                    Some(entry) => {
-                        self.entries.insert(sprite.key, entry);
-                    }
-                    None => {
-                        log::warn!("Sprite atlas page {} exceeds the u8 page index", group.page);
-                        self.unrenderable.insert(sprite.key);
-                    }
-                }
+                self.admit_placed_sprite(
+                    &sprite,
+                    ShpFramePlacement {
+                        origin,
+                        page: group.page,
+                        page_size,
+                    },
+                );
             }
         }
         for sprite in unplaced {
@@ -878,6 +925,7 @@ impl SpriteAtlas {
             );
             self.unrenderable.insert(sprite.key);
         }
+        self.admit_aliases(aliases);
     }
 }
 
@@ -909,6 +957,37 @@ fn atlas_entry(
     })
 }
 
+/// The same selected frame of the same immutable source has the same index
+/// bytes: `indices()` only calls ShpFile::decode_frame. Palette/context and
+/// per-type draw offsets never enter that decoder. Use content identity rather
+/// than a borrowed pointer, so source remounts/allocations cannot alias by reuse.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct ShpPhysicalFrame {
+    source_digest: [u8; 32],
+    frame: usize,
+}
+
+#[derive(Clone, Copy)]
+struct ShpFramePlacement {
+    origin: [u32; 2],
+    page: usize,
+    page_size: [u32; 2],
+}
+
+/// Keep one upload per newly needed physical frame. All other logical keys
+/// wait until their resident or same-batch representative is admitted. Initial
+/// packing and growth share this decision and the same admission owner.
+fn separate_physical_frames<'a>(
+    sprites: Vec<RenderedShpSprite<'a>>,
+    resident: &HashMap<ShpPhysicalFrame, ShpFramePlacement>,
+) -> (Vec<RenderedShpSprite<'a>>, Vec<RenderedShpSprite<'a>>) {
+    let mut pending = HashSet::new();
+    sprites.into_iter().partition(|sprite| {
+        let frame = sprite.physical_frame();
+        !resident.contains_key(&frame) && pending.insert(frame)
+    })
+}
+
 /// Intermediate rendered sprite before atlas packing.
 ///
 /// It names its frame instead of holding the pixels, so the sprites waiting
@@ -921,6 +1000,7 @@ struct RenderedShpSprite<'a> {
     /// The SHP file the frame is stored in, already decoded whole once, and
     /// the frame.
     shp: &'a [u8],
+    source_digest: [u8; 32],
     frame: usize,
     width: u32,
     height: u32,
@@ -932,6 +1012,13 @@ struct RenderedShpSprite<'a> {
 }
 
 impl RenderedShpSprite<'_> {
+    fn physical_frame(&self) -> ShpPhysicalFrame {
+        ShpPhysicalFrame {
+            source_digest: self.source_digest,
+            frame: self.frame,
+        }
+    }
+
     /// Palette indices of the stored frame rectangle, without canvas padding.
     fn indices(&self) -> Vec<u8> {
         ShpFile::decode_frame(self.shp, self.frame)
@@ -2116,14 +2203,26 @@ pub fn build_sprite_atlas(
         }
     }
 
-    // Step 1e: Pre-load the parachute SHP (`[General] Parachute=`).
+    // Step 1e: Pre-load both retained canopy types. NPSE Paradrop
+    // C2FA75/C2F939 substitutes VehicleParachute for non-infantry.
     // This registers the no-remap GlobalAnim/colour-0 fallback. The live
     // AnimClass remap closure adds SelectedScheme variants for remapped canopies;
     // both use the unit palette here because PARACH sets `AltPalette=`.
-    let parachute = rules
+    let parachutes = rules
         .filter(|_| previous_atlas.is_none())
-        .and_then(|r| r.general.parachute_shp.as_deref());
-    if let Some(shp_name) = parachute {
+        .into_iter()
+        .flat_map(|r| {
+            [
+                r.general.parachute_shp.as_deref(),
+                if crate::rules::NPATCH_ENABLED {
+                    r.general.vehicle_parachute.as_deref()
+                } else {
+                    None
+                },
+            ]
+        })
+        .flatten();
+    for shp_name in parachutes {
         let candidates = [
             format!("{}.shp", shp_name.to_ascii_lowercase()),
             format!("{}.SHP", shp_name),
@@ -2529,6 +2628,8 @@ struct ShpSource<'a> {
     shp: ShpFile,
     /// The file `shp` was decoded from, which its sprites decode frames from.
     data: &'a [u8],
+    /// Once per decoded source, shared by every palette/context frame key.
+    source_digest: [u8; 32],
     found_name: String,
     /// DrawOffset from art.ini XDrawOffset/YDrawOffset for per-type fine-tuning.
     draw_offsets: (i32, i32),
@@ -2541,9 +2642,13 @@ impl<'a> ShpSource<'a> {
         found_name: String,
         draw_offsets: (i32, i32),
     ) -> Result<Self, crate::assets::error::AssetError> {
+        let shp = ShpFile::from_bytes(data)?;
+        let mut digest = crate::util::sha256::Sha256::new();
+        digest.update(data);
         Ok(Self {
-            shp: ShpFile::from_bytes(data)?,
+            shp,
             data,
+            source_digest: digest.finalize(),
             found_name,
             draw_offsets,
         })
@@ -2832,6 +2937,7 @@ fn render_shp_frame<'a>(
         key: key.clone(),
         palette: palette_row,
         shp: source.data,
+        source_digest: source.source_digest,
         frame: frame_idx,
         width: fw,
         height: fh,
@@ -2924,8 +3030,8 @@ fn render_harvest_overlay_frames<'a>(
             return Vec::new();
         }
     };
-    let shp: ShpFile = match ShpFile::from_bytes(shp_data) {
-        Ok(s) => s,
+    let source = match ShpSource::decode(shp_data, "OREGATH.SHP".to_string(), (0, 0)) {
+        Ok(source) => source,
         Err(e) => {
             log::warn!(
                 "Failed to parse oregath.shp: {} — skipping harvest overlay",
@@ -2934,6 +3040,8 @@ fn render_harvest_overlay_frames<'a>(
             return Vec::new();
         }
     };
+
+    let shp = &source.shp;
 
     // RA2 SHP files often have shadow frames in the second half.
     // Use only the first half (real frames).
@@ -2991,6 +3099,7 @@ fn render_harvest_overlay_frames<'a>(
             // The effect palette, with no house color remap.
             palette: palette_row,
             shp: shp_data,
+            source_digest: source.source_digest,
             frame: frame_idx,
             width: fw,
             height: fh,
@@ -3029,6 +3138,7 @@ fn pack_sprites(
     sprites: Vec<RenderedShpSprite<'_>>,
     mut palettes: ShpPalettes,
 ) -> SpriteAtlas {
+    let (sprites, aliases) = separate_physical_frames(sprites, &HashMap::new());
     // Sort by height descending for shelf packing efficiency.
     let mut indices: Vec<usize> = (0..sprites.len()).collect();
     indices.sort_by(|&a, &b| sprites[b].height.cmp(&sprites[a].height));
@@ -3097,9 +3207,12 @@ fn pack_sprites(
     let palette_rows = palettes.upload(device, queue);
 
     // Build each page's GPU texture.
-    let mut pages: Vec<SpriteAtlasPage> = Vec::with_capacity(num_pages);
-    let mut entries: HashMap<ShpSpriteKey, ShpSpriteEntry> =
-        HashMap::with_capacity(placements.len());
+    let mut atlas = SpriteAtlas::new(
+        Vec::with_capacity(num_pages),
+        HashMap::with_capacity(sprites.len() + aliases.len()),
+        palettes,
+    );
+    atlas.physical_frames.reserve(sprites.len());
     for page_idx in 0..num_pages as u8 {
         // Placements run shelf by shelf, top to bottom, as `upload_shelves` needs.
         let placed: Vec<(usize, [u32; 2])> = placements
@@ -3114,17 +3227,6 @@ fn pack_sprites(
             .unwrap_or(1);
         let (texture, source_indices) =
             batch.create_indexed_page(device, atlas_width, page_height, &palette_rows);
-        for &(idx, origin) in &placed {
-            let sprite = &sprites[idx];
-            if let Some(entry) = atlas_entry(
-                sprite,
-                origin,
-                usize::from(page_idx),
-                [atlas_width, page_height],
-            ) {
-                entries.insert(sprite.key.clone(), entry);
-            }
-        }
         upload_shelves(
             device,
             queue,
@@ -3133,26 +3235,39 @@ fn pack_sprites(
             &placed,
             PACK_BAND_BYTES,
         );
-        pages.push(SpriteAtlasPage { texture });
+        atlas.pages.push(SpriteAtlasPage { texture });
+        for &(idx, origin) in &placed {
+            atlas.admit_placed_sprite(
+                &sprites[idx],
+                ShpFramePlacement {
+                    origin,
+                    page: usize::from(page_idx),
+                    page_size: [atlas_width, page_height],
+                },
+            );
+        }
     }
+    atlas.admit_aliases(aliases);
 
     // One palette index a texel.
-    let texels: u64 = pages
+    let texels: u64 = atlas
+        .pages
         .iter()
         .map(|page| u64::from(page.texture.width) * u64::from(page.texture.height))
         .sum();
-    let sizes: Vec<String> = pages
+    let sizes: Vec<String> = atlas
+        .pages
         .iter()
         .map(|page| format!("{}x{}", page.texture.width, page.texture.height))
         .collect();
     log::info!(
         "Sprite atlas packed into {} page(s) of at most {max_texture_dim} px: {} ({:.0} MiB), {} palette row(s)",
-        pages.len(),
+        atlas.pages.len(),
         sizes.join(", "),
         texels as f64 / (1024.0 * 1024.0),
-        palettes.colors.len(),
+        atlas.palettes.colors.len(),
     );
-    SpriteAtlas::new(pages, entries, palettes)
+    atlas
 }
 
 /// Upload the sprites `placed` on a blank index page (sprite index and origin,

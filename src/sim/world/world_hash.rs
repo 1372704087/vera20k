@@ -495,14 +495,14 @@ fn hash_mission_leaf(leaf: &crate::sim::mission::MissionLeafState, hasher: &mut 
 impl Simulation {
     /// Read-only Rust diagnostic projections through the existing hash owners.
     /// These are attribution receipts, never gameplay/native golden inputs.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 14] {
+    pub fn state_hash_owners(&self) -> [(&'static str, u64); 15] {
         fn digest(fold: impl FnOnce(&mut StateHasher)) -> u64 {
             let mut hasher = StateHasher::new();
             fold(&mut hasher);
             hasher.finish()
         }
         [
+            ("fold_before_fog", digest(|h| self.fold_before_fog(h))),
             ("houses", digest(|h| self.hash_houses(h))),
             (
                 "entities",
@@ -555,6 +555,15 @@ impl Simulation {
             ("planning", digest(|h| self.planning.hash_state(h))),
             ("projectiles", digest(|h| self.hash_projectiles(h))),
         ]
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 14] {
+        // Preserve the existing snapshot tests' owner selection; the new
+        // production prefix additionally includes clocks and Scenario RNG.
+        self.state_hash_owners()[1..]
+            .try_into()
+            .expect("14 retained owner groups")
     }
 
     /// Deterministic state hash over canonicalized simulation state.
@@ -1055,7 +1064,20 @@ impl Simulation {
             }
             house.side_index().hash(hasher);
             house.is_human().hash(hasher);
-            house.player_control().hash(hasher);
+            if self.session.game_mode().is_network() {
+                // Lifecycle discovery projects every represented human before
+                // shared Event5 reads this notification; it is no longer a
+                // process-local cache in a network world.
+                house.discovered_by_current_house().hash(hasher);
+            }
+            // CreateHouses688109..68810F sets PlayerControl(+1ED) only on
+            // this process's source. LAN/WOL peers intentionally differ in
+            // that local input/EVA selector; IsHuman remains shared authority.
+            // Campaign admission/initial credits still read PlayerControl.
+            // Source: original gamemd.exe instructions.
+            if !self.session.game_mode().is_network() {
+                house.player_control().hash(hasher);
+            }
             (house.difficulty() as i32).hash(hasher);
             house.rof_bias().bits().hash(hasher);
             house.is_defeated().hash(hasher);
@@ -1069,6 +1091,9 @@ impl Simulation {
             house.outcome().hash(hasher);
             house.map_is_clear().hash(hasher);
             house.spy_sat_active().hash(hasher);
+            // The initial sight latch drives future per-House fog callbacks.
+            // Network sight updates every represented human viewpoint, so this
+            // retained invalidation state is shared and must remain checked.
             if house.initial_sight_refresh_pending() {
                 b"house-initial-sight-refresh-v1".hash(hasher);
             }
@@ -1423,8 +1448,12 @@ impl Simulation {
     /// spread over threads in large worlds.
     fn entity_digests(&self, entities: &[&GameEntity]) -> Vec<u64> {
         let frame = self.session.binary_frame();
+        let network = self.session.game_mode().is_network();
         state_hasher::digests(entities, entities.len() >= 4096, |entity, hasher| {
-            hash_entity(entity, frame, hasher)
+            hash_entity(entity, frame, hasher);
+            if network {
+                entity.discovery.hash_network(hasher);
+            }
         })
     }
 
@@ -1524,6 +1553,12 @@ fn hash_particle(p: &crate::sim::particles::Particle, hasher: &mut impl Hasher) 
 /// `frame` is the binary frame the pending timers measure against.
 fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.stable_id().hash(hasher);
+    if entity.production_start_price() != 0 {
+        // Techno+300 survives factory release and can suppress FreeUnit at
+        // Grand_Opening446AF2. Native ComputeCRC70C3C6 also consumes it.
+        b"production-start-price".hash(hasher);
+        entity.production_start_price().hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);
@@ -1923,7 +1958,7 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     entity.navigation.pending_destination_setter().hash(hasher);
 
-    entity.foot_speed.applied_fraction().hash(hasher);
+    entity.foot_speed.native_applied_fraction().hash(hasher);
     if entity.foot_speed.crush_slowdown() {
         0x6b5_u32.hash(hasher);
         true.hash(hasher);
@@ -2467,8 +2502,8 @@ fn hash_locomotor_payload(
             state.landing_effect_latched().hash(hasher);
             state.airport_bound().hash(hasher);
             state.fall_counter().hash(hasher);
-            state.target_speed().to_bits().hash(hasher);
-            state.current_speed().to_bits().hash(hasher);
+            state.target_speed().bits().hash(hasher);
+            state.current_speed().bits().hash(hasher);
         }
         LocomotorRuntimePayload::Jumpjet(state) => {
             10u8.hash(hasher);
@@ -4536,6 +4571,11 @@ mod bridge161_hash_projection_tests {
             true,
         );
         let mut locomotor = LocomotorState::for_test_kind(kind);
+        if let Some(fly) = locomotor.fly_runtime_mut() {
+            let tenth = crate::util::native_x87::NativeF64Bits::from_bits(0x3fb9_9999_9999_999a);
+            fly.set_target_speed_bits_for_test(tenth);
+            fly.set_current_speed_bits_for_test(tenth);
+        }
         if stashed {
             assert!(locomotor.begin_piggyback(LocomotorKind::Teleport, 0));
         }
@@ -4559,6 +4599,15 @@ mod bridge161_hash_projection_tests {
                 _ => unreachable!(),
             },
             LocomotorRuntimePayload::Hover(state) => state.set_head(Some(coord)),
+            LocomotorRuntimePayload::Fly(state) => {
+                // Adjacent binary64 values share the same old Q16 projection.
+                let next = crate::util::native_x87::NativeF64Bits::from_bits(0x3fb9_9999_9999_999b);
+                match field {
+                    0 => state.set_target_speed_bits_for_test(next),
+                    1 => state.set_current_speed_bits_for_test(next),
+                    _ => unreachable!(),
+                }
+            }
             LocomotorRuntimePayload::Jumpjet(state) => {
                 *state = match field {
                     0 => state.clone().with_destination_for_test(coord),
@@ -4594,6 +4643,7 @@ mod bridge161_hash_projection_tests {
         for (kind, fields) in [
             (LocomotorKind::Walk, 4),
             (LocomotorKind::Hover, 1),
+            (LocomotorKind::Fly, 2),
             (LocomotorKind::Jumpjet, 7),
         ] {
             for stashed in [false, true] {

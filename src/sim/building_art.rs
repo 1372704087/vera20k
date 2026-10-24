@@ -411,21 +411,26 @@ impl Simulation {
         // (Location `+0x9C` / 256) on a capture too. The fog border redraw
         // around it (`0x00567DA0`, radius + 3) is presentation: the shroud
         // renderer rebuilds from the vision owner.
-        if object.reveal_to_all && !self.house_is_human_player(owner) {
-            if !captured {
+        if object.reveal_to_all {
+            if !captured
+                && (self.session.game_mode().is_network() || !self.house_is_human_player(owner))
+            {
                 self.reveal_sight_to_current_house(
                     id,
                     crate::sim::world::UninitContext::new(rules, registry).with_effects(effects),
+                    None,
                 );
             }
-            self.sound_events
-                .emit(crate::sim::world::SimSoundEvent::RadarEvent {
-                    radar: crate::sim::radar::RadarEventRequest::new(
-                        crate::sim::radar::RadarEventType::ConstructionComplete,
-                        cell.0,
-                        cell.1,
-                    ),
-                });
+            if !self.house_is_human_player(owner) {
+                self.sound_events
+                    .emit(crate::sim::world::SimSoundEvent::RadarEvent {
+                        radar: crate::sim::radar::RadarEventRequest::new(
+                            crate::sim::radar::RadarEventType::ConstructionComplete,
+                            cell.0,
+                            cell.1,
+                        ),
+                    });
+            }
         }
         //44699A..446A5B: default naval rally, before placement/power publication.
         self.initialize_naval_rally_point(id, rules);

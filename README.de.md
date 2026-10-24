@@ -38,8 +38,10 @@ das Projekt entwickelt.
 - **Kampagnen:** Missionen lassen sich starten; die Unterstützung bleibt unvollständig.
 - **KI:** Teile der ursprünglichen KI übernehmen den Basisbau und skriptgesteuerte Angriffe.
 - **Laufende Arbeiten:** Spielverhalten, Grafik und Leistung.
-- **Mehrspielermodus:** Netzwerkspiel ist noch nicht verfügbar.
-- **Größenordnung:** Schlachten mit 30 Spielern und 20.000 Einheiten wurden noch nicht demonstriert.
+- **Mehrspielermodus:** Aktuelle Quellcode-Builds unterstützen LAN- und Online-Spiele auf macOS und Linux.
+- **Größenordnung:** Zwei aufeinanderfolgende Online-Partien bestanden die Funktionsprüfung mit
+  30 unabhängigen Client-Prozessen und jeweils mehr als 20.000 aktiven mobilen Einheiten.
+  Die Linux-Clients teilten sich virtuelle Maschinen; flüssige Echtzeitleistung ist damit nicht belegt.
 
 ## Herunterladen und spielen
 

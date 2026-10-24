@@ -47,6 +47,10 @@ mod area_guard_tests;
 #[path = "player_scatter_tests.rs"]
 mod player_scatter_tests;
 
+#[cfg(test)]
+#[path = "mcv_group_tests.rs"]
+mod mcv_group_tests;
+
 /// Handle mouse button press/release for selection and move commands.
 ///
 /// The in-game gadget walk runs FIRST (study G22/A8): chrome buttons + cameos
@@ -2922,6 +2926,7 @@ mod item83_selection_order_tests {
                         target_rx: 5,
                         target_ry: 7,
                     },
+                    None,
                 )
                 .unwrap();
             let command = sim.decode_native_command_record(&record, 0).unwrap();
@@ -3042,6 +3047,7 @@ mod item83_selection_order_tests {
                         target_rx: 5,
                         target_ry: 7,
                     },
+                    None,
                 )
             } else {
                 sim.encode_plan_connect_record(local, actor, (5, 7))
@@ -3273,6 +3279,9 @@ fn queue_stop_for_selected(state: &mut AppState) {
         );
         return;
     }
+    if !super::commands::selection_input_has_capacity(state, selected_ids.len()) {
+        return;
+    }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
         return;
     };
@@ -3355,6 +3364,9 @@ fn queue_guard_for_selected(state: &mut AppState) {
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
+    if !super::commands::selection_input_has_capacity(state, selected.len()) {
+        return;
+    }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
         return;
     };
@@ -3403,6 +3415,9 @@ fn queue_scatter_for_selected(state: &mut AppState) {
                 crate::app::input::planning_mode::PlanningRefusal::Scatter,
             );
         }
+        return;
+    }
+    if !super::commands::selection_input_has_capacity(state, selected.len()) {
         return;
     }
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
@@ -3515,6 +3530,9 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
         &state.match_state.input.selection_order,
         state.match_state.input.selection_order_pending,
     );
+    if !super::commands::selection_input_has_capacity(state, selected_ids.len()) {
+        return;
+    }
     let Some(sim) = state
         .match_state
         .sim_runtime

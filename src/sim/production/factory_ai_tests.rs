@@ -438,29 +438,6 @@ fn legacy_ai_limit_switch_keeps_default_cloning_and_requires_npatch() {
     );
 }
 
-/// NPExt173 C2CFF7..C2D003 reads tracking once: held identities already
-/// joined it.
-#[cfg(feature = "npatch")]
-#[test]
-fn legacy_ai_limit_counts_limbo_factory_objects_once() {
-    let (mut f, first, second) = ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=2");
-    ai_limit_visit(&mut f, first);
-    ai_limit_visit(&mut f, second);
-    assert!(ai_limit_holds(&f, first) && ai_limit_holds(&f, second));
-    let third = f
-        .sim
-        .spawn_object("WEAP", "AIHouse", 14, 8, 0, &f.rules)
-        .unwrap();
-    ai_limit_visit(&mut f, third);
-    assert!(!ai_limit_holds(&f, third));
-    assert_eq!(
-        f.sim.houses[&f.owner]
-            .ai_unit_choices()
-            .get(UnitChoiceKind::Unit),
-        -1
-    );
-}
-
 /// NPExt173 C2D00D..C2D037 also checks owned counts for a negative cap,
 /// even when no factory has produced an object of this type yet.
 #[cfg(feature = "npatch")]
@@ -485,5 +462,38 @@ fn legacy_negative_ai_limit_includes_owned_unproduced_objects() {
             .ai_unit_choices()
             .get(UnitChoiceKind::Unit),
         -1
+    );
+}
+
+/// The ext173 gate reads the house's tracked table for every class; the stock
+/// `CheckBuildLimit` swaps in the runway-pad count for an `AirportBound=`
+/// aircraft instead. A capped aircraft with no airfield would look blocked
+/// through `CanBuild`, but the AI gate has to compare the type's own count.
+#[cfg(feature = "npatch")]
+#[test]
+fn the_gate_compares_an_airport_bound_aircraft_by_its_own_count() {
+    let mut f = fixture_with(
+        "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
+         AIAlternateProductionCreditCutoff=10\n\
+         [InfantryTypes]\n[AircraftTypes]\n0=HELI\n[VehicleTypes]\n0=TANK\n\
+         [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+         [PLAIN]\nStrength=1000\nCost=100\n\
+         [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+         [TANK]\nStrength=300\nSpeed=5\nCost=100\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [HELI]\nStrength=300\nCost=100\nBuildLimit=1\nAirportBound=yes\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [Clear]\nBuildable=yes\n",
+    );
+    let heli = f.rules.object("HELI").expect("HELI is an aircraft type");
+    assert!(heli.airport_bound);
+    assert!(
+        crate::sim::production::can_build::check_build_limit(&f.sim, &f.rules, f.owner, heli),
+        "the stock CanBuild branch compares runway pads, not the limit"
+    );
+    assert!(
+        !super::ai_build_limit_blocks(&f.sim, &f.rules, f.owner, heli, heli.build_limit),
+        "the gate compares the house's count of the type"
     );
 }

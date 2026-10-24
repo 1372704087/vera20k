@@ -396,6 +396,18 @@ pub(super) fn settle_abandoned(
     abandoned: AbandonedObject,
     effects: FrameEffects<'_>,
 ) {
+    // NPSE 2.0 AbandonProduction C2EFB4..C2F06D releases the held
+    // object's House before refund, even for human factories or while the
+    // switch is off. Later choice cleanup keeps the Factory's own House.
+    #[cfg(feature = "npatch")]
+    if let Some((owner, category, naval)) = abandoned.entity_id.and_then(|id| {
+        let entity = sim.substrate.entities.get(id)?;
+        let ty = sim.entity_object_type(entity, rules)?;
+        Some((entity.owner(), ty.category, ty.naval))
+    }) && let Some(house) = sim.houses.get_mut(&owner)
+    {
+        house.ai_production_mut().release_parallel(category, naval);
+    }
     let category = sim
         .production
         .factories()
@@ -1326,7 +1338,9 @@ pub fn validate_restored_factory_state(
                 }
             }
             // `BuildingClass::Factory_AI` makes one for its building's owner,
-            // holding one object and no queue, and counts no completion.
+            // holding at most one object and no queue, and counts no
+            // completion. PointerExpired4CA580 may clear the held pointer
+            // while retaining the Factory and all its other state.
             FactoryHolder::Building(building) => {
                 let held_by_owner = sim.substrate.entities.get(building).is_some_and(|entity| {
                     entity.category() == EntityCategory::Structure && entity.owner() == owner
@@ -1337,8 +1351,8 @@ pub fn validate_restored_factory_state(
                         "factory's building is absent or another house's",
                     ));
                 }
-                if factory.object().is_none() || !factory.queue().is_empty() {
-                    return Err(fail(owner, "building factory holds no single object"));
+                if !factory.queue().is_empty() {
+                    return Err(fail(owner, "building factory has a queued tail"));
                 }
                 if factory
                     .object()

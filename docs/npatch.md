@@ -42,6 +42,19 @@ NPSE #359 replaced the global switch with `AIBuildLimit=`. If a VERA ruleset exp
 both, both constraints apply before production starts. Clearing a choice does not skip an
 unsatisfied building-plan node or guarantee the mobile chooser selects an uncapped type.
 
+`[General] DisableParallelAIQueues=` defaults to no and requires `npatch`.
+The native reader preserves the current byte (`0xC30303..0xC3031A`); the Rules
+constructor zeroes it (`0x66569B`). With yes, Factory_AI reserves one of five House
+production counters before compatibility, allocation and construction (`0xC2F07C`):
+aircraft, land vehicles, naval vehicles, infantry and buildings. Only vehicles split
+by `Naval=`. The existing House AI production owner saves and hashes those counters.
+
+Mobile exits release at their native class admission prefix, before later placement
+can fail; buildings release after successful Unlimbo (`0xC33940`, `0xC2F184`,
+`0xC2F1A3`). Abandonment releases the held object's House before refund (`0xC2EFB4`).
+Failed starts and PointerExpired retain their reservation. Releases run independently
+of the switch and clamp signed negative counts to zero, matching the original hooks.
+
 ## Cross-extension compatibility
 
 The three capabilities — `ares`, `phobos`, `npatch` — are orthogonal and mixable:

@@ -276,6 +276,19 @@ fn start_factory(
         clear_aibuild_limit_choice(sim, owner, object);
         return;
     }
+    // NPSE 2.0 Factory_AI C2F07C..C2F11F reserves the fetched type's
+    // class before naval admission, allocation and construction. The House
+    // owner retains failed-start/expired reservations until a native release.
+    #[cfg(feature = "npatch")]
+    if rules.general.disable_parallel_ai_queues
+        && !sim.houses.get_mut(&owner).is_some_and(|house| {
+            house
+                .ai_production_mut()
+                .reserve_parallel(object.category, object.naval)
+        })
+    {
+        return;
+    }
     if object.category == ObjectCategory::Vehicle && object.naval != factory_naval {
         return;
     }

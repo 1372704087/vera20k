@@ -59,6 +59,8 @@
 //!   slot is dereferenced (`0x004FE8A9`, `0x00505368`). VERA makes no choice
 //!   for such a node and splices nothing for a missing plant.
 
+use std::hash::{Hash, Hasher};
+
 use crate::rules::object_type::{FactoryType, ObjectCategory, ObjectType};
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
@@ -80,7 +82,7 @@ use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{PlacementEvidence, Simulation};
 
 /// The computer's production state on its House.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct HouseAiProduction {
     /// `HouseClass+0x1E4`, the mode `EconomyStateMachine` steps and the
     /// chooser block dispatches on.
@@ -93,6 +95,12 @@ pub struct HouseAiProduction {
     /// nothing sets it again (the other clearing writer, `0x005048A0`, has no
     /// caller).
     naval_allowed: bool,
+    /// NPSE 2.0 House+160D4..160E4, zeroed at C31206..C3121E:
+    /// aircraft, land vehicle, naval vehicle, infantry, building. These
+    /// reservations survive failed starts and PointerExpired independently
+    /// of any Factory's lifetime; this House production owner retains them.
+    #[serde(default)]
+    parallel_reservations: [i32; 5],
 }
 
 impl Default for HouseAiProduction {
@@ -103,11 +111,64 @@ impl Default for HouseAiProduction {
             mode: 0,
             building_choice: -1,
             naval_allowed: true,
+            parallel_reservations: [0; 5],
+        }
+    }
+}
+
+impl Hash for HouseAiProduction {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        // Preserve the previous hash when no extension reservation exists.
+        self.mode.hash(hasher);
+        self.building_choice.hash(hasher);
+        self.naval_allowed.hash(hasher);
+        if self.parallel_reservations != [0; 5] {
+            b"npse-parallel-reservations-v1".hash(hasher);
+            self.parallel_reservations.hash(hasher);
         }
     }
 }
 
 impl HouseAiProduction {
+    #[cfg(feature = "npatch")]
+    fn parallel_slot_mut(&mut self, category: ObjectCategory, naval: bool) -> &mut i32 {
+        let index = match category {
+            ObjectCategory::Aircraft => 0,
+            ObjectCategory::Vehicle => {
+                if naval {
+                    2
+                } else {
+                    1
+                }
+            }
+            ObjectCategory::Infantry => 3,
+            ObjectCategory::Building => 4,
+        };
+        &mut self.parallel_reservations[index]
+    }
+
+    /// NPSE 2.0 Factory_AI C2F07C..C2F11F reserves before naval
+    /// compatibility, allocation and StartProduction. Only vehicles split
+    /// on Naval. Failure and PointerExpired do not compensate this write.
+    #[cfg(feature = "npatch")]
+    pub(crate) fn reserve_parallel(&mut self, category: ObjectCategory, naval: bool) -> bool {
+        let counter = self.parallel_slot_mut(category, naval);
+        if *counter > 0 {
+            return false;
+        }
+        *counter = counter.wrapping_add(1);
+        true
+    }
+
+    /// NPSE 2.0 Exit_Object C2EF95/C3395E/C3397F/C2F184/C2F1A9
+    /// and AbandonProduction C2EFB4..C2F06D decrement unconditionally,
+    /// then clamp signed negatives to zero. Callers own the admission phase
+    /// and House identity; no per-object reservation flag changes that rule.
+    #[cfg(feature = "npatch")]
+    pub(crate) fn release_parallel(&mut self, category: ObjectCategory, naval: bool) {
+        let counter = self.parallel_slot_mut(category, naval);
+        *counter = counter.wrapping_sub(1).max(0);
+    }
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn mode(&self) -> i32 {
         self.mode
@@ -887,6 +948,14 @@ fn place_building(
         {
             return false;
         }
+        // NPSE 2.0 building Exit_Object C2F1A3 releases only after
+        // Unlimbo succeeds, including a wall that deleted its own object.
+        #[cfg(feature = "npatch")]
+        if let Some(house) = sim.houses.get_mut(&owner) {
+            house
+                .ai_production_mut()
+                .release_parallel(ObjectCategory::Building, false);
+        }
         crate::sim::production::autofill_walls(sim, rules, registry, ty, (rx, ry), owner, effects);
         return true;
     }
@@ -905,6 +974,14 @@ fn place_building(
         .is_none()
     {
         return false;
+    }
+    // NPSE 2.0 building Exit_Object C2F1A3 precedes slave handoff and
+    // mission callbacks after successful Unlimbo; failed placement retains it.
+    #[cfg(feature = "npatch")]
+    if let Some(house) = sim.houses.get_mut(&owner) {
+        house
+            .ai_production_mut()
+            .release_parallel(ObjectCategory::Building, false);
     }
     sim.note_mission_spawned_entities();
     sim.slave_manager_hand_off(product, rules, effects);

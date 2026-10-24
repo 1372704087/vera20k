@@ -4355,6 +4355,10 @@ pub struct RuleSet {
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
     pub(crate) shield_globals: crate::rules::phobos_shields::ShieldGlobals,
+    /// Phobos placement preview globals (`[AudioVisual] PlacementPreview*`).
+    #[cfg(feature = "phobos")]
+    pub(crate) placement_preview_globals:
+        crate::rules::phobos_placement_preview::PlacementPreviewGlobals,
     /// Radar event visual parameters (ping rectangles on minimap).
     pub radar_event_config: RadarEventConfig,
     /// All superweapon types indexed by ID (e.g., "LightningStormSpecial" → SuperWeaponType).
@@ -5516,6 +5520,9 @@ impl RuleSet {
             )
         };
         #[cfg(feature = "phobos")]
+        let placement_preview_globals =
+            crate::rules::phobos_placement_preview::PlacementPreviewGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let radiation = {
             let mut radiation = radiation;
             radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
@@ -5897,6 +5904,8 @@ impl RuleSet {
             shield_types,
             #[cfg(feature = "phobos")]
             shield_globals,
+            #[cfg(feature = "phobos")]
+            placement_preview_globals,
             radar_event_config,
             super_weapons,
             super_weapon_order,
@@ -6305,6 +6314,14 @@ impl RuleSet {
         &self.shield_globals
     }
 
+    /// Phobos placement preview globals (`[AudioVisual]`).
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_globals(
+        &self,
+    ) -> &crate::rules::phobos_placement_preview::PlacementPreviewGlobals {
+        &self.placement_preview_globals
+    }
+
     /// Look up a projectile by ID (case-insensitive, gamemd parity).
     pub fn projectile(&self, id: &str) -> Option<&ProjectileType> {
         Self::lookup_ci(&self.projectiles, id)
@@ -6494,6 +6511,24 @@ impl RuleSet {
             self.object_list
                 .iter()
                 .map(|object| (&object.id, object.shield_type()))
+                .collect::<Vec<_>>()
+                .hash(&mut hasher);
+            b"phobos-placement-preview-v1".hash(&mut hasher);
+            self.placement_preview_globals.hash(&mut hasher);
+            self.object_list
+                .iter()
+                .map(|object| {
+                    (
+                        &object.id,
+                        object.placement_preview(),
+                        object.placement_preview_shape(),
+                        object.placement_preview_shape_frame(),
+                        object.placement_preview_offset(),
+                        object.placement_preview_remap(),
+                        object.placement_preview_palette(),
+                        object.placement_preview_translucency(),
+                    )
+                })
                 .collect::<Vec<_>>()
                 .hash(&mut hasher);
         }

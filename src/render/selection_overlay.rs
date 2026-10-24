@@ -103,6 +103,7 @@ impl CenteredShapeStrip {
     pub(crate) fn building_placement_instance(
         &self,
         cell: BuildingPlacementCell,
+        alpha: f32,
     ) -> Option<SpriteInstance> {
         let frame = if cell.valid {
             0
@@ -115,6 +116,7 @@ impl CenteredShapeStrip {
         let (x, y) = terrain::iso_to_screen(cell.coord.0, cell.coord.1, cell.level as u8);
         let mut instance = self.instance(frame, (x + 30.0, y - 1.0), 0.0)?;
         instance.palette_light = crate::render::palette_light::PaletteLight::plain(53, 1000);
+        instance.alpha = alpha;
         Some(instance)
     }
 
@@ -212,6 +214,7 @@ impl CenteredShapeStrip {
     pub fn build_building_preview(
         &self,
         preview: &BuildingPlacementPreview,
+        alpha: f32,
     ) -> Vec<SpriteInstance> {
         let mut instances = Vec::with_capacity(preview.cells.len());
         //6D5030 / Ares100155C0 walks actual-list bounds X outer/Y inner;
@@ -222,7 +225,7 @@ impl CenteredShapeStrip {
         let mut active: Vec<_> = preview.cells.iter().collect();
         active.sort_by_key(|cell| (cell.coord.0 as i16, cell.coord.1 as i16));
         for cell in active {
-            if let Some(instance) = self.building_placement_instance(*cell) {
+            if let Some(instance) = self.building_placement_instance(*cell, alpha) {
                 instances.push(instance);
             }
         }
@@ -232,7 +235,7 @@ impl CenteredShapeStrip {
             preview
                 .wall_autofill_cells
                 .iter()
-                .filter_map(|cell| self.building_placement_instance(*cell)),
+                .filter_map(|cell| self.building_placement_instance(*cell, alpha)),
         );
         instances
     }

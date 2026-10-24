@@ -37,5 +37,6 @@ Supported extensions:
 - [Custom gather animations](phobos-harvester-gather-animations.md)
 - [Ore-stage animation hiding](phobos-hide-if-no-ore-threshold.md)
 - [Superweapon techno gates](phobos-superweapon-technos.md)
+- [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)

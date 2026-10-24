@@ -18,6 +18,8 @@ pub(crate) mod lasers;
 pub(crate) mod line_trails;
 pub(crate) mod outcome_banner;
 pub(crate) mod overlay_index;
+#[cfg(feature = "phobos")]
+pub(crate) mod placement_preview;
 pub(crate) mod radial_indicators;
 pub(crate) mod radiation_beams;
 pub(crate) mod render;

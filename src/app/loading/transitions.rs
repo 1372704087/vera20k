@@ -278,6 +278,15 @@ pub(crate) fn install_world_presentation(
         &state.renderer.batch_renderer,
         state.process_assets.manager(),
     ));
+    // Phobos placement preview strips embed the active theater's palette and
+    // the local house colour; a map load invalidates them.
+    #[cfg(feature = "phobos")]
+    state
+        .match_state
+        .match_presentation
+        .placement_preview_art
+        .borrow_mut()
+        .reset();
     // Full_Init 687BB2 -> Init_BeaconArt 4309D0; each row's ColorScheme is
     // its House's (+0x16054).
     state.match_state.match_presentation.beacon_art =

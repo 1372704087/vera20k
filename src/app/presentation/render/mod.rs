@@ -832,6 +832,8 @@ fn upload_to_gpu(
     pool.upload(&state.renderer.gpu, "drag", &ui.drag);
     pool.upload(&state.renderer.gpu, "software_cursor", &ui.software_cursor);
     pool.upload(&state.renderer.gpu, "placement", &ui.placement);
+    #[cfg(feature = "phobos")]
+    pool.upload(&state.renderer.gpu, "placement_ghost", &ui.placement_ghost);
     pool.upload(
         &state.renderer.gpu,
         "factory_rally_first",

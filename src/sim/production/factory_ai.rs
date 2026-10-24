@@ -48,7 +48,9 @@
 //!   `Exit_Object` arms a human's placement takes, including the Infantry
 //!   arm's Cloning Vat copies. Its residual: the refinery arm's Unit exit.
 
+use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
+use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
@@ -58,7 +60,6 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
-use super::can_build::check_build_limit;
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
 use super::factory_lifecycle::{
     BuiltObject, abandon_production, record_last_built, start_active_production,
@@ -269,14 +270,16 @@ fn start_factory(
     // `FactoryClass::AbandonProduction 0x004CA0E0`,
     // `factory_lifecycle::settle_abandoned`).
     //
-    // `check_build_limit` is the stock `CheckBuildLimit @ 0x0050B370` this
-    // gate reproduces. A capped building's plan node stays unsatisfied, so the
-    // next `choose_building` returns the same type: that is the manual's
-    // warning that a building at its limit leaves the computer unable to
-    // build anything, not a recovery.
+    // `build_limit_blocks` is that comparison, not `check_build_limit`: the
+    // cave reads the tracked table for every class, while the stock
+    // `CheckBuildLimit @ 0x0050B370` swaps in the airport-pad count for an
+    // `AirportBound=` aircraft. A capped building's plan node stays
+    // unsatisfied, so the next `choose_building` returns the same type: that
+    // is the manual's warning that a building at its limit leaves the
+    // computer unable to build anything, not a recovery.
     if crate::rules::NPATCH_ENABLED
         && rules.general.enable_ai_build_limitation
-        && check_build_limit(sim, rules, owner, object)
+        && build_limit_blocks(sim, rules, owner, object)
     {
         if let Some(house) = sim.houses.get_mut(&owner) {
             match UnitChoiceKind::of(object.category) {
@@ -325,6 +328,43 @@ fn start_factory(
             .factories_mut()
             .remove_building_factory(building);
     }
+}
+
+/// The gate's comparison (`0xC2CF67..0xC2D11F`): whether `owner` is at
+/// `object`'s stock `BuildLimit=`. A positive limit allows while the house's
+/// tracked count of the type stays below it (`jl 0xC2CFD0`); a non-positive
+/// one blocks once the produced count (`House+0x55B4..0x55DC`) or the tracked
+/// count (`+0x5514..0x553C`) reaches its magnitude (`neg` then `jle`), so an
+/// explicit `0` blocks the type outright. The cave reads those tables for
+/// every class, aircraft included, so this does not go through
+/// `check_build_limit`, whose `AirportBound=` branch compares runway pads
+/// against docks instead of the type's own count.
+fn build_limit_blocks(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    object: &ObjectType,
+) -> bool {
+    let limit = object.build_limit;
+    let owned = sim
+        .interner
+        .get(&object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(type_id, house)| {
+            house
+                .tracking()
+                .owned_count(EntityCategory::from(object.category), type_id)
+        });
+    if limit > 0 {
+        return owned >= limit;
+    }
+    let produced = rules
+        .type_array_index(object.category, &object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(index, house)| {
+            house.produced_count(object.category, index)
+        });
+    produced.wrapping_neg() <= limit || owned.wrapping_neg() <= limit
 }
 
 /// `CDTimerClass` at `+0x550` has run out (`0x00450115..0x00450136`).

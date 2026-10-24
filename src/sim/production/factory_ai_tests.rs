@@ -497,3 +497,37 @@ fn a_capped_building_clears_its_choice_and_keeps_the_node() {
     limit_visit(&mut f, yard);
     assert!(!limit_holds(&f, yard));
 }
+
+
+/// The ext173 gate reads the house's tracked table for every class; the stock
+/// `CheckBuildLimit` swaps in the runway-pad count for an `AirportBound=`
+/// aircraft instead. A capped aircraft with no airfield would look blocked
+/// through `CanBuild`, but the AI gate has to compare the type's own count.
+#[cfg(feature = "npatch")]
+#[test]
+fn the_gate_compares_an_airport_bound_aircraft_by_its_own_count() {
+    let mut f = fixture_with(
+        "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
+         AIAlternateProductionCreditCutoff=10\n\
+         [InfantryTypes]\n[AircraftTypes]\n0=HELI\n[VehicleTypes]\n0=TANK\n\
+         [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+         [PLAIN]\nStrength=1000\nCost=100\n\
+         [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+         [TANK]\nStrength=300\nSpeed=5\nCost=100\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [HELI]\nStrength=300\nCost=100\nBuildLimit=1\nAirportBound=yes\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [Clear]\nBuildable=yes\n",
+    );
+    let heli = f.rules.object("HELI").expect("HELI is an aircraft type");
+    assert!(heli.airport_bound);
+    assert!(
+        crate::sim::production::can_build::check_build_limit(&f.sim, &f.rules, f.owner, heli),
+        "the stock CanBuild branch compares runway pads, not the limit"
+    );
+    assert!(
+        !super::build_limit_blocks(&f.sim, &f.rules, f.owner, heli),
+        "the gate compares the house's count of the type"
+    );
+}

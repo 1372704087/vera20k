@@ -324,6 +324,7 @@ pub(crate) fn install_world_presentation(
             [cw, ch],
             crate::render::shroud_buffer::SHROUD_EDGE_LUT,
         );
+        buffer.set_translucent_fog(&state.renderer.gpu.queue, state.translucent_fog_enabled());
         // Cell47EFE0/47F250 use FOG.SHP's raw A bytes when Scenario0x1000
         // is set. It belongs to this same tactical source, not a sprite atlas.
         let fog = crate::assets::shp_file::ShpFile::from_bytes(assets.get_ref("fog.shp")?).ok()?;

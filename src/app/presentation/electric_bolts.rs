@@ -99,15 +99,22 @@ impl ElectricBolts {
                     phase: bolt.phase,
                     alternate_color: bolt.birth.alternate_color,
                 };
-                if visible(&bolt.birth) {
-                    draw.lines(
-                        viewport,
-                        palette.expect("loaded tactical PALETTE.PAL"),
-                        main,
-                        |line| self.lines.push(line),
-                    );
-                    bolt.phase = bolt.phase.wrapping_add(1);
-                }
+                // EBoltMgr::UpdateAndDrawAll @ 0x004C2830 calls Draw4C1F20
+                // before incrementing phase at4C293D, then shifts decay at
+                //4C2942. Conceal only emitted pixels: the optional fog style
+                // must not skip geometry's shared Main draws or either update.
+                let emit = visible(&bolt.birth);
+                draw.lines(
+                    viewport,
+                    palette.expect("loaded tactical PALETTE.PAL"),
+                    main,
+                    |line| {
+                        if emit {
+                            self.lines.push(line);
+                        }
+                    },
+                );
+                bolt.phase = bolt.phase.wrapping_add(1);
             }
             bolt.decay >>= 1;
         }

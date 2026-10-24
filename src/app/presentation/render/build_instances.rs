@@ -409,7 +409,7 @@ pub(super) fn build_world_instances(
     // live enemy objects the local viewer cannot see leave the draw plan fully
     // (body, shadow, attached anim parts and extras) instead of showing through
     // the fog. Terrain, overlays and revealed map art stay visible.
-    if !state.match_state.sandbox_full_visibility {
+    if state.translucent_fog_enabled() && !state.match_state.sandbox_full_visibility {
         let viewer_name = crate::app::input::commands::preferred_local_owner_name(state);
         if let (Some(rt), Some(viewer_name)) = (
             state.match_state.sim_runtime.as_ref(),

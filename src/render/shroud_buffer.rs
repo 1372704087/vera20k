@@ -29,11 +29,9 @@ use wgpu::util::DeviceExt;
 /// itself a universal RGB brightness multiplier.
 const NEUTRAL: u8 = 0x7F;
 
-/// How much of the native shroud darkening survives. 1000 keeps the original
-/// opaque A; 500 lifts A halfway back to [`NEUTRAL`], so the map stays visible
-/// through the fog. Client-only presentation policy: the simulation's
-/// visibility, shroud knowledge and A bytes are unchanged.
-const FOG_STRENGTH_MILLI: u32 = 500;
+/// The default retains native A. The optional translucent style uses 500;
+/// simulation visibility, shroud knowledge and stored A bytes stay unchanged.
+const FOG_STRENGTH_MILLI: u32 = 1000;
 
 /// Lift one A value toward [`NEUTRAL`] by `strength_milli` (0 = no shading,
 /// 1000 = native). The GPU's `tactical_a_at` applies the same integer
@@ -322,6 +320,16 @@ impl ShroudBuffer {
         result
     }
 
+    /// Apply the local graphics preference through this A source's existing
+    /// uniform/upload owner. Both CPU sampling and WGSL use the same strength.
+    pub(crate) fn set_translucent_fog(&mut self, queue: &wgpu::Queue, enabled: bool) {
+        let strength = if enabled { 500 } else { FOG_STRENGTH_MILLI };
+        if self.fog_strength_milli != strength {
+            self.fog_strength_milli = strength;
+            self.upload(queue);
+        }
+    }
+
     /// Cell47EFE0/47F250 load the literal FOG.SHP at81CE10. Keep its raw
     /// brightness bytes with the existing A-buffer source owner.
     pub(crate) fn install_fog_frames(&mut self, pixels: Vec<Vec<u8>>, canvas: [u32; 2]) {
@@ -599,9 +607,6 @@ impl ShroudBuffer {
         );
         result.last_cam_x = origin[0].floor();
         result.last_cam_y = origin[1].floor();
-        // Native A fixtures assert the original opaque composition, so this
-        // synthetic source deliberately opts out of the fog policy.
-        result.fog_strength_milli = 1000;
         for (row, source) in pixels.chunks_exact(size[0] as usize).enumerate() {
             let start = row * result.row_stride as usize;
             result.pixels[start..start + source.len()].copy_from_slice(source);

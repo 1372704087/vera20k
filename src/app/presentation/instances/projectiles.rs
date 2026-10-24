@@ -123,7 +123,8 @@ pub(crate) fn build_projectile_visual_instances(
         // VERA's translucent fog: enemy bullets and their trails would outline
         // an unseen firing position. Superweapon impact visuals are separate
         // effect owners and stay visible.
-        if !state.match_state.sandbox_full_visibility
+        if state.translucent_fog_enabled()
+            && !state.match_state.sandbox_full_visibility
             && super::helpers::translucent_fog_conceals_bullet(
                 sim,
                 projectile,

@@ -1001,7 +1001,10 @@ pub(crate) fn build_overlay_instances(
                     .as_deref()
                     .and_then(|name| sim.interner().get(name));
                 (
-                    viewer,
+                    viewer.filter(|_| {
+                        state.translucent_fog_enabled()
+                            && !state.match_state.sandbox_full_visibility
+                    }),
                     Some(sim.fog()),
                     sim.session().game_options().fog_of_war,
                 )

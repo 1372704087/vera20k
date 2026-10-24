@@ -201,6 +201,8 @@ pub(crate) fn render_game(
     );
 
     let local_owner = preferred_local_owner_name(state);
+    let translucent_fog = state.translucent_fog_enabled();
+    let sandbox = state.match_state.sandbox_full_visibility;
     // Effective viewport in world pixels — zoom shrinks what's visible.
     let z = state.match_state.input.zoom_level;
     let vsw = sw / z;
@@ -476,11 +478,13 @@ pub(crate) fn render_game(
     let effect_hidden = |x: i32, y: i32| {
         let (rx, ry) = crate::app::presentation::instances::lepton_cell(x, y);
         let (sx, sy) = crate::map::terrain::iso_to_screen(rx, ry, 0);
-        shroud_gate.is_some_and(|buffer| {
-            buffer
-                .sample_world_native(sx as f32, sy as f32, camera[0], camera[1])
-                .is_some_and(|a| a < 127)
-        })
+        translucent_fog
+            && !sandbox
+            && shroud_gate.is_some_and(|buffer| {
+                buffer
+                    .sample_world_native(sx as f32, sy as f32, camera[0], camera[1])
+                    .is_some_and(|a| a < 127)
+            })
     };
     // Tactical6D4669 LaserDraw550240 precedes6D466E EBolt, then6D4673
     // trails, even when this composite ran no Logic. Their shared process
@@ -511,33 +515,44 @@ pub(crate) fn render_game(
         .sim_runtime
         .as_ref()
         .map(|runtime| runtime.view().simulation());
-    let sandbox = state.match_state.sandbox_full_visibility;
-    let segments = presentation.line_trails.composite(|id| {
-        let sim = sim?;
-        let bullet = sim.projectiles().get(id)?;
-        let sampled = presentation.interpolation.sample_point(
-            crate::app::presentation::interpolation::PointKind::Bullet,
-            id,
-            crate::app::presentation::interpolation::PointPose::bullet(bullet),
-            sim.session().binary_frame(),
-        );
-        // VERA's translucent fog hides enemy bullet trails with their bullets.
-        if !sandbox
-            && crate::app::presentation::instances::translucent_fog_conceals_bullet(
-                sim,
-                bullet,
-                sampled.coord,
-                local_owner.as_deref(),
-                local_owner
-                    .as_deref()
-                    .and_then(|name| sim.interner().get(name)),
-                sim.session().game_options().fog_of_war,
+    let segments = presentation.line_trails.composite(
+        |id| {
+            let sim = sim?;
+            let bullet = sim.projectiles().get(id)?;
+            Some(
+                presentation
+                    .interpolation
+                    .sample_point(
+                        crate::app::presentation::interpolation::PointKind::Bullet,
+                        id,
+                        crate::app::presentation::interpolation::PointPose::bullet(bullet),
+                        sim.session().binary_frame(),
+                    )
+                    .projectile_coord(),
             )
-        {
-            return None;
-        }
-        Some(sampled.projectile_coord())
-    });
+        },
+        |owner, coord| {
+            if !translucent_fog || sandbox {
+                return true;
+            }
+            let Some(sim) = sim else {
+                return true;
+            };
+            if let Some(bullet) = owner.and_then(|id| sim.projectiles().get(id)) {
+                return !crate::app::presentation::instances::translucent_fog_conceals_bullet(
+                    sim,
+                    bullet,
+                    [coord.x, coord.y, coord.z],
+                    local_owner.as_deref(),
+                    local_owner
+                        .as_deref()
+                        .and_then(|name| sim.interner().get(name)),
+                    sim.session().game_options().fog_of_war,
+                );
+            }
+            !effect_hidden(coord.x, coord.y)
+        },
+    );
     let frame_rate = presentation.detail.borrow().frame_rate();
     presentation
         .radiation_beams
@@ -564,15 +579,14 @@ pub(crate) fn render_game(
     let terrain = &mut state.renderer.terrain_draw_renderer;
     let gpu = &state.renderer.gpu;
     terrain.begin_surface_lines();
-    let laser_draws: Vec<_> = presentation
+    let laser_draws = presentation
         .lasers
         .draws()
-        .filter(|draw| !effect_hidden(draw.to.x, draw.to.y))
-        .collect();
+        .filter(|draw| !effect_hidden(draw.to.x, draw.to.y));
     let surface_effects = terrain.prepare_surface_lines(
         &gpu.device,
         &gpu.queue,
-        laser_draws.into_iter(),
+        laser_draws,
         bolt_lines
             .iter()
             .copied()

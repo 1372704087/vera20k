@@ -179,9 +179,12 @@ pub fn cooperative_continuation_timing(game_speed: i32, pings: &[i32]) -> (i32, 
     (max_ahead, latency_fudge)
 }
 
-/// The two verified network send-frame policies.
+/// Transfer cadence and the execution frame assigned to local commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkSendPolicy {
+    /// VERA solo online play: no other human needs a synchronization window.
+    /// Keep the shared command dispatcher, with only frame0's priming delay.
+    Local,
     /// Send every frame and stamp `current_frame + max_ahead`.
     EveryFrame,
     /// Mode 2 sends only on `frame_send_rate` boundaries and rounds the
@@ -193,7 +196,7 @@ impl NetworkSendPolicy {
     /// Whether the network path transfers its local queue on this frame.
     pub fn should_send(self, current_frame: u32) -> bool {
         match self {
-            Self::EveryFrame => true,
+            Self::Local | Self::EveryFrame => true,
             Self::FrameSendRate2 { frame_send_rate } => {
                 let rate = frame_send_rate.get();
                 let boundary = current_frame
@@ -208,6 +211,7 @@ impl NetworkSendPolicy {
     /// Frame written into each record at network transfer time.
     pub fn execute_frame(self, current_frame: u32, max_ahead: u32) -> u32 {
         match self {
+            Self::Local => current_frame.max(1),
             Self::EveryFrame => current_frame.wrapping_add(max_ahead),
             Self::FrameSendRate2 { frame_send_rate } => {
                 let rate = frame_send_rate.get();
@@ -217,6 +221,17 @@ impl NetworkSendPolicy {
                     .wrapping_div(rate)
                     .wrapping_mul(rate)
             }
+        }
+    }
+
+    /// FRAMEINFO reports the source frame as execute-frame minus delay.
+    /// Native policies retain MaxAhead's low byte, independent of rounding.
+    pub fn delay(self, current_frame: u32, max_ahead: u32) -> u8 {
+        match self {
+            Self::Local => self
+                .execute_frame(current_frame, max_ahead)
+                .wrapping_sub(current_frame) as u8,
+            Self::EveryFrame | Self::FrameSendRate2 { .. } => max_ahead as u8,
         }
     }
 }
@@ -454,7 +469,7 @@ impl SynchronizedCommandQueue {
                 event_frame: execute_frame as i32,
                 checksum: current_checksum,
                 timing_word,
-                delay: max_ahead as u8,
+                delay: policy.delay(current_frame, max_ahead),
             }
             .encode(),
         );

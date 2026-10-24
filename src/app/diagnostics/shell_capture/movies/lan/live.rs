@@ -51,6 +51,7 @@ mod setup_crash;
 const HOST_NAME: &str = "LiveHost";
 const GUEST_NAME: &str = "LiveGuest";
 const REQUIRED_FRAMES: u32 = 300;
+const SOLO_AI_INPUT_BOUND_FRAMES: u32 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -1162,6 +1163,9 @@ impl LiveLanCapture {
             }
             return Ok(());
         }
+        if self.ai.is_some() {
+            self.observe_simple_input_applications(state, committed)?;
+        }
         if committed >= 10 && self.actor.is_none() {
             self.issue_move(state, committed)?;
         }
@@ -1189,6 +1193,14 @@ impl LiveLanCapture {
                     .all(|peer| peer.frame() >= self.required_frames() as i32))
         {
             if let Some(ai) = &self.ai {
+                ensure!(
+                    self.actions.len() == 2
+                        && self
+                            .actions
+                            .iter()
+                            .all(|action| action.get("application_frame").is_some()),
+                    "solo AI Move/Stop did not both reach their actual receivers"
+                );
                 ensure!(
                     ai.activity.is_some(),
                     "AI House had no observed factory progress or new live entity; snapshot={}",
@@ -1231,10 +1243,138 @@ impl LiveLanCapture {
     }
 
     fn issue_move(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
+        if self.ai.is_some() {
+            state
+                .match_state
+                .match_diagnostics
+                .begin_command_observation();
+        }
         let (actor, from, to) = battle::mobile_move_with_mouse(state)?;
         self.actor = Some(actor);
         self.origin = Some(from);
         self.actions.push(json!({"native_frame":frame,"input":"tactical Move","actor":actor,"from":from,"target":to}));
+        Ok(())
+    }
+
+    fn observe_simple_input_applications(
+        &mut self,
+        state: &mut AppState,
+        frame: u32,
+    ) -> Result<()> {
+        use crate::sim::command::{MegaMissionOrder, MegaMissionRecord, StopRecord};
+        use crate::sim::components::NavTargetRef;
+        use crate::sim::mission::{MissionId, MissionType};
+        let Some(actor) = self.actor else {
+            return Ok(());
+        };
+        for execution in state
+            .match_state
+            .match_diagnostics
+            .take_command_observations()?
+        {
+            if execution.actor != Some(actor) {
+                continue;
+            }
+            let (input, target) =
+                if let Some(command) = MegaMissionRecord::decode(&execution.record) {
+                    let MegaMissionOrder::Move { target_x, target_y } = command.order else {
+                        continue;
+                    };
+                    (
+                        "tactical Move",
+                        Some((u16::try_from(target_x)?, u16::try_from(target_y)?)),
+                    )
+                } else if StopRecord::decode(&execution.record).is_some() {
+                    ("Stop", None)
+                } else {
+                    continue;
+                };
+            let Some(action) = self
+                .actions
+                .iter_mut()
+                .find(|action| action["input"] == input)
+            else {
+                continue;
+            };
+            let issued = u32::try_from(
+                action["native_frame"]
+                    .as_u64()
+                    .context("input issue frame")?,
+            )?;
+            ensure!(
+                execution.applied,
+                "solo AI {input} receiver rejected actor {actor}"
+            );
+            ensure!(
+                action.get("application_frame").is_none(),
+                "duplicate solo AI {input} application"
+            );
+            // The callback records the frame before its commit; the next
+            // presented frame is normally one higher. No render-frame or
+            // movement observation stands in for this actual dispatch.
+            let delay = execution
+                .frame
+                .checked_sub(issued)
+                .context("input applied before its click")?;
+            ensure!(
+                delay <= SOLO_AI_INPUT_BOUND_FRAMES,
+                "solo AI {input} applied {delay} native frames after click at {issued}; scheduled={}, applied={}",
+                execution.record.frame_stamp(),
+                execution.frame
+            );
+            if let Some((x, y)) = target {
+                ensure!(
+                    action["target"] == json!([x, y]),
+                    "Move receiver target differs from tactical click"
+                );
+                let moving = MissionId::from_known(MissionType::Move).raw();
+                ensure!(
+                    (execution.destination == Some(NavTargetRef::cell(x, y))
+                        && execution
+                            .mission
+                            .is_some_and(|(current, queued)| current == moving || queued == moving))
+                        || (execution.cell == Some((x, y)) && execution.destination.is_none()),
+                    "solo AI Move receiver did not install or reach the clicked destination"
+                );
+            } else {
+                ensure!(
+                    execution.mission.is_some() && execution.destination.is_none(),
+                    "solo AI Stop receiver retained a destination"
+                );
+            }
+            action["application_frame"] = json!(execution.frame);
+            action["application_observed_at_frame"] = json!(frame);
+            action["scheduled_frame"] = json!(execution.record.frame_stamp());
+            action["delay_frames"] = json!(delay);
+            action["applied"] = json!(execution.applied);
+            action["receiver"] = json!({"destination":execution.destination,
+                "cell":execution.cell,"mission":execution.mission});
+            action["timing"] = json!(execution.timing.as_ref().map(|timing| json!({
+                "fps":timing.fps,"frame_send_rate":timing.frame_send_rate,"max_ahead":timing.max_ahead})));
+        }
+        for action in &self.actions {
+            let issued = action["native_frame"]
+                .as_u64()
+                .context("input issue frame")?;
+            ensure!(
+                action.get("application_frame").is_some()
+                    || u64::from(frame) <= issued + u64::from(SOLO_AI_INPUT_BOUND_FRAMES),
+                "solo AI {} has no receiver application within {SOLO_AI_INPUT_BOUND_FRAMES} native frame of click at {issued}; observed frame {frame}",
+                action["input"]
+            );
+        }
+        if self.stopped
+            && self.actions.len() == 2
+            && self
+                .actions
+                .iter()
+                .all(|action| action.get("application_frame").is_some())
+        {
+            state
+                .match_state
+                .match_diagnostics
+                .end_command_observation();
+        }
         Ok(())
     }
 
@@ -1300,6 +1440,7 @@ impl LiveLanCapture {
             "required_frames":through.unwrap_or(self.required_frames()),"battle":self.battle.as_ref().map(|battle| battle.receipt(state)).transpose()?,
             "failure":self.failure.as_ref().map(|failure| failure.receipt()),"mass_input":self.mass.as_ref().map(mass::MassInput::receipt),
             "ai_activity":self.ai.as_ref().map(AiActivity::receipt).transpose()?,
+            "solo_ai_input_bound_native_frames":self.ai.as_ref().map(|_| SOLO_AI_INPUT_BOUND_FRAMES),
             "kick_observed":self.kick_observed,
             "production_broadcast":self.config.as_ref().map(|config|matches!(config.transport,LiveLanTransport::ProductionBroadcast)),
             "bind":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(bind,_)|bind.to_string()),"peer":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(_,peer)|peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,

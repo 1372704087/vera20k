@@ -1910,6 +1910,10 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         ),
         HotkeyCommand::PageUser => crate::app::input::page_user::execute(state),
         HotkeyCommand::PlaceBeacon => crate::app::input::beacon::execute_command(state),
+        #[cfg(feature = "verax")]
+        HotkeyCommand::AutoLoad => crate::app::input::autoload::hotkey_pressed(state),
+        #[cfg(not(feature = "verax"))]
+        HotkeyCommand::AutoLoad => {}
     }
 }
 

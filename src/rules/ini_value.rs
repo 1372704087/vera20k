@@ -20,6 +20,7 @@
 //! | `read_string`, `read_name`, `read_type_name` | `CCINIClass::ReadString` 0x00528A10 |
 //! | `read_movie` | `CCINIClass::ReadMovie` 0x004757D0 |
 //! | `read_pip` | `CCINIClass::ReadPip` 0x004748A0 |
+//! | `read_action_name` | `CCINIClass::ReadAction` 0x00474EE0 |
 //! | `read_edge` | `CCINIClass::ReadEdge` 0x00475980 |
 //! | `read_color_scheme` | `CCINIClass::ReadColor` 0x00474A90 |
 //! | `read_list` | ReadString, then `strtok(",")` (every type, house, sound and ability list) |
@@ -69,6 +70,84 @@ const STRTRIM_MAX: u8 = 0x20;
 /// The comma delimiter every native list reader passes to `strtok`
 /// (`DAT_00817F70`).
 const COMMA: &[char] = &[','];
+
+/// ActionType names at7E4C50, in ReadAction474EE0's numeric order.
+/// The scan accepts these whole names only; unknown text is action0.
+const ACTION_NAMES: [&str; 73] = [
+    "None",
+    "Move",
+    "NoMove",
+    "Enter",
+    "Self",
+    "Attack",
+    "Harvest",
+    "Select",
+    "ToggleSelect",
+    "Capture",
+    "Eaten",
+    "Repair",
+    "Sell",
+    "SellUnit",
+    "NoSell",
+    "NoRepair",
+    "Sabotage",
+    "Tote",
+    "DontUse2",
+    "DontUse3",
+    "Nuke",
+    "DontUse4",
+    "DontUse5",
+    "DontUse6",
+    "DontUse7",
+    "DontUse8",
+    "GuardArea",
+    "Heal",
+    "Damage",
+    "GRepair",
+    "NoDeploy",
+    "NoEnter",
+    "NoGRepair",
+    "TogglePower",
+    "NoTogglePower",
+    "EnterTunnel",
+    "NoEnterTunnel",
+    "IronCurtain",
+    "LightningStorm",
+    "ChronoSphere",
+    "ChronoWarp",
+    "ParaDrop",
+    "PlaceWaypoint",
+    "TibSunBug",
+    "EnterWaypointMode",
+    "FollowWaypoint",
+    "SelectWaypoint",
+    "LoopWaypointPath",
+    "DragWaypoint",
+    "AttackWaypoint",
+    "EnterWaypoint",
+    "PatrolWaypoint",
+    "AreaAttack",
+    "IvanBomb",
+    "NoIvanBomb",
+    "Detonate",
+    "DetonateAll",
+    "DisarmBomb",
+    "SelectNode",
+    "AttackSupport",
+    "PlaceBeacon",
+    "SelectBeacon",
+    "AttackMoveNav",
+    "AttackMoveTar",
+    "Demolish",
+    "AmerParaDrop",
+    "PsychicDominator",
+    "SpyPlane",
+    "GeneticConverter",
+    "ForceShield",
+    "NoForceShield",
+    "Airstrike",
+    "PsychicReveal",
+];
 
 /// AbstractType_From_Name40DCE0's compiled table at816EE0, read from Steam
 /// gamemd. Values are explicit: Temporal precedes RadSite in
@@ -213,6 +292,27 @@ const TECHNO_TYPE_CATEGORY_NAMES: [(&str, &str, TechnoTypeCategory); 11] = [
 ];
 
 impl IniSection {
+    /// ReadAction474EE0 copies31 native bytes and compares the entire trimmed
+    /// buffer case-insensitively against all73 names. Unknown names reset to
+    /// None0; they do not retain the previous action. SuperWeaponType ReadINI
+    /// calls it at6CEA9B with its current action as default (constructor0).
+    /// Missing physical keys retain the preceding pass; the physical loader
+    /// omits empty values. A supplied empty cache entry instead maps to0.
+    /// This projection keeps an absent constructor value as Option::None and
+    /// returns canonical names for actual reads, including action0's "None".
+    pub(crate) fn read_action_name(&self, key: &str) -> Option<&'static str> {
+        self.fold_rules_values(key, None, |_, raw| {
+            let name = strtrim_ascii(truncate_native_bytes(raw, 0x1f));
+            Some(
+                ACTION_NAMES
+                    .iter()
+                    .copied()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(name))
+                    .unwrap_or(ACTION_NAMES[0]),
+            )
+        })
+    }
+
     /// `INIClass::ReadCategory @0x004749E0`: ReadString[0x20] defaults from
     /// the current integer's token, then Category_From_Name maps either name
     /// column. Missing/empty therefore retains current; unknown text returns
@@ -381,6 +481,43 @@ impl IniSection {
         self.read_string_with(key, 2048, default, |current, value| {
             parse_ares_int(value).unwrap_or(current)
         })
+    }
+
+    /// Ares/Phobos `PartialVector2D<int>` (`Utilities/TemplateDef.h`'s
+    /// `read<PartialVector2D<int>>` over `MultiParser<int>::Parse(value, out, 2)`):
+    /// ReadString(2048), then at most two comma-separated [`parse_ares_int`]
+    /// tokens. Each token is space-trimmed on both sides and the scan stops at
+    /// the first token that does not convert, so a one-token read leaves the
+    /// second slot at its previous value and marks the pair single. A zero-token
+    /// scan writes neither slot and leaves the count, so the whole pair retains.
+    pub fn read_ares_partial_int_pair(&self, key: &str, current: PartialIntPair) -> PartialIntPair {
+        self.read_string_with(key, 2048, current, |previous, value| {
+            let mut fields = [previous.low, previous.high];
+            let values = scan_partial_int_fields(value, &mut fields);
+            if values == 0 {
+                return previous;
+            }
+            PartialIntPair {
+                low: fields[0],
+                high: fields[1],
+                values,
+            }
+        })
+    }
+
+    /// Ares/Phobos `ValueableVector<int>` (`detail::parse_values<int>` over
+    /// `strtok(",")`): ReadString(2048), split on commas, and each token
+    /// through [`parse_ares_int`]. A token that does not convert is skipped, so
+    /// the list keeps the index alignment its caller pairs with another list
+    /// only over the tokens that parsed. An absent key keeps the caller's list;
+    /// a present one replaces it, even with no usable token.
+    pub fn read_ares_int_list(&self, key: &str) -> Option<Vec<i32>> {
+        Some(
+            self.read_list(key, 2048)?
+                .iter()
+                .filter_map(|token| parse_ares_int(token))
+                .collect(),
+        )
     }
 
     /// Ares Valueable<double>1000EB00/10076B60: the native string-sized
@@ -1501,6 +1638,33 @@ fn chop_decimal_f64(token: &str, nearest: f64) -> f64 {
     }
 }
 
+/// Ares/Phobos `PartialVector2D<int>` storage: the two scanned slots plus how
+/// many the last successful read wrote. `values < 2` means the second slot is
+/// stale, so every ranged consumer must use [`Self::low`] and draw nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct PartialIntPair {
+    pub low: i32,
+    pub high: i32,
+    pub values: u8,
+}
+
+impl PartialIntPair {
+    /// A one-value spelling: Phobos' `PartialVector2D<int>{ 3 }` initializer.
+    pub const fn single(value: i32) -> Self {
+        Self {
+            low: value,
+            high: 0,
+            values: 1,
+        }
+    }
+
+    /// `GeneralUtils::GetRangedRandomOrSingleValue`'s non-random arm: the
+    /// consumer takes `low` and draws nothing when this is true.
+    pub const fn is_single(&self) -> bool {
+        self.values < 2 || self.low >= self.high
+    }
+}
+
 /// The single Ares Parser<int> core, also used by compound int/bool readers.
 fn parse_ares_int(value: &str) -> Option<i32> {
     if let Some(decimal) = value.strip_prefix('$') {
@@ -1514,6 +1678,40 @@ fn parse_ares_int(value: &str) -> Option<i32> {
     } else {
         scan_decimal_i32(&mut value.as_bytes())
     }
+}
+
+/// `MultiParser<int>::Parse(pValue, outValue, count)`: for each slot skip the
+/// leading spaces, take everything up to the next comma (`%[^,]`, which needs
+/// at least one character), trim the token's trailing spaces and convert it
+/// with `Parser<int>::TryParse`. The scan returns at the first slot that yields
+/// no token or no conversion, so a trailing comma counts as one parsed value.
+fn scan_partial_int_fields(value: &str, out: &mut [i32]) -> u8 {
+    let mut rest = value.as_bytes();
+    for (index, slot) in out.iter_mut().enumerate() {
+        while rest.first().is_some_and(|byte| is_crt_space(*byte)) {
+            rest = &rest[1..];
+        }
+        let token_end = rest
+            .iter()
+            .position(|byte| *byte == b',')
+            .unwrap_or(rest.len());
+        if token_end == 0 {
+            return index as u8;
+        }
+        let mut token = &rest[..token_end];
+        while token.last().is_some_and(|byte| is_crt_space(*byte)) {
+            token = &token[..token.len() - 1];
+        }
+        let parsed = std::str::from_utf8(token).ok().and_then(parse_ares_int);
+        let Some(parsed) = parsed else {
+            return index as u8;
+        };
+        *slot = parsed;
+        rest = rest[token_end..]
+            .strip_prefix(b",")
+            .unwrap_or(&rest[token_end..]);
+    }
+    out.len() as u8
 }
 
 fn leading_float_token(s: &str) -> Option<&str> {
@@ -1596,6 +1794,51 @@ mod tests {
 
     fn sec(body: &str) -> IniFile {
         IniFile::from_str(body)
+    }
+
+    #[test]
+    fn action_reader_keeps_physical_defaults_but_resets_unknown_names() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        // ReadAction474EE0, called by SuperWeaponType ReadINI6CEA9B.
+        let mut layers = RulesLayerStack::new(sec(
+            "[SuperWeaponTypes]\n0=Strike\n[Strike]\nType=MultiMissile\nAction=nUkE\n",
+        ));
+        let action = |layers: &RulesLayerStack| {
+            let processed = layers.process_with_fixed_art(&IniFile::empty()).unwrap();
+            RuleSet::from_processed_rules(&processed)
+                .unwrap()
+                .super_weapon("Strike")
+                .unwrap()
+                .action
+                .clone()
+        };
+        assert_eq!(action(&layers).as_deref(), Some("Nuke"));
+        layers.push(
+            RulesLayerKind::GameMode,
+            sec("[Strike]\nAction= ; physically omitted\nRechargeTime=2\n"),
+        );
+        assert_eq!(action(&layers).as_deref(), Some("Nuke"));
+        layers.push(
+            RulesLayerKind::Scenario,
+            sec("[Strike]\nAction=NotAnAction\n"),
+        );
+        assert_eq!(action(&layers).as_deref(), Some("None"));
+
+        // Whole-buffer names, no numeric, quote or comma aliases. ReadString's
+        // cut precedes trim, so text beyond byte31 cannot invalidate Nuke.
+        let ini = sec("[S]\nNumeric=20\nQuoted=\"Nuke\"\nList=Nuke,Attack\n");
+        let section = ini.section("S").unwrap();
+        assert_eq!(section.read_action_name("Numeric"), Some("None"));
+        assert_eq!(section.read_action_name("Quoted"), Some("None"));
+        assert_eq!(section.read_action_name("List"), Some("None"));
+        assert_eq!(section.read_action_name("Missing"), None);
+        let mut cache = IniSection::new("S".to_owned());
+        cache.set("Action", &format!("Nuke{}Attack", " ".repeat(27)));
+        assert_eq!(cache.read_action_name("Action"), Some("Nuke"));
+        cache.set("Action", "");
+        assert_eq!(cache.read_action_name("Action"), Some("None"));
     }
 
     #[test]

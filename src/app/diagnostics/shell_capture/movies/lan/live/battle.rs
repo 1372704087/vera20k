@@ -169,6 +169,10 @@ impl BattleOpening {
         host: bool,
         actions: &mut Vec<Value>,
     ) -> Result<()> {
+        ensure!(
+            host == state.match_state.session.host(),
+            "Battle input role differs from admitted Session"
+        );
         self.observe_fighters(state)?;
         self.observe_commands(state, frame)?;
         self.observe_due_orders(state, frame)?;
@@ -681,13 +685,13 @@ impl BattleOpening {
 
     fn observe_fighters(&mut self, state: &AppState) -> Result<()> {
         let sim = simulation(state)?;
-        for (index, name) in [HOST_NAME, GUEST_NAME].into_iter().enumerate() {
+        for (index, owner) in battle_owners(&state.match_state.session, sim)?
+            .into_iter()
+            .enumerate()
+        {
             if self.fighters[index].is_some() {
                 continue;
             }
-            let Some(owner) = sim.interner().get(name) else {
-                continue;
-            };
             if let Some(id) = sim
                 .production()
                 .factories()
@@ -1005,7 +1009,10 @@ impl BattleOpening {
                     );
                     ensure!(
                         frame == previous.native_frame + 1 && (frame - 1) % period == 0,
-                        "paid repair did not occur on its global native Logic frame"
+                        "paid repair did not occur on its global native Logic frame: previous={}, current={frame}, period={period}, before_health={}, after_health={}",
+                        previous.native_frame,
+                        previous.health,
+                        current.health
                     );
                     ensure!(
                         current.health - previous.health
@@ -1140,10 +1147,8 @@ impl BattleOpening {
                         .get(u64::try_from(archive.entity_id)?)
                         .context("admitted ARCHIVE source")?;
                     if sim.interner().resolve(source.type_ref()) == "GAPILE" {
-                        let index = [HOST_NAME, GUEST_NAME]
-                            .iter()
-                            .position(|name| *name == sim.interner().resolve(source.owner()))
-                            .context("rally Human")?;
+                        let index =
+                            battle_human_index(&state.match_state.session, sim, source.owner())?;
                         ensure!(
                             archive.house_id == house_id_for_owner(state, source.owner())?,
                             "raw GAPILE ARCHIVE issuing House differs from producer"
@@ -1179,10 +1184,7 @@ impl BattleOpening {
                         .order()
                         .get(usize::try_from(record.house_id())?)
                         .context("PLAN_COMMIT issuing House")?;
-                    let index = [HOST_NAME, GUEST_NAME]
-                        .iter()
-                        .position(|name| *name == sim.interner().resolve(owner))
-                        .context("PLAN_COMMIT Human")?;
+                    let index = battle_human_index(&state.match_state.session, sim, owner)?;
                     let archive = self.rally_records[index]
                         .context("PLAN_COMMIT admitted before its House's manual ARCHIVE")?;
                     ensure!(
@@ -1292,7 +1294,7 @@ impl BattleOpening {
                             mission.house_id == house_id_for_owner(state, entity.owner())?,
                             "raw Attack issuing House differs from the Host"
                         );
-                        if local_owner(state)? == HOST_NAME {
+                        if state.match_state.session.host() {
                             ensure!(
                                 self.attack_input_frame
                                     .is_some_and(|issued| mission.frame >= issued as i32),
@@ -1660,6 +1662,51 @@ fn repair_snapshot(state: &AppState, id: u64, frame: u32) -> Result<RepairSnapsh
     })
 }
 
+/// Host/guest are input roles, never literal account names or native House
+/// positions. Resolve through the same Session→House owner as real transport;
+/// LAN's local-first admission and online roster order may differ.
+fn battle_owners(
+    session: &crate::app::match_runtime::session::MatchSession,
+    sim: &Simulation,
+) -> Result<[crate::sim::intern::InternedId; 2]> {
+    let launch = session.network_setup().context("Battle network setup")?;
+    ensure!(
+        launch.humans.len() == 2 && launch.local_player_index < 2,
+        "Battle opening requires two admitted Humans"
+    );
+    let local = launch.local_player_index;
+    let remote = 1 - local;
+    let sources = if session.host() {
+        [local, remote]
+    } else {
+        [remote, local]
+    };
+    let owners = sources.map(|source| {
+        let house = crate::app::match_runtime::network_match::source_house(session, sim, source)
+            .context("Battle participant's canonical House")?;
+        sim.houses()
+            .order()
+            .get(usize::try_from(house)?)
+            .copied()
+            .context("Battle native House")
+    });
+    let [host, guest] = owners;
+    let [host, guest] = [host?, guest?];
+    ensure!(host != guest, "Battle participants share a House");
+    Ok([host, guest])
+}
+
+fn battle_human_index(
+    session: &crate::app::match_runtime::session::MatchSession,
+    sim: &Simulation,
+    owner: crate::sim::intern::InternedId,
+) -> Result<usize> {
+    battle_owners(session, sim)?
+        .iter()
+        .position(|candidate| *candidate == owner)
+        .context("command belongs to an unrepresented Battle Human")
+}
+
 fn local_house_id(state: &AppState) -> Result<i8> {
     let sim = simulation(state)?;
     let owner = sim
@@ -1805,8 +1852,10 @@ fn offset_toward(from: (u16, u16), toward: (u16, u16), cells: i32) -> (u16, u16)
 fn staging_centres(state: &AppState) -> Result<[(u16, u16); 2]> {
     let sim = simulation(state)?;
     let mut yards = [(0, 0); 2];
-    for (index, name) in [HOST_NAME, GUEST_NAME].into_iter().enumerate() {
-        let owner = sim.interner().get(name).context("encounter House")?;
+    for (index, owner) in battle_owners(&state.match_state.session, sim)?
+        .into_iter()
+        .enumerate()
+    {
         let yard = sim
             .entities()
             .values_sorted()
@@ -1889,6 +1938,148 @@ fn mouse_can_pick(state: &AppState, id: u64) -> Result<bool> {
 fn ground_order_with_mouse(state: &mut AppState, id: u64, cell: (u16, u16)) -> Result<()> {
     select_entity(state, id)?;
     point_at_ground(state, cell)?;
+    for edge in [ElementState::Pressed, ElementState::Released] {
+        dispatch::handle_mouse_input(state, MouseButton::Left, edge);
+    }
+    Ok(())
+}
+
+/// The bounded live-network input for maps with preplaced mobile units. It uses
+/// the same tactical selection, ground-click and key owners as the Battle route.
+pub(super) fn mobile_move_with_mouse(
+    state: &mut AppState,
+) -> Result<(u64, (u16, u16), (u16, u16))> {
+    let sim = simulation(state)?;
+    let owner = sim.session().current_house().context("local House")?;
+    let entity = sim
+        .entities()
+        .values_sorted()
+        .filter(|entity| {
+            entity.owner() == owner
+                && entity.is_alive()
+                && !entity.in_limbo()
+                && entity.locomotor.is_some()
+                && matches!(
+                    entity.category(),
+                    crate::map::entities::EntityCategory::Unit
+                        | crate::map::entities::EntityCategory::Infantry
+                )
+        })
+        .max_by_key(|entity| entity.stable_id())
+        .context("local mobile object")?;
+    let id = entity.stable_id();
+    let from = (entity.position.rx(), entity.position.ry());
+    let to = [(18, 0), (-18, 0), (0, 18), (0, -18)]
+        .into_iter()
+        .find_map(|(dx, dy)| {
+            let desired = (
+                u16::try_from(i32::from(from.0) + dx).ok()?,
+                u16::try_from(i32::from(from.1) + dy).ok()?,
+            );
+            legal_move_cell(state, id, desired)
+                .ok()
+                .filter(|cell| *cell != from)
+        })
+        .context("reachable tactical Move target")?;
+    ground_order_with_mouse(state, id, to)?;
+    Ok((id, from, to))
+}
+
+pub(super) fn mobile_stop_with_keyboard(state: &mut AppState, id: u64) -> Result<()> {
+    select_entity(state, id)?;
+    selected_stop_with_keyboard(state)
+}
+
+pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
+    let key = Key::Character("s".into());
+    ensure!(
+        state.match_state.input.hotkey_bindings.resolve_event(
+            &key,
+            KeyLocation::Standard,
+            state.match_state.input.hotkey_modifiers
+        ) == HotkeyResolution::Command(HotkeyCommand::StopObject),
+        "loaded S key is not the Stop binding"
+    );
+    chat_key(state, KeyCode::KeyS, &key, Some("s"));
+    Ok(())
+}
+
+/// Select through the configured retail P binding twice: screen then map.
+pub(super) fn combatants_with_keyboard(state: &mut AppState) -> Result<()> {
+    let key = Key::Character("p".into());
+    ensure!(
+        state.match_state.input.hotkey_bindings.resolve_event(
+            &key,
+            KeyLocation::Standard,
+            state.match_state.input.hotkey_modifiers
+        ) == HotkeyResolution::Command(HotkeyCommand::CombatantSelect),
+        "loaded P key is not the CombatantSelect binding"
+    );
+    for _ in 0..2 {
+        chat_key(state, KeyCode::KeyP, &key, Some("p"));
+    }
+    Ok(())
+}
+
+/// Keep the full current selection and click ordinary empty ground.
+pub(super) fn selected_move_with_mouse(
+    state: &mut AppState,
+    actor: u64,
+    direction: usize,
+) -> Result<()> {
+    let sim = simulation(state)?;
+    let entity = sim.entities().get(actor).context("mass leader")?;
+    let from = (entity.position.rx(), entity.position.ry());
+    let mut chosen = None;
+    for distance in [18, 30, 48, 64] {
+        for (dx, dy) in [
+            (distance, 0),
+            (-distance, 0),
+            (0, distance),
+            (0, -distance),
+            (distance, distance),
+            (-distance, -distance),
+        ]
+        .into_iter()
+        .cycle()
+        .skip(direction)
+        .take(6)
+        {
+            let (Ok(x), Ok(y)) = (
+                u16::try_from(i32::from(from.0) + dx),
+                u16::try_from(i32::from(from.1) + dy),
+            ) else {
+                continue;
+            };
+            let Ok(cell) = legal_move_cell(state, actor, (x, y)) else {
+                continue;
+            };
+            let Some(terrain) = state
+                .resolved_terrain()
+                .and_then(|terrain| terrain.cell(cell.0, cell.1))
+            else {
+                continue;
+            };
+            let world =
+                crate::app::input::camera::cell_centre_world_point(cell.0, cell.1, terrain.level);
+            if crate::app::input::entity_pick::hover_object_at_point(
+                crate::app::input::entity_pick::presented(state, sim),
+                world.0,
+                world.1,
+                &local_owner(state)?,
+                false,
+            )
+            .is_none()
+            {
+                chosen = Some(cell);
+                break;
+            }
+        }
+        if chosen.is_some() {
+            break;
+        }
+    }
+    point_at_ground(state, chosen.context("empty ground for mass Move")?)?;
     for edge in [ElementState::Pressed, ElementState::Released] {
         dispatch::handle_mouse_input(state, MouseButton::Left, edge);
     }
@@ -2101,7 +2292,7 @@ fn select_entity(state: &mut AppState, id: u64) -> Result<()> {
     Ok(())
 }
 
-fn projected_selection(state: &AppState) -> Vec<u64> {
+pub(super) fn projected_selection(state: &AppState) -> Vec<u64> {
     dispatch::selected_stable_ids_in_order(
         state
             .match_state
@@ -2265,4 +2456,112 @@ fn placement_cursor(state: &AppState, yard: u64, type_id: &str) -> Result<(u16, 
         }
     }
     anyhow::bail!("no legal {type_id} placement near deployed yard")
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
+    use crate::sim::house_state::HouseState;
+
+    fn admitted_pair(
+        local_first: bool,
+    ) -> (
+        MatchSession,
+        Simulation,
+        [crate::sim::intern::InternedId; 2],
+    ) {
+        let fixture: Value = serde_json::from_str(crate::test_fixture::text(
+            "tools/map_observation.command-bar.example.json",
+        ))
+        .unwrap();
+        let mut launch: crate::skirmish_launch::SkirmishLaunchSession =
+            serde_json::from_value(fixture["launch"].clone()).unwrap();
+        launch.opponents.clear();
+        launch.ai_player_count = 0;
+        launch.humans[0].name = "VH1a2b3c4d5e".into();
+        launch.humans[0].raw_slot_index = Some(0);
+        let mut guest = launch.humans[0].clone();
+        guest.name = "VG6f7a8b9c0d".into();
+        guest.raw_slot_index = Some(1);
+        guest.slot.color_index = 2;
+        launch.humans.push(guest);
+        launch.local_player_index = 1;
+        if local_first {
+            launch.humans.swap(0, 1);
+            launch.local_player_index = 0;
+        }
+        let mut session = MatchSession::default();
+        session.enter_network(if local_first {
+            NetworkReturnContext::LanLobby
+        } else {
+            NetworkReturnContext::Wol
+        });
+        session.accept_network_setup(launch, false, None).unwrap();
+        let mut sim = Simulation::new();
+        let host = sim.intern("VH1a2b3c4d5e");
+        let guest = sim.intern("VG6f7a8b9c0d");
+        let neutral = sim.intern("Neutral");
+        let special = sim.intern("Special");
+        // Deliberately distinct native/participant order, with nonparticipant
+        // Houses. Neither actual account name is a diagnostic role label.
+        for (index, (owner, human)) in [
+            (neutral, false),
+            (guest, true),
+            (special, false),
+            (host, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            sim.houses_mut_for_test().register(HouseState::new(
+                owner,
+                index as u8,
+                None,
+                human,
+                0,
+                10,
+            ));
+        }
+        (session, sim, [host, guest])
+    }
+
+    #[test]
+    fn battle_roles_resolve_dynamic_accounts_through_the_actual_native_house_table() {
+        let (session, sim, owners) = admitted_pair(false);
+        assert_eq!(battle_owners(&session, &sim).unwrap(), owners);
+        assert_eq!(battle_human_index(&session, &sim, owners[0]).unwrap(), 0);
+        assert_eq!(battle_human_index(&session, &sim, owners[1]).unwrap(), 1);
+        assert_eq!(
+            crate::app::match_runtime::network_match::source_house(&session, &sim, 0),
+            Some(3)
+        );
+        assert_eq!(
+            crate::app::match_runtime::network_match::source_house(&session, &sim, 1),
+            Some(1)
+        );
+        let mut host_session = session.clone();
+        let mut launch = host_session.network_setup().unwrap().clone();
+        launch.local_player_index = 0;
+        host_session
+            .accept_network_setup(launch, true, None)
+            .unwrap();
+        assert_eq!(battle_owners(&host_session, &sim).unwrap(), owners);
+    }
+
+    #[test]
+    fn battle_roles_preserve_lan_local_first_admission_and_reject_foreign_houses() {
+        let (session, sim, owners) = admitted_pair(true);
+        assert_eq!(session.network_setup().unwrap().local_player_index, 0);
+        assert_eq!(
+            session.network_source_owner(0).as_deref(),
+            Some("VG6f7a8b9c0d")
+        );
+        assert_eq!(battle_owners(&session, &sim).unwrap(), owners);
+        assert_eq!(battle_human_index(&session, &sim, owners[0]).unwrap(), 0);
+        assert_eq!(battle_human_index(&session, &sim, owners[1]).unwrap(), 1);
+        assert!(
+            battle_human_index(&session, &sim, sim.interner().get("Neutral").unwrap()).is_err()
+        );
+    }
 }

@@ -176,6 +176,12 @@ pub(crate) enum WolServiceRequest {
         matchbot: String,
         request: super::quick_match::MatchRequest,
     },
+    /// VERA's chat translation of a received line into `[VERA]
+    /// TranslateChat=`'s language; [`super::translation`] shows the reply.
+    Translate {
+        text: Vec<u16>,
+        line: super::translation::TranslatedLine,
+    },
 }
 
 impl std::fmt::Debug for WolServiceRequest {

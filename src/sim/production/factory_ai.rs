@@ -52,6 +52,7 @@ use crate::rules::object_type::ObjectCategory;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
+use crate::sim::ai_unit_choice::UnitChoiceKind;
 use crate::sim::intern::InternedId;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
@@ -249,16 +250,31 @@ fn start_factory(
     // (owned plus factory-held against a positive `BuildLimit=`, produced
     // against a non-positive one; the stock CanBuild outer route answers a
     // non-human house Yes before its limit is asked) and a plan at its limit
-    // skips. The manual's warning holds: buildings cannot skip — the native
-    // build keeps trying and refunding one production forever, wedging the
-    // standing choice. Not starting reaches the same visible result without
-    // the churn: the choice stays set (`choose_building` fills only a
-    // cleared slot) and nothing is charged, so the residual is the two
-    // transient frames of the native attempt, not any player-visible state.
+    // skips. The manual's warning holds for buildings: they cannot skip — the
+    // native build keeps trying and refunding one production forever, wedging
+    // the standing choice. Not starting reaches the same visible result
+    // without the churn: the building choice stays set (`choose_building`
+    // fills only a cleared slot) and nothing is charged, so the residual is
+    // the two transient frames of the native attempt, not any player-visible
+    // state.
+    //
+    // A capped mobile choice cannot stay set. `ai_unit_choice::choose` fills
+    // only a `-1` slot, so leaving it would refuse every later chooser pass
+    // and the house would never pick another unit while this one sits at its
+    // limit. Clear it the way an exit or abandon clears the same slot
+    // (`BuildingClass::Exit_Object 0x00443CCA`,
+    // `FactoryClass::AbandonProduction 0x004CA0E0`,
+    // `factory_lifecycle::settle_abandoned`), which lets the next visit
+    // choose a type that is still under its limit.
     if crate::rules::NPATCH_ENABLED
         && rules.general.enable_ai_build_limitation
         && check_build_limit(sim, rules, owner, object)
     {
+        if let Some(kind) = UnitChoiceKind::of(object.category)
+            && let Some(house) = sim.houses.get_mut(&owner)
+        {
+            house.ai_unit_choices_mut().clear(kind);
+        }
         return;
     }
     let factory_naval = sim

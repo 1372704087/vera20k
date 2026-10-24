@@ -283,12 +283,14 @@ fn a_failed_exit_abandons_the_object_and_refunds_it() {
     );
 }
 
-const LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
+const LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n1=APC\n\
     [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
-    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\nBuildLimit=1\n\
     [PLAIN]\nStrength=1000\nCost=100\n\
-    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\nBuildLimit=1\n\
     [TANK]\nStrength=300\nSpeed=5\nCost=100\nBuildLimit=1\n\
+    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+    [APC]\nStrength=300\nSpeed=5\nCost=100\n\
     Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
     [Clear]\nBuildable=yes\n";
 
@@ -401,5 +403,93 @@ fn enable_ai_build_limitation_is_ignored_without_npatch() {
     assert!(
         limit_holds(&f, weap_1),
         "the stock build ignores the extension key"
+    );
+}
+
+/// A capped mobile choice clears the standing slot. `ai_unit_choice::choose`
+/// fills only a `-1` slot, so a choice left set would refuse every later
+/// chooser pass and the house would never pick another unit while this one
+/// sits at its `BuildLimit=`. The cleared slot takes a type still under its
+/// limit on the same visit.
+#[cfg(feature = "npatch")]
+#[test]
+fn a_capped_mobile_choice_clears_for_the_next_chooser_pass() {
+    use crate::rules::object_type::ObjectCategory;
+    use crate::sim::ai_unit_choice::UnitChoiceKind;
+
+    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    limit_visit(&mut f, weap_1);
+    assert!(!limit_holds(&f, weap_1), "the plan skips at the limit");
+    assert_eq!(
+        f.sim
+            .houses
+            .get(&f.owner)
+            .unwrap()
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        -1,
+        "a capped mobile choice clears like an exit or abandon"
+    );
+
+    // The chooser is no longer refused, and the slot it fills can point at a
+    // type under its limit, which the next visit starts.
+    let apc = f
+        .rules
+        .type_array_index(ObjectCategory::Vehicle, "APC")
+        .expect("APC is a vehicle type");
+    f.sim
+        .houses
+        .get_mut(&f.owner)
+        .unwrap()
+        .ai_unit_choices_mut()
+        .set(UnitChoiceKind::Unit, apc);
+    limit_visit(&mut f, weap_1);
+    assert!(
+        limit_holds(&f, weap_1),
+        "a cleared choice can produce a type still under its limit"
+    );
+}
+
+/// A capped building keeps the standing choice: the manual's exhausted
+/// building warning says the native attempt can never place it, and
+/// `choose_building` fills only a cleared slot, so nothing is charged or
+/// re-rolled.
+#[cfg(feature = "npatch")]
+#[test]
+fn a_capped_building_choice_stays_set() {
+    let mut f = fixture_with(&format!(
+        "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
+         AIAlternateProductionCreditCutoff=10\n{LIMIT_RULES_TAIL}"
+    ));
+    // The fixture's own construction yard already fills `BuildLimit=1`, so the
+    // house's standing building choice is capped.
+    let choice = f
+        .rules
+        .building_type_index("YARD")
+        .expect("YARD is a building type");
+    f.sim
+        .houses
+        .get_mut(&f.owner)
+        .unwrap()
+        .ai_production_mut()
+        .set_for_test(1, choice, true);
+    let yard = f.yard;
+    limit_visit(&mut f, yard);
+    assert!(
+        !limit_holds(&f, yard),
+        "the capped building plan does not start"
+    );
+    assert_eq!(
+        f.sim
+            .houses
+            .get(&f.owner)
+            .unwrap()
+            .ai_production()
+            .building_choice(),
+        choice,
+        "a capped building choice stays set"
     );
 }

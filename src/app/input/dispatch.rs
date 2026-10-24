@@ -1095,7 +1095,13 @@ fn sidebar_cameo_press(
     // The linked Factory's state also decides whether Shift may repeat: a held
     // or finished build takes the resume/placement arm, not a fresh PRODUCE.
     let own_for_repeat = linked_factory.map(|(status, _)| status);
-    let click = sidebar_eva::cameo_click(
+    #[cfg(feature = "phobos")]
+    let building_production_queue = state
+        .rules()
+        .is_some_and(|rules| rules.general.building_production_queue);
+    #[cfg(not(feature = "phobos"))]
+    let building_production_queue = false;
+    let click = sidebar_eva::cameo_click_with_queue(
         &queue,
         category,
         type_iid,
@@ -1109,6 +1115,7 @@ fn sidebar_cameo_press(
         }),
         press,
         at_build_limit,
+        building_production_queue,
     );
     if click.clear_building_placement {
         state.match_state.input.cancel_building_placement();
@@ -1154,11 +1161,12 @@ fn sidebar_cameo_press(
             // repeats only while the Options page's Shift-Click Batch Queue
             // (`[VERA] ShiftQueue=`) is ticked, `[VERA] ShiftQueueCount=` times.
             let profile = &state.persistence.options_profile;
-            let repeat = sidebar_eva::shift_queue_repeat(
+            let repeat = sidebar_eva::shift_queue_repeat_with_queue(
                 category,
                 own_for_repeat,
                 shift && profile.shift_queue,
                 profile.shift_queue_count,
+                building_production_queue,
             );
             queue_build_by_type(state, type_id, repeat);
         }

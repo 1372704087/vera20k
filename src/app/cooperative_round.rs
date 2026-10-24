@@ -106,8 +106,8 @@ pub(crate) fn mission_ended(state: &mut AppState, elapsed_ticks: i32) {
 /// choice.
 /// RESIDUAL: VERA's resolved launch keeps no chosen-Random flag
 /// (`node+0x4F`), so a player who chose Random saves the drawn country
-/// instead of `<random>`; only the saved-campaign reader, not ported,
-/// reads it.
+/// instead of `<random>`. Nothing reads it back: the saved-campaign
+/// reader's houses have only uncalled getters (`0x0049D0C0`).
 fn save_houses(state: &AppState) -> [(i32, i32); 2] {
     let Some(launch) = state.match_state.session.network_setup() else {
         return [(-1, -1); 2];

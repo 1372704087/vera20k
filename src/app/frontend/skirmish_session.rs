@@ -1335,15 +1335,26 @@ impl MultiplayerShellRuntime {
         }
     }
 
-    /// CCINIClass reads coopsave.ini (a read failure leaves it empty),
-    /// clears the section, puts the keys and saves the whole file.
-    fn write_coop_save(&self, section: &str, values: &[(String, String)]) {
-        let Some(path) = self
-            .ini_path
+    /// coopsave.ini beside the profile, where `0x0049C5A0` writes it.
+    fn coop_save_path(&self) -> Option<std::path::PathBuf> {
+        self.ini_path
             .as_deref()
             .and_then(Path::parent)
             .map(|dir| dir.join(cooperative::COOP_SAVE_INI))
-        else {
+    }
+
+    /// The saved-campaign readers' file (`0x0049D120`, `0x0049D390`,
+    /// `0x0049C0D0`): `None` when it cannot be read, as `ReadCCFile`
+    /// failing makes each of them return false.
+    pub(crate) fn cooperative_save(&self) -> Option<IniFile> {
+        let bytes = std::fs::read(self.coop_save_path()?).ok()?;
+        Some(IniFile::from_bytes(&bytes).unwrap_or_else(|_| IniFile::from_str("")))
+    }
+
+    /// CCINIClass reads coopsave.ini (a read failure leaves it empty),
+    /// clears the section, puts the keys and saves the whole file.
+    fn write_coop_save(&self, section: &str, values: &[(String, String)]) {
+        let Some(path) = self.coop_save_path() else {
             return;
         };
         let existing = std::fs::read(&path).unwrap_or_default();

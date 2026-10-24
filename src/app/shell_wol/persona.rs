@@ -38,6 +38,30 @@ pub(super) fn load(state: &AppState, name: &str) -> WolPersona {
     }
 }
 
+/// The persona's Country and Color as the MultiPlayer picks at Create
+/// (`0x00789F55`) and in the joined user list (`0x007A7110`), as connect
+/// does (`0x00786938`). Online visits have no persona file, so the picks the
+/// player saved in VERA.INI stay instead of becoming Random.
+pub(super) fn take_side_and_color(state: &mut AppState, name: &str) {
+    if let Some((country, color)) = persona_picks(info_file(state).as_ref(), name, &|key| {
+        service::resolve(state, key)
+    }) {
+        state
+            .frontend
+            .multiplayer_shell_runtime
+            .set_side_and_color(country, color);
+    }
+}
+
+fn persona_picks(
+    file: Option<&WolInfoFile>,
+    name: &str,
+    csf: &dyn Fn(&str) -> String,
+) -> Option<(i32, i32)> {
+    let persona = file?.load_persona(name, csf);
+    Some((persona.country, persona.color))
+}
+
 /// `WOLInfo__SaveProfileToINI` `0x0077A080` under `name`.
 pub(super) fn save(state: &AppState, persona: &mut WolPersona, name: &str) {
     if let Some(file) = info_file(state) {
@@ -545,5 +569,23 @@ mod tests {
             "Legacy"
         );
         assert_eq!(std::fs::read(&path).unwrap(), retained);
+    }
+
+    /// Create and Join keep an online player's own side and colour; native
+    /// visits still take the persona's.
+    #[test]
+    fn only_native_visits_take_the_persona_side_and_color() {
+        use crate::app::persistence::wol_profile::WOLINFO_INI;
+        let directory = crate::map::source::test_support::TestDirectory::new("persona-picks");
+        directory.write(WOLINFO_INI, b"[player]\r\nCountry=3\r\nColor=4\r\n");
+        let picks = |provider| {
+            persona_picks(
+                native_info_file(Some(provider), directory.path()).as_ref(),
+                "Player",
+                &str::to_owned,
+            )
+        };
+        assert_eq!(picks(WolProvider::Online), None);
+        assert_eq!(picks(WolProvider::TestService), Some((3, 4)));
     }
 }

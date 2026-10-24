@@ -1014,6 +1014,19 @@ pub(super) fn message_box_text(state: &AppState, body: String, yes_no: bool) -> 
     WolMessageBox { body, buttons }
 }
 
+/// A live-service refusal whose reason no CSF label carries: the box its
+/// failure opened shows `body` instead. False when no box is open.
+pub(super) fn replace_open_box_body(state: &mut AppState, body: &str) -> bool {
+    match state.frontend.wol.as_mut().map(|visit| &mut visit.page) {
+        Some(WolPage::Message { message, .. }) => {
+            message.body = body.to_owned();
+            state.platform.window.request_redraw();
+            true
+        }
+        _ => false,
+    }
+}
+
 fn apply(state: &mut AppState, step: WolStep) {
     match step {
         WolStep::Stay => {}

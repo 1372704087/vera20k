@@ -2576,6 +2576,158 @@ fn ready_manager_is_refunded_and_disposed_by_another_buildings_produce() {
     );
 }
 
+/// The same fixture with Phobos `[General] BuildingProductionQueue=yes`.
+#[cfg(feature = "phobos")]
+fn world_with_building_queue(seed: u64) -> (Simulation, RuleSet, InternedId) {
+    let mut ini = manager_ini();
+    ini.merge(&IniFile::from_str(
+        "[General]\nBuildingProductionQueue=yes\n[GAPOWR]\nBuildCat=Power\n",
+    ));
+    world_with(
+        RuleSet::from_ini(&ini).expect("building queue fixture"),
+        seed,
+    )
+}
+
+#[cfg(feature = "phobos")]
+#[test]
+fn building_queue_switch_queues_and_starts_the_next_after_placement() {
+    use crate::sim::production::ProductionCancellation;
+    use crate::sim::production::ProductionSelection;
+    use crate::sim::world::FrameEffects;
+
+    let (mut sim, rules, owner) = world_with_building_queue(0xb001_0001);
+    assert!(rules.general.building_production_queue);
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        FrameEffects::default(),
+        false,
+    ));
+    let held = held_id(&sim, owner, ProductionCategory::Building);
+    let credits = sim.houses[&owner].economy().credits();
+
+    // A different building queues instead of abandoning the running head.
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "YAREFN",
+        FrameEffects::default(),
+        false,
+    ));
+    assert_eq!(
+        held_id(&sim, owner, ProductionCategory::Building),
+        held,
+        "the running GAPOWR is retained"
+    );
+    assert_eq!(sim.houses[&owner].economy().credits(), credits);
+    let queued = sim
+        .production
+        .factories()
+        .view(owner, ProductionCategory::Building)
+        .unwrap();
+    assert_eq!(queued.queue.len(), 1);
+    assert_eq!(sim.interner.resolve(queued.queue[0].type_id), "YAREFN");
+
+    // The placement tail clears the held product, then the existing
+    // HouseAbandon -> StartNext path begins the queued building.
+    assert!(
+        sim.production
+            .factories_mut()
+            .test_arm_ready(owner, ProductionCategory::Building)
+    );
+    sim.production.factories_mut().complete_production(
+        owner,
+        ProductionCategory::Building,
+        sim.session.binary_frame(),
+    );
+    let gapowr = rules.object("GAPOWR").expect("GAPOWR fixture");
+    let selection = ProductionSelection::for_type(&rules, gapowr).expect("GAPOWR selection");
+    assert!(cancel_production_for_owner(
+        &mut sim,
+        &rules,
+        "Americans",
+        ProductionCancellation::Selected(selection),
+        false,
+        FrameEffects::default(),
+    ));
+    let successor = held_id(&sim, owner, ProductionCategory::Building);
+    assert_ne!(successor, held);
+    assert_eq!(
+        sim.interner
+            .resolve(sim.substrate.entities.get(successor).unwrap().type_ref()),
+        "YAREFN"
+    );
+    assert!(
+        sim.production
+            .factories()
+            .view(owner, ProductionCategory::Building)
+            .unwrap()
+            .queue
+            .is_empty()
+    );
+}
+
+/// `FactoryClass_QueueProduction_ForceCheckBuilding 0x4C9C7B`: with the
+/// switch on, a building PRODUCE no longer abandons a held product, so the
+/// request waits in the queue while the held building stays suspended.
+#[cfg(feature = "phobos")]
+#[test]
+fn building_queue_switch_keeps_a_suspended_held_building() {
+    use crate::sim::world::FrameEffects;
+
+    let (mut sim, rules, owner) = world_with_building_queue(0xb001_0002);
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "GAPOWR",
+        FrameEffects::default(),
+        false,
+    ));
+    let held = held_id(&sim, owner, ProductionCategory::Building);
+    let factory = sim
+        .production
+        .factories_mut()
+        .test_factory_mut(owner, ProductionCategory::Building)
+        .unwrap();
+    factory.set_progress_for_test(10);
+    factory.set_balance_for_test(650);
+    assert!(super::suspend_production(
+        &sim.interner,
+        &mut sim.production,
+        &sim.session,
+        "Americans",
+        ProductionCategory::Building
+    ));
+    let credits = sim.houses[&owner].economy().credits();
+
+    assert!(enqueue_by_type(
+        &mut sim,
+        &rules,
+        "Americans",
+        "YAREFN",
+        FrameEffects::default(),
+        false,
+    ));
+    assert_eq!(
+        held_id(&sim, owner, ProductionCategory::Building),
+        held,
+        "the held GAPOWR is not abandoned"
+    );
+    assert_eq!(sim.houses[&owner].economy().credits(), credits);
+    let factory = sim
+        .production
+        .factories()
+        .view(owner, ProductionCategory::Building)
+        .unwrap();
+    assert_eq!(factory.queue.len(), 1);
+    assert_eq!(sim.interner.resolve(factory.queue[0].type_id), "YAREFN");
+}
+
 /// Begin_Production drops a building's PRODUCE while the building factory
 /// runs (`0x004FA520..0x004FA550`: rate set, +0x70 clear, RTTI
 /// BuildingType), ahead of its same-type branch and without a scold: a second

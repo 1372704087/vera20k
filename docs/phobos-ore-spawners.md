@@ -50,6 +50,9 @@ Two Phobos hooks change that call:
   once also joins that resource's spread queue through
   `RegisterForSpread @ 0x00722AF0`, whose own admission and dedupe it keeps.
 
+`Range` converts to unsigned before the enumerator clamps it to 256; negative
+values therefore select that bounded maximum.
+
 `AdjacentCellsInRange` walks YRpp's `CellSpreadEnumerator`, so a `Range=1`
 spawner searches nine cells — the centre first, then ring 1 with gamemd's own
 CellSpread table's offsets 2 and 4 swapped — and `Range=2` searches that table's
@@ -76,10 +79,6 @@ RESIDUALS (trigger, effect, frequency):
   ore and needs that fallback, dereferences a null `TiberiumClass::Array`
   slot natively. VERA germinates nothing, so the spawner
   emits no cell and no further spread. Only custom data reaches this.
-- A negative `SpawnsTiberium.Range` reaches `CellSpreadEnumerator`'s unsigned
-  clamp as a huge ring count, and Phobos' own `reserve((2 * range + 1) ^ 2)`
-  hint fails the allocation first. VERA searches only the centre cell, which is
-  always refused, so the spawner emits nothing.
 
 The extension fields are retained per type in the Rules process owner, enter the
 simulation configuration hash with the rest of the type, and cross the save

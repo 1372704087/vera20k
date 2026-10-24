@@ -853,15 +853,13 @@ fn spawner_cell_spread(
 /// [`crate::sim::combat::cell_spread`]'s splash order. The center `(0,0)` is the
 /// first entry, which makes the spawner's own cell its first candidate.
 ///
-/// RESIDUAL: a negative `SpawnsTiberium.Range` reaches the enumerator's unsigned
-/// clamp as a huge ring count, and Phobos' own `reserve((2 * range + 1) ^ 2)`
-/// hint dies in the allocator first. VERA germinates nothing for that input:
-/// only the center cell, which `CanTiberiumGerminate` always refuses under a
-/// live spawner. Trigger: a modder authors a negative Range.
+/// Phobos GeneralUtils takes an unsigned range; the pinned YRpp enumerator
+/// clamps it to Max in its initializer. Negative authored values therefore
+/// reach the same bounded maximum (Phobos b90ab4bc, YRpp d9795546).
 fn adjacent_cells_in_range(range: i32) -> Vec<(i16, i16)> {
     /// `CellSpreadEnumerator::Max`.
     const MAX_SPREAD: u32 = 0x100;
-    let spread = u32::try_from(range).unwrap_or(0).min(MAX_SPREAD);
+    let spread = (range as u32).min(MAX_SPREAD);
     // The constructor's `reset(0)`: the center, with both line flags set.
     let mut curspread: u32 = 0;
     let mut current = (0i16, 0i16);
@@ -1287,6 +1285,11 @@ SpreadPercentage=.06
             )
             .is_some()
         );
+    }
+
+    #[test]
+    fn negative_spawner_range_uses_the_unsigned_enumerator_limit() {
+        assert_eq!(adjacent_cells_in_range(-1), adjacent_cells_in_range(0x100));
     }
 
     /// Phobos `GeneralUtils::AdjacentCellsInRange` covers gamemd's own

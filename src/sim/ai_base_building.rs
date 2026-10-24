@@ -247,6 +247,12 @@ pub(crate) fn update_production_choices(
     let choose_units = |sim: &mut Simulation, kinds: &[UnitChoiceKind]| {
         for &kind in kinds {
             ai_unit_choice::choose(sim, rules, owner, kind);
+            // NPSE 2.0 House::Update's C33AB0 wrapper (4F90F2/4F9252)
+            // always asks land, then naval. Mode-2 admission below still
+            // reads the original three choices only.
+            if crate::rules::NPATCH_ENABLED && kind == UnitChoiceKind::Unit {
+                ai_unit_choice::choose(sim, rules, owner, UnitChoiceKind::NavalUnit);
+            }
         }
     };
     const ALL: [UnitChoiceKind; 3] = [
@@ -989,11 +995,18 @@ fn carry_wall_tower_site(
 /// `factory_rtti`: the house's choice of that kind, unchecked: the building
 /// choice (`+0x564C`, `0x004FBDDC`) or a choice of `sim::ai_unit_choice`
 /// (`+0x5650`, `+0x5654`, `+0x5658`).
+///
+/// `producer_naval` is the producing building's `Naval=`. NPSE's hook for this
+/// read (`0x4FBDAF -> 0xC2F130`) takes the vehicle choice from `+0x16130`
+/// while the producer is naval and from `+0x5650` otherwise, so a shipyard
+/// stops reading a war factory's pick; an ordinary build has no naval slot and
+/// always reads `+0x5650`.
 pub(crate) fn suggest_new_object<'r>(
     sim: &Simulation,
     rules: &'r RuleSet,
     owner: InternedId,
     factory_rtti: i32,
+    producer_naval: bool,
 ) -> Option<&'r ObjectType> {
     let house = sim.houses.get(&owner)?;
     let unit_choice = |kind: UnitChoiceKind| {
@@ -1004,7 +1017,9 @@ pub(crate) fn suggest_new_object<'r>(
     // FindFactory's exact class comparison. Other RTTIs return null.
     match FactoryType::for_production_rtti(factory_rtti)? {
         FactoryType::BuildingType => rules.building_type_at(house.ai_production().building_choice),
-        FactoryType::UnitType => unit_choice(UnitChoiceKind::Unit),
+        FactoryType::UnitType => {
+            unit_choice(UnitChoiceKind::of(ObjectCategory::Vehicle, producer_naval)?)
+        }
         FactoryType::InfantryType => unit_choice(UnitChoiceKind::Infantry),
         FactoryType::AircraftType => unit_choice(UnitChoiceKind::Aircraft),
     }

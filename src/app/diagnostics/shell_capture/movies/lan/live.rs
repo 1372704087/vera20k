@@ -342,9 +342,23 @@ impl LiveLanCapture {
             // Co-op skips the kick/rejoin pass: its rows follow the campaign.
             kick_observed: target.live_cooperative(),
             entered_setup: false,
-            cooperative: target
-                .live_cooperative()
-                .then(|| cooperative::CooperativeRun::new(target == LanTarget::LiveCoopSavedHost)),
+            cooperative: target.live_cooperative().then(|| {
+                cooperative::CooperativeRun::new(
+                    matches!(
+                        target,
+                        LanTarget::LiveCoopSavedHost | LanTarget::LiveCoopFinalHost
+                    ),
+                    match target {
+                        LanTarget::LiveCoopFinalHost => cooperative::CoopEnding::CampaignEnd {
+                            continue_to_shell: false,
+                        },
+                        LanTarget::LiveCoopFinalGuest => cooperative::CoopEnding::CampaignEnd {
+                            continue_to_shell: true,
+                        },
+                        _ => cooperative::CoopEnding::Retry,
+                    },
+                )
+            }),
             country_selected: false,
             battle: matches!(
                 target,
@@ -383,6 +397,7 @@ impl LiveLanCapture {
                 | LanTarget::LiveDesyncHost
                 | LanTarget::LiveCoopHost
                 | LanTarget::LiveCoopSavedHost
+                | LanTarget::LiveCoopFinalHost
                 | LanTarget::BattleHost
         )
     }
@@ -524,10 +539,15 @@ impl LiveLanCapture {
             .map_or(self.phase == Phase::Finished, online::LiveRoundFlow::ready)
     }
 
-    pub(super) fn owns_simulation_steps(&self) -> bool {
+    pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
         // Keep the final observed frame stable during GPU readback. Ordinary
-        // App frame pacing and NetworkCommandBoundary own every earlier step.
+        // App frame pacing and NetworkCommandBoundary own every earlier step,
+        // except the co-op win frame's hold.
         self.ready()
+            || self
+                .cooperative
+                .as_ref()
+                .is_some_and(|run| run.holds_simulation(state))
     }
 
     pub(super) fn after_present(

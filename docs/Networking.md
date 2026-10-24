@@ -202,3 +202,7 @@ admission. The manifest's `lan.cooperative` records the BC6 result and the
 retried startup. `lan-live-coop-saved-host` replaces the host's Soviet row with Use Saved
 Campaign; seed its settings folder with a `coopsave.ini` section for the pair
 (`LiveHostLiveGuest`), and both players load the saved stage's map.
+`lan-live-coop-final-host` and `lan-live-coop-final-guest` start from a section whose
+`CurrentMap` is the campaign's last stage: at native frame 150 both processes flag every
+human House to win, BC6 offers only Quit, both press it and the campaign-end dialog
+`0xBC7` opens. The host stays on it; the guest presses Continue back to the lobby.

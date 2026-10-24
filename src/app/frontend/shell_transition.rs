@@ -100,11 +100,23 @@ pub(crate) enum ShellSlideKind {
     Score,
     /// Dialog 0x103 — campaign victory StandaloneScore.
     CampaignScore,
+    /// Dialog 0xBC7 — the LAN Cooperative campaign end.
+    CampaignEnd,
     /// Dialog 0x105 — Choose Map's random-map dialog.
     RandomMap,
 }
 
 impl ShellSlideKind {
+    /// The shell of a campaign score page's dialog.
+    pub(crate) fn campaign_score(
+        dialog: crate::ui::campaign_score_shell::CampaignScoreDialog,
+    ) -> Self {
+        match dialog {
+            crate::ui::campaign_score_shell::CampaignScoreDialog::Victory => Self::CampaignScore,
+            crate::ui::campaign_score_shell::CampaignScoreDialog::CampaignEnd => Self::CampaignEnd,
+        }
+    }
+
     /// The Win32 dialog resource id this shell maps to. The slide's eligibility
     /// and column are looked up from this id in the data-driven `slide` table
     /// (no hardcoded per-kind counts here).
@@ -136,6 +148,7 @@ impl ShellSlideKind {
             ShellSlideKind::ChooseMap => 0x006B,
             ShellSlideKind::Score => 0x0108,
             ShellSlideKind::CampaignScore => 0x0103,
+            ShellSlideKind::CampaignEnd => 0x0BC7,
             ShellSlideKind::RandomMap => 0x0105,
         })
     }
@@ -278,6 +291,9 @@ pub(crate) enum ShellExitThen {
     /// Campaign victory Continue (`0x423`, result 1): `0x103` slides out
     /// before GameExit::Victory continues the campaign.
     CampaignScoreContinue,
+    /// Campaign-end Continue (`0x6D1`, result 1): `0xBC7` slides out and
+    /// Main_Game returns to the mode's shell.
+    CampaignEndContinue,
     /// A Westwood Online mode button: `0x10E` closes with the mode written
     /// and `WOL_Main` runs that mode's flow.
     WolAction(crate::ui::wol_shell::WolMode),
@@ -365,6 +381,7 @@ impl ShellExitThen {
             Self::WolAddBuddyClose { .. } => ShellSlideKind::WolAddBuddyQuery,
             Self::ScoreContinue => ShellSlideKind::Score,
             Self::CampaignScoreContinue => ShellSlideKind::CampaignScore,
+            Self::CampaignEndContinue => ShellSlideKind::CampaignEnd,
         }
     }
 }
@@ -664,7 +681,9 @@ impl<'a> ShellLifecycleReducer<'a> {
             ShellSlideKind::ChooseMap => ShellWaveCompletion::ChooseMap,
             ShellSlideKind::RandomMap => ShellWaveCompletion::RandomMap,
             ShellSlideKind::Score => ShellWaveCompletion::Score,
-            ShellSlideKind::CampaignScore => ShellWaveCompletion::CampaignScore,
+            ShellSlideKind::CampaignScore | ShellSlideKind::CampaignEnd => {
+                ShellWaveCompletion::CampaignScore
+            }
         })
     }
 
@@ -811,10 +830,14 @@ pub(crate) fn current_shell_slide_target(state: &AppState) -> Option<ShellSlideK
                 .then_some(ShellSlideKind::Score);
         }
         if crate::app::App::campaign_score_shell_active(state) {
-            return crate::ui::shell::slide::is_slide_eligible(
-                ShellSlideKind::CampaignScore.dialog_id(),
-            )
-            .then_some(ShellSlideKind::CampaignScore);
+            let kind = ShellSlideKind::campaign_score(
+                state
+                    .frontend
+                    .campaign_score_page
+                    .as_ref()
+                    .map_or_else(Default::default, |page| page.dialog),
+            );
+            return crate::ui::shell::slide::is_slide_eligible(kind.dialog_id()).then_some(kind);
         }
         return None;
     }
@@ -1156,7 +1179,7 @@ pub(crate) fn render_shell_first_paint_slide(
             encoder,
             destination,
         )?,
-        ShellSlideKind::CampaignScore => {
+        ShellSlideKind::CampaignScore | ShellSlideKind::CampaignEnd => {
             crate::app::frontend::campaign_score_shell_render::render_campaign_score_page(
                 state,
                 encoder,
@@ -1253,6 +1276,7 @@ pub(crate) fn render_shell_first_paint_slide(
         }
         // 0x103's SHOW completion (`0x4EC` on the dialog) starts every kind-1
         // static and, after playing ScoreAnimSound, the 0x72B kind-4 timer.
+        // 0xBC7's (`0x00470D30`) plays no sound.
         Some(ShellWaveCompletion::CampaignScore) => {
             let now = Instant::now();
             let frames = state
@@ -1261,8 +1285,16 @@ pub(crate) fn render_shell_first_paint_slide(
                 .as_ref()
                 .and_then(|art| art.scra.as_ref())
                 .map_or(0, |strip| strip.frames.len());
+            let victory = state
+                .frontend
+                .campaign_score_page
+                .as_ref()
+                .is_some_and(|page| {
+                    page.dialog == crate::ui::campaign_score_shell::CampaignScoreDialog::Victory
+                });
             let sound = state
                 .rules()
+                .filter(|_| victory)
                 .and_then(|rules| rules.general.score_anim_sound())
                 .map(str::to_owned);
             if let Some(page) = state.frontend.campaign_score_page.as_mut() {

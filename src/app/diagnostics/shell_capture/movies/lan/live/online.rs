@@ -1474,6 +1474,7 @@ fn reset_round(core: &mut LiveLanCapture) {
     core.map_admission = None;
     core.actions.clear();
     core.actor = None;
+    core.actor_last_seen = None;
     core.origin = None;
     core.observed_movement = false;
     core.stopped_position = None;

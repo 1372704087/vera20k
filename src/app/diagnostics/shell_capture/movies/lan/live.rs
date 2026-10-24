@@ -207,6 +207,7 @@ pub(super) struct LiveLanCapture {
     map_admission: Option<Value>,
     actions: Vec<Value>,
     actor: Option<u64>,
+    actor_last_seen: Option<Value>,
     origin: Option<(u16, u16)>,
     observed_movement: bool,
     stopped_position: Option<Value>,
@@ -288,6 +289,7 @@ impl LiveLanCapture {
             map_admission: None,
             actions: Vec::new(),
             actor: None,
+            actor_last_seen: None,
             origin: None,
             observed_movement: false,
             stopped_position: None,
@@ -1004,7 +1006,19 @@ impl LiveLanCapture {
             let entity = simulation
                 .entities()
                 .get(actor)
-                .context("commanded actor disappeared")?;
+                .with_context(|| {
+                    format!(
+                        "commanded actor {actor} disappeared at native frame {committed}; last_seen={}; ai_activity={}",
+                        json!(self.actor_last_seen),
+                        json!(self.ai.as_ref().and_then(|ai| ai.activity.as_ref()))
+                    )
+                })?;
+            self.actor_last_seen = Some(json!({"native_frame":committed,
+                "type":simulation.interner().resolve(entity.type_ref()),
+                "owner":simulation.interner().resolve(entity.owner()),
+                "health":entity.health.current(),"alive":entity.is_alive(),
+                "position":entity.position,"mission":entity.mission.current().raw(),
+                "destination":entity.navigation.nav_com()}));
             self.observed_movement |= self
                 .origin
                 .is_some_and(|origin| origin != (entity.position.rx(), entity.position.ry()));
@@ -1249,7 +1263,7 @@ impl LiveLanCapture {
             "bind":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(bind,_)|bind.to_string()),"peer":self.config.as_ref().and_then(|config|config.transport.explicit_endpoints()).map(|(_,peer)|peer.to_string()),"startup":self.startup,"map_admission":self.map_admission,
             "native_checksums":checksums,"simulation_hashes":hashes,
             "simulation_hash_interval":crate::sim::replay::PLAY_HASH_INTERVAL.get(),
-            "actions":self.actions,"observed_movement":self.observed_movement,"stopped_position":self.stopped_position,"route":self.route,
+            "actions":self.actions,"actor_last_seen":self.actor_last_seen,"observed_movement":self.observed_movement,"stopped_position":self.stopped_position,"route":self.route,
             "final_native_frame":sim.session().binary_frame(),"checksum_failure":format!("{:?}",sim.pending_network_failure()),
             "sent_commands":live.map(|live| live.sent_commands()),"peers":live.map(|live| live.peers().iter().map(|peer| json!({"house":peer.house_id(),"frame":peer.frame(),"advertised_commands":peer.advertised_commands(),"received_commands":peer.received_commands()})).collect::<Vec<_>>()),
             "mobile_objects":sim.entities().values_sorted().filter(|entity| matches!(entity.category(), crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).map(|entity| json!({"id":entity.stable_id(),"owner":sim.interner().resolve(entity.owner()),"position":entity.position,"alive":entity.is_alive()})).collect::<Vec<_>>() }),

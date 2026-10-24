@@ -1550,11 +1550,7 @@ fn send_create(state: &mut AppState, channel: WolChannel, key: String, observe: 
     // no registry), the nickname's persona Country and Color become the
     // MultiPlayer picks the host node then takes (0x0069B700/0x0069B720).
     let nickname = nickname(state);
-    let persona = super::persona::load(state, &nickname);
-    state
-        .frontend
-        .multiplayer_shell_runtime
-        .set_side_and_color(persona.country, persona.color);
+    super::persona::take_side_and_color(state, &nickname);
     if let Some(lobby) = lobby_mut(state) {
         lobby.step = Step::Creating {
             observe,
@@ -2354,11 +2350,7 @@ fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
             })
             .unwrap_or_default();
         if setup::guest_users_listed(state, &users) {
-            let persona = super::persona::load(state, &me);
-            state
-                .frontend
-                .multiplayer_shell_runtime
-                .set_side_and_color(persona.country, persona.color);
+            super::persona::take_side_and_color(state, &me);
             setup::send_first_choices(state);
             if quick_match_runner(state) {
                 super::quick_match::game_joined(state, true);

@@ -177,7 +177,7 @@ impl App {
         // Wait_For_Players still enters GScreen Input at 0x006485B7 and
         // 0x00649827; repeated services read the same binary-frame parity.
         let input_is_active = in_game
-            && (!state.platform.focus_freeze_active()
+            && (!state.focus_freeze_active()
                 || Self::house_outcome_wait_pending(state)
                 || network_wait_pending);
         let input_frame = input_is_active.then(|| {
@@ -367,7 +367,7 @@ impl App {
         if matches!(state.frontend.screen, GameScreen::InGame)
             && (network_frame_pending
                 || (simulation_allowed
-                    && !state.platform.focus_freeze_active()
+                    && !state.focus_freeze_active()
                     && state.match_state.scenario_exit.is_none()
                     && state.match_state.scenario_outcome.is_none()))
         {
@@ -428,7 +428,7 @@ impl App {
     /// tactical capture never reaches the hidden service loop.
     pub(super) fn match_runs_while_hidden(state: &AppState) -> bool {
         state.frontend.screen == GameScreen::InGame
-            && (Self::house_outcome_wait_pending(state) || !state.platform.focus_freeze_active())
+            && (Self::house_outcome_wait_pending(state) || !state.focus_freeze_active())
     }
 
     /// The one owner of the window's own cursor after the startup splash, set
@@ -564,7 +564,7 @@ impl App {
         // Native polls timed pause before Logic, then Manage55DDA5 afterwards.
         // Retain that admission: Action110 can enter a new hold during Logic.
         // Exact-step diagnostics already advanced their admitted frame above.
-        let message_ms = if state.platform.focus_freeze_active() {
+        let message_ms = if state.focus_freeze_active() {
             None
         } else {
             crate::app::input::messages::update(

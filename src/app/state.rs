@@ -58,6 +58,15 @@ impl AppState {
             .is_some_and(|config| config.graphics.translucent_fog)
     }
 
+    /// Is the match frozen because the window is not the foreground? Only the
+    /// configured freeze, and only offline: `Main_Tick` (`0x0055D38D`) sleeps
+    /// until reactivated in GameMode 0 or 5, but a network game sleeps 10 ms
+    /// and runs on, so peers never stall on a deactivated player.
+    pub(crate) fn focus_freeze_active(&self) -> bool {
+        self.platform.focus_freeze_configured()
+            && self.match_state.session_mode().is_single_player()
+    }
+
     /// Current projection: frontend/result use physical window pixels; tactical
     /// rendering and pending tactical installation use the optional zoom pass.
     /// Loading artwork explicitly uses GPU/window dimensions in loading::pump.

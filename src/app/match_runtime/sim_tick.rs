@@ -596,7 +596,7 @@ pub(crate) struct RuntimePassInputs {
     /// The window owns the foreground; gates input polling.
     pub(crate) window_active: bool,
     /// The deactivated window freezes the world
-    /// (`PlatformState::focus_freeze_active`).
+    /// (`AppState::focus_freeze_active`).
     pub(crate) focus_frozen: bool,
     pub(crate) startup_admitted: bool,
     pub(crate) frame_stepping: bool,
@@ -852,7 +852,7 @@ fn advance_in_game_runtime_mode(
         && !replaying
         && !state.match_state.match_presentation.in_game_menu.is_open()
         && !state.match_state.debug_pause
-        && !state.platform.focus_freeze_active();
+        && !state.focus_freeze_active();
     if service_live {
         super::scenario_pause::poll(state, wall_ms);
     }
@@ -885,7 +885,7 @@ fn advance_in_game_runtime_mode(
     let mut decision = decide_runtime_pass(RuntimePassInputs {
         exact_step: matches!(mode, RuntimeAdvanceMode::ExactOneStep),
         window_active: state.platform.window_active,
-        focus_frozen: state.platform.focus_freeze_active(),
+        focus_frozen: state.focus_freeze_active(),
         startup_admitted,
         frame_stepping,
         paused: state.match_state.paused(),
@@ -914,8 +914,7 @@ fn advance_in_game_runtime_mode(
         decision.run_sim &= state.match_state.match_diagnostics.playback_can_advance();
         decision.tactical_mutation = false;
         // Camera remains available when the last recorded frame is frozen.
-        decision.scroll_input =
-            state.platform.window_active && !state.platform.focus_freeze_active();
+        decision.scroll_input = state.platform.window_active && !state.focus_freeze_active();
     }
     if frame_stepping {
         state.diag.debug_frame_step_requested = false;

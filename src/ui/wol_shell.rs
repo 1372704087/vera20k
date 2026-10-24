@@ -340,7 +340,45 @@ pub const WOL_TEXT_STATICS: [WolTextStatic; 20] = [
     ),
 ];
 
-const ONLINE_WELCOME_TEXT: [WolTextStatic; 6] = [
+/// VERA's ids for the online welcome's lobby counts (`GET /v1/stats`,
+/// `services/lobby/protocol.md`); no native control uses them.
+const LOBBY_STATS_HEADING: u16 = 0x7F00;
+const LOBBY_STATS_BODY: u16 = 0x7F01;
+pub const LOBBY_STATS_IDS: [u16; 2] = [LOBBY_STATS_HEADING, LOBBY_STATS_BODY];
+
+/// The lobby's public counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+pub struct WolLobbyStats {
+    pub online: u32,
+    pub in_game: u32,
+    pub open_games: u32,
+    pub games_24h: u32,
+    pub games_total: u32,
+}
+
+impl WolLobbyStats {
+    /// The texts of [`LOBBY_STATS_IDS`]; they stay blank until counts arrive.
+    pub fn texts(self) -> [(u16, String); 2] {
+        let count =
+            |n: u32, one: &str, many: &str| format!("{n} {}", if n == 1 { one } else { many });
+        [
+            (LOBBY_STATS_HEADING, "RIGHT NOW".to_owned()),
+            (
+                LOBBY_STATS_BODY,
+                format!(
+                    "{} online, {} in games, {}.\n{} in the last 24 hours, {} in all.",
+                    count(self.online, "player", "players"),
+                    self.in_game,
+                    count(self.open_games, "open game", "open games"),
+                    count(self.games_24h, "game", "games"),
+                    self.games_total,
+                ),
+            ),
+        ]
+    }
+}
+
+const ONLINE_WELCOME_TEXT: [WolTextStatic; 8] = [
     text(
         None,
         Literal("VERA20k Online"),
@@ -381,6 +419,18 @@ const ONLINE_WELCOME_TEXT: [WolTextStatic; 6] = [
             "Create a game and choose an AI difficulty in an open\nplayer slot before pressing Start.",
         ),
         (42, 224, 330, 36),
+        StaticAlign::Left,
+    ),
+    text(
+        Some(LOBBY_STATS_HEADING),
+        Literal(""),
+        (42, 278, 330, 12),
+        StaticAlign::Left,
+    ),
+    text(
+        Some(LOBBY_STATS_BODY),
+        Literal(""),
+        (42, 296, 330, 36),
         StaticAlign::Left,
     ),
 ];
@@ -706,12 +756,10 @@ mod tests {
         assert_eq!(controls, [CUSTOM_MATCH, MAIN_MENU]);
         assert!(!layout.texts.is_empty());
         assert!(layout.icons.is_empty() && layout.group_boxes.is_empty());
-        assert!(
-            layout
-                .texts
-                .iter()
-                .all(|(text, _)| text.id.is_none() && matches!(text.caption, Literal(_)))
-        );
+        assert!(layout.texts.iter().all(|(text, _)| {
+            matches!(text.caption, Literal(_))
+                && text.id.is_none_or(|id| LOBBY_STATS_IDS.contains(&id))
+        }));
         let first = layout.page.button_rect(CUSTOM_MATCH).unwrap();
         assert_eq!(first, RectPx::new(644, 199, 156, 42));
         assert_eq!(
@@ -746,6 +794,21 @@ mod tests {
         assert_eq!(
             scaled.page.button_rect(CUSTOM_MATCH),
             Some(RectPx::new(1288, 398, 312, 84))
+        );
+    }
+
+    #[test]
+    fn lobby_stats_read_as_counted_phrases() {
+        let stats = WolLobbyStats {
+            online: 1,
+            in_game: 0,
+            open_games: 2,
+            games_24h: 1,
+            games_total: 40,
+        };
+        assert_eq!(
+            stats.texts()[1].1,
+            "1 player online, 0 in games, 2 open games.\n1 game in the last 24 hours, 40 in all."
         );
     }
 

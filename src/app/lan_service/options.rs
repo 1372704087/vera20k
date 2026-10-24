@@ -711,7 +711,7 @@ fn parse_options(
     ))
 }
 
-fn decoded_choices(
+pub(super) fn decoded_choices(
     old: &SkirmishLocalSlot,
     country: i32,
     color: i32,
@@ -758,19 +758,19 @@ fn decoded_choices(
     Ok(slot)
 }
 
-fn start_value(start: LaunchStartPosition) -> i32 {
+pub(super) fn start_value(start: LaunchStartPosition) -> i32 {
     match start {
         LaunchStartPosition::Auto => -2,
         LaunchStartPosition::Position(index) => i32::from(index),
     }
 }
-fn team_value(team: LaunchTeam) -> i32 {
+pub(super) fn team_value(team: LaunchTeam) -> i32 {
     match team {
         LaunchTeam::None => -2,
         LaunchTeam::Team(index) => i32::from(index),
     }
 }
-fn decoded_difficulty(value: i32) -> Result<AiDifficulty> {
+pub(super) fn decoded_difficulty(value: i32) -> Result<AiDifficulty> {
     match value {
         0 => Ok(AiDifficulty::Hard),
         1 => Ok(AiDifficulty::Normal),

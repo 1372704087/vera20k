@@ -193,3 +193,10 @@ retaining its paid identity. Both clients must observe both completed power
 plants. The manifest retains 7,200 frame checksums and the observed production
 actions. This is a bounded opening check with a 300-second default diagnostic
 budget; simulation timing and network timeouts still belong to production.
+
+The `lan-live-coop-host` and `lan-live-coop-guest` targets use the same setup.
+The host uses the Soviet co-op campaign through Choose Map; both players take
+B6 Observe at native frame 150, BC6 opens on both after the lost mission, both
+press Continue, and the retried mission must run 90 frames over the same LAN
+admission. The manifest's `lan.cooperative` records the BC6 result and the
+retried startup.

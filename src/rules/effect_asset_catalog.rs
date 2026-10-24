@@ -343,6 +343,13 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     if let Some(name) = rules.general.parachute_shp.as_deref() {
         insert(name);
     }
+    // NPSE ObjectClass::Paradrop C2F939..C2F94D substitutes Rules+400
+    // for non-infantry. It needs the same physical bounds as Parachute.
+    if crate::rules::NPATCH_ENABLED
+        && let Some(name) = rules.general.vehicle_parachute.as_deref()
+    {
+        insert(name);
+    }
     // Techno70F1D0 attaches [General] Behind= to an obscured object. Its
     // AnimClass must have physical frame bounds before the AI can create it.
     if let Some(name) = rules.general.behind.as_deref() {

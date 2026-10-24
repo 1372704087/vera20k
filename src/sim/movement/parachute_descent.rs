@@ -575,25 +575,50 @@ mod canopy_tests {
         );
     }
 
-    /// NPatch admits the extension key; other builds ignore it. Empty and
-    /// absent keys keep the constructor default in either build.
+    /// NPSE ReadGeneral C31005..C31017 allocates the named AnimType and
+    /// retains its pointer on an empty read; FindOrAllocate clears `none`.
     #[test]
-    fn vehicle_parachute_reader_requires_npatch_and_defaults_to_none() {
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
-            "[General]\nVehicleParachute=vehchute\n",
-        ))
-        .unwrap();
+    fn vehicle_parachute_reader_admits_the_asset_and_retains_layered_values() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+
+        let mut layers =
+            RulesLayerStack::new(IniFile::from_str("[General]\nVehicleParachute=vehchute\n"));
+        let art = IniFile::from_str("[vehchute]\nRate=900\nLoopCount=-1\n");
+        let rules =
+            RuleSet::from_processed_rules(&layers.process_with_fixed_art(&art).unwrap()).unwrap();
         assert_eq!(
             rules.general.vehicle_parachute.as_deref(),
             crate::rules::NPATCH_ENABLED.then_some("VEHCHUTE")
         );
-        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
-            "[General]\nVehicleParachute=\n",
-        ))
-        .unwrap();
-        assert_eq!(rules.general.vehicle_parachute, None);
-        let rules =
-            crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str("[General]\n")).unwrap();
+        assert_eq!(
+            rules
+                .anim_type_names
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("vehchute")),
+            crate::rules::NPATCH_ENABLED,
+            "a canopy referenced only by this key must be allocated and read"
+        );
+        assert_eq!(
+            crate::rules::effect_asset_catalog::anim_class_roots(&rules)
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("vehchute")),
+            crate::rules::NPATCH_ENABLED,
+            "the production loader must bind the custom canopy"
+        );
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[General]\nVehicleParachute=\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        assert_eq!(
+            rules.general.vehicle_parachute.as_deref(),
+            crate::rules::NPATCH_ENABLED.then_some("VEHCHUTE")
+        );
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[General]\nVehicleParachute=<none>\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
         assert_eq!(rules.general.vehicle_parachute, None);
     }
 }

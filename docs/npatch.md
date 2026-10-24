@@ -1,17 +1,22 @@
-# NPatch placeholder
+# Optional NPatch compatibility
 
 NPatch is a long-standing binary patch for Yuri's Revenge that predates the DLL-based Ares and
-Phobos extensions. VERA20K has **no NPatch behavior yet**: this page reserves the capability so
-chains can name it instead of inventing a second mechanism later.
+Phobos extensions. VERA20K implements the supported behavior in Rust. Enable it explicitly:
 
 ```sh
 cargo run --release --bin vera20k --features npatch
 ```
 
-The feature compiles to `rules::NPATCH_ENABLED`, a placeholder that no reader consults. A build
-without it keeps every stock path, exactly like a build without `ares` or `phobos`. When the first
-NPatch chain lands it reads its INI keys under `#[cfg(feature = "npatch")]` and states its native
-addresses like every other chain.
+The feature compiles to `rules::NPATCH_ENABLED`. A build without it ignores the extension keys
+and keeps stock behavior, like a build without `ares` or `phobos`.
+
+`[General] VehicleParachute=` chooses the canopy for airdropped non-infantry, falling back to
+`Parachute=` when unset. Infantry keeps `Parachute=`. The name uses the retained animation
+reference and asset-loading owners, including empty-layer retention and `none` clearing.
+This follows NPSE 2.0 #359's ReadGeneral (`0xC31005..0xC31017`) and ObjectClass::Paradrop
+(`0x5F5ADD`, `0xC2B0E4`, `0xC2FA75`, `0xC2F939`) from the
+[author-linked release drive](https://zhytat.ysepan.com/). Parachuted bombs and their `IsBomb=`
+branch remain outside the current descent implementation.
 
 ## Cross-extension compatibility
 

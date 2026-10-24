@@ -4877,6 +4877,19 @@ impl RulesPassProcessor {
                 self.rules_type_references.read_pointer(key, resolved);
             }
         }
+        if crate::rules::NPATCH_ENABLED {
+            // NPSE ReadGeneral C31005..C31017: ReadString128 then
+            // AnimTypeClass::FindOrAllocate428B80. Empty retains the pointer;
+            // a factory-null token clears it. Allocate before AnimType reads.
+            let resolved = self.resolve_scalar_from(
+                section,
+                "VehicleParachute",
+                RulesTypeFamily::Animation,
+                0x80,
+            );
+            self.rules_type_references
+                .read_pointer("VehicleParachute", resolved);
+        }
     }
 
     /// `RulesClass::ReadGeneral` parses the six `[General] Prerequisite*`

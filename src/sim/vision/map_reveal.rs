@@ -2,7 +2,9 @@
 //! Native callbacks visit Techno registration order, ordinary sight then Gap on
 //! each object. House240 idempotence is distinct from House577A SpySatActive;
 //! Map577F30 (RevealEntireMap) shares the House240 latch.
-use super::{FogState, InternedId, OwnerVisibility, SightAdmission, gap_footprint};
+#[cfg(any(test, feature = "test-support"))]
+use super::gap_footprint;
+use super::{FogState, InternedId, OwnerVisibility, SightAdmission};
 
 /// The three native bulk writers have different counter semantics.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -145,12 +147,15 @@ impl FogState {
             .complete = false;
         Some(MapTransitionPlan {
             held,
+            #[cfg(any(test, feature = "test-support"))]
             gaps,
+            #[cfg(any(test, feature = "test-support"))]
             reentry,
             ids,
         })
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn remove_map_transition_gap(
         &mut self,
         owner: InternedId,
@@ -189,6 +194,7 @@ impl FogState {
         }
     }
 
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn reenter_map_transition_gap(
         &mut self,
         owner: InternedId,
@@ -208,7 +214,9 @@ impl FogState {
 
 pub(crate) struct MapTransitionPlan {
     pub held: std::collections::BTreeSet<u64>,
+    #[cfg(any(test, feature = "test-support"))]
     pub gaps: std::collections::BTreeMap<u64, Vec<super::GapGeneratorSource>>,
+    #[cfg(any(test, feature = "test-support"))]
     pub reentry: std::collections::BTreeMap<u64, Vec<super::GapGeneratorSource>>,
     pub ids: std::collections::BTreeSet<u64>,
 }

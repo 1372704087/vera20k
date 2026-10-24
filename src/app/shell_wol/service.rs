@@ -90,9 +90,7 @@ pub(crate) enum WolServiceRequest {
     ListCredentials,
     /// `0x00797640`: API+0x10 with these SKU flags (`0x2900`, or `0x2300`
     /// for mode 3).
-    FetchServers {
-        flags: u32,
-    },
+    FetchServers { flags: u32 },
     /// `0xC4`'s Disconnect during the connect: `SetEvent(event 0)` ends the
     /// running wait. A Disconnect during the server list leaves WOL, which
     /// ends the visit and with it the service session; nothing is queued.
@@ -105,14 +103,8 @@ pub(crate) enum WolServiceRequest {
         password: String,
         changed: bool,
     },
-    CreateAccount {
-        nickname: String,
-        password: String,
-    },
     /// Forget Account: API+0x94(slot, "", "", 1).
-    ForgetCredential {
-        slot: u32,
-    },
+    ForgetCredential { slot: u32 },
     /// Remember after a login: `0x00789500(nickname, password, changed,
     /// locale)`, which stores the account (API+0x94) and the slot's locale
     /// (API+0xC8, `0x00789610..0x0078961E`).
@@ -124,9 +116,7 @@ pub(crate) enum WolServiceRequest {
     },
     /// API+0xBC: the locales of these users (the connect asks for its own,
     /// `0x00786A01..0x00786A48`).
-    RequestLocales {
-        names: Vec<String>,
-    },
+    RequestLocales { names: Vec<String> },
     /// API+0xB8: this user's locale.
     SetLocale(i32),
     /// API+0xD0: how many locales the service knows (`0xFE`'s init,
@@ -134,15 +124,9 @@ pub(crate) enum WolServiceRequest {
     LocaleCount,
     /// `0x0077F120`: API+0x18 for channel type `kind` (0 chat lobbies,
     /// `0x29` games) with `flags`.
-    ListChannels {
-        kind: u32,
-        flags: u32,
-    },
+    ListChannels { kind: u32, flags: u32 },
     /// `0x00788800`: API+0x20 with the record and its key at `+0xD7`.
-    JoinChannel {
-        channel: WolChannel,
-        key: String,
-    },
+    JoinChannel { channel: WolChannel, key: String },
     /// API+0x24: leave the current channel.
     LeaveChannel,
     /// VERA HTTPS cleanup intent when the visit returns while its live service
@@ -152,35 +136,21 @@ pub(crate) enum WolServiceRequest {
     Logout,
     /// `0x00789B60`: API+0x1C with the new game channel's record and its
     /// key at `+0xD7`.
-    CreateChannel {
-        channel: WolChannel,
-        key: String,
-    },
+    CreateChannel { channel: WolChannel, key: String },
     /// `0x0077E1D0`, the pager `0x0078A6B0`/`0x0078A8F0` or the locate
     /// `0x0078A470` from the lobby; `to` are the selected users of a
     /// private line.
-    Chat {
-        line: WolChatLine,
-        to: Vec<String>,
-    },
+    Chat { line: WolChatLine, to: Vec<String> },
     /// `0x0077E300`: an action line, private to `to` when any.
-    Emote {
-        text: Vec<u16>,
-        to: Vec<String>,
-    },
+    Emote { text: Vec<u16>, to: Vec<String> },
     /// `0x0077E110`: API+0x7C with `[WOnline] LangFilter`.
     SetLangFilter(i32),
     /// `0x0077E110`: API+0x68 with AllowFind and AllowPage.
-    SetFindPage {
-        find: i32,
-        page: i32,
-    },
+    SetFindPage { find: i32, page: i32 },
     /// API+0xB0: a squad's record; 0 asks for the user's own (the lobby
     /// runner's entry `0x00787B33..0x00787B53`, a joiner's at
     /// `0x007A62B7..0x007A62EE`). The answer is [`WolServiceEvent::Squad`].
-    SquadInfo {
-        id: i32,
-    },
+    SquadInfo { id: i32 },
     /// API+0xDC: the buddy list (`0x116`'s init, the lobby runner's entry
     /// `0x00787BC8`); the answer is [`WolServiceEvent::Buddies`].
     ListBuddies,
@@ -573,7 +543,9 @@ impl WolVisit {
         let awaiting = std::mem::take(&mut self.awaiting);
         match (awaiting, event) {
             (awaiting, WolServiceEvent::Credentials(credentials)) => {
-                self.credentials = credentials;
+                if self.provider != WolProvider::Online {
+                    self.credentials = credentials;
+                }
                 self.awaiting = awaiting;
                 WolStep::Stay
             }
@@ -598,7 +570,9 @@ impl WolVisit {
                     self.squad_own_pending = false;
                     self.connected = false;
                 }
-                self.requests.push(WolServiceRequest::ListCredentials);
+                if self.provider != WolProvider::Online {
+                    self.requests.push(WolServiceRequest::ListCredentials);
+                }
                 self.requests
                     .push(WolServiceRequest::FetchServers { flags: 0x2900 });
                 self.awaiting = Awaiting::Servers {
@@ -734,23 +708,34 @@ pub(crate) fn request(state: &mut AppState, request: WolServiceRequest) {
 /// `0x007864C0` with `server`: the nickname and password go into the
 /// record (+0xE4/+0xEE) and the connect waits behind `0xC4`.
 fn connect(state: &mut AppState, server: WolServer, auto: bool, remember_locale: i32) -> WolStep {
-    let globals = state.frontend.wol_account.clone();
+    let online = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.provider == WolProvider::Online);
+    let (nickname, password, changed) = if online {
+        // The shared native request retains its credential fields for the
+        // test service; modern HTTPS admission uses only this username.
+        (
+            state.frontend.wol_account.nickname.clone(),
+            String::new(),
+            false,
+        )
+    } else {
+        let globals = &state.frontend.wol_account;
+        (
+            globals.nickname.clone(),
+            globals.password.clone(),
+            globals.changed,
+        )
+    };
     let visit = state.frontend.wol.as_mut().expect("WOL visit");
-    visit
-        .requests
-        .push(if std::mem::take(&mut visit.create_account) {
-            WolServiceRequest::CreateAccount {
-                nickname: globals.nickname,
-                password: globals.password,
-            }
-        } else {
-            WolServiceRequest::Connect {
-                server: server.clone(),
-                nickname: globals.nickname,
-                password: globals.password,
-                changed: globals.changed,
-            }
-        });
+    visit.requests.push(WolServiceRequest::Connect {
+        server: server.clone(),
+        nickname,
+        password,
+        changed,
+    });
     visit.awaiting = Awaiting::Connect {
         deadline: Instant::now() + WAIT_LIMIT,
     };
@@ -766,6 +751,15 @@ fn connect(state: &mut AppState, server: WolServer, auto: bool, remember_locale:
 /// `0x00787010` past the server list (`0x007870F5..0x00787359`): with
 /// `[DefaultPersona] AutoLogin` naming a stored account, connect silently.
 fn after_server_list(state: &mut AppState) {
+    if state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.provider == WolProvider::Online)
+    {
+        super::login::open(state);
+        return;
+    }
     let auto_name = super::persona::info_file(state)
         .map(|file| file.auto_login())
         .unwrap_or_default();
@@ -850,7 +844,16 @@ fn auto_login_failed(state: &mut AppState) {
 /// the persona's preferred server picks the record.
 pub(super) fn begin_connect(state: &mut AppState) {
     let nickname = state.frontend.wol_account.nickname.clone();
-    let persona = super::persona::load(state, &nickname);
+    let online = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.provider == WolProvider::Online);
+    let persona = if online {
+        WolPersona::default()
+    } else {
+        super::persona::load(state, &nickname)
+    };
     let Some(visit) = state.frontend.wol.as_mut() else {
         return;
     };
@@ -1061,9 +1064,9 @@ fn apply(state: &mut AppState, step: WolStep) {
     }
 }
 
-/// Login's persona load/save (`0x00786821..0x007868F9`). VERA's online
-/// nickname must be admitted before LoadRecord can create a file or SaveProfile
-/// can use it as an INI section, including providers bypassing the HTTP worker.
+/// Login's persona load/save (`0x00786821..0x007868F9`) for native diagnostics.
+/// `persona::info_file` excludes modern visits; their nickname still needs
+/// validation here, including providers bypassing the HTTP worker.
 fn connected_persona(
     file: Option<&WolInfoFile>,
     nickname: &str,
@@ -1141,10 +1144,17 @@ fn connect_succeeded(state: &mut AppState) {
     } else {
         runtime.set_handle(&nickname);
     }
-    runtime.set_side_and_color(persona.country, persona.color);
+    if !online {
+        runtime.set_side_and_color(persona.country, persona.color);
+    }
     runtime.persist_local_preferences();
-    if let Some(file) = super::persona::info_file(state) {
+    if let Some(file) = file {
         file.set_last_valid(&nickname);
+    }
+    if online {
+        state.frontend.wol.as_mut().expect("WOL visit").flow = None;
+        finish_login(state);
+        return;
     }
     // 0x00786964..0x007869E3: the ladder requests need the ladder service
     // ([0xAC1170]); none is modelled, so none is sent.
@@ -1397,7 +1407,49 @@ mod tests {
     }
 
     #[test]
-    fn online_login_validates_before_creating_or_writing_the_persona_file() {
+    fn online_admission_never_requests_or_retains_native_credentials() {
+        let mut visit = visit();
+        visit.provider = WolProvider::Online;
+        assert_eq!(
+            visit.reduce(WolServiceEvent::Api(WolApiStatus::Available)),
+            WolStep::Wait("TXT_FETCHING_SERVLIST")
+        );
+        assert_eq!(
+            visit.take_service_requests(),
+            [WolServiceRequest::FetchServers { flags: 0x2900 }]
+        );
+        assert_eq!(
+            visit.reduce(WolServiceEvent::Credentials(vec![WolCredential {
+                slot: 1,
+                nickname: "Alpha".into(),
+                password: "12345678".into(),
+            }])),
+            WolStep::Stay
+        );
+        assert!(visit.credentials.is_empty());
+        assert!(matches!(visit.awaiting, Awaiting::Servers { .. }));
+    }
+
+    #[test]
+    fn login_slide_policy_has_only_the_modern_or_native_forms_buttons() {
+        use crate::app::frontend::shell_transition::ShellSlideKind;
+        use crate::ui::wol_login::{LoginPolicy, WolAccountGlobals, WolLoginState};
+        let mut visit = visit();
+        let mut globals = WolAccountGlobals::default();
+        visit.page = WolPage::Login(Box::new(WolLoginState::open_online(&mut globals)));
+        let modern = visit.login().unwrap().policy.page_spec();
+        assert_eq!(modern, LoginPolicy::Online.page_spec());
+        let column = ShellSlideKind::WolLogin.column(9, Some(modern));
+        assert_eq!((column.top_buttons, column.bottom_button), (1, true));
+        visit.page = WolPage::Login(Box::new(WolLoginState::open(&mut globals, &[])));
+        let native = visit.login().unwrap().policy.page_spec();
+        assert_eq!(native, LoginPolicy::Legacy.page_spec());
+        let column = ShellSlideKind::WolLogin.column(9, Some(native));
+        assert_eq!((column.top_buttons, column.bottom_button), (3, true));
+    }
+
+    #[test]
+    fn online_login_validates_without_persona_io_and_native_login_still_saves() {
         use crate::app::persistence::wol_profile::WOLINFO_INI;
         let directory = crate::map::source::test_support::TestDirectory::new("login-persona");
         let file = WolInfoFile::in_directory(directory.path());
@@ -1414,11 +1466,13 @@ mod tests {
         assert!(connected_persona(Some(&file), nickname, true, Some("Online"), &csf).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), previous);
 
-        let persona =
-            connected_persona(Some(&file), "Player_Alpha", true, Some("Online"), &csf).unwrap();
+        // The production persona owner supplies no file for modern visits.
+        let persona = connected_persona(None, "Player_Alpha", true, Some("Online"), &csf).unwrap();
         assert_eq!(persona.server, "Online");
+        assert_eq!(std::fs::read(&path).unwrap(), previous);
+        connected_persona(Some(&file), "Player_Alpha", false, Some("Legacy"), &csf).unwrap();
         assert!(file.ask_auto_login());
-        assert_eq!(file.load_persona("Player_Alpha", &csf).server, "Online");
+        assert_eq!(file.load_persona("Player_Alpha", &csf).server, "Legacy");
     }
 
     #[test]

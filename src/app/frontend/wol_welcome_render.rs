@@ -197,7 +197,7 @@ impl Painted {
     fn title_key(&self) -> Option<&'static str> {
         match self {
             Self::Welcome(layout) => Some(layout.page_spec().title_key),
-            Self::Login(_) => Some(crate::ui::wol_login::PAGE.title_key),
+            Self::Login(layout) => Some(layout.page_spec().title_key),
             Self::Lobby(_) => Some(WOL_LOBBY_TITLE_KEY),
             Self::Options(_) => Some(crate::ui::wol_options::PAGE.title_key),
             Self::SoundOptions(_) => Some(crate::ui::shell::sound::SHELL_SOUND_PAGE.title_key),
@@ -371,7 +371,7 @@ pub(crate) fn render_wol_page(
                     .as_ref()
                     .and_then(|visit| visit.login())
                     .and_then(|login| login.buttons.hovered)
-                    .and_then(crate::ui::wol_login::tooltip_key),
+                    .and_then(|control| layout.tooltip_key(control)),
                 layout.status_help,
             ),
             _ => (None, page.status_help),
@@ -670,7 +670,7 @@ pub(crate) fn render_wol_page(
             None
         }
         (Painted::Login(layout), None) => {
-            spec = Some(&crate::ui::wol_login::PAGE);
+            spec = Some(layout.page_spec());
             if let Some(login) = state.frontend.wol.as_ref().and_then(|visit| visit.login()) {
                 painted_buttons = layout
                     .page
@@ -853,19 +853,7 @@ pub(crate) fn render_wol_page(
         let Some(spec) = spec.and_then(|spec| spec.button(button.id)) else {
             continue;
         };
-        let text = if matches!(&painted, Painted::Login(_))
-            && button.id == crate::ui::wol_login::MANAGE
-            && state
-                .frontend
-                .wol
-                .as_ref()
-                .and_then(|visit| visit.login())
-                .is_some_and(|login| login.policy == crate::ui::wol_login::LoginPolicy::Online)
-        {
-            "Create Account".into()
-        } else {
-            resolve_csf(state, spec.csf_key)
-        };
+        let text = resolve_csf(state, spec.csf_key);
         labels.push(PaintLabel {
             text,
             rect: owner_draw_button_label_rect(button.rect, *pressed),

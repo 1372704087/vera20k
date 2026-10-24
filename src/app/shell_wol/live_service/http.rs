@@ -1,4 +1,4 @@
-//! Blocking HTTPS is confined to this worker. Passwords and bearer tokens never
+//! Blocking HTTPS is confined to this worker. Session bearer tokens never
 //! enter Debug output, file storage, error strings, or the gameplay client state.
 
 use base64::Engine;
@@ -52,11 +52,9 @@ pub(super) enum Request {
         total: usize,
         bytes: Vec<u8>,
     },
-    Authenticate {
+    OpenSession {
         attempt: u64,
         nickname: String,
-        password: String,
-        create: bool,
     },
     Channels(u32),
     Command {
@@ -211,8 +209,8 @@ fn decode_session(value: Value, requested_nickname: &str) -> Result<Session, Req
     let session: Session = serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))?;
     super::validate_online_identity(&session.player_id, &session.nickname)
         .map_err(|_| RequestFailure::Status(0))?;
-    // A successful response may preserve the account's original casing, but
-    // cannot replace the account the player asked to sign into. Credentials
+    // A successful response may preserve the requested name's casing, but
+    // cannot replace the name the player chose. Session credentials
     // remain private; validation errors never contain response field values.
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -236,6 +234,18 @@ impl Client {
             error,
             RequestFailure::Status(401) | RequestFailure::LostCursor
         ) {
+            if error == RequestFailure::LostCursor && self.token.is_some() {
+                // The bearer still owns this guest name, even though its
+                // event history cannot be replayed. Ordinary logout accepts
+                // an expired cursor and retires only this session. If the
+                // request fails, normal stale-session reap remains the fallback.
+                let _ = self.request(
+                    "/v1/commands",
+                    Some(&json!({
+                        "request_id":"lost-cursor-logout","operation":"logout","payload":{}
+                    })),
+                );
+            }
             // A missing history cannot be replayed safely. Retire this login so
             // it stops refreshing the broken server session and use the WOL
             // disconnect/re-login path. Repeated queued failures emit once.
@@ -535,23 +545,21 @@ pub(super) fn run(
                 };
                 let _ = output.send(response);
             }
-            Some(Request::Authenticate {
-                attempt,
-                nickname,
-                password,
-                create,
-            }) => {
-                client.token = None;
+            Some(Request::OpenSession { attempt, nickname }) => {
+                // A new username cannot prove ownership of an old bearer.
+                // The service's existing cleanup gate must retire it first.
+                if client.token.is_some() {
+                    let _ = output.send(Response::LoginFailed {
+                        attempt,
+                        code: 0x8004_0064,
+                    });
+                    continue;
+                }
                 client.cursor = 0;
-                let path = if create {
-                    "/v1/accounts"
-                } else {
-                    "/v1/sessions"
-                };
                 let result = client
                     .request(
-                        path,
-                        Some(&json!({"nickname": nickname, "password": password, "protocol": 3})),
+                        "/v1/sessions",
+                        Some(&json!({"nickname": nickname, "protocol": 3})),
                     )
                     .and_then(|value| decode_session(value, &nickname));
                 match result {
@@ -575,7 +583,7 @@ pub(super) fn run(
                     Err(RequestFailure::Status(401 | 403)) => {
                         let _ = output.send(Response::LoginFailed {
                             attempt,
-                            code: 0x8004_0065,
+                            code: 0x8004_0073,
                         });
                     }
                     Err(RequestFailure::Status(409)) => {

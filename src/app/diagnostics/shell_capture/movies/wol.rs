@@ -31,6 +31,8 @@ mod quick_match;
 pub enum WolTarget {
     /// `0x10F` settled after a controlled server list, empty fields.
     LoginSteady,
+    /// Normal online username-only page, with no authentication submitted.
+    ModernUsername,
     /// A typed nickname and an eight-character password: Login enabled.
     LoginTyped,
     /// Back on `0x10F`: a fresh `0x10E` settled.
@@ -318,11 +320,23 @@ pub enum WolTarget {
 }
 
 impl WolTarget {
+    /// Choose the diagnostic backend before the native welcome prefill runs.
+    pub(in crate::app::diagnostics::shell_capture) fn welcome_provider(self) -> WolProvider {
+        if self == Self::ModernUsername {
+            WolProvider::Online
+        } else if self.test_service() {
+            WolProvider::TestService
+        } else {
+            WolProvider::Controlled
+        }
+    }
+
     /// The login is accepted and the custom lobby runs.
     fn lobby(self) -> bool {
         !matches!(
             self,
             Self::LoginSteady
+                | Self::ModernUsername
                 | Self::LoginTyped
                 | Self::LoginBack
                 | Self::ServerListWait
@@ -589,6 +603,7 @@ impl WolTarget {
 
 pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-0x10f-steady", WolTarget::LoginSteady),
+    ("wol-modern-username", WolTarget::ModernUsername),
     ("wol-0x10f-typed", WolTarget::LoginTyped),
     ("wol-0x10f-back", WolTarget::LoginBack),
     ("wol-0xc4-server-list-wait", WolTarget::ServerListWait),
@@ -923,7 +938,9 @@ impl WolCapture {
                         password: PASSWORD.into(),
                     }];
                 }
-                write_wolinfo(state, self.target)?;
+                if self.target != WolTarget::ModernUsername {
+                    write_wolinfo(state, self.target)?;
+                }
                 App::leave_shell_dialog(
                     state,
                     crate::app::frontend::shell_transition::ShellExitThen::MainMenu(
@@ -1011,6 +1028,16 @@ impl WolCapture {
                     welcome_click(state, rect);
                     self.event(frame, format!("0x10E {mode_name} (Options test service)"));
                     self.phase = WolPhase::ServiceLogin;
+                    return Ok(());
+                }
+                if self.target == WolTarget::ModernUsername {
+                    let rect = App::wol_welcome_layout(state)
+                        .page
+                        .button_rect(crate::ui::wol_shell::CUSTOM_MATCH)
+                        .context("Custom Match")?;
+                    welcome_click(state, rect);
+                    self.event(frame, "Normal online username page requested");
+                    self.phase = WolPhase::Login;
                     return Ok(());
                 }
                 state
@@ -1179,6 +1206,41 @@ impl WolCapture {
             {
                 let layout = crate::app::shell_wol::login_layout(state);
                 match self.target {
+                    WolTarget::ModernUsername => {
+                        login_click(state, layout.nickname_face);
+                        App::handle_wol_key(
+                            state,
+                            Some(winit::keyboard::KeyCode::Home),
+                            true,
+                            None,
+                        );
+                        for _ in 0..32 {
+                            App::handle_wol_key(
+                                state,
+                                Some(winit::keyboard::KeyCode::Delete),
+                                true,
+                                None,
+                            );
+                        }
+                        App::handle_wol_key(state, None, true, Some("Player"));
+                        let login = state
+                            .frontend
+                            .wol
+                            .as_ref()
+                            .and_then(|visit| visit.login())
+                            .context("username form")?;
+                        ensure!(
+                            login.policy == crate::ui::wol_login::LoginPolicy::Online
+                                && login.password.units.is_empty()
+                                && login.login_enabled
+                                && !login.remember_enabled,
+                            "modern username form retained password controls"
+                        );
+                        self.event(frame, "Username typed; OK enabled without a password");
+                        MoviesCapture::restore_neutral_pointer(state);
+                        self.settle();
+                        return Ok(());
+                    }
                     WolTarget::LoginSteady => {
                         MoviesCapture::restore_neutral_pointer(state);
                         App::handle_wol_mouse_move(state);
@@ -4291,7 +4353,9 @@ impl WolCapture {
         json!({
             "target": format!("{:?}", self.target),
             "route": self.route,
-            "service_boundary": "controlled decoded WOL results; no WOLAPI, transport or backend claim",
+            "service_boundary": if self.target == WolTarget::ModernUsername {
+                "ordinary online username page; visual capture only, no authenticated backend claim"
+            } else { "controlled decoded WOL results; no WOLAPI, transport or backend claim" },
             "shell_route": format!("{:?}", state.frontend.shell_route),
             "mode": visit.and_then(|visit| visit.mode()).map(|mode| mode.native()),
             "authenticated": visit.is_some_and(|visit| visit.authenticated()),

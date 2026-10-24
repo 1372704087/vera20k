@@ -3,10 +3,11 @@
 //! sink, the locale page `0xFE`, the auto-login query `0x112` and Quick
 //! Match's postmatch add-buddy query `0x122`.
 
+use std::path::Path;
 use std::time::Instant;
 
-use super::WolPage;
 use super::service::{self, WolServiceRequest};
+use super::{WolPage, WolProvider};
 use crate::app::frontend::{shell_layout, shell_transition::ShellExitThen};
 use crate::app::persistence::wol_profile::{WolInfoFile, WolPersona};
 use crate::app::{App, AppState};
@@ -15,10 +16,18 @@ use crate::ui::main_menu_dialogs::options::LauncherCue;
 use crate::ui::shell::list::{ListMetrics, ShellListGeometry};
 use crate::ui::wol_persona::*;
 
-/// The file next to VERA.INI, when the process has a settings directory.
+/// Native diagnostics use the file next to VERA.INI; modern online visits
+/// never read or create the legacy account/persona file.
 pub(super) fn info_file(state: &AppState) -> Option<WolInfoFile> {
     let config = state.platform.game_config.as_ref()?;
-    Some(WolInfoFile::in_directory(config.paths.settings_dir()))
+    native_info_file(
+        state.frontend.wol.as_ref().map(|visit| visit.provider),
+        config.paths.settings_dir(),
+    )
+}
+
+fn native_info_file(provider: Option<WolProvider>, directory: &Path) -> Option<WolInfoFile> {
+    (provider != Some(WolProvider::Online)).then(|| WolInfoFile::in_directory(directory))
 }
 
 /// `WOLPlayerInfo__LoadRecord` `0x00778A20` for `name`.
@@ -495,4 +504,30 @@ pub(super) fn poll_scroll_repeat(state: &mut AppState) -> Option<Instant> {
         state.platform.window.request_redraw();
     }
     page.scroll.repeat_at()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn online_visits_cannot_open_a_missing_or_retained_native_persona_file() {
+        use crate::app::persistence::wol_profile::WOLINFO_INI;
+        let directory = crate::map::source::test_support::TestDirectory::new("online-persona");
+        let path = directory.path().join(WOLINFO_INI);
+        assert!(native_info_file(Some(WolProvider::Online), directory.path()).is_none());
+        assert!(!path.exists());
+        let retained = b"[DefaultPersona]\r\nAutoLogin=SavedNative\r\nLastValid=LastNative\r\n[_Default_]\r\nServer=Legacy\r\n";
+        directory.write(WOLINFO_INI, retained);
+        assert!(native_info_file(Some(WolProvider::Online), directory.path()).is_none());
+        assert_eq!(std::fs::read(&path).unwrap(), retained);
+        let native = native_info_file(Some(WolProvider::TestService), directory.path()).unwrap();
+        assert_eq!(native.auto_login(), "SavedNative");
+        assert_eq!(native.last_valid(), "LastNative");
+        assert_eq!(
+            native.load_persona("Player", &str::to_owned).server,
+            "Legacy"
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), retained);
+    }
 }

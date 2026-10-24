@@ -194,7 +194,6 @@ pub(crate) struct WolVisit {
     /// Full retail controls belong to explicit native UI captures only.
     legacy_ui: bool,
     live_service: Option<live_service::LiveService>,
-    create_account: bool,
     requests: Vec<WolServiceRequest>,
     /// The WOLAPI credential store as the service last reported it.
     credentials: Vec<WolCredential>,
@@ -264,7 +263,6 @@ impl WolVisit {
             provider: WolProvider::Unavailable,
             legacy_ui: false,
             live_service: None,
-            create_account: false,
             requests: Vec::new(),
             credentials: Vec::new(),
             last_error: None,
@@ -518,7 +516,6 @@ impl App {
         // The message boxes paint from the skirmish chrome atlas.
         let _ = Self::ensure_skirmish_shell_chrome(state);
         Self::ensure_wol_welcome_art(state);
-        persona::enter_wol_main(state);
         read_wol_settings(state);
         let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         let lobby_music = state.frontend.wol_preferences.lobby_music != 0;
@@ -529,6 +526,9 @@ impl App {
             state.platform.capture_client_size,
         );
         state.frontend.wol = Some(visit);
+        // Persona I/O is selected by the new visit's provider, never a
+        // previous visit (or the absence of one).
+        persona::enter_wol_main(state);
         persona::fill_welcome(state);
         // The first mode-loop pass (0x0077B402) applies again.
         apply_wol_preferences(state);

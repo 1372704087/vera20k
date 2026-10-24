@@ -15,11 +15,22 @@ use winit::keyboard::KeyCode;
 
 pub(crate) fn login_layout(state: &AppState) -> WolLoginLayout {
     let (width, height) = shell_layout::shell_screen_size(state);
-    if shell_layout::fills_window(state) {
+    let layout = if shell_layout::fills_window(state) {
         WolLoginLayout::responsive(width as i32, height as i32)
     } else {
         WolLoginLayout::new(width as i32, height as i32)
-    }
+    };
+    let policy = if state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.provider == super::WolProvider::Online)
+    {
+        LoginPolicy::Online
+    } else {
+        LoginPolicy::Legacy
+    };
+    layout.with_policy(policy)
 }
 
 /// `0x0072C600`: LoginScreen.shp through LoginScreen.PAL, only at 800 wide.
@@ -44,7 +55,7 @@ pub(crate) fn open_login_art(state: &mut AppState) -> bool {
 /// The nickname combo's drop list. ComboDrop's internals are untraced: the
 /// list fills the template height below the face.
 pub(crate) fn combo_popup(login: &WolLoginState, layout: &WolLoginLayout) -> Option<ComboPopup> {
-    if !login.combo_open {
+    if login.policy == LoginPolicy::Online || !login.combo_open {
         return None;
     }
     let base = layout.page.scale.base_rect(layout.nickname_combo);
@@ -115,17 +126,7 @@ fn dispatch(state: &mut AppState, action: WolLoginAction) {
         }
         // 0x00773E90 needs the registry URL `Manage` and an HTMLPath; a
         // retail install has neither and it returns.
-        WolLoginAction::Manage => {
-            if let Some(visit) = state.frontend.wol.as_mut()
-                && visit.provider == super::WolProvider::Online
-            {
-                visit.create_account = true;
-                App::leave_shell_dialog(
-                    state,
-                    shell_transition::ShellExitThen::WolLoginClose(LOGIN),
-                );
-            }
-        }
+        WolLoginAction::Manage => {}
     }
 }
 
@@ -151,16 +152,18 @@ pub(super) fn update_geometry(state: &mut AppState) {
         return;
     };
     let scale = layout.page.scale;
-    let text = crate::ui::skirmish_shell::combo_text_rect(layout.nickname_face, scale);
+    let text = layout.nickname_text_rect();
     login
         .nickname
         .scroll_to_caret((scale.base_rect(text).w - 3).max(0) as u32, |value| {
             font.text_width(value)
         });
-    login.password.scroll_to_caret(
-        (scale.base_rect(layout.password).w - 3).max(0) as u32,
-        |value| font.text_width(value),
-    );
+    if login.policy == LoginPolicy::Legacy {
+        login.password.scroll_to_caret(
+            (scale.base_rect(layout.password).w - 3).max(0) as u32,
+            |value| font.text_width(value),
+        );
+    }
 }
 
 pub(super) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Option<&str>) {
@@ -257,8 +260,9 @@ pub(super) fn mouse(state: &mut AppState, pressed: bool) {
         }
         match over {
             Some(NICKNAME) => {
-                if crate::ui::skirmish_shell::combo_arrow_hit_rect(layout.nickname_face, scale)
-                    .contains(x, y)
+                if login.policy == LoginPolicy::Legacy
+                    && crate::ui::skirmish_shell::combo_arrow_hit_rect(layout.nickname_face, scale)
+                        .contains(x, y)
                 {
                     login.combo_open = true;
                     login.combo_top = 0;

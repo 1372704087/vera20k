@@ -176,12 +176,13 @@ impl ShellSlideKind {
 }
 
 fn column_page_spec(
-    state: &AppState,
+    visit: Option<&crate::app::shell_wol::WolVisit>,
     kind: Option<ShellSlideKind>,
 ) -> Option<&'static MenuPageSpec> {
-    let visit = state.frontend.wol.as_ref()?;
+    let visit = visit?;
     match kind? {
         ShellSlideKind::WolWelcome => Some(visit.welcome_page_spec()),
+        ShellSlideKind::WolLogin => Some(visit.login()?.policy.page_spec()),
         ShellSlideKind::WolLobby => Some(visit.lobby()?.ui.page_spec()),
         _ => None,
     }
@@ -432,7 +433,10 @@ pub(crate) fn begin_shell_exit(state: &mut AppState, then: ShellExitThen) -> She
         kind,
     ) {
         ExitStartRule::Slide => {
-            let column = kind.column(panel_rows(state), column_page_spec(state, Some(kind)));
+            let column = kind.column(
+                panel_rows(state),
+                column_page_spec(state.frontend.wol.as_ref(), Some(kind)),
+            );
             state.frontend.shell_exit = Some(ShellExit {
                 wave: ShellFrameWave::new_slide_out(column, Instant::now()),
                 then,
@@ -556,7 +560,10 @@ impl<'a> ShellLifecycleReducer<'a> {
     fn from_state(state: &'a mut AppState) -> Self {
         Self {
             panel_rows: panel_rows(state),
-            page_spec: column_page_spec(state, current_shell_slide_target(state)),
+            page_spec: column_page_spec(
+                state.frontend.wol.as_ref(),
+                current_shell_slide_target(state),
+            ),
             active_shell: &mut state.frontend.shell_slide_active_shell,
             first_paint_slide: &mut state.frontend.shell_first_paint_slide,
             slide_generation: &mut state.frontend.shell_slide_generation,

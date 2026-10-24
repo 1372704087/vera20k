@@ -1161,13 +1161,11 @@ pub struct ShellCaptureRequest {
     live_online: Option<LiveOnlineConfig>,
 }
 
-/// Nonsecret inputs for an ordinary online UI run. Password lines are read
-/// from stdin at each actual login and never become part of this Debug value.
+/// Nonsecret username and match inputs for an ordinary online UI run.
 #[derive(Debug, Clone)]
 pub(crate) struct LiveOnlineConfig {
     pub account: String,
     pub host: String,
-    pub create_account: bool,
     pub map: Option<String>,
     /// Real human/service sources; AI rows never become relay participants.
     pub players: usize,
@@ -1279,7 +1277,10 @@ impl ShellCaptureRequest {
     /// Only explicit native WOL diagnostics retain the original UI surface.
     pub(crate) fn legacy_wol_ui(&self) -> bool {
         match self.checkpoint.movies_target() {
-            Some(movies::MoviesTarget::Wol(target)) => target != movies::WolTarget::ModernLobby,
+            Some(movies::MoviesTarget::Wol(target)) => !matches!(
+                target,
+                movies::WolTarget::ModernLobby | movies::WolTarget::ModernUsername
+            ),
             Some(movies::MoviesTarget::WolWelcome {
                 provider: crate::app::shell_wol::WolProvider::Unavailable,
                 ..
@@ -1292,6 +1293,7 @@ impl ShellCaptureRequest {
     pub(crate) fn wol_welcome_provider(&self) -> Option<crate::app::shell_wol::WolProvider> {
         match self.checkpoint.movies_target() {
             Some(movies::MoviesTarget::WolWelcome { provider, .. }) => Some(provider),
+            Some(movies::MoviesTarget::Wol(target)) => Some(target.welcome_provider()),
             _ => None,
         }
     }
@@ -1375,8 +1377,6 @@ where
     let mut online_account = None;
     let mut online_host = None;
     let mut online_map = None;
-    let mut online_create = false;
-    let mut online_password_stdin = false;
     let mut online_players = None;
     let mut online_ai = None;
     let mut online_mode_id = None;
@@ -1588,14 +1588,6 @@ where
                 ensure!(!online_simple, "duplicate --online-simple-input");
                 online_simple = true;
             }
-            "--online-create-account" => {
-                ensure!(!online_create, "duplicate --online-create-account");
-                online_create = true;
-            }
-            "--online-password-stdin" => {
-                ensure!(!online_password_stdin, "duplicate --online-password-stdin");
-                online_password_stdin = true;
-            }
             _ => bail!("unknown shell-capture option {flag:?}"),
         }
     }
@@ -1663,10 +1655,6 @@ where
         );
     }
     let live_online = if online {
-        ensure!(
-            online_password_stdin,
-            "online capture requires --online-password-stdin"
-        );
         let account = online_account.context("online capture requires --online-account")?;
         ensure!(
             !matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.online_guest())
@@ -1848,7 +1836,6 @@ where
         Some(LiveOnlineConfig {
             account,
             host,
-            create_account: online_create,
             map: online_map,
             players,
             ai: online_ai,
@@ -1897,8 +1884,6 @@ where
             online_account.is_none()
                 && online_host.is_none()
                 && online_map.is_none()
-                && !online_create
-                && !online_password_stdin
                 && online_players.is_none()
                 && online_ai.is_none()
                 && online_mode_id.is_none()
@@ -2501,17 +2486,27 @@ impl ShellCaptureSession {
     ) -> Result<()> {
         if let Some(visit) = state.frontend.wol.as_mut() {
             let mut changed = visit.set_legacy_ui(self.request.legacy_wol_ui());
+            let mut provider_selected = false;
             if !self.wol_welcome_provider_selected
                 && matches!(visit.page, crate::app::shell_wol::WolPage::Welcome)
                 && let Some(provider) = self.request.wol_welcome_provider()
             {
                 visit.set_provider(provider);
                 self.wol_welcome_provider_selected = true;
+                provider_selected = true;
                 changed = true;
             }
             if changed {
+                if provider_selected && self.request.legacy_wol_ui() {
+                    // Normal Online entry skips native persona I/O. Only
+                    // after the explicit native diagnostic selection may
+                    // its existing owner prefill and reopen the welcome.
+                    crate::app::shell_wol::persona::enter_wol_main(state);
+                    crate::app::App::reopen_wol_welcome(state);
+                }
                 // The ordinary reducer rearms the selected page's entry before
-                // any controlled driver reads its controls. Never touch a profile.
+                // any controlled driver reads its controls. Native fixtures
+                // are confined to the capture's separately marked profile.
                 crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
                 return Ok(());
             }
@@ -3530,13 +3525,12 @@ mod tests {
     }
 
     #[test]
-    fn online_guest_capture_requires_stdin_and_an_explicit_host() {
+    fn online_guest_capture_requires_a_username_and_an_explicit_host() {
         let output = new_output_path("online-guest");
         let mut values = valid_args(&output);
         values[1] = "online-live-guest".into();
-        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values.clone()).is_err());
-        values.extend(args(&["--online-password-stdin"]));
+        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values.clone()).is_err());
         values.extend(args(&["--online-host", "Host"]));
         let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
@@ -3549,6 +3543,19 @@ mod tests {
     }
 
     #[test]
+    fn online_capture_rejects_password_and_registration_options() {
+        let output = new_output_path("online-username-only");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&["--online-account", "Host"]));
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values.push("--online-password-stdin".into());
+        assert!(parse_launch_args(values.clone()).is_err());
+        *values.last_mut().unwrap() = "--online-create-account".into();
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
     fn online_ai_host_capture_keeps_one_human_and_the_requested_retail_mode() {
         let output = new_output_path("online-ai-host");
         let mut values = valid_args(&output);
@@ -3556,7 +3563,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-players",
             "1",
             "--online-ai",
@@ -3573,7 +3579,6 @@ mod tests {
         assert_eq!(config.mode_id, Some(1));
         assert_eq!(config.frames, 600);
         assert!(config.simple_input && !config.mass_input);
-        assert!(!config.create_account);
     }
 
     #[test]
@@ -3581,13 +3586,7 @@ mod tests {
         let output = new_output_path("online-ai-admission");
         let mut values = valid_args(&output);
         values[1] = "online-live-host".into();
-        values.extend(args(&[
-            "--online-account",
-            "Host",
-            "--online-password-stdin",
-            "--online-players",
-            "1",
-        ]));
+        values.extend(args(&["--online-account", "Host", "--online-players", "1"]));
         assert!(parse_launch_args(values.clone()).is_err());
         values.extend(args(&["--online-ai", "normal"]));
         assert!(parse_launch_args(values.clone()).is_ok());
@@ -3607,7 +3606,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-players",
             "1",
             "--online-ai",
@@ -3630,13 +3628,7 @@ mod tests {
             let output = new_output_path("online-failure");
             let mut values = valid_args(&output);
             values[1] = target.into();
-            values.extend(args(&[
-                "--online-account",
-                "Peer",
-                "--online-host",
-                "Host",
-                "--online-password-stdin",
-            ]));
+            values.extend(args(&["--online-account", "Peer", "--online-host", "Host"]));
             let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
             else {
                 panic!("capture")
@@ -3660,11 +3652,7 @@ mod tests {
         let output = new_output_path("online-failure-host-required");
         let mut values = valid_args(&output);
         values[1] = "online-live-failure-guest".into();
-        values.extend(args(&[
-            "--online-account",
-            "Peer",
-            "--online-password-stdin",
-        ]));
+        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values).is_err());
     }
 
@@ -3676,7 +3664,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-frames",
             "600",
@@ -3707,7 +3694,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "CaptureHost",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-loading-cancel",
             "https",
@@ -3732,7 +3718,6 @@ mod tests {
         wrong.extend(args(&[
             "--online-account",
             "CaptureHost",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-loading-cancel",
             "departure",
@@ -3750,7 +3735,6 @@ mod tests {
             "Guest",
             "--online-host",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-players",
             "3",
@@ -3788,7 +3772,6 @@ mod tests {
             "Guest",
             "--online-host",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-exit-checkpoint",
             "0123456789abcdef0123456789abcdef",
@@ -3825,7 +3808,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-players",
             "30",
             "--online-frames",
@@ -4011,10 +3993,23 @@ mod tests {
                 assert_eq!(checkpoint.as_str(), name);
             }
         }
-        for name in ["wol-0x113-login-accepted", "wol-test-service-lobby"] {
+        for (name, provider) in [
+            (
+                "wol-0x113-login-accepted",
+                crate::app::shell_wol::WolProvider::Controlled,
+            ),
+            (
+                "wol-0x10e-profile",
+                crate::app::shell_wol::WolProvider::Controlled,
+            ),
+            (
+                "wol-test-service-lobby",
+                crate::app::shell_wol::WolProvider::TestService,
+            ),
+        ] {
             request.checkpoint = ShellCaptureCheckpoint::parse(name).unwrap();
             assert!(request.legacy_wol_ui());
-            assert_eq!(request.wol_welcome_provider(), None);
+            assert_eq!(request.wol_welcome_provider(), Some(provider));
         }
         assert_eq!(
             ShellCaptureCheckpoint::parse("wol-0x10e-entry-tick-17").expect("last tick"),
@@ -4057,6 +4052,16 @@ mod tests {
         request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-lobby").unwrap();
         assert!(!request.legacy_wol_ui());
         assert!(request.live_online.is_none());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::TestService)
+        );
+        request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-username").unwrap();
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::Online)
+        );
     }
 
     #[test]
@@ -4481,11 +4486,7 @@ mod tests {
 
         let mut online = values.clone();
         online[1] = "online-live-host".into();
-        online.extend(args(&[
-            "--online-account",
-            "Host",
-            "--online-password-stdin",
-        ]));
+        online.extend(args(&["--online-account", "Host"]));
         let AppLaunchMode::ShellCapture(request) = parse_launch_args(online.clone()).unwrap()
         else {
             panic!("capture");

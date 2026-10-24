@@ -1,6 +1,6 @@
-// The service owns accounts, room membership and agreement, never simulation.
+// The service owns player sessions, room membership and agreement, never simulation.
 // Storage is synchronous inside a SQLite Durable Object transaction. Requests
-// are serialized across asynchronous password hashing and relay signing too.
+// are serialized across asynchronous token hashing and relay signing too.
 import { byteLength, record, playerName, validChannel, validJsonTree, validOptions, validSlot, uuid } from './validation.js';
 
 const encoder = new TextEncoder();
@@ -19,7 +19,6 @@ const BOOTSTRAP_GRANT_SECONDS = 120;
 const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
 const MAX_SESSIONS = 256;
-const MAX_ACCOUNTS = 10000;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
@@ -96,13 +95,6 @@ function mapResource(room, value) {
   return { resource, uploadKey: `map-upload:${room.id}${suffix}`, chunkPrefix: `map-chunk:${room.id}${suffix}:`,
     metadata: resource === 'map' ? room.options?.map_metadata : room.options?.random_map?.preview,
     maximum: resource === 'map' ? MAX_MAP_BYTES : MAX_PREVIEW_BYTES };
-}
-
-async function passwordHash(password, salt) {
-  const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
-  return base64url(new Uint8Array(await crypto.subtle.deriveBits({
-    name: 'PBKDF2', hash: 'SHA-256', salt: encoder.encode(salt), iterations: 100000,
-  }, key, 256)));
 }
 
 function sameSecret(a, b) {
@@ -361,16 +353,19 @@ export class LobbyService {
       const duplicate = session.requests.find((item) => item.id === body.request_id);
       const fingerprint = await sha256(JSON.stringify([body.operation, body.payload]));
       const after = body.after ?? session.ack;
-      this.validateCursor(session, after);
+      // A bearer can relinquish only its own idle session even after losing
+      // event history. Every operation that uses that history keeps its gate.
+      const logout = body.operation === 'logout';
+      if (!logout) this.validateCursor(session, after);
       if (duplicate) {
         requireThat(duplicate.fingerprint === fingerprint, 'request_conflict', 'Request ID was already used.', 409);
-        return this.json(this.events(sessionId, after));
+        return this.json(logout ? { events: [], cursor: 0 } : this.events(sessionId, after));
       }
       this.admitAction(session, body.operation, body.payload);
       // Hold already-pending events before the mutation can retire the oldest
       // retained row. A reply never reports failure after committing a command
       // just because that command appended one more event at the history edge.
-      const pendingResponse = this.events(sessionId, after);
+      const pendingResponse = logout ? null : this.events(sessionId, after);
       const prepared = await this.prepare(session, body.operation, body.payload);
       this.store.transaction(() => {
         this.command(sessionId, body.operation, body.payload, prepared);
@@ -381,7 +376,7 @@ export class LobbyService {
           this.store.put(`session:${sessionId}`, current);
         }
       });
-      return this.json(this.store.get(`session:${sessionId}`)
+      return this.json(!logout && this.store.get(`session:${sessionId}`)
         ? (pendingResponse.events.length ? pendingResponse : this.events(sessionId, after))
         : { events: [], cursor: 0 });
     }
@@ -389,43 +384,38 @@ export class LobbyService {
   }
 
   async authenticate(body, create, address) {
-    requireThat(body.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
-    requireThat(record(body, ['nickname', 'password', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
-    const { nickname, password } = body;
+    requireThat(!create && !Object.hasOwn(body, 'password') && body.protocol === LOBBY_PROTOCOL,
+      'upgrade_required', 'Update VERA20k to enter a username without a password.', 426);
+    requireThat(record(body, ['nickname', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
+    const { nickname } = body;
     requireThat(playerName(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
-    requireThat(typeof password === 'string' && Array.from(password).length >= 3 && byteLength(password) <= 128,
-      'invalid_password', 'Use at least 3 characters and at most 128 UTF-8 bytes.');
-    const accountKey = `account:${nickname.toLowerCase()}`;
-    this.rateLimit(`login:${accountKey}`, 30, 300);
-    let account = this.store.get(accountKey);
-    if (create) {
-      requireThat(!account, 'name_unavailable', 'That player name is unavailable.', 409);
-      this.rateLimit(`signup:${address}`, 40, 3600);
-      this.rateLimit('signup:global', 256, 3600);
-      requireThat(this.store.count('account:') < MAX_ACCOUNTS, 'service_full', 'The lobby service is full.', 503);
-      const salt = base64url(randomBytes(16));
-      account = { player_id: crypto.randomUUID(), nickname, salt, verifier: await passwordHash(password, salt), locale: 0, buddies: [], admission_generation: 0 };
-    } else {
-      const candidate = await passwordHash(password, account?.salt ?? 'unknown-account-dummy-salt');
-      requireThat(account && sameSecret(candidate, account.verifier), 'unauthorized', 'The name or password is incorrect.', 401);
-    }
+    this.rateLimit(`login:account:${nickname.toLowerCase()}`, 30, 300);
+    const playerId = crypto.randomUUID();
+    const profileKey = `guest:${playerId}`;
+    const profile = { player_id: playerId, nickname, locale: 0, buddies: [], admission_generation: 0 };
     const token = base64url(randomBytes(32));
     const id = await sha256(token);
     const now = this.clock();
-    const session = { id, player_id: account.player_id, nickname: account.nickname, account_key: accountKey, protocol: LOBBY_PROTOCOL,
+    // Keep the existing preference/admission key for old sessions. Guest
+    // profiles live only as long as this session and never read account: data.
+    const session = { id, player_id: playerId, nickname, account_key: profileKey, protocol: LOBBY_PROTOCOL,
       expires_at: now + SESSION_SECONDS, seen: now, channel_id: null, match_id: null, sequence: 0, ack: 0, critical_floor: 0, requests: [] };
     this.store.transaction(() => {
-      if (create) this.store.put(accountKey, account);
-      // A new sign-in replaces prior device sessions of this account. It cannot
-      // silently take over a participant in an admitted match.
-      for (const previous of this.store.list('session:').filter((value) => value.player_id === account.player_id)) {
-        requireThat(!previous.match_id, 'match_active', 'This account already has an active match.', 409);
-        this.leave(previous); this.store.delete(`session:${previous.id}`); this.store.deleteEvents(previous.id);
-      }
+      requireThat(!this.store.list('session:').some((other) => other.nickname.toLowerCase() === nickname.toLowerCase()),
+        'name_unavailable', 'That player name is already in use. Choose another username.', 409);
+      this.rateLimit(`signup:${address}`, 40, 3600);
+      this.rateLimit('signup:global', 256, 3600);
       requireThat(this.store.count('session:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
+      this.store.put(profileKey, profile);
       this.store.put(`session:${id}`, session);
     });
-    return this.json({ player_id: account.player_id, nickname: account.nickname, token, expires_at: session.expires_at });
+    return this.json({ player_id: playerId, nickname, token, expires_at: session.expires_at });
+  }
+
+  removeSession(session) {
+    this.leave(session);
+    this.store.delete(`session:${session.id}`); this.store.deleteEvents(session.id);
+    if (session.account_key === `guest:${session.player_id}`) this.store.delete(session.account_key);
   }
 
   emit(sessionId, kind, payload, scope = '') {
@@ -735,7 +725,7 @@ export class LobbyService {
     let session = this.store.get(`session:${sessionId}`);
     if (operation === 'logout') {
       requireThat(!session.match_id, 'match_active', 'Finish the active match before signing out.', 409);
-      this.leave(session); this.store.delete(`session:${sessionId}`); this.store.deleteEvents(sessionId); return;
+      this.removeSession(session); return;
     }
     if (operation === 'leave') { this.leave(session); return; }
     if (operation === 'create' || operation === 'join') {
@@ -833,7 +823,11 @@ export class LobbyService {
       if (operation === 'set_locale') { requireThat(Number.isInteger(payload.locale) && payload.locale >= 0 && payload.locale <= 2147483647, 'invalid_request', 'Invalid locale.'); account.locale = payload.locale; this.store.put(session.account_key, account); }
       if (operation === 'locales') {
         requireThat(Array.isArray(payload.names) && payload.names.length <= 64 && payload.names.every(playerName), 'invalid_request', 'Invalid player list.');
-        const locales = payload.names.filter((name) => typeof name === 'string').map((name) => ({ name, locale: this.store.get(`account:${name.toLowerCase()}`)?.locale ?? 0 }));
+        const sessions = this.store.list('session:');
+        const locales = payload.names.map((name) => {
+          const player = sessions.find((other) => other.nickname.toLowerCase() === name.toLowerCase());
+          return { name, locale: player ? this.store.get(player.account_key)?.locale ?? 0 : 0 };
+        });
         this.emit(sessionId, 'locales', { locales });
       }
       if (operation === 'add_buddy' || operation === 'remove_buddy') {
@@ -975,15 +969,13 @@ export class LobbyService {
       for (const session of this.store.list('session:')) {
         if (session.protocol !== LOBBY_PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
           // Polling continues in the HTTPS worker while the game loads/plays.
-          // A dead process must not strand its account or the match's final
+          // A dead process must not strand its name or the match's final
           // cleanup until the private match lease expires. Gameplay
           // disconnect/timeout decisions remain with the peer simulation.
           // Upgraded clients cannot finish an unsupported old session. Retire
           // only that session through the same membership/room cleanup owner.
           if (session.match_id) this.finish(session);
-          const current = this.store.get(`session:${session.id}`);
-          if (current) this.leave(current);
-          this.store.delete(`session:${session.id}`); this.store.deleteEvents(session.id);
+          this.removeSession(this.store.get(`session:${session.id}`) ?? session);
         }
       }
     });

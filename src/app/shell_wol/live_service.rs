@@ -659,7 +659,9 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             if service.admission_blocked()
                 && matches!(
                     request,
-                    WolServiceRequest::JoinChannel { .. } | WolServiceRequest::CreateChannel { .. }
+                    WolServiceRequest::JoinChannel { .. }
+                        | WolServiceRequest::CreateChannel { .. }
+                        | WolServiceRequest::Connect { .. }
                 )
             {
                 // Keep the existing UI request queued until acknowledged
@@ -848,26 +850,12 @@ fn request_service(state: &mut AppState, service: &mut LiveService, request: Wol
             );
             service_event(state, WolServiceEvent::NetStatus(0x0004_012F));
         }
-        WolServiceRequest::Connect {
-            nickname, password, ..
-        } => {
+        WolServiceRequest::Connect { nickname, .. } => {
             service.clear_cleanup();
             service.auth_attempt = service.auth_attempt.wrapping_add(1);
-            let _ = service.requests.send(http::Request::Authenticate {
+            let _ = service.requests.send(http::Request::OpenSession {
                 attempt: service.auth_attempt,
                 nickname,
-                password,
-                create: false,
-            });
-        }
-        WolServiceRequest::CreateAccount { nickname, password } => {
-            service.clear_cleanup();
-            service.auth_attempt = service.auth_attempt.wrapping_add(1);
-            let _ = service.requests.send(http::Request::Authenticate {
-                attempt: service.auth_attempt,
-                nickname,
-                password,
-                create: true,
             });
         }
         WolServiceRequest::ListChannels { kind, .. } => {

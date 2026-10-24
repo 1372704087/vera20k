@@ -5,7 +5,7 @@
 use super::*;
 use crate::app::diagnostics::shell_capture::LiveOnlineConfig;
 use crate::ui::wol_lobby;
-use std::io::{BufRead, Read};
+use std::io::Read;
 
 mod exit_reentry;
 use crate::app::diagnostics::shell_capture::loading_host_loss::LoadingHostLoss;
@@ -715,16 +715,7 @@ impl LiveRoundFlow {
                     App::handle_wol_key(state, Some(KeyCode::Delete), true, None);
                 }
                 App::handle_wol_key(state, None, true, Some(&self.online_config().account));
-                click(state, layout.password);
-                let mut password = read_password()?;
-                App::handle_wol_key(state, None, true, Some(&password));
-                password.clear();
-                let create = self.online_config().create_account && !self.reentering();
-                let control = if create {
-                    crate::ui::wol_login::MANAGE
-                } else {
-                    crate::ui::wol_login::LOGIN
-                };
+                let control = crate::ui::wol_login::LOGIN;
                 ensure!(
                     state
                         .frontend
@@ -741,14 +732,7 @@ impl LiveRoundFlow {
                         .button_rect(control)
                         .context("online authentication button")?,
                 );
-                self.record(
-                    frame,
-                    if create {
-                        "Create Account submitted"
-                    } else {
-                        "Login submitted"
-                    },
-                );
+                self.record(frame, "Username submitted through OK");
                 self.phase = RoundPhase::Lobby;
             }
             RoundPhase::Lobby if lobby_ready(state, rendered) => {
@@ -1592,29 +1576,4 @@ fn click(state: &mut AppState, rect: RectPx) {
     App::handle_wol_mouse_down(state);
     App::handle_wol_mouse_up(state);
     MoviesCapture::restore_neutral_pointer(state);
-}
-
-fn read_password() -> Result<String> {
-    let mut bytes = Vec::new();
-    std::io::stdin()
-        .lock()
-        .take(131)
-        .read_until(b'\n', &mut bytes)
-        .context("read online password from stdin")?;
-    while bytes
-        .last()
-        .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
-    {
-        bytes.pop();
-    }
-    let password = String::from_utf8(bytes)
-        .map_err(|_| anyhow::anyhow!("online password must use ASCII characters"))?;
-    ensure!(
-        crate::ui::wol_login::online_password_accepted(&password)
-            && password
-                .bytes()
-                .all(|byte| byte.is_ascii() && !byte.is_ascii_control()),
-        "stdin must provide one 3-128 character ASCII password line"
-    );
-    Ok(password)
 }

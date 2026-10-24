@@ -364,7 +364,7 @@ const ONLINE_WELCOME_TEXT: [WolTextStatic; 6] = [
     text(
         None,
         Literal(
-            "Select Custom Match to sign in or create an account.\nUse Create Game, or select an available game and Join.",
+            "Select Custom Match, enter a username and press OK.\nUse Create Game, or select an available game and Join.",
         ),
         (42, 152, 330, 36),
         StaticAlign::Left,

@@ -133,15 +133,10 @@ chooses **New**; other players select that game and choose **Join**. Discovery n
 a local network that carries UDP broadcast. Allow VERA20K through the local firewall
 on UDP ports 1234 and 1236.
 
-**Online:** Choose **Internet → Custom Match**. Enter your player name and password,
-then choose **Create Account** for a new account or **Login** for an existing one.
-Names use 1–24 ASCII letters, digits, underscores or hyphens; passwords need at least
-3 characters and at most 128 UTF-8 bytes. Choose your location if prompted. The current build connects to the
-project's deployed lobby and gameplay relay automatically. The client keeps login
-tokens in memory and does not save passwords.
-
-Each player needs a separate account. A new login replaces that account's previous
-sessions; if it already has an active match, the new login is refused.
+**Online:** Choose **Internet → Custom Match**, enter a username and press **OK**.
+Names use 1–24 ASCII letters, digits, underscores or hyphens. Each connected player
+needs a different name; leaving releases it for reuse. The game connects to German
+Bunker and the project's gameplay relay automatically. Session tokens stay in memory.
 
 1. Online hosts choose **Create Game**, set a game name and optional room password,
    then confirm. Other players select the game and choose **Join Game**.

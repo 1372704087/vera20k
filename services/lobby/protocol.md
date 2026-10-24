@@ -1,24 +1,29 @@
 # VERA20k lobby protocol v3
 
-HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens, passwords,
-relay tickets and packet keys must never be logged. Names are ASCII letters, digits,
-`_` or `-`, 1–24 bytes, unique without case. Passwords contain at least 3 Unicode
-scalar characters and at most 128 UTF-8 bytes. Accounts and session tokens are
-independent of the legacy WOL nickname/password format.
+HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens,
+relay tickets and packet keys must never be logged. Names are ASCII letters,
+digits, `_` or `-`, 1–24 bytes, unique without case among active sessions.
 Request bodies are at most 64 KiB and 64 nested containers; every JSON string and
 property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
 not replaced, before any event or persistent state is created.
 
-`POST /v1/accounts` creates an account and signs in. `POST /v1/sessions` signs in.
-Both accept `{nickname,password,protocol:3}` and return
-`{player_id,nickname,token,expires_at}`. `expires_at` is a Unix timestamp in seconds.
+`POST /v1/sessions` accepts exactly `{nickname,protocol:3}` and returns
+`{player_id,nickname,token,expires_at}`. Each entry receives a fresh random player
+UUID and bearer token. `expires_at` is a Unix timestamp in seconds. An active name
+returns 409 `name_unavailable`; entering its name never replaces that session.
+Guest locale, buddies and relay admission counters belong to this player identity
+and are removed with its session on logout, expiry or 120 seconds without polling.
+A later entry gets a new identity and empty preferences. No password account is
+created or consulted. Existing stored accounts and their current v3 sessions remain
+intact until their ordinary cleanup; active legacy sessions reserve their names too.
+`POST /v1/accounts` and password-bearing sign-in requests return 426 `upgrade_required`.
 Failed requests return `{error:{code,message}}`; messages must not echo credentials.
 The HTTP paths retain `/v1`; `protocol:3` is the required client capability.
 Older/missing capabilities and pre-v3 sessions receive 426 `upgrade_required`.
 Lobby capability3 requires the security-fixed map and authentication client.
 Relay tickets and encrypted datagrams retain wire version2; lobby capability and
-relay wire versions are independent. Existing accounts remain intact; unsupported
-sessions retire through ordinary room/match cleanup and cannot renew grants.
+relay wire versions are independent. Unsupported sessions retire through ordinary
+room/match cleanup and cannot renew grants.
 `GET /health` reports `protocol:3`.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
@@ -34,6 +39,11 @@ retention budget and cannot evict critical events. Options and per-player
 choice/readiness/map observations coalesce to the newest state within the same
 room. Sequence gaps are valid; an empty fully drained reply advances the cursor
 past discarded soft events. Only actual critical-history eviction expires a cursor.
+`logout` alone can release its authenticated idle session with a lost or stale
+cursor and returns `{events:[],cursor:0}` without draining history. Its command
+schema, bearer checks, rate limit and active-match refusal still apply; other
+operations retain the cursor barrier. Clients attempt logout with their existing
+bearer before discarding a session whose history expired.
 
 Channel: `{id,kind,max_users,users,tournament,flags,game_flags,ping,name,ex_info}`.
 `kind` is 0 for chat and 41 for a game. The other fields are presentation metadata,
@@ -164,11 +174,11 @@ V2 relay tickets are 98 bytes: version 2 at 0; match UUID 1..17; source 17;
 little-endian expiry 18..26; random nonce 26..42; stable opaque player UUID 42..58;
 little-endian nonzero admission generation 58..66; HMAC-SHA256 66..98. The ticket
 domain is `VERA20k relay ticket v2\0`; packet-key derivation uses
-`VERA20k relay packet key v2\0`. The server increments a durable per-account
-generation transactionally only on a fresh match, never on renewal. The relay
+`VERA20k relay packet key v2\0`. The server increments a durable generation for
+each player identity transactionally only on a fresh match, never on renewal. The relay
 permits only that principal's newest generation/match, evicts its older membership,
 and retains the generation floor for the maximum 300-second ticket lifetime.
-Cancelling a start cannot accumulate long-lived rooms using two accounts.
+Cancelling a start cannot accumulate long-lived rooms using two player identities.
 
 Every live VERA event packet, including FRAMESYNC probes, starts with bytes
 `56 43 4d 01` (`VCM`, version 1), then an immutable little-endian `u64` command
@@ -208,16 +218,17 @@ upload is hash-checked before `map_available`. Authenticated room members use
 `{digest,byte_length,offset,data,complete}`. An unfinished upload returns
 `map_pending` (409); a changed selection returns `map_changed` (409). Changing
 only roster/settings revisions preserves the blob. A map change or room cleanup
-removes it. Uploads/downloads have a separate 600-request/minute/account budget;
-ordinary commands and events share 600/minute/account. Action limits additionally
+removes it. Uploads/downloads have a separate 600-request/minute/player budget;
+ordinary commands and events share 600/minute/player. Action limits additionally
 bound starts to 12 per 10 minutes, chat to 30/minute and 24 KiB/minute, and room chat
-to 120/minute. Control payloads are bounded to 4 MiB/minute/account and room fanout
-to 128 MiB/minute. Map upload/download bytes each have a 32 MiB/minute account budget.
+to 120/minute. Control payloads are bounded to 4 MiB/minute/player and room fanout
+to 128 MiB/minute. Map upload/download bytes each have a 32 MiB/minute player budget.
 Canonical options are limited to 24 KiB, choice objects use the exact canonical
 slot schema, and unknown request/option fields are rejected. The actor also caps
 pending requests/parsed bodies at 128/4 MiB and individual events at 64 KiB. Active
-sessions/public-room membership are capped at 256; accounts at 10,000, with bounded
-signup and login rates. These are service admission limits, not gameplay timers.
+sessions, guest profiles and public-room membership are capped at 256. New guest
+entries are limited to 40/hour/IP and 256/hour globally, with the existing sign-in
+and ingress limits also applied. These are service admission limits, not gameplay timers.
 Clients verify and install into a
 local cache, preserve existing installed maps, and still require user readiness.
 Generated maps transfer the `.SED` bytes as the map and the separate native PCX

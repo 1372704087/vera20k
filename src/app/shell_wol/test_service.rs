@@ -372,9 +372,6 @@ fn answer(state: &mut AppState, request: WolServiceRequest) {
         WolServiceRequest::Connect { .. } => {
             WolServiceEvent::Login(Ok(WolLoginAccepted { motd: MOTD.into() }))
         }
-        // The offline provider has no account database and must never claim
-        // that a requested real account was created.
-        WolServiceRequest::CreateAccount { .. } => WolServiceEvent::Login(Err(0x8000_4005)),
         WolServiceRequest::ListChannels { kind, .. } => WolServiceEvent::Channels {
             kind,
             channels: if kind == GAME_CHANNEL {

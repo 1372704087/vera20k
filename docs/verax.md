@@ -49,6 +49,21 @@ Only rendering changes: visibility, shroud knowledge, targeting and every other 
 still read the native fog state. Build without `verax` for the original opaque shroud and native
 draw admission.
 
+## AutoLoad
+
+Ctrl+D issues standard Enter orders for the current selection: selected infantry and vehicles are
+balanced by type into the selected carriers that are within 30 cells, have `Passengers=` room and
+accept the passenger's `Size=` under `SizeLimit=`. Each type takes turns, the closest hulls fill
+first, and a vehicle that has carried someone cannot also board. Orders are ordinary Enter
+missions, so a replay, a save or another client sees the same commands; the engine's own
+`Receive_Radio` 0x0F admission decides every boarding. Buildings that garage through their own
+Garrison/Occupy channels are not part of this chord.
+
+The command is registered as `AutoLoad` in the keyboard page's `vera20k` category, so it can be
+rebound or cleared like a retail hotkey; Ctrl+D is installed as the reload default when neither
+AutoLoad nor Ctrl+D already has a saved binding, and an explicit `AutoLoad=0` keeps it cleared.
+The assignment is written to the profile with the other bindings.
+
 ## Namespace
 
 `--features verax` compiles `rules::VERAX_ENABLED`. New VeraX-only readers take their keys under

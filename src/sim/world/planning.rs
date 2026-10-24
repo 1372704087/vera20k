@@ -511,8 +511,34 @@ impl Simulation {
         &self,
         owner: InternedId,
         command: &Command,
+        clicked_cell: Option<(u16, u16)>,
     ) -> Option<CommandRecord> {
         let mut record = self.encode_megamission_record(owner, command)?;
+        // FootClass::ClickedAction_Cell 0x004D8095..0x004D8231 passes the
+        // original clicked Cell as NavComAux to Player_Send_Command 0x006FFC30.
+        // The Cell resolver 0x004D806F may already have changed destination;
+        // input supplies the original click separately. Semantic callers with
+        // no Cell click use their supplied destination.
+        // Preserve it before Execute_DoList's group spread rewrites only the
+        // destination (0x0064D734). Plan event GetCoords 0x00633BC0 prefers
+        // this auxiliary token, so the group retains one shared waypoint.
+        let mut mission = MegaMissionRecord::decode(&record)?;
+        if let MegaMissionOrder::Move { target_x, target_y }
+        | MegaMissionOrder::AttackMove {
+            destination:
+                MegaMissionTarget::Cell {
+                    x: target_x,
+                    y: target_y,
+                },
+            ..
+        } = mission.order
+        {
+            let (x, y) = clicked_cell
+                .map(|(x, y)| (x as i16, y as i16))
+                .unwrap_or((target_x, target_y));
+            mission.auxiliary = MegaMissionTarget::Cell { x, y };
+            mission.write_into(&mut record).ok()?;
+        }
         record.payload_mut()[22] = 1;
         Some(record)
     }

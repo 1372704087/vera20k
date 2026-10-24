@@ -257,6 +257,12 @@ fn defeated_viewer_fogs_hostile_gap_through_power_cycle_without_shroud() {
     assert!(sim.fog.is_cell_gap_fog(defeated, 12, 12));
     assert!(!sim.fog.is_cell_gap_covered(defeated, 12, 12));
     assert_eq!(gap_count(&sim, defeated, (12, 12)), 0);
+    // Reveal577D90/Reset577AB0 preserve +13C, while their callbacks remove
+    // and re-add the gap through the same event owner.
+    sim.reveal_map_for_owner(defeated, &rules);
+    sim.reset_shroud_for_owner(defeated, &rules);
+    refresh(&mut sim, &rules);
+    assert!(sim.fog.is_cell_gap_fog(defeated, 12, 12));
     assert!(
         sim.fog
             .gap_sources()
@@ -283,6 +289,61 @@ fn defeated_viewer_fogs_hostile_gap_through_power_cycle_without_shroud() {
     assert!(!sim.fog.is_cell_gap_covered(defeated, 12, 12));
     assert_eq!(gap_count(&sim, defeated, (12, 12)), 0);
     assert!(sim.fog.is_cell_gap_covered(alive, 12, 12));
+}
+
+/// CreateGap6FB408/DestroyGap6FB6F1 update Cell+13C at each event, while
+/// defeat4FC0B0 -> RevealEntireMap577F30 does not replay either event.
+#[test]
+fn defeat_does_not_reclassify_an_active_hostile_gap() {
+    let (mut sim, rules, viewer, alive, gap_owner) = fixture();
+    insert(&mut sim, &rules, 1, gap_owner, "GAGAP", 12, 12);
+    insert(&mut sim, &rules, 2, gap_owner, "POWER", 16, 12);
+    power(&mut sim, &rules);
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    assert!(!sim.fog.is_cell_gap_fog(viewer, 12, 12));
+
+    defeat_local_viewer(&mut sim, &rules, viewer, alive, gap_owner);
+    refresh(&mut sim, &rules);
+    assert!(sim.fog.has_ground_bits(viewer, 12, 12));
+    assert!(
+        !sim.fog.is_cell_gap_fog(viewer, 12, 12),
+        "defeat reveals the map without creating a friendly gap deposit"
+    );
+
+    // The current defeated predicate sends this removal through the friendly
+    // decrement, even though its activation wrote the hostile counter.
+    assert!(sim.go_building_offline(1, &rules, FrameEffects::default()));
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+    assert!(!sim.fog.is_cell_gap_fog(viewer, 12, 12));
+
+    let hash = sim.state_hash();
+    let bytes = crate::util::save_codec::serialize(&sim.fog).unwrap();
+    sim.fog = crate::util::save_codec::deserialize(&bytes).unwrap();
+    assert_eq!(
+        sim.state_hash(),
+        hash,
+        "negative fog counters survive restoration"
+    );
+    let cell = usize::from(sim.fog.width()) * 12 + 12;
+    assert_eq!(
+        sim.fog.by_owner()[&viewer].shroud_knowledge_raw()[cell].friendly_gap_counter(),
+        -1
+    );
+
+    // A second, overlapping activation cancels the retained -1; IsFogged's
+    // signed >0 test (58652E..586536) still leaves the footprint bright.
+    insert(&mut sim, &rules, 3, gap_owner, "GAGAP", 12, 12);
+    power(&mut sim, &rules);
+    sim.visit_building_operational(3, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+    assert!(!sim.fog.is_cell_gap_fog(viewer, 12, 12));
+
+    assert!(sim.go_building_online(1, &rules, FrameEffects::default()));
+    power(&mut sim, &rules);
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+    assert!(sim.fog.is_cell_gap_fog(viewer, 12, 12));
 }
 
 /// The sight reveal of the Unlimbo `insert` stands for (`0x006F6D27`),

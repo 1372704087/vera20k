@@ -1499,7 +1499,7 @@ impl Simulation {
                 .houses
                 .get(&owner)
                 .is_some_and(|house| house.spy_sat_active());
-            let (gaps, admitted_gap) = self.prepare_spy_sat_gap_reentry(owner, rules);
+            let gaps = self.map_callback_gap_sources(owner, rules);
             // Live diplomacy uses walk_map_sight's full visitor.
             // This bulk transition still uses its bounded source/gap plan.
             // The first House update uses the shared visitor directly;
@@ -1521,11 +1521,6 @@ impl Simulation {
                 &config,
                 UninitContext::with_rules(rules),
             );
-            //577D90 sets240 before callbacks; every successful6FB170
-            //re-admission clears it again, including a friendly generator.
-            if admitted_gap {
-                self.fog.invalidate_whole_map_reveal_for_owner(owner);
-            }
         }
     }
 
@@ -1538,7 +1533,7 @@ impl Simulation {
         owner: crate::sim::intern::InternedId,
         cells: Vec<(u16, u16)>,
         transition: vision::MapTransition,
-        old_spy_sat_active: bool,
+        _old_spy_sat_active: bool,
         sources: &std::collections::BTreeMap<u64, Option<vision::SightAdmission>>,
         gap_reentry: Option<&[vision::GapGeneratorSource]>,
         alternates: &std::collections::BTreeMap<u64, vision::SightAdmission>,
@@ -1557,10 +1552,14 @@ impl Simulation {
         else {
             return;
         };
-        let owner_defeated = self
-            .houses
-            .get(&owner)
-            .is_some_and(|house| house.is_defeated());
+        #[cfg(any(test, feature = "test-support"))]
+        let fixture_gaps: std::collections::BTreeSet<_> = plan
+            .gaps
+            .keys()
+            .chain(plan.reentry.keys())
+            .copied()
+            .filter(|&id| self.substrate.entities.get(id).is_none())
+            .collect();
         for &id in &plan.ids {
             if plan.held.contains(&id) {
                 self.release_object_sight_event(
@@ -1571,13 +1570,17 @@ impl Simulation {
                     self.session.current_house(),
                 );
             }
-            for &gap in plan.gaps.get(&id).into_iter().flatten() {
-                // DestroyGap @ 0x006FB470 takes the defeated PlayerPtr+0x1F5
-                // branch and updates +0x13C, not hostile +0x134. The bulk map
-                // store below still clears +0x134 as Reset_Shroud does.
-                if !owner_defeated {
-                    self.fog
-                        .remove_map_transition_gap(owner, gap, old_spy_sat_active);
+            // The native bracket executes the same gap callback as a live
+            // Building edge, including the signed friendly +13C decrement.
+            if self.substrate.entities.get(id).is_some() {
+                self.refresh_map_callback_gap(id, owner, false, context.rules());
+            } else {
+                #[cfg(any(test, feature = "test-support"))]
+                if fixture_gaps.contains(&id) {
+                    for &gap in plan.gaps.get(&id).into_iter().flatten() {
+                        self.fog
+                            .remove_map_transition_gap(owner, gap, _old_spy_sat_active);
+                    }
                 }
             }
         }
@@ -1633,8 +1636,15 @@ impl Simulation {
                     self.session.current_house(),
                 );
             }
-            for &gap in plan.reentry.get(&id).into_iter().flatten() {
-                self.fog.reenter_map_transition_gap(owner, gap);
+            if self.substrate.entities.get(id).is_some() {
+                self.refresh_map_callback_gap(id, owner, true, context.rules());
+            } else {
+                #[cfg(any(test, feature = "test-support"))]
+                if fixture_gaps.contains(&id) {
+                    for &gap in plan.reentry.get(&id).into_iter().flatten() {
+                        self.fog.reenter_map_transition_gap(owner, gap);
+                    }
+                }
             }
         }
         if transition != vision::MapTransition::Reveal {

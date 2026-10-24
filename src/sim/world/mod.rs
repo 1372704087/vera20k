@@ -301,11 +301,6 @@ use crate::util::fixed_math::SimFixed;
 #[cfg(any(test, feature = "test-support"))]
 const DEFAULT_SIM_SEED: u64 = 0x5EED_CAFE_D15E_A5E5;
 
-#[derive(Default)]
-struct ActiveVisionStructures {
-    gap_generators: BTreeMap<InternedId, Vec<vision::GapGeneratorSource>>,
-}
-
 /// Result of one deterministic simulation tick.
 #[derive(Debug, Clone, Copy)]
 pub struct TickResult {
@@ -7188,60 +7183,8 @@ impl Simulation {
         active
     }
 
-    /// Read retained Building deposits; power classification belongs only to
-    /// the Building43FB20 operational edge, never a House/view refresh.
-    fn collect_active_vision_structures(&self, _rules: &RuleSet) -> ActiveVisionStructures {
-        let mut effects = ActiveVisionStructures::default();
-        for entity in self.substrate.entities.values() {
-            for (&viewer, deposit) in entity.gap_generator.viewers() {
-                if !deposit.active() {
-                    continue;
-                }
-                effects.gap_generators.entry(viewer).or_default().push(
-                    gap_generator::building_gap_source(
-                        entity,
-                        deposit.radius(),
-                        self.resolved_terrain.as_ref(),
-                    ),
-                );
-            }
-        }
-        effects
-    }
-
-    /// Viewer ids whose House carries the native defeat latch
-    /// (`MPlayer_Defeated` `0x004FC0B0` sets PlayerPtr+0x1F5, read at
-    /// `0x006FB2E3`). The gap fog gate asks it per viewer: native reads the
-    /// running client's PlayerPtr, and VERA's per-viewer fog state maps that
-    /// to each viewer's own House (the precedent at
-    /// `set_building_gap_for_viewer`). An observer House passes through the
-    /// same defeat marking (house_defeat only mutes its sounds), so it takes
-    /// this gate like any viewer; no separate observer branch exists.
-    fn defeated_house_ids(&self) -> BTreeSet<InternedId> {
-        self.houses
-            .iter()
-            .filter_map(|(&owner, house)| house.is_defeated().then_some(owner))
-            .collect()
-    }
-
-    fn apply_active_vision_structures(
-        interner: &StringInterner,
-        fog: &mut FogState,
-        house_alliances: &HouseAlliances,
-        effects: &ActiveVisionStructures,
-        defeated_viewers: &BTreeSet<InternedId>,
-    ) {
-        vision::materialize_gap_generator_sources(
-            fog,
-            house_alliances.as_map(),
-            &effects.gap_generators,
-            defeated_viewers,
-            interner,
-        );
-    }
-
     /// Commit aggregate SpySat transitions in the existing pre-House batch,
-    /// then materialize SpySat -> Gap. EventClass commands execute later and
+    /// preserving gap events around their map callbacks. Commands execute later and
     /// become visible next frame. Native4F84F1 gates508F60 on the dirty suffix;
     /// ordinary Unlimbo discovery6F49DE, GrandOpening446A84 and Selling44AB1B
     /// arm it. Wider dirty/cross-House callback cadence remains a residual;
@@ -7284,15 +7227,6 @@ impl Simulation {
                 }
             }
         }
-        let effects = self.collect_active_vision_structures(rules);
-        let defeated_viewers = self.defeated_house_ids();
-        Self::apply_active_vision_structures(
-            &self.interner,
-            &mut self.fog,
-            &self.house_alliances,
-            &effects,
-            &defeated_viewers,
-        );
     }
 
     /// Early mechanisms inside one reached House update.
@@ -7329,23 +7263,15 @@ impl Simulation {
     }
 
     /// The per-frame fog pass: ends last frame's sight and marks the retained
-    /// footprints again ([`Self::refresh_sight_sources`]), then applies SpySat
-    /// and Gap Generator effects. It reveals and releases no source sight:
+    /// footprints again ([`Self::refresh_sight_sources`]). It reveals and
+    /// releases no source sight or Gap Generator deposits:
     /// footprints open, move and close only at their native events
     /// ([`crate::sim::vision`] lists them).
     fn refresh_fog(&mut self, config: &vision::VisionConfig, rules: &RuleSet) {
         self.refresh_sight_sources(config, rules);
 
-        // Apply SpySat and Gap Generator effects.
-        let effects = self.collect_active_vision_structures(rules);
-        let defeated_viewers = self.defeated_house_ids();
-        Self::apply_active_vision_structures(
-            &self.interner,
-            &mut self.fog,
-            &self.house_alliances,
-            &effects,
-            &defeated_viewers,
-        );
+        // Gap events publish their retained cell counters synchronously; a
+        // view refresh neither reclassifies nor replays an active generator.
 
         // Diagnostic: log fog grid stats on first tick to debug coverage issues.
         if self.session.tick() == 1 {

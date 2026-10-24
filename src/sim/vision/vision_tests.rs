@@ -977,11 +977,9 @@ fn a_gap_event_asks_the_generators_house_about_the_viewer() {
     assert!(!covered("Americans", "Soviet"));
 }
 
-/// Materializing a viewer's retained deposits asks from each generator's house
-/// as the event did: only the generator's alliance with the viewer projects
-/// the friendly gap fog.
+/// The gap event asks from the generator's house, as6FB3DA does.
 #[test]
-fn materialized_gap_fog_asks_the_generators_house_about_the_viewer() {
+fn gap_fog_asks_the_generators_house_about_the_viewer() {
     let viewer = intern::test_intern("Soviet");
     let gapper = intern::test_intern("Americans");
     let interner = ti();
@@ -1003,12 +1001,15 @@ fn materialized_gap_fog_asks_the_generators_house_about_the_viewer() {
             asker.to_ascii_uppercase(),
             [other.to_ascii_uppercase()].into(),
         )]);
-        materialize_gap_generator_sources(
+        publish_gap_generator_event(
             &mut fog,
             &alliances,
-            &BTreeMap::from([(viewer, vec![source])]),
-            &std::collections::BTreeSet::new(),
+            viewer,
+            source,
+            true,
+            false,
             &interner,
+            &Default::default(),
         );
         fog.is_cell_gap_fog(viewer, 30, 35)
     };
@@ -1079,59 +1080,6 @@ fn defeated_viewer_takes_the_allied_fog_projection_instead_of_shroud() {
     let allied = projection(true, true);
     assert!(allied.is_cell_gap_fog(viewer, 30, 35));
     assert!(!allied.is_cell_gap_covered(viewer, 30, 35));
-}
-
-/// A defeated viewer's materialized fog follows the power cycle: the bulk
-/// clear-and-reproject wipes `FLAG_GAP_FOG` when the deposit goes inactive,
-/// and no hostile shroud write ever happens, because a gated viewer holds no
-/// receipts (`DestroyGap` `0x006FB470` removal is a no-op for it).
-#[test]
-fn materialized_defeated_viewer_fog_follows_the_power_cycle_without_shroud() {
-    let viewer = intern::test_intern("Soviet");
-    let gapper = intern::test_intern("Americans");
-    let interner = ti();
-    let source = GapGeneratorSource {
-        stable_id: 1,
-        owner: gapper,
-        rx: 30,
-        ry: 30,
-        radius: 10,
-    };
-    let defeated_viewers = std::collections::BTreeSet::from([viewer]);
-
-    // Generator operational: the friendly 0x006FB3C1 projection.
-    let mut fog = FogState {
-        width: 64,
-        height: 64,
-        ..Default::default()
-    };
-    fog.mark_visible_for_owner(viewer, 30, 35);
-    materialize_gap_generator_sources(
-        &mut fog,
-        &HouseAllianceMap::new(),
-        &BTreeMap::from([(viewer, vec![source])]),
-        &defeated_viewers,
-        &interner,
-    );
-    assert!(fog.is_cell_gap_fog(viewer, 30, 35));
-    assert!(!fog.is_cell_gap_covered(viewer, 30, 35));
-
-    // Powered off: the deposit drops out and the reproject leaves no fog.
-    materialize_gap_generator_sources(
-        &mut fog,
-        &HouseAllianceMap::new(),
-        &BTreeMap::new(),
-        &defeated_viewers,
-        &interner,
-    );
-    assert!(!fog.is_cell_gap_fog(viewer, 30, 35));
-    assert!(!fog.is_cell_gap_covered(viewer, 30, 35));
-    assert!(
-        fog.gap_sources()
-            .get(&viewer)
-            .is_none_or(|receipts| receipts.is_empty()),
-        "a gated viewer holds no receipts, so DestroyGap removal is a no-op"
-    );
 }
 
 /// With height-LOS enabled but perfectly flat terrain, reveal must be identical to

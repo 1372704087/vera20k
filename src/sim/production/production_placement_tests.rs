@@ -1289,6 +1289,8 @@ fn a_human_placement_draws_its_buildup_until_it_opens() {
 #[test]
 fn stock_gapowr_placement_restores_power_and_radar_during_buildup() {
     let mut sim = placement_sim();
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
     let rules = stock_power_contract_rules();
     let grid = PathGrid::new(64, 64);
 

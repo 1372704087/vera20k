@@ -540,6 +540,7 @@ mod network_command_tests {
             .register(HouseState::new(owner, 0, None, true, 0, 10));
         sim.session_mut_for_test()
             .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+        sim.install_network_timing(10);
         sim.session_mut_for_test().set_tick_for_test(256);
         sim.session_mut_for_test().set_binary_frame_for_test(256);
         SimRuntime::from_simulation(sim)

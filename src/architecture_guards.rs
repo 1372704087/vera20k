@@ -1226,6 +1226,12 @@ fn mutable_handouts_and_setters_are_owner_operations() {
         ),
         ("net/lockstep.rs", "payload_mut", PAYLOAD),
         (
+            "net/udp.rs",
+            "deref_mut",
+            "UdpWriteGuard construction is private to LanUdpTransport::write; its only callers \
+             project the existing LanConnections and GlobalChannel owners, whose fields are private",
+        ),
+        (
             "rules/art_data.rs",
             "get_mut",
             "art rules installed at load: the registry fills SHP frame sizes into its own \
@@ -1392,6 +1398,12 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "sim/movement/fly_height.rs",
             "set_flight_level",
             "Horizontal_Step's height target (0x004CF3F6, 0x004CF4B6, 0x004CF4CF)",
+        ),
+        (
+            "sim/movement/navcom.rs",
+            "set_nav_com_aux",
+            "FootClass::Set_NavComAux (0x004D94A0) stores Foot+0x5A0; EventClass::Execute \
+             calls it after Set_Destination (0x004C74BA)",
         ),
         (
             "sim/movement/teleport_movement.rs",

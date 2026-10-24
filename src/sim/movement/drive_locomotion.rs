@@ -168,8 +168,17 @@ impl DriveLocomotionRuntime {
         self
     }
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn with_target_speed_fraction_for_test(mut self, value: SimFixed) -> Self {
-        self.target_speed_fraction = NativeF64Bits::from_bits(value.to_num::<f64>().to_bits());
+    pub(crate) fn with_target_speed_fraction_for_test(self, value: SimFixed) -> Self {
+        self.with_target_speed_fraction_native_for_test(NativeF64Bits::from_bits(
+            value.to_num::<f64>().to_bits(),
+        ))
+    }
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn with_target_speed_fraction_native_for_test(
+        mut self,
+        value: NativeF64Bits,
+    ) -> Self {
+        self.target_speed_fraction = value;
         self
     }
     #[cfg(any(test, feature = "test-support"))]

@@ -472,20 +472,6 @@ pub(crate) fn render_game(
             });
     }
     let presentation = &mut state.match_state.match_presentation;
-    // Effect passes read the frame's CPU A plane: a cell whose native A is
-    // below neutral is unseen, so its effects are withheld.
-    let shroud_gate = presentation.shroud_buffer.as_ref();
-    let effect_hidden = |x: i32, y: i32| {
-        let (rx, ry) = crate::app::presentation::instances::lepton_cell(x, y);
-        let (sx, sy) = crate::map::terrain::iso_to_screen(rx, ry, 0);
-        translucent_fog
-            && !sandbox
-            && shroud_gate.is_some_and(|buffer| {
-                buffer
-                    .sample_world_native(sx as f32, sy as f32, camera[0], camera[1])
-                    .is_some_and(|a| a < 127)
-            })
-    };
     // Tactical6D4669 LaserDraw550240 precedes6D466E EBolt, then6D4673
     // trails, even when this composite ran no Logic. Their shared process
     // Main requests happen here once; GPU uploads only read resolved colors.
@@ -493,6 +479,31 @@ pub(crate) fn render_game(
         state.match_state.sim_runtime.as_mut(),
         &mut state.frontend.frontend_main_rng,
     );
+    let sim = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .map(|runtime| runtime.view().simulation());
+    let viewer = local_owner
+        .as_deref()
+        .and_then(|name| sim?.interner().get(name));
+    // Use the same authoritative cell visibility as object admission. The
+    // shaded screen A plane can include edge blends and height projection;
+    // its brightness is not a separate visibility decision.
+    let effect_hidden = |x: i32, y: i32| {
+        let (rx, ry) = crate::app::presentation::instances::lepton_cell(x, y);
+        translucent_fog
+            && !sandbox
+            && sim.is_some_and(|sim| {
+                crate::app::presentation::instances::translucent_fog_conceals_cell(
+                    viewer,
+                    Some(sim.fog()),
+                    rx,
+                    ry,
+                    sim.session().game_options().fog_of_war,
+                )
+            })
+    };
     let bolt_lines = {
         presentation.lasers.composite(&mut main);
         presentation
@@ -510,11 +521,6 @@ pub(crate) fn render_game(
         &main,
         viewport,
     );
-    let sim = state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .map(|runtime| runtime.view().simulation());
     let segments = presentation.line_trails.composite(
         |id| {
             let sim = sim?;
@@ -544,9 +550,7 @@ pub(crate) fn render_game(
                     bullet,
                     [coord.x, coord.y, coord.z],
                     local_owner.as_deref(),
-                    local_owner
-                        .as_deref()
-                        .and_then(|name| sim.interner().get(name)),
+                    viewer,
                     sim.session().game_options().fog_of_war,
                 );
             }

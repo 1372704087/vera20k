@@ -621,26 +621,15 @@ impl ShroudBuffer {
     /// with camera scroll subtracted before blitting. Callers that build
     /// world-space surface operations use this same source as the GPU blitters.
     pub fn sample_world(&self, world_x: f32, world_y: f32, cam_x: f32, cam_y: f32) -> Option<u8> {
-        self.sample_world_native(world_x, world_y, cam_x, cam_y)
-            .map(|a| fog_lifted_a(a, self.fog_strength_milli))
-    }
-
-    /// Native A at a world-space screen pixel, before the translucent-fog lift.
-    /// Effect owners use it to tell an unseen cell from a lit one.
-    pub fn sample_world_native(
-        &self,
-        world_x: f32,
-        world_y: f32,
-        cam_x: f32,
-        cam_y: f32,
-    ) -> Option<u8> {
         let vx = (world_x - cam_x.floor()).floor() as i32;
         let vy = (world_y - cam_y.floor()).floor() as i32;
         if vx < 0 || vy < 0 || vx >= self.width as i32 || vy >= self.height as i32 {
             return None;
         }
         let idx = vy as usize * self.row_stride as usize + vx as usize;
-        self.pixels.get(idx).copied()
+        self.pixels
+            .get(idx)
+            .map(|&a| fog_lifted_a(a, self.fog_strength_milli))
     }
 }
 

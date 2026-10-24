@@ -413,3 +413,86 @@ fn aibuild_limit_is_ignored_without_npatch() {
         "the ignored extension does not invalidate the standing choice",
     );
 }
+
+
+/// NPSE `Suggest_New_Object` (`0x4FBDAF -> 0xC2F130`) reads `House+0x16130`
+/// from a naval producer and `House+0x5650` from a land one, so a shipyard and
+/// a war factory stop sharing one vehicle choice. Before this split the
+/// shipyard fetched the war factory's tank, failed the `Naval=` mismatch check
+/// at `0x450343` and idled.
+#[cfg(feature = "npatch")]
+#[test]
+fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
+    use crate::rules::object_type::ObjectCategory;
+    use crate::sim::ai_unit_choice::UnitChoiceKind;
+
+    let mut f = fixture_with(
+        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n\
+         [InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n1=SHIP\n\
+         [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n3=SYRD\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+         [PLAIN]\nStrength=1000\nCost=100\n\
+         [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+         [SYRD]\nStrength=1000\nFactory=UnitType\nNaval=yes\nCost=200\n\
+         [TANK]\nStrength=300\nSpeed=5\nCost=100\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [SHIP]\nStrength=300\nSpeed=5\nCost=100\nNaval=yes\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [Clear]\nBuildable=yes\n",
+    );
+    let weap = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 8, 8, 0, &f.rules)
+        .unwrap();
+    let syrd = f
+        .sim
+        .spawn_object("SYRD", "AIHouse", 8, 14, 0, &f.rules)
+        .unwrap();
+    let tank = f
+        .rules
+        .type_array_index(ObjectCategory::Vehicle, "TANK")
+        .expect("TANK is a vehicle type");
+    let ship = f
+        .rules
+        .type_array_index(ObjectCategory::Vehicle, "SHIP")
+        .expect("SHIP is a vehicle type");
+    {
+        let house = f.sim.houses.get_mut(&f.owner).unwrap();
+        house.ai_unit_choices_mut().set(UnitChoiceKind::Unit, tank);
+        house.ai_unit_choices_mut().set_naval_unit(ship);
+    }
+    let held = |f: &Fixture, building: u64| -> Option<String> {
+        f.sim
+            .production
+            .factories()
+            .building_factory(building)
+            .and_then(|factory| factory.object())
+            .and_then(|object| f.sim.object_type(object.type_id, &f.rules))
+            .map(|kind| kind.id.clone())
+    };
+
+    factory_ai(
+        &mut f.sim,
+        &f.rules,
+        weap,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    factory_ai(
+        &mut f.sim,
+        &f.rules,
+        syrd,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    assert_eq!(
+        held(&f, weap).as_deref(),
+        Some("TANK"),
+        "the war factory builds the land channel"
+    );
+    assert_eq!(
+        held(&f, syrd).as_deref(),
+        Some("SHIP"),
+        "the shipyard builds the naval channel"
+    );
+}

@@ -251,7 +251,17 @@ fn start_factory(
     if crate::sim::credit_income::available_money(&sim.houses, owner) <= 10 {
         return;
     }
-    let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
+    // The producing building's `Naval=` decides which vehicle choice
+    // `Suggest_New_Object` reads (NPSE `0xC2F130`), so resolve it first.
+    let factory_naval = sim
+        .substrate
+        .entities
+        .get(building)
+        .and_then(|entity| sim.entity_object_type(entity, rules))
+        .is_some_and(|ty| ty.naval);
+    let Some(object) =
+        ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti, factory_naval)
+    else {
         return;
     };
     // The NPSE per-type `AIBuildLimit=` runs where `Factory_AI` fetched the
@@ -262,12 +272,6 @@ fn start_factory(
         clear_aibuild_limit_choice(sim, owner, object.category);
         return;
     }
-    let factory_naval = sim
-        .substrate
-        .entities
-        .get(building)
-        .and_then(|entity| sim.entity_object_type(entity, rules))
-        .is_some_and(|ty| ty.naval);
     if object.category == ObjectCategory::Vehicle && object.naval != factory_naval {
         return;
     }

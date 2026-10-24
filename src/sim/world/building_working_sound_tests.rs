@@ -203,6 +203,8 @@ fn rules() -> RuleSet {
 /// reaches the power recount (`invalidate_house_power`).
 fn world(size: u16) -> Simulation {
     let mut sim = Simulation::new();
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
     sim.install_resolved_terrain_for_new_map(test_flat_ground_grid(size));
     crate::sim::arena_fixture::supply_native_map(&mut sim);
     let owner = sim.interner.intern("Americans");

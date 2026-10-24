@@ -758,6 +758,17 @@ pub struct GeneralRules {
     /// "PARACH"), `None` if unset or empty: the canopy the simulation attaches
     /// to a dropped object. Its timing is the AnimType's own art.
     pub parachute_shp: Option<String>,
+    /// Parsed `[General] VehicleParachute=` value (uppercased AnimType name),
+    /// read only with the explicit NPatch capability.
+    /// `None` if unset or empty: the NPSE canopy an airdropped non-infantry
+    /// object takes instead of `Parachute=` (`ObjectClass::Paradrop`'s
+    /// `0x5F5ADD` hook, cave `0xC2B0E4`..`0xC2FA8A`: infantry keeps
+    /// `Parachute=`, anything else takes this when the Rules+0x400 pointer
+    /// is set — the NPSE reader stores it there, `0xC31005..0xC31017` — and
+    /// `Parachute=` otherwise). Read in the General reader with the 0x80
+    /// string capacity; an empty read retains the previous pointer, while
+    /// `none` clears it through AnimTypeClass::FindOrAllocate @ 0x428B80.
+    pub vehicle_parachute: Option<String>,
     /// `[General] AmerParaDropInf=`/`AmerParaDropNum=` (`+0xC04`/`+0xC20`):
     /// the American Paradrop's planes.
     pub amer_paradrop: ParadropList,
@@ -2376,6 +2387,7 @@ impl Default for GeneralRules {
             no_parachute_max_fall_rate: -100,
             paradrop_radius: 1024,
             parachute_shp: None,
+            vehicle_parachute: None,
             amer_paradrop: ParadropList::default(),
             ally_paradrop: ParadropList::default(),
             sov_paradrop: ParadropList::default(),
@@ -3561,6 +3573,9 @@ impl GeneralRules {
             hover_dampen: general.read_double_bits("HoverDampen", defaults.hover_dampen),
             paradrop_radius: general.read_int("ParadropRadius", 1024),
             parachute_shp: defaults.parachute_shp.clone(),
+            // The ordered RulesTypeReferences owner publishes the retained
+            // NPSE ReadGeneral pointer (C31005..C31017), like Parachute.
+            vehicle_parachute: defaults.vehicle_parachute.clone(),
             amer_paradrop: ParadropList::read_counts(general, "AmerParaDropNum"),
             ally_paradrop: ParadropList::read_counts(general, "AllyParaDropNum"),
             sov_paradrop: ParadropList::read_counts(general, "SovParaDropNum"),
@@ -6385,8 +6400,14 @@ impl RuleSet {
             b"phobos-shield-types-v1".hash(&mut hasher);
             self.shield_types.hash(&mut hasher);
             self.shield_globals.apply_armor_mult.hash(&mut hasher);
-            self.shield_globals.condition_yellow.to_bits().hash(&mut hasher);
-            self.shield_globals.condition_red.to_bits().hash(&mut hasher);
+            self.shield_globals
+                .condition_yellow
+                .to_bits()
+                .hash(&mut hasher);
+            self.shield_globals
+                .condition_red
+                .to_bits()
+                .hash(&mut hasher);
             self.shield_globals.pips.hash(&mut hasher);
             self.shield_globals.pips_building.hash(&mut hasher);
             self.shield_globals.pips_background.hash(&mut hasher);
@@ -6890,6 +6911,9 @@ impl RuleSet {
         )
             .hash(&mut hasher);
         let general = &self.general;
+        if crate::rules::NPATCH_ENABLED {
+            general.vehicle_parachute.hash(&mut hasher);
+        }
         (
             (
                 &general.ore_twinkle,

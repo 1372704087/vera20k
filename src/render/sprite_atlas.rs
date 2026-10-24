@@ -2203,14 +2203,26 @@ pub fn build_sprite_atlas(
         }
     }
 
-    // Step 1e: Pre-load the parachute SHP (`[General] Parachute=`).
+    // Step 1e: Pre-load both retained canopy types. NPSE Paradrop
+    // C2FA75/C2F939 substitutes VehicleParachute for non-infantry.
     // This registers the no-remap GlobalAnim/colour-0 fallback. The live
     // AnimClass remap closure adds SelectedScheme variants for remapped canopies;
     // both use the unit palette here because PARACH sets `AltPalette=`.
-    let parachute = rules
+    let parachutes = rules
         .filter(|_| previous_atlas.is_none())
-        .and_then(|r| r.general.parachute_shp.as_deref());
-    if let Some(shp_name) = parachute {
+        .into_iter()
+        .flat_map(|r| {
+            [
+                r.general.parachute_shp.as_deref(),
+                if crate::rules::NPATCH_ENABLED {
+                    r.general.vehicle_parachute.as_deref()
+                } else {
+                    None
+                },
+            ]
+        })
+        .flatten();
+    for shp_name in parachutes {
         let candidates = [
             format!("{}.shp", shp_name.to_ascii_lowercase()),
             format!("{}.SHP", shp_name),

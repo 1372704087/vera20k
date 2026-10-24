@@ -50,7 +50,7 @@ fn main() -> Result<()> {
         vera20k::rules::PHOBOS_ENABLED
     );
     log::info!(
-        "NPatch support compiled in: {} (placeholder)",
+        "NPatch support compiled in: {}",
         vera20k::rules::NPATCH_ENABLED
     );
     if let Some(path) = &log_path {

@@ -617,12 +617,13 @@ pub struct ObjectType {
     /// computer house's base plan gives this building. The techno reader
     /// extension chain reads it with the current field as its default and
     /// stores the result through `al` (`0xC2E223..0xC2E237`), so the
-    /// effective range is one unsigned byte; the extension constructor
+    /// stored value is one byte; the extension constructor
     /// zeroes it (`0xC3039B`), so absent means the stock single node. The
     /// `AI_RecalcBuildOptions` append loop (`0x5056C1` hook, cave
     /// `0xC2C331..0xC2C367`) re-enters the candidate head until its
-    /// per-candidate counter reaches the count, so a positive count plans
-    /// that many consecutive nodes of the type.
+    /// per-candidate counter reaches the count with signed CMP/JL. Counts
+    /// 1..127 repeat eligible entries before seed selection; 0 and high-bit
+    /// counts keep one entry, rather than repeating the final priority list.
     pub ai_planning_count: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,

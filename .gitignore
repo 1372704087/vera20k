@@ -41,6 +41,9 @@ Thumbs.db
 !/docs/phobos.md
 !/docs/phobos-custom-radiation.md
 !/docs/phobos-superweapon-technos.md
+!/docs/phobos-ore-spawners.md
+!/docs/phobos-harvester-gather-animations.md
+!/docs/phobos-hide-if-no-ore-threshold.md
 !/docs/npatch.md
 !/docs/ares-generic-warhead.md
 !/docs/ini-roots.md

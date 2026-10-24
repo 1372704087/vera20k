@@ -483,6 +483,43 @@ impl IniSection {
         })
     }
 
+    /// Ares/Phobos `PartialVector2D<int>` (`Utilities/TemplateDef.h`'s
+    /// `read<PartialVector2D<int>>` over `MultiParser<int>::Parse(value, out, 2)`):
+    /// ReadString(2048), then at most two comma-separated [`parse_ares_int`]
+    /// tokens. Each token is space-trimmed on both sides and the scan stops at
+    /// the first token that does not convert, so a one-token read leaves the
+    /// second slot at its previous value and marks the pair single. A zero-token
+    /// scan writes neither slot and leaves the count, so the whole pair retains.
+    pub fn read_ares_partial_int_pair(&self, key: &str, current: PartialIntPair) -> PartialIntPair {
+        self.read_string_with(key, 2048, current, |previous, value| {
+            let mut fields = [previous.low, previous.high];
+            let values = scan_partial_int_fields(value, &mut fields);
+            if values == 0 {
+                return previous;
+            }
+            PartialIntPair {
+                low: fields[0],
+                high: fields[1],
+                values,
+            }
+        })
+    }
+
+    /// Ares/Phobos `ValueableVector<int>` (`detail::parse_values<int>` over
+    /// `strtok(",")`): ReadString(2048), split on commas, and each token
+    /// through [`parse_ares_int`]. A token that does not convert is skipped, so
+    /// the list keeps the index alignment its caller pairs with another list
+    /// only over the tokens that parsed. An absent key keeps the caller's list;
+    /// a present one replaces it, even with no usable token.
+    pub fn read_ares_int_list(&self, key: &str) -> Option<Vec<i32>> {
+        Some(
+            self.read_list(key, 2048)?
+                .iter()
+                .filter_map(|token| parse_ares_int(token))
+                .collect(),
+        )
+    }
+
     /// Ares Valueable<double>1000EB00/10076B60: the native string-sized
     /// reader scans binary64, not ReadDouble's intermediate binary32. An
     /// unsuccessful scan retains the old field; a percent anywhere scales it.
@@ -1601,6 +1638,33 @@ fn chop_decimal_f64(token: &str, nearest: f64) -> f64 {
     }
 }
 
+/// Ares/Phobos `PartialVector2D<int>` storage: the two scanned slots plus how
+/// many the last successful read wrote. `values < 2` means the second slot is
+/// stale, so every ranged consumer must use [`Self::low`] and draw nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub struct PartialIntPair {
+    pub low: i32,
+    pub high: i32,
+    pub values: u8,
+}
+
+impl PartialIntPair {
+    /// A one-value spelling: Phobos' `PartialVector2D<int>{ 3 }` initializer.
+    pub const fn single(value: i32) -> Self {
+        Self {
+            low: value,
+            high: 0,
+            values: 1,
+        }
+    }
+
+    /// `GeneralUtils::GetRangedRandomOrSingleValue`'s non-random arm: the
+    /// consumer takes `low` and draws nothing when this is true.
+    pub const fn is_single(&self) -> bool {
+        self.values < 2 || self.low >= self.high
+    }
+}
+
 /// The single Ares Parser<int> core, also used by compound int/bool readers.
 fn parse_ares_int(value: &str) -> Option<i32> {
     if let Some(decimal) = value.strip_prefix('$') {
@@ -1614,6 +1678,40 @@ fn parse_ares_int(value: &str) -> Option<i32> {
     } else {
         scan_decimal_i32(&mut value.as_bytes())
     }
+}
+
+/// `MultiParser<int>::Parse(pValue, outValue, count)`: for each slot skip the
+/// leading spaces, take everything up to the next comma (`%[^,]`, which needs
+/// at least one character), trim the token's trailing spaces and convert it
+/// with `Parser<int>::TryParse`. The scan returns at the first slot that yields
+/// no token or no conversion, so a trailing comma counts as one parsed value.
+fn scan_partial_int_fields(value: &str, out: &mut [i32]) -> u8 {
+    let mut rest = value.as_bytes();
+    for (index, slot) in out.iter_mut().enumerate() {
+        while rest.first().is_some_and(|byte| is_crt_space(*byte)) {
+            rest = &rest[1..];
+        }
+        let token_end = rest
+            .iter()
+            .position(|byte| *byte == b',')
+            .unwrap_or(rest.len());
+        if token_end == 0 {
+            return index as u8;
+        }
+        let mut token = &rest[..token_end];
+        while token.last().is_some_and(|byte| is_crt_space(*byte)) {
+            token = &token[..token.len() - 1];
+        }
+        let parsed = std::str::from_utf8(token).ok().and_then(parse_ares_int);
+        let Some(parsed) = parsed else {
+            return index as u8;
+        };
+        *slot = parsed;
+        rest = rest[token_end..]
+            .strip_prefix(b",")
+            .unwrap_or(&rest[token_end..]);
+    }
+    out.len() as u8
 }
 
 fn leading_float_token(s: &str) -> Option<&str> {

@@ -323,6 +323,28 @@ impl Default for BuildingHiddenOccupancyProfile {
     }
 }
 
+/// Phobos `UnitTypeExt`'s three `OreGathering.*` lists
+/// (`src/Ext/UnitType/Body.{h,cpp}`, read at the `UnitTypeClass_LoadFromINI`
+/// hook in the order Anims, Tiberiums, FramesPerDir). Each
+/// `ValueableVector::Read` clears the vector and re-parses only when its key is
+/// present, so a later Rules layer replaces a whole list or retains it.
+///
+/// The lists are parallel by index: `OreGathering.Tiberiums=` is searched for
+/// the resource the harvester stands on, and the slot it answers selects the
+/// animation and its frame count. `Anims=` drops a token the `AnimType` array
+/// does not hold, so a longer `Tiberiums=` list shifts onto the wrong entry —
+/// Phobos' own alignment, preserved here.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PhobosOreGathering {
+    /// `OreGathering.Anims=`: the resolved `AnimType` section names.
+    pub anims: Vec<String>,
+    /// `OreGathering.Tiberiums=`: the `[Tiberiums]` indices each slot serves.
+    pub tiberiums: Vec<i32>,
+    /// `OreGathering.FramesPerDir=`: frames per facing for each slot.
+    pub frames_per_dir: Vec<i32>,
+}
+
 /// A game object definition parsed from a rules.ini section.
 ///
 /// Fields use sensible defaults when the INI key is absent, matching
@@ -972,6 +994,10 @@ pub struct ObjectType {
     /// BuildingTypeExt+178, ordered lookup-only `SuperWeapons=` references.
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` lists, retained per
+    /// VehicleType and read by the harvester's gather overlay.
+    #[cfg(feature = "phobos")]
+    ore_gathering: PhobosOreGathering,
     /// `NukeSilo=` (BuildingType `+0x16BA`, ReadBool at `0x00460A45`,
     /// constructor clear at `0x0045E127`): `SuperClass::Launch @ 0x006CC390`
     /// fires a `MultiMissile` weapon from the first such type granting it,
@@ -2237,6 +2263,18 @@ impl ObjectType {
     pub(crate) fn project_additional_super_weapons(&mut self, names: &[String]) {
         self.additional_super_weapons = names.to_vec();
     }
+
+    /// Phobos `UnitTypeExt`'s gather-overlay lists. Every list is empty for a
+    /// type that authors none, which is the constructor state.
+    #[cfg(feature = "phobos")]
+    pub fn ore_gathering(&self) -> &PhobosOreGathering {
+        &self.ore_gathering
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn project_ore_gathering(&mut self, gathering: &PhobosOreGathering) {
+        self.ore_gathering = gathering.clone();
+    }
     pub(crate) fn emp_rules(&self) -> Option<&crate::rules::ares_emp::EmpTypeRules> {
         self.emp.as_ref()
     }
@@ -3291,6 +3329,8 @@ impl ObjectType {
             super_weapon2: section.read_name("SuperWeapon2", 0x20).map(str::to_owned),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
+            #[cfg(feature = "phobos")]
+            ore_gathering: PhobosOreGathering::default(),
             nuke_silo: section.read_bool("NukeSilo", false),
             charged_anim_time: section.read_float("ChargedAnimTime", 999.0),
             spy_sat: section.read_bool("SpySat", false),
@@ -4644,6 +4684,53 @@ mod tests {
         assert!(!obj.is_1x1_with_undeploy());
 
         assert!(rules.object("MODDEPLOY").unwrap().is_1x1_with_undeploy());
+    }
+
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors through the
+    /// production layered reader: an absent key retains the whole list, a
+    /// present one replaces it, and an `Anims=` token the AnimType array lacks
+    /// drops out instead of holding a null slot.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn ore_gathering_lists_replace_retain_and_drop_unknown_anims() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let base = IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA,NOPE,GATHB\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        );
+        let rules = RuleSet::from_rules_layers(&RulesLayerStack::new(base))
+            .expect("authored phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.anims, ["GATHA"], "the unknown token drops out");
+        assert_eq!(gathering.tiberiums, [0, 1]);
+        assert_eq!(gathering.frames_per_dir, [10, 20]);
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        ));
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[HARV]\nOreGathering.Tiberiums=2\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).expect("layered phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.tiberiums, [2], "the named list replaces");
+        assert_eq!(gathering.frames_per_dir, [10, 20], "the others retain");
+
+        let stock = RuleSet::from_rules_layers(&RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[HARV]\nHarvester=yes\n",
+        )))
+        .expect("stock harvester rules");
+        assert_eq!(
+            stock.object("HARV").expect("HARV").ore_gathering(),
+            &crate::rules::object_type::PhobosOreGathering::default(),
+            "a type authoring none keeps every empty list"
+        );
     }
 
     #[test]

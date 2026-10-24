@@ -4932,6 +4932,14 @@ impl RuleSet {
                     .phobos_super_weapon_metadata
                     .insert(name.to_ascii_uppercase(), availability);
             }
+            for (name, gathering) in processed.ore_gathering_states() {
+                if let Some(unit) = rules.object_list.iter_mut().find(|object| {
+                    object.category == ObjectCategory::Vehicle
+                        && object.id.eq_ignore_ascii_case(name)
+                }) {
+                    unit.project_ore_gathering(gathering);
+                }
+            }
         }
         #[cfg(feature = "ares")]
         {
@@ -6459,6 +6467,17 @@ impl RuleSet {
             .map(|(name, terrain)| (name.to_ascii_uppercase(), terrain.armor_id()))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            // TerrainTypeExt::LoadFromINI retains these across Process calls.
+            // They change spawner placement, particle births and RNG draws.
+            b"phobos-retained-ore-spawners-v1".hash(&mut hasher);
+            self.terrain_object_types
+                .iter()
+                .map(|(name, terrain)| (name.to_ascii_uppercase(), &terrain.spawns_tiberium_ext))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
+        }
         // TerrainTypeReadINI71DEA0 retains post-read writes and ReadInt
         // defaults across Process calls. Equal current text can admit
         // different Strength, Logic members, targets or occupation, so identify
@@ -7935,6 +7954,25 @@ impl RuleSet {
     /// Read the same bound ART owner used during construction and gameplay.
     pub fn art(&self) -> &crate::rules::art_data::ArtRegistry {
         &self.art_registry
+    }
+
+    /// Registered AnimType identities selected by Phobos' gather overlay.
+    /// Keep the type identity: its existing image owner resolves retained load
+    /// requests, Image aliases and theater filenames.
+    #[cfg(feature = "phobos")]
+    pub fn harvest_overlay_anim_types(&self) -> Vec<&str> {
+        let mut anims = Vec::new();
+        for object in &self.object_list {
+            if object.category != ObjectCategory::Vehicle {
+                continue;
+            }
+            for anim in &object.ore_gathering().anims {
+                if !anims.contains(&anim.as_str()) {
+                    anims.push(anim.as_str());
+                }
+            }
+        }
+        anims
     }
 
     /// AnimTypeArray8B4154's retained constructor order, including types

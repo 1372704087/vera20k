@@ -1555,6 +1555,7 @@ mod tests {
                             target_rx: 12 + index as u16,
                             target_ry: 10,
                         },
+                        None,
                     )
                     .unwrap();
                 let envelope = sim

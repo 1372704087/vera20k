@@ -3113,7 +3113,7 @@ WOLTaunts=junk
             opponent.enabled = false;
         }
 
-        let result = crate::ui::skirmish_shell::launch_session(&shell, &[map()], &[mode()]);
+        let result = crate::ui::skirmish_shell::launch_session(&shell, &[map()], &[mode()], false);
 
         assert_eq!(
             result,

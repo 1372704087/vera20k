@@ -149,12 +149,16 @@ pub struct GraphicsConfig {
     /// trails) per gamemd's "Extra Animations" option. Default ON to match
     /// gamemd's default.
     pub extra_animations: bool,
+    /// VERA presentation option: show terrain through translucent fog while
+    /// concealing unseen enemy objects. Off by default for the retail look.
+    pub translucent_fog: bool,
 }
 
 impl Default for GraphicsConfig {
     fn default() -> Self {
         Self {
             extra_animations: true,
+            translucent_fog: false,
         }
     }
 }
@@ -299,6 +303,9 @@ impl GameConfig {
                 }
                 ("graphics", "extra_animations") => {
                     parse_bool(value).map(|on| graphics.extra_animations = on)
+                }
+                ("graphics", "translucent_fog") => {
+                    parse_bool(value).map(|on| graphics.translucent_fog = on)
                 }
                 ("gameplay", "input_delay_ticks") => {
                     parse_u32(value).map(|ticks| gameplay.input_delay_ticks = ticks)
@@ -746,6 +753,15 @@ extra_animations = false
 "#;
         let config = GameConfig::parse(toml_str).expect("old configs keep loading");
         assert!(!config.graphics.extra_animations);
+        assert!(!config.graphics.translucent_fog);
+    }
+
+    #[test]
+    fn translucent_fog_is_an_explicit_graphics_option() {
+        let config =
+            GameConfig::parse("[paths]\nra2_dir = 'retail'\n[graphics]\ntranslucent_fog = true\n")
+                .unwrap();
+        assert!(config.graphics.translucent_fog);
     }
 
     #[test]

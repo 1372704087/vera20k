@@ -39,7 +39,6 @@ das Projekt entwickelt.
 - **KI:** Teile der ursprünglichen KI übernehmen den Basisbau und skriptgesteuerte Angriffe.
 - **Laufende Arbeiten:** Spielverhalten, Grafik und Leistung.
 - **Mehrspielermodus:** Aktuelle Quellcode-Builds unterstützen LAN- und Online-Spiele auf macOS und Linux.
-  Siehe die [Anleitung zum Erstellen, Beitreten und erneuten Spielen](README.md#multiplayer) (Englisch).
 - **Größenordnung:** Zwei aufeinanderfolgende Online-Partien bestanden die Funktionsprüfung mit
   30 unabhängigen Client-Prozessen und jeweils mehr als 20.000 aktiven mobilen Einheiten.
   Die Linux-Clients teilten sich virtuelle Maschinen; flüssige Echtzeitleistung ist damit nicht belegt.

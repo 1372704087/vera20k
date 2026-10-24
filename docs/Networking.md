@@ -1,7 +1,7 @@
 # Multiplayer behavior and ownership
 
 Current macOS and Linux source builds provide LAN and online multiplayer through
-the [normal game menus](../README.md#multiplayer). Both paths use the existing
+the normal game menus. Both paths use the existing
 owners for session setup, synchronized commands, reliable UDP delivery, frame
 pacing, checksums, disconnects, results and rematches. The function-level
 active-retail `gamemd.exe` parity audit remains separate from runtime validation.
@@ -19,16 +19,26 @@ VERA20k clients; legacy IPX and gamemd wire compatibility are not supported.
 
 The Network menu enters the LAN lobby. The physical service handles discovery,
 join, options, roster, readiness and GO, then transfers the same socket pair into
-the running match. The Internet menu's Custom Match path uses normal account
-creation/login, game discovery, host settings and guest acceptance. Its HTTPS
-service supplies match-specific relay credentials before the same loading and
-command handoff. Both paths transfer selected authored maps or generated
+the running match. For online play, choose Internet → Custom Match, enter a
+username and press OK. Names use 1–24 ASCII letters, digits, underscores or hyphens;
+each active player needs a different name. No password or account creation is
+required. Players enter German Bunker, then create or join a game. A host can
+select Easy, Normal or Hard AI from an open player slot in Battle or Free For All.
+The HTTPS service supplies match-specific relay credentials before the same loading
+and command handoff. Both paths transfer selected authored maps or generated
 seed/preview data and verify build, rules and effective-map agreement before start.
 
 The app services reliable messages and intermediate progress while loading, and
 continues servicing transport during frame waits. Gameplay uses the same
 OutList/DoList owners as offline play; the transport does not own a second
 simulation command queue.
+
+Online games admitted with exactly one human use local command scheduling: commands
+run at the next dispatch opportunity without a multiplayer lead-time buffer. The
+first simulation frame still primes the existing network queue. Game-speed and CPU
+timing continue through the same timing owner. Games originally admitted with
+multiple human sources, including observers, retain synchronized scheduling even
+after other players leave. AI players never acquire network identities.
 
 | Responsibility | Authoritative owner |
 |---|---|
@@ -42,7 +52,7 @@ simulation command queue.
 | LAN packet layouts and options parsing | `net::lan_messages` |
 | Participant membership, admitted endpoints, launch state and checksum history | `app::match_runtime::session::MatchSession` |
 | Discovery projection and physical LAN lobby/setup service | `app::lan_service` |
-| Online account, lobby and relay-admission adapter | `app::shell_wol::live_service` |
+| Online session, lobby and relay-admission adapter | `app::shell_wol::live_service` |
 | Shared map source, generated staging and verified transfer admission | `map::source`, `app::shell_network_setup::maps` |
 | Setup UI, map admission and pending handoff | `app::shell_network_setup` |
 | Production frame boundary and post-Logic continuation | `app::match_runtime::sim_tick` and `sim::world` |
@@ -113,6 +123,11 @@ gameplay command producers and cooperative handoffs. Native extra-channel/router
 behavior, interface selection and local MoveFlash drawing retain their separate
 audit scope. VERA's IPv4/relay transport and bounded command admission do not claim
 legacy wire compatibility or exhaustive gamemd behavior.
+
+Solo AI validation also completed two 600-frame online rounds with Move and Stop
+applied in their issue frame, real AI activity, lobby return, rematch and acknowledged
+logout. This covers local input scheduling; it does not measure human-to-human
+Internet latency or establish complete AI or cooperative-campaign behavior.
 
 ## Reproducible validation tools
 

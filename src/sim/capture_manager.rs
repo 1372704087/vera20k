@@ -445,8 +445,13 @@ impl CaptureVictimFacts {
                 target.invulnerability.as_ref(),
                 frame,
             )
-            // CanCapture's gate 9 (`0x00471D1E..0x00471D2C`).
-            || target.constructing_or_selling();
+            // CanCapture471D1E..471D2C reads raw current +AC for every
+            // Techno. A queued Construction is still capturable until it
+            // commences; GetFireError repeats this gate at discharge.
+            || matches!(
+                target.mission.current().known(),
+                Some(MissionType::Construction | MissionType::Selling)
+            );
         Self {
             owner: target.owner(),
             capturable: !refused,

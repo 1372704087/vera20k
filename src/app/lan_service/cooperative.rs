@@ -125,10 +125,11 @@ fn receive(state: &mut AppState, incoming: GlobalMessage) -> anyhow::Result<()> 
                 .ok_or_else(|| anyhow::anyhow!("no round roster"))?;
             CooperativeRoundEvent::Options(round_options(launch, &record)?)
         } else if let Some(chat) = message.in_game_chat_fields() {
-            CooperativeRoundEvent::Chat {
-                source,
-                text: chat.text(),
-            }
+            let game = super::active_game_name(state).unwrap_or_default();
+            let Some(event) = chat_event(source, &chat, &game) else {
+                return Ok(());
+            };
+            event
         } else {
             // Every other kind, the 20 s `0x0D` among them, falls through
             // to the loop's tail (`0x004702FD`).
@@ -136,6 +137,22 @@ fn receive(state: &mut AppState, incoming: GlobalMessage) -> anyhow::Result<()> 
         }
     };
     crate::app::cooperative_round::service_event(state, event)
+}
+
+/// `0x0C` (`0x004706E3`): only this game's hash posts a line, in the
+/// packet's colour `+0x110`.
+fn chat_event(
+    source: usize,
+    chat: &crate::net::lan_messages::ingame::InGameChat<'_>,
+    game: &str,
+) -> Option<CooperativeRoundEvent> {
+    (chat.game_name_hash == crate::net::lan_messages::game_name_hash(game)).then(|| {
+        CooperativeRoundEvent::Chat {
+            source,
+            text: chat.text(),
+            color: chat.color,
+        }
+    })
 }
 
 /// A queued round record to every other node.
@@ -302,6 +319,23 @@ mod tests {
         guest.raw_slot_index = Some(1);
         launch.humans.push(guest);
         launch
+    }
+
+    /// BC6's partner line keeps the sender's `0xF0F0`; another game's
+    /// `0x0C` posts nothing.
+    #[test]
+    fn chat_posts_this_games_lines_in_the_packet_colour() {
+        let message = LanMessage::in_game_chat("Host", 0xF0F0, "Host's game", "gg").unwrap();
+        let chat = message.in_game_chat_fields().unwrap();
+        assert_eq!(
+            chat_event(1, &chat, "Host's game"),
+            Some(CooperativeRoundEvent::Chat {
+                source: 1,
+                text: "gg".into(),
+                color: 0xF0F0,
+            })
+        );
+        assert_eq!(chat_event(1, &chat, "Other game"), None);
     }
 
     /// The master's `0x32` reaches the guest as the same round options: the

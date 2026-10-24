@@ -611,11 +611,15 @@ fn run_step(state: &mut AppState, step: CooperativeRoundStep) {
                 &format,
                 &[crate::assets::csf_file::CsfArg::Str(&name)],
             );
-            append_line(state, text);
+            append_line(state, text, u32::MAX);
         }
-        CooperativeRoundStep::Chat { source, text } => {
+        CooperativeRoundStep::Chat {
+            source,
+            text,
+            color,
+        } => {
             let name = participant_name(state, source);
-            append_line(state, format!("{name}: {text}"));
+            append_line(state, format!("{name}: {text}"), color);
         }
         CooperativeRoundStep::Exit(true) => begin_next_mission(state),
         CooperativeRoundStep::Exit(false) => finish(state),
@@ -757,9 +761,8 @@ fn leave_result(state: &mut AppState) {
 }
 
 /// BC6's chat (`0x540` Enter): a text over two characters echoes locally
-/// as `"%s: %s"` and goes to every other node as `0x0C`.
-/// RESIDUAL: the line colours (`[0x7EEF44]`, the packet's `+0x110`) are
-/// not resolved; lines use the list's default colour.
+/// as `"%s: %s"` in `[0x7EEF44]` (`0x0046E12C`) and goes to every other
+/// node as `0x0C` with `[0x7EEF2C]` (`0x0046E126`) and this game's hash.
 fn send_chat(state: &mut AppState, text: Vec<u16>) {
     let text = String::from_utf16_lossy(&text);
     let text = text.trim_end_matches(['\r', '\n']).to_owned();
@@ -772,7 +775,11 @@ fn send_chat(state: &mut AppState, text: Vec<u16>) {
         .local_player_name()
         .unwrap_or_default()
         .to_owned();
-    append_line(state, format!("{name}: {text}"));
+    append_line(
+        state,
+        format!("{name}: {text}"),
+        crate::ui::wol_chat::SAY_COLOR,
+    );
     let local = state
         .match_state
         .session
@@ -799,8 +806,9 @@ fn participant_name(state: &AppState, source: usize) -> String {
         .unwrap_or_default()
 }
 
-/// `0x005E2700` with colour -1 into BC6's list `0x53F`.
-fn append_line(state: &mut AppState, text: String) {
+/// `0x005E2700` with a `COLORREF` (-1 the list's default) into BC6's list
+/// `0x53F`.
+fn append_line(state: &mut AppState, text: String, color: u32) {
     let layout = crate::app::input::coop_score::layout(state);
     let rect = layout
         .control_rect(crate::ui::coop_score_shell::CHAT_LOG)
@@ -818,7 +826,7 @@ fn append_line(state: &mut AppState, text: String) {
     chat.append_message(
         LanChatLine {
             text: text.encode_utf16().collect(),
-            color: u32::MAX,
+            color,
         },
         scale.base_rect(rect).w,
         visible,

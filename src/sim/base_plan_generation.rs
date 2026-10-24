@@ -160,16 +160,21 @@ pub(crate) fn recalc_base_plan(
                 && prerequisites_satisfied(candidate, &priority[..pass_start_len], rules)
             {
                 priority.push(candidate);
-                // NPSE per-type `[BuildingTypes] AIPlanningCount=` lands here:
-                // the hook at the append site (`0x5056C1` -> cave
-                // `0xC2C331..0xC2C367`) re-enters the candidate head
-                // (`0x00505544`) until its per-candidate counter reaches the
-                // type's byte-sized count, so the candidate appends that many
-                // consecutive nodes at its own position. The repeats stay
-                // inside collection: they are part of the vector the seed
-                // selection (`0x505714`) and the refinery insertion draw
-                // into, and they repeat one selected candidate rather than
-                // completing another, so they do not advance the pass count.
+                // NPSE per-type `[BuildingTypes] AIPlanningCount=` lands here.
+                // The hook replaces the candidate-index increment at
+                // `0x5056C1` (`mov eax, [esp+0x10]; inc eax; mov ecx,
+                // [0xA83C78]`) with cave `0xC2C331`: `mov al, [esi+0x17C6];
+                // test al, al; jne 0xC2C353`, then `inc byte [esp+0xA4];
+                // cmp [esp+0xA4], al; jl 0x505544` until the per-candidate
+                // counter reaches the count, and only then `jmp 0xC2C33B`
+                // for the index increment plus counter reset. `0x505544`
+                // reloads the candidate through `mov ecx, [esp+0x10]; mov
+                // esi, [eax+ecx*4]`, and the index is untouched on that
+                // path, so the repeats append the same candidate at its own
+                // position without completing another candidate. They also
+                // enter the vector the seed selection (`0x505714`) and the
+                // refinery insertion draw into, which is why the copies are
+                // pushed here rather than onto the assembled plan.
                 for _ in 1..planning_repeats(candidate) {
                     priority.push(candidate);
                 }
@@ -255,10 +260,13 @@ pub(crate) fn recalc_base_plan(
 }
 
 /// The NPSE per-type `[BuildingTypes] AIPlanningCount=` count of collection
-/// nodes the candidate contributes, `1` for the stock single node. The
-/// extension constructor zeroes the field (`0xC3039B`) and the reader stores
-/// the `ReadInt` result through `al` (`0xC2E223..0xC2E237`), so an absent key
-/// and `0` both keep the stock node; the compiled capability gates the rest.
+/// nodes the candidate contributes, `1` for the stock single node. The cave
+/// reads the type's own byte at `+0x17C6` (`0xC2C331`); the reader
+/// (`0xC2E223`) passes the current value as `ReadInt`'s default and stores
+/// the result through `al` (`0xC2E237`), and the constructor zeroes it
+/// (`0xC3039B`: `mov [esi+0x17C6], bl` and the two bytes after it), so an
+/// absent key and `0` both keep the stock node. The manual agrees: default 0
+/// means the original plan, and the count needs `AIBuildThis=yes`.
 fn planning_repeats(candidate: &ObjectType) -> usize {
     let count = candidate.ai_planning_count;
     if crate::rules::NPATCH_ENABLED && count > 1 {

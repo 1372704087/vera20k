@@ -3176,7 +3176,21 @@ pub(crate) fn update_geometry(state: &mut AppState) {
     }
 }
 
-pub(super) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Option<&str>) {
+/// The chat NewEdit while it takes keys, for the input method
+/// (`app::input::ime`): `handle_wol_key` reaches [`key_press`] with the lobby
+/// page up, no page dialog and no popup.
+pub(crate) fn ime_chat_rect(state: &AppState) -> Option<crate::ui::shell::geom::RectPx> {
+    let routed = App::wol_active(state)
+        && !shell_transition::blocks_shell_input(state)
+        && !App::wol_quick_match_verify(state)
+        && !super::page::open(state)
+        && App::wol_page_is_lobby(state);
+    lobby(state)
+        .filter(|lobby| routed && lobby.interactive() && lobby.ui.popup.is_none())
+        .map(|_| layout(state).chat)
+}
+
+pub(crate) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Option<&str>) {
     if shell_transition::blocks_shell_input(state)
         || !lobby(state).is_some_and(WolLobby::interactive)
     {

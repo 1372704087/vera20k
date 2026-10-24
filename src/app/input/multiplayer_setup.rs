@@ -92,6 +92,32 @@ pub(crate) fn key(state: &mut AppState, event: &KeyEvent) {
     };
     key_press(state, code, event.text.as_deref());
 }
+
+/// The chat NewEdit while it takes keys, for the input method
+/// (`app::input::ime`): [`key_press`] reaches the focused chat with no
+/// transfer, verify box, page dialog, notice or ChooseMap over the dialog.
+pub(crate) fn ime_chat_rect(state: &AppState) -> Option<crate::ui::shell::geom::RectPx> {
+    let routed = state.frontend.screen == crate::ui::game_screen::GameScreen::MainMenu
+        && state.frontend.shell_route.network_setup()
+        && state
+            .frontend
+            .skirmish_shell_state
+            .choose_map_modal
+            .is_none()
+        && !shell_transition::blocks_shell_input(state)
+        && !transfer_active(state)
+        && crate::app::shell_network_setup::verify(state).is_none()
+        && !crate::app::shell_wol::page::open(state)
+        && !notice_active(state)
+        && crate::app::shell_network_setup::view(state).is_some();
+    state
+        .frontend
+        .multiplayer_setup
+        .as_ref()
+        .filter(|ui| routed && ui.focused_control == CHAT)
+        .map(|_| layout(state).chat)
+}
+
 pub(crate) fn key_press(state: &mut AppState, code: Option<KeyCode>, text: Option<&str>) {
     if transfer_active(state) {
         return;

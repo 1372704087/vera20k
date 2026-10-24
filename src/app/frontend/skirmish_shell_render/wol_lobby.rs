@@ -8,13 +8,11 @@
 //! paint their caption only; their owner-draw face is not traced.
 
 use super::chrome::*;
-use super::controls::{
-    ControlPaint, NewEditPaint, list_controls, paint_control, push_new_edit_instances,
-};
+use super::controls::{ControlPaint, list_controls, paint_control, push_new_edit};
 use super::text::rect_to_text_rect;
 use super::{
     OWNERDRAW_SELECTED_RGB_FROM_DAT_00AC4604_PACKED_000000FF, SHELL_CONTROL_DEPTH,
-    SHELL_CONTROL_TEXT_DEPTH, SHELL_EDIT_CARET_DEPTH, SHELL_EDIT_FRAME_DEPTH, SHELL_LABEL_TEXT_RGB,
+    SHELL_CONTROL_TEXT_DEPTH, SHELL_LABEL_TEXT_RGB,
 };
 use crate::app::AppState;
 use crate::render::batch::SpriteInstance;
@@ -78,7 +76,7 @@ pub(super) fn push_icon(
     shell_paint::push_entry_grown(out, *entry, px, py, scale, SHELL_CONTROL_DEPTH - 0.00003);
 }
 
-/// A NewEdit's frame and text, as BB and `0x10F` paint theirs.
+/// A NewEdit as `0x10F` and the WOL popups paint theirs.
 pub(super) fn push_edit(
     paint: &mut WolLobbyPaint,
     state: &AppState,
@@ -91,37 +89,18 @@ pub(super) fn push_edit(
     let Some(atlas) = state.frontend.skirmish_shell_chrome.as_ref() else {
         return;
     };
-    let font = &state.renderer.bit_font;
-    let field = scale.derive_rect(rect, |rect| {
-        RectPx::new(rect.x + 2, rect.y, rect.w - 1, rect.h + 1)
-    });
-    push_new_edit_instances(
+    push_new_edit(
         &mut paint.controls,
+        &mut paint.texts,
         atlas,
-        font,
+        &state.renderer.bit_font,
         edit,
-        NewEditPaint {
-            frame: scale.derive_rect(rect, |rect| {
-                RectPx::new(rect.x - 2, rect.y - 2, rect.w + 5, rect.h + 5)
-            }),
-            text: field,
-            background: None,
-            frame_depth: SHELL_EDIT_FRAME_DEPTH,
-            caret_depth: SHELL_EDIT_CARET_DEPTH,
-            caret_visible,
-        },
+        None,
+        rect,
+        caret_visible,
+        text_depth,
         scale,
     );
-    paint.texts.push(shell_text::draw_in_rect_scaled(
-        font,
-        &edit.painted_text(),
-        rect_to_text_rect(field),
-        SHELL_LABEL_TEXT_RGB,
-        ShellAlign::V_CENTER,
-        [0.0; 2],
-        text_depth,
-        scale.factor(),
-    ));
 }
 
 pub(crate) fn paint_wol_lobby_children(
@@ -231,14 +210,20 @@ pub(crate) fn paint_wol_lobby_children(
             SHELL_CONTROL_DEPTH,
         );
     }
-    push_edit(
-        &mut paint,
-        state,
+    push_new_edit(
+        &mut paint.controls,
+        &mut paint.texts,
+        atlas,
+        font,
         &ui.chat.edit,
+        state
+            .platform
+            .ime
+            .composition(crate::app::input::ime::ImeTarget::WolLobbyChat),
         layout.chat,
         ui.popup.is_none() && ui.caret_visible(now),
-        scale,
         SHELL_CONTROL_TEXT_DEPTH,
+        scale,
     );
 
     let lobbies = ui

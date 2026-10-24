@@ -856,6 +856,10 @@ impl ApplicationHandler for App {
                 // recorded before screen-specific dispatch own this state.
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                // An open composition owns the keys (`app::input::ime`).
+                if event.state.is_pressed() && state.platform.ime.composing() {
+                    return;
+                }
                 if Self::house_outcome_wait_pending(state) {
                     if !event.state.is_pressed()
                         && let PhysicalKey::Code(code) = event.physical_key
@@ -1575,6 +1579,7 @@ impl ApplicationHandler for App {
                     dispatch::sidebar_wheel_scroll(state, lines);
                 }
             }
+            WindowEvent::Ime(ime) => crate::app::input::ime::event(state, ime),
             WindowEvent::RedrawRequested => {
                 if let Err(err) = Self::render_frame(state, event_loop, None, None) {
                     log::error!("Render: {:#}", err);
@@ -1600,6 +1605,10 @@ impl ApplicationHandler for App {
             // Windows key, so re-assert the player's choice every frame while
             // the window is focused. Presentation-only, never part of the sim.
             crate::app::input::cursor::reassert_cursor_confinement(state);
+            // Captures keep their sealed input; they never ask for an IME.
+            if self.shell_capture.is_none() && self.tactical_capture.is_none() {
+                crate::app::input::ime::sync(state);
+            }
             Self::update_saved_seed_browser_scroll(state, false);
             Self::update_load_saved_game_scroll(state, false);
             [

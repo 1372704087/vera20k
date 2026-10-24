@@ -174,6 +174,8 @@ mod brute_smash_debris_tests;
 #[cfg(test)]
 mod building_fatal_lifecycle_tests;
 #[cfg(test)]
+mod building_power_roster_tests;
+#[cfg(test)]
 mod crash_tests;
 #[cfg(test)]
 mod damage_consequence_tests;
@@ -5863,8 +5865,8 @@ impl Simulation {
         let assessed = power_system::assess_house_power(
             state,
             &self.substrate.entities,
+            self.houses[&owner].base_projection().buildings(),
             rules,
-            owner,
             &self.interner,
             self.session.binary_frame(),
             require_discovery,

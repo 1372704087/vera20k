@@ -18,6 +18,11 @@ This follows NPSE 2.0 #359's ReadGeneral (`0xC31005..0xC31017`) and ObjectClass:
 [author-linked release drive](https://zhytat.ysepan.com/). Parachuted bombs and their `IsBomb=`
 branch remain outside the current descent implementation.
 
+Per-building `AIPlanningCount=` repeats eligible base-plan candidates before seed selection
+(`0x5056C1 → 0xC2C331`). The reader stores one byte; the native signed loop comparison repeats
+counts 1–127, while zero and high-bit counts retain one entry. The existing planner and RNG
+owners handle the resulting candidate vector.
+
 ## Cross-extension compatibility
 
 The three capabilities — `ares`, `phobos`, `npatch` — are orthogonal and mixable:

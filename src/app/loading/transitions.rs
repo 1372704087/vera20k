@@ -615,6 +615,30 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
             }
             crate::app::lan_service::install_gameplay(state).map_err(|error| error.to_string())
         }
+        crate::app::match_bootstrap::LoadingStartup::Replay { .. } => {
+            state.match_state.startup.clear();
+            let playback = match (
+                state.match_state.sim_runtime.as_mut(),
+                state.match_state.loaded_map_source.as_ref(),
+                state.match_state.loaded_map_hash,
+            ) {
+                (Some(runtime), Some(source), Some(map_hash)) => state
+                    .match_state
+                    .match_diagnostics
+                    .install_playback(runtime, source, map_hash),
+                _ => Err(anyhow::anyhow!(
+                    "replay loader did not install an authored world"
+                )),
+            };
+            if let Err(error) = playback {
+                let message = format!("Replay startup failed: {error:#}");
+                log::error!("{message}");
+                state.frontend.external_launch_error = Some(message);
+            }
+            // A rejected replay is a frozen inspection view, never a fresh
+            // playable match. Its diagnostics owner blocks every tick/input.
+            Ok(())
+        }
         crate::app::match_bootstrap::LoadingStartup::UnverifiedLegacy { .. }
         | crate::app::match_bootstrap::LoadingStartup::Generic { .. } => {
             state.match_state.startup.clear();

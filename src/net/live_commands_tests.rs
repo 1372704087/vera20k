@@ -2868,3 +2868,285 @@ fn real_udp_mass_order_survives_backpressure_and_executes_one_shared_frame() {
         }));
     }
 }
+
+/// Real authenticated UDP transport and production frames, with the relay's
+/// clock independent of either client's frame/UI service.
+#[test]
+fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
+    use crate::net::udp::{
+        RelayTicket, relay_peer_endpoint,
+        test_support::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key},
+    };
+    use crate::sim::command::{Command, IDLE_OPCODE, MEGAMISSION_OPCODE};
+    use std::collections::BTreeMap;
+    let key = SecretKey::new([11; 32]);
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let address = match socket.local_addr().unwrap() {
+        std::net::SocketAddr::V4(a) => a,
+        _ => unreachable!(),
+    };
+    let journal_dir = std::env::temp_dir().join(format!(
+        "vera20k-catchup-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let mut directory = std::fs::DirBuilder::new();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        directory.mode(0o700);
+    }
+    directory.create(&journal_dir).unwrap();
+    let mut relay = RelayServer::with_journal(key.clone(), 4, &journal_dir).unwrap();
+    let (a, rules, actor) = stop_scene();
+    let (b, _, _) = stop_scene();
+    let mut worlds = [a, b];
+    let mut beta = 0;
+    for sim in &mut worlds {
+        sim.session.set_game_mode(ScenarioGameMode::Wol);
+        sim.network_command_queues().install_timing(
+            0,
+            std::num::NonZeroU8::new(1).unwrap(),
+            [0, 1],
+        );
+        sim.network_command_queues().configure_sequenced_clock(30);
+        beta = sim.spawn_object("AMCV", "Beta", 30, 30, 0, &rules).unwrap();
+    }
+    let certificate = crate::net::udp::OrderingCertificate {
+        room: [7; 16],
+        sources_mask: 3,
+        tick_hz: 30,
+        expires: 86_500,
+    }
+    .sign(&key)
+    .unwrap();
+    let agreement = StartupAgreement::new(
+        [(0, 0), (1, 1)],
+        [0, 1],
+        73,
+        10,
+        30,
+        NonZeroU32::new(1).unwrap(),
+        worlds[0].state_hash(),
+    )
+    .unwrap();
+    let boundaries: Vec<_> = (0..2u8)
+        .map(|source| {
+            let ticket = RelayTicket {
+                room: [7; 16],
+                player: [source + 1; 16],
+                source,
+                generation: 1,
+                expires: 300,
+                nonce: [source + 3; 16],
+            }
+            .sign(&key)
+            .unwrap();
+            let mut wire = transport();
+            wire.enable_relay(
+                address,
+                &ticket,
+                *derive_packet_key(&key, &ticket).expose_for_https(),
+                [9; 32],
+            )
+            .unwrap();
+            wire.set_ordering_certificate(certificate.to_vec()).unwrap();
+            wire.connections_mut()
+                .add_peer(
+                    i32::from(1 - source),
+                    relay_peer_endpoint(1 - source).unwrap(),
+                )
+                .unwrap();
+            Boundary::new(
+                LiveCommandSession::new(
+                    agreement.clone(),
+                    wire,
+                    source as i8,
+                    73,
+                    NonZeroU32::new(1).unwrap(),
+                    LiveCommandMode::Wol,
+                )
+                .unwrap(),
+            )
+        })
+        .collect();
+    let mut now_ms = 16_000u64;
+    let mut move_issued = false;
+    let mut stop_issued = false;
+    let mut late_issued = false;
+    let mut paused_at = None;
+    let mut hashes = [BTreeMap::new(), BTreeMap::new()];
+    let mut held = None;
+    let mut reordered = false;
+    let mut saw_reconnecting = false;
+    for _ in 0..4000 {
+        let healthy_frame = worlds[0].session().binary_frame();
+        if healthy_frame >= 5 && !move_issued {
+            let owner = worlds[0].interner.get("Alpha").unwrap();
+            let record = worlds[0]
+                .encode_megamission_record(
+                    owner,
+                    &Command::Move {
+                        entity_id: actor,
+                        target_rx: 42,
+                        target_ry: 42,
+                    },
+                )
+                .unwrap();
+            assert!(
+                worlds[0].issue_local_command(CommandEnvelope::synchronized(
+                    record,
+                    healthy_frame as u64
+                ))
+            );
+            move_issued = true;
+        }
+        if healthy_frame >= 20 && !stop_issued {
+            let owner = worlds[0].interner.get("Alpha").unwrap();
+            let record = worlds[0].encode_stop_record(owner, actor).unwrap();
+            assert!(
+                worlds[0].issue_local_command(CommandEnvelope::synchronized(
+                    record,
+                    healthy_frame as u64
+                ))
+            );
+            stop_issued = true;
+        }
+        let paused = (12..1150).contains(&healthy_frame);
+        if paused {
+            paused_at.get_or_insert(worlds[1].session().binary_frame());
+        }
+        if healthy_frame >= 1150 && !late_issued {
+            assert!(
+                worlds[1].session().binary_frame() < 20,
+                "the peer was actually suspended"
+            );
+            let owner = worlds[1].interner.get("Beta").unwrap();
+            let record = worlds[1].encode_stop_record(owner, beta).unwrap();
+            let tick = worlds[1].session().tick();
+            assert!(worlds[1].issue_local_command(CommandEnvelope::synchronized(record, tick)));
+            late_issued = true;
+        }
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for side in 0..2 {
+            boundaries[side].now.set((now_ms >> 4) as u32);
+            boundaries[side]
+                .live
+                .borrow_mut()
+                .service_transport((now_ms >> 4) as u32);
+        }
+        loop {
+            let mut packet = [0; MAX_DATAGRAM + 1];
+            let (length, from) = match socket.recv_from(&mut packet) {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            };
+            let std::net::SocketAddr::V4(from) = from else {
+                unreachable!()
+            };
+            if paused && from == boundaries[1].live.borrow().primary_addr().unwrap() {
+                continue;
+            }
+            for forwarded in relay
+                .process_at(
+                    from,
+                    &packet[..length],
+                    100 + (now_ms - 16_000) / 1000,
+                    now_ms,
+                )
+                .unwrap_or_default()
+            {
+                // Lose/reorder one complete authenticated reply. Recovery uses
+                // the immutable cursor, never a simulation-side prediction.
+                if healthy_frame >= 8 && !reordered {
+                    if held.is_none() {
+                        held = Some(forwarded);
+                        continue;
+                    }
+                    socket
+                        .send_to(&forwarded.bytes, forwarded.endpoint)
+                        .unwrap();
+                    let previous = held.take().unwrap();
+                    socket.send_to(&previous.bytes, previous.endpoint).unwrap();
+                    reordered = true;
+                } else {
+                    socket
+                        .send_to(&forwarded.bytes, forwarded.endpoint)
+                        .unwrap();
+                }
+            }
+        }
+        for side in 0..2 {
+            for _ in 0..8 {
+                if worlds[side].session().binary_frame() >= 1200 {
+                    break;
+                }
+                let output = production_frame(&mut worlds[side], &rules, &boundaries[side]);
+                assert!(
+                    worlds[side].pending_network_interruption().is_none(),
+                    "the canonical stream must remain valid"
+                );
+                if output.tick.frame_committed {
+                    hashes[side].insert(
+                        worlds[side].session().binary_frame(),
+                        worlds[side].state_hash(),
+                    );
+                } else {
+                    break;
+                }
+            }
+        }
+        saw_reconnecting |= boundaries[1]
+            .live
+            .borrow()
+            .recovery_status(now_ms as u32, worlds[1].session().binary_frame())
+            == Some(NetworkRecoveryStatus::Reconnecting);
+        if worlds
+            .iter()
+            .all(|world| world.session().binary_frame() == 1200)
+        {
+            break;
+        }
+        now_ms += 16;
+    }
+    assert!(reordered && late_issued && stop_issued && paused_at.is_some() && saw_reconnecting);
+    assert_eq!(worlds[0].session().binary_frame(), 1200);
+    assert_eq!(worlds[1].session().binary_frame(), 1200);
+    assert_eq!(
+        hashes[0], hashes[1],
+        "every committed simulation frame, including catch-up"
+    );
+    assert_eq!(worlds[0].state_hash(), worlds[1].state_hash());
+    let commands: Vec<_> = boundaries
+        .iter()
+        .map(|b| {
+            b.applied
+                .borrow()
+                .iter()
+                .filter(|(_, r, _)| matches!(r.opcode(), IDLE_OPCODE | MEGAMISSION_OPCODE))
+                .cloned()
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    assert_eq!(commands[0], commands[1]);
+    assert!(commands[0].iter().any(|(frame, r, applied)| *frame < 50
+        && r.opcode() == IDLE_OPCODE
+        && r.house_id() == 0
+        && *applied));
+    assert!(
+        commands[0].iter().any(|(frame, r, applied)| *frame >= 1152
+            && r.opcode() == IDLE_OPCODE
+            && r.house_id() == 1
+            && *applied),
+        "a late order executes only at a future canonical frame"
+    );
+    assert_eq!(boundaries[0].live.borrow().pacing_delay_millis(40), 0);
+    drop(boundaries);
+    drop(relay);
+    std::fs::remove_dir_all(journal_dir).unwrap();
+}

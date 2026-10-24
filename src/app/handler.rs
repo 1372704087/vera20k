@@ -355,9 +355,26 @@ impl ApplicationHandler for App {
             event_loop,
             capture_dimensions,
             self.startup_options,
-            self.spawn_request.is_some(),
+            self.spawn_request.is_some() || self.replay_request.is_some(),
+            self.replay_request
+                .as_ref()
+                .map(|request| request.retail_dir.as_path()),
         ) {
             Ok(mut state) => {
+                if let Some(request) = self.replay_request.take() {
+                    let loading = crate::app::loading::pump::LoadingRequest::replay(
+                        request
+                            .replay
+                            .standalone_startup()
+                            .expect("validated replay request"),
+                    );
+                    state.match_state.match_diagnostics.begin_playback(
+                        request.replay,
+                        request.capture_output,
+                        request.replay_sha256,
+                    );
+                    crate::app::loading::pump::begin_loading(&mut state, loading);
+                }
                 if let Some(request) = self.spawn_request.take()
                     && let Err(error) = Self::start_spawn_session(&mut state, request)
                 {
@@ -386,7 +403,7 @@ impl ApplicationHandler for App {
             }
             Err(err) => {
                 log::error!("Failed to initialize: {:#}", err);
-                if self.spawn_request.is_some() {
+                if self.spawn_request.is_some() || self.replay_request.is_some() {
                     self.startup_failure = Some(format!("CnCNet initialization failed: {err:#}"));
                 }
                 if let Some(session) = self.shell_capture.as_mut() {
@@ -457,6 +474,58 @@ impl ApplicationHandler for App {
 
         let Some(state) = &mut self.state else { return };
         state.sync_cursor_space();
+        // Playback has presentation-only input. Exit is local and never
+        // schedules EventClass EXIT or changes the recorded simulation.
+        if state.match_state.match_diagnostics.is_replay_playback() {
+            match &event {
+                WindowEvent::CloseRequested => {
+                    event_loop.exit();
+                    return;
+                }
+                WindowEvent::KeyboardInput { event, .. } => {
+                    if let PhysicalKey::Code(code) = event.physical_key {
+                        if code == KeyCode::Escape && event.state.is_pressed() {
+                            event_loop.exit();
+                        } else if matches!(
+                            code,
+                            KeyCode::ArrowLeft
+                                | KeyCode::ArrowRight
+                                | KeyCode::ArrowUp
+                                | KeyCode::ArrowDown
+                        ) {
+                            if event.state.is_pressed() {
+                                state.match_state.input.keys_held.insert(code);
+                            } else {
+                                state.match_state.input.keys_held.remove(&code);
+                            }
+                        }
+                    }
+                    return;
+                }
+                WindowEvent::CursorMoved { position, .. } => {
+                    state.set_cursor_from_window(position.x as f32, position.y as f32);
+                    return;
+                }
+                WindowEvent::MouseWheel { delta, .. } => {
+                    let lines = match delta {
+                        MouseScrollDelta::LineDelta(_, y) => *y,
+                        MouseScrollDelta::PixelDelta(position) => {
+                            (position.y as f32 / 30.0).clamp(-3.0, 3.0)
+                        }
+                    };
+                    crate::app::input::camera::apply_zoom(state, lines);
+                    return;
+                }
+                WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. }
+                | WindowEvent::Focused(_)
+                | WindowEvent::Occluded(_)
+                | WindowEvent::RedrawRequested
+                | WindowEvent::CursorEntered { .. }
+                | WindowEvent::CursorLeft { .. } => {}
+                _ => return,
+            }
+        }
 
         // winit 0.30.12's X11 Ime::create_context(window, false) sends an
         // Ime::Disabled lifecycle notification even for an unmapped window.
@@ -1509,6 +1578,15 @@ impl ApplicationHandler for App {
             WindowEvent::RedrawRequested => {
                 if let Err(err) = Self::render_frame(state, event_loop, None, None) {
                     log::error!("Render: {:#}", err);
+                    if state
+                        .match_state
+                        .match_diagnostics
+                        .playback_capture_requested()
+                    {
+                        state.frontend.external_launch_error =
+                            Some(format!("Replay capture failed: {err:#}"));
+                        event_loop.exit();
+                    }
                 }
             }
             _ => {}

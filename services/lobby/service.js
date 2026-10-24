@@ -4,7 +4,7 @@
 import { byteLength, record, playerName, validChannel, validJsonTree, validOptions, validSlot, uuid } from './validation.js';
 
 const encoder = new TextEncoder();
-const LOBBY_PROTOCOL = 3;
+const LOBBY_PROTOCOL = 4;
 const RELAY_PROTOCOL = 2;
 const PUBLIC_LOBBY_NAME = 'Lob_41_2';
 const MAX_EVENTS = 1024;
@@ -14,7 +14,7 @@ const MAX_SOFT_EVENTS = 64;
 const MAX_SOFT_BYTES = 128 * 1024;
 const EVENT_BATCH = 256;
 const SESSION_SECONDS = 24 * 60 * 60;
-const MATCH_SECONDS = 2 * 60 * 60;
+const MATCH_SECONDS = 24 * 60 * 60;
 const BOOTSTRAP_GRANT_SECONDS = 120;
 const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
@@ -115,7 +115,7 @@ function channelView(room) {
 
 // This codec is shared with services/relay-protocol: fixed-width little-endian
 // ticket, domain-separated HMACs. The server key never leaves secret bindings.
-export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime) {
+export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime, ordering = null) {
   requireThat(/^[0-9a-f]{64}$/i.test(secretHex ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   requireThat(/^\d{1,3}(\.\d{1,3}){3}:\d{1,5}$/.test(address ?? ''), 'relay_unavailable', 'Gameplay service is unavailable.', 503);
   const secret = Uint8Array.from(secretHex.match(/../g), (pair) => parseInt(pair, 16));
@@ -139,7 +139,25 @@ export async function relayGrant(secretHex, address, matchId, sourceIndex, now, 
   };
   ticket.set(await sign('VERA20k relay ticket v2\0', ticket.subarray(0, 66)), 66);
   const packetKey = await sign('VERA20k relay packet key v2\0', ticket);
-  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), payload_key: payloadKey, source_index: sourceIndex };
+  let orderingCertificate = null;
+  if (ordering) {
+    requireThat(Number.isInteger(ordering.sources_mask) && ordering.sources_mask > 0 && ordering.sources_mask < 2 ** MAX_PLAYERS &&
+      (ordering.sources_mask & (1 << sourceIndex)) !== 0 && [60, 45, 30, 20, 15, 12, 10].includes(ordering.tick_hz),
+      'relay_unavailable', 'Gameplay clock is unavailable.', 503);
+    const certificate = new Uint8Array(66);
+    certificate.set(encoder.encode('VO1C'));
+    certificate.set(ticket.subarray(1, 17), 4);
+    const view = new DataView(certificate.buffer);
+    view.setUint32(20, ordering.sources_mask, true);
+    view.setUint16(24, ordering.tick_hz, true);
+    // Clock capability survives loading and ticket renewals. Every control
+    // still requires its own live, short-lived authenticated relay ticket.
+    view.setBigUint64(26, BigInt(now + 86400), true);
+    certificate.set(await sign('VERA20k relay ordering certificate v1\0', certificate.subarray(0, 34)), 34);
+    orderingCertificate = base64url(certificate);
+  }
+  return { address, ticket: base64url(ticket), packet_key: base64url(packetKey), payload_key: payloadKey,
+    source_index: sourceIndex, ...(orderingCertificate ? { ordering_certificate: orderingCertificate } : {}) };
 }
 
 export class SqlStore {
@@ -314,7 +332,7 @@ export class LobbyService {
     const sessionId = await sha256(authorization.slice(7));
     const session = this.store.get(`session:${sessionId}`);
     requireThat(session && session.expires_at > this.clock(), 'unauthorized', 'Sign in again.', 401);
-    requireThat(session.protocol === LOBBY_PROTOCOL, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
+    requireThat(session.protocol === LOBBY_PROTOCOL || session.protocol === 3, 'upgrade_required', 'Update VERA20k to use online multiplayer.', 426);
     return { sessionId, session };
   }
 
@@ -329,11 +347,33 @@ export class LobbyService {
       return this.authenticate(body, url.pathname === '/v1/accounts', address);
     }
     const { sessionId, session } = await this.authenticated(request);
+    requireThat(session.protocol === LOBBY_PROTOCOL || url.pathname === '/v1/events' ||
+      (url.pathname === '/v1/commands' && ['finish', 'renew_relay', 'leave', 'logout'].includes(body?.operation)),
+      'upgrade_required', 'Update VERA20k to start another online match.', 426);
     const mapRequest = url.pathname.startsWith('/v1/maps/') || body?.operation === 'map_upload';
     // A thirty-player host legitimately bursts options, pings and readiness as peers join.
     this.rateLimit(`${mapRequest ? 'map' : 'session'}:${session.player_id}`, 600, 60);
     session.seen = this.clock(); this.store.put(`session:${sessionId}`, session);
     this.reap();
+    if (url.pathname === '/v1/match/resume' && request.method === 'GET') {
+      const matchId = url.searchParams.get('match_id');
+      const match = this.store.get(`match:${session.match_id}`);
+      const user = match?.users.find((value) => value.player_id === session.player_id);
+      requireThat(session.protocol === LOBBY_PROTOCOL && uuid(matchId) && match?.id === matchId &&
+        match.phase === 'playing' && user && !match.finished.includes(session.player_id),
+        'unknown_match', 'No matching active game.', 409);
+      this.admitAction(session, 'renew_relay', { match_id: matchId });
+      // The relay journal owns gameplay history. Rejoining the SAME active
+      // match may skip stale shell callbacks, without creating membership,
+      // advancing a generation, or accepting a different match's cursor.
+      const relay = await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
+        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
+        match.payload_key, GRANT_SECONDS, match.ordering);
+      session.ack = session.sequence;
+      session.expires_at = this.clock() + SESSION_SECONDS;
+      this.store.put(`session:${sessionId}`, session);
+      return this.json({ match_id: match.id, cursor: session.sequence, relay });
+    }
     if (url.pathname.startsWith('/v1/maps/') && request.method === 'GET')
       return this.downloadMap(session, url);
     if (url.pathname === '/v1/channels' && request.method === 'GET') {
@@ -605,14 +645,14 @@ export class LobbyService {
       requireThat(match?.id === payload.match_id && match.phase === 'playing' && user &&
         !match.finished.includes(session.player_id), 'unknown_match', 'No matching active game.', 409);
       return { relay: await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS) };
+        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS, match.ordering ?? null) };
     }
     if (operation === 'latency_ready') {
       const { match, canonical } = this.latencyReport(session, payload);
       const complete = Object.keys({ ...match.latencies, [session.player_id]: canonical }).length === match.users.length;
       const grants = complete ? await Promise.all(match.users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY,
         this.env.RELAY_ADDRESS, match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
-        match.payload_key, GRANT_SECONDS))) : null;
+        match.payload_key, GRANT_SECONDS, match.ordering ?? null))) : null;
       return { match, canonical, grants };
     }
     if (operation === 'map_upload') {
@@ -698,9 +738,11 @@ export class LobbyService {
       return { player_id: member.player_id, name, source_index: index, flags: member.player_id === room.owner ? 1 : 0,
         admission_generation: generation };
     });
+    const ordering = { sources_mask: 2 ** users.length - 1,
+      tick_hz: [60, 45, 30, 20, 15, 12, 10][room.options.launch.options.game_speed] ?? 10 };
     const grants = await Promise.all(users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS)));
-    return { matchId, seed, users, grants, payloadKey };
+      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS, ordering)));
+    return { matchId, seed, users, grants, payloadKey, ordering };
   }
 
   latencyReport(session, payload) {
@@ -920,9 +962,9 @@ export class LobbyService {
         this.broadcast(room, 'map_status', { from: session.nickname, status: payload.status, revision: room.revision }, sessionId);
       }
     } else if (operation === 'start') {
-      const { matchId, seed, users, grants, payloadKey } = prepared;
+      const { matchId, seed, users, grants, payloadKey, ordering } = prepared;
       const match = { id: matchId, room_id: room.id, users, finished: [], ready: [], latencies: {}, phase: 'connecting',
-        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey };
+        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey, ordering };
       this.store.put(`match:${matchId}`, match);
       room.phase = 'connecting'; room.match_id = matchId;
       for (const user of users) {
@@ -967,11 +1009,15 @@ export class LobbyService {
       }
       this.store.expireRates(now);
       for (const session of this.store.list('session:')) {
-        if (session.protocol !== LOBBY_PROTOCOL || session.expires_at <= now || session.seen + 120 <= now) {
+        const match = session.match_id ? this.store.get(`match:${session.match_id}`) : null;
+        const recovering = session.protocol === LOBBY_PROTOCOL && match?.phase === 'playing' &&
+          match.ordering && !match.finished.includes(session.player_id);
+        if (![LOBBY_PROTOCOL, 3].includes(session.protocol) || session.expires_at <= now ||
+          (!recovering && session.seen + 120 <= now)) {
           // Polling continues in the HTTPS worker while the game loads/plays.
-          // A dead process must not strand its name or the match's final
-          // cleanup until the private match lease expires. Gameplay
-          // disconnect/timeout decisions remain with the peer simulation.
+          // Idle lobby visits expire normally. An admitted modern player
+          // keeps their identity throughout a recoverable network outage;
+          // only explicit finish/leave or match/session lifetime ends it.
           // Upgraded clients cannot finish an unsupported old session. Retire
           // only that session through the same membership/room cleanup owner.
           if (session.match_id) this.finish(session);

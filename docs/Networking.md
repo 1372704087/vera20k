@@ -12,7 +12,7 @@ interface (`52E3D2`); VERA uses IPv4 UDP for this LAN entry point. That replacem
 including limited broadcast on port 1234, is an explicit transport adaptation.
 Online play uses the Cloudflare HTTPS lobby and an authenticated UDP gameplay
 relay on DigitalOcean. Relay admission handles client source-address changes;
-clients retain reliable delivery and simulation authority. Matches are between
+the relay orders modern online commands while clients retain simulation authority. Matches are between
 VERA20k clients; legacy IPX and gamemd wire compatibility are not supported.
 
 ## Current production path
@@ -39,6 +39,33 @@ first simulation frame still primes the existing network queue. Game-speed and C
 timing continue through the same timing owner. Games originally admitted with
 multiple human sources, including observers, retain synchronized scheduling even
 after other players leave. AI players never acquire network identities.
+
+Online matches with two or more human sources use a lobby-certified fixed clock
+and one immutable relay command stream. All originally admitted clients must agree
+to the initial world before it starts. At each deadline, missing input is empty;
+late commands are assigned a future frame. The sender also waits for that commit.
+Frames use the existing Event codec and simulation queues, with a fresh compression
+cache per self-contained encrypted batch. The relay never receives payload keys.
+
+Each client reads retained history independently. A paused or slow client catches
+up through at most eight ordinary simulation transactions or eight milliseconds
+per service wake, then yields to input/rendering. It never skips simulation ticks.
+Peer lag, acknowledgements and CPU reports cannot slow the shared clock. The
+initial speed stays fixed for the match. The relay keeps a bounded RAM cache and the full encrypted match journal on
+disk. Temporary connection loss keeps the player's identity, units, input cursor
+and world in the match; the client renews its ticket and reads missed frames when
+connectivity returns. Network silence never writes an exit. The UI shows
+Reconnecting or Catching up while healthy clients continue. Explicit Leave or the
+24-hour match lifetime ends membership. The relay remains required for progress.
+
+Authored Battle matches record reconstructible JSON replays in `replays/`.
+`vera20k --replay <replay.json> --ra2-dir <retail-directory>` opens read-only
+playback with camera controls and Escape to close.
+`vera20k --replay-verify <replay.json> --ra2-dir <retail-directory>` reconstructs the
+accepted launch and replays the production frame transaction without connecting
+to the lobby. Startup version, rules, map bytes, seed and initial state must match;
+recorded state hashes are checked during playback. Generated maps, campaigns and
+restored mid-match segments currently lack standalone replay startup.
 
 | Responsibility | Authoritative owner |
 |---|---|
@@ -71,6 +98,9 @@ participant membership remain distinct: replacing a human row sends the native
 kick, while its departure removes the admitted participant and endpoint.
 
 ## Native behavior and deliberate bounds
+
+The following native scheduling/reliability details apply to LAN and legacy routing;
+modern online ordering above is an intentional adaptation.
 
 - Event packets use the native layouts and persistent compression caches from
   `64B4D0`, `64B660` and `64BDD0`. The packet boundary rejects a semantic event

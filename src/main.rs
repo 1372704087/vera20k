@@ -17,6 +17,11 @@ use winit::event_loop::EventLoop;
 
 fn main() -> Result<()> {
     if let Some(result) =
+        vera20k::app::frontend::launch::try_replay_verify(std::env::args_os().skip(1))
+    {
+        std::process::exit(result?);
+    }
+    if let Some(result) =
         vera20k::app::frontend::launch::try_game_data_check(std::env::args_os().skip(1))
     {
         std::process::exit(result?);
@@ -90,16 +95,18 @@ fn run(app_bundle: bool) -> Result<()> {
     // VERA-internal exemption, native has no capture mode.
     let _instance_guard = match &launch_mode {
         vera20k::app::frontend::launch::AppLaunchMode::Interactive(_)
-        | vera20k::app::frontend::launch::AppLaunchMode::Spawn(_) => {
+        | vera20k::app::frontend::launch::AppLaunchMode::Spawn(_)
+        | vera20k::app::frontend::launch::AppLaunchMode::Replay(_) => {
             match vera20k::util::single_instance::acquire(vera20k::app::WINDOW_TITLE) {
                 vera20k::util::single_instance::SingleInstance::Acquired(guard) => Some(guard),
                 vera20k::util::single_instance::SingleInstance::AlreadyRunning => {
                     if matches!(
                         &launch_mode,
                         vera20k::app::frontend::launch::AppLaunchMode::Spawn(_)
+                            | vera20k::app::frontend::launch::AppLaunchMode::Replay(_)
                     ) {
                         anyhow::bail!(
-                            "cannot start the CnCNet session while another VERA20k instance is running"
+                            "cannot start an external session or replay while another VERA20k instance is running"
                         );
                     }
                     // Recorded gap: native also exits with a success status
@@ -136,6 +143,9 @@ fn run(app_bundle: bool) -> Result<()> {
         }
         vera20k::app::frontend::launch::AppLaunchMode::Spawn(options) => {
             vera20k::app::App::new_spawn(options)?
+        }
+        vera20k::app::frontend::launch::AppLaunchMode::Replay(request) => {
+            vera20k::app::App::new_replay(request)
         }
         vera20k::app::frontend::launch::AppLaunchMode::ShellCapture(request) => {
             request.validate_runtime_environment()?;

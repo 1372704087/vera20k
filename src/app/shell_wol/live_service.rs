@@ -568,6 +568,14 @@ pub(crate) fn online_match_id(state: &AppState) -> Option<&str> {
         .as_deref()
 }
 
+/// Both existing cleanup owners must finish before another online admission.
+/// HTTP logout may complete while the same socket still retries its explicit
+/// relay departure; this observation owns no retry or membership state.
+pub(crate) fn online_cleanup_pending(state: &AppState) -> bool {
+    state.frontend.online_cleanup.pending()
+        || crate::app::lan_service::online_retirement_pending(state)
+}
+
 /// Admission facts only; used by the opt-in exit fault observer before it
 /// clicks the ordinary Back button. All cleanup state remains in LiveService.
 pub(crate) fn online_exit_ready(state: &AppState) -> bool {
@@ -583,10 +591,12 @@ pub(crate) fn online_exit_ready(state: &AppState) -> bool {
                     && service.pending.is_none()
                     && service.start_preparation.is_none()
             })
-    }) && !state.frontend.online_cleanup.pending()
+    }) && !online_cleanup_pending(state)
 }
 
 pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
+    crate::app::lan_service::poll_online_retirement(state);
+    let relay_pending = crate::app::lan_service::online_retirement_pending(state);
     let cleanup_deadline = state.frontend.online_cleanup.poll(Instant::now());
     if state
         .frontend
@@ -594,7 +604,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         .as_ref()
         .is_none_or(|visit| visit.provider != WolProvider::Online)
     {
-        return cleanup_deadline;
+        return cleanup_deadline.or_else(|| relay_pending.then(|| Instant::now() + POLL_INTERVAL));
     }
     if cleanup_deadline.is_some() {
         // Welcome/menu navigation remains responsive. Keep this visit's
@@ -607,6 +617,9 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         .as_ref()
         .is_some_and(|visit| visit.live_service.is_none())
     {
+        if relay_pending {
+            return Some(Instant::now() + POLL_INTERVAL);
+        }
         match LiveService::new() {
             Ok(service) => {
                 state
@@ -656,7 +669,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             .map(|visit| visit.take_service_requests())
             .unwrap_or_default();
         for request in requests {
-            if service.admission_blocked()
+            if (service.admission_blocked() || relay_pending)
                 && matches!(
                     request,
                     WolServiceRequest::JoinChannel { .. }
@@ -1501,6 +1514,7 @@ struct DecodedRelayGrant {
     ticket: Vec<u8>,
     key: [u8; 32],
     payload_key: [u8; 32],
+    ordering_certificate: Vec<u8>,
 }
 
 fn relay_uuid(value: &str) -> Result<[u8; 16]> {
@@ -1536,7 +1550,10 @@ fn decode_relay_grant(
     player_id: &str,
 ) -> Result<DecodedRelayGrant> {
     ensure!(
-        grant.ticket.len() <= 160 && grant.packet_key.len() == 43 && grant.payload_key.len() == 43,
+        grant.ticket.len() <= 160
+            && grant.packet_key.len() == 43
+            && grant.payload_key.len() == 43
+            && grant.ordering_certificate.len() == 88,
         "invalid relay grant"
     );
     let ticket = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -1554,16 +1571,24 @@ fn decode_relay_grant(
         .map_err(|_| anyhow!("invalid relay grant"))?;
     let parsed =
         crate::net::udp::RelayTicket::parse(&ticket).map_err(|_| anyhow!("invalid relay grant"))?;
+    let ordering_certificate = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&grant.ordering_certificate)
+        .map_err(|_| anyhow!("invalid gameplay clock"))?;
+    let certificate = crate::net::udp::OrderingCertificate::parse(&ordering_certificate)
+        .map_err(|_| anyhow!("invalid gameplay clock"))?;
     ensure!(
         parsed.source == grant.source_index
             && parsed.room == relay_uuid(match_id)?
-            && parsed.player == relay_uuid(player_id)?,
+            && parsed.player == relay_uuid(player_id)?
+            && certificate.room == parsed.room
+            && certificate.sources_mask & (1 << parsed.source) != 0,
         "relay grant identity differs"
     );
     Ok(DecodedRelayGrant {
         ticket,
         key,
         payload_key,
+        ordering_certificate,
     })
 }
 
@@ -2110,6 +2135,12 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         grant.key,
         grant.payload_key,
     )?;
+    let certificate = crate::net::udp::OrderingCertificate::parse(&grant.ordering_certificate)?;
+    ensure!(
+        certificate.sources_mask == (1u32 << start.users.len()) - 1,
+        "gameplay clock roster differs"
+    );
+    transport.set_ordering_certificate(grant.ordering_certificate)?;
     transport.start_io_pump(crate::app::match_runtime::frame_pacer::wall_clock_bucket)?;
     for user in &start.users {
         state.match_state.session.bind_network_endpoint(
@@ -2226,6 +2257,16 @@ mod completion_tests {
             packet_key: encode(derive_packet_key(&signing_key, &ticket).expose_for_https()),
             payload_key: encode(&[7; 32]),
             source_index: 1,
+            ordering_certificate: encode(
+                &crate::net::udp::OrderingCertificate {
+                    room: [0x11; 16],
+                    sources_mask: 3,
+                    tick_hz: 45,
+                    expires: 86400,
+                }
+                .sign(&signing_key)
+                .unwrap(),
+            ),
         };
         assert_eq!(
             decode_relay_grant(&grant, match_id, player_id)

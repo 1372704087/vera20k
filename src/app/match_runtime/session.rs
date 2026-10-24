@@ -409,6 +409,17 @@ impl MatchSession {
             !mode.is_network(),
             "offline launch cannot start a network session"
         );
+        self.begin_local_loading(mode, local_player_name);
+    }
+
+    /// A replay retains its recorded mode while the shell constructs a world.
+    /// A recorded network mode admits no live participant table or connection;
+    /// the installed world takes ownership through `hand_mode_to_world`.
+    pub(crate) fn begin_replay(&mut self, mode: SessionMode, local_player_name: String) {
+        self.begin_local_loading(mode, Some(local_player_name));
+    }
+
+    fn begin_local_loading(&mut self, mode: SessionMode, local_player_name: Option<String>) {
         self.mode = ModeHolder::Shell(mode);
         self.offline_player_name = local_player_name;
         self.network = None;

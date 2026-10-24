@@ -127,6 +127,21 @@ impl Simulation {
         }
 
         stamp_scoring_flags(ge, obj, rules);
+        // Phobos `TechnoClass_Init` (`Hooks.cpp:297..301`): allocate the
+        // ShieldClass only when the bound type resolves and its `Strength` is
+        // above zero; `SetHP(InitialStrength.Get(Strength))` clamps at creation.
+        #[cfg(feature = "phobos")]
+        if let Some(object) = obj
+            && let Some(name) = object.shield_type()
+            && let Some(ty) = rules.shield_type(name)
+            && ty.strength() > 0
+        {
+            ge.shield = Some(crate::sim::shield::ShieldState::new(
+                name.to_owned(),
+                ty.initial_strength(),
+                ty.strength(),
+            ));
+        }
         if let Some(object) = obj {
             ge.sight.stamp_type_sight(object.sight);
         }
@@ -231,12 +246,16 @@ impl Simulation {
                     .ensure_installed_track_state();
             }
         }
-        // The concrete Foot constructors all select InitialAmmo unless it is
+        // Building InitManagers442C81..442C92 and the concrete Foot
+        // constructors select InitialAmmo unless it is
         // exactly -1; otherwise Ammo. Chrono reinforcement65EC30 also reads
         // and decrements this count for ground Units (ammo module evidence).
         if matches!(
             category,
-            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+            EntityCategory::Unit
+                | EntityCategory::Infantry
+                | EntityCategory::Aircraft
+                | EntityCategory::Structure
         ) {
             ge.initialize_ammo_from_type(obj);
         }
@@ -257,17 +276,10 @@ impl Simulation {
             let storage = obj.storage.max(0) as u16;
             ge.miner = Some(Miner::new(kind, &mcfg, storage));
         }
-        // Passenger cargo for transports and garrisonable buildings.
+        // Cargo+114 is independent of Building occupants+684 (Ctor43B8DC).
         if obj.passengers > 0 {
             ge.passenger_role = crate::sim::passenger::PassengerRole::transport(
                 crate::sim::passenger::PassengerCargo::new(obj.passengers as u32, obj.size_limit),
-            );
-        } else if obj.can_be_occupied && obj.max_number_occupants > 0 {
-            ge.passenger_role = crate::sim::passenger::PassengerRole::transport(
-                crate::sim::passenger::PassengerCargo::new(
-                    obj.max_number_occupants,
-                    obj.size_limit,
-                ),
             );
         }
 

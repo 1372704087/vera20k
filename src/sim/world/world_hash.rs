@@ -496,7 +496,7 @@ impl Simulation {
     /// Read-only Rust diagnostic projections through the existing hash owners.
     /// These are attribution receipts, never gameplay/native golden inputs.
     #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 13] {
+    pub(crate) fn hash_owner_diagnostics_for_test(&self) -> [(&'static str, u64); 14] {
         fn digest(fold: impl FnOnce(&mut StateHasher)) -> u64 {
             let mut hasher = StateHasher::new();
             fold(&mut hasher);
@@ -552,6 +552,7 @@ impl Simulation {
                 digest(|h| self.hash_fog_and_alliances(&self.fog_digests(), h)),
             ),
             ("power", digest(|h| self.hash_power_states(h))),
+            ("planning", digest(|h| self.planning.hash_state(h))),
             ("projectiles", digest(|h| self.hash_projectiles(h))),
         ]
     }
@@ -662,10 +663,6 @@ impl Simulation {
         if let Some(batch) = &self.path_batch {
             b"path-batch-v2".hash(hasher);
             batch.hash(hasher);
-        }
-        // Whether target scans are batched; their answers live within a pass.
-        if self.scan_batch.is_some() {
-            b"scan-batch-v1".hash(hasher);
         }
 
         self.substrate.fold_raw_cell_occupation(hasher);
@@ -798,6 +795,9 @@ impl Simulation {
             };
             parallel::any_index(entities.len(), |index| {
                 let entity = entities[index];
+                if entity.patrol_post.cell() == Some(NativeCellIdentity::Dummy) {
+                    return true;
+                }
                 [
                     entity.attack_target.target(),
                     entity.suspended_attack_target.target(),
@@ -1524,17 +1524,19 @@ fn hash_particle(p: &crate::sim::particles::Particle, hasher: &mut impl Hasher) 
 /// `frame` is the binary frame the pending timers measure against.
 fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     entity.stable_id().hash(hasher);
+    // Shared count presence and the raw Techno reload clock affect future
+    // firing/reload, including a signed -1 reached from InitialAmmo=-2.
+    b"techno-ammo-reload-v1".hash(hasher);
+    entity.ammo().is_some().hash(hasher);
     if let Some(ammo) = entity.ammo() {
         if entity.category() == crate::map::entities::EntityCategory::Aircraft {
             b"aircraft-ammo-v170".hash(hasher);
             ammo.hash(hasher);
-        } else if ammo.current() != -1 {
-            // -1 is the historical absent Foot count. The newly retained
-            // counter matters after65EDC8, including -2 for unlimited ammo.
-            b"techno-ammo-v376".hash(hasher);
+        } else {
             ammo.current().hash(hasher);
         }
     }
+    entity.ammo_reload_timer().hash(hasher);
     // GSI-09.01: the `BuildingClass+0x6D0/+0x6D8` ProduceCash
     // timer and the `TechnoClass+0x1CC/+0x1D0` drain link pair.
     // All three drive future wallet writes, so a divergence here
@@ -1584,6 +1586,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"building-secret-production-v382".hash(hasher);
         production.hash(hasher);
     }
+    if entity.object_group() != -1 {
+        // gamemd.exe TechnoClass::ComputeCRC70C270 reads +214 at70C280.
+        // Replay state includes it; native MP checksum64DAB0 is separate and
+        // omits local control groups, as in the original executable.
+        b"techno-object-group-v1".hash(hasher);
+        entity.object_group().hash(hasher);
+    }
     if entity.techno_ctor_random_word() != 0 {
         b"techno-constructor-v1".hash(hasher);
         entity.techno_ctor_random_word().hash(hasher);
@@ -1621,6 +1630,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     {
         b"phobos-techno-placement-v1".hash(hasher);
         entity.phobos_placement.hash(hasher);
+        if let Some(shield) = &entity.shield {
+            b"phobos-shield-v1".hash(hasher);
+            shield.hash(hasher);
+        }
     }
     if entity.tracking_facts.naval_combatant() {
         // Retained across reload: later Remove_Tracking must use the same
@@ -2201,6 +2214,19 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             }
         }
     }
+    // BuildingCtor43B8DC..43B907 and GetCount4581F0: independent vector,
+    // not Cargo+114. The unique empty/zero constructor state adds no bytes,
+    // preserving unrelated replay controls. A nonzero signed +69C still
+    // contributes even when pointer expiry has emptied the vector.
+    let occupants = role.occupants();
+    if entity.category() == crate::map::entities::EntityCategory::Structure
+        && (!occupants.is_empty() || occupants.fire_index() != 0)
+    {
+        b"building-occupants-694-69c".hash(hasher);
+        occupants.count().hash(hasher);
+        occupants.ids().hash(hasher);
+        occupants.fire_index().hash(hasher);
+    }
     // Spawn-manager pool: slot states, timers and targets are
     // deterministic sim state that no other field covers. (Native
     // folds only the manager-level fields into its CRC and leaves the
@@ -2302,6 +2328,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
 
     hash_mission_com(&entity.mission, hasher);
     hash_mission_leaf(&entity.mission_leaf, hasher);
+    if let Some(post) = entity.patrol_post.cell() {
+        b"foot-patrol-post-v1".hash(hasher);
+        post.hash(hasher);
+    }
     entity.removal_facts.occupier().hash(hasher);
     entity.passive_scan.timer().hash(hasher);
     // Passive-acquire bookkeeping. `passively_acquired_target` gates

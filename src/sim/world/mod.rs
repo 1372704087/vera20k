@@ -48,7 +48,7 @@ pub(crate) use voxel_anim_effects::BounceContactDamage;
 mod unit_repair_seek;
 pub(crate) use frame_channel::FrameChannel;
 pub use network_commands::{NetworkCommandQueues, NetworkQueueError, NetworkQueueContext, NetworkQueuePass, NetworkInterruption};
-pub use frame_effects::{FrameEffects, LocalPlanningBoundary, NetworkCommandBoundary, NetworkCommandError, SoundBoundary, OutcomeWaitBoundary};
+pub use frame_effects::{FrameEffects, LocalPlanningBoundary, NetworkCommandBoundary, NetworkCommandError, SoundBoundary, OutcomeWaitBoundary, TacticalRadarBoundary};
 pub(crate) use type_tech_levels::TypeTechLevels;
 #[cfg(test)]
 mod unit_unlimbo_tests;
@@ -98,6 +98,7 @@ pub(crate) use move_sound::MoveSoundState;
 pub(crate) use playfield_membership::PlayfieldMembership;
 pub(crate) use selection_voice::DeployVoiceSuppression;
 pub(crate) use turret_rotate_sound::TurretRotateLatch;
+pub use turret_rotate_sound::turret_rotate_sound_techno;
 #[cfg(test)]
 mod main_sound_identity_tests;
 #[cfg(test)]
@@ -127,6 +128,7 @@ mod trigger_explosion;
 mod trigger_strikes;
 pub(crate) use techno_ai::ObjectAiCtx;
 pub(crate) use techno_ai::PassiveScan;
+pub(crate) use techno_ai::PatrolPost;
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) use techno_ai::PendingBuildingFire;
 pub(crate) use techno_ai::PrismSupport;
@@ -149,6 +151,8 @@ pub(crate) mod techno_ai_cloak;
 pub(crate) mod unit_post;
 #[cfg(test)]
 mod wall_autofill_oracle_tests;
+#[cfg(test)]
+mod wall_restore_tests;
 mod world_commands;
 mod world_hash;
 
@@ -163,6 +167,8 @@ mod aegis_distributed_fire_tests;
 mod aircraft_deployment_tests;
 #[cfg(test)]
 mod area_rocker_tests;
+#[cfg(test)]
+mod finite_ammo_tests;
 #[cfg(test)]
 mod brute_smash_debris_tests;
 #[cfg(test)]
@@ -911,6 +917,13 @@ pub enum SimSoundEvent {
         line: bool,
         eva: Option<AllianceEva>,
     },
+    /// ForceShield Launch6CD176 plays StartSound before its blackout/curtain
+    /// receivers. The later SuperWeaponLaunched owns only that case's local
+    /// selection/Ready-line cleanup; the original signed deck is retained.
+    SuperWeaponActivation {
+        sw_type: InternedId,
+        world: crate::sim::anim_class::AnimWorldCoord,
+    },
     /// A superweapon fired. `sw_type` is the interned `[SuperWeaponTypes]`
     /// section name of the launched weapon — the discriminator the app layer
     /// needs to pick the cue, and the same object gamemd switches on.
@@ -925,7 +938,8 @@ pub enum SimSoundEvent {
     /// (`0x006CD7BF`); and both for `MultiMissile`, `PsychicDominator` and
     /// `GeneticConverter`. Carrying the type rather than a per-case flag is
     /// what lets the app read both the case index and `StartSound=` off one
-    /// object, as `param_1[10]` does.
+    /// object, as `param_1[10]` does. ForceShield carries its activation
+    /// through SuperWeaponActivation at the original earlier call site.
     SuperWeaponLaunched {
         owner: InternedId,
         sw_type: InternedId,
@@ -1072,7 +1086,7 @@ impl SimSoundEvent {
     }
 
     /// `VocClass::PlayAt @ 0x007509E0` for a source whose authoritative
-    /// location comes from `FootClass::GetCoords` rather than raw Position.
+    /// location is a retained world coordinate rather than raw Position.
     pub(crate) fn voc_at_world_coord(
         sound_id: String,
         coordinate: crate::sim::anim_class::AnimWorldCoord,
@@ -1119,8 +1133,8 @@ pub struct FireOriginSnapshot {
 }
 
 /// One shot, as combat resolved it at the authoritative fire tick. The world
-/// constructs the shot's muzzle animation from it and the app positions the
-/// weapon report sound at `fire_coord`.
+/// constructs the shot's muzzle animation from it. Report playback uses the
+/// separate, ordered `SimSoundEvent` stream at the retained `fire_coord`.
 #[derive(Debug, Clone)]
 pub struct SimFireEvent {
     /// Stable ID of the entity that fired.
@@ -1140,8 +1154,8 @@ pub struct SimFireEvent {
     /// For projectile trajectory: Entity → look up entity position; Cell →
     /// use cell center as the destination.
     pub target: crate::sim::combat::TargetKind,
-    /// Weapon report sound id. The app layer positions this at the resolved
-    /// fire origin for both normal and garrison fire.
+    /// Selected weapon report sound id, retained as shot metadata. Playback
+    /// is submitted inline through `SimSoundEvent`, never replayed from here.
     pub report_sound_id: Option<InternedId>,
     /// The shot's fire coordinate in world leptons (`combat::fire_coord`): the
     /// bullet origin, the muzzle animation and the report sound share it.
@@ -1450,8 +1464,8 @@ pub struct Simulation {
     /// Batched path searches (`movement::path_batch`); `None`
     /// searches in native order. Its registrations wait across a save.
     pub(crate) path_batch: Option<crate::sim::movement::path_batch::PathBatch>,
-    /// Batched target scans (`techno_ai::scan_batch`); `None` scans in
-    /// native order. A save carries only the setting.
+    /// Retired target-scan request, retained only for positional save layout
+    /// compatibility. Cleared during snapshot restoration; never read by scans.
     pub(crate) scan_batch: Option<techno_ai::ScanBatch>,
     /// Retained native navigation base plane/raw movement rows plus the live
     /// derived hierarchy. ZoneGrid saves only its own retained base state;
@@ -1910,16 +1924,9 @@ pub(crate) fn repair_zone_after_recalc(
     }
 }
 
-/// Borrow-split wall observer used by runtime placement and sale, where the
-/// overlay/terrain transaction remains in its owning module but the live
-/// presentation, navigation, and represented Cell-target authorities are
-/// already available as disjoint Simulation fields.
+/// Wall map callbacks over the installed presentation and navigation owners.
+/// Native Cell expiry7258D0 has no Techno listener broadcast.
 pub(crate) struct SimulationWallRuntimeHost<'a> {
-    pub(crate) entities: &'a mut EntityStore,
-    pub(crate) target_terrain_objects:
-        &'a BTreeMap<u64, crate::sim::terrain_object::TerrainObjectState>,
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) detach_trace: &'a mut Vec<crate::sim::combat::combat_aoe::CellTargetDetach>,
     pub(crate) dirty_cells: &'a mut crate::sim::dirty_cells::DirtyCells,
     pub(crate) zone_grid: &'a mut Option<ZoneGrid>,
     pub(crate) path_grid: &'a mut Option<Arc<PathGrid>>,
@@ -1956,19 +1963,9 @@ impl WallDamageTransactionHost for SimulationWallRuntimeHost<'_> {
         );
     }
 
-    fn pointer_expired(&mut self, target: WallPointerTarget) {
-        if let WallPointerTarget::Real(rx, ry) = target {
-            crate::sim::combat::combat_aoe::expire_cell_target_references(
-                self.entities,
-                self.target_terrain_objects,
-                rx,
-                ry,
-                None,
-                #[cfg(any(test, feature = "test-support"))]
-                self.detach_trace,
-            );
-        }
-    }
+    // Ordinary Cell7258D0 has no Techno broadcast; real70D4A0 callers
+    // (AreaDamage, wall sale, cliff collapse) own their explicit outer sweep.
+    fn pointer_expired(&mut self, _target: WallPointerTarget) {}
 }
 
 fn dispatch_smudge_inline(
@@ -2105,12 +2102,7 @@ impl Simulation {
                 }
                 let garrison = self.substrate.entities.get(stable_id).and_then(|entity| {
                     let object = self.interner.object_type(entity.type_ref(), rules)?;
-                    let passenger_ids = entity
-                        .passenger_role
-                        .cargo()
-                        .map(|cargo| cargo.passengers().to_vec())
-                        .unwrap_or_default();
-                    if !object.can_be_occupied || passenger_ids.is_empty() {
+                    if !object.can_be_occupied || entity.passenger_role.occupants().is_empty() {
                         return None;
                     }
                     let (foundation_w, foundation_h) =
@@ -2122,7 +2114,6 @@ impl Simulation {
                             ry: entity.position.ry(),
                             foundation_w,
                             foundation_h,
-                            passenger_ids,
                         },
                     )
                 });
@@ -2653,6 +2644,8 @@ impl Simulation {
                                         scenario_no_damage,
                                         current_tick,
                                         self.resolved_terrain.as_ref(),
+                                        #[cfg(feature = "phobos")]
+                                        Some(&*self),
                                     )
                                 };
                             if let Some(value) = post_object_damage {
@@ -2728,10 +2721,6 @@ impl Simulation {
                     if flags.wall {
                         let _wall = {
                             let mut host = SimulationWallRuntimeHost {
-                                entities: &mut self.substrate.entities,
-                                target_terrain_objects: self.terrain_objects.objects(),
-                                #[cfg(any(test, feature = "test-support"))]
-                                detach_trace: &mut effects.cell_target_detaches,
                                 dirty_cells: &mut self.dirty_cells,
                                 zone_grid: &mut self.zone_grid,
                                 path_grid: &mut self.path_grid,
@@ -2784,15 +2773,12 @@ impl Simulation {
                         // strictly interleaved: detach this CellClass target,
                         // then dirty this radar cell, in old-TMP row order.
                         for &coord in &mutation.original_footprint {
-                            crate::sim::combat::combat_aoe::expire_cell_target_references(
-                                &mut self.substrate.entities,
-                                self.terrain_objects.objects(),
-                                coord.0,
-                                coord.1,
-                                Some((rules, &self.interner)),
-                                #[cfg(any(test, feature = "test-support"))]
-                                &mut effects.cell_target_detaches,
+                            // Map5814D4/581BE6:70D4A0 then radar, per old footprint cell.
+                            let _receipt = self.stop_all_targeting_cell(
+                                coord.0, coord.1, rules, overlay_registry, frame_effects,
                             );
+                            #[cfg(any(test, feature = "test-support"))]
+                            effects.cell_target_detaches.extend(_receipt.cell_detaches);
                             self.dirty_cells.mark_radar([coord]);
                         }
                         for &coord in &mutation.original_footprint {
@@ -3051,6 +3037,53 @@ impl Simulation {
             terrain_navigation_changed_cells,
         )
         .commit(self, rules, overlay_registry, frame_effects)
+    }
+
+    /// HouseClass::NotifyUnderAttack4F93E0 submits its radar/EVA/Voc before
+    /// the dynamic House Tag walk4F95D4. Callbacks may change alliances or
+    /// client admission state, so both selection and delivery precede them.
+    pub(crate) fn notify_house_under_attack(
+        &mut self,
+        event: crate::sim::combat::UnderAttackEvent,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        self.submit_under_attack_warning(event, rules, effects);
+        self.raise_house_attacked_tags(event.owner, rules, registry, effects);
+    }
+
+    /// Unit73851D/738530 and Temporal71B04C/71B05F submit radar/EVA before
+    /// returning to their caller. House4F93E0 reaches the same boundary before
+    /// its Tags. A later AoE receiver must not overtake this warning.
+    pub(crate) fn submit_under_attack_warning(
+        &mut self,
+        event: crate::sim::combat::UnderAttackEvent,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        Self::dispatch_under_attack_events(
+            &self.interner,
+            &self.session,
+            &self.house_alliances,
+            &mut self.sound_events,
+            &self.houses,
+            &[event],
+            rules,
+        );
+        // Unit7384D8 and Temporal71B009 compare Owner with PlayerPtr before
+        // entering their radar/EVA block. Keep all-owner producer facts for
+        // replay, but only the reached local Unit call consumes this prefix.
+        // HouseNotify can also warn a local ally of a nonlocal building.
+        let building_warning = self
+            .interner
+            .object_type(event.victim_type, rules)
+            .is_some_and(|object| {
+                object.category == crate::rules::object_type::ObjectCategory::Building
+            });
+        if building_warning || self.session.current_house() == Some(event.owner) {
+            effects.flush_sound(self, rules);
+        }
     }
 
     /// `HouseClass::NotifyUnderAttack @ 0x004F93E0` for a building warning,
@@ -5773,7 +5806,12 @@ impl Simulation {
     /// House4F844B..4F8506: assess dirty power, rewrite all owned Factory
     /// rates without touching timers, then refresh the radar projection.
     /// Numeric/order evidence: the engineer-repair native consumer packet.
-    fn assess_house_derived_state(&mut self, owner: InternedId, rules: &RuleSet) {
+    fn assess_house_derived_state(
+        &mut self,
+        owner: InternedId,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
         if !self.houses.contains_key(&owner) {
             return;
         }
@@ -5814,7 +5852,7 @@ impl Simulation {
             return;
         }
         let buildings = self.houses[&owner].base_projection().buildings();
-        power_system::assess_house_radar_projection(
+        let radar_assessed = power_system::assess_house_radar_projection(
             self.power_states
                 .get_mut(&owner)
                 .expect("represented House power state"),
@@ -5826,6 +5864,15 @@ impl Simulation {
             self.session.free_radar(),
             self.session.binary_frame(),
         );
+        // House508F39..508F4F compares the actual process Radar flag and
+        // calls SetAvailable656DF0 here, before this House's defeat gate.
+        if radar_assessed && self.session.current_house() == Some(owner) {
+            effects.set_tactical_radar_available(
+                self,
+                rules,
+                power_system::has_active_radar(self.power_states.as_map(), owner),
+            );
+        }
     }
 
     /// Append one successfully committed BuildConst Building to its owning
@@ -5956,7 +6003,18 @@ impl Simulation {
         else {
             return;
         };
+        // UnitChangeOwner7463A8..7463AE refuses the same house before its
+        // Foot delegate. Infantry/Aircraft inherit Foot's failure receiver.
+        if category == EntityCategory::Unit && old_owner == new_owner {
+            return;
+        }
+        // FootChangeOwner4DBEFB removes at the current cell before its
+        // Techno delegate, including the same-owner refusal at7014A0.
+        self.remove_unit_sensors_at_current(stable_id, rules, registry);
         if old_owner == new_owner {
+            // Foot4DBFB7 restores the current owner's circle on failure;
+            // it does not replace LastMapCoords in this arm.
+            self.add_unit_sensors_at_current(stable_id, rules, registry);
             return;
         }
         // `BuildingClass::ChangeOwner` first (`0x00448277..0x0044828E`): a
@@ -5991,10 +6049,6 @@ impl Simulation {
             //teardown.448C69 initializes it after the delegated owner swap.
             self.production.clear_primary_factory(stable_id);
         }
-        // FootClass::ChangeOwner @ 0x004DBED0 removes from the deposited old
-        // owner and adds to the new owner before later readers observe it.
-        self.transfer_sensor_before_owner_change(stable_id, new_owner, rules, registry);
-
         // Active YR chain: BuildingClass::ChangeOwner (0x00448260) delegates
         // to TechnoClass::ChangeOwner (0x007014A0), which moves the house
         // counts (`house_tracking`) below.
@@ -6086,7 +6140,7 @@ impl Simulation {
         }
         // Techno701585 -> Planning638840 removes this actor's path before
         // the house swap. Already generated command events remain queued.
-        self.planning_detach_actor(stable_id);
+        self.planning_change_owner(stable_id);
         // Techno70158A..7015E6: Removed_From_Game on the old house (not in
         // limbo), then Remove_Tracking from it and Add_Tracking to the new.
         let on_map = self
@@ -6318,6 +6372,9 @@ impl Simulation {
             self.leave_team(stable_id, false, rules, effects);
         }
         self.foot_neighbors_after_owner_change(stable_id, rules);
+        // Foot4DBF81 samples the live type, new owner and current cell only
+        // after Techno/leave-team/history callbacks. High flight keeps +55C.
+        self.add_unit_sensors_at_current(stable_id, rules, registry);
         self.reapply_building_gap_after_owner_change(stable_id, rules);
         self.relink_docked_after_owner_change(stable_id, &taken_along, rules, effects);
         // Building449267/449284: old House then new House, after lists,
@@ -7063,13 +7120,7 @@ impl Simulation {
         let Some(grid) = self.overlay_grid.as_mut() else {
             return;
         };
-        #[cfg(any(test, feature = "test-support"))]
-        let mut cell_target_detaches = Vec::new();
         let mut host = SimulationWallRuntimeHost {
-            entities: &mut self.substrate.entities,
-            target_terrain_objects: self.terrain_objects.objects(),
-            #[cfg(any(test, feature = "test-support"))]
-            detach_trace: &mut cell_target_detaches,
             dirty_cells: &mut self.dirty_cells,
             zone_grid: &mut self.zone_grid,
             path_grid: &mut self.path_grid,
@@ -7592,6 +7643,10 @@ impl Simulation {
             1,
             self.session.started(),
         );
+
+        // MainTick55DEA4 follows Frame++ and ProcessPendingDelete725C70.
+        // Network waits and terminal transitions never enter this tail.
+        self.prune_invalid_planning_nodes();
 
         // Validate actual membership after the drain. Rebuilding from current
         // phase/terrain would erase legitimate retained Cell list history.
@@ -8714,3 +8769,6 @@ mod airstrike_aircraft;
 
 #[cfg(test)]
 mod radiation_overlap_tests;
+
+#[cfg(test)]
+mod building_occupant_storage_tests;

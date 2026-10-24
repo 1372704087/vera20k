@@ -548,6 +548,8 @@ impl Simulation {
                 }
                 ge.base_defense_response
                     .author_recruitable(map_ent.recruitable_a, map_ent.recruitable_b);
+                // gamemd.exe Unit7434CA/Aircraft41B33D/Infantry51FD89, before Unlimbo.
+                ge.assign_object_group(map_ent.group);
 
                 Self::install_techno_components(&mut sim.interner, &sim.session, &sim.houses,
                     &mut ge,
@@ -2258,6 +2260,9 @@ impl Simulation {
         rules: &RuleSet,
         frame_effects: FrameEffects<'_>,
     ) {
+        // InitManagers6F3F83 registers the typed parent before constructing
+        // its Spawn/Slave manager children. Load/NoInit bypasses this owner.
+        self.initialize_planning_token(parent_id);
         crate::sim::spawn_manager::commit_spawn_manager_pool(self, parent_id, rules, frame_effects);
         self.create_slave_manager(parent_id, rules, frame_effects);
         Self::initialize_airstrike(&self.interner, &mut self.substrate, parent_id, rules);
@@ -2367,6 +2372,7 @@ impl Simulation {
                 (
                     entity.selection.is_selected(),
                     entity.veterancy.clone(),
+                    entity.object_group(),
                     entity.attack_target.target(),
                 ),
                 // Native rounds FacingClass::Current, including wrap at 0xff80.
@@ -2398,7 +2404,7 @@ impl Simulation {
             z,
             yard_type,
             deploy_facing,
-            (was_selected, veterancy, source_target),
+            (was_selected, veterancy, source_group, source_target),
             source_facing,
             is_construction_yard,
             deploy_cue,
@@ -2655,6 +2661,10 @@ impl Simulation {
             let _ =
                 self.assign_target_represented(targeter, target, rules, registry, frame_effects);
         }
+        // gamemd.exe UnitClass::Deploy7393C0 copies Techno+214 at7397CC.
+        if let Some(building) = self.substrate.entities.get_mut(new_sid) {
+            building.assign_object_group(source_group);
+        }
         // 0x007397D2..0x007397DE: the unit's veterancy (`+0x150`); the rank
         // cache (`+0x13C`) stays the building's own.
         if let Some(building) = self.substrate.entities.get_mut(new_sid) {
@@ -2837,7 +2847,7 @@ impl Simulation {
         // Building449E66/70 captures current health/type ratio at actual
         // conversion, not when the reverse animation was requested. A missing
         // live type cannot supply a conversion ratio.
-        let Some((converted_health, archive, veterancy)) =
+        let Some((converted_health, archive, veterancy, source_group)) =
             self.substrate.entities.get(sid).and_then(|building| {
                 let health = crate::sim::conversion_health::ConversionHealth::capture(
                     building,
@@ -2849,6 +2859,7 @@ impl Simulation {
                     health,
                     building.archive_target(),
                     building.veterancy.clone(),
+                    building.object_group(),
                 ))
             })
         else {
@@ -2945,6 +2956,8 @@ impl Simulation {
             if was_selected {
                 unit.selection.select();
             }
+            // gamemd.exe BuildingClass::Mission_Selling copies +214 at44A052.
+            unit.assign_object_group(source_group);
             // The VeterancyClass (`+0x150`); the rank cache (`+0x13C`) stays
             // the unit's own.
             unit.veterancy.inherit(&veterancy);

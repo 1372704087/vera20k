@@ -1588,6 +1588,7 @@ mod tests {
             origin,
             None,
             0,
+            crate::sim::world::FrameEffects::default(),
         );
         let records: Vec<_> = collected
             .receivers

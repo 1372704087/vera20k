@@ -491,6 +491,11 @@ pub struct ObjectType {
     /// reparsing this text later could retroactively bind an unknown Ares name.
     pub armor: String,
     armor_id: crate::rules::armor::ArmorId,
+    /// Phobos `TechnoTypeExt::ShieldType` (`ShieldType=`): the bound
+    /// `[ShieldTypes]` entry, or `None` for an absent/`none` key. Retained as
+    /// the authored name; the Rules catalog resolves it at use.
+    #[cfg(feature = "phobos")]
+    shield_type: Option<String>,
     /// Canonical Speed percent,0..100 (0 is immobile). TechnoType
     /// ReadINI71464A retains the prior value for -1 across rules passes.
     /// Whole-lepton Type+678 conversion belongs to util::fixed_math.
@@ -580,6 +585,9 @@ pub struct ObjectType {
     pub double_owned: bool,
     /// Specific countries that may build this object.
     pub required_houses: Vec<String>,
+    // ReadOwners4750D0 replaces the constructor's -1 even when comma
+    // tokenization produces no entries. Derived from the retained INI body.
+    required_houses_explicitly_empty: bool,
     /// Countries explicitly forbidden from building this (ForbiddenHouses= in rules.ini).
     /// Inverse of Owner — if the player's country is in this list, they cannot build.
     pub forbidden_houses: Vec<String>,
@@ -1117,12 +1125,25 @@ pub struct ObjectType {
     /// UnloadingClass. Empty/missing retains the prior pointer. AnimType
     /// FindOrAllocate428B80 owns registration, before the InitialAmmo read.
     pub deploying_anim: Option<String>,
-    /// Ammo count for aircraft. -1 = unlimited (default), 0+ = finite.
-    /// Aircraft with finite ammo return to a helipad/airfield to reload after depleting.
+    /// Shared TechnoType+684 count limit; -1 is unlimited. Aircraft use
+    /// their release/dock owners; Unit Reload and Building refill read it live.
     pub ammo: i32,
     /// TechnoType+680, ReadINI71474C (InitialAmmo); -1 selects Ammo at
     /// Aircraft InitFromType414033..41404B. Other signed values are retained.
     pub initial_ammo: i32,
+    /// TechnoType+698, raw signed frames. Constructor711122 seeds0;
+    /// ReadINI71486A..71487E retains the current value as ReadInt's default.
+    pub reload: i32,
+    /// TechnoType+69C, constructor711128=-1. ReadINI714884..714898;
+    /// -1 makes StartReloading6FB080 use the ordinary Reload interval.
+    pub empty_reload: i32,
+    /// TechnoType+6A0, constructor71112E=0. ReadINI71489E..7148B2;
+    /// StartReloading6FB080 multiplies it by the signed PipWrap quotient twice.
+    pub reload_increment: i32,
+    /// TechnoType+6B1/+6B4; constructor711163..711169 clears both.
+    /// ReceiveDamage701ADB consumes the pre-Object packet when enabled.
+    pub damage_reduces_readiness: bool,
+    pub readiness_reduction_multiplier: f32,
     /// `TechnoType+0xD24`, exact `ManualReload=`: constructor7114D6 clears
     /// it; ReadBool713352 retains the current value (store713366). Depot
     /// MissionRepairAndProduce reads it before the first RepairTick and may
@@ -2405,6 +2426,12 @@ impl ObjectType {
         self.armor_id = armor;
     }
 
+    /// Phobos `ShieldType=`: the bound `[ShieldTypes]` entry name.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn shield_type(&self) -> Option<&str> {
+        self.shield_type.as_deref()
+    }
+
     /// Native fixed-ART ShadowIndex, retained by the ordered Type reader.
     pub const fn voxel_shadow_index(&self) -> i32 {
         self.voxel_shadow_index
@@ -2819,6 +2846,17 @@ impl ObjectType {
         }
     }
 
+    /// ReadOwners4750D0 / Type reader714531: absent/empty ReadString keeps
+    /// the constructor's -1 (711633), but nonempty comma-only input writes0.
+    /// CanBuild4F79E4 and FirstBuildable505230 both test this raw mask.
+    pub(crate) fn required_houses_mask(&self, rules: &crate::rules::ruleset::RuleSet) -> u32 {
+        if self.required_houses.is_empty() && !self.required_houses_explicitly_empty {
+            u32::MAX
+        } else {
+            rules.house_type_mask(&self.required_houses)
+        }
+    }
+
     /// The AI base planning side filter: `AIBasePlanningSide=` (`+0x6D0`) is
     /// -1 or the house's side (`HouseTypeClass+0xBC`), as
     /// `FirstBuildableFromArray @ 0x005051E0` and `AI_BuildWalls @ 0x0050C340`
@@ -2934,8 +2972,9 @@ impl ObjectType {
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
-        let required_houses: Vec<String> = section
-            .read_list("RequiredHouses", 0x80)
+        let required_tokens = section.read_list("RequiredHouses", 0x80);
+        let required_houses_explicitly_empty = required_tokens.as_ref().is_some_and(Vec::is_empty);
+        let required_houses: Vec<String> = required_tokens
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
@@ -3039,6 +3078,15 @@ impl ObjectType {
             ),
             armor_id: crate::rules::armor::armor_index(&armor),
             armor,
+            #[cfg(feature = "phobos")]
+            shield_type: section
+                .read_name("ShieldType", 0x80)
+                .filter(|name| {
+                    !name.is_empty()
+                        && !name.eq_ignore_ascii_case("none")
+                        && !name.eq_ignore_ascii_case("<none>")
+                })
+                .map(str::to_owned),
             speed: section.read_techno_speed("Speed", 0),
             // TechnoTypeClass ctor/read contract: raw signed ints, with no
             // clamp or conversion. A zero WalkRate is invalid content natively
@@ -3114,6 +3162,7 @@ impl ObjectType {
             // ReadBool over the constructor's 0 at +0xC99 (`0x00712299`).
             double_owned: section.read_bool("DoubleOwned", false),
             required_houses,
+            required_houses_explicitly_empty,
             forbidden_houses,
             // gamemd-derived: `TechnoTypeClass__Constructor @ 0x00710FF0`
             // seeds +0x6D0 to -1; `TechnoTypeClass::ReadINI` around 0x007149FB
@@ -3320,6 +3369,15 @@ impl ObjectType {
             deploying_anim: None,
             ammo: section.read_int("Ammo", -1),
             initial_ammo: section.read_int("InitialAmmo", -1),
+            // TechnoTypeClass::ReadINI71486A..7148B2, raw signed frames.
+            // The retained section folds each reached pass with its current
+            // member as the next default; no time conversion or clamp.
+            reload: section.read_int("Reload", 0),
+            empty_reload: section.read_int("EmptyReload", -1),
+            reload_increment: section.read_int("ReloadIncrement", 0),
+            // ReadINI7148B8..7148EB: bool, then ReadDouble stored as float.
+            damage_reduces_readiness: section.read_bool("DamageReducesReadiness", false),
+            readiness_reduction_multiplier: section.read_float("ReadinessReductionMultiplier", 0.0),
 
             // Spawn manager pool. Constructor null; only the ordered Process
             // owner reads `Spawns=`.

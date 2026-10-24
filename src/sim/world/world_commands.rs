@@ -15,8 +15,6 @@ use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
-#[cfg(any(test, feature = "test-support"))]
-use crate::sim::combat::combat_aoe::CellTargetDetach;
 use crate::sim::command::{
     ArchiveRecord, BUILDING_OFF_LINE_OPCODE, BUILDING_ON_LINE_OPCODE, BuildingOnLineRecord,
     COMMAND_RECORD_LEN, Command, CommandEnvelope, CommandRecord, DeployRecord, ExitRecord,
@@ -1176,15 +1174,9 @@ impl Simulation {
         // Selling invokes exactly one PostDestructionWallCleanup at the sold
         // cell: N, E, S, W, self. It is not damage's four-cardinal fan-out.
         const CROSS: [(i32, i32); 5] = [(0, -1), (1, 0), (0, 1), (-1, 0), (0, 0)];
-        #[cfg(any(test, feature = "test-support"))]
-        let mut detach_trace: Vec<CellTargetDetach> = Vec::new();
         for (dx, dy) in CROSS {
             let visit = {
                 let mut host = SimulationWallRuntimeHost {
-                    entities: &mut self.substrate.entities,
-                    target_terrain_objects: self.terrain_objects.objects(),
-                    #[cfg(any(test, feature = "test-support"))]
-                    detach_trace: &mut detach_trace,
                     dirty_cells: &mut self.dirty_cells,
                     zone_grid: &mut self.zone_grid,
                     path_grid: &mut self.path_grid,
@@ -1486,6 +1478,9 @@ impl Simulation {
                     return self.execute_archive_event(entity_id, target);
                 }
                 self.apply_production_record(record, rules, overlay_registry, frame_effects)
+            }
+            Command::AssignControlGroup { group, entity_ids } => {
+                self.assign_control_group(*group, entity_ids)
             }
             Command::Select { entity_ids, .. } => self.apply_selection_snapshot(
                 entity_ids,
@@ -2103,12 +2098,12 @@ impl Simulation {
                 if !self.entity_owned_by_id(command_owner, *transport_id) {
                     return false;
                 }
-                let has_passengers = self
-                    .substrate
-                    .entities
-                    .get(*transport_id)
-                    .and_then(|t| t.passenger_role.cargo())
-                    .is_some_and(|c| !c.is_empty());
+                let has_passengers = self.substrate.entities.get(*transport_id).is_some_and(|t| {
+                    !t.passenger_role.occupants().is_empty()
+                        || t.passenger_role
+                            .cargo()
+                            .is_some_and(|cargo| !cargo.is_empty())
+                });
                 // A gap generator's self click sends the same Unload
                 // (`0x004434FF..0x00443514`) with no cargo; its mission
                 // toggles the super-charge.
@@ -2663,6 +2658,19 @@ impl Simulation {
         first_human != human(new) || !first_human
     }
 
+    /// ObjectClass::Deselect @ 0x005F44A0: an unselected object does
+    /// nothing; otherwise remove it from selection, then release Follow
+    /// (0x005F4503..0x005F4513). The app owns the retained input ledger.
+    pub(crate) fn object_deselect(&mut self, stable_id: u64) {
+        if let Some(entity) = self.substrate.entities.get_mut(stable_id)
+            && entity.selection.is_selected()
+        {
+            entity.selection.deselect();
+            self.lifecycle_outputs
+                .emit(super::LifecycleOutput::FollowReleased { stable_id });
+        }
+    }
+
     /// `ObjectClass::Select @ 0x005F4520` and the Selected tag event that
     /// `TechnoClass::Select` raises after it (`0x006FBFD0..0x006FBFE4`). A
     /// Select the game makes itself (`logic`) first runs Unselect_All
@@ -2705,14 +2713,7 @@ impl Simulation {
                 .map(|entity| entity.stable_id());
             if first.is_some_and(|first| self.select_unselects_all(first, stable_id)) {
                 for id in self.substrate.entities.keys_sorted() {
-                    if let Some(entity) = self.substrate.entities.get_mut(id)
-                        && entity.selection.is_selected()
-                    {
-                        entity.selection.deselect();
-                        // Deselect's Follow release (`0x005F4503..0x005F4513`).
-                        self.lifecycle_outputs
-                            .emit(super::LifecycleOutput::FollowReleased { stable_id: id });
-                    }
+                    self.object_deselect(id);
                 }
             }
         }

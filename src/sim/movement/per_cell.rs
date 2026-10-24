@@ -350,8 +350,8 @@ impl Simulation {
             // The victim's vtable `+0x170` (`0x007418E5`): a Unit's
             // `0x00746D60` runs Death_Explosion (`0x00738680`), then
             // FreeAllMindControlCaptures (`0x00710460`), which is all the
-            // other classes run; VERA releases captives in the victim's
-            // UnInit below.
+            // other classes run. Releases finish before RecordKill can
+            // dispatch the victim's Tags; later Foot UnInit finds no nodes.
             if self
                 .substrate
                 .entities
@@ -361,6 +361,7 @@ impl Simulation {
                 crushed_unit = true;
                 self.unit_death_explosion(rules, victim, &mut Vec::new());
             }
+            self.free_all_captures(victim, rules, registry, effects);
             // `UnitClass::Crush_Or_Prescatter_Cell @ 0x007416A0`: the
             // victim records its kill by the crusher (vtable `+0xE0`,
             // `0x007418F0`) and is UnInit (vtable `+0xF8`, `0x00741910`),
@@ -560,9 +561,23 @@ impl Simulation {
         };
         let nav_com = unit.navigation.nav_com();
         if nav_com.is_some() && nav_com != Some(NavTargetRef::cell(cell.0, cell.1)) {
-            // RESIDUAL:73A96F tests Abstract+14 bit1 before directed opcode
-            //0xE at73A981. This distinct non-current-object receiver requires
-            // that validity state; it is not the null/current-Cell human arm.
+            //73A94C..73A987 re-reads NavCom after synchronous clearance.
+            // Abstract+14 mask1 is Techno: ask that object to dock, ignore
+            // its reply, then reach the shared building Scatter tail.
+            if let Some(NavTargetRef::Object { id: target }) = nav_com
+                && let Some(target) = crate::sim::radio::as_techno(self, target)
+            {
+                crate::sim::radio::transmit(
+                    self,
+                    id,
+                    target,
+                    crate::sim::radio::RadioMessage::CanDock,
+                    crate::sim::radio::RadioPayload::default(),
+                    rules,
+                    effects,
+                );
+            }
+            self.unit_per_cell_building_scatter(id, rules, registry, effects);
             return;
         }
         let Some(object) = self.object_type(unit.type_ref(), rules) else {

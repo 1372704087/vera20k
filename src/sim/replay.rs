@@ -753,6 +753,8 @@ pub const REPLAY_VERSION: u32 = 3;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReplayStartup {
     version: u32,
+    #[serde(default)]
+    native_id_prefix: Option<u32>,
     tick_ms: u32,
     map_hash: u64,
     map_payload_len: usize,
@@ -777,6 +779,11 @@ impl ReplayStartup {
 
     pub fn game_mode(&self) -> crate::sim::scenario_session::ScenarioGameMode {
         self.session.game_mode()
+    }
+
+    pub fn native_id_prefix(&self) -> Result<u32> {
+        self.native_id_prefix
+            .context("replay lacks its native-ID startup prefix; record a fresh match")
     }
 
     pub fn capture(
@@ -829,7 +836,11 @@ impl ReplayStartup {
         crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(launch.clone())
             .map_err(|error| anyhow::anyhow!("{error}"))?;
         Ok(Self {
-            version: 1,
+            version: 2,
+            native_id_prefix: Some(
+                sim.native_identity_prefix_checkpoint()
+                    .context("replay native-ID prefix")?,
+            ),
             tick_ms,
             map_hash,
             map_payload_len,
@@ -846,9 +857,10 @@ impl ReplayStartup {
 
     fn validate_header(&self, header: &ReplayHeader) -> Result<()> {
         anyhow::ensure!(
-            header.version == REPLAY_VERSION && self.version == 1,
-            "unsupported standalone replay version"
+            header.version == REPLAY_VERSION && self.version == 2,
+            "unsupported standalone replay version; startup version 2 with native-ID prefix is required"
         );
+        self.native_id_prefix()?;
         anyhow::ensure!(
             self.tick_ms != 0
                 && self.tick_ms <= 1000
@@ -1252,6 +1264,8 @@ impl ReplayRunner {
             launch,
             &Default::default(),
             startup.game_mode(),
+            Some(startup.native_id_prefix()?),
+            None,
         )
         .map_err(anyhow::Error::msg)?;
         let mut playback = ReplayPlayback::prepare(
@@ -1437,6 +1451,33 @@ mod tests {
             )],
         );
         launch.humans[0].name = "ReplayGuest".to_owned();
+        let assets = crate::assets::asset_manager::AssetManager::new(
+            &root,
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+        )
+        .unwrap();
+        let audio = crate::rules::audio_sources::AudioDefinitions::select(&assets);
+        let (_, _, mut process_rules) = crate::rules::retail_sources::load_startup_rules(
+            &assets,
+            std::sync::Arc::clone(audio.sounds()),
+            std::sync::Arc::clone(audio.eva()),
+        )
+        .unwrap()
+        .into_parts();
+        let cold = crate::headless_scenario::load_with_launch_and_ini(
+            &root,
+            "XMP03T4.MAP",
+            0x5eed_015,
+            crate::sim::scenario_bootstrap::MatchLaunchDescriptor::from_resolved(launch.clone())
+                .unwrap(),
+            &Default::default(),
+            crate::sim::scenario_session::ScenarioGameMode::Wol,
+            None,
+            Some(&mut process_rules),
+        )
+        .unwrap();
+        let cold_prefix = cold.sim().native_identity_prefix_checkpoint().unwrap();
+        drop(cold);
         let mut scene = crate::headless_scenario::load_with_launch_and_ini(
             &root,
             "XMP03T4.MAP",
@@ -1445,8 +1486,25 @@ mod tests {
                 .unwrap(),
             &Default::default(),
             crate::sim::scenario_session::ScenarioGameMode::Wol,
+            None,
+            Some(&mut process_rules),
         )
         .unwrap();
+        assert_ne!(
+            scene.sim().native_identity_prefix_checkpoint(),
+            Some(cold_prefix),
+            "real first-load/rematch Rules history must exercise different native-ID prefixes"
+        );
+        let allocated_cursor = scene.sim().native_identity_cursor();
+        assert!(
+            scene
+                .runtime
+                .simulation
+                .install_replay_native_id_prefix(cold_prefix)
+                .is_err(),
+            "a loaded world cannot remap its existing native identities"
+        );
+        assert_eq!(scene.sim().native_identity_cursor(), allocated_cursor);
         let sim = &mut scene.runtime.simulation;
         assert_eq!(
             sim.houses()[&sim.session().current_house().unwrap()].native_scenario_name(),
@@ -1561,6 +1619,15 @@ mod tests {
         // Started is process lifecycle, deliberately absent from serialized
         // ScenarioSession. Reconstruction must retain the loader publication.
         assert!(!decoded.startup.as_ref().unwrap().session.started());
+        let mut incomplete = decoded.clone();
+        incomplete.startup.as_mut().unwrap().native_id_prefix = None;
+        assert!(
+            incomplete
+                .standalone_startup()
+                .unwrap_err()
+                .to_string()
+                .contains("native-ID startup prefix")
+        );
         let verified = ReplayRunner::verify(&root, &decoded).unwrap();
         assert_eq!(verified.checked_hashes, 33);
         assert_eq!(verified.final_tick, 32);

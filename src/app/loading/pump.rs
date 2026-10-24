@@ -301,6 +301,9 @@ impl LoadingRequest {
             startup: LoadingStartup::Replay {
                 session: startup.launch_session().clone(),
                 game_mode: startup.game_mode(),
+                native_id_prefix: startup
+                    .native_id_prefix()
+                    .expect("validated replay startup"),
                 seed: crate::app::match_bootstrap::MatchSeed {
                     value: startup.seed(),
                     source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,

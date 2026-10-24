@@ -147,6 +147,8 @@ impl NativeUniqueIdCursor {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum NativeIdentityError {
+    #[error("replay native-ID prefix must be installed before map and House construction")]
+    ReplayPrefixRequiresPreMapWorld,
     #[error("fresh native-ID prefix has not reached its saved Resize checkpoint")]
     FreshPrefixNotFinished,
     #[error("fresh native-ID prefix was already finished")]
@@ -172,6 +174,38 @@ pub enum NativeMapTubeConstructionError {
 }
 
 impl Simulation {
+    /// Authentic Full_Init checkpoint retained by the ID owner, independent
+    /// of later map/runtime allocations and of the process Rules history.
+    pub fn native_identity_prefix_checkpoint(&self) -> Option<u32> {
+        self.native_unique_ids.as_ref().and_then(|cursor| {
+            (cursor.phase == NativeFreshIdPhase::MapReadReserved)
+                .then_some(cursor.saved_after_fresh_prefix)
+        })
+    }
+
+    /// A replay records Full_Init's actual checkpoint because its process
+    /// Rules registry can be warm. Install it at the same pre-map fence;
+    /// mapreader4AD026 still performs the one saved+0x2710 reservation and all
+    /// subsequent constructors allocate normally through this cursor.
+    pub fn install_replay_native_id_prefix(
+        &mut self,
+        checkpoint: u32,
+    ) -> Result<(), NativeIdentityError> {
+        if !self.houses.is_empty()
+            || !self.substrate.entities.is_empty()
+            || self.session.tick() != 0
+            || self.session.binary_frame() != 0
+            || self
+                .native_unique_ids
+                .as_ref()
+                .is_none_or(|cursor| cursor.phase != NativeFreshIdPhase::PrefixSaved)
+        {
+            return Err(NativeIdentityError::ReplayPrefixRequiresPreMapWorld);
+        }
+        self.native_unique_ids = Some(NativeUniqueIdCursor::from_saved_prefix(checkpoint));
+        Ok(())
+    }
+
     /// Immutable Scenario+214 cursor for capture. Reading never reserves IDs.
     pub fn native_identity_cursor(&self) -> Option<u32> {
         self.native_unique_ids.as_ref().map(|cursor| cursor.value)

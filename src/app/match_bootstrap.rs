@@ -482,6 +482,7 @@ pub enum LoadingStartup {
         session: SkirmishLaunchSession,
         seed: MatchSeed,
         game_mode: crate::sim::scenario_session::ScenarioGameMode,
+        native_id_prefix: u32,
     },
     Campaign(PreparedCampaignStartup),
     Accepted(PreparedMatchStartup),

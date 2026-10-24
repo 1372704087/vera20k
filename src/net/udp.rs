@@ -18,7 +18,8 @@ use std::time::Duration;
 
 use vera20k_relay_protocol::{ClientSession, RelayError, ServerEvent};
 pub use vera20k_relay_protocol::{
-    MAX_PEERS as RELAY_MAX_PEERS, Ticket as RelayTicket, peer_endpoint as relay_peer_endpoint,
+    MAX_PEERS as RELAY_MAX_PEERS, OrderingCertificate, Ticket as RelayTicket,
+    peer_endpoint as relay_peer_endpoint,
 };
 
 #[cfg(any(test, feature = "test-support"))]
@@ -513,6 +514,81 @@ impl LanUdpTransport {
         self.lock().relay_expires()
     }
 
+    /// HTTPS admission supplies a lobby-signed immutable match clock/roster.
+    /// The UDP owner retains only this transport capability, never simulation.
+    pub fn set_ordering_certificate(&mut self, certificate: Vec<u8>) -> io::Result<()> {
+        let mut io = self.lock();
+        let route = io
+            .relay
+            .as_mut()
+            .ok_or_else(|| io::Error::other("no relay route"))?;
+        let parsed = vera20k_relay_protocol::OrderingCertificate::parse(&certificate)
+            .map_err(relay_io_error)?;
+        if parsed.sources_mask & (1 << route.session.source()) == 0 {
+            return Err(io::Error::other(
+                "ordering certificate excludes local source",
+            ));
+        }
+        route.ordering_certificate = Some(certificate);
+        Ok(())
+    }
+
+    pub fn ordering_certificate(&self) -> Option<Vec<u8>> {
+        self.lock().relay.as_ref()?.ordering_certificate.clone()
+    }
+
+    pub fn configure_ordering(&mut self, agreement: [u8; 32]) -> io::Result<()> {
+        self.send_ordering(|route| {
+            let cert = route
+                .ordering_certificate
+                .as_ref()
+                .ok_or(RelayError::Unregistered)?;
+            route
+                .session
+                .configure_ordering(cert, agreement, &mut route.encoded)
+        })
+    }
+
+    pub fn submit_ordering(&mut self, batch_id: u64, bytes: &[u8]) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route
+                .session
+                .submit_ordering(batch_id, bytes, &mut route.encoded)
+        })
+    }
+
+    pub fn pull_ordering(&mut self, next_sequence: u64) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route
+                .session
+                .pull_ordering(next_sequence, &mut route.encoded)
+        })
+    }
+
+    pub fn leave_ordering(&mut self) -> io::Result<()> {
+        self.send_ordering(|route| route.session.leave_ordering(&mut route.encoded))
+    }
+
+    fn send_ordering(
+        &mut self,
+        encode: impl FnOnce(&mut RelayRoute) -> Result<(), RelayError>,
+    ) -> io::Result<()> {
+        let mut io = self.lock();
+        let io = &mut *io;
+        let route = io
+            .relay
+            .as_mut()
+            .ok_or_else(|| io::Error::other("no relay route"))?;
+        encode(route).map_err(relay_io_error)?;
+        io.primary
+            .send_to(&route.encoded, route.address)
+            .map(|_| ())
+    }
+
+    pub fn pop_ordering_received(&mut self) -> Option<vera20k_relay_protocol::OrderEvent> {
+        self.lock().relay.as_mut()?.ordering_inbox.pop_front()
+    }
+
     pub fn renew_relay(
         &mut self,
         address: SocketAddrV4,
@@ -637,6 +713,10 @@ struct RelayRoute {
     last_probe: Option<u32>,
     last_response: Option<u32>,
     peer_probes: Option<Vec<PeerProbe>>,
+    ordering_certificate: Option<Vec<u8>>,
+    // Dropped excess packets are recovered from the immutable stream cursor.
+    // This bounds worker memory even while the UI/simulation thread is paused.
+    ordering_inbox: VecDeque<vera20k_relay_protocol::OrderEvent>,
 }
 
 struct PeerProbe {
@@ -775,6 +855,8 @@ impl UdpIo {
             last_probe: None,
             last_response: None,
             peer_probes: None,
+            ordering_certificate: None,
+            ordering_inbox: VecDeque::new(),
         });
         self.global.require_authenticated_acknowledgments();
         self.broadcast_targets = vec![SocketAddrV4::new(Ipv4Addr::BROADCAST, DEFAULT_LAN_PORT)];
@@ -1194,7 +1276,12 @@ fn drain_socket(
             {
                 match event {
                     ServerEvent::Ready => {
-                        route.session = route.renewing.take().expect("admitted candidate");
+                        let mut next = route.renewing.take().expect("admitted candidate");
+                        if next.adopt_ordering_from(&mut route.session).is_err() {
+                            report.malformed_datagrams += 1;
+                            continue;
+                        }
+                        route.session = next;
                         route.last_response = Some(now_ticks);
                         continue;
                     }
@@ -1215,10 +1302,19 @@ fn drain_socket(
                         }
                         continue;
                     }
-                    ServerEvent::Payload { .. } => unreachable!("candidate is promoted on READY"),
+                    ServerEvent::Payload { .. } | ServerEvent::Ordering(_) => {
+                        unreachable!("candidate is promoted on READY")
+                    }
                 }
             }
             match route.session.receive(&bytes[..length]) {
+                Ok(ServerEvent::Ordering(event)) => {
+                    route.last_response = Some(now_ticks);
+                    if route.ordering_inbox.len() < 256 {
+                        route.ordering_inbox.push_back(event);
+                    }
+                    continue;
+                }
                 Ok(ServerEvent::Payload { source, bytes }) => {
                     route.last_response = Some(now_ticks);
                     decrypted = bytes;

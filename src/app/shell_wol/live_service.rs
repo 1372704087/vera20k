@@ -1501,6 +1501,7 @@ struct DecodedRelayGrant {
     ticket: Vec<u8>,
     key: [u8; 32],
     payload_key: [u8; 32],
+    ordering_certificate: Vec<u8>,
 }
 
 fn relay_uuid(value: &str) -> Result<[u8; 16]> {
@@ -1536,7 +1537,10 @@ fn decode_relay_grant(
     player_id: &str,
 ) -> Result<DecodedRelayGrant> {
     ensure!(
-        grant.ticket.len() <= 160 && grant.packet_key.len() == 43 && grant.payload_key.len() == 43,
+        grant.ticket.len() <= 160
+            && grant.packet_key.len() == 43
+            && grant.payload_key.len() == 43
+            && grant.ordering_certificate.len() == 88,
         "invalid relay grant"
     );
     let ticket = base64::engine::general_purpose::URL_SAFE_NO_PAD
@@ -1554,16 +1558,24 @@ fn decode_relay_grant(
         .map_err(|_| anyhow!("invalid relay grant"))?;
     let parsed =
         crate::net::udp::RelayTicket::parse(&ticket).map_err(|_| anyhow!("invalid relay grant"))?;
+    let ordering_certificate = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&grant.ordering_certificate)
+        .map_err(|_| anyhow!("invalid gameplay clock"))?;
+    let certificate = crate::net::udp::OrderingCertificate::parse(&ordering_certificate)
+        .map_err(|_| anyhow!("invalid gameplay clock"))?;
     ensure!(
         parsed.source == grant.source_index
             && parsed.room == relay_uuid(match_id)?
-            && parsed.player == relay_uuid(player_id)?,
+            && parsed.player == relay_uuid(player_id)?
+            && certificate.room == parsed.room
+            && certificate.sources_mask & (1 << parsed.source) != 0,
         "relay grant identity differs"
     );
     Ok(DecodedRelayGrant {
         ticket,
         key,
         payload_key,
+        ordering_certificate,
     })
 }
 
@@ -2110,6 +2122,12 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         grant.key,
         grant.payload_key,
     )?;
+    let certificate = crate::net::udp::OrderingCertificate::parse(&grant.ordering_certificate)?;
+    ensure!(
+        certificate.sources_mask == (1u32 << start.users.len()) - 1,
+        "gameplay clock roster differs"
+    );
+    transport.set_ordering_certificate(grant.ordering_certificate)?;
     transport.start_io_pump(crate::app::match_runtime::frame_pacer::wall_clock_bucket)?;
     for user in &start.users {
         state.match_state.session.bind_network_endpoint(
@@ -2226,6 +2244,16 @@ mod completion_tests {
             packet_key: encode(derive_packet_key(&signing_key, &ticket).expose_for_https()),
             payload_key: encode(&[7; 32]),
             source_index: 1,
+            ordering_certificate: encode(
+                &crate::net::udp::OrderingCertificate {
+                    room: [0x11; 16],
+                    sources_mask: 3,
+                    tick_hz: 45,
+                    expires: 86400,
+                }
+                .sign(&signing_key)
+                .unwrap(),
+            ),
         };
         assert_eq!(
             decode_relay_grant(&grant, match_id, player_id)

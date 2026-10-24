@@ -207,6 +207,17 @@ impl ScenarioElapsedClock {
 }
 
 impl LocalFramePacer {
+    /// The sequencer owns the agreed network cadence. Buffered complete
+    /// frames, rather than a second local timer, admit recovery ticks.
+    /// Frame zero is the startup handshake and must keep servicing its owner.
+    pub(crate) fn admits_canonical_frame(frame: u32, committed_frontier: u32) -> bool {
+        frame == 0 || frame <= committed_frontier
+    }
+
+    pub(crate) fn permits_catch_up(attempts: usize, elapsed: std::time::Duration) -> bool {
+        attempts < 8 && elapsed < std::time::Duration::from_millis(8)
+    }
+
     pub(crate) const fn new() -> Self {
         Self {
             last_frame_start_ms: None,
@@ -318,6 +329,32 @@ pub(crate) fn wall_clock_bucket() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_frontier_admits_buffered_ticks_without_a_local_timer_and_bounds_work() {
+        assert!(
+            LocalFramePacer::admits_canonical_frame(0, 0),
+            "startup keeps polling"
+        );
+        assert!(LocalFramePacer::admits_canonical_frame(17, 19));
+        assert!(LocalFramePacer::admits_canonical_frame(19, 19));
+        assert!(
+            !LocalFramePacer::admits_canonical_frame(20, 19),
+            "no missing frame is skipped"
+        );
+        assert!(LocalFramePacer::permits_catch_up(
+            7,
+            std::time::Duration::from_millis(7)
+        ));
+        assert!(!LocalFramePacer::permits_catch_up(
+            8,
+            std::time::Duration::ZERO
+        ));
+        assert!(!LocalFramePacer::permits_catch_up(
+            1,
+            std::time::Duration::from_millis(8)
+        ));
+    }
 
     #[test]
     fn network_fps_uses_millisecond_timer_and_resets_for_rematch() {

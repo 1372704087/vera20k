@@ -99,6 +99,8 @@ pub struct HeadlessScenario {
     /// resources - no independently swappable execution inputs remain.
     pub runtime: crate::sim::runtime::SimRuntime,
     pub map: MapFile,
+    /// Identity of the exact map payload consumed by this construction.
+    pub source: crate::map::source::LoadedMapSource,
 }
 
 impl HeadlessScenario {
@@ -198,13 +200,14 @@ pub fn load_with_launch_and_ini(
                 retail_dir.display()
             )
         })?;
-    let mut map = crate::map::source::load_map_by_name_or_path_with_assets(
+    let loaded_map = crate::map::source::load_map_by_name_or_path_with_assets(
         retail_dir,
         map_file_name,
         &assets,
     )
-    .map_err(|error| format!("load map {map_file_name}: {error}"))?
-    .map;
+    .map_err(|error| format!("load map {map_file_name}: {error}"))?;
+    let source = loaded_map.source;
+    let mut map = loaded_map.map;
     // Preserve the process-owned cold Rules registry before theater archive
     // priority changes. The same owner then performs the active noncampaign
     // reset/rebuild and transfers its move-only native-ID receipt.
@@ -462,6 +465,7 @@ pub fn load_with_launch_and_ini(
             },
         },
         map,
+        source,
     })
 }
 

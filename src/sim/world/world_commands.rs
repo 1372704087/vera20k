@@ -1668,7 +1668,6 @@ impl Simulation {
                 if self.interner.get(command_owner) != self.session.current_house() {
                     return false;
                 }
-                #[cfg(any(test, feature = "test-support"))]
                 if self.replaying_recorded_commands {
                     return false;
                 }

@@ -1,5 +1,5 @@
-//! Authenticated datagram routing for VERA clients. This is an outer transport:
-//! payloads remain the existing game datagrams, with no simulation authority.
+//! Authenticated datagram routing and fixed-clock opaque command ordering for
+//! VERA clients. This transport owns no simulation state or payload keys.
 //!
 //! The HTTPS lobby signs a 98-byte v2 ticket and separately returns its derived
 //! packet key and a match-private payload key. The relay never receives the
@@ -18,6 +18,13 @@ use chacha20poly1305::{
 use hmac::{Hmac, Mac};
 use sha2::Sha256;
 use zeroize::Zeroize;
+
+mod journal;
+mod sequenced;
+pub use sequenced::{
+    ORDERING_BATCH_CAPACITY, ORDERING_CERTIFICATE_LEN, ORDERING_PULL_LIMIT, OrderEntry, OrderError,
+    OrderEvent, OrderStatus, OrderingCertificate,
+};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -54,6 +61,7 @@ const HELLO: u8 = 0;
 const CONFIRM: u8 = 1;
 const DATA: u8 = 2;
 const PING: u8 = 3;
+const CONTROL: u8 = 4;
 const CHALLENGE: u8 = 0;
 const READY: u8 = 1;
 
@@ -284,6 +292,7 @@ pub struct ClientSession {
     received: ReplayWindow,
     probe: Option<u64>,
     ready: bool,
+    ordering: Option<sequenced::ClientOrdering>,
 }
 
 impl fmt::Debug for ClientSession {
@@ -300,6 +309,7 @@ pub enum ServerEvent<'a> {
     Challenge(&'a [u8]),
     Ready,
     Payload { source: u8, bytes: DecryptedPayload },
+    Ordering(OrderEvent),
 }
 
 impl ClientSession {
@@ -320,6 +330,7 @@ impl ClientSession {
             received: ReplayWindow::default(),
             probe: None,
             ready: false,
+            ordering: None,
         })
     }
 
@@ -344,7 +355,7 @@ impl ClientSession {
         packet_key: [u8; 32],
         payload_key: [u8; 32],
     ) -> Result<Self, RelayError> {
-        let next = Self::new(ticket, packet_key, payload_key)?;
+        let mut next = Self::new(ticket, packet_key, payload_key)?;
         if next.ticket.room != self.ticket.room
             || next.ticket.source != self.ticket.source
             || next.ticket.player != self.ticket.player
@@ -355,6 +366,7 @@ impl ClientSession {
         {
             return Err(RelayError::Authentication);
         }
+        next.ordering = self.ordering.clone();
         Ok(next)
     }
     pub fn forget_readiness(&mut self) {
@@ -472,6 +484,12 @@ impl ClientSession {
                 self.ready = true;
                 Ok(ServerEvent::Ready)
             }
+            CONTROL if self.ready && bytes[45] == self.ticket.source => {
+                // Hop authentication protects the ordering authority; batch
+                // contents additionally authenticate under the match-only key.
+                self.received.accept(sequence)?;
+                Ok(ServerEvent::Ordering(self.receive_ordering(payload)?))
+            }
             DATA if payload.len() > PAYLOAD_HEADER + PAYLOAD_TAG && self.ready => {
                 let target = payload[0];
                 if target != BROADCAST && target != self.ticket.source {
@@ -545,11 +563,12 @@ fn incoming<'a>(key: &SecretKey, bytes: &'a [u8], now: u64) -> Result<Incoming<'
     let target = bytes[CLIENT_HEADER - 3];
     let kind = bytes[4];
     if (target >= MAX_PEERS && target != BROADCAST)
-        || !matches!(kind, HELLO | CONFIRM | DATA | PING)
+        || !matches!(kind, HELLO | CONFIRM | DATA | PING | CONTROL)
         || (kind == CONFIRM && length != COOKIE_LEN)
         || (kind == DATA
             && (length <= PAYLOAD_HEADER + PAYLOAD_TAG || bytes[CLIENT_HEADER] != target))
         || (matches!(kind, HELLO | PING) && length != 0)
+        || (kind == CONTROL && (length == 0 || target != BROADCAST))
     {
         return Err(RelayError::Malformed);
     }
@@ -606,6 +625,8 @@ struct Peer {
 struct Room {
     peers: Vec<Peer>,
     outgoing: RateBudget,
+    order_packets: RateBudget,
+    ordering: Option<sequenced::OrderingRoom>,
 }
 
 #[derive(Clone, Copy)]
@@ -617,6 +638,7 @@ struct Admission {
     handshakes: RateBudget,
     packets: RateBudget,
     outgoing: RateBudget,
+    order_packets: RateBudget,
 }
 
 pub struct ForwardDatagram {
@@ -635,7 +657,9 @@ pub struct RelayServer {
     ingress: RateBudget,
     handshakes: RateBudget,
     outgoing: RateBudget,
+    order_packets: RateBudget,
     last_pruned: u64,
+    journal_directory: Option<journal::JournalDirectory>,
 }
 
 impl RelayServer {
@@ -649,8 +673,22 @@ impl RelayServer {
             ingress: RateBudget::default(),
             handshakes: RateBudget::default(),
             outgoing: RateBudget::default(),
+            order_packets: RateBudget::default(),
             last_pruned: 0,
+            journal_directory: None,
         }
+    }
+
+    /// Enable full-match encrypted replay on the existing relay's private
+    /// StateDirectory. Existing room files are never overwritten or resumed.
+    pub fn with_journal(
+        key: SecretKey,
+        max_rooms: usize,
+        state_dir: &std::path::Path,
+    ) -> std::io::Result<Self> {
+        let mut server = Self::new(key, max_rooms);
+        server.journal_directory = Some(journal::JournalDirectory::open(state_dir)?);
+        Ok(server)
     }
 
     pub fn room_count(&self) -> usize {
@@ -663,6 +701,16 @@ impl RelayServer {
         bytes: &[u8],
         now: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
+        self.process_at(source, bytes, now, now.saturating_mul(1000))
+    }
+
+    pub fn process_at(
+        &mut self,
+        source: SocketAddrV4,
+        bytes: &[u8],
+        now: u64,
+        now_millis: u64,
+    ) -> Result<Vec<ForwardDatagram>, RelayError> {
         // The cheap global gate bounds even malformed/forged authentication
         // work. No source-address map can grow under spoofed UDP traffic.
         if !self.ingress.permits(now, 1, INGRESS_PER_SECOND) {
@@ -670,14 +718,11 @@ impl RelayServer {
         }
         self.ingress.charge(now, 1);
         let message = incoming(&self.key, bytes, now)?;
-        if self.last_pruned != now {
-            self.rooms.retain(|_, room| {
-                room.peers.retain(|peer| peer.ticket.expires > now);
-                !room.peers.is_empty()
-            });
-            self.admissions
-                .retain(|_, admission| admission.retain_until > now);
-            self.last_pruned = now;
+        self.prune(now);
+        // Only the authenticated room needs a fresh boundary before a
+        // submission. The socket loop advances every room independently.
+        if message.kind == CONTROL {
+            self.advance_ordering_room(message.ticket.room, now_millis);
         }
         if let Some(admission) = self.admissions.get(&message.ticket.player) {
             if message.ticket.generation < admission.generation
@@ -695,7 +740,7 @@ impl RelayServer {
         if message.kind == CONFIRM {
             self.allow_handshake(&message, now)?;
             self.verify_cookie(source, &message, now)?;
-            return self.confirm(source, &message, now);
+            return self.confirm(source, &message, now, now_millis);
         }
         let Some(room) = self.rooms.get_mut(&message.ticket.room) else {
             return Err(RelayError::Unregistered);
@@ -725,6 +770,9 @@ impl RelayServer {
         }
         admission.packets.charge(now, 1);
         room.peers[index].last_seen = now;
+        if message.kind == CONTROL {
+            return self.ordering_request(&message, now, now_millis);
+        }
         let recipients = if message.kind == PING {
             1
         } else {
@@ -783,6 +831,19 @@ impl RelayServer {
         Ok(output)
     }
 
+    fn prune(&mut self, now: u64) {
+        if self.last_pruned == now {
+            return;
+        }
+        self.rooms.retain(|_, room| {
+            room.peers.retain(|peer| peer.ticket.expires > now);
+            !room.peers.is_empty() || room.ordering.is_some()
+        });
+        self.admissions
+            .retain(|_, admission| admission.retain_until > now);
+        self.last_pruned = now;
+    }
+
     fn allow_handshake(&mut self, message: &Incoming<'_>, now: u64) -> Result<(), RelayError> {
         if !self.handshakes.permits(now, 1, HANDSHAKES_PER_SECOND)
             || self
@@ -822,6 +883,7 @@ impl RelayServer {
         source: SocketAddrV4,
         message: &Incoming<'_>,
         now: u64,
+        now_ms: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
         let prior = self.admissions.get(&message.ticket.player).copied();
         if prior.is_none() && self.admissions.len() >= self.max_principals {
@@ -832,7 +894,8 @@ impl RelayServer {
             && prior.is_some_and(|old| {
                 old.room != message.ticket.room
                     && self.rooms.get(&old.room).is_some_and(|room| {
-                        room.peers.len() == 1
+                        room.ordering.is_none()
+                            && room.peers.len() == 1
                             && room.peers[0].ticket.player == message.ticket.player
                     })
             });
@@ -859,7 +922,7 @@ impl RelayServer {
             if let Some(room) = self.rooms.get_mut(&old.room) {
                 room.peers
                     .retain(|peer| peer.ticket.player != message.ticket.player);
-                if room.peers.is_empty() {
+                if room.peers.is_empty() && room.ordering.is_none() {
                     self.rooms.remove(&old.room);
                 }
             }
@@ -898,6 +961,7 @@ impl RelayServer {
             handshakes: RateBudget::default(),
             packets: RateBudget::default(),
             outgoing: RateBudget::default(),
+            order_packets: RateBudget::default(),
         });
         if prior.is_none() {
             admission.handshakes.charge(now, 1);
@@ -914,6 +978,7 @@ impl RelayServer {
         admission.source = message.ticket.source;
         self.admissions.insert(message.ticket.player, admission);
         self.outgoing.charge(now, cost);
+        self.retire_superseded_startups(message.ticket, now_ms, now);
         Ok(vec![reply])
     }
 

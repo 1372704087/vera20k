@@ -50,9 +50,9 @@ pub mod frontend;
 mod game_data_check;
 mod handler;
 mod in_game;
-pub(crate) mod lan_service;
 mod initialize;
 pub(crate) mod input;
+pub(crate) mod lan_service;
 pub(crate) mod loading;
 pub(crate) mod match_audio;
 pub mod match_bootstrap;
@@ -134,6 +134,7 @@ pub struct App {
     /// use the command-line screen fields as its current-value defaults.
     startup_options: crate::app::frontend::startup_options::RetailStartupOptions,
     spawn_request: Option<crate::app::frontend::cncnet_spawn::SpawnRequest>,
+    replay_request: Option<crate::app::frontend::launch::ReplayLaunchRequest>,
     startup_failure: Option<String>,
     /// Make sure config.toml names a game folder before the window opens
     /// ([`app_bundle`]).
@@ -184,6 +185,7 @@ impl App {
             capture_render_not_before: None,
             startup_options,
             spawn_request: None,
+            replay_request: None,
             startup_failure: None,
             ask_for_game_folder: false,
         }
@@ -201,6 +203,7 @@ impl App {
             capture_render_not_before: None,
             startup_options: crate::app::frontend::startup_options::RetailStartupOptions::default(),
             spawn_request: None,
+            replay_request: None,
             startup_failure: None,
             ask_for_game_folder: false,
         }
@@ -220,6 +223,7 @@ impl App {
             capture_render_not_before: None,
             startup_options: crate::app::frontend::startup_options::RetailStartupOptions::default(),
             spawn_request: None,
+            replay_request: None,
             startup_failure: None,
             ask_for_game_folder: false,
         }
@@ -232,9 +236,17 @@ impl App {
         self.ask_for_game_folder = true;
     }
 
+    pub fn new_replay(request: crate::app::frontend::launch::ReplayLaunchRequest) -> Self {
+        let mut app = Self::default();
+        app.replay_request = Some(request);
+        app
+    }
+
     pub fn finish_capture(&mut self) -> Result<()> {
         if let Some(error) = self.startup_failure.as_ref().or_else(|| {
-            self.state.as_ref().and_then(|state| state.frontend.external_launch_error.as_ref())
+            self.state
+                .as_ref()
+                .and_then(|state| state.frontend.external_launch_error.as_ref())
         }) {
             anyhow::bail!("{error}");
         }

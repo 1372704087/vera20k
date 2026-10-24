@@ -296,6 +296,21 @@ pub(crate) struct LoadingRequest {
 }
 
 impl LoadingRequest {
+    pub(crate) fn replay(startup: &crate::sim::replay::ReplayStartup) -> Self {
+        Self {
+            startup: LoadingStartup::Replay {
+                session: startup.launch_session().clone(),
+                seed: crate::app::match_bootstrap::MatchSeed {
+                    value: startup.seed(),
+                    source: crate::app::match_bootstrap::MatchSeedSource::SavedScenario,
+                    seed_authority_certifying: false,
+                },
+            },
+            accepted_rmg_start_staging: None,
+            random_map_preview: None,
+        }
+    }
+
     pub(crate) fn campaign(startup: crate::app::match_bootstrap::PreparedCampaignStartup) -> Self {
         Self {
             startup: LoadingStartup::Campaign(startup),

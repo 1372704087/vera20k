@@ -3007,7 +3007,19 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
     // Freeze shared setup-row/House bindings and loading-survivor set exactly
     // once. The existing canonical world hash includes the installed shared
     // timing rows; no first probe, vote or local clock can replace this value.
-    let frame_send_rate = online_timing.map_or(5, |timing| timing.frame_send_rate as u32);
+    let ordering_clock = state
+        .match_state
+        .lan_service
+        .as_ref()
+        .and_then(|service| service.transport.as_ref())
+        .and_then(|transport| transport.ordering_certificate())
+        .map(|bytes| crate::net::udp::OrderingCertificate::parse(&bytes))
+        .transpose()?
+        .filter(|cert| cert.sources_mask.count_ones() > 1);
+    let frame_send_rate = ordering_clock.map_or_else(
+        || online_timing.map_or(5, |timing| timing.frame_send_rate as u32),
+        |_| 1,
+    );
     let rate =
         std::num::NonZeroU32::new(frame_send_rate).expect("native multiplayer FrameSendRate");
     let sim = &mut state
@@ -3021,6 +3033,10 @@ pub(crate) fn install_gameplay(state: &mut AppState) -> anyhow::Result<()> {
         std::num::NonZeroU8::new(frame_send_rate as u8).expect("native multiplayer send rate"),
         source_houses,
     );
+    if let Some(clock) = ordering_clock {
+        sim.network_command_queues()
+            .configure_sequenced_clock(clock.tick_hz);
+    }
     let publisher = sim.network_timing_host_house();
     let agreement = crate::net::live_commands::StartupAgreement::new(
         full_houses,

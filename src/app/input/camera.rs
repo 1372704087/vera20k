@@ -1223,11 +1223,12 @@ fn keyboard_scroll_distance(state: &AppState) -> f32 {
 /// Main_Tick's keyboard requests run after logic (0x55DD42..0x55DD96), and
 /// remain pending until the next Tactical__AI commit with that frame's mouse.
 pub(crate) fn queue_keyboard_scroll(state: &mut AppState) {
-    if state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.simulation.session().input_locked())
+    if !state.match_state.match_diagnostics.is_replay_playback()
+        && state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.simulation.session().input_locked())
     {
         return;
     }
@@ -1277,11 +1278,12 @@ pub(crate) fn queue_keyboard_scroll(state: &mut AppState) {
 /// committing the view. Main_Tick calls input before logic (0x55D8AB); captured
 /// right drag and uncaptured edge/coast are mutually exclusive in 0x692F30.
 pub(crate) fn poll_mouse_scroll(state: &mut AppState) -> (f32, f32) {
-    if state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .is_some_and(|runtime| runtime.simulation.session().input_locked())
+    if !state.match_state.match_diagnostics.is_replay_playback()
+        && state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .is_some_and(|runtime| runtime.simulation.session().input_locked())
     {
         return (0.0, 0.0);
     }

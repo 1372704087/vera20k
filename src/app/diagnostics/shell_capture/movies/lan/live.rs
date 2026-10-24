@@ -1118,14 +1118,16 @@ impl LiveLanCapture {
                     complete,
                     "mass input did not finish within the configured observation frames"
                 );
-                if state
+                let live = state
                     .match_state
                     .live_network
                     .as_ref()
-                    .context("live transport")?
-                    .peers()
-                    .iter()
-                    .all(|peer| peer.frame() >= required_frames as i32)
+                    .context("live transport")?;
+                if live.uses_sequenced_lockstep()
+                    || live
+                        .peers()
+                        .iter()
+                        .all(|peer| peer.frame() >= required_frames as i32)
                 {
                     state
                         .match_state
@@ -1159,6 +1161,7 @@ impl LiveLanCapture {
                     .as_ref()
                     .context("live transport")?;
                 if lan_battle_prefix
+                    || live.uses_sequenced_lockstep()
                     || live
                         .peers()
                         .iter()
@@ -1194,6 +1197,10 @@ impl LiveLanCapture {
             // finishing guest may exit at300 before sending frame300's
             // advertisement. The pair receipt compares both300-frame rings.
             && (self.failure.is_some()
+                // Sequenced delivery has independent reader cursors, rather
+                // than native peer frame advertisements. The pair runner
+                // compares both clients' actual committed prefix receipts.
+                || live.uses_sequenced_lockstep()
                 || live
                     .peers()
                     .iter()

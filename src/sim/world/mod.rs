@@ -1663,7 +1663,6 @@ pub struct Simulation {
     planning: planning::PlanningState,
     /// Diagnostic playback supplies a batch already containing generated
     /// events. Transient admission context, not gameplay or saved state.
-    #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
     replaying_recorded_commands: bool,
     /// Serialized map trigger state, initialized and mutated by trigger_runtime.
@@ -3269,6 +3268,51 @@ impl Simulation {
         }
     }
 
+    /// Replay reconstructs a fresh launch, then restores its captured startup
+    /// clocks/cursors. This is deliberately separate from native player Load,
+    /// whose Scenario RNG reset and retained process cursors remain unchanged.
+    pub fn restore_replay_startup(
+        &mut self,
+        session: crate::sim::scenario_session::ScenarioSession,
+        scenario: SimRng,
+        main: SimRng,
+        mapgen: SimRng,
+    ) -> Result<(), String> {
+        if self.session.tick() != 0
+            || self.session.binary_frame() != 0
+            || session.tick() != 0
+            || session.binary_frame() != 0
+        {
+            return Err("replay startup must precede the first ordinary frame".into());
+        }
+        if !self.session.started() {
+            return Err("replay startup requires the completed loader's started publication".into());
+        }
+        if session.seed() != self.session.seed() || session.map_name() != self.session.map_name() {
+            return Err("replay startup seed/map differs from its constructed world".into());
+        }
+        if !scenario.valid_checkpoint() || !main.valid_checkpoint() || !mapgen.valid_checkpoint() {
+            return Err("invalid replay RNG checkpoint".into());
+        }
+        if session
+            .current_house()
+            .is_some_and(|owner| !self.houses.contains_key(&owner))
+        {
+            return Err("replay startup House is absent from the constructed world".into());
+        }
+        self.session = session;
+        // ScenarioSession.started is process state, deliberately serde-skipped.
+        // Retain the fresh loader's StartScenario683E75 publication: Tag6E4F60
+        // consumes it when adjusting the active trigger traversal cursors.
+        self.session.publish_started();
+        self.scenario_rng = scenario;
+        // Keep the existing process draw capabilities attached when the
+        // normal rendered loader already installed its Main owner.
+        self.main_rng.install_from(main.into());
+        self.mapgen_rng = mapgen;
+        Ok(())
+    }
+
     /// Init_Random_Number_System52FC20, ordinary offline menu-load tail
     /// 52E619. The caller supplies the resolved clock/override seed. Both
     /// Scenario and process Main are reseeded, Main in its shared process
@@ -4438,7 +4482,6 @@ impl Simulation {
             frame_command_admissions: Vec::new(),
             frame_continuation: None,
             planning: planning::PlanningState::default(),
-            #[cfg(any(test, feature = "test-support"))]
             replaying_recorded_commands: false,
             trigger_runtime: TriggerRuntime::default(),
         };
@@ -7526,9 +7569,14 @@ impl Simulation {
         }
 
         let context = if let Some(sync) = &self.frame_sync_checksum {
-            let checksum = sync.checksum.as_ref().map_err(|error|
-                FrameAdvanceError::new(self.session.tick(), self.session.binary_frame(), 0,
-                    format!("multiplayer checksum: {error}")))?;
+            let checksum = sync.checksum.as_ref().map_err(|error| {
+                FrameAdvanceError::new(
+                    self.session.tick(),
+                    self.session.binary_frame(),
+                    0,
+                    format!("multiplayer checksum: {error}"),
+                )
+            })?;
             effects.record_frame_checksum(sync.frame, checksum.value);
             Some(NetworkQueueContext { frame: sync.frame, checksum: checksum.value })
         } else { None };
@@ -7558,8 +7606,14 @@ impl Simulation {
                     commands.extend(std::mem::take(&mut self.frame_command_admissions));
                     return Ok(FrameTailResult::Interrupted(reason));
                 }
-                Err(error) => return Err(FrameAdvanceError::new(self.session.tick(),
-                    self.session.binary_frame(), 0, format!("network exchange: {error}"))),
+                Err(error) => {
+                    return Err(FrameAdvanceError::new(
+                        self.session.tick(),
+                        self.session.binary_frame(),
+                        0,
+                        format!("network exchange: {error}"),
+                    ));
+                }
             }
         } else { None };
         if pass == Some(NetworkQueuePass::Waiting) {
@@ -7603,8 +7657,7 @@ impl Simulation {
             }
         };
         commands.extend(std::mem::take(&mut self.frame_command_admissions));
-        #[cfg(any(test, feature = "test-support"))]
-        { self.replaying_recorded_commands = false; }
+        self.replaying_recorded_commands = false;
         if failure.is_some() {
             //64CCEB's modal precedes Queue_AI clearing GameActive648266.
             //No retirement, staged MegaMission execution or frame commit yet.
@@ -7864,8 +7917,12 @@ impl Simulation {
         if let Some(FrameContinuation::Outcome(pending)) = &self.frame_continuation {
             let owner = self.houses.order().get(pending.cursor.index)
                 .ok_or("outcome cursor has no House")?;
-            let kind = self.houses.get(owner).and_then(|house| house.pending_outcome(
-                self.session.binary_frame() as i32, self.session.game_mode_nonzero()));
+            let kind = self.houses.get(owner).and_then(|house| {
+                house.pending_outcome(
+                    self.session.binary_frame() as i32,
+                    self.session.game_mode_nonzero(),
+                )
+            });
             if kind != Some(pending.cursor.kind) {
                 return Err("outcome cursor disagrees with the waiting House result");
             }

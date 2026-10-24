@@ -476,6 +476,12 @@ pub(crate) fn prepare_campaign_startup_at_index(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadingStartup {
     Network(std::sync::Arc<PreparedNetworkStartup>),
+    /// Exact immutable recorded launch. The diagnostics owner retains and
+    /// validates its log; this variant never installs a live network service.
+    Replay {
+        session: SkirmishLaunchSession,
+        seed: MatchSeed,
+    },
     Campaign(PreparedCampaignStartup),
     Accepted(PreparedMatchStartup),
     UnverifiedLegacy {
@@ -508,6 +514,10 @@ impl LoadingStartup {
                 .expect("accepted network map"),
             Self::Campaign(startup) => startup.selected_map_file(),
             Self::Accepted(startup) => startup.session.selected_map_file(),
+            Self::Replay { session, .. } => session
+                .selected_map_file
+                .as_deref()
+                .expect("validated replay map"),
             Self::UnverifiedLegacy { session, .. } => {
                 session.selected_map_file.as_deref().unwrap_or("auto")
             }
@@ -520,6 +530,7 @@ impl LoadingStartup {
             Self::Network(startup) => Some(startup.launch_session()),
             Self::Campaign(_) => None,
             Self::Accepted(startup) => Some(startup.session.launch_session()),
+            Self::Replay { session, .. } => Some(session),
             Self::UnverifiedLegacy { session, .. } => Some(session),
             Self::Generic { .. } => None,
         }
@@ -530,6 +541,7 @@ impl LoadingStartup {
             Self::Accepted(startup) => Some(startup),
             Self::Network(_)
             | Self::Campaign(_)
+            | Self::Replay { .. }
             | Self::UnverifiedLegacy { .. }
             | Self::Generic { .. } => None,
         }
@@ -551,9 +563,10 @@ impl LoadingStartup {
         match self {
             Self::Network(startup) => startup.mode(),
             Self::Campaign(_) => SessionMode::Campaign,
-            Self::Accepted(_) | Self::UnverifiedLegacy { .. } | Self::Generic { .. } => {
-                SessionMode::Skirmish
-            }
+            Self::Accepted(_)
+            | Self::Replay { .. }
+            | Self::UnverifiedLegacy { .. }
+            | Self::Generic { .. } => SessionMode::Skirmish,
         }
     }
 
@@ -563,6 +576,7 @@ impl LoadingStartup {
             Self::Network(startup) => startup.seed.value,
             Self::Campaign(startup) => startup.seed.value,
             Self::Accepted(startup) => startup.seed.value,
+            Self::Replay { seed, .. } => seed.value,
             Self::UnverifiedLegacy { seed, .. } => seed.value,
             Self::Generic { .. } => unverified_fallback(),
         }

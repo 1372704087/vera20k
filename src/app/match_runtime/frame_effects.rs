@@ -270,6 +270,13 @@ impl NetworkCommandBoundary for FrameClientBoundary<'_> {
         .map_err(|error| {
             log::error!("live network command exchange: {error}");
             match error {
+                LiveCommandError::Sequenced(
+                    crate::net::live_commands::SequencedError::Desync { .. },
+                ) => NetworkInterruption::ScenariosDiffer.into(),
+                LiveCommandError::Sequenced(
+                    crate::net::live_commands::SequencedError::QueueFull,
+                ) => NetworkInterruption::QueueFull.into(),
+                LiveCommandError::Sequenced(_) => NetworkInterruption::ConnectionFailed.into(),
                 LiveCommandError::Startup(crate::net::live_commands::StartupError::Aborted) => {
                     NetworkInterruption::ConnectionFailed.into()
                 }
@@ -540,6 +547,8 @@ mod network_command_tests {
             .register(HouseState::new(owner, 0, None, true, 0, 10));
         sim.session_mut_for_test()
             .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+        // WOL admission includes MaxAhead before the frame-256 House gate.
+        sim.session_mut_for_test().install_network_timing(10);
         sim.session_mut_for_test().set_tick_for_test(256);
         sim.session_mut_for_test().set_binary_frame_for_test(256);
         SimRuntime::from_simulation(sim)

@@ -750,7 +750,7 @@ fn match_requested(state: &mut AppState) {
         ansi: true,
         options,
     };
-    let players = format!("{local},0,0,0,0,0,0,0,0,{GUEST},1,0,0,0,0,0,0,0");
+    let players = format!("{local},0,0,0,0,0,0,0,{GUEST},1,0,0,0,0,0,0");
     for event in [
         line("Working".into(), true, None),
         line("Pool 2".into(), false, None),

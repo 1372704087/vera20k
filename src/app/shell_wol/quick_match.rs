@@ -642,7 +642,7 @@ fn matchbot_text(
 }
 
 /// `0x007A1BB0`'s names: `strtok(":")` ends the options, then
-/// `strtok(",")` ten times; the first token is the host, the tenth the
+/// `strtok(",")` nine times; the first token is the host, the ninth the
 /// guest (empty fields merge).
 fn start_names(payload: &str) -> (Option<&str>, Option<&str>) {
     let rest = payload.trim_start_matches(':');
@@ -652,7 +652,7 @@ fn start_names(payload: &str) -> (Option<&str>, Option<&str>) {
     let players = rest.find(':').map_or("", |index| &rest[index + 1..]);
     let mut tokens = players.split(',').filter(|token| !token.is_empty());
     let host = tokens.next();
-    let guest = tokens.nth(8);
+    let guest = tokens.nth(7);
     (host, guest)
 }
 
@@ -1179,8 +1179,8 @@ mod tests {
     }
 
     #[test]
-    fn start_names_take_the_first_and_tenth_player_tokens() {
-        let payload = "0,1,2:Alpha,1,2,,3,4,5,6,7,8,Beta,9";
+    fn start_names_take_the_first_and_ninth_player_tokens() {
+        let payload = "0,1,2:Alpha,1,2,,3,4,5,6,7,Beta,9";
         assert_eq!(start_names(payload), (Some("Alpha"), Some("Beta")));
         assert_eq!(start_names("::x:A,1,2"), (Some("A"), None));
         assert_eq!(start_names("no players"), (None, None));

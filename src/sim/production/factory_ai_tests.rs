@@ -283,24 +283,22 @@ fn a_failed_exit_abandons_the_object_and_refunds_it() {
     );
 }
 
-const LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n1=APC\n\
+const AI_LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
     [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
-    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\nBuildLimit=1\n\
+    [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
     [PLAIN]\nStrength=1000\nCost=100\n\
-    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\nBuildLimit=1\n\
-    [TANK]\nStrength=300\nSpeed=5\nCost=100\nBuildLimit=1\n\
-    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
-    [APC]\nStrength=300\nSpeed=5\nCost=100\n\
+    [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+    [TANK]\nStrength=300\nSpeed=5\nCost=100\n{TAIL}\n\
     Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
     [Clear]\nBuildable=yes\n";
 
 /// The shared fixture plus two computer war factories and the preset vehicle
-/// choice, for the NPSE build-limitation switch tests. The tests drive
+/// choice, for the NPSE per-type and legacy global limit tests. They drive
 /// `factory_ai` directly, so no strategy pass rewrites the preset choice.
-fn limit_fixture(general: &str) -> (Fixture, u64, u64) {
+fn ai_limit_fixture(general: &str, tank_tail: &str) -> (Fixture, u64, u64) {
     let rules = format!(
-        "[General]\n{general}PlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{}",
-        LIMIT_RULES_TAIL
+        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{general}\n{}",
+        AI_LIMIT_RULES_TAIL.replace("{TAIL}", tank_tail)
     );
     let mut f = fixture_with(&rules);
     let weap_1 = f
@@ -320,7 +318,7 @@ fn limit_fixture(general: &str) -> (Fixture, u64, u64) {
     (f, weap_1, weap_2)
 }
 
-fn limit_holds(f: &Fixture, building: u64) -> bool {
+fn ai_limit_holds(f: &Fixture, building: u64) -> bool {
     f.sim
         .production
         .factories()
@@ -329,7 +327,7 @@ fn limit_holds(f: &Fixture, building: u64) -> bool {
         .is_some()
 }
 
-fn limit_visit(f: &mut Fixture, building: u64) {
+fn ai_limit_visit(f: &mut Fixture, building: u64) {
     factory_ai(
         &mut f.sim,
         &f.rules,
@@ -339,161 +337,153 @@ fn limit_visit(f: &mut Fixture, building: u64) {
     );
 }
 
-/// Stock: the computer's production never asks the build limit (the CanBuild
-/// outer route answers a non-human house Yes first), so it produces past
-/// `BuildLimit=`.
+/// No `AIBuildLimit=` (`i32::MAX`, the constructor default `0xC32950`): the
+/// war factories clone the standing choice as stock does.
 #[test]
-fn without_the_switch_the_computer_produces_past_the_build_limit() {
-    let (mut f, weap_1, _) = limit_fixture("");
-    assert!(!f.rules.general.enable_ai_build_limitation);
+fn without_aibuild_limit_the_war_factories_clone_the_choice() {
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "");
+    assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
+    ai_limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_2);
+    assert!(ai_limit_holds(&f, weap_1) && ai_limit_holds(&f, weap_2));
+}
+
+/// `AIBuildLimit=1`: a factory starts while the house tracks nothing, and
+/// once the first tank is in production (the limbo object tracks from
+/// production start) a factoryless building skips and the choice slot
+/// clears (`0xC335C4..0xC33616`) — the clone production never exceeds the
+/// limit.
+#[cfg(feature = "npatch")]
+#[test]
+fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "AIBuildLimit=1");
+    ai_limit_visit(&mut f, weap_1);
+    assert!(ai_limit_holds(&f, weap_1), "below the limit it starts");
+    ai_limit_visit(&mut f, weap_2);
+    assert!(
+        !ai_limit_holds(&f, weap_2),
+        "the held tank already reaches the limit"
+    );
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(crate::sim::ai_unit_choice::UnitChoiceKind::Unit),
+        -1,
+        "the at-limit arm cleared the unit choice slot"
+    );
+}
+
+/// A non-positive `AIBuildLimit=` compares by magnitude against the
+/// produced and owned counts (the native negated signed compares), so
+/// `-1` blocks once one tank exists.
+#[cfg(feature = "npatch")]
+#[test]
+fn aibuild_limit_non_positive_compares_the_magnitude() {
+    let (mut f, weap_1, _) = ai_limit_fixture("", "AIBuildLimit=-1");
     f.sim
         .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
         .unwrap();
-    limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_1);
     assert!(
-        limit_holds(&f, weap_1),
-        "the factory starts at the limit without the switch"
+        !ai_limit_holds(&f, weap_1),
+        "one owned tank is already at the magnitude"
+    );
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(crate::sim::ai_unit_choice::UnitChoiceKind::Unit),
+        -1
     );
 }
 
-/// `[General] EnableAIBuildLimitation=yes`: the plan at its `BuildLimit=`
-/// skips (`CheckBuildLimit @ 0x0050B370` counts what the house owns and what
-/// its factories hold).
-#[cfg(feature = "npatch")]
-#[test]
-fn enable_ai_build_limitation_skips_the_unit_plan_at_the_limit() {
-    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
-    assert!(f.rules.general.enable_ai_build_limitation);
-    f.sim
-        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
-        .unwrap();
-    limit_visit(&mut f, weap_1);
-    assert!(
-        limit_holds(&f, weap_1) == false,
-        "the plan skips at the limit"
-    );
-}
-
-/// The computer still fills up to the limit: the first factory starts while
-/// nothing is owned or held, and the second waits because one more would
-/// exceed `BuildLimit=1`.
-#[cfg(feature = "npatch")]
-#[test]
-fn enable_ai_build_limitation_fills_to_the_limit_before_it_skips() {
-    let (mut f, weap_1, weap_2) = limit_fixture("EnableAIBuildLimitation=yes\n");
-    limit_visit(&mut f, weap_1);
-    assert!(
-        limit_holds(&f, weap_1),
-        "the first tank is within the limit"
-    );
-    limit_visit(&mut f, weap_2);
-    assert!(!limit_holds(&f, weap_2), "one more would exceed the limit");
-}
-
-/// An NPatch key cannot change production in a build without the capability.
+/// Even an authored zero cap cannot affect a build without NPatch.
 #[cfg(not(feature = "npatch"))]
 #[test]
-fn enable_ai_build_limitation_is_ignored_without_npatch() {
-    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
-    assert!(!f.rules.general.enable_ai_build_limitation);
-    f.sim
-        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
-        .unwrap();
-    limit_visit(&mut f, weap_1);
-    assert!(
-        limit_holds(&f, weap_1),
-        "the stock build ignores the extension key"
-    );
-}
-
-/// A capped mobile choice clears the standing slot. `ai_unit_choice::choose`
-/// fills only a `-1` slot, so a choice left set would refuse every later
-/// chooser pass and the house would never pick another unit while this one
-/// sits at its `BuildLimit=`. The cleared slot takes a type still under its
-/// limit on the same visit.
-#[cfg(feature = "npatch")]
-#[test]
-fn a_capped_mobile_choice_clears_for_the_next_chooser_pass() {
-    use crate::rules::object_type::ObjectCategory;
-    use crate::sim::ai_unit_choice::UnitChoiceKind;
-
-    let (mut f, weap_1, _) = limit_fixture("EnableAIBuildLimitation=yes\n");
-    f.sim
-        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
-        .unwrap();
-    limit_visit(&mut f, weap_1);
-    assert!(!limit_holds(&f, weap_1), "the plan skips at the limit");
+fn aibuild_limit_is_ignored_without_npatch() {
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "AIBuildLimit=0");
+    assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
+    ai_limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_2);
+    assert!(ai_limit_holds(&f, weap_1) && ai_limit_holds(&f, weap_2));
     assert_eq!(
-        f.sim
-            .houses
-            .get(&f.owner)
-            .unwrap()
+        f.sim.houses[&f.owner]
             .ai_unit_choices()
             .get(UnitChoiceKind::Unit),
-        -1,
-        "a capped mobile choice clears like an exit or abandon"
-    );
-
-    // The chooser is no longer refused, and the slot it fills can point at a
-    // type under its limit, which the next visit starts.
-    let apc = f
-        .rules
-        .type_array_index(ObjectCategory::Vehicle, "APC")
-        .expect("APC is a vehicle type");
-    f.sim
-        .houses
-        .get_mut(&f.owner)
-        .unwrap()
-        .ai_unit_choices_mut()
-        .set(UnitChoiceKind::Unit, apc);
-    limit_visit(&mut f, weap_1);
-    assert!(
-        limit_holds(&f, weap_1),
-        "a cleared choice can produce a type still under its limit"
+        0,
+        "the ignored extension does not invalidate the standing choice",
     );
 }
 
-/// A capped building clears its choice too (`+0x564C`, `0xC2D11F`) and skips.
-/// The plan node stays unsatisfied, so `choose_building` returns the same type
-/// on the next visit — the manual's warning that a building at its limit
-/// leaves the computer unable to build anything.
+/// The legacy global reader is opt-in and requires the compiled capability.
+#[test]
+fn legacy_ai_limit_switch_keeps_default_cloning_and_requires_npatch() {
+    let (mut plain, first, second) = ai_limit_fixture("", "BuildLimit=1");
+    assert!(!plain.rules.general.enable_ai_build_limitation);
+    ai_limit_visit(&mut plain, first);
+    ai_limit_visit(&mut plain, second);
+    assert!(ai_limit_holds(&plain, first) && ai_limit_holds(&plain, second));
+
+    let (mut limited, first, second) =
+        ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=1");
+    assert_eq!(
+        limited.rules.general.enable_ai_build_limitation,
+        crate::rules::NPATCH_ENABLED
+    );
+    ai_limit_visit(&mut limited, first);
+    ai_limit_visit(&mut limited, second);
+    assert!(ai_limit_holds(&limited, first));
+    assert_eq!(
+        ai_limit_holds(&limited, second),
+        !crate::rules::NPATCH_ENABLED
+    );
+}
+
+/// NPExt173 C2CFF7..C2D003 reads tracking once: held identities already
+/// joined it.
 #[cfg(feature = "npatch")]
 #[test]
-fn a_capped_building_clears_its_choice_and_keeps_the_node() {
-    let mut f = fixture_with(&format!(
-        "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
-         AIAlternateProductionCreditCutoff=10\n{LIMIT_RULES_TAIL}"
-    ));
-    // The fixture's own construction yard already fills `BuildLimit=1`, so the
-    // house's standing building choice is capped.
-    let choice = f
-        .rules
-        .building_type_index("YARD")
-        .expect("YARD is a building type");
-    f.sim
-        .houses
-        .get_mut(&f.owner)
-        .unwrap()
-        .ai_production_mut()
-        .set_for_test(1, choice, true);
-    let yard = f.yard;
-    limit_visit(&mut f, yard);
-    assert!(
-        !limit_holds(&f, yard),
-        "the capped building plan does not start"
-    );
+fn legacy_ai_limit_counts_limbo_factory_objects_once() {
+    let (mut f, first, second) = ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=2");
+    ai_limit_visit(&mut f, first);
+    ai_limit_visit(&mut f, second);
+    assert!(ai_limit_holds(&f, first) && ai_limit_holds(&f, second));
+    let third = f
+        .sim
+        .spawn_object("WEAP", "AIHouse", 14, 8, 0, &f.rules)
+        .unwrap();
+    ai_limit_visit(&mut f, third);
+    assert!(!ai_limit_holds(&f, third));
     assert_eq!(
-        f.sim
-            .houses
-            .get(&f.owner)
-            .unwrap()
-            .ai_production()
-            .building_choice(),
-        -1,
-        "a capped building clears its choice like an exit or abandon"
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        -1
     );
-    // Nothing starts on the next visit either: the cleared choice is refilled
-    // from the same unsatisfied plan node, which is the manual's wedge.
-    limit_visit(&mut f, yard);
-    assert!(!limit_holds(&f, yard));
+}
+
+/// NPExt173 C2D00D..C2D037 also checks owned counts for a negative cap,
+/// even when no factory has produced an object of this type yet.
+#[cfg(feature = "npatch")]
+#[test]
+fn legacy_negative_ai_limit_includes_owned_unproduced_objects() {
+    let (mut f, first, _) = ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=-1");
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    let index = f
+        .rules
+        .type_array_index(ObjectCategory::Vehicle, "TANK")
+        .unwrap();
+    assert_eq!(
+        f.sim.houses[&f.owner].produced_count(ObjectCategory::Vehicle, index),
+        0
+    );
+    ai_limit_visit(&mut f, first);
+    assert!(!ai_limit_holds(&f, first));
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        -1
+    );
 }

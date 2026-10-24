@@ -48,7 +48,9 @@
 //!   `Exit_Object` arms a human's placement takes, including the Infantry
 //!   arm's Cloning Vat copies. Its residual: the refinery arm's Unit exit.
 
+use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectCategory;
+use crate::rules::object_type::ObjectType;
 use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::ai_base_building::{self, BuildingExit};
@@ -58,7 +60,6 @@ use crate::sim::timer::CdTimer;
 use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
-use super::can_build::check_build_limit;
 use super::factory::{FactoryHolder, PRODUCTION_STEPS};
 use super::factory_lifecycle::{
     BuiltObject, abandon_production, record_last_built, start_active_production,
@@ -96,7 +97,7 @@ pub(crate) fn factory_ai(
         .substrate
         .entities
         .get(building)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .and_then(|entity| sim.entity_object_type(entity, rules))
         .map(|ty| ty.factory_rtti())
         .filter(|&factory| factory != 0)
     else {
@@ -139,7 +140,12 @@ fn exit_finished_object(
     let Some(product) = object.entity_id else {
         return;
     };
-    let Some(product_type) = sim.object_type(object.type_id, rules) else {
+    let Some(product_type) = sim
+        .substrate
+        .entities
+        .get(product)
+        .and_then(|entity| sim.entity_object_type(entity, rules))
+    else {
         return;
     };
     let is_building = product_type.category == ObjectCategory::Building;
@@ -185,7 +191,10 @@ fn exit_finished_object(
             // `0x004501FF..0x00450220`: the object's owner stops choosing
             // naval buildings.
             let naval_building = sim
-                .object_type(object.type_id, rules)
+                .substrate
+                .entities
+                .get(product)
+                .and_then(|entity| sim.entity_object_type(entity, rules))
                 .is_some_and(|ty| ty.category == ObjectCategory::Building && ty.naval);
             if naval_building && let Some(house) = sim.houses.get_mut(&owner) {
                 house.ai_production_mut().forbid_naval();
@@ -245,52 +254,23 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
-    // `[General] EnableAIBuildLimitation=` — the older extension build's switch
-    // (NPExt ext173). Its `ReadGeneral` hook at `0xC2D132..0xC2D151` reads the
-    // key with `ReadBooleanByte 0x5295F0` and the current field as its default
-    // (`mov dl, [esi+0x641]; ... mov [esi+0x641], al; jmp 0x66F185`) into
-    // `Rules+0x641`; the `Factory_AI` fetch hook `0x45033C -> 0xC2D15A` tests
-    // that byte and, while it is set, runs the gate at `0xC2CF67` instead of
-    // continuing the stock path (`0xC2D482`).
-    //
-    // The gate branches on the fetched type's class (`0x10` infantry, `0x28`
-    // unit, `3` aircraft, `7` building) and reads the type's own `BuildLimit=`
-    // from `Type+0x3B8` (the stock reader stores it there at `0x713157`) — the
-    // switch makes the computer honor the existing key, it adds none. A
-    // positive limit allows while the house's tracked count
-    // (`House+0x5514/0x5528/0x553C/0x5500` through `0x49FAE0`) stays below it
-    // (`jl 0xC2CFD0`); a non-positive one compares the negated produced
-    // (`House+0x55B4..0x55DC`) and tracked counts with `jle` and blocks when
-    // either reaches its magnitude. At the limit it writes `-1` into the
-    // category's production choice (`+0x5654` infantry `0xC2CFD7`, `+0x5658`
-    // aircraft `0xC2D0B3`, `+0x564C` building `0xC2D11F`) and skips the start
-    // (`jmp 0x4503CA`), the same slots an exit or abandon clears
-    // (`BuildingClass::Exit_Object 0x00443CCA`,
-    // `FactoryClass::AbandonProduction 0x004CA0E0`,
-    // `factory_lifecycle::settle_abandoned`).
-    //
-    // `check_build_limit` is the stock `CheckBuildLimit @ 0x0050B370` this
-    // gate reproduces. A capped building's plan node stays unsatisfied, so the
-    // next `choose_building` returns the same type: that is the manual's
-    // warning that a building at its limit leaves the computer unable to
-    // build anything, not a recovery.
+    // Both NP generations gate at the fetched type before naval admission:
+    // #359 C335A0 reads AIBuildLimit; legacy ext173 C2D15A/C2CF67 uses
+    // BuildLimit when EnableAIBuildLimitation is set. Both constraints apply
+    // when a ruleset explicitly combines the compatibility keys.
     if crate::rules::NPATCH_ENABLED
-        && rules.general.enable_ai_build_limitation
-        && check_build_limit(sim, rules, owner, object)
+        && (ai_build_limit_blocks(sim, rules, owner, object, object.aibuild_limit)
+            || rules.general.enable_ai_build_limitation
+                && ai_build_limit_blocks(sim, rules, owner, object, object.build_limit))
     {
-        if let Some(house) = sim.houses.get_mut(&owner) {
-            match UnitChoiceKind::of(object.category) {
-                Some(kind) => house.ai_unit_choices_mut().clear(kind),
-                None => house.ai_production_mut().clear_building_choice(),
-            }
-        }
+        clear_aibuild_limit_choice(sim, owner, object.category);
         return;
     }
     let factory_naval = sim
         .substrate
         .entities
         .get(building)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .and_then(|entity| sim.entity_object_type(entity, rules))
         .is_some_and(|ty| ty.naval);
     if object.category == ObjectCategory::Vehicle && object.naval != factory_naval {
         return;
@@ -334,6 +314,61 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
         .entities
         .get(building)
         .is_some_and(|entity| entity.ai_placement_timer.expired(frame))
+}
+
+/// NP `BuildingClass::Factory_AI` count comparison: NPSE #359
+/// C335A0..C33726 for AIBuildLimit, NPExt ext173 C2CF67..C2D129 for the
+/// global switch's BuildLimit. Positive limits compare tracking directly;
+/// Add_Tracking4FF700 already includes limbo factory objects. Non-positive
+/// limits compare both produced and tracked counts after wrapping NEG, with
+/// signed JLE; zero therefore blocks. Reuse the same history/count owners,
+/// without the stock CheckBuildLimit50B370 factory/pad adjustments.
+fn ai_build_limit_blocks(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    object: &ObjectType,
+    limit: i32,
+) -> bool {
+    let owned = sim
+        .interner
+        .get(&object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(type_id, house)| {
+            house
+                .tracking()
+                .owned_count(EntityCategory::from(object.category), type_id)
+        });
+    if limit > 0 {
+        return owned >= limit;
+    }
+    let produced = rules
+        .type_array_index(object.category, &object.id)
+        .zip(sim.houses.get(&owner))
+        .map_or(0, |(index, house)| {
+            house.produced_count(object.category, index)
+        });
+    produced.wrapping_neg() <= limit || owned.wrapping_neg() <= limit
+}
+
+/// The at-limit arm: the native hook writes `-1` into the category's
+/// production choice slot before the start skips — `+0x564C` building
+/// (`0xC3371C`), `+0x5654` infantry (`0xC3360C`), `+0x5658` aircraft, and for
+/// a unit `+0x5650` or the naval queue's `+0x16130` by `UnitType+0xCCE`
+/// (`0xC33570`; legacy ext173 C2D039 uses +160F8 for naval). VERA keeps
+/// one unit slot, so a naval type clears that one; the split is a residual.
+/// A capped building is cleared too, and
+/// its plan node stays unsatisfied, so `choose_building` returns the same
+/// type: that is the manual's warning (`AI克隆生产`) that a building at its
+/// limit leaves the computer unable to build anything, not a recovery.
+fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category: ObjectCategory) {
+    let Some(house) = sim.houses.get_mut(&owner) else {
+        return;
+    };
+    match UnitChoiceKind::of(category) {
+        Some(kind) => house.ai_unit_choices_mut().clear(kind),
+        None => house.ai_production_mut().clear_building_choice(),
+    }
 }
 
 /// `BuildingClass+0x550..+0x558`, the wait before the building's computer

@@ -1586,6 +1586,14 @@ impl ProcessedRulesLayers {
         })
     }
 
+    /// Phobos `UnitTypeExt`'s `OreGathering.*` vectors, one per VehicleType.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn ore_gathering_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, &crate::rules::object_type::PhobosOreGathering)> {
+        self.member_states(RulesTypeFamily::Vehicle, |member| &member.ore_gathering)
+    }
+
     /// Ares GenericWarhead references, resolved by the same ordered type
     /// allocator as native references. Kept separate from the retail fields.
     pub(crate) fn generic_super_weapon_warhead_states(
@@ -1837,6 +1845,13 @@ impl ProcessedRulesLayers {
             f64::from_bits(state.rules_unit_repair_rate.bits()),
             f64::from_bits(state.rules_infantry_repair_rate.bits()),
         )
+    }
+
+    /// Rules6660AE/ReadGeneral671858: retained scalar, surviving Type resets.
+    pub(crate) fn charge_to_drain_ratio(&self) -> NativeF64Bits {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_charge_to_drain_ratio
     }
 
     pub(crate) fn gravity(&self) -> i32 {
@@ -2575,6 +2590,7 @@ pub(crate) struct NativeRulesRegistryState {
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
     rules_infantry_repair_step: i32,
+    rules_charge_to_drain_ratio: NativeF64Bits,
     rules_unit_repair_rate: NativeF64Bits,
     rules_infantry_repair_rate: NativeF64Bits,
     rules_maximum_cheer_rate: i32,
@@ -2651,6 +2667,7 @@ impl Default for NativeRulesRegistryState {
             rules_no_parachute_max_fall_rate: general.no_parachute_max_fall_rate,
             rules_survivor_divisors: crate::rules::ruleset::DEFAULT_SURVIVOR_DIVISORS,
             rules_infantry_repair_step: general.infantry_repair_step,
+            rules_charge_to_drain_ratio: general.charge_to_drain_ratio,
             rules_unit_repair_rate: NativeF64Bits::from_bits(general.unit_repair_rate.to_bits()),
             rules_infantry_repair_rate: NativeF64Bits::from_bits(
                 general.infantry_repair_rate.to_bits(),
@@ -3045,6 +3062,7 @@ impl NativeRulesRegistryState {
             rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: self.rules_survivor_divisors,
             rules_infantry_repair_step: self.rules_infantry_repair_step,
+            rules_charge_to_drain_ratio: self.rules_charge_to_drain_ratio,
             rules_unit_repair_rate: self.rules_unit_repair_rate,
             rules_infantry_repair_rate: self.rules_infantry_repair_rate,
             rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,
@@ -3452,6 +3470,10 @@ struct ProcessedType {
     super_weapon_phobos_availability: PhobosSuperWeaponAvailability,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    ore_gathering: crate::rules::object_type::PhobosOreGathering,
     /// Ares `SW.Warhead=`, read only for Type=GenericWarhead.
     generic_super_weapon_warhead: Option<String>,
     unit_delivery: Option<UnitDeliveryRules>,
@@ -3867,6 +3889,8 @@ impl ProcessedType {
             super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
+            #[cfg(feature = "phobos")]
+            ore_gathering: crate::rules::object_type::PhobosOreGathering::default(),
             generic_super_weapon_warhead: None,
             particle_warhead: None,
             voxel_anim_references: VoxelAnimTypeReferences::default(),
@@ -3992,6 +4016,7 @@ struct RulesPassProcessor {
     rules_no_parachute_max_fall_rate: i32,
     rules_survivor_divisors: [i32; 3],
     rules_infantry_repair_step: i32,
+    rules_charge_to_drain_ratio: NativeF64Bits,
     rules_unit_repair_rate: NativeF64Bits,
     rules_infantry_repair_rate: NativeF64Bits,
     rules_maximum_cheer_rate: i32,
@@ -4061,6 +4086,7 @@ impl RulesPassProcessor {
             rules_no_parachute_max_fall_rate: registry_state.rules_no_parachute_max_fall_rate,
             rules_survivor_divisors: registry_state.rules_survivor_divisors,
             rules_infantry_repair_step: registry_state.rules_infantry_repair_step,
+            rules_charge_to_drain_ratio: registry_state.rules_charge_to_drain_ratio,
             rules_unit_repair_rate: registry_state.rules_unit_repair_rate,
             rules_infantry_repair_rate: registry_state.rules_infantry_repair_rate,
             rules_maximum_cheer_rate: registry_state.rules_maximum_cheer_rate,
@@ -4383,9 +4409,10 @@ impl RulesPassProcessor {
     /// Resolve each native pointer once, in constructor order. None means the
     /// reader retained its previous vector; Some(empty) is a real replacement
     /// (for example `,,,` or only exact `none` sentinels).
-    /// Ares pointer vectors look up existing types at this exact read point.
-    /// ReadString/strtok retain the native 2048-byte, comma-only list policy.
-    #[cfg(feature = "ares")]
+    /// Ares and Phobos pointer vectors look up existing types at this exact
+    /// read point. ReadString/strtok retain the native 2048-byte, comma-only
+    /// list policy.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     fn resolve_existing_list_from(
         &self,
         section: &IniSection,
@@ -4462,10 +4489,11 @@ impl RulesPassProcessor {
         Some(Some(members[index].native_stored_id.clone()))
     }
 
-    /// Shared Ares pointer-vector reader: Building specialization10010850 uses
-    /// Find10007E50 after none rejection10003950. Resolve once at the current
-    /// pass; callers project the retained ordinal as their existing field needs.
-    #[cfg(feature = "ares")]
+    /// Shared Ares/Phobos pointer-vector reader: Building specialization
+    /// 10010850 uses Find10007E50 after none rejection10003950. Resolve once at
+    /// the current pass; callers project the retained ordinal as their existing
+    /// field needs.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     fn resolve_existing_list_indices_from(
         &self,
         section: &IniSection,
@@ -4648,6 +4676,12 @@ impl RulesPassProcessor {
             ("CMislType", RulesTypeFamily::Aircraft, false),
             ("VeinholeTypeClass", RulesTypeFamily::Terrain, false),
             ("DefaultMirageDisguises", RulesTypeFamily::Terrain, true),
+            // NPSE extension read (`0xC30FF8..0xC3101F`): the canopy an
+            // airdropped non-infantry object takes. The extension's General
+            // reader runs after the stock reads, so its FindOrAllocate lands
+            // after every vanilla General pointer; an ordinary build skips it
+            // entirely (below) and neither allocates nor retains the type.
+            ("VehicleParachute", RulesTypeFamily::Animation, false),
         ];
 
         let Some(section) = pass.section("General") else {
@@ -4695,6 +4729,10 @@ impl RulesPassProcessor {
             section.read_double_bits("URepairRate", self.rules_unit_repair_rate);
         self.rules_infantry_repair_rate =
             section.read_double_bits("IRepairRate", self.rules_infantry_repair_rate);
+        // ReadGeneral67183C..67185D, Rules+760. Shared binary32 scanner,
+        // optional percent scaling, then retained binary64; no type reset.
+        self.rules_charge_to_drain_ratio =
+            section.read_double_bits("ChargeToDrainRatio", self.rules_charge_to_drain_ratio);
         // ReadGeneral's Prism block (`0x0067114F..0x006711B8`), current values
         // as defaults; RulesClass keeps them across Full_Init's reset.
         self.rules_prism_support = self.rules_prism_support.read_pass(section);
@@ -4707,6 +4745,11 @@ impl RulesPassProcessor {
         self.rules_talk_bubble_time = section.read_talk_bubble_time(self.rules_talk_bubble_time);
 
         for &(key, family, is_list) in SITES {
+            // An ordinary build never reads the NPSE extension, so it neither
+            // allocates the canopy's AnimType nor keeps the pointer.
+            if key == "VehicleParachute" && !crate::rules::NPATCH_ENABLED {
+                continue;
+            }
             if matches!(
                 key,
                 "MetallicDebris" | "BridgeExplosions" | "WeatherConClouds" | "WeatherConBolts"
@@ -5684,6 +5727,35 @@ impl RulesPassProcessor {
                         self.families.get_mut(&family).unwrap()[index]
                             .unit_shp
                             .read_pass(fixed_art.section_or_empty(&image), has_turret);
+                        #[cfg(feature = "phobos")]
+                        {
+                            // `UnitTypeExt::LoadFromINI` reads the three
+                            // `OreGathering.*` vectors in this order at the end
+                            // of the UnitType body. An absent key retains the
+                            // whole list; a present one replaces it, dropping
+                            // any `Anims=` token the AnimType array lacks.
+                            let mut gathering =
+                                self.family_mut(family)[index].ore_gathering.clone();
+                            if let Some(anims) = self.resolve_existing_list_from(
+                                &raw,
+                                "OreGathering.Anims",
+                                RulesTypeFamily::Animation,
+                                0x800,
+                            ) {
+                                gathering.anims = anims;
+                            }
+                            if let Some(tiberiums) =
+                                raw.read_ares_int_list("OreGathering.Tiberiums")
+                            {
+                                gathering.tiberiums = tiberiums;
+                            }
+                            if let Some(frames) =
+                                raw.read_ares_int_list("OreGathering.FramesPerDir")
+                            {
+                                gathering.frames_per_dir = frames;
+                            }
+                            self.family_mut(family)[index].ore_gathering = gathering;
+                        }
                     }
                     RulesTypeFamily::Infantry => {
                         if let Some(weapon) = self.resolve_scalar_from(
@@ -6278,6 +6350,29 @@ impl RulesPassProcessor {
                             theater,
                             tree_strength,
                         );
+                        #[cfg(feature = "phobos")]
+                        {
+                            // `TerrainTypeExt::LoadFromINI` is hooked at
+                            // 0x0071E0A6, the end of this same ReadINI body, so
+                            // its `ValueableIdx<ParticleTypeClass>` resolves
+                            // against the registry as it stands at this point.
+                            // Move the state out to read it through the
+                            // registry's immutable lookups.
+                            let mut state = self.family_mut(family)[index]
+                                .terrain_type_read_state
+                                .take()
+                                .expect("the Terrain read pass above retained its state");
+                            state.read_phobos_pass(&raw, |name| {
+                                self.find_existing(RulesTypeFamily::Particle, name).map(
+                                    |particle| {
+                                        self.families[&RulesTypeFamily::Particle][particle]
+                                            .native_stored_id
+                                            .clone()
+                                    },
+                                )
+                            });
+                            self.family_mut(family)[index].terrain_type_read_state = Some(state);
+                        }
                     }
                     RulesTypeFamily::Overlay => {
                         // OverlayRead5FE78B first calls ObjectRead. Its fixed
@@ -6735,6 +6830,7 @@ impl RulesPassProcessor {
                     rules_no_parachute_max_fall_rate: self.rules_no_parachute_max_fall_rate,
                     rules_survivor_divisors: self.rules_survivor_divisors,
                     rules_infantry_repair_step: self.rules_infantry_repair_step,
+                    rules_charge_to_drain_ratio: self.rules_charge_to_drain_ratio,
                     rules_unit_repair_rate: self.rules_unit_repair_rate,
                     rules_infantry_repair_rate: self.rules_infantry_repair_rate,
                     rules_maximum_cheer_rate: self.rules_maximum_cheer_rate,

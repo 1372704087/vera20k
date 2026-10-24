@@ -378,6 +378,13 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     // at once.
     insert(&rules.general.dominator_first_anim);
     insert(&rules.general.dominator_second_anim);
+    // TechnoClass::Install_Drain_Link70FD70 constructs Rules+31C's
+    // DrainAnimationType at70FDF5..70FE14 and attaches it to the drainer.
+    // Bind its physical frames before Fire_At6FDF8C can create the AnimClass;
+    // the same scheduler closure supplies the renderer's animation atlas.
+    if let Some(name) = rules.combat_damage.drain_animation_type.as_deref() {
+        insert(name);
+    }
     // `[CombatDamage] ControlledAnimationType=` and
     // `PermaControlledAnimationType=`: the rings a captured or Dominated
     // object wears (`sim::capture_manager`).

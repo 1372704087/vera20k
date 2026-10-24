@@ -3,6 +3,9 @@
 //! Per-object retained animation state for terrain objects with `IsAnimated=yes`.
 //! Idle animations roll `AnimationProbability`; a hit starts the native timer.
 //! `SpawnsTiberium=yes` resets the animation and emits ore at its midpoint.
+//! Under the Phobos capability, `SpawnsTiberium.CellsPerAnim/Type/Range/
+//! GrowthStage/Particle` replace that single emission; see
+//! [docs/phobos-ore-spawners.md](../../docs/phobos-ore-spawners.md).
 //!
 //! ## Animation model
 //! Two-phase: roll succeeds -> start at frame 0 -> advance one frame every
@@ -30,6 +33,8 @@ use crate::sim::rng::SimRng;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::terrain_object::TerrainObjectState;
 use crate::sim::terrain_object::TerrainObjectStore;
+#[cfg(feature = "phobos")]
+use crate::sim::tiberium::SpawnerSpread;
 use crate::sim::tiberium::{
     NewTiberiumAdmission, PlaceTiberiumContext, TiberiumPlacement, TiberiumPlacementObjectContext,
     spread_tiberium,
@@ -261,12 +266,17 @@ pub fn tick_terrain_animations_stateful(
 }
 
 /// Dispatch one TerrainClass AI slot through the retained animation owner.
+///
+/// `None` means no animation midpoint fired on this visit. `Some` carries every
+/// cell the midpoint germinated: the stock spawner stops after one, a Phobos
+/// build runs `SpawnsTiberium.CellsPerAnim=` attempts and breaks on the first
+/// refusal.
 pub(crate) fn tick_terrain_spawner_stateful_one(
     spawner: &mut TerrainAnimationState,
     cell: (u16, u16),
     spawner_cells: &BTreeSet<(u16, u16)>,
     mut ctx: TerrainSpawnContext<'_>,
-) -> Option<TiberiumPlacement> {
+) -> Option<Vec<TiberiumPlacement>> {
     tick_terrain_spawner_one_inner(spawner, cell, spawner_cells, &mut ctx)
 }
 
@@ -275,7 +285,7 @@ fn tick_terrain_spawner_one_inner(
     cell: (u16, u16),
     spawner_cells: &BTreeSet<(u16, u16)>,
     ctx: &mut TerrainSpawnContext<'_>,
-) -> Option<TiberiumPlacement> {
+) -> Option<Vec<TiberiumPlacement>> {
     let source_cells = ctx.spawning_terrain_cells.unwrap_or(spawner_cells);
     let terrain_type = ctx.interner.and_then(|interner| {
         ctx.rules
@@ -304,6 +314,22 @@ fn tick_terrain_spawner_one_inner(
     ) else {
         return None;
     };
+    #[cfg(feature = "phobos")]
+    let ext = terrain_type.map(|ty| &ty.spawns_tiberium_ext);
+    // `TerrainTypeExt::GetCellsPerAnim` replaces the stock one spread per
+    // animation with a count drawn once here; a single-valued or reversed
+    // `SpawnsTiberium.CellsPerAnim=` range draws nothing.
+    #[cfg(feature = "phobos")]
+    let cells = ext.map_or(1, |ext| {
+        let range = ext.cells_per_anim;
+        if range.is_single() {
+            range.low
+        } else {
+            ctx.rng.next_range_i32_inclusive(range.low, range.high)
+        }
+    });
+    #[cfg(not(feature = "phobos"))]
+    let cells = 1;
     let mut placement = PlaceTiberiumContext {
         overlay_grid: grid,
         ore_growth_state: state,
@@ -319,9 +345,23 @@ fn tick_terrain_spawner_one_inner(
         spread_enabled: ctx.spread_enabled,
         dirty_cells: ctx.dirty_cells.as_deref_mut(),
     };
-    spread_tiberium(&mut placement, cell, true)
+    #[cfg(feature = "phobos")]
+    let spread_context = ext.map(|ext| SpawnerSpread {
+        tiberium_type: ext.tiberium_type,
+        range: ext.range,
+        growth_stage: ext.growth_stage,
+    });
+    #[cfg(not(feature = "phobos"))]
+    let spread_context = None;
+    let mut placed = Vec::new();
+    for _ in 0..cells.max(0) {
+        match spread_tiberium(&mut placement, cell, true, spread_context) {
+            Some(emitted) => placed.push(emitted),
+            None => break,
+        }
+    }
+    Some(placed)
 }
-
 /// Dispatch the TerrainClass AI leaf for one current LogicClass slot.
 pub(crate) fn tick_terrain_object_ai(
     sim: &mut crate::sim::world::Simulation,
@@ -343,7 +383,7 @@ pub(crate) fn tick_terrain_object_ai(
     else {
         return;
     };
-    let placed = tick_terrain_spawner_stateful_one(
+    let emission = tick_terrain_spawner_stateful_one(
         spawner,
         cell,
         spawning_cells,
@@ -365,17 +405,67 @@ pub(crate) fn tick_terrain_object_ai(
             )
             .with_validation_context(sim.resolved_terrain.as_ref(), overlay_registry),
     );
+    #[cfg(feature = "phobos")]
+    let midpoint_fired = emission.is_some();
     // Overlay Mark5FC570 ->Cell Recalc47D2B0 is synchronous: a later
     // Logic object (including a miner) sees the new LandType this frame.
-    let placed_cell = placed.as_ref().map(TiberiumPlacement::cell);
-    if let (Some(cell), Some(registry)) = (placed_cell, overlay_registry) {
-        sim.publish_tiberium_cells(rules, registry, &[cell]);
+    let placed_cells: Vec<(u16, u16)> = emission
+        .iter()
+        .flatten()
+        .map(TiberiumPlacement::cell)
+        .collect();
+    if !placed_cells.is_empty()
+        && let Some(registry) = overlay_registry
+    {
+        sim.publish_tiberium_cells(rules, registry, &placed_cells);
     }
     crate::sim::world::Simulation::publish_overlay_constructions(
         &mut sim.native_unique_ids,
         &mut sim.load_objects,
         &mut sim.substrate,
-        placed.and_then(TiberiumPlacement::into_overlay_construction),
+        emission
+            .into_iter()
+            .flatten()
+            .filter_map(TiberiumPlacement::into_overlay_construction),
+    );
+    #[cfg(feature = "phobos")]
+    if midpoint_fired {
+        spawn_spawner_particle(sim, rules, stable_id);
+    }
+}
+
+/// Phobos `TerrainTypeExt`'s `SpawnsTiberium.Particle`, emitted after the
+/// midpoint's spread loop: `ParticleSystemClass::SpawnParticle @ 0x0062E430`
+/// for the named `ParticleTypeClass` on the Scenario's shared system. That
+/// system is the global at `0xA8ED78`, which `ScenarioSetup @ 0x00685040` fills
+/// with the literal GasCloudSys instance, so the ore spawner shares
+/// [`Simulation::spawn_gas_particle`]'s owner rather than a second one.
+#[cfg(feature = "phobos")]
+fn spawn_spawner_particle(
+    sim: &mut crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    stable_id: u64,
+) {
+    let Some((type_ref, location)) = sim
+        .terrain_objects
+        .objects()
+        .get(&stable_id)
+        .filter(|terrain| terrain.is_live())
+        .map(|terrain| (terrain.type_ref(), terrain.world_coord()))
+    else {
+        return;
+    };
+    let Some(kind) = rules
+        .terrain_object_type_case_insensitive(sim.interner().resolve(type_ref))
+        .and_then(|terrain| terrain.spawns_tiberium_ext.particle.as_deref())
+        .and_then(|name| rules.p_type_id_by_name(name))
+    else {
+        return;
+    };
+    sim.spawn_gas_particle(
+        kind,
+        glam::IVec3::new(location.x, location.y, location.z),
+        rules,
     );
 }
 
@@ -1498,6 +1588,7 @@ mod tests {
             origin,
             None,
             0,
+            crate::sim::world::FrameEffects::default(),
         );
         let records: Vec<_> = collected
             .receivers

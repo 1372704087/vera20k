@@ -1303,7 +1303,7 @@ fn request_setup(
         }
         NetworkSetupRequest::Kick { name } => service.command("kick", json!({"name":name})),
         NetworkSetupRequest::Advertise => {
-            if let Some(channel) = super::lobby::current_channel(state) {
+            if let Some(channel) = super::lobby::republish_channel(state) {
                 service.command("advertise", json!({"channel":wire::Channel::from(channel)}));
             }
         }

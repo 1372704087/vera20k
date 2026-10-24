@@ -38,8 +38,11 @@ VERA20K is made by gamers, for gamers, and gamers have the final say in where it
 - **Campaigns:** Missions can launch; support remains incomplete.
 - **AI:** Parts of the original AI handle base building and scripted attacks.
 - **Ongoing work:** Gameplay accuracy, visuals and performance.
-- **Multiplayer:** Network play is not available yet.
-- **Scale:** Battles with 30 players and 20,000 units have not yet been demonstrated.
+- **Multiplayer:** LAN and online play are available in current source builds on
+  macOS and Linux.
+- **Scale:** Two consecutive online matches passed functional validation with
+  30 independent client processes and more than 20,000 active mobile units per match.
+  Linux clients shared VMs; this does not establish smooth, real-time performance.
 
 ## Download and play
 
@@ -108,7 +111,7 @@ You need:
   [Git](https://git-scm.com/).
 - **Build tools:** on Windows, the Visual Studio C++ build tools, which the Rust installer offers
   to install; on macOS, `xcode-select --install`; on Debian and Ubuntu,
-  `sudo apt install build-essential libasound2-dev pkg-config`.
+  `sudo apt install build-essential libasound2-dev libxkbcommon-x11-0 pkg-config`.
 
 VERA20K has been played on Windows, Linux and macOS.
 

@@ -288,12 +288,16 @@ pub(crate) fn build_display_effect_instances(
         input.render_size[1] as f32 / z2,
     );
     let projection_viewport = [input.tactical[2] as f32 / z2, input.tactical[3] as f32 / z2];
-    let parachute_type = input
-        .rules
-        .general
-        .parachute_shp
-        .as_deref()
-        .and_then(|name| sim.interner().get(name));
+    // NPSE Paradrop C2FA75/C2F939 attaches either retained canopy type.
+    let parachute_types = [
+        input.rules.general.parachute_shp.as_deref(),
+        if crate::rules::NPATCH_ENABLED {
+            input.rules.general.vehicle_parachute.as_deref()
+        } else {
+            None
+        },
+    ]
+    .map(|name| name.and_then(|name| sim.interner().get(name)));
     let local_owner = input.local_owner;
     for &stable_id in sim.display_layers().ordered_ids() {
         if let Some(light) = sim.building_spotlight(stable_id, input.rules) {
@@ -337,8 +341,10 @@ pub(crate) fn build_display_effect_instances(
         };
         // Paradrop creates a retained Anim, whose GetCoords resolves its
         // owner-relative75-lepton lift. Draw it at its own Display encounter.
-        let is_parachute =
-            parachute_type.is_some_and(|ty| parachute_canopy_owner(anim, ty).is_some());
+        let is_parachute = parachute_types
+            .into_iter()
+            .flatten()
+            .any(|ty| parachute_canopy_owner(anim, ty).is_some());
         let type_name: &str = sim.interner().resolve(anim.type_id());
         let config = input.rules.art().anim_runtime_config(type_name);
         if config
@@ -671,7 +677,7 @@ pub(super) fn presentation_anim_frame_count(
 }
 
 /// The object a canopy hangs on: an owner-attached anim of the
-/// `[General] Parachute=` type.
+/// retained `Parachute=` or NPSE `VehicleParachute=` type.
 fn parachute_canopy_owner(
     anim: &crate::sim::anim_class::AnimObject,
     parachute_type: crate::sim::intern::InternedId,

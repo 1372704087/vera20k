@@ -2287,8 +2287,8 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     crate::sim::power_system::assess_house_power(
         sim.power_states.get_mut(&owner).unwrap(),
         &sim.substrate.entities,
+        &[1],
         &rules,
-        owner,
         &sim.interner,
         sim.session.binary_frame(),
         false,
@@ -2388,8 +2388,8 @@ fn native_all01_reactor_damage_uses_retail_rules_and_shared_power_owner() {
     crate::sim::power_system::assess_house_power(
         sim.power_states.get_mut(&owner).unwrap(),
         &sim.substrate.entities,
+        &[1],
         &rules,
-        owner,
         &sim.interner,
         sim.session.binary_frame(),
         false,

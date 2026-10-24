@@ -75,7 +75,7 @@ pub(super) struct UiInstances {
     pub factory_rally_first: Vec<SpriteInstance>,
     pub factory_rally_second: Vec<SpriteInstance>,
     /// One stream per beacon row: each row has its own House Convert strip.
-    pub beacons: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES],
+    pub beacons: Vec<Vec<SpriteInstance>>,
 }
 
 /// Sidebar chrome, cameos, text, minimap, and radar animation.
@@ -967,17 +967,14 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
 
 /// `BeaconManagerClass` Draw `0x00430AC0`, called by TacticalClass::Draw at
 /// `0x006D46B6` just before BandBox.
-fn build_beacon_instances(
-    state: &AppState,
-) -> [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] {
-    let mut rows: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] =
-        Default::default();
+fn build_beacon_instances(state: &AppState) -> Vec<Vec<SpriteInstance>> {
     let (Some(art), Some(runtime)) = (
         state.match_state.match_presentation.beacon_art.as_ref(),
         state.match_state.sim_runtime.as_ref(),
     ) else {
-        return rows;
+        return Vec::new();
     };
+    let mut rows = vec![Vec::new(); art.house_count()];
     let frame = runtime.simulation.session().binary_frame();
     for beacon in crate::app::match_runtime::beacons::draws(state) {
         if let (Some(row), Some(instance)) = (

@@ -1965,7 +1965,9 @@ pub(super) fn mobile_move_with_mouse(
                         | crate::map::entities::EntityCategory::Infantry
                 )
         })
-        .max_by_key(|entity| entity.stable_id())
+        // Real computer opponents can kill a starting infantryman before the
+        // command observation ends. Prefer a durable local mobile object.
+        .max_by_key(|entity| (entity.health.current(), entity.stable_id()))
         .context("local mobile object")?;
     let id = entity.stable_id();
     let from = (entity.position.rx(), entity.position.ry());

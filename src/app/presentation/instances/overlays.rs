@@ -288,12 +288,16 @@ pub(crate) fn build_display_effect_instances(
         input.render_size[1] as f32 / z2,
     );
     let projection_viewport = [input.tactical[2] as f32 / z2, input.tactical[3] as f32 / z2];
-    let parachute_type = input
-        .rules
-        .general
-        .parachute_shp
-        .as_deref()
-        .and_then(|name| sim.interner().get(name));
+    // NPSE Paradrop C2FA75/C2F939 attaches either retained canopy type.
+    let parachute_types = [
+        input.rules.general.parachute_shp.as_deref(),
+        if crate::rules::NPATCH_ENABLED {
+            input.rules.general.vehicle_parachute.as_deref()
+        } else {
+            None
+        },
+    ]
+    .map(|name| name.and_then(|name| sim.interner().get(name)));
     let local_owner = input.local_owner;
     for &stable_id in sim.display_layers().ordered_ids() {
         if let Some(light) = sim.building_spotlight(stable_id, input.rules) {
@@ -337,8 +341,10 @@ pub(crate) fn build_display_effect_instances(
         };
         // Paradrop creates a retained Anim, whose GetCoords resolves its
         // owner-relative75-lepton lift. Draw it at its own Display encounter.
-        let is_parachute =
-            parachute_type.is_some_and(|ty| parachute_canopy_owner(anim, ty).is_some());
+        let is_parachute = parachute_types
+            .into_iter()
+            .flatten()
+            .any(|ty| parachute_canopy_owner(anim, ty).is_some());
         let type_name: &str = sim.interner().resolve(anim.type_id());
         let config = input.rules.art().anim_runtime_config(type_name);
         if config
@@ -451,11 +457,6 @@ pub(crate) fn build_display_effect_instances(
         let Ok(frame) = u16::try_from(anim.runtime().current_frame.wrapping_add(start)) else {
             continue;
         };
-        let tint = if is_parachute {
-            [1.0; 3]
-        } else {
-            input.lighting.anim_tint_at((rx, ry), config)
-        };
         let remap_color =
             crate::render::sprite_atlas::anim_remap_color(anim, sim.interner(), input.house_colors);
         let palette_light = crate::app::presentation::lighting::anim_palette_light(
@@ -484,6 +485,18 @@ pub(crate) fn build_display_effect_instances(
             house_color: remap_color.unwrap_or(HouseColorIndex(0)),
         };
         let entry = atlas.get(&key);
+        // DrawIt422CA0's D4 instance Convert carries its palette/FC into
+        // the ordinary native blitter. Sparse FC absence means ctor1000;
+        // it is not a reason to choose the compatibility material.
+        let instance_scheme = remap_color.is_some()
+            && !anim.use_cell_drawer()
+            && entry.is_some_and(|entry| entry.source_palette != 0)
+            && super::anim_draw::ordinary_anim_type(type_name, config);
+        let tint = if is_parachute || instance_scheme {
+            [1.0; 3]
+        } else {
+            input.lighting.anim_tint_at((rx, ry), config)
+        };
         let Some(flags) = anim_instance_flags(
             config,
             anim.draw_flags(),
@@ -500,7 +513,7 @@ pub(crate) fn build_display_effect_instances(
         // Ordinary DrawIt422CA0 -> 4AED70 carries Convert's selector into
         // the packed RGB565 blitter, rather than alpha-blending the source.
         // Original full draw controls: spatial_oracle/anim_translucency.
-        let (alpha, draw_state) = if remap_color.is_none()
+        let (alpha, draw_state) = if (remap_color.is_none() || instance_scheme)
             && super::anim_draw::ordinary_anim_type(type_name, config)
         {
             (
@@ -664,7 +677,7 @@ pub(super) fn presentation_anim_frame_count(
 }
 
 /// The object a canopy hangs on: an owner-attached anim of the
-/// `[General] Parachute=` type.
+/// retained `Parachute=` or NPSE `VehicleParachute=` type.
 fn parachute_canopy_owner(
     anim: &crate::sim::anim_class::AnimObject,
     parachute_type: crate::sim::intern::InternedId,

@@ -75,7 +75,7 @@ pub(super) struct UiInstances {
     pub factory_rally_first: Vec<SpriteInstance>,
     pub factory_rally_second: Vec<SpriteInstance>,
     /// One stream per beacon row: each row has its own House Convert strip.
-    pub beacons: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES],
+    pub beacons: Vec<Vec<SpriteInstance>>,
 }
 
 /// Sidebar chrome, cameos, text, minimap, and radar animation.
@@ -884,17 +884,14 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
 
 /// `BeaconManagerClass` Draw `0x00430AC0`, called by TacticalClass::Draw at
 /// `0x006D46B6` just before BandBox.
-fn build_beacon_instances(
-    state: &AppState,
-) -> [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] {
-    let mut rows: [Vec<SpriteInstance>; crate::app::match_runtime::beacons::BEACON_HOUSES] =
-        Default::default();
+fn build_beacon_instances(state: &AppState) -> Vec<Vec<SpriteInstance>> {
     let (Some(art), Some(runtime)) = (
         state.match_state.match_presentation.beacon_art.as_ref(),
         state.match_state.sim_runtime.as_ref(),
     ) else {
-        return rows;
+        return Vec::new();
     };
+    let mut rows = vec![Vec::new(); art.house_count()];
     let frame = runtime.simulation.session().binary_frame();
     for beacon in crate::app::match_runtime::beacons::draws(state) {
         if let (Some(row), Some(instance)) = (
@@ -1032,25 +1029,37 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         .as_ref()
         .map(|csf| csf.text("TXT_HOLD"))
         .unwrap_or_else(|| std::borrow::Cow::Borrowed("On Hold"));
+    // SuperClass::NameReadiness6CC2B0: native drain state labels share the
+    // same status-strip/text owner as ordinary Ready and Hold.
+    let charging_text = state
+        .process_assets
+        .csf
+        .as_ref()
+        .map(|csf| csf.text("TXT_CHARGING"))
+        .unwrap_or_else(|| std::borrow::Cow::Borrowed("Charging"));
+    let active_text = state
+        .process_assets
+        .csf
+        .as_ref()
+        .map(|csf| csf.text("TXT_FIRESTORM_ON"))
+        .unwrap_or_else(|| std::borrow::Cow::Borrowed("Firestorm On"));
+    let status_labels = crate::app::presentation::sidebar_build::CameoStatusLabels {
+        ready: ready_text.as_ref(),
+        hold: hold_text.as_ref(),
+        charging: charging_text.as_ref(),
+        active: active_text.as_ref(),
+    };
     let ready_tint = {
         let theme = crate::app::presentation::sidebar_render::current_sidebar_theme(state);
         crate::render::sidebar_text::side_highlight_color(theme)
     };
     let cameo_layers = view
         .as_ref()
-        .map(|v| build_sidebar_cameo_instances(state, v, ready_text.as_ref(), hold_text.as_ref()))
+        .map(|v| build_sidebar_cameo_instances(state, v, status_labels))
         .unwrap_or_default();
     let mut text_layers = view
         .as_ref()
-        .map(|v| {
-            build_sidebar_text_instances(
-                state,
-                v,
-                ready_text.as_ref(),
-                hold_text.as_ref(),
-                ready_tint,
-            )
-        })
+        .map(|v| build_sidebar_text_instances(state, v, status_labels, ready_tint))
         .unwrap_or_default();
     // Credits counter shares the GAME.FNT sidebar-text layer: gamemd draws it
     // with the same BitFont on the sidebar surface, in the same packed side

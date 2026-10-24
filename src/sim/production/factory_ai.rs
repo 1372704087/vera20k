@@ -97,7 +97,7 @@ pub(crate) fn factory_ai(
         .substrate
         .entities
         .get(building)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .and_then(|entity| sim.entity_object_type(entity, rules))
         .map(|ty| ty.factory_rtti())
         .filter(|&factory| factory != 0)
     else {
@@ -140,7 +140,12 @@ fn exit_finished_object(
     let Some(product) = object.entity_id else {
         return;
     };
-    let Some(product_type) = sim.object_type(object.type_id, rules) else {
+    let Some(product_type) = sim
+        .substrate
+        .entities
+        .get(product)
+        .and_then(|entity| sim.entity_object_type(entity, rules))
+    else {
         return;
     };
     let is_building = product_type.category == ObjectCategory::Building;
@@ -186,7 +191,10 @@ fn exit_finished_object(
             // `0x004501FF..0x00450220`: the object's owner stops choosing
             // naval buildings.
             let naval_building = sim
-                .object_type(object.type_id, rules)
+                .substrate
+                .entities
+                .get(product)
+                .and_then(|entity| sim.entity_object_type(entity, rules))
                 .is_some_and(|ty| ty.category == ObjectCategory::Building && ty.naval);
             if naval_building && let Some(house) = sim.houses.get_mut(&owner) {
                 house.ai_production_mut().forbid_naval();
@@ -248,7 +256,9 @@ fn start_factory(
     };
     // The NPSE per-type `AIBuildLimit=` runs where `Factory_AI` fetched the
     // type: at limit the category's choice slot clears and the start skips.
-    if crate::rules::NPATCH_ENABLED && aibuild_limit_blocks(sim, rules, owner, object) {
+    if crate::rules::NPATCH_ENABLED
+        && ai_build_limit_blocks(sim, rules, owner, object, object.aibuild_limit)
+    {
         clear_aibuild_limit_choice(sim, owner, object.category);
         return;
     }
@@ -256,7 +266,7 @@ fn start_factory(
         .substrate
         .entities
         .get(building)
-        .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+        .and_then(|entity| sim.entity_object_type(entity, rules))
         .is_some_and(|ty| ty.naval);
     if object.category == ObjectCategory::Vehicle && object.naval != factory_naval {
         return;
@@ -307,7 +317,7 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
 /// cave branches on the fetched type's class — `0x10` infantry, `0x28` unit,
 /// `3` aircraft, `7` building — and reads the limit from `Type+0x40`
 /// (`0xC335C4`; the constructor stores `0x7FFFFFFF` there, `0xC32950`, and
-/// the reader at `0xC2724E` defaults to the current value). A positive limit
+/// the reader at `0xC27249..0xC2725A` defaults to the current value). A positive limit
 /// compares the house's tracked count of the type
 /// (`Add_Tracking @ 0x004FF700` counts the limbo factory object from
 /// production start, so clone production fills up to the limit and never
@@ -315,13 +325,13 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
 /// its produced and tracked counts by magnitude (`neg` then `jle`, the
 /// `House+0x55B4..0x55DC` produced and `+0x5514..0x553C` tracked tables
 /// through `0x49FAE0`), so an explicit `0` blocks the type outright.
-fn aibuild_limit_blocks(
+fn ai_build_limit_blocks(
     sim: &Simulation,
     rules: &RuleSet,
     owner: InternedId,
     object: &ObjectType,
+    limit: i32,
 ) -> bool {
-    let limit = object.aibuild_limit;
     let owned = sim
         .interner
         .get(&object.id)

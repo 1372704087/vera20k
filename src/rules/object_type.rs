@@ -323,6 +323,28 @@ impl Default for BuildingHiddenOccupancyProfile {
     }
 }
 
+/// Phobos `UnitTypeExt`'s three `OreGathering.*` lists
+/// (`src/Ext/UnitType/Body.{h,cpp}`, read at the `UnitTypeClass_LoadFromINI`
+/// hook in the order Anims, Tiberiums, FramesPerDir). Each
+/// `ValueableVector::Read` clears the vector and re-parses only when its key is
+/// present, so a later Rules layer replaces a whole list or retains it.
+///
+/// The lists are parallel by index: `OreGathering.Tiberiums=` is searched for
+/// the resource the harvester stands on, and the slot it answers selects the
+/// animation and its frame count. `Anims=` drops a token the `AnimType` array
+/// does not hold, so a longer `Tiberiums=` list shifts onto the wrong entry —
+/// Phobos' own alignment, preserved here.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PhobosOreGathering {
+    /// `OreGathering.Anims=`: the resolved `AnimType` section names.
+    pub anims: Vec<String>,
+    /// `OreGathering.Tiberiums=`: the `[Tiberiums]` indices each slot serves.
+    pub tiberiums: Vec<i32>,
+    /// `OreGathering.FramesPerDir=`: frames per facing for each slot.
+    pub frames_per_dir: Vec<i32>,
+}
+
 /// A game object definition parsed from a rules.ini section.
 ///
 /// Fields use sensible defaults when the INI key is absent, matching
@@ -496,13 +518,13 @@ pub struct ObjectType {
     /// that current value as the key's default. About 33 ticks from rest to full
     /// speed; the wall-clock time follows `GameSpeed=` (criterion A12), so no
     /// frame rate is quoted here.
-    pub accel_factor: SimFixed,
+    pub accel_factor: NativeF64Bits,
     /// Fraction of max speed lost per tick during braking (DeaccelerationFactor=).
-    /// Default 0.002 — not 0.02, which this comment claimed until the constant was
-    /// read: ctor `0x00710BBC`/`0x00710BC6` writes `0x3F60624DD2F1A9FC` to `+0x300`
-    /// (`ReadINI 0x007124A3`, key string `0x008443F4`). The parse below was already
-    /// correct. Applied when within slowdown_distance of destination.
-    pub decel_factor: SimFixed,
+    /// TechnoType ctor710BBC/710BC6 writes double0.002 (3F60624DD2F1A9FC)
+    /// to+300; ReadINI7124A3 retains the current double as its default. Both
+    /// coefficients preserve widened authored floats and distinct constructor
+    /// doubles. Applied when within slowdown_distance of the destination.
+    pub decel_factor: NativeF64Bits,
     /// Whether Drive/Ship locomotors ramp toward target speed (`Accelerates=`).
     /// Defaults to true; `Accelerates=false` is handled by locomotor speed
     /// fraction ownership, not by mutating raw `Speed=`.
@@ -563,6 +585,9 @@ pub struct ObjectType {
     pub double_owned: bool,
     /// Specific countries that may build this object.
     pub required_houses: Vec<String>,
+    // ReadOwners4750D0 replaces the constructor's -1 even when comma
+    // tokenization produces no entries. Derived from the retained INI body.
+    required_houses_explicitly_empty: bool,
     /// Countries explicitly forbidden from building this (ForbiddenHouses= in rules.ini).
     /// Inverse of Owner — if the player's country is in this list, they cannot build.
     pub forbidden_houses: Vec<String>,
@@ -599,9 +624,21 @@ pub struct ObjectType {
     /// class (`+0x5500/+0x5514/+0x5528/+0x553C`) when positive and with its
     /// produced and owned counters when non-positive; at limit the
     /// category's choice slot clears (`+0x564C/+0x5650/+0x5654/+0x5658`) and
-    /// the start skips — buildings included, so `choose_building` moves on
-    /// to the next plan node.
+    /// the start skips. Clearing a building choice leaves its base-plan node
+    /// unsatisfied, so the planner can select the same capped type again.
     pub aibuild_limit: i32,
+    /// `[BuildingTypes] AIPlanningCount=` — the NPSE count of plan nodes a
+    /// computer house's base plan gives this building. The techno reader
+    /// extension chain reads it with the current field as its default and
+    /// stores the result through `al` (`0xC2E223..0xC2E237`), so the
+    /// stored value is one byte; the extension constructor
+    /// zeroes it (`0xC3039B`), so absent means the stock single node. The
+    /// `AI_RecalcBuildOptions` append loop (`0x5056C1` hook, cave
+    /// `0xC2C331..0xC2C367`) re-enters the candidate head until its
+    /// per-candidate counter reaches the count with signed CMP/JL. Counts
+    /// 1..127 repeat eligible entries before seed selection; 0 and high-bit
+    /// counts keep one entry, rather than repeating the final priority list.
+    pub ai_planning_count: i32,
     /// Requires spy infiltration of an Allied Battle Lab to unlock.
     pub requires_stolen_allied_tech: bool,
     /// Requires spy infiltration of a Soviet Battle Lab to unlock.
@@ -751,6 +788,18 @@ pub struct ObjectType {
     /// the sinking edge, plays VoiceSinking, then the held SinkingSound.
     pub sinking_sound: Option<String>,
     pub voice_sinking: Option<String>,
+    /// `VoiceFalling=` — TechnoType+0x54C, constructor `0x00710F07` = -1,
+    /// read at `0x00712FEC` through ReadString128 and `VocClass::FindIndex @
+    /// 0x007514D0`, keeping the prior index for an absent, empty or unknown
+    /// name. `FootClass::AI` plays it as a bomb-dropped object starts falling
+    /// (`0x004DAB3C..0x004DABB1`). No retail type sets it.
+    pub voice_falling: Option<String>,
+    /// `VoiceComment=` — InfantryType+0xE88, an empty vector from the
+    /// constructor (`0x0052372A`), read by `InfantryTypeClass::ReadINI` through
+    /// ReadSoundList (`0x00524193..0x005241AC`) with prior-vector retention.
+    /// The idle fidget plays the first (`0x0051CF42..0x0051CFCB`), a tethered
+    /// arrival the second (`0x0051A812..0x0051A84A`). No retail type sets it.
+    pub voice_comment: Vec<String>,
     /// `TurretRotateSound=` — `TechnoTypeClass+0x560`, the sustained positional
     /// loop a `Turret=yes` object plays while its turret turns.
     ///
@@ -983,6 +1032,10 @@ pub struct ObjectType {
     /// BuildingTypeExt+178, ordered lookup-only `SuperWeapons=` references.
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` lists, retained per
+    /// VehicleType and read by the harvester's gather overlay.
+    #[cfg(feature = "phobos")]
+    ore_gathering: PhobosOreGathering,
     /// `NukeSilo=` (BuildingType `+0x16BA`, ReadBool at `0x00460A45`,
     /// constructor clear at `0x0045E127`): `SuperClass::Launch @ 0x006CC390`
     /// fires a `MultiMissile` weapon from the first such type granting it,
@@ -1110,12 +1163,25 @@ pub struct ObjectType {
     /// UnloadingClass. Empty/missing retains the prior pointer. AnimType
     /// FindOrAllocate428B80 owns registration, before the InitialAmmo read.
     pub deploying_anim: Option<String>,
-    /// Ammo count for aircraft. -1 = unlimited (default), 0+ = finite.
-    /// Aircraft with finite ammo return to a helipad/airfield to reload after depleting.
+    /// Shared TechnoType+684 count limit; -1 is unlimited. Aircraft use
+    /// their release/dock owners; Unit Reload and Building refill read it live.
     pub ammo: i32,
     /// TechnoType+680, ReadINI71474C (InitialAmmo); -1 selects Ammo at
     /// Aircraft InitFromType414033..41404B. Other signed values are retained.
     pub initial_ammo: i32,
+    /// TechnoType+698, raw signed frames. Constructor711122 seeds0;
+    /// ReadINI71486A..71487E retains the current value as ReadInt's default.
+    pub reload: i32,
+    /// TechnoType+69C, constructor711128=-1. ReadINI714884..714898;
+    /// -1 makes StartReloading6FB080 use the ordinary Reload interval.
+    pub empty_reload: i32,
+    /// TechnoType+6A0, constructor71112E=0. ReadINI71489E..7148B2;
+    /// StartReloading6FB080 multiplies it by the signed PipWrap quotient twice.
+    pub reload_increment: i32,
+    /// TechnoType+6B1/+6B4; constructor711163..711169 clears both.
+    /// ReceiveDamage701ADB consumes the pre-Object packet when enabled.
+    pub damage_reduces_readiness: bool,
+    pub readiness_reduction_multiplier: f32,
     /// `TechnoType+0xD24`, exact `ManualReload=`: constructor7114D6 clears
     /// it; ReadBool713352 retains the current value (store713366). Depot
     /// MissionRepairAndProduce reads it before the first RepairTick and may
@@ -2202,6 +2268,15 @@ impl ObjectType {
         f64::from_bits(self.roll_angle.bits())
     }
 
+    /// Fly4CF7C5..4CF801 stores RollAngle to binary32 with native chop before
+    /// table trig. Negating this stored finite value also preserves the
+    /// negative-turn arm's sign-before-store result.
+    pub fn fly_roll_angle_f32(&self) -> f32 {
+        use crate::util::native_x87::X87Chop53 as X;
+        let angle = X::load_f64(self.roll_angle).expect("finite Fly RollAngle");
+        f32::from_bits(X::store_f32(angle).expect("finite Fly angle store").bits())
+    }
+
     /// Existing typed PitchAngle value shared with Fly approach and normal
     /// Fly rendering. Rendering converts only at the f32 matrix boundary.
     pub fn fly_pitch_angle_radians(&self) -> f32 {
@@ -2234,6 +2309,18 @@ impl ObjectType {
     #[cfg(feature = "ares")]
     pub(crate) fn project_additional_super_weapons(&mut self, names: &[String]) {
         self.additional_super_weapons = names.to_vec();
+    }
+
+    /// Phobos `UnitTypeExt`'s gather-overlay lists. Every list is empty for a
+    /// type that authors none, which is the constructor state.
+    #[cfg(feature = "phobos")]
+    pub fn ore_gathering(&self) -> &PhobosOreGathering {
+        &self.ore_gathering
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn project_ore_gathering(&mut self, gathering: &PhobosOreGathering) {
+        self.ore_gathering = gathering.clone();
     }
     pub(crate) fn emp_rules(&self) -> Option<&crate::rules::ares_emp::EmpTypeRules> {
         self.emp.as_ref()
@@ -2806,6 +2893,17 @@ impl ObjectType {
         }
     }
 
+    /// ReadOwners4750D0 / Type reader714531: absent/empty ReadString keeps
+    /// the constructor's -1 (711633), but nonempty comma-only input writes0.
+    /// CanBuild4F79E4 and FirstBuildable505230 both test this raw mask.
+    pub(crate) fn required_houses_mask(&self, rules: &crate::rules::ruleset::RuleSet) -> u32 {
+        if self.required_houses.is_empty() && !self.required_houses_explicitly_empty {
+            u32::MAX
+        } else {
+            rules.house_type_mask(&self.required_houses)
+        }
+    }
+
     /// The AI base planning side filter: `AIBasePlanningSide=` (`+0x6D0`) is
     /// -1 or the house's side (`HouseTypeClass+0xBC`), as
     /// `FirstBuildableFromArray @ 0x005051E0` and `AI_BuildWalls @ 0x0050C340`
@@ -2921,8 +3019,9 @@ impl ObjectType {
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
-        let required_houses: Vec<String> = section
-            .read_list("RequiredHouses", 0x80)
+        let required_tokens = section.read_list("RequiredHouses", 0x80);
+        let required_houses_explicitly_empty = required_tokens.as_ref().is_some_and(Vec::is_empty);
+        let required_houses: Vec<String> = required_tokens
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
             .unwrap_or_default();
 
@@ -3043,9 +3142,13 @@ impl ObjectType {
             idle_rate: section.read_int("IdleRate", 0),
             // Double fields (`0x007124A3..0x007124E5`).
             weight: SimFixed::from_num(section.read_double("Weight", 1.0) as f32),
-            accel_factor: SimFixed::from_num(section.read_double("AccelerationFactor", 0.03) as f32),
-            decel_factor: SimFixed::from_num(
-                section.read_double("DeaccelerationFactor", 0.002) as f32
+            accel_factor: section.read_double_bits(
+                "AccelerationFactor",
+                NativeF64Bits::from_bits(0x3f9e_b851_eb85_1eb8),
+            ),
+            decel_factor: section.read_double_bits(
+                "DeaccelerationFactor",
+                NativeF64Bits::from_bits(0x3f60_624d_d2f1_a9fc),
             ),
             accelerates: section.read_bool("Accelerates", true),
             passive: category == ObjectCategory::Vehicle && section.read_bool("Passive", false),
@@ -3110,6 +3213,7 @@ impl ObjectType {
             // ReadBool over the constructor's 0 at +0xC99 (`0x00712299`).
             double_owned: section.read_bool("DoubleOwned", false),
             required_houses,
+            required_houses_explicitly_empty,
             forbidden_houses,
             // gamemd-derived: `TechnoTypeClass__Constructor @ 0x00710FF0`
             // seeds +0x6D0 to -1; `TechnoTypeClass::ReadINI` around 0x007149FB
@@ -3128,6 +3232,11 @@ impl ObjectType {
                 section.read_int("AIBuildLimit", i32::MAX)
             } else {
                 i32::MAX
+            },
+            ai_planning_count: if crate::rules::NPATCH_ENABLED {
+                building_int(section, category, "AIPlanningCount") & 0xFF
+            } else {
+                0
             },
             requires_stolen_allied_tech: section.read_bool("RequiresStolenAlliedTech", false),
             requires_stolen_soviet_tech: section.read_bool("RequiresStolenSovietTech", false),
@@ -3189,6 +3298,8 @@ impl ObjectType {
             // these references against its fixed SOUNDMD catalog.
             sinking_sound: None,
             voice_sinking: None,
+            voice_falling: None,
+            voice_comment: Vec::new(),
             // TechnoTypeClass+0x560 starts at -1. RuleSet's fixed SOUNDMD
             // binder later resolves the layered ReadINI7133BA reference.
             turret_rotate_sound: None,
@@ -3281,6 +3392,8 @@ impl ObjectType {
             super_weapon2: section.read_name("SuperWeapon2", 0x20).map(str::to_owned),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
+            #[cfg(feature = "phobos")]
+            ore_gathering: PhobosOreGathering::default(),
             nuke_silo: section.read_bool("NukeSilo", false),
             charged_anim_time: section.read_float("ChargedAnimTime", 999.0),
             spy_sat: section.read_bool("SpySat", false),
@@ -3319,6 +3432,15 @@ impl ObjectType {
             deploying_anim: None,
             ammo: section.read_int("Ammo", -1),
             initial_ammo: section.read_int("InitialAmmo", -1),
+            // TechnoTypeClass::ReadINI71486A..7148B2, raw signed frames.
+            // The retained section folds each reached pass with its current
+            // member as the next default; no time conversion or clamp.
+            reload: section.read_int("Reload", 0),
+            empty_reload: section.read_int("EmptyReload", -1),
+            reload_increment: section.read_int("ReloadIncrement", 0),
+            // ReadINI7148B8..7148EB: bool, then ReadDouble stored as float.
+            damage_reduces_readiness: section.read_bool("DamageReducesReadiness", false),
+            readiness_reduction_multiplier: section.read_float("ReadinessReductionMultiplier", 0.0),
 
             // Spawn manager pool. Constructor null; only the ordered Process
             // owner reads `Spawns=`.
@@ -4416,6 +4538,7 @@ mod tests {
             "[VehicleTypes]\n0=MTNK\n\
              [MTNK]\nName=Grizzly Battle Tank\nCost=700\nStrength=300\n\
              Armor=heavy\nSpeed=6\nSight=6\nTechLevel=2\n\
+             AccelerationFactor=.03\nDeaccelerationFactor=.002\n\
              Owner=Americans,Alliance\nRequiredHouses=Americans\n\
              Prerequisite=GAWEAP\nPrimary=105mm\n",
         ))
@@ -4429,6 +4552,8 @@ mod tests {
         assert_eq!(obj.strength, 300);
         assert_eq!(obj.armor, "heavy");
         assert_eq!(obj.speed, 6);
+        assert_eq!(obj.accel_factor.bits(), 0x3f9e_b851_e000_0000);
+        assert_eq!(obj.decel_factor.bits(), 0x3f60_624d_e000_0000);
         assert_eq!(obj.tech_level, 2);
         assert_eq!(
             obj.build_time_multiplier,
@@ -4566,6 +4691,8 @@ mod tests {
         assert_eq!(obj.strength, 0);
         assert_eq!(obj.armor, "none");
         assert_eq!(obj.speed, 0);
+        assert_eq!(obj.accel_factor.bits(), 0x3f9e_b851_eb85_1eb8);
+        assert_eq!(obj.decel_factor.bits(), 0x3f60_624d_d2f1_a9fc);
         assert_eq!(obj.walk_rate, 1);
         assert_eq!(obj.idle_rate, 0);
         assert_eq!(obj.sight, 0);
@@ -4625,6 +4752,53 @@ mod tests {
         assert!(!obj.is_1x1_with_undeploy());
 
         assert!(rules.object("MODDEPLOY").unwrap().is_1x1_with_undeploy());
+    }
+
+    /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors through the
+    /// production layered reader: an absent key retains the whole list, a
+    /// present one replaces it, and an `Anims=` token the AnimType array lacks
+    /// drops out instead of holding a null slot.
+    #[test]
+    #[cfg(feature = "phobos")]
+    fn ore_gathering_lists_replace_retain_and_drop_unknown_anims() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let base = IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA,NOPE,GATHB\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        );
+        let rules = RuleSet::from_rules_layers(&RulesLayerStack::new(base))
+            .expect("authored phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.anims, ["GATHA"], "the unknown token drops out");
+        assert_eq!(gathering.tiberiums, [0, 1]);
+        assert_eq!(gathering.frames_per_dir, [10, 20]);
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[Animations]\n0=GATHA\n\
+             [HARV]\nHarvester=yes\nOreGathering.Anims=GATHA\n\
+             OreGathering.Tiberiums=0,1\nOreGathering.FramesPerDir=10,20\n",
+        ));
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[HARV]\nOreGathering.Tiberiums=2\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).expect("layered phobos gather lists");
+        let gathering = rules.object("HARV").expect("HARV").ore_gathering();
+        assert_eq!(gathering.tiberiums, [2], "the named list replaces");
+        assert_eq!(gathering.frames_per_dir, [10, 20], "the others retain");
+
+        let stock = RuleSet::from_rules_layers(&RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=HARV\n[HARV]\nHarvester=yes\n",
+        )))
+        .expect("stock harvester rules");
+        assert_eq!(
+            stock.object("HARV").expect("HARV").ore_gathering(),
+            &crate::rules::object_type::PhobosOreGathering::default(),
+            "a type authoring none keeps every empty list"
+        );
     }
 
     #[test]

@@ -78,6 +78,47 @@ struct AiActivity {
 }
 
 impl AiActivity {
+    fn snapshot(&self, state: &AppState) -> Result<Value> {
+        let runtime = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .context("AI diagnostic simulation")?;
+        let sim = &runtime.simulation;
+        let owner = self
+            .owner
+            .as_deref()
+            .and_then(|name| sim.interner().get(name))
+            .context("AI diagnostic owner")?;
+        let house = sim.houses().get(&owner).context("AI diagnostic House")?;
+        let saved_house = serde_json::to_value(house)?;
+        let entities = sim.entities().values_sorted().filter(|entity| entity.owner() == owner)
+            .map(|entity| {
+                let saved_entity = serde_json::to_value(entity)?;
+                Ok(json!({"id":entity.stable_id(),"type":sim.interner().resolve(entity.type_ref()),
+                    "alive":entity.is_alive(),"limbo":entity.in_limbo(),"health":entity.health.current(),
+                    "position":entity.position,"mission":entity.mission.current().raw(),
+                    "queued_mission":entity.mission.queued().raw(),"handler_state":entity.mission.handler_state(),
+                    "dispatch_timer":entity.mission.dispatch_timer(),
+                    "destination":entity.navigation.nav_com(),"pending_deploy":saved_entity.get("mcv_deploy_pending"),
+                    "logic_registered":sim.logic_order().contains(&entity.stable_id())}))
+            }).collect::<Result<Vec<Value>>>()?;
+        Ok(
+            json!({"native_frame":sim.session().binary_frame(),"first_native_frame":self.first_frame,
+            "initial_entities":self.initial_entities,"activity":self.activity,
+            "house_index":sim.houses().index_of(owner),"current_iq":house.current_iq(),
+            "iq_production":runtime.resources.rules.general.iq_production,
+            "game_mode_nonzero":sim.session().game_mode_nonzero(),"credits":house.economy().credits(),
+            "is_defeated":house.is_defeated(),
+            "bases":state.match_state.session.network_setup().map(|launch|launch.options.bases),
+            "strategy_timer":house.strategy_timer(),
+            "activation":saved_house.get("ai_activation"),"base_center":house.base_center(),
+            "alternate_base_center":house.alternate_base_center(),
+            "base_nodes":house.base_plan().nodes(),"construction_yards":house.build_const_order(),
+            "production":house.ai_production(),"entities":entities}),
+        )
+    }
+
     fn observe(&mut self, state: &AppState) -> Result<()> {
         let launch = state
             .match_state
@@ -1150,7 +1191,8 @@ impl LiveLanCapture {
             if let Some(ai) = &self.ai {
                 ensure!(
                     ai.activity.is_some(),
-                    "AI House had no observed factory progress or new live entity"
+                    "AI House had no observed factory progress or new live entity; snapshot={}",
+                    ai.snapshot(state)?
                 );
             }
             ensure!(

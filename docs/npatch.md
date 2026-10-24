@@ -29,11 +29,18 @@ non-positive limits compare the magnitude against both counters, and zero blocks
 Reaching a cap clears the standing choice, without advancing the base plan. A capped building
 can therefore stall construction.
 
-NPSE also splits the vehicle choice by `Naval=`: `Suggest_New_Object`'s hook
-(`0x4FBDAF -> 0xC2F130`) reads `House+0x16130` for a naval producer and `House+0x5650`
-otherwise, so a shipyard and a war factory no longer share one pick. Without the split the
-shipyard fetched the war factory's land unit, failed the `Naval=` mismatch check at `0x450343`
-and idled, which stock does too.
+NPSE's naval vehicle choice uses the existing mobile-choice owner. House Update asks the
+land and naval channels in order (`0xC33AB0`), sharing the harvester decision and team
+chooser. Suggest_New_Object reads the producer's channel (`0xC2F130`); exit, abandonment
+and build-limit rejection clear the corresponding choice (`0xC33940`, `0xC33B50`,
+`0xC33570`). These paths require the `npatch` build capability.
+
+The legacy `[General] EnableAIBuildLimitation=yes` switch applies the same comparison to
+`BuildLimit=` (NPExt ext173 reader `0xC2D132`, gate `0xC2CF67`). It defaults to no. This is
+compatibility with the [older NPExt release](https://ppmforums.com/topic-29537/npatch-extended-finally-released/);
+NPSE #359 replaced the global switch with `AIBuildLimit=`. If a VERA ruleset explicitly sets
+both, both constraints apply before production starts. Clearing a choice does not skip an
+unsatisfied building-plan node or guarantee the mobile chooser selects an uncapped type.
 
 `[General] DisableParallelAIQueues=` (default no) suppresses the other half of the cloning
 behavior: a computer house's factories normally all fetch the same standing choice and produce

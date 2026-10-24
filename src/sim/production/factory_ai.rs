@@ -27,11 +27,7 @@
 //!   (`FactoryClass::StartProduction @ 0x004C9C70`, then the build start
 //!   `0x004C9EA0`; the call between, `0x004FF540`, is an empty body); a
 //!   failed start deletes it unrefunded. A war factory makes no Unit whose
-//!   `Naval=` differs from its own (`0x00450343..0x0045036A`). The NPSE
-//!   extension switch `[General] DisableParallelAIQueues=` blocks the start
-//!   when the house already holds another factory producing the same
-//!   produced-type class and `Naval=` — see
-//!   [`house_holds_parallel_production`].
+//!   `Naval=` differs from its own (`0x00450343..0x0045036A`).
 //!
 //! The same factory also goes, abandoned, with its building's
 //! `Detach_All(1)` (a kill, a sale's completion or a Limbo, [`detach_all`])
@@ -277,7 +273,7 @@ fn start_factory(
             || rules.general.enable_ai_build_limitation
                 && ai_build_limit_blocks(sim, rules, owner, object, object.build_limit))
     {
-        clear_aibuild_limit_choice(sim, owner, object.category);
+        clear_aibuild_limit_choice(sim, owner, object);
         return;
     }
     // The NPSE `[General] DisableParallelAIQueues=` gate runs where
@@ -380,17 +376,16 @@ fn ai_build_limit_blocks(
 /// production choice slot before the start skips — `+0x564C` building
 /// (`0xC3371C`), `+0x5654` infantry (`0xC3360C`), `+0x5658` aircraft, and for
 /// a unit `+0x5650` or the naval queue's `+0x16130` by `UnitType+0xCCE`
-/// (`0xC33570`; legacy ext173 C2D039 uses +160F8 for naval). VERA keeps
-/// one unit slot, so a naval type clears that one; the split is a residual.
+/// (`0xC33570..0xC33592`, NPSE 2.0; legacy ext173 C2D039 uses +160F8).
 /// A capped building is cleared too, and
 /// its plan node stays unsatisfied, so `choose_building` returns the same
 /// type: that is the manual's warning (`AI克隆生产`) that a building at its
 /// limit leaves the computer unable to build anything, not a recovery.
-fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, category: ObjectCategory) {
+fn clear_aibuild_limit_choice(sim: &mut Simulation, owner: InternedId, object: &ObjectType) {
     let Some(house) = sim.houses.get_mut(&owner) else {
         return;
     };
-    match UnitChoiceKind::of(category) {
+    match UnitChoiceKind::of(object.category, object.naval) {
         Some(kind) => house.ai_unit_choices_mut().clear(kind),
         None => house.ai_production_mut().clear_building_choice(),
     }

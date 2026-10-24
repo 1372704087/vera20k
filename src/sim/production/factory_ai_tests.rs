@@ -635,9 +635,20 @@ fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
     use crate::rules::object_type::ObjectCategory;
     use crate::sim::ai_unit_choice::UnitChoiceKind;
 
-    let mut f = fixture_with(&format!(
-        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{NAVAL_RULES_TAIL}"
-    ));
+    let mut f = fixture_with(
+        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n\
+         [InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n1=SHIP\n\
+         [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n3=SYRD\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+         [PLAIN]\nStrength=1000\nCost=100\n\
+         [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+         [SYRD]\nStrength=1000\nFactory=UnitType\nNaval=yes\nCost=200\n\
+         [TANK]\nStrength=300\nSpeed=5\nCost=100\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [SHIP]\nStrength=300\nSpeed=5\nCost=100\nNaval=yes\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [Clear]\nBuildable=yes\n",
+    );
     let weap = f
         .sim
         .spawn_object("WEAP", "AIHouse", 8, 8, 0, &f.rules)
@@ -657,7 +668,9 @@ fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
     {
         let house = f.sim.houses.get_mut(&f.owner).unwrap();
         house.ai_unit_choices_mut().set(UnitChoiceKind::Unit, tank);
-        house.ai_unit_choices_mut().set_naval_unit(ship);
+        house
+            .ai_unit_choices_mut()
+            .set(UnitChoiceKind::NavalUnit, ship);
     }
     let held = |f: &Fixture, building: u64| -> Option<String> {
         f.sim
@@ -692,6 +705,24 @@ fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
         held(&f, syrd).as_deref(),
         Some("SHIP"),
         "the shipyard builds the naval channel"
+    );
+    abandon_production(
+        &mut f.sim,
+        &f.rules,
+        FactoryHolder::Building(syrd),
+        f.owner,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let choices = f.sim.houses[&f.owner].ai_unit_choices();
+    assert_eq!(
+        choices.get(UnitChoiceKind::NavalUnit),
+        -1,
+        "abandon clears the naval choice"
+    );
+    assert_eq!(
+        choices.get(UnitChoiceKind::Unit),
+        tank,
+        "land choice survives"
     );
 }
 
@@ -747,7 +778,7 @@ fn disable_parallel_ai_queues_keeps_naval_and_ground_counters_apart() {
         .get_mut(&f.owner)
         .unwrap()
         .ai_unit_choices_mut()
-        .set_naval_unit(ship);
+        .set(UnitChoiceKind::NavalUnit, ship);
     f.visit(syrd_1);
     assert!(
         f.holds(syrd_1),

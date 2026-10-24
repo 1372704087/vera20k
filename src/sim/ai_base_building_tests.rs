@@ -740,7 +740,9 @@ fn a_naval_producer_reads_its_own_vehicle_choice() {
     let owner = sim.interner.intern("AI");
     let mut house = HouseState::new(owner, 0, None, false, 1000, 10);
     house.ai_unit_choices_mut().set(UnitChoiceKind::Unit, 0);
-    house.ai_unit_choices_mut().set_naval_unit(1);
+    house
+        .ai_unit_choices_mut()
+        .set(UnitChoiceKind::NavalUnit, 1);
     sim.houses.register(house);
 
     assert_eq!(

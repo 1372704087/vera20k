@@ -1844,6 +1844,165 @@ fn production_frame(sim: &mut Simulation, rules: &RuleSet, boundary: &Boundary) 
 }
 
 #[test]
+fn solo_wol_commands_apply_without_ahead_or_batching_across_timing_updates() {
+    let (mut sim, rules, actor) = stop_scene();
+    sim.session.set_game_mode(ScenarioGameMode::Wol);
+    sim.session.install_network_timing(40);
+    sim.session.game_options_mut_for_test().game_speed = 1;
+    sim.session.game_options_mut_for_test().fog_of_war = true;
+    sim.session
+        .install_network_command_timing(0, std::num::NonZeroU8::new(10).unwrap(), [0]);
+    let rate = NonZeroU32::new(10).unwrap();
+    let agreement =
+        StartupAgreement::new([(0, 0)], [0], 73, 40, 30, rate, sim.state_hash()).unwrap();
+    let mut live =
+        LiveCommandSession::new(agreement, transport(), 0, 73, rate, LiveCommandMode::Wol).unwrap();
+    live.configure_precalculated_timing(40, 45);
+    let mut boundary = Boundary::new(live);
+    boundary.process_millis = Some(60);
+    let owner = sim.interner.get("Alpha").unwrap();
+    assert!(sim.issue_local_command(CommandEnvelope::synchronized(
+        sim.encode_stop_record(owner, actor).unwrap(),
+        0,
+    )));
+    for _ in 0..2 {
+        production_frame(&mut sim, &rules, &boundary);
+    }
+    let stops = || {
+        boundary
+            .applied
+            .borrow()
+            .iter()
+            .filter_map(|(frame, record, ok)| {
+                crate::sim::command::StopRecord::decode(record).map(|_| (*frame, *ok))
+            })
+            .collect::<Vec<_>>()
+    };
+    // Frame0 primes the network queue; the first dispatchable frame is1.
+    assert_eq!(stops(), [(1, true)]);
+    assert_eq!(sim.session().network_max_ahead_frames(), Some(40));
+    assert_eq!(
+        sim.session()
+            .network_command_timing()
+            .unwrap()
+            .frames_per_second(),
+        45
+    );
+    // Reach the real adaptive-timing gate without injecting TIMING records.
+    for _ in 0..5 {
+        assert!(
+            sim.issue_local_command(CommandEnvelope::synchronized(
+                crate::sim::command::GameSpeedRecord {
+                    house_id: 0,
+                    frame: 2,
+                    speed: 1
+                }
+                .encode()
+                .unwrap(),
+                sim.session().tick(),
+            ))
+        );
+    }
+    for frame in 2..=512 {
+        if frame == 257 {
+            boundary.process_millis = Some(1);
+        }
+        production_frame(&mut sim, &rules, &boundary);
+        assert_eq!(sim.session().binary_frame(), frame + 1);
+        if frame == 256 {
+            assert_eq!(
+                sim.session()
+                    .network_command_timing()
+                    .unwrap()
+                    .frames_per_second(),
+                16
+            );
+        }
+    }
+    assert_eq!(
+        sim.session()
+            .network_command_timing()
+            .unwrap()
+            .frames_per_second(),
+        45
+    );
+    let issued = sim.session().binary_frame();
+    assert!(sim.issue_local_command(CommandEnvelope::synchronized(
+        sim.encode_stop_record(owner, actor).unwrap(),
+        sim.session().tick(),
+    )));
+    production_frame(&mut sim, &rules, &boundary);
+    assert_eq!(stops(), [(1, true), (issued, true)]);
+    assert_eq!(sim.session().network_max_ahead_frames(), Some(40));
+    assert_eq!(
+        sim.session()
+            .network_command_timing()
+            .unwrap()
+            .frame_send_rate()
+            .get(),
+        10
+    );
+}
+
+#[test]
+fn originally_multiplayer_wol_keeps_its_delay_after_the_last_peer_leaves() {
+    let (mut sim, rules, actor) = stop_scene();
+    sim.session.set_game_mode(ScenarioGameMode::Wol);
+    sim.session
+        .install_network_command_timing(0, std::num::NonZeroU8::new(5).unwrap(), [0, 1]);
+    let mut wire = transport();
+    let peer = transport();
+    wire.connections_mut()
+        .add_peer(1, peer.primary_addr().unwrap())
+        .unwrap();
+    let rate = NonZeroU32::new(5).unwrap();
+    let mut live = LiveCommandSession::new(
+        fixture_agreement(&wire, 0, 73, rate),
+        wire,
+        0,
+        73,
+        rate,
+        LiveCommandMode::Wol,
+    )
+    .unwrap();
+    certify_native_probe_fixture(&mut live);
+    let boundary = Boundary::new(live);
+    // The first Queue_AI visit clears peer progress; supply its native
+    // response after entering that real initial wait, before peer departure.
+    production_frame(&mut sim, &rules, &boundary);
+    {
+        let mut live = boundary.live.borrow_mut();
+        let probe = live
+            .exchange
+            .frame_probe(1, 0, 10, 73, live.policy)
+            .unwrap();
+        live.exchange
+            .receive(1, &probe, 73, &mut sim.network_command_queues(), 0)
+            .unwrap();
+    }
+    production_frame(&mut sim, &rules, &boundary);
+    assert!(!boundary.live.borrow().startup_pending());
+    assert!(boundary.live.borrow_mut().remove_peer(1));
+    let owner = sim.interner.get("Alpha").unwrap();
+    assert!(sim.issue_local_command(CommandEnvelope::synchronized(
+        sim.encode_stop_record(owner, actor).unwrap(),
+        sim.session().tick(),
+    )));
+    for _ in 1..=15 {
+        production_frame(&mut sim, &rules, &boundary);
+    }
+    let stops = boundary
+        .applied
+        .borrow()
+        .iter()
+        .filter_map(|(frame, record, ok)| {
+            crate::sim::command::StopRecord::decode(record).map(|_| (*frame, *ok))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(stops, [(15, true)]);
+}
+
+#[test]
 fn real_udp_timing_commands_apply_precalc_then_adapt_to_the_slowest_peer() {
     let (mut a_live, mut b_live) = pair(73);
     a_live.mode = LiveCommandMode::Wol;

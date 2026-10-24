@@ -1,8 +1,15 @@
 # Online lobby service
 
-The Cloudflare Worker serves `protocol.md`. Its SQLite Durable Object owns player
-accounts, authenticated sessions, room membership, settings revisions, readiness
+The Cloudflare Worker serves `protocol.md`. Its SQLite Durable Object owns guest
+profiles, authenticated sessions, room membership, settings revisions, readiness
 and start agreement. The relay and clients own UDP connectivity and simulation.
+
+German Bunker (`Lob_41_2`) is the only public chat lobby. Its durable `public`
+room id and membership survive the name migration; player-created game rooms
+remain available. Players enter a username and receive a fresh guest identity
+and bearer session. An active name is reserved without case; another sign-in
+cannot take it over. A host can start against an explicitly selected AI opponent
+without another human; AI rows remain outside the network roster.
 
 ```sh
 npm ci
@@ -28,8 +35,11 @@ The client defaults to the deployed lobby at
 
 For a separate deployment, set `VERA20K_LOBBY_URL` at build time or use its runtime
 environment override for staging. Clients require HTTPS, verify TLS and decline
-redirects. The client keeps login tokens in memory and does not save passwords.
-The lobby stores account password verifiers and session records in SQLite.
+redirects. The client keeps bearer tokens in memory. The lobby stores temporary
+guest preferences and relay admission counters in SQLite, then removes them with
+the session on logout or inactivity. Names are reusable after that cleanup, with
+a fresh player identity. Existing password-account records remain untouched, but
+new account creation and password sign-in return `upgrade_required`.
 
 The source schema is configured in `cloudflare.config.ts` using the official
 [Cloudflare configuration API](https://developers.cloudflare.com/cf/projects/cloudflare-config/).
@@ -41,7 +51,7 @@ pre-v3 sessions receive `upgrade_required`. Deploy matching clients and this
 service together. Relay tickets/datagrams remain wire version2 and use the
 existing v2 relay. Unsupported sessions retire through ordinary cleanup; account
 records remain intact. Initial grants last 120 seconds and playing grants 300 seconds.
-Each account has one monotonically ordered relay admission, so cancelled starts
+Each player identity has one monotonically ordered relay admission, so cancelled starts
 cannot retain a pool of valid rooms. Payload encryption keys are delivered only
 to the match participants over HTTPS and are never sent to the relay.
 The HTTPS lobby is trusted with these keys. Relay-blind encryption does not

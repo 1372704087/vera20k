@@ -99,6 +99,10 @@ impl StartupAgreement {
         })
     }
 
+    pub(super) fn is_original_singleton(&self) -> bool {
+        self.houses.len() == 1
+    }
+
     fn row_for_house(&self, house: i8) -> Option<u8> {
         self.houses
             .iter()

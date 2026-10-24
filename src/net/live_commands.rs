@@ -179,6 +179,14 @@ impl LiveCommandSession {
             }
             houses.push(house);
         }
+        // Intentional modern online policy: solo AI needs no command lead
+        // time. The original admission is immutable; losing remote players
+        // later must never switch an existing multiplayer game to local input.
+        let policy = if mode == LiveCommandMode::Wol && agreement.is_original_singleton() {
+            NetworkSendPolicy::Local
+        } else {
+            NetworkSendPolicy::FrameSendRate2 { frame_send_rate }
+        };
         let startup = startup::StartupHandshake::new(
             agreement,
             local_house,
@@ -192,7 +200,7 @@ impl LiveCommandSession {
             startup,
             local_house,
             initial_seed,
-            policy: NetworkSendPolicy::FrameSendRate2 { frame_send_rate },
+            policy,
             timing: timing::LiveTiming::default(),
             mode,
             current: None,
@@ -731,11 +739,13 @@ impl LiveCommandSession {
         };
         let host = queues.timing_host_house() == Some(self.local_house);
         let rate = shared.frame_send_rate();
-        // A cache for this retained frame only; ScenarioSession is the owner
-        // changed by EVENT_TIMING after dispatch, before the next poll.
-        self.policy = NetworkSendPolicy::FrameSendRate2 {
-            frame_send_rate: NonZeroU32::new(u32::from(rate.get())).unwrap(),
-        };
+        // Multiplayer cadence follows ScenarioSession's EVENT_TIMING owner.
+        // Local scheduling remains fixed by the original solo admission.
+        if self.policy != NetworkSendPolicy::Local {
+            self.policy = NetworkSendPolicy::FrameSendRate2 {
+                frame_send_rate: NonZeroU32::new(u32::from(rate.get())).unwrap(),
+            };
+        }
         if frame != 0 && frame & 127 == 0 {
             let retry = timing::periodic_retry(self.transport.response_time(), latency_fudge);
             self.transport.set_retry_timing(retry, false);
@@ -752,11 +762,11 @@ impl LiveCommandSession {
         if !host {
             return;
         }
-        if let Some(event) = self
+        let event = if let Some(event) = self
             .timing
             .take_precalculated(self.local_house, frame as i32)
         {
-            let _ = queues.issue_timing_record(event.encode().expect("fixed TIMING record"));
+            Some(event)
         } else if frame & 255 == 0 && self.exchange.sent_commands() >= 5 {
             let Some(milliseconds) = queues.timing().and_then(|timing| {
                 timing.maximum_processing_millis(
@@ -779,8 +789,22 @@ impl LiveCommandSession {
                 latency_fudge,
                 queues.fog_of_war(),
             );
-            let _ = queues.issue_timing_record(event.encode().expect("fixed TIMING record"));
             self.transport.set_retry_timing(retry, false);
+            Some(event)
+        } else {
+            None
+        };
+        if let Some(mut event) = event {
+            if self.policy == NetworkSendPolicy::Local {
+                // Preserve the existing FPS/GameSpeed/CPU timing pipeline,
+                // without widening its dispatcher retiming window over local
+                // commands. Encode the current effective ahead value with
+                // the same fog adjustment the receiver will subtract.
+                event.max_ahead =
+                    max_ahead.wrapping_add(if queues.fog_of_war() { 10 } else { 0 }) as u16;
+                event.frame_send_rate = rate;
+            }
+            let _ = queues.issue_timing_record(event.encode().expect("fixed TIMING record"));
         }
     }
 

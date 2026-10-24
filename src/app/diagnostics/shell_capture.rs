@@ -114,6 +114,7 @@ const NETWORK_OPTIONS_CHECKPOINTS: [(&str, movies::NetworkOptionsTarget); 7] = [
 ];
 const CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE: &str = "main-menu-0xe2-network-bounce";
 const CHECKPOINT_WOL_0X10E_STEADY: &str = "wol-0x10e-steady";
+const CHECKPOINT_WOL_ONLINE_WELCOME_STEADY: &str = "wol-online-welcome-steady";
 const CHECKPOINT_WOL_0X10E_ENTRY_PREFIX: &str = "wol-0x10e-entry-tick-";
 const CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH: &str = "wol-0x10e-hover-quick-match";
 const CHECKPOINT_WOL_0X10E_API_MISSING: &str = "wol-0x10e-api-missing";
@@ -277,6 +278,8 @@ pub enum ShellCaptureCheckpoint {
     MainMenu0xE2NetworkBounce,
     /// Main Menu -> Internet: `0x10E` settled.
     Wol0x10ESteady,
+    /// The actual online welcome, without entering login or reading credentials.
+    WolOnlineWelcomeSteady,
     /// Its entry slide held at one tick (`wol-0x10e-entry-tick-<N>`).
     Wol0x10EEntry(u32),
     /// Settled with the pointer on Quick Match.
@@ -544,7 +547,7 @@ impl ShellCaptureCheckpoint {
                 EXPECTED_HEIGHT as i32,
             )
             .tile_count as u32;
-            let last = kind.column(rows).total_ticks() - 1;
+            let last = kind.column(rows, None).total_ticks() - 1;
             ensure!(tick <= last, "{value}: the slide shows ticks 0..={last}");
             return Ok(checkpoint(tick));
         }
@@ -725,6 +728,7 @@ impl ShellCaptureCheckpoint {
             CHECKPOINT_OPTIONS_VERA_STEADY => Ok(Self::OptionsVeraSteady),
             CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE => Ok(Self::MainMenu0xE2NetworkBounce),
             CHECKPOINT_WOL_0X10E_STEADY => Ok(Self::Wol0x10ESteady),
+            CHECKPOINT_WOL_ONLINE_WELCOME_STEADY => Ok(Self::WolOnlineWelcomeSteady),
             CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH => Ok(Self::Wol0x10EHoverQuickMatch),
             CHECKPOINT_WOL_0X10E_API_MISSING => Ok(Self::Wol0x10EApiMissing),
             CHECKPOINT_WOL_0X10E_BACK => Ok(Self::Wol0x10EBack),
@@ -936,6 +940,7 @@ impl ShellCaptureCheckpoint {
             }
             Self::MainMenu0xE2NetworkBounce => CHECKPOINT_MAIN_MENU_0XE2_NETWORK_BOUNCE,
             Self::Wol0x10ESteady => CHECKPOINT_WOL_0X10E_STEADY,
+            Self::WolOnlineWelcomeSteady => CHECKPOINT_WOL_ONLINE_WELCOME_STEADY,
             Self::Wol0x10EEntry(_) => "wol-0x10e-entry",
             Self::Wol0x10EHoverQuickMatch => CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH,
             Self::Wol0x10EApiMissing => CHECKPOINT_WOL_0X10E_API_MISSING,
@@ -1069,26 +1074,37 @@ impl ShellCaptureCheckpoint {
             },
             Self::MainMenu0xE2NetworkBounce => movies::MoviesTarget::NetworkBounce,
             Self::Wol0x10ESteady => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
+                entry_tick: None,
+                hover: None,
+                press: movies::WolPress::None,
+            },
+            Self::WolOnlineWelcomeSteady => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Online,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EEntry(tick) => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: Some(tick),
                 hover: None,
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EHoverQuickMatch => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: Some(WOL_QUICK_MATCH_POINT),
                 press: movies::WolPress::None,
             },
             Self::Wol0x10EApiMissing => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::MyInformation,
             },
             Self::Wol0x10EBack => movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
                 entry_tick: None,
                 hover: None,
                 press: movies::WolPress::MainMenu,
@@ -1145,15 +1161,16 @@ pub struct ShellCaptureRequest {
     live_online: Option<LiveOnlineConfig>,
 }
 
-/// Nonsecret inputs for an ordinary online UI run. Password lines are read
-/// from stdin at each actual login and never become part of this Debug value.
+/// Nonsecret username and match inputs for an ordinary online UI run.
 #[derive(Debug, Clone)]
 pub(crate) struct LiveOnlineConfig {
     pub account: String,
     pub host: String,
-    pub create_account: bool,
     pub map: Option<String>,
+    /// Real human/service sources; AI rows never become relay participants.
     pub players: usize,
+    pub ai: Option<crate::skirmish_launch::AiDifficulty>,
+    pub mode_id: Option<i32>,
     /// Authored waypoint index, independent of arrival-order source/raw row.
     pub start: Option<u8>,
     pub frames: u32,
@@ -1257,6 +1274,30 @@ pub(crate) struct LiveLanConfig {
 }
 
 impl ShellCaptureRequest {
+    /// Only explicit native WOL diagnostics retain the original UI surface.
+    pub(crate) fn legacy_wol_ui(&self) -> bool {
+        match self.checkpoint.movies_target() {
+            Some(movies::MoviesTarget::Wol(target)) => !matches!(
+                target,
+                movies::WolTarget::ModernLobby | movies::WolTarget::ModernUsername
+            ),
+            Some(movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Unavailable,
+                ..
+            }) => true,
+            _ => false,
+        }
+    }
+
+    /// Select only the diagnostic visit; never change the saved profile.
+    pub(crate) fn wol_welcome_provider(&self) -> Option<crate::app::shell_wol::WolProvider> {
+        match self.checkpoint.movies_target() {
+            Some(movies::MoviesTarget::WolWelcome { provider, .. }) => Some(provider),
+            Some(movies::MoviesTarget::Wol(target)) => Some(target.welcome_provider()),
+            _ => None,
+        }
+    }
+
     pub fn checkpoint(&self) -> ShellCaptureCheckpoint {
         self.checkpoint
     }
@@ -1336,9 +1377,9 @@ where
     let mut online_account = None;
     let mut online_host = None;
     let mut online_map = None;
-    let mut online_create = false;
-    let mut online_password_stdin = false;
     let mut online_players = None;
+    let mut online_ai = None;
+    let mut online_mode_id = None;
     let mut online_start = None;
     let mut online_frames = None;
     let mut online_simple = false;
@@ -1462,6 +1503,25 @@ where
                 )?,
                 "--online-players",
             )?,
+            "--online-ai" => {
+                use crate::skirmish_launch::AiDifficulty;
+                let difficulty = match next_utf8(&mut args, "value after --online-ai")?.as_str() {
+                    "easy" => AiDifficulty::Easy,
+                    "normal" => AiDifficulty::Normal,
+                    "hard" => AiDifficulty::Hard,
+                    _ => bail!("--online-ai requires easy, normal or hard"),
+                };
+                set_once(&mut online_ai, difficulty, "--online-ai")?;
+            }
+            "--online-mode-id" => set_once(
+                &mut online_mode_id,
+                i32::try_from(parse_u32(
+                    next_utf8(&mut args, "value after --online-mode-id")?,
+                    "--online-mode-id",
+                )?)
+                .context("--online-mode-id must fit a nonnegative i32")?,
+                "--online-mode-id",
+            )?,
             "--online-start" => set_once(
                 &mut online_start,
                 parse_u32(
@@ -1527,14 +1587,6 @@ where
             "--online-simple-input" => {
                 ensure!(!online_simple, "duplicate --online-simple-input");
                 online_simple = true;
-            }
-            "--online-create-account" => {
-                ensure!(!online_create, "duplicate --online-create-account");
-                online_create = true;
-            }
-            "--online-password-stdin" => {
-                ensure!(!online_password_stdin, "duplicate --online-password-stdin");
-                online_password_stdin = true;
             }
             _ => bail!("unknown shell-capture option {flag:?}"),
         }
@@ -1603,10 +1655,6 @@ where
         );
     }
     let live_online = if online {
-        ensure!(
-            online_password_stdin,
-            "online capture requires --online-password-stdin"
-        );
         let account = online_account.context("online capture requires --online-account")?;
         ensure!(
             !matches!(checkpoint, ShellCaptureCheckpoint::Lan(target) if target.online_guest())
@@ -1632,8 +1680,9 @@ where
         );
         let players = online_players.unwrap_or(2) as usize;
         ensure!(
-            (2..=crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT).contains(&players),
-            "online players must be between2 and30"
+            (1..=crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT).contains(&players)
+                && (players >= 2 || online_ai.is_some()),
+            "online players must be between2 and30, or one host with explicit --online-ai"
         );
         ensure!(
             !online_failure
@@ -1644,6 +1693,8 @@ where
         );
         let frames = online_frames.unwrap_or(if online_failure {
             300
+        } else if online_ai.is_some() {
+            600
         } else if online_mass {
             1200
         } else if online_simple {
@@ -1655,6 +1706,26 @@ where
             (300..=1_000_000).contains(&frames),
             "online frame observation must cover300 to1000000 frames"
         );
+        if online_ai.is_some() || online_mode_id.is_some() {
+            ensure!(
+                matches!(
+                    checkpoint,
+                    ShellCaptureCheckpoint::Lan(movies::LanTarget::OnlineHost)
+                ) && account == host
+                    && players == 1
+                    && online_ai.is_some()
+                    && frames >= 600
+                    && !online_mass
+                    && !profile_check
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_loading_host_loss.is_none()
+                    && online_startup_host_loss.is_none()
+                    && online_loading_cancel.is_none()
+                    && online_loading_cancel_checkpoint.is_none(),
+                "AI/mode capture requires one online host, explicit AI, at least600 frames and no separate fault/profile/mass case"
+            );
+        }
         ensure!(
             online_network_checkpoint.as_ref().is_none_or(|nonce| {
                 !online_failure
@@ -1709,7 +1780,7 @@ where
             "startup host loss requires a normal simple three-player online match and a32-digit lowercase hex nonce; loading/map/start and other faults are separate runs"
         );
         ensure!(
-            players == 2 || online_simple || online_mass,
+            players <= 2 || online_simple || online_mass,
             "more than two players requires --online-simple-input or --online-mass-input"
         );
         ensure!(
@@ -1765,12 +1836,13 @@ where
         Some(LiveOnlineConfig {
             account,
             host,
-            create_account: online_create,
             map: online_map,
             players,
+            ai: online_ai,
+            mode_id: online_mode_id,
             start: online_start.map(|start| start as u8),
             frames,
-            simple_input: online_simple || online_mass || online_failure,
+            simple_input: online_simple || online_mass || online_failure || online_ai.is_some(),
             mass_input: online_mass,
             failure_prefix_output: if online_failure || online_network_checkpoint.is_some() {
                 let mut path = output_dir.as_os_str().to_owned();
@@ -1812,9 +1884,9 @@ where
             online_account.is_none()
                 && online_host.is_none()
                 && online_map.is_none()
-                && !online_create
-                && !online_password_stdin
                 && online_players.is_none()
+                && online_ai.is_none()
+                && online_mode_id.is_none()
                 && online_start.is_none()
                 && online_frames.is_none()
                 && !online_simple
@@ -2177,6 +2249,7 @@ pub(crate) struct ShellCaptureSession {
     entry_sequence: Option<EntrySequenceState>,
     skirmish: Option<skirmish::SkirmishCapture>,
     movies: Option<movies::MoviesCapture>,
+    wol_welcome_provider_selected: bool,
     score: Option<score::ScoreCapture>,
     campaign_score: Option<score::CampaignScoreCapture>,
     outcome: Option<std::result::Result<(), String>>,
@@ -2304,6 +2377,7 @@ impl ShellCaptureSession {
             entry_sequence,
             skirmish,
             movies,
+            wol_welcome_provider_selected: false,
             score,
             campaign_score,
             outcome: None,
@@ -2410,6 +2484,33 @@ impl ShellCaptureSession {
         state: &mut AppState,
         rendered: PresentedShell,
     ) -> Result<()> {
+        if let Some(visit) = state.frontend.wol.as_mut() {
+            let mut changed = visit.set_legacy_ui(self.request.legacy_wol_ui());
+            let mut provider_selected = false;
+            if !self.wol_welcome_provider_selected
+                && matches!(visit.page, crate::app::shell_wol::WolPage::Welcome)
+                && let Some(provider) = self.request.wol_welcome_provider()
+            {
+                visit.set_provider(provider);
+                self.wol_welcome_provider_selected = true;
+                provider_selected = true;
+                changed = true;
+            }
+            if changed {
+                if provider_selected && self.request.legacy_wol_ui() {
+                    // Normal Online entry skips native persona I/O. Only
+                    // after the explicit native diagnostic selection may
+                    // its existing owner prefill and reopen the welcome.
+                    crate::app::shell_wol::persona::enter_wol_main(state);
+                    crate::app::App::reopen_wol_welcome(state);
+                }
+                // The ordinary reducer rearms the selected page's entry before
+                // any controlled driver reads its controls. Native fixtures
+                // are confined to the capture's separately marked profile.
+                crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
+                return Ok(());
+            }
+        }
         if let Some(capture) = &mut self.skirmish {
             capture.after_present(state, rendered, self.frames_seen)?;
         }
@@ -3424,13 +3525,12 @@ mod tests {
     }
 
     #[test]
-    fn online_guest_capture_requires_stdin_and_an_explicit_host() {
+    fn online_guest_capture_requires_a_username_and_an_explicit_host() {
         let output = new_output_path("online-guest");
         let mut values = valid_args(&output);
         values[1] = "online-live-guest".into();
-        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values.clone()).is_err());
-        values.extend(args(&["--online-password-stdin"]));
+        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values.clone()).is_err());
         values.extend(args(&["--online-host", "Host"]));
         let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
@@ -3443,6 +3543,82 @@ mod tests {
     }
 
     #[test]
+    fn online_capture_rejects_password_and_registration_options() {
+        let output = new_output_path("online-username-only");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&["--online-account", "Host"]));
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values.push("--online-password-stdin".into());
+        assert!(parse_launch_args(values.clone()).is_err());
+        *values.last_mut().unwrap() = "--online-create-account".into();
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn online_ai_host_capture_keeps_one_human_and_the_requested_retail_mode() {
+        let output = new_output_path("online-ai-host");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-players",
+            "1",
+            "--online-ai",
+            "hard",
+            "--online-mode-id",
+            "1",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
+            panic!("capture")
+        };
+        let config = request.live_online.unwrap();
+        assert_eq!(config.players, 1);
+        assert_eq!(config.ai, Some(crate::skirmish_launch::AiDifficulty::Hard));
+        assert_eq!(config.mode_id, Some(1));
+        assert_eq!(config.frames, 600);
+        assert!(config.simple_input && !config.mass_input);
+    }
+
+    #[test]
+    fn online_ai_capture_requires_a_singleton_host_and_actual_play() {
+        let output = new_output_path("online-ai-admission");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&["--online-account", "Host", "--online-players", "1"]));
+        assert!(parse_launch_args(values.clone()).is_err());
+        values.extend(args(&["--online-ai", "normal"]));
+        assert!(parse_launch_args(values.clone()).is_ok());
+        let mut short = values.clone();
+        short.extend(args(&["--online-frames", "300"]));
+        assert!(parse_launch_args(short).is_err());
+        values[1] = "online-live-guest".into();
+        values.extend(args(&["--online-host", "Host"]));
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
+    fn online_ai_options_reject_unknown_difficulties_and_nononline_routes() {
+        let output = new_output_path("online-ai-invalid");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-players",
+            "1",
+            "--online-ai",
+            "unknown",
+        ]));
+        assert!(parse_launch_args(values.clone()).is_err());
+        *values.last_mut().unwrap() = "easy".into();
+        assert!(parse_launch_args(values.clone()).is_ok());
+        values[1] = "main-menu-0xe2-steady".into();
+        assert!(parse_launch_args(values).is_err());
+    }
+
+    #[test]
     fn online_failure_targets_require_a_pair_and_write_a_separate_real_prefix() {
         for target in [
             "online-live-timeout-host",
@@ -3452,13 +3628,7 @@ mod tests {
             let output = new_output_path("online-failure");
             let mut values = valid_args(&output);
             values[1] = target.into();
-            values.extend(args(&[
-                "--online-account",
-                "Peer",
-                "--online-host",
-                "Host",
-                "--online-password-stdin",
-            ]));
+            values.extend(args(&["--online-account", "Peer", "--online-host", "Host"]));
             let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
             else {
                 panic!("capture")
@@ -3482,11 +3652,7 @@ mod tests {
         let output = new_output_path("online-failure-host-required");
         let mut values = valid_args(&output);
         values[1] = "online-live-failure-guest".into();
-        values.extend(args(&[
-            "--online-account",
-            "Peer",
-            "--online-password-stdin",
-        ]));
+        values.extend(args(&["--online-account", "Peer"]));
         assert!(parse_launch_args(values).is_err());
     }
 
@@ -3498,7 +3664,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-frames",
             "600",
@@ -3529,7 +3694,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "CaptureHost",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-loading-cancel",
             "https",
@@ -3554,7 +3718,6 @@ mod tests {
         wrong.extend(args(&[
             "--online-account",
             "CaptureHost",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-loading-cancel",
             "departure",
@@ -3572,7 +3735,6 @@ mod tests {
             "Guest",
             "--online-host",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-players",
             "3",
@@ -3610,7 +3772,6 @@ mod tests {
             "Guest",
             "--online-host",
             "Host",
-            "--online-password-stdin",
             "--online-simple-input",
             "--online-exit-checkpoint",
             "0123456789abcdef0123456789abcdef",
@@ -3647,7 +3808,6 @@ mod tests {
         values.extend(args(&[
             "--online-account",
             "Host",
-            "--online-password-stdin",
             "--online-players",
             "30",
             "--online-frames",
@@ -3810,20 +3970,98 @@ mod tests {
 
     #[test]
     fn wol_checkpoints_round_trip() {
+        let AppLaunchMode::ShellCapture(mut request) =
+            parse_launch_args(valid_args(&new_output_path("legacy-wol"))).unwrap()
+        else {
+            panic!("capture");
+        };
         for name in [
             CHECKPOINT_WOL_0X10E_STEADY,
             CHECKPOINT_WOL_0X10E_HOVER_QUICK_MATCH,
             CHECKPOINT_WOL_0X10E_API_MISSING,
             CHECKPOINT_WOL_0X10E_BACK,
+            "wol-0x10e-entry-tick-0",
         ] {
             let checkpoint = ShellCaptureCheckpoint::parse(name).expect("WOL checkpoint");
-            assert_eq!(checkpoint.as_str(), name);
+            request.checkpoint = checkpoint;
+            assert!(request.legacy_wol_ui());
+            assert_eq!(
+                request.wol_welcome_provider(),
+                Some(crate::app::shell_wol::WolProvider::Unavailable)
+            );
+            if !name.contains("entry-tick") {
+                assert_eq!(checkpoint.as_str(), name);
+            }
+        }
+        for (name, provider) in [
+            (
+                "wol-0x113-login-accepted",
+                crate::app::shell_wol::WolProvider::Controlled,
+            ),
+            (
+                "wol-0x10e-profile",
+                crate::app::shell_wol::WolProvider::Controlled,
+            ),
+            (
+                "wol-test-service-lobby",
+                crate::app::shell_wol::WolProvider::TestService,
+            ),
+        ] {
+            request.checkpoint = ShellCaptureCheckpoint::parse(name).unwrap();
+            assert!(request.legacy_wol_ui());
+            assert_eq!(request.wol_welcome_provider(), Some(provider));
         }
         assert_eq!(
             ShellCaptureCheckpoint::parse("wol-0x10e-entry-tick-17").expect("last tick"),
             ShellCaptureCheckpoint::Wol0x10EEntry(17)
         );
         assert!(ShellCaptureCheckpoint::parse("wol-0x10e-entry-tick-18").is_err());
+    }
+
+    #[test]
+    fn online_welcome_capture_requires_no_login_inputs() {
+        let output = new_output_path("online-welcome");
+        let mut values = valid_args(&output);
+        values[1] = CHECKPOINT_WOL_ONLINE_WELCOME_STEADY.into();
+        let AppLaunchMode::ShellCapture(mut request) = parse_launch_args(values).expect("parse")
+        else {
+            panic!("capture");
+        };
+        assert_eq!(
+            request.checkpoint().as_str(),
+            CHECKPOINT_WOL_ONLINE_WELCOME_STEADY
+        );
+        assert!(request.live_online.is_none());
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::Online)
+        );
+        assert_eq!(
+            request.checkpoint().movies_target(),
+            Some(movies::MoviesTarget::WolWelcome {
+                provider: crate::app::shell_wol::WolProvider::Online,
+                entry_tick: None,
+                hover: None,
+                press: movies::WolPress::None,
+            })
+        );
+        request.checkpoint = ShellCaptureCheckpoint::Lan(movies::LanTarget::OnlineHost);
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(request.wol_welcome_provider(), None);
+        request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-lobby").unwrap();
+        assert!(!request.legacy_wol_ui());
+        assert!(request.live_online.is_none());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::TestService)
+        );
+        request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-username").unwrap();
+        assert!(!request.legacy_wol_ui());
+        assert_eq!(
+            request.wol_welcome_provider(),
+            Some(crate::app::shell_wol::WolProvider::Online)
+        );
     }
 
     #[test]
@@ -4182,7 +4420,7 @@ mod tests {
         )
         .tile_count as u32;
         assert_eq!(
-            ShellSlideKind::MainMenu.column(rows).total_ticks(),
+            ShellSlideKind::MainMenu.column(rows, None).total_ticks(),
             u32::from(ENTRY_SEQUENCE_FRAMES)
         );
     }
@@ -4248,11 +4486,7 @@ mod tests {
 
         let mut online = values.clone();
         online[1] = "online-live-host".into();
-        online.extend(args(&[
-            "--online-account",
-            "Host",
-            "--online-password-stdin",
-        ]));
+        online.extend(args(&["--online-account", "Host"]));
         let AppLaunchMode::ShellCapture(request) = parse_launch_args(online.clone()).unwrap()
         else {
             panic!("capture");

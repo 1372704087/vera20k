@@ -5,7 +5,7 @@
 use super::*;
 use crate::app::diagnostics::shell_capture::LiveOnlineConfig;
 use crate::ui::wol_lobby;
-use std::io::{BufRead, Read};
+use std::io::Read;
 
 mod exit_reentry;
 use crate::app::diagnostics::shell_capture::loading_host_loss::LoadingHostLoss;
@@ -21,12 +21,13 @@ enum RoundPhase {
     Create,
     Discover,
     HostSetup,
+    HostAi,
     HostReady,
     GuestSetup,
     Loading,
     Running,
     HoldFailureGuest,
-    Observe,
+    EndRound,
     Results,
     Returning,
     ExitFault,
@@ -55,6 +56,7 @@ pub(super) struct LiveRoundFlow {
     loading_cancel_trigger: Option<Value>,
     loading_cancellation: Option<Value>,
     profile: Option<super::profile::ProfileCheck>,
+    ai_input: super::profile::SetupComboInput,
 }
 
 impl LiveRoundFlow {
@@ -100,6 +102,7 @@ impl LiveRoundFlow {
             loading_cancel_trigger: None,
             loading_cancellation: None,
             profile,
+            ai_input: Default::default(),
         }
     }
 
@@ -113,12 +116,20 @@ impl LiveRoundFlow {
         frame: u32,
         selected_map: Option<&str>,
     ) -> Result<bool> {
+        let mode_id = self.config.as_ref().and_then(|config| config.mode_id);
+        let ai = self.config.as_ref().and_then(|config| config.ai);
         if let Some(input) = self.random_map_input.as_mut() {
             if !input.after_present(state, frame, &mut self.route)? {
                 return Ok(false);
             }
             self.random_map_input = None;
-            core.prepare_host_setup(state, Some("RandMap.Sed"), self.round_players())?;
+            core.prepare_host_setup(
+                state,
+                Some("RandMap.Sed"),
+                self.round_players(),
+                mode_id,
+                ai,
+            )?;
             self.record(
                 frame,
                 "Generated seed, preview and start positions published",
@@ -137,16 +148,39 @@ impl LiveRoundFlow {
             && self.rounds.is_empty()
         {
             ensure!(
-                self.players() <= 8,
+                self.players() + usize::from(ai.is_some()) <= 8,
                 "random maps support two to eight players"
             );
             setup_button(state, crate::ui::multiplayer_setup::CHOOSE_MAP)?;
-            self.random_map_input = Some(RandomMapInput::new(Some(self.players())));
+            self.random_map_input = Some(RandomMapInput::new(Some(
+                self.players() + usize::from(ai.is_some()),
+            )));
             self.record(frame, "Choose Map opened for normal random-map generation");
             return Ok(false);
         }
-        core.prepare_host_setup(state, selected_map, self.round_players())?;
-        self.record(frame, "Battle map and player slots configured");
+        if ai.is_some() && self.rounds.is_empty() {
+            let restored = state
+                .match_state
+                .session
+                .network_setup()
+                .context("restored online setup")?;
+            ensure!(
+                restored.mode.class.lists_in_skirmish(),
+                "ordinary online setup did not offer computer opponents"
+            );
+            self.record(
+                frame,
+                &format!(
+                    "Restored computer-capable online mode {} before diagnostic map selection",
+                    restored.mode.id
+                ),
+            );
+        }
+        core.prepare_host_setup(state, selected_map, self.round_players(), mode_id, ai)?;
+        self.record(
+            frame,
+            "Requested retail mode, map and human slots configured",
+        );
         Ok(true)
     }
 
@@ -681,16 +715,7 @@ impl LiveRoundFlow {
                     App::handle_wol_key(state, Some(KeyCode::Delete), true, None);
                 }
                 App::handle_wol_key(state, None, true, Some(&self.online_config().account));
-                click(state, layout.password);
-                let mut password = read_password()?;
-                App::handle_wol_key(state, None, true, Some(&password));
-                password.clear();
-                let create = self.online_config().create_account && !self.reentering();
-                let control = if create {
-                    crate::ui::wol_login::MANAGE
-                } else {
-                    crate::ui::wol_login::LOGIN
-                };
+                let control = crate::ui::wol_login::LOGIN;
                 ensure!(
                     state
                         .frontend
@@ -707,14 +732,7 @@ impl LiveRoundFlow {
                         .button_rect(control)
                         .context("online authentication button")?,
                 );
-                self.record(
-                    frame,
-                    if create {
-                        "Create Account submitted"
-                    } else {
-                        "Login submitted"
-                    },
-                );
+                self.record(frame, "Username submitted through OK");
                 self.phase = RoundPhase::Lobby;
             }
             RoundPhase::Lobby if lobby_ready(state, rendered) => {
@@ -840,6 +858,69 @@ impl LiveRoundFlow {
                     .map(str::to_owned)
                     .or_else(|| self.online_config().map.clone());
                 if self.prepare_host_map(core, state, rendered, frame, selected.as_deref())? {
+                    self.phase = if self.online_config().ai.is_some() {
+                        RoundPhase::HostAi
+                    } else {
+                        RoundPhase::HostReady
+                    };
+                }
+            }
+            RoundPhase::HostAi
+                if rendered == PresentedShell::NetworkSetup
+                    && online_setup_settled(state, true) =>
+            {
+                let difficulty = self.online_config().ai.context("explicit AI difficulty")?;
+                let launch = state
+                    .match_state
+                    .session
+                    .network_setup()
+                    .context("AI host setup")?;
+                let retained_row = launch.opponents.first().map(|ai| ai.raw_slot_index);
+                let value = match difficulty {
+                    crate::skirmish_launch::AiDifficulty::Easy => 4,
+                    crate::skirmish_launch::AiDifficulty::Normal => 5,
+                    crate::skirmish_launch::AiDifficulty::Hard => 6,
+                };
+                let view = setup::view(state).context("AI Player dropdown view")?;
+                let row = view
+                    .combos
+                    .iter()
+                    .find(|combo| {
+                        SetupColumn::decode(combo.id)
+                            .is_some_and(|(column, _)| column == SetupColumn::Player)
+                            && combo.visible
+                            && combo.enabled
+                            && retained_row.map_or(
+                                state.match_state.session.network_vacancy(combo.row)
+                                    == Some(
+                                        crate::app::match_runtime::session::NetworkVacancy::Open,
+                                    ),
+                                |row| combo.row == row,
+                            )
+                            && combo.choices.iter().any(|choice| choice.value == value)
+                    })
+                    .map(|combo| usize::from(combo.row))
+                    .context("ordinary Open row offering the requested AI difficulty")?;
+                if self
+                    .ai_input
+                    .select(state, SetupColumn::Player, row, value)?
+                {
+                    let launch = state
+                        .match_state
+                        .session
+                        .network_setup()
+                        .context("selected AI setup")?;
+                    ensure!(
+                        launch.humans.len() == 1
+                            && launch.opponents.len() == 1
+                            && launch.opponents[0].raw_slot_index == row as u8
+                            && launch.opponents[0].difficulty == difficulty,
+                        "Player dropdown did not publish exactly one canonical AI row"
+                    );
+                    self.record(
+                        frame,
+                        "Explicit AI selected through the presented Player dropdown",
+                    );
                     self.phase = RoundPhase::HostReady;
                 }
             }
@@ -918,6 +999,9 @@ impl LiveRoundFlow {
                     "online match has no production command transport"
                 );
                 core.startup = Some(startup_receipt(state)?);
+                if let Some(ai) = core.ai.as_mut() {
+                    ai.observe(state)?;
+                }
                 if let Some(loss) = self.loading_host_loss.as_mut() {
                     loss.begin_round(
                         self.config.as_ref().context("loading-loss config")?,
@@ -1001,7 +1085,15 @@ impl LiveRoundFlow {
                     }
                     // Alternate the player choosing Observe so both ends exercise
                     // the local defeat path as well as the surviving player's result.
-                    let observe = if self.loading_host_loss.is_some() {
+                    let observe = if self
+                        .config
+                        .as_ref()
+                        .is_some_and(|config| config.ai.is_some())
+                    {
+                        // No remote human can end this round. The sole local
+                        // source takes the real Leave path each time.
+                        true
+                    } else if self.loading_host_loss.is_some() {
                         // The initial host was externally killed. Exactly one
                         // live survivor chooses Observe; the next room reverses
                         // that normal input role without changing game state.
@@ -1017,10 +1109,31 @@ impl LiveRoundFlow {
                         core.host() == (self.rounds.len() == 1)
                     };
                     if observe {
-                        self.abort=Some(super::super::super::abort_return::AbortReturnInput::begin_network_observe(
-                            state,&mut self.route,frame)?);
-                        self.record(frame, "Observe requested through in-game Options");
-                        self.phase = RoundPhase::Observe;
+                        let solo_ai = self
+                            .config
+                            .as_ref()
+                            .is_some_and(|config| config.ai.is_some());
+                        self.abort = Some(if solo_ai {
+                            // Native B6 hides Observe with fewer than two live
+                            // humans (4F1938). Use its ordinary Leave button.
+                            super::super::super::abort_return::AbortReturnInput::begin(
+                                state,
+                                &mut self.route,
+                                frame,
+                            )?
+                        } else {
+                            super::super::super::abort_return::AbortReturnInput::begin_network_observe(
+                                state, &mut self.route, frame)?
+                        });
+                        self.record(
+                            frame,
+                            if solo_ai {
+                                "Leave requested through in-game Options"
+                            } else {
+                                "Observe requested through in-game Options"
+                            },
+                        );
+                        self.phase = RoundPhase::EndRound;
                     } else {
                         self.phase = RoundPhase::Results;
                     }
@@ -1031,14 +1144,25 @@ impl LiveRoundFlow {
                 // gameplay and any real wait/result reached by the external
                 // fault; the orchestrator alone terminates this process.
             }
-            RoundPhase::Observe => {
+            RoundPhase::EndRound => {
                 if self
                     .abort
                     .as_mut()
-                    .context("Observe input")?
+                    .context("round exit input")?
                     .after_present(state, &mut self.route, frame)?
                 {
-                    self.record(frame, "Observe selected through B6; real DESTRUCT queued");
+                    self.record(
+                        frame,
+                        if self
+                            .config
+                            .as_ref()
+                            .is_some_and(|config| config.ai.is_some())
+                        {
+                            "Leave selected through B6; real EXIT queued"
+                        } else {
+                            "Observe selected through B6; real DESTRUCT queued"
+                        },
+                    );
                     self.phase = RoundPhase::Results;
                 }
             }
@@ -1131,6 +1255,20 @@ impl LiveRoundFlow {
                 App::handle_score_shell_mouse_up(state);
                 MoviesCapture::restore_neutral_pointer(state);
                 self.record(frame, "Real multiplayer results acknowledged");
+                self.phase = RoundPhase::Returning;
+            }
+            RoundPhase::Results
+                if self
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| config.ai.is_some())
+                    && lobby_ready(state, rendered) =>
+            {
+                self.current_round.as_mut().context("completed AI round")?["result"] = json!({"shown":false,"completion":"ordinary B6 Leave returned directly to lobby"});
+                self.record(
+                    frame,
+                    "Singleton Leave returned to the lobby without a results page",
+                );
                 self.phase = RoundPhase::Returning;
             }
             RoundPhase::Returning
@@ -1360,6 +1498,7 @@ impl LiveRoundFlow {
             "account":self.config.as_ref().map(|config| &config.account),"host":self.config.as_ref().map(|config| &config.host),
             "service_boundary":if self.config.is_some() {"normal WOL UI, deployed HTTPS lobby, authenticated UDP relay, production loading and command boundary"} else {"normal LAN UI, real UDP, production loading and command boundary"},
             "fixed_start":self.config.as_ref().and_then(|config|config.start),
+            "requested_mode_id":self.config.as_ref().and_then(|config|config.mode_id),"requested_ai":self.config.as_ref().and_then(|config|config.ai).map(|difficulty|format!("{difficulty:?}")),
             "players":self.players(),"required_frames":self.config.as_ref().map_or(300, |config|config.frames),"simple_input":self.config.as_ref().is_none_or(|config|config.simple_input),
             "failure_prefix":self.config.as_ref().and_then(|config|config.failure_prefix_output.as_ref()),
             "network_checkpoint":self.network_checkpoint,
@@ -1367,7 +1506,7 @@ impl LiveRoundFlow {
             "loading_cancellation":self.loading_cancellation,
             "profile_check":self.profile.as_ref().map(|profile|profile.receipt()).transpose()?,
             "loading_host_loss":self.loading_host_loss.as_ref().map(|loss|loss.receipt(self.online_config())).transpose()?,
-            "scope":if self.profile.is_some() { "host-only actual map/page/combo/Back/Create profile reconstruction followed by settled Menu; no match or30-human acceptance claim" } else if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
+            "scope":if self.profile.is_some() { "host-only actual map/page/combo/Back/Create profile reconstruction followed by settled Menu; no match or30-human acceptance claim" } else if self.config.as_ref().is_some_and(|config|config.ai.is_some()) { "two one-human/one-CPU games with ordinary AI dropdown input, actual CPU House/activity, local command/checksum progress, actual B6 Leave, lobby rematch and acknowledged Main Menu return; results are recorded only when shown, with no cross-client determinism claim" } else if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),
         )
@@ -1383,6 +1522,7 @@ fn reset_round(core: &mut LiveLanCapture) {
     core.map_admission = None;
     core.actions.clear();
     core.actor = None;
+    core.actor_last_seen = None;
     core.origin = None;
     core.observed_movement = false;
     core.stopped_position = None;
@@ -1396,6 +1536,9 @@ fn reset_round(core: &mut LiveLanCapture) {
     }
     if core.battle.is_some() {
         core.battle = Some(battle::BattleOpening::default());
+    }
+    if core.ai.is_some() {
+        core.ai = Some(AiActivity::default());
     }
 }
 
@@ -1433,28 +1576,4 @@ fn click(state: &mut AppState, rect: RectPx) {
     App::handle_wol_mouse_down(state);
     App::handle_wol_mouse_up(state);
     MoviesCapture::restore_neutral_pointer(state);
-}
-
-fn read_password() -> Result<String> {
-    let mut bytes = Vec::new();
-    std::io::stdin()
-        .lock()
-        .take(131)
-        .read_until(b'\n', &mut bytes)
-        .context("read online password from stdin")?;
-    while bytes
-        .last()
-        .is_some_and(|byte| matches!(*byte, b'\n' | b'\r'))
-    {
-        bytes.pop();
-    }
-    ensure!(
-        (12..=128).contains(&bytes.len())
-            && bytes
-                .iter()
-                .all(|byte| byte.is_ascii() && !byte.is_ascii_control()),
-        "stdin must provide one 12-128 character password line"
-    );
-    String::from_utf8(bytes)
-        .map_err(|_| anyhow::anyhow!("online password must use ASCII characters"))
 }

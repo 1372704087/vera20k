@@ -1099,9 +1099,22 @@ impl LanCapture {
             .process_assets
             .manager()
             .context("retained assets for an isolated root")?;
-        let root = fs::canonicalize(assets.ra2_dir())?;
+        Self::marked_root(assets.ra2_dir())
+    }
+
+    pub(super) fn isolated_settings_root(state: &AppState) -> Result<PathBuf> {
+        let config = state
+            .platform
+            .game_config
+            .as_ref()
+            .context("capture game config")?;
+        Self::marked_root(config.paths.settings_dir())
+    }
+
+    fn marked_root(directory: &std::path::Path) -> Result<PathBuf> {
+        let root = fs::canonicalize(directory)?;
         let marker = fs::symlink_metadata(root.join(TRANSFER_ROOT_MARKER))
-            .context("map delivery requires an explicitly marked isolated RA2_DIR")?;
+            .context("capture writes require an explicitly marked isolated directory")?;
         ensure!(
             marker.is_file()
                 && !marker.file_type().is_symlink()
@@ -4695,6 +4708,32 @@ fn offline_selection(state: &AppState) -> (i32, usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capture_write_roots_require_the_exact_isolation_marker() {
+        let root = std::env::temp_dir().join(format!(
+            "vera-capture-marker-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        assert!(LanCapture::marked_root(&root).is_err());
+        fs::write(root.join(TRANSFER_ROOT_MARKER), b"not an isolated fixture").unwrap();
+        assert!(LanCapture::marked_root(&root).is_err());
+        fs::write(
+            root.join(TRANSFER_ROOT_MARKER),
+            b"VERA20k isolated shell capture fixture\n",
+        )
+        .unwrap();
+        assert_eq!(
+            LanCapture::marked_root(&root).unwrap(),
+            fs::canonicalize(&root).unwrap()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 
     #[test]
     fn controlled_setup_values_are_bound_to_original_host_output() {

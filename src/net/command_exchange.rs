@@ -264,7 +264,7 @@ impl CommandExchange {
                 event_frame: policy.execute_frame(frame, max_ahead) as i32,
                 checksum: initial_checksum,
                 timing_word: frontier as u16,
-                delay: max_ahead as u8,
+                delay: policy.delay(frame, max_ahead),
             },
             frontier,
         )?)
@@ -307,7 +307,7 @@ impl CommandExchange {
                     event_frame: policy.execute_frame(frame, max_ahead) as i32,
                     checksum,
                     timing_word: frontier as u16,
-                    delay: max_ahead as u8,
+                    delay: policy.delay(frame, max_ahead),
                 },
             });
         }

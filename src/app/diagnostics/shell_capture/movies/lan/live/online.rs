@@ -27,7 +27,7 @@ enum RoundPhase {
     Loading,
     Running,
     HoldFailureGuest,
-    Observe,
+    EndRound,
     Results,
     Returning,
     ExitFault,
@@ -1107,7 +1107,7 @@ impl LiveRoundFlow {
                         .is_some_and(|config| config.ai.is_some())
                     {
                         // No remote human can end this round. The sole local
-                        // source takes the real defeat/results path each time.
+                        // source takes the real Leave path each time.
                         true
                     } else if self.loading_host_loss.is_some() {
                         // The initial host was externally killed. Exactly one
@@ -1125,10 +1125,31 @@ impl LiveRoundFlow {
                         core.host() == (self.rounds.len() == 1)
                     };
                     if observe {
-                        self.abort=Some(super::super::super::abort_return::AbortReturnInput::begin_network_observe(
-                            state,&mut self.route,frame)?);
-                        self.record(frame, "Observe requested through in-game Options");
-                        self.phase = RoundPhase::Observe;
+                        let solo_ai = self
+                            .config
+                            .as_ref()
+                            .is_some_and(|config| config.ai.is_some());
+                        self.abort = Some(if solo_ai {
+                            // Native B6 hides Observe with fewer than two live
+                            // humans (4F1938). Use its ordinary Leave button.
+                            super::super::super::abort_return::AbortReturnInput::begin(
+                                state,
+                                &mut self.route,
+                                frame,
+                            )?
+                        } else {
+                            super::super::super::abort_return::AbortReturnInput::begin_network_observe(
+                                state, &mut self.route, frame)?
+                        });
+                        self.record(
+                            frame,
+                            if solo_ai {
+                                "Leave requested through in-game Options"
+                            } else {
+                                "Observe requested through in-game Options"
+                            },
+                        );
+                        self.phase = RoundPhase::EndRound;
                     } else {
                         self.phase = RoundPhase::Results;
                     }
@@ -1139,14 +1160,25 @@ impl LiveRoundFlow {
                 // gameplay and any real wait/result reached by the external
                 // fault; the orchestrator alone terminates this process.
             }
-            RoundPhase::Observe => {
+            RoundPhase::EndRound => {
                 if self
                     .abort
                     .as_mut()
-                    .context("Observe input")?
+                    .context("round exit input")?
                     .after_present(state, &mut self.route, frame)?
                 {
-                    self.record(frame, "Observe selected through B6; real DESTRUCT queued");
+                    self.record(
+                        frame,
+                        if self
+                            .config
+                            .as_ref()
+                            .is_some_and(|config| config.ai.is_some())
+                        {
+                            "Leave selected through B6; real EXIT queued"
+                        } else {
+                            "Observe selected through B6; real DESTRUCT queued"
+                        },
+                    );
                     self.phase = RoundPhase::Results;
                 }
             }
@@ -1239,6 +1271,20 @@ impl LiveRoundFlow {
                 App::handle_score_shell_mouse_up(state);
                 MoviesCapture::restore_neutral_pointer(state);
                 self.record(frame, "Real multiplayer results acknowledged");
+                self.phase = RoundPhase::Returning;
+            }
+            RoundPhase::Results
+                if self
+                    .config
+                    .as_ref()
+                    .is_some_and(|config| config.ai.is_some())
+                    && lobby_ready(state, rendered) =>
+            {
+                self.current_round.as_mut().context("completed AI round")?["result"] = json!({"shown":false,"completion":"ordinary B6 Leave returned directly to lobby"});
+                self.record(
+                    frame,
+                    "Singleton Leave returned to the lobby without a results page",
+                );
                 self.phase = RoundPhase::Returning;
             }
             RoundPhase::Returning
@@ -1476,7 +1522,7 @@ impl LiveRoundFlow {
             "loading_cancellation":self.loading_cancellation,
             "profile_check":self.profile.as_ref().map(|profile|profile.receipt()).transpose()?,
             "loading_host_loss":self.loading_host_loss.as_ref().map(|loss|loss.receipt(self.online_config())).transpose()?,
-            "scope":if self.profile.is_some() { "host-only actual map/page/combo/Back/Create profile reconstruction followed by settled Menu; no match or30-human acceptance claim" } else if self.config.as_ref().is_some_and(|config|config.ai.is_some()) { "two one-human/one-CPU games with ordinary AI dropdown input, actual CPU House/activity, local command/checksum progress, Observe defeat, real results, lobby rematch and acknowledged Main Menu return; no cross-client determinism claim" } else if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
+            "scope":if self.profile.is_some() { "host-only actual map/page/combo/Back/Create profile reconstruction followed by settled Menu; no match or30-human acceptance claim" } else if self.config.as_ref().is_some_and(|config|config.ai.is_some()) { "two one-human/one-CPU games with ordinary AI dropdown input, actual CPU House/activity, local command/checksum progress, actual B6 Leave, lobby rematch and acknowledged Main Menu return; results are recorded only when shown, with no cross-client determinism claim" } else if startup_failure { "aborted uncertified full-three-player startup after ordinary100, external owned original-host kill, real Initial EA votes, ConnectionFailed OK, actual authenticated lobby and acknowledged Menu/logout; no gameplay prefix, result or rematch is claimed" } else if self.failure_prefix_written && self.config.is_none() { "real300-frame CRC and strong-hash prefix, external scoped FRAMEINFO corruption, actual checksum CE Stop and settled LAN lobby cleanup" } else if self.failure_prefix_written { "real300-frame command/checksum prefix, externally terminated peer, expected ordinary connection timeout/removal or Quit, and authenticated lobby return" } else { "two complete games with tactical input, shared simulation checksums, Observe defeat, real results, lobby rematch and settled Main Menu return; unit scale is measured from each runtime snapshot" },
             "returned_to_menu":self.menu_return.is_some(),"menu_return":self.menu_return,
             "rounds":self.rounds,"route":self.route}),
         )

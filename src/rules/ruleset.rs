@@ -522,13 +522,17 @@ pub struct GeneralRules {
     /// that fired or missed goes back to state 1 and picks a new firing spot.
     /// Retail: yes.
     pub curley_shuffle: bool,
-    /// `[General] EnableAIBuildLimitation=` — the NPSE switch (manual): with
-    /// yes, the computer's production attempt checks the type's `BuildLimit=`
-    /// like a production event does, and a plan at its limit skips. The
-    /// shipped NPSE 2.0 build (`2.0 #359`) reads no such key — its techno
-    /// reader hook at `0xC27249` reads a per-type `AIBuildLimit=<int>`
-    /// instead — so this follows the manual's global switch. Default no: the
-    /// computer's production ignores `BuildLimit=` as stock does.
+    /// `[General] EnableAIBuildLimitation=` — the older extension build's
+    /// switch (NPExt ext173, manual `AI克隆生产`'s predecessor): with yes, the
+    /// computer's production attempt checks the type's own `BuildLimit=`
+    /// (`Type+0x3B8`) like a production event does, and a plan at its limit
+    /// clears its choice and skips. Read by that build's `ReadGeneral` hook
+    /// `0xC2D132..0xC2D151` into `Rules+0x641`, default the current field, so
+    /// absent means no and the computer's production ignores `BuildLimit=` as
+    /// stock does. NPSE 2.0 (`2.0 #359`) dropped this key and reads a
+    /// per-type `[TechnoTypes] AIBuildLimit=` (`0xC2724E`) instead, which
+    /// `sim::production::factory_ai` ports separately; the two build
+    /// generations only differ in where the limit comes from.
     pub enable_ai_build_limitation: bool,
     /// `[General] RepairRate=` in minutes — `RulesClass+0x16E0`.
     ///
@@ -3462,6 +3466,8 @@ impl GeneralRules {
             game_speed_bias: general.read_double("GameSpeedBias", defaults.game_speed_bias),
             veteran_armor: general.read_double("VeteranArmor", 1.0),
             curley_shuffle: general.read_bool("CurleyShuffle", defaults.curley_shuffle),
+            // ext173 reads it with the current byte as default into
+            // `Rules+0x641` (`0xC2D132..0xC2D151`, `ReadBooleanByte 0x5295F0`).
             enable_ai_build_limitation: crate::rules::NPATCH_ENABLED
                 && general.read_bool(
                     "EnableAIBuildLimitation",

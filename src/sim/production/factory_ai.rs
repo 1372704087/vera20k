@@ -245,35 +245,44 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
-    // NPSE `[General] EnableAIBuildLimitation=`: with yes, the computer's
-    // production attempt consults the stock `CheckBuildLimit @ 0x0050B370`
-    // (owned plus factory-held against a positive `BuildLimit=`, produced
-    // against a non-positive one; the stock CanBuild outer route answers a
-    // non-human house Yes before its limit is asked) and a plan at its limit
-    // skips. The manual's warning holds for buildings: they cannot skip — the
-    // native build keeps trying and refunding one production forever, wedging
-    // the standing choice. Not starting reaches the same visible result
-    // without the churn: the building choice stays set (`choose_building`
-    // fills only a cleared slot) and nothing is charged, so the residual is
-    // the two transient frames of the native attempt, not any player-visible
-    // state.
+    // `[General] EnableAIBuildLimitation=` — the older extension build's switch
+    // (NPExt ext173). Its `ReadGeneral` hook at `0xC2D132..0xC2D151` reads the
+    // key with `ReadBooleanByte 0x5295F0` and the current field as its default
+    // (`mov dl, [esi+0x641]; ... mov [esi+0x641], al; jmp 0x66F185`) into
+    // `Rules+0x641`; the `Factory_AI` fetch hook `0x45033C -> 0xC2D15A` tests
+    // that byte and, while it is set, runs the gate at `0xC2CF67` instead of
+    // continuing the stock path (`0xC2D482`).
     //
-    // A capped mobile choice cannot stay set. `ai_unit_choice::choose` fills
-    // only a `-1` slot, so leaving it would refuse every later chooser pass
-    // and the house would never pick another unit while this one sits at its
-    // limit. Clear it the way an exit or abandon clears the same slot
+    // The gate branches on the fetched type's class (`0x10` infantry, `0x28`
+    // unit, `3` aircraft, `7` building) and reads the type's own `BuildLimit=`
+    // from `Type+0x3B8` (the stock reader stores it there at `0x713157`) — the
+    // switch makes the computer honor the existing key, it adds none. A
+    // positive limit allows while the house's tracked count
+    // (`House+0x5514/0x5528/0x553C/0x5500` through `0x49FAE0`) stays below it
+    // (`jl 0xC2CFD0`); a non-positive one compares the negated produced
+    // (`House+0x55B4..0x55DC`) and tracked counts with `jle` and blocks when
+    // either reaches its magnitude. At the limit it writes `-1` into the
+    // category's production choice (`+0x5654` infantry `0xC2CFD7`, `+0x5658`
+    // aircraft `0xC2D0B3`, `+0x564C` building `0xC2D11F`) and skips the start
+    // (`jmp 0x4503CA`), the same slots an exit or abandon clears
     // (`BuildingClass::Exit_Object 0x00443CCA`,
     // `FactoryClass::AbandonProduction 0x004CA0E0`,
-    // `factory_lifecycle::settle_abandoned`), which lets the next visit
-    // choose a type that is still under its limit.
+    // `factory_lifecycle::settle_abandoned`).
+    //
+    // `check_build_limit` is the stock `CheckBuildLimit @ 0x0050B370` this
+    // gate reproduces. A capped building's plan node stays unsatisfied, so the
+    // next `choose_building` returns the same type: that is the manual's
+    // warning that a building at its limit leaves the computer unable to
+    // build anything, not a recovery.
     if crate::rules::NPATCH_ENABLED
         && rules.general.enable_ai_build_limitation
         && check_build_limit(sim, rules, owner, object)
     {
-        if let Some(kind) = UnitChoiceKind::of(object.category)
-            && let Some(house) = sim.houses.get_mut(&owner)
-        {
-            house.ai_unit_choices_mut().clear(kind);
+        if let Some(house) = sim.houses.get_mut(&owner) {
+            match UnitChoiceKind::of(object.category) {
+                Some(kind) => house.ai_unit_choices_mut().clear(kind),
+                None => house.ai_production_mut().clear_building_choice(),
+            }
         }
         return;
     }

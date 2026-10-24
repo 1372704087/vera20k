@@ -453,13 +453,13 @@ fn a_capped_mobile_choice_clears_for_the_next_chooser_pass() {
     );
 }
 
-/// A capped building keeps the standing choice: the manual's exhausted
-/// building warning says the native attempt can never place it, and
-/// `choose_building` fills only a cleared slot, so nothing is charged or
-/// re-rolled.
+/// A capped building clears its choice too (`+0x564C`, `0xC2D11F`) and skips.
+/// The plan node stays unsatisfied, so `choose_building` returns the same type
+/// on the next visit — the manual's warning that a building at its limit
+/// leaves the computer unable to build anything.
 #[cfg(feature = "npatch")]
 #[test]
-fn a_capped_building_choice_stays_set() {
+fn a_capped_building_clears_its_choice_and_keeps_the_node() {
     let mut f = fixture_with(&format!(
         "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
          AIAlternateProductionCreditCutoff=10\n{LIMIT_RULES_TAIL}"
@@ -489,7 +489,11 @@ fn a_capped_building_choice_stays_set() {
             .unwrap()
             .ai_production()
             .building_choice(),
-        choice,
-        "a capped building choice stays set"
+        -1,
+        "a capped building clears its choice like an exit or abandon"
     );
+    // Nothing starts on the next visit either: the cleared choice is refilled
+    // from the same unsatisfied plan node, which is the manual's wedge.
+    limit_visit(&mut f, yard);
+    assert!(!limit_holds(&f, yard));
 }

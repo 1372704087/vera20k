@@ -669,6 +669,96 @@ mod tests {
         assert_eq!(catalog.raw_frame_count("BROKEN"), None);
     }
 
+    /// The NPSE `[General] VehicleParachute=` canopy is bound through the same
+    /// anim asset root the stock `Parachute=` uses, so a mod's own canopy
+    /// carries physical frame bounds before `AnimClass::effective_bounds`
+    /// reads them.
+    #[test]
+    fn vehicle_parachute_canopy_binds_through_the_production_load() {
+        let root = TestRoot::new();
+        std::fs::write(
+            root.path().join("VEHCHUTE.SHP"),
+            shp_with_undecodable_pixels(6),
+        )
+        .expect("write canopy SHP");
+        let assets = AssetManager::from_loose_root_for_test(root.path());
+        let art = IniFile::from_str("[PARACH]\nLoopCount=-1\n[VEHCHUTE]\nLoopCount=-1\n");
+        // `[Animations]` slot 1 also feeds the fifth infantry death anim, so
+        // the canopy takes slot 0 and the stock canopy slot 1 to keep this
+        // fixture from rooting the wrong name there.
+        let processed = crate::rules::native_processing::RulesLayerStack::new(IniFile::from_str(
+            "[Animations]\n0=VEHCHUTE\n1=PARACH\n\
+             [General]\nParachute=PARACH\nVehicleParachute=vehchute\n",
+        ))
+        .process_with_fixed_art(&art)
+        .expect("production retained Rules read");
+        let mut rules =
+            RuleSet::from_processed_rules(&processed).expect("project the processed rules");
+        rules.install_art_data(ArtRegistry::from_ini(&art));
+
+        let capability = crate::rules::NPATCH_ENABLED;
+        assert_eq!(
+            rules.general.vehicle_parachute.as_deref(),
+            capability.then_some("VEHCHUTE"),
+            "only the extension reader publishes the pointer"
+        );
+        let roots = anim_class_roots(&rules);
+        assert_eq!(
+            roots.iter().any(|root| root == "VEHCHUTE"),
+            capability,
+            "the canopy's art root follows the extension pointer"
+        );
+        rules.bind_anim_class_assets(&roots, &assets, "TEM", "TEMPERATE");
+        assert_eq!(
+            rules
+                .art()
+                .anim_runtime_config("VEHCHUTE")
+                .and_then(|config| config.raw_shp_frame_count),
+            capability.then_some(6),
+            "the bound canopy carries the SHP's physical frame bounds"
+        );
+        assert_eq!(
+            rules.art().scheduler_anim_types().contains("VEHCHUTE"),
+            capability
+        );
+    }
+
+    /// The extension reader allocates the AnimType itself, so the planned
+    /// canopy exists in the registry even when no `[Animations]` entry or
+    /// other pointer names it. A type the ART/rules sweep never declared stays
+    /// a constructor-state null image (`AnimTypeLoad42884E` not reached), the
+    /// same as any pointer-only name, so a mod's new canopy must be declared
+    /// as an anim type like the stock `Parachute=`.
+    #[test]
+    fn vehicle_parachute_admits_a_sole_reference_canopy_type() {
+        let art = IniFile::from_str("[VEHCHUTE]\nLoopCount=-1\n");
+        let processed = crate::rules::native_processing::RulesLayerStack::new(IniFile::from_str(
+            "[General]\nVehicleParachute=vehchute\n",
+        ))
+        .process_with_fixed_art(&art)
+        .expect("production retained Rules read");
+        let mut rules =
+            RuleSet::from_processed_rules(&processed).expect("project the processed rules");
+        rules.install_art_data(ArtRegistry::from_ini(&art));
+
+        let capability = crate::rules::NPATCH_ENABLED;
+        assert_eq!(
+            rules.general.vehicle_parachute.as_deref(),
+            capability.then_some("VEHCHUTE")
+        );
+        assert_eq!(
+            rules.anim_type_names.contains("VEHCHUTE"),
+            capability,
+            "the extension read allocates the AnimType it names"
+        );
+        assert_eq!(
+            anim_class_roots(&rules)
+                .iter()
+                .any(|root| root == "VEHCHUTE"),
+            capability
+        );
+    }
+
     /// A root whose SHP is missing stays a real null-image Anim, and a bound root's
     /// `Next=` chain is bound with it. Retail art names building animations
     /// (`[CAARAY] ActiveAnim=CAARAY_A`) whose sprites never shipped.

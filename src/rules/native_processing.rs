@@ -4676,6 +4676,12 @@ impl RulesPassProcessor {
             ("CMislType", RulesTypeFamily::Aircraft, false),
             ("VeinholeTypeClass", RulesTypeFamily::Terrain, false),
             ("DefaultMirageDisguises", RulesTypeFamily::Terrain, true),
+            // NPSE extension read (`0xC30FF8..0xC3101F`): the canopy an
+            // airdropped non-infantry object takes. The extension's General
+            // reader runs after the stock reads, so its FindOrAllocate lands
+            // after every vanilla General pointer; an ordinary build skips it
+            // entirely (below) and neither allocates nor retains the type.
+            ("VehicleParachute", RulesTypeFamily::Animation, false),
         ];
 
         let Some(section) = pass.section("General") else {
@@ -4739,6 +4745,11 @@ impl RulesPassProcessor {
         self.rules_talk_bubble_time = section.read_talk_bubble_time(self.rules_talk_bubble_time);
 
         for &(key, family, is_list) in SITES {
+            // An ordinary build never reads the NPSE extension, so it neither
+            // allocates the canopy's AnimType nor keeps the pointer.
+            if key == "VehicleParachute" && !crate::rules::NPATCH_ENABLED {
+                continue;
+            }
             if matches!(
                 key,
                 "MetallicDebris" | "BridgeExplosions" | "WeatherConClouds" | "WeatherConBolts"
@@ -4876,19 +4887,6 @@ impl RulesPassProcessor {
                 let resolved = self.resolve_scalar_from(section, key, family, 0x80);
                 self.rules_type_references.read_pointer(key, resolved);
             }
-        }
-        if crate::rules::NPATCH_ENABLED {
-            // NPSE ReadGeneral C31005..C31017: ReadString128 then
-            // AnimTypeClass::FindOrAllocate428B80. Empty retains the pointer;
-            // a factory-null token clears it. Allocate before AnimType reads.
-            let resolved = self.resolve_scalar_from(
-                section,
-                "VehicleParachute",
-                RulesTypeFamily::Animation,
-                0x80,
-            );
-            self.rules_type_references
-                .read_pointer("VehicleParachute", resolved);
         }
     }
 

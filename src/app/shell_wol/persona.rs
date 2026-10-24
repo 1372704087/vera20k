@@ -98,8 +98,24 @@ pub(super) fn fill_welcome(state: &mut AppState) {
         profile_texts(state, &nickname, &persona)
     };
     if let Some(visit) = state.frontend.wol.as_mut() {
-        visit.welcome_texts = texts;
+        // The online page's lobby counts arrive on their own and stay.
+        visit
+            .welcome_texts
+            .retain(|(id, _)| crate::ui::wol_shell::LOBBY_STATS_IDS.contains(id));
+        visit.welcome_texts.extend(texts);
     }
+}
+
+/// `GET /v1/stats` answered: the online welcome's counts.
+pub(super) fn lobby_stats(state: &mut AppState, stats: crate::ui::wol_shell::WolLobbyStats) {
+    let Some(visit) = state.frontend.wol.as_mut() else {
+        return;
+    };
+    visit
+        .welcome_texts
+        .retain(|(id, _)| !crate::ui::wol_shell::LOBBY_STATS_IDS.contains(id));
+    visit.welcome_texts.extend(stats.texts());
+    state.platform.window.request_redraw();
 }
 
 /// `0x0077A9F0`'s texts by control id: the heading (`GUI:UserProfileLabel`,

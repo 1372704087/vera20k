@@ -27,6 +27,10 @@ Relay tickets and encrypted datagrams retain wire version2; lobby capability and
 relay wire versions are independent. Unsupported sessions retire through ordinary
 room/match cleanup and cannot renew grants.
 `GET /health` reports `protocol:4`.
+`GET /v1/stats` needs no bearer and returns `{online,in_game,open_games,games_24h,games_total}`:
+active sessions, those in a playing match, joinable game rooms, and games whose play
+began in the last 24 hours and ever. It names no player or room, is limited to 30
+requests a minute per address, and one answer serves every reader for 10 seconds.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and

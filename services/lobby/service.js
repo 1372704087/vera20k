@@ -19,6 +19,7 @@ const BOOTSTRAP_GRANT_SECONDS = 120;
 const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
 const MAX_SESSIONS = 256;
+const STATS_SECONDS = 10;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
@@ -225,6 +226,7 @@ export class LobbyService {
     this.env = env;
     this.clock = clock;
     this.bodyTimeoutMs = bodyTimeoutMs;
+    this.statsCache = null;
     this.tail = Promise.resolve();
     this.pendingRequests = 0;
     this.pendingBytes = 0;
@@ -381,6 +383,10 @@ export class LobbyService {
   async handle(request, body) {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: LOBBY_PROTOCOL });
+    if (url.pathname === '/v1/stats' && request.method === 'GET') {
+      this.rateLimit(`stats:${await sha256(request.headers.get('CF-Connecting-IP') ?? 'local')}`, 30, 60);
+      return this.json(this.stats());
+    }
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
       const origin = request.headers.get('CF-Connecting-IP') ?? 'local';
       const address = await sha256(origin);
@@ -463,6 +469,37 @@ export class LobbyService {
         : { events: [], cursor: 0 });
     }
     throw new ApiError(404, 'not_found', 'Endpoint not found.');
+  }
+
+  // Public counts only: no names, rooms or identities. The welcome screen
+  // polls them, so one answer serves every reader for ten seconds.
+  stats() {
+    const now = this.clock();
+    if (this.statsCache?.until > now) return this.statsCache.value;
+    const sessions = this.store.list('session:');
+    const playing = new Set(this.store.list('match:').filter((match) => match.phase === 'playing').map((match) => match.id));
+    const games = this.store.get('stats:games') ?? { total: 0, hours: [] };
+    const hour = Math.floor(now / 3600);
+    const value = {
+      online: sessions.length,
+      in_game: sessions.filter((session) => playing.has(session.match_id)).length,
+      open_games: this.store.list('room:').filter((room) => room.kind === 41 && room.phase === 'lobby').length,
+      games_24h: games.hours.filter(([at]) => at > hour - 24).reduce((sum, [, count]) => sum + count, 0),
+      games_total: games.total,
+    };
+    this.statsCache = { until: now + STATS_SECONDS, value };
+    return value;
+  }
+
+  // A game counts once, when its timing is confirmed and play begins.
+  countGame() {
+    const hour = Math.floor(this.clock() / 3600);
+    const games = this.store.get('stats:games') ?? { total: 0, hours: [] };
+    games.total++;
+    games.hours = games.hours.filter(([at]) => at > hour - 24);
+    const current = games.hours.find(([at]) => at === hour);
+    if (current) current[1]++; else games.hours.push([hour, 1]);
+    this.store.put('stats:games', games);
   }
 
   async authenticate(body, create, address) {
@@ -891,6 +928,7 @@ export class LobbyService {
         for (const report of Object.values(match.latencies))
           for (const peer of report) pings[peer.source_index] = Math.max(pings[peer.source_index], peer.round_trip_ms);
         match.phase = 'playing'; match.expires = this.clock() + MATCH_SECONDS;
+        this.countGame();
         const room = this.store.get(`room:${match.room_id}`);
         room.phase = 'playing'; this.store.put(`room:${room.id}`, room);
         for (const other of this.store.list('session:').filter((value) => value.match_id === match.id)) {

@@ -229,6 +229,31 @@ test('one human plus an explicit AI completes admission and rematch with one tra
   }
 });
 
+test('public stats count players, open games and played matches over a day', async () => {
+  const f = fixture(); const host = await f.player('Host'); await f.player('Idle');
+  const stats = async () => (await f.request('/v1/stats')).body;
+  const selected = { ...options, launch: { ...options.launch, humans: [human('Host')], ai_player_count: 1,
+    opponents: [{ ...slot, raw_slot_index: 1, difficulty: 'Normal' }],
+    pre_fill_house_roster: { ...options.launch.pre_fill_house_roster, ai_slots: [{ slot_index: 1, valid: true }] } },
+    map_metadata: { ...options.map_metadata, player_capacity: 2 } };
+  assert.equal((await f.command(host, 'create', { channel, key: '' })).status, 200);
+  assert.deepEqual(await stats(), { online: 2, in_game: 0, open_games: 1, games_24h: 0, games_total: 0 });
+  const revision = (await f.command(host, 'options', { options: selected })).body.events
+    .filter((event) => event.kind === 'options').at(-1).payload.revision;
+  await f.command(host, 'map_status', { status: 1, ...agreement(revision) });
+  await f.command(host, 'ready', { ready: true, ...agreement(revision) });
+  const start = await f.command(host, 'start', { users: ['Host'], ...agreement(revision) });
+  const { match_id } = start.body.events.find((event) => event.kind === 'game_started').payload;
+  await f.command(host, 'relay_ready', { match_id });
+  assert.equal((await f.command(host, 'latency_ready', { match_id, pings: [] })).status, 200);
+  assert.equal((await stats()).in_game, 0, 'one answer serves readers for ten seconds');
+  f.advance(10);
+  assert.deepEqual(await stats(), { online: 2, in_game: 1, open_games: 0, games_24h: 1, games_total: 1 });
+  f.advance(24 * 60 * 60);
+  const later = await stats();
+  assert.deepEqual([later.games_24h, later.games_total], [0, 1]);
+});
+
 test('start requires actual opponents and keeps AI out of observer games', async () => {
   const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
   await f.command(host, 'create', { channel, key: '' });

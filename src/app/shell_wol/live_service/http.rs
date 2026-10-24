@@ -57,6 +57,8 @@ pub(super) enum Request {
         nickname: String,
     },
     Channels(u32),
+    /// `GET /v1/stats`; a failure is dropped and the next poll asks again.
+    Stats,
     Command {
         id: u64,
         operation: &'static str,
@@ -115,6 +117,7 @@ pub(super) enum Response {
         attempt: u64,
     },
     Channels(ChannelList),
+    Stats(crate::ui::wol_shell::WolLobbyStats),
     Event(Envelope),
     CommandCompleted {
         id: u64,
@@ -726,6 +729,13 @@ pub(super) fn run(
                                 .send(Response::Failure("Could not refresh the online lobby."));
                         }
                     }
+                }
+            }
+            Some(Request::Stats) => {
+                if let Ok(stats) = client.request("/v1/stats", None).and_then(|value| {
+                    serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))
+                }) {
+                    let _ = output.send(Response::Stats(stats));
                 }
             }
             Some(Request::Command {

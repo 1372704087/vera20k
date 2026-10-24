@@ -111,6 +111,9 @@ pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 pub const PHOBOS_ENABLED: bool = cfg!(feature = "phobos");
 /// Whether this binary includes supported NPatch behavior. INIs cannot change it.
 pub const NPATCH_ENABLED: bool = cfg!(feature = "npatch");
+/// Whether this binary includes VERA20K's own extension behaviors. INIs cannot
+/// change it; builds without the feature keep every stock path.
+pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;

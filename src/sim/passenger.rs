@@ -202,6 +202,18 @@ impl PassengerCargo {
         total
     }
 
+    /// Whether a carrier admits one more passenger of binary64 `Size=` into a
+    /// cargo whose signed total is `total`: UnitClass::Receive_Radio
+    /// `0x00737430`, message 0x0F, compares `total + Size <= Passengers=` and
+    /// `Size <= SizeLimit=` (original gamemd instructions).
+    ///
+    /// Both the radio and VeraX's selection planner ask this owner. Planning
+    /// boards into a cargo clone with [`Self::board_forced_chain`], preserving
+    /// CargoTotalSize's head-first, per-passenger truncation order.
+    pub fn size_fits_transport(total: i32, size: f64, capacity: i32, size_limit: f64) -> bool {
+        Self::size_fits_capacity(total, size, capacity) && Self::size_within_limit(size, size_limit)
+    }
+
     /// Recalculate through the same order-sensitive numeric owner used by
     /// the native CargoTotalSize consumer; subtraction cannot reproduce its
     /// per-passenger truncation for fractional or negative Sizes.

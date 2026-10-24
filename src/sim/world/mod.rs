@@ -7202,16 +7202,33 @@ impl Simulation {
         effects
     }
 
+    /// Viewer ids whose House carries the native defeat latch
+    /// (`MPlayer_Defeated` `0x004FC0B0` sets PlayerPtr+0x1F5, read at
+    /// `0x006FB2E3`). The gap fog gate asks it per viewer: native reads the
+    /// running client's PlayerPtr, and VERA's per-viewer fog state maps that
+    /// to each viewer's own House (the precedent at
+    /// `set_building_gap_for_viewer`). An observer House passes through the
+    /// same defeat marking (house_defeat only mutes its sounds), so it takes
+    /// this gate like any viewer; no separate observer branch exists.
+    fn defeated_house_ids(&self) -> BTreeSet<InternedId> {
+        self.houses
+            .iter()
+            .filter_map(|(&owner, house)| house.is_defeated().then_some(owner))
+            .collect()
+    }
+
     fn apply_active_vision_structures(
         interner: &StringInterner,
         fog: &mut FogState,
         house_alliances: &HouseAlliances,
         effects: &ActiveVisionStructures,
+        defeated_viewers: &BTreeSet<InternedId>,
     ) {
         vision::materialize_gap_generator_sources(
             fog,
             house_alliances.as_map(),
             &effects.gap_generators,
+            defeated_viewers,
             interner,
         );
     }
@@ -7261,11 +7278,13 @@ impl Simulation {
             }
         }
         let effects = self.collect_active_vision_structures(rules);
+        let defeated_viewers = self.defeated_house_ids();
         Self::apply_active_vision_structures(
             &self.interner,
             &mut self.fog,
             &self.house_alliances,
             &effects,
+            &defeated_viewers,
         );
     }
 
@@ -7312,11 +7331,13 @@ impl Simulation {
 
         // Apply SpySat and Gap Generator effects.
         let effects = self.collect_active_vision_structures(rules);
+        let defeated_viewers = self.defeated_house_ids();
         Self::apply_active_vision_structures(
             &self.interner,
             &mut self.fog,
             &self.house_alliances,
             &effects,
+            &defeated_viewers,
         );
 
         // Diagnostic: log fog grid stats on first tick to debug coverage issues.

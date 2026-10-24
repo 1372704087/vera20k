@@ -232,6 +232,59 @@ fn defeated_gap_viewer_does_not_reenter_hostile_gap_after_shroud_reset() {
     assert_eq!(sim.fog.gap_sources()[&alive].len(), 1);
 }
 
+/// A viewer already defeated when an enemy gap first goes operational is
+/// never shrouded: CreateGap `0x006FB2E3..0x006FB2F1` reads PlayerPtr+0x1F5
+/// and jumps to the friendly `0x006FB3C1` leaf, which the per-frame
+/// materialization projects as fog. The power cycle must not write the
+/// hostile +0x134 counter and must leave no lingering fog after the off
+/// edge; a live viewer under the same generator is shrouded as before.
+#[test]
+fn defeated_viewer_fogs_hostile_gap_through_power_cycle_without_shroud() {
+    let (mut sim, rules, defeated, alive, gap_owner) = fixture();
+    let gap_count = |sim: &Simulation, viewer, cell: (u16, u16)| {
+        let index = usize::from(cell.1) * usize::from(sim.fog.width()) + usize::from(cell.0);
+        sim.fog.by_owner()[&viewer].shroud_knowledge_raw()[index].gap_counter()
+    };
+
+    defeat_local_viewer(&mut sim, &rules, defeated, alive, gap_owner);
+
+    insert(&mut sim, &rules, 1, gap_owner, "GAGAP", 12, 12);
+    insert(&mut sim, &rules, 2, gap_owner, "POWER", 16, 12);
+    power(&mut sim, &rules);
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+
+    assert!(sim.fog.is_cell_gap_fog(defeated, 12, 12));
+    assert!(!sim.fog.is_cell_gap_covered(defeated, 12, 12));
+    assert_eq!(gap_count(&sim, defeated, (12, 12)), 0);
+    assert!(
+        sim.fog
+            .gap_sources()
+            .get(&defeated)
+            .is_none_or(|sources| sources.is_empty())
+    );
+    assert!(sim.fog.is_cell_gap_covered(alive, 12, 12));
+    assert!(!sim.fog.is_cell_gap_fog(alive, 12, 12));
+
+    // Powered off: the bulk clear+reproject drops the friendly fog too.
+    assert!(sim.go_building_offline(1, &rules, FrameEffects::default()));
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+    assert!(!sim.fog.is_cell_gap_fog(defeated, 12, 12));
+    assert!(!sim.fog.is_cell_gap_covered(defeated, 12, 12));
+    assert_eq!(gap_count(&sim, defeated, (12, 12)), 0);
+    assert!(!sim.fog.is_cell_gap_covered(alive, 12, 12));
+
+    // Powered on again: fog returns, still no hostile shroud write.
+    assert!(sim.go_building_online(1, &rules, FrameEffects::default()));
+    sim.visit_building_operational(1, &rules, None, FrameEffects::default());
+    refresh(&mut sim, &rules);
+    assert!(sim.fog.is_cell_gap_fog(defeated, 12, 12));
+    assert!(!sim.fog.is_cell_gap_covered(defeated, 12, 12));
+    assert_eq!(gap_count(&sim, defeated, (12, 12)), 0);
+    assert!(sim.fog.is_cell_gap_covered(alive, 12, 12));
+}
+
 /// The sight reveal of the Unlimbo `insert` stands for (`0x006F6D27`),
 /// through the sight owner.
 fn reveal_inserted_sight(sim: &mut Simulation, rules: &RuleSet, id: u64) {

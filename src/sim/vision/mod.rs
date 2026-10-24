@@ -3071,9 +3071,16 @@ pub(crate) fn apply_gap_generator_sources(
         gap_generators,
         interner,
         &std::collections::BTreeSet::new(),
+        &std::collections::BTreeSet::new(),
     );
 }
 
+/// Bulk source reconciliation with an explicit SpySat latch set and the
+/// defeated-viewer set (`0x006FB2E3..0x006FB2F1` → friendly `0x006FB3C1`):
+/// a defeated viewer takes the same `FLAG_GAP_FOG` projection as an allied
+/// viewer and is never admitted into the receipts. Wrappers without defeat
+/// information pass an empty set, which keeps every viewer's pre-gate
+/// admission.
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) fn apply_gap_generator_sources_with_spy_sat(
     fog: &mut FogState,
@@ -3081,6 +3088,7 @@ pub(crate) fn apply_gap_generator_sources_with_spy_sat(
     gap_generators: &[GapGeneratorSource],
     interner: &StringInterner,
     spy_sat_active_owners: &std::collections::BTreeSet<InternedId>,
+    defeated_viewers: &std::collections::BTreeSet<InternedId>,
 ) {
     let width = usize::from(fog.width);
     let height = usize::from(fog.height);
@@ -3095,10 +3103,12 @@ pub(crate) fn apply_gap_generator_sources_with_spy_sat(
             if generator.radius <= 0 {
                 continue;
             }
-            if !is_allied_with(
+            if gap_source_is_hostile_to_viewer(
                 alliances,
-                interner.resolve(generator.owner),
-                interner.resolve(viewer),
+                &generator,
+                viewer,
+                defeated_viewers.contains(&viewer),
+                interner,
             ) {
                 admitted.insert(generator);
             } else {
@@ -3147,13 +3157,44 @@ fn gap_footprint(generator: GapGeneratorSource, width: usize, height: usize) -> 
     cells
 }
 
+/// One source's `0x006FB170` hostile-admission test for one viewer: the
+/// generator's house must not be allied with the viewer
+/// (`HouseClass::IsAlliedWith @ 0x004F9A50` at `0x006FB2CF` in CreateGap,
+/// with the same test at `0x006FB5B9` and `0x006FB6B7`), and the
+/// viewer's house must not be defeated — `0x006FB2E3..0x006FB2F1` reads
+/// PlayerPtr+0x1F5 (`MPlayer_Defeated`, set by `0x004FC0B0`) and jumps to
+/// `0x006FB3C1`, where the cell takes the friendly +0x13C count instead of
+/// the hostile +0x134 shroud count. Native tests the running client's
+/// PlayerPtr; VERA keeps one fog state per viewer, so the faithful analog is
+/// each viewer's own House (the precedent at
+/// `Simulation::set_building_gap_for_viewer`). The friendly +0x13C projection
+/// is the `FLAG_GAP_FOG` pass in the bulk owners below.
+fn gap_source_is_hostile_to_viewer(
+    alliances: &HouseAllianceMap,
+    source: &GapGeneratorSource,
+    viewer: InternedId,
+    viewer_defeated: bool,
+    interner: &StringInterner,
+) -> bool {
+    !viewer_defeated
+        && !is_allied_with(
+            alliances,
+            interner.resolve(source.owner),
+            interner.resolve(viewer),
+        )
+}
+
 /// One admitted6FB170/6FB470 event. The Building caller owns its269 latch;
 /// this ledger owns which viewer cell writes that deposit contributed. The
-/// generator's house asks whether it is allied with the viewer
-/// (`HouseClass::IsAlliedWith @ 0x004F9A50` at `0x006FB2CF`, `0x006FB5B9`,
-/// `0x006FB6B7`), as the other gap planes below do. `CreateGap`/`DestroyGap`
-/// (`0x006FB170`/`0x006FB470`) also test PlayerPtr+0x1F5: when defeated they
-/// update Cell+0x13C instead of the hostile +0x134 count modeled here.
+/// admission test is [`gap_source_is_hostile_to_viewer`], shared with the
+/// bulk planes below. A defeated or allied viewer takes native's friendly
+/// `0x006FB3C1` leaf: no receipt insert and no cell add here — like an
+/// allied viewer, its friendly fog comes from the bulk materialization pass.
+/// Such viewers never enter the receipts, so the removal arm below never
+/// sees their sources. A viewer defeated later keeps its receipts, and the
+/// removal arm's defeat gate models DestroyGap `0x006FB470`'s own
+/// PlayerPtr+0x1F5 branch: native leaves a defeated client's prior hostile
+/// deposits untouched.
 pub(crate) fn publish_gap_generator_event(
     fog: &mut FogState,
     alliances: &HouseAllianceMap,
@@ -3172,13 +3213,13 @@ pub(crate) fn publish_gap_generator_event(
     if let Some(vis) = fog.by_owner.get_mut(&viewer) {
         let receipts = fog.gap_sources.entry(viewer).or_default();
         if active {
-            if !viewer_defeated
-                && !is_allied_with(
-                    alliances,
-                    interner.resolve(source.owner),
-                    interner.resolve(viewer),
-                )
-                && receipts.insert(source)
+            if gap_source_is_hostile_to_viewer(
+                alliances,
+                &source,
+                viewer,
+                viewer_defeated,
+                interner,
+            ) && receipts.insert(source)
             {
                 for index in gap_footprint(source, width, height) {
                     vis.add_gap_cell(index);
@@ -3212,11 +3253,21 @@ pub(crate) fn publish_gap_generator_event(
 
 /// Passive projection of retained deposits. It must never reclassify power or
 /// emit add/remove events during House, restore, or ordinary view rebuilding.
-/// Friendly Cell13C remains the existing boolean fog projection.
+/// Friendly Cell13C remains the existing boolean fog projection, and a
+/// defeated viewer's hostile deposits join it (`0x006FB2E3..0x006FB2F1`
+/// routes the defeated client's CreateGap to the friendly `0x006FB3C1`
+/// leaf). Gated sources never enter the receipts, so DestroyGap removal is a
+/// no-op for them, and this pass's `clear_gap_fog` plus reproject from the
+/// currently-active deposits is what clears a powered-off generator's fog —
+/// for allied and defeated viewers alike. This pass never executes the
+/// DestroyGap `0x006FB470` removal: that event-plane arm already gates on
+/// the defeated PlayerPtr+0x1F5 read (see `publish_gap_generator_event`),
+/// and gated viewers hold no receipts here.
 pub(crate) fn materialize_gap_generator_sources(
     fog: &mut FogState,
     alliances: &HouseAllianceMap,
     sources: &BTreeMap<InternedId, Vec<GapGeneratorSource>>,
+    defeated_viewers: &std::collections::BTreeSet<InternedId>,
     interner: &StringInterner,
 ) {
     let width = usize::from(fog.width);
@@ -3230,10 +3281,12 @@ pub(crate) fn materialize_gap_generator_sources(
         fog.gap_sources.entry(viewer).or_default();
         vis.clear_gap_fog();
         for &source in sources.get(&viewer).into_iter().flatten() {
-            if is_allied_with(
+            if !gap_source_is_hostile_to_viewer(
                 alliances,
-                interner.resolve(source.owner),
-                interner.resolve(viewer),
+                &source,
+                viewer,
+                defeated_viewers.contains(&viewer),
+                interner,
             ) {
                 for index in gap_footprint(source, width, height) {
                     vis.set_gap_fog(index);

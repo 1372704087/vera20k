@@ -1007,12 +1007,131 @@ fn materialized_gap_fog_asks_the_generators_house_about_the_viewer() {
             &mut fog,
             &alliances,
             &BTreeMap::from([(viewer, vec![source])]),
+            &std::collections::BTreeSet::new(),
             &interner,
         );
         fog.is_cell_gap_fog(viewer, 30, 35)
     };
     assert!(fogged("Americans", "Soviet"));
     assert!(!fogged("Soviet", "Americans"));
+}
+
+/// The hostile-admission gate also reads the viewer's defeat:
+/// `0x006FB2E3..0x006FB2F1` reads PlayerPtr+0x1F5 (`MPlayer_Defeated`) and
+/// jumps to `0x006FB3C1`, the friendly Cell+0x13C leaf. A defeated viewer
+/// takes the allied treatment under the same hostile source that shrouds a
+/// live viewer; a defeated allied viewer keeps the pre-gate projection.
+#[test]
+fn defeated_viewer_takes_the_allied_fog_projection_instead_of_shroud() {
+    let viewer = intern::test_intern("Soviet");
+    let gapper = intern::test_intern("Americans");
+    let interner = ti();
+    let source = GapGeneratorSource {
+        stable_id: 1,
+        owner: gapper,
+        rx: 30,
+        ry: 30,
+        radius: 10,
+    };
+    let projection = |allied: bool, defeated: bool| {
+        let mut fog = FogState {
+            width: 64,
+            height: 64,
+            ..Default::default()
+        };
+        fog.mark_visible_for_owner(viewer, 30, 35);
+        let alliances = if allied {
+            HouseAllianceMap::from([(
+                "AMERICANS".to_ascii_uppercase(),
+                ["SOVIET".to_ascii_uppercase()].into(),
+            )])
+        } else {
+            HouseAllianceMap::new()
+        };
+        let defeated_viewers = if defeated {
+            std::collections::BTreeSet::from([viewer])
+        } else {
+            Default::default()
+        };
+        apply_gap_generator_sources_with_spy_sat(
+            &mut fog,
+            &alliances,
+            &[source],
+            &interner,
+            &std::collections::BTreeSet::new(),
+            &defeated_viewers,
+        );
+        fog
+    };
+
+    // Defeated hostile viewer: the 0x006FB3C1 friendly projection; the view
+    // itself stays open.
+    let defeated = projection(false, true);
+    assert!(defeated.is_cell_gap_fog(viewer, 30, 35));
+    assert!(!defeated.is_cell_gap_covered(viewer, 30, 35));
+    assert!(defeated.is_cell_visible(viewer, 30, 35));
+    // Control: the same hostile source covers a live viewer.
+    let alive = projection(false, false);
+    assert!(!alive.is_cell_gap_fog(viewer, 30, 35));
+    assert!(alive.is_cell_gap_covered(viewer, 30, 35));
+    assert!(!alive.is_cell_visible(viewer, 30, 35));
+    // A defeated allied viewer stays exactly on today's allied projection.
+    let allied = projection(true, true);
+    assert!(allied.is_cell_gap_fog(viewer, 30, 35));
+    assert!(!allied.is_cell_gap_covered(viewer, 30, 35));
+}
+
+/// A defeated viewer's materialized fog follows the power cycle: the bulk
+/// clear-and-reproject wipes `FLAG_GAP_FOG` when the deposit goes inactive,
+/// and no hostile shroud write ever happens, because a gated viewer holds no
+/// receipts (`DestroyGap` `0x006FB470` removal is a no-op for it).
+#[test]
+fn materialized_defeated_viewer_fog_follows_the_power_cycle_without_shroud() {
+    let viewer = intern::test_intern("Soviet");
+    let gapper = intern::test_intern("Americans");
+    let interner = ti();
+    let source = GapGeneratorSource {
+        stable_id: 1,
+        owner: gapper,
+        rx: 30,
+        ry: 30,
+        radius: 10,
+    };
+    let defeated_viewers = std::collections::BTreeSet::from([viewer]);
+
+    // Generator operational: the friendly 0x006FB3C1 projection.
+    let mut fog = FogState {
+        width: 64,
+        height: 64,
+        ..Default::default()
+    };
+    fog.mark_visible_for_owner(viewer, 30, 35);
+    materialize_gap_generator_sources(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &BTreeMap::from([(viewer, vec![source])]),
+        &defeated_viewers,
+        &interner,
+    );
+    assert!(fog.is_cell_gap_fog(viewer, 30, 35));
+    assert!(!fog.is_cell_gap_covered(viewer, 30, 35));
+
+    // Powered off: the deposit drops out and the reproject leaves no fog.
+    materialize_gap_generator_sources(
+        &mut fog,
+        &HouseAllianceMap::new(),
+        &BTreeMap::new(),
+        &defeated_viewers,
+        &interner,
+    );
+    assert!(!fog.is_cell_gap_fog(viewer, 30, 35));
+    assert!(!fog.is_cell_gap_covered(viewer, 30, 35));
+    assert!(
+        fog.gap_sources()
+            .get(&viewer)
+            .is_none_or(|receipts| receipts.is_empty()),
+        "a gated viewer holds no receipts, so DestroyGap removal is a no-op"
+    );
 }
 
 /// With height-LOS enabled but perfectly flat terrain, reveal must be identical to
@@ -1469,6 +1588,7 @@ fn shroud_current_sight_matches_original_native_sequences() {
                         &sources,
                         &interner,
                         &map_clear,
+                        &std::collections::BTreeSet::new(),
                     );
                 }
                 frame if frame.starts_with("frame") => {

@@ -33,7 +33,7 @@ use crate::ui::wol_chat::WolChatLine;
 // The deployment sets this at build time; a runtime override supports staging.
 const DEFAULT_LOBBY_URL: &str = match option_env!("VERA20K_LOBBY_URL") {
     Some(value) => value,
-    None => "https://vera20k-lobby.hnr-enok.workers.dev",
+    None => "https://lobby.vera20k.org",
 };
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);

@@ -21,7 +21,7 @@ function fixture(bodyTimeoutMs = 5000) {
   let requestId = 0;
   const cursors = new Map();
   async function request(path, token, body) {
-    if (body && (path === '/v1/accounts' || path === '/v1/sessions') && body.protocol === undefined) body = { ...body, protocol: 3 };
+    if (body && (path === '/v1/accounts' || path === '/v1/sessions') && body.protocol === undefined) body = { ...body, protocol: 4 };
     const response = await service.fetch(new Request(`https://lobby.invalid${path}`, {
       method: body ? 'POST' : 'GET', headers: { 'content-type': 'application/json',
         ...(token ? { authorization: `Bearer ${token}` } : {}) },
@@ -46,7 +46,7 @@ function fixture(bodyTimeoutMs = 5000) {
     }
     return result;
   };
-  return { player, command, request, store, advance: (seconds) => { now += seconds; },
+  return { player, command, request, store, env, advance: (seconds) => { now += seconds; },
     raw: (request) => service.fetch(request),
     parse: (body) => service.readBody(new Request('https://lobby.invalid/', { method: 'POST',
       headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })),
@@ -227,6 +227,31 @@ test('one human plus an explicit AI completes admission and rematch with one tra
     assert.equal((await f.command(host, 'finish', { match_id: begun.match_id })).status, 200);
     assert.equal(f.store.count('match:'), 0);
   }
+});
+
+test('public stats count players, open games and played matches over a day', async () => {
+  const f = fixture(); const host = await f.player('Host'); await f.player('Idle');
+  const stats = async () => (await f.request('/v1/stats')).body;
+  const selected = { ...options, launch: { ...options.launch, humans: [human('Host')], ai_player_count: 1,
+    opponents: [{ ...slot, raw_slot_index: 1, difficulty: 'Normal' }],
+    pre_fill_house_roster: { ...options.launch.pre_fill_house_roster, ai_slots: [{ slot_index: 1, valid: true }] } },
+    map_metadata: { ...options.map_metadata, player_capacity: 2 } };
+  assert.equal((await f.command(host, 'create', { channel, key: '' })).status, 200);
+  assert.deepEqual(await stats(), { online: 2, in_game: 0, open_games: 1, games_24h: 0, games_total: 0 });
+  const revision = (await f.command(host, 'options', { options: selected })).body.events
+    .filter((event) => event.kind === 'options').at(-1).payload.revision;
+  await f.command(host, 'map_status', { status: 1, ...agreement(revision) });
+  await f.command(host, 'ready', { ready: true, ...agreement(revision) });
+  const start = await f.command(host, 'start', { users: ['Host'], ...agreement(revision) });
+  const { match_id } = start.body.events.find((event) => event.kind === 'game_started').payload;
+  await f.command(host, 'relay_ready', { match_id });
+  assert.equal((await f.command(host, 'latency_ready', { match_id, pings: [] })).status, 200);
+  assert.equal((await stats()).in_game, 0, 'one answer serves readers for ten seconds');
+  f.advance(10);
+  assert.deepEqual(await stats(), { online: 2, in_game: 1, open_games: 0, games_24h: 1, games_total: 1 });
+  f.advance(24 * 60 * 60);
+  const later = await stats();
+  assert.deepEqual([later.games_24h, later.games_total], [0, 1]);
 });
 
 test('start requires actual opponents and keeps AI out of observer games', async () => {
@@ -511,7 +536,7 @@ test('unfinished unauthenticated body cannot block another client and times out'
   assert.equal((await pending).status, 408);
 });
 
-test('crashed clients release their guest profile and match membership while active peers can finish', async () => {
+test('disconnected admitted players retain identity and can renew after internet returns', async () => {
   const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
   const revision = await room(f, host, guest);
   const started = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
@@ -520,10 +545,20 @@ test('crashed clients release their guest profile and match membership while act
   await f.command(host, 'latency_ready', { match_id: id, pings: [{ source_index: 1, round_trip_ms: 30 }] });
   await f.command(guest, 'latency_ready', { match_id: id, pings: [{ source_index: 0, round_trip_ms: 40 }] });
   assert.equal((await f.request('/v1/sessions', null, { nickname: 'Guest' })).status, 409);
-  f.advance(121);
+  f.advance(360);
   assert.equal((await f.command(host, 'ping')).status, 200);
-  assert.deepEqual(f.store.list('match:')[0].finished, [guest.player_id]);
-  assert.equal((await f.request('/v1/sessions', null, { nickname: 'Guest' })).status, 200);
+  assert.deepEqual(f.store.list('match:')[0].finished, []);
+  assert.equal((await f.request('/v1/sessions', null, { nickname: 'Guest' })).status, 409);
+  const dormant = f.store.list('session:').find((session) => session.player_id === guest.player_id);
+  dormant.critical_floor = dormant.sequence; f.store.put(`session:${dormant.id}`, dormant);
+  assert.equal((await f.request('/v1/events?after=0', guest.token)).status, 409);
+  const recovered = await f.request(`/v1/match/resume?match_id=${id}`, guest.token);
+  assert.equal(recovered.status, 200); assert.equal(recovered.body.match_id, id);
+  assert.equal(recovered.body.relay.source_index, 1);
+  const account = f.store.get(`guest:${guest.player_id}`);
+  assert.equal(account.admission_generation, 1, 'recovery does not create another membership');
+  assert.equal((await f.request(`/v1/match/resume?match_id=${crypto.randomUUID()}`, guest.token)).status, 409);
+  assert.equal((await f.command(guest, 'finish', { match_id: id })).status, 200);
   await f.command(host, 'finish', { match_id: id });
   assert.equal(f.store.list('match:').length, 0);
   const leave = await f.command(host, 'leave');
@@ -623,13 +658,13 @@ test('protocol upgrade is mandatory and duplicate sign-in cannot reset player ac
     headers: { 'content-type': 'application/json' }, body: JSON.stringify({ nickname: 'Missing', password: 'long-test-password' }) }))).status, 426);
   assert.equal((await f.request('/v1/accounts', null, { nickname: 'Old', password: 'long-test-password', protocol: 1 })).status, 426);
   assert.equal((await f.request('/v1/accounts', null, { nickname: 'Unsafe', password: 'long-test-password', protocol: 2 })).status, 426);
-  assert.equal((await f.request('/health')).body.protocol, 3);
+  assert.equal((await f.request('/health')).body.protocol, 4);
   const user = await f.player('Player');
   const old = f.store.list('session:')[0]; delete old.protocol; f.store.put(`session:${old.id}`, old);
   assert.equal((await f.request('/v1/channels?kind=0', user.token)).status, 426);
   old.protocol = 2; f.store.put(`session:${old.id}`, old);
   assert.equal((await f.request('/v1/channels?kind=0', user.token)).status, 426);
-  old.protocol = 3; f.store.put(`session:${old.id}`, old);
+  old.protocol = 4; f.store.put(`session:${old.id}`, old);
   await f.command(user, 'join', { channel: 'Lob_41_2', key: '' });
   for (let i = 0; i < 30; i++) assert.equal((await f.command(user, 'chat', { text: 'hello', to: [] })).status, 200);
   const duplicate = await f.request('/v1/sessions', null, { nickname: 'PLAYER' });
@@ -658,7 +693,7 @@ test('upgrade retires a stored v2 active membership without deleting accounts or
   assert.deepEqual(f.store.get(old.account_key), account);
   assert.notEqual(replacement.body.player_id, host.player_id);
   const currentGuest = f.store.list('session:').find((session) => session.player_id === guest.player_id);
-  assert.equal(currentGuest.protocol, 3); assert.equal(currentGuest.match_id, id);
+  assert.equal(currentGuest.protocol, 4); assert.equal(currentGuest.match_id, id);
   assert.deepEqual(f.store.get(`match:${id}`).finished, [host.player_id]);
   await f.command(guest, 'finish', { match_id: id });
   assert.equal(f.store.get(`match:${id}`), null);
@@ -744,4 +779,69 @@ test('JSON ingress validates nested keys and bounds container depth without recu
   };
   assert.deepEqual(await f.parse(nested(64)), nested(64));
   await assert.rejects(f.parse(nested(65)), { status: 400 });
+});
+
+test('clock grants bind the complete match roster and cadence while old active sessions can finish', async () => {
+  const f = fixture(), host = await f.player('Host'), guest = await f.player('Guest');
+  const revision = await room(f, host, guest);
+  const started = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
+  const begun = started.body.events.find((event) => event.kind === 'game_started').payload;
+  const bytes = Buffer.from(begun.relay.ordering_certificate, 'base64url');
+  assert.equal(bytes.length, 66); assert.equal(bytes.subarray(0, 4).toString(), 'VO1C');
+  assert.equal(bytes.subarray(4, 20).toString('hex'), begun.match_id.replaceAll('-', ''));
+  assert.equal(bytes.readUInt32LE(20), 3); assert.equal(bytes.readUInt16LE(24), 60);
+  assert.equal(bytes.readBigUInt64LE(26), 186400n);
+  const key = await crypto.subtle.importKey('raw', Buffer.alloc(32, 0xab), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+  const signed = Buffer.concat([Buffer.from('VERA20k relay ordering certificate v1\0'), bytes.subarray(0, 34)]);
+  assert.equal(await crypto.subtle.verify('HMAC', key, bytes.subarray(34), signed), true);
+  for (const user of [host, guest]) await f.command(user, 'relay_ready', { match_id: begun.match_id });
+  await f.command(host, 'latency_ready', { match_id: begun.match_id, pings: [{ source_index: 1, round_trip_ms: 10 }] });
+  await f.command(guest, 'latency_ready', { match_id: begun.match_id, pings: [{ source_index: 0, round_trip_ms: 10 }] });
+  const old = f.store.list('session:').find((session) => session.player_id === host.player_id);
+  old.protocol = 3; f.store.put(`session:${old.id}`, old);
+  assert.equal((await f.command(host, 'renew_relay', { match_id: begun.match_id })).status, 200);
+  assert.equal((await f.command(host, 'chat', { message: 'old client' })).status, 426);
+  assert.equal((await f.command(host, 'finish', { match_id: begun.match_id })).status, 200);
+  assert.equal((await f.command(guest, 'finish', { match_id: begun.match_id })).status, 200);
+  assert.equal(f.store.get(`match:${begun.match_id}`), null);
+  assert.equal((await f.request('/v1/sessions', null, { nickname: 'Old', protocol: 3 })).status, 426);
+});
+
+test('translation waits beside the command queue and readers share one cached model call', { timeout: 5000 }, async () => {
+  const f = fixture(); const reader = await f.player('Reader'); const other = await f.player('Other');
+  const calls = []; let release = null;
+  f.env.TRANSLATOR = { translate: (input) => { calls.push(input); return new Promise((resolve) => { release = resolve; }); } };
+  const message = { text: 'gg wp', target: 'zh-Hans' };
+  const first = f.request('/v1/translate', reader.token, message);
+  const second = f.request('/v1/translate', other.token, message);
+  for (let turn = 0; !release && turn < 100; turn++) await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.ok(release, 'the model was asked');
+  assert.equal((await f.command(reader, 'join', { channel: 'Lob_41_2', key: '' })).status, 200);
+  release({ text: 'gg 打得好' });
+  assert.deepEqual(await Promise.all([first, second]), [{ status: 200, body: { text: 'gg 打得好' } }, { status: 200, body: { text: 'gg 打得好' } }]);
+  assert.deepEqual(await f.request('/v1/translate', reader.token, message), { status: 200, body: { text: 'gg 打得好' } });
+  assert.deepEqual(calls, [message]);
+  f.advance(24 * 60 * 60);
+  assert.equal(f.store.count('translation:'), 1);
+  await f.player('Later');
+  assert.equal(f.store.count('translation:'), 0);
+});
+
+test('translation failures, unsupported requests and the daily budget never cache a reply', async () => {
+  const f = fixture(); const reader = await f.player('Reader');
+  const translate = (text, target = 'en') => f.request('/v1/translate', reader.token, { text, target });
+  assert.equal((await translate('你好')).body.error.code, 'translation_unavailable');
+  let reply = { error: 'unavailable' };
+  f.env.TRANSLATOR = { translate: async () => reply };
+  assert.equal((await translate('你好')).status, 503);
+  reply = { text: 'hello' };
+  assert.deepEqual(await translate('你好'), { status: 200, body: { text: 'hello' } });
+  reply = { error: 'invalid_request' };
+  assert.equal((await translate('你好', 'fr')).status, 400);
+  assert.equal((await translate('你好', 'English')).body.error.code, 'invalid_request');
+  const budget = f.store.get('rate:translate:budget');
+  f.store.put('rate:translate:budget', { ...budget, count: 10000 });
+  reply = { text: 'goodbye' };
+  assert.equal((await translate('再见')).body.error.code, 'translation_unavailable');
+  assert.deepEqual(await translate('你好'), { status: 200, body: { text: 'hello' } });
 });

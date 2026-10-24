@@ -103,6 +103,23 @@ impl StartupAgreement {
         self.houses.len() == 1
     }
 
+    /// The relay clock requires the entire originally certified membership.
+    /// A loading-survivor majority cannot start a different timeline.
+    pub(super) fn sequencing_identity(&self) -> Result<([u8; 32], u16, usize), StartupError> {
+        if self
+            .houses
+            .iter()
+            .any(|(row, _)| self.active & (1 << row) == 0)
+        {
+            return Err(StartupError::InvalidAdmission);
+        }
+        Ok((
+            crate::util::sha256::sha256_bytes(&self.identity()),
+            self.fps,
+            self.houses.len(),
+        ))
+    }
+
     fn row_for_house(&self, house: i8) -> Option<u8> {
         self.houses
             .iter()

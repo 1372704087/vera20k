@@ -2717,6 +2717,10 @@ mod tests {
             "Sell_Back requires bound buildup art"
         );
         let mut sim = Simulation::with_seed(0x4F8D_005C);
+        // This is the stock Battle fixture. The bare constructor's campaign
+        // mode requires discovery receipts before controlled building services.
+        sim.session_mut_for_test()
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         let owner = sim.intern("Americans");

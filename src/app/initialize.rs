@@ -161,6 +161,7 @@ impl App {
         capture_dimensions: Option<(u32, u32)>,
         startup_options: RetailStartupOptions,
         external_launch: bool,
+        replay_retail_directory: Option<&Path>,
     ) -> Result<AppState> {
         // One parsed retail profile snapshot yields two ordered products: the
         // independent frontend size selected after the early Video read, and the later
@@ -171,6 +172,10 @@ impl App {
         let mut personal_rules = crate::rules::personal_rules::PersonalRules::default();
         let game_config = startup_asset_or_error(
             GameConfig::load().and_then(|config| {
+                let config = match replay_retail_directory {
+                    Some(directory) => config.with_retail_directory(directory.to_owned())?,
+                    None => config,
+                };
                 if capture_dimensions.is_none() {
                     crate::app::persistence::profile_file::import_legacy(&config.paths).map_err(
                         |error| anyhow::Error::new(error).context("Could not prepare VERA.INI"),
@@ -631,21 +636,18 @@ impl App {
         if let Some(assets) = startup_asset_manager {
             process_assets.return_from_loading(assets);
         }
-        // Phobos `[Phobos] DigitalDisplay.Enable` (RA2MD.INI, imported into
-        // VERA.INI). The `phobos` build is the capability; the profile key is
-        // the user's switch and defaults to no.
-        // Sealed capture keeps its exact defaults, like the retail options
-        // snapshot, so operator profile state cannot change captured output.
+        // Phobos `[Phobos]` client switches (RA2MD.INI, imported into
+        // VERA.INI). The `phobos` build is the capability; the profile keys are
+        // the user's switches. Sealed capture keeps the source defaults, like
+        // the retail options snapshot, so operator profile state cannot change
+        // captured output.
         #[cfg(feature = "phobos")]
-        let digital_display_enabled = crate::rules::PHOBOS_ENABLED
-            && capture_dimensions.is_none()
-            && game_config.as_ref().is_some_and(|config| {
-                crate::app::persistence::phobos_settings::digital_display_enabled(
-                    config.paths.settings_dir(),
-                )
-            });
-        #[cfg(not(feature = "phobos"))]
-        let digital_display_enabled = false;
+        let phobos_client = match game_config.as_ref() {
+            Some(config) if capture_dimensions.is_none() => {
+                crate::app::persistence::phobos_settings::read(config.paths.settings_dir())
+            }
+            _ => crate::app::persistence::phobos_settings::PhobosClientSettings::default(),
+        };
         let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -724,7 +726,12 @@ impl App {
                     radar_content_insets: None,
                     has_radar: false,
                     selection_overlay: None,
-                    digital_display_enabled,
+                    #[cfg(feature = "phobos")]
+                    digital_display_enabled: phobos_client.digital_display_enabled,
+                    #[cfg(feature = "phobos")]
+                    show_placement_preview: phobos_client.show_placement_preview,
+                    #[cfg(feature = "phobos")]
+                    placement_preview_art: Default::default(),
                     beacon_art: None,
                     shroud_buffer: None,
                     theater_name: "TEMPERATE".to_string(),
@@ -918,7 +925,9 @@ impl App {
         #[cfg(feature = "telemetry-dashboard")]
         attach_dashboard(&mut state);
 
-        if let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
+        if replay_retail_directory.is_none()
+            && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY")
+        {
             // The developer shortcut carries an authored-map sandbox through
             // the unverified legacy Battle loader. It has no artificial AI
             // opponent or starting forces; this is not campaign admission.

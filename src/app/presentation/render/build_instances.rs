@@ -70,6 +70,9 @@ pub(super) struct UiInstances {
     pub software_cursor: Vec<SpriteInstance>,
     pub drag: Vec<SpriteInstance>,
     pub placement: Vec<SpriteInstance>,
+    /// Phobos placement preview artwork, drawn after the PLACE cells.
+    #[cfg(feature = "phobos")]
+    pub placement_ghost: Vec<SpriteInstance>,
     pub target_line: Vec<SpriteInstance>,
     pub tactical_line_calls: Vec<crate::app::presentation::airstrike_lines::TacticalLineCall>,
     pub factory_rally_first: Vec<SpriteInstance>,
@@ -848,7 +851,7 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
         None => Vec::new(),
     };
 
-    let placement = build_placement_preview(state);
+    let placement_preview = build_placement_preview(state);
 
     let input = &state.match_state.input;
     let camera = [input.camera_x.round() as i32, input.camera_y.round() as i32];
@@ -985,7 +988,9 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
     UiInstances {
         software_cursor,
         drag,
-        placement,
+        placement: placement_preview.cells,
+        #[cfg(feature = "phobos")]
+        placement_ghost: placement_preview.ghost,
         target_line,
         tactical_line_calls,
         factory_rally_first,
@@ -1016,25 +1021,122 @@ fn build_beacon_instances(state: &AppState) -> Vec<Vec<SpriteInstance>> {
     rows
 }
 
+/// The PLACE cells and, in Phobos builds, the preview artwork drawn after them.
+struct PlacementPreviewInstances {
+    cells: Vec<SpriteInstance>,
+    #[cfg(feature = "phobos")]
+    ghost: Vec<SpriteInstance>,
+}
+
 /// Active PLACE cells. Tactical6D5030 suppresses the building ghost outside
 /// the map editor; Cell47EC90 supplies frame0 or slope+2. Keep one ordered
 /// stream rather than regrouping overlapping cells by admitted color.
-fn build_placement_preview(state: &AppState) -> Vec<SpriteInstance> {
-    let (Some(shape), Some(preview)) = (
-        state
-            .match_state
-            .match_presentation
-            .selection_overlay
-            .as_ref()
-            .and_then(|overlay| overlay.placement_shape()),
-        &state.match_state.input.building_placement_preview,
-    ) else {
-        return Vec::new();
+fn build_placement_preview(state: &AppState) -> PlacementPreviewInstances {
+    let mut out = PlacementPreviewInstances {
+        cells: Vec::new(),
+        #[cfg(feature = "phobos")]
+        ghost: Vec::new(),
     };
+    let Some(preview) = &state.match_state.input.building_placement_preview else {
+        return out;
+    };
+    let shape = state
+        .match_state
+        .match_presentation
+        .selection_overlay
+        .as_ref()
+        .and_then(|overlay| overlay.placement_shape());
     // Residual: native6D53CB suppresses auto-fill when the wall is blocked;
     // the production list still includes those cells. The ordinary2x2 path
     // has no filler cells and shares one current-cell presentation transport.
-    shape.build_building_preview(preview)
+    // Phobos `0x47EFAE` selects the grid translucency from the rules global
+    // plus the client switch, independently of the per-type preview gate.
+    #[cfg(feature = "phobos")]
+    let alpha = state.rules().map_or(1.0, |rules| {
+        rules
+            .placement_preview_globals()
+            .effective_grid_translucency(
+                state.match_state.match_presentation.show_placement_preview,
+            )
+            .opacity()
+    });
+    #[cfg(not(feature = "phobos"))]
+    let alpha = 1.0;
+    if let Some(shape) = shape {
+        out.cells = shape.build_building_preview(preview, alpha);
+    }
+    #[cfg(feature = "phobos")]
+    {
+        out.ghost = build_placement_ghost(state, preview);
+    }
+    out
+}
+
+/// Phobos `TacticalClass_DrawPlacement_PlacementPreview 0x6D528A`: the
+/// per-type preview image at the current placement cell. The rules global,
+/// the client switch and the type's own `PlacementPreview=` must all admit it.
+#[cfg(feature = "phobos")]
+fn build_placement_ghost(
+    state: &AppState,
+    preview: &crate::sim::production::BuildingPlacementPreview,
+) -> Vec<SpriteInstance> {
+    let Some(rules) = state.rules() else {
+        return Vec::new();
+    };
+    let globals = rules.placement_preview_globals();
+    if !globals.enabled || !state.match_state.match_presentation.show_placement_preview {
+        return Vec::new();
+    }
+    let Some(type_id) = state.armed_building_type() else {
+        return Vec::new();
+    };
+    let Some(object) = rules.object(type_id) else {
+        return Vec::new();
+    };
+    if !object.placement_preview() {
+        return Vec::new();
+    }
+    let Some(point) = crate::app::presentation::placement_preview::preview_screen_point(
+        preview,
+        object.placement_preview_offset(),
+    ) else {
+        return Vec::new();
+    };
+    let Some(assets) = state.process_assets.manager() else {
+        return Vec::new();
+    };
+    let local_owner = crate::app::input::commands::preferred_local_owner_name(state);
+    let remap_house = local_owner
+        .as_deref()
+        .and_then(|owner| {
+            state
+                .match_state
+                .match_presentation
+                .house_color_map
+                .get(owner)
+        })
+        .copied();
+    let translucency = object
+        .placement_preview_translucency()
+        .unwrap_or(globals.translucency);
+    let presentation = &state.match_state.match_presentation;
+    let mut art = presentation.placement_preview_art.borrow_mut();
+    art.build_instance(
+        &state.renderer.gpu.device,
+        &state.renderer.gpu.queue,
+        &state.renderer.batch_renderer,
+        assets,
+        rules,
+        type_id,
+        object,
+        &presentation.theater_name,
+        &presentation.theater_ext,
+        remap_house,
+        point,
+        translucency.opacity(),
+    )
+    .into_iter()
+    .collect()
 }
 
 // ---------------------------------------------------------------------------

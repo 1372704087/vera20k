@@ -514,6 +514,31 @@ pub struct ObjectType {
     /// documentation names for `ShowType=idle`.
     #[cfg(feature = "phobos")]
     health_bar_permanent: bool,
+    /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
+    /// default true. The preview also needs the rules global and the client
+    /// switch.
+    #[cfg(feature = "phobos")]
+    placement_preview: bool,
+    /// `PlacementPreview.Shape=` (a `TheaterSpecificSHP` name). `None` uses
+    /// the buildup's last frame or the body's first frame.
+    #[cfg(feature = "phobos")]
+    placement_preview_shape: Option<String>,
+    /// `PlacementPreview.ShapeFrame=`, `None` keeps the image's default frame.
+    #[cfg(feature = "phobos")]
+    placement_preview_shape_frame: Option<i32>,
+    /// `PlacementPreview.Offset=` in leptons, default `0,-15,1`.
+    #[cfg(feature = "phobos")]
+    placement_preview_offset: [i32; 3],
+    /// `PlacementPreview.Remap=`, default true.
+    #[cfg(feature = "phobos")]
+    placement_preview_remap: bool,
+    /// `PlacementPreview.Palette=`, used when `Remap=no`; unset uses the
+    /// theater unit palette.
+    #[cfg(feature = "phobos")]
+    placement_preview_palette: Option<String>,
+    /// `PlacementPreview.Translucency=`, unset inherits the rules global.
+    #[cfg(feature = "phobos")]
+    placement_preview_translucency: Option<crate::rules::phobos_placement_preview::Translucency>,
     /// Canonical Speed percent,0..100 (0 is immobile). TechnoType
     /// ReadINI71464A retains the prior value for -1 across rules passes.
     /// Whole-lepton Type+678 conversion belongs to util::fixed_math.
@@ -2521,6 +2546,50 @@ impl ObjectType {
         self.health_bar_permanent
     }
 
+    /// Phobos `PlacementPreview=` (per building type).
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview(&self) -> bool {
+        self.placement_preview
+    }
+
+    /// Phobos `PlacementPreview.Shape=`.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_shape(&self) -> Option<&str> {
+        self.placement_preview_shape.as_deref()
+    }
+
+    /// Phobos `PlacementPreview.ShapeFrame=`.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_shape_frame(&self) -> Option<i32> {
+        self.placement_preview_shape_frame
+    }
+
+    /// Phobos `PlacementPreview.Offset=` in leptons.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_offset(&self) -> [i32; 3] {
+        self.placement_preview_offset
+    }
+
+    /// Phobos `PlacementPreview.Remap=`.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_remap(&self) -> bool {
+        self.placement_preview_remap
+    }
+
+    /// Phobos `PlacementPreview.Palette=`.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_palette(&self) -> Option<&str> {
+        self.placement_preview_palette.as_deref()
+    }
+
+    /// Phobos `PlacementPreview.Translucency=`; `None` inherits the global.
+    #[cfg(feature = "phobos")]
+    pub fn placement_preview_translucency(
+        &self,
+    ) -> Option<crate::rules::phobos_placement_preview::Translucency> {
+        self.placement_preview_translucency
+    }
+
     /// Native fixed-ART ShadowIndex, retained by the ordered Type reader.
     pub const fn voxel_shadow_index(&self) -> i32 {
         self.voxel_shadow_index
@@ -3193,6 +3262,48 @@ impl ObjectType {
                 .read_phobos_nullable_bool("DigitalDisplay.Health.FakeAtDisguise", None),
             #[cfg(feature = "phobos")]
             health_bar_permanent: section.read_bool("HealthBar.Permanent", false),
+            #[cfg(feature = "phobos")]
+            placement_preview: category == ObjectCategory::Building
+                && section.read_bool("PlacementPreview", true),
+            #[cfg(feature = "phobos")]
+            placement_preview_shape: if category == ObjectCategory::Building {
+                section
+                    .read_name("PlacementPreview.Shape", 0x100)
+                    .map(str::to_owned)
+            } else {
+                None
+            },
+            #[cfg(feature = "phobos")]
+            placement_preview_shape_frame: if category == ObjectCategory::Building {
+                section.read_phobos_nullable_int("PlacementPreview.ShapeFrame", None)
+            } else {
+                None
+            },
+            #[cfg(feature = "phobos")]
+            placement_preview_offset: if category == ObjectCategory::Building {
+                section.read_coord3("PlacementPreview.Offset", [0, -15, 1])
+            } else {
+                [0, -15, 1]
+            },
+            #[cfg(feature = "phobos")]
+            placement_preview_remap: category != ObjectCategory::Building
+                || section.read_bool("PlacementPreview.Remap", true),
+            #[cfg(feature = "phobos")]
+            placement_preview_palette: if category == ObjectCategory::Building {
+                section
+                    .read_name("PlacementPreview.Palette", 0x100)
+                    .map(str::to_owned)
+            } else {
+                None
+            },
+            #[cfg(feature = "phobos")]
+            placement_preview_translucency: if category == ObjectCategory::Building {
+                section
+                    .read_phobos_nullable_int("PlacementPreview.Translucency", None)
+                    .map(crate::rules::phobos_placement_preview::Translucency::from_int)
+            } else {
+                None
+            },
             speed: section.read_techno_speed("Speed", 0),
             // TechnoTypeClass ctor/read contract: raw signed ints, with no
             // clamp or conversion. A zero WalkRate is invalid content natively

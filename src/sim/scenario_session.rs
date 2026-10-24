@@ -1265,6 +1265,24 @@ impl ScenarioSession {
         self.network_command_timing.as_ref()
     }
 
+    pub(crate) fn configure_sequenced_clock(&mut self, frames_per_second: u16) {
+        let ahead = self.network_max_ahead_frames.expect("installed timing") as u16;
+        let timing = self
+            .network_command_timing
+            .as_mut()
+            .expect("installed timing");
+        timing.apply(
+            crate::sim::command::TimingRecord {
+                house_id: timing.host_house(),
+                frame: 0,
+                max_ahead: ahead,
+                frames_per_second,
+                frame_send_rate: std::num::NonZeroU8::new(1).unwrap(),
+            },
+            ahead,
+        );
+    }
+
     /// Retire the existing admitted timing row at a shared EXIT/REMOVEPLAYER
     /// tail. Local transport loss alone must not change shared timing state.
     pub(crate) fn retire_network_command_source(&mut self, house: i8) {

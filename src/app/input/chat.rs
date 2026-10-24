@@ -11,9 +11,9 @@
 //! an own beacon selected, is the beacon-text residual of
 //! [`crate::app::match_runtime::beacons`]. WOL's `/page` and
 //! `/reply` commands (`0x0078A6B0`) and its relay mask (`0x0055F056`) are WOL
-//! backend. The IME queue `0xB730EC` is not modelled; typed text arrives as
-//! the key event's text, every UTF-16 unit of it. Native WM_CHAR delivers one
-//! ANSI byte per character (`0x0054F56C`), and Shift/Ctrl+Backspace delete
+//! backend. Typed text arrives as the key event's text, every UTF-16 unit of
+//! it, and input-method text through [`commit_text`]. Native WM_CHAR delivers
+//! one ANSI byte per character (`0x0054F56C`), and Shift/Ctrl+Backspace delete
 //! twice or append `0x7F` there; VERA deletes once.
 //!
 //! ## Dependency rules
@@ -140,6 +140,17 @@ pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
         apply_input(state, key);
     }
     true
+}
+
+/// The pre-hook's head (`0x0055E42C..0x0055E465`): every unit queued from
+/// WM_IME_CHAR at `0xB730EC` goes to Input before the frame's key.
+pub(crate) fn commit_text(state: &mut AppState, text: &str) {
+    if !state.match_state.match_presentation.message_list.editing() {
+        return;
+    }
+    for unit in text.encode_utf16() {
+        apply_input(state, EditKey::Unit(unit));
+    }
 }
 
 /// A right press or release (key 2 or `0x802`) ends an open edit; the game
@@ -343,6 +354,15 @@ pub(crate) fn receive(state: &mut AppState, source_index: usize, text: &str) {
 pub(crate) fn receive_packet(state: &mut AppState, name: &str, color: i32, text: &str) {
     let rgb = crate::app::input::messages::packet_player_line_rgb(state, color);
     receive_resolved(state, name, text, rgb);
+    let units: Vec<u16> = text.encode_utf16().collect();
+    crate::app::shell_wol::translation::received(
+        state,
+        &units,
+        crate::app::shell_wol::translation::TranslatedLine::Match {
+            name: name.to_owned(),
+            color,
+        },
+    );
 }
 
 fn receive_resolved(state: &mut AppState, name: &str, text: &str, rgb: [f32; 3]) {

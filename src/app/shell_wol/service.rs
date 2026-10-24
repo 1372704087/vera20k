@@ -176,6 +176,12 @@ pub(crate) enum WolServiceRequest {
         matchbot: String,
         request: super::quick_match::MatchRequest,
     },
+    /// VERA's chat translation of a received line into `[VERA]
+    /// TranslateChat=`'s language; [`super::translation`] shows the reply.
+    Translate {
+        text: Vec<u16>,
+        line: super::translation::TranslatedLine,
+    },
 }
 
 impl std::fmt::Debug for WolServiceRequest {
@@ -1012,6 +1018,19 @@ pub(super) fn message_box_text(state: &AppState, body: String, yes_no: bool) -> 
         WolBoxButtons::Ok(resolve(state, "GUI:OK"))
     };
     WolMessageBox { body, buttons }
+}
+
+/// A live-service refusal whose reason no CSF label carries: the box its
+/// failure opened shows `body` instead. False when no box is open.
+pub(super) fn replace_open_box_body(state: &mut AppState, body: &str) -> bool {
+    match state.frontend.wol.as_mut().map(|visit| &mut visit.page) {
+        Some(WolPage::Message { message, .. }) => {
+            message.body = body.to_owned();
+            state.platform.window.request_redraw();
+            true
+        }
+        _ => false,
+    }
 }
 
 fn apply(state: &mut AppState, step: WolStep) {

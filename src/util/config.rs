@@ -212,6 +212,14 @@ impl GameConfig {
         Self::load_from(&working_dir, &executable)
     }
 
+    /// Explicit launch-local assets override; writable settings retain their
+    /// existing owner and must still remain outside the selected retail root.
+    pub fn with_retail_directory(mut self, directory: PathBuf) -> Result<Self> {
+        self.paths.ra2_dir = directory;
+        self.paths.separate_settings_from_assets()?;
+        Ok(self)
+    }
+
     /// [`GameConfig::load`] for a process with this working directory and executable.
     pub fn load_from(working_dir: &Path, executable: &Path) -> Result<Self> {
         let root = retail_asset_root_from_executable(executable)?;

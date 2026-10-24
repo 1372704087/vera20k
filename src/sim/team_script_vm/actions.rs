@@ -23,6 +23,15 @@
 //!   Effect: the team idles on that action for good, keeping its
 //!   members and its TeamType's `Max=` slot, and nothing else sends those
 //!   units out.
+//! - Script22's LAN/WOL path remains refused: Map580BC0 reads process-current
+//!   shroud586360; native LAN guest setup5E0841..5E0931 installs its local
+//!   participant at index0, then688109 makes that House PlayerPtr. Feeding
+//!   this local plane into shared Scenario RNG would make network results
+//!   client-dependent. A deterministic network visibility contract is still
+//!   required; this is not an unreachable native branch or a whole22 port.
+//!   Such teams retain their members and Max slot. Native would request one
+//!   Scenario range for a nonempty pool, with no private timer or detach;
+//!   the refused handler currently performs none of those effects.
 //! - `Coordinate_Attack` orders an unloading unit to attack without asking
 //!   Unit vt+0x4E4 (`0x00736D50`), which keeps it unloading when its type is
 //!   `DeployToFire=`, or when a computer unit's `DeploysInto=` building is
@@ -54,6 +63,10 @@ use crate::sim::world::FrameEffects;
 use crate::sim::world::Simulation;
 
 use super::super_actions::ChronoshiftTarget;
+
+#[cfg(test)]
+#[path = "idle_animation_tests.rs"]
+mod idle_animation_tests;
 use super::team_ai::member_is_live_joined;
 use super::{TeamScriptAction, TeamScriptRefusal, TeamScriptState, TeamTarget, script_action_at};
 use crate::sim::find_nearby_cell::{NearbyArgs, NearbyFootprint, PassabilityArgs};
@@ -61,6 +74,18 @@ use crate::sim::intern::StringInterner;
 use crate::sim::scenario_session::ScenarioSession;
 use crate::sim::team_script_vm::TeamScriptVm;
 use crate::sim::world::ObjectSubstrate;
+
+#[cfg(test)]
+#[path = "scout_tests.rs"]
+mod scout_tests;
+
+#[cfg(test)]
+#[path = "result_tests.rs"]
+mod result_tests;
+
+#[cfg(test)]
+#[path = "spy_waypoint_tests.rs"]
+mod spy_waypoint_tests;
 
 impl TeamScriptState {
     /// TeamFlash6EF5F0 walks +54/+5D8 head first and writes signed Techno+F0.
@@ -96,7 +121,8 @@ impl Simulation {
     }
 }
 
-/// Whether the dispatch ports `action_id`'s handler.
+/// Whether the dispatch has a port of `action_id`'s handler. Mode-specific
+/// residuals can still refuse a path (Script22 currently admits single player).
 pub(super) const fn action_is_ported(action_id: i32) -> bool {
     matches!(
         action_id,
@@ -106,17 +132,22 @@ pub(super) const fn action_is_ported(action_id: i32) -> bool {
             | 4
             | 5
             | 6
+            | 7
             | 8
             | 9
             | 10
             | 11
             | 12
+            | 13
             | 14
+            | 15
             | 16
             | 17
             | 19
             | 20
             | 21
+            | 22
+            | 23
             | 24
             | 25
             | 26
@@ -273,6 +304,14 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            15 => self.team_action_spy_waypoint(
+                team_id,
+                action.argument,
+                first,
+                rules,
+                registry,
+                frame_effects,
+            ),
             59 => self.team_action_attack_waypoint_building(
                 team_id,
                 action.argument,
@@ -311,6 +350,59 @@ impl Simulation {
                 }
                 self.team_coordinate_move(team_id, rules, registry, frame_effects);
             }
+            // TeamClass::AI Script22 at6E9583: first visit uses centre or
+            // head, Map580BC0 and AssignMissionTarget; every visit moves.
+            // Its script argument is unused. Shared movement owns timers
+            // and detach/EOF cleanup; only the search can request RNG.
+            22 => {
+                if !self.session.game_mode().is_single_player() {
+                    self.refuse_team_script_action(team_id, action.action_id);
+                    return;
+                }
+                if first {
+                    let origin = self.team_script_vm.teams.get(&team_id).and_then(|team| {
+                        team.zone
+                            .or_else(|| team.members().next().map(TeamTarget::Object))
+                    });
+                    let Some(viewer) = self.session.current_house() else {
+                        return;
+                    };
+                    let target = origin
+                        .and_then(|origin| self.nearby_shrouded_cell(origin.target_kind(), viewer))
+                        .map(|target| {
+                            TeamTarget::from(crate::sim::combat::TargetKind::from(target))
+                        });
+                    self.team_assign_mission_target(
+                        team_id,
+                        target,
+                        rules,
+                        registry,
+                        frame_effects,
+                    );
+                }
+                self.team_coordinate_move(team_id, rules, registry, frame_effects);
+            }
+            // TeamClass::AI Script7/23, table6E9F90/6E9FD0 ->6E98C9/6E98E5:
+            // FlagWin4FC9E0/FlagLose4FCBD0(PlayerPtr, false), then Team+80=1.
+            // Original gamemd instructions: no first-visit/argument gate,
+            // RNG draw, private timer or detach; House owns SavourDelay+298.
+            7 | 23 => {
+                self.request_player_outcome(
+                    crate::sim::world::PlayerOutcomeRequest::Flag {
+                        kind: if action.action_id == 7 {
+                            crate::sim::house_state::HouseOutcomeKind::Victory
+                        } else {
+                            crate::sim::house_state::HouseOutcomeKind::Defeat
+                        },
+                        skip_timer: false,
+                    },
+                    rules,
+                    frame_effects,
+                );
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
             // `0x006E97CE`: the guard timer starts on the first frame at
             // `argument * 15` frames; each frame the team regroups (the result
             // is ignored) and moves on once the timer has run out.
@@ -346,6 +438,27 @@ impl Simulation {
                 registry,
                 frame_effects,
             ),
+            // gamemd.exe TeamClass::AI Script13,6E9FA8 ->6E9879..98AD:
+            // each member's class virtual520(argument), next link read AFTER
+            // the callback, then +80=1. Refused animations still advance.
+            13 => {
+                let mut member = self
+                    .team_script_vm
+                    .teams
+                    .get(&team_id)
+                    .and_then(|team| team.members().next());
+                while let Some(current) = member {
+                    self.foot_play_idle_animation(current, action.argument, rules, frame_effects);
+                    member = self
+                        .team_script_vm
+                        .teams
+                        .get(&team_id)
+                        .and_then(|team| team.next_member_after(current));
+                }
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+            }
             14 => self.team_action_load_onto_transport(team_id, rules, registry, frame_effects),
             16 => self.team_action_patrol_waypoint(
                 team_id,
@@ -757,15 +870,18 @@ impl Simulation {
             }
             action_id => {
                 debug_assert!(!action_is_ported(action_id));
-                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id)
-                    && team.refusal.is_none()
-                {
-                    team.refusal = Some(TeamScriptRefusal::UnsupportedAction { action_id });
-                    log::warn!(
-                        "TeamClass::AI: team {team_id} stays on unported script action {action_id}"
-                    );
-                }
+                self.refuse_team_script_action(team_id, action_id);
             }
+        }
+    }
+
+    /// Keep the existing first-refusal diagnostic for unported action paths.
+    fn refuse_team_script_action(&mut self, team_id: u64, action_id: i32) {
+        if let Some(team) = self.team_script_vm.teams.get_mut(&team_id)
+            && team.refusal.is_none()
+        {
+            team.refusal = Some(TeamScriptRefusal::UnsupportedAction { action_id });
+            log::warn!("TeamClass::AI: team {team_id} stays on unported script action {action_id}");
         }
     }
 
@@ -2244,6 +2360,62 @@ impl Simulation {
             return;
         }
         self.team_coordinate_attack(team_id, rules, registry, frame_effects);
+    }
+
+    /// Script15 / Team6ECE60, dispatched at6E9637 (table6E9FB0).
+    /// Original gamemd6ECE60..6ECF0C: first assign the waypoint Cell, then
+    /// retry its ground-only Cell47C5A0 until an Object appears. Later visits
+    /// retain that Object; PointerExpired leaves NULL, which advances without
+    /// another waypoint query. No outer ammo gate, RNG, timer or detach here.
+    /// The shared CoordinateAttack owns Infiltrate infantry's Capture order.
+    fn team_action_spy_waypoint(
+        &mut self,
+        team_id: u64,
+        waypoint: i32,
+        first: bool,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        if first {
+            let target = self
+                .session
+                .waypoint_cell(waypoint)
+                .map(|cell| self.canonical_team_cell(cell));
+            self.team_assign_mission_target(team_id, target, rules, registry, effects);
+        }
+        let Some(team) = self.team_script_vm.teams.get(&team_id) else {
+            return;
+        };
+        match team.mission_target {
+            Some(target @ TeamTarget::Cell { .. }) => {
+                let cell = target
+                    .target_kind()
+                    .tarcom_cell(self.resolved_terrain.as_ref())
+                    .expect("a retained Cell has a coordinate");
+                let Some(BlockingObject::Entity(object) | BlockingObject::Terrain(object)) =
+                    self.find_blocking_object(cell, MovementLayer::Ground)
+                else {
+                    return;
+                };
+                self.team_assign_mission_target(
+                    team_id,
+                    Some(TeamTarget::Object(object)),
+                    rules,
+                    registry,
+                    effects,
+                );
+            }
+            Some(TeamTarget::Object(_)) => {}
+            None => {
+                self.team_assign_mission_target(team_id, None, rules, registry, effects);
+                if let Some(team) = self.team_script_vm.teams.get_mut(&team_id) {
+                    team.advance_pending = true;
+                }
+                return;
+            }
+        }
+        self.team_coordinate_attack(team_id, rules, registry, effects);
     }
 
     /// Shared Scenario68BCE0 -> Cell47C5A0 selection for Script1 and59.

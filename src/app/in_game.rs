@@ -253,7 +253,10 @@ impl App {
         if let Some(player) = state.audio.sfx_player.as_mut() {
             player.set_focus_output_active(active);
         }
-        if state.platform.pause_on_focus_loss && active {
+        if state.platform.pause_on_focus_loss
+            && active
+            && state.match_state.session_mode().is_single_player()
+        {
             // Only the configured freeze leaves a deactivated span to forget:
             // without it the match keeps pacing in the background. Forget the
             // pacing window so exactly one frame runs immediately on return,

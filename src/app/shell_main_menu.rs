@@ -1175,11 +1175,7 @@ Details: {details}"
         use crate::ui::shell::layout::LaidOutControl;
         use crate::ui::shell::modal;
         let kind = state.frontend.shell_message_box.as_ref()?.labels.kind();
-        let layout = modal::message_box_layout(
-            kind,
-            state.renderer.gpu.config.width as i32,
-            state.renderer.gpu.config.height as i32,
-        );
+        let layout = crate::app::frontend::shell_layout::shell_message_box_layout(state, kind);
         let mut feed = vec![LaidOutControl {
             id: modal::control::OK,
             rect: layout.ok,

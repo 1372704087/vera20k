@@ -53,10 +53,11 @@ use crate::util::native_x87::{NativeF64Bits, X87Chop53};
 /// `0.01` (`[0x007E3808]`).
 const PERCENT_SCALE: NativeF64Bits = NativeF64Bits::from_bits(0x3F84_7AE1_47AE_147B);
 
-/// One of the three choices.
+/// One of the house's mobile production choices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum UnitChoiceKind {
     Unit,
+    NavalUnit,
     Infantry,
     Aircraft,
 }
@@ -65,15 +66,18 @@ impl UnitChoiceKind {
     /// The class array the choice indexes.
     pub(crate) const fn category(self) -> ObjectCategory {
         match self {
-            Self::Unit => ObjectCategory::Vehicle,
+            Self::Unit | Self::NavalUnit => ObjectCategory::Vehicle,
             Self::Infantry => ObjectCategory::Infantry,
             Self::Aircraft => ObjectCategory::Aircraft,
         }
     }
 
     /// The choice a produced object of `category` fills; none for a building.
-    pub(crate) const fn of(category: ObjectCategory) -> Option<Self> {
+    pub(crate) const fn of(category: ObjectCategory, naval: bool) -> Option<Self> {
         match category {
+            ObjectCategory::Vehicle if crate::rules::NPATCH_ENABLED && naval => {
+                Some(Self::NavalUnit)
+            }
             ObjectCategory::Vehicle => Some(Self::Unit),
             ObjectCategory::Infantry => Some(Self::Infantry),
             ObjectCategory::Aircraft => Some(Self::Aircraft),
@@ -90,7 +94,7 @@ impl UnitChoiceKind {
 /// one choice: `Suggest_New_Object`'s hook (`0x4FBDAF -> 0xC2F130`) reads the
 /// producer's `Naval=` (`Type+0xCCE`) and takes `+0x16130` for a naval
 /// producer, `+0x5650` otherwise. An ordinary build keeps the vanilla single
-/// slot and never reads [`HouseAiUnitChoices::naval_unit`].
+/// slot and never reads the naval choice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct HouseAiUnitChoices {
     unit: i32,
@@ -122,6 +126,7 @@ impl HouseAiUnitChoices {
     pub(crate) const fn get(&self, kind: UnitChoiceKind) -> i32 {
         match kind {
             UnitChoiceKind::Unit => self.unit,
+            UnitChoiceKind::NavalUnit => self.naval_unit,
             UnitChoiceKind::Infantry => self.infantry,
             UnitChoiceKind::Aircraft => self.aircraft,
         }
@@ -130,24 +135,19 @@ impl HouseAiUnitChoices {
     fn slot_mut(&mut self, kind: UnitChoiceKind) -> &mut i32 {
         match kind {
             UnitChoiceKind::Unit => &mut self.unit,
+            UnitChoiceKind::NavalUnit => &mut self.naval_unit,
             UnitChoiceKind::Infantry => &mut self.infantry,
             UnitChoiceKind::Aircraft => &mut self.aircraft,
         }
     }
 
-    /// `House+0x16130` (NPSE): the naval yard's vehicle choice, -1 for none.
-    pub(crate) const fn naval_unit(&self) -> i32 {
-        self.naval_unit
-    }
-
-    /// The naval channel's chooser write (`0xC33A22`).
-    pub(crate) fn set_naval_unit(&mut self, index: i32) {
-        self.naval_unit = index;
-    }
-
-    /// `AI_Manage_Build_Queue`'s restart clears the unit choices.
+    /// `AI_Manage_Build_Queue` 4FE09A..4FE0B5 clears the original three
+    /// choices. NPSE 2.0 preserves an unconsumed naval choice here; held
+    /// objects clear their own channel through AbandonProduction first.
     pub(crate) fn clear_all(&mut self) {
-        *self = Self::default();
+        self.unit = -1;
+        self.infantry = -1;
+        self.aircraft = -1;
     }
 
     /// An exit or abandon of `kind`'s object.
@@ -180,12 +180,6 @@ pub(crate) fn choose(
     owner: InternedId,
     kind: UnitChoiceKind,
 ) {
-    // NPSE splits the vehicle choice by `Naval=`; an ordinary build keeps the
-    // vanilla single slot and this branch never runs.
-    if crate::rules::NPATCH_ENABLED && kind == UnitChoiceKind::Unit {
-        choose_vehicle_channels(sim, rules, owner);
-        return;
-    }
     let Some(house) = sim.houses.get(&owner) else {
         return;
     };
@@ -194,11 +188,17 @@ pub(crate) fn choose(
     }
     let fill_earliest_percent =
         house.difficulty_value(&rules.general.fill_earliest_team_probability);
-    let choice = match (kind == UnitChoiceKind::Unit)
+    let choice = match matches!(kind, UnitChoiceKind::Unit | UnitChoiceKind::NavalUnit)
         .then(|| harvester_choice(sim, rules, owner))
         .flatten()
     {
-        Some(index) => Some(index),
+        // NPSE 2.0 C339D0..C33A34 returns from the harvester branch even
+        // for the other channel's type: no team fallback or chooser RNG.
+        Some(index) => (!crate::rules::NPATCH_ENABLED
+            || rules
+                .type_array_at(ObjectCategory::Vehicle, index)
+                .is_some_and(|ty| ty.naval == (kind == UnitChoiceKind::NavalUnit)))
+        .then_some(index),
         None => {
             let candidates = candidates(sim, rules, owner, kind);
             pick(&candidates, fill_earliest_percent, |low, high| {
@@ -211,83 +211,6 @@ pub(crate) fn choose(
     {
         *house.ai_unit_choices_mut().slot_mut(kind) = index;
     }
-}
-
-/// NPSE's per-channel vehicle chooser. The extension invokes `AI_Choose_Unit`
-/// once per channel, each accepting only the types whose `Naval=` matches: the
-/// exit hook at `0xC339D0` writes `House+0x5650` for a non-naval pick, the one
-/// at `0xC33A0A` writes `House+0x16130` for a naval pick, and each clears its
-/// own slot when the chosen type belongs to the other channel. VERA has one
-/// chooser call per house, so it fills each empty channel from its own pool.
-/// The naval channel is asked only while the house holds a naval producer:
-/// that is the caller's decision in the extension, and the one part of this
-/// behaviour the port infers rather than reads.
-fn choose_vehicle_channels(sim: &mut Simulation, rules: &RuleSet, owner: InternedId) {
-    let Some(house) = sim.houses.get(&owner) else {
-        return;
-    };
-    let land_empty = house.ai_unit_choices().get(UnitChoiceKind::Unit) == -1;
-    let naval_empty = house.ai_unit_choices().naval_unit() == -1;
-    if !land_empty && !naval_empty {
-        return;
-    }
-    let fill_earliest_percent =
-        house.difficulty_value(&rules.general.fill_earliest_team_probability);
-    let naval_producer = house_naval_producer(sim, rules, owner);
-    // The harvester branch is the Unit chooser's, and harvesters are land
-    // units, so only the land channel asks it.
-    let land_choice = if land_empty {
-        harvester_choice(sim, rules, owner)
-            .or_else(|| draw_channel(sim, rules, owner, false, fill_earliest_percent))
-    } else {
-        None
-    };
-    if let Some(index) = land_choice
-        && let Some(house) = sim.houses.get_mut(&owner)
-    {
-        *house.ai_unit_choices_mut().slot_mut(UnitChoiceKind::Unit) = index;
-    }
-    if naval_empty
-        && naval_producer
-        && let Some(index) = draw_channel(sim, rules, owner, true, fill_earliest_percent)
-        && let Some(house) = sim.houses.get_mut(&owner)
-    {
-        house.ai_unit_choices_mut().set_naval_unit(index);
-    }
-}
-
-/// One vehicle channel's draw: the house's vehicle candidates restricted to
-/// the types whose `Naval=` matches `naval`.
-fn draw_channel(
-    sim: &mut Simulation,
-    rules: &RuleSet,
-    owner: InternedId,
-    naval: bool,
-    fill_earliest_percent: i32,
-) -> Option<i32> {
-    let pool: Vec<Candidate> = candidates(sim, rules, owner, UnitChoiceKind::Unit)
-        .into_iter()
-        .filter(|candidate| {
-            rules
-                .type_array_at(ObjectCategory::Vehicle, candidate.index)
-                .is_some_and(|kind| kind.naval == naval)
-        })
-        .collect();
-    pick(&pool, fill_earliest_percent, |low, high| {
-        sim.scenario_rng.next_range_i32_inclusive(low, high)
-    })
-}
-
-/// Whether the house owns a naval producer — a building whose type is
-/// `Naval=`, i.e. a shipyard. Only that producer reads the naval slot.
-fn house_naval_producer(sim: &Simulation, rules: &RuleSet, owner: InternedId) -> bool {
-    sim.substrate.entities.values().any(|entity| {
-        entity.owner() == owner
-            && entity.category() == EntityCategory::Structure
-            && sim
-                .object_type(entity.type_ref(), rules)
-                .is_some_and(|kind| kind.naval)
-    })
 }
 
 /// The Unit chooser's harvester branch (see [`choose`]): the vehicle index
@@ -406,6 +329,15 @@ fn candidates(
     let type_index = |id: InternedId| {
         rules
             .type_array_index(category, sim.interner.resolve(id))
+            // NPSE 2.0 C33B30 filters needed vehicle types before their
+            // recruitment, CanBuild, cost and random-choice consumers.
+            .filter(|&index| {
+                !crate::rules::NPATCH_ENABLED
+                    || category != ObjectCategory::Vehicle
+                    || rules
+                        .type_array_at(category, index)
+                        .is_some_and(|ty| ty.naval == (kind == UnitChoiceKind::NavalUnit))
+            })
             .and_then(|index| usize::try_from(index).ok())
             .filter(|&index| index < type_count)
     };

@@ -27,8 +27,13 @@ Per-type `AIBuildLimit=` limits AI production using the existing tracked and pro
 owners (`Factory_AI`, `0xC335A0..0xC33726`). Positive limits include limbo factory objects;
 non-positive limits compare the magnitude against both counters, and zero blocks the type.
 Reaching a cap clears the standing choice, without advancing the base plan. A capped building
-can therefore stall construction. VERA still has one vehicle choice slot; NPSE's separate
-naval AI choice remains a separate unimplemented mechanism.
+can therefore stall construction.
+
+NPSE's naval vehicle choice uses the existing mobile-choice owner. House Update asks the
+land and naval channels in order (`0xC33AB0`), sharing the harvester decision and team
+chooser. Suggest_New_Object reads the producer's channel (`0xC2F130`); exit, abandonment
+and build-limit rejection clear the corresponding choice (`0xC33940`, `0xC33B50`,
+`0xC33570`). These paths require the `npatch` build capability.
 
 The legacy `[General] EnableAIBuildLimitation=yes` switch applies the same comparison to
 `BuildLimit=` (NPExt ext173 reader `0xC2D132`, gate `0xC2CF67`). It defaults to no. This is

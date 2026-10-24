@@ -283,7 +283,6 @@ fn the_harvester_branch_matches_the_original() {
     }
 }
 
-
 /// A state saved before the NPSE naval slot existed keeps its land channel and
 /// loads the naval one as "no choice".
 #[test]
@@ -291,8 +290,40 @@ fn a_saved_state_without_the_naval_slot_loads_as_none() {
     let choices: HouseAiUnitChoices =
         serde_json::from_str(r#"{"unit":0,"infantry":-1,"aircraft":-1}"#).unwrap();
     assert_eq!(choices.get(UnitChoiceKind::Unit), 0);
-    assert_eq!(choices.naval_unit(), -1);
+    assert_eq!(choices.get(UnitChoiceKind::NavalUnit), -1);
     let round_trip: HouseAiUnitChoices =
         serde_json::from_str(&serde_json::to_string(&choices).unwrap()).unwrap();
     assert_eq!(round_trip, choices);
+    let mut restarted = choices;
+    restarted.set(UnitChoiceKind::NavalUnit, 1);
+    restarted.clear_all();
+    assert_eq!(restarted.get(UnitChoiceKind::Unit), -1);
+    assert_eq!(
+        restarted.get(UnitChoiceKind::NavalUnit),
+        1,
+        "native restart preserves an unconsumed naval choice"
+    );
+}
+
+/// NPSE 2.0 House Update C33AB0 asks both channels without a shipyard
+/// gate; both calls share the harvester return at C339D0..C33A34.
+#[cfg(feature = "npatch")]
+#[test]
+fn naval_choice_runs_the_shared_harvester_branch_without_a_shipyard() {
+    use crate::rules::ini_parser::IniFile;
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nHarvesterUnit=SHIP\nAISlaveMinerNumber=1,1,1\n\
+         [IQ]\nHarvester=0\n[Countries]\n0=AI\n[AI]\nSide=GDI\n\
+         [VehicleTypes]\n0=SHIP\n[SHIP]\nOwner=AI\nNaval=yes\nTechLevel=1\n",
+    ))
+    .unwrap();
+    let mut sim = Simulation::with_seed(39);
+    let owner = sim.interner.intern("AI");
+    sim.houses
+        .register(HouseState::new(owner, 0, Some(owner), false, 1_000, 10));
+    crate::sim::ai_base_building::update_production_choices(&mut sim, &rules, owner, None);
+    let choices = sim.houses[&owner].ai_unit_choices();
+    assert_eq!(choices.get(UnitChoiceKind::Unit), -1);
+    assert_eq!(choices.get(UnitChoiceKind::NavalUnit), 0);
 }

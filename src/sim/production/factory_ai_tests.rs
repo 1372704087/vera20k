@@ -542,7 +542,9 @@ fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
     {
         let house = f.sim.houses.get_mut(&f.owner).unwrap();
         house.ai_unit_choices_mut().set(UnitChoiceKind::Unit, tank);
-        house.ai_unit_choices_mut().set_naval_unit(ship);
+        house
+            .ai_unit_choices_mut()
+            .set(UnitChoiceKind::NavalUnit, ship);
     }
     let held = |f: &Fixture, building: u64| -> Option<String> {
         f.sim
@@ -577,5 +579,23 @@ fn a_shipyard_takes_the_naval_choice_while_the_war_factory_keeps_its_own() {
         held(&f, syrd).as_deref(),
         Some("SHIP"),
         "the shipyard builds the naval channel"
+    );
+    abandon_production(
+        &mut f.sim,
+        &f.rules,
+        FactoryHolder::Building(syrd),
+        f.owner,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let choices = f.sim.houses[&f.owner].ai_unit_choices();
+    assert_eq!(
+        choices.get(UnitChoiceKind::NavalUnit),
+        -1,
+        "abandon clears the naval choice"
+    );
+    assert_eq!(
+        choices.get(UnitChoiceKind::Unit),
+        tank,
+        "land choice survives"
     );
 }

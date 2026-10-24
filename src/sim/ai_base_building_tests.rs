@@ -724,7 +724,6 @@ fn a_human_yard_places_nothing() {
     assert_eq!(node_state(&sim, owner), [((16, 16), 0)]);
 }
 
-
 /// NPSE gives a naval producer its own vehicle choice: `0x4FBDAF -> 0xC2F130`
 /// reads `House+0x16130` while the producing building is `Naval=`, and
 /// `House+0x5650` otherwise. An ordinary build has no naval slot and keeps
@@ -741,7 +740,9 @@ fn a_naval_producer_reads_its_own_vehicle_choice() {
     let owner = sim.interner.intern("AI");
     let mut house = HouseState::new(owner, 0, None, false, 1000, 10);
     house.ai_unit_choices_mut().set(UnitChoiceKind::Unit, 0);
-    house.ai_unit_choices_mut().set_naval_unit(1);
+    house
+        .ai_unit_choices_mut()
+        .set(UnitChoiceKind::NavalUnit, 1);
     sim.houses.register(house);
 
     assert_eq!(
@@ -754,7 +755,11 @@ fn a_naval_producer_reads_its_own_vehicle_choice() {
         .map(|object| object.id.as_str());
     assert_eq!(
         naval,
-        Some(if crate::rules::NPATCH_ENABLED { "SHIP" } else { "U" }),
+        Some(if crate::rules::NPATCH_ENABLED {
+            "SHIP"
+        } else {
+            "U"
+        }),
         "only the NPatch build has a naval channel"
     );
 }

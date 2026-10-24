@@ -248,9 +248,6 @@ pub(in crate::sim) fn exit_produced_object(
             effects,
         );
     }
-    let Some(kind) = UnitChoiceKind::of(product_type.category) else {
-        return BuildingExit::Failed;
-    };
     let Some((owner_id, producer_type)) =
         sim.substrate
             .entities
@@ -260,6 +257,11 @@ pub(in crate::sim) fn exit_produced_object(
                     .map(|object| (producer.owner(), object))
             })
     else {
+        return BuildingExit::Failed;
+    };
+    // NPSE 2.0 Exit_Object C33940..C33998 reads the producer's Naval,
+    // unlike capped starts and abandonment, which read the product's type.
+    let Some(kind) = UnitChoiceKind::of(product_type.category, producer_type.naval) else {
         return BuildingExit::Failed;
     };
     //444096..4440D7 skips FreeRadio65ADC0 for Hospital, Armory and WeaponsFactory.

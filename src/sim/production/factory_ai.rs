@@ -254,10 +254,14 @@ fn start_factory(
     let Some(object) = ai_base_building::suggest_new_object(sim, rules, owner, factory_rtti) else {
         return;
     };
-    // The NPSE per-type `AIBuildLimit=` runs where `Factory_AI` fetched the
-    // type: at limit the category's choice slot clears and the start skips.
+    // Both NP generations gate at the fetched type before naval admission:
+    // #359 C335A0 reads AIBuildLimit; legacy ext173 C2D15A/C2CF67 uses
+    // BuildLimit when EnableAIBuildLimitation is set. Both constraints apply
+    // when a ruleset explicitly combines the compatibility keys.
     if crate::rules::NPATCH_ENABLED
-        && ai_build_limit_blocks(sim, rules, owner, object, object.aibuild_limit)
+        && (ai_build_limit_blocks(sim, rules, owner, object, object.aibuild_limit)
+            || rules.general.enable_ai_build_limitation
+                && ai_build_limit_blocks(sim, rules, owner, object, object.build_limit))
     {
         clear_aibuild_limit_choice(sim, owner, object.category);
         return;
@@ -312,19 +316,13 @@ fn placement_wait_over(sim: &Simulation, building: u64) -> bool {
         .is_some_and(|entity| entity.ai_placement_timer.expired(frame))
 }
 
-/// The NPSE per-type `AIBuildLimit=` side of the `Factory_AI` fetch hook
-/// (cave `0xC335A0..0xC33726`): whether `owner` is at `object`'s limit. The
-/// cave branches on the fetched type's class — `0x10` infantry, `0x28` unit,
-/// `3` aircraft, `7` building — and reads the limit from `Type+0x40`
-/// (`0xC335C4`; the constructor stores `0x7FFFFFFF` there, `0xC32950`, and
-/// the reader at `0xC27249..0xC2725A` defaults to the current value). A positive limit
-/// compares the house's tracked count of the type
-/// (`Add_Tracking @ 0x004FF700` counts the limbo factory object from
-/// production start, so clone production fills up to the limit and never
-/// exceeds it) with `jl` for "under the limit"; a non-positive one compares
-/// its produced and tracked counts by magnitude (`neg` then `jle`, the
-/// `House+0x55B4..0x55DC` produced and `+0x5514..0x553C` tracked tables
-/// through `0x49FAE0`), so an explicit `0` blocks the type outright.
+/// NP `BuildingClass::Factory_AI` count comparison: NPSE #359
+/// C335A0..C33726 for AIBuildLimit, NPExt ext173 C2CF67..C2D129 for the
+/// global switch's BuildLimit. Positive limits compare tracking directly;
+/// Add_Tracking4FF700 already includes limbo factory objects. Non-positive
+/// limits compare both produced and tracked counts after wrapping NEG, with
+/// signed JLE; zero therefore blocks. Reuse the same history/count owners,
+/// without the stock CheckBuildLimit50B370 factory/pad adjustments.
 fn ai_build_limit_blocks(
     sim: &Simulation,
     rules: &RuleSet,
@@ -357,8 +355,9 @@ fn ai_build_limit_blocks(
 /// production choice slot before the start skips — `+0x564C` building
 /// (`0xC3371C`), `+0x5654` infantry (`0xC3360C`), `+0x5658` aircraft, and for
 /// a unit `+0x5650` or the naval queue's `+0x16130` by `UnitType+0xCCE`
-/// (`0xC33570`). VERA keeps one unit slot, so a naval type clears that one;
-/// the `+0x16130` split is a residual. A capped building is cleared too, and
+/// (`0xC33570`; legacy ext173 C2D039 uses +160F8 for naval). VERA keeps
+/// one unit slot, so a naval type clears that one; the split is a residual.
+/// A capped building is cleared too, and
 /// its plan node stays unsatisfied, so `choose_building` returns the same
 /// type: that is the manual's warning (`AI克隆生产`) that a building at its
 /// limit leaves the computer unable to build anything, not a recovery.

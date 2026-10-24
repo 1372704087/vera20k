@@ -283,7 +283,7 @@ fn a_failed_exit_abandons_the_object_and_refunds_it() {
     );
 }
 
-const ORE_LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
+const AI_LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTypes]\n0=TANK\n\
     [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
     [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
     [PLAIN]\nStrength=1000\nCost=100\n\
@@ -293,12 +293,12 @@ const ORE_LIMIT_RULES_TAIL: &str = "[InfantryTypes]\n[AircraftTypes]\n[VehicleTy
     [Clear]\nBuildable=yes\n";
 
 /// The shared fixture plus two computer war factories and the preset vehicle
-/// choice, for the NPSE per-type `AIBuildLimit=` tests. The tests drive
+/// choice, for the NPSE per-type and legacy global limit tests. They drive
 /// `factory_ai` directly, so no strategy pass rewrites the preset choice.
-fn ore_limit_fixture(tank_tail: &str) -> (Fixture, u64, u64) {
+fn ai_limit_fixture(general: &str, tank_tail: &str) -> (Fixture, u64, u64) {
     let rules = format!(
-        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{}",
-        ORE_LIMIT_RULES_TAIL.replace("{TAIL}", tank_tail)
+        "[General]\nPlacementDelay=.05\nAIAlternateProductionCreditCutoff=10\n{general}\n{}",
+        AI_LIMIT_RULES_TAIL.replace("{TAIL}", tank_tail)
     );
     let mut f = fixture_with(&rules);
     let weap_1 = f
@@ -318,7 +318,7 @@ fn ore_limit_fixture(tank_tail: &str) -> (Fixture, u64, u64) {
     (f, weap_1, weap_2)
 }
 
-fn ore_limit_holds(f: &Fixture, building: u64) -> bool {
+fn ai_limit_holds(f: &Fixture, building: u64) -> bool {
     f.sim
         .production
         .factories()
@@ -327,7 +327,7 @@ fn ore_limit_holds(f: &Fixture, building: u64) -> bool {
         .is_some()
 }
 
-fn ore_limit_visit(f: &mut Fixture, building: u64) {
+fn ai_limit_visit(f: &mut Fixture, building: u64) {
     factory_ai(
         &mut f.sim,
         &f.rules,
@@ -341,11 +341,11 @@ fn ore_limit_visit(f: &mut Fixture, building: u64) {
 /// war factories clone the standing choice as stock does.
 #[test]
 fn without_aibuild_limit_the_war_factories_clone_the_choice() {
-    let (mut f, weap_1, weap_2) = ore_limit_fixture("");
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "");
     assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
-    ore_limit_visit(&mut f, weap_1);
-    ore_limit_visit(&mut f, weap_2);
-    assert!(ore_limit_holds(&f, weap_1) && ore_limit_holds(&f, weap_2));
+    ai_limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_2);
+    assert!(ai_limit_holds(&f, weap_1) && ai_limit_holds(&f, weap_2));
 }
 
 /// `AIBuildLimit=1`: a factory starts while the house tracks nothing, and
@@ -356,12 +356,12 @@ fn without_aibuild_limit_the_war_factories_clone_the_choice() {
 #[cfg(feature = "npatch")]
 #[test]
 fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
-    let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=1");
-    ore_limit_visit(&mut f, weap_1);
-    assert!(ore_limit_holds(&f, weap_1), "below the limit it starts");
-    ore_limit_visit(&mut f, weap_2);
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "AIBuildLimit=1");
+    ai_limit_visit(&mut f, weap_1);
+    assert!(ai_limit_holds(&f, weap_1), "below the limit it starts");
+    ai_limit_visit(&mut f, weap_2);
     assert!(
-        !ore_limit_holds(&f, weap_2),
+        !ai_limit_holds(&f, weap_2),
         "the held tank already reaches the limit"
     );
     assert_eq!(
@@ -379,13 +379,13 @@ fn aibuild_limit_skips_and_clears_the_choice_at_the_limit() {
 #[cfg(feature = "npatch")]
 #[test]
 fn aibuild_limit_non_positive_compares_the_magnitude() {
-    let (mut f, weap_1, _) = ore_limit_fixture("AIBuildLimit=-1");
+    let (mut f, weap_1, _) = ai_limit_fixture("", "AIBuildLimit=-1");
     f.sim
         .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
         .unwrap();
-    ore_limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_1);
     assert!(
-        !ore_limit_holds(&f, weap_1),
+        !ai_limit_holds(&f, weap_1),
         "one owned tank is already at the magnitude"
     );
     assert_eq!(
@@ -400,16 +400,100 @@ fn aibuild_limit_non_positive_compares_the_magnitude() {
 #[cfg(not(feature = "npatch"))]
 #[test]
 fn aibuild_limit_is_ignored_without_npatch() {
-    let (mut f, weap_1, weap_2) = ore_limit_fixture("AIBuildLimit=0");
+    let (mut f, weap_1, weap_2) = ai_limit_fixture("", "AIBuildLimit=0");
     assert_eq!(f.rules.object("TANK").unwrap().aibuild_limit, i32::MAX);
-    ore_limit_visit(&mut f, weap_1);
-    ore_limit_visit(&mut f, weap_2);
-    assert!(ore_limit_holds(&f, weap_1) && ore_limit_holds(&f, weap_2));
+    ai_limit_visit(&mut f, weap_1);
+    ai_limit_visit(&mut f, weap_2);
+    assert!(ai_limit_holds(&f, weap_1) && ai_limit_holds(&f, weap_2));
     assert_eq!(
         f.sim.houses[&f.owner]
             .ai_unit_choices()
             .get(UnitChoiceKind::Unit),
         0,
         "the ignored extension does not invalidate the standing choice",
+    );
+}
+
+/// The legacy global reader is opt-in and requires the compiled capability.
+#[test]
+fn legacy_ai_limit_switch_keeps_default_cloning_and_requires_npatch() {
+    let (mut plain, first, second) = ai_limit_fixture("", "BuildLimit=1");
+    assert!(!plain.rules.general.enable_ai_build_limitation);
+    ai_limit_visit(&mut plain, first);
+    ai_limit_visit(&mut plain, second);
+    assert!(ai_limit_holds(&plain, first) && ai_limit_holds(&plain, second));
+
+    let (mut limited, first, second) =
+        ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=1");
+    assert_eq!(
+        limited.rules.general.enable_ai_build_limitation,
+        crate::rules::NPATCH_ENABLED
+    );
+    ai_limit_visit(&mut limited, first);
+    ai_limit_visit(&mut limited, second);
+    assert!(ai_limit_holds(&limited, first));
+    assert_eq!(
+        ai_limit_holds(&limited, second),
+        !crate::rules::NPATCH_ENABLED
+    );
+}
+
+/// NPExt173 C2D00D..C2D037 also checks owned counts for a negative cap,
+/// even when no factory has produced an object of this type yet.
+#[cfg(feature = "npatch")]
+#[test]
+fn legacy_negative_ai_limit_includes_owned_unproduced_objects() {
+    let (mut f, first, _) = ai_limit_fixture("EnableAIBuildLimitation=yes", "BuildLimit=-1");
+    f.sim
+        .spawn_object("TANK", "AIHouse", 14, 14, 0, &f.rules)
+        .unwrap();
+    let index = f
+        .rules
+        .type_array_index(ObjectCategory::Vehicle, "TANK")
+        .unwrap();
+    assert_eq!(
+        f.sim.houses[&f.owner].produced_count(ObjectCategory::Vehicle, index),
+        0
+    );
+    ai_limit_visit(&mut f, first);
+    assert!(!ai_limit_holds(&f, first));
+    assert_eq!(
+        f.sim.houses[&f.owner]
+            .ai_unit_choices()
+            .get(UnitChoiceKind::Unit),
+        -1
+    );
+}
+
+/// The ext173 gate reads the house's tracked table for every class; the stock
+/// `CheckBuildLimit` swaps in the runway-pad count for an `AirportBound=`
+/// aircraft instead. A capped aircraft with no airfield would look blocked
+/// through `CanBuild`, but the AI gate has to compare the type's own count.
+#[cfg(feature = "npatch")]
+#[test]
+fn the_gate_compares_an_airport_bound_aircraft_by_its_own_count() {
+    let mut f = fixture_with(
+        "[General]\nEnableAIBuildLimitation=yes\nPlacementDelay=.05\n\
+         AIAlternateProductionCreditCutoff=10\n\
+         [InfantryTypes]\n[AircraftTypes]\n0=HELI\n[VehicleTypes]\n0=TANK\n\
+         [BuildingTypes]\n0=YARD\n1=PLAIN\n2=WEAP\n\
+         [YARD]\nStrength=1000\nConstructionYard=yes\nFactory=BuildingType\n\
+         [PLAIN]\nStrength=1000\nCost=100\n\
+         [WEAP]\nStrength=1000\nFactory=UnitType\nCost=200\n\
+         [TANK]\nStrength=300\nSpeed=5\nCost=100\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [HELI]\nStrength=300\nCost=100\nBuildLimit=1\nAirportBound=yes\n\
+         Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
+         [Clear]\nBuildable=yes\n",
+    );
+    let heli = f.rules.object("HELI").expect("HELI is an aircraft type");
+    assert!(heli.airport_bound);
+    assert!(
+        crate::sim::production::can_build::check_build_limit(&f.sim, &f.rules, f.owner, heli),
+        "the stock CanBuild branch compares runway pads, not the limit"
+    );
+    assert!(
+        !super::ai_build_limit_blocks(&f.sim, &f.rules, f.owner, heli, heli.build_limit),
+        "the gate compares the house's count of the type"
     );
 }

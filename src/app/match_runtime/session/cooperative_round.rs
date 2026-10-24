@@ -90,8 +90,13 @@ pub(crate) enum CooperativeRoundEvent {
     Ack { source: usize },
     /// `0x31`, the master's go.
     Go,
-    /// `0x0C`.
-    Chat { source: usize, text: String },
+    /// `0x0C` of this game (its `+0x114` hash matched), with the line
+    /// colour at `+0x110`.
+    Chat {
+        source: usize,
+        text: String,
+        color: u32,
+    },
     /// `0x0D`, the 20 s keepalive: only the loop's tail reads it.
     KeepAlive,
 }
@@ -114,10 +119,11 @@ pub(crate) enum CooperativeRoundStep {
     PeerLeft {
         source: usize,
     },
-    /// `0x0C`: post the line.
+    /// `0x0C`: post the line in the packet's colour.
     Chat {
         source: usize,
         text: String,
+        color: u32,
     },
     /// The loop left with `0x89E04C`.
     Exit(bool),
@@ -394,9 +400,15 @@ impl MatchSession {
                 round.outcome = Some(true);
                 Ok(CooperativeRoundStep::Exit(true))
             }
-            CooperativeRoundEvent::Chat { source, text } => {
-                Ok(CooperativeRoundStep::Chat { source, text })
-            }
+            CooperativeRoundEvent::Chat {
+                source,
+                text,
+                color,
+            } => Ok(CooperativeRoundStep::Chat {
+                source,
+                text,
+                color,
+            }),
             CooperativeRoundEvent::KeepAlive => Ok(tail(requests, host, round)),
         }
     }

@@ -29,8 +29,9 @@ mode-0600 JSON file outside the repository containing `RELAY_TICKET_KEY`, then r
 relay's systemd credential. The CLI's authentication stays in its own credential
 storage. No provider token or server key belongs in the build or client.
 
-The client defaults to the deployed lobby at
-`https://vera20k-lobby.hnr-enok.workers.dev`. Normal players use
+The client defaults to the deployed lobby at `https://lobby.vera20k.org`, the
+Worker's custom domain. Its workers.dev and preview URLs stay off because their
+hostnames carry the account's subdomain. Normal players use
 **Internet → Custom Match** without configuring a server address.
 
 For a separate deployment, set `VERA20K_LOBBY_URL` at build time or use its runtime
@@ -46,10 +47,11 @@ The source schema is configured in `cloudflare.config.ts` using the official
 Deployments preserve the existing SQLite data. Health is exposed at `/health`;
 credentials and request bodies are excluded from application logging.
 
-Lobby capability3 admits the security-fixed clients; older clients and stored
-pre-v3 sessions receive `upgrade_required`. Deploy matching clients and this
-service together. Relay tickets/datagrams remain wire version2 and use the
-existing v2 relay. Unsupported sessions retire through ordinary cleanup; account
+Lobby capability4 adds fixed-clock ordered multiplayer. Older clients cannot start
+new games; existing v3 sessions can poll, renew and finish through ordinary cleanup.
+Deploy the compatible relay before this service and its matching clients. Relay
+tickets retain wire version2; authenticated ordering controls are an extension.
+Unsupported older sessions retire through ordinary cleanup; account
 records remain intact. Initial grants last 120 seconds and playing grants 300 seconds.
 Each player identity has one monotonically ordered relay admission, so cancelled starts
 cannot retain a pool of valid rooms. Payload encryption keys are delivered only

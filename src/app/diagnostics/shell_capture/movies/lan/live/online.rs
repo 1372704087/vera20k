@@ -1417,7 +1417,7 @@ impl LiveRoundFlow {
                 if !self.observe_exit_cleanup(state, frame)? {
                     return Ok(());
                 }
-                if state.frontend.online_cleanup.pending() {
+                if crate::app::shell_wol::online_cleanup_pending(state) {
                     return Ok(());
                 }
                 let visits_retired = state.frontend.lan.is_none() && state.frontend.wol.is_none();
@@ -1451,7 +1451,7 @@ impl LiveRoundFlow {
                     "visits_retired":visits_retired,"setup_retired":setup_retired,
                     "transport_retired":transport_retired,"session_retired":session_retired,
                     "scenario_retired":scenario_retired,
-                    "online_cleanup_pending":state.frontend.online_cleanup.pending(),
+                    "online_cleanup_pending":crate::app::shell_wol::online_cleanup_pending(state),
                     "online_logout_acknowledged":acknowledged}));
                 self.record(
                     frame,

@@ -89,6 +89,11 @@ pub enum LanTarget {
     LiveQuitHost,
     LiveDesyncHost,
     LiveDesyncGuest,
+    /// LAN Cooperative through BC6 Continue to the retried mission.
+    LiveCoopHost,
+    /// The host takes Use Saved Campaign from a seeded coopsave.ini.
+    LiveCoopSavedHost,
+    LiveCoopGuest,
     BattleHost,
     BattleGuest,
     Lobby,
@@ -222,6 +227,9 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-live-quit-host", LanTarget::LiveQuitHost),
     ("lan-live-desync-host", LanTarget::LiveDesyncHost),
     ("lan-live-desync-guest", LanTarget::LiveDesyncGuest),
+    ("lan-live-coop-host", LanTarget::LiveCoopHost),
+    ("lan-live-coop-saved-host", LanTarget::LiveCoopSavedHost),
+    ("lan-live-coop-guest", LanTarget::LiveCoopGuest),
     ("lan-battle-host", LanTarget::BattleHost),
     ("lan-battle-guest", LanTarget::BattleGuest),
     ("lan-0xbb-steady", LanTarget::Lobby),
@@ -347,8 +355,17 @@ impl LanTarget {
                 | Self::LiveQuitHost
                 | Self::LiveDesyncHost
                 | Self::LiveDesyncGuest
+                | Self::LiveCoopHost
+                | Self::LiveCoopSavedHost
+                | Self::LiveCoopGuest
                 | Self::BattleHost
                 | Self::BattleGuest
+        )
+    }
+    pub(crate) fn live_cooperative(self) -> bool {
+        matches!(
+            self,
+            Self::LiveCoopHost | Self::LiveCoopSavedHost | Self::LiveCoopGuest
         )
     }
     fn host_observer(self) -> bool {
@@ -864,59 +881,14 @@ impl LanCapture {
     /// Click Cooperative in the chooser's game types: `+0x4C` lists the
     /// campaigns. The other routes then use the Soviet row.
     fn cooperative_chooser(&mut self, state: &mut AppState, frame: u32) -> Result<()> {
-        let layout = crate::app::frontend::shell_layout::choose_map_layout(state);
-        let mode_id = cooperative_mode(state)?.id;
-        let modal = state
-            .frontend
-            .skirmish_shell_state
-            .choose_map_modal
-            .as_ref()
-            .context("chooser")?;
-        let row = modal
-            .mode_rows()
-            .iter()
-            .position(|id| *id == mode_id)
-            .context("Cooperative listed on the network")?;
-        let point = list_row_point(modal.mode_geometry(&layout), row, modal.mode_top_index);
-        chooser_press(state, point);
-        let modal = state
-            .frontend
-            .skirmish_shell_state
-            .choose_map_modal
-            .as_ref()
-            .context("chooser")?;
-        ensure!(
-            modal.selected_mode_id == mode_id,
-            "the game-type click missed Cooperative"
-        );
-        let labels = modal.row_labels.clone().context("Cooperative rows")?;
-        ensure!(
-            labels.first().is_some_and(|label| label.starts_with("1. ")),
-            "Cooperative rows lack the first campaign: {labels:?}"
-        );
+        let labels = click_cooperative_mode(state)?;
         self.route
             .push(json!({"frame":frame,"action":"Cooperative clicked in 0x6B","rows":labels}));
         if self.target == LanTarget::CoopChooser {
             self.settle(state);
             return Ok(());
         }
-        let row = labels
-            .iter()
-            .position(|label| label.starts_with("2. "))
-            .context("the Soviet campaign row")?;
-        let point = list_row_point(modal.map_geometry(&layout), row, modal.map_top_index);
-        chooser_press(state, point);
-        ensure!(
-            state
-                .frontend
-                .skirmish_shell_state
-                .choose_map_modal
-                .as_ref()
-                .is_some_and(|modal| modal.highlighted_filtered_index == Some(row)),
-            "the Soviet row was not selected"
-        );
-        let button = layout.use_map_button;
-        chooser_press(state, (button.x + button.w / 2, button.y + button.h / 2));
+        use_soviet_campaign_row(state, &labels)?;
         self.event(frame, "Soviet campaign row used");
         self.phase = LanPhase::ChooserReturn;
         Ok(())
@@ -4476,6 +4448,76 @@ fn cooperative_mode(state: &AppState) -> Result<&crate::skirmish_modes::Skirmish
         .iter()
         .find(|mode| mode.class == crate::skirmish_modes::MpModeClass::Cooperative)
         .context("retail Cooperative mode")
+}
+
+/// Click Cooperative in the open chooser's game types; `+0x4C` lists the
+/// campaigns, whose labels this returns.
+fn click_cooperative_mode(state: &mut AppState) -> Result<Vec<String>> {
+    let layout = crate::app::frontend::shell_layout::choose_map_layout(state);
+    let mode_id = cooperative_mode(state)?.id;
+    let modal = state
+        .frontend
+        .skirmish_shell_state
+        .choose_map_modal
+        .as_ref()
+        .context("chooser")?;
+    let row = modal
+        .mode_rows()
+        .iter()
+        .position(|id| *id == mode_id)
+        .context("Cooperative listed on the network")?;
+    let point = list_row_point(modal.mode_geometry(&layout), row, modal.mode_top_index);
+    chooser_press(state, point);
+    let modal = state
+        .frontend
+        .skirmish_shell_state
+        .choose_map_modal
+        .as_ref()
+        .context("chooser")?;
+    ensure!(
+        modal.selected_mode_id == mode_id,
+        "the game-type click missed Cooperative"
+    );
+    let labels = modal.row_labels.clone().context("Cooperative rows")?;
+    ensure!(
+        labels.first().is_some_and(|label| label.starts_with("1. ")),
+        "Cooperative rows lack the first campaign: {labels:?}"
+    );
+    Ok(labels)
+}
+
+/// Select the Soviet campaign row, then Use Map.
+fn use_soviet_campaign_row(state: &mut AppState, labels: &[String]) -> Result<()> {
+    let row = labels
+        .iter()
+        .position(|label| label.starts_with("2. "))
+        .context("the Soviet campaign row")?;
+    use_chooser_row(state, row)
+}
+
+/// Selects a Cooperative chooser row and presses Use Map.
+fn use_chooser_row(state: &mut AppState, row: usize) -> Result<()> {
+    let layout = crate::app::frontend::shell_layout::choose_map_layout(state);
+    let modal = state
+        .frontend
+        .skirmish_shell_state
+        .choose_map_modal
+        .as_ref()
+        .context("chooser")?;
+    let point = list_row_point(modal.map_geometry(&layout), row, modal.map_top_index);
+    chooser_press(state, point);
+    ensure!(
+        state
+            .frontend
+            .skirmish_shell_state
+            .choose_map_modal
+            .as_ref()
+            .is_some_and(|modal| modal.highlighted_filtered_index == Some(row)),
+        "chooser row {row} was not selected"
+    );
+    let button = layout.use_map_button;
+    chooser_press(state, (button.x + button.w / 2, button.y + button.h / 2));
+    Ok(())
 }
 
 /// The middle of a chooser list's row.

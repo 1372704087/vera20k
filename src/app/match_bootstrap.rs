@@ -96,6 +96,7 @@ pub struct PreparedNetworkStartup {
     mode: crate::app::match_runtime::session::SessionMode,
     host: bool,
     max_ahead_frames: i32,
+    native_id_prefix: Option<u32>,
     wol_start: crate::app::match_runtime::session::WolStartTerms,
     /// A co-op continuation's carry-over record (`0x004C6210` after
     /// Start_Scenario); a first start restores none.
@@ -111,6 +112,8 @@ impl PreparedNetworkStartup {
         max_ahead_frames: i32,
         wol_start: crate::app::match_runtime::session::WolStartTerms,
     ) -> Self {
+        let native_id_prefix =
+            crate::sim::native_identity::modern_online_native_id_prefix(mode, launch.humans.len());
         Self {
             launch,
             local_map_source: None,
@@ -124,6 +127,7 @@ impl PreparedNetworkStartup {
             mode,
             host,
             max_ahead_frames,
+            native_id_prefix,
             wol_start,
             carry_over: None,
         }
@@ -167,6 +171,9 @@ impl PreparedNetworkStartup {
 
     pub(crate) fn max_ahead_frames(&self) -> i32 {
         self.max_ahead_frames
+    }
+    pub(crate) fn native_id_prefix(&self) -> Option<u32> {
+        self.native_id_prefix
     }
     pub(crate) fn wol_start(&self) -> &crate::app::match_runtime::session::WolStartTerms {
         &self.wol_start
@@ -476,6 +483,14 @@ pub(crate) fn prepare_campaign_startup_at_index(
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LoadingStartup {
     Network(std::sync::Arc<PreparedNetworkStartup>),
+    /// Exact immutable recorded launch. The diagnostics owner retains and
+    /// validates its log; this variant never installs a live network service.
+    Replay {
+        session: SkirmishLaunchSession,
+        seed: MatchSeed,
+        game_mode: crate::sim::scenario_session::ScenarioGameMode,
+        native_id_prefix: u32,
+    },
     Campaign(PreparedCampaignStartup),
     Accepted(PreparedMatchStartup),
     UnverifiedLegacy {
@@ -488,6 +503,16 @@ pub enum LoadingStartup {
 }
 
 impl LoadingStartup {
+    pub(crate) fn native_id_prefix(&self) -> Option<u32> {
+        match self {
+            Self::Network(startup) => startup.native_id_prefix(),
+            Self::Replay {
+                native_id_prefix, ..
+            } => Some(*native_id_prefix),
+            _ => None,
+        }
+    }
+
     pub(crate) fn physical_map_file(&self) -> &str {
         if let Self::Network(startup) = self
             && let Some(crate::map::source::LoadedMapSource::Loose { path, .. }) =
@@ -508,6 +533,10 @@ impl LoadingStartup {
                 .expect("accepted network map"),
             Self::Campaign(startup) => startup.selected_map_file(),
             Self::Accepted(startup) => startup.session.selected_map_file(),
+            Self::Replay { session, .. } => session
+                .selected_map_file
+                .as_deref()
+                .expect("validated replay map"),
             Self::UnverifiedLegacy { session, .. } => {
                 session.selected_map_file.as_deref().unwrap_or("auto")
             }
@@ -520,6 +549,7 @@ impl LoadingStartup {
             Self::Network(startup) => Some(startup.launch_session()),
             Self::Campaign(_) => None,
             Self::Accepted(startup) => Some(startup.session.launch_session()),
+            Self::Replay { session, .. } => Some(session),
             Self::UnverifiedLegacy { session, .. } => Some(session),
             Self::Generic { .. } => None,
         }
@@ -530,6 +560,7 @@ impl LoadingStartup {
             Self::Accepted(startup) => Some(startup),
             Self::Network(_)
             | Self::Campaign(_)
+            | Self::Replay { .. }
             | Self::UnverifiedLegacy { .. }
             | Self::Generic { .. } => None,
         }
@@ -542,14 +573,15 @@ impl LoadingStartup {
         }
     }
 
-    /// The `GameMode` the shell wrote before this launch: 0 for a campaign
-    /// (`0x0052E175`), 5 for every Battle launch (`0x0052E10F`). A generic map
-    /// load has no campaign either, matching the simulation's own
+    /// The `GameMode` admitted before construction: campaign 0 (`0x0052E175`),
+    /// offline Battle 5 (`0x0052E10F`), or the exact network/recorded mode.
+    /// A generic map load has no campaign, matching the simulation's own
     /// `game_mode_nonzero = campaign.is_none()` classification.
     pub(crate) fn session_mode(&self) -> crate::app::match_runtime::session::SessionMode {
         use crate::app::match_runtime::session::SessionMode;
         match self {
             Self::Network(startup) => startup.mode(),
+            Self::Replay { game_mode, .. } => *game_mode,
             Self::Campaign(_) => SessionMode::Campaign,
             Self::Accepted(_) | Self::UnverifiedLegacy { .. } | Self::Generic { .. } => {
                 SessionMode::Skirmish
@@ -563,6 +595,7 @@ impl LoadingStartup {
             Self::Network(startup) => startup.seed.value,
             Self::Campaign(startup) => startup.seed.value,
             Self::Accepted(startup) => startup.seed.value,
+            Self::Replay { seed, .. } => seed.value,
             Self::UnverifiedLegacy { seed, .. } => seed.value,
             Self::Generic { .. } => unverified_fallback(),
         }

@@ -84,14 +84,19 @@ pub(crate) fn in_game_options_hit(
 /// the audio device (4E2201..2229) and the GameSpeed row hides as
 /// [`game_speed_hidden`] decides.
 pub(crate) fn on_open(state: &mut AppState) {
-    let game_speed_hidden = game_speed_hidden(
-        state.match_state.session_mode(),
-        state
-            .match_state
-            .sim_runtime
-            .as_ref()
-            .is_some_and(|runtime| runtime.simulation.local_player_defeated()),
-    );
+    let game_speed_hidden = state
+        .match_state
+        .live_network
+        .as_ref()
+        .is_some_and(|live| live.uses_sequenced_lockstep())
+        || game_speed_hidden(
+            state.match_state.session_mode(),
+            state
+                .match_state
+                .sim_runtime
+                .as_ref()
+                .is_some_and(|runtime| runtime.simulation.local_player_defeated()),
+        );
     let options = &mut state.match_state.match_presentation.in_game_options;
     options.sound_enabled = state.audio.launcher_audio_available;
     options.on_open(game_speed_hidden);

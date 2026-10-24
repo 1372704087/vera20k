@@ -1,4 +1,4 @@
-# VERA20k lobby protocol v3
+# VERA20k lobby protocol v4
 
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens,
 relay tickets and packet keys must never be logged. Names are ASCII letters,
@@ -7,24 +7,26 @@ Request bodies are at most 64 KiB and 64 nested containers; every JSON string an
 property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
 not replaced, before any event or persistent state is created.
 
-`POST /v1/sessions` accepts exactly `{nickname,protocol:3}` and returns
+`POST /v1/sessions` accepts exactly `{nickname,protocol:4}` and returns
 `{player_id,nickname,token,expires_at}`. Each entry receives a fresh random player
 UUID and bearer token. `expires_at` is a Unix timestamp in seconds. An active name
 returns 409 `name_unavailable`; entering its name never replaces that session.
 Guest locale, buddies and relay admission counters belong to this player identity
-and are removed with its session on logout, expiry or 120 seconds without polling.
+and are removed with its session on logout or expiry. Idle lobby visits expire
+after 120 seconds without polling; admitted v4 players retain their session during
+a network outage until explicit finish/leave or the match/session lifetime.
 A later entry gets a new identity and empty preferences. No password account is
 created or consulted. Existing stored accounts and their current v3 sessions remain
 intact until their ordinary cleanup; active legacy sessions reserve their names too.
 `POST /v1/accounts` and password-bearing sign-in requests return 426 `upgrade_required`.
 Failed requests return `{error:{code,message}}`; messages must not echo credentials.
-The HTTP paths retain `/v1`; `protocol:3` is the required client capability.
-Older/missing capabilities and pre-v3 sessions receive 426 `upgrade_required`.
-Lobby capability3 requires the security-fixed map and authentication client.
+The HTTP paths retain `/v1`; `protocol:4` is the required client capability.
+Older/missing capabilities cannot enter new games. Existing v3 sessions may poll, renew an active lease and finish/leave/logout; their active match is preserved.
+Lobby capability4 adds the signed fixed-clock ordering capability.
 Relay tickets and encrypted datagrams retain wire version2; lobby capability and
 relay wire versions are independent. Unsupported sessions retire through ordinary
 room/match cleanup and cannot renew grants.
-`GET /health` reports `protocol:3`.
+`GET /health` reports `protocol:4`.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and
@@ -129,7 +131,7 @@ Event kinds and payloads:
 | `kicked` | `{channel:<Channel>,user:<Member>,by:<Member>}` |
 | `error` | `{code,message}` |
 
-RelayGrant is `{address,ticket,packet_key,payload_key,source_index}`. Address is `IPv4:port`;
+RelayGrant is `{address,ticket,packet_key,payload_key,source_index,ordering_certificate}`. Address is `IPv4:port`;
 ticket is the signed relay protocol ticket encoded base64url without padding and
 packet_key is 32 bytes encoded the same way. Credentials are unique to each user
 and each new match. `payload_key` is a random 32-byte match payload-encryption key
@@ -139,6 +141,15 @@ relay ticket or disclosed to the relay. It remains unchanged through bootstrap,
 timing confirmation and renewal. The HTTPS lobby is a trusted key distributor:
 a compromised lobby could disclose or replace payload keys; relay-blind payload
 encryption does not protect against that compromise. `source_index` is the immutable canonical user index, 0–29.
+`ordering_certificate` is 66 base64url-encoded bytes: `VO1C`, room UUID16,
+source mask LEu32, fixed FPS LEu16, expiry LEu64, then HMAC-SHA256 over the
+first34 bytes with domain `VERA20k relay ordering certificate v1\0`. The signed
+mask includes all human sources (including observers); AI has no source. FPS
+follows launch speed `[60,45,30,20,15,12,10]`. The certificate lasts24 hours;
+every UDP control still needs a live authenticated short-lived ticket. The relay
+binds the first matching startup agreement to this roster/clock and starts only
+when every signed source is ready. Renewals preserve the timeline and batch IDs.
+
 The relay room uses the fresh `match_id`, including for rematches. The server sends
 `game_started` only after all current participants agree to revision, version,
 rules digest and map metadata and are ready. The client still performs authenticated
@@ -245,5 +256,13 @@ finish/timeout. Postmatch the shell rejoins chat and may create or join another 
 this is a fresh match with fresh relay credentials. A channel owner leaving before
 start closes the room and emits a failure/leave event to the guests. Membership,
 authorization, readiness, sequence history and idle expiration are server-owned.
-An authenticated session idle for 120 seconds is retired, including its service
-match membership; gameplay peer loss remains the simulation's responsibility.
+Idle lobby visits expire after 120 seconds. An unfinished v4 playing membership
+survives that idle interval until explicit finish/leave or the match/session
+lifetime; lost internet does not remove its gameplay source.
+
+`GET /v1/match/resume?match_id=<UUID>` requires the same v4 bearer and its own
+unfinished playing match. It returns `{match_id,cursor,relay}` with a fresh
+short-lived ticket for the existing source/generation and the current shell cursor.
+This recovers an expired lobby event cursor without skipping gameplay: missed
+commands still come from the relay's complete journal. It shares the existing
+renewal action budget; it cannot create a membership or change match identity.

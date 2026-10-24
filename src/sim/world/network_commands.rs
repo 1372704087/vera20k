@@ -160,6 +160,15 @@ impl<'a> NetworkCommandQueues<'a> {
     pub fn game_speed(&self) -> i32 {
         self.sim.session.game_options().game_speed
     }
+
+    /// Modern relay policy: freeze the lobby-certified cadence before the
+    /// initial world agreement. Native LAN and solo online keep their existing
+    /// TIMING/PROCESS_TIME path; no later local process sample changes this clock.
+    pub fn configure_sequenced_clock(&mut self, frames_per_second: u16) {
+        self.sim
+            .session
+            .configure_sequenced_clock(frames_per_second);
+    }
     pub fn fog_of_war(&self) -> bool {
         self.sim.session.game_options().fog_of_war
     }
@@ -219,21 +228,7 @@ impl<'a> NetworkCommandQueues<'a> {
         &mut self,
         mirrors: &[CommandRecord],
     ) -> Result<(), NetworkQueueError> {
-        let allowance = self.mirror_allowance().min(self.local_len());
-        if mirrors.len() > allowance {
-            return Err(NetworkQueueError::MirrorCapacity {
-                count: mirrors.len(),
-                allowance,
-            });
-        }
-        for (index, (source, mirror)) in self.sim.local_commands.iter().zip(mirrors).enumerate() {
-            let source = source
-                .record()
-                .ok_or(NetworkQueueError::UnencodedLocalEvent { index })?;
-            if source.opcode() != mirror.opcode() || source.payload() != mirror.payload() {
-                return Err(NetworkQueueError::ChangedLocalEvent { index });
-            }
-        }
+        self.validate_local_prefix(mirrors)?;
         let sources: Vec<_> = self.sim.local_commands.take_prefix(mirrors.len()).collect();
         for (source, mirror) in sources.into_iter().zip(mirrors) {
             let QueuedCommand::Native {
@@ -254,6 +249,41 @@ impl<'a> NetworkCommandQueues<'a> {
                 accepted,
                 "the reserved network mirror prefix must fit DoList"
             );
+        }
+        Ok(())
+    }
+
+    /// VERA sequenced lockstep: an acknowledged submission leaves OutList,
+    /// but is not a local mirror. Only its immutable relay commit may enter
+    /// DoList, exactly as for every other sender. The retained transport batch
+    /// is an unacknowledged prefix, never a second simulation command queue.
+    pub fn commit_local_submission(
+        &mut self,
+        records: &[CommandRecord],
+    ) -> Result<(), NetworkQueueError> {
+        self.validate_local_prefix(records)?;
+        self.sim
+            .local_commands
+            .take_prefix(records.len())
+            .for_each(drop);
+        Ok(())
+    }
+
+    fn validate_local_prefix(&self, mirrors: &[CommandRecord]) -> Result<(), NetworkQueueError> {
+        let allowance = self.mirror_allowance().min(self.local_len());
+        if mirrors.len() > allowance {
+            return Err(NetworkQueueError::MirrorCapacity {
+                count: mirrors.len(),
+                allowance,
+            });
+        }
+        for (index, (source, mirror)) in self.sim.local_commands.iter().zip(mirrors).enumerate() {
+            let source = source
+                .record()
+                .ok_or(NetworkQueueError::UnencodedLocalEvent { index })?;
+            if source.opcode() != mirror.opcode() || source.payload() != mirror.payload() {
+                return Err(NetworkQueueError::ChangedLocalEvent { index });
+            }
         }
         Ok(())
     }

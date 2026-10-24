@@ -8,6 +8,12 @@
 //! (`0x0055CFD0`), `GameExit__Victory`/`Defeat` (`0x00685670`/`0x00685DC0`),
 //! `+0xA8` (`0x005C42D0`), BC6's loop (`0x0046FC00`) and `+0xAC`
 //! (`0x005C46E0`) do.
+//!
+//! RESIDUAL: BC6's country, colour and start combos do not edit; their
+//! guest record `0x33` (`0x0046E377`, `0x0046E4F3`, `0x0046E632`,
+//! `0x0046ECD8`) and the master's `0x0046D8B0` reply are not ported.
+//! RESIDUAL: the dialog's 20 s keepalive `0x0D` (`0x0046EADD`) is not sent;
+//! a peer's unhandled records still reach the loop's tail.
 
 use crate::app::frontend::skirmish_session::cooperative::CooperativeMissionRow;
 use crate::app::match_runtime::session::{CooperativeRoundEvent, CooperativeRoundStep};
@@ -100,8 +106,8 @@ pub(crate) fn mission_ended(state: &mut AppState, elapsed_ticks: i32) {
 /// choice.
 /// RESIDUAL: VERA's resolved launch keeps no chosen-Random flag
 /// (`node+0x4F`), so a player who chose Random saves the drawn country
-/// instead of `<random>`; only the saved-campaign reader, not ported,
-/// reads it.
+/// instead of `<random>`. Nothing reads it back: the saved-campaign
+/// reader's houses have only uncalled getters (`0x0049D0C0`).
 fn save_houses(state: &AppState) -> [(i32, i32); 2] {
     let Some(launch) = state.match_state.session.network_setup() else {
         return [(-1, -1); 2];
@@ -170,6 +176,9 @@ pub(crate) fn open_result(state: &mut AppState, victory: bool) {
         .get(state.frontend.multiplayer_shell_runtime.scenario_index())
         .map(|record| record.file_name.clone());
     let rows = model.rows.len();
+    // BC6 keeps the match's route; the shared teardown then finds no match
+    // transport to return.
+    crate::app::lan_service::cooperative::hold_transport(state);
     App::retire_finished_scenario(state);
     if let Err(error) =
         state
@@ -615,6 +624,7 @@ fn finish(state: &mut AppState) {
 /// Main_Game's return after GameExit: the session toggles persist, then
 /// the mode's shell (LAN: a new BB).
 fn return_to_shell(state: &mut AppState) {
+    crate::app::lan_service::cooperative::release_transport(state);
     state.frontend.coop_score_page = None;
     state.frontend.campaign_score_art = None;
     App::persist_returned_session_toggles(state);

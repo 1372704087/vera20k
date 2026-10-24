@@ -1624,6 +1624,12 @@ pub struct GeneralRules {
     /// 0x005276D0` at `0x00671DA7`; the constructor writes 5 (`0x006656EE` →
     /// `0x006657CD`).
     pub maximum_queued_objects: i32,
+    /// Phobos `[General] BuildingProductionQueue=` (default false): a
+    /// BuildingType PRODUCE queues behind a running or completed building
+    /// instead of being dropped or abandoning the held product. The next
+    /// building starts only after the held one is placed.
+    #[cfg(feature = "phobos")]
+    pub building_production_queue: bool,
     /// `Rules+0xD78`, `[General] HarvesterTooFarDistance=` in cells: a
     /// refinery farther than this is approached before the dock is reserved.
     /// `RulesClass::ReadGeneral` reads it through `CCINIClass::ReadInt
@@ -2625,6 +2631,8 @@ impl Default for GeneralRules {
             slave_miner_scan_correction: 0x300,
             slave_miner_kick_frame_delay: 0x7FFF_FFFF,
             maximum_queued_objects: 5,
+            #[cfg(feature = "phobos")]
+            building_production_queue: false,
             harvester_too_far_distance: 5,
             approach_target_reset_multiplier: 1,
             chrono_harv_too_far_distance: 50,
@@ -3894,6 +3902,8 @@ impl GeneralRules {
             slave_miner_scan_correction: general.read_range("SlaveMinerScanCorrection", 0x300),
             slave_miner_kick_frame_delay: general.read_int("SlaveMinerKickFrameDelay", 0x7FFF_FFFF),
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
+            #[cfg(feature = "phobos")]
+            building_production_queue: general.read_bool("BuildingProductionQueue", false),
             harvester_too_far_distance: general.read_int("HarvesterTooFarDistance", 5),
             approach_target_reset_multiplier: general.read_int("ApproachTargetResetMultiplier", 1),
             chrono_harv_too_far_distance: general.read_int("ChronoHarvTooFarDistance", 50),
@@ -7072,6 +7082,8 @@ impl RuleSet {
         self.general.lightning_warhead.hash(&mut hasher);
         self.general.weather_con_bolt_explosion.hash(&mut hasher);
         self.general.weapon_nullify_anim.hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        self.general.building_production_queue.hash(&mut hasher);
         self.combat_damage.splash_list.hash(&mut hasher);
         self.combat_damage.death_weapon.hash(&mut hasher);
         // The live family order is independent of HashMap iteration and may

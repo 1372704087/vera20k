@@ -199,4 +199,6 @@ The host uses the Soviet co-op campaign through Choose Map; both players take
 B6 Observe at native frame 150, BC6 opens on both after the lost mission, both
 press Continue, and the retried mission must run 90 frames over the same LAN
 admission. The manifest's `lan.cooperative` records the BC6 result and the
-retried startup.
+retried startup. `lan-live-coop-saved-host` replaces the host's Soviet row with Use Saved
+Campaign; seed its settings folder with a `coopsave.ini` section for the pair
+(`LiveHostLiveGuest`), and both players load the saved stage's map.

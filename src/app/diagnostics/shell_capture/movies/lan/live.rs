@@ -344,7 +344,7 @@ impl LiveLanCapture {
             entered_setup: false,
             cooperative: target
                 .live_cooperative()
-                .then(cooperative::CooperativeRun::new),
+                .then(|| cooperative::CooperativeRun::new(target == LanTarget::LiveCoopSavedHost)),
             country_selected: false,
             battle: matches!(
                 target,
@@ -382,6 +382,7 @@ impl LiveLanCapture {
                 | LanTarget::LiveQuitHost
                 | LanTarget::LiveDesyncHost
                 | LanTarget::LiveCoopHost
+                | LanTarget::LiveCoopSavedHost
                 | LanTarget::BattleHost
         )
     }

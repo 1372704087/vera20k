@@ -539,6 +539,24 @@ impl CooperativeProgressRecord {
         true
     }
 
+    /// `0x0049BCE0`, the campaign-end rows: each of the first two human
+    /// Houses' tallies `[kills, built, lost, score]`, then the time. The
+    /// first House takes the first name's tallies when its narrowed UI name
+    /// equals it (case-sensitive `strcmp`), else the second's. `None` on an
+    /// invalid record, which yields no rows.
+    pub fn campaign_end_tallies(&self, first_house_name: &[u8]) -> Option<([[i32; 4]; 2], i32)> {
+        if !self.valid {
+            return None;
+        }
+        let [first, second] = self.tallies;
+        let tallies = if first_house_name == self.partner_names[0] {
+            [first, second]
+        } else {
+            [second, first]
+        };
+        Some((tallies, self.time))
+    }
+
     /// `0x0049D070` with -1: the chosen map at `CurrentMap`, `None` past the
     /// last stage or on an invalid record.
     pub fn next_scenario_token(&self) -> Option<&str> {
@@ -2503,6 +2521,24 @@ mod tests {
         let mut invalid = CooperativeProgressRecord::default();
         assert!(!invalid.record_win([&host, &guest], 60));
         assert_eq!(invalid.current_map, -1);
+    }
+
+    /// `0x0049BCE0` gives the first House the first name's tallies only
+    /// when the names match exactly; an invalid record has no rows.
+    #[test]
+    fn campaign_end_tallies_follow_the_first_name() {
+        let mut record = won_record();
+        let host = mission_row("Host", 10, 20, 30, 40);
+        let guest = mission_row("Guest", 1, 2, 3, 4);
+        record.record_win([&host, &guest], 600);
+        let host_first = ([[10, 20, 30, 40], [1, 2, 3, 4]], 600);
+        assert_eq!(record.campaign_end_tallies(b"Host"), Some(host_first));
+        let swapped = ([[1, 2, 3, 4], [10, 20, 30, 40]], 600);
+        assert_eq!(record.campaign_end_tallies(b"host"), Some(swapped));
+        assert_eq!(
+            CooperativeProgressRecord::default().campaign_end_tallies(b"Host"),
+            None
+        );
     }
 
     /// The written section as coopsave.ini holds it.

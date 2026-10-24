@@ -94,6 +94,10 @@ pub enum LanTarget {
     /// The host takes Use Saved Campaign from a seeded coopsave.ini.
     LiveCoopSavedHost,
     LiveCoopGuest,
+    /// The saved last stage is won; `0xBC7` stays on the host's screen.
+    LiveCoopFinalHost,
+    /// The final guest presses `0xBC7`'s Continue back to the shell.
+    LiveCoopFinalGuest,
     BattleHost,
     BattleGuest,
     Lobby,
@@ -230,6 +234,8 @@ pub(crate) const LAN_CHECKPOINTS: &[(&str, LanTarget)] = &[
     ("lan-live-coop-host", LanTarget::LiveCoopHost),
     ("lan-live-coop-saved-host", LanTarget::LiveCoopSavedHost),
     ("lan-live-coop-guest", LanTarget::LiveCoopGuest),
+    ("lan-live-coop-final-host", LanTarget::LiveCoopFinalHost),
+    ("lan-live-coop-final-guest", LanTarget::LiveCoopFinalGuest),
     ("lan-battle-host", LanTarget::BattleHost),
     ("lan-battle-guest", LanTarget::BattleGuest),
     ("lan-0xbb-steady", LanTarget::Lobby),
@@ -358,6 +364,8 @@ impl LanTarget {
                 | Self::LiveCoopHost
                 | Self::LiveCoopSavedHost
                 | Self::LiveCoopGuest
+                | Self::LiveCoopFinalHost
+                | Self::LiveCoopFinalGuest
                 | Self::BattleHost
                 | Self::BattleGuest
         )
@@ -365,7 +373,11 @@ impl LanTarget {
     pub(crate) fn live_cooperative(self) -> bool {
         matches!(
             self,
-            Self::LiveCoopHost | Self::LiveCoopSavedHost | Self::LiveCoopGuest
+            Self::LiveCoopHost
+                | Self::LiveCoopSavedHost
+                | Self::LiveCoopGuest
+                | Self::LiveCoopFinalHost
+                | Self::LiveCoopFinalGuest
         )
     }
     fn host_observer(self) -> bool {
@@ -4360,7 +4372,7 @@ impl LanCapture {
     }
     pub(super) fn owns_simulation_steps(&self, state: &AppState) -> bool {
         if let Some(live) = &self.live {
-            return live.owns_simulation_steps();
+            return live.owns_simulation_steps(state);
         }
         self.abort_return()
             && self.phase == LanPhase::Loading

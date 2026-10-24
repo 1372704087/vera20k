@@ -1374,6 +1374,23 @@ impl MultiplayerShellRuntime {
         Some(self.cooperative_progress.active()?.can_continue())
     }
 
+    /// Cooperative `+0xA4` (`0x005C44E0`): after a won mission with the
+    /// active record past its last stage, the campaign type and
+    /// `0x0049BCE0`'s tallies and time for the campaign-end dialog `0xBC7`.
+    /// `first_house_name` is the first human House's narrowed UI name.
+    pub(crate) fn cooperative_campaign_end(
+        &self,
+        first_house_name: &[u8],
+    ) -> Option<(i32, Option<([[i32; 4]; 2], i32)>)> {
+        let record = self.cooperative_progress.active()?;
+        (!record.can_continue()).then(|| {
+            (
+                record.campaign_type,
+                record.campaign_end_tallies(first_house_name),
+            )
+        })
+    }
+
     /// `0x0049D070` on the active record: the next stage's map token.
     pub(crate) fn cooperative_next_scenario_token(&self) -> Option<&str> {
         self.cooperative_progress.active()?.next_scenario_token()

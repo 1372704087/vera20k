@@ -167,7 +167,7 @@ with or endorsed by Electronic Arts.
 
 - [Build and run](#build-and-run): requirements and building from source.
 - [INI profiles](docs/ini-roots.md): choosing rules, art and AI files.
-- [Ares](docs/ares.md), [Phobos](docs/phobos.md) and [NPatch](docs/npatch.md): extension support and limitations.
+- [Ares](docs/ares.md), [Phobos](docs/phobos.md), [NPatch](docs/npatch.md) and [VeraX](docs/verax.md): extension support and limitations.
 - [Engine overview](docs/index.md): code layout and how the engine fits together.
 - [Developer tools](tools/README.md): builds, tests and asset inspection.
 - [Map testing](tools/map_observation.md): scripted scenarios, screenshots and match observations.

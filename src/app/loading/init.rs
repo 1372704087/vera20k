@@ -3297,6 +3297,7 @@ fn load_map_first_step(
                                                 launch,
                                                 &house_roster,
                                                 &rules.color_schemes,
+                                                rules.skirmish_colors(),
                                             )
                                         })
                                         .unwrap_or_else(|| house_roster.color_map());

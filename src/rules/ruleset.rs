@@ -4406,6 +4406,10 @@ pub struct RuleSet {
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_globals:
         crate::rules::phobos_placement_preview::PlacementPreviewGlobals,
+    /// Phobos `[General] SkirmishUnlimitedColors=`: the player-colour
+    /// conversion every launcher and loading-screen consumer reads.
+    #[cfg(feature = "phobos")]
+    pub(crate) skirmish_color_mode: crate::rules::skirmish_colors::SkirmishColorMode,
     /// Radar event visual parameters (ping rectangles on minimap).
     pub radar_event_config: RadarEventConfig,
     /// All superweapon types indexed by ID (e.g., "LightningStormSpecial" → SuperWeaponType).
@@ -5585,6 +5589,8 @@ impl RuleSet {
         let placement_preview_globals =
             crate::rules::phobos_placement_preview::PlacementPreviewGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let skirmish_color_mode = crate::rules::skirmish_colors::SkirmishColorMode::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let radiation = {
             let mut radiation = radiation;
             radiation.radiation_types = processed.radiation_types().cloned().unwrap_or_default();
@@ -5975,6 +5981,8 @@ impl RuleSet {
             digital_display_globals,
             #[cfg(feature = "phobos")]
             placement_preview_globals,
+            #[cfg(feature = "phobos")]
+            skirmish_color_mode,
             radar_event_config,
             super_weapons,
             super_weapon_order,
@@ -6438,6 +6446,22 @@ impl RuleSet {
         &self.placement_preview_globals
     }
 
+    /// The player-colour conversion this rules load selects.
+    ///
+    /// A build without the `phobos` feature reads no
+    /// `[General] SkirmishUnlimitedColors=` and always answers the vanilla
+    /// eight-priority table, so callers need no `cfg`.
+    pub fn skirmish_colors(&self) -> crate::rules::skirmish_colors::SkirmishColorMode {
+        #[cfg(feature = "phobos")]
+        {
+            self.skirmish_color_mode
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            crate::rules::skirmish_colors::SkirmishColorMode::VANILLA
+        }
+    }
+
     /// Look up a projectile by ID (case-insensitive, gamemd parity).
     pub fn projectile(&self, id: &str) -> Option<&ProjectileType> {
         Self::lookup_ci(&self.projectiles, id)
@@ -6635,6 +6659,8 @@ impl RuleSet {
             self.digital_display_globals.hash(&mut hasher);
             b"phobos-placement-preview-v1".hash(&mut hasher);
             self.placement_preview_globals.hash(&mut hasher);
+            b"phobos-skirmish-colors-v1".hash(&mut hasher);
+            self.skirmish_color_mode.hash(&mut hasher);
             self.object_list
                 .iter()
                 .map(|object| {

@@ -227,7 +227,7 @@ fn expand_map_ini_with_options(
     strict: bool,
     logical_name: Option<&str>,
 ) -> Result<IniFile> {
-    if !crate::rules::ARES_ENABLED {
+    if !(crate::rules::ARES_ENABLED || crate::rules::PHOBOS_ENABLED) {
         return Ok(ini);
     }
     let name = match source {
@@ -242,7 +242,7 @@ fn expand_map_ini_with_options(
         name,
         crate::rules::ini_parser::directives::DirectiveOptions {
             strict,
-            ..Default::default()
+            ..crate::rules::ini_parser::directives::DirectiveOptions::production()
         },
     )
     .map_err(anyhow::Error::msg)?;
@@ -490,6 +490,17 @@ pub struct LoadedTransferAsset {
     pub content: TransferContent,
 }
 
+/// Whether this build's gameplay selection will expand includes after the
+/// transfer is installed. Mirrors [`DirectiveOptions::production`]: Phobos
+/// `$Include` takes over and disables Ares `[#include]`.
+fn include_expansion_will_run(ini: &IniFile) -> bool {
+    if crate::rules::PHOBOS_ENABLED {
+        ini.section("$Include").is_some()
+    } else {
+        crate::rules::ARES_ENABLED && ini.section("#include").is_some()
+    }
+}
+
 fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferContent> {
     if resource == TransferResource::Preview {
         anyhow::ensure!(bytes.len() >= 128, "preview header missing");
@@ -531,7 +542,7 @@ fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferC
         let mut options = crate::map::rmg::RmgOptions::default();
         options.apply_sed(&ini);
         options.normalize();
-    } else if !(crate::rules::ARES_ENABLED && ini.section("#include").is_some()) {
+    } else if !include_expansion_will_run(&ini) {
         map_file::MapFile::from_ini(ini.clone())?;
     }
     Ok(TransferContent::Scenario(ini))
@@ -1387,13 +1398,14 @@ mod tests {
         let metadata =
             load_map_ini_by_name_or_path_with_assets(dir.path(), "Arena.map", &assets).unwrap();
         assert_eq!(loaded.map.ini.content_hash(), metadata.ini.content_hash());
+        let ares_include = crate::rules::ARES_ENABLED && !crate::rules::PHOBOS_ENABLED;
         assert_eq!(
             loaded
                 .map
                 .ini
                 .section_or_empty("Unit")
                 .read_int("Strength", 0),
-            if crate::rules::ARES_ENABLED { 250 } else { 0 }
+            if ares_include { 250 } else { 0 }
         );
         assert_eq!(
             loaded
@@ -1409,7 +1421,7 @@ mod tests {
                 .ini
                 .section_or_empty("Basic")
                 .read_name("Name", 128),
-            crate::rules::ARES_ENABLED.then_some("Included name")
+            ares_include.then_some("Included name")
         );
         assert_eq!(
             serde_json::to_value(&loaded.source).unwrap(),

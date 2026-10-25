@@ -2337,13 +2337,14 @@ impl Simulation {
         stable_id: u64,
         rules: &RuleSet,
     ) {
-        let Some((category, veterancy, in_playfield, type_ref)) =
+        let Some((category, veterancy, in_playfield, type_ref, stealth_ability)) =
             substrate.entities.get(stable_id).map(|entity| {
                 (
                     entity.category(),
                     entity.veterancy.rank(),
                     entity.in_playfield(),
                     entity.type_ref(),
+                    entity.stealth_ability,
                 )
             })
         else {
@@ -2357,13 +2358,14 @@ impl Simulation {
             return;
         };
         let rank_cloak = has_weapon_ability(rank_from_u16(veterancy), object, Ability::Cloak);
-        if !object.cloakable && !rank_cloak {
+        let intrinsic_cloak = stealth_ability.active(object.cloakable);
+        if !intrinsic_cloak && !rank_cloak {
             return;
         }
         let frame = session.binary_frame() as i32;
         // Only UnitClass owns the direct Unlimbo state write, and it tests the
         // copied runtime Cloakable byte rather than rank-granted CLOAK.
-        let fully_cloaked = category == EntityCategory::Unit && object.cloakable && !in_playfield;
+        let fully_cloaked = category == EntityCategory::Unit && intrinsic_cloak && !in_playfield;
         if let Some(entity) = substrate.entities.get_mut(stable_id) {
             crate::sim::cloak_disguise::CloakRuntime::install(
                 &mut entity.cloak,
@@ -2800,7 +2802,15 @@ impl Simulation {
                 .anchor_first_node(pack_base_plan_cell(i32::from(rx), i32::from(ry)));
             house.anchor_base_plan((rx, ry));
             house.enable_ai_deploy_latches();
-            self.move_ground_forces_to_base(owner_id, rules, registry, frame_effects);
+            // Phobos `[General] GatherWhenMCVDeploy=` skips the native
+            // regroup (hook at `0x739920`) while keeping every earlier write.
+            #[cfg(feature = "phobos")]
+            let gather = rules.general.gather_when_mcv_deploy;
+            #[cfg(not(feature = "phobos"))]
+            let gather = true;
+            if gather {
+                self.move_ground_forces_to_base(owner_id, rules, registry, frame_effects);
+            }
         }
 
         // 0x00739956: a Slave Miner's manager moves to its refinery (the

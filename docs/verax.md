@@ -23,6 +23,19 @@ rebound or cleared like a retail hotkey. Ctrl+D is installed as the reload defau
 AutoLoad nor Ctrl+D already has a saved binding, and an explicit `AutoLoad=0` keeps it cleared.
 The assignment is written to the profile with the other bindings.
 
+## Map hot reload
+
+Without this extension the Skirmish map list is scanned once at startup, so a map copied into the
+game directory is only visible after restarting. A VeraX build rescans the directory each time the
+Skirmish Choose Map dialog opens (`SessionClass::ScanMultiplayerMapFiles` @ `0x00699980` again), so
+the new loose `.pkt`, `.yrm` or `.yro` map and its rows appear without a restart. Rows already
+listed are not duplicated, and the current selection keeps following the same map file when the
+rescan moves its index.
+
+This is not a directory watcher: the list changes on the next open of the chooser. Network lobbies
+keep their launch snapshot, because the map list is local and every peer must still compare the same
+catalog.
+
 ## Namespace
 
 `--features verax` compiles `rules::VERAX_ENABLED`. VeraX-only readers take their keys and

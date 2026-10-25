@@ -48,6 +48,8 @@ Thumbs.db
 !/docs/phobos-placement-preview.md
 !/docs/phobos-sidebar-gdi.md
 !/docs/phobos-building-queue.md
+!/docs/phobos-ai-dehardcode.md
+!/docs/phobos-parallel-ai-queues.md
 !/docs/phobos-skirmish-unlimited-colors.md
 !/docs/npatch.md
 !/docs/verax.md
@@ -96,6 +98,7 @@ tools/vendor-eval/
 !/README.zh-CN.md
 !/README.ar.md
 !/README.es.md
+!/README.ja.md
 !/README.ru.md
 !/README.th.md
 !/README.tr.md

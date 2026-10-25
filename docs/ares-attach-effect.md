@@ -1,7 +1,7 @@
 # Ares builtin AttachEffect
 
 The `ares` feature enables ordinary ground-victim and type-owned self effects,
-with ordered Foot speed, Techno firepower and temporary cloakability. Without
+with ordered Foot speed, Techno firepower/armor and temporary cloakability. Without
 the feature there is no attachment vector, update,
 damage pre-effect or animation root in the game. Ares snapshots include the new
 state in the automatic snapshot layout digest; old layouts are rejected.
@@ -162,7 +162,19 @@ States 1/2 enter uncloaking; states 0/3 retain their clock and progress. Effect
 expiry does not reverse that transition. No additional cloak timer or state is
 introduced, and the feature-off reader/dispatch is unchanged.
 
-The current chain admits only identity armor/ROF multipliers with
+Ground-warhead armor effects use the existing crate-multiplier owner for both
+the permanent crate baseline and effective armor. Ares `RecalculateStats`
+(`0x100460A0`, armor loop `0x10046192..0x10046199`) starts from Ext+88,
+multiplies ordered effects and publishes Techno+158. The existing retail
+ReceiveDamage and EstimateDamage consumers read that effective value. The
+Armor1/Armor2 crate hooks (`0x1005F840`/`0x1005F870`,
+[Ares Crates.cpp](https://github.com/Ares-Developers/Ares/blob/master/src/Misc/Crates.cpp))
+test/write the baseline, then recompute before the next recipient. Expiry and
+DiscardOnEntry restore the baseline through the shared attachment lifecycle.
+Both baseline and effective armor are saved, hashed and validated on restore;
+the added saved field is Ares-only. Default-build state and hashes are unchanged.
+
+The current chain admits only identity ROF multipliers with
 TemporalHidesAnim disabled. Other nonneutral aggregate consumers,
 Temporal hide behavior and airborne
 half-distance collection remain later mechanisms, not silently visual-only

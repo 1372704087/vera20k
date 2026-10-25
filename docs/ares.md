@@ -54,8 +54,8 @@ Supported extensions:
 - [NoManualFire](../src/app/input/context_order.rs) blocks ordinary manual attacks;
   C4 and infiltration remain incomplete.
 - [AttachEffect](ares-attach-effect.md): ground warhead effects and type-owned
-  self effects, lifetime, animation, speed/firepower multipliers, temporary
-  cloakability and forced decloaking. Armor/ROF, Temporal and airborne victim
+  self effects, lifetime, animation, speed/firepower/armor multipliers, temporary
+  cloakability and forced decloaking. ROF, Temporal and airborne victim
   collection remain outside this chain; manual game acceptance remains pending.
 - [GenericWarhead](ares-generic-warhead.md)
 - [House survival](ares-house-survival.md)

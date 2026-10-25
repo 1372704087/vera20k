@@ -161,9 +161,26 @@ pub(crate) fn open(state: &mut AppState, parent: KeyboardParent) {
         state.match_state.match_presentation.in_game_menu =
             crate::ui::pause_menu::InGameMenuState::Keyboard;
     }
+    // Phobos registers `FireTacticalSW1..10` only when the rules switch is on,
+    // so the page does not list them otherwise.
+    #[cfg(feature = "phobos")]
+    let hide_sw_sidebar_keys = state
+        .rules()
+        .is_some_and(|rules| !rules.sw_sidebar.keys_enabled);
     let commands = registered_commands()
         .iter()
         .enumerate()
+        .filter(|(_, metadata)| {
+            #[cfg(feature = "phobos")]
+            {
+                !(hide_sw_sidebar_keys
+                    && matches!(metadata.command, hotkeys::HotkeyCommand::FireTacticalSw(_)))
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                true
+            }
+        })
         .map(|(index, metadata)| KeyboardCommandRow {
             command_index: index,
             name: localized(state, metadata.name_key, metadata.parameter),

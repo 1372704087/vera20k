@@ -189,6 +189,10 @@ fn handle_mouse_input_inner(state: &mut AppState, button: MouseButton, btn_state
     if button == MouseButton::Right {
         crate::app::input::chat::right_button(state);
     }
+    #[cfg(feature = "phobos")]
+    if crate::app::input::sw_sidebar::mouse(state, button, pressed) {
+        return;
+    }
     match crate::app::input::gadget_input::handle_mouse_button_event(state, button, pressed) {
         GadgetConsume::Tactical => tactical_mouse(state, button, btn_state),
         GadgetConsume::Minimap => minimap_mouse(state, button, btn_state),
@@ -1287,15 +1291,34 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
                 let view = crate::sim::superweapon::superweapon_views_for_owner(sim, rules, &owner)
                     .into_iter()
                     .find(|view| view.type_id == type_id)?;
-                Some((view, rules.super_weapon(&section)?.action.clone()))
+                #[cfg(all(feature = "ares", feature = "phobos"))]
+                let constraints_blocked =
+                    crate::app::presentation::sw_sidebar::ai_targeting_blocked(
+                        rules, sim, owner, &section,
+                    );
+                #[cfg(not(all(feature = "ares", feature = "phobos")))]
+                let constraints_blocked = false;
+                Some((
+                    view,
+                    rules.super_weapon(&section)?.action.clone(),
+                    constraints_blocked,
+                ))
             })();
-            let click = super::superweapon_cameo::press(
-                &mut state.match_state.input,
-                &mut state.match_state.match_presentation.sidebar_gadget_state,
-                selection.as_ref().map(|(view, _)| view),
-                selection.as_ref().and_then(|(_, action)| action.as_deref()),
-                right,
-            );
+            // Ares refuses a `SW.UseAITargeting` launch whose constraints are
+            // not satisfied; Phobos darkens the same cameo.
+            let click = if !right && selection.as_ref().is_some_and(|(_, _, blocked)| *blocked) {
+                super::superweapon_cameo::SuperWeaponClick::Refused
+            } else {
+                super::superweapon_cameo::press(
+                    &mut state.match_state.input,
+                    &mut state.match_state.match_presentation.sidebar_gadget_state,
+                    selection.as_ref().map(|(view, _, _)| view),
+                    selection
+                        .as_ref()
+                        .and_then(|(_, action, _)| action.as_deref()),
+                    right,
+                )
+            };
             if click.gui_sound() {
                 let sound = state
                     .rules()
@@ -1306,7 +1329,7 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
                 super::superweapon_cameo::SuperWeaponClick::Refused
                     if selection
                         .as_ref()
-                        .is_some_and(|(view, _)| view.can_fire && !view.can_afford) =>
+                        .is_some_and(|(view, _, _)| view.can_fire && !view.can_afford) =>
                 {
                     let cue = state
                         .rules()
@@ -1918,6 +1941,31 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         ),
         HotkeyCommand::PageUser => crate::app::input::page_user::execute(state),
         HotkeyCommand::PlaceBeacon => crate::app::input::beacon::execute_command(state),
+        #[cfg(feature = "phobos")]
+        HotkeyCommand::FireTacticalSw(index) => {
+            if state
+                .rules()
+                .is_some_and(|rules| rules.sw_sidebar.keys_enabled)
+                && let Some(entry) =
+                    crate::app::presentation::sw_sidebar::positional_entry(state, index)
+            {
+                let type_id = entry.type_id.clone();
+                apply_sidebar_action(
+                    state,
+                    SidebarAction::SuperWeaponPress {
+                        section: type_id,
+                        right: false,
+                    },
+                );
+            }
+        }
+        #[cfg(feature = "phobos")]
+        HotkeyCommand::ToggleSwSidebar => {
+            if crate::app::presentation::sw_sidebar::toggle(state) {
+                crate::app::input::sw_sidebar::play_main_button_sound(state);
+                crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
+            }
+        }
         #[cfg(feature = "verax")]
         HotkeyCommand::AutoLoad => crate::app::input::autoload::hotkey_pressed(state),
         #[cfg(not(feature = "verax"))]

@@ -3,6 +3,70 @@
 
 use super::*;
 
+fn constraints(text: &str, mode: AresAiTargetingMode) -> AresTargetingConstraints {
+    let ini =
+        crate::rules::ini_parser::IniFile::from_str(&format!("[SW]\nType=MultiMissile\n{text}"));
+    AresTargetingConstraints::read(ini.section("SW").expect("SW section"), mode)
+}
+
+fn house(
+    has_enemy: bool,
+    preferred_cell: (u16, u16),
+    defense_cell: (u16, u16),
+) -> HouseTargetingObservations {
+    HouseTargetingObservations {
+        has_enemy,
+        preferred_cell,
+        defense_cell,
+    }
+}
+
+#[test]
+fn ares_mode_defaults_match_the_image_table_for_manual_fire() {
+    let clear = house(false, (0, 0), (0, 0));
+    let enemy = house(true, (0, 0), (0, 0));
+    let enemy_with_cell = house(true, (4, 5), (0, 0));
+
+    let nuke = constraints("", AresAiTargetingMode::Nuke);
+    assert!(!nuke.allows_manual_fire(clear));
+    assert!(nuke.allows_manual_fire(enemy));
+
+    let dominator = constraints("", AresAiTargetingMode::PsychicDominator);
+    assert!(!dominator.allows_manual_fire(enemy_with_cell));
+    assert!(dominator.allows_manual_fire(enemy));
+    assert!(!dominator.allows_manual_fire(clear));
+
+    let genetic = constraints("", AresAiTargetingMode::GeneticMutator);
+    assert!(!genetic.allows_manual_fire(enemy_with_cell));
+    assert!(genetic.allows_manual_fire(clear));
+
+    let storm = constraints("", AresAiTargetingMode::LightningStorm);
+    assert!(
+        storm.allows_manual_fire(enemy),
+        "manual fire skips storm state"
+    );
+}
+
+#[test]
+fn explicit_constraints_override_the_mode_default() {
+    let saved = constraints(
+        "SW.AITargeting.Constraints=Defensive_Cell_Set, enemy\n",
+        AresAiTargetingMode::SelfTarget,
+    );
+    assert!(!saved.allows_manual_fire(house(true, (0, 0), (0, 0))));
+    assert!(saved.allows_manual_fire(house(true, (0, 0), (9, 9))));
+    assert!(!saved.allows_manual_fire(house(false, (0, 0), (9, 9))));
+}
+
+#[test]
+fn unknown_constraints_keep_the_mode_default() {
+    let fallback = constraints(
+        "SW.AITargeting.Constraints=not_a_constraint\n",
+        AresAiTargetingMode::Nuke,
+    );
+    assert!(!fallback.allows_manual_fire(house(false, (0, 0), (0, 0))));
+}
+
 fn input(requirements: &TargetRequirements) -> TargetPreflightInput<'_> {
     TargetPreflightInput {
         target_cell: Some((10, 10)),

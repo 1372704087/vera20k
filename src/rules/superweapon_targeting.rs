@@ -224,6 +224,197 @@ fn valid_range((minimum, maximum): (f64, f64)) -> bool {
         && (minimum < 0.0 || maximum < 0.0 || minimum <= maximum)
 }
 
+/// Ares `SW.AITargeting` modes. Only the entries present in the Ares 3.0
+/// image's `SWTypeExt::AITargetingModes` table carry a default constraint mask.
+#[cfg(feature = "ares")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AresAiTargetingMode {
+    None,
+    Nuke,
+    LightningStorm,
+    PsychicDominator,
+    ParaDrop,
+    GeneticMutator,
+    ForceShield,
+    NoTarget,
+    Offensive,
+    Stealth,
+    SelfTarget,
+    Base,
+    MultiMissile,
+    HunterSeeker,
+    EnemyBase,
+    /// A mode outside the confirmed 0..=14 table; its default mask is unknown.
+    Other,
+}
+
+#[cfg(feature = "ares")]
+impl AresAiTargetingMode {
+    /// One owner for the `SW.AITargeting` key. Case-insensitive; an absent or
+    /// unknown value leaves the Ares default (`Offensive`). Modes outside the
+    /// confirmed 0..=14 table are `Other` with no default constraints.
+    pub fn read(section: &IniSection) -> Self {
+        let Some(mode) = section.read_name("SW.AITargeting", 0x40) else {
+            return Self::Offensive;
+        };
+        match mode.to_ascii_lowercase().as_str() {
+            "none" => Self::None,
+            "nuke" => Self::Nuke,
+            "lightningstorm" => Self::LightningStorm,
+            "psychicdominator" => Self::PsychicDominator,
+            "paradrop" => Self::ParaDrop,
+            "geneticmutator" => Self::GeneticMutator,
+            "forceshield" => Self::ForceShield,
+            "notarget" => Self::NoTarget,
+            "offensive" => Self::Offensive,
+            "stealth" => Self::Stealth,
+            "self" => Self::SelfTarget,
+            "base" => Self::Base,
+            "multimissile" => Self::MultiMissile,
+            "hunterseeker" => Self::HunterSeeker,
+            "enemybase" => Self::EnemyBase,
+            _ => Self::Other,
+        }
+    }
+
+    /// `SWTypeExt::AITargetingModes` default constraint masks from the Ares
+    /// 3.0 image (`ImageBase 0x10000000`, table `0x1009B8A4`).
+    pub fn default_constraints(self) -> u16 {
+        match self {
+            Self::Nuke
+            | Self::Offensive
+            | Self::MultiMissile
+            | Self::HunterSeeker
+            | Self::EnemyBase => CONSTRAINT_ENEMY,
+            Self::LightningStorm => CONSTRAINT_ENEMY | CONSTRAINT_LIGHTNING_STORM_INACTIVE,
+            Self::PsychicDominator => {
+                CONSTRAINT_OFFENSIVE_CELL_CLEAR | CONSTRAINT_ENEMY | CONSTRAINT_DOMINATOR_INACTIVE
+            }
+            Self::GeneticMutator => CONSTRAINT_OFFENSIVE_CELL_CLEAR,
+            _ => 0,
+        }
+    }
+}
+
+#[cfg(feature = "ares")]
+const CONSTRAINT_OFFENSIVE_CELL_CLEAR: u16 = 0x0001;
+#[cfg(feature = "ares")]
+const CONSTRAINT_DEFENSIVE_CELL_CLEAR: u16 = 0x0002;
+#[cfg(feature = "ares")]
+const CONSTRAINT_ENEMY: u16 = 0x0004;
+#[cfg(feature = "ares")]
+const CONSTRAINT_LIGHTNING_STORM_INACTIVE: u16 = 0x0008;
+#[cfg(feature = "ares")]
+const CONSTRAINT_DOMINATOR_INACTIVE: u16 = 0x0010;
+#[cfg(feature = "ares")]
+const CONSTRAINT_ATTACKED: u16 = 0x0020;
+#[cfg(feature = "ares")]
+const CONSTRAINT_LOW_POWER: u16 = 0x0040;
+#[cfg(feature = "ares")]
+const CONSTRAINT_OFFENSIVE_CELL_SET: u16 = 0x0080;
+#[cfg(feature = "ares")]
+const CONSTRAINT_DEFENSIVE_CELL_SET: u16 = 0x0100;
+
+/// Ares `SW.AITargeting.Constraints`, read by `SWTypeExt::IsTargetConstraintsEligible`
+/// (`Ares.dll + 0x32110` for the 3.0 build). The explicit key overrides the
+/// mode default.
+#[cfg(feature = "ares")]
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize,
+)]
+pub struct AresTargetingConstraints(u16);
+
+#[cfg(feature = "ares")]
+impl AresTargetingConstraints {
+    pub fn read(section: &IniSection, mode: AresAiTargetingMode) -> Self {
+        let Some(raw) = section.read_name("SW.AITargeting.Constraints", 0x100) else {
+            return Self(mode.default_constraints());
+        };
+        match parse_constraints(&raw) {
+            Ok(mask) => Self(mask),
+            Err(token) => {
+                log::warn!("SuperWeapon SW.AITargeting.Constraints: unknown token '{token}'");
+                Self(mode.default_constraints())
+            }
+        }
+    }
+
+    /// The `arg3 = true` branch Phobos passes for a human cameo click: only
+    /// the cell and enemy constraints apply; the storm, dominator, attacked
+    /// and low-power constraints are intentionally skipped.
+    pub fn allows_manual_fire(self, house: HouseTargetingObservations) -> bool {
+        let mask = self.0;
+        let preferred_set = house.preferred_cell != (0, 0);
+        let defense_set = house.defense_cell != (0, 0);
+        if mask & CONSTRAINT_OFFENSIVE_CELL_CLEAR != 0 && preferred_set {
+            return false;
+        }
+        if mask & CONSTRAINT_OFFENSIVE_CELL_SET != 0 && !preferred_set {
+            return false;
+        }
+        if mask & CONSTRAINT_DEFENSIVE_CELL_CLEAR != 0 && defense_set {
+            return false;
+        }
+        if mask & CONSTRAINT_DEFENSIVE_CELL_SET != 0 && !defense_set {
+            return false;
+        }
+        if mask & CONSTRAINT_ENEMY != 0 && !house.has_enemy {
+            return false;
+        }
+        // Remaining bits are the manual-fire exceptions (arg3 = true).
+        let _ = (
+            CONSTRAINT_LIGHTNING_STORM_INACTIVE,
+            CONSTRAINT_DOMINATOR_INACTIVE,
+            CONSTRAINT_ATTACKED,
+            CONSTRAINT_LOW_POWER,
+        );
+        true
+    }
+}
+
+#[cfg(feature = "ares")]
+fn parse_constraints(raw: &str) -> Result<u16, String> {
+    let mut mask = 0u16;
+    for token in raw
+        .trim()
+        .trim_matches(['<', '>'])
+        .split(|c: char| c.is_ascii_whitespace() || matches!(c, ',' | ';' | '|' | '+'))
+        .filter(|token| !token.is_empty())
+    {
+        let token_lower = token.to_ascii_lowercase();
+        if matches!(token_lower.as_str(), "none" | "no" | "false") {
+            continue;
+        }
+        mask |= match token_lower.as_str() {
+            "enemy" => CONSTRAINT_ENEMY,
+            "offensive_cell_set" | "offensive-cell-set" => CONSTRAINT_OFFENSIVE_CELL_SET,
+            "offensive_cell_clear" | "offensive-cell-clear" => CONSTRAINT_OFFENSIVE_CELL_CLEAR,
+            "defensive_cell_set" | "defensive-cell-set" => CONSTRAINT_DEFENSIVE_CELL_SET,
+            "defensive_cell_clear" | "defensive-cell-clear" => CONSTRAINT_DEFENSIVE_CELL_CLEAR,
+            "lightningstorm_inactive" | "lightning-storm-inactive" => {
+                CONSTRAINT_LIGHTNING_STORM_INACTIVE
+            }
+            "dominator_inactive" => CONSTRAINT_DOMINATOR_INACTIVE,
+            "attacked" => CONSTRAINT_ATTACKED,
+            "lowpower" | "low_power" | "low-power" => CONSTRAINT_LOW_POWER,
+            _ => return Err(token.to_owned()),
+        };
+    }
+    Ok(mask)
+}
+
+/// The House fields `IsTargetConstraintsEligible` reads.
+#[cfg(feature = "ares")]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HouseTargetingObservations {
+    /// `House+0x5600`, `-1`/`None` when the house has not chosen an enemy.
+    pub has_enemy: bool,
+    /// `House+0x54F0` scripted offensive cell, `(0, 0)` when unset.
+    pub preferred_cell: (u16, u16),
+    /// `House+0x54F4` defensive cell, `(0, 0)` when unset.
+    pub defense_cell: (u16, u16),
+}
+
 pub struct TargetPreflightInput<'a> {
     pub target_cell: Option<(i32, i32)>,
     pub requires_target_cell: bool,

@@ -41,3 +41,4 @@ Supported extensions:
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
+- [Superweapon sidebar](phobos-superweapon-sidebar.md) (left-edge superweapon cameos, toggle and positional hotkeys)

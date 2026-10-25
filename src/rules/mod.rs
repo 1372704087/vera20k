@@ -106,6 +106,8 @@ pub mod airstrike;
 pub mod digital_display;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
+#[cfg(feature = "phobos")]
+pub mod phobos_sw_sidebar;
 pub mod phobos_radiation;
 pub mod phobos_shields;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.

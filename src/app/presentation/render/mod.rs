@@ -881,6 +881,45 @@ fn upload_to_gpu(
         &sidebar.cameo_overlay,
     );
     pool.upload(&state.renderer.gpu, "sidebar_text", &sidebar.text);
+    #[cfg(feature = "phobos")]
+    {
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_chrome",
+            &sidebar.sw_sidebar_chrome,
+        );
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_cameo",
+            &sidebar.sw_sidebar_cameo,
+        );
+        #[cfg(feature = "ares")]
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_cameo_pcx",
+            &sidebar.sw_sidebar_cameo_pcx,
+        );
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_gclock",
+            &sidebar.sw_sidebar_gclock,
+        );
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_hover",
+            &sidebar.sw_sidebar_hover,
+        );
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_overlay",
+            &sidebar.sw_sidebar_overlay,
+        );
+        pool.upload(
+            &state.renderer.gpu,
+            "sw_sidebar_text",
+            &sidebar.sw_sidebar_text,
+        );
+    }
     pool.upload(&state.renderer.gpu, "message_text", &message_text);
     pool.upload(&state.renderer.gpu, "message_fill", &message_fill);
     pool.upload(&state.renderer.gpu, "outcome_shape", &outcome_shape);

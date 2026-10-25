@@ -3184,7 +3184,12 @@ pub(crate) fn load_map_from_initial(
     // the multiplayer map has no [Houses] section.
     let house_color_map: HouseColorMap = skirmish_launch_session
         .map(|launch| {
-            house_color_map_for_launch_session(launch, &house_roster, &rules.color_schemes)
+            house_color_map_for_launch_session(
+                launch,
+                &house_roster,
+                &rules.color_schemes,
+                rules.skirmish_colors(),
+            )
         })
         .unwrap_or_else(|| house_roster.color_map());
     let bridge_destroyability_mode = skirmish_launch_session

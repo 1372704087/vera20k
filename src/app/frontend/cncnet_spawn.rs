@@ -236,7 +236,7 @@ fn skirmish(
     let ai_count = ranged(settings, "AIPlayers", 0, 0, 7)? as usize;
     let mut active = vec![0usize];
     let mut opponents = Vec::new();
-    let mut used_colors = [false; 8];
+    let mut used_colors = [false; COLOR_SLOTS];
     let mut used_starts = [false; 8];
     let local_country = country(settings, "Side")?;
     let local_color = color(settings, "Color", &mut used_colors)?;
@@ -367,10 +367,20 @@ fn country(section: &IniSection, key: &str) -> Result<LaunchCountry> {
     Ok(LaunchCountry::from_country_index(index as u32))
 }
 
-fn color(section: &IniSection, key: &str, used: &mut [bool; 8]) -> Result<u8> {
+/// Colour slots this reader admits, one per byte the spawner can send.
+const COLOR_SLOTS: usize = 256;
+
+fn color(section: &IniSection, key: &str, used: &mut [bool; COLOR_SLOTS]) -> Result<u8> {
     // Client [MPColors] GameColorIndex is native color priority, not the
-    // [Colors] scheme-entry index. Existing house color binding resolves it.
-    let index = ranged(section, key, -1, 0, 7)? as usize;
+    // [Colors] scheme-entry index. Existing house color binding resolves it
+    // through Game_GetLinkedColor (0x69A310).
+    //
+    // A phobos build admits Phobos SkirmishUnlimitedColors, where the spawner
+    // sends the [Colors] entry index instead; that build therefore accepts the
+    // whole byte and the loaded rules decide which entries exist. Without the
+    // feature the stock client only produces YR's eight priorities.
+    let maximum = if crate::rules::PHOBOS_ENABLED { 255 } else { 7 };
+    let index = ranged(section, key, -1, 0, maximum)? as usize;
     ensure!(!used[index], "duplicate player color {index}");
     used[index] = true;
     Ok(index as u8)

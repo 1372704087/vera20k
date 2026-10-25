@@ -616,6 +616,29 @@ impl SaveRepository {
             .any(|(entry, _)| entry.header.is_compatible())
     }
 
+    /// SaveInfo681840/559ED0 needs metadata, not the simulation body. Reuse
+    /// the one snapshot parser with a growing prefix: strings can exceed a
+    /// fixed page, but ordinary headers must not read a 200 MB saved world.
+    fn read_browser_metadata(
+        mut reader: impl std::io::Read,
+    ) -> std::io::Result<GameSnapshotHeader> {
+        use std::io::Read;
+        let mut prefix = Vec::new();
+        let mut next = 64;
+        loop {
+            let added = reader.by_ref().take(next).read_to_end(&mut prefix)?;
+            match GameSnapshot::read_metadata(&prefix) {
+                Ok(header) => return Ok(header),
+                Err(SnapshotError::DeserializeFailed(
+                    crate::util::save_codec::Error::UnexpectedEnd,
+                )) if added != 0 => next = prefix.len() as u64,
+                Err(error) => {
+                    return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, error));
+                }
+            }
+        }
+    }
+
     /// Saves whose header reads, with their file time, in directory order.
     fn readable_entries(&self) -> impl Iterator<Item = (SaveEntry, u64)> + '_ {
         std::fs::read_dir(&self.directory)
@@ -631,8 +654,7 @@ impl SaveRepository {
                 if !metadata.is_file() {
                     return None;
                 }
-                let bytes = self.read(&path).ok()?;
-                let header = GameSnapshot::read_metadata(&bytes).ok()?;
+                let header = Self::read_browser_metadata(std::fs::File::open(&path).ok()?).ok()?;
                 let ticks = crate::map::rmg::saved_seeds::system_time_to_file_time(
                     metadata.modified().ok()?,
                 );

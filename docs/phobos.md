@@ -41,6 +41,9 @@ Supported extensions:
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
+- [Skirmish AI dehardcoding](phobos-ai-dehardcode.md) (last-legs sale/hunt switches and MCV deploy regroup)
+- [Parallel AI queue limits](phobos-parallel-ai-queues.md) (per-category and per-type AI clone forbids)
+- [Unlimited skirmish colours](phobos-skirmish-unlimited-colors.md) (spawner colour indices address any `[Colors]` entry)
 
 ## Original project and authors
 
@@ -51,7 +54,8 @@ by these pages are the Phobos sources named in each page.
 Phobos is developed by the Phobos Developers. The features ported here
 originate with:
 
-- Custom radiation types - **AlexB**, **Otamaa**, **Belonit**, **Uranusian**.
+- Custom radiation types - **Otamaa**, who ported and fixed the **Ares
+  developers**' unfinished RadTypes code.
 - Shields - **Uranusian**, **secsome**, **Belonit**; shield warhead
   modifications **Starkku**; absorption/passthrough **Morton**; respawn
   animation and weapon **Ollerus**.
@@ -59,14 +63,19 @@ originate with:
 - Custom gather animations - **secsome**, **Uranusian**.
 - Ore-stage animation hiding (`HideIfNoOre` threshold) - **Otamaa**.
 - Superweapon techno gates (`SW.AuxTechnos`, `SW.NegTechnos`,
-  `SW.TechLevel`) - **NetsuNegi**, **Ollerus**.
+  `SW.TechLevel`) - **NetsuNegi**; their building-upgrade counts -
+  **NetsuNegi**, **Ollerus**.
 - Digital display - **ststl**, **FlyStar**, **NaotoYuuki**, **Saigyouji**,
-  **JunJacobYoung**, **CrimRecya**, with thanks to **Noble Fish** for the
-  underlying knowledge.
+  **JunJacobYoung**, **CrimRecya**.
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
+- Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -
+  **TaranDahl**.
+- Parallel AI queue forbids - **Trsdy**, **NetsuNegi** (by category),
+  **Starkku** (by TechnoType).
+- Unlimited skirmish colours - **Morton**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

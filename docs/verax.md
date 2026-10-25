@@ -7,8 +7,8 @@ NPatch compatibility capabilities. Build it explicitly:
 cargo run --release --bin vera20k --features verax
 ```
 
-The `verax` feature currently compiles one command, AutoLoad. The
-translucent-fog option and foot-path overlay in "Origins and related
+The `verax` feature currently compiles AutoLoad and Skirmish map hot reload.
+The translucent-fog option and foot-path overlay in "Origins and related
 first-party work" are adjacent VERA work, not VeraX features.
 
 ## AutoLoad
@@ -26,6 +26,19 @@ The command is registered as `AutoLoad` in the keyboard page's `vera20k` categor
 rebound or cleared like a retail hotkey. Ctrl+D is installed as the reload default when neither
 AutoLoad nor Ctrl+D already has a saved binding, and an explicit `AutoLoad=0` keeps it cleared.
 The assignment is written to the profile with the other bindings.
+
+## Map hot reload
+
+Without this extension the Skirmish map list is scanned once at startup, so a map copied into the
+game directory is only visible after restarting. A VeraX build rescans the directory each time the
+Skirmish Choose Map dialog opens (`SessionClass::ScanMultiplayerMapFiles` @ `0x00699980` again), so
+the new loose `.pkt`, `.yrm` or `.yro` map and its rows appear without a restart. Rows already
+listed are not duplicated, and the current selection keeps following the same map file when the
+rescan moves its index.
+
+This is not a directory watcher: the list changes on the next open of the chooser. Network lobbies
+keep their launch snapshot, because the map list is local and every peer must still compare the same
+catalog.
 
 ## Origins and related first-party work
 

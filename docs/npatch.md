@@ -68,16 +68,14 @@ a former RockPatch developer. The project has several editions:
   NPExt #169 (2011), and it thanks pd and CnCVK. VERA's legacy
   `EnableAIBuildLimitation` path cites the NPExt `ext173` reader
   (`0xC2D132`, gate `0xC2CF67`).
-- **NPatch Special Edition (NPSE)** - published on CnCVK's
-  [NPatch download page](https://vk.cncguild.net/NPATCH/Downloads.htm)
-  (installer #0020). The **NPSE 2.0 #359** manual and changelog are authored
-  by **lydjjlyd**.
+- **NPatch Special Edition (NPSE)** - installer #0020 on CnCVK's NPatch
+  download page. The **NPSE 2.0 #359** manual and changelog are authored by
+  **lydjjlyd**.
 - **NPatch Autumn Edition (NPAE)** - installer #0011 on the same page.
 
 The NPSE 2.0 manual credits its testers **我爱二次元**, **蓝天白云fd**,
-**好人先昇**, **行少** and **凌敏SHOS**. That manual and its
-[author-linked release drive](https://zhytat.ysepan.com/) are the source for
-the `0xC3xxxx` addresses cited above.
+**好人先昇**, **行少** and **凌敏SHOS**. That manual and its release are the
+source for the `0xC3xxxx` addresses cited above.
 
 简体中文：[扩展支持与原作者](zh-CN/credits.md)。
 

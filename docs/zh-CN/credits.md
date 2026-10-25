@@ -39,21 +39,26 @@ Ares 官方没有按 INI key 公布单个功能的作者，因此这里只署名
 
 Phobos 由 Phobos Developers 开发。VERA20K 已移植功能对应的原作者：
 
-- 自定义辐射类型 — **AlexB**、**Otamaa**、**Belonit**、**Uranusian**。
+- 自定义辐射类型 — **Otamaa**（移植并修正 **Ares developers** 未完成的
+  RadTypes 代码）。
 - 护盾 — **Uranusian**、**secsome**、**Belonit**；护盾弹头修改 —
   **Starkku**；吸收/穿透 — **Morton**；重生动画与武器 — **Ollerus**。
 - 自定义矿石生成（ore spawners）— **Kerbiter**。
 - 自定义采矿动画 — **secsome**、**Uranusian**。
 - 矿石阶段动画隐藏（`HideIfNoOre` 阈值）— **Otamaa**。
 - 超级武器科技与单位门槛（`SW.AuxTechnos`、`SW.NegTechnos`、
-  `SW.TechLevel`）— **NetsuNegi**、**Ollerus**。
+  `SW.TechLevel`）— **NetsuNegi**；其中的建筑升级计数 — **NetsuNegi**、
+  **Ollerus**。
 - 数字显示（DigitalDisplay）— **ststl**、**FlyStar**、**NaotoYuuki**、
-  **Saigyouji**、**JunJacobYoung**、**CrimRecya**，并感谢 **Noble Fish**
-  提供底层知识。
+  **Saigyouji**、**JunJacobYoung**、**CrimRecya**。
 - 建筑放置预览 — **Otamaa**、**Belonit**。
 - 侧边栏 GDI/NOD 坐标 — **Belonit**。
 - 建筑生产队列 — **CrimRecya**。
 - INI `$Include` / `$Inherits` — **Morton**。
+- 遭遇战 AI 去硬编码（残局变卖/全体出击、MCV 部署集结）— **TaranDahl**。
+- 并行 AI 生产队列限制 — **Trsdy**、**NetsuNegi**（按类别）、
+  **Starkku**（按 TechnoType）。
+- 遭遇战无限颜色 — **Morton**。
 
 完整贡献者名单见
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md)。
@@ -64,8 +69,8 @@ VERA 的 include/inheritance 遍历还改编自 baixiong443 的 ra2-mono `IniFil
 
 技术细节：[VeraX 扩展](../verax.md)
 
-VeraX 当前只编译一个功能：自动装车（AutoLoad）。下面的半透明迷雾与寻路步骤
-显示是相关自有功能，不属于 `verax` 特性。
+VeraX 当前编译自动装车（AutoLoad）与遭遇战地图热重载两个功能。下面的半透明
+迷雾与寻路步骤显示是相关自有功能，不属于 `verax` 特性。
 
 - **自动装车（AutoLoad）**：思路参考 Bilibili UP 主
   [335956233](https://space.bilibili.com/335956233) 的视频。VERA 自行实现
@@ -92,15 +97,12 @@ RockPatch 的尤里复仇扩展平台，有多个版本：
   （2011 年），并在其中致谢 pd 与 CnCVK。VERA 的旧版
   `EnableAIBuildLimitation` 路径引用 NPExt `ext173` 的读取器
   （`0xC2D132`，门控 `0xC2CF67`）。
-- **NPatch Special Edition（NPSE）**：由 CnCVK 的
-  [NPatch 下载页](https://vk.cncguild.net/NPATCH/Downloads.htm) 发布
-  （安装包 #0020）；**NPSE 2.0 #359** 的说明书与更新日志作者为
-  **lydjjlyd**。
+- **NPatch Special Edition（NPSE）**：CnCVK 的 NPatch 下载页上的安装包
+  #0020；**NPSE 2.0 #359** 的说明书与更新日志作者为 **lydjjlyd**。
 - **NPatch Autumn Edition（NPAE）**：同一页面的安装包 #0011。
 
 NPSE 2.0 说明书鸣谢测试者 **我爱二次元**、**蓝天白云fd**、**好人先昇**、
-**行少**、**凌敏SHOS**。`0xC3xxxx` 原生地址来自该说明书及其
-[作者发布网盘](https://zhytat.ysepan.com/)。
+**行少**、**凌敏SHOS**。`0xC3xxxx` 原生地址来自该说明书及其发布版本。
 
 VERA20K 只实现文档记录的行为，不加载或修改 `gamemd.exe`，也不分发 NPatch
 二进制。

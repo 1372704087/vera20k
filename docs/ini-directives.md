@@ -8,8 +8,9 @@ without directives keep their native parsed representation, duplicate-section
 behavior, content hash and saved encoding. The raw `IniFile` byte parser and
 deserializer never load other files.
 
-The `$Inherits` section-copy policy below is my ra2-mono adaptation, not an Ares
-or Phobos claim; Phobos's own `$Inherits` reads through a different hook.
+The `$Inherits` section-copy policy below is the ra2-mono adaptation credited in
+[Source mapping](#source-mapping), not an Ares or Phobos claim; Phobos's own
+`$Inherits` reads through a different hook.
 
 ```ini
 [#include]
@@ -23,12 +24,15 @@ Strength=250
 
 ## Precedence and boundaries
 
-- A Phobos build (`--features phobos`) executes `[$Include]` and leaves
-  `[#include]` inert, matching Phobos `-Include`, which patches the Ares hooks
-  at gamemd `0x474200`/`0x474314` back to vanilla. An Ares-only build executes
-  `[#include]`. When both sections exist in a document, only `$Include` runs.
-- Include lists are read in stored entry order, as Ares
-  `INIClass::GetKeyName` (`0x00526CC0`) and Phobos `EntryIndex` iteration do.
+- With `--features phobos`, a document's `[$Include]` runs and takes over from
+  its `[#include]`, as Phobos `-Include` does by restoring the vanilla bytes at
+  the Ares hooks (gamemd `0x474200`/`0x474314`). With `--features ares`, a
+  document without `[$Include]` expands its `[#include]`, in a combined build
+  too: VERA has no `-Include` launch switch, while natively one launch runs one
+  dialect.
+- Include lists are read in stored entry order, as Ares walks them with
+  `INIClass::GetKeyName` (`0x00526CC0`). Phobos iterates the section's
+  `EntryIndex`, gamemd's CRC lookup index; VERA keeps stored order for it too.
   Numeric-looking keys only provide unique names; they do not reorder reads.
 - The current document is read before its included files in both dialects.
   Descendants override their including document, and later list entries
@@ -37,11 +41,18 @@ Strength=250
   ([official example](https://ares-developers.github.io/Ares-docs/new/misc/include.html));
   Phobos says the later-read value wins. Ares's tail hook at `0x474314` and
   Phobos's `CCINIClass_Load_Inheritance` at `0x474230` both merge after load.
-- Phobos includes each physical file name once per root load (`SavedIncludes`)
-  and treats a missing listed file as fatal (`Debug::FatalErrorAndExit`).
-  Ares compares only the active include chain (case-insensitive `_stricmp`) and
-  skips a missing file. Shared children therefore load again on independent
-  Ares branches, and repeated entries load once under Phobos.
+- Both dialects read each file once per root load. Ares records every file it
+  reads (`CCINIClass_ReadCCFile1`), skips a listed name already recorded
+  (case-insensitive `_stricmp`) and clears the record only when the outermost
+  read returns; Phobos keeps `SavedIncludes`. A missing listed file is skipped
+  by Ares and fatal under Phobos (`Debug::FatalErrorAndExit`).
+- Residual: nested lists are expanded depth-first per document. Natively each
+  included file merges into the same INI, so its list joins one shared include
+  section: Ares walks it with one index shared by every nesting level, and
+  Phobos re-walks it skipping saved names. A parent's remaining entries are
+  therefore read before a child's own list, and a child entry that reuses a
+  parent's key name resolves through the shared section. Matching that needs
+  the native same-INI `ReadCCFile` merge, which `IniFile::merge` does not model.
 - Inheritance runs after the complete Include expansion. `$Inherits=A,B` copies
   only missing keys: child-authored values win, then the first supplying parent.
   Parent section names remain case-sensitive. Directive keys are not inherited.
@@ -74,9 +85,9 @@ startup. Required Rules, ART, AI and map selections propagate it.
 
 With `ares` or `phobos` enabled, `rules::retail_sources::select_ini` expands
 directives before transferring the selected physical snapshots to the existing
-ordered Rules owner. `DirectiveOptions::production` selects the dialect: Ares
-`[#include]` only without the Phobos capability, Phobos `[$Include]` whenever
-that capability is present. That shared entry serves Rules, fixed Art, AI,
+ordered Rules owner. `DirectiveOptions::production` enables the compiled
+dialects, and a document's `[$Include]` takes over from its `[#include]` when the
+Phobos capability is present. That shared entry serves Rules, fixed Art, AI,
 mode/campaign definitions, sound and EVA. The theme catalog uses the same entry
 while retaining its separate YR/RA2 playlist handling. Asset-backed map gameplay
 and metadata expand the decoded map INI before reading its fields; maps retain
@@ -130,10 +141,10 @@ commit. This contribution is under VERA's GPLv3; no Ares/Phobos C++ is imported.
 
 | native source | VERA adaptation |
 | --- | --- |
-| Ares `Misc\Includes.cpp` (`CCINIClass_ReadCCFile1`/`2`, gamemd `0x474200`/`0x474314`, `ReadCCFile` `0x4741F0`) | Ares dialect in `rules/ini_directives.rs`: stored-order list read, active-chain skip, missing file skipped, recursive merge after load |
+| Ares.dll `CCINIClass_ReadCCFile1`/`2` hooks (gamemd `0x474200`/`0x474314`, `ReadCCFile` `0x4741F0`) | Ares dialect in `rules/ini_directives.rs`: stored-order list read, once-per-root-load skip, missing file skipped, merge after load |
 | Ares `INIClass::GetKeyCount` `0x526960`, `GetKeyName` `0x526CC0`, `ReadString` `0x528A10` | `IniSection::physical_entries` walk plus `read_name` with the native `0x80` buffer capacity |
 | Phobos `src/Misc/Hooks.INIInheritance.cpp` (`CCINIClass_Load_Inheritance` `0x474230`) | Phobos dialect: `$Include`, `SavedIncludes` once-per-file, fatal missing file, merge after load |
-| Phobos `src/Phobos.cpp` `-Include` (`0x474200`/`0x474314` restored) | Phobos capability disables `[#include]`; selected by `DirectiveOptions::production` |
+| Phobos `src/Phobos.cpp` `-Include` (`0x474200`/`0x474314` restored) | A document's `$Include` takes over from its `[#include]`; selected by `DirectiveOptions::production` |
 | ra2-mono `IniFile.cs` (`InheritFromParent`, `DirectiveTraversal`), `IniDirectiveProcessingOptions.cs` | `$Inherits` policy, structured diagnostics, strict mode and the VERA depth/work limits |
 | `Ra2.Tests/IniDirectiveTests.cs` | `rules/ini_directives_tests.rs`, plus VERA VFS, typed processing, map, hash and restore regressions |
 
@@ -141,5 +152,6 @@ Intentional adaptations are the host's native parser/merge and immutable source
 snapshots, root-relative VFS naming instead of host-cwd identity, VERA's bounded
 depth/work limits (native has neither), and strict loads discarding their owned
 candidate. Phobos's skipped-first-line quirk is not reproduced: VERA parses the
-whole included file. The documented Ares example and the native include policies
-are covered by Rust regressions against those sources, not an Ares DLL run.
+whole included file. The documented Ares example and the include policies read
+from Ares.dll and the Phobos source are covered by Rust regressions, not an Ares
+DLL run.

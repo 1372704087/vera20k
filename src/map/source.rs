@@ -491,14 +491,9 @@ pub struct LoadedTransferAsset {
 }
 
 /// Whether this build's gameplay selection will expand includes after the
-/// transfer is installed. Mirrors [`DirectiveOptions::production`]: Phobos
-/// `$Include` takes over and disables Ares `[#include]`.
+/// transfer is installed, as the directive owner selects them.
 fn include_expansion_will_run(ini: &IniFile) -> bool {
-    if crate::rules::PHOBOS_ENABLED {
-        ini.section("$Include").is_some()
-    } else {
-        crate::rules::ARES_ENABLED && ini.section("#include").is_some()
-    }
+    crate::rules::ini_parser::directives::DirectiveOptions::production().expands_includes(ini)
 }
 
 fn decode_transfer(bytes: &[u8], resource: TransferResource) -> Result<TransferContent> {
@@ -1398,7 +1393,7 @@ mod tests {
         let metadata =
             load_map_ini_by_name_or_path_with_assets(dir.path(), "Arena.map", &assets).unwrap();
         assert_eq!(loaded.map.ini.content_hash(), metadata.ini.content_hash());
-        let ares_include = crate::rules::ARES_ENABLED && !crate::rules::PHOBOS_ENABLED;
+        let ares_include = crate::rules::ARES_ENABLED;
         assert_eq!(
             loaded
                 .map

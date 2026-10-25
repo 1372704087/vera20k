@@ -28,22 +28,27 @@ shl eax, 1
 inc eax
 ```
 
-(the function's own `retn 4` stays), so the returned index is `2 * index + 1` and
-the `[Colors]` entry is the index the spawner sent. With stock rulesmd.ini, index
-6 is the seventh entry, `Orange=25,230,255` — the example Phobos documents. The
-source comment for that patch is "Disable Ares hook at this address so that our
-logic can run": Ares hooks the same site for its customisable dropdown colours,
-which is why Phobos lists the two as mutually exclusive. VERA20K has no Ares
-dropdown colour feature, so nothing is disabled here.
+The patch has no return of its own, so execution continues into the native body
+at `0x0069A317`. Its `jne` is always taken (`2 * index + 1` is odd, never zero),
+and the tail at `0x0069A328` still reads the priority table for a value below 9.
+From index 4 on, the function returns `2 * index + 1` and the `[Colors]` entry is
+the index the spawner sent; with stock rulesmd.ini, index 6 is the seventh entry,
+`Orange=25,230,255` — the example Phobos documents. Indices 0–3 instead read
+table entries 1, 3, 5 and 7 (schemes 11, 29, 25 and 15) and resolve to `[Colors]`
+entries 5, 14, 12 and 7; VERA20K reproduces both ranges. The source comment for
+that patch is "Disable Ares hook at this address so that our logic can run":
+Ares hooks the same seven bytes for its customisable dropdown colours, which is
+why Phobos lists the two as mutually exclusive. VERA20K has no Ares dropdown
+colour feature, so nothing is disabled here.
 
 Every consumer of the conversion follows the mode, because the hook is global:
 the launch `HouseColorMap`, the loading screen's participant rows and their map
 markers, the map-transfer text, trigger message colours, and network chat lines.
 A YR-lobby priority that is not a `[Colors]` index therefore shows a different
 colour under this mode, which is the "undesireable effects" Phobos warns about
-for the stock launcher. Launch the game through a spawner client such as XnA
-CnCNet Client, which sends `[Colors]` indices; a `phobos` build's spawn.ini
-reader accepts the whole colour byte for that reason.
+for the stock launcher. Launch the game through a spawner client that sends
+`[Colors]` indices; a `phobos` build's spawn.ini reader accepts the whole colour
+byte for that reason.
 
 ## Where VERA20K owns it
 
@@ -73,3 +78,6 @@ reader accepts the whole colour byte for that reason.
 - A stock (non-`phobos`) build keeps the spawn.ini colour cap at YR's eight
   priorities, so it rejects a spawner index of 8 or more rather than resolving
   it through the vanilla table.
+- VERA reads the key from each scenario's layered rules; Phobos reads it once
+  from RULESMD.INI at startup (`0x0052D21F`), so only in VERA can a mode or map
+  INI change it.

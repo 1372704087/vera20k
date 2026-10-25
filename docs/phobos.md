@@ -41,3 +41,36 @@ Supported extensions:
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
+
+## Original project and authors
+
+VERA20K implements the behavior in Rust. It does not load `Phobos.dll`, import
+Phobos C++ source or redistribute Phobos binaries; the native identities cited
+by these pages are the Phobos sources named in each page.
+
+Phobos is developed by the Phobos Developers. The features ported here
+originate with:
+
+- Custom radiation types - **AlexB**, **Otamaa**, **Belonit**, **Uranusian**.
+- Shields - **Uranusian**, **secsome**, **Belonit**; shield warhead
+  modifications **Starkku**; absorption/passthrough **Morton**; respawn
+  animation and weapon **Ollerus**.
+- Custom ore spawners - **Kerbiter**.
+- Custom gather animations - **secsome**, **Uranusian**.
+- Ore-stage animation hiding (`HideIfNoOre` threshold) - **Otamaa**.
+- Superweapon techno gates (`SW.AuxTechnos`, `SW.NegTechnos`,
+  `SW.TechLevel`) - **NetsuNegi**, **Ollerus**.
+- Digital display - **ststl**, **FlyStar**, **NaotoYuuki**, **Saigyouji**,
+  **JunJacobYoung**, **CrimRecya**, with thanks to **Noble Fish** for the
+  underlying knowledge.
+- Placement preview - **Otamaa**, **Belonit**.
+- Sidebar GDI/NOD positions - **Belonit**.
+- Building production queue - **CrimRecya**.
+- INI `$Include` / `$Inherits` - **Morton**.
+
+The project's full contributor list is in
+[Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).
+VERA's include and inheritance traversal also adapts ra2-mono's `IniFile`;
+see [INI directives](ini-directives.md#source-mapping).
+
+简体中文：[扩展支持与原作者](zh-CN/credits.md)。

@@ -1230,6 +1230,12 @@ impl GameEntity {
         self.stage.restart(value, now, rate);
     }
 
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_native_stage_value(&mut self, value: i32) {
+        self.stage.set_value(value);
+    }
+
+    #[cfg(not(any(test, feature = "test-support")))]
     pub(crate) fn set_native_stage_value(&mut self, value: i32) {
         self.stage.set_value(value);
     }

@@ -123,10 +123,10 @@ unchanged. This mode does not promise the native archive priority for a MOD.
 
 ## Source mapping
 
-The include traversal originally came from my ra2-mono working tree,
-including the bounded traversal fix. `$Inherits` remains that adaptation;
-its uncommitted files are not claimed at a published donor commit. I contribute
-this under VERA's GPLv3; no Ares/Phobos C++ is imported.
+The include and inheritance traversal was adapted from **baixiong443**'s
+ra2-mono `IniFile`, including the bounded traversal fix. `$Inherits` remains
+that adaptation; its uncommitted files are not claimed at a published donor
+commit. This contribution is under VERA's GPLv3; no Ares/Phobos C++ is imported.
 
 | native source | VERA adaptation |
 | --- | --- |

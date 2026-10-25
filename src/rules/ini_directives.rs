@@ -21,10 +21,10 @@
 //! Both dialects read the current document before its included files, recurse
 //! depth-first in stored list order, and let a later read overwrite earlier
 //! values. `$Inherits` expansion runs after includes; its policy here is the
-//! VERA adaptation from ra2-mono, not a native directive claim. The raw byte
-//! parser and deserializer never load other files: expansion is an opted-in
-//! source-selection step, selected by compile features for gameplay and
-//! available to read-only probes for both dialects.
+//! VERA adaptation from baixiong443's ra2-mono `IniFile`, not a native
+//! directive claim. The raw byte parser and deserializer never load other
+//! files: expansion is an opted-in source-selection step, selected by compile
+//! features for gameplay and available to read-only probes for both dialects.
 
 use super::IniFile;
 use std::collections::HashSet;

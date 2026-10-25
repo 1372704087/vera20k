@@ -13741,19 +13741,20 @@ Projectile=Invisible
 
     #[cfg(feature = "phobos")]
     #[test]
-    fn parallel_ai_queue_switches_default_off_and_read_global_controls() {
+    fn parallel_ai_queue_switches_default_the_gate_on_and_read_global_controls() {
+        // Phobos RulesExt constructs AllowParallelAIQueues { true }.
         let empty = RuleSet::from_ini(&IniFile::from_str("")).unwrap();
         let controls = empty.parallel_ai_queues();
-        assert!(!controls.allows_parallel());
+        assert!(controls.allows_parallel());
         assert!(!controls.forbids_category(ObjectCategory::Building, false));
 
         let rules = RuleSet::from_ini(&IniFile::from_str(
-            "[GlobalControls]\nAllowParallelAIQueues=yes\n\
+            "[GlobalControls]\nAllowParallelAIQueues=no\n\
              ForbidParallelAIQueues.Infantry=yes\nForbidParallelAIQueues.Navy=yes\n",
         ))
         .unwrap();
         let controls = rules.parallel_ai_queues();
-        assert!(controls.allows_parallel());
+        assert!(!controls.allows_parallel());
         assert!(controls.forbids_category(ObjectCategory::Infantry, false));
         assert!(!controls.forbids_category(ObjectCategory::Vehicle, false));
         assert!(controls.forbids_category(ObjectCategory::Vehicle, true));

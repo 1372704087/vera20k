@@ -1,12 +1,12 @@
 //! Phobos extended `ForbidParallelAIQueues` controls.
 //!
-//! `[GlobalControls] AllowParallelAIQueues=` is Ares' gate for AI factories
-//! producing the same category in parallel. Phobos adds per-category and
-//! per-TechnoType forbids that only narrow that feature; with the gate off
-//! they do nothing. Phobos' own `RulesExt` default is true, but Ares reads
-//! the same key with a false default, so the effective Phobos+Ares behavior
-//! requires `=yes`; VERA has no Ares serial mode, so it reads the gate with
-//! the Ares default and keeps stock parallel production when it is off.
+//! `[GlobalControls] AllowParallelAIQueues=` gates AI factories producing the
+//! same category in parallel. Phobos reads it into its own `RulesExt` with a
+//! constructor default of true (`src/Ext/Rules/Body.h`), and Ares documents
+//! `=no` as the switch that stops AI cloning, so the gate defaults on. Phobos
+//! adds per-category and per-TechnoType forbids that only narrow it; with the
+//! gate off they do nothing. VERA has no Ares serial mode, so `=no` keeps
+//! stock parallel production.
 //!
 //! Sources: `RulesExt::ForbidParallelAIQueues_*` reads in
 //! `src/Ext/Rules/Body.cpp`, `TechnoTypeExt::ForbidParallelAIQueues` in
@@ -16,8 +16,9 @@
 use crate::rules::ini_parser::IniFile;
 use crate::rules::object_type::ObjectCategory;
 
-/// Ares-Phobos parallel AI queue switches, all defaulting to off.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+/// Ares-Phobos parallel AI queue switches: the gate defaults on, every forbid
+/// off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct ParallelAiQueueRules {
     allow: bool,
     forbid_infantry: bool,
@@ -27,17 +28,33 @@ pub struct ParallelAiQueueRules {
     forbid_building: bool,
 }
 
+impl Default for ParallelAiQueueRules {
+    fn default() -> Self {
+        Self {
+            allow: true,
+            forbid_infantry: false,
+            forbid_vehicle: false,
+            forbid_navy: false,
+            forbid_aircraft: false,
+            forbid_building: false,
+        }
+    }
+}
+
 impl ParallelAiQueueRules {
     pub fn from_ini(ini: &IniFile) -> Self {
-        let controls = ini.section("GlobalControls");
-        let read = |key: &str| controls.is_some_and(|section| section.read_bool(key, false));
+        let defaults = Self::default();
+        let Some(controls) = ini.section("GlobalControls") else {
+            return defaults;
+        };
+        let forbid = |key: &str| controls.read_bool(key, false);
         Self {
-            allow: read("AllowParallelAIQueues"),
-            forbid_infantry: read("ForbidParallelAIQueues.Infantry"),
-            forbid_vehicle: read("ForbidParallelAIQueues.Vehicle"),
-            forbid_navy: read("ForbidParallelAIQueues.Navy"),
-            forbid_aircraft: read("ForbidParallelAIQueues.Aircraft"),
-            forbid_building: read("ForbidParallelAIQueues.Building"),
+            allow: controls.read_bool("AllowParallelAIQueues", defaults.allow),
+            forbid_infantry: forbid("ForbidParallelAIQueues.Infantry"),
+            forbid_vehicle: forbid("ForbidParallelAIQueues.Vehicle"),
+            forbid_navy: forbid("ForbidParallelAIQueues.Navy"),
+            forbid_aircraft: forbid("ForbidParallelAIQueues.Aircraft"),
+            forbid_building: forbid("ForbidParallelAIQueues.Building"),
         }
     }
 

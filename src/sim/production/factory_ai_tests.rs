@@ -555,14 +555,16 @@ fn disable_parallel_ai_queues_serializes_war_factory_production() {
     );
 }
 
-/// Phobos `ForbidParallelAIQueues`: inert without Ares'
-/// `AllowParallelAIQueues=yes`; with it, the category forbid blocks a second
-/// war factory, and abandoning the first releases the slot.
+/// Phobos `ForbidParallelAIQueues`: inert under `AllowParallelAIQueues=no`;
+/// under the default gate the category forbid blocks a second war factory,
+/// and abandoning the first releases the slot.
 #[cfg(feature = "phobos")]
 #[test]
 fn parallel_ai_queues_gate_and_category_forbid_control_a_second_factory() {
-    let (mut f, weap_1, weap_2) =
-        ai_limit_fixture("\n[GlobalControls]\nForbidParallelAIQueues.Vehicle=yes", "");
+    let (mut f, weap_1, weap_2) = ai_limit_fixture(
+        "\n[GlobalControls]\nAllowParallelAIQueues=no\nForbidParallelAIQueues.Vehicle=yes",
+        "",
+    );
     ai_limit_visit(&mut f, weap_1);
     ai_limit_visit(&mut f, weap_2);
     assert!(
@@ -579,10 +581,10 @@ fn parallel_ai_queues_gate_and_category_forbid_control_a_second_factory() {
         "no forbid keeps the stock clone"
     );
 
-    let (mut f, weap_1, weap_2) = ai_limit_fixture(
-        "\n[GlobalControls]\nAllowParallelAIQueues=yes\nForbidParallelAIQueues.Vehicle=yes",
-        "",
-    );
+    // Phobos RulesExt constructs AllowParallelAIQueues { true }, so the
+    // forbid applies without the gate key.
+    let (mut f, weap_1, weap_2) =
+        ai_limit_fixture("\n[GlobalControls]\nForbidParallelAIQueues.Vehicle=yes", "");
     ai_limit_visit(&mut f, weap_1);
     ai_limit_visit(&mut f, weap_2);
     assert!(ai_limit_holds(&f, weap_1));

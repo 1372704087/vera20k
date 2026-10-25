@@ -5,7 +5,7 @@ in parallel except for the categories or TechnoTypes you exclude.
 
 ```ini
 [GlobalControls]
-AllowParallelAIQueues=yes          ; Ares gate, required
+AllowParallelAIQueues=yes          ; boolean, default yes
 ForbidParallelAIQueues.Infantry=no ; boolean
 ForbidParallelAIQueues.Vehicle=no  ; boolean
 ForbidParallelAIQueues.Navy=no     ; boolean
@@ -16,13 +16,14 @@ ForbidParallelAIQueues.Building=no ; boolean
 ForbidParallelAIQueues=false       ; boolean
 ```
 
-The tags only apply when `AllowParallelAIQueues=yes`; with it unset or `no`
-VERA keeps stock parallel AI production. With it on, the first factory
-building of a category claims the house's slot. A second building of the same
-category does not start its own build while that category's
-`ForbidParallelAIQueues.<Category>` is set, or while the product the claiming
-factory holds has `ForbidParallelAIQueues=yes`. A successful exit or an
-abandonment of a forbidden category/type releases the slot.
+The tags apply unless `AllowParallelAIQueues=no`: Phobos defaults the gate to
+yes, and Ares documents `no` as the switch that stops AI cloning. With the gate
+on, the first factory building of a category claims the house's slot. A second
+building of the same category does not start its own build while that
+category's `ForbidParallelAIQueues.<Category>` is set, or while the house's
+current choice for that category (`Producing*TypeIndex`) has
+`ForbidParallelAIQueues=yes`. A successful exit or an abandonment of a
+forbidden category/type releases the slot.
 
 Source: `RulesExt` reads in `src/Ext/Rules/Body.cpp`, the TechnoType read in
 `src/Ext/TechnoType/Body.cpp`, and `src/Ext/Building/Hooks.Production.cpp`

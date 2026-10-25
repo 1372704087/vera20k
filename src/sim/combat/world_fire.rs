@@ -1158,6 +1158,12 @@ pub(crate) fn snapshot_get_rof(
                 .map_or(crate::util::native_x87::NativeF64Bits::ONE, |house| {
                     house.rof_bias()
                 }),
+            #[cfg(feature = "ares")]
+            attached_rof: Some(
+                firer.map_or(crate::util::native_x87::NativeF64Bits::ONE, |entity| {
+                    entity.attached_rof_multiplier()
+                }),
+            ),
             rof_ability: self::veterancy::has_weapon_ability(
                 self::veterancy::rank_from_u16(snap.veterancy),
                 obj,

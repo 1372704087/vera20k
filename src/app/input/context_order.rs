@@ -181,6 +181,16 @@ fn friendly_attack_is_admitted(
 /// `[CombatDamage] TreeTargeting=` (`Rules+0x17E9`, retail no) or the
 /// `TerrainFire=` (`+0x138`) of the weapon SelectWeapon picks for it
 /// (`0x0070EF0C..0x0070EF4B`). A Techno uses its own ObjectType byte.
+///
+/// RESIDUAL: for a Techno, vt+0x398 also answers yes when the picked weapon
+/// is `TerrainFire=` and the target IsDisguised (vt+0xC4) with no worn house
+/// (vt+0xD0(1), `0x0070EF53..0x0070EFB9`); this asks `LegalTarget=` alone.
+/// Trigger: a layer clears a Techno's `LegalTarget=`, and an actor whose
+/// picked weapon is `TerrainFire=` (retail: only `TankMakeupKit`) clicks it
+/// while it is so disguised. Effect: that unforced click leaves the rung,
+/// where native stays on it; Ctrl is unaffected. Frequency: nil on retail
+/// data, where no rules or mode INI clears `LegalTarget=` on a Techno.
+/// Downstream: only that click's cursor and order.
 fn object_target_is_legal(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -258,16 +268,14 @@ fn object_target_is_legal(
 /// [`friendly_attack_is_admitted`]. A different allied House therefore takes
 /// the identity-sensitive tail, then the existing class postprocessing.
 ///
-/// Unforced, a Terrain object must pass [`terrain_target_is_legal`].
+/// Unforced, an object target must pass [`object_target_is_legal`].
 ///
 /// RESIDUAL (#605): the rest of admission (`0x00700255..0x0070043E`) is not
 /// ported as one gate. Unforced, native also leaves the rung for:
 /// - an object disguised to the actor's house (vt+0xC8), unless that grant
 ///   holds, `[Rules+0xD6C]` is set, its type is `PermaDisguise=` (`+0xD30`),
 ///   its `+0x1EC`/`+0x1F4` timer runs, or it wears no house (vt+0xD0) and the
-///   weapon may fire at terrain (vt+0x398, `0x0070EF00`, `TerrainFire=`);
-/// - a Techno type that is not `LegalTarget=` (`+0x231`), unless that
-///   terrain test passes. No retail Techno type clears `LegalTarget=`.
+///   weapon may fire at terrain (vt+0x398, `0x0070EF00`, `TerrainFire=`).
 ///
 /// Active YR Battle authors AttackCursorOnDisguise=yes, and SPY also authors
 /// PermaDisguise=yes: an ordinary stock Spy/Mirage is not evidence of a missed

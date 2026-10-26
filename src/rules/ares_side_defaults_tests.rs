@@ -200,6 +200,30 @@ fn ares_side_graphical_text_slots_keep_the_literal_fallback() {
 }
 
 #[test]
+fn ares_side_dialog_background_needs_both_files() {
+    let rules = processed(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\n\
+         DialogBackground.Image=mybkg.shp\n\
+         DialogBackground.Palette=mypal.pal\n"
+    ));
+    assert_eq!(
+        rules.side_dialog_background(3),
+        Some(("mybkg.shp", "mypal.pal"))
+    );
+    // The hook at 0x622223 keeps the stock selection when either slot is null.
+    let image_only = processed(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\nDialogBackground.Image=mybkg.shp\n"
+    ));
+    assert_eq!(image_only.side_dialog_background(3), None);
+    // No SideExt for an unallocated side.
+    assert_eq!(rules.side_dialog_background(9), None);
+}
+
+#[test]
 fn ares_side_score_files_follow_the_side_buffers_the_hooks_copy() {
     let rules = processed(&format!(
         "{TYPES}{GENERAL}\

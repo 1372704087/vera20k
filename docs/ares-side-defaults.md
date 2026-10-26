@@ -26,6 +26,7 @@ while a side's own section can replace them:
 | `MultiplayerScore.Background` / `.Palette` | `MPASCRNL.SHP` + `MPASCRN.PAL`, `MPSSCRNL.SHP` + `MPSSCRN.PAL`, `MPYSCRNL.SHP` + `MPYSCRN.PAL` | Skirmish score screen art (`build_score_art`) |
 | `MultiplayerScore.Bars` | `mpascrnlbar~~.pcx` / `mpsscrnlbar~~.pcx` / `mpyscrnlbar~~.pcx` | the ten score bands; the first `~~` takes the two-digit band number |
 | `CampaignScore.UnderParTheme` / `.OverParTheme` | `SCORE` | theme the campaign dialog `0x103` starts on `WM_INIT`, picked by the same `0x6C9231` comparison as the rank strings |
+| `DialogBackground.Image` + `.Palette` | unset: the stock `PUDLGBGN/A/S/Y.SHP` with `DIALOG(N/Y).PAL` by side | the shell dialog chrome's three side slots |
 | `MultiplayerScore.WinTheme` / `.LoseTheme` | `SCORE` | theme the skirmish dialog `0x108` starts, picked on the local player's `HouseClass+0x1F5` defeated flag |
 | `MessageTextColor` | runtime ColorScheme 21 (`[Colors]` entry 10) | map-action 11 message |
 | `Sidebar.MixFileIndex` | 1 | sidebar MIX |
@@ -35,8 +36,12 @@ while a side's own section can replace them:
 Each score name is substituted on its own, the way `0x1002F270` copies every
 SideExt field over gamemd's buffer, so an Ares build never selects the 640-wide
 `*SM.SHP` shapes: `SideExt::initialize` always holds a medium name. The SideExt
-reader also retains `HunterSeeker` and `DialogBackground.*`; those have no
-consumer in this chain yet. `GraphicalText.*` is consumed by the
+reader also retains `HunterSeeker`; that has no consumer in this chain yet.
+`DialogBackground.*` feeds the shell dialog chrome: the hook at `0x622223`
+(body `0x1002FB50`) substitutes the side's image and palette for the three
+side-selected backgrounds while both loaded slots are non-null, and resumes at
+`0x62226A`; the no-session branch at `0x62225F` stays `PUDLGBGN.SHP` because the
+hook does not patch it. `GraphicalText.*` is consumed by the
 victory/defeat banner: `Game_LoadUI_LoadSideData` (`0x1002F4A0`) loads the
 local side's two files into the overlay slots through the writer at
 `0x1002ECC0`, and the draw hook `0x1002FAD0` (patch site `0x6D4E79`) reads each
@@ -87,8 +92,13 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
   while native re-reads the side's field at each `0x5C9B75` call; a local
   player whose `HouseClass+0x1F5` changes after the terminal snapshot keeps the
   theme the dialog already started.
-- `DialogBackground.*` is retained but not drawn; the dialog background is a
-  separate UI mechanism (`0x621E90`'s paint).
+- The dialog pair is resolved once per game load: the shell chrome atlas keeps
+  the three side slots and is dropped when a load resolves a different pair, so
+  a side that changes its `DialogBackground.*` between matches rebuilds on the
+  next paint. Slot 0 (`PUDLGBGN`) is process art and never rebuilt.
+- A side naming a `DialogBackground.Image` whose SHP or palette fails to load
+  keeps the stock slots; native sees a null slot and returns to the same stock
+  selection.
 - The banner resolves one file pair per match. Native substitutes each slot
   alone, so a side that names a loadable image and an unloadable palette draws
   the custom image with the stock `GRFXTXT.PAL`; VERA keeps the whole process

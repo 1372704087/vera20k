@@ -30,6 +30,18 @@ const MODE_TWO_DIALOG_ART: [(&str, &str); 4] = [
     ("PUDLGBGY.SHP", "DIALOGY.PAL"),
 ];
 
+/// The four mode-2 dialog backgrounds the paint selects by side: slot 0 is the
+/// no-session art and slots 1..3 take the side-selected one. A side naming both
+/// `DialogBackground.Image=` and `.Palette=` replaces the three side slots with
+/// its pair, exactly as the hook at `0x622223` resumes past the stock selection;
+/// the no-session slot is not patched and keeps `PUDLGBGN`.
+fn mode_two_dialog_art<'a>(side_art: Option<(&'a str, &'a str)>) -> [(&'a str, &'a str); 4] {
+    match side_art {
+        Some(pair) => [MODE_TWO_DIALOG_ART[0], pair, pair, pair],
+        None => MODE_TWO_DIALOG_ART,
+    }
+}
+
 fn mode_two_dialog_background_slot(side: Option<SidebarTheme>) -> usize {
     match side {
         None => 0,
@@ -383,7 +395,9 @@ pub fn build_skirmish_shell_chrome_atlas(
     batch: &BatchRenderer,
     assets: &AssetManager,
     extra_flags: &[String],
+    dialog_background: Option<(&str, &str)>,
 ) -> Option<SkirmishShellChromeAtlas> {
+    let dialog_art = mode_two_dialog_art(dialog_background);
     let shell_palette = load_shell_palette(assets)?;
     let shell2_palette = load_named_palette(assets, "SHELL2.PAL")?;
     let sdbtnanm_palette = load_named_palette(assets, "SDBTNANM.PAL");
@@ -476,7 +490,12 @@ pub fn build_skirmish_shell_chrome_atlas(
     }
     // Original loaders 72B060/72B0D0 and getters 72AFF0/72B010/72B030.
     // AssetManager retains the mounted retail winner and the SHP's dimensions.
-    for (name, palette_name) in MODE_TWO_DIALOG_ART {
+    let mut seen_dialog_art: Vec<&str> = Vec::new();
+    for (name, palette_name) in dialog_art {
+        if seen_dialog_art.contains(&name) {
+            continue;
+        }
+        seen_dialog_art.push(name);
         if let Some(palette) = load_named_palette(assets, palette_name) {
             push_optional(
                 &mut rendered,
@@ -723,7 +742,7 @@ pub fn build_skirmish_shell_chrome_atlas(
         wol_setup_icons: WOL_SETUP_PCX_NAMES.map(|name| by_label.get(name).copied()),
         lower_side_640_lwscrns: by_label.get("lwscrns.shp").copied(),
         lower_side_large_lwscrnl: by_label.get("lwscrnl.shp").copied(),
-        mode_two_dialog_backgrounds: MODE_TWO_DIALOG_ART.map(|(name, _)| {
+        mode_two_dialog_backgrounds: dialog_art.map(|(name, _)| {
             by_label
                 .get(&format!("{}#0", name.to_ascii_lowercase()))
                 .copied()
@@ -1266,6 +1285,16 @@ mod tests {
         trackbar_frame_rgba,
     };
     use crate::assets::asset_manager::MediaArchiveMode;
+
+    #[test]
+    fn ares_dialog_background_replaces_only_the_side_slots() {
+        let stock = super::mode_two_dialog_art(None);
+        assert_eq!(stock, super::MODE_TWO_DIALOG_ART);
+        let custom = super::mode_two_dialog_art(Some(("mybkg.shp", "mypal.pal")));
+        // The hook at 0x622223 leaves the no-session branch (PUDLGBGN) alone.
+        assert_eq!(custom[0], super::MODE_TWO_DIALOG_ART[0]);
+        assert_eq!(custom[1..], [("mybkg.shp", "mypal.pal"); 3]);
+    }
 
     #[test]
     fn mode_two_background_binding_matches_original_progress_paint() {

@@ -205,12 +205,16 @@ impl App {
             .unwrap_or_default();
         #[cfg(not(feature = "ares"))]
         let extra_flags = Vec::new();
+        let dialog_background = state.frontend.shell_dialog_background.clone();
         state.frontend.skirmish_shell_chrome =
             crate::render::skirmish_shell_chrome::build_skirmish_shell_chrome_atlas(
                 &state.renderer.gpu,
                 &state.renderer.batch_renderer,
                 assets,
                 &extra_flags,
+                dialog_background
+                    .as_ref()
+                    .map(|(image, palette)| (image.as_str(), palette.as_str())),
             );
         let ready = state.frontend.skirmish_shell_chrome.is_some();
         if !ready {
@@ -1067,7 +1071,9 @@ impl App {
             .skirmish_shell_state
             .choose_map_modal
             .as_mut()
-            && modal.statics.hover(&text, crate::util::time::Instant::now())
+            && modal
+                .statics
+                .hover(&text, crate::util::time::Instant::now())
         {
             state.platform.window.request_redraw();
         }

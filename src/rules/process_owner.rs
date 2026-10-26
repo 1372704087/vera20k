@@ -376,6 +376,32 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
+    /// The live registry's `DialogBackground.Image/.Palette` pair for a side.
+    /// Both must be present: the hook at `0x622223` keeps the stock selection
+    /// when either slot is null.
+    pub fn side_dialog_background(&self, side: i32) -> Option<(&str, &str)> {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let (_, extension) = state
+            .side_projection()
+            .nth(usize::try_from(side).unwrap_or(usize::MAX))?;
+        #[cfg(feature = "ares")]
+        {
+            let extension = extension?;
+            let image = extension.dialog_background_image.as_deref()?;
+            let palette = extension.dialog_background_palette.as_deref()?;
+            return (!image.is_empty() && !palette.is_empty()).then_some((image, palette));
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = extension;
+            None
+        }
+    }
+
     /// The live registry's SideExt score theme for a side, for the score
     /// dialogs that open after the match Rules projection is retired.
     pub fn side_score_theme(

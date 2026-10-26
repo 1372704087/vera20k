@@ -452,7 +452,7 @@ impl NativeRulesProcessOwner {
                     body.read_name("Name", 0x31),
                     body.read_bool("Multiplay", false),
                     presentation.random_weight,
-                    presentation.ai_random_weight,
+                    presentation.ai_weight(),
                 )
             })
             .collect()

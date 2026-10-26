@@ -7925,13 +7925,14 @@ impl RuleSet {
         }
     }
 
-    /// Ares `AIRandomSelectionWeight=`, defaulting to the human weight.
+    /// Ares `AIRandomSelectionWeight=` once set, else the human weight
+    /// (`0x1001CA11..0x1001CA1A`).
     pub fn country_ai_random_weight(&self, id: &str) -> i32 {
         #[cfg(feature = "ares")]
         {
             return self
                 .country_rules(id)
-                .map_or(1, |country| country.presentation.ai_random_weight);
+                .map_or(1, |country| country.presentation.ai_weight());
         }
         #[cfg(not(feature = "ares"))]
         {

@@ -4413,8 +4413,13 @@ fn find_or_construct_type(
     }
     #[cfg(feature = "ares")]
     if family == RulesTypeFamily::Country {
-        members[index].country_veterancy.ares.loading =
+        let ares = &mut members[index].country_veterancy.ares;
+        ares.loading =
             crate::rules::country_loading::AresCountryLoading::for_country_id(&native_stored_id);
+        ares.presentation =
+            crate::rules::ares_country_presentation::AresCountryPresentation::for_country_id(
+                &native_stored_id,
+            );
     }
     #[cfg(feature = "ares")]
     if family == RulesTypeFamily::Building {
@@ -5623,29 +5628,20 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .loading = loading;
-            let mut presentation = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .presentation
-                .clone();
-            presentation.initialize_stock(index);
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .presentation = presentation;
             self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
                 .ares
                 .phase = 1;
         }
         // GUI1001C770 runs only for the selected primary Rules object and
-        // BEFORE common1001C5D0's one-shot parent copy1001BDC0.
+        // BEFORE common1001C5D0's one-shot parent copy1001BDC0, which
+        // overwrites these loading and presentation fields.
         if primary_rules && let Some(section) = pass.section(&id) {
-            self.family_mut(RulesTypeFamily::Country)[index]
+            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
-                .ares
-                .loading
-                .read_primary(section);
+                .ares;
+            current.loading.read_primary(section);
+            current.presentation.read_primary(section);
         }
         if inherit {
             let inherited = ares_country_index_of_name(
@@ -5675,20 +5671,6 @@ impl RulesPassProcessor {
                 .ares
                 .parent_initialized = true;
         }
-        // The Ares country presentation keys are read after the one-shot
-        // parent copy: a child overrides what it inherits. The file/status
-        // block is primary-Rules only; weights and ListIndex are common.
-        {
-            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares;
-            if primary_rules && let Some(section) = pass.section(&id) {
-                current.presentation.read_primary(section);
-            }
-            if let Some(section) = pass.section(&id) {
-                current.presentation.read_common(section);
-            }
-        }
         // Color1001C686 is common to every pass and follows inheritance.
         if let Some(section) = pass.section(&id) {
             let mut loading = self.families[&RulesTypeFamily::Country][index]
@@ -5701,6 +5683,15 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .loading = loading;
+        }
+        // Common weights and ListIndex1001C69C..1001C6D9 follow the color and
+        // override what the parent copy wrote.
+        if let Some(section) = pass.section(&id) {
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .presentation
+                .read_common(section);
         }
         if let Some(resolved) = pass.section(&id).and_then(|section| {
             self.resolve_existing_list_from(

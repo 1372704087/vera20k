@@ -876,7 +876,7 @@ fn loading_rows_draw_their_own_country_insignia_file() {
         .expect("insignia country rules parse");
     assert_eq!(
         super::loading_row_insignia(Some(&rules), None, 1).as_deref(),
-        Some("MyFlag.PCX")
+        Some("myflag.pcx")
     );
     assert_eq!(
         super::loading_row_insignia(Some(&rules), Some(LoadingArtVariant::Americans), 0).as_deref(),

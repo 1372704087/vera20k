@@ -6609,6 +6609,12 @@ impl RuleSet {
             b"ares-side-sidebar-v1".hash(&mut hasher);
             b"ares-super-availability-v1".hash(&mut hasher);
             self.ares_super_weapon_metadata.hash(&mut hasher);
+            b"ares-weapon-ammo-v1".hash(&mut hasher);
+            self.weapons
+                .iter()
+                .map(|(id, weapon)| (id.to_ascii_uppercase(), weapon.ammo_cost()))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
             self.object_list
                 .iter()
                 .filter(|object| !object.additional_super_weapons().is_empty())

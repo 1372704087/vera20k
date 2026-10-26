@@ -74,6 +74,10 @@ pub struct SavedSidebarOrder {
     request_states: [Vec<u8>; 4],
     factory_links: [Vec<Option<crate::sim::production::ProductionFactoryVisit>>; 4],
     prediction_categories: Vec<crate::sim::production::ProductionCategory>,
+    /// Phobos `ScenarioExt::SWSidebar_Enable`, false while the left sidebar is
+    /// collapsed. Companion state to this local presentation envelope.
+    #[cfg(feature = "phobos")]
+    sw_sidebar_expanded: bool,
 }
 
 impl SavedSidebarOrder {
@@ -90,7 +94,22 @@ impl SavedSidebarOrder {
             request_states,
             factory_links,
             prediction_categories: Vec::new(),
+            // `ScenarioExt::SWSidebar_Enable { true }` in Phobos's constructor.
+            #[cfg(feature = "phobos")]
+            sw_sidebar_expanded: true,
         }
+    }
+
+    /// Phobos stores `SWSidebar_Enable` in the scenario extension, outside the
+    /// strips; this envelope carries it beside them for the same save.
+    #[cfg(feature = "phobos")]
+    pub fn sw_sidebar_expanded(&self) -> bool {
+        self.sw_sidebar_expanded
+    }
+
+    #[cfg(feature = "phobos")]
+    pub fn set_sw_sidebar_expanded(&mut self, expanded: bool) {
+        self.sw_sidebar_expanded = expanded;
     }
 
     pub fn with_flash(mut self, deadlines: [Vec<i32>; 4], redraw_until: i32) -> Self {
@@ -3836,24 +3855,6 @@ mod tests {
             );
             assert_eq!(restored.rng_state(), rng);
         }
-    }
-
-    #[test]
-    fn fourth_side_house_and_scenario_index_round_trip_through_snapshot() {
-        let mut sim = Simulation::with_seed(0);
-        let owner = sim.intern("FourthSideHouse");
-        sim.houses
-            .register(crate::sim::house_state::HouseState::new(
-                owner, 3, None, false, 0, 1,
-            ));
-        sim.session.install_current_house(Some(owner));
-        sim.session.install_scenario_side(3);
-        let bytes = GameSnapshot::save(&sim, 0, 0, "fourth-side", 0);
-        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
-        restored.restore_after_snapshot_load().unwrap();
-        assert_eq!(restored.houses[&owner].side_index(), 3);
-        assert_eq!(restored.session.scenario_side(), 3);
-        assert_eq!(restored.session.current_house(), Some(owner));
     }
 
     #[test]

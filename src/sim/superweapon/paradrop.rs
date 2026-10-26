@@ -121,6 +121,15 @@ pub(crate) fn launch(
             general.amer_paradrop.counts.as_slice(),
             true,
         ),
+        // RESIDUAL (Ares): Ares replaces this launch (`SuperClass_Launch`
+        // hook `0x6CC390` -> `0x10074350`): per-Super `ParaDrop.*` keys, then
+        // the Country's (`0x1001BC20`/`0x1001BCB0`), then the Side's. VERA
+        // keeps the stock body with only the Side layer, and Soviet and any
+        // side >= 3 keep the stock unchecked pair, where Ares's sender
+        // `0x100741A0` sends nothing unless both lists are equally long and
+        // non-empty. Trigger: a mod with per-Super or per-Country paradrop
+        // keys, or unequal Soviet/fourth-side lists. Effect: other
+        // passengers or plane. Never on retail data.
         ParaDropKind::Generic => {
             let pairs_checked = matches!(side, Some(0) | Some(2));
             let (types, counts) = match rules.side_paradrop(side.unwrap_or(-1)) {
@@ -147,14 +156,11 @@ pub(crate) fn launch(
         return true;
     }
     // Ares `[Side] ParaDrop.Aircraft=` replaces the PDPLANE type for both
-    // paradrop cases; an explicit blank selects no plane.
-    let plane = match rules.side_paradrop_aircraft(side.unwrap_or(-1)) {
-        Some(plane) => plane,
-        None => Some(PDPLANE),
-    };
-    let Some(plane) = plane else {
-        return true;
-    };
+    // paradrop cases; an unset or `none` (-1) index falls back to PDPLANE
+    // (`HouseTypeExt::GetParadropPlane @ 0x1001BCB0`).
+    let plane = rules
+        .side_paradrop_aircraft(side.unwrap_or(-1))
+        .unwrap_or(PDPLANE);
     let plane_known = rules
         .aircraft_ids
         .iter()

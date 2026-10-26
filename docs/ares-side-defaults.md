@@ -18,8 +18,8 @@ while a side's own section can replace them:
 | `AI.BaseDefenses` | `[AI] AlliedBaseDefenses` | AI base-defence candidates |
 | `AI.BaseDefenseCounts` | `[General] AlliedBaseDefenseCounts` | BasePlan Recalc/preflight |
 | `ParaDrop.Types` + `ParaDrop.Num` | `[General] AllyParaDropInf/Num` (both keys required) | generic paradrop |
-| `ParaDrop.Aircraft` | `PDPLANE` resolved at SideExt initialization | paradrop plane |
-| `Parachute.Anim` | unset: the existing `[General] Parachute=` / NPSE `VehicleParachute=` owner | attached canopy |
+| `ParaDrop.Aircraft` | `PDPLANE` resolved at SideExt initialization; `none` falls back to `PDPLANE` | paradrop plane |
+| `Parachute.Anim` | unset: the existing `[General] Parachute=` / NPSE `VehicleParachute=` owner; `none`: `PARACH` | attached canopy |
 | `ToolTipColor` | `164,210,255` | in-game tooltip text/border |
 | `GraphicalText.Image` + `GraphicalText.Palette` | unset: InitGame's literal `GRFXTXT.SHP` / `.PAL` | victory/defeat banner (`app::presentation::outcome_banner`) |
 | `CampaignScore.Background` / `.Transition` / `.Animation` / `.Palette` | the side's row of `SideExt::initialize` (Allied `ASCRBKMD/ASCRTMD/ASCRAMD` + `ASCORE.PAL`, Soviet `SSCRBKMD…` + `SSCORE.PAL`, Yuri and later sides `SYCRBKMD…` + `YSCORE.PAL`) | Campaign StandaloneScore art (`render::main_menu_shell_chrome::build_campaign_score_art`) |
@@ -56,12 +56,18 @@ reads the current INI in native order:
 `Sidebar.YuriFileNames`, `ToolTipColor`, `SurvivorDivisor`,
 `MessageTextColor`, `HunterSeeker`, then the score/graphic/dialog keys.
 
-Nullable values distinguish three states: an absent or unknown key retains
-the current field, a present-empty key clears it, and a registered type name
-sets it. Vectors follow `NullableVector`: `<default>` returns to the getter
-fallback, a present-empty value replaces the vector with an empty one, and a
-nonempty value replaces it, skipping unknown type names. `ParaDrop.Types`
-keeps only InfantryType and UnitType identities.
+Every reader keeps its current field when ReadString returns 0, so an
+absent or empty key retains, and so does an unknown type or scheme name.
+Only `none`/`<none>` (`0x10003950`) stores null: a type reference becomes
+explicitly unset, an index (`ParaDrop.Aircraft`, `MessageTextColor`)
+becomes -1, and a 0x20 fixed string becomes empty. A registered type name
+sets the field. Vectors follow `NullableVector` (`0x1002EB00`/`0x1002EB60`):
+`<default>` returns to the getter fallback and any other nonempty value
+replaces the vector, skipping unknown type names. `ParaDrop.Types` keeps
+only InfantryType and UnitType identities. Fixed strings keep their first
+31 bytes. `MessageTextColor` resolves through the same kind-1 ColorScheme
+lookup (`0x1001BB30`) the Country color reader uses, over every `[Colors]`
+entry retained so far.
 
 ## Evidence
 
@@ -72,11 +78,11 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
   `0x1002DEE0`, SurvivorDivisor `0x1002E130`, Technician `0x1002E170`,
   BaseDefenses `0x1002DDD0`, BaseDefenseCounts `0x1002DD40`, ParaDrop.Num
   `0x1002DFB0`, ParaDrop.Types `0x1002E060`, Parachute.Anim `0x1002E0F0`;
-- consumers: building crew count `0x4C6E0`, building crew `0x4C650`,
-  techno crew `0x4C780`, disguise `0x52267D`/`0x6F422F`, base-defence picks
-  `0x507BCA`/`0x507DBA`/`0x507FAA`, paradrop `0x6CD2EE`/`0x6CD537`, canopy
-  `0x5F5ADD`, tooltip `0x72F440`, message color `0x6DE0D3`, trigger side
-  `0x1002F2D0`;
+- consumers: building crew count `0x1004C6E0`, building crew `0x1004C650`,
+  techno crew `0x1004C780`, disguise `0x52267D`/`0x6F422F`, base-defence
+  picks `0x507BCA`/`0x507DBA`/`0x507FAA`, paradrop plane and canopy through
+  the Country getters `0x1001BCB0`/`0x1001BBC0`, tooltip `0x72F440`,
+  message color `0x6DE0D3`, trigger side `0x1002F2D0`;
 - SideExt state is retained on the existing `ProcessedType` owner
   (`src/rules/native_processing.rs`), projected once into `RuleSet`
   (`src/rules/ruleset.rs`), and shared by the consumers above.
@@ -89,10 +95,6 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
   theme the dialog already started.
 - `DialogBackground.*` is retained but not drawn; the dialog background is a
   separate UI mechanism (`0x621E90`'s paint).
-- The banner resolves one file pair per match. Native substitutes each slot
-  alone, so a side that names a loadable image and an unloadable palette draws
-  the custom image with the stock `GRFXTXT.PAL`; VERA keeps the whole process
-  art in that case.
 - **HunterSeeker** is retained but the Hunter Seeker superweapon launch is
   not ported, so it has no effect.
 - **Vehicle entries in `ParaDrop.Types`** are retained but the passenger
@@ -100,10 +102,16 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
 - A custom `AI.BaseDefenseCounts` vector shorter than the difficulty row is
   rejected by preflight as a missing difficulty; the native read past the
   vector is undefined data.
-- `MessageTextColor` resolves a scheme name against the current pass'
-  `[Colors]` section. A later map/mode pass that names a scheme without a
-  local `[Colors]` section retains the previous value instead of resolving
-  against the global scheme array.
+- **Paradrop layers.** Ares replaces the paradrop launch
+  (`SuperClass_Launch` hook `0x6CC390` -> `0x10074350`) and reads the
+  Super's own `ParaDrop.*` keys, then the Country's (`0x1001BC20`/
+  `0x1001BCB0`), then the Side's. VERA keeps the stock launch with only the
+  Side layer. Soviet and any side >= 3 keep the stock unchecked list pair,
+  where the Ares sender (`0x100741A0`) sends nothing unless both lists are
+  equally long and nonempty.
+- **Canopy layers.** The Ares canopy hook (`0x5F5ADD` -> `0x10047C80`)
+  takes the dropped type's own `Parachute.Anim`, then the Country's, before
+  the Side's. VERA reads only the Side layer.
 - The Ares save layout gained the new fields; saves made before this change
   do not load in Ares builds.
 - With Ares and NPatch compiled together, `Parachute.Anim` takes precedence

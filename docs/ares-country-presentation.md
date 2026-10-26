@@ -1,28 +1,35 @@
 # Ares country presentation
 
 Build with `--features ares`. This covers the Ares 3.0 country keys that the
-shell, loading screen and taunt stream consume. The stock ten-country
-presentation remains unchanged; countries at index 10 and later take the
-installed DLL's unknown-country defaults.
+shell, loading screen and taunt stream consume. The ten stock Country IDs
+(`Americans` … `YuriCountry`) keep their stock presentation wherever they sit
+in `[Countries]`; any other ID takes the installed DLL's unknown-country
+defaults.
 
 ## Keys
 
 | Key | Effect |
 | --- | --- |
-| `File.Flag=` | Insignia surface for every `Game_GetFlagSurface` (`0x1001DCE0`, patch site `0x4E3562`, 5 bytes) consumer: the Skirmish/LAN/WOL player and opponent rows, the Co-Op score screen, the diplomacy rows and the loading progress rows. Stock indices keep `usai.pcx` … `yrii.pcx` and unknown indices `rani.pcx`; a present-empty value answers the hook's null-surface branch at `0x4E3567`, so the row shows `rani.pcx`. A country index outside the HouseType array (an observer or Random row) keeps the stock selection chain at `0x4E3579`. |
-| `MenuText.Status=` | Status-help CSF key in the country dropdown. Stock indices keep `STT:PlayerSide*`; unknown indices keep `GUI:Unknown`. |
-| `File.Taunt=` | Taunt path with `~~` (Ares docs) or `%02i` (stock defaults) replaced by the two-digit taunt number. |
+| `File.Flag=` | Insignia surface for every `Game_GetFlagSurface` (`0x1001DCE0`, patch site `0x4E3562`, 5 bytes) consumer: the Skirmish/LAN/WOL player and opponent rows, the Co-Op score screen, the diplomacy rows and the loading progress rows. Stock IDs keep `usai.pcx` … `yrii.pcx` and other IDs `rani.pcx`. The name is lowercased and cut to 31 bytes; an empty value keeps the current file, and `none`/`<none>` clears it, which answers the hook's null-surface branch at `0x4E3567`, so the row shows `rani.pcx`. A country index outside the HouseType array (an observer or Random row) keeps the stock selection chain at `0x4E3579`. |
+| `MenuText.Status=` | Status-help CSF key in the country dropdown. Stock IDs keep `STT:PlayerSide*`; other IDs keep `GUI:Unknown`. |
+| `File.Taunt=` | Taunt path (31 bytes; `none` clears it) with `~~` (Ares docs) or `%02i` (stock defaults) replaced by the two-digit taunt number. |
 | `ListIndex=` | Dropdown position; ties keep `[Countries]` order. A negative value hides the row. Default 100. |
 | `RandomSelectionWeight=` | Human “Random” country weight. Default 1. |
-| `AIRandomSelectionWeight=` | AI “Random” country weight; default is the current `RandomSelectionWeight`. |
+| `AIRandomSelectionWeight=` | AI “Random” country weight. Optional: until a read sets it, AI rows use `RandomSelectionWeight`. `ParentCountry` does not copy it. |
 | `File.ObserverFlag=`, `File.ObserverBackground=`, `File.ObserverFlagAltPalette=` | Retained observer-strip art. Its only consumers are `StripClass_Draw_DrawObserverBackground @ 0x6AA0CA` and `StripClass_Draw_DrawObserverFlag @ 0x6AA164`; VERA ports no observer strip, so no consumer yet. |
 
-`ParentCountry=` copies the parent's resolved presentation first, then the
-child's own keys override it. `ListIndex` becomes parent + 1 unless the child
-sets it. The same one-shot copy already applies to the loading-screen fields.
+`ParentCountry=` runs a one-shot copy (`0x1001BDC0`) after the primary-Rules
+block (`0x1001C770`) has read the child's `File.*` and `MenuText.Status`
+keys, so the parent's flag, status, taunt and observer art overwrite them.
+Only the common keys read after the copy (`RandomSelectionWeight`,
+`AIRandomSelectionWeight`, `ListIndex`) override it; `ListIndex` becomes
+parent + 1 unless the child sets it. The same copy applies to the
+loading-screen fields.
 
 The stock and unknown defaults are the 3.0 DLL's initializer table at
-`HouseTypeExt::Initialize` (`0x1001C0F0`). Its unknown branch at `0x1001C413`
+`HouseTypeExt::Initialize` (`0x1001C0F0`), called from the extension
+constructor and keyed by the stored Country ID; VERA holds it in the shared
+`country_loading` table. Its unknown branch at `0x1001C413`
 is `rani.pcx`, `GUI:Unknown`, `taunts\tauam%02i.wav`, `ls%sobs.shp` and
 `mplsobs.pal`. The country dropdown hook is `hWnd_PopulateWithCountryNames @
 0x4E3A6A` (Ares function behind the `.inj` entry): it filters
@@ -67,8 +74,9 @@ describes.
   (`ui::sidebar::cameo_order` records the same page-1 gap), so porting this
   needs that strip first.
 - A `File.Flag` whose PCX is missing or unparsable leaves the row without an
-  insignia in VERA, while gamemd sees a null surface and answers the
-  `0x4E3567` `rani.pcx` branch. Only a cleared key reaches that branch here.
+  insignia in VERA. Ares clears the name when the load fails
+  (`0x1001C7CA..0x1001C7E5`), so gamemd sees a null surface and answers the
+  `0x4E3567` `rani.pcx` branch. Only a `none` key reaches that branch here.
 - The LAN lobby's own peer rows keep `side_icon: None`, so the three remaining
   `Game_GetFlagSurface` call sites in those row functions (`0x5DB239`,
   `0x5EA41C`, `0x5EA697`) have no VERA counterpart to override.

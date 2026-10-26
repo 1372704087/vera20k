@@ -1256,7 +1256,8 @@ fn retail_computer_paradrops_conscripts_past_the_enemy_base() {
 
 /// Ares 3.0 `[Side] ParaDrop.Types/Num/Aircraft` for a fourth side. The
 /// side-index branch still supplies the stock pair-length policy, but the
-/// lists and plane come from SideExt.
+/// lists come from SideExt, and a `none` plane falls back to PDPLANE
+/// (`HouseTypeExt::GetParadropPlane @ 0x1001BCB0`) instead of cancelling.
 #[cfg(feature = "ares")]
 fn ares_fourth_side_rules(lists: &str, fourth: &str) -> RuleSet {
     let text = format!(
@@ -1271,10 +1272,10 @@ fn ares_fourth_side_rules(lists: &str, fourth: &str) -> RuleSet {
 
 #[cfg(feature = "ares")]
 #[test]
-fn ares_fourth_side_paradrop_uses_side_extension_lists_and_plane() {
+fn ares_fourth_side_paradrop_uses_side_lists_and_none_plane_falls_back() {
     let (rules, mut sim, owner) = paradrop_world(ares_fourth_side_rules(
         "AllyParaDropInf=E1\nAllyParaDropNum=6\n",
-        "ParaDrop.Types=E2\nParaDrop.Num=2\nParaDrop.Aircraft=PDPLANE\n",
+        "ParaDrop.Types=E2\nParaDrop.Num=2\nParaDrop.Aircraft=none\n",
     ));
     sim.houses
         .get_mut(&owner)

@@ -2895,9 +2895,10 @@ fn read_nullable_int_vector(
     Some(section.read_ares_int_list(key).unwrap_or_default())
 }
 
-/// `Valueable<T*>::Read` / `ValueableIdx<T>::Read`: a present key replaces the
-/// field with the resolved identity, and a blank or unknown name stores the
-/// empty value that every resolver treats as "defer"; an absent key retains.
+/// Ares `Valueable<T*>`/`ValueableIdx<T>` reads (`0x1000C9C0` through
+/// `0x1000EB20`, `0x1001CC10`): the [`read_ares_type_ref`] rule without a
+/// separate unset state, so a `none` field and a never-set one are both
+/// `None` (the null pointer or -1 index).
 #[cfg(feature = "ares")]
 fn read_valueable_type(
     section: &IniSection,
@@ -2905,15 +2906,12 @@ fn read_valueable_type(
     current: &Option<String>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
-    match section.raw_value(key) {
-        Some(raw) => resolve(strtrim_ascii(truncate_native_bytes(raw, 0x800))),
-        None => current.clone(),
-    }
+    read_ares_type_ref(section, key, &current.clone().map(Some), resolve).flatten()
 }
 
-/// `ValueableVector<TechnoTypeClass*>::Read`: a present key replaces the vector
-/// (unknown names drop out) and an empty one clears it; there is no `<default>`
-/// form, so a side/country fallback is expressed by leaving the list empty.
+/// Ares `ValueableVector<TechnoTypeClass*>::Read` (`0x1000EDD0`): ReadString
+/// returning 0 (absent or empty) retains; any other value replaces the
+/// vector with the tokens that resolve. There is no `<default>` form.
 #[cfg(feature = "ares")]
 fn read_valueable_type_vector(
     section: &IniSection,
@@ -2921,32 +2919,19 @@ fn read_valueable_type_vector(
     current: &[String],
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Vec<String> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.to_vec();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Vec::new();
+    match section.read_list(key, 0x800) {
+        Some(tokens) => tokens.into_iter().filter_map(resolve).collect(),
+        None => current.to_vec(),
     }
-    section
-        .read_list(key, 0x800)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(resolve)
-        .collect()
 }
 
-/// `ValueableVector<int>::Read`, pairing with the type list by index.
+/// Ares `ValueableVector<int>::Read` (`0x1000ED00`), with the same retain
+/// rule as [`read_valueable_type_vector`].
 #[cfg(feature = "ares")]
 fn read_valueable_int_vector(section: &IniSection, key: &str, current: &[i32]) -> Vec<i32> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.to_vec();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Vec::new();
-    }
-    section.read_ares_int_list(key).unwrap_or_default()
+    section
+        .read_ares_int_list(key)
+        .unwrap_or_else(|| current.to_vec())
 }
 
 /// The reached CountryExt reader state needed by the starting-rank chain.
@@ -5793,41 +5778,6 @@ impl RulesPassProcessor {
             current.loading.read_primary(section);
             current.presentation.read_primary(section);
         }
-        // `HouseTypeExt::LoadFromRulesFile @ 0x1001C530` reads the country's own
-        // paradrop block after the file/status keys: `Parachute.Anim`,
-        // `ParaDrop.Aircraft`, then `ParaDrop.Types` (keeping only InfantryType
-        // and UnitType identities) and `ParaDrop.Num`. Each is Valueable: a key
-        // that is present replaces the field, an absent key retains it.
-        if primary_rules && let Some(section) = pass.section(&id) {
-            let types = SideRegisteredTypes::collect(&self.families);
-            let current = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .paradrop
-                .clone();
-            let mut paradrop = current;
-            paradrop.parachute_anim = read_valueable_type(
-                section,
-                "Parachute.Anim",
-                &paradrop.parachute_anim,
-                |name| SideRegisteredTypes::find(&types.animations, name),
-            );
-            paradrop.aircraft =
-                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
-                    SideRegisteredTypes::find(&types.aircraft, name)
-                });
-            // `remove_non_paradroppables` keeps only InfantryType and UnitType
-            // identities after the vector read.
-            paradrop.types =
-                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
-                    types.techno(name)
-                });
-            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .paradrop = paradrop;
-        }
         if inherit {
             let inherited = ares_country_index_of_name(
                 &parent,
@@ -5856,6 +5806,33 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .parent_initialized = true;
+        }
+        // Common1001C5D0 reads the paradrop block on every pass, after its
+        // one-shot parent copy1001BDC0 and before the color: `Parachute.Anim`
+        //1001C620, `ParaDrop.Aircraft`1001C636, `ParaDrop.Types`1001C64C
+        // (then remove_non_paradroppables100768C0 keeps InfantryType and
+        // UnitType identities) and `ParaDrop.Num`1001C670.
+        if let Some(section) = pass.section(&id) {
+            let types = SideRegisteredTypes::collect(&self.families);
+            let paradrop = &mut self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .paradrop;
+            paradrop.parachute_anim = read_valueable_type(
+                section,
+                "Parachute.Anim",
+                &paradrop.parachute_anim,
+                |name| SideRegisteredTypes::find(&types.animations, name),
+            );
+            paradrop.aircraft =
+                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
+                    SideRegisteredTypes::find(&types.aircraft, name)
+                });
+            paradrop.types =
+                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
+                    types.techno(name)
+                });
+            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
         }
         // Color1001C686 is common to every pass and follows inheritance.
         if let Some(section) = pass.section(&id) {

@@ -131,41 +131,40 @@ pub(crate) fn launch(
         // RESIDUAL (Ares): Ares replaces this launch (`SuperClass_Launch`
         // hook `0x6CC390` -> `0x10074350`): per-Super `ParaDrop.*` keys, then
         // the Country's (`0x1001BC20`/`0x1001BCB0`), then the Side's. VERA
-        // keeps the stock body with only the Side layer, and Soviet and any
-        // side >= 3 keep the stock unchecked pair, where Ares's sender
-        // `0x100741A0` sends nothing unless both lists are equally long and
-        // non-empty. Trigger: a mod with per-Super or per-Country paradrop
-        // keys, or unequal Soviet/fourth-side lists. Effect: other
-        // passengers or plane. Never on retail data.
+        // keeps the stock body with the Country and Side layers but no
+        // per-Super layer. Side lists for Soviet and any side >= 3 keep the
+        // stock unchecked pair, where Ares's sender `0x100741A0` sends
+        // nothing unless both lists are equally long and non-empty. Trigger:
+        // a mod with per-Super paradrop keys, or unequal Soviet/fourth-side
+        // lists. Effect: other passengers or plane. Never on retail data.
         ParaDropKind::Generic => {
-            let pairs_checked = matches!(side, Some(0) | Some(2));
             // `GetParadropContent @ 0x1001BC20`: the country's own lists win
-            // while its type list is non-empty, and types without counts make
-            // the resolver answer false, so the launch sends nothing and never
-            // reaches the side lists.
+            // while its type list is non-empty. They always meet the sender's
+            // pair check (`0x100741A7..0x100741BF`), so types without counts
+            // send nothing and never reach the side lists.
             match country.and_then(|country| rules.country_paradrop_lists(country)) {
-                Some(Some(lists)) => (lists.0, lists.1, pairs_checked),
-                Some(None) => return true,
-                None => match rules.side_paradrop(side.unwrap_or(-1)) {
-                    Some(pair) => (pair.0, pair.1, pairs_checked),
-                    None => match side {
-                        Some(0) => (
-                            general.ally_paradrop.infantry.as_slice(),
-                            general.ally_paradrop.counts.as_slice(),
-                            pairs_checked,
-                        ),
-                        Some(2) => (
-                            general.yuri_paradrop.infantry.as_slice(),
-                            general.yuri_paradrop.counts.as_slice(),
-                            pairs_checked,
-                        ),
-                        _ => (
-                            general.sov_paradrop.infantry.as_slice(),
-                            general.sov_paradrop.counts.as_slice(),
-                            pairs_checked,
-                        ),
-                    },
-                },
+                Some((types, counts)) => (types, counts, true),
+                None => {
+                    let pairs_checked = matches!(side, Some(0) | Some(2));
+                    let (types, counts) = match rules.side_paradrop(side.unwrap_or(-1)) {
+                        Some(pair) => pair,
+                        None => match side {
+                            Some(0) => (
+                                general.ally_paradrop.infantry.as_slice(),
+                                general.ally_paradrop.counts.as_slice(),
+                            ),
+                            Some(2) => (
+                                general.yuri_paradrop.infantry.as_slice(),
+                                general.yuri_paradrop.counts.as_slice(),
+                            ),
+                            _ => (
+                                general.sov_paradrop.infantry.as_slice(),
+                                general.sov_paradrop.counts.as_slice(),
+                            ),
+                        },
+                    };
+                    (types, counts, pairs_checked)
+                }
             }
         }
     };

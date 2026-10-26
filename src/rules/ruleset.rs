@@ -8051,24 +8051,13 @@ impl RuleSet {
         }
     }
 
-    /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country:
-    /// `Some(Some(lists))` uses the country's own `ParaDrop.Types`/`.Num`,
-    /// `Some(None)` means it named types without counts, which the native
-    /// resolver answers `false` so the launch sends nothing, and `None` defers
-    /// to the side layer (also the answer in a stock build).
-    pub fn country_paradrop_lists(&self, id: &str) -> Option<Option<(&[String], &[i32])>> {
+    /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country: its own
+    /// `ParaDrop.Types`/`.Num` while the type list is non-empty, else `None`,
+    /// which defers to the side layer (also the answer in a stock build).
+    pub fn country_paradrop_lists(&self, id: &str) -> Option<(&[String], &[i32])> {
         #[cfg(feature = "ares")]
         {
-            return self.country_rules(id).and_then(|country| {
-                Some(match country.paradrop.resolved() {
-                    crate::rules::ares_country_paradrop::CountryParadrop::Lists {
-                        types,
-                        counts,
-                    } => Some((types, counts)),
-                    crate::rules::ares_country_paradrop::CountryParadrop::Nothing => None,
-                    crate::rules::ares_country_paradrop::CountryParadrop::NotSet => return None,
-                })
-            });
+            return self.country_rules(id)?.paradrop.lists();
         }
         #[cfg(not(feature = "ares"))]
         {
@@ -8078,9 +8067,9 @@ impl RuleSet {
     }
 
     /// Ares `[Country] ParaDrop.Aircraft=` (`HouseTypeExt +0x154`), which
-    /// `GetParadropPlane @ 0x1001BCB0` prefers over the side's plane. A blank,
-    /// unknown or absent name is the `-1` index there, so this answers `None`
-    /// and the caller keeps the side layer.
+    /// `GetParadropPlane @ 0x1001BCB0` prefers over the side's plane. A
+    /// never-set or `none` index is `-1` there, so this answers `None` and the
+    /// caller keeps the side layer.
     pub fn country_paradrop_aircraft(&self, id: &str) -> Option<&str> {
         #[cfg(feature = "ares")]
         {

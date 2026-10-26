@@ -30,8 +30,8 @@ name: Release
 # `on: push` for refs written with GITHUB_TOKEN, so a tag created by a job can
 # never start another workflow.
 #
-# Each installer holds the game program, its licenses (LICENSE-NONCOMMERCIAL,
-# and LGPL-2.1-or-later.txt for the Bink decoder), the third-party notices
+# Each installer holds the game program, its licenses (LICENSE-GPL, and
+# LGPL-2.1-or-later.txt for the Bink decoder), the third-party notices
 # (THIRD_PARTY_LICENSES.html) and a README.txt made from
 # .github/release/README.txt.in; the Windows one also config.toml.example. They
 # never hold game files (README.md, README.txt.in). Their one piece of game art
@@ -171,8 +171,8 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-about@0.9.2
-      # Before the build, so a crate with an unrecognized or unaccepted license
-      # stops the release early (.github/release/about.toml).
+      # Before the build, so a crate with an unrecognized or GPL-incompatible
+      # license stops the release early (.github/release/about.toml).
       - name: Third-party license notices
         shell: bash
         run: |
@@ -231,7 +231,7 @@ jobs:
           mkdir -p "dist/$name"
           echo "name=$name" >> "$GITHUB_OUTPUT"
           # The files the platform's installer takes from this folder.
-          cp "target/shipping/${{ matrix.program }}" config.toml.example LICENSE-NONCOMMERCIAL \
+          cp "target/shipping/${{ matrix.program }}" config.toml.example LICENSE-GPL \
             LICENSES/LGPL-2.1-or-later.txt dist/THIRD_PARTY_LICENSES.html "dist/$name/"
           # The README names the version, build and commit, which stay true when
           # a release republishes this installer.
@@ -368,7 +368,7 @@ jobs:
             throw 'setup did not warn about optional music'
           }
           foreach ($f in 'vera20k.exe', 'config.toml', 'config.toml.example', 'README.txt',
-                         'LICENSE-NONCOMMERCIAL', 'LGPL-2.1-or-later.txt',
+                         'LICENSE-GPL', 'LGPL-2.1-or-later.txt',
                          'THIRD_PARTY_LICENSES.html') {
             if (-not (Test-Path (Join-Path $app $f))) { throw "setup did not install $f" }
           }

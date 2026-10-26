@@ -115,7 +115,7 @@ fn embed_windows_resources() {
         .set(
             "LegalCopyright",
             "Copyright © 2026 Halvor Nikolai Rusten and VERA20k contributors. \
-             Free for noncommercial use under the VERA20k Noncommercial License. \
+             Free software under the GNU GPL version 3. \
              Not affiliated with or endorsed by Electronic Arts.",
         );
     // Only the game, like the stack size. It runs without them, so a missing

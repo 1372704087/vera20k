@@ -161,17 +161,7 @@ kaynak kodlarını GPL lisansıyla yayımlayan EA, World-Altering Editor, Final 
 Ares, Phobos ve daha nicelerine teşekkürler.
 
 Telif hakkı © 2026 Halvor Nikolai Rusten ve VERA20K'ya katkıda bulunanlar.
-[VERA20k Noncommercial License](LICENSE-NONCOMMERCIAL) ile lisanslanmıştır. Ticari olmayan her
-amaçla ücretsiz olarak oynanabilir, incelenebilir, değiştirilebilir ve paylaşılabilir; paylaşılan
-bir sürüm kaynak koduyla birlikte gelmeli, telif hakkı ve lisans bildirimlerini korumalı ve
-VERA20K'ya dayandığını belirtmelidir. Satış, ücretli ya da reklamla finanse edilen oyun barındırma
-veya para kazandıran videolar ve yayınlar gibi ticari kullanımlara izin verilmez; projeye gönüllü
-bağışlar ve herkese açık katkılar için ücretli çalışma serbesttir. Bu lisanstan önceki sürümler
-[GPLv3](LICENSES/GPL-3.0.txt) altında kalır. FFmpeg'den aktarılan Bink video kodu
-(`src/assets/bink_*.rs`) [LGPL 2.1 veya sonrası](LICENSES/LGPL-2.1-or-later.txt) altında kalır ve
-VERA20K'nın kullandığı kütüphaneler kendi lisanslarını korur.
-
-Bu depo hiçbir oyun dosyası içermez.
+[GPLv3](LICENSE-GPL) ile lisanslanmıştır. Bu depo hiçbir oyun dosyası içermez.
 Command & Conquer ve Red Alert, Electronic Arts Inc. şirketinin ticari markalarıdır.
 Ekran görüntülerindeki ve uygulama simgesindeki (Red Alert 2'nin kırmızı yıldızı) oyun grafikleri
 Electronic Arts'a aittir. VERA20K, Electronic Arts ile bağlantılı değildir ve Electronic Arts

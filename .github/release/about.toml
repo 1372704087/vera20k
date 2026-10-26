@@ -1,8 +1,7 @@
 # cargo-about configuration for the third-party notices shipped in the release
-# installers (THIRD_PARTY_LICENSES.html). Every accepted license is permissive
-# or, like MPL-2.0, covers only its own files, so VERA20k ships under its own
-# license; the release fails when a crate needs any other. Where a crate offers
-# a choice, the first accepted license in this order is used.
+# installers (THIRD_PARTY_LICENSES.html). Every accepted license is compatible
+# with VERA20k's GPLv3; the release fails when a crate needs any other. Where a
+# crate offers a choice, the first accepted license in this order is used.
 accepted = [
     "MIT",
     "Apache-2.0",
@@ -31,5 +30,5 @@ targets = [
 # Build scripts and test-only crates are not part of the shipped program.
 ignore-build-dependencies = true
 ignore-dev-dependencies = true
-# VERA20k itself (publish = false) is first-party: LICENSE-NONCOMMERCIAL.
+# VERA20k itself (publish = false) is first-party; its license is LICENSE-GPL.
 private = { ignore = true }

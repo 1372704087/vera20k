@@ -162,18 +162,7 @@ des Quellcodes von Command & Conquer und Red Alert unter der GPL, World-Altering
 Final Alert, YRpp, Ares, Phobos und viele andere.
 
 Copyright © 2026 Halvor Nikolai Rusten und die Mitwirkenden an VERA20K.
-VERA20K steht unter der [VERA20k Noncommercial License](LICENSE-NONCOMMERCIAL). Es darf für
-jeden nichtkommerziellen Zweck kostenlos gespielt, untersucht, geändert und weitergegeben
-werden; eine weitergegebene Version muss ihren Quellcode mitliefern, die Urheberrechts- und
-Lizenzhinweise behalten und angeben, dass sie auf VERA20K beruht. Kommerzielle Nutzung wie der
-Verkauf, bezahltes oder werbefinanziertes Hosting von Spielen oder Videos und Streams, die Geld
-einbringen, ist nicht erlaubt; freiwillige Spenden an das Projekt und bezahlte Arbeit an
-öffentlichen Beiträgen sind erlaubt. Versionen aus der Zeit vor dieser Lizenz bleiben unter der
-[GPLv3](LICENSES/GPL-3.0.txt). Der aus FFmpeg portierte Bink-Videocode (`src/assets/bink_*.rs`)
-bleibt unter der [LGPL 2.1 oder neuer](LICENSES/LGPL-2.1-or-later.txt), und die von VERA20K
-genutzten Bibliotheken behalten ihre eigenen Lizenzen.
-
-Dieses Repository enthält keine Spieldateien.
+Lizenziert unter der [GPLv3](LICENSE-GPL). Dieses Repository enthält keine Spieldateien.
 Command & Conquer und Red Alert sind Marken von Electronic Arts Inc. Die Screenshots und das
 App-Symbol, der rote Stern aus Red Alert 2, zeigen Spielgrafiken, die Electronic Arts gehören.
 VERA20K steht in keiner Verbindung zu Electronic Arts und wird nicht von Electronic Arts

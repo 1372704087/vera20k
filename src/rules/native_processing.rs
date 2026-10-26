@@ -2765,6 +2765,60 @@ fn read_nullable_int_vector(
     Some(section.read_ares_int_list(key).unwrap_or_default())
 }
 
+/// `Valueable<T*>::Read` / `ValueableIdx<T>::Read`: a present key replaces the
+/// field with the resolved identity, and a blank or unknown name stores the
+/// empty value that every resolver treats as "defer"; an absent key retains.
+#[cfg(feature = "ares")]
+fn read_valueable_type(
+    section: &IniSection,
+    key: &str,
+    current: &Option<String>,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    match section.raw_value(key) {
+        Some(raw) => resolve(strtrim_ascii(truncate_native_bytes(raw, 0x800))),
+        None => current.clone(),
+    }
+}
+
+/// `ValueableVector<TechnoTypeClass*>::Read`: a present key replaces the vector
+/// (unknown names drop out) and an empty one clears it; there is no `<default>`
+/// form, so a side/country fallback is expressed by leaving the list empty.
+#[cfg(feature = "ares")]
+fn read_valueable_type_vector(
+    section: &IniSection,
+    key: &str,
+    current: &[String],
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let Some(raw) = section.raw_value(key) else {
+        return current.to_vec();
+    };
+    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
+    if raw.is_empty() {
+        return Vec::new();
+    }
+    section
+        .read_list(key, 0x800)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(resolve)
+        .collect()
+}
+
+/// `ValueableVector<int>::Read`, pairing with the type list by index.
+#[cfg(feature = "ares")]
+fn read_valueable_int_vector(section: &IniSection, key: &str, current: &[i32]) -> Vec<i32> {
+    let Some(raw) = section.raw_value(key) else {
+        return current.to_vec();
+    };
+    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
+    if raw.is_empty() {
+        return Vec::new();
+    }
+    section.read_ares_int_list(key).unwrap_or_default()
+}
+
 /// `ValueableIdx<ColorScheme>`: resolve a `[Colors]` name to its odd runtime
 /// half (`2 * entry + 1`); present-empty stores -1, unknown retains.
 #[cfg(feature = "ares")]
@@ -2795,6 +2849,7 @@ struct AresCountryState {
     buildings: Vec<String>,
     loading: crate::rules::country_loading::AresCountryLoading,
     presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
+    paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -2804,6 +2859,7 @@ impl Hash for AresCountryState {
         self.phase.hash(state);
         self.parent_initialized.hash(state);
         self.buildings.hash(state);
+        self.paradrop.hash(state);
     }
 }
 
@@ -2818,6 +2874,12 @@ impl CountryVeterancyState {
         &self,
     ) -> &crate::rules::ares_country_presentation::AresCountryPresentation {
         &self.ares.presentation
+    }
+
+    /// The country's own Ares paradrop overrides.
+    #[cfg(feature = "ares")]
+    pub(crate) fn paradrop(&self) -> &crate::rules::ares_country_paradrop::AresCountryParadrop {
+        &self.ares.paradrop
     }
 
     pub(crate) fn contains(&self, category: ObjectCategory, type_id: &str) -> bool {
@@ -5552,6 +5614,41 @@ impl RulesPassProcessor {
                 .loading
                 .read_primary(section);
         }
+        // `HouseTypeExt::LoadFromRulesFile @ 0x1001C530` reads the country's own
+        // paradrop block after the file/status keys: `Parachute.Anim`,
+        // `ParaDrop.Aircraft`, then `ParaDrop.Types` (keeping only InfantryType
+        // and UnitType identities) and `ParaDrop.Num`. Each is Valueable: a key
+        // that is present replaces the field, an absent key retains it.
+        if primary_rules && let Some(section) = pass.section(&id) {
+            let types = SideRegisteredTypes::collect(&self.families);
+            let current = self.families[&RulesTypeFamily::Country][index]
+                .country_veterancy
+                .ares
+                .paradrop
+                .clone();
+            let mut paradrop = current;
+            paradrop.parachute_anim = read_valueable_type(
+                section,
+                "Parachute.Anim",
+                &paradrop.parachute_anim,
+                |name| SideRegisteredTypes::find(&types.animations, name),
+            );
+            paradrop.aircraft =
+                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
+                    SideRegisteredTypes::find(&types.aircraft, name)
+                });
+            // `remove_non_paradroppables` keeps only InfantryType and UnitType
+            // identities after the vector read.
+            paradrop.types =
+                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
+                    types.techno(name)
+                });
+            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .paradrop = paradrop;
+        }
         if inherit {
             let inherited = ares_country_index_of_name(
                 &parent,
@@ -5572,6 +5669,7 @@ impl RulesPassProcessor {
                 current.buildings = inherited.buildings;
                 current.loading = inherited.loading;
                 current.presentation.inherit_from(&inherited.presentation);
+                current.paradrop.inherit_from(&inherited.paradrop);
             }
             //1001C0CB consumes the attempt even when Find failed. Empty
             // and case-insensitive self references above do not consume it.
@@ -7343,6 +7441,10 @@ mod side_registry_tests;
 #[cfg(test)]
 #[path = "ares_side_sidebar_tests.rs"]
 mod ares_side_sidebar_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_country_paradrop_tests.rs"]
+mod ares_country_paradrop_tests;
 
 #[cfg(all(test, feature = "ares"))]
 #[path = "ares_country_presentation_tests.rs"]

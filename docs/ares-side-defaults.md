@@ -17,7 +17,7 @@ while a side's own section can replace them:
 | `SurvivorDivisor` | `[General] AlliedSurvivorDivisor` | building survivor count |
 | `AI.BaseDefenses` | `[AI] AlliedBaseDefenses` | AI base-defence candidates |
 | `AI.BaseDefenseCounts` | `[General] AlliedBaseDefenseCounts` | BasePlan Recalc/preflight |
-| `ParaDrop.Types` + `ParaDrop.Num` | `[General] AllyParaDropInf/Num` (both keys required) | generic paradrop |
+| `ParaDrop.Types` + `ParaDrop.Num` | `[General] AllyParaDropInf/Num` (both keys required) | generic paradrop, behind the [country layer](ares-country-paradrop.md) |
 | `ParaDrop.Aircraft` | `PDPLANE` resolved at SideExt initialization | paradrop plane |
 | `Parachute.Anim` | unset: the existing `[General] Parachute=` / NPSE `VehicleParachute=` owner | attached canopy |
 | `ToolTipColor` | `164,210,255` | in-game tooltip text/border |

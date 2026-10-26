@@ -190,7 +190,12 @@ impl crate::sim::world::Simulation {
             .get(&owner_house)
             .map(|house| house.side_index())
             .unwrap_or(-1);
-        let Some(canopy) = parachute_anim_name(rules, owner, side) else {
+        let country = self
+            .houses
+            .get(&owner_house)
+            .and_then(|house| house.country())
+            .map(|country| self.interner.resolve(country));
+        let Some(canopy) = parachute_anim_name(rules, owner, side, country) else {
             self.substrate
                 .entities
                 .get_mut(owner_id)?
@@ -286,7 +291,16 @@ fn parachute_anim_name<'r>(
     rules: &'r crate::rules::ruleset::RuleSet,
     entity: &crate::sim::game_entity::GameEntity,
     side: i32,
+    country: Option<&str>,
 ) -> Option<&'r str> {
+    // `GetParachuteAnim @ 0x1001BBC0` answers the country's own
+    // `[Country] Parachute.Anim=` first; a key that named no registered
+    // animation is the null pointer there and defers to the side.
+    if let Some(country) = country
+        && let Some(canopy) = rules.country_parachute_anim(country)
+    {
+        return Some(canopy);
+    }
     // Ares `[Side] Parachute.Anim=` wins over both the stock canopy and the
     // NPSE non-infantry branch; an unset key leaves that existing owner.
     if let Some(override_) = rules.side_parachute_override(side) {

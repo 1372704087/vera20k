@@ -111,6 +111,13 @@ pub(crate) fn launch(
         world,
     });
     let side = sim.houses.get(&owner).map(|house| house.side_index());
+    // `HouseTypeExt` owns a country layer in front of the side values, so the
+    // acting house's country resolves first.
+    let country = sim
+        .houses
+        .get(&owner)
+        .and_then(|house| house.country())
+        .map(|country| sim.interner().resolve(country));
     let Some(cell) = drop_cell(sim, (target_rx, target_ry)) else {
         return true;
     };
@@ -123,24 +130,34 @@ pub(crate) fn launch(
         ),
         ParaDropKind::Generic => {
             let pairs_checked = matches!(side, Some(0) | Some(2));
-            let (types, counts) = match rules.side_paradrop(side.unwrap_or(-1)) {
-                Some(pair) => pair,
-                None => match side {
-                    Some(0) => (
-                        general.ally_paradrop.infantry.as_slice(),
-                        general.ally_paradrop.counts.as_slice(),
-                    ),
-                    Some(2) => (
-                        general.yuri_paradrop.infantry.as_slice(),
-                        general.yuri_paradrop.counts.as_slice(),
-                    ),
-                    _ => (
-                        general.sov_paradrop.infantry.as_slice(),
-                        general.sov_paradrop.counts.as_slice(),
-                    ),
+            // `GetParadropContent @ 0x1001BC20`: the country's own lists win
+            // while its type list is non-empty, and types without counts make
+            // the resolver answer false, so the launch sends nothing and never
+            // reaches the side lists.
+            match country.and_then(|country| rules.country_paradrop_lists(country)) {
+                Some(Some(lists)) => (lists.0, lists.1, pairs_checked),
+                Some(None) => return true,
+                None => match rules.side_paradrop(side.unwrap_or(-1)) {
+                    Some(pair) => (pair.0, pair.1, pairs_checked),
+                    None => match side {
+                        Some(0) => (
+                            general.ally_paradrop.infantry.as_slice(),
+                            general.ally_paradrop.counts.as_slice(),
+                            pairs_checked,
+                        ),
+                        Some(2) => (
+                            general.yuri_paradrop.infantry.as_slice(),
+                            general.yuri_paradrop.counts.as_slice(),
+                            pairs_checked,
+                        ),
+                        _ => (
+                            general.sov_paradrop.infantry.as_slice(),
+                            general.sov_paradrop.counts.as_slice(),
+                            pairs_checked,
+                        ),
+                    },
                 },
-            };
-            (types, counts, pairs_checked)
+            }
         }
     };
     if pairs_checked && types.len() != counts.len() {
@@ -148,10 +165,14 @@ pub(crate) fn launch(
     }
     // Ares `[Side] ParaDrop.Aircraft=` replaces the PDPLANE type for both
     // paradrop cases; an explicit blank selects no plane.
-    let plane = match rules.side_paradrop_aircraft(side.unwrap_or(-1)) {
-        Some(plane) => plane,
-        None => Some(PDPLANE),
-    };
+    // `GetParadropPlane @ 0x1001BCB0` puts the country's own aircraft in front
+    // of that, and its `-1` index (absent, blank or unknown) defers to the side.
+    let plane = country
+        .and_then(|country| rules.country_paradrop_aircraft(country))
+        .or_else(|| match rules.side_paradrop_aircraft(side.unwrap_or(-1)) {
+            Some(plane) => plane,
+            None => Some(PDPLANE),
+        });
     let Some(plane) = plane else {
         return true;
     };

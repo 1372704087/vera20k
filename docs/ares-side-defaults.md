@@ -84,10 +84,6 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
 
 - **Score screens and themes** and `DialogBackground.*` are retained but not
   drawn; those are separate UI mechanisms.
-- The banner resolves one file pair per match. Native substitutes each slot
-  alone, so a side that names a loadable image and an unloadable palette draws
-  the custom image with the stock `GRFXTXT.PAL`; VERA keeps the whole process
-  art in that case.
 - **HunterSeeker** is retained but the Hunter Seeker superweapon launch is
   not ported, so it has no effect.
 - **Vehicle entries in `ParaDrop.Types`** are retained but the passenger

@@ -177,3 +177,24 @@ fn ares_side_empty_unknown_and_default_values_retain_native_state() {
         Some(1)
     );
 }
+
+#[test]
+fn ares_side_graphical_text_slots_keep_the_literal_fallback() {
+    let rules = processed(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\n\
+         GraphicalText.Image=mytext.shp\n"
+    ));
+    // One slot named: the other slot keeps InitGame's literal file for the
+    // consumer, exactly as the two getters at 0x1002DF00/0x1002DF10 fall back.
+    assert_eq!(
+        rules.side_graphical_text(3),
+        Some((Some("mytext.shp"), None))
+    );
+    // A side naming nothing leaves both slots empty, so the process art is
+    // already the native result.
+    assert_eq!(rules.side_graphical_text(0), Some((None, None)));
+    // No SideExt exists for an unallocated side.
+    assert_eq!(rules.side_graphical_text(9), None);
+}

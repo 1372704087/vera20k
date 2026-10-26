@@ -12,26 +12,31 @@ fn processed(ini: &str) -> RuleSet {
 
 const COUNTRIES: &str = "\
 [Countries]\n\
-0=C0\n1=C1\n2=C2\n3=C3\n4=C4\n5=C5\n6=C6\n7=C7\n8=C8\n9=C9\n10=Custom\n";
+0=Americans\n1=Alliance\n2=French\n3=Germans\n4=British\n5=Africans\n6=Arabs\n\
+7=Confederation\n8=Russians\n9=YuriCountry\n10=Custom\n";
 
+/// `HouseTypeExt::Initialize @ 0x1001C0F0` selects its row by stored ID
+/// (`0x1001C107..0x1001C135`), not by registry position.
 #[test]
 fn ares_country_defaults_match_the_installed_initializer() {
-    let rules = processed(&format!("{COUNTRIES}[Custom]\n"));
-    assert_eq!(rules.country_flag("C0"), Some("usai.pcx"));
+    let rules = processed("[Countries]\n0=YuriCountry\n1=C1\n2=Americans\n3=Custom\n[Custom]\n");
+    assert_eq!(rules.country_flag("Americans"), Some("usai.pcx"));
     assert_eq!(
-        rules.country_status_key("C0"),
+        rules.country_status_key("Americans"),
         Some("STT:PlayerSideAmerica")
     );
     assert_eq!(
-        rules.country_taunt_pattern("C0"),
+        rules.country_taunt_pattern("Americans"),
         Some("taunts\\tauam%02i.wav")
     );
-    assert_eq!(rules.country_flag("C9"), Some("yrii.pcx"));
+    assert_eq!(rules.country_flag("YuriCountry"), Some("yrii.pcx"));
     assert_eq!(
-        rules.country_status_key("C9"),
+        rules.country_status_key("YuriCountry"),
         Some("STT:PlayerSideYuriCountry")
     );
-    assert!(rules.country_observer_flag_alt_palette("C9"));
+    assert!(rules.country_observer_flag_alt_palette("YuriCountry"));
+    // An unlisted ID at a stock position takes the unknown branch.
+    assert_eq!(rules.country_flag("C1"), Some("rani.pcx"));
     // The unknown branch at 0x1001C413.
     assert_eq!(rules.country_flag("Custom"), Some("rani.pcx"));
     assert_eq!(rules.country_status_key("Custom"), Some("GUI:Unknown"));
@@ -59,7 +64,8 @@ fn ares_country_reads_flags_status_taunts_order_and_weights() {
          RandomSelectionWeight=4\n\
          AIRandomSelectionWeight=7\n"
     ));
-    assert_eq!(rules.country_flag("Custom"), Some("MyFlag.PCX"));
+    // `0x10076470` lowercases the stored flag file.
+    assert_eq!(rules.country_flag("Custom"), Some("myflag.pcx"));
     assert_eq!(rules.country_status_key("Custom"), Some("STT:Custom"));
     assert_eq!(
         rules.country_taunt_pattern("Custom"),
@@ -76,8 +82,12 @@ fn ares_country_reads_flags_status_taunts_order_and_weights() {
     assert_eq!(rules.country_ai_random_weight("Custom"), 7);
 }
 
+/// The primary-Rules block `0x1001C770` runs before the one-shot copy
+/// `0x1001BDC0`, so the parent overwrites the child's own file keys; only the
+/// common weights and `ListIndex` read afterwards override it. The optional
+/// AI weight is not copied.
 #[test]
-fn ares_country_parent_copies_presentation_and_child_keys_override() {
+fn ares_country_parent_copy_overwrites_primary_keys_and_common_keys_override() {
     let rules = processed(
         "[Countries]\n0=Parent\n1=Child\n\
          [Parent]\n\
@@ -85,50 +95,46 @@ fn ares_country_parent_copies_presentation_and_child_keys_override() {
          MenuText.Status=STT:Parent\n\
          ListIndex=7\n\
          RandomSelectionWeight=2\n\
+         AIRandomSelectionWeight=9\n\
          [Child]\n\
          ParentCountry=Parent\n\
-         File.Taunt=Taunts\\child~~.wav\n",
+         File.Flag=child.pcx\n\
+         File.Taunt=Taunts\\child~~.wav\n\
+         RandomSelectionWeight=5\n",
     );
     assert_eq!(rules.country_flag("Child"), Some("parent.pcx"));
     assert_eq!(rules.country_status_key("Child"), Some("STT:Parent"));
     assert_eq!(
         rules.country_taunt_pattern("Child"),
-        Some("Taunts\\child~~.wav")
+        Some("taunts\\tauam%02i.wav")
     );
     assert_eq!(rules.country_list_index("Child"), 8);
-    assert_eq!(rules.country_random_weight("Child"), 2);
-    assert_eq!(rules.country_ai_random_weight("Child"), 2);
+    assert_eq!(rules.country_random_weight("Child"), 5);
+    assert_eq!(rules.country_ai_random_weight("Child"), 5);
+    assert_eq!(rules.country_ai_random_weight("Parent"), 9);
 }
 
+/// `File.Flag` (`0x1001C79D..0x1001C7E5`): empty keeps the current file;
+/// `none` clears it, and the flag hook answers the cleared file with the
+/// `rani.pcx` branch (`0x4E3567`).
 #[test]
-fn ares_country_empty_flag_clears_the_stock_default() {
-    let mut countries = IniSection::new("Countries".into());
-    for index in 0..11 {
-        let id = if index == 10 {
-            "Custom".to_owned()
-        } else {
-            format!("C{index}")
-        };
-        countries.set(&index.to_string(), &id);
-    }
-    let mut custom = IniSection::new("Custom".into());
-    custom.set("File.Flag", "");
-    let processed = RulesLayerStack::new(IniFile::from_sections_for_test([countries, custom]))
-        .process()
-        .expect("cleared flag rules parse");
+fn ares_country_empty_flag_retains_and_none_clears_to_rani() {
+    let parsed = IniFile::from_str(COUNTRIES);
+    let countries = parsed.section("Countries").unwrap().clone();
+    let mut americans = IniSection::new("Americans".into());
+    americans.set("File.Flag", "none");
+    let mut alliance = IniSection::new("Alliance".into());
+    alliance.set("File.Flag", "");
+    let processed = RulesLayerStack::new(IniFile::from_sections_for_test([
+        countries, americans, alliance,
+    ]))
+    .process()
+    .expect("cleared flag rules parse");
     let rules = RuleSet::from_processed_rules(&processed).expect("cleared flag projection");
-    assert_eq!(rules.country_flag("Custom"), None);
-    assert_eq!(
-        rules.country_flag_surface("Custom").as_deref(),
-        Some("rani.pcx")
-    );
-    // `Game_GetFlagSurface` resumes on the `rani.pcx` branch (`0x4E3567`) when
-    // the Country has no loaded flag surface, and only indices outside the
-    // HouseType array keep the stock selection chain.
-    assert_eq!(rules.country_insignia_pcx(10).as_deref(), Some("rani.pcx"));
-    // Stock indices keep their initializer file: the hook answers from the
-    // same field, so `0x4E3567` is only reached when that file is cleared.
-    assert_eq!(rules.country_insignia_pcx(0).as_deref(), Some("usai.pcx"));
+    assert_eq!(rules.country_flag("Americans"), None);
+    assert_eq!(rules.country_insignia_pcx(0).as_deref(), Some("rani.pcx"));
+    assert_eq!(rules.country_flag("Alliance"), Some("japi.pcx"));
+    // Only indices outside the HouseType array keep the stock chain.
     assert_eq!(rules.country_insignia_pcx(11), None);
 }
 
@@ -137,7 +143,7 @@ fn ares_custom_country_insignia_replaces_the_stock_loading_chain() {
     let rules = processed(&format!("{COUNTRIES}[Custom]\nFile.Flag=MyFlag.PCX\n"));
     assert_eq!(
         rules.country_insignia_pcx(10).as_deref(),
-        Some("MyFlag.PCX")
+        Some("myflag.pcx")
     );
     assert_eq!(rules.country_insignia_pcx(9).as_deref(), Some("yrii.pcx"));
 }

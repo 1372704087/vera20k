@@ -187,12 +187,12 @@ pub(crate) fn campaign_outcome_route(
     })
 }
 
-/// Commit the route selected for a terminal outcome. Model builders are lazy:
-/// campaign SkipScore and defeat paths do not construct either score model,
-/// and a campaign result never evaluates the multiplayer score owner.
 /// gamemd's literal score theme name, the string at `0x0082FEBC`.
 pub(crate) const SCORE_THEME: &str = "SCORE";
 
+/// Commit the route selected for a terminal outcome. Model builders are lazy:
+/// campaign SkipScore and defeat paths do not construct either score model,
+/// and a campaign result never evaluates the multiplayer score owner.
 pub(crate) fn scenario_exit_destination(
     mode: super::session::SessionMode,
     outcome: crate::sim::house_state::HouseOutcomeKind,

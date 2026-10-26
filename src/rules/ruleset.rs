@@ -1001,10 +1001,11 @@ pub struct GeneralRules {
     /// 0x006691E0` resolves it to a Voc index at `RulesClass+0x228`
     /// (`0x00669CFD..0x00669D27`); `TechnoClass::AI_Update` plays that index
     /// positionally on a veteran promotion (`0x006FA124..0x006FA12A`). The
-    /// name is retained at the data boundary; absent or empty is silence.
+    /// fixed SOUNDMD binder retains the last valid index through reached
+    /// passes; absent, empty and unknown values keep it. Constructor66596A=-1.
     pub upgrade_veteran_sound: Option<String>,
     /// `[AudioVisual] UpgradeEliteSound=` — `RulesClass+0x22C`
-    /// (`0x00669D3E..0x00669D27`), played on an elite promotion
+    /// (`0x00669D2D..0x00669D68`, constructor665970=-1), played on an elite promotion
     /// (`0x006FA0B6..0x006FA0BC`).
     pub upgrade_elite_sound: Option<String>,
     /// `[AudioVisual] SlavesFreeSound=` — `RulesClass::ReadAudioVisual @
@@ -3769,12 +3770,10 @@ impl GeneralRules {
             leave_bio_reactor_sound: None,
             enter_bio_reactor_sound: None,
             enter_grinder_sound: None,
-            upgrade_veteran_sound: audio_visual
-                .read_name("UpgradeVeteranSound", 0x80)
-                .map(str::to_owned),
-            upgrade_elite_sound: audio_visual
-                .read_name("UpgradeEliteSound", 0x80)
-                .map(str::to_owned),
+            // The fixed SOUNDMD binder resolves Rules+0x228/+0x22C as Voc
+            // indexes; keep the constructor's invalid index until it binds them.
+            upgrade_veteran_sound: None,
+            upgrade_elite_sound: None,
             slaves_free_sound: audio_visual
                 .read_name("SlavesFreeSound", 0x80)
                 .map(str::to_owned),
@@ -4306,6 +4305,13 @@ pub struct RuleSet {
     /// NOD table. Unlike SideExt+88 this is read without the Ares feature.
     #[cfg(feature = "phobos")]
     side_gdi_positions: Vec<bool>,
+    /// Phobos `[GlobalControls]`/`[AudioVisual]` switches for the left
+    /// superweapon sidebar.
+    #[cfg(feature = "phobos")]
+    pub sw_sidebar: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals,
+    /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
+    #[cfg(feature = "phobos")]
+    side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
     /// Effective side for each country after `[Sides]` membership and the
     /// per-country `Side=` override have both run.
     country_sides: Vec<Option<SideIdx>>,
@@ -4773,13 +4779,25 @@ impl RuleSet {
                 warhead.particle_system = particle_system.map(str::to_owned);
             }
         }
-        for (category, name, emp, attachment, cloak_allowed) in processed.ares_techno_states() {
+        for (category, name, emp, attachment, cloak_allowed, turret_rot) in
+            processed.ares_techno_states()
+        {
             if let Some(object) = rules
                 .object_list
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
-                object.bind_ares_techno_rules(emp, attachment, cloak_allowed);
+                object.bind_ares_techno_rules(emp, attachment, cloak_allowed, turret_rot);
+            }
+        }
+        #[cfg(feature = "ares")]
+        for (category, name, enabled, options) in processed.ares_spotlight_states() {
+            if let Some(handle) = rules
+                .object_category_index
+                .get(&(category, name.to_ascii_uppercase()))
+                .copied()
+            {
+                rules.object_list[handle.0 as usize].bind_ares_spotlight(enabled, options);
             }
         }
         for (name, ares) in processed.ares_warhead_states() {
@@ -5153,6 +5171,18 @@ impl RuleSet {
                     sw.presentation = presentation.clone();
                 }
             }
+            for (name, targeting) in processed.super_weapon_targeting_states() {
+                if let Some(sw) = rules
+                    .super_weapons
+                    .values_mut()
+                    .find(|sw| sw.id.eq_ignore_ascii_case(name))
+                {
+                    sw.target_constraints = targeting.constraints();
+                    if let Some(settings) = sw.generic_warhead.as_mut() {
+                        settings.install_targeting(&sw.id, targeting);
+                    }
+                }
+            }
             for (name, supers) in processed.additional_super_weapon_states() {
                 if let Some(building) = rules.object_list.iter_mut().find(|object| {
                     object.category == ObjectCategory::Building
@@ -5386,6 +5416,16 @@ impl RuleSet {
         self.general.scold_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
+        // Original RulesClass::ReadAudioVisual669CE2..669D68 resolves
+        // +228/+22C through ReadString128/VocFind7514D0, independently of
+        // ReadGeneral. Reuse the fixed-catalog/pass-history owner, including
+        // invalid later reads retaining their previous IDs (ctor66596A/70=-1).
+        self.general.upgrade_veteran_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "UpgradeVeteranSound"));
+        self.general.upgrade_elite_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "UpgradeEliteSound"));
         // WeaponTypeClass::ReadINI @ `0x00772080` calls
         // CCINIClass::ReadSoundList @ `0x00525430` for Report/DownReport at
         // `0x00772394`/`0x0077241A`; use its shared catalog/list owner.
@@ -5707,6 +5747,20 @@ impl RuleSet {
                 })
             })
             .collect();
+        #[cfg(feature = "phobos")]
+        let sw_sidebar = crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
+        let side_sw_sidebar_art: Vec<
+            crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt::from_section)
+                    .unwrap_or_default()
+            })
+            .collect();
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
         let house_color_ramps =
             crate::rules::house_colors::HouseColorRamps::from_schemes(&color_schemes);
@@ -5989,6 +6043,10 @@ impl RuleSet {
             side_ids: country_side_registry.side_ids,
             #[cfg(feature = "phobos")]
             side_gdi_positions,
+            #[cfg(feature = "phobos")]
+            sw_sidebar,
+            #[cfg(feature = "phobos")]
+            side_sw_sidebar_art,
             #[cfg(feature = "ares")]
             side_extensions: country_side_registry.side_extensions,
             side_indices: country_side_registry.side_indices,
@@ -6848,6 +6906,32 @@ impl RuleSet {
                 })
                 .collect::<BTreeMap<_, _>>()
                 .hash(&mut hasher);
+            let conversions = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    object
+                        .script_conversion()
+                        .map(|target| ((object.category, object.id.to_ascii_uppercase()), target))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !conversions.is_empty() {
+                b"ares-script-conversion-v1".hash(&mut hasher);
+                conversions.hash(&mut hasher);
+            }
+            let turn_overrides = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    object
+                        .turret_rot_override()
+                        .map(|rate| ((object.category, object.id.to_ascii_uppercase()), rate))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !turn_overrides.is_empty() {
+                b"ares-secondary-turn-rate-v1".hash(&mut hasher);
+                turn_overrides.hash(&mut hasher);
+            }
         }
         // Equal flattened INIs may have different retained group lists.
         self.ares_prerequisites.hash(&mut hasher);
@@ -6984,6 +7068,28 @@ impl RuleSet {
         // These current-default inputs survive a process registry handoff.
         self.general.ion_cannon_damage.hash(&mut hasher);
         self.general.spotlight.hash(&mut hasher);
+        #[cfg(feature = "ares")]
+        {
+            let extensions: Vec<_> = self
+                .object_list
+                .iter()
+                .filter(|object| {
+                    object.has_spotlight || object.spotlight_rules() != Default::default()
+                })
+                .map(|object| {
+                    (
+                        object.category,
+                        &object.id,
+                        object.has_spotlight,
+                        object.spotlight_rules(),
+                    )
+                })
+                .collect();
+            if !extensions.is_empty() {
+                b"ares-spotlight-type-v1".hash(&mut hasher);
+                extensions.hash(&mut hasher);
+            }
+        }
         self.object_list
             .iter()
             .filter(|o| o.category == ObjectCategory::Building)
@@ -7292,6 +7398,7 @@ impl RuleSet {
         for kind in &self.voxel_anim_types {
             kind.damage.hash(&mut hasher);
         }
+        self.combat_damage.flame_damage().hash(&mut hasher);
         (
             self.combat_damage.flame_damage2(),
             &self.bridge_warheads.c4_name,
@@ -7532,7 +7639,28 @@ impl RuleSet {
         // draws; list order/duplicates select the sound. Hash effective lists
         // in canonical type order, independently of registry insertion order.
         b"resolved-type-sound-lists-v4".hash(&mut hasher);
+        #[cfg(feature = "ares")]
+        {
+            let promotion_sounds = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    let sounds = (
+                        object.promotion_sound_override(false),
+                        object.promotion_sound_override(true),
+                    );
+                    (sounds.0.is_some() || sounds.1.is_some())
+                        .then(|| ((object.category, object.id.to_ascii_uppercase()), sounds))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !promotion_sounds.is_empty() {
+                b"ares-type-promotion-sounds-v1".hash(&mut hasher);
+                promotion_sounds.hash(&mut hasher);
+            }
+        }
         self.general.voice_ifv_repair().hash(&mut hasher);
+        self.general.upgrade_veteran_sound.hash(&mut hasher);
+        self.general.upgrade_elite_sound.hash(&mut hasher);
         self.object_list
             .iter()
             .map(|object| {
@@ -7925,13 +8053,14 @@ impl RuleSet {
         }
     }
 
-    /// Ares `AIRandomSelectionWeight=`, defaulting to the human weight.
+    /// Ares `AIRandomSelectionWeight=` once set, else the human weight
+    /// (`0x1001CA11..0x1001CA1A`).
     pub fn country_ai_random_weight(&self, id: &str) -> i32 {
         #[cfg(feature = "ares")]
         {
             return self
                 .country_rules(id)
-                .map_or(1, |country| country.presentation.ai_random_weight);
+                .map_or(1, |country| country.presentation.ai_weight());
         }
         #[cfg(not(feature = "ares"))]
         {
@@ -7957,24 +8086,13 @@ impl RuleSet {
         }
     }
 
-    /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country:
-    /// `Some(Some(lists))` uses the country's own `ParaDrop.Types`/`.Num`,
-    /// `Some(None)` means it named types without counts, which the native
-    /// resolver answers `false` so the launch sends nothing, and `None` defers
-    /// to the side layer (also the answer in a stock build).
-    pub fn country_paradrop_lists(&self, id: &str) -> Option<Option<(&[String], &[i32])>> {
+    /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country: its own
+    /// `ParaDrop.Types`/`.Num` while the type list is non-empty, else `None`,
+    /// which defers to the side layer (also the answer in a stock build).
+    pub fn country_paradrop_lists(&self, id: &str) -> Option<(&[String], &[i32])> {
         #[cfg(feature = "ares")]
         {
-            return self.country_rules(id).and_then(|country| {
-                Some(match country.paradrop.resolved() {
-                    crate::rules::ares_country_paradrop::CountryParadrop::Lists {
-                        types,
-                        counts,
-                    } => Some((types, counts)),
-                    crate::rules::ares_country_paradrop::CountryParadrop::Nothing => None,
-                    crate::rules::ares_country_paradrop::CountryParadrop::NotSet => return None,
-                })
-            });
+            return self.country_rules(id)?.paradrop.lists();
         }
         #[cfg(not(feature = "ares"))]
         {
@@ -7984,9 +8102,9 @@ impl RuleSet {
     }
 
     /// Ares `[Country] ParaDrop.Aircraft=` (`HouseTypeExt +0x154`), which
-    /// `GetParadropPlane @ 0x1001BCB0` prefers over the side's plane. A blank,
-    /// unknown or absent name is the `-1` index there, so this answers `None`
-    /// and the caller keeps the side layer.
+    /// `GetParadropPlane @ 0x1001BCB0` prefers over the side's plane. A
+    /// never-set or `none` index is `-1` there, so this answers `None` and the
+    /// caller keeps the side layer.
     pub fn country_paradrop_aircraft(&self, id: &str) -> Option<&str> {
         #[cfg(feature = "ares")]
         {
@@ -8248,6 +8366,18 @@ impl RuleSet {
             .unwrap_or(index == 0)
     }
 
+    /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` for a native side index.
+    /// Missing sides have no artwork, which is valid.
+    #[cfg(feature = "phobos")]
+    pub fn side_sw_sidebar_art(
+        &self,
+        index: i32,
+    ) -> Option<&crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt> {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_sw_sidebar_art.get(index))
+    }
+
     /// Resolve a side index back to its source spelling.
     pub fn side_name(&self, index: SideIdx) -> Option<&str> {
         self.side_ids.get(index.0 as usize).map(String::as_str)
@@ -8327,8 +8457,8 @@ impl RuleSet {
     }
 
     /// `[Side] Crew=` else `AlliedCrew`/`SovietCrew`/`ThirdCrew` by array
-    /// index. `Some(None)` is an explicitly blank key (no crew), distinct from
-    /// an unset key (caller falls back as native `SideExt::GetCrew`).
+    /// index. `Some(None)` is an explicit `none` (no crew), distinct from an
+    /// unset key (caller falls back as native `SideExt::GetCrew @ 0x1002DE60`).
     pub(crate) fn side_crew(&self, side: i32) -> Option<Option<&str>> {
         #[cfg(feature = "ares")]
         {
@@ -8494,18 +8624,18 @@ impl RuleSet {
     }
 
     /// `[Side] ParaDrop.Aircraft=` else the plane the SideExt initializer
-    /// resolved from `PDPLANE` (`+0x74`). `Some(None)` means an explicit blank
-    /// key selected no plane.
-    pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<Option<&str>> {
+    /// resolved from `PDPLANE` (`+0x74`). `None` for no SideExt or the -1
+    /// index (`none`, or PDPLANE unregistered at initialization), where
+    /// `HouseTypeExt::GetParadropPlane @ 0x1001BCB0` falls back to
+    /// `FindIndex("PDPLANE")` rather than cancelling the drop.
+    pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<&str> {
         #[cfg(feature = "ares")]
         {
-            let extension = self.side_extension(side)?;
-            return Some(
-                extension
-                    .paradrop_aircraft
-                    .as_ref()
-                    .and_then(|name| name.as_deref()),
-            );
+            return self
+                .side_extension(side)?
+                .paradrop_aircraft
+                .as_ref()?
+                .as_deref();
         }
         #[cfg(not(feature = "ares"))]
         {
@@ -8516,7 +8646,8 @@ impl RuleSet {
 
     /// `[Side] Parachute.Anim=` only; an unset key leaves the existing
     /// `[General] Parachute=`/NPSE `VehicleParachute=` owner in charge.
-    /// `Some(None)` is an explicit blank key (no canopy).
+    /// `Some(None)` is an explicit `none`, which the canopy consumer resolves
+    /// to `PARACH` (`HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`).
     pub(crate) fn side_parachute_override(&self, side: i32) -> Option<Option<&str>> {
         #[cfg(feature = "ares")]
         {
@@ -8551,7 +8682,7 @@ impl RuleSet {
 
     /// `[Side] MessageTextColor=` as the runtime ColorScheme index
     /// (initialized 11 for Nod, 25 for ThirdSide, 21 otherwise) or -1 for an
-    /// explicit blank key (`SideExt+84`).
+    /// explicit `none` (`SideExt+84`).
     pub fn side_message_text_color_index(&self, side: i32) -> Option<i32> {
         #[cfg(feature = "ares")]
         {
@@ -8602,36 +8733,6 @@ impl RuleSet {
             extension.graphical_text_image.as_deref(),
             extension.graphical_text_palette.as_deref(),
         ))
-    }
-
-    /// The side's score theme, or `None` where gamemd pushes its literal
-    /// `SCORE` name (`0x0082FEBC`): a stock build, or a side index with no
-    /// SideExt (the native hooks skip when `Scenario+0x34B8` is negative).
-    pub fn side_score_theme(&self, side: i32, theme: ScoreTheme) -> Option<&str> {
-        #[cfg(feature = "ares")]
-        {
-            return self
-                .side_extension(side)
-                .and_then(|extension| extension.score_theme(theme));
-        }
-        #[cfg(not(feature = "ares"))]
-        {
-            let (_, _) = (side, theme);
-            None
-        }
-    }
-
-    /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A
-    /// stock build and an unallocated Side index leave every field `None`, so
-    /// the callers keep their fixed tables.
-    pub fn side_score_art(&self, side: i32) -> SideScoreArt<'_> {
-        #[cfg(feature = "ares")]
-        {
-            if let Some(extension) = self.side_extension(side) {
-                return extension.score_art();
-            }
-        }
-        SideScoreArt::default()
     }
 
     /// Return the country's effective side after its optional `Side=`
@@ -11806,14 +11907,6 @@ MutateWarhead=MyMutate\n\
             self_heal_interval_frames(rules.general.repair_rate_minutes),
             14
         );
-        assert_eq!(
-            rules.general.upgrade_veteran_sound.as_deref(),
-            Some("UpgradeVeteran")
-        );
-        assert_eq!(
-            rules.general.upgrade_elite_sound.as_deref(),
-            Some("UpgradeElite")
-        );
         assert_eq!(rules.general.elite_flash_timer, 150);
         let bare = RuleSet::from_ini(&IniFile::from_str(
             "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n[General]\nFixtureOnly=1\n",
@@ -14499,3 +14592,11 @@ Projectile=Invisible
 #[cfg(test)]
 #[path = "map_lighting_tests.rs"]
 mod map_lighting_tests;
+
+#[cfg(test)]
+#[path = "global_promotion_tests.rs"]
+mod global_promotion_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_script_conversion_tests.rs"]
+mod ares_script_conversion_tests;

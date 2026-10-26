@@ -294,17 +294,25 @@ fn parachute_anim_name<'r>(
     country: Option<&str>,
 ) -> Option<&'r str> {
     // `GetParachuteAnim @ 0x1001BBC0` answers the country's own
-    // `[Country] Parachute.Anim=` first; a key that named no registered
-    // animation is the null pointer there and defers to the side.
+    // `[Country] Parachute.Anim=` first; a never-set or `none` field is the
+    // null pointer there and defers to the side.
     if let Some(country) = country
         && let Some(canopy) = rules.country_parachute_anim(country)
     {
         return Some(canopy);
     }
     // Ares `[Side] Parachute.Anim=` wins over both the stock canopy and the
-    // NPSE non-infantry branch; an unset key leaves that existing owner.
+    // NPSE non-infantry branch; an unset key leaves that existing owner, and
+    // `none` falls through to `Find("PARACH")`
+    // (`HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`).
+    //
+    // RESIDUAL (Ares): the canopy hook `0x5F5ADD` -> `0x10047C80` first takes
+    // the dropped type's own `Parachute.Anim` (TechnoTypeExt `+0xF0`), before
+    // the Country layer above; VERA does not read that type key. Trigger: a
+    // mod setting it. Effect: another canopy art; no gameplay change. Never
+    // on retail data.
     if let Some(override_) = rules.side_parachute_override(side) {
-        return override_;
+        return Some(override_.unwrap_or("PARACH"));
     }
     if !crate::rules::NPATCH_ENABLED
         || entity.category() == crate::map::entities::EntityCategory::Infantry
@@ -560,6 +568,25 @@ mod canopy_tests {
         assert_eq!(anim.runtime().loop_remaining, 0);
         assert!(!anim.runtime().inactive);
         assert_eq!(anim.owner_entity(), Some(id));
+    }
+
+    /// Ares `HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`: a Side's explicit
+    /// `Parachute.Anim=none` falls back to `PARACH`, not to no canopy.
+    #[cfg(feature = "ares")]
+    #[test]
+    fn ares_side_parachute_none_falls_back_to_parach() {
+        let processed = crate::rules::native_processing::RulesLayerStack::new(IniFile::from_str(
+            "[General]\nParachute=OTHER\n[Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+             [Fourth]\nParachute.Anim=none\n",
+        ))
+        .process()
+        .expect("side rules");
+        let rules = RuleSet::from_processed_rules(&processed).expect("side projection");
+        let entity = GameEntity::test_default(1, "E1", "Americans", 10, 11);
+        assert_eq!(
+            parachute_anim_name(&rules, &entity, 3, None),
+            Some("PARACH")
+        );
     }
 
     #[test]

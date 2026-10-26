@@ -26,7 +26,7 @@ fn integer(row: &Value, field: &str) -> i32 {
 }
 
 fn read(state: &mut AresSideState, id: &str, pass: &IniFile, eva: &EvaRegistry) {
-    state.read_pass(id, 0, pass, eva, &SideRegisteredTypes::default());
+    state.read_pass(id, 0, pass, eva, &SideRegisteredTypes::default(), |_| None);
 }
 
 fn catalog() -> EvaRegistry {

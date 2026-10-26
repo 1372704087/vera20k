@@ -23,7 +23,8 @@ In `rulesmd.ini`:
 
 ```ini
 [GlobalControls]
-SuperWeaponSidebarKeysEnabled=false ; boolean, default no
+ToggleSuperWeaponSidebarKeyEnabled=true ; boolean, default yes
+SuperWeaponSidebarKeysEnabled=false     ; boolean, default no
 
 [AudioVisual]
 SuperWeaponSidebar.AllowByDefault=false ; boolean, default no
@@ -43,7 +44,7 @@ SuperWeaponSidebar.Significance=0       ; integer, default 0
 SW.ShowCameo=true                       ; boolean, left-sidebar membership gate
 SW.UseAITargeting=false                 ; boolean, Ares constraint gate
 SidebarPCX=                             ; Ares PCX cameo, wins over the SHP
-SW.AITargeting=Offensive                ; Ares automatic targeting mode
+SW.AITargeting=                         ; Ares mode, default from the Type's handler
 SW.AITargeting.Constraints=             ; overrides the mode's default gate
 ```
 
@@ -68,12 +69,14 @@ collapses or expands the columns and plays the GUI main-button sound, and the
 collapsed state rides the local sidebar envelope in a save. Hovering a cameo
 draws the tooltip-coloured one-pixel outline and the same name/cost tooltip as
 the right cameo. With `--features ares`, a `SidebarPCX=` image replaces the SHP
-cameo, and a ready superweapon with `SW.UseAITargeting=yes` whose
-`SW.AITargeting.Constraints` fail darkens and refuses to launch.
+cameo, and a superweapon with `SW.UseAITargeting=yes` whose
+`SW.AITargeting.Constraints` fail darkens and refuses to launch, on the left
+and, once it can fire, on the right.
 
 The left sidebar lays out in native screen pixels, so the client's Sidebar size
 does not scale or resize it. The keyboard settings page lists
-`FireTacticalSW1..10` only while `SuperWeaponSidebarKeysEnabled=yes`.
+`FireTacticalSW1..10` only while `SuperWeaponSidebarKeysEnabled=yes`, and the
+toggle command only while `ToggleSuperWeaponSidebarKeyEnabled=yes`.
 
 Source: `SWSidebarClass::AddButton`/`AddColumn`/`SortButtons`
 (`src/Ext/Sidebar/SWSidebar/SWSidebarClass.cpp`),
@@ -109,12 +112,14 @@ and does not load or redistribute the Phobos DLL.
 
 - An Ares constraint refusal plays the cameo click sound but shows no
   `Message.CannotFire` line; only the launch is withheld.
-- The ordinary right-sidebar superweapon cameo is not darkened by the Ares
-  constraint check; only the left cameo darkens, as in `SWButtonClass::Draw`.
-- When `SW.AITargeting` is omitted, the type-specific default mode Ares would
-  pick is not inferred; only `SW.AITargeting.Constraints`, and the defaults of
-  the fifteen modes confirmed in the Ares 3.0 table, are applied.
-- `SidebarPCX` cameos draw only in builds with `--features ares`; the SHP cameo
-  remains the fallback.
+- A permitted left click on a `SW.UseAITargeting=yes` type selects it for
+  manual targeting. Phobos's `LaunchSuper` instead fires it at once at the cell
+  Ares's AI targeting picks.
+- Phobos darkens a cameo with `DARKEN.SHP` and the Darken blitter; the left
+  sidebar halves the cameo's colour instead.
+- VERA never writes the House's second defensive cell (+0x54F8), so
+  `defensive_cell_set` always refuses and `defensive_cell_clear` never does.
+- Phobos reads the two `[GlobalControls]` switches once from `RULESMD.INI`;
+  VERA reads them from each scenario's layered Rules.
 - The left sidebar hovers over a cameo with no artwork still show a tooltip and
   outline, matching the native button's existence without art.

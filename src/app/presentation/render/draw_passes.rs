@@ -960,17 +960,6 @@ pub(super) fn dispatch_draw_passes(
                 .map(|atlas| &atlas.texture),
             "sw_sidebar_cameo",
         );
-        #[cfg(feature = "ares")]
-        draw_pooled_ui(
-            &mut pass,
-            &state.renderer.batch_renderer,
-            pool,
-            presentation
-                .sw_sidebar_cameo_art
-                .as_ref()
-                .map(|art| &art.texture),
-            "sw_sidebar_cameo_pcx",
-        );
         draw_pooled_ui(
             &mut pass,
             &state.renderer.batch_renderer,

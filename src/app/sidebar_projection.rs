@@ -70,9 +70,11 @@ pub(crate) struct PreparedSidebarOrder {
     strips: CameoStrips,
     factory_links: HashMap<InternedId, CameoFactoryLink>,
     prediction_categories: HashSet<ProductionCategory>,
+    #[cfg(feature = "phobos")]
     sw_sidebar_expanded: bool,
 }
 
+#[cfg(feature = "phobos")]
 impl PreparedSidebarOrder {
     /// Phobos `ScenarioExt::SWSidebar_Enable` carried with the local envelope.
     pub(crate) fn sw_sidebar_expanded(&self) -> bool {
@@ -410,7 +412,7 @@ impl SidebarProjectionState {
                         })
                     })
                 }) {
-                    item.enabled = sw.is_online && sw.can_afford;
+                    item.enabled = sw.sidebar_enabled();
                     item.progress = sw.progress;
                     item.is_ready = sw.is_ready;
                     item.is_on_hold = !sw.is_online;
@@ -1090,6 +1092,7 @@ pub(crate) fn prepare_saved_order(
     let Some(saved) = saved else {
         return Ok(None);
     };
+    #[cfg(feature = "phobos")]
     let sw_sidebar_expanded = saved.sw_sidebar_expanded();
     let (flash_deadlines, redraw_until) = {
         let (deadlines, redraw_until) = saved.flash();
@@ -1213,6 +1216,7 @@ pub(crate) fn prepare_saved_order(
         strips,
         factory_links,
         prediction_categories,
+        #[cfg(feature = "phobos")]
         sw_sidebar_expanded,
     }))
 }

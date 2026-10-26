@@ -20,8 +20,6 @@ pub(crate) struct SwSidebarRuntimeEntry {
     pub(crate) column: usize,
     pub(crate) column_button: usize,
     pub(crate) view: SuperWeaponView,
-    /// Ares `IsTargetConstraintsEligible(..., true)` refused this cameo.
-    pub(crate) constraints_blocked: bool,
 }
 
 pub(crate) struct SwSidebarState {
@@ -70,6 +68,8 @@ pub(crate) enum SwSidebarHit {
     },
 }
 
+/// `1u << HouseClass::CurrentPlayer->Type->ArrayIndex` in AddButton and
+/// SortButtons: the actual Country index, not the Owner alias bit.
 fn owner_house_mask(
     sim: &crate::sim::world::Simulation,
     rules: &RuleSet,
@@ -80,18 +80,14 @@ fn owner_house_mask(
         .get(owner)
         .map(|house| sim.interner().resolve(house.house_type_id()))
         .unwrap_or("");
-    rules.country_owner_mask(country)
+    crate::sim::ai_buildable::house_country_bit(rules, country)
 }
 
 fn required_mask(rules: &RuleSet, type_id: &str) -> u32 {
-    let Some(sw) = rules.super_weapon(type_id) else {
-        return u32::MAX;
-    };
-    if sw.sw_sidebar_required_houses.is_empty() {
-        u32::MAX
-    } else {
-        rules.house_type_mask(&sw.sw_sidebar_required_houses)
-    }
+    rules
+        .super_weapon(type_id)
+        .and_then(|sw| sw.sw_sidebar_required_houses.as_ref())
+        .map_or(u32::MAX, |tokens| rules.house_type_mask(tokens))
 }
 
 fn priority_mask(rules: &RuleSet, type_id: &str) -> u32 {
@@ -101,30 +97,6 @@ fn priority_mask(rules: &RuleSet, type_id: &str) -> u32 {
         .map_or(0, |sw| {
             rules.house_type_mask(&sw.sw_sidebar_priority_houses)
         })
-}
-
-/// Ares `SWTypeExt::IsTargetConstraintsEligible(ext, house, true)` at
-/// `Ares.dll + 0x32110`: Phobos darkens a ready cameo and refuses its launch
-/// when `SW.UseAITargeting=yes` and the constraints fail. The `true` argument
-/// keeps the human-manual branch, which skips storm/dominator/attacked/power.
-#[cfg(all(feature = "ares", feature = "phobos"))]
-pub(crate) fn ai_targeting_blocked(
-    rules: &RuleSet,
-    sim: &crate::sim::world::Simulation,
-    owner: InternedId,
-    type_id: &str,
-) -> bool {
-    let Some(sw) = rules.super_weapon(type_id) else {
-        return false;
-    };
-    if !sw.sw_use_ai_targeting {
-        return false;
-    }
-    let Some(house) = sim.houses().get(&owner) else {
-        return false;
-    };
-    !sw.ai_targeting_constraints()
-        .allows_manual_fire(house.target_constraints_observations())
 }
 
 /// `SWSidebarClass::AddButton` membership and `SortButtons` order. Returns the
@@ -226,17 +198,6 @@ pub(crate) fn plan(
             column: placed.column,
             column_button: placed.column_button,
             view: (*view).clone(),
-            constraints_blocked: {
-                #[cfg(all(feature = "ares", feature = "phobos"))]
-                {
-                    ai_targeting_blocked(rules, sim, owner, &placed.type_id)
-                }
-                #[cfg(not(all(feature = "ares", feature = "phobos")))]
-                {
-                    let _ = owner;
-                    false
-                }
-            },
         })
         .collect();
     (layout, entries)
@@ -263,10 +224,6 @@ pub(crate) fn refresh_draw_state(state: &mut AppState) {
                 .eq_ignore_ascii_case(&entry.type_id)
         }) {
             entry.view = view.clone();
-        }
-        #[cfg(all(feature = "ares", feature = "phobos"))]
-        {
-            entry.constraints_blocked = ai_targeting_blocked(rules, sim, owner, &entry.type_id);
         }
     }
 }
@@ -357,8 +314,8 @@ mod tests {
                 should_flash_tab: false,
                 can_fire: false,
                 can_afford: false,
+                constraints_blocked: false,
             },
-            constraints_blocked: false,
         }
     }
 
@@ -396,6 +353,7 @@ mod tests {
                 should_flash_tab: false,
                 can_fire: false,
                 can_afford: false,
+                constraints_blocked: false,
             })
             .collect()
     }
@@ -418,8 +376,8 @@ mod tests {
         let rules = sidebar_rules(false);
         let mut interner = crate::sim::intern::StringInterner::new();
         let views = views(&mut interner);
-        let americans = rules.country_owner_mask("Americans");
-        let russians = rules.country_owner_mask("Russians");
+        let americans = crate::sim::ai_buildable::house_country_bit(&rules, "Americans");
+        let russians = crate::sim::ai_buildable::house_country_bit(&rules, "Russians");
 
         // AllowByDefault=no drops Delta; RequiredHouses=Russians drops Gamma
         // for an American owner; Epsilon's explicit Allow=no is not overridden;
@@ -446,7 +404,7 @@ mod tests {
         let rules = sidebar_rules(true);
         let mut interner = crate::sim::intern::StringInterner::new();
         let views = views(&mut interner);
-        let americans = rules.country_owner_mask("Americans");
+        let americans = crate::sim::ai_buildable::house_country_bit(&rules, "Americans");
         assert_eq!(
             selected_names(&rules, &interner, &views, americans, 0),
             ["Beta", "Alpha", "Delta"]

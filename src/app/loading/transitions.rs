@@ -47,6 +47,7 @@ pub(crate) fn sync_in_game_options_speed_from_sim(state: &mut AppState) {
 
 pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
     init::MapLoadResult {
+        pending_atlases: None,
         scenario: init::ScenarioLoadInputs {
             campaign_names: None,
             startup: crate::app::match_bootstrap::LoadingStartup::Generic {
@@ -89,8 +90,6 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             sw_sidebar_ui: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarUi::default(),
             #[cfg(feature = "phobos")]
             sw_sidebar_art: None,
-            #[cfg(all(feature = "phobos", feature = "ares"))]
-            sw_sidebar_cameo_art: None,
             software_cursor: None,
             overlay_names: BTreeMap::new(),
             overlay_radar_colors: HashMap::new(),
@@ -204,10 +203,6 @@ pub(crate) fn install_world_presentation(
     #[cfg(feature = "phobos")]
     {
         state.match_state.match_presentation.sw_sidebar_art = assets.sw_sidebar_art;
-        #[cfg(feature = "ares")]
-        {
-            state.match_state.match_presentation.sw_sidebar_cameo_art = assets.sw_sidebar_cameo_art;
-        }
         let significance = state
             .match_state
             .match_presentation
@@ -396,6 +391,10 @@ pub(crate) fn install_world_presentation(
 /// owner suspends/resumes audio; the later Theme queue/Stop(true) belongs to
 /// apply_map_load_result (683E4D..683E66), after this movie returns.
 pub(crate) fn finish_fresh_scenario_read(state: &mut AppState, mut result: init::MapLoadResult) {
+    assert!(
+        result.pending_atlases.is_none(),
+        "install requires completed presentation"
+    );
     // Read_INI_Basic689FD6/689FF4 retains these two buffers across fresh
     // ClearScene reads. Saved restoration instead installs the saved values
     // directly through install_world_presentation; it must not inherit here.

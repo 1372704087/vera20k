@@ -1,18 +1,17 @@
-//! Phobos `[SIDE] SuperWeaponSidebar.*PCX` artwork and Ares `SidebarPCX`
-//! superweapon cameos.
+//! Phobos `[SIDE] SuperWeaponSidebar.*PCX` artwork.
 //!
 //! Phobos loads each PCX through `PhobosPCXFile::GetSurface` and blits it
-//! without scaling (`SWColumnClass::Draw`, `ToggleSWButtonClass::Draw`,
-//! `SWButtonClass::Draw`). VERA packs the side images and the optional
-//! per-superweapon cameos into RGBA atlases so each layer is one batch texture.
+//! without scaling through `PCX::BlitToSurface` (`SWColumnClass::Draw`,
+//! `ToggleSWButtonClass::Draw`). VERA packs the side images into one RGBA
+//! atlas so the layer is one batch texture. Ares `SidebarPCX` superweapon
+//! cameos come from the shared sidebar cameo atlas.
 
 use std::collections::HashMap;
-use std::hash::Hash;
 
 use crate::assets::asset_manager::AssetManager;
-use crate::assets::pcx_file::PcxFile;
 use crate::render::batch::{BatchRenderer, BatchTexture};
 use crate::render::gpu::GpuContext;
+use crate::render::sidebar_cameo_atlas::NativePcxImage;
 use crate::rules::ruleset::RuleSet;
 
 const ART_PADDING: u32 = 1;
@@ -73,20 +72,6 @@ impl SwSidebarArt {
     }
 }
 
-/// Ares `[SuperWeapon] SidebarPCX` cameos, keyed by superweapon section.
-#[cfg(feature = "ares")]
-pub struct SwSidebarCameoArt {
-    pub texture: BatchTexture,
-    entries: HashMap<String, SwSidebarArtEntry>,
-}
-
-#[cfg(feature = "ares")]
-impl SwSidebarCameoArt {
-    pub fn entry(&self, type_id: &str) -> Option<&SwSidebarArtEntry> {
-        self.entries.get(&type_id.to_ascii_uppercase())
-    }
-}
-
 pub fn build_sw_sidebar_art(
     gpu: &GpuContext,
     batch: &BatchRenderer,
@@ -110,59 +95,19 @@ pub fn build_sw_sidebar_art(
     Some(SwSidebarArt { texture, entries })
 }
 
-/// All registered superweapons with an Ares `SidebarPCX=`, packed once at
-/// presentation load because the type set is fixed for the match.
-#[cfg(feature = "ares")]
-pub fn build_sw_sidebar_cameo_art(
+fn load_pcx(asset_manager: &AssetManager, name: &str) -> Option<NativePcxImage> {
+    let image = crate::render::sidebar_cameo_atlas::decode_native_pcx(asset_manager.get_ref(name)?);
+    if image.is_none() {
+        log::warn!("SuperWeaponSidebar PCX {name} did not load");
+    }
+    image
+}
+
+fn pack_atlas(
     gpu: &GpuContext,
     batch: &BatchRenderer,
-    asset_manager: &AssetManager,
-    rules: &RuleSet,
-) -> Option<SwSidebarCameoArt> {
-    let images = rules
-        .super_weapon_order
-        .iter()
-        .filter_map(|id| {
-            let name = rules.super_weapon(id)?.sidebar_pcx()?;
-            let image = load_pcx(asset_manager, name)?;
-            Some((id.to_ascii_uppercase(), image))
-        })
-        .collect();
-    let (texture, entries) = pack_atlas(gpu, batch, images)?;
-    log::info!(
-        "SuperWeaponSidebar SidebarPCX atlas: {} entries",
-        entries.len()
-    );
-    Some(SwSidebarCameoArt { texture, entries })
-}
-
-struct LoadedImage {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-}
-
-fn load_pcx(asset_manager: &AssetManager, name: &str) -> Option<LoadedImage> {
-    let bytes = asset_manager.get_ref(name)?;
-    let image = match PcxFile::from_bytes(bytes) {
-        Ok(image) => image,
-        Err(error) => {
-            log::warn!("SuperWeaponSidebar PCX {name} did not load: {error}");
-            return None;
-        }
-    };
-    Some(LoadedImage {
-        rgba: image.to_rgba(None),
-        width: u32::from(image.width),
-        height: u32::from(image.height),
-    })
-}
-
-fn pack_atlas<K: Eq + Hash>(
-    gpu: &GpuContext,
-    batch: &BatchRenderer,
-    images: Vec<(K, LoadedImage)>,
-) -> Option<(BatchTexture, HashMap<K, SwSidebarArtEntry>)> {
+    images: Vec<(SwSidebarArtKind, NativePcxImage)>,
+) -> Option<(BatchTexture, HashMap<SwSidebarArtKind, SwSidebarArtEntry>)> {
     if images.is_empty() {
         return None;
     }

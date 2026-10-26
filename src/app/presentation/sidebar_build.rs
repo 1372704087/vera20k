@@ -865,6 +865,7 @@ mod tests {
                 should_flash_tab: false,
                 can_fire: online,
                 can_afford: true,
+                constraints_blocked: false,
                 display,
             }];
             let cameos = sidebar::cameo_order::CameoStrips::layout_fixture(&[], &[], &supers);

@@ -191,6 +191,7 @@ fn prepare(
     )
 }
 
+#[cfg(feature = "phobos")]
 #[test]
 fn sw_sidebar_expanded_flag_survives_the_snapshot_envelope() {
     let (sim, rules, owner, types) = fixture();

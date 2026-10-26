@@ -99,8 +99,6 @@ pub(super) struct SidebarInstances {
     pub sw_sidebar_chrome: Vec<SpriteInstance>,
     #[cfg(feature = "phobos")]
     pub sw_sidebar_cameo: Vec<SpriteInstance>,
-    #[cfg(all(feature = "phobos", feature = "ares"))]
-    pub sw_sidebar_cameo_pcx: Vec<SpriteInstance>,
     #[cfg(feature = "phobos")]
     pub sw_sidebar_gclock: Vec<SpriteInstance>,
     #[cfg(feature = "phobos")]
@@ -1352,8 +1350,6 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
         sw_sidebar_chrome: sw_sidebar.chrome,
         #[cfg(feature = "phobos")]
         sw_sidebar_cameo: sw_sidebar.cameo,
-        #[cfg(all(feature = "phobos", feature = "ares"))]
-        sw_sidebar_cameo_pcx: sw_sidebar.cameo_pcx,
         #[cfg(feature = "phobos")]
         sw_sidebar_gclock: sw_sidebar.gclock,
         #[cfg(feature = "phobos")]

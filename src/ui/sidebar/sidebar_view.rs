@@ -547,7 +547,7 @@ fn collect_build_entries(
                 display_name: sw.display_name.clone(),
                 cost: None,
                 queue_category: ProductionCategory::Defense,
-                enabled: sw.is_online && sw.can_afford,
+                enabled: sw.sidebar_enabled(),
                 at_build_limit: false,
                 progress: sw.progress,
                 queued_count: 0,
@@ -664,6 +664,7 @@ mod tests {
                 display: Default::default(),
                 can_fire: online,
                 can_afford: affordable,
+                constraints_blocked: false,
             }];
             let entries = super::collect_build_entries(
                 ProductionCategory::Defense,

@@ -97,6 +97,8 @@ impl SuperWeaponSidebarUi {
 /// `rulesmd.ini` switches that gate the sidebar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SuperWeaponSidebarGlobals {
+    /// `[GlobalControls] ToggleSuperWeaponSidebarKeyEnabled`, default yes.
+    pub toggle_key_enabled: bool,
     /// `[GlobalControls] SuperWeaponSidebarKeysEnabled`, default no.
     pub keys_enabled: bool,
     /// `[AudioVisual] SuperWeaponSidebar.AllowByDefault`, default no.
@@ -106,6 +108,7 @@ pub struct SuperWeaponSidebarGlobals {
 impl Default for SuperWeaponSidebarGlobals {
     fn default() -> Self {
         Self {
+            toggle_key_enabled: true,
             keys_enabled: false,
             allow_by_default: false,
         }
@@ -117,6 +120,7 @@ impl SuperWeaponSidebarGlobals {
         let globals = ini.section_or_empty("GlobalControls");
         let audio_visual = ini.section_or_empty("AudioVisual");
         Self {
+            toggle_key_enabled: globals.read_bool("ToggleSuperWeaponSidebarKeyEnabled", true),
             keys_enabled: globals.read_bool("SuperWeaponSidebarKeysEnabled", false),
             allow_by_default: audio_visual.read_bool("SuperWeaponSidebar.AllowByDefault", false),
         }
@@ -206,9 +210,11 @@ mod tests {
         assert_eq!(empty, SuperWeaponSidebarGlobals::default());
         let ini = IniFile::from_str(
             "[GlobalControls]\nSuperWeaponSidebarKeysEnabled=yes\n\
+             ToggleSuperWeaponSidebarKeyEnabled=no\n\
              [AudioVisual]\nSuperWeaponSidebar.AllowByDefault=yes\n",
         );
         let globals = SuperWeaponSidebarGlobals::from_ini(&ini);
+        assert!(!globals.toggle_key_enabled);
         assert!(globals.keys_enabled);
         assert!(globals.allow_by_default);
     }

@@ -1291,34 +1291,15 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
                 let view = crate::sim::superweapon::superweapon_views_for_owner(sim, rules, &owner)
                     .into_iter()
                     .find(|view| view.type_id == type_id)?;
-                #[cfg(all(feature = "ares", feature = "phobos"))]
-                let constraints_blocked =
-                    crate::app::presentation::sw_sidebar::ai_targeting_blocked(
-                        rules, sim, owner, &section,
-                    );
-                #[cfg(not(all(feature = "ares", feature = "phobos")))]
-                let constraints_blocked = false;
-                Some((
-                    view,
-                    rules.super_weapon(&section)?.action.clone(),
-                    constraints_blocked,
-                ))
+                Some((view, rules.super_weapon(&section)?.action.clone()))
             })();
-            // Ares refuses a `SW.UseAITargeting` launch whose constraints are
-            // not satisfied; Phobos darkens the same cameo.
-            let click = if !right && selection.as_ref().is_some_and(|(_, _, blocked)| *blocked) {
-                super::superweapon_cameo::SuperWeaponClick::Refused
-            } else {
-                super::superweapon_cameo::press(
-                    &mut state.match_state.input,
-                    &mut state.match_state.match_presentation.sidebar_gadget_state,
-                    selection.as_ref().map(|(view, _, _)| view),
-                    selection
-                        .as_ref()
-                        .and_then(|(_, action, _)| action.as_deref()),
-                    right,
-                )
-            };
+            let click = super::superweapon_cameo::press(
+                &mut state.match_state.input,
+                &mut state.match_state.match_presentation.sidebar_gadget_state,
+                selection.as_ref().map(|(view, _)| view),
+                selection.as_ref().and_then(|(_, action)| action.as_deref()),
+                right,
+            );
             if click.gui_sound() {
                 let sound = state
                     .rules()
@@ -1329,7 +1310,7 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
                 super::superweapon_cameo::SuperWeaponClick::Refused
                     if selection
                         .as_ref()
-                        .is_some_and(|(view, _, _)| view.can_fire && !view.can_afford) =>
+                        .is_some_and(|(view, _)| view.can_fire && !view.can_afford) =>
                 {
                     let cue = state
                         .rules()
@@ -1638,7 +1619,7 @@ pub(crate) fn handle_type_select_key_edge(
             .match_state
             .input
             .type_select
-            .press(physical_code, std::time::Instant::now(), repeat);
+            .press(physical_code, crate::util::time::Instant::now(), repeat);
         return true;
     }
     if !is_type_select && !state.match_state.input.type_select.owns_key(physical_code) {
@@ -1648,7 +1629,7 @@ pub(crate) fn handle_type_select_key_edge(
         .match_state
         .input
         .type_select
-        .release(physical_code, std::time::Instant::now());
+        .release(physical_code, crate::util::time::Instant::now());
     if execute_tap {
         execute_type_select_tap(state);
     }
@@ -1888,7 +1869,7 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
                 .match_presentation
                 .minimap
                 .as_mut()
-                .and_then(|minimap| minimap.cycle_radar_event(std::time::Instant::now()));
+                .and_then(|minimap| minimap.cycle_radar_event(crate::util::time::Instant::now()));
             if let Some((rx, ry)) = event {
                 crate::app::input::camera::center_camera_on_cell(state, rx, ry);
             }
@@ -1961,7 +1942,11 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         }
         #[cfg(feature = "phobos")]
         HotkeyCommand::ToggleSwSidebar => {
-            if crate::app::presentation::sw_sidebar::toggle(state) {
+            if state
+                .rules()
+                .is_some_and(|rules| rules.sw_sidebar.toggle_key_enabled)
+                && crate::app::presentation::sw_sidebar::toggle(state)
+            {
                 crate::app::input::sw_sidebar::play_main_button_sound(state);
                 crate::app::presentation::sidebar_render::refresh_sidebar_projection(state);
             }
@@ -4064,7 +4049,7 @@ fn handle_control_group_command(
             // A recall on an empty group still clears the selection: the
             // deselect-all runs before the select loop, unconditionally.
             state.match_state.input.last_control_group_press =
-                Some((group_idx, std::time::Instant::now()));
+                Some((group_idx, crate::util::time::Instant::now()));
             if let Some(selection) = team_selection(sim, action, &group, &selected) {
                 queue_team_selection(state, selection);
             }

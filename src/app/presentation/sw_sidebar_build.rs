@@ -18,8 +18,6 @@ use crate::ui::sidebar::Rect;
 pub(crate) struct SwSidebarInstances {
     pub(crate) chrome: Vec<SpriteInstance>,
     pub(crate) cameo: Vec<SpriteInstance>,
-    #[cfg(feature = "ares")]
-    pub(crate) cameo_pcx: Vec<SpriteInstance>,
     pub(crate) gclock: Vec<SpriteInstance>,
     pub(crate) hover: Vec<SpriteInstance>,
     pub(crate) overlay: Vec<SpriteInstance>,
@@ -153,51 +151,29 @@ pub(crate) fn build(
         .is_some_and(|rules| rules.sw_sidebar.keys_enabled);
     for entry in &sw.entries {
         let slot = entry.rect;
-        #[allow(unused_mut)]
-        let mut drew = false;
-        // Ares `SidebarPCX` wins over the SHP cameo (`SWButtonClass::Draw`).
-        #[cfg(feature = "ares")]
-        if let Some(pcx) = state
-            .match_state
-            .match_presentation
-            .sw_sidebar_cameo_art
-            .as_ref()
-            .and_then(|art| art.entry(&entry.type_id))
-        {
-            if let Some(rect) = place_canvas_crop_in_slot(
-                slot,
-                pcx.pixel_size,
-                [0.0, 0.0],
-                pcx.pixel_size,
-                [0.0, 0.0],
-            ) {
-                let mut instance = sprite_art(pcx, rect, DEPTH_CAMEO);
-                if entry.view.is_ready && (!entry.view.can_afford || entry.constraints_blocked) {
-                    instance.tint = [0.5, 0.5, 0.5];
-                }
-                out.cameo_pcx.push(instance);
-                drew = true;
-            }
+        // The shared atlas holds Ares `SidebarPCX` ahead of the SHP cameo,
+        // as `SWButtonClass::Draw` selects them.
+        let Some(cameo) = atlas.and_then(|atlas| atlas.superweapon(&entry.type_id)) else {
+            continue;
+        };
+        let Some(rect) = place_canvas_crop_in_slot(
+            slot,
+            cameo.canvas_size,
+            cameo.crop_origin,
+            cameo.pixel_size,
+            [0.0, 0.0],
+        ) else {
+            continue;
+        };
+        let mut instance = sprite_cameo(cameo, rect, DEPTH_CAMEO);
+        // `SWButtonClass::Draw` darkens a ready superweapon its owner cannot
+        // pay for, or one whose Ares targeting constraints refuse manual fire.
+        // RESIDUAL: Phobos blits DARKEN.SHP with `BlitterFlags::Darken`; VERA
+        // halves the cameo instead.
+        if (entry.view.is_ready && !entry.view.can_afford) || entry.view.constraints_blocked {
+            instance.tint = [0.5, 0.5, 0.5];
         }
-        if !drew {
-            let Some(cameo) = atlas.and_then(|atlas| atlas.superweapon(&entry.type_id)) else {
-                continue;
-            };
-            let Some(rect) = place_canvas_crop_in_slot(
-                slot,
-                cameo.canvas_size,
-                cameo.crop_origin,
-                cameo.pixel_size,
-                [0.0, 0.0],
-            ) else {
-                continue;
-            };
-            let mut instance = sprite_cameo(cameo, rect, DEPTH_CAMEO);
-            if entry.view.is_ready && (!entry.view.can_afford || entry.constraints_blocked) {
-                instance.tint = [0.5, 0.5, 0.5];
-            }
-            out.cameo.push(instance);
-        }
+        out.cameo.push(instance);
         if entry.view.display.draw_progress
             && let Some(mut clock) = build_gclock_stage_instance(
                 gclock_frames,

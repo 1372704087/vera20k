@@ -8,7 +8,7 @@
 //! Process-lifetime GPU objects live in `app::renderer_state::RendererState`.
 
 use std::collections::{BTreeMap, HashMap};
-use std::time::Instant;
+use crate::util::time::Instant;
 
 use crate::map::houses::{HouseColorMap, HouseRoster};
 use crate::map::overlay::TerrainObject;
@@ -117,9 +117,6 @@ pub(crate) struct MatchPresentationState {
     /// Loaded `[SIDE] SuperWeaponSidebar.*PCX` atlas for the current match.
     #[cfg(feature = "phobos")]
     pub(crate) sw_sidebar_art: Option<crate::render::sw_sidebar_art::SwSidebarArt>,
-    /// Ares `SidebarPCX` cameos for the left sidebar, by superweapon section.
-    #[cfg(all(feature = "phobos", feature = "ares"))]
-    pub(crate) sw_sidebar_cameo_art: Option<crate::render::sw_sidebar_art::SwSidebarCameoArt>,
     /// PBEACON/RDRBEACN in each beacon row's House Convert, loaded with the
     /// world (`Init_BeaconArt 0x004309D0`).
     pub(crate) beacon_art: Option<crate::render::beacon_art::BeaconArt>,

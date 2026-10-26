@@ -56,7 +56,7 @@ mod object_stages_gpu_tests;
 
 use anyhow::Result;
 #[cfg(feature = "telemetry-dashboard")]
-use std::time::{Duration, Instant};
+use crate::util::time::{Duration, Instant};
 
 // Re-export shared types so any remaining `use crate::app::presentation::render::Foo` imports still compile.
 // New code should import from `crate::app::types` directly.
@@ -892,12 +892,6 @@ fn upload_to_gpu(
             &state.renderer.gpu,
             "sw_sidebar_cameo",
             &sidebar.sw_sidebar_cameo,
-        );
-        #[cfg(feature = "ares")]
-        pool.upload(
-            &state.renderer.gpu,
-            "sw_sidebar_cameo_pcx",
-            &sidebar.sw_sidebar_cameo_pcx,
         );
         pool.upload(
             &state.renderer.gpu,

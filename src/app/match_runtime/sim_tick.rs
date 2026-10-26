@@ -388,23 +388,28 @@ fn build_score_screen_model(
     );
     // Scenario +0x34B8: the side of session player 0's country, the local
     // player in a skirmish (0x0068779A..0x0068782D).
-    let local_house = crate::app::input::commands::preferred_local_owner_name(state)
+    let local_owner = crate::app::input::commands::preferred_local_owner_name(state)
         .as_deref()
-        .and_then(|owner| sim.interner().get(owner))
-        .and_then(|owner| sim.houses().get(&owner));
+        .and_then(|owner| sim.interner().get(owner));
+    let local_house = local_owner.and_then(|owner| sim.houses().get(&owner));
     let side = local_house.map_or(0, |house| house.side_index());
     // `Global_DrawScoreScreen_ScoreTheme` (0x1002F4B0, patch site 0x5C9B75)
     // selects the side's win or lose theme on the local player's
     // HouseClass+0x1F5 defeated flag; the literal it otherwise pushes is
-    // 0x0082FEBC "SCORE".
-    let theme = state
-        .process_assets
-        .side_score_theme(
-            side,
-            crate::rules::ruleset::ScoreTheme::Multiplayer {
-                defeated: local_house.is_some_and(|house| house.is_defeated()),
-            },
-        )
+    // 0x0082FEBC "SCORE". It keeps that literal when the local player is the
+    // Observer house (`Player [0xA83D4C] == Observer [0xAC1198]`,
+    // 0x1002F4B8..0x1002F4C7).
+    let observing = local_owner.is_some() && local_owner == sim.session().observer_house();
+    let theme = (!observing)
+        .then(|| {
+            state.process_assets.side_score_theme(
+                side,
+                crate::rules::ruleset::ScoreTheme::Multiplayer {
+                    defeated: local_house.is_some_and(|house| house.is_defeated()),
+                },
+            )
+        })
+        .flatten()
         .map(str::to_owned);
 
     ScoreScreenModel {

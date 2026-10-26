@@ -8634,36 +8634,6 @@ impl RuleSet {
         ))
     }
 
-    /// The side's score theme, or `None` where gamemd pushes its literal
-    /// `SCORE` name (`0x0082FEBC`): a stock build, or a side index with no
-    /// SideExt (the native hooks skip when `Scenario+0x34B8` is negative).
-    pub fn side_score_theme(&self, side: i32, theme: ScoreTheme) -> Option<&str> {
-        #[cfg(feature = "ares")]
-        {
-            return self
-                .side_extension(side)
-                .and_then(|extension| extension.score_theme(theme));
-        }
-        #[cfg(not(feature = "ares"))]
-        {
-            let (_, _) = (side, theme);
-            None
-        }
-    }
-
-    /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A
-    /// stock build and an unallocated Side index leave every field `None`, so
-    /// the callers keep their fixed tables.
-    pub fn side_score_art(&self, side: i32) -> SideScoreArt<'_> {
-        #[cfg(feature = "ares")]
-        {
-            if let Some(extension) = self.side_extension(side) {
-                return extension.score_art();
-            }
-        }
-        SideScoreArt::default()
-    }
-
     /// Return the country's effective side after its optional `Side=`
     /// override has superseded `[Sides]` membership.
     pub fn country_side_index(&self, id: &str) -> Option<SideIdx> {

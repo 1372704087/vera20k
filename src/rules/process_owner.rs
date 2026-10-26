@@ -458,60 +458,55 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
-    /// The live registry's SideExt score theme for a side, for the score
-    /// dialogs that open after the match Rules projection is retired.
+    /// The live registry's SideExt for a side index: `None` for a negative or
+    /// unallocated side, where the native hooks skip (`Scenario+0x34B8` < 0).
+    /// The score shells read it before any match Rules projection exists.
+    #[cfg(feature = "ares")]
+    fn side_extension(
+        &self,
+        side: i32,
+    ) -> Option<&crate::rules::ares_side_extension::AresSideExtension> {
+        self.registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state()
+            .side_projection()
+            .nth(usize::try_from(side).ok()?)?
+            .1
+    }
+
+    /// The side's score theme, or `None` where gamemd pushes its literal
+    /// `SCORE` name (`0x0082FEBC`): a stock build or a side with no SideExt.
     pub fn side_score_theme(
         &self,
         side: i32,
         theme: crate::rules::ruleset::ScoreTheme,
     ) -> Option<&str> {
-        let state = self
-            .registry
-            .as_ref()
-            .expect("Rules transition reentered")
-            .registry_state();
-        let Some((_, extension)) = state
-            .side_projection()
-            .nth(usize::try_from(side).unwrap_or(usize::MAX))
-        else {
-            return None;
-        };
         #[cfg(feature = "ares")]
         {
-            return extension.and_then(|extension| extension.score_theme(theme));
+            return self.side_extension(side)?.score_theme(theme);
         }
         #[cfg(not(feature = "ares"))]
         {
-            let _ = (extension, theme);
+            let _ = (side, theme);
             None
         }
     }
 
-    /// The live registry's SideExt score-screen names for a side index, which
-    /// the score shells read before any match Rules projection exists. A
-    /// negative or unallocated side yields every field `None`, as the native
-    /// hooks skip when `Scenario+0x34B8` is negative.
+    /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A
+    /// stock build and a negative or unallocated side leave every field
+    /// `None`, so the callers keep their fixed tables.
     pub fn side_score_art(&self, side: i32) -> crate::rules::ruleset::SideScoreArt<'_> {
-        let state = self
-            .registry
-            .as_ref()
-            .expect("Rules transition reentered")
-            .registry_state();
-        let Some((_, extension)) = state
-            .side_projection()
-            .nth(usize::try_from(side).unwrap_or(usize::MAX))
-        else {
-            return Default::default();
-        };
         #[cfg(feature = "ares")]
         {
-            return extension
+            return self
+                .side_extension(side)
                 .map(|extension| extension.score_art())
                 .unwrap_or_default();
         }
         #[cfg(not(feature = "ares"))]
         {
-            let _ = extension;
+            let _ = side;
             Default::default()
         }
     }

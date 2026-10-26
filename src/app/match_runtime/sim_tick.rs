@@ -388,23 +388,28 @@ fn build_score_screen_model(
     );
     // Scenario +0x34B8: the side of session player 0's country, the local
     // player in a skirmish (0x0068779A..0x0068782D).
-    let local_house = crate::app::input::commands::preferred_local_owner_name(state)
+    let local_owner = crate::app::input::commands::preferred_local_owner_name(state)
         .as_deref()
-        .and_then(|owner| sim.interner().get(owner))
-        .and_then(|owner| sim.houses().get(&owner));
+        .and_then(|owner| sim.interner().get(owner));
+    let local_house = local_owner.and_then(|owner| sim.houses().get(&owner));
     let side = local_house.map_or(0, |house| house.side_index());
     // `Global_DrawScoreScreen_ScoreTheme` (0x1002F4B0, patch site 0x5C9B75)
     // selects the side's win or lose theme on the local player's
     // HouseClass+0x1F5 defeated flag; the literal it otherwise pushes is
-    // 0x0082FEBC "SCORE".
-    let theme = state
-        .process_assets
-        .side_score_theme(
-            side,
-            crate::rules::ruleset::ScoreTheme::Multiplayer {
-                defeated: local_house.is_some_and(|house| house.is_defeated()),
-            },
-        )
+    // 0x0082FEBC "SCORE". It keeps that literal when the local player is the
+    // Observer house (`Player [0xA83D4C] == Observer [0xAC1198]`,
+    // 0x1002F4B8..0x1002F4C7).
+    let observing = local_owner.is_some() && local_owner == sim.session().observer_house();
+    let theme = (!observing)
+        .then(|| {
+            state.process_assets.side_score_theme(
+                side,
+                crate::rules::ruleset::ScoreTheme::Multiplayer {
+                    defeated: local_house.is_some_and(|house| house.is_defeated()),
+                },
+            )
+        })
+        .flatten()
         .map(str::to_owned);
 
     ScoreScreenModel {
@@ -1014,6 +1019,8 @@ fn advance_in_game_runtime_mode(
             } else {
                 crate::app::presentation::sidebar_render::refresh_sidebar_cameo_draw_state(state);
             }
+            #[cfg(feature = "phobos")]
+            crate::app::presentation::sw_sidebar::refresh_draw_state(state);
         }
     } else if let Some(request) = mouse_scroll {
         crate::app::input::camera::commit_camera_scroll(state, request);
@@ -1232,6 +1239,8 @@ fn advance_one_simulation_frame(
                 let sidebar = std::cell::RefCell::new(
                     &mut state.match_state.match_presentation.sidebar_projection,
                 );
+                #[cfg(feature = "phobos")]
+                let sw_sidebar_expanded = state.match_state.match_presentation.sw_sidebar.expanded;
                 let production_visits = sidebar.borrow().production_factory_visits(&rt.simulation);
                 let clear_production_request = |type_id| {
                     sidebar.borrow_mut().clear_production_request(type_id);
@@ -1250,7 +1259,13 @@ fn advance_one_simulation_frame(
                         if let Some(owner) = sim.session().current_house() {
                             sidebar.reconcile_factory_links(sim, owner);
                         }
-                        prepared.refresh_sidebar_order(sidebar.saved_order());
+                        let order = sidebar.saved_order();
+                        #[cfg(feature = "phobos")]
+                        let order = order.map(|mut order| {
+                            order.set_sw_sidebar_expanded(sw_sidebar_expanded);
+                            order
+                        });
+                        prepared.refresh_sidebar_order(order);
                     }
                     crate::app::persistence::commands::initial_campaign_save(
                         prepared.take(),
@@ -1758,7 +1773,11 @@ fn advance_one_simulation_frame(
                 // TickResult::spawned_entities (e.g. Action7's ALL01 ORCA
                 // teams). Resolve it before their first ordinary body draw;
                 // crash-pose rendering must not be the first path to load it.
-                LifecycleOutput::RevealDisplay { .. } | LifecycleOutput::DisplayRemove { .. } => {
+                // In-place conversion keeps its ID and Display membership,
+                // so its new model needs the same coverage/growth check.
+                LifecycleOutput::RevealDisplay { .. }
+                | LifecycleOutput::DisplayRemove { .. }
+                | LifecycleOutput::ObjectTypeChanged { .. } => {
                     refresh_atlases_after_tick = true;
                 }
                 LifecycleOutput::DirtyTacticalRect { .. }
@@ -2047,8 +2066,8 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
         );
 }
 
-/// Refresh entity atlases after entities spawn, die, change owner or leave the
-/// display.
+/// Refresh entity atlases after entities spawn, die, change type/owner or leave
+/// the display.
 ///
 /// This runs on every such event, so the check is per object model, never per
 /// sprite key: a refresh happens only when a voxel model or an object (type,

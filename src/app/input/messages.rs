@@ -89,8 +89,8 @@ fn message_delay_buckets(delay: crate::util::native_x87::NativeF64Bits) -> i32 {
         .map_or(0, X87Chop53::ftol_i32_low_masked)
 }
 
-/// Ares `[Side] MessageTextColor=`: the stored runtime ColorScheme index (the
-/// odd half of a doubled `[Colors]` entry) resolves to that entry. `-1`/an
+/// Ares `[Side] MessageTextColor=`: the stored runtime ColorScheme index (two
+/// schemes per `[Colors]` entry) resolves to that entry. `-1`/an
 /// out-of-range entry leaves the stock side-priority path unchanged.
 #[cfg(feature = "ares")]
 fn ares_message_text_rgb(rules: &crate::rules::ruleset::RuleSet, side: i32) -> Option<[f32; 3]> {

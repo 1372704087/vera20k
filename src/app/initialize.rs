@@ -919,6 +919,14 @@ impl App {
                     show_placement_preview: phobos_client.show_placement_preview,
                     #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),
+                    #[cfg(feature = "phobos")]
+                    sw_sidebar: crate::app::presentation::sw_sidebar::SwSidebarState {
+                        required_significance: phobos_client
+                            .superweapon_sidebar_required_significance,
+                        ..Default::default()
+                    },
+                    #[cfg(feature = "phobos")]
+                    sw_sidebar_art: None,
                     beacon_art: None,
                     shroud_buffer: None,
                     theater_name: "TEMPERATE".to_string(),
@@ -1076,6 +1084,7 @@ impl App {
                 depth_view,
                 shell_surface_presenter,
                 upscale_pass: None,
+                world_zoom_pass: None,
                 sidebar_surface: None,
                 in_game_shell_surface: None,
                 status_screen_fill,

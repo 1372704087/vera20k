@@ -2480,10 +2480,16 @@ pub(crate) struct CountryVeterancyState {
 /// Live Side identity plus the immutable selected extension fields. The
 /// retained ProcessedType owns initialization and reads; the RuleSet view does
 /// not replay either. No extension exists in an ordinary retail build.
-pub(crate) type SideProjection<'a> = (&'a str, Option<(i32, bool, i32)>);
+#[cfg(feature = "ares")]
+pub(crate) type SideProjection<'a> = (
+    &'a str,
+    Option<&'a crate::rules::ares_side_extension::AresSideExtension>,
+);
+#[cfg(not(feature = "ares"))]
+pub(crate) type SideProjection<'a> = (&'a str, Option<()>);
 
 /// Ares3.0 SideExt constructor1002D9F0 and dispatcher1002B450 retain the phase
-/// with selected fields+88/+8C/+90. The first ReadTypeData entry initializes defaults
+/// with the extension fields. The first ReadTypeData entry initializes defaults
 /// by stored ID at1002E190, then reads the current INI at1002E450; later calls
 /// retain current fields. Evidence: tools/rules_oracle/ares_side_sidebar.md
 /// and tools/spatial_oracle/ares_eva.md.
@@ -2491,67 +2497,367 @@ pub(crate) type SideProjection<'a> = (&'a str, Option<(i32, bool, i32)>);
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct AresSideState {
     phase: i32,
-    mix_file_index: i32,
-    yuri_file_names: bool,
-    eva_voice_index: i32,
+    fields: crate::rules::ares_side_extension::AresSideExtension,
 }
 
 #[cfg(feature = "ares")]
 impl Default for AresSideState {
     fn default() -> Self {
-        // SideExt constructor1002D9F0 leaves+90=-1; its first reader phase
-        // supplies ID-based defaults. Executed: spatial_oracle/ares_eva.json.
+        // SideExt constructor1002D9F0 leaves the extension unset; its first
+        // reader phase supplies ID-based defaults. Executed:
+        // spatial_oracle/ares_eva.json.
         Self {
             phase: 0,
-            mix_file_index: 0,
-            yuri_file_names: false,
-            eva_voice_index: -1,
+            fields: crate::rules::ares_side_extension::AresSideExtension::default(),
         }
+    }
+}
+
+/// The type identities a Side type reference can resolve against at this
+/// point in the pass: the same live registries the native `Find` calls see.
+#[cfg(feature = "ares")]
+#[derive(Default)]
+struct SideRegisteredTypes {
+    infantry: HashMap<String, String>,
+    vehicles: HashMap<String, String>,
+    aircraft: HashMap<String, String>,
+    buildings: HashMap<String, String>,
+    animations: HashMap<String, String>,
+}
+
+#[cfg(feature = "ares")]
+impl SideRegisteredTypes {
+    fn collect(families: &HashMap<RulesTypeFamily, Vec<ProcessedType>>) -> Self {
+        let mut out = Self::default();
+        let fill = |family: RulesTypeFamily, target: &mut HashMap<String, String>| {
+            for member in families.get(&family).into_iter().flatten() {
+                target
+                    .entry(member.native_stored_id.to_ascii_uppercase())
+                    .or_insert_with(|| member.native_stored_id.clone());
+            }
+        };
+        fill(RulesTypeFamily::Infantry, &mut out.infantry);
+        fill(RulesTypeFamily::Vehicle, &mut out.vehicles);
+        fill(RulesTypeFamily::Aircraft, &mut out.aircraft);
+        fill(RulesTypeFamily::Building, &mut out.buildings);
+        fill(RulesTypeFamily::Animation, &mut out.animations);
+        out
+    }
+
+    fn find(map: &HashMap<String, String>, name: &str) -> Option<String> {
+        map.get(&name.to_ascii_uppercase()).cloned()
+    }
+
+    fn techno(&self, name: &str) -> Option<String> {
+        Self::find(&self.infantry, name).or_else(|| Self::find(&self.vehicles, name))
     }
 }
 
 #[cfg(feature = "ares")]
 impl AresSideState {
-    fn read_pass(&mut self, id: &str, pass: &IniFile, eva: &EvaRegistry) {
+    /// `SideExt::initialize @ 0x1002E190` phase-0 defaults, then the ordered
+    /// reader prefix `0x1002E450..0x1002EA4C`. Every reader keeps its current
+    /// field when ReadString returns 0 (absent or empty), exactly as
+    /// `Nullable`/`Valueable`; only `none`/`<none>` clears a field.
+    /// `color_index` is the shared ColorScheme lookup `0x1001BB30`.
+    fn read_pass(
+        &mut self,
+        id: &str,
+        array_index: i32,
+        pass: &IniFile,
+        eva: &EvaRegistry,
+        types: &SideRegisteredTypes,
+        color_index: impl Fn(&str) -> Option<i32>,
+    ) {
         if !(0..=2).contains(&self.phase) {
             return;
         }
         if self.phase == 0 {
-            self.mix_file_index =
-                if id.eq_ignore_ascii_case("Nod") || id.eq_ignore_ascii_case("ThirdSide") {
-                    2
-                } else {
-                    1
-                };
-            self.yuri_file_names = id.eq_ignore_ascii_case("ThirdSide");
-            // First-phase1002E190 selects by stored Side ID, not array index.
-            self.eva_voice_index = if id.eq_ignore_ascii_case("Nod") {
-                1
-            } else if id.eq_ignore_ascii_case("ThirdSide") {
-                2
-            } else {
-                0
-            };
+            self.initialize_defaults(id, array_index, types);
             self.phase = 1;
         }
         if let Some(section) = pass.section(id) {
+            let fields = &mut self.fields;
+            fields.base_defense_counts = read_nullable_int_vector(
+                section,
+                "AI.BaseDefenseCounts",
+                fields.base_defense_counts.as_ref(),
+            );
+            fields.base_defenses = read_nullable_type_vector(
+                section,
+                "AI.BaseDefenses",
+                fields.base_defenses.as_ref(),
+                |name| SideRegisteredTypes::find(&types.buildings, name),
+            );
+            fields.crew = read_ares_type_ref(section, "Crew", &fields.crew, |name| {
+                SideRegisteredTypes::find(&types.infantry, name)
+            });
+            fields.engineer = read_ares_type_ref(section, "Engineer", &fields.engineer, |name| {
+                SideRegisteredTypes::find(&types.infantry, name)
+            });
+            fields.technician =
+                read_ares_type_ref(section, "Technician", &fields.technician, |name| {
+                    SideRegisteredTypes::find(&types.infantry, name)
+                });
+            fields.default_disguise = read_ares_type_ref(
+                section,
+                "DefaultDisguise",
+                &fields.default_disguise,
+                |name| SideRegisteredTypes::find(&types.infantry, name),
+            );
             // SideExt1002EC00 reads EVA.Tag before the two sidebar keys.
             // Fixed EVAMD catalog lookup precedes literal none handling;
             // missing/empty/unknown retains the old index and never rebinds Vox.
             if let Some(tag) = section.read_name("EVA.Tag", 0x800) {
                 if let Some(index) = eva.voice_index_for_tag(tag) {
-                    self.eva_voice_index = index;
+                    fields.eva_voice_index = index;
                 } else if is_native_none_type_name(tag) {
-                    self.eva_voice_index = -1;
+                    fields.eva_voice_index = -1;
                 }
             }
-            self.mix_file_index =
-                section.read_ares_int("Sidebar.MixFileIndex", self.mix_file_index);
-            self.yuri_file_names =
-                section.read_ares_bool("Sidebar.YuriFileNames", self.yuri_file_names);
+            fields.parachute_anim =
+                read_ares_type_ref(section, "Parachute.Anim", &fields.parachute_anim, |name| {
+                    SideRegisteredTypes::find(&types.animations, name)
+                });
+            fields.paradrop_aircraft = read_ares_type_ref(
+                section,
+                "ParaDrop.Aircraft",
+                &fields.paradrop_aircraft,
+                |name| SideRegisteredTypes::find(&types.aircraft, name),
+            );
+            // `remove_non_paradroppables` keeps only InfantryType and UnitType
+            // identities after the vector read.
+            fields.paradrop_types = read_nullable_type_vector(
+                section,
+                "ParaDrop.Types",
+                fields.paradrop_types.as_ref(),
+                |name| types.techno(name),
+            );
+            fields.paradrop_num =
+                read_nullable_int_vector(section, "ParaDrop.Num", fields.paradrop_num.as_ref());
+            fields.sidebar_mix_file_index =
+                section.read_ares_int("Sidebar.MixFileIndex", fields.sidebar_mix_file_index);
+            fields.sidebar_yuri_file_names =
+                section.read_ares_bool("Sidebar.YuriFileNames", fields.sidebar_yuri_file_names);
+            if let Some(raw) = section.raw_value("ToolTipColor") {
+                // `Valueable<ColorStruct>`: present-empty/invalid retains.
+                fields.tooltip_color = IniSection::read_color_rgb_value(raw, fields.tooltip_color);
+            }
+            if section.is_present("SurvivorDivisor") {
+                if let Some(value) = section.read_ares_int_value("SurvivorDivisor") {
+                    fields.survivor_divisor = Some(value);
+                }
+            }
+            // `ValueableIdx<ColorScheme>` 0x1001CC70 over `0x1001BB30(name, 1)`:
+            // a found scheme stores its index, `none` stores -1, else retain.
+            if let Some(name) = section.read_name("MessageTextColor", 0x800) {
+                if let Some(index) = color_index(name) {
+                    fields.message_text_color_index = index;
+                } else if is_native_none_type_name(name) {
+                    fields.message_text_color_index = -1;
+                }
+            }
+            fields.hunter_seeker =
+                read_ares_type_ref(section, "HunterSeeker", &fields.hunter_seeker, |name| {
+                    SideRegisteredTypes::find(&types.vehicles, name)
+                });
+            for (key, target) in [
+                (
+                    "CampaignScore.Background",
+                    &mut fields.campaign_score_background,
+                ),
+                (
+                    "CampaignScore.Transition",
+                    &mut fields.campaign_score_transition,
+                ),
+                (
+                    "CampaignScore.Animation",
+                    &mut fields.campaign_score_animation,
+                ),
+                ("CampaignScore.Palette", &mut fields.campaign_score_palette),
+                (
+                    "MultiplayerScore.Background",
+                    &mut fields.multiplayer_score_background,
+                ),
+                ("MultiplayerScore.Bars", &mut fields.multiplayer_score_bars),
+                (
+                    "MultiplayerScore.Palette",
+                    &mut fields.multiplayer_score_palette,
+                ),
+                (
+                    "CampaignScore.UnderParTheme",
+                    &mut fields.campaign_score_under_par_theme,
+                ),
+                (
+                    "CampaignScore.OverParTheme",
+                    &mut fields.campaign_score_over_par_theme,
+                ),
+                (
+                    "MultiplayerScore.WinTheme",
+                    &mut fields.multiplayer_score_win_theme,
+                ),
+                (
+                    "MultiplayerScore.LoseTheme",
+                    &mut fields.multiplayer_score_lose_theme,
+                ),
+                ("GraphicalText.Image", &mut fields.graphical_text_image),
+                ("GraphicalText.Palette", &mut fields.graphical_text_palette),
+                (
+                    "DialogBackground.Image",
+                    &mut fields.dialog_background_image,
+                ),
+                (
+                    "DialogBackground.Palette",
+                    &mut fields.dialog_background_palette,
+                ),
+            ] {
+                // AresFixedString<0x20> (`0x1002E5D0..`): ReadString(0x800)
+                // returning 0 retains, `none`/`<none>` clears, anything else
+                // copies its first 0x1F bytes.
+                if let Some(value) = section.read_name(key, 0x800) {
+                    *target = (!is_native_none_type_name(value)).then(|| {
+                        crate::rules::ini_value::truncate_native_bytes(value, 0x1f).to_owned()
+                    });
+                }
+            }
         }
         self.phase = 2;
     }
+
+    fn initialize_defaults(&mut self, id: &str, array_index: i32, types: &SideRegisteredTypes) {
+        let nod = id.eq_ignore_ascii_case("Nod");
+        let third = id.eq_ignore_ascii_case("ThirdSide");
+        let fields = &mut self.fields;
+        fields.sidebar_mix_file_index = if nod || third { 2 } else { 1 };
+        fields.sidebar_yuri_file_names = third;
+        fields.eva_voice_index = if nod {
+            1
+        } else if third {
+            2
+        } else {
+            0
+        };
+        fields.tooltip_color = if nod || third {
+            [255, 255, 0]
+        } else {
+            [164, 210, 255]
+        };
+        fields.message_text_color_index = if nod {
+            11
+        } else if third {
+            25
+        } else {
+            21
+        };
+        // `SideExt::initialize` sets ParaDropPlane from
+        // `AircraftTypeClass::FindIndex("PDPLANE")`; -1 when unregistered.
+        fields.paradrop_aircraft = Some(SideRegisteredTypes::find(&types.aircraft, "PDPLANE"));
+        let score = match array_index {
+            0 => [
+                "ASCRBKMD.SHP",
+                "ASCRTMD.SHP",
+                "ASCRAMD.SHP",
+                "ASCORE.PAL",
+                "MPASCRNL.SHP",
+                "mpascrnlbar~~.pcx",
+                "MPASCRN.PAL",
+            ],
+            1 => [
+                "SSCRBKMD.SHP",
+                "SSCRTMD.SHP",
+                "SSCRAMD.SHP",
+                "SSCORE.PAL",
+                "MPSSCRNL.SHP",
+                "mpsscrnlbar~~.pcx",
+                "MPSSCRN.PAL",
+            ],
+            _ => [
+                "SYCRBKMD.SHP",
+                "SYCRTMD.SHP",
+                "SYCRAMD.SHP",
+                "YSCORE.PAL",
+                "MPYSCRNL.SHP",
+                "mpyscrnlbar~~.pcx",
+                "MPYSCRN.PAL",
+            ],
+        };
+        fields.campaign_score_background = Some(score[0].to_owned());
+        fields.campaign_score_transition = Some(score[1].to_owned());
+        fields.campaign_score_animation = Some(score[2].to_owned());
+        fields.campaign_score_palette = Some(score[3].to_owned());
+        fields.multiplayer_score_background = Some(score[4].to_owned());
+        fields.multiplayer_score_bars = Some(score[5].to_owned());
+        fields.multiplayer_score_palette = Some(score[6].to_owned());
+        fields.campaign_score_under_par_theme = Some("SCORE".to_owned());
+        fields.campaign_score_over_par_theme = Some("SCORE".to_owned());
+        fields.multiplayer_score_win_theme = Some("SCORE".to_owned());
+        fields.multiplayer_score_lose_theme = Some("SCORE".to_owned());
+    }
+}
+
+/// Ares `Nullable<T*>`/`Valueable<T*>`/`ValueableIdx<T>` reads
+/// (`0x1002D910`, `0x1002D970`, `0x1000C9C0`, `0x1001CC10`): ReadString(0x800)
+/// returning 0 (absent or empty) retains; a registered identity resolves;
+/// otherwise `none`/`<none>` (`0x10003950`) stores null (`Some(None)`, the -1
+/// index) and any other name retains.
+#[cfg(feature = "ares")]
+fn read_ares_type_ref(
+    section: &IniSection,
+    key: &str,
+    current: &Option<Option<String>>,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Option<Option<String>> {
+    let Some(name) = section.read_name(key, 0x800) else {
+        return current.clone();
+    };
+    match resolve(name) {
+        Some(id) => Some(Some(id)),
+        None if is_native_none_type_name(name) => Some(None),
+        None => current.clone(),
+    }
+}
+
+/// Ares `NullableVector<T>::Read` (`0x1002EB60`): ReadString(0x800) returning
+/// 0 (absent or empty) retains; `<default>` returns to the getter fallback;
+/// any other value replaces the vector, skipping names that do not resolve.
+#[cfg(feature = "ares")]
+fn read_nullable_type_vector(
+    section: &IniSection,
+    key: &str,
+    current: Option<&Vec<String>>,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Option<Vec<String>> {
+    let Some(value) = section.read_name(key, 0x800) else {
+        return current.cloned();
+    };
+    if value.eq_ignore_ascii_case("<default>") {
+        return None;
+    }
+    Some(
+        section
+            .read_list(key, 0x800)
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(resolve)
+            .collect(),
+    )
+}
+
+/// Ares `NullableVector<int>::Read` (`0x1002EB00`) over `parse_values<int>`,
+/// with the same retain/`<default>` rules as [`read_nullable_type_vector`].
+#[cfg(feature = "ares")]
+fn read_nullable_int_vector(
+    section: &IniSection,
+    key: &str,
+    current: Option<&Vec<i32>>,
+) -> Option<Vec<i32>> {
+    let Some(value) = section.read_name(key, 0x800) else {
+        return current.cloned();
+    };
+    if value.eq_ignore_ascii_case("<default>") {
+        return None;
+    }
+    Some(section.read_ares_int_list(key).unwrap_or_default())
 }
 
 /// The reached CountryExt reader state needed by the starting-rank chain.
@@ -2890,16 +3196,10 @@ impl NativeRulesRegistryState {
             .flatten()
             .map(|member| {
                 #[cfg(feature = "ares")]
-                let sidebar = member.ares_side.as_ref().map(|state| {
-                    (
-                        state.mix_file_index,
-                        state.yuri_file_names,
-                        state.eva_voice_index,
-                    )
-                });
+                let extension = member.ares_side.as_ref().map(|state| &state.fields);
                 #[cfg(not(feature = "ares"))]
-                let sidebar = None;
-                (member.native_stored_id.as_str(), sidebar)
+                let extension = None;
+                (member.native_stored_id.as_str(), extension)
             })
     }
 
@@ -5139,12 +5439,31 @@ impl RulesPassProcessor {
         // Country-only prepasses do not enter this hook. The live loop sees
         // only Sides allocated now, not any allocated by later Country reads.
         #[cfg(feature = "ares")]
-        for member in self.family_mut(RulesTypeFamily::Side) {
-            member
-                .ares_side
-                .as_mut()
-                .expect("allocated Side owns its Ares extension")
-                .read_pass(&member.native_stored_id, pass, _fixed_eva);
+        {
+            let side_types = SideRegisteredTypes::collect(&self.families);
+            let side_count = self
+                .families
+                .get(&RulesTypeFamily::Side)
+                .map_or(0, Vec::len);
+            for array_index in 0..side_count {
+                // Move the extension out so the shared ColorScheme lookup can
+                // read the retained registry; it goes back to the same Side.
+                let member = &mut self.family_mut(RulesTypeFamily::Side)[array_index];
+                let id = member.native_stored_id.clone();
+                let mut side = member
+                    .ares_side
+                    .take()
+                    .expect("allocated Side owns its Ares extension");
+                side.read_pass(
+                    &id,
+                    i32::try_from(array_index).expect("[Sides] exceeds i32 identity space"),
+                    pass,
+                    _fixed_eva,
+                    &side_types,
+                    |name| self.loading_color_index(name),
+                );
+                self.family_mut(RulesTypeFamily::Side)[array_index].ares_side = Some(side);
+            }
         }
         // Installed BeforeTypeData679A15 reads ArmorTypes/defaults before
         // any ordinary ObjectType/Warhead body in this Process pass.
@@ -7093,6 +7412,10 @@ mod side_registry_tests;
 #[cfg(test)]
 #[path = "ares_side_sidebar_tests.rs"]
 mod ares_side_sidebar_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_side_defaults_tests.rs"]
+mod ares_side_defaults_tests;
 
 #[cfg(test)]
 #[path = "native_tech_level_tests.rs"]

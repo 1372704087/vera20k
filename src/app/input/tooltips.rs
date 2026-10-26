@@ -8,7 +8,9 @@
 //! - Part of the app layer — may depend on everything.
 
 use crate::app::AppState;
-use crate::app::presentation::sidebar_render::{current_sidebar_theme, current_sidebar_view};
+use crate::app::presentation::sidebar_render::{
+    current_sidebar_side, current_sidebar_theme, current_sidebar_view,
+};
 use crate::assets::csf_file::{CsfArg, format_csf};
 use crate::map::entities::EntityCategory;
 use crate::render::batch::SpriteInstance;
@@ -641,8 +643,23 @@ pub(crate) fn build_tooltip_instances(
         return (Vec::new(), Vec::new(), Vec::new());
     }
     // gamemd draws the tip in the current sidebar text colour, so the same
-    // side-dependent colour the cameo labels use — not a fixed yellow.
-    let tint = crate::render::sidebar_text::side_highlight_color(current_sidebar_theme(state));
+    // side-dependent colour the cameo labels use — not a fixed yellow. Ares
+    // `[Side] ToolTipColor=` (`SideExt+80`, applied by
+    // `Game_InitializeToolTipColor @ 0x1002F360`) replaces it.
+    let tint = state
+        .match_state
+        .sim_runtime
+        .as_ref()
+        .and_then(|runtime| {
+            runtime
+                .resources
+                .rules
+                .side_tooltip_color(current_sidebar_side(state))
+        })
+        .map(|rgb| rgb.map(|channel| f32::from(channel) / 255.0))
+        .unwrap_or_else(|| {
+            crate::render::sidebar_text::side_highlight_color(current_sidebar_theme(state))
+        });
     tooltip_quads(
         &state.renderer.bit_font,
         &tip.text,

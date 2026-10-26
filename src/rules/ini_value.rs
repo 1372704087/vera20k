@@ -483,6 +483,12 @@ impl IniSection {
         })
     }
 
+    /// Ares `Valueable<int>` presence for a `Nullable<int>` reader: absent,
+    /// empty and failed conversions are `None`; a successful scan is the value.
+    pub fn read_ares_int_value(&self, key: &str) -> Option<i32> {
+        self.read_string_with(key, 2048, None, |_, value| parse_ares_int(value))
+    }
+
     /// Ares/Phobos `PartialVector2D<int>` (`Utilities/TemplateDef.h`'s
     /// `read<PartialVector2D<int>>` over `MultiParser<int>::Parse(value, out, 2)`):
     /// ReadString(2048), then at most two comma-separated [`parse_ares_int`]

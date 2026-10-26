@@ -332,7 +332,7 @@ impl Simulation {
                 _ => return 0,
             },
         };
-        // The Ares 3.0 building hook (`0x4C6E0`) treats every non-positive
+        // The Ares 3.0 building hook (`0x1004C6E0`) treats every non-positive
         // divisor as no survivors; the stock path keeps its zero-only gate.
         if divisor == 0 || (side_divisor.is_some() && divisor < 0) {
             return 0;

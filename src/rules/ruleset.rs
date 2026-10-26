@@ -8094,8 +8094,8 @@ impl RuleSet {
     }
 
     /// `[Side] Crew=` else `AlliedCrew`/`SovietCrew`/`ThirdCrew` by array
-    /// index. `Some(None)` is an explicitly blank key (no crew), distinct from
-    /// an unset key (caller falls back as native `SideExt::GetCrew`).
+    /// index. `Some(None)` is an explicit `none` (no crew), distinct from an
+    /// unset key (caller falls back as native `SideExt::GetCrew @ 0x1002DE60`).
     pub(crate) fn side_crew(&self, side: i32) -> Option<Option<&str>> {
         #[cfg(feature = "ares")]
         {
@@ -8261,18 +8261,18 @@ impl RuleSet {
     }
 
     /// `[Side] ParaDrop.Aircraft=` else the plane the SideExt initializer
-    /// resolved from `PDPLANE` (`+0x74`). `Some(None)` means an explicit blank
-    /// key selected no plane.
-    pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<Option<&str>> {
+    /// resolved from `PDPLANE` (`+0x74`). `None` for no SideExt or the -1
+    /// index (`none`, or PDPLANE unregistered at initialization), where
+    /// `HouseTypeExt::GetParadropPlane @ 0x1001BCB0` falls back to
+    /// `FindIndex("PDPLANE")` rather than cancelling the drop.
+    pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<&str> {
         #[cfg(feature = "ares")]
         {
-            let extension = self.side_extension(side)?;
-            return Some(
-                extension
-                    .paradrop_aircraft
-                    .as_ref()
-                    .and_then(|name| name.as_deref()),
-            );
+            return self
+                .side_extension(side)?
+                .paradrop_aircraft
+                .as_ref()?
+                .as_deref();
         }
         #[cfg(not(feature = "ares"))]
         {
@@ -8283,7 +8283,8 @@ impl RuleSet {
 
     /// `[Side] Parachute.Anim=` only; an unset key leaves the existing
     /// `[General] Parachute=`/NPSE `VehicleParachute=` owner in charge.
-    /// `Some(None)` is an explicit blank key (no canopy).
+    /// `Some(None)` is an explicit `none`, which the canopy consumer resolves
+    /// to `PARACH` (`HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`).
     pub(crate) fn side_parachute_override(&self, side: i32) -> Option<Option<&str>> {
         #[cfg(feature = "ares")]
         {
@@ -8318,7 +8319,7 @@ impl RuleSet {
 
     /// `[Side] MessageTextColor=` as the runtime ColorScheme index
     /// (initialized 11 for Nod, 25 for ThirdSide, 21 otherwise) or -1 for an
-    /// explicit blank key (`SideExt+84`).
+    /// explicit `none` (`SideExt+84`).
     pub fn side_message_text_color_index(&self, side: i32) -> Option<i32> {
         #[cfg(feature = "ares")]
         {

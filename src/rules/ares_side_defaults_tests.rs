@@ -61,7 +61,7 @@ fn ares_fourth_side_uses_documented_allied_defaults() {
         rules.side_paradrop(3),
         Some((&[String::from("APD")][..], &[3][..]))
     );
-    assert_eq!(rules.side_paradrop_aircraft(3), Some(Some("PDPLANE")));
+    assert_eq!(rules.side_paradrop_aircraft(3), Some("PDPLANE"));
     assert_eq!(rules.side_parachute_override(3), None);
     assert_eq!(rules.side_tooltip_color(3), Some([164, 210, 255]));
     assert_eq!(rules.side_message_text_color_index(3), Some(21));
@@ -115,12 +115,12 @@ fn ares_fourth_side_reads_explicit_overrides_in_native_order() {
             &[2, 3][..]
         ))
     );
-    assert_eq!(rules.side_paradrop_aircraft(3), Some(Some("PLANEX")));
+    assert_eq!(rules.side_paradrop_aircraft(3), Some("PLANEX"));
     assert_eq!(rules.side_parachute_override(3), Some(Some("ANIMX")));
     assert_eq!(rules.side_tooltip_color(3), Some([1, 2, 3]));
-    // `DarkBlue` is the first `[Colors]` entry; the stored runtime index is
-    // the odd half of its doubled scheme (`2 * 0 + 1`).
-    assert_eq!(rules.side_message_text_color_index(3), Some(1));
+    // `DarkBlue` is the first retained `[Colors]` entry; the shared kind-1
+    // lookup `0x1001BB30` finds its scheme at runtime index `2 * 0`.
+    assert_eq!(rules.side_message_text_color_index(3), Some(0));
     assert_eq!(
         rules.side_sidebar_mix_file_index(crate::rules::ruleset::SideIdx(3)),
         Some(4)
@@ -134,7 +134,7 @@ fn ares_fourth_side_reads_explicit_overrides_in_native_order() {
 }
 
 #[test]
-fn ares_side_empty_unknown_and_default_values_retain_native_state() {
+fn ares_side_empty_and_unknown_values_retain_while_none_clears() {
     let base = format!(
         "{TYPES}{GENERAL}{AI}\
          [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n"
@@ -148,32 +148,47 @@ fn ares_side_empty_unknown_and_default_values_retain_native_state() {
     let mut fourth = IniSection::new("Fourth".into());
     fourth.set("Crew", "");
     fourth.set("Engineer", "UNKNOWN");
+    fourth.set("Technician", "none");
     fourth.set("AI.BaseDefenses", "<default>");
     fourth.set("ParaDrop.Types", "");
     fourth.set("ParaDrop.Num", "2");
     fourth.set("Sidebar.MixFileIndex", "not-a-number");
+    fourth.set("MessageTextColor", "<none>");
+    fourth.set("CampaignScore.Background", "");
+    fourth.set("CampaignScore.Palette", "none");
     sections.push(fourth);
     let processed = RulesLayerStack::new(IniFile::from_sections_for_test(sections))
         .process()
         .expect("side extension rules parse");
     let rules = RuleSet::from_processed_rules(&processed).expect("side extension projection");
 
-    // Present-empty clears the nullable type; unknown retains the prior unset
-    // state, which falls back to the global Engineer.
-    assert_eq!(rules.side_crew(3), Some(None));
+    // ReadString returning 0 (empty) and an unknown name both keep the unset
+    // field, which falls back; only `none`/`<none>` (`0x10003950`) stores null.
+    assert_eq!(rules.side_crew(3), Some(Some("ACREW")));
     assert_eq!(rules.side_engineer(3), Some(Some("ENG")));
-    // `<default>` returns to the side fallback, while a present-empty vector
-    // replaces the override with an empty list.
+    assert_eq!(rules.side_technician(3), Some(None));
+    assert_eq!(rules.side_message_text_color_index(3), Some(-1));
+    // `<default>` returns to the side fallback; the empty `ParaDrop.Types`
+    // keeps the unset vector, so the getter still pairs the Allied lists.
     assert_eq!(
         rules.side_base_defenses(3),
         Some(&[String::from("ABLD")][..])
     );
-    let (types, counts) = rules.side_paradrop(3).expect("allocated fourth side");
-    assert!(types.is_empty());
-    assert_eq!(counts, [2]);
+    assert_eq!(
+        rules.side_paradrop(3),
+        Some((&[String::from("APD")][..], &[3][..]))
+    );
     // An unparsable Ares int retains the initialized sidebar index.
     assert_eq!(
         rules.side_sidebar_mix_file_index(crate::rules::ruleset::SideIdx(3)),
         Some(1)
     );
+    // Fixed strings: empty keeps the initialized file, `none` clears it.
+    let (_, fields) = processed.side_projection().nth(3).expect("fourth side");
+    let fields = fields.expect("allocated Side owns its Ares extension");
+    assert_eq!(
+        fields.campaign_score_background.as_deref(),
+        Some("SYCRBKMD.SHP")
+    );
+    assert_eq!(fields.campaign_score_palette, None);
 }

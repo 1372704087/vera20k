@@ -17,7 +17,6 @@ use crate::rules::digital_display::DigitalDisplayTypeCatalog;
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
-use crate::rules::ini_value::{strtrim_ascii, truncate_native_bytes};
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::phobos_radiation::RadiationTypeCatalog;
 use crate::rules::phobos_shields::ShieldTypeCatalog;
@@ -2557,9 +2556,10 @@ impl SideRegisteredTypes {
 #[cfg(feature = "ares")]
 impl AresSideState {
     /// `SideExt::initialize @ 0x1002E190` phase-0 defaults, then the ordered
-    /// reader prefix `0x1002E450..0x1002EA4C`. Keys are read even when the
-    /// side section is absent; every reader keeps its current field on an
-    /// absent/invalid value, exactly as `Nullable`/`Valueable`.
+    /// reader prefix `0x1002E450..0x1002EA4C`. Every reader keeps its current
+    /// field when ReadString returns 0 (absent or empty), exactly as
+    /// `Nullable`/`Valueable`; only `none`/`<none>` clears a field.
+    /// `color_index` is the shared ColorScheme lookup `0x1001BB30`.
     fn read_pass(
         &mut self,
         id: &str,
@@ -2567,6 +2567,7 @@ impl AresSideState {
         pass: &IniFile,
         eva: &EvaRegistry,
         types: &SideRegisteredTypes,
+        color_index: impl Fn(&str) -> Option<i32>,
     ) {
         if !(0..=2).contains(&self.phase) {
             return;
@@ -2588,17 +2589,17 @@ impl AresSideState {
                 fields.base_defenses.as_ref(),
                 |name| SideRegisteredTypes::find(&types.buildings, name),
             );
-            fields.crew = read_nullable_type(section, "Crew", &fields.crew, |name| {
+            fields.crew = read_ares_type_ref(section, "Crew", &fields.crew, |name| {
                 SideRegisteredTypes::find(&types.infantry, name)
             });
-            fields.engineer = read_nullable_type(section, "Engineer", &fields.engineer, |name| {
+            fields.engineer = read_ares_type_ref(section, "Engineer", &fields.engineer, |name| {
                 SideRegisteredTypes::find(&types.infantry, name)
             });
             fields.technician =
-                read_nullable_type(section, "Technician", &fields.technician, |name| {
+                read_ares_type_ref(section, "Technician", &fields.technician, |name| {
                     SideRegisteredTypes::find(&types.infantry, name)
                 });
-            fields.default_disguise = read_nullable_type(
+            fields.default_disguise = read_ares_type_ref(
                 section,
                 "DefaultDisguise",
                 &fields.default_disguise,
@@ -2615,10 +2616,10 @@ impl AresSideState {
                 }
             }
             fields.parachute_anim =
-                read_nullable_type(section, "Parachute.Anim", &fields.parachute_anim, |name| {
+                read_ares_type_ref(section, "Parachute.Anim", &fields.parachute_anim, |name| {
                     SideRegisteredTypes::find(&types.animations, name)
                 });
-            fields.paradrop_aircraft = read_valueable_index(
+            fields.paradrop_aircraft = read_ares_type_ref(
                 section,
                 "ParaDrop.Aircraft",
                 &fields.paradrop_aircraft,
@@ -2647,12 +2648,17 @@ impl AresSideState {
                     fields.survivor_divisor = Some(value);
                 }
             }
-            if let Some(raw) = section.raw_value("MessageTextColor") {
-                fields.message_text_color_index =
-                    read_message_color_index(pass, raw, fields.message_text_color_index);
+            // `ValueableIdx<ColorScheme>` 0x1001CC70 over `0x1001BB30(name, 1)`:
+            // a found scheme stores its index, `none` stores -1, else retain.
+            if let Some(name) = section.read_name("MessageTextColor", 0x800) {
+                if let Some(index) = color_index(name) {
+                    fields.message_text_color_index = index;
+                } else if is_native_none_type_name(name) {
+                    fields.message_text_color_index = -1;
+                }
             }
             fields.hunter_seeker =
-                read_nullable_type(section, "HunterSeeker", &fields.hunter_seeker, |name| {
+                read_ares_type_ref(section, "HunterSeeker", &fields.hunter_seeker, |name| {
                     SideRegisteredTypes::find(&types.vehicles, name)
                 });
             for (key, target) in [
@@ -2705,9 +2711,13 @@ impl AresSideState {
                     &mut fields.dialog_background_palette,
                 ),
             ] {
-                // AresFixedString<0x20>: ReadString(0x20), empty/absent retains.
-                if let Some(value) = section.read_name(key, 0x20) {
-                    *target = Some(value.to_owned());
+                // AresFixedString<0x20> (`0x1002E5D0..`): ReadString(0x800)
+                // returning 0 retains, `none`/`<none>` clears, anything else
+                // copies its first 0x1F bytes.
+                if let Some(value) = section.read_name(key, 0x800) {
+                    *target = (!is_native_none_type_name(value)).then(|| {
+                        crate::rules::ini_value::truncate_native_bytes(value, 0x1f).to_owned()
+                    });
                 }
             }
         }
@@ -2785,47 +2795,31 @@ impl AresSideState {
     }
 }
 
-/// Ares `Nullable<T*>::Read`: absent/unknown retains, present-empty clears,
-/// a registered identity resolves case-insensitively.
+/// Ares `Nullable<T*>`/`Valueable<T*>`/`ValueableIdx<T>` reads
+/// (`0x1002D910`, `0x1002D970`, `0x1000C9C0`, `0x1001CC10`): ReadString(0x800)
+/// returning 0 (absent or empty) retains; a registered identity resolves;
+/// otherwise `none`/`<none>` (`0x10003950`) stores null (`Some(None)`, the -1
+/// index) and any other name retains.
 #[cfg(feature = "ares")]
-fn read_nullable_type(
+fn read_ares_type_ref(
     section: &IniSection,
     key: &str,
     current: &Option<Option<String>>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<Option<String>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(name) = section.read_name(key, 0x800) else {
         return current.clone();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Some(None);
+    match resolve(name) {
+        Some(id) => Some(Some(id)),
+        None if is_native_none_type_name(name) => Some(None),
+        None => current.clone(),
     }
-    resolve(raw).map(Some).or_else(|| current.clone())
 }
 
-/// Ares `ValueableIdx<T>::Read`: absent/unknown retains, present-empty stores
-/// the -1 index (our `Some(None)`), a registered identity stores its name.
-#[cfg(feature = "ares")]
-fn read_valueable_index(
-    section: &IniSection,
-    key: &str,
-    current: &Option<Option<String>>,
-    resolve: impl Fn(&str) -> Option<String>,
-) -> Option<Option<String>> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.clone();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Some(None);
-    }
-    resolve(raw).map(Some).or_else(|| current.clone())
-}
-
-/// Ares `NullableVector<T>::Read`: `<default>` returns to the side fallback,
-/// present-empty replaces with an empty override, and a present list replaces
-/// the previous vector. Unknown references are skipped by the parser.
+/// Ares `NullableVector<T>::Read` (`0x1002EB60`): ReadString(0x800) returning
+/// 0 (absent or empty) retains; `<default>` returns to the getter fallback;
+/// any other value replaces the vector, skipping names that do not resolve.
 #[cfg(feature = "ares")]
 fn read_nullable_type_vector(
     section: &IniSection,
@@ -2833,15 +2827,11 @@ fn read_nullable_type_vector(
     current: Option<&Vec<String>>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<Vec<String>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(value) = section.read_name(key, 0x800) else {
         return current.cloned();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.eq_ignore_ascii_case("<default>") {
+    if value.eq_ignore_ascii_case("<default>") {
         return None;
-    }
-    if raw.is_empty() {
-        return Some(Vec::new());
     }
     Some(
         section
@@ -2853,39 +2843,21 @@ fn read_nullable_type_vector(
     )
 }
 
-/// Ares `NullableVector<int>::Read` over `parse_values<int>`.
+/// Ares `NullableVector<int>::Read` (`0x1002EB00`) over `parse_values<int>`,
+/// with the same retain/`<default>` rules as [`read_nullable_type_vector`].
 #[cfg(feature = "ares")]
 fn read_nullable_int_vector(
     section: &IniSection,
     key: &str,
     current: Option<&Vec<i32>>,
 ) -> Option<Vec<i32>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(value) = section.read_name(key, 0x800) else {
         return current.cloned();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.eq_ignore_ascii_case("<default>") {
+    if value.eq_ignore_ascii_case("<default>") {
         return None;
     }
     Some(section.read_ares_int_list(key).unwrap_or_default())
-}
-
-/// `ValueableIdx<ColorScheme>`: resolve a `[Colors]` name to its odd runtime
-/// half (`2 * entry + 1`); present-empty stores -1, unknown retains.
-#[cfg(feature = "ares")]
-fn read_message_color_index(pass: &IniFile, raw: &str, current: i32) -> i32 {
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return -1;
-    }
-    let Some(colors) = pass.section("Colors") else {
-        return current;
-    };
-    colors
-        .keys()
-        .position(|name| name.eq_ignore_ascii_case(raw))
-        .and_then(|index| i32::try_from(index).ok())
-        .map_or(current, |index| index.wrapping_mul(2).wrapping_add(1))
 }
 
 /// The reached CountryExt reader state needed by the starting-rank chain.
@@ -5469,22 +5441,28 @@ impl RulesPassProcessor {
         #[cfg(feature = "ares")]
         {
             let side_types = SideRegisteredTypes::collect(&self.families);
-            for (array_index, member) in self
-                .family_mut(RulesTypeFamily::Side)
-                .iter_mut()
-                .enumerate()
-            {
-                member
+            let side_count = self
+                .families
+                .get(&RulesTypeFamily::Side)
+                .map_or(0, Vec::len);
+            for array_index in 0..side_count {
+                // Move the extension out so the shared ColorScheme lookup can
+                // read the retained registry; it goes back to the same Side.
+                let member = &mut self.family_mut(RulesTypeFamily::Side)[array_index];
+                let id = member.native_stored_id.clone();
+                let mut side = member
                     .ares_side
-                    .as_mut()
-                    .expect("allocated Side owns its Ares extension")
-                    .read_pass(
-                        &member.native_stored_id,
-                        i32::try_from(array_index).expect("[Sides] exceeds i32 identity space"),
-                        pass,
-                        _fixed_eva,
-                        &side_types,
-                    );
+                    .take()
+                    .expect("allocated Side owns its Ares extension");
+                side.read_pass(
+                    &id,
+                    i32::try_from(array_index).expect("[Sides] exceeds i32 identity space"),
+                    pass,
+                    _fixed_eva,
+                    &side_types,
+                    |name| self.loading_color_index(name),
+                );
+                self.family_mut(RulesTypeFamily::Side)[array_index].ares_side = Some(side);
             }
         }
         // Installed BeforeTypeData679A15 reads ArmorTypes/defaults before

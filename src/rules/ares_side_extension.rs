@@ -10,8 +10,9 @@
 //! reader/getter instructions; they are not inferred from the source tree.
 //!
 //! Type references use three states, as Ares `Nullable<T*>` does:
-//! `None` = key absent or unknown (retain), `Some(None)` = present-empty
-//! (explicitly cleared), `Some(Some(id))` = resolved registered type.
+//! `None` = never set (an absent, empty or unknown value retains),
+//! `Some(None)` = `none`/`<none>` (explicitly null), `Some(Some(id))` =
+//! resolved registered type. Fixed strings hold `None` for an empty array.
 
 #[cfg(feature = "ares")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -36,15 +37,15 @@ pub struct AresSideExtension {
     /// `+0x64` `ParaDrop.Num=` (nullable int vector).
     pub paradrop_num: Option<Vec<i32>>,
     /// `+0x74` `ParaDrop.Aircraft=` (ValueableIdx<AircraftType>). Initialized
-    /// to the PDPLANE index; `Some(None)` is an explicit blank (`-1`).
+    /// to the PDPLANE index; `Some(None)` is the -1 index (`none`).
     pub paradrop_aircraft: Option<Option<String>>,
     /// `+0x78` `Parachute.Anim=` (nullable Animation).
     pub parachute_anim: Option<Option<String>>,
     /// `+0x80` `ToolTipColor=` (three bytes).
     pub tooltip_color: [u8; 3],
     /// `+0x84` `MessageTextColor=` (runtime ColorScheme array index). The
-    /// reader resolves a `[Colors]` name to the odd half of its doubled entry;
-    /// the getters' defaults are 11 (Nod), 25 (ThirdSide), 21 (others).
+    /// reader resolves a scheme name through the shared kind-1 lookup
+    /// `0x1001BB30`; the defaults are 11 (Nod), 25 (ThirdSide), 21 (others).
     pub message_text_color_index: i32,
     /// `+0x88` `Sidebar.MixFileIndex=`.
     pub sidebar_mix_file_index: i32,

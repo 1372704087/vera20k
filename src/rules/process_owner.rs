@@ -409,6 +409,78 @@ impl NativeRulesProcessOwner {
             .map(|(id, body, ..)| (id, body.read_name("Name", 0x31)))
     }
 
+    /// Every retained country's Ares `File.Flag=` (stock/unknown defaults
+    /// included), deduplicated case-insensitively for shell atlas loading.
+    #[cfg(feature = "ares")]
+    pub fn country_flag_files(&self) -> Vec<String> {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let mut files = Vec::new();
+        for (_, _, _, _, _, country) in state.country_projection() {
+            let Some(flag) = country.presentation().flag.as_deref() else {
+                continue;
+            };
+            if !files
+                .iter()
+                .any(|existing: &String| existing.eq_ignore_ascii_case(flag))
+            {
+                files.push(flag.to_owned());
+            }
+        }
+        files
+    }
+
+    /// Rows consumed by the Ares weighted country picker: registry ID, Name,
+    /// Multiplay gate and both weights. Values come from the same retained
+    /// Country extension as the shell flag/status projection.
+    #[cfg(feature = "ares")]
+    pub fn country_random_rows(&self) -> Vec<(&str, Option<&str>, bool, i32, i32)> {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        state
+            .country_projection()
+            .map(|(id, body, _, _, _, country)| {
+                let presentation = country.presentation();
+                (
+                    id,
+                    body.read_name("Name", 0x31),
+                    body.read_bool("Multiplay", false),
+                    presentation.random_weight,
+                    presentation.ai_weight(),
+                )
+            })
+            .collect()
+    }
+
+    /// `Game_GetFlagSurface @ 0x1001DCE0` for a shell HouseType country index:
+    /// that country's `File.Flag`, or the `rani.pcx` null-surface branch when
+    /// the file is cleared. `None` when no Country holds that index.
+    #[cfg(feature = "ares")]
+    pub fn country_flag_surface(&self, index: u16) -> Option<&str> {
+        let id = self.country_name(i32::from(index))?;
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        state
+            .country_projection()
+            .find(|(candidate, ..)| candidate.eq_ignore_ascii_case(id))
+            .map(|(_, _, _, _, _, country)| {
+                country
+                    .presentation()
+                    .flag
+                    .as_deref()
+                    .unwrap_or(crate::rules::ruleset::STOCK_UNKNOWN_INSIGNIA)
+            })
+    }
+
     pub fn country_name(&self, index: i32) -> Option<&str> {
         self.multiplayer_countries()
             .nth(usize::try_from(index).ok()?)

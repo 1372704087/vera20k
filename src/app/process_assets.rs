@@ -417,6 +417,33 @@ impl ProcessAssets {
             .flat_map(|rules| rules.multiplayer_countries())
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn country_random_rows(&self) -> Vec<(&str, Option<&str>, bool, i32, i32)> {
+        self.native_rules
+            .as_ref()
+            .map(|rules| rules.country_random_rows())
+            .unwrap_or_default()
+    }
+
+    /// `Game_GetFlagSurface @ 0x1001DCE0` country insignia by HouseType index,
+    /// for lobby/diplomacy rows that resolve before a match Rules projection
+    /// exists.
+    pub(crate) fn country_flag_surface(&self, index: u16) -> Option<String> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .native_rules
+                .as_ref()
+                .and_then(|rules| rules.country_flag_surface(index))
+                .map(str::to_owned);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = index;
+            None
+        }
+    }
+
     pub(crate) fn project_multiplayer_countries(
         &self,
         projection: &mut crate::rules::ruleset::RuleSet,

@@ -61,6 +61,9 @@ Provide the normal art/cameo assets for your mod.
   between equal-valued targets with the Scenario RNG. `None` disables AI
   launching. Other Ares targeting modes are currently unsupported; an explicit
   unsupported mode logs a warning and disables AI launching for this type.
+  An unrecognized name keeps the mode from earlier rules layers. As in Ares,
+  Offensive is set once, on the type's first rules pass, so a type that
+  becomes GenericWarhead only in a later layer starts with `None`.
 
 ## Port provenance
 

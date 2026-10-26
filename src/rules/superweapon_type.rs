@@ -130,24 +130,24 @@ pub enum GenericWarheadAiTargeting {
 }
 
 #[cfg(feature = "ares")]
-impl GenericWarheadAiTargeting {
-    /// Rows 0 (`none`) and 8 (`offensive`) of Ares's AITargeting table
-    /// 1009B8A4: bytes +5/+6 are the AI target/house masks used while
-    /// SW.AIRequiresTarget/SW.AIRequiresHouse are unset (10032280/10032301).
-    pub(crate) fn default_ai_requirements(
-        self,
-    ) -> crate::rules::superweapon_targeting::TargetRequirements {
-        use crate::rules::superweapon_targeting::{HouseMask, TargetMask, TargetRequirements};
-        match self {
-            Self::None => TargetRequirements {
-                target: TargetMask::NONE,
-                house: HouseMask::NONE,
-            },
-            Self::Offensive => TargetRequirements {
-                target: TargetMask::ALL_TECHNOS,
-                house: HouseMask::ENEMIES,
-            },
+impl GenericWarheadSettings {
+    /// The ordered SWTypeExt targeting reads: only the Offensive mode launches
+    /// from the AI; `none` and the other Ares modes do not.
+    pub(crate) fn install_targeting(
+        &mut self,
+        id: &str,
+        state: crate::rules::superweapon_targeting::AresSuperWeaponTargetingState,
+    ) {
+        if let Some(mode) = state.unsupported_mode() {
+            log::warn!("SuperWeapon '{id}': unsupported SW.AITargeting={mode}");
         }
+        self.ai_targeting = if state.offensive() {
+            GenericWarheadAiTargeting::Offensive
+        } else {
+            GenericWarheadAiTargeting::None
+        };
+        self.targeting.manual = state.manual();
+        self.targeting.automatic = state.automatic();
     }
 }
 
@@ -414,25 +414,14 @@ impl SuperWeaponType {
             generic_warhead: None,
             #[cfg(feature = "ares")]
             generic_warhead: (kind == SuperWeaponKind::GenericWarhead).then(|| {
-                let ai_targeting = match section.read_name("SW.AITargeting", 0x40) {
-                    None => GenericWarheadAiTargeting::Offensive,
-                    Some(mode) if mode.eq_ignore_ascii_case("Offensive") => {
-                        GenericWarheadAiTargeting::Offensive
-                    }
-                    Some(mode) => {
-                        if !mode.eq_ignore_ascii_case("None") {
-                            log::warn!("SuperWeapon '{id}': unsupported SW.AITargeting={mode}");
-                        }
-                        GenericWarheadAiTargeting::None
-                    }
-                };
                 GenericWarheadSettings {
                     warhead: None,
                     damage: section.read_int("SW.Damage", 0),
-                    ai_targeting,
+                    // GenericWarhead's Initialize (10071860); RuleSet installs
+                    // the ordered SW.AITargeting and mask reads.
+                    ai_targeting: GenericWarheadAiTargeting::Offensive,
                     targeting: crate::rules::superweapon_targeting::SuperWeaponTargeting::from_ini(
                         section,
-                        ai_targeting.default_ai_requirements(),
                     ),
                 }
             }),

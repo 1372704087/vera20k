@@ -160,6 +160,42 @@ fn ares_target_masks_keep_prior_layers_on_native_parse_failures() {
     assert_eq!(replaced.automatic.house, HouseMask::OWNER);
 }
 
+/// LoadFromINIFile 0x10033250 runs GenericWarhead's Initialize (0x10071860,
+/// Offensive) on a type's first rules pass only; reader 0x10034350 keeps the
+/// prior mode for a name outside its table.
+#[test]
+fn ares_ai_targeting_initializes_once_and_keeps_prior_layers_on_unknown_names() {
+    let mut layers = common_presentation_layers("all");
+    layers.push(
+        RulesLayerKind::GameMode,
+        IniFile::from_str(
+            "[SuperWeaponTypes]\n1=Late\n[Late]\nType=PsychicReveal\n\
+             [Strike]\nSW.AITargeting=Bogus\n",
+        ),
+    );
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[Late]\nType=GenericWarhead\n"),
+    );
+    let mode = |layers: &RulesLayerStack, id| {
+        let rules = common_presentation_rules(layers);
+        let settings = rules.super_weapon(id).unwrap().generic_warhead.clone();
+        settings.unwrap().ai_targeting
+    };
+    assert_eq!(
+        mode(&layers, "Strike"),
+        GenericWarheadAiTargeting::Offensive
+    );
+    assert_eq!(mode(&layers, "Late"), GenericWarheadAiTargeting::None);
+
+    layers.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[Strike]\nSW.AITargeting=NONE\n[Late]\nSW.AITargeting=offensive\n"),
+    );
+    assert_eq!(mode(&layers, "Strike"), GenericWarheadAiTargeting::None);
+    assert_eq!(mode(&layers, "Late"), GenericWarheadAiTargeting::Offensive);
+}
+
 #[test]
 fn ares_common_launch_reader_retains_unknowns_and_honors_explicit_none() {
     let mut layers = common_presentation_layers("team");

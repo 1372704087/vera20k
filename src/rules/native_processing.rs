@@ -33,7 +33,7 @@ use crate::rules::projectile_type::ProjectileArtState;
 use crate::rules::rules_type_references::{DEFAULT_PARTICLE_SYSTEMS, RulesTypeReferences};
 use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules};
 #[cfg(feature = "ares")]
-use crate::rules::superweapon_targeting::AresSuperWeaponTargetMasks;
+use crate::rules::superweapon_targeting::AresSuperWeaponTargetingState;
 #[cfg(feature = "ares")]
 use crate::rules::superweapon_type::AresSuperWeaponPresentation;
 #[cfg(feature = "phobos")]
@@ -1597,11 +1597,11 @@ impl ProcessedRulesLayers {
     }
 
     #[cfg(feature = "ares")]
-    pub(crate) fn super_weapon_target_mask_states(
+    pub(crate) fn super_weapon_targeting_states(
         &self,
-    ) -> impl Iterator<Item = (&str, AresSuperWeaponTargetMasks)> {
+    ) -> impl Iterator<Item = (&str, AresSuperWeaponTargetingState)> {
         self.member_states(RulesTypeFamily::SuperWeapon, |member| {
-            member.super_weapon_target_masks
+            member.super_weapon_targeting
         })
     }
 
@@ -3522,7 +3522,7 @@ struct ProcessedType {
     #[cfg(feature = "ares")]
     super_weapon_presentation: AresSuperWeaponPresentation,
     #[cfg(feature = "ares")]
-    super_weapon_target_masks: AresSuperWeaponTargetMasks,
+    super_weapon_targeting: AresSuperWeaponTargetingState,
     /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos`, read by the same
     /// ordered Process owner as the Ares gates and keyed the same way.
     #[cfg(feature = "phobos")]
@@ -3950,7 +3950,7 @@ impl ProcessedType {
             #[cfg(feature = "ares")]
             super_weapon_presentation: AresSuperWeaponPresentation::default(),
             #[cfg(feature = "ares")]
-            super_weapon_target_masks: AresSuperWeaponTargetMasks::default(),
+            super_weapon_targeting: AresSuperWeaponTargetingState::default(),
             #[cfg(feature = "phobos")]
             super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
@@ -5358,9 +5358,12 @@ impl RulesPassProcessor {
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_presentation
                         .read_pass(&raw, animation);
+                    let generic_warhead = effective
+                        .read_name("Type", 0x28)
+                        .is_some_and(|kind| kind.eq_ignore_ascii_case("GenericWarhead"));
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
-                        .super_weapon_target_masks
-                        .read_pass(&raw);
+                        .super_weapon_targeting
+                        .read_pass(&raw, generic_warhead);
                     // Same SWTypeExt owner and native read order: controller
                     // flags, Country masks, building vectors, then shot limit.
                     let mut availability = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
@@ -5406,9 +5409,7 @@ impl RulesPassProcessor {
                     availability.read_shots_pass(&raw);
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_availability = availability;
-                    if effective
-                        .read_name("Type", 0x28)
-                        .is_some_and(|kind| kind.eq_ignore_ascii_case("GenericWarhead"))
+                    if generic_warhead
                         && let Some(warhead) = self.resolve_scalar_from(
                             &raw,
                             "SW.Warhead",
@@ -5480,6 +5481,11 @@ impl RulesPassProcessor {
                 }
                 #[cfg(not(feature = "ares"))]
                 let _ = effective;
+            } else {
+                #[cfg(feature = "ares")]
+                self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                    .super_weapon_targeting
+                    .skip_pass();
             }
             index += 1;
         }

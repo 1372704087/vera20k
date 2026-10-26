@@ -114,23 +114,60 @@ pub struct TargetRequirements {
     pub house: HouseMask,
 }
 
-/// SWTypeExt+0x241/+0x23D `SW.RequiresTarget`/`SW.RequiresHouse` and the
-/// nullable +0x242/+0x23E `SW.AIRequiresTarget`/`SW.AIRequiresHouse`, read
-/// by every ordered rules pass.
+/// Ares's AITargeting modes: names1009BAF8 in reader order (10034350), each
+/// with bytes +5/+6 of its row in table1009B8A4, the AI target and house
+/// masks used while SW.AIRequiresTarget/SW.AIRequiresHouse are unset.
+#[cfg(feature = "ares")]
+const AI_TARGETING_MODES: [(&str, u8, u8); 21] = [
+    ("none", 0, 0),
+    ("nuke", 0x38, 4),
+    ("lightningstorm", 0x38, 4),
+    ("psychicdominator", 0x18, 7),
+    ("paradrop", 0, 0),
+    ("geneticmutator", 0x08, 7),
+    ("forceshield", 0, 0),
+    ("notarget", 0, 0),
+    ("offensive", 0x38, 4),
+    ("stealth", 0x38, 4),
+    ("self", 0, 0),
+    ("base", 0, 0),
+    ("multimissile", 0x20, 4),
+    ("hunterseeker", 0, 0),
+    ("enemybase", 0, 0),
+    ("ironcurtain", 0, 0),
+    ("attack", 0, 0),
+    ("lowpower", 0, 0),
+    ("lowpowerattack", 0, 0),
+    ("droppod", 0, 0),
+    ("lightningrandom", 0, 0),
+];
+
+#[cfg(feature = "ares")]
+const OFFENSIVE_MODE: u8 = 8;
+
+/// SWTypeExt's AITargeting mode (+0x210), `SW.RequiresTarget`/`SW.RequiresHouse`
+/// (+0x241/+0x23D) and the nullable `SW.AIRequiresTarget`/`SW.AIRequiresHouse`
+/// (+0x242/+0x23E), read by every ordered rules pass.
 #[cfg(feature = "ares")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct AresSuperWeaponTargetMasks {
+pub(crate) struct AresSuperWeaponTargetingState {
+    /// LoadFromINIFile10033250 has left state+4 = 0.
+    initialized: bool,
+    mode: u8,
     manual: TargetRequirements,
     ai_target: Option<TargetMask>,
     ai_house: Option<HouseMask>,
 }
 
 #[cfg(feature = "ares")]
-impl Default for AresSuperWeaponTargetMasks {
+impl Default for AresSuperWeaponTargetingState {
     fn default() -> Self {
-        // SWTypeExt ctor100317AE/100317B8: the dword stores of AffectsHouse 7
-        // and AffectsTarget 0xFF zero both manual masks and both AI flags.
+        // SWTypeExt ctor10031771 stores mode0; the dword stores of
+        // AffectsHouse7 and AffectsTarget0xFF (100317AE/100317B8) zero both
+        // manual masks and both AI flags.
         Self {
+            initialized: false,
+            mode: 0,
             manual: TargetRequirements {
                 target: TargetMask::NONE,
                 house: HouseMask::NONE,
@@ -142,11 +179,35 @@ impl Default for AresSuperWeaponTargetMasks {
 }
 
 #[cfg(feature = "ares")]
-impl AresSuperWeaponTargetMasks {
-    /// SWTypeExt::LoadFromINI10033370, reads1003362B..1003367D in this order.
-    /// The AI keys are Nullable: their wrappers (10033CC0/10033C60) set the
-    /// flag only when the read succeeds, and a set flag is never cleared.
-    pub(crate) fn read_pass(&mut self, section: &IniSection) {
+impl AresSuperWeaponTargetingState {
+    /// A GenericWarhead type after its handler's Initialize and no reads.
+    pub(crate) fn generic_warhead_initialized() -> Self {
+        Self {
+            initialized: true,
+            mode: OFFENSIVE_MODE,
+            ..Self::default()
+        }
+    }
+
+    /// LoadFromINIFile10033250 with this type's section. Only its first call
+    /// runs the type handler's Initialize (10033337); GenericWarhead's
+    /// (10071860) selects Offensive. LoadFromINI10033370 then reads the mode
+    /// (100335D2) and the masks (1003362B..1003367D). The mode reader
+    /// 10034350 needs the whole value to `_strcmpi` a mode name; anything
+    /// else keeps the prior mode. The AI masks are Nullable: their wrappers
+    /// (10033CC0/10033C60) set the flag only on a successful read.
+    pub(crate) fn read_pass(&mut self, section: &IniSection, generic_warhead: bool) {
+        if !self.initialized && generic_warhead {
+            self.mode = OFFENSIVE_MODE;
+        }
+        self.initialized = true;
+        if let Some(mode) = section.read_name("SW.AITargeting", 0x800).and_then(|name| {
+            AI_TARGETING_MODES
+                .iter()
+                .position(|(mode, ..)| mode.eq_ignore_ascii_case(name))
+        }) {
+            self.mode = mode as u8;
+        }
         if let Some(mask) = TargetMask::read_ares(section, "SW.RequiresTarget") {
             self.manual.target = mask;
         }
@@ -161,16 +222,33 @@ impl AresSuperWeaponTargetMasks {
         }
     }
 
+    /// A pass without this type's section still ends the first call
+    /// (10033284 -> 10033347), so a later pass never runs Initialize.
+    pub(crate) fn skip_pass(&mut self) {
+        self.initialized = true;
+    }
+
+    pub(crate) fn offensive(self) -> bool {
+        self.mode == OFFENSIVE_MODE
+    }
+
+    /// A read mode other than `none` and `offensive`; VERA's AI does not
+    /// launch with it.
+    pub(crate) fn unsupported_mode(self) -> Option<&'static str> {
+        (!matches!(self.mode, 0 | OFFENSIVE_MODE)).then(|| AI_TARGETING_MODES[self.mode as usize].0)
+    }
+
     pub(crate) fn manual(self) -> TargetRequirements {
         self.manual
     }
 
-    /// 10032270..10032322 and100328D0: an unset AI mask falls back to the
-    /// SW.AITargeting mode's row, which the caller supplies.
-    pub(crate) fn automatic(self, mode_default: TargetRequirements) -> TargetRequirements {
+    /// 10032270..10032322 and100328D0: an unset AI mask falls back to its
+    /// mode's row.
+    pub(crate) fn automatic(self) -> TargetRequirements {
+        let (_, target, house) = AI_TARGETING_MODES[self.mode as usize];
         TargetRequirements {
-            target: self.ai_target.unwrap_or(mode_default.target),
-            house: self.ai_house.unwrap_or(mode_default.house),
+            target: self.ai_target.unwrap_or(TargetMask(target)),
+            house: self.ai_house.unwrap_or(HouseMask(house)),
         }
     }
 }
@@ -187,9 +265,9 @@ pub struct SuperWeaponTargeting {
 
 #[cfg(feature = "ares")]
 impl SuperWeaponTargeting {
-    /// The target masks start at the ordered reader's defaults; RuleSet
-    /// replaces them with the processed [`AresSuperWeaponTargetMasks`].
-    pub fn from_ini(section: &IniSection, mode_default: TargetRequirements) -> Self {
+    /// The masks start as a freshly initialized GenericWarhead's; RuleSet
+    /// installs the ordered [`AresSuperWeaponTargetingState`] reads.
+    pub fn from_ini(section: &IniSection) -> Self {
         let range = |key| {
             let value = if section.is_present(key) {
                 section.read_double(key, f64::NAN)
@@ -198,10 +276,10 @@ impl SuperWeaponTargeting {
             };
             NativeF64Bits::from_bits(value.to_bits())
         };
-        let masks = AresSuperWeaponTargetMasks::default();
+        let initial = AresSuperWeaponTargetingState::generic_warhead_initialized();
         Self {
-            manual: masks.manual(),
-            automatic: masks.automatic(mode_default),
+            manual: initial.manual(),
+            automatic: initial.automatic(),
             fire_into_shroud: section.read_bool("SW.FireIntoShroud", true),
             range_minimum: range("SW.RangeMinimum"),
             range_maximum: range("SW.RangeMaximum"),

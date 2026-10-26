@@ -265,6 +265,23 @@ pub struct CountryIdx(pub u16);
 /// `Game_GetFlagSurface`'s null-surface branch (`0x4E3567`) answer with it.
 pub(crate) const STOCK_UNKNOWN_INSIGNIA: &str = "rani.pcx";
 
+/// The `[Side]` score-screen file names one match resolves through
+/// `Game_LoadCampaignScoreAssets` (`0x1002F3A0`, patch site `0x72D300`),
+/// `Game_LoadMultiplayerScoreAssets` (`0x1002F430`, `0x72D730`) and
+/// `Game_GetMultiplayerScoreScreenBar` (`0x1002F300`, `0x5CA110`). Each name is
+/// substituted on its own; `None` keeps that name's fixed stock table entry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SideScoreArt<'a> {
+    pub campaign_background: Option<&'a str>,
+    pub campaign_transition: Option<&'a str>,
+    pub campaign_animation: Option<&'a str>,
+    pub campaign_palette: Option<&'a str>,
+    pub multiplayer_background: Option<&'a str>,
+    /// Pattern whose first `~~` receives the two-digit band number (band + 1).
+    pub multiplayer_bars: Option<&'a str>,
+    pub multiplayer_palette: Option<&'a str>,
+}
+
 /// Stable source-order identity in the `[Sides]` registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SideIdx(pub u8);
@@ -8459,6 +8476,19 @@ impl RuleSet {
             extension.graphical_text_image.as_deref(),
             extension.graphical_text_palette.as_deref(),
         ))
+    }
+
+    /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A
+    /// stock build and an unallocated Side index leave every field `None`, so
+    /// the callers keep their fixed tables.
+    pub fn side_score_art(&self, side: i32) -> SideScoreArt<'_> {
+        #[cfg(feature = "ares")]
+        {
+            if let Some(extension) = self.side_extension(side) {
+                return extension.score_art();
+            }
+        }
+        SideScoreArt::default()
     }
 
     /// Return the country's effective side after its optional `Side=`

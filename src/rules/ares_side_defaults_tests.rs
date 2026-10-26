@@ -198,3 +198,28 @@ fn ares_side_graphical_text_slots_keep_the_literal_fallback() {
     // No SideExt exists for an unallocated side.
     assert_eq!(rules.side_graphical_text(9), None);
 }
+
+#[test]
+fn ares_side_score_files_follow_the_side_buffers_the_hooks_copy() {
+    let rules = processed(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\n\
+         MultiplayerScore.Bars=MyBars~~.pcx\n\
+         MultiplayerScore.Palette=\n"
+    ));
+    // Side 0 keeps `SideExt::initialize`'s Allied row: the hooks copy these
+    // buffers over gamemd's own, so a fourth side takes the Yuri row it is
+    // initialized with, not the stock fallback.
+    assert_eq!(
+        rules.side_score_art(0).campaign_background,
+        Some("ASCRBKMD.SHP")
+    );
+    let fourth = rules.side_score_art(3);
+    assert_eq!(fourth.campaign_background, Some("SYCRBKMD.SHP"));
+    assert_eq!(fourth.multiplayer_bars, Some("MyBars~~.pcx"));
+    // A present-empty value retains the initialized name (AresFixedString read).
+    assert_eq!(fourth.multiplayer_palette, Some("MPYSCRN.PAL"));
+    // No SideExt: every name keeps its caller's fixed table.
+    assert_eq!(rules.side_score_art(9), Default::default());
+}

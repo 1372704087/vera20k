@@ -376,6 +376,35 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
+    /// The live registry's SideExt score-screen names for a side index, which
+    /// the score shells read before any match Rules projection exists. A
+    /// negative or unallocated side yields every field `None`, as the native
+    /// hooks skip when `Scenario+0x34B8` is negative.
+    pub fn side_score_art(&self, side: i32) -> crate::rules::ruleset::SideScoreArt<'_> {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let Some((_, extension)) = state
+            .side_projection()
+            .nth(usize::try_from(side).unwrap_or(usize::MAX))
+        else {
+            return Default::default();
+        };
+        #[cfg(feature = "ares")]
+        {
+            return extension
+                .map(|extension| extension.score_art())
+                .unwrap_or_default();
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = extension;
+            Default::default()
+        }
+    }
+
     /// `Game_GetFlagSurface @ 0x1001DCE0` for a shell HouseType country index:
     /// that country's `File.Flag`, or the `rani.pcx` null-surface branch when
     /// the file is cleared. `None` when no Country holds that index.

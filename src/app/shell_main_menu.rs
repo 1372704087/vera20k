@@ -429,6 +429,7 @@ impl App {
                 assets,
                 model.side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(model.side),
             )
         });
         state.frontend.campaign_score_page = None;
@@ -465,6 +466,7 @@ impl App {
                 assets,
                 side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(side),
             )
         });
         if state.frontend.campaign_score_art.is_none() {
@@ -512,6 +514,7 @@ impl App {
                 assets,
                 model.side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(model.side),
             )
         });
         if state.frontend.campaign_score_art.is_none() {

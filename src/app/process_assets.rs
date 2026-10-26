@@ -425,6 +425,18 @@ impl ProcessAssets {
             .unwrap_or_default()
     }
 
+    /// The score dialog's theme name for a side, or `None` for gamemd's
+    /// literal `SCORE`.
+    pub(crate) fn side_score_theme(
+        &self,
+        side: i32,
+        theme: crate::rules::ruleset::ScoreTheme,
+    ) -> Option<&str> {
+        self.native_rules
+            .as_ref()
+            .and_then(|rules| rules.side_score_theme(side, theme))
+    }
+
     /// The shell side's `Game_LoadCampaignScoreAssets` /
     /// `Game_LoadMultiplayerScoreAssets` file names. Every field `None` keeps
     /// that name's fixed stock table entry.

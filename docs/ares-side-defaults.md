@@ -25,6 +25,8 @@ while a side's own section can replace them:
 | `CampaignScore.Background` / `.Transition` / `.Animation` / `.Palette` | the side's row of `SideExt::initialize` (Allied `ASCRBKMD/ASCRTMD/ASCRAMD` + `ASCORE.PAL`, Soviet `SSCRBKMD…` + `SSCORE.PAL`, Yuri and later sides `SYCRBKMD…` + `YSCORE.PAL`) | Campaign StandaloneScore art (`render::main_menu_shell_chrome::build_campaign_score_art`) |
 | `MultiplayerScore.Background` / `.Palette` | `MPASCRNL.SHP` + `MPASCRN.PAL`, `MPSSCRNL.SHP` + `MPSSCRN.PAL`, `MPYSCRNL.SHP` + `MPYSCRN.PAL` | Skirmish score screen art (`build_score_art`) |
 | `MultiplayerScore.Bars` | `mpascrnlbar~~.pcx` / `mpsscrnlbar~~.pcx` / `mpyscrnlbar~~.pcx` | the ten score bands; the first `~~` takes the two-digit band number |
+| `CampaignScore.UnderParTheme` / `.OverParTheme` | `SCORE` | theme the campaign dialog `0x103` starts on `WM_INIT`, picked by the same `0x6C9231` comparison as the rank strings |
+| `MultiplayerScore.WinTheme` / `.LoseTheme` | `SCORE` | theme the skirmish dialog `0x108` starts, picked on the local player's `HouseClass+0x1F5` defeated flag |
 | `MessageTextColor` | runtime ColorScheme 21 (`[Colors]` entry 10) | map-action 11 message |
 | `Sidebar.MixFileIndex` | 1 | sidebar MIX |
 | `Sidebar.YuriFileNames` | no | sidebar filenames |
@@ -33,9 +35,9 @@ while a side's own section can replace them:
 Each score name is substituted on its own, the way `0x1002F270` copies every
 SideExt field over gamemd's buffer, so an Ares build never selects the 640-wide
 `*SM.SHP` shapes: `SideExt::initialize` always holds a medium name. The SideExt
-reader also retains `HunterSeeker`, the four score themes and
-`DialogBackground.*`; those have no consumer in this chain yet.
-`GraphicalText.*` is consumed by the victory/defeat banner: `Game_LoadUI_LoadSideData` (`0x1002F4A0`) loads the
+reader also retains `HunterSeeker` and `DialogBackground.*`; those have no
+consumer in this chain yet. `GraphicalText.*` is consumed by the
+victory/defeat banner: `Game_LoadUI_LoadSideData` (`0x1002F4A0`) loads the
 local side's two files into the overlay slots through the writer at
 `0x1002ECC0`, and the draw hook `0x1002FAD0` (patch site `0x6D4E79`) reads each
 slot through `0x1002DF00` / `0x1002DF10`, which fall back to InitGame's literal
@@ -81,16 +83,10 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
 
 ## Residuals
 
-- **Score themes** (`CampaignScore.UnderParTheme` / `.OverParTheme`,
-  `MultiplayerScore.WinTheme` / `.LoseTheme`, all initialized to `SCORE`) are
-  retained but not played: VERA starts the literal `SCORE` from the scenario
-  exit cascade, while the installed DLL substitutes the side's name at
-  `Global_DrawScoreScreen_ScoreTheme` (`0x1002F4B0`, patch `0x5C9B75`, win/lose
-  from the local player's `HouseClass+0x1F5`, `g_pCurrentHouse` at `0xA83D4C`)
-  and at the campaign dialog's
-  `ScoreDialog_Handle_ScoreThemeA/B` (`0x1002F920` / `0x1002F9A0`, patches
-  `0x6C922C` / `0x6C935C`, the par branch). Neither the win/lose flag nor the
-  par comparison reaches the VERA play site today.
+- The skirmish theme name is resolved once, when the score model is built,
+  while native re-reads the side's field at each `0x5C9B75` call; a local
+  player whose `HouseClass+0x1F5` changes after the terminal snapshot keeps the
+  theme the dialog already started.
 - `DialogBackground.*` is retained but not drawn; the dialog background is a
   separate UI mechanism (`0x621E90`'s paint).
 - The banner resolves one file pair per match. Native substitutes each slot

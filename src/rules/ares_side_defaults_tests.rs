@@ -223,3 +223,46 @@ fn ares_side_score_files_follow_the_side_buffers_the_hooks_copy() {
     // No SideExt: every name keeps its caller's fixed table.
     assert_eq!(rules.side_score_art(9), Default::default());
 }
+
+#[test]
+fn ares_side_score_themes_follow_the_two_native_branch_sites() {
+    let rules = processed(&format!(
+        "{TYPES}{GENERAL}         [Sides]
+GDI=x
+Nod=x
+ThirdSide=x
+Fourth=x
+         [Fourth]
+         CampaignScore.UnderParTheme=MYUND
+         MultiplayerScore.LoseTheme=MYLOSE
+"
+    ));
+    // 0x1002F920 keeps +0x178 while elapsed is at or under par, and
+    // 0x1002F4B0 keeps +0x1B8 while HouseClass+0x1F5 is clear; the untouched
+    // fields stay on SideExt::initialize's literal SCORE.
+    use crate::rules::ruleset::ScoreTheme;
+    assert_eq!(
+        rules.side_score_theme(3, ScoreTheme::Campaign { over_par: false }),
+        Some("MYUND")
+    );
+    assert_eq!(
+        rules.side_score_theme(3, ScoreTheme::Campaign { over_par: true }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        rules.side_score_theme(3, ScoreTheme::Multiplayer { defeated: false }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        rules.side_score_theme(3, ScoreTheme::Multiplayer { defeated: true }),
+        Some("MYLOSE")
+    );
+    assert_eq!(
+        rules.side_score_theme(0, ScoreTheme::Multiplayer { defeated: true }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        rules.side_score_theme(9, ScoreTheme::Multiplayer { defeated: true }),
+        None
+    );
+}

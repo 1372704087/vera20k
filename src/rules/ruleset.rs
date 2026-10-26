@@ -260,6 +260,20 @@ impl CountryRules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CountryIdx(pub u16);
 
+/// Which of the four `[Side]` score themes a score dialog asks for. The two
+/// sites choose on data gamemd already holds: the campaign dialog compares the
+/// elapsed and par times at `0x6C9231` (`ScoreDialog_Handle_ScoreThemeA`
+/// `0x1002F920`, patch site `0x6C922C`, `+0x178` when elapsed is at or under
+/// par, else `+0x198`), and the skirmish dialog reads the local player's
+/// `HouseClass+0x1F5` defeated flag (`Global_DrawScoreScreen_ScoreTheme`
+/// `0x1002F4B0`, patch site `0x5C9B75`, `+0x1B8` when not defeated, else
+/// `+0x1D8`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreTheme {
+    Campaign { over_par: bool },
+    Multiplayer { defeated: bool },
+}
+
 /// The insignia gamemd's stock selection chain has no entry for: both
 /// `HouseTypeExt::Initialize`'s unknown-country branch (`0x1001C413`) and
 /// `Game_GetFlagSurface`'s null-surface branch (`0x4E3567`) answer with it.
@@ -8476,6 +8490,23 @@ impl RuleSet {
             extension.graphical_text_image.as_deref(),
             extension.graphical_text_palette.as_deref(),
         ))
+    }
+
+    /// The side's score theme, or `None` where gamemd pushes its literal
+    /// `SCORE` name (`0x0082FEBC`): a stock build, or a side index with no
+    /// SideExt (the native hooks skip when `Scenario+0x34B8` is negative).
+    pub fn side_score_theme(&self, side: i32, theme: ScoreTheme) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .side_extension(side)
+                .and_then(|extension| extension.score_theme(theme));
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let (_, _) = (side, theme);
+            None
+        }
     }
 
     /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A

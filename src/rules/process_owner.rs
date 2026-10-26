@@ -376,6 +376,35 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
+    /// The live registry's SideExt score theme for a side, for the score
+    /// dialogs that open after the match Rules projection is retired.
+    pub fn side_score_theme(
+        &self,
+        side: i32,
+        theme: crate::rules::ruleset::ScoreTheme,
+    ) -> Option<&str> {
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        let Some((_, extension)) = state
+            .side_projection()
+            .nth(usize::try_from(side).unwrap_or(usize::MAX))
+        else {
+            return None;
+        };
+        #[cfg(feature = "ares")]
+        {
+            return extension.and_then(|extension| extension.score_theme(theme));
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = (extension, theme);
+            None
+        }
+    }
+
     /// The live registry's SideExt score-screen names for a side index, which
     /// the score shells read before any match Rules projection exists. A
     /// negative or unallocated side yields every field `None`, as the native

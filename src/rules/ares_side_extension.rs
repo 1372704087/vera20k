@@ -105,6 +105,26 @@ impl AresSideExtension {
             multiplayer_palette: self.multiplayer_score_palette.as_deref(),
         }
     }
+
+    /// The theme name one of the two score dialogs asks for. Both sites read
+    /// the field buffer directly, so a name is returned as authored.
+    pub fn score_theme(&self, theme: crate::rules::ruleset::ScoreTheme) -> Option<&str> {
+        let field = match theme {
+            crate::rules::ruleset::ScoreTheme::Campaign { over_par: false } => {
+                &self.campaign_score_under_par_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Campaign { over_par: true } => {
+                &self.campaign_score_over_par_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Multiplayer { defeated: false } => {
+                &self.multiplayer_score_win_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Multiplayer { defeated: true } => {
+                &self.multiplayer_score_lose_theme
+            }
+        };
+        field.as_deref()
+    }
 }
 
 #[cfg(feature = "ares")]

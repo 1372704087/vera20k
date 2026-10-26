@@ -151,7 +151,9 @@ VERA20K 的开发者都是你们的朋友。我们希望把庞大的中国红警
 《命令与征服》和《红色警戒》源码、World-Altering Editor、Final Alert、YRpp、Ares、Phobos，
 以及其他为此做出贡献的项目和社区。
 
-版权所有 © 2026 Halvor Nikolai Rusten 及 VERA20K 贡献者。本项目采用 [GPLv3](LICENSE-GPL) 许可证。本仓库不包含游戏文件。
+版权所有 © 2026 Halvor Nikolai Rusten 及 VERA20K 贡献者。本项目采用 [VERA20k Noncommercial License](LICENSE-NONCOMMERCIAL)（VERA20k 非商业许可证）。可出于任何非商业目的免费游玩、研究、修改和分享；分享的版本必须附带其源代码，保留原有的版权和许可声明，并注明基于 VERA20K。禁止商业使用，例如出售、付费或靠广告盈利的游戏托管，以及赚钱的视频和直播；允许向项目自愿捐赠，也允许为公开贡献进行有偿开发。添加本许可证之前的版本仍采用 [GPLv3](LICENSES/GPL-3.0.txt)。从 FFmpeg 移植的 Bink 视频代码（`src/assets/bink_*.rs`）仍采用 [LGPL 2.1 或更高版本](LICENSES/LGPL-2.1-or-later.txt)，VERA20K 使用的库保留各自的许可证。
+
+本仓库不包含游戏文件。
 Command & Conquer 和 Red Alert 是 Electronic Arts Inc. 的商标，截图和应用图标（《红色警戒2》的红星）中的游戏美术资源归 Electronic Arts 所有。
 VERA20K 与 Electronic Arts 无隶属关系，也未获其认可。
 

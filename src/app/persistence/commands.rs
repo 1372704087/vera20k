@@ -179,7 +179,7 @@ fn prepare_save<'a>(
         .borrow()
         .saved();
     sinking_waterlines.retain(|(id, _)| sim.entities().contains(*id));
-    let mut sidebar_order = state
+    let sidebar_order = state
         .match_state
         .match_presentation
         .sidebar_projection
@@ -187,9 +187,10 @@ fn prepare_save<'a>(
     // Phobos keeps `SWSidebar_Enable` in the scenario extension, so it rides
     // the local presentation envelope rather than the simulation hash.
     #[cfg(feature = "phobos")]
-    if let Some(order) = sidebar_order.as_mut() {
+    let sidebar_order = sidebar_order.map(|mut order| {
         order.set_sw_sidebar_expanded(state.match_state.match_presentation.sw_sidebar.expanded);
-    }
+        order
+    });
     let tactical_view = crate::app::input::camera::saved_tactical_view(state);
     let rules_owner = rules_owner.ok_or(SaveCommandError::MissingResources("process rules"))?;
     let processed =

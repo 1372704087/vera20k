@@ -1282,63 +1282,7 @@ fn apply_sidebar_action_inner(state: &mut AppState, action: SidebarAction) {
             sidebar_cameo_press(state, &type_id, press, at_build_limit, shift);
         }
         SidebarAction::SuperWeaponPress { section, right } => {
-            let selection = (|| {
-                let runtime = state.match_state.sim_runtime.as_ref()?;
-                let sim = &runtime.simulation;
-                let rules = &runtime.resources.rules;
-                let owner = sim.interner().get(&preferred_local_owner_name(state)?)?;
-                let type_id = sim.interner().get(&section)?;
-                let view = crate::sim::superweapon::superweapon_views_for_owner(sim, rules, &owner)
-                    .into_iter()
-                    .find(|view| view.type_id == type_id)?;
-                Some((view, rules.super_weapon(&section)?.action.clone()))
-            })();
-            let click = super::superweapon_cameo::press(
-                &mut state.match_state.input,
-                &mut state.match_state.match_presentation.sidebar_gadget_state,
-                selection.as_ref().map(|(view, _)| view),
-                selection.as_ref().and_then(|(_, action)| action.as_deref()),
-                right,
-            );
-            if click.gui_sound() {
-                let sound = state
-                    .rules()
-                    .and_then(|rules| rules.general.gui_build_sound.clone());
-                crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
-            }
-            match click {
-                super::superweapon_cameo::SuperWeaponClick::Refused
-                    if selection
-                        .as_ref()
-                        .is_some_and(|(view, _)| view.can_fire && !view.can_afford) =>
-                {
-                    let cue = state
-                        .rules()
-                        .and_then(|rules| {
-                            rules
-                                .super_weapon(&section)
-                                .map(|sw| crate::sim::superweapon::financial_type(rules, sw))
-                        })
-                        .and_then(|sw| sw.insufficient_funds_eva.clone());
-                    if let Some(cue) = cue {
-                        push_local_eva(state, &cue);
-                    }
-                }
-                super::superweapon_cameo::SuperWeaponClick::Target => {
-                    queue_selection_snapshot_command(state, Vec::new(), false);
-                    push_local_eva(state, sidebar_eva::EVA_SELECT_TARGET);
-                }
-                super::superweapon_cameo::SuperWeaponClick::Launch(sw_type_id) => {
-                    let owner = preferred_local_owner_name(state).unwrap_or_default();
-                    crate::app::input::commands::queue_super_weapon_click(
-                        state,
-                        &owner,
-                        sw_type_id,
-                        (0, 0),
-                    );
-                }
-                _ => {}
-            }
+            press_super_weapon(state, &section, right, true);
         }
         SidebarAction::CycleProducer(category) => {
             cycle_active_producer(state, category);
@@ -1931,13 +1875,7 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
                     crate::app::presentation::sw_sidebar::positional_entry(state, index)
             {
                 let type_id = entry.type_id.clone();
-                apply_sidebar_action(
-                    state,
-                    SidebarAction::SuperWeaponPress {
-                        section: type_id,
-                        right: false,
-                    },
-                );
+                press_super_weapon(state, &type_id, false, false);
             }
         }
         #[cfg(feature = "phobos")]
@@ -1955,6 +1893,69 @@ fn dispatch_retail_hotkey(state: &mut AppState, command: HotkeyCommand) {
         HotkeyCommand::AutoLoad => crate::app::input::autoload::hotkey_pressed(state),
         #[cfg(not(feature = "verax"))]
         HotkeyCommand::AutoLoad => {}
+    }
+}
+
+/// A superweapon cameo press. Phobos's `FireTacticalSW` keys call
+/// `LaunchSuper` without the `GUIBuildSound` its button's `Action` plays, so
+/// they pass `gui_sound: false`.
+fn press_super_weapon(state: &mut AppState, section: &str, right: bool, gui_sound: bool) {
+    let selection = (|| {
+        let runtime = state.match_state.sim_runtime.as_ref()?;
+        let sim = &runtime.simulation;
+        let rules = &runtime.resources.rules;
+        let owner = sim.interner().get(&preferred_local_owner_name(state)?)?;
+        let type_id = sim.interner().get(section)?;
+        let view = crate::sim::superweapon::superweapon_views_for_owner(sim, rules, &owner)
+            .into_iter()
+            .find(|view| view.type_id == type_id)?;
+        Some((view, rules.super_weapon(section)?.action.clone()))
+    })();
+    let click = super::superweapon_cameo::press(
+        &mut state.match_state.input,
+        &mut state.match_state.match_presentation.sidebar_gadget_state,
+        selection.as_ref().map(|(view, _)| view),
+        selection.as_ref().and_then(|(_, action)| action.as_deref()),
+        right,
+    );
+    if gui_sound && click.gui_sound() {
+        let sound = state
+            .rules()
+            .and_then(|rules| rules.general.gui_build_sound.clone());
+        crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
+    }
+    match click {
+        super::superweapon_cameo::SuperWeaponClick::Refused
+            if selection
+                .as_ref()
+                .is_some_and(|(view, _)| view.can_fire && !view.can_afford) =>
+        {
+            let cue = state
+                .rules()
+                .and_then(|rules| {
+                    rules
+                        .super_weapon(section)
+                        .map(|sw| crate::sim::superweapon::financial_type(rules, sw))
+                })
+                .and_then(|sw| sw.insufficient_funds_eva.clone());
+            if let Some(cue) = cue {
+                push_local_eva(state, &cue);
+            }
+        }
+        super::superweapon_cameo::SuperWeaponClick::Target => {
+            queue_selection_snapshot_command(state, Vec::new(), false);
+            push_local_eva(state, sidebar_eva::EVA_SELECT_TARGET);
+        }
+        super::superweapon_cameo::SuperWeaponClick::Launch(sw_type_id) => {
+            let owner = preferred_local_owner_name(state).unwrap_or_default();
+            crate::app::input::commands::queue_super_weapon_click(
+                state,
+                &owner,
+                sw_type_id,
+                (0, 0),
+            );
+        }
+        _ => {}
     }
 }
 

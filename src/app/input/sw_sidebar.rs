@@ -30,6 +30,9 @@ pub(crate) fn mouse(state: &mut AppState, button: MouseButton, pressed: bool) ->
         return false;
     };
     if let crate::app::presentation::sw_sidebar::SwSidebarHit::Toggle = hit {
+        if crate::app::presentation::sw_sidebar::toggle_art(state).is_none() {
+            return false;
+        }
         // `ToggleSWButtonClass` listens to left press/release only and switches
         // on release; a right click does nothing.
         if button != MouseButton::Left {

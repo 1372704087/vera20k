@@ -104,38 +104,41 @@ fn priority_mask(rules: &RuleSet, type_id: &str) -> u32 {
 /// `[SuperWeaponTypes]` order.
 pub(crate) fn select<'a>(
     rules: &RuleSet,
+    csf: Option<&crate::assets::csf_file::CsfFile>,
     interner: &crate::sim::intern::StringInterner,
     views: &'a [SuperWeaponView],
     owner_mask: u32,
     required_significance: i32,
 ) -> Vec<&'a SuperWeaponView> {
     let allow_by_default = rules.sw_sidebar.allow_by_default;
-    let mut selected: Vec<&SuperWeaponView> = views
+    let mut selected: Vec<_> = views
         .iter()
-        .filter(|view| {
+        .filter_map(|view| {
             let type_id = interner.resolve(view.type_id);
-            let Some(sw) = rules.super_weapon(type_id) else {
-                return false;
-            };
-            sw.sw_show_cameo
+            let sw = rules.super_weapon(type_id)?;
+            (sw.sw_show_cameo
                 && sw.sw_sidebar_allow.unwrap_or(allow_by_default)
                 && (required_mask(rules, type_id) & owner_mask) != 0
-                && sw.sw_sidebar_significance >= required_significance
+                && sw.sw_sidebar_significance >= required_significance)
+                .then(|| {
+                    let priority = (priority_mask(rules, type_id) & owner_mask) != 0;
+                    let key = crate::app::sidebar_projection::super_weapon_cameo_key(sw, csf);
+                    (priority, key, view)
+                })
         })
         .collect();
-    selected.sort_by(|a, b| {
-        let a_id = interner.resolve(a.type_id);
-        let b_id = interner.resolve(b.type_id);
-        let a_priority = (priority_mask(rules, a_id) & owner_mask) != 0;
-        let b_priority = (priority_mask(rules, b_id) & owner_mask) != 0;
-        b_priority.cmp(&a_priority).then_with(|| {
-            rules
-                .super_weapon_index(a_id)
-                .unwrap_or(usize::MAX)
-                .cmp(&rules.super_weapon_index(b_id).unwrap_or(usize::MAX))
+    // SortButtons' stable_sort: owner-priority types first, then
+    // `BuildType::SortsBefore`, the right strips' insertion predicate.
+    selected.sort_by(|(a_priority, a, _), (b_priority, b, _)| {
+        b_priority.cmp(a_priority).then(if !a.inserts_before(b) {
+            std::cmp::Ordering::Greater
+        } else if b.inserts_before(a) {
+            std::cmp::Ordering::Equal
+        } else {
+            std::cmp::Ordering::Less
         })
     });
-    selected
+    selected.into_iter().map(|(_, _, view)| view).collect()
 }
 
 /// Compute membership, order and geometry. This is the
@@ -177,6 +180,7 @@ pub(crate) fn plan(
     let owner_mask = owner_house_mask(sim, rules, &owner);
     let selected = select(
         rules,
+        state.process_assets.csf.as_ref(),
         sim.interner(),
         views,
         owner_mask,
@@ -237,6 +241,22 @@ pub(crate) fn toggle(state: &mut AppState) -> bool {
     }
     sw.expanded = !sw.expanded;
     true
+}
+
+/// The On or Off PCX for the current state. Without it
+/// `ToggleSWButtonClass::Draw` draws nothing and its `Action` ignores input.
+pub(crate) fn toggle_art(
+    state: &AppState,
+) -> Option<&crate::render::sw_sidebar_art::SwSidebarArtEntry> {
+    let presentation = &state.match_state.match_presentation;
+    presentation
+        .sw_sidebar_art
+        .as_ref()?
+        .entry(if presentation.sw_sidebar.expanded {
+            crate::render::sw_sidebar_art::SwSidebarArtKind::On
+        } else {
+            crate::render::sw_sidebar_art::SwSidebarArtKind::Off
+        })
 }
 
 /// Hit test in unscaled layout coordinates. Columns are inert while collapsed;
@@ -341,9 +361,19 @@ mod tests {
     }
 
     fn views(interner: &mut crate::sim::intern::StringInterner) -> Vec<SuperWeaponView> {
-        ["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"]
-            .into_iter()
-            .map(|name| SuperWeaponView {
+        named_views(
+            interner,
+            &["Alpha", "Beta", "Gamma", "Delta", "Epsilon", "Zeta"],
+        )
+    }
+
+    fn named_views(
+        interner: &mut crate::sim::intern::StringInterner,
+        names: &[&str],
+    ) -> Vec<SuperWeaponView> {
+        names
+            .iter()
+            .map(|&name| SuperWeaponView {
                 type_id: interner.intern(name),
                 display_name: name.to_string(),
                 progress: 0.0,
@@ -365,10 +395,17 @@ mod tests {
         owner_mask: u32,
         required_significance: i32,
     ) -> Vec<String> {
-        select(rules, interner, views, owner_mask, required_significance)
-            .into_iter()
-            .map(|view| interner.resolve(view.type_id).to_string())
-            .collect()
+        select(
+            rules,
+            None,
+            interner,
+            views,
+            owner_mask,
+            required_significance,
+        )
+        .into_iter()
+        .map(|view| interner.resolve(view.type_id).to_string())
+        .collect()
     }
 
     #[test]
@@ -396,6 +433,26 @@ mod tests {
         assert_eq!(
             selected_names(&rules, &interner, &views, russians, 0),
             ["Alpha", "Beta", "Gamma"]
+        );
+    }
+
+    #[test]
+    fn select_orders_like_the_strips_by_recharge_time_then_name() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[Americans]\nName=Americans\n\
+             [AudioVisual]\nSuperWeaponSidebar.AllowByDefault=yes\n\
+             [SuperWeaponTypes]\n0=Storm\n1=Para\n2=Spy\n\
+             [Storm]\nType=LightningStorm\nRechargeTime=10\nUIName=Storm\n\
+             [Para]\nType=ParaDrop\nRechargeTime=4\nUIName=Para\n\
+             [Spy]\nType=SpyPlane\nRechargeTime=4\nUIName=Eye\n",
+        ))
+        .expect("sidebar rules");
+        let mut interner = crate::sim::intern::StringInterner::new();
+        let views = named_views(&mut interner, &["Storm", "Para", "Spy"]);
+        let americans = crate::sim::ai_buildable::house_country_bit(&rules, "Americans");
+        assert_eq!(
+            selected_names(&rules, &interner, &views, americans, 0),
+            ["Spy", "Para", "Storm"]
         );
     }
 

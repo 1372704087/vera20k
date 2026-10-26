@@ -1306,10 +1306,12 @@ pub struct SuperWeaponView {
 }
 
 impl SuperWeaponView {
-    /// The sidebar cameo's enabled (undarkened) state: online and
-    /// affordable, and not a firable type Ares darkens for its constraints.
+    /// The strip cameo's enabled state, the inverse of its darken flag (BL).
+    /// Stock StripDraw clears BL for every superweapon (0x006A99B5); Ares's
+    /// hook there (10034EF0) sets it while CanFire (0x006CC360) holds and the
+    /// type is unaffordable or its constraints refuse a manual launch.
     pub fn sidebar_enabled(&self) -> bool {
-        !(self.can_fire && self.constraints_blocked) && self.is_online && self.can_afford
+        !(self.can_fire && (!self.can_afford || self.constraints_blocked))
     }
 }
 

@@ -211,9 +211,10 @@ const OFFENSIVE_MODE: u8 = 8;
 /// EMPulse's stores 0 (1007146B), so they keep the constructor's 0.
 #[cfg(feature = "ares")]
 pub(crate) fn handler_initial_mode(type_name: &str) -> u8 {
-    const MODES: [(&str, u8); 16] = [
+    const MODES: [(&str, u8); 17] = [
         ("MultiMissile", 1),                // 100733BC
         ("IronCurtain", 15),                // 10074BFE
+        ("Protect", 15),                    // 10074BFE
         ("LightningStorm", 2),              // 10072CD5
         ("ParaDrop", 4),                    // 10073F48
         ("AmerParaDrop", 4),                // 10073F48

@@ -1073,11 +1073,20 @@ fn super_cameo(
         id: CameoId::SuperWeapon(id),
         tab: crate::ui::sidebar::SidebarTab::Defense,
         available: true,
-        key: CameoKey::SuperWeapon {
-            recharge_frames: kind.recharge_time_frames,
-            name: crate::assets::csf_file::type_ui_name(kind.ui_name.as_deref(), csf),
-        },
+        key: super_weapon_cameo_key(kind, csf),
     })
+}
+
+/// A superweapon's `BuildType::SortsBefore` (0x006A8420) inputs: RechargeTime,
+/// then its UI name.
+pub(crate) fn super_weapon_cameo_key(
+    kind: &crate::rules::superweapon_type::SuperWeaponType,
+    csf: Option<&crate::assets::csf_file::CsfFile>,
+) -> CameoKey {
+    CameoKey::SuperWeapon {
+        recharge_frames: kind.recharge_time_frames,
+        name: crate::assets::csf_file::type_ui_name(kind.ui_name.as_deref(), csf),
+    }
 }
 
 /// Validate the saved presentation against the loaded interner and rules before

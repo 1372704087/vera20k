@@ -44,42 +44,25 @@ pub(crate) fn build(
         return out;
     }
     let art = state.match_state.match_presentation.sw_sidebar_art.as_ref();
-    if let (Some(art), Some(toggle)) = (art, sw.layout.toggle) {
-        if let Some(entry) = art.entry(if sw.expanded {
-            SwSidebarArtKind::On
-        } else {
-            SwSidebarArtKind::Off
-        }) {
-            out.chrome.push(sprite_art(entry, toggle, DEPTH_ART));
+    let hover_tint = crate::render::sidebar_text::side_highlight_color(
+        crate::app::presentation::sidebar_render::current_sidebar_theme(state),
+    );
+    let (cursor_x, cursor_y) = state.match_state.input.cursor_px();
+    if let (Some(entry), Some(toggle)) = (
+        crate::app::presentation::sw_sidebar::toggle_art(state),
+        sw.layout.toggle,
+    ) {
+        out.chrome.push(sprite_art(entry, toggle, DEPTH_ART));
+        // `ToggleSWButtonClass::Draw` outlines the hovered toggle too.
+        if toggle.contains(cursor_x as f32, cursor_y as f32) {
+            push_outline(&mut out.hover, toggle, hover_tint);
         }
     }
     if !sw.expanded {
         return out;
     }
-    // `SWButtonClass::Draw`: a one-pixel `Drawing::Rect` in the tooltip colour
-    // around the hovered cameo.
     if let Some(rect) = crate::app::presentation::sw_sidebar::hovered_entry_rect(state) {
-        let tint = crate::render::sidebar_text::side_highlight_color(
-            crate::app::presentation::sidebar_render::current_sidebar_theme(state),
-        );
-        let border = 1.0;
-        for (x, y, w, h) in [
-            (rect.x, rect.y, rect.w, border),
-            (rect.x, rect.y + rect.h - border, rect.w, border),
-            (rect.x, rect.y, border, rect.h),
-            (rect.x + rect.w - border, rect.y, border, rect.h),
-        ] {
-            out.hover.push(SpriteInstance {
-                position: [x, y],
-                size: [w, h],
-                uv_origin: [0.0, 0.0],
-                uv_size: [1.0, 1.0],
-                depth: 0.00044,
-                tint,
-                alpha: 1.0,
-                ..Default::default()
-            });
-        }
+        push_outline(&mut out.hover, rect, hover_tint);
     }
     if let Some(art) = art {
         let center_height = sw.ui.cameo_height.max(48) as f32;
@@ -189,8 +172,11 @@ pub(crate) fn build(
         }
 
         let readiness = readiness_text(&entry.view, labels);
+        // `SWButtonClass::Draw`'s `ready`: not on hold, and Ready by
+        // ChargeDrainState for charge-drain types, i.e. NameReadiness's Ready.
         let hotkey = (keys_enabled
-            && entry.view.is_ready
+            && entry.view.display.status
+                == Some(crate::sim::superweapon::SuperWeaponStatus::Ready)
             && entry.column == 0
             && entry.column_button < crate::rules::phobos_sw_sidebar::SUPER_WEAPON_SIDEBAR_KEYS)
             .then(|| {
@@ -234,6 +220,29 @@ pub(crate) fn build(
         }
     }
     out
+}
+
+/// `SWButtonClass::Draw`: a one-pixel `Drawing::Rect` in the tooltip colour
+/// around the hovered gadget.
+fn push_outline(out: &mut Vec<SpriteInstance>, rect: Rect, tint: [f32; 3]) {
+    let border = 1.0;
+    for (x, y, w, h) in [
+        (rect.x, rect.y, rect.w, border),
+        (rect.x, rect.y + rect.h - border, rect.w, border),
+        (rect.x, rect.y, border, rect.h),
+        (rect.x + rect.w - border, rect.y, border, rect.h),
+    ] {
+        out.push(SpriteInstance {
+            position: [x, y],
+            size: [w, h],
+            uv_origin: [0.0, 0.0],
+            uv_size: [1.0, 1.0],
+            depth: 0.00044,
+            tint,
+            alpha: 1.0,
+            ..Default::default()
+        });
+    }
 }
 
 fn readiness_text<'a>(

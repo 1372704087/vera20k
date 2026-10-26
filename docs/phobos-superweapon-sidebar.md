@@ -112,13 +112,18 @@ and does not load or redistribute the Phobos DLL.
 
 - An Ares constraint refusal plays the cameo click sound but shows no
   `Message.CannotFire` line; only the launch is withheld.
-- A permitted left click on a `SW.UseAITargeting=yes` type selects it for
-  manual targeting. Phobos's `LaunchSuper` instead fires it at once at the cell
-  Ares's AI targeting picks.
+- A permitted click on a `SW.UseAITargeting=yes` type selects it for manual
+  targeting, on either sidebar. Phobos's `LaunchSuper` and Ares's right-sidebar
+  click hook (10034EB7..10034EE4) instead fire it at once at the cell Ares's AI
+  targeting picks.
 - Phobos darkens a cameo with `DARKEN.SHP` and the Darken blitter; the left
   sidebar halves the cameo's colour instead.
 - VERA never writes the House's second defensive cell (+0x54F8), so
   `defensive_cell_set` always refuses and `defensive_cell_clear` never does.
+- Builds with Phobos but without Ares do not read Phobos's own copies of
+  `SidebarPCX`, `Money.Amount` and `SW.UseAITargeting`: the left sidebar draws
+  the SHP cameo, never darkens for money, and launches `SW.UseAITargeting`
+  types that Phobos without Ares refuses.
 - Phobos reads the two `[GlobalControls]` switches once from `RULESMD.INI`;
   VERA reads them from each scenario's layered Rules.
 - The left sidebar hovers over a cameo with no artwork still show a tooltip and

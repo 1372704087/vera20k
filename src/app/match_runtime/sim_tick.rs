@@ -1229,11 +1229,12 @@ fn advance_one_simulation_frame(
                         if let Some(owner) = sim.session().current_house() {
                             sidebar.reconcile_factory_links(sim, owner);
                         }
-                        let mut order = sidebar.saved_order();
+                        let order = sidebar.saved_order();
                         #[cfg(feature = "phobos")]
-                        if let Some(order) = order.as_mut() {
+                        let order = order.map(|mut order| {
                             order.set_sw_sidebar_expanded(sw_sidebar_expanded);
-                        }
+                            order
+                        });
                         prepared.refresh_sidebar_order(order);
                     }
                     crate::app::persistence::commands::initial_campaign_save(

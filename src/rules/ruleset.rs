@@ -136,6 +136,10 @@ pub struct CountryRules {
     /// `Name=` — the country's plain English name, the fallback when `UIName=`
     /// is absent or its key does not resolve.
     pub name: Option<String>,
+    /// Ares country presentation state (flag/status/taunt/order/weights and
+    /// observer art). GUI/process state, not a simulation hash input.
+    #[cfg(feature = "ares")]
+    pub(crate) presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
 }
 
 /// The House factors [`RuleSet::cost_of`] multiplies in, each indexed by
@@ -188,6 +192,9 @@ impl Default for CountryRules {
             build_time: 1.0,
             ui_name: None,
             name: None,
+            #[cfg(feature = "ares")]
+            presentation: crate::rules::ares_country_presentation::AresCountryPresentation::default(
+            ),
         }
     }
 }
@@ -242,6 +249,9 @@ impl CountryRules {
             // `UIName` into 0x20 (0x00410AFB).
             ui_name: section.read_name("UIName", 0x20).map(str::to_owned),
             name: section.read_name("Name", 0x31).map(str::to_owned),
+            #[cfg(feature = "ares")]
+            presentation: crate::rules::ares_country_presentation::AresCountryPresentation::default(
+            ),
         }
     }
 }
@@ -7728,6 +7738,129 @@ impl RuleSet {
             .is_some_and(|country| country.multiplay_passive)
     }
 
+    /// Ares `File.Flag=` (stock/unknown defaults included). None in a stock
+    /// build, where the shell keeps its fixed flag table.
+    pub fn country_flag(&self, id: &str) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .and_then(|country| country.presentation.flag.as_deref());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
+    /// Ares `MenuText.Status=` CSF key (stock/unknown defaults included).
+    pub fn country_status_key(&self, id: &str) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .and_then(|country| country.presentation.status.as_deref());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
+    /// Ares `File.Taunt=` pattern; `~~` or the stock `%02i` receives the
+    /// taunt number elsewhere. None in a stock build.
+    pub fn country_taunt_pattern(&self, id: &str) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .and_then(|country| country.presentation.taunt.as_deref());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
+    /// `File.Taunt=` for a HouseType country index (the taunt byte's field).
+    pub fn country_taunt_pattern_by_index(&self, index: u16) -> Option<&str> {
+        let id = self.country_name(CountryIdx(index))?;
+        self.country_taunt_pattern(id)
+    }
+
+    /// Ares `ListIndex=`; negative hides the country. A stock build returns
+    /// the common 100, preserving registry order.
+    pub fn country_list_index(&self, id: &str) -> i32 {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .map_or(100, |country| country.presentation.list_index);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            100
+        }
+    }
+
+    /// Ares `RandomSelectionWeight=`, default 1.
+    pub fn country_random_weight(&self, id: &str) -> i32 {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .map_or(1, |country| country.presentation.random_weight);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            1
+        }
+    }
+
+    /// Ares `AIRandomSelectionWeight=`, defaulting to the human weight.
+    pub fn country_ai_random_weight(&self, id: &str) -> i32 {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .map_or(1, |country| country.presentation.ai_random_weight);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            self.country_random_weight(id)
+        }
+    }
+
+    /// Ares `File.ObserverBackground=` (PCX or SHP), when retained.
+    #[cfg(feature = "ares")]
+    pub fn country_observer_background(&self, id: &str) -> Option<&str> {
+        self.country_rules(id)?
+            .presentation
+            .observer_background
+            .as_deref()
+    }
+
+    /// Ares `File.ObserverFlag=` (PCX or SHP), when retained.
+    #[cfg(feature = "ares")]
+    pub fn country_observer_flag(&self, id: &str) -> Option<&str> {
+        self.country_rules(id)?
+            .presentation
+            .observer_flag
+            .as_deref()
+    }
+
+    /// Ares `File.ObserverFlagAltPalette=`.
+    #[cfg(feature = "ares")]
+    pub fn country_observer_flag_alt_palette(&self, id: &str) -> bool {
+        self.country_rules(id)
+            .is_some_and(|country| country.presentation.observer_flag_alt_palette)
+    }
+
     /// HouseType511850 scalar fields used by SetDifficulty4F6EC0. Unknown
     /// countries retain its constructor's neutral doubles. Category cost,
     /// speed and armor getters use their own independent fields.
@@ -9185,6 +9318,10 @@ fn project_country_side_registry<'a>(
             fields.color_scheme = color;
             fields.parent_country = parent.to_owned();
             fields.veteran_types = veteran.clone();
+            #[cfg(feature = "ares")]
+            {
+                fields.presentation = veteran.presentation().clone();
+            }
             fields
         });
     }

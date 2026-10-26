@@ -417,6 +417,14 @@ impl ProcessAssets {
             .flat_map(|rules| rules.multiplayer_countries())
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn country_random_rows(&self) -> Vec<(&str, Option<&str>, bool, i32, i32)> {
+        self.native_rules
+            .as_ref()
+            .map(|rules| rules.country_random_rows())
+            .unwrap_or_default()
+    }
+
     pub(crate) fn project_multiplayer_countries(
         &self,
         projection: &mut crate::rules::ruleset::RuleSet,

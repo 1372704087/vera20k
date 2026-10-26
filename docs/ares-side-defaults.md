@@ -70,11 +70,6 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
 
 ## Residuals
 
-- **Country selection metadata** (`File.Flag`, `ListIndex`,
-  `RandomSelectionWeight`, `AIRandomSelectionWeight`, observer flag and
-  background, `File.Taunt`) is not parsed or consumed. Fourth-side Countries
-  are already selectable through the registry, but show no stock flag; a
-  modifier using these keys gets the stock ten-country presentation.
 - **Score screens and themes**, `GraphicalText.*` and `DialogBackground.*`
   are retained but not drawn; those are separate UI mechanisms.
 - **HunterSeeker** is retained but the Hunter Seeker superweapon launch is

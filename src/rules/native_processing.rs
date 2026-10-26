@@ -2794,6 +2794,7 @@ struct AresCountryState {
     parent_initialized: bool,
     buildings: Vec<String>,
     loading: crate::rules::country_loading::AresCountryLoading,
+    presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -2810,6 +2811,13 @@ impl CountryVeterancyState {
     #[cfg(feature = "ares")]
     pub(crate) fn loading(&self) -> &crate::rules::country_loading::AresCountryLoading {
         &self.ares.loading
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn presentation(
+        &self,
+    ) -> &crate::rules::ares_country_presentation::AresCountryPresentation {
+        &self.ares.presentation
     }
 
     pub(crate) fn contains(&self, category: ObjectCategory, type_id: &str) -> bool {
@@ -5520,6 +5528,16 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .loading = loading;
+            let mut presentation = self.families[&RulesTypeFamily::Country][index]
+                .country_veterancy
+                .ares
+                .presentation
+                .clone();
+            presentation.initialize_stock(index);
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .presentation = presentation;
             self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
                 .ares
@@ -5553,6 +5571,7 @@ impl RulesPassProcessor {
                     .ares;
                 current.buildings = inherited.buildings;
                 current.loading = inherited.loading;
+                current.presentation.inherit_from(&inherited.presentation);
             }
             //1001C0CB consumes the attempt even when Find failed. Empty
             // and case-insensitive self references above do not consume it.
@@ -5560,6 +5579,20 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .parent_initialized = true;
+        }
+        // The Ares country presentation keys are read after the one-shot
+        // parent copy: a child overrides what it inherits. The file/status
+        // block is primary-Rules only; weights and ListIndex are common.
+        {
+            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares;
+            if primary_rules && let Some(section) = pass.section(&id) {
+                current.presentation.read_primary(section);
+            }
+            if let Some(section) = pass.section(&id) {
+                current.presentation.read_common(section);
+            }
         }
         // Color1001C686 is common to every pass and follows inheritance.
         if let Some(section) = pass.section(&id) {
@@ -7310,6 +7343,10 @@ mod side_registry_tests;
 #[cfg(test)]
 #[path = "ares_side_sidebar_tests.rs"]
 mod ares_side_sidebar_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_country_presentation_tests.rs"]
+mod ares_country_presentation_tests;
 
 #[cfg(all(test, feature = "ares"))]
 #[path = "ares_side_defaults_tests.rs"]

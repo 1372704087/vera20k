@@ -8,7 +8,7 @@
 //! It also carries VERA20K's own legal notice, which gamemd's splash lacks; see
 //! [`LEGAL_NOTICE`].
 
-use std::time::{Duration, Instant};
+use crate::util::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 

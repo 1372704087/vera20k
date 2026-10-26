@@ -190,7 +190,12 @@ impl crate::sim::world::Simulation {
             .get(&owner_house)
             .map(|house| house.side_index())
             .unwrap_or(-1);
-        let Some(canopy) = parachute_anim_name(rules, owner, side) else {
+        let country = self
+            .houses
+            .get(&owner_house)
+            .and_then(|house| house.country())
+            .map(|country| self.interner.resolve(country));
+        let Some(canopy) = parachute_anim_name(rules, owner, side, country) else {
             self.substrate
                 .entities
                 .get_mut(owner_id)?
@@ -286,17 +291,26 @@ fn parachute_anim_name<'r>(
     rules: &'r crate::rules::ruleset::RuleSet,
     entity: &crate::sim::game_entity::GameEntity,
     side: i32,
+    country: Option<&str>,
 ) -> Option<&'r str> {
+    // `GetParachuteAnim @ 0x1001BBC0` answers the country's own
+    // `[Country] Parachute.Anim=` first; a never-set or `none` field is the
+    // null pointer there and defers to the side.
+    if let Some(country) = country
+        && let Some(canopy) = rules.country_parachute_anim(country)
+    {
+        return Some(canopy);
+    }
     // Ares `[Side] Parachute.Anim=` wins over both the stock canopy and the
     // NPSE non-infantry branch; an unset key leaves that existing owner, and
     // `none` falls through to `Find("PARACH")`
     // (`HouseTypeExt::GetParachuteAnim @ 0x1001BBC0`).
     //
     // RESIDUAL (Ares): the canopy hook `0x5F5ADD` -> `0x10047C80` first takes
-    // the dropped type's own `Parachute.Anim` (TechnoTypeExt `+0xF0`), then
-    // the Country's (`+0x158`), before this Side layer; VERA reads neither.
-    // Trigger: a mod setting those keys. Effect: another canopy art; no
-    // gameplay change. Never on retail data.
+    // the dropped type's own `Parachute.Anim` (TechnoTypeExt `+0xF0`), before
+    // the Country layer above; VERA does not read that type key. Trigger: a
+    // mod setting it. Effect: another canopy art; no gameplay change. Never
+    // on retail data.
     if let Some(override_) = rules.side_parachute_override(side) {
         return Some(override_.unwrap_or("PARACH"));
     }
@@ -569,7 +583,10 @@ mod canopy_tests {
         .expect("side rules");
         let rules = RuleSet::from_processed_rules(&processed).expect("side projection");
         let entity = GameEntity::test_default(1, "E1", "Americans", 10, 11);
-        assert_eq!(parachute_anim_name(&rules, &entity, 3), Some("PARACH"));
+        assert_eq!(
+            parachute_anim_name(&rules, &entity, 3, None),
+            Some("PARACH")
+        );
     }
 
     #[test]

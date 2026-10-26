@@ -2895,6 +2895,45 @@ fn read_nullable_int_vector(
     Some(section.read_ares_int_list(key).unwrap_or_default())
 }
 
+/// Ares `Valueable<T*>`/`ValueableIdx<T>` reads (`0x1000C9C0` through
+/// `0x1000EB20`, `0x1001CC10`): the [`read_ares_type_ref`] rule without a
+/// separate unset state, so a `none` field and a never-set one are both
+/// `None` (the null pointer or -1 index).
+#[cfg(feature = "ares")]
+fn read_valueable_type(
+    section: &IniSection,
+    key: &str,
+    current: &Option<String>,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    read_ares_type_ref(section, key, &current.clone().map(Some), resolve).flatten()
+}
+
+/// Ares `ValueableVector<TechnoTypeClass*>::Read` (`0x1000EDD0`): ReadString
+/// returning 0 (absent or empty) retains; any other value replaces the
+/// vector with the tokens that resolve. There is no `<default>` form.
+#[cfg(feature = "ares")]
+fn read_valueable_type_vector(
+    section: &IniSection,
+    key: &str,
+    current: &[String],
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    match section.read_list(key, 0x800) {
+        Some(tokens) => tokens.into_iter().filter_map(resolve).collect(),
+        None => current.to_vec(),
+    }
+}
+
+/// Ares `ValueableVector<int>::Read` (`0x1000ED00`), with the same retain
+/// rule as [`read_valueable_type_vector`].
+#[cfg(feature = "ares")]
+fn read_valueable_int_vector(section: &IniSection, key: &str, current: &[i32]) -> Vec<i32> {
+    section
+        .read_ares_int_list(key)
+        .unwrap_or_else(|| current.to_vec())
+}
+
 /// The reached CountryExt reader state needed by the starting-rank chain.
 /// Constructor1001B85F/1001B87C/1001B8D0 starts phase0, an empty building
 /// list and an unconsumed parent attempt. This state shares the existing
@@ -2907,6 +2946,7 @@ struct AresCountryState {
     buildings: Vec<String>,
     loading: crate::rules::country_loading::AresCountryLoading,
     presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
+    paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -2916,6 +2956,7 @@ impl Hash for AresCountryState {
         self.phase.hash(state);
         self.parent_initialized.hash(state);
         self.buildings.hash(state);
+        self.paradrop.hash(state);
     }
 }
 
@@ -2930,6 +2971,12 @@ impl CountryVeterancyState {
         &self,
     ) -> &crate::rules::ares_country_presentation::AresCountryPresentation {
         &self.ares.presentation
+    }
+
+    /// The country's own Ares paradrop overrides.
+    #[cfg(feature = "ares")]
+    pub(crate) fn paradrop(&self) -> &crate::rules::ares_country_paradrop::AresCountryParadrop {
+        &self.ares.paradrop
     }
 
     pub(crate) fn contains(&self, category: ObjectCategory, type_id: &str) -> bool {
@@ -5751,6 +5798,7 @@ impl RulesPassProcessor {
                 current.buildings = inherited.buildings;
                 current.loading = inherited.loading;
                 current.presentation.inherit_from(&inherited.presentation);
+                current.paradrop.inherit_from(&inherited.paradrop);
             }
             //1001C0CB consumes the attempt even when Find failed. Empty
             // and case-insensitive self references above do not consume it.
@@ -5758,6 +5806,33 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .parent_initialized = true;
+        }
+        // Common1001C5D0 reads the paradrop block on every pass, after its
+        // one-shot parent copy1001BDC0 and before the color: `Parachute.Anim`
+        //1001C620, `ParaDrop.Aircraft`1001C636, `ParaDrop.Types`1001C64C
+        // (then remove_non_paradroppables100768C0 keeps InfantryType and
+        // UnitType identities) and `ParaDrop.Num`1001C670.
+        if let Some(section) = pass.section(&id) {
+            let types = SideRegisteredTypes::collect(&self.families);
+            let paradrop = &mut self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .paradrop;
+            paradrop.parachute_anim = read_valueable_type(
+                section,
+                "Parachute.Anim",
+                &paradrop.parachute_anim,
+                |name| SideRegisteredTypes::find(&types.animations, name),
+            );
+            paradrop.aircraft =
+                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
+                    SideRegisteredTypes::find(&types.aircraft, name)
+                });
+            paradrop.types =
+                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
+                    types.techno(name)
+                });
+            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
         }
         // Color1001C686 is common to every pass and follows inheritance.
         if let Some(section) = pass.section(&id) {
@@ -7551,6 +7626,10 @@ mod side_registry_tests;
 #[cfg(test)]
 #[path = "ares_side_sidebar_tests.rs"]
 mod ares_side_sidebar_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_country_paradrop_tests.rs"]
+mod ares_country_paradrop_tests;
 
 #[cfg(all(test, feature = "ares"))]
 #[path = "ares_country_presentation_tests.rs"]

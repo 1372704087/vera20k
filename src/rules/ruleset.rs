@@ -140,6 +140,10 @@ pub struct CountryRules {
     /// observer art). GUI/process state, not a simulation hash input.
     #[cfg(feature = "ares")]
     pub(crate) presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
+    /// Ares country `ParaDrop.*` / `Parachute.Anim=` overrides. Simulation
+    /// state: which units a paradrop superweapon sends.
+    #[cfg(feature = "ares")]
+    pub(crate) paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
 }
 
 /// The House factors [`RuleSet::cost_of`] multiplies in, each indexed by
@@ -195,6 +199,8 @@ impl Default for CountryRules {
             #[cfg(feature = "ares")]
             presentation: crate::rules::ares_country_presentation::AresCountryPresentation::default(
             ),
+            #[cfg(feature = "ares")]
+            paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop::default(),
         }
     }
 }
@@ -252,6 +258,8 @@ impl CountryRules {
             #[cfg(feature = "ares")]
             presentation: crate::rules::ares_country_presentation::AresCountryPresentation::default(
             ),
+            #[cfg(feature = "ares")]
+            paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop::default(),
         }
     }
 }
@@ -6731,6 +6739,17 @@ impl RuleSet {
             .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        // Which units a country's paradrop sends is simulation state, so the
+        // Ares country overrides enter the state hash alongside it.
+        #[cfg(feature = "ares")]
+        {
+            b"ares-country-paradrop-v1".hash(&mut hasher);
+            self.countries
+                .iter()
+                .map(|(id, country)| (id.to_ascii_uppercase(), &country.paradrop))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
+        }
         #[cfg(feature = "phobos")]
         {
             b"phobos-super-availability-v1".hash(&mut hasher);
@@ -8029,6 +8048,53 @@ impl RuleSet {
         #[cfg(not(feature = "ares"))]
         {
             self.country_random_weight(id)
+        }
+    }
+
+    /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country: its own
+    /// `ParaDrop.Types`/`.Num` while the type list is non-empty, else `None`,
+    /// which defers to the side layer (also the answer in a stock build).
+    pub fn country_paradrop_lists(&self, id: &str) -> Option<(&[String], &[i32])> {
+        #[cfg(feature = "ares")]
+        {
+            return self.country_rules(id)?.paradrop.lists();
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
+    /// Ares `[Country] ParaDrop.Aircraft=` (`HouseTypeExt +0x154`), which
+    /// `GetParadropPlane @ 0x1001BCB0` prefers over the side's plane. A
+    /// never-set or `none` index is `-1` there, so this answers `None` and the
+    /// caller keeps the side layer.
+    pub fn country_paradrop_aircraft(&self, id: &str) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self.country_rules(id)?.paradrop.aircraft.as_deref();
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
+    /// Ares `[Country] Parachute.Anim=` (`HouseTypeExt +0x158`), which
+    /// `GetParachuteAnim @ 0x1001BBC0` prefers over the side's canopy and the
+    /// rules default. The canopy hook reaches it only when the type names no
+    /// parachute of its own.
+    pub fn country_parachute_anim(&self, id: &str) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self.country_rules(id)?.paradrop.parachute_anim.as_deref();
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
         }
     }
 
@@ -9546,6 +9612,7 @@ fn project_country_side_registry<'a>(
             #[cfg(feature = "ares")]
             {
                 fields.presentation = veteran.presentation().clone();
+                fields.paradrop = veteran.paradrop().clone();
             }
             fields
         });

@@ -128,9 +128,7 @@ VERA20K は、既定ではオリジナルのゲームと同じようにプレイ
 
 OpenRA、XCC Mixer、ModEnc wiki、Project Perfect Mod、EA が GPL で公開した Command & Conquer と Red Alert のソースコード、World-Altering Editor、Final Alert、YRpp、Ares、Phobos、そのほか多くの皆さんに感謝します。
 
-本プロジェクトは [VERA20k Noncommercial License](LICENSE-NONCOMMERCIAL) でライセンスされています。非営利目的であれば、無料でプレイ、研究、改変、共有できます。共有するバージョンには、ソースコードを添え、著作権とライセンスの表示を残し、VERA20K に基づくことを明記する必要があります。販売、有料または広告収入によるゲームのホスティング、収益を得る動画や配信などの商用利用は認められませんが、プロジェクトへの任意の寄付と、公開される貢献に対する有償の開発は認められます。このライセンスより前のバージョンは引き続き [GPLv3](LICENSES/GPL-3.0.txt) の下にあります。FFmpeg から移植した Bink 動画コード（`src/assets/bink_*.rs`）は引き続き [LGPL 2.1 以降](LICENSES/LGPL-2.1-or-later.txt) の下にあり、VERA20K が使用するライブラリはそれぞれのライセンスに従います。
-
-このリポジトリにゲームファイルは含まれていません。Command & Conquer および Red Alert は Electronic Arts Inc. の商標です。スクリーンショットとアプリアイコン（Red Alert 2 の赤い星）には、Electronic Arts が所有するゲームアートが含まれています。VERA20K は Electronic Arts と提携関係になく、同社の承認を受けたものでもありません。
+本プロジェクトは [GPLv3](LICENSE-GPL) でライセンスされています。このリポジトリにゲームファイルは含まれていません。Command & Conquer および Red Alert は Electronic Arts Inc. の商標です。スクリーンショットとアプリアイコン（Red Alert 2 の赤い星）には、Electronic Arts が所有するゲームアートが含まれています。VERA20K は Electronic Arts と提携関係になく、同社の承認を受けたものでもありません。
 
 ## ドキュメント
 

@@ -92,16 +92,16 @@ const TRADEMARK_BOTTOM_KEY: &str = "GUI:TradeMarkBottom";
 const TRADEMARK_BOTTOM_FALLBACK: &str =
     "trademarks of Electronic Arts Inc. in the U.S. and/or other countries.";
 
-/// The notices the VERA20k Noncommercial License (LICENSE-NONCOMMERCIAL) asks a
-/// program with a user interface to show: what it is, its copyright, license
-/// and lack of warranty, and where its source is (a release build names its
-/// commit; build.rs). Drawn top right, opposite "Loading...". In GAME.FNT each
-/// row stays right of Yuri's Revenge's logo at 800x600, and the three end above
-/// the art the retail test compares. A modified version must show its own such
-/// notice.
+/// VERA20K's GPLv3 "Appropriate Legal Notices" (sections 0 and 5(d)): the
+/// copyright, the right to share under the license, no warranty, and where to
+/// read the license and get the source (a release build names its commit;
+/// build.rs). Drawn top right, opposite "Loading...". In GAME.FNT each row stays
+/// right of Yuri's Revenge's logo at 800x600, and the three end above the art the
+/// retail test compares. Because the program shows them, modified versions must
+/// keep showing such a notice.
 const LEGAL_NOTICE: [&str; 3] = [
     "VERA20K © 2026 Halvor Nikolai Rusten and contributors",
-    "Licensed under the VERA20k Noncommercial License. No warranty.",
+    "You may share it under the GNU GPL v3. It has no warranty.",
     concat!("License and source: ", env!("VERA20K_SOURCE")),
 ];
 

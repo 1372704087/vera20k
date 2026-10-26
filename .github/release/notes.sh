@@ -77,6 +77,6 @@ You need your own copy of Yuri's Revenge.
 - **Linux:** make the `.AppImage` executable and start it.
 EOF
   echo
-  echo "Free for noncommercial use under the [VERA20k Noncommercial License]($repo_url/blob/$COMMIT/LICENSE-NONCOMMERCIAL)."
+  echo "Free software under the [GNU GPL version 3]($repo_url/blob/$COMMIT/LICENSE-GPL)."
 } > "$out"
 cat "$out"

@@ -4236,7 +4236,7 @@ pub struct RuleSet {
     /// Read-only projection of the live SideExt owner, in the same native
     /// array order as side_ids. Rebuilt after every Process/reset/save restore.
     #[cfg(feature = "ares")]
-    side_extensions: Vec<(i32, bool, i32)>,
+    side_extensions: Vec<crate::rules::ares_side_extension::AresSideExtension>,
     /// Uppercase side identity -> source-order index.
     side_indices: HashMap<String, SideIdx>,
     /// Phobos `[SOMESIDE] Sidebar.GDIPositions=`, in `[Sides]` order.
@@ -6170,6 +6170,10 @@ impl RuleSet {
     /// (`HouseTypeClass+0xBC`): Allied for side 0, Soviet for 1, Third for any
     /// other (`0x00507BCA..0x00507BFA`).
     pub(crate) fn base_defense_types(&self, side_index: i32) -> &[String] {
+        #[cfg(feature = "ares")]
+        if let Some(types) = self.side_base_defenses(side_index) {
+            return types;
+        }
         match side_index {
             0 => &self.allied_base_defense_types,
             1 => &self.soviet_base_defense_types,
@@ -6631,7 +6635,7 @@ impl RuleSet {
         }
         #[cfg(feature = "ares")]
         {
-            b"ares-side-sidebar-v1".hash(&mut hasher);
+            b"ares-side-defaults-v1".hash(&mut hasher);
             b"ares-super-availability-v1".hash(&mut hasher);
             self.ares_super_weapon_metadata.hash(&mut hasher);
             b"ares-weapon-ammo-v1".hash(&mut hasher);
@@ -7956,7 +7960,7 @@ impl RuleSet {
         return self
             .side_extensions
             .get(usize::from(index.0))
-            .map(|&(mix, _, _)| mix);
+            .map(|extension| extension.sidebar_mix_file_index);
         #[cfg(not(feature = "ares"))]
         {
             let _ = index;
@@ -7971,7 +7975,7 @@ impl RuleSet {
         return self
             .side_extensions
             .get(usize::from(index.0))
-            .map(|&(_, yuri, _)| yuri);
+            .map(|extension| extension.sidebar_yuri_file_names);
         #[cfg(not(feature = "ares"))]
         {
             let _ = index;
@@ -7984,9 +7988,292 @@ impl RuleSet {
     /// decides whether that value has a column. Native: Ares1002FB00.
     #[cfg(feature = "ares")]
     pub fn side_eva_voice_index(&self, side: i32) -> Option<i32> {
+        self.side_extension(side)
+            .map(|extension| extension.eva_voice_index)
+    }
+
+    #[cfg(feature = "ares")]
+    fn side_extension(
+        &self,
+        side: i32,
+    ) -> Option<&crate::rules::ares_side_extension::AresSideExtension> {
+        self.side_extensions.get(usize::try_from(side).ok()?)
+    }
+
+    /// Ares Side default fallbacks use the side's array index; a fourth or
+    /// later side takes the Allied branch (3.0 getters at 0x1002DE60,
+    /// 0x1002DEA0, 0x1002E130, 0x1002DDD0, 0x1002DD40, 0x1002DFB0,
+    /// 0x1002E060). `None` means the installed build has no SideExt for this
+    /// index, so the caller keeps its stock path.
+    #[cfg(feature = "ares")]
+    fn ares_default_side_index(side: i32) -> usize {
+        match side {
+            1 => 1,
+            2 => 2,
+            _ => 0,
+        }
+    }
+
+    /// `[Side] Crew=` else `AlliedCrew`/`SovietCrew`/`ThirdCrew` by array
+    /// index. `Some(None)` is an explicitly blank key (no crew), distinct from
+    /// an unset key (caller falls back as native `SideExt::GetCrew`).
+    pub(crate) fn side_crew(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(match &extension.crew {
+                Some(value) => value.as_deref(),
+                None => match side {
+                    1 => self.general.soviet_crew.as_deref(),
+                    2 => self.general.third_crew.as_deref(),
+                    _ => self.general.allied_crew.as_deref(),
+                },
+            });
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] Engineer=` else global `[General] Engineer=`
+    /// (`SideExt::GetEngineer @ 0x1002DEE0`).
+    pub(crate) fn side_engineer(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(match &extension.engineer {
+                Some(value) => value.as_deref(),
+                None => self.general.engineer_infantry.as_deref(),
+            });
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] Technician=` else global `[General] Technician=`
+    /// (`SideExt::GetTechnician @ 0x1002E170`).
+    pub(crate) fn side_technician(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(match &extension.technician {
+                Some(value) => value.as_deref(),
+                None => self.general.technician.as_deref(),
+            });
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] DefaultDisguise=` else the stock side disguise by array index
+    /// (`SideExt::GetDisguise @ 0x1002DEA0`).
+    pub(crate) fn side_disguise(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(match &extension.default_disguise {
+                Some(value) => value.as_deref(),
+                None => {
+                    self.general.infantry_disguises[Self::ares_default_side_index(side)].as_deref()
+                }
+            });
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] SurvivorDivisor=` else `Allied/Soviet/ThirdSurvivorDivisor`
+    /// (`SideExt::GetSurvivorDivisor @ 0x1002E130`).
+    pub(crate) fn side_survivor_divisor(&self, side: i32) -> Option<i32> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(extension.survivor_divisor.unwrap_or(match side {
+                1 => self.general.soviet_survivor_divisor,
+                2 => self.general.third_survivor_divisor,
+                _ => self.general.allied_survivor_divisor,
+            }));
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] AI.BaseDefenses=` else the side-index list; a fourth or later
+    /// side takes the Allied list (`SideExt::GetBaseDefenses @ 0x1002DDD0`).
+    #[cfg(feature = "ares")]
+    pub(crate) fn side_base_defenses(&self, side: i32) -> Option<&[String]> {
+        let extension = self.side_extension(side)?;
+        Some(
+            extension
+                .base_defenses
+                .as_deref()
+                .unwrap_or_else(|| match side {
+                    1 => &self.soviet_base_defense_types,
+                    2 => &self.third_base_defense_types,
+                    _ => &self.allied_base_defense_types,
+                }),
+        )
+    }
+
+    /// `[Side] AI.BaseDefenseCounts=` else the side-index difficulty vector;
+    /// a fourth or later side takes the Allied vector
+    /// (`SideExt::GetBaseDefenseCounts @ 0x1002DD40`).
+    pub(crate) fn side_base_defense_counts(&self, side: i32) -> Option<&[i32]> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(
+                extension
+                    .base_defense_counts
+                    .as_deref()
+                    .unwrap_or_else(|| match side {
+                        1 => &self.soviet_base_defense_counts,
+                        2 => &self.third_base_defense_counts,
+                        _ => &self.allied_base_defense_counts,
+                    }),
+            );
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] ParaDrop.Types=`/`ParaDrop.Num=` only when both are set;
+    /// otherwise the side-index lists, with a fourth or later side taking the
+    /// Allied pair (`SideExt::GetParaDropTypes @ 0x1002E060`,
+    /// `GetParaDropNum @ 0x1002DFB0`).
+    pub(crate) fn side_paradrop(&self, side: i32) -> Option<(&[String], &[i32])> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            if let (Some(types), Some(counts)) =
+                (&extension.paradrop_types, &extension.paradrop_num)
+            {
+                return Some((types, counts));
+            }
+            let lists = match side {
+                1 => &self.general.sov_paradrop,
+                2 => &self.general.yuri_paradrop,
+                _ => &self.general.ally_paradrop,
+            };
+            return Some((lists.infantry.as_slice(), lists.counts.as_slice()));
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] ParaDrop.Aircraft=` else the plane the SideExt initializer
+    /// resolved from `PDPLANE` (`+0x74`). `Some(None)` means an explicit blank
+    /// key selected no plane.
+    pub(crate) fn side_paradrop_aircraft(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return Some(
+                extension
+                    .paradrop_aircraft
+                    .as_ref()
+                    .and_then(|name| name.as_deref()),
+            );
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] Parachute.Anim=` only; an unset key leaves the existing
+    /// `[General] Parachute=`/NPSE `VehicleParachute=` owner in charge.
+    /// `Some(None)` is an explicit blank key (no canopy).
+    pub(crate) fn side_parachute_override(&self, side: i32) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            let extension = self.side_extension(side)?;
+            return extension
+                .parachute_anim
+                .as_ref()
+                .map(|name| name.as_deref());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] ToolTipColor=` as RGB (initialized 255,255,0 for Nod/ThirdSide,
+    /// 164,210,255 otherwise; `SideExt+80`).
+    pub fn side_tooltip_color(&self, side: i32) -> Option<[u8; 3]> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .side_extension(side)
+                .map(|extension| extension.tooltip_color);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] MessageTextColor=` as the runtime ColorScheme index
+    /// (initialized 11 for Nod, 25 for ThirdSide, 21 otherwise) or -1 for an
+    /// explicit blank key (`SideExt+84`).
+    pub fn side_message_text_color_index(&self, side: i32) -> Option<i32> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .side_extension(side)
+                .map(|extension| extension.message_text_color_index);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            None
+        }
+    }
+
+    /// `[Side] HunterSeeker=`; no VERA consumer yet (the Hunter Seeker
+    /// superweapon is a separate unported mechanism).
+    #[cfg(feature = "ares")]
+    // Hunter Seeker superweapon launch is not ported; the parsed value has no
+    // production consumer yet.
+    #[allow(dead_code)]
+    pub(crate) fn side_hunter_seeker(&self, side: i32) -> Option<&str> {
+        self.side_extension(side)?
+            .hunter_seeker
+            .as_ref()?
+            .as_deref()
+    }
+
+    /// Every distinct `[Side] Parachute.Anim=` identity, for the animation
+    /// asset preload and canopy owner scan.
+    #[cfg(feature = "ares")]
+    pub fn side_parachute_animations(&self) -> impl Iterator<Item = &str> {
         self.side_extensions
-            .get(usize::try_from(side).ok()?)
-            .map(|&(_, _, voice)| voice)
+            .iter()
+            .filter_map(|extension| extension.parachute_anim.as_ref()?.as_deref())
     }
 
     /// Return the country's effective side after its optional `Side=`
@@ -8848,7 +9135,7 @@ struct ProjectedCountrySideRegistry {
     country_indices: HashMap<String, CountryIdx>,
     side_ids: Vec<String>,
     #[cfg(feature = "ares")]
-    side_extensions: Vec<(i32, bool, i32)>,
+    side_extensions: Vec<crate::rules::ares_side_extension::AresSideExtension>,
     side_indices: HashMap<String, SideIdx>,
     country_sides: Vec<Option<SideIdx>>,
 }
@@ -8866,7 +9153,7 @@ fn project_country_side_registry<'a>(
     #[cfg(feature = "ares")]
     let side_extensions = sides
         .iter()
-        .map(|(_, sidebar)| sidebar.expect("allocated Side owns its Ares extension"))
+        .map(|(_, extension)| (*extension.expect("allocated Side owns its Ares extension")).clone())
         .collect();
     let mut side_indices = HashMap::with_capacity(side_ids.len());
     for (index, id) in side_ids.iter().enumerate() {

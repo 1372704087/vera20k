@@ -3839,6 +3839,24 @@ mod tests {
     }
 
     #[test]
+    fn fourth_side_house_and_scenario_index_round_trip_through_snapshot() {
+        let mut sim = Simulation::with_seed(0);
+        let owner = sim.intern("FourthSideHouse");
+        sim.houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 3, None, false, 0, 1,
+            ));
+        sim.session.install_current_house(Some(owner));
+        sim.session.install_scenario_side(3);
+        let bytes = GameSnapshot::save(&sim, 0, 0, "fourth-side", 0);
+        let mut restored = GameSnapshot::load(&bytes).unwrap().sim;
+        restored.restore_after_snapshot_load().unwrap();
+        assert_eq!(restored.houses[&owner].side_index(), 3);
+        assert_eq!(restored.session.scenario_side(), 3);
+        assert_eq!(restored.session.current_house(), Some(owner));
+    }
+
+    #[test]
     fn restore_rejects_a_live_infantryman_with_the_dying_mark() {
         use crate::map::entities::EntityCategory;
         use crate::sim::game_entity::GameEntity;

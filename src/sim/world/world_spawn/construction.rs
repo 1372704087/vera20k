@@ -332,13 +332,16 @@ impl Simulation {
             && obj.perma_disguise
             && let Some(side) = houses.get(&ge.owner()).map(|h| h.side_index())
         {
-            let worn = rules.general.infantry_disguises[match side {
-                0 => 0,
-                1 => 1,
-                _ => 2,
-            }]
-            .as_deref()
-            .map(|name| interner.intern(name));
+            let worn = match rules.side_disguise(side) {
+                Some(value) => value.map(|name| interner.intern(name)),
+                None => rules.general.infantry_disguises[match side {
+                    0 => 0,
+                    1 => 1,
+                    _ => 2,
+                }]
+                .as_deref()
+                .map(|name| interner.intern(name)),
+            };
             let owner = ge.owner();
             let frame = session.binary_frame();
             ge.disguise_mut(frame).wear_from_construction(worn, owner);

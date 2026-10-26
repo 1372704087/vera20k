@@ -184,7 +184,13 @@ impl crate::sim::world::Simulation {
         owner_id: u64,
     ) -> Option<crate::sim::anim_class::AnimId> {
         let owner = self.substrate.entities.get(owner_id)?;
-        let Some(canopy) = parachute_anim_name(rules, owner) else {
+        let owner_house = owner.owner();
+        let side = self
+            .houses
+            .get(&owner_house)
+            .map(|house| house.side_index())
+            .unwrap_or(-1);
+        let Some(canopy) = parachute_anim_name(rules, owner, side) else {
             self.substrate
                 .entities
                 .get_mut(owner_id)?
@@ -192,7 +198,6 @@ impl crate::sim::world::Simulation {
             return None;
         };
         let type_name = self.interner.intern(canopy);
-        let owner_house = self.substrate.entities.get(owner_id)?.owner();
         let mut coord = self.anim_owner_coords(owner_id)?;
         coord.z = coord.z.wrapping_add(PARACHUTE_ANIM_Z_LIFT_LEPTONS);
         let (rx, ry, sub_x, sub_y, level) = coord.to_cell_sub_z();
@@ -280,7 +285,13 @@ impl crate::sim::world::Simulation {
 fn parachute_anim_name<'r>(
     rules: &'r crate::rules::ruleset::RuleSet,
     entity: &crate::sim::game_entity::GameEntity,
+    side: i32,
 ) -> Option<&'r str> {
+    // Ares `[Side] Parachute.Anim=` wins over both the stock canopy and the
+    // NPSE non-infantry branch; an unset key leaves that existing owner.
+    if let Some(override_) = rules.side_parachute_override(side) {
+        return override_;
+    }
     if !crate::rules::NPATCH_ENABLED
         || entity.category() == crate::map::entities::EntityCategory::Infantry
     {

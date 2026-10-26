@@ -7754,6 +7754,23 @@ impl RuleSet {
         }
     }
 
+    /// Three-state Ares flag: `None` = no Side/Country extension (stock
+    /// fallback), `Some(None)` = present-empty cleared the flag, and
+    /// `Some(Some(name))` = the resolved/default file.
+    pub fn country_flag_state(&self, id: &str) -> Option<Option<&str>> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .map(|country| country.presentation.flag.as_deref());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
+        }
+    }
+
     /// Ares `MenuText.Status=` CSF key (stock/unknown defaults included).
     pub fn country_status_key(&self, id: &str) -> Option<&str> {
         #[cfg(feature = "ares")]

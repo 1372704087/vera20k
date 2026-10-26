@@ -147,7 +147,7 @@ fn rows_swap_the_local_player_into_row_zero_and_skip_non_multiplay_houses() {
     // Americans (0) on row 2, Alliance (1) on row 1.
     let insignia: Vec<_> = resolved.rows[..3]
         .iter()
-        .map(|row| row.as_ref().unwrap().insignia)
+        .map(|row| row.as_ref().unwrap().insignia.as_deref())
         .collect();
     assert_eq!(
         insignia,

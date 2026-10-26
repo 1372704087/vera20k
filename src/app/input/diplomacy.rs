@@ -213,15 +213,23 @@ pub(crate) fn resolve_rows(
             };
             let insignia = if is_observer {
                 crate::app::frontend::skirmish_shell_render::flag_pcx_for_side_item_data(-3)
+                    .map(str::to_owned)
             } else {
-                state
+                let flag = state
                     .country()
-                    .and_then(|country| rules.country_index(sim.interner().resolve(country)))
-                    .and_then(|index| {
-                        crate::app::frontend::skirmish_shell_render::flag_pcx_for_side_item_data(
-                            i32::from(index.0),
-                        )
-                    })
+                    .and_then(|country| rules.country_flag_state(sim.interner().resolve(country)));
+                match flag {
+                    Some(flag) => flag.map(str::to_owned),
+                    None => state
+                        .country()
+                        .and_then(|country| rules.country_index(sim.interner().resolve(country)))
+                        .and_then(|index| {
+                            crate::app::frontend::skirmish_shell_render::flag_pcx_for_side_item_data(
+                                i32::from(index.0),
+                            )
+                        })
+                        .map(str::to_owned),
+                }
             };
             Some(DiplomacyRow {
                 insignia,

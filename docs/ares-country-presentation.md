@@ -9,7 +9,7 @@ installed DLL's unknown-country defaults.
 
 | Key | Effect |
 | --- | --- |
-| `File.Flag=` | Country flag PCX for the Skirmish player/opponent rows and the Co-Op score screen. Stock indices keep `usai.pcx` … `yrii.pcx`; unknown indices keep `rani.pcx`. |
+| `File.Flag=` | Country flag PCX for the Skirmish/LAN/WOL player and opponent rows, the Co-Op score screen and the diplomacy rows. Stock indices keep `usai.pcx` … `yrii.pcx`; unknown indices keep `rani.pcx`; a present-empty value clears the flag instead of falling back. |
 | `MenuText.Status=` | Status-help CSF key in the country dropdown. Stock indices keep `STT:PlayerSide*`; unknown indices keep `GUI:Unknown`. |
 | `File.Taunt=` | Taunt path with `~~` (Ares docs) or `%02i` (stock defaults) replaced by the two-digit taunt number. |
 | `ListIndex=` | Dropdown position; ties keep `[Countries]` order. A negative value hides the row. Default 100. |

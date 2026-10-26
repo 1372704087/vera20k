@@ -2254,8 +2254,8 @@ fn ares_country_catalog_sorts_hides_and_exposes_flag_and_status() {
     assert_eq!(
         shell
             .country_catalog
-            .flag_for_choice(false, LaunchCountry::from_country_index(3)),
-        Some("CustomFlag.PCX")
+            .flag_state_for_choice(false, LaunchCountry::from_country_index(3)),
+        Some(Some("CustomFlag.PCX"))
     );
     assert_eq!(
         shell

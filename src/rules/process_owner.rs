@@ -376,6 +376,23 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
+    /// Three-state Ares `File.Flag=` for a HouseType country index: `None`
+    /// without a Country extension, `Some(None)` for a cleared flag, and
+    /// `Some(Some(name))` for the stock/unknown/custom file.
+    #[cfg(feature = "ares")]
+    pub fn country_flag_state(&self, index: u16) -> Option<Option<&str>> {
+        let id = self.country_name(i32::from(index))?;
+        let state = self
+            .registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state();
+        state
+            .country_projection()
+            .find(|(candidate, ..)| candidate.eq_ignore_ascii_case(id))
+            .map(|(_, _, _, _, _, country)| country.presentation().flag.as_deref())
+    }
+
     pub fn country_name(&self, index: i32) -> Option<&str> {
         self.multiplayer_countries()
             .nth(usize::try_from(index).ok()?)

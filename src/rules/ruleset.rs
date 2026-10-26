@@ -939,10 +939,11 @@ pub struct GeneralRules {
     /// 0x006691E0` resolves it to a Voc index at `RulesClass+0x228`
     /// (`0x00669CFD..0x00669D27`); `TechnoClass::AI_Update` plays that index
     /// positionally on a veteran promotion (`0x006FA124..0x006FA12A`). The
-    /// name is retained at the data boundary; absent or empty is silence.
+    /// fixed SOUNDMD binder retains the last valid index through reached
+    /// passes; absent, empty and unknown values keep it. Constructor66596A=-1.
     pub upgrade_veteran_sound: Option<String>,
     /// `[AudioVisual] UpgradeEliteSound=` — `RulesClass+0x22C`
-    /// (`0x00669D3E..0x00669D27`), played on an elite promotion
+    /// (`0x00669D2D..0x00669D68`, constructor665970=-1), played on an elite promotion
     /// (`0x006FA0B6..0x006FA0BC`).
     pub upgrade_elite_sound: Option<String>,
     /// `[AudioVisual] SlavesFreeSound=` — `RulesClass::ReadAudioVisual @
@@ -3707,12 +3708,10 @@ impl GeneralRules {
             leave_bio_reactor_sound: None,
             enter_bio_reactor_sound: None,
             enter_grinder_sound: None,
-            upgrade_veteran_sound: audio_visual
-                .read_name("UpgradeVeteranSound", 0x80)
-                .map(str::to_owned),
-            upgrade_elite_sound: audio_visual
-                .read_name("UpgradeEliteSound", 0x80)
-                .map(str::to_owned),
+            // The fixed SOUNDMD binder resolves Rules+0x228/+0x22C as Voc
+            // indexes; keep the constructor's invalid index until it binds them.
+            upgrade_veteran_sound: None,
+            upgrade_elite_sound: None,
             slaves_free_sound: audio_visual
                 .read_name("SlavesFreeSound", 0x80)
                 .map(str::to_owned),
@@ -5343,6 +5342,16 @@ impl RuleSet {
         self.general.scold_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
+        // Original RulesClass::ReadAudioVisual669CE2..669D68 resolves
+        // +228/+22C through ReadString128/VocFind7514D0, independently of
+        // ReadGeneral. Reuse the fixed-catalog/pass-history owner, including
+        // invalid later reads retaining their previous IDs (ctor66596A/70=-1).
+        self.general.upgrade_veteran_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "UpgradeVeteranSound"));
+        self.general.upgrade_elite_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "UpgradeEliteSound"));
         // WeaponTypeClass::ReadINI @ `0x00772080` calls
         // CCINIClass::ReadSoundList @ `0x00525430` for Report/DownReport at
         // `0x00772394`/`0x0077241A`; use its shared catalog/list owner.
@@ -7483,7 +7492,28 @@ impl RuleSet {
         // draws; list order/duplicates select the sound. Hash effective lists
         // in canonical type order, independently of registry insertion order.
         b"resolved-type-sound-lists-v4".hash(&mut hasher);
+        #[cfg(feature = "ares")]
+        {
+            let promotion_sounds = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    let sounds = (
+                        object.promotion_sound_override(false),
+                        object.promotion_sound_override(true),
+                    );
+                    (sounds.0.is_some() || sounds.1.is_some())
+                        .then(|| ((object.category, object.id.to_ascii_uppercase()), sounds))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !promotion_sounds.is_empty() {
+                b"ares-type-promotion-sounds-v1".hash(&mut hasher);
+                promotion_sounds.hash(&mut hasher);
+            }
+        }
         self.general.voice_ifv_repair().hash(&mut hasher);
+        self.general.upgrade_veteran_sound.hash(&mut hasher);
+        self.general.upgrade_elite_sound.hash(&mut hasher);
         self.object_list
             .iter()
             .map(|object| {
@@ -11204,14 +11234,6 @@ MutateWarhead=MyMutate\n\
             self_heal_interval_frames(rules.general.repair_rate_minutes),
             14
         );
-        assert_eq!(
-            rules.general.upgrade_veteran_sound.as_deref(),
-            Some("UpgradeVeteran")
-        );
-        assert_eq!(
-            rules.general.upgrade_elite_sound.as_deref(),
-            Some("UpgradeElite")
-        );
         assert_eq!(rules.general.elite_flash_timer, 150);
         let bare = RuleSet::from_ini(&IniFile::from_str(
             "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n[General]\nFixtureOnly=1\n",
@@ -13897,3 +13919,7 @@ Projectile=Invisible
 #[cfg(test)]
 #[path = "map_lighting_tests.rs"]
 mod map_lighting_tests;
+
+#[cfg(test)]
+#[path = "global_promotion_tests.rs"]
+mod global_promotion_tests;

@@ -2850,6 +2850,7 @@ struct AresCountryState {
     loading: crate::rules::country_loading::AresCountryLoading,
     presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
     paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
+    power_plants: Vec<String>,
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -2860,6 +2861,7 @@ impl Hash for AresCountryState {
         self.parent_initialized.hash(state);
         self.buildings.hash(state);
         self.paradrop.hash(state);
+        self.power_plants.hash(state);
     }
 }
 
@@ -2874,6 +2876,12 @@ impl CountryVeterancyState {
         &self,
     ) -> &crate::rules::ares_country_presentation::AresCountryPresentation {
         &self.ares.presentation
+    }
+
+    /// The country's own `AI.PowerPlants=` list.
+    #[cfg(feature = "ares")]
+    pub(crate) fn power_plants(&self) -> &[String] {
+        &self.ares.power_plants
     }
 
     /// The country's own Ares paradrop overrides.
@@ -5621,6 +5629,21 @@ impl RulesPassProcessor {
         // that is present replaces the field, an absent key retains it.
         if primary_rules && let Some(section) = pass.section(&id) {
             let types = SideRegisteredTypes::collect(&self.families);
+            // `AI.PowerPlants=` comes first in the same block; an empty list is
+            // what defers to the per-side `[General]` plant.
+            let current = self.families[&RulesTypeFamily::Country][index]
+                .country_veterancy
+                .ares
+                .power_plants
+                .clone();
+            let power_plants =
+                read_valueable_type_vector(section, "AI.PowerPlants", &current, |name| {
+                    SideRegisteredTypes::find(&types.buildings, name)
+                });
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .power_plants = power_plants;
             let current = self.families[&RulesTypeFamily::Country][index]
                 .country_veterancy
                 .ares
@@ -5670,6 +5693,7 @@ impl RulesPassProcessor {
                 current.loading = inherited.loading;
                 current.presentation.inherit_from(&inherited.presentation);
                 current.paradrop.inherit_from(&inherited.paradrop);
+                current.power_plants = inherited.power_plants;
             }
             //1001C0CB consumes the attempt even when Find failed. Empty
             // and case-insensitive self references above do not consume it.
@@ -7445,6 +7469,10 @@ mod ares_side_sidebar_tests;
 #[cfg(all(test, feature = "ares"))]
 #[path = "ares_country_paradrop_tests.rs"]
 mod ares_country_paradrop_tests;
+
+#[cfg(all(test, feature = "ares"))]
+#[path = "ares_country_power_plants_tests.rs"]
+mod ares_country_power_plants_tests;
 
 #[cfg(all(test, feature = "ares"))]
 #[path = "ares_country_presentation_tests.rs"]

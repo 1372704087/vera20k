@@ -144,6 +144,10 @@ pub struct CountryRules {
     /// state: which units a paradrop superweapon sends.
     #[cfg(feature = "ares")]
     pub(crate) paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
+    /// Ares country `AI.PowerPlants=` candidates. Simulation state: which
+    /// building the AI splices when its base runs short of power.
+    #[cfg(feature = "ares")]
+    pub(crate) power_plants: Vec<String>,
 }
 
 /// The House factors [`RuleSet::cost_of`] multiplies in, each indexed by
@@ -201,6 +205,8 @@ impl Default for CountryRules {
             ),
             #[cfg(feature = "ares")]
             paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop::default(),
+            #[cfg(feature = "ares")]
+            power_plants: Vec::new(),
         }
     }
 }
@@ -260,6 +266,8 @@ impl CountryRules {
             ),
             #[cfg(feature = "ares")]
             paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop::default(),
+            #[cfg(feature = "ares")]
+            power_plants: Vec::new(),
         }
     }
 }
@@ -6685,6 +6693,15 @@ impl RuleSet {
         // Ares country overrides enter the state hash alongside it.
         #[cfg(feature = "ares")]
         {
+            b"ares-country-powerplants-v1".hash(&mut hasher);
+            self.countries
+                .iter()
+                .map(|(id, country)| (id.to_ascii_uppercase(), &country.power_plants))
+                .collect::<BTreeMap<_, _>>()
+                .hash(&mut hasher);
+        }
+        #[cfg(feature = "ares")]
+        {
             b"ares-country-paradrop-v1".hash(&mut hasher);
             self.countries
                 .iter()
@@ -7919,6 +7936,24 @@ impl RuleSet {
         #[cfg(not(feature = "ares"))]
         {
             self.country_random_weight(id)
+        }
+    }
+
+    /// Ares `[Country] AI.PowerPlants=` (`HouseTypeExt`), which
+    /// `GetPowerplants @ 0x1001BD20` returns while it is non-empty; an empty
+    /// list is what defers to the per-side `[General]` plant.
+    pub fn country_power_plants(&self, id: &str) -> Option<&[String]> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .country_rules(id)
+                .map(|country| country.power_plants.as_slice())
+                .filter(|plants| !plants.is_empty());
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = id;
+            None
         }
     }
 
@@ -9512,6 +9547,7 @@ fn project_country_side_registry<'a>(
             {
                 fields.presentation = veteran.presentation().clone();
                 fields.paradrop = veteran.paradrop().clone();
+                fields.power_plants = veteran.power_plants().to_vec();
             }
             fields
         });

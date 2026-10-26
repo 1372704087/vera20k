@@ -763,3 +763,89 @@ fn a_naval_producer_reads_its_own_vehicle_choice() {
         "only the NPatch build has a naval channel"
     );
 }
+
+/// Ares `[Country] AI.PowerPlants=`: `GetPowerplants @ 0x1001BD20` answers the
+/// country list while it is non-empty, so the splice takes a listed plant
+/// instead of the side 0 house's `GDIPowerPlant=`. With two registered
+/// candidates the hook at `0x4FE782` draws `Randomizer(0, count-1)` once on
+/// Scenario+0x218.
+#[cfg(feature = "ares")]
+fn country_power_plant_world(country_keys: &str) -> (RuleSet, Simulation, InternedId, i32) {
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[Countries]
+0=Greece
+[Greece]
+{country_keys}
+         [BuildingTypes]
+0=GAPOWR
+1=NAAPWR
+2=NAPOWR
+3=RADAR
+         [GAPOWR]
+[NAAPWR]
+[NAPOWR]
+[RADAR]
+Power=-50
+         [General]
+GDIPowerPlant=GAPOWR
+NodRegularPower=NAPOWR
+ThirdPowerPlant=NAPOWR
+"
+    )))
+    .expect("country power plant rules");
+    let mut sim = Simulation::new();
+    let country = sim.interner.intern("Greece");
+    let owner = sim.interner.intern("AI");
+    sim.houses
+        .register(HouseState::new(owner, 0, Some(country), false, 10_000, 10));
+    let mut power = PowerState::default();
+    power.set_total_output_for_test(0);
+    power.set_total_drain_for_test(0);
+    sim.power_states.map_mut_for_test().insert(owner, power);
+    let radar = rules.building_type_index("RADAR").expect("consumer type");
+    (rules, sim, owner, radar)
+}
+
+#[cfg(feature = "ares")]
+#[test]
+fn ares_country_power_plants_replace_the_side_plant() {
+    let (rules, mut sim, owner, radar) = country_power_plant_world(
+        "AI.PowerPlants=NAAPWR
+",
+    );
+    let ty = rules.building_type_at(radar).expect("RADAR type");
+    assert_eq!(
+        super::power_plant_to_splice(&mut sim, &rules, owner, ty),
+        rules.building_type_index("NAAPWR"),
+    );
+}
+
+#[cfg(feature = "ares")]
+#[test]
+fn ares_country_power_plants_draw_once_between_two_candidates() {
+    let (rules, mut sim, owner, radar) = country_power_plant_world(
+        "AI.PowerPlants=NAAPWR,NAPOWR
+",
+    );
+    // `SimRng::answering` panics on a different range, so this also pins the
+    // native draw to `Randomizer(0, 1)`.
+    sim.scenario_rng = SimRng::answering(0, 1, 1);
+    let ty = rules.building_type_at(radar).expect("RADAR type");
+    assert_eq!(
+        super::power_plant_to_splice(&mut sim, &rules, owner, ty),
+        rules.building_type_index("NAPOWR"),
+        "the pinned second candidate is spliced"
+    );
+}
+
+#[cfg(feature = "ares")]
+#[test]
+fn ares_country_without_power_plants_keeps_the_side_plant() {
+    let (rules, mut sim, owner, radar) = country_power_plant_world("");
+    let ty = rules.building_type_at(radar).expect("RADAR type");
+    assert_eq!(
+        super::power_plant_to_splice(&mut sim, &rules, owner, ty),
+        rules.building_type_index("GAPOWR"),
+        "side 0 keeps `[General] GDIPowerPlant=`"
+    );
+}

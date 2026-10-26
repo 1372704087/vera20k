@@ -805,12 +805,12 @@ fn append_perimeter_run(
 /// side's `NodAdvancedPower=` when `0x00505360` admits it, else
 /// `NodRegularPower=`.
 fn power_plant_to_splice(
-    sim: &Simulation,
+    sim: &mut Simulation,
     rules: &RuleSet,
     owner: InternedId,
     ty: &ObjectType,
 ) -> Option<i32> {
-    let house = sim.houses.get(&owner)?;
+    let side = sim.houses.get(&owner)?.side_index();
     let power = sim.power_states.get(&owner).cloned().unwrap_or_default();
     let drain = crate::sim::power_system::native_building_power_drain(ty.power);
     let short = power.total_drain().wrapping_add(drain) > power.total_output();
@@ -824,8 +824,39 @@ fn power_plant_to_splice(
     }
     let plants = &rules.general.building_types;
     let index = |name: Option<&str>| name.and_then(|name| rules.building_type_index(name));
+    // Ares `[Country] AI.PowerPlants=`: `GetPowerplants @ 0x1001BD20` answers
+    // this list while it is non-empty, and the hook at `0x4FE782` (body
+    // `0x1001DDC0`) replaces the stock per-side single plant with it. With
+    // several candidates native draws `Randomizer(0, count-1)` on
+    // Scenario+0x218 once and takes that entry.
+    let country_plants = sim
+        .houses
+        .get(&owner)
+        .and_then(|house| house.country())
+        .map(|country| sim.interner.resolve(country))
+        .and_then(|country| rules.country_power_plants(country))
+        .map(|names| {
+            names
+                .iter()
+                .filter_map(|name| rules.building_type_index(name))
+                .collect::<Vec<_>>()
+        });
+    if let Some(candidates) = country_plants {
+        return match candidates.len() {
+            // A list that names no registered building splices nothing.
+            0 => None,
+            1 => candidates.first().copied(),
+            count => {
+                let picked = sim
+                    .scenario_rng
+                    .next_range_i32_inclusive(0, count as i32 - 1)
+                    .max(0) as usize;
+                candidates.get(picked).copied()
+            }
+        };
+    }
     // A missing plant is dereferenced natively (module residual): no splice.
-    match house.side_index() {
+    match side {
         0 => index(plants.gdi_power_plant.as_deref()),
         2 => index(plants.third_power_plant.as_deref()),
         // `0x004FE7A7..0x004FE85D`: the list handed to `0x00505360` holds the

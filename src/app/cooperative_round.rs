@@ -511,9 +511,8 @@ pub(crate) fn view(state: &AppState) -> Option<CoopScoreView> {
             .and_then(|rules| {
                 let index = u16::try_from(country_value).ok()?;
                 let id = rules.country_name(CountryIdx(index))?;
-                rules.country_flag(id)
+                rules.country_flag_surface(id)
             })
-            .map(str::to_owned)
             .or_else(|| flag_pcx_for_side_item_data(country_value).map(str::to_owned));
         slots[usize::from(row)] = Some(CoopSlotView {
             name: human.name.clone(),

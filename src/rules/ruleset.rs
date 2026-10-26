@@ -260,6 +260,11 @@ impl CountryRules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CountryIdx(pub u16);
 
+/// The insignia gamemd's stock selection chain has no entry for: both
+/// `HouseTypeExt::Initialize`'s unknown-country branch (`0x1001C413`) and
+/// `Game_GetFlagSurface`'s null-surface branch (`0x4E3567`) answer with it.
+pub(crate) const STOCK_UNKNOWN_INSIGNIA: &str = "rani.pcx";
+
 /// Stable source-order identity in the `[Sides]` registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct SideIdx(pub u8);
@@ -7754,21 +7759,35 @@ impl RuleSet {
         }
     }
 
-    /// Three-state Ares flag: `None` = no Side/Country extension (stock
-    /// fallback), `Some(None)` = present-empty cleared the flag, and
-    /// `Some(Some(name))` = the resolved/default file.
-    pub fn country_flag_state(&self, id: &str) -> Option<Option<&str>> {
+    /// The insignia surface a Country selection draws, as `Game_GetFlagSurface
+    /// @ 0x1001DCE0` (Ares patch site `0x4E3562`, 5 bytes) answers it: the
+    /// country's own `File.Flag`, or the stock `rani.pcx` branch at `0x4E3567`
+    /// when that file is cleared. `None` in a stock build, where each shell
+    /// keeps its fixed country table.
+    pub fn country_flag_surface(&self, id: &str) -> Option<String> {
         #[cfg(feature = "ares")]
         {
-            return self
-                .country_rules(id)
-                .map(|country| country.presentation.flag.as_deref());
+            return self.country_rules(id).map(|country| {
+                country
+                    .presentation
+                    .flag
+                    .clone()
+                    .unwrap_or_else(|| STOCK_UNKNOWN_INSIGNIA.to_owned())
+            });
         }
         #[cfg(not(feature = "ares"))]
         {
             let _ = id;
             None
         }
+    }
+
+    /// `Game_GetFlagSurface @ 0x1001DCE0` for a HouseType country index. An
+    /// index outside the allocated array returns `None`, where the stock
+    /// selection chain from `0x4E3579` still decides.
+    pub fn country_insignia_pcx(&self, index: u16) -> Option<String> {
+        let id = self.country_name(CountryIdx(index))?;
+        self.country_flag_surface(id)
     }
 
     /// Ares `MenuText.Status=` CSF key (stock/unknown defaults included).

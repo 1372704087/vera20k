@@ -237,7 +237,9 @@ impl PlayerNameEditState {
 #[derive(Debug, Clone)]
 pub(crate) struct CountryMenuEntry {
     country: Option<LaunchCountry>,
-    flag: Option<Option<String>>,
+    /// `Game_GetFlagSurface @ 0x1001DCE0` answer for this row; `None` keeps the
+    /// stock static country table.
+    flag: Option<String>,
     status_key: Option<String>,
 }
 
@@ -272,7 +274,7 @@ impl CountryMenuCatalog {
                 super::SkirmishComboItem::Country(super::SkirmishCountryChoice::Random) => {
                     CountryMenuEntry {
                         country: None,
-                        flag: Some(Some("rani.pcx".to_owned())),
+                        flag: Some("rani.pcx".to_owned()),
                         status_key: Some("STT:PlayerSideRandom".to_owned()),
                     }
                 }
@@ -282,9 +284,7 @@ impl CountryMenuCatalog {
                     let id = rules.country_name(CountryIdx(country.raw_index()));
                     CountryMenuEntry {
                         country: Some(*country),
-                        flag: id
-                            .and_then(|id| rules.country_flag_state(id))
-                            .map(|flag| flag.map(str::to_owned)),
+                        flag: id.and_then(|id| rules.country_flag_surface(id)),
                         status_key: id
                             .and_then(|id| rules.country_status_key(id))
                             .map(str::to_owned),
@@ -304,23 +304,16 @@ impl CountryMenuCatalog {
         &self.items
     }
 
-    /// Three-state flag for a row: `None` keeps the stock static fallback,
-    /// `Some(None)` means an Ares key cleared the flag, and `Some(Some(name))`
-    /// is the file to draw.
-    pub(crate) fn flag_state_for_choice(
-        &self,
-        random: bool,
-        country: LaunchCountry,
-    ) -> Option<Option<&str>> {
+    /// Flag file this row draws. `None` keeps the stock static fallback.
+    pub(crate) fn flag_for_choice(&self, random: bool, country: LaunchCountry) -> Option<&str> {
         if random {
-            return Some(Some("rani.pcx"));
+            return Some("rani.pcx");
         }
         self.entries
             .iter()
             .find(|entry| entry.country == Some(country))?
             .flag
-            .as_ref()
-            .map(|flag| flag.as_deref())
+            .as_deref()
     }
 
     /// Status-help CSF key for a row; `None` keeps the stock static fallback.

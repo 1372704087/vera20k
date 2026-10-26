@@ -425,16 +425,17 @@ impl ProcessAssets {
             .unwrap_or_default()
     }
 
-    /// Three-state Ares country flag by HouseType index, for lobby/diplomacy
-    /// rows that resolve before a match Rules projection exists.
-    pub(crate) fn country_flag_state(&self, index: u16) -> Option<Option<String>> {
+    /// `Game_GetFlagSurface @ 0x1001DCE0` country insignia by HouseType index,
+    /// for lobby/diplomacy rows that resolve before a match Rules projection
+    /// exists.
+    pub(crate) fn country_flag_surface(&self, index: u16) -> Option<String> {
         #[cfg(feature = "ares")]
         {
             return self
                 .native_rules
                 .as_ref()
-                .and_then(|rules| rules.country_flag_state(index))
-                .map(|flag| flag.map(str::to_owned));
+                .and_then(|rules| rules.country_flag_surface(index))
+                .map(str::to_owned);
         }
         #[cfg(not(feature = "ares"))]
         {

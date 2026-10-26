@@ -376,11 +376,11 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
-    /// Three-state Ares `File.Flag=` for a HouseType country index: `None`
-    /// without a Country extension, `Some(None)` for a cleared flag, and
-    /// `Some(Some(name))` for the stock/unknown/custom file.
+    /// `Game_GetFlagSurface @ 0x1001DCE0` for a shell HouseType country index:
+    /// that country's `File.Flag`, or the `rani.pcx` null-surface branch when
+    /// the file is cleared. `None` when no Country holds that index.
     #[cfg(feature = "ares")]
-    pub fn country_flag_state(&self, index: u16) -> Option<Option<&str>> {
+    pub fn country_flag_surface(&self, index: u16) -> Option<&str> {
         let id = self.country_name(i32::from(index))?;
         let state = self
             .registry
@@ -390,7 +390,13 @@ impl NativeRulesProcessOwner {
         state
             .country_projection()
             .find(|(candidate, ..)| candidate.eq_ignore_ascii_case(id))
-            .map(|(_, _, _, _, _, country)| country.presentation().flag.as_deref())
+            .map(|(_, _, _, _, _, country)| {
+                country
+                    .presentation()
+                    .flag
+                    .as_deref()
+                    .unwrap_or(crate::rules::ruleset::STOCK_UNKNOWN_INSIGNIA)
+            })
     }
 
     pub fn country_name(&self, index: i32) -> Option<&str> {

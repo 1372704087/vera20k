@@ -202,16 +202,13 @@ fn flag_name_for_country_choice<'a>(
     random: bool,
     country: LaunchCountry,
 ) -> Option<&'a str> {
-    match catalog.flag_state_for_choice(random, country) {
-        Some(flag) => flag,
-        None => {
-            if random {
-                flag_pcx_for_side_item_data(-2)
-            } else {
-                flag_name_for_country(country)
-            }
+    catalog.flag_for_choice(random, country).or_else(|| {
+        if random {
+            flag_pcx_for_side_item_data(-2)
+        } else {
+            flag_name_for_country(country)
         }
-    }
+    })
 }
 
 fn flag_entry(atlas: &SkirmishShellChromeAtlas, label: &str) -> Option<SkirmishShellChromeEntry> {

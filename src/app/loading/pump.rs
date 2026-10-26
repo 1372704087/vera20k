@@ -2877,6 +2877,7 @@ pub(crate) fn ensure_native_loading_atlas(state: &mut AppState) -> anyhow::Resul
             |row| crate::render::loading_screen_chrome::LoadingParticipantArtInput {
                 variant: row.variant,
                 ramp: row.ramp,
+                side_icon: loading_row_insignia(state.rules(), row.variant, row.country_index),
             },
         )
         .collect();
@@ -3256,6 +3257,22 @@ pub(super) fn loading_art_variant_from_launch_country(
         9 => LoadingArtVariant::Yuri,
         _ => return None,
     })
+}
+
+/// `Game_GetFlagSurface @ 0x1001DCE0` (Ares patch site `0x4E3562`, 5 bytes)
+/// answers each loading row's insignia from that row's own HouseType index, so
+/// an added Country draws its `File.Flag` where the stock chain at `0x4E3579`
+/// has no entry. An observer row is not a Country index and keeps the stock
+/// `-3` insignia; a stock build's rules return `None` and keep the table.
+fn loading_row_insignia(
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    variant: Option<LoadingArtVariant>,
+    country_index: u16,
+) -> Option<String> {
+    if variant == Some(LoadingArtVariant::Observer) {
+        return None;
+    }
+    rules?.country_insignia_pcx(country_index)
 }
 
 /// Normalize an 8-bit RGB triple to 0..1.

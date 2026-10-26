@@ -343,9 +343,9 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         if visible {
             let flag = match u16::try_from(country)
                 .ok()
-                .and_then(|index| state.process_assets.country_flag_state(index))
+                .and_then(|index| state.process_assets.country_flag_surface(index))
             {
-                Some(flag) => flag,
+                Some(flag) => Some(flag),
                 None => flag_pcx_for_side_item_data(country).map(str::to_owned),
             };
             row_icons[visible_row] = Some(SetupRowIcon {

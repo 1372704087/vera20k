@@ -104,7 +104,12 @@ fn ares_country_parent_copies_presentation_and_child_keys_override() {
 fn ares_country_empty_flag_clears_the_stock_default() {
     let mut countries = IniSection::new("Countries".into());
     for index in 0..11 {
-        countries.set(&index.to_string(), if index == 10 { "Custom" } else { "C" });
+        let id = if index == 10 {
+            "Custom".to_owned()
+        } else {
+            format!("C{index}")
+        };
+        countries.set(&index.to_string(), &id);
     }
     let mut custom = IniSection::new("Custom".into());
     custom.set("File.Flag", "");
@@ -112,6 +117,27 @@ fn ares_country_empty_flag_clears_the_stock_default() {
         .process()
         .expect("cleared flag rules parse");
     let rules = RuleSet::from_processed_rules(&processed).expect("cleared flag projection");
-    assert_eq!(rules.country_flag_state("Custom"), Some(None));
     assert_eq!(rules.country_flag("Custom"), None);
+    assert_eq!(
+        rules.country_flag_surface("Custom").as_deref(),
+        Some("rani.pcx")
+    );
+    // `Game_GetFlagSurface` resumes on the `rani.pcx` branch (`0x4E3567`) when
+    // the Country has no loaded flag surface, and only indices outside the
+    // HouseType array keep the stock selection chain.
+    assert_eq!(rules.country_insignia_pcx(10).as_deref(), Some("rani.pcx"));
+    // Stock indices keep their initializer file: the hook answers from the
+    // same field, so `0x4E3567` is only reached when that file is cleared.
+    assert_eq!(rules.country_insignia_pcx(0).as_deref(), Some("usai.pcx"));
+    assert_eq!(rules.country_insignia_pcx(11), None);
+}
+
+#[test]
+fn ares_custom_country_insignia_replaces_the_stock_loading_chain() {
+    let rules = processed(&format!("{COUNTRIES}[Custom]\nFile.Flag=MyFlag.PCX\n"));
+    assert_eq!(
+        rules.country_insignia_pcx(10).as_deref(),
+        Some("MyFlag.PCX")
+    );
+    assert_eq!(rules.country_insignia_pcx(9).as_deref(), Some("yrii.pcx"));
 }

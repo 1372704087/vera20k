@@ -9,13 +9,13 @@ installed DLL's unknown-country defaults.
 
 | Key | Effect |
 | --- | --- |
-| `File.Flag=` | Country flag PCX for the Skirmish/LAN/WOL player and opponent rows, the Co-Op score screen and the diplomacy rows. Stock indices keep `usai.pcx` … `yrii.pcx`; unknown indices keep `rani.pcx`; a present-empty value clears the flag instead of falling back. |
+| `File.Flag=` | Insignia surface for every `Game_GetFlagSurface` (`0x1001DCE0`, patch site `0x4E3562`, 5 bytes) consumer: the Skirmish/LAN/WOL player and opponent rows, the Co-Op score screen, the diplomacy rows and the loading progress rows. Stock indices keep `usai.pcx` … `yrii.pcx` and unknown indices `rani.pcx`; a present-empty value answers the hook's null-surface branch at `0x4E3567`, so the row shows `rani.pcx`. A country index outside the HouseType array (an observer or Random row) keeps the stock selection chain at `0x4E3579`. |
 | `MenuText.Status=` | Status-help CSF key in the country dropdown. Stock indices keep `STT:PlayerSide*`; unknown indices keep `GUI:Unknown`. |
 | `File.Taunt=` | Taunt path with `~~` (Ares docs) or `%02i` (stock defaults) replaced by the two-digit taunt number. |
 | `ListIndex=` | Dropdown position; ties keep `[Countries]` order. A negative value hides the row. Default 100. |
 | `RandomSelectionWeight=` | Human “Random” country weight. Default 1. |
 | `AIRandomSelectionWeight=` | AI “Random” country weight; default is the current `RandomSelectionWeight`. |
-| `File.ObserverFlag=`, `File.ObserverBackground=`, `File.ObserverFlagAltPalette=` | Retained for observer presentation; no consumer yet. |
+| `File.ObserverFlag=`, `File.ObserverBackground=`, `File.ObserverFlagAltPalette=` | Retained observer-strip art. Its only consumers are `StripClass_Draw_DrawObserverBackground @ 0x6AA0CA` and `StripClass_Draw_DrawObserverFlag @ 0x6AA164`; VERA ports no observer strip, so no consumer yet. |
 
 `ParentCountry=` copies the parent's resolved presentation first, then the
 child's own keys override it. `ListIndex` becomes parent + 1 unless the child
@@ -45,6 +45,11 @@ describes.
 - `SkirmishShellChromeAtlas` preloads the stock flags plus every custom
   `File.Flag` from the startup rules; the Skirmish/Co-Op rows use the catalog
   names.
+- `app::loading::pump::loading_row_insignia` resolves each loading progress
+  row from its own HouseType index, and `render::loading_screen_chrome` decodes
+  that name into the attempt's atlas. A row for a country past index 9 now
+  draws its own flag where the stock chain had no entry; an observer row keeps
+  `obsi.pcx`.
 - `app::input::taunt` and `SfxPlayer::play_taunt` substitute the taunt
   number into the country pattern; a missing custom pattern falls back to the
   stock byte mapping only for indices 0..9.
@@ -52,19 +57,29 @@ describes.
 ## Residuals
 
 - **Observer art** (`File.ObserverFlag`, `File.ObserverBackground`,
-  `File.ObserverFlagAltPalette`) is parsed and exposed, but VERA has no
-  observer-background/flag renderer to consume it.
-- The loading-screen **side insignia** remains the stock ten-country resolver.
-  A custom country's `File.LoadScreen`, palette and labels are already handled
-  by the Ares country-loading chain, but its loading insignia has no stock
-  slot.
+  `File.ObserverFlagAltPalette`) is parsed, defaulted and inherited, but no
+  renderer consumes it. The installed DLL hooks the two drawing sites inside
+  `StripClass::Draw`: `0x6AA0CA` (6 bytes) substitutes the Country's observer
+  background SHP, or blits the PCX into the sidebar at the row origin sized
+  121x96; `0x6AA164` (6 bytes) substitutes the observer flag SHP with palette
+  index 9 when `File.ObserverFlagAltPalette` is set and 0 otherwise, or blits
+  the PCX 45x21 at row origin + (70, 70). VERA draws no observer cameo strip
+  (`ui::sidebar::cameo_order` records the same page-1 gap), so porting this
+  needs that strip first.
+- A `File.Flag` whose PCX is missing or unparsable leaves the row without an
+  insignia in VERA, while gamemd sees a null surface and answers the
+  `0x4E3567` `rani.pcx` branch. Only a cleared key reaches that branch here.
+- The LAN lobby's own peer rows keep `side_icon: None`, so the three remaining
+  `Game_GetFlagSurface` call sites in those row functions (`0x5DB239`,
+  `0x5EA41C`, `0x5EA697`) have no VERA counterpart to override.
+- The loading row measure call still reserves index 0's icon size
+  (`insignia_measure_size`); native routes that call through the same hook, so
+  a mod that clears America's `File.Flag` measures `rani.pcx` instead. A 1-2 px
+  label shift at most.
 - `ParentCountry` is copied in `[Countries]` registration order. A child
   listed before its parent inherits the parent's constructor/default values,
   not values read later in the same pass; Ares likewise reads countries in
   array order.
-- A `File.Flag` that is missing from the mounted archives logs the shell
-  atlas' optional-asset warning and shows no flag. Ares logs a parse warning
-  and clears the flag instead.
 - The weighted pick uses one bounded draw over cumulative weights. The
   installed `DiscreteDistributionClass` body was not separately executed in
   this chain; the documented weight/sum probability and the Ares pool gates

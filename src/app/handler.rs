@@ -386,7 +386,12 @@ impl App {
                     crate::app::input::cursor::apply_cursor_confinement(state);
                 }
                 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                crate::web::status(self.state.as_ref().and_then(|state| state.frontend.main_menu_shell_error.as_deref()).unwrap_or("Ready"));
+                crate::web::status(
+                    self.state
+                        .as_ref()
+                        .and_then(|state| state.frontend.main_menu_shell_error.as_deref())
+                        .unwrap_or("Ready"),
+                );
                 log::info!("Initialization complete");
             }
             Err(err) => {
@@ -1305,6 +1310,8 @@ impl ApplicationHandler for App {
                     state.match_state.input.cursor_from_touch = false;
                 }
                 state.set_cursor_from_window(position.x as f32, position.y as f32);
+                // A held left button drags a chat-history selection.
+                crate::app::input::messages::chat_extend_selection(state);
                 if Self::house_outcome_wait_pending(state) {
                     return;
                 }
@@ -1584,6 +1591,16 @@ impl ApplicationHandler for App {
                         }
                     }
                 } else if state.frontend.screen == GameScreen::InGame {
+                    // VeraX chat box: a click inside the history area selects
+                    // text (or opens a link) and never reaches the battlefield.
+                    if crate::app::input::messages::chat_mouse(
+                        state,
+                        button,
+                        btn_state.is_pressed(),
+                    ) {
+                        state.platform.window.request_redraw();
+                        return;
+                    }
                     dispatch::handle_mouse_input(state, button, btn_state);
                 }
             }
@@ -1622,6 +1639,21 @@ impl ApplicationHandler for App {
                     && !state.match_state.network_wait.dialog_open()
                     && !crate::app::input::campaign_input::is_locked(state)
                 {
+                    // VeraX ChatBox: while the chat input is open, the wheel
+                    // scrolls the chat history instead of zooming the view or
+                    // the sidebar build strip.
+                    let list = &state.match_state.match_presentation.message_list;
+                    if list.layout() == crate::ui::messages::MessageLayout::ChatBox
+                        && list.editing()
+                    {
+                        state
+                            .match_state
+                            .match_presentation
+                            .message_list
+                            .scroll(lines.round() as i32);
+                        state.platform.window.request_redraw();
+                        return;
+                    }
                     // Optional player setting: over the battlefield the wheel changes the view
                     // distance tier, anchored on the tactical centre. Over the
                     // sidebar and the bottom strip it keeps gamemd's native

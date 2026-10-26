@@ -4,8 +4,8 @@
 //! Match-lifetime diagnostic replay lives in `app::match_diagnostics`; this
 //! owner is process-scoped tooling state.
 
-use std::collections::VecDeque;
 use crate::util::time::{Duration, Instant};
+use std::collections::VecDeque;
 
 const FRAME_TIMER_WINDOW: usize = 60;
 
@@ -290,13 +290,14 @@ mod tests {
                 prefix: None,
                 text: "Mission Accomplished",
                 rgb: [1.0; 3],
-                timeout_ms: Some(4_000),
+                visible_timeout_ms: Some(4_000),
+                retain_timeout_ms: Some(4_000),
                 silent: true,
             },
             now(1),
             &|text| text.len() as i32,
         );
-        assert_eq!(messages.messages()[0].deadline_ms, Some(4_022));
+        assert_eq!(messages.messages()[0].visible_deadline_ms, Some(4_022));
         // A cached pre-step timestamp would incorrectly expire at tick182.
         assert!(!messages.manage(now(182)));
         assert!(messages.manage(now(183)));

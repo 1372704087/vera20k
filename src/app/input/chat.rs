@@ -7,6 +7,11 @@
 //! [`NetworkLoadingRequest::Chat`](crate::app::match_runtime::session::NetworkLoadingRequest)
 //! and a received packet arrives as `NetworkMatchEvent::Chat`.
 //!
+//! The chat input opens in network sessions. A VeraX build restyles it as
+//! the Minecraft chat box ([`crate::ui::messages::MessageLayout::ChatBox`])
+//! and, as the single-player extension, also opens it in Skirmish, where a
+//! sent line has no peers and is only echoed locally.
+//!
 //! RESIDUAL: the beacon-message branch of the pre-hook (`0x0055E4E2`), with
 //! an own beacon selected, is the beacon-text residual of
 //! [`crate::app::match_runtime::beacons`]. WOL's `/page` and
@@ -102,14 +107,35 @@ fn start_target(logical: &Key, ctrl: bool, alt: bool) -> Option<ChatTarget> {
 /// so held Backspace and held characters repeat while Enter, Escape, Home
 /// and End do not. The keyboard map `0x0054F530` turns Home into a delete
 /// and End into `\`; a raw VK_BACK deletes nothing, its WM_CHAR does.
-fn edit_keys(edge: &InGameKeyEdge<'_>) -> Vec<EditKey> {
+///
+/// The VeraX ChatBox layout repurposes Home/End/PageUp/PageDown/Arrows for
+/// history scrolling and sent-line recall; the native layout keeps the
+/// stock delete / `\` mapping for Home/End.
+fn edit_keys(edge: &InGameKeyEdge<'_>, layout: crate::ui::messages::MessageLayout) -> Vec<EditKey> {
+    use crate::ui::messages::{EditKey, MessageLayout};
     let once = |key| if edge.repeat { Vec::new() } else { vec![key] };
     match edge.logical {
         Key::Named(NamedKey::Enter) => once(EditKey::Enter),
         Key::Named(NamedKey::Escape) => once(EditKey::Escape),
-        Key::Named(NamedKey::Home) => once(EditKey::Delete),
-        Key::Named(NamedKey::End) => once(EditKey::Unit(u16::from(b'\\'))),
+        Key::Named(NamedKey::Home) => match layout {
+            MessageLayout::ChatBox => once(EditKey::ScrollTop),
+            MessageLayout::Native => once(EditKey::Delete),
+        },
+        Key::Named(NamedKey::End) => match layout {
+            MessageLayout::ChatBox => once(EditKey::ScrollBottom),
+            MessageLayout::Native => once(EditKey::Unit(u16::from(b'\\'))),
+        },
         Key::Named(NamedKey::Backspace) => vec![EditKey::Delete],
+        Key::Named(NamedKey::PageUp) if layout == MessageLayout::ChatBox => once(EditKey::PageUp),
+        Key::Named(NamedKey::PageDown) if layout == MessageLayout::ChatBox => {
+            once(EditKey::PageDown)
+        }
+        Key::Named(NamedKey::ArrowUp) if layout == MessageLayout::ChatBox => {
+            once(EditKey::HistoryUp)
+        }
+        Key::Named(NamedKey::ArrowDown) if layout == MessageLayout::ChatBox => {
+            once(EditKey::HistoryDown)
+        }
         _ => edge
             .text
             .map(|text| text.encode_utf16().map(EditKey::Unit).collect())
@@ -117,12 +143,23 @@ fn edit_keys(edge: &InGameKeyEdge<'_>) -> Vec<EditKey> {
     }
 }
 
+/// The native chat input opens in network sessions; the VeraX single-player
+/// extension also opens it in Skirmish. The build's message layout
+/// ([`crate::ui::messages::MessageLayout`]) decides how the open box looks:
+/// the native rows and TXT_FROM prompt, or the VeraX Minecraft chat box.
+fn chat_input_enabled(mode: crate::app::match_runtime::session::SessionMode) -> bool {
+    use crate::app::match_runtime::session::SessionMode;
+    mode.is_network() || (cfg!(feature = "verax") && mode == SessionMode::Skirmish)
+}
+
 /// The pre-hook for one in-game key edge. True when the key is consumed:
 /// it opened the edit, or an edit is open (Input zeroes every key's slot).
 pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
     let list = &state.match_state.match_presentation.message_list;
     if !list.editing() {
-        if !edge.state.is_pressed() || edge.repeat || !state.match_state.session_mode().is_network()
+        if !edge.state.is_pressed()
+            || edge.repeat
+            || !chat_input_enabled(state.match_state.session_mode())
         {
             return false;
         }
@@ -136,47 +173,213 @@ pub(crate) fn key_edge(state: &mut AppState, edge: &InGameKeyEdge<'_>) -> bool {
     if !edge.state.is_pressed() {
         return true;
     }
-    for key in edit_keys(edge) {
+    // VeraX chat box: Ctrl+F opens the history search; while it is open,
+    // characters edit the query and Esc/Enter returns to the message line.
+    if state.match_state.match_presentation.message_list.layout()
+        == crate::ui::messages::MessageLayout::ChatBox
+    {
+        if !edge.repeat && edge.physical == winit::keyboard::KeyCode::KeyF {
+            let modifiers = state.match_state.input.hotkey_modifiers;
+            if modifiers.control_key() && !modifiers.alt_key() {
+                state
+                    .match_state
+                    .match_presentation
+                    .message_list
+                    .begin_search();
+                return true;
+            }
+        }
+        if state
+            .match_state
+            .match_presentation
+            .message_list
+            .search_query()
+            .is_some()
+        {
+            match edge.logical {
+                Key::Named(NamedKey::Escape) | Key::Named(NamedKey::Enter) => {
+                    state
+                        .match_state
+                        .match_presentation
+                        .message_list
+                        .end_search();
+                }
+                Key::Named(NamedKey::Backspace) => {
+                    state
+                        .match_state
+                        .match_presentation
+                        .message_list
+                        .search_input(0, true);
+                }
+                _ => {
+                    if let Some(text) = edge.text {
+                        for unit in text.encode_utf16() {
+                            state
+                                .match_state
+                                .match_presentation
+                                .message_list
+                                .search_input(unit, false);
+                        }
+                    }
+                }
+            }
+            return true;
+        }
+    }
+    // VeraX chat box: Ctrl+C copies the history selection. Native has no
+    // selection to copy, so the chord falls through to the game.
+    if state.match_state.match_presentation.message_list.layout()
+        == crate::ui::messages::MessageLayout::ChatBox
+        && !edge.repeat
+        && edge.physical == winit::keyboard::KeyCode::KeyC
+    {
+        let modifiers = state.match_state.input.hotkey_modifiers;
+        if modifiers.control_key() && !modifiers.alt_key() {
+            crate::app::input::messages::copy_chat_selection(state);
+            return true;
+        }
+    }
+    // VeraX chat box: TAB completes the word to a player name. The key is
+    // consumed whether or not anything matched, so TAB never reaches the
+    // game's own bindings while the line is open.
+    if state.match_state.match_presentation.message_list.layout()
+        == crate::ui::messages::MessageLayout::ChatBox
+        && !edge.repeat
+        && edge.physical == winit::keyboard::KeyCode::Tab
+    {
+        let names = chat_player_names(state);
+        let font = &state.renderer.bit_font;
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .complete(&names, &|text| font.text_width(text) as i32);
+        return true;
+    }
+    let layout = state.match_state.match_presentation.message_list.layout();
+    for key in edit_keys(edge, layout) {
         apply_input(state, key);
     }
     true
 }
 
+/// Every name TAB completion can offer: the local player plus each connected
+/// peer. Skirmish has no peers, so only the local name is offered there.
+fn chat_player_names(state: &AppState) -> Vec<String> {
+    let session = &state.match_state.session;
+    let mut names = Vec::new();
+    if let Some(name) = session.local_player_name() {
+        names.push(name.to_owned());
+    }
+    for source in session.network_connected_source_indices() {
+        let name = crate::app::match_runtime::network_match::participant_name(session, *source);
+        if !name.is_empty() {
+            names.push(name);
+        }
+    }
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
 /// The pre-hook's head (`0x0055E42C..0x0055E465`): every unit queued from
 /// WM_IME_CHAR at `0xB730EC` goes to Input before the frame's key.
+///
+/// A pasted block arrives here as one string. VeraX chat box: each line break
+/// sends the line it ends, so a multi-line paste becomes several chat lines
+/// instead of being dropped by Input (which ignores units below 0x20).
 pub(crate) fn commit_text(state: &mut AppState, text: &str) {
     if !state.match_state.match_presentation.message_list.editing() {
         return;
     }
-    for unit in text.encode_utf16() {
-        apply_input(state, EditKey::Unit(unit));
+    // A committed IME string belongs to whichever line owns the keys: while
+    // the chat box's history search is open, that is its query, not the
+    // message line below it.
+    if state
+        .match_state
+        .match_presentation
+        .message_list
+        .search_query()
+        .is_some()
+    {
+        for unit in text.encode_utf16() {
+            state
+                .match_state
+                .match_presentation
+                .message_list
+                .search_input(unit, false);
+        }
+        state.platform.window.request_redraw();
+        return;
+    }
+    let layout = state.match_state.match_presentation.message_list.layout();
+    let multiline =
+        layout == crate::ui::messages::MessageLayout::ChatBox && text.contains(['\n', '\r']);
+    if !multiline {
+        for unit in text.encode_utf16() {
+            apply_input(state, EditKey::Unit(unit));
+        }
+        return;
+    }
+    // Enter ends the edit, so every further line reopens it with the same
+    // target before typing.
+    let target = state.match_state.match_presentation.chat.target;
+    let lines: Vec<&str> = text
+        .split(['\n', '\r'])
+        .filter(|line| !line.is_empty())
+        .collect();
+    let last = lines.len().saturating_sub(1);
+    for (index, line) in lines.iter().enumerate() {
+        if !state.match_state.match_presentation.message_list.editing() && !open_edit(state, target)
+        {
+            return;
+        }
+        for unit in line.encode_utf16() {
+            apply_input(state, EditKey::Unit(unit));
+        }
+        if index != last {
+            apply_input(state, EditKey::Enter);
+        }
     }
 }
 
 /// A right press or release (key 2 or `0x802`) ends an open edit; the game
 /// still handles the click.
 pub(crate) fn right_button(state: &mut AppState) {
+    // VeraX chat box: over the history a right click copies the selection or
+    // opens the link under the pointer; elsewhere it keeps gamemd's "ends the
+    // edit" behaviour.
+    if crate::app::input::messages::chat_right_mouse(state) {
+        return;
+    }
     if state.match_state.match_presentation.message_list.editing() {
         apply_input(state, EditKey::RightClick);
     }
 }
 
-/// The chat branch `0x0055E519..0x0055E5B4`: the prefix is `TXT_FROM` with
-/// the player's House UI name, in the player's colour; overflow is on and
-/// no sound plays. The cursor character 0 draws no caret.
+/// The chat branch `0x0055E519..0x0055E5B4`: the prompt is the TXT_FROM
+/// sender template formatted with the local player name, in the player's
+/// colour, with overflow on and no sound. A VeraX build's Minecraft input bar
+/// uses a `> ` prompt in place of the template. The cursor character 0 draws
+/// no caret.
 fn open_edit(state: &mut AppState, target: ChatTarget) -> bool {
     let Some(local) = local_house(state) else {
         return false;
     };
-    let Some(name) = crate::app::presentation::house_ui::house_ui_name(state, local) else {
-        return false;
-    };
-    let template = crate::app::frontend::shell_pass::resolve_csf(state, "TXT_FROM").into_owned();
-    let prefix = crate::assets::csf_file::format_csf(
-        &template,
-        &[crate::assets::csf_file::CsfArg::Str(&name)],
-    );
     let rgb = crate::app::input::messages::player_line_rgb(state, local);
+    let prefix = if crate::rules::VERAX_ENABLED {
+        crate::ui::messages::MESSAGE_INPUT_PREFIX.to_owned()
+    } else {
+        let Some(name) = crate::app::presentation::house_ui::house_ui_name(state, local) else {
+            return false;
+        };
+        let template =
+            crate::app::frontend::shell_pass::resolve_csf(state, "TXT_FROM").into_owned();
+        crate::assets::csf_file::format_csf(
+            &template,
+            &[crate::assets::csf_file::CsfArg::Str(&name)],
+        )
+    };
     let presentation = &mut state.match_state.match_presentation;
     if presentation.message_list.add_edit(&prefix, rgb, true) {
         presentation.chat.target = target;
@@ -202,32 +405,43 @@ fn apply_input(state: &mut AppState, key: EditKey) {
     }
 }
 
-/// The send block `0x0055EDBF..0x0055F110` for results 3 and 4.
+/// The send block `0x0055EDBF..0x0055F110` for results 3 and 4. The VeraX
+/// Skirmish extension has no peers to route to: the line is only echoed.
 fn send(state: &mut AppState, text: &str) {
-    if !state.match_state.session_mode().is_network() {
+    let mode = state.match_state.session_mode();
+    if !chat_input_enabled(mode) {
         return;
     }
     let Some(local) = local_house(state) else {
         return;
     };
     let target = state.match_state.match_presentation.chat.target;
-    let Some((recipients, refused)) = route(state, local, target) else {
-        return;
-    };
-    if refused {
-        crate::app::input::messages::post_observer_refusal(state);
-        state.match_state.match_presentation.chat.target = ChatTarget::None;
-    } else if !recipients.is_empty() {
-        state
-            .match_state
-            .session
-            .request_chat(recipients, text.to_owned());
+    if mode.is_network() {
+        let Some((recipients, refused)) = route(state, local, target) else {
+            return;
+        };
+        if refused {
+            crate::app::input::messages::post_observer_refusal(state);
+            state.match_state.match_presentation.chat.target = ChatTarget::None;
+        } else if !recipients.is_empty() {
+            state
+                .match_state
+                .session
+                .request_chat(recipients, text.to_owned());
+        }
     }
     // 0x0055F0A8..0x0055F104: the local echo under the node name, sent or not.
+    // Offline sessions carry the same handle in the session's player name.
     let session = &state.match_state.session;
-    let name = crate::app::match_runtime::network_match::local_source(session)
-        .map(|source| crate::app::match_runtime::network_match::participant_name(session, source))
-        .unwrap_or_default();
+    let name = if mode.is_network() {
+        crate::app::match_runtime::network_match::local_source(session)
+            .map(|source| {
+                crate::app::match_runtime::network_match::participant_name(session, source)
+            })
+            .unwrap_or_default()
+    } else {
+        session.local_player_name().unwrap_or_default().to_owned()
+    };
     let rgb = crate::app::input::messages::player_line_rgb(state, local);
     crate::app::input::messages::post_chat_line(state, &name, text, rgb);
 }
@@ -386,6 +600,20 @@ fn local_house(state: &AppState) -> Option<InternedId> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn chat_input_opens_in_network_sessions_and_verax_extends_it_to_skirmish() {
+        use crate::app::match_runtime::session::SessionMode;
+        assert!(chat_input_enabled(SessionMode::Lan));
+        assert!(chat_input_enabled(SessionMode::Wol));
+        assert_eq!(
+            chat_input_enabled(SessionMode::Skirmish),
+            cfg!(feature = "verax"),
+            "the VeraX single-player extension opens the box in Skirmish"
+        );
+        assert!(!chat_input_enabled(SessionMode::Campaign));
+        assert!(!chat_input_enabled(SessionMode::Other));
+    }
 
     #[test]
     fn three_keys_open_the_edit_and_ctrl_blocks_them() {

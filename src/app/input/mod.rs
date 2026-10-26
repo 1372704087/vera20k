@@ -6,6 +6,8 @@
 pub(crate) mod autoload;
 pub(crate) mod camera;
 pub(crate) mod chat;
+pub(crate) mod chat_log;
+pub(crate) mod clipboard;
 pub(crate) mod commands;
 pub(crate) mod coop_score;
 pub(crate) mod context_order;

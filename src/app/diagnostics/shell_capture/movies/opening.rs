@@ -980,7 +980,7 @@ fn opening_observation(state: &AppState) -> Result<Value> {
         })
         .collect::<Vec<_>>();
     let messages = state.match_state.match_presentation.message_list.messages().iter()
-        .map(|message| json!({"text": message.text, "rgb": message.rgb, "deadline_ms": message.deadline_ms}))
+        .map(|message| json!({"text": message.text, "rgb": message.rgb, "deadline_ms": message.visible_deadline_ms}))
         .collect::<Vec<_>>();
     Ok(json!({
         "tick": sim.session().tick(), "binary_frame": sim.session().binary_frame(),

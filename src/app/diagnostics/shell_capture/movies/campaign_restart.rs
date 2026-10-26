@@ -631,7 +631,9 @@ impl RestartCapture {
                     .iter()
                     .find(|row| row.text == expected);
                 if let Some(row) = row {
-                    let deadline_ms = row.deadline_ms.context("objective must have a deadline")?;
+                    let deadline_ms = row
+                        .visible_deadline_ms
+                        .context("objective must have a deadline")?;
                     self.objective_pause = Some(ObjectivePause {
                         text: expected,
                         deadline_ms,
@@ -1163,7 +1165,7 @@ impl RestartCapture {
         self.objective_observations.push(json!({"phase": phase,
             "wall_ms": crate::app::input::tooltips::now_ms(state), "tick": Self::simulation_tick(state).ok(),
             "rows": state.match_state.match_presentation.message_list.messages().iter()
-                .map(|row| json!({"text": row.text, "deadline_ms": row.deadline_ms})).collect::<Vec<_>>() }));
+                .map(|row| json!({"text": row.text, "deadline_ms": row.visible_deadline_ms})).collect::<Vec<_>>() }));
     }
 
     fn check_retained_battle_theme(&self, state: &AppState) -> Result<()> {

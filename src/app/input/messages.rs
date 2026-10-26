@@ -10,12 +10,19 @@
 use crate::app::AppState;
 use crate::render::batch::SpriteInstance;
 use crate::ui::game_screen::GameScreen;
+use crate::ui::shell::geom::RectPx;
 
 /// Native Init anchors: x = tactical_x + 3, y = tactical_y, w = tactical_w − 14.
 const MESSAGE_X_INSET: i32 = 3;
 const MESSAGE_WIDTH_INSET: i32 = 14;
 /// Fallback while match color schemes are unavailable.
 const MESSAGE_RGB_SYSTEM: [f32; 3] = [1.0, 1.0, 1.0];
+/// Names the local player is mentioned by are repainted in this colour.
+const MESSAGE_MENTION_RGB: [u8; 3] = [255, 220, 60];
+/// Opacity of the chat box's backing strips (history rows and input bar).
+const CHATBOX_ROW_BACKING_ALPHA: f32 = 0.6;
+/// The chat box caret blinks: 500 ms on, 500 ms off.
+const CHATBOX_CARET_BLINK_MS: u64 = 500;
 /// `0xF0` native 16 ms timer buckets.
 const TYPE_SELECT_MESSAGE_TIMEOUT_MS: u64 = 3_840;
 /// The Supers' lines' `0x96` native 16 ms timer buckets.
@@ -60,7 +67,8 @@ pub(crate) fn post_trigger_message(state: &mut AppState, csf_key: &str) {
             prefix: None,
             text: csf_key,
             rgb,
-            timeout_ms: timeout,
+            visible_timeout_ms: timeout,
+            retain_timeout_ms: timeout,
             silent: false,
         },
     );
@@ -124,7 +132,8 @@ fn post_silent_house_feedback(state: &mut AppState, csf_key: &str, timeout_ms: u
             prefix: None,
             text: csf_key,
             rgb,
-            timeout_ms: Some(timeout_ms),
+            visible_timeout_ms: Some(timeout_ms),
+            retain_timeout_ms: Some(timeout_ms),
             silent: true,
         },
         now,
@@ -152,7 +161,8 @@ fn add_type_select_feedback(
             prefix: None,
             text: csf_key,
             rgb,
-            timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+            visible_timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+            retain_timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
             silent: true,
         },
         now_ms,
@@ -200,7 +210,8 @@ pub(crate) fn post_selection_navigation_text(state: &mut AppState, text: &str) {
                 prefix: None,
                 text,
                 rgb,
-                timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+                visible_timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
+                retain_timeout_ms: Some(TYPE_SELECT_MESSAGE_TIMEOUT_MS),
                 silent: true,
             },
             now,
@@ -261,11 +272,13 @@ impl HudMessage {
         rules: &crate::rules::ruleset::RuleSet,
         rgb: [f32; 3],
     ) -> crate::ui::messages::MessagePost<'static> {
+        let t = self.timeout_ms(rules);
         crate::ui::messages::MessagePost {
             prefix: None,
             text: self.csf_key(),
             rgb,
-            timeout_ms: self.timeout_ms(rules),
+            visible_timeout_ms: t,
+            retain_timeout_ms: t,
             silent: false,
         }
     }
@@ -390,7 +403,8 @@ fn post_house_names_line(
             prefix: None,
             text: &text,
             rgb,
-            timeout_ms,
+            visible_timeout_ms: timeout_ms,
+            retain_timeout_ms: timeout_ms,
             silent: false,
         },
     );
@@ -426,21 +440,78 @@ pub(crate) fn packet_player_line_rgb(state: &AppState, priority: i32) -> [f32; 3
 /// A chat line: Add_Message with the sender's name as prefix, style 4046,
 /// MessageDelay*900 buckets and silent 0, so IncomingMessage plays once
 /// (`0x0055F0A8..0x0055F104` echo, `0x0048D93A..0x0048D98D` receive).
+///
+/// Layout-aware deadlines:
+/// - Native: both visible and retain = MessageDelay (gamemd hard cutoff).
+/// - ChatBox: visible = MessageDelay (row fades off screen), retain = None
+///   (kept in history so a reopened chat still shows it).
 pub(crate) fn post_chat_line(state: &mut AppState, name: &str, text: &str, rgb: [f32; 3]) {
     let Some(rules) = state.rules() else {
         return;
     };
-    let timeout_ms = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    let layout = state.match_state.match_presentation.message_list.layout();
+    let visible_timeout_ms = message_delay_timeout_ms(rules.general.message_delay_minutes);
+    let retain_timeout_ms = match layout {
+        crate::ui::messages::MessageLayout::Native => visible_timeout_ms,
+        crate::ui::messages::MessageLayout::ChatBox => None,
+    };
+    // VeraX chat box: stamp the row with the local clock and append the line
+    // to the on-disk chat log. The native layout keeps gamemd's plain text and
+    // writes nothing.
+    // The log keeps the clock so a session can be reviewed; the chat box shows
+    // the plain line, as the Minecraft reference does.
+    if layout == crate::ui::messages::MessageLayout::ChatBox {
+        let stamp = chat_time_stamp().unwrap_or_default();
+        crate::app::input::chat_log::append(state, &format!("[{stamp}] {name}: {text}"));
+    }
+    // Every chat line carries its sender, as the Minecraft reference does.
     post_resolved_message(
         state,
         &crate::ui::messages::MessagePost {
             prefix: Some(name),
             text,
             rgb,
-            timeout_ms,
+            visible_timeout_ms,
+            retain_timeout_ms,
             silent: false,
         },
     );
+}
+
+/// A VeraX-only client string: the language pack's entry for `key` when it
+/// carries one, else `fallback`. Retail CSF has no keys for the chat box's
+/// own chrome, so the fallback is what most languages see.
+fn verax_ui_text(state: &AppState, key: &str, fallback: &str) -> String {
+    ui_text_or(
+        crate::app::frontend::shell_pass::resolve_csf(state, key).as_ref(),
+        key,
+        fallback,
+    )
+}
+
+/// A language pack without the key yields the CSF's own missing marker
+/// (`CsfFile::text`, `MISSING:'<key>'`), not the key itself, so both mean
+/// "no translation here".
+fn ui_text_or(text: &str, key: &str, fallback: &str) -> String {
+    if text == key || text == format!("MISSING:'{key}'") {
+        fallback.to_owned()
+    } else {
+        text.to_owned()
+    }
+}
+/// The local clock as the OS locale's short time (e.g. `14:32`). Uses the
+/// existing file-time formatter, which delegates to `GetTimeFormatA` on
+/// Windows and `strftime` with the user's locale on Unix, so the stamp reads
+/// the way the player's own clock does.
+pub(crate) fn chat_time_stamp() -> Option<String> {
+    let unix = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?;
+    // FILETIME counts 100 ns ticks from 1601-01-01; the Unix epoch is
+    // 11_644_473_600 s into that epoch.
+    let ticks =
+        (unix.as_secs() + 11_644_473_600) * 10_000_000 + u64::from(unix.subsec_nanos()) / 100;
+    crate::util::native_file_time::format_file_time_parts(ticks).map(|(_, time)| time)
 }
 
 /// The observer gate's silent `TXT_OBSERVER_CANT_SEND` row in the "Grey"
@@ -448,6 +519,16 @@ pub(crate) fn post_chat_line(state: &mut AppState, name: &str, text: &str, rgb: 
 /// (`0x0055EED0..0x0055EF2C`).
 pub(crate) fn post_observer_refusal(state: &mut AppState) {
     post_grey_row(state, "TXT_OBSERVER_CANT_SEND", true, true);
+}
+
+/// The network command queue was full when a local order tried to enqueue.
+pub(super) fn post_command_backpressure(state: &mut AppState) {
+    post_grey_row(
+        state,
+        "Commands are still being sent. Try again shortly.",
+        false,
+        true,
+    );
 }
 
 /// The WOL page sinks in a match (`0x007A92F9..0x007A93B4`): the page line
@@ -507,19 +588,11 @@ fn post_grey_row(state: &mut AppState, text: &str, localize: bool, silent: bool)
             prefix: None,
             text,
             rgb,
-            timeout_ms,
+            visible_timeout_ms: timeout_ms,
+            retain_timeout_ms: timeout_ms,
             silent,
         },
         localize,
-    );
-}
-
-pub(super) fn post_command_backpressure(state: &mut AppState) {
-    post_grey_row(
-        state,
-        "Commands are still being sent. Try again shortly.",
-        false,
-        true,
     );
 }
 
@@ -621,18 +694,62 @@ fn sync_view(state: &mut AppState) {
         .frontend
         .multiplayer_shell_runtime
         .scroll_text(state.match_state.session_mode());
-    state
-        .match_state
-        .match_presentation
-        .message_list
-        .set_typing(typing);
+    // Read the viewport size before taking the mutable list borrow.
+    let (tactical_w, tactical_h) = crate::app::input::camera::tactical_viewport_size(state);
+    let tactical_w = tactical_w as i32;
+    let tactical_h = tactical_h as i32;
+    let list = &mut state.match_state.match_presentation.message_list;
+    list.set_typing(typing);
+    // VeraX builds use the Minecraft chat box layout with its 100-row history
+    // cap; native builds keep the stock TextLabel layout and its 6-row retail
+    // cap. sync_view runs before every message add, so the layout and cap stay
+    // correct even if the list was reconstructed between frames.
+    if crate::rules::VERAX_ENABLED {
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        list.set_max_visible(crate::ui::messages::MESSAGE_MAX_VISIBLE_CHATBOX);
+    } else {
+        list.set_layout(crate::ui::messages::MessageLayout::Native);
+        list.set_max_visible(crate::ui::messages::MESSAGE_MAX_VISIBLE_RETAIL);
+    }
     // The list spans the tactical viewport: the frame left of the sidebar.
-    let tactical_w = crate::app::input::camera::tactical_viewport_size(state).0 as i32;
-    state.match_state.match_presentation.message_list.set_view(
+    list.set_view(
         MESSAGE_X_INSET,
         0,
         (tactical_w - MESSAGE_WIDTH_INSET).max(0),
+        tactical_h,
     );
+}
+
+/// The open edit line in window pixels, where the input method shows its
+/// candidates; `None` while no edit is open.
+pub(crate) fn ime_edit_rect(state: &AppState) -> Option<RectPx> {
+    if state.frontend.screen != GameScreen::InGame {
+        return None;
+    }
+    let list = &state.match_state.match_presentation.message_list;
+    let edit = list.edit_line()?;
+    let font = &state.renderer.bit_font;
+    // The message rows are tactical pixels; the zoom pass stretches them over
+    // the window.
+    let sx = state.renderer.gpu.config.width as f32 / state.render_width().max(1) as f32;
+    let sy = state.renderer.gpu.config.height as f32 / state.render_height().max(1) as f32;
+    let (width, height) = if list.layout() == crate::ui::messages::MessageLayout::ChatBox {
+        // The chat box's input bar spans the view, so the candidates sit
+        // under its whole line rather than behind the typed text.
+        let tactical_w = crate::app::input::camera::tactical_viewport_size(state).0 as i32;
+        (
+            (tactical_w - MESSAGE_WIDTH_INSET).max(0) as f32,
+            crate::ui::messages::MESSAGE_LINE_HEIGHT_PX as f32,
+        )
+    } else {
+        (font.text_width(&edit.text) as f32, font.cell_height())
+    };
+    Some(RectPx::new(
+        (list.x() as f32 * sx) as i32,
+        (edit.y as f32 * sy) as i32,
+        (width * sx) as i32,
+        (height * sy) as i32,
+    ))
 }
 
 /// Prepare one successful offline TextLabel paint, using raw wall time for
@@ -644,12 +761,12 @@ pub(crate) fn build_message_instances(
     if state.frontend.screen != GameScreen::InGame {
         return (Vec::new(), Vec::new());
     }
-    let wall_ms = crate::app::input::tooltips::now_ms(state) as u32;
+    let wall_ms = crate::app::input::tooltips::now_ms(state) as u64;
     let requests = state
         .match_state
         .match_presentation
         .message_list
-        .advance_reveal(wall_ms);
+        .advance_reveal(wall_ms as u32);
     if requests > 0 {
         let sound = state
             .rules()
@@ -658,111 +775,859 @@ pub(crate) fn build_message_instances(
             crate::app::App::play_shell_ui_sound_by_id(state, sound.as_deref());
         }
     }
+    let mention = state
+        .match_state
+        .session
+        .local_player_name()
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned);
+    let composition = state
+        .platform
+        .ime
+        .composition(crate::app::input::ime::ImeTarget::InGameChat)
+        .map(|(units, _)| units);
+    // Menu labels come from the language pack when it carries them; the
+    // English fallback keeps the menu usable otherwise.
+    let copy = verax_ui_text(state, "TXT_VERAX_COPY", "Copy");
+    let open_link = verax_ui_text(state, "TXT_VERAX_OPEN_LINK", "Open link");
     message_instances(
         &state.renderer.bit_font,
         &state.match_state.match_presentation.message_list,
-        state
-            .platform
-            .ime
-            .composition(crate::app::input::ime::ImeTarget::InGameChat)
-            .map(|(units, _)| units),
         [
             state.match_state.input.camera_x,
             state.match_state.input.camera_y,
         ],
+        wall_ms,
+        &ChatChrome {
+            mention: mention.as_deref(),
+            composition,
+            menu_labels: Some([copy.as_str(), open_link.as_str()]),
+        },
     )
 }
 
-/// The open edit line in window pixels, where the input method shows its
-/// candidates; `None` while no edit is open.
-pub(crate) fn ime_edit_rect(state: &AppState) -> Option<crate::ui::shell::geom::RectPx> {
-    if state.frontend.screen != GameScreen::InGame {
-        return None;
-    }
-    let list = &state.match_state.match_presentation.message_list;
-    let edit = list.edit_line()?;
-    let font = &state.renderer.bit_font;
-    // The message rows are tactical pixels; the zoom pass stretches them over
-    // the window.
-    let sx = state.renderer.gpu.config.width as f32 / state.render_width().max(1) as f32;
-    let sy = state.renderer.gpu.config.height as f32 / state.render_height().max(1) as f32;
-    Some(crate::ui::shell::geom::RectPx::new(
-        (list.x() as f32 * sx) as i32,
-        (edit.y as f32 * sy) as i32,
-        (font.text_width(&edit.text) as f32 * sx) as i32,
-        (font.cell_height() as f32 * sy) as i32,
-    ))
+/// VeraX-only chat chrome the render pass needs but the model does not hold:
+/// the local player's mention name, the live IME composition, and the two
+/// right-click menu labels (already resolved through the language pack).
+#[derive(Default)]
+struct ChatChrome<'a> {
+    mention: Option<&'a str>,
+    composition: Option<&'a [u16]>,
+    menu_labels: Option<[&'a str; 2]>,
 }
 
 fn message_instances(
     font: &crate::render::bit_font::BitFont,
     list: &crate::ui::messages::MessageList,
-    composition: Option<&[u16]>,
     camera_offset: [f32; 2],
+    wall_ms: u64,
+    chrome: &ChatChrome<'_>,
 ) -> (Vec<SpriteInstance>, Vec<SpriteInstance>) {
     let x = list.x() as f32;
+    let layout = list.layout();
+    let editing = list.editing();
+    let messages_slice: &[crate::ui::messages::Message] = list.messages();
     let mut fills = Vec::new();
     let mut texts = Vec::new();
+
     // Draw 0x005D49A0 paints the edit label first, whole: its reveal flag
     // is never set and the chat cursor character 0 draws no caret.
-    let edit = list
-        .edit_line()
-        .map(|edit| crate::ui::messages::Message::edit_row(&edit));
-    // The open composition follows the typed text (`app::input::ime`).
-    let composition = edit.as_ref().zip(composition).map(|(row, units)| {
-        let mut row = row.clone();
-        row.text = String::from_utf16_lossy(units);
-        row.rgb = crate::app::input::ime::COMPOSITION_RGB.map(|c| f32::from(c) / 255.0);
-        row
-    });
-    let composition_x = edit
-        .as_ref()
-        .map_or(x, |row| x + font.text_width(&row.text) as f32);
-    let rows = edit
-        .iter()
-        .map(|row| (x, row))
-        .chain(composition.iter().map(|row| (composition_x, row)))
-        .chain(list.messages().iter().map(|row| (x, row)));
-    for (x, m) in rows {
-        // Message rows are screen-space, but `draw_pooled_ui` binds the
-        // live world camera and the shader subtracts it. Add that camera
-        // back here so scrolling cannot displace the HUD text.
-        let text = font.build_text_label(
-            &m.text,
+    if let Some(edit_line) = list.edit_line() {
+        let m = crate::ui::messages::Message::edit_row(&edit_line);
+        let alpha = 1.0_f32;
+        build_row_instances(
+            font,
+            &m,
             x,
-            m.y as f32,
-            0.00022,
             camera_offset,
-            m.rgb.map(|channel| (channel * 255.0).round() as u8),
-            m.reveal_count(),
+            alpha,
+            chatbox_input_backing(list),
+            &mut fills,
+            &mut texts,
         );
-        let width = font.text_width(&m.text) as f32;
-        let height = font.cell_height() as f32;
-        fills.push(SpriteInstance {
-            position: [
-                x - 1.0 + camera_offset[0],
-                m.y as f32 - 1.0 + camera_offset[1],
-            ],
-            size: [width + 2.0, height + 2.0],
-            uv_origin: [0.0, 0.0],
-            uv_size: [1.0, 1.0],
-            // The UI pass depth-tests: the box must sit BEHIND its own glyphs
-            // (text depth 0.00022), mirroring the tooltip lane's ordering
-            // (fill 0.00021 > border 0.000205 > text).
-            depth: 0.00023,
-            tint: [0.0; 3],
-            alpha: 1.0,
-            ..Default::default()
-        });
-        texts.extend(text);
+        // The VeraX chat box paints the open composition in the NewEdit
+        // composition colour (`0x00777EA0`, `[0xAC4618]`) after the text the
+        // input method is editing; the native layout leaves it to the system
+        // IME window, as OwnerDraw__ServiceIMEMessage `0x00778030` does.
+        let composing = (layout == crate::ui::messages::MessageLayout::ChatBox)
+            .then_some(chrome.composition)
+            .flatten()
+            .map(String::from_utf16_lossy)
+            .filter(|text| !text.is_empty());
+        let mut caret_x = font.text_width(&edit_line.text) as f32;
+        // An open search paints its own bar over the message line.
+        if let Some(query) = list.search_query() {
+            push_message_fill(
+                camera_offset,
+                [
+                    x - 1.0,
+                    (edit_line.y - crate::ui::messages::MESSAGE_INPUT_TEXT_INSET_PX) as f32,
+                ],
+                [
+                    list.view_width() as f32 + 2.0,
+                    crate::ui::messages::MESSAGE_INPUT_BAR_HEIGHT_PX as f32,
+                ],
+                [0.0, 0.0, 0.0],
+                0.85,
+                0.00023,
+                &mut fills,
+            );
+            let shown = format!("? {query}");
+            texts.extend(font.build_text_label(
+                &shown,
+                x,
+                edit_line.y as f32,
+                0.00021,
+                camera_offset,
+                MESSAGE_MENTION_RGB,
+                0,
+            ));
+            // The search bar owns the keys, so the composition goes here.
+            caret_x = font.text_width(&shown) as f32;
+            if let Some(composing) = composing.as_deref() {
+                texts.extend(font.build_text_label(
+                    composing,
+                    x + caret_x,
+                    edit_line.y as f32,
+                    0.00022,
+                    camera_offset,
+                    crate::app::input::ime::COMPOSITION_RGB,
+                    0,
+                ));
+                caret_x += font.text_width(composing) as f32;
+            }
+        } else if let Some(composing) = composing.as_deref() {
+            texts.extend(font.build_text_label(
+                composing,
+                x + caret_x,
+                edit_line.y as f32,
+                0.00022,
+                camera_offset,
+                crate::app::input::ime::COMPOSITION_RGB,
+                0,
+            ));
+            caret_x += font.text_width(composing) as f32;
+        }
+        // The chat box shows the text caret the native label never draws:
+        // an underscore just past the typed text, blinking half a second
+        // on and half a second off.
+        let caret_on = wall_ms % (CHATBOX_CARET_BLINK_MS * 2) < CHATBOX_CARET_BLINK_MS;
+        if layout == crate::ui::messages::MessageLayout::ChatBox && caret_on {
+            push_message_fill(
+                camera_offset,
+                [
+                    x + caret_x + 1.0,
+                    (edit_line.y + font.cell_height() as i32 - 3) as f32,
+                ],
+                [4.0, 2.0],
+                [1.0, 1.0, 1.0],
+                0.9,
+                0.00021,
+                &mut fills,
+            );
+        }
     }
+
+    // Draw history rows, branch by layout/editing state.
+    match (layout, editing) {
+        (crate::ui::messages::MessageLayout::ChatBox, false) => {
+            // ChatBox closed: filter by is_visible(), apply alpha_at() fade.
+            for m in messages_slice {
+                if !m.is_visible(wall_ms) {
+                    continue;
+                }
+                let alpha = m.alpha_at(wall_ms);
+                build_row_instances(
+                    font,
+                    m,
+                    x,
+                    camera_offset,
+                    alpha,
+                    chatbox_history_backing(list),
+                    &mut fills,
+                    &mut texts,
+                );
+            }
+        }
+        (crate::ui::messages::MessageLayout::ChatBox, true) => {
+            // ChatBox open: show the visible window of history rows at
+            // alpha=1.0. Scroll offset selects which rows are in view.
+            for i in list.display_rows() {
+                let m = &messages_slice[i];
+                build_row_instances(
+                    font,
+                    m,
+                    x,
+                    camera_offset,
+                    1.0_f32,
+                    chatbox_history_backing(list),
+                    &mut fills,
+                    &mut texts,
+                );
+                // Mention highlight: repaint the local player's name in the
+                // highlight colour, one sprite run per occurrence.
+                if let Some(name) = chrome.mention {
+                    push_mention_runs(
+                        font,
+                        &m.text,
+                        m.y,
+                        name,
+                        x,
+                        camera_offset,
+                        1.0_f32,
+                        m.prefix_bytes,
+                        &mut texts,
+                    );
+                }
+            }
+            // Selection band: the painted history rows that fall inside the
+            // drag, clipped to the visible window. Drawn between the row box
+            // and its glyphs so the text stays readable.
+            if !list.search_active()
+                && let Some((sel_start, sel_end)) = list.selection()
+            {
+                let (win_start, win_end) = list.visible_message_range();
+                let band_height = font.cell_height() as f32 + 2.0;
+                for (i, m) in messages_slice.iter().enumerate() {
+                    if i < win_start || i >= win_end || i < sel_start.row || i > sel_end.row {
+                        continue;
+                    }
+                    let len = m.text.chars().count();
+                    let from = if i == sel_start.row {
+                        sel_start.char_index.min(len)
+                    } else {
+                        0
+                    };
+                    let to = if i == sel_end.row {
+                        sel_end.char_index.min(len)
+                    } else {
+                        len
+                    };
+                    if to <= from {
+                        continue;
+                    }
+                    let x0 = x + font.text_width(&m.text[..char_byte_offset(&m.text, from)]) as f32;
+                    let x1 = x + font.text_width(&m.text[..char_byte_offset(&m.text, to)]) as f32;
+                    push_message_fill(
+                        camera_offset,
+                        [x0, m.y as f32 - 1.0],
+                        [x1 - x0, band_height],
+                        [0.25, 0.5, 0.95],
+                        0.55,
+                        0.000225,
+                        &mut fills,
+                    );
+                }
+            }
+            // Scroll indicator: a dim track plus a thumb whose position and
+            // length show where the window sits in the retained history.
+            // VeraX-only chrome (gamemd has no scrollable history).
+            if let Some(bar) = list.scrollbar_geometry() {
+                push_message_fill(
+                    camera_offset,
+                    [bar.x as f32, bar.track_y as f32],
+                    [
+                        crate::ui::messages::MESSAGE_SCROLLBAR_WIDTH_PX as f32,
+                        bar.track_height as f32,
+                    ],
+                    [0.0, 0.0, 0.0],
+                    0.35,
+                    0.00023,
+                    &mut fills,
+                );
+                let thumb_tint = if list.has_unread() {
+                    [1.0, 0.85, 0.3]
+                } else {
+                    [0.75, 0.75, 0.75]
+                };
+                push_message_fill(
+                    camera_offset,
+                    [bar.x as f32, bar.thumb_y as f32],
+                    [
+                        crate::ui::messages::MESSAGE_SCROLLBAR_WIDTH_PX as f32,
+                        bar.thumb_height as f32,
+                    ],
+                    thumb_tint,
+                    0.9,
+                    0.00023,
+                    &mut fills,
+                );
+            }
+            // Unread accent: a thin line above the input bar says rows
+            // arrived below the window (End or the wheel jumps to them).
+            if let Some(marker_y) = list.unread_marker_y() {
+                push_message_fill(
+                    camera_offset,
+                    [x, marker_y as f32],
+                    [
+                        (list.view_width() as f32),
+                        crate::ui::messages::MESSAGE_UNREAD_MARKER_PX as f32,
+                    ],
+                    [1.0, 0.85, 0.3],
+                    0.8,
+                    0.00023,
+                    &mut fills,
+                );
+            }
+        }
+        (crate::ui::messages::MessageLayout::Native, _) => {
+            // Native: all rows, alpha=1.0 (gamemd has no fade).
+            for m in messages_slice {
+                build_row_instances(
+                    font,
+                    m,
+                    x,
+                    camera_offset,
+                    1.0_f32,
+                    chatbox_history_backing(list),
+                    &mut fills,
+                    &mut texts,
+                );
+            }
+        }
+    }
+
+    // Right-click menu: box, hover band, and one label per row.
+    if let Some(menu) = list.menu() {
+        let labels = chrome.menu_labels.unwrap_or(["Copy", "Open link"]);
+        push_message_fill(
+            camera_offset,
+            [menu.x as f32, menu.y as f32],
+            [
+                crate::ui::messages::MESSAGE_MENU_WIDTH_PX as f32,
+                menu.height() as f32,
+            ],
+            [0.05, 0.05, 0.08],
+            0.94,
+            0.00019,
+            &mut fills,
+        );
+        for (row, label) in labels.iter().enumerate() {
+            let row_y = menu.y
+                + crate::ui::messages::MESSAGE_MENU_PADDING_PX
+                + row as i32 * crate::ui::messages::MESSAGE_MENU_ROW_HEIGHT_PX;
+            let enabled = menu.row_enabled(row);
+            if enabled && menu.hover == Some(row) {
+                push_message_fill(
+                    camera_offset,
+                    [menu.x as f32 + 1.0, row_y as f32],
+                    [
+                        crate::ui::messages::MESSAGE_MENU_WIDTH_PX as f32 - 2.0,
+                        crate::ui::messages::MESSAGE_MENU_ROW_HEIGHT_PX as f32,
+                    ],
+                    [0.25, 0.45, 0.85],
+                    0.7,
+                    0.000185,
+                    &mut fills,
+                );
+            }
+            let tint = if enabled {
+                [220u8, 220, 220]
+            } else {
+                [110, 110, 110]
+            };
+            texts.extend(font.build_text_label(
+                label,
+                (menu.x + 6) as f32,
+                (row_y + 5) as f32,
+                0.00018,
+                camera_offset,
+                tint,
+                0,
+            ));
+        }
+    }
+
     (fills, texts)
 }
 
+/// The VeraX chat box history row's backing strip: a fixed two-thirds of the
+/// view, whatever the row's text length; None for the native layout, whose
+/// rows keep gamemd's label-sized box.
+fn chatbox_history_backing(list: &crate::ui::messages::MessageList) -> Option<RowBacking> {
+    (list.layout() == crate::ui::messages::MessageLayout::ChatBox).then_some(RowBacking {
+        width: list.view_width() as f32 * crate::ui::messages::CHATBOX_ROW_WIDTH_FRACTION,
+        alpha: CHATBOX_ROW_BACKING_ALPHA,
+    })
+}
+/// The open input bar's backing keeps the full-view strip it already had.
+fn chatbox_input_backing(list: &crate::ui::messages::MessageList) -> Option<RowBacking> {
+    (list.layout() == crate::ui::messages::MessageLayout::ChatBox).then_some(RowBacking {
+        width: list.view_width() as f32 + 2.0,
+        alpha: CHATBOX_ROW_BACKING_ALPHA,
+    })
+}
+/// A flat screen-space fill for the chat box chrome (scrollbar track, thumb,
+/// unread accent, selection band). Same camera compensation as a message row's
+/// backing box; `depth` picks the layer (smaller is nearer the viewer, so the
+/// row box sits behind its glyphs at 0.00023 and the text at 0.00022).
+fn push_message_fill(
+    camera_offset: [f32; 2],
+    position: [f32; 2],
+    size: [f32; 2],
+    tint: [f32; 3],
+    alpha: f32,
+    depth: f32,
+    fills: &mut Vec<SpriteInstance>,
+) {
+    if size[0] <= 0.0 || size[1] <= 0.0 {
+        return;
+    }
+    fills.push(SpriteInstance {
+        position: [
+            position[0] + camera_offset[0],
+            position[1] + camera_offset[1],
+        ],
+        size,
+        uv_origin: [0.0, 0.0],
+        uv_size: [1.0, 1.0],
+        depth,
+        tint,
+        alpha,
+        ..Default::default()
+    });
+}
+/// Repaint every occurrence of `name` inside a row at the mention colour.
+/// The extra labels sit above the row's own glyphs (depth 0.00021), so they
+/// recolour just those characters.
+fn push_mention_runs(
+    font: &crate::render::bit_font::BitFont,
+    text: &str,
+    y: i32,
+    name: &str,
+    x: f32,
+    camera_offset: [f32; 2],
+    alpha: f32,
+    // Matches before this byte are the row's own sender tag, not a mention.
+    from_byte: usize,
+    texts: &mut Vec<SpriteInstance>,
+) {
+    let mut from = from_byte.min(text.len());
+    while let Some(found) = text[from..].find(name) {
+        let start = from + found;
+        let end = start + name.len();
+        let run_x = x + font.text_width(&text[..start]) as f32;
+        let mut sprites = font.build_text_label(
+            &text[start..end],
+            run_x,
+            y as f32,
+            0.00021,
+            camera_offset,
+            MESSAGE_MENTION_RGB,
+            0,
+        );
+        for sprite in &mut sprites {
+            sprite.alpha *= alpha;
+        }
+        texts.extend(sprites);
+        from = end;
+    }
+}
+/// How a row's backing band is drawn. Native keeps gamemd's per-label box;
+/// the VeraX chat box paints a fixed strip on its history rows and a
+/// full-view strip on its input bar.
+#[derive(Clone, Copy)]
+struct RowBacking {
+    /// Painted band width in pixels.
+    width: f32,
+    alpha: f32,
+}
+
+fn build_row_instances(
+    font: &crate::render::bit_font::BitFont,
+    m: &crate::ui::messages::Message,
+    x: f32,
+    camera_offset: [f32; 2],
+    alpha: f32,
+    backing: Option<RowBacking>,
+    fills: &mut Vec<SpriteInstance>,
+    texts: &mut Vec<SpriteInstance>,
+) {
+    // Message rows are screen-space, but `draw_pooled_ui` binds the
+    // live world camera and the shader subtracts it. Add that camera
+    // back here so scrolling cannot displace the HUD text.
+    let tint = m.rgb.map(|channel| (channel * 255.0).round() as u8);
+    let reveal = m.reveal_count();
+    // The chat box paints the sender tag in the sender's own colour and
+    // the body in white, as the Minecraft reference does. The native
+    // layout keeps one label in one colour, and a type-on reveal keeps
+    // the single label so its character count spans the whole row.
+    let split = (m.prefix_bytes > 0 && m.prefix_bytes < m.text.len() && reveal == 0)
+        .then_some(m.prefix_bytes);
+    let mut text_sprites = match split {
+        Some(bytes) => {
+            let tag = &m.text[..bytes];
+            let mut sprites =
+                font.build_text_label(tag, x, m.y as f32, 0.00022, camera_offset, tint, 0);
+            sprites.extend(font.build_text_label(
+                &m.text[bytes..],
+                x + font.text_width(tag) as f32,
+                m.y as f32,
+                0.00022,
+                camera_offset,
+                [255, 255, 255],
+                0,
+            ));
+            sprites
+        }
+        None => font.build_text_label(&m.text, x, m.y as f32, 0.00022, camera_offset, tint, reveal),
+    };
+    for inst in &mut text_sprites {
+        inst.alpha *= alpha;
+    }
+    texts.extend(text_sprites);
+    // Native's label box hugs the text by 1 px; the chat box's strips use
+    // their own widths.
+    let (box_width, box_alpha) = match backing {
+        Some(backing) => (backing.width, backing.alpha * alpha),
+        None => (font.text_width(&m.text) as f32 + 2.0, alpha),
+    };
+    let height = font.cell_height() as f32;
+    fills.push(SpriteInstance {
+        position: [
+            x - 1.0 + camera_offset[0],
+            m.y as f32 - 1.0 + camera_offset[1],
+        ],
+        size: [box_width, height + 2.0],
+        uv_origin: [0.0, 0.0],
+        uv_size: [1.0, 1.0],
+        // The UI pass depth-tests: the box must sit BEHIND its own glyphs
+        // (text depth 0.00022), mirroring the tooltip lane's ordering
+        // (fill 0.00021 > border 0.000205 > text).
+        depth: 0.00023,
+        tint: [0.0; 3],
+        alpha: box_alpha,
+        ..Default::default()
+    });
+}
+
+/// Map a screen point to a position in the retained chat history. None when
+/// the point is outside the history area (the input bar, the sidebar, the
+/// battlefield) or the layout is not the VeraX chat box.
+pub(crate) fn chat_point_at(
+    state: &AppState,
+    x: f32,
+    y: f32,
+) -> Option<crate::ui::messages::ChatPoint> {
+    let list = &state.match_state.match_presentation.message_list;
+    let row = list.row_at_y(y as i32)?;
+    let message = list.messages().get(row)?;
+    let font = &state.renderer.bit_font;
+    Some(crate::ui::messages::ChatPoint {
+        row,
+        char_index: char_index_at(font, &message.text, x - list.x() as f32),
+    })
+}
+
+/// The char index whose left edge is at or before `x` (the char boundary
+/// nearest the pointer, measured the same way the row is drawn).
+fn char_index_at(font: &crate::render::bit_font::BitFont, text: &str, x: f32) -> usize {
+    if x <= 0.0 {
+        return 0;
+    }
+    let mut byte = 0usize;
+    let mut index = 0usize;
+    for (i, ch) in text.chars().enumerate() {
+        byte += ch.len_utf8();
+        if font.text_width(&text[..byte]) as f32 <= x {
+            index = i + 1;
+        } else {
+            break;
+        }
+    }
+    index
+}
+
+/// Byte offset of `char_index` in `text` (clamped to the end).
+fn char_byte_offset(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map(|(byte, _)| byte)
+        .unwrap_or(text.len())
+}
+
+/// Every http(s) span in `text`, as `(start, end)` char indices.
+fn url_spans(text: &str) -> Vec<(usize, usize)> {
+    fn begins_with(chars: &[char], prefix: &str) -> bool {
+        let prefix: Vec<char> = prefix.chars().collect();
+        chars.len() >= prefix.len() && chars[..prefix.len()] == prefix[..]
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut i = 0usize;
+    while i < chars.len() {
+        if begins_with(&chars[i..], "http://") || begins_with(&chars[i..], "https://") {
+            let mut end = i;
+            while end < chars.len()
+                && !chars[end].is_whitespace()
+                && !matches!(chars[end], '<' | '>' | '"' | '\'')
+            {
+                end += 1;
+            }
+            spans.push((i, end));
+            i = end;
+        } else {
+            i += 1;
+        }
+    }
+    spans
+}
+
+/// The link under a chat point, if that point fell inside an http(s) span.
+fn chat_url_at(state: &AppState, point: crate::ui::messages::ChatPoint) -> Option<String> {
+    let list = &state.match_state.match_presentation.message_list;
+    let message = list.messages().get(point.row)?;
+    let chars: Vec<char> = message.text.chars().collect();
+    url_spans(&message.text)
+        .into_iter()
+        .find(|(start, end)| point.char_index >= *start && point.char_index < *end)
+        .map(|(start, end)| chars[start..end.min(chars.len())].iter().collect())
+}
+
+/// VeraX chat box left-button handling: the press starts a history selection,
+/// the release ends it and opens a link when the press did not drag. True
+/// when the click landed inside the history area and must not reach the
+/// battlefield.
+pub(crate) fn chat_mouse(
+    state: &mut AppState,
+    button: winit::event::MouseButton,
+    pressed: bool,
+) -> bool {
+    if button != winit::event::MouseButton::Left {
+        return false;
+    }
+    {
+        let list = &state.match_state.match_presentation.message_list;
+        if list.layout() != crate::ui::messages::MessageLayout::ChatBox || !list.editing() {
+            return false;
+        }
+    }
+    let (cx, cy) = state.cursor_position();
+    if pressed {
+        // An open right-click menu takes the click: run the row or dismiss it.
+        if state
+            .match_state
+            .match_presentation
+            .message_list
+            .menu()
+            .is_some()
+        {
+            let action = state
+                .match_state
+                .match_presentation
+                .message_list
+                .menu_action_at(cx as i32, cy as i32);
+            let link = state
+                .match_state
+                .match_presentation
+                .message_list
+                .menu()
+                .and_then(|menu| menu.link.clone());
+            state
+                .match_state
+                .match_presentation
+                .message_list
+                .close_menu();
+            match action {
+                Some(crate::ui::messages::ChatMenuAction::Copy) => {
+                    copy_chat_selection(state);
+                }
+                Some(crate::ui::messages::ChatMenuAction::OpenLink) => {
+                    if let Some(url) = link {
+                        crate::app::input::clipboard::open_url(&url);
+                    }
+                }
+                None => {}
+            }
+            return true;
+        }
+        // The scrollbar strip owns presses before the text does.
+        if state
+            .match_state
+            .match_presentation
+            .message_list
+            .scrollbar_hit(cx as i32, cy as i32)
+        {
+            state
+                .match_state
+                .match_presentation
+                .message_list
+                .begin_scroll_drag(cy as i32);
+            state
+                .match_state
+                .match_presentation
+                .message_list
+                .drag_scroll_to(cy as i32);
+            return true;
+        }
+        let Some(point) = chat_point_at(state, cx, cy) else {
+            return false;
+        };
+        let now = crate::app::input::tooltips::now_ms(state);
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .press_at(point, now);
+        return true;
+    }
+    if state
+        .match_state
+        .match_presentation
+        .message_list
+        .is_dragging_scrollbar()
+    {
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .end_scroll_drag();
+        return true;
+    }
+    if !state
+        .match_state
+        .match_presentation
+        .message_list
+        .is_selecting()
+    {
+        return false;
+    }
+    state
+        .match_state
+        .match_presentation
+        .message_list
+        .end_selection();
+    // A press with no drag is a click: open the link under the pointer.
+    let clicked_only = state
+        .match_state
+        .match_presentation
+        .message_list
+        .selection()
+        .is_some_and(|(anchor, focus)| anchor == focus);
+    if clicked_only {
+        if let Some(point) = chat_point_at(state, cx, cy) {
+            if let Some(url) = chat_url_at(state, point) {
+                crate::app::input::clipboard::open_url(&url);
+            }
+        }
+    }
+    true
+}
+
+/// Extend an in-progress selection as the pointer moves (left button held).
+pub(crate) fn chat_extend_selection(state: &mut AppState) {
+    let (cx, cy) = state.cursor_position();
+    // Track the hovered menu row while the menu is open.
+    if state
+        .match_state
+        .match_presentation
+        .message_list
+        .menu()
+        .is_some()
+    {
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .set_menu_hover(cx as i32, cy as i32);
+        return;
+    }
+    if state
+        .match_state
+        .match_presentation
+        .message_list
+        .is_dragging_scrollbar()
+    {
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .drag_scroll_to(cy as i32);
+        return;
+    }
+    if !state
+        .match_state
+        .match_presentation
+        .message_list
+        .is_selecting()
+    {
+        return;
+    }
+    if let Some(point) = chat_point_at(state, cx, cy) {
+        state
+            .match_state
+            .match_presentation
+            .message_list
+            .extend_selection(point);
+    }
+}
+
+/// Copy the selected chat text to the OS clipboard. True when it copied.
+pub(crate) fn copy_chat_selection(state: &mut AppState) -> bool {
+    let Some(text) = state
+        .match_state
+        .match_presentation
+        .message_list
+        .selected_text()
+    else {
+        return false;
+    };
+    if !crate::app::input::clipboard::set_text(&text) {
+        return false;
+    }
+    // Confirm the copy with a short grey row. The label goes through the
+    // language pack first; retail CSF has no chat-box key, so English is the
+    // fallback.
+    let notice = verax_ui_text(state, "TXT_VERAX_COPIED", "Copied to clipboard");
+    post_grey_row(state, &notice, false, true);
+    true
+}
+
+/// VeraX chat box right-button actions over the history: copy the selection,
+/// else open the link under the pointer. False when the click was not over
+/// the history, so the caller keeps gamemd's "right button ends the edit".
+pub(crate) fn chat_right_mouse(state: &mut AppState) -> bool {
+    {
+        let list = &state.match_state.match_presentation.message_list;
+        if list.layout() != crate::ui::messages::MessageLayout::ChatBox || !list.editing() {
+            return false;
+        }
+    }
+    let (cx, cy) = state.cursor_position();
+    if chat_point_at(state, cx, cy).is_none() {
+        return false;
+    }
+    let has_selection = state
+        .match_state
+        .match_presentation
+        .message_list
+        .selection()
+        .is_some_and(|(anchor, focus)| anchor != focus);
+    let link = chat_point_at(state, cx, cy).and_then(|point| chat_url_at(state, point));
+    state.match_state.match_presentation.message_list.open_menu(
+        cx as i32,
+        cy as i32,
+        has_selection,
+        link,
+    );
+    true
+}
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[test]
+    fn url_spans_find_http_links_and_stop_at_whitespace() {
+        assert_eq!(url_spans("see https://a.b/c now"), vec![(4, 17)]);
+        assert_eq!(url_spans("https://x.test"), vec![(0, 14)]);
+        assert_eq!(url_spans("plain text, no link"), Vec::new());
+        // Two links in one row, and a quote terminates the span.
+        assert_eq!(
+            url_spans("http://a.io x https://b.io"),
+            vec![(0, 11), (14, 26)]
+        );
+        assert_eq!(url_spans("watch <https://c.io>"), vec![(7, 19)]);
+    }
     #[test]
     fn timed_release_admission_survives_a_new_pause_in_the_same_logic_pass() {
         use crate::app::match_runtime::session::SessionMode;
@@ -806,7 +1671,8 @@ mod tests {
                 prefix: None,
                 text: "objective",
                 rgb: [1.0; 3],
-                timeout_ms: Some(1_000),
+                visible_timeout_ms: Some(1_000),
+                retain_timeout_ms: Some(1_000),
                 silent: true,
             },
             0,
@@ -1002,7 +1868,7 @@ mod tests {
         let row = &list.messages()[0];
         assert_eq!(row.text, "Lokalisierte Bildschirmauswahl");
         assert_eq!(row.rgb, rgb);
-        assert_eq!(row.deadline_ms, Some(now_ms + 3_840));
+        assert_eq!(row.visible_deadline_ms, Some(now_ms + 3_840));
     }
 
     #[test]
@@ -1058,7 +1924,10 @@ mod tests {
         assert!(post.prefix.is_none());
         assert_eq!(post.text, "TXT_LOW_POWER");
         assert_eq!(post.silent, args[6] != 0);
-        assert_eq!(post.timeout_ms, Some(args[5].as_u64().unwrap() * 16));
+        assert_eq!(
+            post.visible_timeout_ms,
+            Some(args[5].as_u64().unwrap() * 16)
+        );
         assert_ne!(
             csf.text(post.text).as_ref(),
             post.text,
@@ -1077,16 +1946,26 @@ mod tests {
         );
         assert_eq!(list.messages()[0].text, csf.text(post.text));
         assert_eq!(list.messages()[0].rgb, rgb);
-        let deadline = now + post.timeout_ms.unwrap();
-        assert_eq!(list.messages()[0].deadline_ms, Some(deadline));
+        let deadline = now + post.visible_timeout_ms.unwrap();
+        assert_eq!(list.messages()[0].visible_deadline_ms, Some(deadline));
         let font = crate::render::bit_font::tests::make_test_font(
             &[(b'L' as u16, 6), (b'o' as u16, 6)],
             4,
         );
         assert_eq!(list.advance_reveal(now as u32), 1);
-        assert_eq!(message_instances(&font, &list, None, [0.0; 2]).1.len(), 1);
+        assert_eq!(
+            message_instances(&font, &list, [0.0; 2], now, &ChatChrome::default())
+                .1
+                .len(),
+            1
+        );
         assert_eq!(list.advance_reveal(now as u32 + 16), 1);
-        assert_eq!(message_instances(&font, &list, None, [0.0; 2]).1.len(), 2);
+        assert_eq!(
+            message_instances(&font, &list, [0.0; 2], now, &ChatChrome::default())
+                .1
+                .len(),
+            2
+        );
         // Offline menus skip Manage. Equality still retains the row; a
         // first resumed poll past the deadline removes it immediately.
         assert!(!list.manage(deadline));
@@ -1095,7 +1974,7 @@ mod tests {
         assert!(list.messages().is_empty());
 
         // Admission failure cannot play the message-insertion sound.
-        list.set_view(3, 0, 0);
+        list.set_view(3, 0, 0, 0);
         let rejected =
             add_localized_message(&mut list, Some(&csf), &post, resumed_wall_ms + 2, &|_| 8);
         assert_eq!(rejected.added, 0);
@@ -1147,26 +2026,256 @@ mod tests {
     }
 
     #[test]
-    fn open_composition_paints_after_the_typed_text_in_its_colour() {
+    fn chatbox_history_strip_is_a_fixed_two_thirds_while_the_input_bar_spans_the_view() {
         use crate::render::bit_font::tests::make_test_font;
 
-        let font = make_test_font(&[(b'a' as u16, 6), (0x4E2D, 15)], 4);
-        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 1_000);
-        assert!(list.add_edit("a", [1.0, 1.0, 1.0], true));
-        let (fills, texts) = message_instances(&font, &list, Some(&[0x4E2D]), [0.0; 2]);
-        let expected = font.build_text_label(
-            "\u{4E2D}",
-            3.0 + font.text_width("a") as f32,
-            list.edit_line().unwrap().y as f32,
-            0.00022,
-            [0.0; 2],
-            crate::app::input::ime::COMPOSITION_RGB,
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        list.add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: None,
+                text: "xxx",
+                rgb: [1.0, 1.0, 1.0],
+                visible_timeout_ms: None,
+                retain_timeout_ms: None,
+                silent: true,
+            },
             0,
+            &|text| font.text_width(text) as i32,
         );
-        assert_eq!(texts.len(), 2);
-        assert_eq!(texts[1].position, expected[0].position);
-        assert_eq!(texts[1].tint, expected[0].tint);
-        assert_eq!(fills.len(), 2, "the composition has its own backing box");
+        assert!(list.add_edit(crate::ui::messages::MESSAGE_INPUT_PREFIX, [1.0; 3], false));
+
+        let (fills, _) = message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default());
+        assert_eq!(fills.len(), 3, "input bar, caret, history row");
+        // The input bar paints first and keeps its full-view strip.
+        assert_eq!(fills[0].size[0], list.view_width() as f32 + 2.0);
+        assert!((fills[0].alpha - 0.6).abs() < 1e-6);
+        // The input bar draws an underscore caret just past its text.
+        assert_eq!(fills[1].size, [4.0, 2.0]);
+        // It blinks off in the second half of its cycle.
+        let (blink_off, _) =
+            message_instances(&font, &list, [0.0; 2], 600u64, &ChatChrome::default());
+        assert_eq!(blink_off.len(), 2, "the caret is hidden while off");
+        // History rows paint a fixed two thirds of the view, not the whole
+        // line and not a band sized to their own text.
+        let history = &fills[2];
+        assert!(
+            (history.size[0] - list.view_width() as f32 * 2.0 / 3.0).abs() < 1e-3,
+            "a history row covers two thirds of the view"
+        );
+        assert!(history.size[0] < fills[0].size[0]);
+        assert_eq!(history.alpha, fills[0].alpha);
+    }
+
+    #[test]
+    fn native_layout_leaves_the_ime_composition_to_the_system_window() {
+        use crate::render::bit_font::tests::make_test_font;
+
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        assert!(list.add_edit(crate::ui::messages::MESSAGE_INPUT_PREFIX, [1.0; 3], false));
+        let composition = vec![b'x' as u16; 2];
+        let chrome = ChatChrome {
+            composition: Some(&composition),
+            ..Default::default()
+        };
+
+        let (_, native) = message_instances(&font, &list, [0.0; 2], 0, &chrome);
+        let (_, native_plain) =
+            message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default());
+        assert_eq!(
+            native.len(),
+            native_plain.len(),
+            "the native layout paints no inline composition"
+        );
+
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        let (_, chat) = message_instances(&font, &list, [0.0; 2], 0, &chrome);
+        assert!(
+            chat.len() > native.len(),
+            "the chat box paints the composition after the typed text"
+        );
+    }
+
+    #[test]
+    fn chatbox_search_menu_and_mention_labels_are_painted() {
+        use crate::render::bit_font::tests::make_test_font;
+
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        list.add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: None,
+                text: "xx",
+                rgb: [1.0, 1.0, 1.0],
+                visible_timeout_ms: None,
+                retain_timeout_ms: None,
+                silent: true,
+            },
+            0,
+            &|text| font.text_width(text) as i32,
+        );
+        assert!(list.add_edit(crate::ui::messages::MESSAGE_INPUT_PREFIX, [1.0; 3], false));
+
+        let base = message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default())
+            .1
+            .len();
+
+        // A mention repaints each occurrence of the name at the highlight
+        // colour, so the row's two `x` glyphs gain two more sprites.
+        let mention = ChatChrome {
+            mention: Some("x"),
+            ..Default::default()
+        };
+        assert_eq!(
+            message_instances(&font, &list, [0.0; 2], 0, &mention)
+                .1
+                .len(),
+            base + 2,
+            "the mention runs are painted"
+        );
+
+        // The open search paints its query text over the message line.
+        list.begin_search();
+        list.search_input(u16::from(b'x'), false);
+        assert!(
+            message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default())
+                .1
+                .len()
+                > base,
+            "the search query label is painted"
+        );
+
+        list.end_search();
+        list.open_menu(10, 10, true, None);
+        assert!(
+            message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default())
+                .1
+                .len()
+                > base,
+            "the menu labels are painted"
+        );
+    }
+
+    #[test]
+    fn chatbox_paints_the_sender_tag_in_the_sender_colour_and_the_body_in_white() {
+        use crate::render::bit_font::tests::make_test_font;
+
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        list.add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: Some("xx"),
+                text: "xx",
+                rgb: [1.0, 0.0, 0.0],
+                visible_timeout_ms: None,
+                retain_timeout_ms: None,
+                silent: true,
+            },
+            0,
+            &|text| font.text_width(text) as i32,
+        );
+        assert_eq!(list.messages()[0].text, "xx xx");
+
+        let m = &list.messages()[0];
+        let mut fills = Vec::new();
+        let mut texts = Vec::new();
+        build_row_instances(
+            &font,
+            m,
+            3.0,
+            [0.0; 2],
+            1.0,
+            chatbox_history_backing(&list),
+            &mut fills,
+            &mut texts,
+        );
+        assert_eq!(texts.len(), 4, "two glyphs in each of the two labels");
+        // The label path scales the tint by the font's own shade, so the
+        // sender colour keeps zero green/blue and the white body keeps
+        // all three channels.
+        assert_eq!(
+            [texts[0].tint[1], texts[0].tint[2]],
+            [0.0, 0.0],
+            "the tag keeps the sender colour"
+        );
+        assert_eq!(
+            [texts[1].tint[1], texts[1].tint[2]],
+            [0.0, 0.0],
+            "both tag glyphs keep the sender colour"
+        );
+        assert!(
+            texts[2].tint[0] > 0.9 && texts[2].tint[1] > 0.9 && texts[2].tint[2] > 0.9,
+            "the body is white"
+        );
+        assert!(
+            texts[2].position[0] > texts[1].position[0],
+            "the body starts past the tag"
+        );
+
+        // A sender's own tag is a label, not a mention: matching starts at
+        // the body, so only that occurrence is repainted.
+        let mut mention = Vec::new();
+        push_mention_runs(
+            &font,
+            &m.text,
+            m.y,
+            "xx",
+            3.0,
+            [0.0; 2],
+            1.0,
+            m.prefix_bytes,
+            &mut mention,
+        );
+        assert_eq!(mention.len(), 2, "only the body occurrence counts");
+    }
+
+    #[test]
+    fn chatbox_paints_the_composition_in_the_open_search_bar() {
+        use crate::render::bit_font::tests::make_test_font;
+
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        list.set_layout(crate::ui::messages::MessageLayout::ChatBox);
+        assert!(list.add_edit(crate::ui::messages::MESSAGE_INPUT_PREFIX, [1.0; 3], false));
+        list.begin_search();
+
+        let composing = vec![b'x' as u16];
+        let chrome = ChatChrome {
+            composition: Some(&composing),
+            ..Default::default()
+        };
+        let plain = message_instances(&font, &list, [0.0; 2], 0, &ChatChrome::default())
+            .1
+            .len();
+        assert_eq!(
+            message_instances(&font, &list, [0.0; 2], 0, &chrome)
+                .1
+                .len(),
+            plain + 1,
+            "the composition follows the search query instead of the message line"
+        );
+    }
+
+    #[test]
+    fn chat_chrome_label_falls_back_when_the_language_pack_lacks_the_key() {
+        assert_eq!(
+            ui_text_or("MISSING:'TXT_VERAX_COPY'", "TXT_VERAX_COPY", "Copy"),
+            "Copy"
+        );
+        assert_eq!(
+            ui_text_or("TXT_VERAX_COPY", "TXT_VERAX_COPY", "Copy"),
+            "Copy"
+        );
+        assert_eq!(ui_text_or("复制", "TXT_VERAX_COPY", "Copy"), "复制");
     }
 
     #[test]
@@ -1180,16 +2289,17 @@ mod tests {
                 prefix: None,
                 text: "xxx",
                 rgb: [1.0, 1.0, 1.0],
-                timeout_ms: None,
+                visible_timeout_ms: None,
+                retain_timeout_ms: None,
                 silent: true,
             },
             0,
             &|text| font.text_width(text) as i32,
         );
 
-        let at_origin = message_instances(&font, &list, None, [0.0, 0.0]).1;
+        let at_origin = message_instances(&font, &list, [0.0, 0.0], 0u64, &ChatChrome::default()).1;
         let ui_camera = [640.0_f32, 480.0_f32];
-        let panned = message_instances(&font, &list, None, ui_camera).1;
+        let panned = message_instances(&font, &list, ui_camera, 0u64, &ChatChrome::default()).1;
 
         assert_eq!(at_origin.len(), 3);
         assert_eq!(panned.len(), at_origin.len());

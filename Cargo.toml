@@ -91,7 +91,7 @@ winit = { version = "0.30.13", default-features = false, features = ["rwh_06", "
 raw-window-handle = "0.6"
 # `Win32_UI_WindowsAndMessaging` covers ClipCursor/GetClipCursor/GetClientRect;
 # `Win32_Graphics_Gdi` adds ClientToScreen (maps the client rect into screen coords).
-windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+windows-sys = { version = "0.61", features = ["Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi", "Win32_System_DataExchange", "Win32_System_Memory", "Win32_System_Ole"] }
 # bytemuck enables safe transmutation of structs to GPU-friendly byte slices.
 bytemuck = { version = "1", features = ["derive"] }
 

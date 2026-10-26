@@ -815,8 +815,8 @@ impl Simulation {
     /// type (`+0xD95`) stops there (`0x00737FB0`), so lower down its Crash
     /// kills them uncredited. Every other passenger, in cargo order, steps
     /// out onto the unit's cell or dies. An `OpenTopped=` unit first clears
-    /// each passenger's InOpenTransport (`0x007104C0`, `+0x82`), which VERA
-    /// derives from the transporter link each escape clears.
+    /// each passenger's InOpenTransport (`0x007104C0`, `+0x82`) before
+    /// either the height test or the Crashable early exit.
     pub(crate) fn release_dying_unit_passengers(
         &mut self,
         rules: &RuleSet,
@@ -828,14 +828,21 @@ impl Simulation {
         let Some(unit) = self.substrate.entities.get(unit_id) else {
             return;
         };
-        let crashable = self
+        let (crashable, open_topped) = self
             .object_type(unit.type_ref(), rules)
-            .is_some_and(|object| object.crashable);
-        if crate::sim::movement::air_movement::current_fly_height(
+            .map_or((false, false), |object| {
+                (object.crashable, object.open_topped)
+            });
+        let height = crate::sim::movement::air_movement::current_fly_height(
             unit,
             self.resolved_terrain.as_ref(),
-        ) > 0xD0
-        {
+        );
+        // UnitClass::ReceiveDamage737F80..737F92 runs this before any
+        // passenger kill/escape callback, even when Crashable exits below.
+        if open_topped {
+            self.clear_all_in_open_transport(unit_id);
+        }
+        if height > 0xD0 {
             self.kill_passengers(
                 unit_id,
                 dying.attacker,

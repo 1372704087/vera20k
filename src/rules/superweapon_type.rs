@@ -129,6 +129,28 @@ pub enum GenericWarheadAiTargeting {
     Offensive,
 }
 
+#[cfg(feature = "ares")]
+impl GenericWarheadAiTargeting {
+    /// Rows 0 (`none`) and 8 (`offensive`) of Ares's AITargeting table
+    /// 1009B8A4: bytes +5/+6 are the AI target/house masks used while
+    /// SW.AIRequiresTarget/SW.AIRequiresHouse are unset (10032280/10032301).
+    pub(crate) fn default_ai_requirements(
+        self,
+    ) -> crate::rules::superweapon_targeting::TargetRequirements {
+        use crate::rules::superweapon_targeting::{HouseMask, TargetMask, TargetRequirements};
+        match self {
+            Self::None => TargetRequirements {
+                target: TargetMask::NONE,
+                house: HouseMask::NONE,
+            },
+            Self::Offensive => TargetRequirements {
+                target: TargetMask::ALL_TECHNOS,
+                house: HouseMask::ENEMIES,
+            },
+        }
+    }
+}
+
 /// Common Ares launch presentation, retained by the ordered SWType reader.
 /// Nullable references distinguish an omitted default from an explicit none.
 #[cfg(feature = "ares")]
@@ -410,6 +432,7 @@ impl SuperWeaponType {
                     ai_targeting,
                     targeting: crate::rules::superweapon_targeting::SuperWeaponTargeting::from_ini(
                         section,
+                        ai_targeting.default_ai_requirements(),
                     ),
                 }
             }),

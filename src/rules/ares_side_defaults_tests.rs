@@ -213,3 +213,89 @@ fn ares_side_graphical_text_slots_keep_the_literal_fallback() {
     // No SideExt exists for an unallocated side.
     assert_eq!(rules.side_graphical_text(9), None);
 }
+
+/// The score shells read SideExt through the live process owner, which holds
+/// it once a scenario's Rules passes have run.
+fn process_owner(ini: &str) -> crate::rules::process_owner::NativeRulesProcessOwner {
+    use crate::rules::process_owner::{NativeRulesProcessOwner, NativeScenarioRulesPrefix};
+    let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+        IniFile::from_str(ini),
+        None,
+        IniFile::empty(),
+        Default::default(),
+        Default::default(),
+    )
+    .expect("side score cold start");
+    owner
+        .load_scenario(
+            NativeScenarioRulesPrefix::NonCampaign(None),
+            &IniFile::empty(),
+        )
+        .expect("side score scenario rules");
+    owner
+}
+
+#[test]
+fn ares_side_score_files_follow_the_side_buffers_the_hooks_copy() {
+    let owner = process_owner(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\n\
+         MultiplayerScore.Bars=MyBars~~.pcx\n\
+         MultiplayerScore.Palette=\n"
+    ));
+    // Side 0 keeps `SideExt::initialize`'s Allied row: the hooks copy these
+    // buffers over gamemd's own, so a fourth side takes the Yuri row it is
+    // initialized with, not the stock fallback.
+    assert_eq!(
+        owner.side_score_art(0).campaign_background,
+        Some("ASCRBKMD.SHP")
+    );
+    let fourth = owner.side_score_art(3);
+    assert_eq!(fourth.campaign_background, Some("SYCRBKMD.SHP"));
+    assert_eq!(fourth.multiplayer_bars, Some("MyBars~~.pcx"));
+    // An empty value retains the initialized name (AresFixedString read).
+    assert_eq!(fourth.multiplayer_palette, Some("MPYSCRN.PAL"));
+    // No SideExt: every name keeps its caller's fixed table.
+    assert_eq!(owner.side_score_art(9), Default::default());
+    assert_eq!(owner.side_score_art(-1), Default::default());
+}
+
+#[test]
+fn ares_side_score_themes_follow_the_two_native_branch_sites() {
+    let owner = process_owner(&format!(
+        "{TYPES}{GENERAL}\
+         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Fourth]\n\
+         CampaignScore.UnderParTheme=MYUND\n\
+         MultiplayerScore.LoseTheme=MYLOSE\n"
+    ));
+    // 0x1002F920 keeps +0x178 while elapsed is at or under par, and
+    // 0x1002F4B0 keeps +0x1B8 while HouseClass+0x1F5 is clear; the untouched
+    // fields stay on SideExt::initialize's literal SCORE.
+    use crate::rules::ruleset::ScoreTheme;
+    assert_eq!(
+        owner.side_score_theme(3, ScoreTheme::Campaign { over_par: false }),
+        Some("MYUND")
+    );
+    assert_eq!(
+        owner.side_score_theme(3, ScoreTheme::Campaign { over_par: true }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        owner.side_score_theme(3, ScoreTheme::Multiplayer { defeated: false }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        owner.side_score_theme(3, ScoreTheme::Multiplayer { defeated: true }),
+        Some("MYLOSE")
+    );
+    assert_eq!(
+        owner.side_score_theme(0, ScoreTheme::Multiplayer { defeated: true }),
+        Some("SCORE")
+    );
+    assert_eq!(
+        owner.side_score_theme(9, ScoreTheme::Multiplayer { defeated: true }),
+        None
+    );
+}

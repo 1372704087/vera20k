@@ -260,10 +260,41 @@ impl CountryRules {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct CountryIdx(pub u16);
 
+/// Which of the four `[Side]` score themes a score dialog asks for. The two
+/// sites choose on data gamemd already holds: the campaign dialog compares the
+/// elapsed and par times at `0x6C9231` (`ScoreDialog_Handle_ScoreThemeA`
+/// `0x1002F920`, patch site `0x6C922C`, `+0x178` when elapsed is at or under
+/// par, else `+0x198`), and the skirmish dialog reads the local player's
+/// `HouseClass+0x1F5` defeated flag (`Global_DrawScoreScreen_ScoreTheme`
+/// `0x1002F4B0`, patch site `0x5C9B75`, `+0x1B8` when not defeated, else
+/// `+0x1D8`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScoreTheme {
+    Campaign { over_par: bool },
+    Multiplayer { defeated: bool },
+}
+
 /// The insignia gamemd's stock selection chain has no entry for: both
 /// `HouseTypeExt::Initialize`'s unknown-country branch (`0x1001C413`) and
 /// `Game_GetFlagSurface`'s null-surface branch (`0x4E3567`) answer with it.
 pub(crate) const STOCK_UNKNOWN_INSIGNIA: &str = "rani.pcx";
+
+/// The `[Side]` score-screen file names one match resolves through
+/// `Game_LoadCampaignScoreAssets` (`0x1002F3A0`, patch site `0x72D300`),
+/// `Game_LoadMultiplayerScoreAssets` (`0x1002F430`, `0x72D730`) and
+/// `Game_GetMultiplayerScoreScreenBar` (`0x1002F300`, `0x5CA110`). Each name is
+/// substituted on its own; `None` keeps that name's fixed stock table entry.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SideScoreArt<'a> {
+    pub campaign_background: Option<&'a str>,
+    pub campaign_transition: Option<&'a str>,
+    pub campaign_animation: Option<&'a str>,
+    pub campaign_palette: Option<&'a str>,
+    pub multiplayer_background: Option<&'a str>,
+    /// Pattern whose first `~~` receives the two-digit band number (band + 1).
+    pub multiplayer_bars: Option<&'a str>,
+    pub multiplayer_palette: Option<&'a str>,
+}
 
 /// Stable source-order identity in the `[Sides]` registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

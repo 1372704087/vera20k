@@ -88,6 +88,47 @@ pub struct AresSideExtension {
 }
 
 #[cfg(feature = "ares")]
+impl AresSideExtension {
+    /// The seven score-screen names, as `Game_LoadCampaignScoreAssets`
+    /// (`0x1002F3A0`, patch site `0x72D300`), `Game_LoadMultiplayerScoreAssets`
+    /// (`0x1002F430`, `0x72D730`) and `Game_GetMultiplayerScoreScreenBar`
+    /// (`0x1002F300`, `0x5CA110`) copy them over gamemd's own name buffers:
+    /// each name is substituted on its own, so `None` keeps the caller's fixed
+    /// table entry for that name alone.
+    pub fn score_art(&self) -> crate::rules::ruleset::SideScoreArt<'_> {
+        crate::rules::ruleset::SideScoreArt {
+            campaign_background: self.campaign_score_background.as_deref(),
+            campaign_transition: self.campaign_score_transition.as_deref(),
+            campaign_animation: self.campaign_score_animation.as_deref(),
+            campaign_palette: self.campaign_score_palette.as_deref(),
+            multiplayer_background: self.multiplayer_score_background.as_deref(),
+            multiplayer_bars: self.multiplayer_score_bars.as_deref(),
+            multiplayer_palette: self.multiplayer_score_palette.as_deref(),
+        }
+    }
+
+    /// The theme name one of the two score dialogs asks for. Both sites read
+    /// the field buffer directly, so a name is returned as authored.
+    pub fn score_theme(&self, theme: crate::rules::ruleset::ScoreTheme) -> Option<&str> {
+        let field = match theme {
+            crate::rules::ruleset::ScoreTheme::Campaign { over_par: false } => {
+                &self.campaign_score_under_par_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Campaign { over_par: true } => {
+                &self.campaign_score_over_par_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Multiplayer { defeated: false } => {
+                &self.multiplayer_score_win_theme
+            }
+            crate::rules::ruleset::ScoreTheme::Multiplayer { defeated: true } => {
+                &self.multiplayer_score_lose_theme
+            }
+        };
+        field.as_deref()
+    }
+}
+
+#[cfg(feature = "ares")]
 impl Default for AresSideExtension {
     fn default() -> Self {
         Self {

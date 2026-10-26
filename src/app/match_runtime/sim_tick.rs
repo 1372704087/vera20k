@@ -196,14 +196,24 @@ fn build_campaign_score_screen_model(
                 .map(|house| house.side_index())
         })
         .unwrap_or(0);
-    build_campaign_score_screen_model_from_sources(
+    let mut model = build_campaign_score_screen_model_from_sources(
         elapsed_score_ticks,
         difficulty,
         &state.match_state.map_ranking,
         houses.unwrap_or_default(),
         side,
         |key| resolve_campaign_score_label(state, key),
-    )
+    );
+    model.theme = state
+        .process_assets
+        .side_score_theme(
+            side,
+            crate::rules::ruleset::ScoreTheme::Campaign {
+                over_par: model.over_par,
+            },
+        )
+        .map(str::to_owned);
+    model
 }
 
 fn build_campaign_score_screen_model_from_sources(
@@ -225,6 +235,7 @@ fn build_campaign_score_screen_model_from_sources(
     model.par_time = format_campaign_score_time(par_score_seconds);
     // Native `0x6C9231..33` divides both Scenario+0x61C and ParTime by 60,
     // then selects the over-par strings only when elapsed is strictly greater.
+    model.over_par = elapsed_score_seconds > par_score_seconds;
     let (rank_key, commendation_key) = if elapsed_score_seconds <= par_score_seconds {
         (&ranking.under_par_title, &ranking.under_par_message)
     } else {
@@ -377,11 +388,29 @@ fn build_score_screen_model(
     );
     // Scenario +0x34B8: the side of session player 0's country, the local
     // player in a skirmish (0x0068779A..0x0068782D).
-    let side = crate::app::input::commands::preferred_local_owner_name(state)
+    let local_owner = crate::app::input::commands::preferred_local_owner_name(state)
         .as_deref()
-        .and_then(|owner| sim.interner().get(owner))
-        .and_then(|owner| sim.houses().get(&owner))
-        .map_or(0, |house| house.side_index());
+        .and_then(|owner| sim.interner().get(owner));
+    let local_house = local_owner.and_then(|owner| sim.houses().get(&owner));
+    let side = local_house.map_or(0, |house| house.side_index());
+    // `Global_DrawScoreScreen_ScoreTheme` (0x1002F4B0, patch site 0x5C9B75)
+    // selects the side's win or lose theme on the local player's
+    // HouseClass+0x1F5 defeated flag; the literal it otherwise pushes is
+    // 0x0082FEBC "SCORE". It keeps that literal when the local player is the
+    // Observer house (`Player [0xA83D4C] == Observer [0xAC1198]`,
+    // 0x1002F4B8..0x1002F4C7).
+    let observing = local_owner.is_some() && local_owner == sim.session().observer_house();
+    let theme = (!observing)
+        .then(|| {
+            state.process_assets.side_score_theme(
+                side,
+                crate::rules::ruleset::ScoreTheme::Multiplayer {
+                    defeated: local_house.is_some_and(|house| house.is_defeated()),
+                },
+            )
+        })
+        .flatten()
+        .map(str::to_owned);
 
     ScoreScreenModel {
         title_key: score_title_key(state.match_state.session_mode()),
@@ -391,6 +420,7 @@ fn build_score_screen_model(
         // the pathological rollover representation local to this boundary.
         elapsed_seconds: elapsed_seconds as u32,
         side,
+        theme,
         rows,
     }
 }

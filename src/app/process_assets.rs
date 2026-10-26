@@ -425,6 +425,28 @@ impl ProcessAssets {
             .unwrap_or_default()
     }
 
+    /// The score dialog's theme name for a side, or `None` for gamemd's
+    /// literal `SCORE`.
+    pub(crate) fn side_score_theme(
+        &self,
+        side: i32,
+        theme: crate::rules::ruleset::ScoreTheme,
+    ) -> Option<&str> {
+        self.native_rules
+            .as_ref()
+            .and_then(|rules| rules.side_score_theme(side, theme))
+    }
+
+    /// The shell side's `Game_LoadCampaignScoreAssets` /
+    /// `Game_LoadMultiplayerScoreAssets` file names. Every field `None` keeps
+    /// that name's fixed stock table entry.
+    pub(crate) fn side_score_art(&self, side: i32) -> crate::rules::ruleset::SideScoreArt<'_> {
+        self.native_rules
+            .as_ref()
+            .map(|rules| rules.side_score_art(side))
+            .unwrap_or_default()
+    }
+
     /// `Game_GetFlagSurface @ 0x1001DCE0` country insignia by HouseType index,
     /// for lobby/diplomacy rows that resolve before a match Rules projection
     /// exists.

@@ -458,6 +458,59 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
+    /// The live registry's SideExt for a side index: `None` for a negative or
+    /// unallocated side, where the native hooks skip (`Scenario+0x34B8` < 0).
+    /// The score shells read it before any match Rules projection exists.
+    #[cfg(feature = "ares")]
+    fn side_extension(
+        &self,
+        side: i32,
+    ) -> Option<&crate::rules::ares_side_extension::AresSideExtension> {
+        self.registry
+            .as_ref()
+            .expect("Rules transition reentered")
+            .registry_state()
+            .side_projection()
+            .nth(usize::try_from(side).ok()?)?
+            .1
+    }
+
+    /// The side's score theme, or `None` where gamemd pushes its literal
+    /// `SCORE` name (`0x0082FEBC`): a stock build or a side with no SideExt.
+    pub fn side_score_theme(
+        &self,
+        side: i32,
+        theme: crate::rules::ruleset::ScoreTheme,
+    ) -> Option<&str> {
+        #[cfg(feature = "ares")]
+        {
+            return self.side_extension(side)?.score_theme(theme);
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = (side, theme);
+            None
+        }
+    }
+
+    /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A
+    /// stock build and a negative or unallocated side leave every field
+    /// `None`, so the callers keep their fixed tables.
+    pub fn side_score_art(&self, side: i32) -> crate::rules::ruleset::SideScoreArt<'_> {
+        #[cfg(feature = "ares")]
+        {
+            return self
+                .side_extension(side)
+                .map(|extension| extension.score_art())
+                .unwrap_or_default();
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            let _ = side;
+            Default::default()
+        }
+    }
+
     /// `Game_GetFlagSurface @ 0x1001DCE0` for a shell HouseType country index:
     /// that country's `File.Flag`, or the `rani.pcx` null-surface branch when
     /// the file is cleared. `None` when no Country holds that index.

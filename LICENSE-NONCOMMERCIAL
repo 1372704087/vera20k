@@ -1,0 +1,293 @@
+# VERA20k Noncommercial License 1.0.0
+
+## Acceptance and scope
+
+In order to receive permissions under these terms, you must agree to them as
+obligations and conditions of those permissions. Each licensor grants only rights
+they own or are authorized to license in the identified software.
+
+These terms do not restrict independently held permissions, statutory exceptions,
+public-domain material or unrelated works. Separately licensed components and
+third-party game assets are outside this grant and retain their own terms.
+
+## Copyright License
+
+Each licensor grants you a copyright license for the software to do everything
+that would otherwise infringe their copyright in it, solely for a permitted
+purpose. Distribution, changes and letting others interact with the software
+remotely are subject to the conditions below. No grant under these terms
+authorizes a commercial purpose except the project-funding activities expressly
+permitted below.
+
+## Distribution License
+
+For permitted purposes only, you may distribute copies of the software, including
+changes and new works allowed below. You must comply with Notices and Source and
+Changes when doing so. Every recipient receives permission directly from the
+applicable licensors under these terms. You may have a store, host or platform
+copy and deliver the software for you, under its standard terms, as part of your
+own permitted distribution.
+
+This license does not cover distributing the software if you or your affiliates
+also provide, with it or for use with it, copies of a retail game's files that
+let people play without their own legitimate copy of that game, such as its data
+archives or executables, unless the game's rights holder allows it. This applies
+whether those files come in the same package or separately, such as a download
+on first launch.
+
+## Notices
+
+Give each recipient a copy of these terms or a link to them, and keep all
+copyright, attribution, license and warranty notices that come with the software,
+including those it shows in its interface. Clearly identify your modifications
+and their dates.
+
+If what you distribute, or let others interact with remotely, has a user
+interface, it must show those notices where users can readily find them, such as
+on a start, about or credits screen, together with a statement that it is or is
+based on VERA20k, whether you modified it, and that it is licensed under these
+terms. Wherever you offer it for download or play, such as on a download page,
+store listing or the page that runs it, state that it is or is based on VERA20k
+and link to these terms. When you announce a release of it, such as in a post or
+video, say that it is or is based on VERA20k.
+
+Do not misrepresent the origin or authorship of the software or of your version,
+in it or in anything by which you offer or promote it, such as a description,
+video or post; for example, by presenting it as entirely your own work or as
+unrelated to VERA20k. Do not claim copyright or other exclusive rights in
+material you do not own. You may correct inaccurate attribution.
+
+## Names
+
+A modified version that you distribute in a form other than source must not use
+the VERA20k name or logo in its name, app name or package identifier, except in
+a phrase such as "based on VERA20k", unless the VERA20k project's maintainer
+permits it in writing. This does not apply to versions the VERA20k project
+releases or to test builds. Elsewhere, such as in store listings, domains or
+account names, do not use a licensor's name or the VERA20k name or logo in a way
+that suggests a modified version is the original or official version, or that
+the software's authors endorse you or your version.
+
+Do not register or claim the VERA20k name, or a confusingly similar name, as a
+trademark or trade name without written permission from the VERA20k project's
+maintainer. Such a registration or claim by your affiliates counts as yours.
+This obligation continues after your licenses end.
+
+## Changes and New Works License
+
+For permitted purposes only, you may make changes and new works based on the
+software. Distribution of those works must comply with the Distribution License,
+Notices and Source and Changes. A change of name, packaging, platform or
+distribution method does not remove these conditions.
+
+## Source and Changes
+
+License your copyrightable changes, and new works based on the software, that
+you distribute or let others interact with remotely under these same terms.
+Whenever you distribute the software in a form other than source, such as an
+executable, an app, or a compiled, bundled or minified build for the web, make
+its complete corresponding source available to every recipient without charge
+and without restrictions beyond these terms and the licenses of separately
+licensed components, from the time you first distribute that form and for as
+long as you offer it. Corresponding source is the preferred form for
+modification of exactly that version, including your changes and the scripts and
+build files needed to build, package and install it. Provide it with the copy or
+through equivalent access from the place where you offer the copy, and state,
+both there and in the notices the software shows, where its source is and which
+exact version it is. Source of a different version is insufficient. For a test
+build, a link to the changes it tests, such as their pull request, given where
+you share it, is enough to state where its source is and which version it is.
+
+If you let others interact remotely with a modified version, offer each of them
+its corresponding source, without charge, through the software or the place
+where they connect. Running an unmodified version needs no source.
+
+Do not add terms, notices or technical measures that restrict what these terms
+let recipients do with the software, your changes or your new works based on it.
+The standard terms and technical measures that a store or platform which neither
+you nor your affiliates control applies to everything it distributes are not
+restrictions you add, as long as you add none of your own and the source is
+available outside them.
+
+You need not distribute proprietary retail assets, private signing keys or
+account credentials, or unrelated general-purpose compilers or tools. Separate
+works distributed with the software, such as maps or art, are not changes or new
+works based on it merely because they are distributed together. Separately
+licensed third-party components retain their own notice, source, modification
+and redistribution rights and requirements; this does not let you put your own
+changes or new works based on the software under other terms.
+
+## Patent License
+
+For permitted purposes only, each licensor grants you a patent license covering
+claims they can license, or become able to license, that you would infringe by
+using the software as offered by that licensor.
+
+## Noncommercial Purposes
+
+Any noncommercial purpose is permitted. A commercial purpose is an activity
+primarily intended for or directed toward commercial advantage or monetary
+compensation, except the project-funding activities expressly permitted below.
+
+Examples of excluded commercial purposes include selling or renting copies,
+installers, keys or access; paid game hosting, matchmaking or game services;
+commercial support or consulting using the software; incorporating the software
+into a commercial product or service; operating an advertising-funded, sponsored
+or otherwise monetized game service; earning advertising, paid-promotion,
+platform or creator-program revenue from offering the software, or a version of
+it, for others to download, run or play; and distributing the software, or a
+version of it, to promote a business, commercial brand, product or service,
+including distributing it under a commercial brand or through an account that
+represents a business. These examples are commercial whatever other aims the
+activity has. Providing a free copy as part of such an activity does not make it
+noncommercial.
+
+Offering a free copy through a store, host or platform that shows its own
+advertising or charges its own fees, and pays you nothing for it, is not by
+itself commercial.
+
+You may record, stream and publish videos showing the software, its source or
+its play if you earn nothing from them. Such videos or streams that earn money,
+such as from ads, sponsors, tips or memberships, are a commercial purpose; tips
+paid through the video or stream count even when called donations. Linking in
+them to donations that Project Funding permits does not count as earning from
+them.
+
+The same purpose-based rule applies to individuals, companies, charities,
+educational institutions and public bodies. No class of organization receives
+a blanket exception for commercial activity.
+
+## Personal Uses
+
+Personal research, experimentation, study, private entertainment, hobby projects,
+free community play and noncommercial modding without an anticipated commercial
+application are permitted.
+
+## Project Funding and Contributions
+
+You may solicit, receive and administer genuinely voluntary donations supporting
+free public development, maintenance and operation of the software, of a free
+public version of it, or of free mods, maps or other works for it. A donation
+must buy nothing beyond simple acknowledgment, such as listing the donor's name:
+no downloads, source, features, updates, game or service access, early or
+exclusive content, membership benefits, priority or gameplay advantages, in the
+software or elsewhere, and no advertising or other promotion beyond that
+listing. A mandatory charge described as a donation is not a voluntary donation.
+Do not ask for donations in a way that promotes a business, commercial brand,
+product or service. Donations may also fund prizes for free community
+tournaments that charge no entry fee and have no sponsors. Winning such a prize
+is not a commercial purpose.
+
+You may pay or receive compensation to design, implement, test, review, document
+or maintain contributions intended for inclusion in the VERA20k project or in a
+free public version. Upon delivery, funded contributions must be offered to the
+project or version they are for, under these terms, with their source publicly
+available without charge. Acceptance is not required. This does not authorize
+exclusive or paywalled delivery, commercial support, or a commercial product or
+service. Payment does not transfer copyright or grant anyone authority over
+another rights holder's contribution.
+
+Paying for general-purpose tools, equipment, infrastructure and bandwidth does
+not by itself make an otherwise permitted activity commercial. It does not
+authorize selling software-specific hosting, access, support or services.
+These are the only commercial-purpose exceptions granted by these terms.
+
+## Existing Licenses, Statutory Rights and Other Rights
+
+These terms do not revoke or replace any prior GPL or other valid grant.
+New material is not also offered under GPL merely because earlier versions were.
+This offer cannot restrict material you can independently obtain and use under
+another valid grant.
+
+These terms do not limit fair use, fair dealing or other mandatory legal rights.
+They do not automatically control independent works, unprotectable material,
+videos or streams in which the licensors hold no relevant rights. The Notices
+conditions on how you describe, announce and promote a version you distribute,
+and the Noncommercial Purposes rule on videos and streams, still apply.
+
+These terms do not allow you to sublicense or transfer your licenses, apart from
+having a store, host or platform deliver copies for you under Distribution
+License. They do not prevent a licensor from granting rights they control
+separately, and imply no other licenses. No trademark, affiliation or
+endorsement rights are granted. Apart from the powers these terms give the
+VERA20k project's maintainer, a maintainer cannot change, waive or grant another
+licensor's rights.
+
+The VERA20k project's maintainer may publish corrected versions of these terms.
+Each licensor also offers the software under any such version that keeps its
+noncommercial rule and its source, notice and name conditions at least as
+strict. You may follow this version or such a later one.
+
+## Patent Defense
+
+If you make a written claim that the software infringes or contributes to
+infringement of a patent, your patent license under these terms ends immediately.
+If your company makes such a claim, your patent license ends immediately for
+work on behalf of your company.
+
+## Violations
+
+The first time you receive written notice from a licensor or the VERA20k
+project's maintainer that you violated these terms or did something with the
+software outside their permissions, your licenses can continue if you come into
+full compliance and take practical steps to correct past violations within 32
+days after receiving notice. Otherwise, your licenses end immediately. If you
+violate these terms again after coming into compliance, your licenses end
+immediately when you receive written notice of the new violation. A notice may
+be sent to any email address or account you use to offer or discuss the
+software.
+
+When your licenses end, so do your affiliates' licenses, and neither you nor
+they get new licenses under these terms for any version of the software, unless
+a licensor reinstates them in writing for that licensor's material, or the
+VERA20k project's maintainer, for anyone but themself, does so for all of it.
+No one may use these terms to act for you once your licenses have ended.
+Termination does not end the licenses of other recipients who comply, other than
+your affiliates.
+
+## No Liability
+
+As far as the law allows, the software comes as is, without any warranty or
+condition, and no licensor is liable to you for damages arising out of these
+terms or the use or nature of the software, under any kind of legal claim.
+Mandatory rights and liabilities that cannot lawfully be excluded remain.
+
+## Definitions
+
+A licensor is an individual or entity expressly offering rights they control
+under these terms. The software is the identified material they offer under
+these terms. You are the individual or entity agreeing to these terms.
+
+To distribute is to make a copy of the software available to anyone else in any
+form, including by download, store, physical media, or a web page or app that
+delivers it to their device. A test, preview, beta or promotional release is a
+distribution. A test build is a build shared only with people testing changes
+offered to the VERA20k project, while those changes are under review. A free
+public version is a version of the software that anyone can get, with its
+source, without charge under these terms.
+
+A modified version is a version of the software with changes, or a new work
+based on it. Building unchanged source with different build options, or changing
+its settings, does not modify it. Others interact with the software remotely
+when, over a network, they play it or exchange data with it while it runs on a
+device they do not control, such as a lobby or relay server or a game that runs
+on a server.
+
+A business is an organization operated for profit, or an individual acting in a
+trade or profession. A commercial brand is a name, logo or mark that identifies
+a business or its paid products or services.
+
+The VERA20k project is the project at https://github.com/YuriPlanet/vera20k, or
+at a successor location its maintainer announces there. Its maintainer is
+Halvor Nikolai Rusten, or a successor that maintainer names in writing in that
+repository.
+
+Your affiliates are individuals and organizations that control you,
+organizations you control, and organizations under common control with you.
+Your company includes any legal entity, sole proprietorship or other
+organization you work for, and organizations controlling, controlled by or under
+common control with it. Control of an organization means ownership of
+substantially all its assets or the power to direct its management and policies
+by vote, contract or otherwise, directly or indirectly. Your licenses are the
+licenses granted to you under these terms. Use means an act with the software
+requiring one of those licenses.

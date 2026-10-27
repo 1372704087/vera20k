@@ -2232,6 +2232,15 @@ impl ProcessedRulesLayers {
             .as_deref()
     }
 
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`, the runtime ColorScheme
+    /// index the ordered passes resolved.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn timer_blink_color_scheme(&self) -> i32 {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_timer_blink_color_scheme
+    }
+
     /// `[General] PrerequisiteProcAlternate=` (Rules `+0x400`), the stored ID
     /// of its UnitType.
     pub(crate) fn prerequisite_proc_alternate(&self) -> Option<&str> {
@@ -3237,6 +3246,10 @@ pub(crate) struct NativeRulesRegistryState {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    /// Phobos `RulesExt::TimerBlinkColorScheme`: the runtime ColorScheme the
+    /// blinking timer prints in, `[Colors]` entry `R / 2`, or -1 for `none`.
+    #[cfg(feature = "phobos")]
+    rules_timer_blink_color_scheme: i32,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -3319,6 +3332,10 @@ impl Default for NativeRulesRegistryState {
             rules_ion_blast_anim: String::new(),
             rules_ion_beam_anim: String::new(),
             rules_ion_cannon_warhead: String::new(),
+            // RulesExt::ExtData constructor `TimerBlinkColorScheme { 5 }`, the
+            // scheme the game blinks in.
+            #[cfg(feature = "phobos")]
+            rules_timer_blink_color_scheme: 5,
             // MindControlAttackLineFrames, Rules+310: constructor 0x00665ABE.
             rules_mind_control_attack_line_frames: 15,
             rules_line_trail_override: general.line_trail_color_override,
@@ -3685,6 +3702,9 @@ impl NativeRulesRegistryState {
             //686D35 precedes this TypeReset6876AC and its flags/phase survive.
             #[cfg(feature = "ares")]
             ares_global_controls: self.ares_global_controls,
+            // Phobos allocates RulesExt only with RulesClass (0x667A1D).
+            #[cfg(feature = "phobos")]
+            rules_timer_blink_color_scheme: self.rules_timer_blink_color_scheme,
             rules_color_add: self.rules_color_add,
             rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
@@ -4765,6 +4785,8 @@ struct RulesPassProcessor {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    #[cfg(feature = "phobos")]
+    rules_timer_blink_color_scheme: i32,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -4836,6 +4858,8 @@ impl RulesPassProcessor {
             rules_ion_blast_anim: registry_state.rules_ion_blast_anim,
             rules_ion_beam_anim: registry_state.rules_ion_beam_anim,
             rules_ion_cannon_warhead: registry_state.rules_ion_cannon_warhead,
+            #[cfg(feature = "phobos")]
+            rules_timer_blink_color_scheme: registry_state.rules_timer_blink_color_scheme,
             rules_mind_control_attack_line_frames: registry_state
                 .rules_mind_control_attack_line_frames,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -5835,6 +5859,17 @@ impl RulesPassProcessor {
             );
             self.ares_prerequisites = Some(catalog);
         }
+        // Phobos RulesData_LoadBeforeTypeData (0x679A15) resolves the name
+        // against the [Colors] this pass has read (0x668BFE precedes
+        // 0x668EF0), so a later pass naming no entry keeps the index.
+        #[cfg(feature = "phobos")]
+        if let Some(section) = pass.section("AudioVisual") {
+            self.rules_timer_blink_color_scheme = section.read_ares_color_scheme_index(
+                "TimerBlinkColorScheme",
+                self.rules_timer_blink_color_scheme,
+                |name| self.loading_color_index(name),
+            );
+        }
         self.process_house_family(pass, primary_rules);
         self.process_super_weapon_family(pass, _fixed_eva);
         self.process_anim_family(fixed_art);
@@ -6087,7 +6122,8 @@ impl RulesPassProcessor {
 
     /// CountryExt1001BB30 finds the current kind1 runtime scheme. Each
     /// retained [Colors] entry contributes kind1 then kind53, in native order.
-    #[cfg(feature = "ares")]
+    /// Phobos's `ColorScheme::FindIndex(name, 1)` makes the same match.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     fn loading_color_index(&self, name: &str) -> Option<i32> {
         self.colors
             .iter()
@@ -7941,6 +7977,8 @@ impl RulesPassProcessor {
                     rules_ion_blast_anim: self.rules_ion_blast_anim,
                     rules_ion_beam_anim: self.rules_ion_beam_anim,
                     rules_ion_cannon_warhead: self.rules_ion_cannon_warhead,
+                    #[cfg(feature = "phobos")]
+                    rules_timer_blink_color_scheme: self.rules_timer_blink_color_scheme,
                     rules_mind_control_attack_line_frames: self
                         .rules_mind_control_attack_line_frames,
                     rules_line_trail_override: self.rules_line_trail_override,

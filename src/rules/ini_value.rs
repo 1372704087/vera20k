@@ -414,8 +414,10 @@ impl IniSection {
     /// Ares `ValueableIdx<ColorScheme>` 1001CC70: ReadString 2048, then
     /// `find`, the ColorScheme Find 1001BB30 with shade count 1. A found
     /// scheme stores its index and `none`/`<none>` (10003950) stores -1;
-    /// anything else, or an absent key, keeps `current`.
-    #[cfg(feature = "ares")]
+    /// anything else, or an absent key, keeps `current`. Phobos's
+    /// `ValueableIdx<ColorScheme>::Read` (`Utilities/TemplateDef.h`) is the
+    /// same read over `ColorScheme::FindIndex(name, 1)` and `IsBlank`.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) fn read_ares_color_scheme_index(
         &self,
         key: &str,

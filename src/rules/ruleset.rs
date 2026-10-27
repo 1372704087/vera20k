@@ -1727,6 +1727,11 @@ pub struct GeneralRules {
     /// `HouseClass::MoveGroundForcesToBase @ 0x0050C920` (`0x00739926`).
     #[cfg(feature = "phobos")]
     pub gather_when_mcv_deploy: bool,
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`: the runtime ColorScheme
+    /// a finished superweapon timer blinks in, `[Colors]` entry `R / 2`, or -1
+    /// for `none`. Constructor 5, the third `[Colors]` entry the game uses.
+    #[cfg(feature = "phobos")]
+    pub timer_blink_color_scheme: i32,
     /// `Rules+0xD78`, `[General] HarvesterTooFarDistance=` in cells: a
     /// refinery farther than this is approached before the dock is reserved.
     /// `RulesClass::ReadGeneral` reads it through `CCINIClass::ReadInt
@@ -2759,6 +2764,8 @@ impl Default for GeneralRules {
             ai_all_to_hunt: true,
             #[cfg(feature = "phobos")]
             gather_when_mcv_deploy: true,
+            #[cfg(feature = "phobos")]
+            timer_blink_color_scheme: 5,
             harvester_too_far_distance: 5,
             approach_target_reset_multiplier: 1,
             chrono_harv_too_far_distance: 50,
@@ -4169,6 +4176,8 @@ impl GeneralRules {
             lightning_separation: general
                 .read_int("LightningSeparation", defaults.lightning_separation),
             // The sole ordered AV reader supplies these after projection.
+            #[cfg(feature = "phobos")]
+            timer_blink_color_scheme: defaults.timer_blink_color_scheme,
             ambient_change_rate_nonzero: defaults.ambient_change_rate_nonzero,
             ambient_change_interval_frames: defaults.ambient_change_interval_frames,
             ambient_change_step: defaults.ambient_change_step,
@@ -4777,6 +4786,10 @@ impl RuleSet {
         (rules.general.shroud_grow, rules.general.shroud_rate) = processed.shroud_growth_inputs();
         rules.general.fog_rate = processed.fog_rate();
         rules.general.prism_type = processed.prism_type().map(str::to_owned);
+        #[cfg(feature = "phobos")]
+        {
+            rules.general.timer_blink_color_scheme = processed.timer_blink_color_scheme();
+        }
         let (drop_zone_anim, drop_zone_radius) = processed.drop_zone_controls();
         rules.general.drop_zone_anim = drop_zone_anim.map(str::to_owned);
         rules.general.drop_zone_radius = drop_zone_radius;
@@ -11090,6 +11103,36 @@ CellSpread=0
         assert_eq!(rules.side_index("north"), Some(SideIdx(0)));
         assert_eq!(rules.side_index("SOUTH"), Some(SideIdx(1)));
         assert_eq!(rules.side_name(SideIdx(0)), Some("North"));
+    }
+
+    /// Phobos `ValueableIdx<ColorScheme>` in each rules pass: a name finds the
+    /// shade-count-1 scheme of a `[Colors]` entry loaded so far, `none` stores
+    /// -1, and an empty or unknown name keeps the earlier pass's index.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn timer_blink_color_scheme_resolves_in_each_rules_pass() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        let scheme = |map: &str| {
+            let mut layers = RulesLayerStack::new(IniFile::from_str(
+                "[Colors]\nGold=43,239,255\nGrey=0,0,131\nLightGrey=0,0,240\n\
+                 [AudioVisual]\nTimerBlinkColorScheme=grey\n",
+            ));
+            layers.push(RulesLayerKind::Scenario, IniFile::from_str(map));
+            RuleSet::from_rules_layers(&layers)
+                .expect("rules read")
+                .general
+                .timer_blink_color_scheme
+        };
+        // `Grey`, entry 1, is runtime scheme 2.
+        assert_eq!(scheme(""), 2);
+        assert_eq!(scheme("[AudioVisual]\nTimerBlinkColorScheme=\n"), 2);
+        assert_eq!(scheme("[AudioVisual]\nTimerBlinkColorScheme=Nope\n"), 2);
+        assert_eq!(scheme("[AudioVisual]\nTimerBlinkColorScheme=none\n"), -1);
+        // The map's own [Colors] entry is loaded before the read.
+        assert_eq!(
+            scheme("[Colors]\nTeal=120,255,200\n[AudioVisual]\nTimerBlinkColorScheme=Teal\n"),
+            6
+        );
     }
 
     #[cfg(feature = "phobos")]

@@ -53,6 +53,14 @@ Phobos 由 Phobos Developers 开发。VERA20K 已移植功能对应的原作者�
   **Saigyouji**、**JunJacobYoung**、**CrimRecya**。
 - 建筑放置预览 — **Otamaa**、**Belonit**。
 - 侧边栏 GDI/NOD 坐标 — **Belonit**。
+- 步兵接敌自动部署（`InfantryAutoDeploy`）— **TaranDahl**。
+- 匍匐移动速度（`ProneSpeed`）— **TaranDahl**。
+- 建筑类型选择（`BuildingTypeSelectable`）— **TaranDahl**（代码）、**Ollerus**（文档）。
+- 选中单位闪烁（`ShowFlashOnSelecting`）— **Fryone**。
+- `Locomotor=Fly` 浮动开关（`FlyNoWobbles`）— **Noble_Fish**。
+- 暂停界面居中 — **Starkku**。
+- 去硬编码计时器闪烁配色方案（`TimerBlinkColorScheme`）— **Starkku**。
+- `Locomotor=` 语义别名（如 `Locomotor=Drive`）— **Belonit**。
 - 缺省图标（`MissingCameo`）— **Uranusian**。
 - 建筑生产队列 — **CrimRecya**。
 - INI `$Include` / `$Inherits` — **Morton**。

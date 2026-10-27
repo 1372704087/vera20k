@@ -278,9 +278,9 @@ fn render_cameo(
         log::debug!("Sidebar cameo {} loaded from {}", type_id, file_name);
         return Some(cameo);
     }
-    // Phobos `[AudioVisual] MissingCameo=`: a type with no cameo art keeps the
-    // loader's XXICON pointer in an unmodified game, so the configured file
-    // takes the empty cell instead of leaving it blank.
+    // A cameo that does not load leaves the stock XXICON.SHP
+    // (`TechnoTypeClass::ReadINI`, `0x00715A4D`), which Phobos's
+    // `MissingCameo=` replaces.
     #[cfg(feature = "phobos")]
     {
         render_missing_cameo(type_id, rules.missing_cameo(), asset_manager, palette)
@@ -444,36 +444,15 @@ fn render_shp_frame0(key: &str, data: &[u8], palette: &Palette) -> Option<Render
     rendered_cameo_from_canvas(key, full_rgba, full_w, full_h)
 }
 
-/// Phobos `[AudioVisual] MissingCameo=`'s loader.
+/// Phobos `[AudioVisual] MissingCameo=` for a type whose own cameo did not
+/// load, in place of the stock `XXICON.SHP` the game loads then.
 ///
-/// The hook at `0x715A4D` (`TechnoTypeClass::ReadINI`, again at `0x00716D13`
-/// and both `SWTypeClass` readers) swaps the type's loaded `XXICON.SHP` handle
-/// for the configured file when the lowercased name is not `XXICON.SHP`
-/// itself and contains `.shp`. When it does not, `StripClass_Draw_DrawMissing`
-/// (`0x6A99F3`) blits a `.pcx` into the 60x48 cell instead. A name with
-/// neither extension keeps the stock pointer.
-#[cfg(feature = "phobos")]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum MissingCameoSource {
-    Shp,
-    Pcx,
-    Stock,
-}
-
-#[cfg(feature = "phobos")]
-fn missing_cameo_source(name: &str) -> MissingCameoSource {
-    let lower = name.to_ascii_lowercase();
-    if lower != "xxicon.shp" && lower.contains(".shp") {
-        MissingCameoSource::Shp
-    } else if lower.contains(".pcx") {
-        MissingCameoSource::Pcx
-    } else {
-        MissingCameoSource::Stock
-    }
-}
-
-/// Frame 0 (or the PCX surface) of the configured missing cameo, for a type
-/// whose own cameo art did not load.
+/// `Replace_XXICON_With_New` (`0x715A4D` and `0x716D13` for TechnoTypes,
+/// `0x6CE8AA` and `0x6CEE31` for SuperWeaponTypes) loads a lowercased name
+/// other than `xxicon.shp` that contains `.shp` instead of the stock file.
+/// Over the stock handle, `StripClass_Draw_DrawMissing` (`0x6A99F3`) blits a
+/// name containing `.pcx` into the 60x48 cell. Otherwise, or when the
+/// configured file does not load, the stock `XXICON.SHP` draws.
 #[cfg(feature = "phobos")]
 fn render_missing_cameo(
     key: &str,
@@ -481,19 +460,26 @@ fn render_missing_cameo(
     asset_manager: &AssetManager,
     palette: &Palette,
 ) -> Option<RenderedCameo> {
-    match missing_cameo_source(name) {
-        MissingCameoSource::Shp => {
-            let cameo = render_shp_frame0(key, asset_manager.get_ref(name)?, palette)?;
-            log::debug!("Sidebar cameo {key} fell back to {name}");
-            Some(cameo)
-        }
-        MissingCameoSource::Pcx => render_pcx_cameo(key, name, asset_manager),
-        MissingCameoSource::Stock => {
-            let cameo = render_shp_frame0(key, asset_manager.get_ref("XXICON.SHP")?, palette)?;
-            log::debug!("Sidebar cameo {key} fell back to XXICON.SHP");
-            Some(cameo)
-        }
+    let lower = name.to_ascii_lowercase();
+    if lower != "xxicon.shp"
+        && lower.contains(".shp")
+        && let Some(cameo) = asset_manager
+            .get_ref(name)
+            .and_then(|data| render_shp_frame0(key, data, palette))
+    {
+        log::debug!("Sidebar cameo {key} fell back to {name}");
+        return Some(cameo);
     }
+    let stock = asset_manager.get_ref("XXICON.SHP")?;
+    if lower.contains(".pcx")
+        && let Some(cameo) = render_pcx_cameo(key, name, asset_manager)
+    {
+        log::debug!("Sidebar cameo {key} fell back to {name}");
+        return Some(cameo);
+    }
+    let cameo = render_shp_frame0(key, stock, palette)?;
+    log::debug!("Sidebar cameo {key} fell back to XXICON.SHP");
+    Some(cameo)
 }
 
 /// Repo-only fallback guesses kept out of `rules::art_data`.
@@ -780,32 +766,6 @@ mod tests {
         assert!(!candidates.contains(&"CIVICONICON.SHP".to_string()));
     }
 
-    /// Phobos decides the loader with `strstr` on the lowercased name: the
-    /// type-load hook takes `.shp` (unless the name is `XXICON.SHP` itself),
-    /// and the draw-time arm takes `.pcx`. Anything else keeps the stock
-    /// `XXICON.SHP` pointer.
-    #[cfg(feature = "phobos")]
-    #[test]
-    fn missing_cameo_source_follows_the_extension_order() {
-        use super::{MissingCameoSource, missing_cameo_source};
-        assert_eq!(
-            missing_cameo_source("PLACEHOLDER.SHP"),
-            MissingCameoSource::Shp
-        );
-        assert_eq!(
-            missing_cameo_source("placeholder.pcx"),
-            MissingCameoSource::Pcx
-        );
-        assert_eq!(missing_cameo_source("XXICON.SHP"), MissingCameoSource::Stock);
-        assert_eq!(missing_cameo_source("xxicon.shp"), MissingCameoSource::Stock);
-        assert_eq!(missing_cameo_source("cameo.pal"), MissingCameoSource::Stock);
-        // The load-time arm runs first, so a name carrying both wins on `.shp`.
-        assert_eq!(
-            missing_cameo_source("cameo.shp.pcx"),
-            MissingCameoSource::Shp
-        );
-    }
-
     #[cfg(feature = "phobos")]
     fn missing_cameo_rules(name: &str, art: &str) -> crate::rules::ruleset::RuleSet {
         use crate::rules::{ini_parser::IniFile, ruleset::RuleSet};
@@ -818,35 +778,49 @@ mod tests {
         rules
     }
 
+    /// `Replace_XXICON_With_New` (`0x715A4D`) loads a configured `.shp` in
+    /// place of the stock `XXICON.SHP`; one that does not load leaves the
+    /// stock file.
     #[cfg(feature = "phobos")]
     #[test]
-    fn a_type_without_art_renders_the_configured_missing_shp() {
+    fn a_type_without_art_takes_the_configured_shp_else_the_stock_xxicon() {
         use crate::{
             assets::asset_manager::AssetManager, assets::pal_file::Palette,
             map::source::test_support::TestDirectory,
         };
-        let dir = TestDirectory::new("cameo-missing-shp");
-        write_small_shp(&dir, "placeholder.shp");
+        let palette = Palette::from_rgb(|_| [1, 2, 3]);
         let rules = missing_cameo_rules("PLACEHOLDER.SHP", "[NOART]\n");
         assert_eq!(rules.missing_cameo(), "PLACEHOLDER.SHP");
+        let dir = TestDirectory::new("cameo-missing-shp");
+        write_small_shp(&dir, "placeholder.shp");
         let assets = AssetManager::from_loose_root_for_test(dir.path());
-        let palette = Palette::from_rgb(|_| [1, 2, 3]);
         let cameo = super::render_cameo("NOART", &assets, &rules, &palette).unwrap();
         assert_eq!([cameo.canvas_width, cameo.canvas_height], [2, 2]);
+
+        let stock = TestDirectory::new("cameo-missing-shp-stock");
+        write_small_shp(&stock, "xxicon.shp");
+        let assets = AssetManager::from_loose_root_for_test(stock.path());
+        assert!(super::render_cameo("NOART", &assets, &rules, &palette).is_some());
     }
 
+    /// `StripClass_Draw_DrawMissing` (`0x6A99F3`) blits a configured `.pcx`
+    /// over the stock `XXICON.SHP` handle, so it needs that file to load.
     #[cfg(feature = "phobos")]
     #[test]
-    fn a_type_without_art_renders_the_configured_missing_pcx() {
+    fn the_configured_pcx_draws_over_the_stock_xxicon() {
         use crate::{
             assets::asset_manager::AssetManager, assets::pal_file::Palette,
             map::source::test_support::TestDirectory,
         };
+        let palette = Palette::from_rgb(|_| [1, 2, 3]);
+        let rules = missing_cameo_rules("PLACEHOLDER.PCX", "[NOART]\n");
         let dir = TestDirectory::new("cameo-missing-pcx");
         write_pcx(&dir, "placeholder.pcx", [20, 40, 60]);
-        let rules = missing_cameo_rules("PLACEHOLDER.PCX", "[NOART]\n");
         let assets = AssetManager::from_loose_root_for_test(dir.path());
-        let palette = Palette::from_rgb(|_| [1, 2, 3]);
+        assert!(super::render_cameo("NOART", &assets, &rules, &palette).is_none());
+
+        write_small_shp(&dir, "xxicon.shp");
+        let assets = AssetManager::from_loose_root_for_test(dir.path());
         let cameo = super::render_cameo("NOART", &assets, &rules, &palette).unwrap();
         assert_eq!([cameo.canvas_width, cameo.canvas_height], [60, 48]);
         assert_eq!(&cameo.rgba[8..12], &[20, 40, 60, 255]);
@@ -862,6 +836,7 @@ mod tests {
         let dir = TestDirectory::new("cameo-missing-precedence");
         write_old_cameos(&dir);
         // A 60x48 placeholder would be unmistakable if it were selected.
+        write_small_shp(&dir, "xxicon.shp");
         write_pcx(&dir, "placeholder.pcx", [20, 40, 60]);
         let rules = missing_cameo_rules("PLACEHOLDER.PCX", "[NOART]\nCameo=OLDICON\n");
         let assets = AssetManager::from_loose_root_for_test(dir.path());
@@ -1065,7 +1040,9 @@ mod tests {
             let ini = IniFile::from_str("[PCXONLY]\nType=PsychicReveal\nSidebarPCX=Normal.PCX\n");
             let pcx_only =
                 SuperWeaponType::from_ini_section("PCXONLY", ini.section("PCXONLY").unwrap());
-            assert!(super::render_superweapon_cameo(&pcx_only, &assets, &palette, &rules).is_some());
+            assert!(
+                super::render_superweapon_cameo(&pcx_only, &assets, &palette, &rules).is_some()
+            );
         }
         #[cfg(not(feature = "ares"))]
         {

@@ -109,6 +109,53 @@ impl crate::sim::world::Simulation {
         }
         substrate.entities.get_mut(id).unwrap().flash_base(frames);
     }
+
+    /// Phobos "Flashing Technos on selecting": the `ObjectClass_Select` hooks
+    /// at `0x005F46AE`/`0x005F4718` call `Flash(SelectionFlashDuration)` for a
+    /// newly selected object whose owner `IsControlledByCurrentPlayer`.
+    /// `[AudioVisual] SelectionFlashDuration` above 0 is the only rules gate;
+    /// the `[Phobos] ShowFlashOnSelecting` client switch is the caller's, so
+    /// this runs only when the app has it enabled.
+    ///
+    /// The app's local input Select resolves its new members through
+    /// `app::input::dispatch` and calls this. Native also flashes from a logic
+    /// Select (`TechnoClass::Select @ 0x006FBFA0`), which has no VERA caller
+    /// yet.
+    #[cfg(feature = "phobos")]
+    pub fn flash_selected_for_current_player(
+        &mut self,
+        stable_ids: &[u64],
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let frames = rules.selection_flash.duration_frames;
+        if frames <= 0 {
+            return;
+        }
+        let Some(player) = self.session.current_house() else {
+            return;
+        };
+        let flashing: Vec<u64> = stable_ids
+            .iter()
+            .copied()
+            .filter(|id| {
+                self.substrate
+                    .entities
+                    .get(*id)
+                    .is_some_and(|entity| entity.owner() == player)
+            })
+            .collect();
+        for id in flashing {
+            Self::flash_object(
+                &self.interner,
+                &self.session,
+                &self.fog,
+                &self.house_alliances,
+                &mut self.substrate,
+                id,
+                frames,
+            );
+        }
+    }
 }
 
 #[cfg(test)]

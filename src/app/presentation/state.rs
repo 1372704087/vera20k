@@ -7,8 +7,8 @@
 //! allocated while the shell is active.
 //! Process-lifetime GPU objects live in `app::renderer_state::RendererState`.
 
-use std::collections::{BTreeMap, HashMap};
 use crate::util::time::Instant;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::map::houses::{HouseColorMap, HouseRoster};
 use crate::map::overlay::TerrainObject;
@@ -111,6 +111,10 @@ pub(crate) struct MatchPresentationState {
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
     #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,
+    /// Phobos `[Phobos] ShowFlashOnSelecting` (source default false): gates
+    /// `[AudioVisual] SelectionFlashDuration` on each local selection.
+    #[cfg(feature = "phobos")]
+    pub(crate) show_flash_on_selecting: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

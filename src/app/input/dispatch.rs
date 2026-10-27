@@ -1559,11 +1559,11 @@ pub(crate) fn handle_type_select_key_edge(
         if !is_type_select {
             return false;
         }
-        state
-            .match_state
-            .input
-            .type_select
-            .press(physical_code, crate::util::time::Instant::now(), repeat);
+        state.match_state.input.type_select.press(
+            physical_code,
+            crate::util::time::Instant::now(),
+            repeat,
+        );
         return true;
     }
     if !is_type_select && !state.match_state.input.type_select.owns_key(physical_code) {
@@ -2487,6 +2487,20 @@ fn apply_selection_mutation(
         &mutation,
     );
     state.match_state.input.follow_target = follow_target;
+    // Phobos "Flashing Technos on selecting": the client switch gates the
+    // `[AudioVisual] SelectionFlashDuration` the sim's flash owner reads.
+    // ObjectClass_Select flashes each newly selected Techno the current player
+    // controls (0x005F46AE/0x005F4718); an already-selected object makes no
+    // Select call and therefore no flash.
+    #[cfg(feature = "phobos")]
+    if state.match_state.match_presentation.show_flash_on_selecting
+        && !successful_adds.is_empty()
+        && let Some(runtime) = state.match_state.sim_runtime.as_mut()
+    {
+        runtime
+            .simulation
+            .flash_selected_for_current_player(&successful_adds, &runtime.resources.rules);
+    }
     if unselected_all {
         // Unselect_All's tail, BeaconManager ClearSelection (0x0048DCB8).
         state

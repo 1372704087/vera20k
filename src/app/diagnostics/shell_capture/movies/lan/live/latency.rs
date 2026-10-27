@@ -20,6 +20,19 @@ const STOP_STEADY_MS: u64 = 100;
 // meaningfully moving, stable-speed state rather than during acceleration.
 const STOP_MIN_FRACTION: f64 = 0.5;
 
+fn recent_draw(draw: &ActorPresentation, at: ObservationTime) -> bool {
+    at.instant >= draw.at.instant
+        && at.instant.saturating_duration_since(draw.at.instant)
+            <= std::time::Duration::from_millis(STOP_STEADY_MS)
+}
+
+fn recent_translation(previous: &ActorPresentation, latest: &ActorPresentation) -> bool {
+    previous.frame < latest.frame
+        && previous.at.instant < latest.at.instant
+        && recent_draw(previous, latest.at)
+        && previous.screen != latest.screen
+}
+
 struct StopPreparation {
     move_action_id: usize,
     started: ObservationTime,
@@ -65,14 +78,7 @@ impl StopPreparation {
             && self.steady_since.is_some()
             && self.latest.as_ref().is_some_and(|last| {
                 last.motion.applied_fraction_bits == draw.motion.applied_fraction_bits
-                    && last.screen != draw.screen
-                    && draw.frame.saturating_sub(last.frame) <= 2
-                    && draw
-                        .at
-                        .instant
-                        .saturating_duration_since(last.at.instant)
-                        .as_millis()
-                        <= u128::from(STOP_STEADY_MS)
+                    && recent_translation(last, draw)
             });
         if continues {
             self.steady_draws += 1;
@@ -108,11 +114,7 @@ impl StopPreparation {
                         .saturating_duration_since(first.at.instant)
                         .as_millis()
                         >= u128::from(STOP_STEADY_MS)
-                    && now
-                        .instant
-                        .saturating_duration_since(last.at.instant)
-                        .as_millis()
-                        <= u128::from(STOP_STEADY_MS)
+                    && recent_draw(last, now)
             });
         if !self.failed && elapsed >= u128::from(STOP_PREPARATION_MIN_MS) && steady {
             self.ready = Some(now);
@@ -254,7 +256,10 @@ impl LatencyCapture {
         let rendered_before = self
             .latest_actor_draw
             .as_ref()
-            .filter(|draw| draw.at.instant < observed.observed_at.instant)
+            .filter(|draw| {
+                draw.at.instant < observed.observed_at.instant
+                    && recent_draw(draw, observed.observed_at)
+            })
             .cloned();
         if let Some(action) = self.actions.iter_mut().find(|action| {
             action.execution.is_none()
@@ -278,12 +283,7 @@ impl LatencyCapture {
                 action.stop_reaction.rendered_travel_before = rendered_before
                     .as_ref()
                     .zip(self.previous_actor_draw.as_ref())
-                    .is_some_and(|(latest, previous)| {
-                        previous.at.instant < latest.at.instant
-                            && previous.frame < latest.frame
-                            && latest.frame.saturating_sub(previous.frame) <= 2
-                            && previous.screen != latest.screen
-                    });
+                    .is_some_and(|(latest, previous)| recent_translation(previous, latest));
                 action.stop_reaction.baseline = rendered_before;
             }
         }
@@ -782,7 +782,7 @@ impl LatencyCapture {
             "steady_since":preparation.steady_since.as_ref().map(|draw|self.timestamp(draw.at,draw.frame)),
             "latest_draw":preparation.latest.as_ref().map(|draw|json!({"at":self.timestamp(draw.at,draw.frame),
                 "screen":draw.screen,"motion":draw.motion})),
-            "criterion":"at least three translating admitted Drive draws on distinct recent logical frames; unchanged applied fraction >=0.5 for 100ms; latest draw <=100ms old; consecutive frame gaps <=2"
+            "criterion":"at least three translating admitted Drive draws on distinct advancing logical frames; unchanged applied fraction >=0.5 for 100ms; latest draw <=100ms old; consecutive draw gaps <=100ms"
         })).collect();
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
             "render_deferred_passes":self.render_deferred_passes,
@@ -939,6 +939,62 @@ mod tests {
     }
 
     #[test]
+    fn stop_evidence_uses_wall_time_when_rendering_skips_logical_frames() {
+        let start = ObservationTime::now();
+        let draw = |ms: u64, frame: u32| ActorPresentation {
+            at: at(start, 350 + ms),
+            frame,
+            screen: [frame as f32, 0.],
+            body: 0,
+            motion: test_motion(0.7, true),
+            sampled_from_frame: frame.saturating_sub(1),
+            gpu_done: Default::default(),
+        };
+        let mut preparation = StopPreparation::new(0, start, 0);
+        preparation.observe(&draw(0, 0));
+        preparation.observe(&draw(67, 3));
+        preparation.observe(&draw(134, 6));
+        assert!(
+            preparation.poll(at(start, 484)),
+            "45Hz simulation shown at15Hz is valid steady motion"
+        );
+
+        let mut gap = StopPreparation::new(0, start, 0);
+        gap.observe(&draw(0, 0));
+        gap.observe(&draw(101, 5));
+        gap.observe(&draw(168, 8));
+        assert!(
+            !gap.poll(at(start, 518)),
+            "a render gap over100ms breaks the steady window"
+        );
+        let mut stale = StopPreparation::new(0, start, 0);
+        stale.observe(&draw(0, 0));
+        stale.observe(&draw(67, 3));
+        stale.observe(&draw(134, 6));
+        assert!(
+            !stale.poll(at(start, 585)),
+            "a stale latest draw is insufficient"
+        );
+
+        let mut capture = LatencyCapture {
+            started: Some(start),
+            previous_actor_draw: Some(draw(67, 3)),
+            latest_actor_draw: Some(draw(134, 6)),
+            ..Default::default()
+        };
+        capture.actions.push(action(start));
+        capture.observe_execution(stop(start, 550, 7, 9));
+        assert!(capture.actions[0].stop_reaction.rendered_travel_before);
+        capture.actions.push(action(at(start, 600)));
+        capture.observe_execution(stop(start, 650, 7, 12));
+        assert!(!capture.actions[1].stop_reaction.rendered_travel_before);
+        assert!(
+            capture.actions[1].stop_reaction.baseline.is_none(),
+            "pre-dispatch draw must be at most100ms old"
+        );
+    }
+
+    #[test]
     fn stop_preparation_requires_fresh_stable_translation_and_has_a_deadline() {
         let start = ObservationTime::now();
         let draw = |ms, frame, x, fraction| ActorPresentation {
@@ -1033,7 +1089,7 @@ mod tests {
     fn stop_at_rest_never_becomes_a_braking_response() {
         let start = ObservationTime::now();
         let rest = ActorPresentation {
-            at: start,
+            at: at(start, 150),
             frame: 10,
             screen: [0., 0.],
             body: 0,

@@ -1921,6 +1921,48 @@ impl ProcessedRulesLayers {
             })
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn driver_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &crate::rules::ares_driver::DriverTypeRules,
+        ),
+    > {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                &member.driver,
+            )
+        })
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn crew_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &crate::rules::ares_crew::CrewTypeRules,
+        ),
+    > {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                &member.crew,
+            )
+        })
+    }
+
     pub(crate) fn ares_techno_states(
         &self,
     ) -> impl Iterator<
@@ -1928,9 +1970,11 @@ impl ProcessedRulesLayers {
             ObjectCategory,
             &str,
             Option<&crate::rules::ares_emp::EmpTypeRules>,
+            Option<&crate::rules::ares_abilities::PromotionAbilities>,
             Option<&crate::rules::ares_warhead::AttachEffectRules>,
             bool,
             Option<i32>,
+            Option<bool>,
         ),
     > {
         self.native_type_construction_trace
@@ -1946,10 +1990,18 @@ impl ProcessedRulesLayers {
                         category,
                         member.native_stored_id.as_str(),
                         member.emp_type.as_ref(),
+                        #[cfg(feature = "ares")]
+                        member.promotion_abilities.as_ref(),
+                        #[cfg(not(feature = "ares"))]
+                        None,
                         member.self_attach_effect.as_ref(),
                         member.cloak_allowed,
                         #[cfg(feature = "ares")]
                         member.turret_rot_override,
+                        #[cfg(not(feature = "ares"))]
+                        None,
+                        #[cfg(feature = "ares")]
+                        member.aircraft_crashable,
                         #[cfg(not(feature = "ares"))]
                         None,
                     )
@@ -2972,6 +3024,11 @@ struct AresCountryState {
     presentation: crate::rules::ares_country_presentation::AresCountryPresentation,
     paradrop: crate::rules::ares_country_paradrop::AresCountryParadrop,
     power_plants: Vec<String>,
+    /// CountryExt+1BC/+1BD: ctor1001B8DA leaves it unset;
+    /// nullable CanBeDriven reader1001C70A..1001C71B. Parent copy
+    /// 1001BDC0..1001C0D6 deliberately does not copy this pair.
+    #[serde(default)]
+    can_be_driven: Option<bool>,
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -2983,10 +3040,19 @@ impl Hash for AresCountryState {
         self.buildings.hash(state);
         self.paradrop.hash(state);
         self.power_plants.hash(state);
+        if let Some(value) = self.can_be_driven {
+            b"ares-country-driving-v1".hash(state);
+            value.hash(state);
+        }
     }
 }
 
 impl CountryVeterancyState {
+    #[cfg(feature = "ares")]
+    pub(crate) fn can_be_driven_override(&self) -> Option<bool> {
+        self.ares.can_be_driven
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn loading(&self) -> &crate::rules::country_loading::AresCountryLoading {
         &self.ares.loading
@@ -4022,6 +4088,9 @@ struct ProcessedType {
     ares_verses: Option<AresWarheadVerses>,
     ares_warhead: Option<crate::rules::ares_warhead::AresWarheadRules>,
     emp_type: Option<crate::rules::ares_emp::EmpTypeRules>,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    promotion_abilities: Option<crate::rules::ares_abilities::PromotionAbilities>,
     self_attach_effect: Option<crate::rules::ares_warhead::AttachEffectRules>,
     #[cfg(feature = "ares")]
     #[serde(default)]
@@ -4036,6 +4105,16 @@ struct ProcessedType {
     #[cfg(feature = "ares")]
     #[serde(default)]
     spotlight: crate::rules::ares_spotlight::SpotlightTypeRules,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    driver: crate::rules::ares_driver::DriverTypeRules,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    crew: crate::rules::ares_crew::CrewTypeRules,
+    ///1003CB5B leaves the Nullable<bool> presence byte+324 clear.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    aircraft_crashable: Option<bool>,
     /// ObjectType4753F0 -> Ares10006E10 binds at each reached body read.
     armor_id: ArmorId,
     /// ParticleSystemType+294, the bound ParticleType's index: constructor -1
@@ -4502,6 +4581,8 @@ impl ProcessedType {
             ares_verses: None,
             ares_warhead: None,
             emp_type: None,
+            #[cfg(feature = "ares")]
+            promotion_abilities: None,
             self_attach_effect: None,
             #[cfg(feature = "ares")]
             super_weapon_techno: Default::default(),
@@ -4510,6 +4591,12 @@ impl ProcessedType {
             turret_rot_override: None,
             #[cfg(feature = "ares")]
             spotlight: Default::default(),
+            #[cfg(feature = "ares")]
+            driver: Default::default(),
+            #[cfg(feature = "ares")]
+            crew: Default::default(),
+            #[cfg(feature = "ares")]
+            aircraft_crashable: None,
             armor_id: ArmorId::NONE,
             holds_what: None,
             super_weapon_weapon: None,
@@ -4604,6 +4691,7 @@ fn find_or_construct_type(
         #[cfg(feature = "ares")]
         {
             members[index].emp_type = Some(Default::default());
+            members[index].promotion_abilities = Some(Default::default());
             members[index].self_attach_effect = Some(Default::default());
         }
         #[cfg(feature = "ares")]
@@ -5182,8 +5270,9 @@ impl RulesPassProcessor {
         )
     }
 
-    /// Installed Ares typed pointers: Anim Parser1000C9C0/Find1000D3E0
-    /// and Unit Parser1002D970/Find1002DCF0 look up registered types only.
+    /// Installed Ares typed pointers: Anim Parser1000C9C0/Find1000D3E0,
+    /// Unit Parser1002D970/Find1002DCF0 and the Survivor.SideN Infantry
+    /// reads 1003E040..1003E070 look up registered types only.
     /// A successful none clears; absent/unknown retains.
     #[cfg(feature = "ares")]
     fn resolve_existing_type_from(
@@ -5955,6 +6044,14 @@ impl RulesPassProcessor {
                 .loading
                 .clone();
             loading.read_color(section, |name| self.loading_color_index(name));
+            let current = self.families[&RulesTypeFamily::Country][index]
+                .country_veterancy
+                .ares
+                .can_be_driven;
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .can_be_driven = section.read_ares_nullable_bool("CanBeDriven", current);
             self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
                 .ares
@@ -6473,10 +6570,59 @@ impl RulesPassProcessor {
                 // Installed suffix hooks716123/716132 ->10040DF0 ->1003DEC0
                 // reach the common TechnoType extension before subclass reads.
                 #[cfg(feature = "ares")]
+                {
+                    //1003E01B sizes to the live Side array;1003E040..1003E070
+                    // reads each Survivor.Side%u through Infantry Find only.
+                    let side_count = self
+                        .families
+                        .get(&RulesTypeFamily::Side)
+                        .map_or(0, Vec::len);
+                    let pilots = (0..side_count)
+                        .map(|side| {
+                            self.resolve_existing_type_from(
+                                &raw,
+                                &format!("Survivor.Side{side}"),
+                                RulesTypeFamily::Infantry,
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    self.family_mut(family)[index].crew.read_pass(&raw, &pilots);
+                    // TypeExt ReadINI1003EADC..1003EAED, NullableBool1000E9B0.
+                    let member = &mut self.family_mut(family)[index];
+                    member.aircraft_crashable =
+                        raw.read_ares_nullable_bool("Crashable", member.aircraft_crashable);
+                }
+                #[cfg(feature = "ares")]
                 self.process_factory_owners(family, index, &raw);
                 #[cfg(feature = "ares")]
                 {
+                    use crate::rules::ares_driver::OperatorRequirement;
+                    let operator = raw.read_name("Operator", 2048).map(|name| {
+                        if name.eq_ignore_ascii_case("_ANY_") {
+                            OperatorRequirement::Any
+                        } else {
+                            let types = self
+                                .resolve_existing_techno_type_list_from(&raw, "Operator")
+                                .expect("same nonempty Operator read");
+                            if types.is_empty() {
+                                OperatorRequirement::None
+                            } else {
+                                OperatorRequirement::Types(types)
+                            }
+                        }
+                    });
+                    self.family_mut(family)[index]
+                        .driver
+                        .read_pass(&raw, operator);
+                }
+                #[cfg(feature = "ares")]
+                {
                     // Find only: this nullable Anim reader never allocates.
+                    self.family_mut(family)[index]
+                        .promotion_abilities
+                        .as_mut()
+                        .expect("TechnoType promotion abilities")
+                        .read_pass(&raw);
                     let sparkle = self.resolve_existing_type_from(
                         &raw,
                         "EMP.Sparkles",

@@ -149,6 +149,7 @@ pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;
+pub(crate) mod ares_abilities;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_country_paradrop;
 #[cfg(feature = "ares")]
@@ -158,6 +159,10 @@ pub(crate) mod ares_side_extension;
 pub(crate) mod ares_warhead;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_spotlight;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_driver;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_crew;
 pub mod armor;
 pub mod alpha_image_assets;
 pub mod country_loading;

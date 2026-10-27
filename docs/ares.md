@@ -69,6 +69,16 @@ Supported extensions:
 - [Factory-source restrictions](../src/sim/production/can_build.rs) (`BuiltAt`,
   `Factory.ExplicitOnly`) and [Country plan qualification](../tools/rules_oracle/ares_factory_owners.md)
   (`FactoryOwners`, forbidden Countries and permanent plans).
+- [Vehicle drivers](../src/sim/vehicle_theft.rs): `CanDrive`, Country `CanBeDriven`,
+  vehicle theft and driver replacement, with passenger and survivor handoff.
+  [KillDriver](../src/sim/vehicle_theft/driver_kill.rs) respects type/rank protection,
+  health and chance gates; a driverless hull stops acting until a new driver enters.
+  Foot `Operator` requirements deactivate an empty hull and resume it through the
+  shared power/EMP admission when a qualifying passenger enters. Building-specific
+  Operator updates remain outside this path.
+  Per-type `Survivor.*`, `Crew.TechnicianChance`, `Crew.EngineerChance` and nullable
+  aircraft `Crashable` share the existing crew and placement owners. These paths
+  require `ares`; loading INI settings cannot activate them in a default build.
 - [NoManualFire](../src/app/input/context_order.rs) blocks ordinary manual attacks;
   C4 and infiltration remain incomplete.
 - [AttachEffect](ares-attach-effect.md): ground warhead effects and type-owned

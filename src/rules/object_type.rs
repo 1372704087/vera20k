@@ -835,6 +835,8 @@ pub struct ObjectType {
     /// Unset, explicit silence and a resolved Voc ID remain distinct.
     #[cfg(feature = "ares")]
     promotion_sounds: [Option<Option<String>>; 2],
+    #[cfg(feature = "ares")]
+    vehicle_thief_sounds: [Option<String>; 2],
     /// Ordered MoveSound vector, TechnoType+4F4. Constructor710E7B..710EAC
     /// creates an empty list; ReadINI713459..7134D9 uses ReadSoundList525430.
     /// The fixed SOUNDMD binder resolves each token, retaining duplicates.
@@ -1041,6 +1043,10 @@ pub struct ObjectType {
     turret_rot_override: Option<i32>,
     #[cfg(feature = "ares")]
     spotlight: crate::rules::ares_spotlight::SpotlightTypeRules,
+    #[cfg(feature = "ares")]
+    driver: crate::rules::ares_driver::DriverTypeRules,
+    #[cfg(feature = "ares")]
+    crew: crate::rules::ares_crew::CrewTypeRules,
     /// Immutable projection of the retained TechnoTypeExt+308/+314/+320/+321
     /// reader. Country identities bind during Process, never from merged INI.
     #[cfg(feature = "ares")]
@@ -1363,6 +1369,10 @@ pub struct ObjectType {
     /// instead of vanishing (`UnitClass::ReceiveDamage 0x00738457`), and only
     /// such a type answers its Jumpjet's impact notice (`0x0074619D`).
     pub crashable: bool,
+    /// Ares TypeExt+323/+324: the optional Aircraft Crashable override,
+    /// independent of original Unit TechnoType+D95 (10048CB5..10048CDB).
+    #[cfg(feature = "ares")]
+    aircraft_crashable: Option<bool>,
     /// `TiltCrashJumpjet=` (`TechnoTypeClass+0xD22`, constructor false at
     /// `0x007114CA`, `TechnoTypeClass::ReadINI 0x00713377..0x00713391`, key
     /// string `0x00844118`): the Jumpjet Draw_Matrix tilts the body by its
@@ -1512,6 +1522,8 @@ pub struct ObjectType {
     /// Nullifies damage from an exact same-type, same-owner source object.
     pub type_immune: bool,
     emp: Option<crate::rules::ares_emp::EmpTypeRules>,
+    #[cfg(feature = "ares")]
+    promotion_abilities: Option<crate::rules::ares_abilities::PromotionAbilities>,
     #[cfg(feature = "ares")]
     self_attach_effect: Option<crate::rules::ares_warhead::AttachEffectRules>,
     #[cfg(feature = "ares")]
@@ -2431,6 +2443,18 @@ impl ObjectType {
     pub(crate) fn emp_rules(&self) -> Option<&crate::rules::ares_emp::EmpTypeRules> {
         self.emp.as_ref()
     }
+    pub(crate) fn promotion_abilities(
+        &self,
+    ) -> Option<&crate::rules::ares_abilities::PromotionAbilities> {
+        #[cfg(feature = "ares")]
+        {
+            self.promotion_abilities.as_ref()
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            None
+        }
+    }
     pub(crate) fn self_attach_effect(
         &self,
     ) -> Option<&crate::rules::ares_warhead::AttachEffectRules> {
@@ -2468,22 +2492,60 @@ impl ObjectType {
         self.spotlight
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn driver_rules(&self) -> &crate::rules::ares_driver::DriverTypeRules {
+        &self.driver
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn aircraft_crashable_override(&self) -> Option<bool> {
+        self.aircraft_crashable
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn crew_rules(&self) -> &crate::rules::ares_crew::CrewTypeRules {
+        &self.crew
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bind_crew_rules(&mut self, crew: &crate::rules::ares_crew::CrewTypeRules) {
+        self.crew = crew.clone();
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bind_driver_rules(
+        &mut self,
+        driver: &crate::rules::ares_driver::DriverTypeRules,
+    ) {
+        self.driver = driver.clone();
+    }
+
     pub(crate) fn bind_ares_techno_rules(
         &mut self,
         emp: Option<&crate::rules::ares_emp::EmpTypeRules>,
+        abilities: Option<&crate::rules::ares_abilities::PromotionAbilities>,
         attachment: Option<&crate::rules::ares_warhead::AttachEffectRules>,
         cloak_allowed: bool,
         turret_rot_override: Option<i32>,
+        aircraft_crashable: Option<bool>,
     ) {
         self.emp = emp.cloned();
         #[cfg(feature = "ares")]
         {
+            self.promotion_abilities = abilities.cloned();
             self.self_attach_effect = attachment.cloned();
             self.cloak_allowed = cloak_allowed;
             self.turret_rot_override = turret_rot_override;
+            self.aircraft_crashable = aircraft_crashable;
         }
         #[cfg(not(feature = "ares"))]
-        let _ = (attachment, cloak_allowed, turret_rot_override);
+        let _ = (
+            abilities,
+            attachment,
+            cloak_allowed,
+            turret_rot_override,
+            aircraft_crashable,
+        );
     }
 
     #[cfg(feature = "ares")]
@@ -3108,6 +3170,17 @@ impl ObjectType {
             self.promotion_sounds[slot] =
                 section.and_then(|section| sounds.read_ares_reference(section, key));
         }
+        #[cfg(feature = "ares")]
+        for (slot, key) in ["VehicleThief.EnterSound", "VehicleThief.LeaveSound"]
+            .into_iter()
+            .enumerate()
+        {
+            // Nonnullable Voc reader1003FA80 at1003E72D/1003E743 uses the
+            // same 2048-byte lookup/none rules; unset and -1 both mean silence.
+            self.vehicle_thief_sounds[slot] = section
+                .and_then(|section| sounds.read_ares_reference(section, key))
+                .flatten();
+        }
     }
 
     #[cfg(feature = "ares")]
@@ -3115,6 +3188,11 @@ impl ObjectType {
         self.promotion_sounds[usize::from(elite)]
             .as_ref()
             .map(|cue| cue.as_deref())
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn vehicle_thief_sound(&self, leaving: bool) -> Option<&str> {
+        self.vehicle_thief_sounds[usize::from(leaving)].as_deref()
     }
 
     /// `Weapon[index]` (`TechnoTypeClass+0x898 + index*0x1C`): the weapon in
@@ -3703,6 +3781,8 @@ impl ObjectType {
             damage_sound: None,
             #[cfg(feature = "ares")]
             promotion_sounds: [None, None],
+            #[cfg(feature = "ares")]
+            vehicle_thief_sounds: [None, None],
             move_sound: Vec::new(),
             crashing_sound: section.read_name("CrashingSound", 0x80).map(str::to_owned),
             voice_crashing: section.read_name("VoiceCrashing", 0x80).map(str::to_owned),
@@ -3788,6 +3868,10 @@ impl ObjectType {
             turret_rot_override: None,
             #[cfg(feature = "ares")]
             spotlight: Default::default(),
+            #[cfg(feature = "ares")]
+            driver: Default::default(),
+            #[cfg(feature = "ares")]
+            crew: Default::default(),
             #[cfg(feature = "ares")]
             factory_owners: Default::default(),
             #[cfg(feature = "ares")]
@@ -3945,6 +4029,8 @@ impl ObjectType {
             zfudge_bridge: section.read_int("ZFudgeBridge", 0),
             too_big_to_fit_under_bridge: section.read_bool("TooBigToFitUnderBridge", false),
             crashable: section.read_bool("Crashable", false),
+            #[cfg(feature = "ares")]
+            aircraft_crashable: None,
             teleporter: section.read_bool("Teleporter", false),
             move_to_shroud: section.read_bool("MoveToShroud", category != ObjectCategory::Aircraft),
             hover_attack: section.read_bool("HoverAttack", false),
@@ -4000,6 +4086,8 @@ impl ObjectType {
             immune: section.read_bool("Immune", false),
             type_immune: section.read_bool("TypeImmune", false),
             emp: None,
+            #[cfg(feature = "ares")]
+            promotion_abilities: None,
             #[cfg(feature = "ares")]
             self_attach_effect: None,
             #[cfg(feature = "ares")]

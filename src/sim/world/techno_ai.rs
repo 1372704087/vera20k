@@ -1477,10 +1477,14 @@ fn techno_common_steps(
     // Ares1004B434 updates attachments before1004B528 EMP recovery.
     #[cfg(feature = "ares")]
     sim.update_ares_attach_effects(id, rules);
+    #[cfg(feature = "ares")]
+    sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before
     //the stock head. EMP expiry itself must not invent a future-power sweep.
     #[cfg(feature = "ares")]
     sim.update_ares_emp_operability(id, rules, effects);
+    #[cfg(feature = "ares")]
+    sim.update_ares_driver_killed_mission(id, rules, overlay_registry, effects);
     // Techno6F9E70..6F9EA8 re-drives +4A4 at Location before mission
     // Stop/Release. A zero gain must stop a live loop before Guard can
     // release it to decay at the previous gain.

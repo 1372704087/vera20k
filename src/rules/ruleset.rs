@@ -4832,15 +4832,30 @@ impl RuleSet {
                 warhead.particle_system = particle_system.map(str::to_owned);
             }
         }
-        for (category, name, emp, attachment, cloak_allowed, turret_rot) in
-            processed.ares_techno_states()
+        for (
+            category,
+            name,
+            emp,
+            abilities,
+            attachment,
+            cloak_allowed,
+            turret_rot,
+            aircraft_crashable,
+        ) in processed.ares_techno_states()
         {
             if let Some(object) = rules
                 .object_list
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
-                object.bind_ares_techno_rules(emp, attachment, cloak_allowed, turret_rot);
+                object.bind_ares_techno_rules(
+                    emp,
+                    abilities,
+                    attachment,
+                    cloak_allowed,
+                    turret_rot,
+                    aircraft_crashable,
+                );
             }
         }
         #[cfg(feature = "ares")]
@@ -4865,6 +4880,26 @@ impl RuleSet {
                     retained.inhibitor_range,
                     retained.hunter_seeker_ignore,
                 );
+            }
+        }
+        #[cfg(feature = "ares")]
+        for (category, name, driver) in processed.driver_states() {
+            if let Some(handle) = rules
+                .object_category_index
+                .get(&(category, name.to_ascii_uppercase()))
+                .copied()
+            {
+                rules.object_list[handle.0 as usize].bind_driver_rules(driver);
+            }
+        }
+        #[cfg(feature = "ares")]
+        for (category, name, crew) in processed.crew_states() {
+            if let Some(handle) = rules
+                .object_category_index
+                .get(&(category, name.to_ascii_uppercase()))
+                .copied()
+            {
+                rules.object_list[handle.0 as usize].bind_crew_rules(crew);
             }
         }
         for (name, ares) in processed.ares_warhead_states() {
@@ -7160,6 +7195,61 @@ impl RuleSet {
 
         #[cfg(feature = "ares")]
         {
+            // Ares TypeExt driver fields retain earlier successful reads even
+            // when the merged text contains later invalid/empty values.
+            let drivers = self
+                .object_list
+                .iter()
+                .filter(|object| {
+                    object.driver_rules() != &crate::rules::ares_driver::DriverTypeRules::default()
+                        || object.vehicle_thief_sound(false).is_some()
+                        || object.vehicle_thief_sound(true).is_some()
+                })
+                .map(|object| {
+                    (
+                        (object.category, object.id.to_ascii_uppercase()),
+                        (
+                            object.driver_rules(),
+                            object.vehicle_thief_sound(false),
+                            object.vehicle_thief_sound(true),
+                        ),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !drivers.is_empty() {
+                b"ares-driver-rules-v1".hash(&mut hasher);
+                drivers.hash(&mut hasher);
+            }
+            let aircraft_crash_overrides = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    object
+                        .aircraft_crashable_override()
+                        .map(|value| ((object.category, object.id.to_ascii_uppercase()), value))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !aircraft_crash_overrides.is_empty() {
+                b"ares-aircraft-crashable-v1".hash(&mut hasher);
+                aircraft_crash_overrides.hash(&mut hasher);
+            }
+            let crews = self
+                .object_list
+                .iter()
+                .filter(|object| {
+                    object.crew_rules() != &crate::rules::ares_crew::CrewTypeRules::default()
+                })
+                .map(|object| {
+                    (
+                        (object.category, object.id.to_ascii_uppercase()),
+                        object.crew_rules(),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !crews.is_empty() {
+                b"ares-survivor-rules-v1".hash(&mut hasher);
+                crews.hash(&mut hasher);
+            }
             b"ares-emp-rules-v1".hash(&mut hasher);
             self.emp_sparkles.hash(&mut hasher);
             self.object_list
@@ -7169,6 +7259,7 @@ impl RuleSet {
                         (object.category, object.id.to_ascii_uppercase()),
                         (
                             object.emp_rules(),
+                            object.promotion_abilities(),
                             object.self_attach_effect(),
                             object.cloak_allowed(),
                         ),
@@ -8354,6 +8445,18 @@ impl RuleSet {
             .is_some_and(|country| country.presentation.observer_flag_alt_palette)
     }
 
+    /// Ares capture1004524F..10045275 reads CountryExt+1BC when present,
+    /// otherwise the live HouseType+1A6 MultiplayPassive byte.
+    #[cfg(feature = "ares")]
+    pub(crate) fn country_can_be_driven(&self, id: &str) -> bool {
+        self.country_rules(id).is_some_and(|country| {
+            country
+                .veteran_types
+                .can_be_driven_override()
+                .unwrap_or(country.multiplay_passive)
+        })
+    }
+
     /// HouseType511850 scalar fields used by SetDifficulty4F6EC0. Unknown
     /// countries retain its constructor's neutral doubles. Category cost,
     /// speed and armor getters use their own independent fields.
@@ -8735,20 +8838,13 @@ impl RuleSet {
 
     /// `[Side] Engineer=` else global `[General] Engineer=`
     /// (`SideExt::GetEngineer @ 0x1002DEE0`).
+    #[cfg(feature = "ares")]
     pub(crate) fn side_engineer(&self, side: i32) -> Option<Option<&str>> {
-        #[cfg(feature = "ares")]
-        {
-            let extension = self.side_extension(side)?;
-            return Some(match &extension.engineer {
-                Some(value) => value.as_deref(),
-                None => self.general.engineer_infantry.as_deref(),
-            });
-        }
-        #[cfg(not(feature = "ares"))]
-        {
-            let _ = side;
-            None
-        }
+        let extension = self.side_extension(side)?;
+        Some(match &extension.engineer {
+            Some(value) => value.as_deref(),
+            None => self.general.engineer_infantry.as_deref(),
+        })
     }
 
     /// `[Side] Technician=` else global `[General] Technician=`

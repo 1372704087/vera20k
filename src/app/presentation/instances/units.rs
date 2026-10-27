@@ -289,9 +289,18 @@ fn aircraft_body_anchor(
     );
     // MainTick renders before Logic55DC9E, then increments at55DE7E/81.
     // The next Draw_Point4CF8D8 reads that committed global frame directly.
+    // Original4CF8B1 tests TechnoType+0xC95; a Phobos build resolves
+    // FlyNoWobbles against [AudioVisual] instead.
+    #[cfg(feature = "phobos")]
+    let no_wobbles = rules.map_or_else(
+        || object.is_dropship(),
+        |rules| rules.fly_no_wobbles_for(object),
+    );
+    #[cfg(not(feature = "phobos"))]
+    let no_wobbles = object.is_dropship();
     let delta = crate::render::locomotor_visual::fly_draw_point_y(
         sim.session().binary_frame(),
-        object.is_dropship(),
+        no_wobbles,
         taking_off,
         landing,
         height,

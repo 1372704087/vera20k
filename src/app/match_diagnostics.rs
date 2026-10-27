@@ -32,6 +32,7 @@ pub(crate) struct MatchDiagnosticsState {
     /// by the frame loop, closed by the lifecycle flush points above.
     pub(crate) replay_log: Option<ReplayLog>,
     command_executions: Option<CommandExecutionLog>,
+    actor_presentation: std::cell::RefCell<Option<ActorPresentationProbe>>,
     loading_cancel: Option<Vec<LoadingCancelObservation>>,
     replay_playback: Option<ReplayPlaybackState>,
     replay_capture_output: Option<PathBuf>,
@@ -47,6 +48,7 @@ enum ReplayPlaybackState {
 /// One actual post-formation native command dispatch and its immediate
 /// receiver state. This opt-in app observation is never saved or hashed.
 pub(crate) struct CommandExecutionObservation {
+    pub observed_at: ObservationTime,
     pub frame: u32,
     pub record: crate::sim::command::CommandRecord,
     pub applied: bool,
@@ -55,6 +57,48 @@ pub(crate) struct CommandExecutionObservation {
     pub destination: Option<crate::sim::components::NavTargetRef>,
     pub cell: Option<(u16, u16)>,
     pub mission: Option<(i32, i32)>,
+}
+
+/// App-only clocks for measurement. Neither clock enters commands or hashes.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct ObservationTime {
+    pub instant: crate::util::time::Instant,
+    pub unix_us: u64,
+}
+impl ObservationTime {
+    pub(crate) fn now() -> Self {
+        Self {
+            instant: crate::util::time::Instant::now(),
+            unix_us: crate::util::time::SystemTime::now()
+                .duration_since(crate::util::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_micros() as u64,
+        }
+    }
+}
+
+pub(crate) type GpuCompletion = std::sync::Arc<std::sync::Mutex<Option<ObservationTime>>>;
+
+#[derive(Clone)]
+pub(crate) struct ActorPresentation {
+    pub at: ObservationTime,
+    pub frame: u32,
+    pub screen: [f32; 2],
+    pub body: u16,
+    pub gpu_done: GpuCompletion,
+}
+impl ActorPresentation {
+    pub(crate) fn gpu_completed_at(&self) -> Option<ObservationTime> {
+        *self
+            .gpu_done
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+    }
+}
+struct ActorPresentationProbe {
+    actor: u64,
+    pending: Option<(u32, [f32; 2], u16)>,
+    submitted: Option<ActorPresentation>,
 }
 pub(crate) struct CommandTimingObservation {
     pub publisher: Option<i8>,
@@ -92,6 +136,7 @@ impl CommandExecutionLog {
         }
         let entity = actor.and_then(|actor| sim.entities().get(actor));
         self.records.push(CommandExecutionObservation {
+            observed_at: ObservationTime::now(),
             frame: sim.session().binary_frame(),
             record: record.clone(),
             applied,
@@ -127,6 +172,48 @@ pub(crate) struct ReplayLogFlush {
 }
 
 impl MatchDiagnosticsState {
+    pub(crate) fn observe_actor_presentation(&self, actor: u64) {
+        *self.actor_presentation.borrow_mut() = Some(ActorPresentationProbe {
+            actor,
+            pending: None,
+            submitted: None,
+        });
+    }
+    pub(crate) fn begin_presentation_observation(&self) {
+        if let Some(probe) = self.actor_presentation.borrow_mut().as_mut() {
+            probe.pending = None;
+            probe.submitted = None;
+        }
+    }
+    pub(crate) fn record_actor_draw(&self, actor: u64, frame: u32, screen: [f32; 2], body: u16) {
+        if let Some(probe) = self.actor_presentation.borrow_mut().as_mut()
+            && probe.actor == actor
+        {
+            probe.pending = Some((frame, screen, body));
+        }
+    }
+    pub(crate) fn commit_presentation_observation(&self) -> Option<GpuCompletion> {
+        if let Some(probe) = self.actor_presentation.borrow_mut().as_mut() {
+            probe.submitted = probe
+                .pending
+                .take()
+                .map(|(frame, screen, body)| ActorPresentation {
+                    at: ObservationTime::now(),
+                    frame,
+                    screen,
+                    body,
+                    gpu_done: Default::default(),
+                });
+            return probe.submitted.as_ref().map(|frame| frame.gpu_done.clone());
+        }
+        None
+    }
+    pub(crate) fn actor_presentation(&self) -> Option<ActorPresentation> {
+        self.actor_presentation.borrow().as_ref()?.submitted.clone()
+    }
+    pub(crate) fn end_presentation_observation(&self) {
+        *self.actor_presentation.borrow_mut() = None;
+    }
     pub(crate) fn is_replay_playback(&self) -> bool {
         self.replay_playback.is_some()
     }

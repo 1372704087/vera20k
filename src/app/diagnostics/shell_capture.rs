@@ -5,11 +5,11 @@
 //! shell in a second renderer. It waits for the production main-menu dispatcher
 //! to reach one ordinary steady frame, then records the final swapchain bytes.
 
+use crate::util::time::{Duration, Instant};
 use std::ffi::OsString;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use crate::util::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail, ensure};
 use serde::Serialize;
@@ -1175,6 +1175,7 @@ pub(crate) struct LiveOnlineConfig {
     pub start: Option<u8>,
     pub frames: u32,
     pub simple_input: bool,
+    pub latency: bool,
     pub mass_input: bool,
     /// Public coordinator nonce; only diagnostic Observe input waits for ACK.
     pub network_checkpoint: Option<String>,
@@ -1383,6 +1384,7 @@ where
     let mut online_start = None;
     let mut online_frames = None;
     let mut online_simple = false;
+    let mut online_latency = false;
     let mut online_mass = false;
     let mut online_network_checkpoint = None;
     let mut online_exit_checkpoint = None;
@@ -1584,6 +1586,10 @@ where
                 next_utf8(&mut args, "value after --online-exit-checkpoint")?,
                 "--online-exit-checkpoint",
             )?,
+            "--online-latency" => {
+                ensure!(!online_latency, "duplicate --online-latency");
+                online_latency = true;
+            }
             "--online-simple-input" => {
                 ensure!(!online_simple, "duplicate --online-simple-input");
                 online_simple = true;
@@ -1691,7 +1697,23 @@ where
                     && online_frames.is_none_or(|frames| frames == 300)),
             "online failure capture requires two players, simple input and exactly300 prefix frames"
         );
-        let frames = online_frames.unwrap_or(if online_failure {
+        ensure!(
+            !online_latency
+                || (players == 2
+                    && !online_failure
+                    && !online_mass
+                    && online_ai.is_none()
+                    && !profile_check
+                    && online_network_checkpoint.is_none()
+                    && online_exit_checkpoint.is_none()
+                    && online_loading_host_loss.is_none()
+                    && online_startup_host_loss.is_none()
+                    && online_loading_cancel.is_none()),
+            "--online-latency requires a normal online pair without another diagnostic mode"
+        );
+        let frames = online_frames.unwrap_or(if online_latency {
+            6000
+        } else if online_failure {
             300
         } else if online_ai.is_some() {
             600
@@ -1842,7 +1864,12 @@ where
             mode_id: online_mode_id,
             start: online_start.map(|start| start as u8),
             frames,
-            simple_input: online_simple || online_mass || online_failure || online_ai.is_some(),
+            simple_input: online_simple
+                || online_latency
+                || online_mass
+                || online_failure
+                || online_ai.is_some(),
+            latency: online_latency,
             mass_input: online_mass,
             failure_prefix_output: if online_failure || online_network_checkpoint.is_some() {
                 let mut path = output_dir.as_os_str().to_owned();
@@ -1890,6 +1917,7 @@ where
                 && online_start.is_none()
                 && online_frames.is_none()
                 && !online_simple
+                && !online_latency
                 && !online_mass
                 && online_network_checkpoint.is_none()
                 && online_exit_checkpoint.is_none()
@@ -3579,6 +3607,23 @@ mod tests {
         assert_eq!(config.mode_id, Some(1));
         assert_eq!(config.frames, 600);
         assert!(config.simple_input && !config.mass_input);
+    }
+
+    #[test]
+    fn online_latency_is_opt_in_and_rejects_conflicting_modes() {
+        let output = new_output_path("online-latency");
+        let mut values = valid_args(&output);
+        values[1] = "online-live-host".into();
+        values.extend(args(&["--online-account", "Host", "--online-latency"]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture");
+        };
+        let config = request.live_online.unwrap();
+        assert!(config.latency && config.simple_input);
+        assert_eq!(config.frames, 6000);
+        values.extend(args(&["--online-mass-input"]));
+        assert!(parse_launch_args(values).is_err());
     }
 
     #[test]

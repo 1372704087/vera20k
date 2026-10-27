@@ -1531,6 +1531,9 @@ fn reset_round(core: &mut LiveLanCapture) {
     core.kick_observed = false;
     core.entered_setup = false;
     core.country_selected = false;
+    if core.latency.is_some() {
+        core.latency = Some(super::latency::LatencyCapture::default());
+    }
     if core.mass.is_some() {
         core.mass = Some(mass::MassInput::default());
     }

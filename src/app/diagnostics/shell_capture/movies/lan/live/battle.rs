@@ -2887,12 +2887,76 @@ fn mouse_can_pick(state: &AppState, id: u64) -> Result<bool> {
 }
 
 fn ground_order_with_mouse(state: &mut AppState, id: u64, cell: (u16, u16)) -> Result<()> {
+    ground_order_with_mouse_timed(state, id, cell).map(|_| ())
+}
+
+fn ground_order_with_mouse_timed(
+    state: &mut AppState,
+    id: u64,
+    cell: (u16, u16),
+) -> Result<crate::app::match_diagnostics::ObservationTime> {
     select_entity(state, id)?;
     point_at_ground(state, cell)?;
-    for edge in [ElementState::Pressed, ElementState::Released] {
-        dispatch::handle_mouse_input(state, MouseButton::Left, edge);
-    }
-    Ok(())
+    dispatch::handle_mouse_input(state, MouseButton::Left, ElementState::Pressed);
+    let at = crate::app::match_diagnostics::ObservationTime::now();
+    dispatch::handle_mouse_input(state, MouseButton::Left, ElementState::Released);
+    Ok(at)
+}
+
+/// Latency samples keep a real ground Unit near the view; actor/goal search and
+/// selection precede the measured release edge. The ordinary click owns input.
+pub(super) fn latency_move_with_mouse(
+    state: &mut AppState,
+    actor: Option<u64>,
+    direction: usize,
+) -> Result<(
+    u64,
+    (u16, u16),
+    (u16, u16),
+    crate::app::match_diagnostics::ObservationTime,
+)> {
+    let sim = simulation(state)?;
+    let owner = sim
+        .session()
+        .current_house()
+        .context("latency local House")?;
+    let entity = if let Some(actor) = actor {
+        sim.entities()
+            .get(actor)
+            .context("latency actor disappeared")?
+    } else {
+        sim.entities()
+            .values_sorted()
+            .filter(|entity| {
+                entity.owner() == owner
+                    && entity.is_alive()
+                    && !entity.in_limbo()
+                    && entity.category() == crate::map::entities::EntityCategory::Unit
+                    && entity.locomotor.is_some()
+            })
+            .max_by_key(|entity| (entity.health.current(), entity.stable_id()))
+            .context("latency capture requires an owned ground Unit")?
+    };
+    let id = entity.stable_id();
+    let from = (entity.position.rx(), entity.position.ry());
+    let offsets = [(6, 0), (-6, 0), (0, 6), (0, -6)];
+    let to = offsets
+        .into_iter()
+        .cycle()
+        .skip(direction % 4)
+        .take(4)
+        .find_map(|(dx, dy)| {
+            let desired = (
+                u16::try_from(i32::from(from.0) + dx).ok()?,
+                u16::try_from(i32::from(from.1) + dy).ok()?,
+            );
+            legal_move_cell(state, id, desired)
+                .ok()
+                .filter(|cell| *cell != from)
+        })
+        .context("latency capture has no legal nearby Move goal")?;
+    let at = ground_order_with_mouse_timed(state, id, to)?;
+    Ok((id, from, to, at))
 }
 
 /// The bounded live-network input for maps with preplaced mobile units. It uses
@@ -2944,6 +3008,20 @@ pub(super) fn mobile_stop_with_keyboard(state: &mut AppState, id: u64) -> Result
 }
 
 pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
+    selected_stop_with_keyboard_timed(state).map(|_| ())
+}
+
+pub(super) fn latency_stop_with_keyboard(
+    state: &mut AppState,
+    actor: u64,
+) -> Result<crate::app::match_diagnostics::ObservationTime> {
+    select_entity(state, actor)?;
+    selected_stop_with_keyboard_timed(state)
+}
+
+fn selected_stop_with_keyboard_timed(
+    state: &mut AppState,
+) -> Result<crate::app::match_diagnostics::ObservationTime> {
     let key = Key::Character("s".into());
     ensure!(
         state.match_state.input.hotkey_bindings.resolve_event(
@@ -2953,8 +3031,9 @@ pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
         ) == HotkeyResolution::Command(HotkeyCommand::StopObject),
         "loaded S key is not the Stop binding"
     );
+    let at = crate::app::match_diagnostics::ObservationTime::now();
     chat_key(state, KeyCode::KeyS, &key, Some("s"));
-    Ok(())
+    Ok(at)
 }
 
 /// Select through the configured retail P binding twice: screen then map.

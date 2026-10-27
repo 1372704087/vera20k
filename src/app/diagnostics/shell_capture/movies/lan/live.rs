@@ -44,6 +44,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod battle;
 mod cooperative;
 mod failure;
+mod latency;
 mod mass;
 mod online;
 mod profile;
@@ -136,6 +137,7 @@ mod stop_observation_tests {
             }
             .write_into(&mut record);
             CommandExecutionObservation {
+                observed_at: crate::app::match_diagnostics::ObservationTime::now(),
                 frame,
                 record,
                 applied: true,
@@ -373,6 +375,7 @@ pub(super) struct LiveLanCapture {
     country_selected: bool,
     battle: Option<battle::BattleOpening>,
     mass: Option<mass::MassInput>,
+    latency: Option<latency::LatencyCapture>,
     ai: Option<AiActivity>,
     failure: Option<failure::FailureCapture>,
     setup_crash: Option<setup_crash::SetupCrashCapture>,
@@ -403,6 +406,7 @@ impl LiveLanCapture {
         let players = config.players;
         let simple = config.simple_input;
         let mass = config.mass_input;
+        let latency = config.latency;
         let ai = config.ai.is_some();
         let mut capture = Self::new_config(target, None, Some(online::LiveRoundFlow::new(config)));
         if let Some(failure) = startup_failure {
@@ -413,6 +417,9 @@ impl LiveLanCapture {
         capture.ai = ai.then(AiActivity::default);
         if simple {
             capture.battle = None;
+        }
+        if latency {
+            capture.latency = Some(latency::LatencyCapture::default());
         }
         if mass {
             capture.mass = Some(mass::MassInput::default());
@@ -480,6 +487,7 @@ impl LiveLanCapture {
             )
             .then(|| battle::BattleOpening::new(!target.online())),
             mass: None,
+            latency: None,
             ai: None,
             failure: match target {
                 LanTarget::LiveTimeoutHost | LanTarget::OnlineTimeoutHost => {
@@ -667,6 +675,9 @@ impl LiveLanCapture {
         rendered: PresentedShell,
         frame: u32,
     ) -> Result<()> {
+        if let Some(latency) = self.latency.as_mut() {
+            latency.observe_setup(state);
+        }
         ensure!(
             state.frontend.main_menu_shell_error.is_none(),
             "live LAN capture reached shell fallback"
@@ -1199,7 +1210,7 @@ impl LiveLanCapture {
             state.frontend.screen == GameScreen::InGame,
             "live LAN match left gameplay before completion"
         );
-        if self.battle.is_none() && self.mass.is_none() {
+        if self.battle.is_none() && self.mass.is_none() && self.latency.is_none() {
             let simulation = &state
                 .match_state
                 .sim_runtime
@@ -1296,6 +1307,13 @@ impl LiveLanCapture {
             self.route
                 .push(json!({"render_frame":frame,"native_frame":committed,"wait":wait}));
             self.last_wait = Some(wait);
+        }
+        if let Some(latency) = self.latency.as_mut() {
+            if latency.step(state, required_frames)? {
+                MoviesCapture::restore_neutral_pointer(state);
+                self.phase = Phase::Finished;
+            }
+            return Ok(());
         }
         if let Some(mass) = self.mass.as_mut() {
             let complete = mass.step(state, committed)?;
@@ -1645,8 +1663,7 @@ impl LiveLanCapture {
                     .is_some_and(|failure| failure.returned()),
             "finished live capture lost its transport"
         );
-        Ok(
-            json!({"target":format!("{:?}",self.target),"service_boundary":if self.ai.is_some() {"one App process; real HTTPS/UDP relay; ordinary frame boundary"} else if self.target.online() {"independent App processes; real HTTPS/UDP relay; ordinary frame boundary"} else {"two independent App processes; real UDP/global/private queues; ordinary frame boundary"},
+        let mut receipt = json!({"target":format!("{:?}",self.target),"service_boundary":if self.ai.is_some() {"one App process; real HTTPS/UDP relay; ordinary frame boundary"} else if self.target.online() {"independent App processes; real HTTPS/UDP relay; ordinary frame boundary"} else {"two independent App processes; real UDP/global/private queues; ordinary frame boundary"},
             "scope":if self.target.desync_failure() { "real300-frame CRC and strong-hash prefix followed by external scoped FRAMEINFO corruption, actual checksum CE Stop and ordinary LAN lobby cleanup" } else if self.failure.is_some() { "shared 300-frame prefix followed by real peer disappearance and ordinary wait recovery or Quit; bounded runtime validation, not whole-match/native parity" } else if self.target.online() {"observed production match before real outcome; tactical commands and simulation checksums"} else if self.battle.is_some() { "kick/rejoin, Battle opening, paid GI rally/combat, paid GAPILE repair and sale with an unfinished Infantry queue, natural crew, refunds and cleanup, then former-foundation Move; bounded runtime validation, not whole-match/native parity" } else { "kick/rejoin, 300 native frames and local Move/Stop; bounded runtime validation, not whole-match/native parity" },
             "process_id":std::process::id(),
             "loading_progress":crate::app::diagnostics::shell_capture::loading_runtime::progress_receipt(state)?,
@@ -1665,8 +1682,9 @@ impl LiveLanCapture {
             "actions":self.actions,"actor_last_seen":self.actor_last_seen,"observed_movement":self.observed_movement,"stopped_position":self.stop_observation.position(),"stop_settled_at_frame":self.stop_observation.settled.as_ref().map(|(frame,_)|frame),"route":self.route,
             "final_native_frame":sim.session().binary_frame(),"checksum_failure":format!("{:?}",sim.pending_network_failure()),
             "sent_commands":live.map(|live| live.sent_commands()),"peers":live.map(|live| live.peers().iter().map(|peer| json!({"house":peer.house_id(),"frame":peer.frame(),"advertised_commands":peer.advertised_commands(),"received_commands":peer.received_commands()})).collect::<Vec<_>>()),
-            "mobile_objects":sim.entities().values_sorted().filter(|entity| matches!(entity.category(), crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).map(|entity| json!({"id":entity.stable_id(),"owner":sim.interner().resolve(entity.owner()),"position":entity.position,"alive":entity.is_alive()})).collect::<Vec<_>>() }),
-        )
+            "mobile_objects":sim.entities().values_sorted().filter(|entity| matches!(entity.category(), crate::map::entities::EntityCategory::Infantry | crate::map::entities::EntityCategory::Unit)).map(|entity| json!({"id":entity.stable_id(),"owner":sim.interner().resolve(entity.owner()),"position":entity.position,"alive":entity.is_alive()})).collect::<Vec<_>>() });
+        receipt["latency"] = json!(self.latency.as_ref().map(latency::LatencyCapture::receipt));
+        Ok(receipt)
     }
 }
 

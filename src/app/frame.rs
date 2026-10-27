@@ -503,6 +503,10 @@ impl App {
             session.drive_before_render(state)?;
         }
         state.diag.frame_timer.sample(Instant::now());
+        state
+            .match_state
+            .match_diagnostics
+            .begin_presentation_observation();
         crate::app::presentation::interpolation::prepare(state, tactical_capture.is_some());
         let tooltip_ms = crate::app::input::tooltips::update(state);
         if state
@@ -1142,6 +1146,18 @@ impl App {
             .queue
             .submit(std::iter::once(encoder.finish()));
         output.present();
+        if let Some(completed) = state
+            .match_state
+            .match_diagnostics
+            .commit_presentation_observation()
+        {
+            // Diagnostic callback is an upper bound on this submitted frame's
+            // GPU completion. It never waits or enters simulation state.
+            state.renderer.gpu.queue.on_submitted_work_done(move || {
+                *completed.lock().unwrap_or_else(|error| error.into_inner()) =
+                    Some(crate::app::match_diagnostics::ObservationTime::now());
+            });
+        }
         // wgpu 27 requires released surface references before reconfiguration;
         // the diagnostic action below may resize the window.
         // https://docs.rs/wgpu/27.0.1/wgpu/struct.Surface.html#method.configure

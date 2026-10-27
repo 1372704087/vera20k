@@ -26,6 +26,8 @@ zero no-move argument. A moving locomotor is stopped (`ILocomotion+0x48`, whose
 own `+0x54C` callback runs first), Infantry `+0x6E4` pending-deploy is armed and
 one Scenario `RandomRanged(0, 2)` is drawn and discarded
 (`0x0052249C..0x005224C1`); a stopped one requests unforced `Do_Action(27)`.
+CanFireAt answers true for a null Target (`0x006F77BB`), so a man whose Target
+the Foot body has just cleared passes the reach gate too.
 
 Source: `src/Ext/Infantry/Hooks.cpp`, `src/Ext/InfantryType/Body.cpp` and
 `src/Ext/Rules/Body.cpp` (by TaranDahl).
@@ -35,15 +37,17 @@ Source: `src/Ext/Infantry/Hooks.cpp`, `src/Ext/InfantryType/Body.cpp` and
 - `rules/ruleset.rs` — `[General] InfantryAutoDeploy` and
   `RuleSet::infantry_auto_deploy_for`.
 - `rules/object_type.rs` — the per-type key, read for `InfantryTypes` only.
-- `sim/movement/foot_approach.rs` — `approach_infantry_auto_deploy`, the arm's
-  gates and outcomes.
+- `sim/movement/foot_approach.rs` — `approach_target` enters
+  `approach_infantry_deploy_arm`, the one port of `0x00522378..0x005224C6`
+  that the retail Doing 27..30 entry also uses, after the Foot body when the
+  key resolves true.
 
 ## Residuals
 
 - The deploy request itself belongs to the existing `Do_Action(27)` owner; the
   arm only decides when to ask.
-- No test drives a real deployment: a synthetic rules INI carries no infantry
-  art sequence, so `Do_Action` refuses without one. The two rules layers are
-  covered by tests; the arm's gates follow the cited instructions.
+- A retail-rules test drives a still computer GI's deployment; the moving
+  arm (Stop, pending deploy, RandomRanged) follows the cited instructions
+  without a test.
 - `Get_MissionControl` at `0x005224A8` only supplies a pointer the arm
   discards, so it has no port.

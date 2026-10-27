@@ -1568,6 +1568,16 @@ impl FactoryRegistry {
         let null_held_structure_skip = build_cat.is_some() && !all && f.object.is_none();
         let removes_queued_copies =
             build_cat.is_none() || (PHOBOS_STRUCTURE_ABANDON && !null_held_structure_skip);
+        // The rewrite is only reached past `0x004FAAC5..0x004FAAD2` (a queued
+        // entry and an index). Its structure ABANDON_ALL ends at CheckSame
+        // (`0x004FAB3D`), whose null-held test (`0x004FAB45`) returns at
+        // `0x004FAC9B`, so with nothing held it never reaches the admit.
+        let rewrite_returns_null_held = PHOBOS_STRUCTURE_ABANDON
+            && build_cat.is_some()
+            && all
+            && f.object.is_none()
+            && type_id.is_some()
+            && !f.queue.is_empty();
         let mut removed = false;
         if let Some(type_id) = type_id
             && removes_queued_copies
@@ -1588,7 +1598,10 @@ impl FactoryRegistry {
         }
         //4FAB45 NULL-held indexed BuildCat0 refuses. Wildcard and nonzero
         //BuildCat proceed to the ordinary prefix and queue-count policy.
-        if f.object.is_none() && (type_id.is_none() || build_cat.is_some()) {
+        if f.object.is_none()
+            && (type_id.is_none() || build_cat.is_some())
+            && !rewrite_returns_null_held
+        {
             return CancelOutcome::AdmittedEmpty;
         }
         if removed {
@@ -2620,34 +2633,47 @@ mod tests {
 
     /// Phobos keeps vanilla's null-held skip inside that rewrite: a single
     /// cancel on a structure strip with no held product admits at
-    /// `0x004FAB64` and removes no queued copy.
+    /// `0x004FAB64` and removes no queued copy. ABANDON_ALL passes that skip,
+    /// drains the copies and returns at CheckSame's null-held test
+    /// (`0x004FAB45` → `0x004FAC9B`) without the admit, where vanilla admits
+    /// with the queue untouched.
     #[test]
     fn cancel_one_structure_with_no_held_product_skips_the_queue() {
         let owner = InternedId::default();
         let a = InternedId::from_index(1);
-        let f = Factory {
-            owner,
-            category: ProductionCategory::Building,
-            queue: std::collections::VecDeque::from(vec![qe(a)]),
-            ..Factory::default()
-        };
-        let mut reg = reg_with(owner, ProductionCategory::Building, f);
-        let outcome = reg.cancel_one(
-            owner,
-            ProductionCategory::Building,
-            Some(a),
-            false,
-            Some(BuildCategory::Power),
-        );
-        assert_eq!(outcome, CancelOutcome::AdmittedEmpty);
-        assert_eq!(
-            reg.view(owner, ProductionCategory::Building)
+        let cancel = |all: bool| {
+            let f = Factory {
+                owner,
+                category: ProductionCategory::Building,
+                queue: std::collections::VecDeque::from(vec![qe(a)]),
+                ..Factory::default()
+            };
+            let mut reg = reg_with(owner, ProductionCategory::Building, f);
+            let outcome = reg.cancel_one(
+                owner,
+                ProductionCategory::Building,
+                Some(a),
+                all,
+                Some(BuildCategory::Power),
+            );
+            let queued = reg
+                .view(owner, ProductionCategory::Building)
                 .unwrap()
                 .queue
-                .len(),
-            1,
+                .len();
+            (outcome, queued)
+        };
+        assert_eq!(
+            cancel(false),
+            (CancelOutcome::AdmittedEmpty, 1),
             "the skip removes nothing"
         );
+        let expected_all = if cfg!(feature = "phobos") {
+            (CancelOutcome::QueuedRemoved, 0)
+        } else {
+            (CancelOutcome::AdmittedEmpty, 1)
+        };
+        assert_eq!(cancel(true), expected_all);
     }
 
     /// ABANDON_ALL on a structure under that rewrite drains every queued copy

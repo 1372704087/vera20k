@@ -46,13 +46,15 @@ and `SelectClass::Action`'s busy structure check is skipped at `0x6AB689`
 - Whether a lone placement-ready structure (nothing else queued) draws `1`
   there is not demonstrated against a Phobos capture; the count comes from the
   existing projection, which includes the held product.
-- The rewrite sits in the shared `House::Abandon_Production` body, so the other
-  four `cancel_production_for_owner` callers take it too in a Phobos build:
-  place-success, `refund_failed_delivery`, `abandon_after_placement` and the
-  sale-side cancel. Each passes `all = false` with the building's own index, so
-  where a queued copy of that type exists they now remove that copy and skip
-  the held product's refund/detach for that call. Native does the same, but
-  only the sidebar right-click path is covered by tests here.
+- The rewrite sits in the shared `House::Abandon_Production` body, but of the
+  other `cancel_production_for_owner` callers only the factory building's
+  detach (`0x0044EE9E..0x0044EEC3`: `all = false` with the held type's index)
+  changes in a Phobos build: where a queued copy of the held type exists, it
+  now removes that copy and keeps the held product. The mobile delivery and
+  `refund_failed_delivery` callers have no BuildCat and already took this arm,
+  and `abandon_after_placement` runs after `complete_placement` cleared the held
+  product, so Phobos' own null-held skip keeps vanilla there. Only the sidebar
+  right-click path is covered by tests here.
 - The structure cancel order comes from the static decode of
   `0x004FAAC4..0x004FAB2F`. The executed sidebar controls cover the mobile arm
   and the null-held admit, not a structure ABANDON_ALL, so the drain-then-abandon

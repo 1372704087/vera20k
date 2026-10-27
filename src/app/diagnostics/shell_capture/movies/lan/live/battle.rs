@@ -2897,10 +2897,14 @@ fn ground_order_with_mouse_timed(
 ) -> Result<crate::app::match_diagnostics::ObservationTime> {
     select_entity(state, id)?;
     point_at_ground(state, cell)?;
+    Ok(left_click_timed(state))
+}
+
+fn left_click_timed(state: &mut AppState) -> crate::app::match_diagnostics::ObservationTime {
     dispatch::handle_mouse_input(state, MouseButton::Left, ElementState::Pressed);
     let at = crate::app::match_diagnostics::ObservationTime::now();
     dispatch::handle_mouse_input(state, MouseButton::Left, ElementState::Released);
-    Ok(at)
+    at
 }
 
 pub(super) struct LatencyInput {
@@ -2969,36 +2973,51 @@ fn latency_input_admission(
     )
 }
 
-/// Latency samples keep a real ground Unit near the view; actor/goal search and
-/// selection precede the measured release edge. The ordinary click owns input.
-pub(super) fn latency_move_with_mouse(
-    state: &mut AppState,
-    actor: Option<u64>,
-    direction: usize,
-) -> Result<(u64, (u16, u16), (u16, u16), LatencyInput)> {
+/// Select and show the measured actor before readiness sampling. No Move/Stop
+/// is issued, and later measured inputs must retain this view and selection.
+pub(super) fn prepare_latency_view(state: &mut AppState) -> Result<(u64, (u16, u16))> {
     let sim = simulation(state)?;
     let owner = sim
         .session()
         .current_house()
         .context("latency local House")?;
-    let entity = if let Some(actor) = actor {
-        sim.entities()
-            .get(actor)
-            .context("latency actor disappeared")?
-    } else {
-        sim.entities()
-            .values_sorted()
-            .filter(|entity| {
-                entity.owner() == owner
-                    && entity.is_alive()
-                    && !entity.in_limbo()
-                    && entity.category() == crate::map::entities::EntityCategory::Unit
-                    && entity.locomotor.is_some()
-            })
-            .max_by_key(|entity| (entity.health.current(), entity.stable_id()))
-            .context("latency capture requires an owned ground Unit")?
-    };
+    let entity = sim
+        .entities()
+        .values_sorted()
+        .filter(|entity| {
+            entity.owner() == owner
+                && entity.is_alive()
+                && !entity.in_limbo()
+                && entity.category() == crate::map::entities::EntityCategory::Unit
+                && entity.locomotor.is_some()
+        })
+        .max_by_key(|entity| (entity.health.current(), entity.stable_id()))
+        .context("latency capture requires an owned ground Unit")?;
     let id = entity.stable_id();
+    let from = (entity.position.rx(), entity.position.ry());
+    select_entity(state, id)?;
+    crate::app::input::camera::center_camera_on_cell(state, from.0, from.1);
+    let world = ground_world_point(state, from)?;
+    point_at_world(state, world);
+    Ok((id, from))
+}
+
+/// The ordinary mouse path owns admission. Projection checks the prepared
+/// tactical viewport; a target outside it is an explicit diagnostic failure.
+pub(super) fn latency_move_with_mouse(
+    state: &mut AppState,
+    actor: u64,
+    direction: usize,
+) -> Result<((u16, u16), LatencyInput)> {
+    ensure!(
+        projected_selection(state) == [actor],
+        "latency actor selection changed"
+    );
+    let sim = simulation(state)?;
+    let entity = sim
+        .entities()
+        .get(actor)
+        .context("latency actor disappeared")?;
     let from = (entity.position.rx(), entity.position.ry());
     let owner_name = local_owner(state)?;
     let offsets = [(6, 0), (-6, 0), (0, 6), (0, -6)];
@@ -3012,7 +3031,7 @@ pub(super) fn latency_move_with_mouse(
                 u16::try_from(i32::from(from.0) + dx).ok()?,
                 u16::try_from(i32::from(from.1) + dy).ok()?,
             );
-            legal_move_cell(state, id, desired)
+            legal_move_cell(state, actor, desired)
                 .ok()
                 .filter(|cell| *cell != from)
                 .filter(|cell| {
@@ -3033,9 +3052,17 @@ pub(super) fn latency_move_with_mouse(
                 })
         })
         .context("latency capture has no legal nearby Move goal")?;
-    select_entity(state, id)?;
+    let world = ground_world_point(state, to)?;
+    let input = &state.match_state.input;
+    let cursor = fixed_view_cursor(
+        world,
+        (input.camera_x, input.camera_y),
+        input.zoom_level,
+        crate::app::input::camera::tactical_viewport_px(state),
+    )?;
+    point_at_cursor(state, cursor);
     let before = simulation(state)?.pending_local_command_count();
-    let at = ground_order_with_mouse_timed(state, id, to)?;
+    let at = left_click_timed(state);
     let admission = latency_input_admission(
         &mut state
             .match_state
@@ -3044,10 +3071,10 @@ pub(super) fn latency_move_with_mouse(
             .context("latency simulation")?
             .simulation,
         before,
-        id,
+        actor,
         Some(to),
     )?;
-    Ok((id, from, to, LatencyInput { at, admission }))
+    Ok((to, LatencyInput { at, admission }))
 }
 
 /// The bounded live-network input for maps with preplaced mobile units. It uses
@@ -3103,7 +3130,10 @@ pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
 }
 
 pub(super) fn latency_stop_with_keyboard(state: &mut AppState, actor: u64) -> Result<LatencyInput> {
-    select_entity(state, actor)?;
+    ensure!(
+        projected_selection(state) == [actor],
+        "latency actor selection changed"
+    );
     let before = simulation(state)?.pending_local_command_count();
     let at = selected_stop_with_keyboard_timed(state)?;
     let admission = latency_input_admission(
@@ -3411,18 +3441,58 @@ fn planning_rally_with_mouse(state: &mut AppState, id: u64, cell: (u16, u16)) ->
 }
 
 fn point_at_ground(state: &mut AppState, cell: (u16, u16)) -> Result<()> {
+    let world = ground_world_point(state, cell)?;
+    crate::app::input::camera::center_camera_on_cell(state, cell.0, cell.1);
+    point_at_world(state, world);
+    Ok(())
+}
+
+fn ground_world_point(state: &AppState, cell: (u16, u16)) -> Result<(f32, f32)> {
     let z = state
         .resolved_terrain()
         .and_then(|terrain| terrain.cell(cell.0, cell.1))
         .context("ground input terrain cell")?
         .level;
-    let world = crate::app::input::camera::cell_centre_world_point(cell.0, cell.1, z);
-    crate::app::input::camera::center_camera_on_cell(state, cell.0, cell.1);
+    Ok(crate::app::input::camera::cell_centre_world_point(
+        cell.0, cell.1, z,
+    ))
+}
+
+fn world_cursor(world: (f32, f32), camera: (f32, f32), zoom: f32) -> (f32, f32) {
+    ((world.0 - camera.0) * zoom, (world.1 - camera.1) * zoom)
+}
+
+fn fixed_view_cursor(
+    world: (f32, f32),
+    camera: (f32, f32),
+    zoom: f32,
+    viewport: (u32, u32, u32, u32),
+) -> Result<(f32, f32)> {
+    let cursor = world_cursor(world, camera, zoom);
+    let (x, y, w, h) = viewport;
+    ensure!(
+        cursor.0.is_finite()
+            && cursor.1.is_finite()
+            && cursor.0 >= x as f32
+            && cursor.0 < x.saturating_add(w) as f32
+            && cursor.1 >= y as f32
+            && cursor.1 < y.saturating_add(h) as f32,
+        "latency Move target leaves fixed tactical viewport: cursor={cursor:?}, viewport={viewport:?}"
+    );
+    Ok(cursor)
+}
+
+fn point_at_world(state: &mut AppState, world: (f32, f32)) {
+    let input = &state.match_state.input;
+    let cursor = world_cursor(world, (input.camera_x, input.camera_y), input.zoom_level);
+    point_at_cursor(state, cursor);
+}
+
+fn point_at_cursor(state: &mut AppState, cursor: (f32, f32)) {
     let input = &mut state.match_state.input;
-    input.cursor_x = (world.0 - input.camera_x) * input.zoom_level;
-    input.cursor_y = (world.1 - input.camera_y) * input.zoom_level;
+    input.cursor_x = cursor.0;
+    input.cursor_y = cursor.1;
     dispatch::handle_cursor_moved_in_game(state);
-    Ok(())
 }
 
 fn select_entity(state: &mut AppState, id: u64) -> Result<()> {
@@ -3576,10 +3646,7 @@ fn point_at_entity(state: &mut AppState, id: u64) -> Result<Option<u64>> {
     let world = crate::app::input::entity_pick::presented(state, simulation(state)?)
         .screen_position(entity);
     crate::app::input::camera::center_camera_on_cell(state, cell.0, cell.1);
-    let input = &mut state.match_state.input;
-    input.cursor_x = (world.0 - input.camera_x) * input.zoom_level;
-    input.cursor_y = (world.1 - input.camera_y) * input.zoom_level;
-    dispatch::handle_cursor_moved_in_game(state);
+    point_at_world(state, world);
     let sim = simulation(state)?;
     Ok(crate::app::input::entity_pick::hover_object_at_point(
         crate::app::input::entity_pick::presented(state, sim),
@@ -3631,6 +3698,24 @@ mod identity_tests {
     use super::*;
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
     use crate::sim::house_state::HouseState;
+
+    #[test]
+    fn latency_fixed_view_projects_inside_and_rejects_offscreen_targets() {
+        let camera = (1_000., 2_000.);
+        let viewport = (0, 0, 472, 448);
+        assert_eq!(
+            fixed_view_cursor((1_100., 2_050.), camera, 2., viewport).unwrap(),
+            (200., 100.)
+        );
+        assert!(
+            fixed_view_cursor((1_236., 2_050.), camera, 2., viewport).is_err(),
+            "sidebar boundary must not recenter"
+        );
+        assert!(
+            fixed_view_cursor((999., 2_050.), camera, 2., viewport).is_err(),
+            "offscreen left must not recenter"
+        );
+    }
 
     #[test]
     fn latency_ground_target_rejects_the_friendly_object_picked_by_the_click() {

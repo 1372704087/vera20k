@@ -10,6 +10,7 @@ const TARGET_PAIRS: usize = 30;
 const WARMUP_MS: u64 = 5_000;
 const WARMUP_LIMIT_MS: u64 = 30_000;
 const STABLE_WINDOW_MS: u64 = 2_000;
+const MAX_RENDER_GAP_US: u64 = 100_000;
 const ACTION_TIMEOUT_MS: u64 = 5_000;
 const STOP_QUIET_MS: u64 = 100;
 
@@ -52,6 +53,32 @@ struct ProgressPoint {
     fps: Option<u16>,
     backlog: u32,
     recovering: bool,
+    maximum_render_interval_us: u64,
+}
+
+struct PreparedView {
+    at: ObservationTime,
+    frame: u32,
+    camera: (f32, f32),
+    zoom: f32,
+    viewport: (u32, u32, u32, u32),
+    first_draw: Option<ActorPresentation>,
+    maintained: bool,
+}
+impl PreparedView {
+    fn observe_draw(&mut self, draw: &ActorPresentation) {
+        if self.first_draw.is_none() && draw.at.instant >= self.at.instant {
+            self.first_draw = Some(draw.clone());
+        }
+    }
+
+    fn ready(&self) -> bool {
+        self.maintained
+            && self
+                .first_draw
+                .as_ref()
+                .is_some_and(|draw| draw.gpu_completed_at().is_some())
+    }
 }
 
 #[derive(Default)]
@@ -59,6 +86,8 @@ pub(super) struct LatencyCapture {
     started: Option<ObservationTime>,
     start_frame: u32,
     warmup: Option<Value>,
+    prepared: Option<PreparedView>,
+    warmup_started: Option<ObservationTime>,
     actor: Option<u64>,
     origin: Option<(u16, u16)>,
     movement_observed: bool,
@@ -209,6 +238,27 @@ impl LatencyCapture {
                 .match_state
                 .match_diagnostics
                 .begin_command_observation();
+            match battle::prepare_latency_view(state) {
+                Ok((actor, origin)) => {
+                    self.actor = Some(actor);
+                    self.origin = Some(origin);
+                    state
+                        .match_state
+                        .match_diagnostics
+                        .observe_actor_presentation(actor);
+                    let input = &state.match_state.input;
+                    self.prepared = Some(PreparedView {
+                        at: ObservationTime::now(),
+                        frame,
+                        camera: (input.camera_x, input.camera_y),
+                        zoom: input.zoom_level,
+                        viewport: crate::app::input::camera::tactical_viewport_px(state),
+                        first_draw: None,
+                        maintained: true,
+                    });
+                }
+                Err(error) => self.errors.push(format!("prepare latency view: {error:#}")),
+            }
         }
         let elapsed = now
             .instant
@@ -222,6 +272,9 @@ impl LatencyCapture {
             self.observe_execution(observation);
         }
         if let Some(presented) = state.match_state.match_diagnostics.actor_presentation() {
+            if let Some(prepared) = self.prepared.as_mut() {
+                prepared.observe_draw(&presented);
+            }
             self.observe_presented(presented.clone());
             if self
                 .latest_actor_draw
@@ -231,6 +284,26 @@ impl LatencyCapture {
                 self.previous_actor_draw = self.latest_actor_draw.clone();
             }
             self.latest_actor_draw = Some(presented);
+        }
+        if let Some(prepared) = self.prepared.as_mut() {
+            let input = &state.match_state.input;
+            if prepared.maintained
+                && (prepared.camera != (input.camera_x, input.camera_y)
+                    || prepared.zoom != input.zoom_level
+                    || prepared.viewport != crate::app::input::camera::tactical_viewport_px(state))
+            {
+                prepared.maintained = false;
+                self.errors
+                    .push("prepared latency camera/zoom/viewport changed".into());
+            }
+            if self.warmup_started.is_none() && prepared.ready() {
+                self.warmup_started = Some(now);
+                self.start_frame = frame;
+                self.recent.clear();
+                self.last_sample = None;
+                self.maximum_render_interval_us = 0;
+                self.last_present = Some(now);
+            }
         }
         let sim = &state
             .match_state
@@ -288,13 +361,16 @@ impl LatencyCapture {
             if samples.len() < 4096 {
                 samples.push(sample);
             }
-            self.recent.push_back(ProgressPoint {
-                at: now.instant,
-                frame,
-                fps,
-                backlog: frontier.saturating_sub(frame),
-                recovering: recovery.is_some(),
-            });
+            if self.warmup_started.is_some() {
+                self.recent.push_back(ProgressPoint {
+                    at: now.instant,
+                    frame,
+                    fps,
+                    backlog: frontier.saturating_sub(frame),
+                    recovering: recovery.is_some(),
+                    maximum_render_interval_us: self.maximum_render_interval_us,
+                });
+            }
             while self.recent.get(1).is_some_and(|point| {
                 now.instant.saturating_duration_since(point.at).as_millis()
                     >= u128::from(STABLE_WINDOW_MS)
@@ -304,17 +380,34 @@ impl LatencyCapture {
             self.last_sample = Some(now);
             self.maximum_render_interval_us = 0;
         }
-        if self.warmup.is_none() && elapsed >= WARMUP_MS {
+        let warmup_elapsed = self.warmup_started.map(|start| {
+            now.instant
+                .saturating_duration_since(start.instant)
+                .as_millis() as u64
+        });
+        if self.warmup.is_none() && warmup_elapsed.is_some_and(|elapsed| elapsed >= WARMUP_MS) {
+            let elapsed = warmup_elapsed.unwrap();
             let (keeping_up, recent_fps, window_ms) = stable_window(&self.recent);
+            let keeping_up = keeping_up && self.errors.is_empty();
             if keeping_up || elapsed >= WARMUP_LIMIT_MS {
                 self.warmup = Some(json!({"minimum_ms":WARMUP_MS,"maximum_ms":WARMUP_LIMIT_MS,
                     "elapsed_ms":elapsed,"passed":keeping_up,"frames_advanced":frame.saturating_sub(self.start_frame),
+                    "maximum_render_gap_us":MAX_RENDER_GAP_US,
+                    "recent_maximum_render_gap_us":self.recent.iter().map(|point|point.maximum_render_interval_us).max(),
                     "recent_window_ms":window_ms,"recent_fps":recent_fps,"fps":fps,
                     "frontier_gap":frontier.saturating_sub(frame),"recovery":format!("{recovery:?}")}));
                 if !keeping_up {
-                    self.errors.push("startup did not sustain the negotiated cadence with low backlog for two seconds within 30000ms".into());
+                    self.errors.push("prepared view did not sustain negotiated cadence, low backlog, and render gaps <=100ms for two seconds within 30000ms".into());
                 }
             }
+        } else if self.warmup.is_none()
+            && self.warmup_started.is_none()
+            && elapsed >= WARMUP_LIMIT_MS
+        {
+            self.warmup = Some(json!({"passed":false,"elapsed_ms":elapsed,
+                "maximum_ms":WARMUP_LIMIT_MS,"reason":"prepared actor was not rendered and GPU-completed"}));
+            self.errors
+                .push("prepared actor was not rendered and GPU-completed within 30000ms".into());
         }
         if let Some(action) = self.actions.last_mut() {
             if !action_gpu_complete(action)
@@ -425,20 +518,12 @@ impl LatencyCapture {
     }
 
     fn issue(&mut self, state: &mut AppState, kind: &'static str, frame: u32) -> Result<()> {
+        let actor = self.actor.context("prepared latency actor")?;
         let (actor, target, input) = if kind == "Move" {
-            let (actor, from, target, at) =
-                battle::latency_move_with_mouse(state, self.actor, self.actions.len() / 2)?;
-            if self.actor.is_none() {
-                self.actor = Some(actor);
-                self.origin = Some(from);
-                state
-                    .match_state
-                    .match_diagnostics
-                    .observe_actor_presentation(actor);
-            }
+            let (target, at) =
+                battle::latency_move_with_mouse(state, actor, self.actions.len() / 2)?;
             (actor, Some(target), at)
         } else {
-            let actor = self.actor.context("latency actor")?;
             (
                 actor,
                 None,
@@ -535,12 +620,21 @@ impl LatencyCapture {
                     .all(|a| action_gpu_complete(a) && a.error.is_none())
             })
             .count();
-        let complete = completed_pairs == TARGET_PAIRS;
+        let complete = completed_pairs == TARGET_PAIRS && self.errors.is_empty();
+        let preparation = self.prepared.as_ref().map(|prepared| json!({
+            "mode":"fixed_view_selected_actor", "actor":self.actor,"origin":self.origin,
+            "selected_at":self.timestamp(prepared.at,prepared.frame),
+            "camera":prepared.camera,"zoom":prepared.zoom,"viewport":prepared.viewport,
+            "fixed_view_maintained":prepared.maintained,
+            "first_actor_submitted":prepared.first_draw.as_ref().map(|draw|self.timestamp(draw.at,draw.frame)),
+            "first_actor_gpu":prepared.first_draw.as_ref().and_then(|draw|draw.gpu_completed_at().map(|at|self.timestamp(at,draw.frame))),
+            "warmup_started":self.warmup_started.map(|at|self.timestamp(at,self.start_frame))
+        }));
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
             "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"incomplete"} else {"sampling"},
             "limitation":"submitted admitted Unit draw-plan geometry; GPU callback is a completion upper bound, not monitor scanout; remote observations are dispatch only",
             "clock":{"unix_unit":"microseconds","mono_unit":"microseconds since this round observer began","remote_requires_calibration":true},
-            "warmup":self.warmup,"actions":actions,"executions":self.executions.iter().map(|e|self.execution_json(e)).collect::<Vec<_>>(),
+            "preparation":preparation,"warmup":self.warmup,"actions":actions,"executions":self.executions.iter().map(|e|self.execution_json(e)).collect::<Vec<_>>(),
             "keep_up":self.samples,"startup_keep_up":self.startup_samples,"peer_round_trip_ms":self.peer_rtt,"peer_round_trip_scope":"one-shot startup peer RTT; 16ms buckets; separate from command latency",
             "validation":{"movement_observed":self.movement_observed,"navigation_clear_at_end":self.navigation_clear_at_end,
                 "last_stop_submitted":self.actions.last().is_some_and(|a|a.kind=="Stop" && a.response.is_some())},
@@ -613,9 +707,12 @@ fn stable_window(points: &std::collections::VecDeque<ProgressPoint>) -> (bool, O
         fps > 0
             && actual >= f64::from(fps) * 0.9
             && actual <= f64::from(fps) * 1.1
-            && points
-                .iter()
-                .all(|point| point.fps == Some(fps) && point.backlog <= 2 && !point.recovering)
+            && points.iter().all(|point| {
+                point.fps == Some(fps)
+                    && point.backlog <= 2
+                    && !point.recovering
+                    && point.maximum_render_interval_us <= MAX_RENDER_GAP_US
+            })
     });
     (ready, Some(actual), ms)
 }
@@ -749,6 +846,43 @@ mod tests {
     }
 
     #[test]
+    fn prepared_view_needs_a_postselection_gpu_completed_draw() {
+        let start = ObservationTime::now();
+        let mut view = PreparedView {
+            at: at(start, 100),
+            frame: 5,
+            camera: (0., 0.),
+            zoom: 1.,
+            viewport: (0, 0, 472, 448),
+            first_draw: None,
+            maintained: true,
+        };
+        assert!(!view.ready());
+        let mut draw = ActorPresentation {
+            at: start,
+            frame: 4,
+            screen: [0., 0.],
+            body: 0,
+            motion: test_motion(0.0, false),
+            sampled_from_frame: 4,
+            gpu_done: Default::default(),
+        };
+        view.observe_draw(&draw);
+        assert!(
+            view.first_draw.is_none(),
+            "old view does not satisfy preparation"
+        );
+        draw.at = at(start, 120);
+        draw.frame = 6;
+        view.observe_draw(&draw);
+        assert!(!view.ready(), "CPU submission alone is insufficient");
+        *draw.gpu_done.lock().unwrap() = Some(at(start, 140));
+        assert!(view.ready());
+        view.maintained = false;
+        assert!(!view.ready(), "changed camera invalidates preparation");
+    }
+
+    #[test]
     fn warmup_requires_recent_sustainable_cadence_without_backlog_or_recovery() {
         let start = crate::util::time::Instant::now();
         let mut points = std::collections::VecDeque::from([
@@ -758,6 +892,7 @@ mod tests {
                 fps: Some(45),
                 backlog: 0,
                 recovering: false,
+                maximum_render_interval_us: 22_222,
             },
             ProgressPoint {
                 at: start + std::time::Duration::from_secs(2),
@@ -765,6 +900,7 @@ mod tests {
                 fps: Some(45),
                 backlog: 0,
                 recovering: false,
+                maximum_render_interval_us: 22_222,
             },
         ]);
         assert!(
@@ -778,6 +914,13 @@ mod tests {
         points[1].recovering = true;
         assert!(!stable_window(&points).0);
         points[1].recovering = false;
+        assert!(stable_window(&points).0);
+        points[1].maximum_render_interval_us = 100_001;
+        assert!(
+            !stable_window(&points).0,
+            "a render stall invalidates readiness"
+        );
+        points[1].maximum_render_interval_us = 100_000;
         assert!(stable_window(&points).0);
         points[1].at = start + std::time::Duration::from_secs(1);
         assert!(

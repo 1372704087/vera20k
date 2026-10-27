@@ -54,9 +54,9 @@ mod object_stages;
 #[cfg(test)]
 mod object_stages_gpu_tests;
 
+use anyhow::Result;
 #[cfg(feature = "telemetry-dashboard")]
 use crate::util::time::{Duration, Instant};
-use anyhow::Result;
 
 // Re-export shared types so any remaining `use crate::app::presentation::render::Foo` imports still compile.
 // New code should import from `crate::app::types` directly.
@@ -454,7 +454,11 @@ pub(crate) fn render_game(
         state.match_state.input.selection_order_pending,
     );
     let armed_super_weapon = state.armed_super_weapon_type().map(str::to_owned);
+    // Phobos's enhancer rings (`0x6DBEA3`) draw while a building is placed.
+    #[cfg(feature = "phobos")]
     let armed_building = state.armed_building_type().map(str::to_owned);
+    #[cfg(not(feature = "phobos"))]
+    let armed_building: Option<String> = None;
     let cursor_cell = (armed_super_weapon.is_some() || armed_building.is_some()).then(|| {
         crate::app::match_runtime::sim_tick::screen_point_to_world_cell(
             state,

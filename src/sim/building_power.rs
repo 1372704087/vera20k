@@ -26,17 +26,16 @@ impl GameEntity {
     }
 
     /// Phobos `TechnoExt::IsActive` (`src/Ext/Techno/Body.cpp`) plus the power
-    /// plant enhancer loop's `HasPower` gate. VERA's closest `HasPower`
-    /// projection is `Building+660` (`building_online`): power, EMP,
-    /// deactivation and engineer state all gate the building's operation.
-    /// Temporal targeting and warping are both covered by `is_warped_out`.
+    /// plant enhancer loops' `HasPower` (Building+660) gate. Temporal
+    /// targeting and warping are both covered by `is_warped_out`.
+    #[cfg(feature = "phobos")]
     pub fn is_power_plant_enhancer_active(&self) -> bool {
         self.is_active()
             && self.health.current() > 0
             && !self.lifecycle.in_limbo()
             && !self.is_warped_out()
             && !self.deactivated.is_offline()
-            && !self.is_under_emp()
+            && self.emp_remaining() <= 0
             && self.building_online()
     }
 

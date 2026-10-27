@@ -1525,7 +1525,7 @@ fn reset_round(core: &mut LiveLanCapture) {
     core.actor_last_seen = None;
     core.origin = None;
     core.observed_movement = false;
-    core.stopped_position = None;
+    core.stop_observation = super::StopObservation::default();
     core.stopped = false;
     core.last_wait = None;
     core.kick_observed = false;

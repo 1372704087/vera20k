@@ -43,9 +43,6 @@ and `SelectClass::Action`'s busy structure check is skipped at `0x6AB689`
   `StripClass_DrawStrip_FindFactoryDehardCode @ 0x006A9C54`, which is
   unconditional, so `shows_queue_badge` opens the Building/Defense categories
   for the `phobos` feature rather than for this switch.
-- Whether a lone placement-ready structure (nothing else queued) draws `1`
-  there is not demonstrated against a Phobos capture; the count comes from the
-  existing projection, which includes the held product.
 - The rewrite sits in the shared `House::Abandon_Production` body, but of the
   other `cancel_production_for_owner` callers only the factory building's
   detach (`0x0044EE9E..0x0044EEC3`: `all = false` with the held type's index)

@@ -5825,24 +5825,6 @@ impl RulesPassProcessor {
             current.loading.read_primary(section);
             current.presentation.read_primary(section);
         }
-        if primary_rules && let Some(section) = pass.section(&id) {
-            let types = SideRegisteredTypes::collect(&self.families);
-            // `AI.PowerPlants=` comes first in the same block; an empty list is
-            // what defers to the per-side `[General]` plant.
-            let current = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .power_plants
-                .clone();
-            let power_plants =
-                read_valueable_type_vector(section, "AI.PowerPlants", &current, |name| {
-                    SideRegisteredTypes::find(&types.buildings, name)
-                });
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .power_plants = power_plants;
-        }
         if inherit {
             let inherited = ares_country_index_of_name(
                 &parent,
@@ -5872,6 +5854,23 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .parent_initialized = true;
+        }
+        // Common1001C5D0's first read after its one-shot parent copy1001BDC0,
+        // on every pass: `AI.PowerPlants`1001C60C, through the same Building
+        // vector reader10010850 as `VeteranBuildings`. An empty list is what
+        // GetPowerplants1001BD20 answers with the side's `[General]` plants.
+        if let Some(resolved) = pass.section(&id).and_then(|section| {
+            self.resolve_existing_list_from(
+                section,
+                "AI.PowerPlants",
+                RulesTypeFamily::Building,
+                0x800,
+            )
+        }) {
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .power_plants = resolved;
         }
         // Common1001C5D0 reads the paradrop block on every pass, after its
         // one-shot parent copy1001BDC0 and before the color: `Parachute.Anim`

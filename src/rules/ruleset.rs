@@ -6779,8 +6779,7 @@ impl RuleSet {
             .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
-        // Which units a country's paradrop sends is simulation state, so the
-        // Ares country overrides enter the state hash alongside it.
+        // Which plant a computer house splices is simulation state.
         #[cfg(feature = "ares")]
         {
             b"ares-country-powerplants-v1".hash(&mut hasher);
@@ -6790,6 +6789,8 @@ impl RuleSet {
                 .collect::<BTreeMap<_, _>>()
                 .hash(&mut hasher);
         }
+        // Which units a country's paradrop sends is simulation state, so the
+        // Ares country overrides enter the state hash alongside it.
         #[cfg(feature = "ares")]
         {
             b"ares-country-paradrop-v1".hash(&mut hasher);
@@ -8117,22 +8118,35 @@ impl RuleSet {
         }
     }
 
-    /// Ares `[Country] AI.PowerPlants=` (`HouseTypeExt`), which
-    /// `GetPowerplants @ 0x1001BD20` returns while it is non-empty; an empty
-    /// list is what defers to the per-side `[General]` plant.
-    pub fn country_power_plants(&self, id: &str) -> Option<&[String]> {
-        #[cfg(feature = "ares")]
-        {
-            return self
-                .country_rules(id)
-                .map(|country| country.power_plants.as_slice())
-                .filter(|plants| !plants.is_empty());
+    /// Ares `HouseTypeExt::GetPowerplants @ 0x1001BD20`, as BuildingType
+    /// indices: country `id`'s `AI.PowerPlants=` (`+0x130`) while it is
+    /// non-empty, else by the country's side (`HouseType+0xBC`): 0
+    /// `[GDIPowerPlant]`, 1 `[NodRegularPower, NodAdvancedPower]`
+    /// (`0x1001BD6C..0x1001BD8C`), 2 `[ThirdPowerPlant]`, each without its
+    /// unset slots, and any other side none.
+    #[cfg(feature = "ares")]
+    pub fn ares_power_plants(&self, id: &str, side: i32) -> Vec<i32> {
+        let index = |name: &Option<String>| {
+            name.as_deref()
+                .and_then(|name| self.building_type_index(name))
+        };
+        let country = self
+            .country_rules(id)
+            .map_or(&[][..], |country| country.power_plants.as_slice());
+        if !country.is_empty() {
+            return country
+                .iter()
+                .filter_map(|name| self.building_type_index(name))
+                .collect();
         }
-        #[cfg(not(feature = "ares"))]
-        {
-            let _ = id;
-            None
-        }
+        let plants = &self.general.building_types;
+        let slots = match side {
+            0 => [&plants.gdi_power_plant, &None],
+            1 => [&plants.nod_regular_power, &plants.nod_advanced_power],
+            2 => [&plants.third_power_plant, &None],
+            _ => [&None, &None],
+        };
+        slots.into_iter().filter_map(index).collect()
     }
 
     /// `HouseTypeExt::GetParadropContent @ 0x1001BC20` for a country: its own

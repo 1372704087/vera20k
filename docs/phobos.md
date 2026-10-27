@@ -40,6 +40,7 @@ Supported extensions:
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
+- [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)
 - [Fly wobble switch](phobos-fly-no-wobbles.md) (`FlyNoWobbles` for `Locomotor=Fly`, per type and globally)
 - [Centred pause-menu background](phobos-center-pause-menu.md) (`uimd.ini [Sidebar] CenterPauseMenuBackground`)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
@@ -74,6 +75,7 @@ originate with:
   **JunJacobYoung**, **CrimRecya**.
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
+- Infantry auto deploy - **TaranDahl**.
 - Fly wobble switch (`FlyNoWobbles`) - **Noble_Fish**.
 - Centred pause-menu background - **Starkku**.
 - Building production queue - **CrimRecya**.

@@ -1932,6 +1932,11 @@ pub struct GeneralRules {
     /// Rules+E2C (data+E30), indexed Hard/Normal/Easy by Infantry52155C.
     /// Constructor666932..666961 leaves it empty; stock15,25,100 is authored.
     pub ai_auto_deploy_frame_delay: Vec<i32>,
+    /// Phobos `[General] InfantryAutoDeploy` (`RulesExt`, default false): the
+    /// default for the TechnoType key that re-enables the undeployed
+    /// `Approach_Target` arm at `0x00522434`.
+    #[cfg(feature = "phobos")]
+    pub infantry_auto_deploy: bool,
     /// `[AI] AIForcePredictionFudge=`, the signed DynamicVector at `Rules+0x9A8`
     /// (items `+0x9AC`) indexed Hard/Normal/Easy by the House difficulty:
     /// the percent by which the computer's estimate of its enemy's forces
@@ -2814,6 +2819,8 @@ impl Default for GeneralRules {
             // BlockagePathDelay=60 frames (directly in frames, not minutes).
             blockage_path_delay_ticks: 60,
             ai_auto_deploy_frame_delay: Vec::new(),
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: false,
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
             // RulesClass constructor clears PlayerScatter and stores 3 into
@@ -4124,6 +4131,8 @@ impl GeneralRules {
             ai_auto_deploy_frame_delay: general
                 .read_int_list("AIAutoDeployFrameDelay")
                 .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")
                 .unwrap_or_default(),
@@ -8516,6 +8525,16 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `InfantryAutoDeploy`, resolved the way `InfantryClass::
+    /// Approach_Target`'s hook resolves it: the TechnoType's own value, then
+    /// `[General]`, defaulting to `false` (the retail YR behaviour). `true`
+    /// re-enables the deploy arm at original `0x00522434`.
+    #[cfg(feature = "phobos")]
+    pub fn infantry_auto_deploy_for(&self, ty: &ObjectType) -> bool {
+        ty.infantry_auto_deploy()
+            .unwrap_or(self.general.infantry_auto_deploy)
     }
 
     /// Phobos `ProneSpeed`, resolved the way the hook at original `0x00521D94`

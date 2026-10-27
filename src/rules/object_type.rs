@@ -1769,6 +1769,12 @@ pub struct ObjectType {
     /// (`0x0071113A`).
     pub deploy_fire_weapon: i32,
 
+    /// Phobos `InfantryTypeExt::InfantryAutoDeploy`: re-enables the undeployed
+    /// `Approach_Target` arm at `0x00522434` for this type. Unset defers to
+    /// `[General] InfantryAutoDeploy`.
+    #[cfg(feature = "phobos")]
+    pub(crate) infantry_auto_deploy: Option<bool>,
+
     /// Maximum number of garrison occupants for CanBeOccupied buildings.
     /// Parsed from `MaxNumberOccupants=N` in rules.ini. Default 0.
     pub max_number_occupants: u32,
@@ -2754,6 +2760,13 @@ impl ObjectType {
     /// Type+C95 also selects Fly's flat shadow-matrix arm (4CFB4B).
     pub const fn is_dropship(&self) -> bool {
         self.is_dropship
+    }
+
+    /// Phobos `InfantryTypeExt::InfantryAutoDeploy`, unset when the key is
+    /// absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn infantry_auto_deploy(&self) -> Option<bool> {
+        self.infantry_auto_deploy
     }
 
     /// Phobos `InfantryTypeExt::ProneSpeed`, unset when the key is absent.
@@ -4063,6 +4076,14 @@ impl ObjectType {
             undeploy_delay: section.read_int("UndeployDelay", -1),
             fire_angle: section.read_int("FireAngle", 8),
             deploy_fire_weapon: section.read_int("DeployFireWeapon", 1),
+            // Phobos holds this in InfantryTypeExt, so only an
+            // `[InfantryTypes]` section carries it.
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: if category == ObjectCategory::Infantry {
+                section.read_phobos_nullable_bool("InfantryAutoDeploy", None)
+            } else {
+                None
+            },
             max_number_occupants: section.read_int("MaxNumberOccupants", 0).max(0) as u32,
             occupier: section.read_bool("Occupier", false),
             assaulter: section.read_bool("Assaulter", false),

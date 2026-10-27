@@ -338,6 +338,27 @@ impl LiveCommandSession {
         }
     }
 
+    /// Service the same transport and send fresh sequenced input while the
+    /// canonical frontier is closed. Queue ownership stays in Simulation;
+    /// this does not advance Logic or dispatch received commands. Native LAN
+    /// keeps its existing post-Logic transfer boundary.
+    pub fn service_pending_commands(
+        &mut self,
+        queues: &mut NetworkCommandQueues<'_>,
+        now_wall_bucket: u32,
+    ) {
+        self.service_transport(now_wall_bucket);
+        if !self.sequenced_failed
+            && let Some(session) = &mut self.sequenced
+        {
+            session.service_pending_commands(
+                &mut self.transport,
+                queues,
+                now_wall_bucket.wrapping_shl(4),
+            );
+        }
+    }
+
     pub fn send_global(
         &mut self,
         payload: &[u8],

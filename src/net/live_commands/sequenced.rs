@@ -63,7 +63,7 @@ pub(super) struct SequencedSession {
     pub(super) fps: u16,
     started: bool,
     head_frame: u32,
-    error: Option<SequencedError>,
+    error: Option<LiveCommandError>,
     last_response: Option<u32>,
     first_service: Option<u32>,
     last_control: Option<u32>,
@@ -172,7 +172,7 @@ impl SequencedSession {
             match self.receive(event) {
                 Ok(()) => {}
                 Err(error) => {
-                    self.error.get_or_insert(error);
+                    self.error.get_or_insert(error.into());
                 }
             }
         }
@@ -180,7 +180,7 @@ impl SequencedSession {
             return;
         }
         if let Err(error) = self.assemble() {
-            self.error = Some(error);
+            self.error = Some(error.into());
             return;
         }
         if service_due(self.last_control, now, if self.started { 16 } else { 125 }) {
@@ -369,59 +369,36 @@ impl SequencedSession {
         Ok(())
     }
 
-    pub(super) fn poll(
+    /// Service fresh input without another Logic visit. The current context
+    /// is an already sampled post-Logic/pre-dispatch CRC, even when its frame
+    /// has completed. It is historical metadata; only the relay assigns the
+    /// command's execution frame. This path never consumes canonical frames.
+    pub(super) fn service_pending_commands(
+        &mut self,
+        transport: &mut LanUdpTransport,
+        queues: &mut NetworkCommandQueues<'_>,
+        now: u32,
+    ) {
+        if !self.started || self.error.is_some() {
+            return;
+        }
+        let Some((context, _)) = self.current.filter(|(context, _)| context.frame != 0) else {
+            return;
+        };
+        if let Err(error) = self.flush_local_commands(transport, queues, context, now) {
+            // The regular frame boundary owns terminal error delivery. Its
+            // admission gate also observes this retained error while stalled.
+            self.error = Some(error);
+        }
+    }
+
+    fn flush_local_commands(
         &mut self,
         transport: &mut LanUdpTransport,
         queues: &mut NetworkCommandQueues<'_>,
         context: NetworkQueueContext,
         now: u32,
-    ) -> Result<NetworkQueuePass, LiveCommandError> {
-        self.service(transport, now);
-        if let Some(error) = self.error.take() {
-            return Err(error.into());
-        }
-        if let Some((old, done)) = self.current {
-            if context.frame == old.frame {
-                if context.checksum != old.checksum {
-                    return Err(LiveCommandError::ChangedFrame(context.frame));
-                }
-                if done {
-                    return Ok(if context.frame == 0 {
-                        NetworkQueuePass::SkipDispatch
-                    } else {
-                        NetworkQueuePass::Dispatch
-                    });
-                }
-            } else if !done || context.frame != old.frame + 1 {
-                return Err(LiveCommandError::FrameSequence {
-                    expected: old.frame + 1,
-                    actual: context.frame,
-                });
-            }
-        } else if context.frame != 0 {
-            return Err(LiveCommandError::FrameSequence {
-                expected: 0,
-                actual: context.frame,
-            });
-        }
-        self.current = Some((context, false));
-        if !self.started {
-            return Ok(NetworkQueuePass::Waiting);
-        }
-        if context.frame == 0 {
-            self.current = Some((context, true));
-            return Ok(NetworkQueuePass::SkipDispatch);
-        }
-        if self
-            .samples
-            .back()
-            .is_none_or(|(frame, _)| *frame != context.frame)
-        {
-            if self.samples.len() == SAMPLE_HISTORY {
-                self.samples.pop_front();
-            }
-            self.samples.push_back((context.frame, context.checksum));
-        }
+    ) -> Result<(), LiveCommandError> {
         while self
             .submissions
             .front()
@@ -486,6 +463,63 @@ impl SequencedSession {
                 self.service(transport, now);
             }
         }
+        Ok(())
+    }
+
+    pub(super) fn poll(
+        &mut self,
+        transport: &mut LanUdpTransport,
+        queues: &mut NetworkCommandQueues<'_>,
+        context: NetworkQueueContext,
+        now: u32,
+    ) -> Result<NetworkQueuePass, LiveCommandError> {
+        self.service(transport, now);
+        if let Some(error) = self.error.take() {
+            return Err(error);
+        }
+        if let Some((old, done)) = self.current {
+            if context.frame == old.frame {
+                if context.checksum != old.checksum {
+                    return Err(LiveCommandError::ChangedFrame(context.frame));
+                }
+                if done {
+                    return Ok(if context.frame == 0 {
+                        NetworkQueuePass::SkipDispatch
+                    } else {
+                        NetworkQueuePass::Dispatch
+                    });
+                }
+            } else if !done || context.frame != old.frame + 1 {
+                return Err(LiveCommandError::FrameSequence {
+                    expected: old.frame + 1,
+                    actual: context.frame,
+                });
+            }
+        } else if context.frame != 0 {
+            return Err(LiveCommandError::FrameSequence {
+                expected: 0,
+                actual: context.frame,
+            });
+        }
+        self.current = Some((context, false));
+        if !self.started {
+            return Ok(NetworkQueuePass::Waiting);
+        }
+        if context.frame == 0 {
+            self.current = Some((context, true));
+            return Ok(NetworkQueuePass::SkipDispatch);
+        }
+        if self
+            .samples
+            .back()
+            .is_none_or(|(frame, _)| *frame != context.frame)
+        {
+            if self.samples.len() == SAMPLE_HISTORY {
+                self.samples.pop_front();
+            }
+            self.samples.push_back((context.frame, context.checksum));
+        }
+        self.flush_local_commands(transport, queues, context, now)?;
         if self
             .frames
             .front()

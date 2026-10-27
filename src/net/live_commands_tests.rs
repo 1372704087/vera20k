@@ -3331,13 +3331,18 @@ fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
     );
 }
 
-#[test]
-fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
+fn sequenced_pair() -> (
+    [Simulation; 2],
+    RuleSet,
+    u64,
+    Vec<Boundary>,
+    UdpSocket,
+    crate::net::udp::test_support::RelayServer,
+) {
     use crate::net::udp::{
         OrderingCertificate, RelayTicket, relay_peer_endpoint,
-        test_support::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key},
+        test_support::{RelayServer, SecretKey, derive_packet_key},
     };
-    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
     use std::num::NonZeroU8;
     let key = SecretKey::new([21; 32]);
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -3345,7 +3350,7 @@ fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
     let std::net::SocketAddr::V4(address) = socket.local_addr().unwrap() else {
         unreachable!()
     };
-    let mut relay = RelayServer::new(key.clone(), 2);
+    let relay = RelayServer::new(key.clone(), 2);
     let (first, rules, actor) = stop_scene();
     let (second, _, _) = stop_scene();
     let mut worlds = [first, second];
@@ -3413,6 +3418,14 @@ fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
             )
         })
         .collect();
+    (worlds, rules, actor, boundaries, socket, relay)
+}
+
+#[test]
+fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
+    use crate::net::udp::test_support::MAX_DATAGRAM;
+    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
+    let (mut worlds, rules, actor, boundaries, socket, mut relay) = sequenced_pair();
     let first_address = boundaries[0].live.borrow().primary_addr().unwrap();
     let mut hold_receipts = false;
     let mut issued = false;
@@ -3519,4 +3532,162 @@ fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
             .count(),
         1
     );
+}
+
+#[test]
+fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
+    use crate::net::udp::test_support::MAX_DATAGRAM;
+    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
+
+    let (mut worlds, rules, actor, boundaries, socket, mut relay) = sequenced_pair();
+    let first_address = boundaries[0].live.borrow().primary_addr().unwrap();
+    let pump = |relay: &mut crate::net::udp::test_support::RelayServer,
+                now_ms: u64,
+                hold_sender: bool| {
+        loop {
+            let mut packet = [0; MAX_DATAGRAM + 1];
+            let (length, std::net::SocketAddr::V4(from)) = (match socket.recv_from(&mut packet) {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            }) else {
+                unreachable!()
+            };
+            for forwarded in relay
+                .process_at(
+                    from,
+                    &packet[..length],
+                    100 + (now_ms - 16_000) / 1000,
+                    now_ms,
+                )
+                .unwrap_or_default()
+            {
+                if !hold_sender || forwarded.endpoint != first_address {
+                    socket
+                        .send_to(&forwarded.bytes, forwarded.endpoint)
+                        .unwrap();
+                }
+            }
+        }
+    };
+    let mut hold_sender = false;
+    let mut held_tick = None;
+    let mut observed = false;
+    for step in 0..250 {
+        let now_ms = 16_000 + step * 16;
+        // Let the real pair establish a checksum context, then withhold new
+        // canonical frames. Input arrives after the sender's frontier closes.
+        hold_sender |= worlds[0].session().binary_frame() >= 15;
+        if hold_sender
+            && held_tick.is_none()
+            && worlds[0].session().binary_frame() > boundaries[0].live.borrow().committed_frontier()
+        {
+            let owner = worlds[0].interner.get("Alpha").unwrap();
+            let record = worlds[0]
+                .encode_megamission_record(
+                    owner,
+                    &Command::Move {
+                        entity_id: actor,
+                        target_rx: 42,
+                        target_ry: 42,
+                    },
+                )
+                .unwrap();
+            let tick = worlds[0].session().tick();
+            assert!(worlds[0].issue_local_command(CommandEnvelope::synchronized(record, tick)));
+            held_tick = Some(tick);
+        }
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            boundary.now.set((now_ms >> 4) as u32);
+            boundary.live.borrow_mut().service_pending_commands(
+                &mut world.network_command_queues(),
+                (now_ms >> 4) as u32,
+            );
+        }
+        pump(&mut relay, now_ms, hold_sender);
+        if held_tick.is_none() {
+            production_frame(&mut worlds[0], &rules, &boundaries[0]);
+        }
+        production_frame(&mut worlds[1], &rules, &boundaries[1]);
+        observed = boundaries[1]
+            .applied
+            .borrow()
+            .iter()
+            .any(|(_, record, applied)| {
+                record.opcode() == MEGAMISSION_OPCODE && record.house_id() == 0 && *applied
+            });
+        if observed {
+            break;
+        }
+    }
+    let held_tick = held_tick.expect("the sender reached a closed canonical frontier");
+    assert_eq!(worlds[0].session().tick(), held_tick);
+    assert!(
+        observed,
+        "transport service must send fresh input without another canonical frame"
+    );
+    assert_eq!(
+        boundaries[1]
+            .applied
+            .borrow()
+            .iter()
+            .filter(|(_, record, applied)| record.opcode() == MEGAMISSION_OPCODE
+                && record.house_id() == 0
+                && *applied)
+            .count(),
+        1
+    );
+    assert_eq!(worlds[0].network_command_queues().local_len(), 1);
+
+    // Release receipts but keep both simulations fixed. Once prior work has
+    // committed, each relay frame adds only its FrameEnd record. Repeated
+    // empty services must not manufacture checksum-only submissions.
+    let mut committed_batches = None;
+    let quiescent_start = u64::from(boundaries[0].now.get()) * 16;
+    for step in 1..=32 {
+        let now_ms = quiescent_start + step * 16;
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            boundary.live.borrow_mut().service_pending_commands(
+                &mut world.network_command_queues(),
+                (now_ms >> 4) as u32,
+            );
+        }
+        pump(&mut relay, now_ms, false);
+        let mut peer = boundaries[1].live.borrow_mut();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let mut saw_status = false;
+        while !saw_status && Instant::now() < deadline {
+            pump(&mut relay, now_ms, false);
+            peer.transport.service((now_ms >> 4) as u32);
+            while let Some(event) = peer.transport.pop_ordering_received() {
+                match event {
+                    vera20k_relay_protocol::OrderEvent::Status(status) => {
+                        saw_status = true;
+                        if step >= 12 {
+                            let count = status.next_seq - u64::from(status.head_frame);
+                            assert_eq!(
+                                *committed_batches.get_or_insert(count),
+                                count,
+                                "empty transport services created extra canonical batches"
+                            );
+                        }
+                    }
+                    vera20k_relay_protocol::OrderEvent::Error { code, .. } => {
+                        panic!("relay rejected the retained stream: {code:?}");
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::yield_now();
+        }
+        assert!(saw_status, "relay returned this service's status");
+    }
+    assert!(
+        committed_batches.is_some(),
+        "observed the quiescent relay timeline"
+    );
+    assert_eq!(worlds[0].session().tick(), held_tick);
+    assert_eq!(worlds[0].network_command_queues().local_len(), 0);
 }

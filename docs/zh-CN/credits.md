@@ -53,6 +53,7 @@ Phobos 由 Phobos Developers 开发。VERA20K 已移植功能对应的原作者�
   **Saigyouji**、**JunJacobYoung**、**CrimRecya**。
 - 建筑放置预览 — **Otamaa**、**Belonit**。
 - 侧边栏 GDI/NOD 坐标 — **Belonit**。
+- 暂停界面居中 — **Starkku**。
 - 建筑生产队列 — **CrimRecya**。
 - INI `$Include` / `$Inherits` — **Morton**。
 - 遭遇战 AI 去硬编码（残局变卖/全体出击、MCV 部署集结）— **TaranDahl**。

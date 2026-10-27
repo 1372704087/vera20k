@@ -89,6 +89,8 @@ pub(crate) fn fallback_map_load_result() -> init::MapLoadResult {
             #[cfg(feature = "phobos")]
             sw_sidebar_ui: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarUi::default(),
             #[cfg(feature = "phobos")]
+            center_pause_menu_background: false,
+            #[cfg(feature = "phobos")]
             sw_sidebar_art: None,
             outcome_banner_side_art: None,
             software_cursor: None,
@@ -203,6 +205,8 @@ pub(crate) fn install_world_presentation(
     state.match_state.match_presentation.sidebar_chrome = assets.sidebar_chrome;
     #[cfg(feature = "phobos")]
     {
+        state.match_state.match_presentation.center_pause_menu_background =
+            assets.center_pause_menu_background;
         state.match_state.match_presentation.sw_sidebar_art = assets.sw_sidebar_art;
         let significance = state
             .match_state

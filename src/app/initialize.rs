@@ -918,6 +918,8 @@ impl App {
                     #[cfg(feature = "phobos")]
                     show_placement_preview: phobos_client.show_placement_preview,
                     #[cfg(feature = "phobos")]
+                    center_pause_menu_background: false,
+                    #[cfg(feature = "phobos")]
                     placement_preview_art: Default::default(),
                     #[cfg(feature = "phobos")]
                     sw_sidebar: crate::app::presentation::sw_sidebar::SwSidebarState {

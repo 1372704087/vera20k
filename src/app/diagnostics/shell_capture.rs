@@ -1605,8 +1605,9 @@ where
     let output_dir = output_dir.context("missing required --output")?;
 
     ensure!(
-        width == EXPECTED_WIDTH && height == EXPECTED_HEIGHT,
-        "checkpoint {} requires exactly {EXPECTED_WIDTH}x{EXPECTED_HEIGHT}, got {width}x{height}",
+        (width == EXPECTED_WIDTH && height == EXPECTED_HEIGHT)
+            || (online_latency && width == 640 && height == 480),
+        "checkpoint {} requires exactly {EXPECTED_WIDTH}x{EXPECTED_HEIGHT} (640x480 also allowed for --online-latency), got {width}x{height}",
         checkpoint.as_str()
     );
     ensure!(
@@ -2512,6 +2513,20 @@ impl ShellCaptureSession {
         state: &mut AppState,
         rendered: PresentedShell,
     ) -> Result<()> {
+        if self
+            .request
+            .live_online
+            .as_ref()
+            .is_some_and(|config| config.latency)
+        {
+            ensure!(
+                (
+                    state.renderer.gpu.config.width,
+                    state.renderer.gpu.config.height
+                ) == (self.request.width, self.request.height),
+                "latency capture surface changed from the requested dimensions"
+            );
+        }
         if let Some(visit) = state.frontend.wol.as_mut() {
             let mut changed = visit.set_legacy_ui(self.request.legacy_wol_ui());
             let mut provider_selected = false;
@@ -3619,9 +3634,26 @@ mod tests {
         else {
             panic!("capture");
         };
+        assert_eq!((request.width(), request.height()), (800, 600));
         let config = request.live_online.unwrap();
         assert!(config.latency && config.simple_input);
         assert_eq!(config.frames, 6000);
+        let mut small = values.clone();
+        let width = small.iter().position(|arg| arg == "--width").unwrap();
+        let height = small.iter().position(|arg| arg == "--height").unwrap();
+        small[width + 1] = "640".into();
+        small[height + 1] = "480".into();
+        small.extend(args(&["--online-frames", "9000"]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(small.clone()).unwrap() else {
+            panic!("capture")
+        };
+        assert_eq!((request.width(), request.height()), (640, 480));
+        assert_eq!(request.live_online.unwrap().frames, 9000);
+        small.retain(|arg| arg != "--online-latency");
+        assert!(
+            parse_launch_args(small).is_err(),
+            "ordinary captures retain800x600"
+        );
         values.extend(args(&["--online-mass-input"]));
         assert!(parse_launch_args(values).is_err());
     }

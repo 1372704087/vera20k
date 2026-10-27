@@ -2903,18 +2903,79 @@ fn ground_order_with_mouse_timed(
     Ok(at)
 }
 
+pub(super) struct LatencyInput {
+    pub at: crate::app::match_diagnostics::ObservationTime,
+    pub admission: Value,
+}
+
+/// Use the same presented-world picker as the physical click. Terrain
+/// passability alone cannot rule out selecting a friendly object.
+fn empty_ground_point(
+    world: impl crate::app::input::entity_pick::PickWorld,
+    point: (f32, f32),
+    owner: &str,
+) -> bool {
+    crate::app::input::entity_pick::hover_object_at_point(world, point.0, point.1, owner, false)
+        .is_none()
+}
+
+fn latency_input_admission(
+    sim: &mut Simulation,
+    before: usize,
+    actor: u64,
+    target: Option<(u16, u16)>,
+) -> Result<Value> {
+    use crate::sim::command::{MegaMissionOrder, MegaMissionRecord, StopRecord};
+    let after = sim.pending_local_command_count();
+    ensure!(
+        after == before + 1,
+        "latency input admitted {} OutList records; expected one",
+        after.saturating_sub(before)
+    );
+    // The general diagnostic snapshot decodes native records into semantic
+    // commands. Borrow the sender's raw OutList view instead; this never drains.
+    let queues = sim.network_command_queues();
+    let records = queues.local_records()?;
+    ensure!(
+        records.len() == after,
+        "latency OutList prefix is outside the sender's current allowance"
+    );
+    let record = records.get(before).context("latency OutList record")?;
+    let matched = match target {
+        Some((x, y)) => MegaMissionRecord::decode(&record).is_some_and(|command| {
+            command.source_id == actor as i32
+                && command.order
+                    == MegaMissionOrder::Move {
+                        target_x: x as i16,
+                        target_y: y as i16,
+                    }
+        }),
+        None => {
+            StopRecord::decode(&record).is_some_and(|command| command.entity_id == actor as i32)
+        }
+    };
+    ensure!(
+        matched,
+        "latency click admitted another command instead of the requested Move/Stop"
+    );
+    let record_hex: String = record
+        .as_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    Ok(
+        json!({"outlist_before":before,"outlist_after":after,"record_hex":record_hex,
+        "house":record.house_id(),"opcode":record.opcode(),"issue_frame":record.frame_stamp()}),
+    )
+}
+
 /// Latency samples keep a real ground Unit near the view; actor/goal search and
 /// selection precede the measured release edge. The ordinary click owns input.
 pub(super) fn latency_move_with_mouse(
     state: &mut AppState,
     actor: Option<u64>,
     direction: usize,
-) -> Result<(
-    u64,
-    (u16, u16),
-    (u16, u16),
-    crate::app::match_diagnostics::ObservationTime,
-)> {
+) -> Result<(u64, (u16, u16), (u16, u16), LatencyInput)> {
     let sim = simulation(state)?;
     let owner = sim
         .session()
@@ -2939,6 +3000,7 @@ pub(super) fn latency_move_with_mouse(
     };
     let id = entity.stable_id();
     let from = (entity.position.rx(), entity.position.ry());
+    let owner_name = local_owner(state)?;
     let offsets = [(6, 0), (-6, 0), (0, 6), (0, -6)];
     let to = offsets
         .into_iter()
@@ -2953,10 +3015,39 @@ pub(super) fn latency_move_with_mouse(
             legal_move_cell(state, id, desired)
                 .ok()
                 .filter(|cell| *cell != from)
+                .filter(|cell| {
+                    state
+                        .resolved_terrain()
+                        .and_then(|terrain| terrain.cell(cell.0, cell.1))
+                        .is_some_and(|terrain| {
+                            empty_ground_point(
+                                crate::app::input::entity_pick::presented(state, sim),
+                                crate::app::input::camera::cell_centre_world_point(
+                                    cell.0,
+                                    cell.1,
+                                    terrain.level,
+                                ),
+                                &owner_name,
+                            )
+                        })
+                })
         })
         .context("latency capture has no legal nearby Move goal")?;
+    select_entity(state, id)?;
+    let before = simulation(state)?.pending_local_command_count();
     let at = ground_order_with_mouse_timed(state, id, to)?;
-    Ok((id, from, to, at))
+    let admission = latency_input_admission(
+        &mut state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .context("latency simulation")?
+            .simulation,
+        before,
+        id,
+        Some(to),
+    )?;
+    Ok((id, from, to, LatencyInput { at, admission }))
 }
 
 /// The bounded live-network input for maps with preplaced mobile units. It uses
@@ -3011,12 +3102,22 @@ pub(super) fn selected_stop_with_keyboard(state: &mut AppState) -> Result<()> {
     selected_stop_with_keyboard_timed(state).map(|_| ())
 }
 
-pub(super) fn latency_stop_with_keyboard(
-    state: &mut AppState,
-    actor: u64,
-) -> Result<crate::app::match_diagnostics::ObservationTime> {
+pub(super) fn latency_stop_with_keyboard(state: &mut AppState, actor: u64) -> Result<LatencyInput> {
     select_entity(state, actor)?;
-    selected_stop_with_keyboard_timed(state)
+    let before = simulation(state)?.pending_local_command_count();
+    let at = selected_stop_with_keyboard_timed(state)?;
+    let admission = latency_input_admission(
+        &mut state
+            .match_state
+            .sim_runtime
+            .as_mut()
+            .context("latency simulation")?
+            .simulation,
+        before,
+        actor,
+        None,
+    )?;
+    Ok(LatencyInput { at, admission })
 }
 
 fn selected_stop_with_keyboard_timed(
@@ -3094,15 +3195,11 @@ pub(super) fn selected_move_with_mouse(
             };
             let world =
                 crate::app::input::camera::cell_centre_world_point(cell.0, cell.1, terrain.level);
-            if crate::app::input::entity_pick::hover_object_at_point(
+            if empty_ground_point(
                 crate::app::input::entity_pick::presented(state, sim),
-                world.0,
-                world.1,
+                world,
                 &local_owner(state)?,
-                false,
-            )
-            .is_none()
-            {
+            ) {
                 chosen = Some(cell);
                 break;
             }
@@ -3534,6 +3631,72 @@ mod identity_tests {
     use super::*;
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
     use crate::sim::house_state::HouseState;
+
+    #[test]
+    fn latency_ground_target_rejects_the_friendly_object_picked_by_the_click() {
+        let mut sim = Simulation::new();
+        let owner = sim.intern("Human");
+        let typ = sim.intern("MTNK");
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        sim.fog_mut_for_test().reveal_all_for_owner(owner);
+        let mut unit = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
+            7,
+            10,
+            10,
+            0,
+            0,
+            owner,
+            crate::sim::combat::Health::new(100),
+            typ,
+            crate::map::entities::EntityCategory::Unit,
+            0,
+            5,
+            false,
+        );
+        unit.lifecycle.set_object_alive_for_test(true);
+        unit.lifecycle.set_in_limbo_for_test(false);
+        let point = crate::render::locomotor_visual::screen_position(&unit);
+        sim.entities_mut_for_test().insert(unit);
+        sim.resubmit_entity_display_for_test(7);
+        assert!(!empty_ground_point(&sim, point, "Human"));
+        assert!(empty_ground_point(&sim, (point.0 + 100., point.1), "Human"));
+    }
+
+    #[test]
+    fn latency_admission_requires_one_actual_matching_outlist_record() {
+        use crate::sim::command::{CommandEnvelope, CommandRecord, IDLE_OPCODE, StopRecord};
+        let mut sim = Simulation::new();
+        let owner = sim.intern("Human");
+        sim.houses_mut_for_test()
+            .register(HouseState::new(owner, 0, None, true, 0, 10));
+        sim.session_mut_for_test()
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(owner));
+        sim.entities_mut_for_test()
+            .insert(crate::sim::game_entity::GameEntity::test_default(
+                7, "MTNK", "Human", 10, 10,
+            ));
+        assert!(latency_input_admission(&mut sim, 0, 7, None).is_err());
+        let mut record = CommandRecord::encode(IDLE_OPCODE, 0, 0, &[]).unwrap();
+        StopRecord {
+            house_id: 0,
+            frame: 0,
+            entity_id: 7,
+        }
+        .write_into(&mut record);
+        assert!(sim.issue_local_command(CommandEnvelope::synchronized(record, 0)));
+        assert!(latency_input_admission(&mut sim, 0, 7, Some((10, 10))).is_err());
+        assert!(latency_input_admission(&mut sim, 0, 8, None).is_err());
+        let proof = latency_input_admission(&mut sim, 0, 7, None).unwrap();
+        assert_eq!(proof["outlist_before"], 0);
+        assert_eq!(proof["outlist_after"], 1);
+        assert_eq!(
+            sim.pending_local_command_count(),
+            1,
+            "observation must not drain OutList"
+        );
+    }
 
     fn admitted_pair(
         local_first: bool,

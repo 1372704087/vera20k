@@ -8,7 +8,8 @@ use crate::sim::command::{MegaMissionOrder, MegaMissionRecord, StopRecord};
 
 const TARGET_PAIRS: usize = 30;
 const WARMUP_MS: u64 = 5_000;
-const WARMUP_LIMIT_MS: u64 = 10_000;
+const WARMUP_LIMIT_MS: u64 = 30_000;
+const STABLE_WINDOW_MS: u64 = 2_000;
 const ACTION_TIMEOUT_MS: u64 = 5_000;
 const STOP_QUIET_MS: u64 = 100;
 
@@ -18,6 +19,7 @@ struct Action {
     target: Option<(u16, u16)>,
     issue: ObservationTime,
     issue_frame: u32,
+    admission: Value,
     baseline: ([f32; 2], u16),
     execution: Option<usize>,
     response: Option<ActorPresentation>,
@@ -32,6 +34,15 @@ struct Execution {
     target: Option<(u16, u16)>,
 }
 
+#[derive(Clone, Copy)]
+struct ProgressPoint {
+    at: crate::util::time::Instant,
+    frame: u32,
+    fps: Option<u16>,
+    backlog: u32,
+    recovering: bool,
+}
+
 #[derive(Default)]
 pub(super) struct LatencyCapture {
     started: Option<ObservationTime>,
@@ -44,6 +55,8 @@ pub(super) struct LatencyCapture {
     actions: Vec<Action>,
     executions: Vec<Execution>,
     samples: Vec<Value>,
+    startup_samples: Vec<Value>,
+    recent: std::collections::VecDeque<ProgressPoint>,
     last_sample: Option<ObservationTime>,
     last_present: Option<ObservationTime>,
     maximum_render_interval_us: u64,
@@ -221,23 +234,40 @@ impl LatencyCapture {
             sample["pending_local_commands"] = json!(sim.pending_local_command_count());
             sample["pending_synchronized_commands"] =
                 json!(sim.synchronized_network_command_count());
-            if self.samples.len() < 4096 {
-                self.samples.push(sample);
+            let samples = if self.warmup.as_ref().is_some_and(|w| w["passed"] == true) {
+                &mut self.samples
+            } else {
+                &mut self.startup_samples
+            };
+            if samples.len() < 4096 {
+                samples.push(sample);
+            }
+            self.recent.push_back(ProgressPoint {
+                at: now.instant,
+                frame,
+                fps,
+                backlog: frontier.saturating_sub(frame),
+                recovering: recovery.is_some(),
+            });
+            while self.recent.get(1).is_some_and(|point| {
+                now.instant.saturating_duration_since(point.at).as_millis()
+                    >= u128::from(STABLE_WINDOW_MS)
+            }) {
+                self.recent.pop_front();
             }
             self.last_sample = Some(now);
             self.maximum_render_interval_us = 0;
         }
         if self.warmup.is_none() && elapsed >= WARMUP_MS {
-            let expected = fps.map(|fps| elapsed as f64 * f64::from(fps) / 1000.0);
-            let advanced = frame.saturating_sub(self.start_frame);
-            let keeping_up = expected.is_some_and(|expected| f64::from(advanced) >= expected * 0.9)
-                && frontier.saturating_sub(frame) <= 2
-                && recovery.is_none();
+            let (keeping_up, recent_fps, window_ms) = stable_window(&self.recent);
             if keeping_up || elapsed >= WARMUP_LIMIT_MS {
                 self.warmup = Some(json!({"minimum_ms":WARMUP_MS,"maximum_ms":WARMUP_LIMIT_MS,
-                    "elapsed_ms":elapsed,"passed":keeping_up,"frames_advanced":advanced,
-                    "expected_frames":expected,"frontier_gap":frontier.saturating_sub(frame),
-                    "recovery":format!("{recovery:?}")}));
+                    "elapsed_ms":elapsed,"passed":keeping_up,"frames_advanced":frame.saturating_sub(self.start_frame),
+                    "recent_window_ms":window_ms,"recent_fps":recent_fps,"fps":fps,
+                    "frontier_gap":frontier.saturating_sub(frame),"recovery":format!("{recovery:?}")}));
+                if !keeping_up {
+                    self.errors.push("startup did not sustain the negotiated cadence with low backlog for two seconds within 30000ms".into());
+                }
             }
         }
         if let Some(action) = self.actions.last_mut() {
@@ -310,7 +340,7 @@ impl LatencyCapture {
                 .end_presentation_observation();
             return Ok(true);
         }
-        if self.warmup.is_none() || !self.errors.is_empty() {
+        if !self.warmup.as_ref().is_some_and(|w| w["passed"] == true) || !self.errors.is_empty() {
             return Ok(false);
         }
         if let Some(action) = self.actions.last() {
@@ -349,7 +379,7 @@ impl LatencyCapture {
     }
 
     fn issue(&mut self, state: &mut AppState, kind: &'static str, frame: u32) -> Result<()> {
-        let (actor, target, at) = if kind == "Move" {
+        let (actor, target, input) = if kind == "Move" {
             let (actor, from, target, at) =
                 battle::latency_move_with_mouse(state, self.actor, self.actions.len() / 2)?;
             if self.actor.is_none() {
@@ -369,6 +399,7 @@ impl LatencyCapture {
                 battle::latency_stop_with_keyboard(state, actor)?,
             )
         };
+        let at = input.at;
         let sim = &state
             .match_state
             .sim_runtime
@@ -387,6 +418,7 @@ impl LatencyCapture {
             target,
             issue: at,
             issue_frame: frame,
+            admission: input.admission,
             baseline: (pose.screen, pose.body),
             execution: None,
             response: None,
@@ -427,7 +459,7 @@ impl LatencyCapture {
             let gpu = action.response.as_ref().and_then(|response| response.gpu_completed_at().map(|at| (at,response.frame)));
             let gpu_ms = gpu.map(|(at,_)|latency(at));
             json!({"id":id,"kind":action.kind,"actor":action.actor,"target":action.target,
-                "issue":self.timestamp(action.issue,action.issue_frame),
+                "issue":self.timestamp(action.issue,action.issue_frame),"admission":action.admission,
                 "execution_key":execution.as_ref().map(|value|&value["execution_key"]),
                 "dispatch":execution.as_ref().map(|value|&value["dispatch"]),
                 "submitted_response":submitted,"gpu_response":gpu.map(|(at,frame)|self.timestamp(at,frame)),"error":action.error,
@@ -444,15 +476,37 @@ impl LatencyCapture {
             .count();
         let complete = completed_pairs == TARGET_PAIRS;
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
-            "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"insufficient_capacity"} else {"sampling"},
+            "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"incomplete"} else {"sampling"},
             "limitation":"submitted admitted Unit draw-plan geometry; GPU callback is a completion upper bound, not monitor scanout; remote observations are dispatch only",
             "clock":{"unix_unit":"microseconds","mono_unit":"microseconds since this round observer began","remote_requires_calibration":true},
             "warmup":self.warmup,"actions":actions,"executions":self.executions.iter().map(|e|self.execution_json(e)).collect::<Vec<_>>(),
-            "keep_up":self.samples,"peer_round_trip_ms":self.peer_rtt,"peer_round_trip_scope":"one-shot startup peer RTT; 16ms buckets; separate from command latency",
+            "keep_up":self.samples,"startup_keep_up":self.startup_samples,"peer_round_trip_ms":self.peer_rtt,"peer_round_trip_scope":"one-shot startup peer RTT; 16ms buckets; separate from command latency",
             "validation":{"movement_observed":self.movement_observed,"navigation_clear_at_end":self.navigation_clear_at_end,
                 "last_stop_submitted":self.actions.last().is_some_and(|a|a.kind=="Stop" && a.response.is_some())},
             "errors":self.errors})
     }
+}
+
+/// A catch-up burst is not sustainable cadence. Require a full recent window,
+/// negotiated rate in both directions, and no reported backlog/recovery sample.
+fn stable_window(points: &std::collections::VecDeque<ProgressPoint>) -> (bool, Option<f64>, u64) {
+    let (Some(first), Some(last)) = (points.front(), points.back()) else {
+        return (false, None, 0);
+    };
+    let ms = last.at.saturating_duration_since(first.at).as_millis() as u64;
+    if ms < STABLE_WINDOW_MS {
+        return (false, None, ms);
+    }
+    let actual = f64::from(last.frame.saturating_sub(first.frame)) * 1000.0 / ms as f64;
+    let ready = last.fps.is_some_and(|fps| {
+        fps > 0
+            && actual >= f64::from(fps) * 0.9
+            && actual <= f64::from(fps) * 1.1
+            && points
+                .iter()
+                .all(|point| point.fps == Some(fps) && point.backlog <= 2 && !point.recovering)
+    });
+    (ready, Some(actual), ms)
 }
 
 fn action_gpu_complete(action: &Action) -> bool {
@@ -466,6 +520,44 @@ fn action_gpu_complete(action: &Action) -> bool {
 mod tests {
     use super::*;
     use crate::sim::command::{CommandRecord, IDLE_OPCODE};
+
+    #[test]
+    fn warmup_requires_recent_sustainable_cadence_without_backlog_or_recovery() {
+        let start = crate::util::time::Instant::now();
+        let mut points = std::collections::VecDeque::from([
+            ProgressPoint {
+                at: start,
+                frame: 100,
+                fps: Some(45),
+                backlog: 0,
+                recovering: false,
+            },
+            ProgressPoint {
+                at: start + std::time::Duration::from_secs(2),
+                frame: 220,
+                fps: Some(45),
+                backlog: 0,
+                recovering: false,
+            },
+        ]);
+        assert!(
+            !stable_window(&points).0,
+            "catch-up faster than negotiated cadence is not ready"
+        );
+        points[1].frame = 190;
+        points[1].backlog = 28;
+        assert!(!stable_window(&points).0);
+        points[1].backlog = 0;
+        points[1].recovering = true;
+        assert!(!stable_window(&points).0);
+        points[1].recovering = false;
+        assert!(stable_window(&points).0);
+        points[1].at = start + std::time::Duration::from_secs(1);
+        assert!(
+            !stable_window(&points).0,
+            "the full recent window is required"
+        );
+    }
 
     fn at(base: ObservationTime, ms: u64) -> ObservationTime {
         ObservationTime {
@@ -500,6 +592,7 @@ mod tests {
             target: None,
             issue,
             issue_frame: 10,
+            admission: json!({}),
             baseline: ([0., 0.], 0),
             execution: None,
             response: None,

@@ -2043,6 +2043,12 @@ pub struct GeneralRules {
     /// [General] WeaponNullifyAnim (+350), constructor null; retained reader
     /// 66E2AF. Bullet46A2A1 uses it after AreaDamage returns IronCurtain (2).
     pub weapon_nullify_anim: String,
+    /// Phobos `[AudioVisual] MissingCameo=` (default `XXICON.SHP`): the file
+    /// a cameo with no art falls back to. The extension selects the loader —
+    /// Phobos replaces the type's loaded `XXICON.SHP` handle when the name is
+    /// a `.shp`, and blits a `.pcx` at draw time.
+    #[cfg(feature = "phobos")]
+    pub missing_cameo: String,
     /// Whether `[AudioVisual] AmbientChangeRate=` passes the native ordered,
     /// nonzero gate before conversion. A nonzero mod value can chop to a
     /// zero-frame interval; NaN fails the original FCOMP/C3 gate.
@@ -2423,6 +2429,10 @@ impl PrismSupportRules {
 pub(crate) const DEFAULT_SURVIVOR_DIVISORS: [i32; 3] = [200, 100, 300];
 /// RulesClass665D92 initializes retained General.MaximumCheerRate (+580).
 pub(crate) const DEFAULT_MAXIMUM_CHEER_RATE: i32 = 1;
+/// Phobos `RulesExt`'s `MissingCameo` constructor value: the stock
+/// `XXICON.SHP` a type with no cameo art falls back to.
+#[cfg(feature = "phobos")]
+pub(crate) const DEFAULT_MISSING_CAMEO: &str = "XXICON.SHP";
 /// RulesClass665650's literal AmbientChangeRate (0.2) and AmbientChangeStep
 /// (0.1) doubles, before the AudioVisual authored reads.
 pub(crate) const DEFAULT_AMBIENT_CHANGE_RATE: NativeF64Bits =
@@ -2438,6 +2448,13 @@ pub(crate) const fn default_fog_rate() -> NativeF64Bits {
 pub(crate) const fn default_shroud_rate() -> NativeF64Bits {
     // RulesClass constructor6673FC/667402, independent of retail tuning.
     NativeF64Bits::from_bits(0x4010_0000_0000_0000)
+}
+
+/// Serde-only placeholder for the Phobos `MissingCameo` retained string: a
+/// saved state written without the key reads back as the constructor value.
+#[cfg(feature = "phobos")]
+pub(crate) fn default_missing_cameo() -> String {
+    DEFAULT_MISSING_CAMEO.to_owned()
 }
 
 impl Default for GeneralRules {
@@ -2855,6 +2872,8 @@ impl Default for GeneralRules {
             lightning_warhead: String::new(),
             weather_con_bolt_explosion: String::new(),
             weapon_nullify_anim: String::new(),
+            #[cfg(feature = "phobos")]
+            missing_cameo: DEFAULT_MISSING_CAMEO.to_owned(),
             ambient_change_rate_nonzero,
             ambient_change_interval_frames,
             ambient_change_step,
@@ -4243,6 +4262,11 @@ impl GeneralRules {
             lightning_warhead: defaults.lightning_warhead,
             weather_con_bolt_explosion: defaults.weather_con_bolt_explosion,
             weapon_nullify_anim: defaults.weapon_nullify_anim,
+            // The compatibility projection drops keys no native reader takes,
+            // so the Phobos read reaches `GeneralRules` through the retained
+            // Rules scalar instead (`from_processed_rules`).
+            #[cfg(feature = "phobos")]
+            missing_cameo: defaults.missing_cameo.clone(),
         }
     }
 }
@@ -4789,6 +4813,7 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         {
             rules.general.timer_blink_color_scheme = processed.timer_blink_color_scheme();
+            rules.general.missing_cameo = processed.missing_cameo().to_owned();
         }
         let (drop_zone_anim, drop_zone_radius) = processed.drop_zone_controls();
         rules.general.drop_zone_anim = drop_zone_anim.map(str::to_owned);
@@ -8713,6 +8738,13 @@ impl RuleSet {
             .is_some_and(|object| object.undeploys_into.is_some())
     }
 
+    /// Phobos `[AudioVisual] MissingCameo=`: the file a cameo with no art
+    /// falls back to.
+    #[cfg(feature = "phobos")]
+    pub fn missing_cameo(&self) -> &str {
+        &self.general.missing_cameo
+    }
+
     /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or
     /// out-of-range side falls back to the first-side default (index 0 true).
     #[cfg(feature = "phobos")]
@@ -11133,6 +11165,29 @@ CellSpread=0
             scheme("[Colors]\nTeal=120,255,200\n[AudioVisual]\nTimerBlinkColorScheme=Teal\n"),
             6
         );
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn missing_cameo_defaults_to_xxicon_and_reads_audio_visual() {
+        let defaults = RuleSet::from_ini(&IniFile::from_str("[General]\n")).expect("rules read");
+        assert_eq!(defaults.missing_cameo(), "XXICON.SHP");
+
+        let named = RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nMissingCameo=CUSTOM.PCX\n",
+        ))
+        .expect("rules read");
+        assert_eq!(named.missing_cameo(), "CUSTOM.PCX");
+
+        // Empty is no readable name, so the constructor default stands.
+        let empty = RuleSet::from_ini(&IniFile::from_str("[AudioVisual]\nMissingCameo=\n"))
+            .expect("rules read");
+        assert_eq!(empty.missing_cameo(), "XXICON.SHP");
+
+        // `PhobosFixedString::Read` clears the name on `none` or `<none>`.
+        let none = RuleSet::from_ini(&IniFile::from_str("[AudioVisual]\nMissingCameo=<None>\n"))
+            .expect("rules read");
+        assert_eq!(none.missing_cameo(), "");
     }
 
     #[cfg(feature = "phobos")]

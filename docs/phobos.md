@@ -51,6 +51,7 @@ Supported extensions:
 - [Prone movement speed](phobos-prone-speed.md) (`ProneSpeed` for crawling and non-crawling prone infantry)
 - [Type select for buildings](phobos-building-type-selectable.md) (`BuildingTypeSelectable` for every building type)
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
+- [Missing cameo](phobos-missing-cameo.md) (`[AudioVisual] MissingCameo=` for types with no cameo art)
 
 ## Original project and authors
 
@@ -81,6 +82,7 @@ originate with:
 - Centred pause-menu background - **Starkku**.
 - Unhardcoded timer blinking colour scheme - **Starkku**.
 - Semantic locomotor aliases (`Locomotor=Drive` and the like) - **Belonit**.
+- Missing cameo - **Uranusian**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
 - Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -

@@ -2241,6 +2241,16 @@ impl ProcessedRulesLayers {
             .rules_timer_blink_color_scheme
     }
 
+    /// Phobos `[AudioVisual] MissingCameo=`, retained with the Rules scalars
+    /// rather than read from the compatibility projection.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn missing_cameo(&self) -> &str {
+        &self
+            .native_type_construction_trace
+            .registry_state()
+            .rules_missing_cameo
+    }
+
     /// `[General] PrerequisiteProcAlternate=` (Rules `+0x400`), the stored ID
     /// of its UnitType.
     pub(crate) fn prerequisite_proc_alternate(&self) -> Option<&str> {
@@ -3250,6 +3260,13 @@ pub(crate) struct NativeRulesRegistryState {
     /// blinking timer prints in, `[Colors]` entry `R / 2`, or -1 for `none`.
     #[cfg(feature = "phobos")]
     rules_timer_blink_color_scheme: i32,
+    /// Phobos `RulesExt::MissingCameo`: the file a type with no cameo art and
+    /// a superweapon with no icon take in place of the stock `XXICON.SHP`
+    /// (`Replace_XXICON_With_New` at `0x715A4D`, `0x716D13`, `0x6CE8AA` and
+    /// `0x6CEE31`); empty after `none`.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "crate::rules::ruleset::default_missing_cameo")]
+    rules_missing_cameo: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -3336,6 +3353,8 @@ impl Default for NativeRulesRegistryState {
             // scheme the game blinks in.
             #[cfg(feature = "phobos")]
             rules_timer_blink_color_scheme: 5,
+            #[cfg(feature = "phobos")]
+            rules_missing_cameo: crate::rules::ruleset::DEFAULT_MISSING_CAMEO.to_owned(),
             // MindControlAttackLineFrames, Rules+310: constructor 0x00665ABE.
             rules_mind_control_attack_line_frames: 15,
             rules_line_trail_override: general.line_trail_color_override,
@@ -3705,6 +3724,8 @@ impl NativeRulesRegistryState {
             // Phobos allocates RulesExt only with RulesClass (0x667A1D).
             #[cfg(feature = "phobos")]
             rules_timer_blink_color_scheme: self.rules_timer_blink_color_scheme,
+            #[cfg(feature = "phobos")]
+            rules_missing_cameo: self.rules_missing_cameo,
             rules_color_add: self.rules_color_add,
             rules_color_add_selectors: self.rules_color_add_selectors,
             rules_detail: self.rules_detail,
@@ -4787,6 +4808,10 @@ struct RulesPassProcessor {
     rules_ion_cannon_warhead: String,
     #[cfg(feature = "phobos")]
     rules_timer_blink_color_scheme: i32,
+    /// Phobos `[AudioVisual] MissingCameo=`, retained with the other Rules
+    /// scalars for the pass.
+    #[cfg(feature = "phobos")]
+    rules_missing_cameo: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -4860,6 +4885,8 @@ impl RulesPassProcessor {
             rules_ion_cannon_warhead: registry_state.rules_ion_cannon_warhead,
             #[cfg(feature = "phobos")]
             rules_timer_blink_color_scheme: registry_state.rules_timer_blink_color_scheme,
+            #[cfg(feature = "phobos")]
+            rules_missing_cameo: registry_state.rules_missing_cameo,
             rules_mind_control_attack_line_frames: registry_state
                 .rules_mind_control_attack_line_frames,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -5859,11 +5886,23 @@ impl RulesPassProcessor {
             );
             self.ares_prerequisites = Some(catalog);
         }
-        // Phobos RulesData_LoadBeforeTypeData (0x679A15) resolves the name
-        // against the [Colors] this pass has read (0x668BFE precedes
-        // 0x668EF0), so a later pass naming no entry keeps the index.
+        // Phobos RulesData_LoadBeforeTypeData (0x679A15), before this pass's
+        // type bodies.
         #[cfg(feature = "phobos")]
         if let Some(section) = pass.section("AudioVisual") {
+            // `PhobosFixedString<32>`: an empty read keeps the earlier pass's
+            // name, and `none` or `<none>` clears it.
+            if let Some(name) = section.read_name("MissingCameo", 0x20) {
+                self.rules_missing_cameo =
+                    if crate::rules::ini_parser::is_native_none_type_name(name) {
+                        String::new()
+                    } else {
+                        name.to_owned()
+                    };
+            }
+            // `ValueableIdx<ColorScheme>` resolves the name against the
+            // [Colors] this pass has read (0x668BFE precedes 0x668EF0), so a
+            // later pass naming no entry keeps the index.
             self.rules_timer_blink_color_scheme = section.read_ares_color_scheme_index(
                 "TimerBlinkColorScheme",
                 self.rules_timer_blink_color_scheme,
@@ -7979,6 +8018,8 @@ impl RulesPassProcessor {
                     rules_ion_cannon_warhead: self.rules_ion_cannon_warhead,
                     #[cfg(feature = "phobos")]
                     rules_timer_blink_color_scheme: self.rules_timer_blink_color_scheme,
+                    #[cfg(feature = "phobos")]
+                    rules_missing_cameo: self.rules_missing_cameo,
                     rules_mind_control_attack_line_frames: self
                         .rules_mind_control_attack_line_frames,
                     rules_line_trail_override: self.rules_line_trail_override,

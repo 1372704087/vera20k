@@ -23,7 +23,7 @@ byte (`Type+0xEBD`, `0x00521D9A`):
 
 | Branch | Retail arithmetic | Native range |
 | --- | --- | --- |
-| `Crawls=yes` | `speed + speed / 3` | `0x00521DA4..0x00521DBB` |
+| `Crawls=yes` | `speed - speed / 3` | `0x00521DA4..0x00521DBB` |
 | `Crawls=no` | `speed + speed / 2` | `0x00521DBC..0x00521DC3` |
 
 Phobos's `InfantryClass_CurrentSpeed_ProneSpeed` hook (`0x00521D94`, six bytes,
@@ -36,8 +36,9 @@ pTypeExt->ProneSpeed.Get(pType->Crawls ? RulesExt::Global()->ProneSpeed_Crawls
 
 and returns `static_cast<int>(static_cast<double>(currentSpeed) * multiplier)`
 through the shared epilogue at `0x00521DC5`. The product is a plain IEEE double
-truncated toward zero, so the stock 0.67/1.5 are **not** the retail integer
-arms: at three leptons a crawling man moves 2 here and 3 there.
+truncated toward zero. The default 1.5 matches the retail `speed + speed / 2` at
+every speed, but 0.67 is **not** `speed - speed / 3`: at ten leptons a crawling
+man moves 6 here and 7 there, and at one lepton 0 instead of 1.
 
 ## Where VERA20K owns it
 

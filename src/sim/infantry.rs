@@ -692,7 +692,9 @@ pub fn is_prone_for_damage(entity: &GameEntity) -> bool {
 /// Phobos's `InfantryClass_CurrentSpeed_ProneSpeed` hook at `0x00521D94`
 /// replaces both with `static_cast<int>(speed * ProneSpeed)`, so a `multiplier`
 /// short-circuits them. The product is a plain IEEE double; Rust's `as i32`
-/// truncates toward zero, as the C++ cast does.
+/// truncates toward zero, as the C++ cast does. Every multiplier the readers
+/// store is a widened binary32 or a 0.67/1.5 default, so the product of a
+/// whole speed truncates alike under x87 and SSE2.
 pub fn apply_prone_speed(speed: SimFixed, crawls: bool, multiplier: Option<f64>) -> SimFixed {
     if speed <= SIM_ZERO {
         return speed;
@@ -1655,9 +1657,10 @@ mod tests {
         );
     }
 
-    /// Phobos replaces both retail integer arms with `(int)(speed * ProneSpeed)`:
-    /// the multiplier is a double product truncated toward zero, so the stock
-    /// defaults differ from the integer 2/3 and 3/2 at small speeds.
+    /// Phobos replaces both retail integer arms with `(int)(speed * ProneSpeed)`,
+    /// a double product truncated toward zero. The default 1.5 matches the
+    /// retail `speed + speed / 2`, but 0.67 is not `speed - speed / 3`: ten
+    /// leptons crawl at 6 here and at 7 there.
     #[test]
     fn phobos_prone_multiplier_truncates_the_double_product() {
         for (speed, multiplier, expected) in [
@@ -1665,11 +1668,10 @@ mod tests {
             (11, 0.67, 7),
             (10, 1.5, 15),
             (11, 1.5, 16),
-            // The defaults are Phobos's 0.67/1.5, not the retail integer arms:
-            // three leptons crawl at 2 here and at 3 there.
             (3, 0.67, 2),
             (3, 2.0, 6),
             (5, 0.5, 2),
+            // The retail crawl arm keeps one lepton at 1.
             (1, 0.67, 0),
         ] {
             assert_eq!(

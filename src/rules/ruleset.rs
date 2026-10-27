@@ -4107,10 +4107,10 @@ impl GeneralRules {
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
             #[cfg(feature = "phobos")]
             prone_speed_crawls: general
-                .read_double("ProneSpeed.Crawls", defaults.prone_speed_crawls),
+                .read_phobos_double("ProneSpeed.Crawls", defaults.prone_speed_crawls),
             #[cfg(feature = "phobos")]
             prone_speed_no_crawls: general
-                .read_double("ProneSpeed.NoCrawls", defaults.prone_speed_no_crawls),
+                .read_phobos_double("ProneSpeed.NoCrawls", defaults.prone_speed_no_crawls),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
             unit_repair_rate: defaults.unit_repair_rate,
             charge_to_drain_ratio: defaults.charge_to_drain_ratio,

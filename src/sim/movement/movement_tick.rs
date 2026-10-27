@@ -424,21 +424,15 @@ fn advance_ordinary_mover(
             .as_ref()
             .filter(|loco| loco.active_kind() == crate::rules::locomotor_type::LocomotorKind::Walk)
             .and_then(|_| entities.get(entity_id).map(|entity| entity.position));
-        let prone_crawls = entities.get(entity_id).and_then(|entity| {
-            if !infantry::is_prone_for_damage(entity) {
-                return None;
-            }
-            let obj = interner.object_type(entity.type_ref(), rules)?;
-            Some(obj.crawls)
-        });
+        // The prone arm of `InfantryClass::GetMovementSpeed @ 0x00521D80`
+        // reads the type's `Crawls=` and, under Phobos, its `ProneSpeed`.
+        let prone_type = entities
+            .get(entity_id)
+            .filter(|entity| infantry::is_prone_for_damage(entity))
+            .and_then(|entity| interner.object_type(entity.type_ref(), rules));
+        let prone_crawls = prone_type.map(|obj| obj.crawls);
         #[cfg(feature = "phobos")]
-        let prone_multiplier = entities.get(entity_id).and_then(|entity| {
-            if !infantry::is_prone_for_damage(entity) {
-                return None;
-            }
-            let obj = interner.object_type(entity.type_ref(), rules)?;
-            Some(rules.prone_speed_for(obj))
-        });
+        let prone_multiplier = prone_type.map(|obj| rules.prone_speed_for(obj));
         #[cfg(not(feature = "phobos"))]
         let prone_multiplier = None;
         OrdinaryMoverVisit {

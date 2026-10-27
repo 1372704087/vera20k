@@ -65,3 +65,12 @@ fn only_infantry_sections_carry_the_key() {
     let ty = rules.object("TANK").expect("TANK type");
     assert_eq!(rules.prone_speed_for(ty), 1.25);
 }
+
+/// Phobos reads the globals as `Valueable<double>`: a value `strtod` cannot
+/// convert keeps the default, where stock ReadDouble would store 0.
+#[test]
+fn an_unparsable_global_keeps_the_phobos_default() {
+    let plain = rules("ProneSpeed.NoCrawls=fast\n", "");
+    let ty = plain.object("TEST").expect("TEST type");
+    assert_eq!(plain.prone_speed_for(ty), 1.5);
+}

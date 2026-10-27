@@ -2103,6 +2103,7 @@ struct MainMenuCaptureSnapshot {
     movie_loaded: bool,
     movie_owner_is_main_menu: bool,
     movie_base_is_large: bool,
+    movie_base_matches_layout: bool,
     chrome_loaded: bool,
     software_cursor_active: bool,
     cursor_x: f32,
@@ -2137,6 +2138,10 @@ impl MainMenuCaptureSnapshot {
                 .is_some_and(|identity| identity.owner() == Ra2tsDialogOwner::MainMenu0xE2),
             movie_base_is_large: movie_identity
                 .is_some_and(|identity| identity.base() == MainMenuMovieBase::Ra2tsL),
+            movie_base_matches_layout: movie_identity.is_some_and(|identity| {
+                identity.base()
+                    == crate::app::frontend::shell_layout::main_menu_layout(state).movie_base
+            }),
             chrome_loaded: state.frontend.main_menu_shell_chrome.is_some(),
             software_cursor_active: state.use_software_cursor(),
             cursor_x: state.match_state.input.cursor_x,
@@ -2146,9 +2151,20 @@ impl MainMenuCaptureSnapshot {
 }
 
 fn steady_main_menu_capture_ready(snapshot: MainMenuCaptureSnapshot) -> Result<bool> {
+    steady_main_menu_capture_ready_for(snapshot, false)
+}
+
+/// Live latency runs may use the normal 640x480 shell. Other captures retain
+/// their fixed reference surface and large movie. The outer live capture also
+/// checks that its actual surface equals the requested dimensions each frame.
+fn steady_main_menu_capture_ready_for(
+    snapshot: MainMenuCaptureSnapshot,
+    latency: bool,
+) -> Result<bool> {
     ensure!(
-        snapshot.width == EXPECTED_WIDTH && snapshot.height == EXPECTED_HEIGHT,
-        "capture surface changed from 800x600 to {}x{}",
+        (snapshot.width == EXPECTED_WIDTH && snapshot.height == EXPECTED_HEIGHT)
+            || (latency && (snapshot.width, snapshot.height) == (640, 480)),
+        "capture surface is outside its allowed dimensions: {}x{}",
         snapshot.width,
         snapshot.height
     );
@@ -2182,8 +2198,14 @@ fn steady_main_menu_capture_ready(snapshot: MainMenuCaptureSnapshot) -> Result<b
         "main-menu first-paint lifecycle did not settle on dialog 0xE2"
     );
     ensure!(
-        snapshot.movie_loaded && snapshot.movie_owner_is_main_menu && snapshot.movie_base_is_large,
-        "main-menu RA2TS_L session identity is not ready"
+        snapshot.movie_loaded
+            && snapshot.movie_owner_is_main_menu
+            && if latency {
+                snapshot.movie_base_matches_layout
+            } else {
+                snapshot.movie_base_is_large
+            },
+        "main-menu movie session identity is not ready"
     );
     ensure!(
         snapshot.chrome_loaded,
@@ -4815,6 +4837,7 @@ mod tests {
             movie_loaded: true,
             movie_owner_is_main_menu: true,
             movie_base_is_large: true,
+            movie_base_matches_layout: true,
             chrome_loaded: true,
             software_cursor_active: true,
             cursor_x: 400.0,
@@ -4834,6 +4857,24 @@ mod tests {
     #[test]
     fn first_ordinary_steady_frame_is_capture_ready() {
         assert!(steady_main_menu_capture_ready(ready_snapshot()).expect("ready"));
+    }
+
+    #[test]
+    fn latency_main_menu_entry_and_return_accept_the_640_shell_movie() {
+        let mut snapshot = ready_snapshot();
+        snapshot.width = 640;
+        snapshot.height = 480;
+        snapshot.movie_base_is_large = false;
+        assert!(steady_main_menu_capture_ready_for(snapshot, true).unwrap());
+        assert!(
+            steady_main_menu_capture_ready(snapshot).is_err(),
+            "ordinary reference captures remain fixed"
+        );
+        snapshot.movie_base_matches_layout = false;
+        assert!(
+            steady_main_menu_capture_ready_for(snapshot, true).is_err(),
+            "the actual 640 shell movie identity is still required"
+        );
     }
 
     #[test]

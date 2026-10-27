@@ -794,9 +794,10 @@ impl LiveLanCapture {
         match self.phase {
             Phase::Main
                 if rendered == PresentedShell::MainMenu
-                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(
-                        state,
-                    ))? =>
+                    && steady_main_menu_capture_ready_for(
+                        MainMenuCaptureSnapshot::from_state(state),
+                        self.latency.is_some(),
+                    )? =>
             {
                 // Hidden-window transcript captures suppress physical LAN.
                 // Live captures install the real owner before normal Network

@@ -668,9 +668,10 @@ impl LiveRoundFlow {
         match self.phase {
             RoundPhase::Main
                 if rendered == PresentedShell::MainMenu
-                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(
-                        state,
-                    ))? =>
+                    && steady_main_menu_capture_ready_for(
+                        MainMenuCaptureSnapshot::from_state(state),
+                        self.config.as_ref().is_some_and(|config| config.latency),
+                    )? =>
             {
                 LanCapture::isolated_root(state)?;
                 ensure!(
@@ -1410,9 +1411,10 @@ impl LiveRoundFlow {
             }
             RoundPhase::MainReturn
                 if rendered == PresentedShell::MainMenu
-                    && steady_main_menu_capture_ready(MainMenuCaptureSnapshot::from_state(
-                        state,
-                    ))? =>
+                    && steady_main_menu_capture_ready_for(
+                        MainMenuCaptureSnapshot::from_state(state),
+                        self.config.as_ref().is_some_and(|config| config.latency),
+                    )? =>
             {
                 if !self.observe_exit_cleanup(state, frame)? {
                     return Ok(());

@@ -842,6 +842,15 @@ pub(crate) fn build_unit_instances(
                 crate::render::tactical_draw_plan::SpriteEncoding::Voxel,
             );
             if let Some(parent) = parent {
+                // Opt-in app measurement of an actually admitted draw-plan object.
+                state.match_state.match_diagnostics.record_actor_draw(
+                    sim,
+                    entity,
+                    sim.session().binary_frame(),
+                    render_pose.screen,
+                    render_pose.body,
+                    &state.match_state.match_presentation.interpolation,
+                );
                 let mut planned = PlannedObjectInstance::object(parent, pieces);
                 if let Some(rules) = state.rules() {
                     planned.tail_draws = crate::app::presentation::target_lines::target_laser_draws(

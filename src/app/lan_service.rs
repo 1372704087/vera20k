@@ -5330,7 +5330,11 @@ fn service_transport(state: &mut AppState, now: u32) -> bool {
         if let Some(service) = state.match_state.lan_service.as_mut() {
             LanService::flush_setup_queue(&mut service.pending_setup, &mut *live.global_mut());
         }
-        live.service_transport(now);
+        if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
+            live.service_pending_commands(&mut runtime.simulation.network_command_queues(), now);
+        } else {
+            live.service_transport(now);
+        }
         true
     } else if let Some(transport) = state
         .match_state

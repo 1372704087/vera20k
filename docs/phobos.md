@@ -41,6 +41,7 @@ Supported extensions:
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Fly wobble switch](phobos-fly-no-wobbles.md) (`FlyNoWobbles` for `Locomotor=Fly`, per type and globally)
+- [Centred pause-menu background](phobos-center-pause-menu.md) (`uimd.ini [Sidebar] CenterPauseMenuBackground`)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
 - [Skirmish AI dehardcoding](phobos-ai-dehardcode.md) (last-legs sale/hunt switches and MCV deploy regroup)
 - [Parallel AI queue limits](phobos-parallel-ai-queues.md) (per-category and per-type AI clone forbids)
@@ -72,6 +73,7 @@ originate with:
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
 - Fly wobble switch (`FlyNoWobbles`) - **Noble_Fish**.
+- Centred pause-menu background - **Starkku**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
 - Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -

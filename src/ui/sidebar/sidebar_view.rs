@@ -25,6 +25,9 @@ pub(crate) struct CameoFactoryStatus {
     /// The linked Factory's held product type (`Factory+0x58`), finished or
     /// not. `StripClass::Draw` compares it with the entry's own type at
     /// `0x006A9CBF..0x006A9CC3` before drawing a count of one.
+    /// RESIDUAL: native reads the house's primary Factory (`0x00500510`, called
+    /// at `0x006A9C67`), not this link; they differ only after a rearm leaves
+    /// the link on a Factory holding another type.
     pub(crate) held_type: Option<InternedId>,
 }
 

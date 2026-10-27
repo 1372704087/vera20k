@@ -2357,12 +2357,24 @@ pub(crate) fn reconcile_selection_order_after_sim(
         state.match_state.input.type_select.reset_scope();
         return;
     };
+    let selected = logic_selects(outputs);
     reconcile_selection_order_for_sim(
         &mut state.match_state.input,
         &runtime.simulation,
         Some(&runtime.resources.rules),
-        &logic_selects(outputs),
+        &selected,
     );
+    // Phobos "Flashing Technos on selecting" sits in ObjectClass::Select
+    // (`0x005F46AE`/`0x005F4718`), so the frame's logic Selects flash too.
+    #[cfg(feature = "phobos")]
+    if state.match_state.match_presentation.show_flash_on_selecting
+        && !selected.is_empty()
+        && let Some(runtime) = state.match_state.sim_runtime.as_mut()
+    {
+        runtime
+            .simulation
+            .flash_selected_for_current_player(&selected, &runtime.resources.rules);
+    }
 }
 
 /// Reconcile the existing input owner against its bound simulation. Kept

@@ -15,8 +15,9 @@
 use crate::rules::ini_parser::IniFile;
 
 /// `[AudioVisual] SelectionFlashDuration=`, default 0 (the constructor's
-/// `Valueable<int>`). The native reader stores any signed value unchanged;
-/// the flash hook only accepts values above 0.
+/// `Valueable<int>`: ReadString, then Phobos's `Parser<int>`). The reader
+/// stores any signed value unchanged; the flash hook only accepts values
+/// above 0.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SelectionFlashGlobals {
     pub duration_frames: i32,
@@ -27,7 +28,7 @@ impl SelectionFlashGlobals {
         Self {
             duration_frames: ini
                 .section_or_empty("AudioVisual")
-                .read_int("SelectionFlashDuration", 0),
+                .read_ares_int("SelectionFlashDuration", 0),
         }
     }
 }
@@ -61,5 +62,9 @@ mod tests {
             SelectionFlashGlobals::from_ini(&negative).duration_frames,
             -3
         );
+        // Phobos's Parser<int> scans `$10` as decimal; stock ReadInteger
+        // would read hex 16.
+        let dollar = IniFile::from_str("[AudioVisual]\nSelectionFlashDuration=$10\n");
+        assert_eq!(SelectionFlashGlobals::from_ini(&dollar).duration_frames, 10);
     }
 }

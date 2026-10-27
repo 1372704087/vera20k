@@ -352,6 +352,33 @@ fn a_new_selection_flashes_only_the_current_players_objects() {
     assert_eq!(flash(&sim, enemy), 0, "another house's object is not ours");
 }
 
+/// In a campaign, `IsControlledByCurrentPlayer` (`0x0050B6F0`) answers from
+/// the house flags, so a `PlayerControl=` ally's object flashes as the
+/// player's own; other modes compare with the current house.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_campaign_selection_flashes_a_player_controlled_allys_objects() {
+    let rules = selection_flash_rules(12);
+    for skirmish in [false, true] {
+        let (mut sim, _grid) = arena(&rules, "Americans");
+        if skirmish {
+            sim.session
+                .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
+        }
+        let british = sim.interner.intern("British");
+        sim.houses
+            .get_mut(&british)
+            .unwrap()
+            .set_player_control_for_test(true);
+        let ally = spawn(&mut sim, &rules, "E1", "British", 10, 10);
+
+        sim.flash_selected_for_current_player(&[ally], &rules);
+
+        let expected = if skirmish { 0 } else { 12 };
+        assert_eq!(flash(&sim, ally), expected, "skirmish={skirmish}");
+    }
+}
+
 /// The duration is the only rules gate: the reader's 0 disables the flash and
 /// a negative value is likewise inert (the hook tests `> 0`).
 #[cfg(feature = "phobos")]

@@ -112,15 +112,17 @@ impl crate::sim::world::Simulation {
 
     /// Phobos "Flashing Technos on selecting": the `ObjectClass_Select` hooks
     /// at `0x005F46AE`/`0x005F4718` call `Flash(SelectionFlashDuration)` for a
-    /// newly selected object whose owner `IsControlledByCurrentPlayer`.
+    /// newly selected object whose owner `IsControlledByCurrentPlayer`
+    /// (`0x0050B6F0`, [`Self::house_is_human_player`]).
     /// `[AudioVisual] SelectionFlashDuration` above 0 is the only rules gate;
     /// the `[Phobos] ShowFlashOnSelecting` client switch is the caller's, so
     /// this runs only when the app has it enabled.
     ///
-    /// The app's local input Select resolves its new members through
-    /// `app::input::dispatch` and calls this. Native also flashes from a logic
-    /// Select (`TechnoClass::Select @ 0x006FBFA0`), which has no VERA caller
-    /// yet.
+    /// `app::input::dispatch` calls this for the local input Select's new
+    /// members and, after each frame, for its logic Selects
+    /// (`LifecycleOutput::ObjectSelected`). RESIDUAL: native flashes a logic
+    /// Select inside the frame, before its Selected tag event; here the owner
+    /// is read after the frame. Presentation only.
     #[cfg(feature = "phobos")]
     pub fn flash_selected_for_current_player(
         &mut self,
@@ -131,9 +133,6 @@ impl crate::sim::world::Simulation {
         if frames <= 0 {
             return;
         }
-        let Some(player) = self.session.current_house() else {
-            return;
-        };
         let flashing: Vec<u64> = stable_ids
             .iter()
             .copied()
@@ -141,7 +140,7 @@ impl crate::sim::world::Simulation {
                 self.substrate
                     .entities
                     .get(*id)
-                    .is_some_and(|entity| entity.owner() == player)
+                    .is_some_and(|entity| self.house_is_human_player(entity.owner()))
             })
             .collect();
         for id in flashing {

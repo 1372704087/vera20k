@@ -403,6 +403,25 @@ fn shows_queue_badge(item: &crate::ui::sidebar::SidebarItem, structure_badges: b
     counts && (item.queued_count > 1 || (item.queued_count > 0 && !item.is_building_this_type))
 }
 
+/// Whether a status label sits at the cameo's left edge instead of centered.
+///
+/// gamemd keeps two sidebar text slots. `[esp+0x40]` carries `TXT_READY`
+/// (`push 0xd53` at `0x006A982F`, taken only when `IsComplete 0x004CA130`
+/// answers) and every `SuperClass::NameReadiness 0x006CC2B0` label, including a
+/// held superweapon's; its draw at `0x006A9DAE..0x006A9E17` is always
+/// `cameo_x + 30` with flags `0x142`. Only the production Hold label, resolved
+/// separately at `0x006A9ECC`, reads the count-badge flag at `0x006A9EE4` and
+/// moves to `cameo_x + 2` with `0x42` (`0x006A9EF8..0x006A9EFE`).
+fn status_text_shifts_left(
+    item: &crate::ui::sidebar::SidebarItem,
+    has_queue_badge: bool,
+) -> bool {
+    has_queue_badge
+        && item.is_on_hold
+        && !item.is_ready
+        && item.super_weapon_display.is_none()
+}
+
 /// Whether a cameo draws the build clock. gamemd's strip draw sets its clock
 /// flag whenever the cameo's factory exists (`StripClass::Draw`,
 /// `0x006A9812..0x006A981D`) and draws frame `progress + 1`, so a build shows
@@ -626,7 +645,7 @@ pub(crate) fn build_sidebar_cameo_instances(
         let has_queue_badge = shows_queue_badge(item, STRUCTURE_QUEUE_BADGES);
 
         // Dark strip overlay behind the cameo status text (alpha 0xAF).
-        // When a queue badge is also present, the status strip shifts left.
+        // It follows the label it backs, so only the Hold strip shifts.
         if let Some(status_text) = cameo_status_text(item, labels)
             && state.renderer.bit_font.darken_texture().is_some()
         {
@@ -638,7 +657,7 @@ pub(crate) fn build_sidebar_cameo_instances(
             // strip height (cell_height includes the 1 px inter-line gap that
             // gamemd extends below the glyphs).
             let strip_h = (state.renderer.bit_font.cell_height() + READY_PAD_Y * 2.0) * ts;
-            let strip_x = if has_queue_badge {
+            let strip_x = if status_text_shifts_left(item, has_queue_badge) {
                 slot.x + co[0]
             } else {
                 slot.x + (slot.w - strip_w) * 0.5 + co[0]
@@ -723,12 +742,11 @@ pub(crate) fn build_sidebar_text_instances(
         let has_queue_badge = shows_queue_badge(item, STRUCTURE_QUEUE_BADGES);
 
         // Cameo status text ("Ready" / "On Hold") — at the top of the cameo.
-        // When a queue badge is also shown, the status text shifts left to
-        // avoid overlap (original: x = cameo_x+2, flags 0x42 vs centered
-        // cameo_x+30, 0x142).
+        // Only the Hold label moves to the left edge, and only beside a queue
+        // badge; see `status_text_shifts_left`.
         if let Some(status_text) = cameo_status_text(item, labels) {
             let text_w = state.renderer.bit_font.text_width(status_text) as f32 * ts;
-            let text_x = if has_queue_badge {
+            let text_x = if status_text_shifts_left(item, has_queue_badge) {
                 slot.x + READY_PAD_X * ts
             } else {
                 slot.x + (slot.w - text_w) * 0.5
@@ -1118,5 +1136,61 @@ mod tests {
         let mobile = item(vehicle, 2);
         assert!(shows_queue_badge(&mobile, false));
         assert!(shows_queue_badge(&mobile, true));
+    }
+
+    /// gamemd shifts only the production Hold label. Ready and every
+    /// `SuperClass::NameReadiness` label — including a held superweapon's —
+    /// live in the other slot, which never reads the count badge.
+    #[test]
+    fn only_the_production_hold_label_shifts_left_beside_a_badge() {
+        use super::status_text_shifts_left;
+        let mut item = crate::ui::sidebar::SidebarItem {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 60.0,
+                h: 48.0,
+            },
+            type_id: "MTNK".to_string(),
+            display_name: "MTNK".to_string(),
+            cost: Some(700),
+            has_cameo_art: true,
+            alt_cameo: false,
+            flash_darkened: false,
+            queue_category: crate::sim::production::ProductionCategory::Vehicle,
+            enabled: true,
+            at_build_limit: false,
+            progress: 0.0,
+            queued_count: 2,
+            is_building_this_type: true,
+            is_ready: false,
+            is_on_hold: false,
+            is_armed: false,
+            is_superweapon: false,
+            super_weapon_section: None,
+            super_weapon_display: None,
+        };
+        assert!(!status_text_shifts_left(&item, true), "not held, not shifted");
+        assert!(!status_text_shifts_left(&item, false));
+        item.is_on_hold = true;
+        assert!(status_text_shifts_left(&item, true));
+        assert!(
+            !status_text_shifts_left(&item, false),
+            "the count badge is half the rule"
+        );
+        item.is_ready = true;
+        assert!(
+            !status_text_shifts_left(&item, true),
+            "Ready takes the centered slot"
+        );
+        item.is_ready = false;
+        item.super_weapon_display = Some(crate::sim::superweapon::SuperWeaponDisplay {
+            status: Some(crate::sim::superweapon::SuperWeaponStatus::Hold),
+            ..Default::default()
+        });
+        assert!(
+            !status_text_shifts_left(&item, true),
+            "a held superweapon is the other slot"
+        );
     }
 }

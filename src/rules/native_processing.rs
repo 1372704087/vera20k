@@ -2180,6 +2180,16 @@ impl ProcessedRulesLayers {
             .as_deref()
     }
 
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`, retained with the Rules
+    /// scalars rather than read from the compatibility projection.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn timer_blink_color_scheme(&self) -> Option<&str> {
+        self.native_type_construction_trace
+            .registry_state()
+            .rules_timer_blink_color_scheme
+            .as_deref()
+    }
+
     /// `[General] PrerequisiteProcAlternate=` (Rules `+0x400`), the stored ID
     /// of its UnitType.
     pub(crate) fn prerequisite_proc_alternate(&self) -> Option<&str> {
@@ -3171,6 +3181,11 @@ pub(crate) struct NativeRulesRegistryState {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`: the `[Colors]` entry the
+    /// blinking timer prints in. `None` while no pass names one, which keeps
+    /// the native `ColorScheme::Array[5]` (`[Colors]` entry 2).
+    #[cfg(feature = "phobos")]
+    rules_timer_blink_color_scheme: Option<String>,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -3253,6 +3268,8 @@ impl Default for NativeRulesRegistryState {
             rules_ion_blast_anim: String::new(),
             rules_ion_beam_anim: String::new(),
             rules_ion_cannon_warhead: String::new(),
+            #[cfg(feature = "phobos")]
+            rules_timer_blink_color_scheme: None,
             // MindControlAttackLineFrames, Rules+310: constructor 0x00665ABE.
             rules_mind_control_attack_line_frames: 15,
             rules_line_trail_override: general.line_trail_color_override,
@@ -4663,6 +4680,10 @@ struct RulesPassProcessor {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`, retained with the Rules
+    /// scalars for the pass.
+    #[cfg(feature = "phobos")]
+    rules_timer_blink_color_scheme: Option<String>,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -4734,6 +4755,8 @@ impl RulesPassProcessor {
             rules_ion_blast_anim: registry_state.rules_ion_blast_anim,
             rules_ion_beam_anim: registry_state.rules_ion_beam_anim,
             rules_ion_cannon_warhead: registry_state.rules_ion_cannon_warhead,
+            #[cfg(feature = "phobos")]
+            rules_timer_blink_color_scheme: registry_state.rules_timer_blink_color_scheme,
             rules_mind_control_attack_line_frames: registry_state
                 .rules_mind_control_attack_line_frames,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -7604,6 +7627,13 @@ impl RulesPassProcessor {
         for key in ["SmallFire", "LargeFire"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
+        // Phobos `RulesExt::TimerBlinkColorScheme`: `ValueableIdx<ColorScheme>`
+        // over the 128-byte read buffer, so a pass naming a `[Colors]` entry
+        // replaces the choice and an absent/empty read keeps it.
+        #[cfg(feature = "phobos")]
+        if let Some(name) = section.read_name("TimerBlinkColorScheme", 0x80) {
+            self.rules_timer_blink_color_scheme = Some(name.to_owned());
+        }
     }
 
     fn process_special_weapons(&mut self, pass: &IniFile) {
@@ -7768,6 +7798,8 @@ impl RulesPassProcessor {
                     rules_ion_blast_anim: self.rules_ion_blast_anim,
                     rules_ion_beam_anim: self.rules_ion_beam_anim,
                     rules_ion_cannon_warhead: self.rules_ion_cannon_warhead,
+                    #[cfg(feature = "phobos")]
+                    rules_timer_blink_color_scheme: self.rules_timer_blink_color_scheme,
                     rules_mind_control_attack_line_frames: self
                         .rules_mind_control_attack_line_frames,
                     rules_line_trail_override: self.rules_line_trail_override,

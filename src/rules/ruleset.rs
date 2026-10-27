@@ -1712,6 +1712,11 @@ pub struct GeneralRules {
     /// `HouseClass::MoveGroundForcesToBase @ 0x0050C920` (`0x00739926`).
     #[cfg(feature = "phobos")]
     pub gather_when_mcv_deploy: bool,
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`: the `[Colors]` entry the
+    /// blinking timer prints in, named as written. `None` keeps the native
+    /// `ColorScheme::Array[5]` (the third `[Colors]` entry).
+    #[cfg(feature = "phobos")]
+    pub timer_blink_color_scheme: Option<String>,
     /// `Rules+0xD78`, `[General] HarvesterTooFarDistance=` in cells: a
     /// refinery farther than this is approached before the dock is reserved.
     /// `RulesClass::ReadGeneral` reads it through `CCINIClass::ReadInt
@@ -2737,6 +2742,8 @@ impl Default for GeneralRules {
             ai_all_to_hunt: true,
             #[cfg(feature = "phobos")]
             gather_when_mcv_deploy: true,
+            #[cfg(feature = "phobos")]
+            timer_blink_color_scheme: None,
             harvester_too_far_distance: 5,
             approach_target_reset_multiplier: 1,
             chrono_harv_too_far_distance: 50,
@@ -4131,6 +4138,8 @@ impl GeneralRules {
             lightning_separation: general
                 .read_int("LightningSeparation", defaults.lightning_separation),
             // The sole ordered AV reader supplies these after projection.
+            #[cfg(feature = "phobos")]
+            timer_blink_color_scheme: defaults.timer_blink_color_scheme.clone(),
             ambient_change_rate_nonzero: defaults.ambient_change_rate_nonzero,
             ambient_change_interval_frames: defaults.ambient_change_interval_frames,
             ambient_change_step: defaults.ambient_change_step,
@@ -4730,6 +4739,11 @@ impl RuleSet {
         (rules.general.shroud_grow, rules.general.shroud_rate) = processed.shroud_growth_inputs();
         rules.general.fog_rate = processed.fog_rate();
         rules.general.prism_type = processed.prism_type().map(str::to_owned);
+        #[cfg(feature = "phobos")]
+        {
+            rules.general.timer_blink_color_scheme =
+                processed.timer_blink_color_scheme().map(str::to_owned);
+        }
         let (drop_zone_anim, drop_zone_radius) = processed.drop_zone_controls();
         rules.general.drop_zone_anim = drop_zone_anim.map(str::to_owned);
         rules.general.drop_zone_radius = drop_zone_radius;
@@ -8478,6 +8492,22 @@ impl RuleSet {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
     }
 
+    /// Phobos `[AudioVisual] TimerBlinkColorScheme=`: the named `[Colors]`
+    /// entry, or `None` for the native third entry.
+    #[cfg(feature = "phobos")]
+    pub fn timer_blink_color_scheme(&self) -> Option<&str> {
+        self.general.timer_blink_color_scheme.as_deref()
+    }
+
+    /// The `[Colors]` entry [`Self::timer_blink_color_scheme`] resolves to.
+    /// A name no entry carries keeps the native default, as does an absent or
+    /// empty key: `ColorScheme::FindIndex` failing retains the current index.
+    #[cfg(feature = "phobos")]
+    pub fn timer_blink_scheme_entry(&self) -> Option<usize> {
+        let name = self.timer_blink_color_scheme()?;
+        crate::rules::color_scheme::scheme_entry_by_name(&self.color_schemes, name)
+    }
+
     /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or
     /// out-of-range side falls back to the first-side default (index 0 true).
     #[cfg(feature = "phobos")]
@@ -10862,6 +10892,38 @@ CellSpread=0
         assert_eq!(rules.side_index("north"), Some(SideIdx(0)));
         assert_eq!(rules.side_index("SOUTH"), Some(SideIdx(1)));
         assert_eq!(rules.side_name(SideIdx(0)), Some("North"));
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn timer_blink_color_scheme_resolves_a_colors_entry_by_name() {
+        let rules = |audio_visual: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Colors]\nGold=43,239,255\nGrey=0,0,131\nLightGrey=0,0,240\n{audio_visual}"
+            )))
+            .expect("rules read")
+        };
+        // Absent: `None`, so the consumer keeps the native third entry.
+        let stock = rules("");
+        assert_eq!(stock.timer_blink_color_scheme(), None);
+        assert_eq!(stock.timer_blink_scheme_entry(), None);
+
+        let named = rules("[AudioVisual]\nTimerBlinkColorScheme=Gold\n");
+        assert_eq!(named.timer_blink_color_scheme(), Some("Gold"));
+        assert_eq!(named.timer_blink_scheme_entry(), Some(0));
+        // The lookup is the case-insensitive one `ColorScheme::FindIndex` uses.
+        let lowered = rules("[AudioVisual]\nTimerBlinkColorScheme=gold\n");
+        assert_eq!(lowered.timer_blink_scheme_entry(), Some(0));
+
+        // An empty read retains the default, and so does a name no entry
+        // carries: `ValueableIdx` only stores an index it resolved.
+        assert_eq!(
+            rules("[AudioVisual]\nTimerBlinkColorScheme=\n").timer_blink_scheme_entry(),
+            None
+        );
+        let unknown = rules("[AudioVisual]\nTimerBlinkColorScheme=Nope\n");
+        assert_eq!(unknown.timer_blink_color_scheme(), Some("Nope"));
+        assert_eq!(unknown.timer_blink_scheme_entry(), None);
     }
 
     #[cfg(feature = "phobos")]

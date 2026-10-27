@@ -45,6 +45,7 @@ Supported extensions:
 - [Parallel AI queue limits](phobos-parallel-ai-queues.md) (per-category and per-type AI clone forbids)
 - [Unlimited skirmish colours](phobos-skirmish-unlimited-colors.md) (spawner colour indices address any `[Colors]` entry)
 - [Superweapon sidebar](phobos-superweapon-sidebar.md) (left-edge superweapon cameos, toggle and positional hotkeys)
+- [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
 
 ## Original project and authors
 
@@ -70,6 +71,7 @@ originate with:
   **JunJacobYoung**, **CrimRecya**.
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
+- Unhardcoded timer blinking colour scheme - **Starkku**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
 - Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -

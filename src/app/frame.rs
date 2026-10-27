@@ -34,6 +34,15 @@ pub(super) struct RuntimeServiceResult {
     /// Offset selected for this service's draw: normal Input result, the
     /// paused render-before-Input snapshot, or the last presented freeze value.
     pub(super) screen_shake_offset: Option<[i32; 2]>,
+    completed_frames: u32,
+    last_frame_completed: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum FrameRenderOutcome {
+    Presented,
+    Unavailable,
+    Deferred,
 }
 
 /// The composition's full-height battlefield/command-bar region. Native
@@ -114,6 +123,17 @@ impl App {
             result.main_tick_admitted |= pass.main_tick_admitted;
             result.screen_shake_offset = pass.screen_shake_offset;
             result.quit_requested |= pass.quit_requested;
+            let after = state.match_state.sim_runtime.as_ref().map(|runtime| {
+                (
+                    runtime.simulation.session().tick(),
+                    runtime.simulation.session().binary_frame(),
+                )
+            });
+            result.last_frame_completed = pass.main_tick_admitted
+                && before.zip(after).is_some_and(|(before, after)| {
+                    after.0 == before.0.wrapping_add(1) && after.1 == before.1.wrapping_add(1)
+                });
+            result.completed_frames += u32::from(result.last_frame_completed);
             attempts += 1;
             if result.quit_requested
                 || !simulation_allowed
@@ -326,6 +346,7 @@ impl App {
                     quit_requested: true,
                     main_tick_admitted,
                     screen_shake_offset,
+                    ..Default::default()
                 };
             }
         }
@@ -420,7 +441,45 @@ impl App {
             quit_requested: false,
             main_tick_admitted,
             screen_shake_offset,
+            ..Default::default()
         }
+    }
+
+    /// The render continuation is allowed only outside every modal, focus,
+    /// exact-step and terminal path. The sequencer remains frame authority.
+    pub(super) fn next_online_render_frame(state: &AppState) -> Option<(u32, u32)> {
+        if state.frontend.screen != GameScreen::InGame
+            || !state.platform.window_active
+            || state.platform.window_hidden
+            || state.focus_freeze_active()
+            || state.match_state.paused()
+            || state.diag.debug_frame_step_requested
+            || state.frontend.keyboard_dialog.is_some()
+            || state.frontend.shell_message_box.is_some()
+            || state.frontend.quit_cascade.is_some()
+            || state.match_state.scenario_exit.is_some()
+            || state.match_state.scenario_outcome.is_some()
+            || Self::house_outcome_wait_pending(state)
+            || crate::app::match_runtime::network_failure::pending(state)
+            || state.match_state.network_wait.dialog_open()
+            || state.match_state.match_diagnostics.is_replay_playback()
+        {
+            return None;
+        }
+        let live =
+            state.match_state.live_network.as_ref().filter(|live| {
+                live.uses_sequenced_lockstep() && !live.has_terminal_network_error()
+            })?;
+        let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
+        if sim.session().scenario_paused()
+            || sim.pending_network_wait()
+            || sim.pending_network_interruption().is_some()
+            || sim.pending_network_failure().is_some()
+        {
+            return None;
+        }
+        let frame = sim.session().binary_frame();
+        (frame > 0).then_some((frame, live.committed_frontier()))
     }
 
     /// Does a hidden window still have a running match to service? True while
@@ -492,17 +551,17 @@ impl App {
         mut tactical_capture: Option<
             &mut crate::app::diagnostics::tactical_capture::session::TacticalCaptureSession,
         >,
-    ) -> Result<()> {
+    ) -> Result<FrameRenderOutcome> {
         anyhow::ensure!(
             shell_capture.is_none() || tactical_capture.is_none(),
             "shell and tactical capture cannot share a render"
         );
+        state.platform.frame_pacer.clear_render_continuation();
         #[cfg(feature = "telemetry-dashboard")]
         crate::app::telemetry_capture::synchronize_observer(state);
         if let Some(session) = tactical_capture.as_deref_mut() {
             session.drive_before_render(state)?;
         }
-        state.diag.frame_timer.sample(Instant::now());
         state
             .match_state
             .match_diagnostics
@@ -515,6 +574,7 @@ impl App {
             .as_ref()
             .is_some_and(|splash| splash.is_active(Instant::now()))
         {
+            state.diag.frame_timer.sample(Instant::now());
             let splash = state
                 .frontend
                 .startup_splash
@@ -530,6 +590,10 @@ impl App {
             )?;
             if presented {
                 state
+                    .platform
+                    .frame_pacer
+                    .record_presented(Instant::now(), false);
+                state
                     .frontend
                     .startup_splash
                     .as_mut()
@@ -538,7 +602,11 @@ impl App {
             } else {
                 Self::follow_window_size(state);
             }
-            return Ok(());
+            return Ok(if presented {
+                FrameRenderOutcome::Presented
+            } else {
+                FrameRenderOutcome::Unavailable
+            });
         }
         state.frontend.startup_splash = None;
 
@@ -547,13 +615,16 @@ impl App {
         let shell_capture_owns_simulation = shell_capture
             .as_deref()
             .is_some_and(|capture| capture.owns_simulation_steps(state));
+        let ordinary_online = tactical_capture.is_none()
+            && !shell_capture_owns_simulation
+            && Self::next_online_render_frame(state).is_some();
         let runtime_pass = Self::service_match_runtime(
             state,
             event_loop,
             tactical_capture.is_none() && !shell_capture_owns_simulation,
         );
         if runtime_pass.quit_requested {
-            return Ok(());
+            return Ok(FrameRenderOutcome::Unavailable);
         }
         if Self::house_outcome_wait_pending(state)
             || (state.frontend.screen == GameScreen::InGame
@@ -563,7 +634,7 @@ impl App {
             // House4F860B/4F8732 and outcome exits685670/685DC0 service
             // audio/network without drawing Tactical again. Keep the surface
             // presented before Won was cleared or later House flags changed.
-            return Ok(());
+            return Ok(FrameRenderOutcome::Unavailable);
         }
         // Native polls timed pause before Logic, then Manage55DDA5 afterwards.
         // Retain that admission: Action110 can enter a new hold during Logic.
@@ -576,6 +647,18 @@ impl App {
                 runtime_pass.main_tick_admitted || tactical_capture.is_some(),
             )
         };
+        let next_canonical = ordinary_online
+            .then(|| Self::next_online_render_frame(state))
+            .flatten();
+        if state.platform.frame_pacer.defer_online_render(
+            Instant::now(),
+            runtime_pass.completed_frames,
+            runtime_pass.last_frame_completed,
+            next_canonical,
+        ) {
+            return Ok(FrameRenderOutcome::Deferred);
+        }
+        state.diag.frame_timer.sample(Instant::now());
 
         // Native queues/maintains [INTRO] before arming the 0xE2 first-paint
         // owner. An arm stays silent until the matching surface is acquired.
@@ -593,7 +676,7 @@ impl App {
             Instant::now(),
         )? {
             crate::app::frontend::shell_transition::MainMenuFirstPaintPoll::WaitUntil(_) => {
-                return Ok(());
+                return Ok(FrameRenderOutcome::Unavailable);
             }
             crate::app::frontend::shell_transition::MainMenuFirstPaintPoll::Completed => {
                 if let Some(session) = shell_capture.as_deref_mut()
@@ -603,7 +686,7 @@ impl App {
                 {
                     session.complete_entry_sequence_after_wave(state)?;
                     event_loop.exit();
-                    return Ok(());
+                    return Ok(FrameRenderOutcome::Unavailable);
                 }
             }
             crate::app::frontend::shell_transition::MainMenuFirstPaintPoll::Acquire => {}
@@ -616,7 +699,7 @@ impl App {
             .map_err(|e| anyhow::anyhow!("Surface texture: {}", e))?
         else {
             Self::follow_window_size(state);
-            return Ok(());
+            return Ok(FrameRenderOutcome::Unavailable);
         };
         let view: wgpu::TextureView = output.texture.create_view(&Default::default());
         let mut encoder: wgpu::CommandEncoder =
@@ -1146,6 +1229,10 @@ impl App {
             .queue
             .submit(std::iter::once(encoder.finish()));
         output.present();
+        state
+            .platform
+            .frame_pacer
+            .record_presented(Instant::now(), state.frontend.screen == GameScreen::InGame);
         if let Some(completed) = state
             .match_state
             .match_diagnostics
@@ -1296,7 +1383,7 @@ impl App {
         #[cfg(feature = "telemetry-dashboard")]
         crate::app::telemetry_capture::publish_if_due(state);
 
-        Ok(())
+        Ok(FrameRenderOutcome::Presented)
     }
 }
 

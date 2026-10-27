@@ -35,7 +35,10 @@ pub(crate) fn wall_clock_ms() -> u64 {
     #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
     {
         static START: std::sync::OnceLock<crate::util::time::Instant> = std::sync::OnceLock::new();
-        START.get_or_init(crate::util::time::Instant::now).elapsed().as_millis() as u64
+        START
+            .get_or_init(crate::util::time::Instant::now)
+            .elapsed()
+            .as_millis() as u64
     }
     #[cfg(windows)]
     {
@@ -70,6 +73,11 @@ pub(crate) fn wall_clock_ms() -> u64 {
 #[derive(Debug, Default)]
 pub(crate) struct LocalFramePacer {
     last_frame_start_ms: Option<u32>,
+    last_presented: Option<crate::util::time::Instant>,
+    frames_since_present: u32,
+    chunks_since_present: u8,
+    render_deferred: bool,
+    total_render_deferrals: u64,
 }
 
 /// App-owned elapsed-time clock used by the end-of-match score dialog.
@@ -226,7 +234,63 @@ impl LocalFramePacer {
     pub(crate) const fn new() -> Self {
         Self {
             last_frame_start_ms: None,
+            last_presented: None,
+            frames_since_present: 0,
+            chunks_since_present: 0,
+            render_deferred: false,
+            total_render_deferrals: 0,
         }
+    }
+
+    /// Clear a queued continuation on entry or loss of render eligibility.
+    /// Neither operation pretends its surface was presented.
+    pub(crate) fn clear_render_continuation(&mut self) {
+        self.render_deferred = false;
+    }
+
+    /// Yield to winit between ordinary online catch-up chunks. Only completed
+    /// transactions count; neither a blocked frame nor a modal may defer.
+    /// Four existing chunks contain at most 32 ticks, below checksum history.
+    pub(crate) fn defer_online_render(
+        &mut self,
+        now: crate::util::time::Instant,
+        completed_frames: u32,
+        last_frame_completed: bool,
+        next_canonical: Option<(u32, u32)>,
+    ) -> bool {
+        self.frames_since_present = self.frames_since_present.saturating_add(completed_frames);
+        self.chunks_since_present = self
+            .chunks_since_present
+            .saturating_add(u8::from(completed_frames > 0));
+        self.render_deferred = completed_frames > 0
+            && last_frame_completed
+            && next_canonical.is_some_and(|(frame, frontier)| frame > 0 && frame <= frontier)
+            && self.last_presented.is_some_and(|last| {
+                now.saturating_duration_since(last) < std::time::Duration::from_millis(50)
+            })
+            && self.frames_since_present < 32
+            && self.chunks_since_present < 4;
+        if self.render_deferred {
+            self.total_render_deferrals = self.total_render_deferrals.saturating_add(1);
+        }
+        self.render_deferred
+    }
+
+    pub(crate) fn render_deferred(&self) -> bool {
+        self.render_deferred
+    }
+
+    pub(crate) fn total_render_deferrals(&self) -> u64 {
+        self.total_render_deferrals
+    }
+
+    /// Reset only after a successful presentation. A shell/loading surface
+    /// cannot make the first battlefield presentation eligible for deferral.
+    pub(crate) fn record_presented(&mut self, now: crate::util::time::Instant, battlefield: bool) {
+        self.last_presented = battlefield.then_some(now);
+        self.frames_since_present = 0;
+        self.chunks_since_present = 0;
+        self.render_deferred = false;
     }
 
     /// Read the same bucket interval used by `should_admit`, for diagnostics.
@@ -334,6 +398,73 @@ pub(crate) fn wall_clock_bucket() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn online_render_continuation_is_bounded_and_resets_only_on_present() {
+        let now = crate::util::time::Instant::now();
+        let mut pacer = LocalFramePacer::new();
+        assert!(
+            !pacer.defer_online_render(now, 8, true, Some((10, 100))),
+            "first surface must present"
+        );
+        pacer.record_presented(now, true);
+        assert!(pacer.defer_online_render(now, 8, true, Some((18, 100))));
+        assert!(pacer.render_deferred());
+        pacer.clear_render_continuation();
+        assert!(
+            !pacer.render_deferred(),
+            "hidden/ineligible windows cancel the queued continuation"
+        );
+        assert_eq!(pacer.total_render_deferrals(), 1);
+        assert!(pacer.defer_online_render(now, 8, true, Some((26, 100))));
+        assert!(pacer.defer_online_render(now, 8, true, Some((34, 100))));
+        assert!(
+            !pacer.defer_online_render(now, 8, true, Some((42, 100))),
+            "32 ticks force a present"
+        );
+        pacer.clear_render_continuation();
+        assert!(
+            !pacer.defer_online_render(now, 1, true, Some((43, 100))),
+            "a failed acquisition cannot reset the budget"
+        );
+        pacer.record_presented(now, true);
+        assert!(pacer.defer_online_render(now, 1, true, Some((44, 100))));
+        assert!(!pacer.defer_online_render(
+            now + std::time::Duration::from_millis(50),
+            1,
+            true,
+            Some((45, 100))
+        ));
+        pacer.record_presented(now, false);
+        assert!(
+            !pacer.defer_online_render(now, 1, true, Some((45, 100))),
+            "a loading surface does not replace the first battlefield present"
+        );
+        pacer.record_presented(now, true);
+        for _ in 0..3 {
+            assert!(pacer.defer_online_render(now, 1, true, Some((45, 100))));
+        }
+        assert!(
+            !pacer.defer_online_render(now, 1, true, Some((45, 100))),
+            "four short chunks also force a present"
+        );
+    }
+
+    #[test]
+    fn online_render_continuation_requires_completed_work_and_next_canonical_frame() {
+        let now = crate::util::time::Instant::now();
+        for (completed, last_completed, next) in [
+            (0, true, Some((10, 20))),
+            (1, false, Some((10, 20))),
+            (1, true, None), // offline, focus/modal/terminal, or exact-step exclusion
+            (1, true, Some((0, 20))),
+            (1, true, Some((21, 20))),
+        ] {
+            let mut pacer = LocalFramePacer::new();
+            pacer.record_presented(now, true);
+            assert!(!pacer.defer_online_render(now, completed, last_completed, next));
+        }
+    }
 
     #[test]
     fn canonical_frontier_admits_buffered_ticks_without_a_local_timer_and_bounds_work() {

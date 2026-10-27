@@ -4141,10 +4141,7 @@ mod full_init_rules_gate_tests {
     }
 
     fn native_rules_fixture() -> serde_json::Value {
-        serde_json::from_str(include_str!(
-            "../../../tools/input_oracle/campaign_native_rules.json"
-        ))
-        .expect("native Rules fixture")
+        crate::test_fixture::json("tools/input_oracle/campaign_native_rules.json").clone()
     }
 
     #[test]

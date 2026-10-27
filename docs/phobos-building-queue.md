@@ -28,6 +28,11 @@ and `SelectClass::Action`'s busy structure check is skipped at `0x6AB689`
 - `app/input/sidebar_eva.rs` — a busy structure strip accepts the press, and
   Shift repeat may append when the switch is on.
 - `app/input/dispatch.rs` — passes the rules switch to the click decision.
+- `sim/production/factory.rs` — `cancel_one` follows Phobos'
+  `HouseClass_AbandonProduction_RewriteForBuilding @ 0x004FAAD8`, which replaces
+  vanilla's `BuildCat == DontCare` test so a structure cancel removes one queued
+  copy before the held product. That rewrite is unconditional in Phobos, so it
+  follows the `phobos` feature rather than this switch.
 
 ## Residuals
 
@@ -41,9 +46,17 @@ and `SelectClass::Action`'s busy structure check is skipped at `0x6AB689`
 - Whether a lone placement-ready structure (nothing else queued) draws `1`
   there is not demonstrated against a Phobos capture; the count comes from the
   existing projection, which includes the held product.
-- Right-click removes the strip's current product, not one queued copy: Phobos
-  rewrites `HouseClass::AbandonProduction @ 0x04FAAD8` to call
-  `FactoryClass::RemoveOneFromQueue` first, and that rewrite is not ported.
+- The rewrite sits in the shared `House::Abandon_Production` body, so the other
+  four `cancel_production_for_owner` callers take it too in a Phobos build:
+  place-success, `refund_failed_delivery`, `abandon_after_placement` and the
+  sale-side cancel. Each passes `all = false` with the building's own index, so
+  where a queued copy of that type exists they now remove that copy and skip
+  the held product's refund/detach for that call. Native does the same, but
+  only the sidebar right-click path is covered by tests here.
+- The structure cancel order comes from the static decode of
+  `0x004FAAC4..0x004FAB2F`. The executed sidebar controls cover the mobile arm
+  and the null-held admit, not a structure ABANDON_ALL, so the drain-then-abandon
+  sequence is instruction-supported rather than executed.
 - Shift-Click batching for buildings is VERA's convenience, not native
   behavior; it remains governed by `[VERA] ShiftQueue=` and
   `[General] MaximumQueuedObjects=`.

@@ -111,6 +111,10 @@ pub(crate) struct MatchPresentationState {
     /// Phobos `[Phobos] ShowPlacementPreview` (source default true).
     #[cfg(feature = "phobos")]
     pub(crate) show_placement_preview: bool,
+    /// Phobos `[Phobos] ShowPowerPlantEnhancerRange` (source default false):
+    /// the client half of the placement-time enhancer ring switch.
+    #[cfg(feature = "phobos")]
+    pub(crate) show_power_plant_enhancer_range: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

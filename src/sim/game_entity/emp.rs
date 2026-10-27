@@ -26,6 +26,10 @@ impl GameEntity {
     pub(crate) fn emp_remaining(&self) -> i32 {
         self.emp.remaining
     }
+    /// `TechnoClass+0x504` is still counting down: the object is under EMP.
+    pub fn is_under_emp(&self) -> bool {
+        self.emp.remaining > 0
+    }
     pub(crate) fn emp_sparkle(&self) -> Option<u64> {
         self.emp.sparkle
     }

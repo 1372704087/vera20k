@@ -19,6 +19,9 @@ pub(crate) struct PhobosClientSettings {
     pub(crate) digital_display_enabled: bool,
     /// `[Phobos] SuperWeaponSidebar.RequiredSignificance=`, default `0`.
     pub(crate) superweapon_sidebar_required_significance: i32,
+    /// `[Phobos] ShowPowerPlantEnhancerRange=`, default `no`: the client switch
+    /// for the placement-time enhancer rings; the rules switch must also be on.
+    pub(crate) show_power_plant_enhancer_range: bool,
 }
 
 impl Default for PhobosClientSettings {
@@ -29,6 +32,7 @@ impl Default for PhobosClientSettings {
             show_placement_preview: true,
             digital_display_enabled: false,
             superweapon_sidebar_required_significance: 0,
+            show_power_plant_enhancer_range: false,
         }
     }
 }
@@ -55,6 +59,10 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         superweapon_sidebar_required_significance: section.read_int(
             "SuperWeaponSidebar.RequiredSignificance",
             defaults.superweapon_sidebar_required_significance,
+        ),
+        show_power_plant_enhancer_range: section.read_bool(
+            "ShowPowerPlantEnhancerRange",
+            defaults.show_power_plant_enhancer_range,
         ),
     }
 }
@@ -89,7 +97,8 @@ mod tests {
     fn imported_switches_are_read() {
         let dir = profile_with(
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
-             SuperWeaponSidebar.RequiredSignificance=2\n",
+             SuperWeaponSidebar.RequiredSignificance=2\n\
+             ShowPowerPlantEnhancerRange=yes\n",
         );
         assert_eq!(
             read(&dir),
@@ -97,6 +106,7 @@ mod tests {
                 show_placement_preview: false,
                 digital_display_enabled: true,
                 superweapon_sidebar_required_significance: 2,
+                show_power_plant_enhancer_range: true,
             }
         );
         std::fs::remove_dir_all(dir).unwrap();

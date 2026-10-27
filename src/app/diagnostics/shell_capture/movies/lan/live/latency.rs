@@ -13,6 +13,115 @@ const STABLE_WINDOW_MS: u64 = 2_000;
 const MAX_RENDER_GAP_US: u64 = 100_000;
 const ACTION_TIMEOUT_MS: u64 = 5_000;
 const STOP_QUIET_MS: u64 = 100;
+const STOP_PREPARATION_MIN_MS: u64 = 350;
+const STOP_PREPARATION_LIMIT_MS: u64 = 5_000;
+const STOP_STEADY_MS: u64 = 100;
+// Probe eligibility, not a native movement rule: measure braking from a
+// meaningfully moving, stable-speed state rather than during acceleration.
+const STOP_MIN_FRACTION: f64 = 0.5;
+
+struct StopPreparation {
+    move_action_id: usize,
+    started: ObservationTime,
+    started_frame: u32,
+    checked_at: ObservationTime,
+    latest: Option<ActorPresentation>,
+    steady_since: Option<ActorPresentation>,
+    steady_draws: usize,
+    ready: Option<ObservationTime>,
+    failed: bool,
+}
+impl StopPreparation {
+    fn new(move_action_id: usize, started: ObservationTime, started_frame: u32) -> Self {
+        Self {
+            move_action_id,
+            started,
+            started_frame,
+            checked_at: started,
+            latest: None,
+            steady_since: None,
+            steady_draws: 0,
+            ready: None,
+            failed: false,
+        }
+    }
+
+    fn observe(&mut self, draw: &ActorPresentation) {
+        if self.ready.is_some()
+            || self.failed
+            || draw.at.instant < self.started.instant
+            || self
+                .latest
+                .as_ref()
+                .is_some_and(|last| draw.frame <= last.frame)
+        {
+            return;
+        }
+        let moving = draw.motion.locomotor.as_deref() == Some("Drive")
+            && draw.motion.moving == Some(true)
+            && draw.motion.applied_fraction.is_finite()
+            && draw.motion.applied_fraction >= STOP_MIN_FRACTION;
+        let continues = moving
+            && self.steady_since.is_some()
+            && self.latest.as_ref().is_some_and(|last| {
+                last.motion.applied_fraction_bits == draw.motion.applied_fraction_bits
+                    && last.screen != draw.screen
+                    && draw.frame.saturating_sub(last.frame) <= 2
+                    && draw
+                        .at
+                        .instant
+                        .saturating_duration_since(last.at.instant)
+                        .as_millis()
+                        <= u128::from(STOP_STEADY_MS)
+            });
+        if continues {
+            self.steady_draws += 1;
+        } else {
+            self.steady_since = moving.then(|| draw.clone());
+            self.steady_draws = usize::from(moving);
+        }
+        self.latest = Some(draw.clone());
+    }
+
+    fn poll(&mut self, now: ObservationTime) -> bool {
+        if self.ready.is_some() {
+            return true;
+        }
+        self.checked_at = now;
+        let elapsed = now
+            .instant
+            .saturating_duration_since(self.started.instant)
+            .as_millis();
+        if elapsed > u128::from(STOP_PREPARATION_LIMIT_MS) {
+            self.failed = true;
+            return false;
+        }
+        let steady = self
+            .steady_since
+            .as_ref()
+            .zip(self.latest.as_ref())
+            .is_some_and(|(first, last)| {
+                self.steady_draws >= 3
+                    && last
+                        .at
+                        .instant
+                        .saturating_duration_since(first.at.instant)
+                        .as_millis()
+                        >= u128::from(STOP_STEADY_MS)
+                    && now
+                        .instant
+                        .saturating_duration_since(last.at.instant)
+                        .as_millis()
+                        <= u128::from(STOP_STEADY_MS)
+            });
+        if !self.failed && elapsed >= u128::from(STOP_PREPARATION_MIN_MS) && steady {
+            self.ready = Some(now);
+            return true;
+        }
+        self.failed |= elapsed >= u128::from(STOP_PREPARATION_LIMIT_MS);
+        false
+    }
+}
 
 struct Action {
     kind: &'static str,
@@ -93,6 +202,7 @@ pub(super) struct LatencyCapture {
     movement_observed: bool,
     navigation_clear_at_end: bool,
     actions: Vec<Action>,
+    stop_preparations: Vec<StopPreparation>,
     executions: Vec<Execution>,
     samples: Vec<Value>,
     startup_samples: Vec<Value>,
@@ -272,6 +382,9 @@ impl LatencyCapture {
             self.observe_execution(observation);
         }
         if let Some(presented) = state.match_state.match_diagnostics.actor_presentation() {
+            if let Some(preparation) = self.stop_preparations.last_mut() {
+                preparation.observe(&presented);
+            }
             if let Some(prepared) = self.prepared.as_mut() {
                 prepared.observe_draw(&presented);
             }
@@ -489,15 +602,25 @@ impl LatencyCapture {
             if !action_gpu_complete(action) && action.error.is_none() {
                 return Ok(false);
             }
-            if self.next_issue.is_none() {
-                self.next_issue = Some(
-                    now.instant
-                        + std::time::Duration::from_millis(if action.kind == "Move" {
-                            350
-                        } else {
-                            250
-                        }),
-                );
+            if action.kind == "Move" {
+                let move_id = self.actions.len() - 1;
+                if self
+                    .stop_preparations
+                    .last()
+                    .is_none_or(|preparation| preparation.move_action_id != move_id)
+                {
+                    self.stop_preparations
+                        .push(StopPreparation::new(move_id, now, frame));
+                }
+                let preparation = self.stop_preparations.last_mut().unwrap();
+                if !preparation.poll(now) {
+                    if preparation.failed {
+                        self.errors.push(format!("Move action {move_id} did not reach fresh rendered stable motion at fraction >=0.5 within 5000ms; Stop was not issued"));
+                    }
+                    return Ok(false);
+                }
+            } else if self.next_issue.is_none() {
+                self.next_issue = Some(now.instant + std::time::Duration::from_millis(250));
             }
         }
         if self.actions.len() >= TARGET_PAIRS * 2
@@ -633,11 +756,25 @@ impl LatencyCapture {
             "first_actor_gpu":prepared.first_draw.as_ref().and_then(|draw|draw.gpu_completed_at().map(|at|self.timestamp(at,draw.frame))),
             "warmup_started":self.warmup_started.map(|at|self.timestamp(at,self.start_frame))
         }));
+        let stop_preparations: Vec<_> = self.stop_preparations.iter().map(|preparation|json!({
+            "move_action_id":preparation.move_action_id,"next_stop_action_id":preparation.move_action_id+1,
+            "status":if preparation.ready.is_some() {"ready"} else if preparation.failed {"failed"} else {"waiting"},
+            "started":self.timestamp(preparation.started,preparation.started_frame),
+            "ready":preparation.ready.map(|at|self.timestamp(at,preparation.latest.as_ref().unwrap().frame)),
+            "wait_ms":preparation.checked_at.instant.saturating_duration_since(preparation.started.instant).as_secs_f64()*1000.0,
+            "minimum_delay_ms":STOP_PREPARATION_MIN_MS,"maximum_wait_ms":STOP_PREPARATION_LIMIT_MS,
+            "probe_minimum_fraction":STOP_MIN_FRACTION,"minimum_stable_ms":STOP_STEADY_MS,
+            "distinct_steady_draws":preparation.steady_draws,
+            "steady_since":preparation.steady_since.as_ref().map(|draw|self.timestamp(draw.at,draw.frame)),
+            "latest_draw":preparation.latest.as_ref().map(|draw|json!({"at":self.timestamp(draw.at,draw.frame),
+                "screen":draw.screen,"motion":draw.motion})),
+            "criterion":"at least three translating admitted Drive draws on distinct recent logical frames; unchanged applied fraction >=0.5 for 100ms; latest draw <=100ms old; consecutive frame gaps <=2"
+        })).collect();
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
             "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"incomplete"} else {"sampling"},
             "limitation":"submitted admitted Unit draw-plan geometry; GPU callback is a completion upper bound, not monitor scanout; remote observations are dispatch only",
             "clock":{"unix_unit":"microseconds","mono_unit":"microseconds since this round observer began","remote_requires_calibration":true},
-            "preparation":preparation,"warmup":self.warmup,"actions":actions,"executions":self.executions.iter().map(|e|self.execution_json(e)).collect::<Vec<_>>(),
+            "preparation":preparation,"stop_preparations":stop_preparations,"warmup":self.warmup,"actions":actions,"executions":self.executions.iter().map(|e|self.execution_json(e)).collect::<Vec<_>>(),
             "keep_up":self.samples,"startup_keep_up":self.startup_samples,"peer_round_trip_ms":self.peer_rtt,"peer_round_trip_scope":"one-shot startup peer RTT; 16ms buckets; separate from command latency",
             "validation":{"movement_observed":self.movement_observed,"navigation_clear_at_end":self.navigation_clear_at_end,
                 "last_stop_submitted":self.actions.last().is_some_and(|a|a.kind=="Stop" && a.response.is_some())},
@@ -784,6 +921,52 @@ mod tests {
             .foot_speed
             .set_speed_fraction_native_bits(fraction.to_bits());
         crate::app::match_diagnostics::ActorMotionObservation::read(&sim, &entity)
+    }
+
+    #[test]
+    fn stop_preparation_requires_fresh_stable_translation_and_has_a_deadline() {
+        let start = ObservationTime::now();
+        let draw = |ms, frame, x, fraction| ActorPresentation {
+            at: at(start, ms),
+            frame,
+            screen: [x, 0.],
+            body: 0,
+            motion: test_motion(fraction, true),
+            sampled_from_frame: frame - 1,
+            gpu_done: Default::default(),
+        };
+        for (name, fractions, positions) in [
+            ("too slow", [0.3, 0.3, 0.3], [1., 2., 3.]),
+            ("accelerating", [0.5, 0.6, 0.7], [1., 2., 3.]),
+            ("not translating", [0.7, 0.7, 0.7], [1., 1., 1.]),
+        ] {
+            let mut preparation = StopPreparation::new(0, start, 0);
+            preparation.observe(&draw(350, 10, positions[0], fractions[0]));
+            preparation.observe(&draw(400, 12, positions[1], fractions[1]));
+            preparation.observe(&draw(450, 14, positions[2], fractions[2]));
+            assert!(!preparation.poll(at(start, 450)), "{name}");
+        }
+        let mut stable = StopPreparation::new(0, start, 0);
+        stable.observe(&draw(350, 10, 1., 0.7));
+        stable.observe(&draw(400, 12, 2., 0.7));
+        stable.observe(&draw(450, 14, 3., 0.7));
+        assert!(
+            !stable.poll(at(start, 551)),
+            "old rendered motion cannot qualify"
+        );
+        stable.observe(&draw(500, 16, 4., 0.7));
+        assert!(stable.poll(at(start, 551)));
+        assert_eq!(stable.ready.unwrap().unix_us, at(start, 551).unix_us);
+        let mut timeout = StopPreparation::new(2, start, 0);
+        timeout.observe(&draw(4_900, 100, 1., 0.7));
+        timeout.observe(&draw(4_950, 102, 2., 0.7));
+        timeout.observe(&draw(5_000, 104, 3., 0.7));
+        assert!(
+            !timeout.poll(at(start, 5_001)),
+            "late readiness cannot extend the bound"
+        );
+        assert!(timeout.failed);
+        assert!(timeout.ready.is_none());
     }
 
     #[test]

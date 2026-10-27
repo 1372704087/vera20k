@@ -747,10 +747,9 @@ fn type_select_candidates(
             let dynamic = selection_dynamic_prefix(entity, entities, rules, interner)
                 && type_is_selectable(type_id, rules)
                 && (!require_playfield_membership || entity.in_playfield());
-            // A structure answers false on the ordinary dynamic virtual, so
-            // the ID match reaches it through the native virtual at
-            // `0x00465D40` instead: `UndeploysInto` only, or every building
-            // with the Phobos switch on.
+            // A structure answers false on the ordinary dynamic virtual; the ID
+            // match's building arm (`0x00732C61..0x00732C83`) admits it
+            // through `RuleSet::structure_type_selectable` instead.
             let structure_admission = entity.category() == EntityCategory::Structure
                 && rules.is_some_and(|rules| rules.structure_type_selectable(type_id));
             (dynamic || structure_admission).then_some(*id)
@@ -1003,7 +1002,7 @@ pub(crate) fn selection_dynamic_prefix(
     interner: Option<&crate::sim::intern::StringInterner>,
 ) -> bool {
     // BuildingClass answers false on the ordinary dynamic selection virtual.
-    // TypeSelect owns the separate admission at `0x00465D40`
+    // TypeSelect owns the separate building admission
     // (`RuleSet::structure_type_selectable`) instead.
     if entity.category() == EntityCategory::Structure {
         return false;

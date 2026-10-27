@@ -1,10 +1,10 @@
 //! Type-select admission for structures.
 //!
-//! Retail reaches a building through the virtual at `0x00465D40`
-//! (`BuildingClass::Is1x1AndUndeployable`), which answers true only for a 1x1
-//! `UndeploysInto` type. Phobos `[General] BuildingTypeSelectable` makes it
-//! answer true for every building. These tests drive the tap that reads that
-//! gate, not the gate alone.
+//! Retail's ID match (`0x00732C30`) admits a building only when its type has
+//! `UndeploysInto=` (`0x00732C61..0x00732C83`). Phobos
+//! `[General] BuildingTypeSelectable`, live only with Ares, admits every
+//! building. These tests drive the tap that reads that gate, not the gate
+//! alone.
 use crate::app::input::entity_pick::compute_type_select_tap_with_playfield;
 use crate::app::types::TypeSelectOutcome;
 use crate::map::entities::EntityCategory;
@@ -101,19 +101,25 @@ fn an_undeploysinto_building_stays_admissible() {
     let (sim, order) = two_buildings("GACNST");
     let rules = rules("");
     assert!(rules.structure_type_selectable("GACNST"));
-    assert_eq!(tap(sim.entities(), &order, &rules, sim.interner()), vec![1, 2]);
+    assert_eq!(
+        tap(sim.entities(), &order, &rules, sim.interner()),
+        vec![1, 2]
+    );
 }
 
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 #[test]
 fn the_switch_admits_every_building() {
     let (sim, order) = two_buildings("GAPOWR");
     let rules = rules("BuildingTypeSelectable=yes\n");
     assert!(rules.structure_type_selectable("GAPOWR"));
-    assert_eq!(tap(sim.entities(), &order, &rules, sim.interner()), vec![1, 2]);
+    assert_eq!(
+        tap(sim.entities(), &order, &rules, sim.interner()),
+        vec![1, 2]
+    );
 }
 
-#[cfg(feature = "phobos")]
+#[cfg(all(feature = "phobos", feature = "ares"))]
 #[test]
 fn the_switch_is_read_from_the_general_section() {
     // Absent key keeps the retail gate.

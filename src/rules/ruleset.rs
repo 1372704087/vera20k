@@ -1694,9 +1694,10 @@ pub struct GeneralRules {
     #[cfg(feature = "phobos")]
     pub building_production_queue: bool,
     /// Phobos `[General] BuildingTypeSelectable=` (default false): type select
-    /// admits every building instead of only the `UndeploysInto` ones the
-    /// retail virtual at `0x00465D40` answers true for.
-    #[cfg(feature = "phobos")]
+    /// admits every building, not only the `UndeploysInto=` ones the retail ID
+    /// match admits (`0x00732C61..0x00732C83`). Phobos disables the switch
+    /// without Ares (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
+    #[cfg(all(feature = "phobos", feature = "ares"))]
     pub building_type_selectable: bool,
     /// Phobos `[General] AIFireSale=` (default true): whether a computer
     /// house on its last legs (`0x004FD879..0x004FD904`, no live
@@ -2734,7 +2735,7 @@ impl Default for GeneralRules {
             maximum_queued_objects: 5,
             #[cfg(feature = "phobos")]
             building_production_queue: false,
-            #[cfg(feature = "phobos")]
+            #[cfg(all(feature = "phobos", feature = "ares"))]
             building_type_selectable: false,
             #[cfg(feature = "phobos")]
             ai_fire_sale: true,
@@ -4013,7 +4014,7 @@ impl GeneralRules {
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
             #[cfg(feature = "phobos")]
             building_production_queue: general.read_bool("BuildingProductionQueue", false),
-            #[cfg(feature = "phobos")]
+            #[cfg(all(feature = "phobos", feature = "ares"))]
             building_type_selectable: general.read_bool("BuildingTypeSelectable", false),
             #[cfg(feature = "phobos")]
             ai_fire_sale: general.read_bool("AIFireSale", true),
@@ -8500,13 +8501,18 @@ impl RuleSet {
 
     /// Type-select admission for a structure.
     ///
-    /// The native ID match asks the virtual at `0x00465D40`, which answers
-    /// true only for a **1x1** building with `UndeploysInto=` — that is why
-    /// type select reaches almost no building in an unmodified game. VERA has
-    /// no footprint predicate on this path, so the retail arm keeps the
-    /// `UndeploysInto` half only, and the Phobos switch admits every building.
+    /// The native ID match (`0x00732C30`) admits a building of a listed type
+    /// when CanBeSelectedNow (vt+0x13C) answers true or its type has
+    /// `UndeploysInto=` (`0x00732C61..0x00732C83`). A building's
+    /// CanBeSelectedNow (`0x00459C00`) first asks `0x00465D40`, true only for
+    /// a 1x1 `UndeploysInto=` type, so retail admits exactly the
+    /// `UndeploysInto=` buildings. Phobos's hook makes `0x00465D40` answer true
+    /// during the ID match under `BuildingTypeSelectable`, with Ares loaded.
+    /// RESIDUAL: with the switch on, native still applies CanBeSelectedNow's
+    /// TechnoClass checks (`0x006FC030`); this admits every building of the
+    /// type.
     pub fn structure_type_selectable(&self, id: &str) -> bool {
-        #[cfg(feature = "phobos")]
+        #[cfg(all(feature = "phobos", feature = "ares"))]
         {
             if self.general.building_type_selectable {
                 return true;

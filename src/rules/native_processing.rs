@@ -17,7 +17,6 @@ use crate::rules::digital_display::DigitalDisplayTypeCatalog;
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
-use crate::rules::ini_value::{strtrim_ascii, truncate_native_bytes};
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::phobos_radiation::RadiationTypeCatalog;
 use crate::rules::phobos_shields::ShieldTypeCatalog;
@@ -32,7 +31,9 @@ use crate::rules::powerups::{PowerupTable, PowerupsAccumulator};
 use crate::rules::prerequisite::{Prerequisite, PrerequisiteGroup, parse_prerequisites};
 use crate::rules::projectile_type::ProjectileArtState;
 use crate::rules::rules_type_references::{DEFAULT_PARTICLE_SYSTEMS, RulesTypeReferences};
-use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules};
+use crate::rules::ruleset::{DetailRules, GeneralBuildingTypes, PrismSupportRules, RuleSet};
+#[cfg(feature = "ares")]
+use crate::rules::superweapon_targeting::AresSuperWeaponTargetingState;
 #[cfg(feature = "ares")]
 use crate::rules::superweapon_type::AresSuperWeaponPresentation;
 #[cfg(feature = "phobos")]
@@ -40,7 +41,9 @@ use crate::rules::superweapon_type::PhobosSuperWeaponAvailability;
 use crate::rules::superweapon_type::SuperWeaponBuildingRequirements;
 use crate::rules::superweapon_type::UnitDeliveryRules;
 #[cfg(feature = "ares")]
-use crate::rules::superweapon_type::{AresSuperWeaponAvailability, AresSuperWeaponMetadata};
+use crate::rules::superweapon_type::{
+    AresSuperWeaponAvailability, AresSuperWeaponCharge, AresSuperWeaponMetadata,
+};
 #[cfg(feature = "ares")]
 use crate::rules::superweapon_type::{DeliveryOwner, DeliveryType};
 use crate::util::native_x87::NativeF64Bits;
@@ -144,13 +147,19 @@ pub enum RulesLayerKind {
     LangRule,
     GameMode,
     Scenario,
+    Tmcj4f,
 }
 
 /// Whether these passes continue a live registry or enter Full_Init's reset.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum RulesProcessContext {
     Ordinary,
-    ScenarioReset(ImageTheater),
+    ScenarioReset {
+        theater: ImageTheater,
+        /// ReadCCFile's LANGRULE digest-failure exit skips the root ColorAdd
+        /// reread and mode Process, while Full_Init continues into the map.
+        skip_root_color_add_and_mode: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -191,10 +200,14 @@ impl RulesLayerStack {
     /// Hash both source contents and pass boundaries. Two stacks that flatten
     /// to the same key/value view can still produce different live type state.
     pub fn content_hash(&self) -> u64 {
+        self.content_hash_for_layers(self.layers.len())
+    }
+
+    fn content_hash_for_layers(&self, layer_count: usize) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         "VERA20K_RULES_LAYER_STACK_V1".hash(&mut hasher);
-        self.layers.len().hash(&mut hasher);
-        for layer in &self.layers {
+        layer_count.hash(&mut hasher);
+        for layer in &self.layers[..layer_count] {
             layer.kind.hash(&mut hasher);
             layer.ini.content_hash().hash(&mut hasher);
         }
@@ -266,16 +279,74 @@ impl RulesLayerStack {
         context: RulesProcessContext,
         fixed_eva: &EvaRegistry,
     ) -> Result<ProcessedRulesLayers, NativeRulesProcessingFailure> {
-        let (registry_state, mut root_color_add_reread, theater) = match context {
-            RulesProcessContext::Ordinary => (registry_state, None, ImageTheater::Uninitialized),
-            RulesProcessContext::ScenarioReset(theater) => (
-                registry_state.destructive_reset(),
-                Some(&self.layers[0].ini),
-                theater,
-            ),
-        };
+        self.process_internal(
+            fixed_art,
+            registry_state,
+            context,
+            fixed_eva,
+            None::<fn(RuleSet)>,
+        )
+        .map(|(processed, _)| processed)
+    }
+
+    /// Execute a read that native Full_Init places after map Rules and before
+    /// its optional TMCJ4F Rules Process. The callback takes ownership of the
+    /// map-stage RuleSet projection to retain read-time identities; the
+    /// original processor remains the single authority and continues into
+    /// TMCJ4F before producing the final Rules.
+    pub(crate) fn process_with_fixed_art_and_registry_state_recovering_after_map<F, T>(
+        &self,
+        fixed_art: &IniFile,
+        registry_state: NativeRulesRegistryState,
+        context: RulesProcessContext,
+        fixed_eva: &EvaRegistry,
+        after_map: F,
+    ) -> Result<(ProcessedRulesLayers, T), NativeRulesProcessingFailure>
+    where
+        F: FnOnce(RuleSet) -> T,
+    {
+        let (processed, after_map_result) = self.process_internal(
+            fixed_art,
+            registry_state,
+            context,
+            fixed_eva,
+            Some(after_map),
+        )?;
+        Ok((
+            processed,
+            after_map_result.expect("scenario Rules stack must contain its map pass"),
+        ))
+    }
+
+    fn process_internal<F, T>(
+        &self,
+        fixed_art: &IniFile,
+        registry_state: NativeRulesRegistryState,
+        context: RulesProcessContext,
+        fixed_eva: &EvaRegistry,
+        mut after_map: Option<F>,
+    ) -> Result<(ProcessedRulesLayers, Option<T>), NativeRulesProcessingFailure>
+    where
+        F: FnOnce(RuleSet) -> T,
+    {
+        let (registry_state, mut root_color_add_reread, reset_color_add_after_root, theater) =
+            match context {
+                RulesProcessContext::Ordinary => {
+                    (registry_state, None, false, ImageTheater::Uninitialized)
+                }
+                RulesProcessContext::ScenarioReset {
+                    theater,
+                    skip_root_color_add_and_mode,
+                } => (
+                    registry_state.destructive_reset(),
+                    (!skip_root_color_add_and_mode).then_some(&self.layers[0].ini),
+                    true,
+                    theater,
+                ),
+            };
         let mut processor = RulesPassProcessor::with_registry_state(registry_state);
         processor.image_theater = theater;
+        let mut after_map_result = None;
         for (index, (kind, ini)) in self.iter_passes().enumerate() {
             if index > 0
                 && kind != RulesLayerKind::LangRule
@@ -295,29 +366,55 @@ impl RulesLayerStack {
                     partial_trace: Box::new(partial_trace),
                 });
             }
-            if index == 0 && root_color_add_reread.is_some() {
+            if index == 0 && reset_color_add_after_root {
                 // Reset668A34..668A56 clears all16 RGB triples AFTER root
                 // Process668A27. It leaves the four selector DWORDs alone.
                 // Whole original Reset controls: tools/berserk_color.json.
                 processor.rules_color_add = ColorAddTable::default();
             }
+            if kind == RulesLayerKind::Scenario
+                && let Some(after_map) = after_map.take()
+            {
+                let (ini, native_type_construction_trace, powerups) = processor.clone().finish();
+                let prefix = ProcessedRulesLayers {
+                    ini,
+                    powerups,
+                    content_hash: self.content_hash_for_layers(index + 1),
+                    native_type_construction_trace,
+                };
+                let rules = match RuleSet::from_processed_rules(&prefix) {
+                    Ok(rules) => rules,
+                    Err(error) => {
+                        let (_, partial_trace) =
+                            prefix.into_ini_and_native_type_construction_trace();
+                        return Err(NativeRulesProcessingFailure {
+                            error,
+                            partial_trace: Box::new(partial_trace),
+                        });
+                    }
+                };
+                after_map_result = Some(after_map(rules));
+            }
         }
         if let Some(root) = root_color_add_reread {
             processor.rules_color_add.apply_pass(root);
         }
-        if matches!(context, RulesProcessContext::ScenarioReset(_)) {
+        if matches!(context, RulesProcessContext::ScenarioReset { .. }) {
             // Read_Map4AD071 / RMG59A201: all Overlay types receive this
             // postpass after the incoming scenario's ordered Rules reads.
             processor.init_overlay_theater();
             processor.init_anim_theater();
         }
         let (ini, native_type_construction_trace, powerups) = processor.finish();
-        Ok(ProcessedRulesLayers {
-            ini,
-            powerups,
-            content_hash: self.content_hash(),
-            native_type_construction_trace,
-        })
+        Ok((
+            ProcessedRulesLayers {
+                ini,
+                powerups,
+                content_hash: self.content_hash(),
+                native_type_construction_trace,
+            },
+            after_map_result,
+        ))
     }
 }
 
@@ -524,7 +621,7 @@ pub(crate) fn refresh_native_multiplayer_country_bodies(
 /// tools/rules_oracle/bridge_anim_lists.{py,json}. WeatherConClouds
 /// (`+0x2BC`, `0x0066DD28`) and WeatherConBolts (`+0x2D8`, `0x0066DE2B`) take
 /// the same ReadString128/FindOrAllocate body.
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct GeneralTypeLists {
     metallic_debris: Vec<String>,
     bridge_explosions: Vec<String>,
@@ -1582,6 +1679,9 @@ impl ProcessedRulesLayers {
                 &member.super_weapon_availability,
                 member.super_weapon_aux_building.as_deref(),
                 member.super_weapon_building_requirements.as_ref(),
+                &member.super_weapon_charge,
+                &member.super_weapon_influence,
+                member.super_weapon_targeting,
             )
         })
     }
@@ -1778,6 +1878,36 @@ impl ProcessedRulesLayers {
             })
     }
 
+    #[cfg(feature = "ares")]
+    pub(crate) fn ares_spotlight_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            bool,
+            crate::rules::ares_spotlight::SpotlightTypeRules,
+        ),
+    > {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        member.building_has_spotlight,
+                        member.spotlight,
+                    )
+                })
+            })
+    }
+
     pub(crate) fn ares_techno_states(
         &self,
     ) -> impl Iterator<
@@ -1787,6 +1917,7 @@ impl ProcessedRulesLayers {
             Option<&crate::rules::ares_emp::EmpTypeRules>,
             Option<&crate::rules::ares_warhead::AttachEffectRules>,
             bool,
+            Option<i32>,
         ),
     > {
         self.native_type_construction_trace
@@ -1804,10 +1935,35 @@ impl ProcessedRulesLayers {
                         member.emp_type.as_ref(),
                         member.self_attach_effect.as_ref(),
                         member.cloak_allowed,
+                        #[cfg(feature = "ares")]
+                        member.turret_rot_override,
+                        #[cfg(not(feature = "ares"))]
+                        None,
                     )
                 })
             })
     }
+    #[cfg(feature = "ares")]
+    pub(crate) fn super_weapon_techno_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &crate::rules::superweapon_influence::TechnoSuperWeaponRules,
+        ),
+    > {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                &member.super_weapon_techno,
+            )
+        })
+    }
+
     pub(crate) fn ares_warhead_states(
         &self,
     ) -> impl Iterator<Item = (&str, Option<&crate::rules::ares_warhead::AresWarheadRules>)> {
@@ -2263,7 +2419,7 @@ pub(crate) enum NativeTypeConstructorFamily {
 ///
 /// This is normally a first-new-name event, but inputs longer than the native
 /// 24-byte stored ID can repeatedly miss lookup and emit duplicate stored IDs.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NativeTypeConstructionEvent {
     family: NativeTypeConstructorFamily,
     native_stored_id: String,
@@ -2452,9 +2608,10 @@ impl SideRegisteredTypes {
 #[cfg(feature = "ares")]
 impl AresSideState {
     /// `SideExt::initialize @ 0x1002E190` phase-0 defaults, then the ordered
-    /// reader prefix `0x1002E450..0x1002EA4C`. Keys are read even when the
-    /// side section is absent; every reader keeps its current field on an
-    /// absent/invalid value, exactly as `Nullable`/`Valueable`.
+    /// reader prefix `0x1002E450..0x1002EA4C`. Every reader keeps its current
+    /// field when ReadString returns 0 (absent or empty), exactly as
+    /// `Nullable`/`Valueable`; only `none`/`<none>` clears a field.
+    /// `color_index` is the shared ColorScheme lookup `0x1001BB30`.
     fn read_pass(
         &mut self,
         id: &str,
@@ -2462,6 +2619,7 @@ impl AresSideState {
         pass: &IniFile,
         eva: &EvaRegistry,
         types: &SideRegisteredTypes,
+        color_index: impl Fn(&str) -> Option<i32>,
     ) {
         if !(0..=2).contains(&self.phase) {
             return;
@@ -2483,17 +2641,17 @@ impl AresSideState {
                 fields.base_defenses.as_ref(),
                 |name| SideRegisteredTypes::find(&types.buildings, name),
             );
-            fields.crew = read_nullable_type(section, "Crew", &fields.crew, |name| {
+            fields.crew = read_ares_type_ref(section, "Crew", &fields.crew, |name| {
                 SideRegisteredTypes::find(&types.infantry, name)
             });
-            fields.engineer = read_nullable_type(section, "Engineer", &fields.engineer, |name| {
+            fields.engineer = read_ares_type_ref(section, "Engineer", &fields.engineer, |name| {
                 SideRegisteredTypes::find(&types.infantry, name)
             });
             fields.technician =
-                read_nullable_type(section, "Technician", &fields.technician, |name| {
+                read_ares_type_ref(section, "Technician", &fields.technician, |name| {
                     SideRegisteredTypes::find(&types.infantry, name)
                 });
-            fields.default_disguise = read_nullable_type(
+            fields.default_disguise = read_ares_type_ref(
                 section,
                 "DefaultDisguise",
                 &fields.default_disguise,
@@ -2510,10 +2668,10 @@ impl AresSideState {
                 }
             }
             fields.parachute_anim =
-                read_nullable_type(section, "Parachute.Anim", &fields.parachute_anim, |name| {
+                read_ares_type_ref(section, "Parachute.Anim", &fields.parachute_anim, |name| {
                     SideRegisteredTypes::find(&types.animations, name)
                 });
-            fields.paradrop_aircraft = read_valueable_index(
+            fields.paradrop_aircraft = read_ares_type_ref(
                 section,
                 "ParaDrop.Aircraft",
                 &fields.paradrop_aircraft,
@@ -2537,17 +2695,16 @@ impl AresSideState {
                 // `Valueable<ColorStruct>`: present-empty/invalid retains.
                 fields.tooltip_color = IniSection::read_color_rgb_value(raw, fields.tooltip_color);
             }
-            if section.is_present("SurvivorDivisor") {
-                if let Some(value) = section.read_ares_int_value("SurvivorDivisor") {
-                    fields.survivor_divisor = Some(value);
-                }
-            }
-            if let Some(raw) = section.raw_value("MessageTextColor") {
-                fields.message_text_color_index =
-                    read_message_color_index(pass, raw, fields.message_text_color_index);
-            }
+            fields.survivor_divisor =
+                section.read_ares_nullable_int("SurvivorDivisor", fields.survivor_divisor);
+            // `ValueableIdx<ColorScheme>` 0x1001CC70 over `0x1001BB30(name, 1)`.
+            fields.message_text_color_index = section.read_ares_color_scheme_index(
+                "MessageTextColor",
+                fields.message_text_color_index,
+                &color_index,
+            );
             fields.hunter_seeker =
-                read_nullable_type(section, "HunterSeeker", &fields.hunter_seeker, |name| {
+                read_ares_type_ref(section, "HunterSeeker", &fields.hunter_seeker, |name| {
                     SideRegisteredTypes::find(&types.vehicles, name)
                 });
             for (key, target) in [
@@ -2600,9 +2757,13 @@ impl AresSideState {
                     &mut fields.dialog_background_palette,
                 ),
             ] {
-                // AresFixedString<0x20>: ReadString(0x20), empty/absent retains.
-                if let Some(value) = section.read_name(key, 0x20) {
-                    *target = Some(value.to_owned());
+                // AresFixedString<0x20> (`0x1002E5D0..`): ReadString(0x800)
+                // returning 0 retains, `none`/`<none>` clears, anything else
+                // copies its first 0x1F bytes.
+                if let Some(value) = section.read_name(key, 0x800) {
+                    *target = (!is_native_none_type_name(value)).then(|| {
+                        crate::rules::ini_value::truncate_native_bytes(value, 0x1f).to_owned()
+                    });
                 }
             }
         }
@@ -2680,47 +2841,31 @@ impl AresSideState {
     }
 }
 
-/// Ares `Nullable<T*>::Read`: absent/unknown retains, present-empty clears,
-/// a registered identity resolves case-insensitively.
+/// Ares `Nullable<T*>`/`Valueable<T*>`/`ValueableIdx<T>` reads
+/// (`0x1002D910`, `0x1002D970`, `0x1000C9C0`, `0x1001CC10`): ReadString(0x800)
+/// returning 0 (absent or empty) retains; a registered identity resolves;
+/// otherwise `none`/`<none>` (`0x10003950`) stores null (`Some(None)`, the -1
+/// index) and any other name retains.
 #[cfg(feature = "ares")]
-fn read_nullable_type(
+fn read_ares_type_ref(
     section: &IniSection,
     key: &str,
     current: &Option<Option<String>>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<Option<String>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(name) = section.read_name(key, 0x800) else {
         return current.clone();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Some(None);
+    match resolve(name) {
+        Some(id) => Some(Some(id)),
+        None if is_native_none_type_name(name) => Some(None),
+        None => current.clone(),
     }
-    resolve(raw).map(Some).or_else(|| current.clone())
 }
 
-/// Ares `ValueableIdx<T>::Read`: absent/unknown retains, present-empty stores
-/// the -1 index (our `Some(None)`), a registered identity stores its name.
-#[cfg(feature = "ares")]
-fn read_valueable_index(
-    section: &IniSection,
-    key: &str,
-    current: &Option<Option<String>>,
-    resolve: impl Fn(&str) -> Option<String>,
-) -> Option<Option<String>> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.clone();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Some(None);
-    }
-    resolve(raw).map(Some).or_else(|| current.clone())
-}
-
-/// Ares `NullableVector<T>::Read`: `<default>` returns to the side fallback,
-/// present-empty replaces with an empty override, and a present list replaces
-/// the previous vector. Unknown references are skipped by the parser.
+/// Ares `NullableVector<T>::Read` (`0x1002EB60`): ReadString(0x800) returning
+/// 0 (absent or empty) retains; `<default>` returns to the getter fallback;
+/// any other value replaces the vector, skipping names that do not resolve.
 #[cfg(feature = "ares")]
 fn read_nullable_type_vector(
     section: &IniSection,
@@ -2728,15 +2873,11 @@ fn read_nullable_type_vector(
     current: Option<&Vec<String>>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<Vec<String>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(value) = section.read_name(key, 0x800) else {
         return current.cloned();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.eq_ignore_ascii_case("<default>") {
+    if value.eq_ignore_ascii_case("<default>") {
         return None;
-    }
-    if raw.is_empty() {
-        return Some(Vec::new());
     }
     Some(
         section
@@ -2748,26 +2889,27 @@ fn read_nullable_type_vector(
     )
 }
 
-/// Ares `NullableVector<int>::Read` over `parse_values<int>`.
+/// Ares `NullableVector<int>::Read` (`0x1002EB00`) over `parse_values<int>`,
+/// with the same retain/`<default>` rules as [`read_nullable_type_vector`].
 #[cfg(feature = "ares")]
 fn read_nullable_int_vector(
     section: &IniSection,
     key: &str,
     current: Option<&Vec<i32>>,
 ) -> Option<Vec<i32>> {
-    let Some(raw) = section.raw_value(key) else {
+    let Some(value) = section.read_name(key, 0x800) else {
         return current.cloned();
     };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.eq_ignore_ascii_case("<default>") {
+    if value.eq_ignore_ascii_case("<default>") {
         return None;
     }
     Some(section.read_ares_int_list(key).unwrap_or_default())
 }
 
-/// `Valueable<T*>::Read` / `ValueableIdx<T>::Read`: a present key replaces the
-/// field with the resolved identity, and a blank or unknown name stores the
-/// empty value that every resolver treats as "defer"; an absent key retains.
+/// Ares `Valueable<T*>`/`ValueableIdx<T>` reads (`0x1000C9C0` through
+/// `0x1000EB20`, `0x1001CC10`): the [`read_ares_type_ref`] rule without a
+/// separate unset state, so a `none` field and a never-set one are both
+/// `None` (the null pointer or -1 index).
 #[cfg(feature = "ares")]
 fn read_valueable_type(
     section: &IniSection,
@@ -2775,15 +2917,12 @@ fn read_valueable_type(
     current: &Option<String>,
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Option<String> {
-    match section.raw_value(key) {
-        Some(raw) => resolve(strtrim_ascii(truncate_native_bytes(raw, 0x800))),
-        None => current.clone(),
-    }
+    read_ares_type_ref(section, key, &current.clone().map(Some), resolve).flatten()
 }
 
-/// `ValueableVector<TechnoTypeClass*>::Read`: a present key replaces the vector
-/// (unknown names drop out) and an empty one clears it; there is no `<default>`
-/// form, so a side/country fallback is expressed by leaving the list empty.
+/// Ares `ValueableVector<TechnoTypeClass*>::Read` (`0x1000EDD0`): ReadString
+/// returning 0 (absent or empty) retains; any other value replaces the
+/// vector with the tokens that resolve. There is no `<default>` form.
 #[cfg(feature = "ares")]
 fn read_valueable_type_vector(
     section: &IniSection,
@@ -2791,50 +2930,19 @@ fn read_valueable_type_vector(
     current: &[String],
     resolve: impl Fn(&str) -> Option<String>,
 ) -> Vec<String> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.to_vec();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Vec::new();
+    match section.read_list(key, 0x800) {
+        Some(tokens) => tokens.into_iter().filter_map(resolve).collect(),
+        None => current.to_vec(),
     }
-    section
-        .read_list(key, 0x800)
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(resolve)
-        .collect()
 }
 
-/// `ValueableVector<int>::Read`, pairing with the type list by index.
+/// Ares `ValueableVector<int>::Read` (`0x1000ED00`), with the same retain
+/// rule as [`read_valueable_type_vector`].
 #[cfg(feature = "ares")]
 fn read_valueable_int_vector(section: &IniSection, key: &str, current: &[i32]) -> Vec<i32> {
-    let Some(raw) = section.raw_value(key) else {
-        return current.to_vec();
-    };
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return Vec::new();
-    }
-    section.read_ares_int_list(key).unwrap_or_default()
-}
-
-/// `ValueableIdx<ColorScheme>`: resolve a `[Colors]` name to its odd runtime
-/// half (`2 * entry + 1`); present-empty stores -1, unknown retains.
-#[cfg(feature = "ares")]
-fn read_message_color_index(pass: &IniFile, raw: &str, current: i32) -> i32 {
-    let raw = strtrim_ascii(truncate_native_bytes(raw, 0x800));
-    if raw.is_empty() {
-        return -1;
-    }
-    let Some(colors) = pass.section("Colors") else {
-        return current;
-    };
-    colors
-        .keys()
-        .position(|name| name.eq_ignore_ascii_case(raw))
-        .and_then(|index| i32::try_from(index).ok())
-        .map_or(current, |index| index.wrapping_mul(2).wrapping_add(1))
+    section
+        .read_ares_int_list(key)
+        .unwrap_or_else(|| current.to_vec())
 }
 
 /// The reached CountryExt reader state needed by the starting-rank chain.
@@ -3643,7 +3751,7 @@ impl RulesTypeFamily {
 /// Resolved names preserve native factory spelling and vector order. These
 /// pointer bindings belong to the retained Rules object, not merged INI text.
 /// Native reader corpus: tools/rules_oracle/select_anim_inputs.
-#[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
 struct SelectAnimRulesState {
     lightning_warhead: String,
     weather_con_bolt_explosion: String,
@@ -3895,8 +4003,19 @@ struct ProcessedType {
     ares_warhead: Option<crate::rules::ares_warhead::AresWarheadRules>,
     emp_type: Option<crate::rules::ares_emp::EmpTypeRules>,
     self_attach_effect: Option<crate::rules::ares_warhead::AttachEffectRules>,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    super_weapon_techno: crate::rules::superweapon_influence::TechnoSuperWeaponRules,
     /// TechnoTypeExt+1FA: ctor1003C9D7 defaults true; read1003EBEF.
     cloak_allowed: bool,
+    /// Ares TypeExt+588/+58C. Constructor1003CED0/6 clears value/presence;
+    /// nullable reader10008CC0 at1003F267 retains both on invalid input.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    turret_rot_override: Option<i32>,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    spotlight: crate::rules::ares_spotlight::SpotlightTypeRules,
     /// ObjectType4753F0 -> Ares10006E10 binds at each reached body read.
     armor_id: ArmorId,
     /// ParticleSystemType+294, the bound ParticleType's index: constructor -1
@@ -3915,7 +4034,15 @@ struct ProcessedType {
     #[cfg(feature = "ares")]
     super_weapon_availability: AresSuperWeaponAvailability,
     #[cfg(feature = "ares")]
+    #[serde(default)]
+    super_weapon_influence: crate::rules::superweapon_influence::SuperWeaponInfluence,
+    #[cfg(feature = "ares")]
     super_weapon_presentation: AresSuperWeaponPresentation,
+    #[cfg(feature = "ares")]
+    super_weapon_targeting: AresSuperWeaponTargetingState,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    super_weapon_charge: AresSuperWeaponCharge,
     /// Phobos `SW.TechLevel`/`SW.AuxTechnos`/`SW.NegTechnos`, read by the same
     /// ordered Process owner as the Ares gates and keyed the same way.
     #[cfg(feature = "phobos")]
@@ -4017,6 +4144,11 @@ pub(crate) struct TechnoTypeReferences {
     /// section +1F8 names (`0x004611F5..0x0046121F`), an OverlayType.
     free_unit: Option<String>,
     to_overlay: Option<String>,
+    /// Ares TechnoTypeExt+618: ctor1003CF4C clears it; reader1003F3F3
+    /// calls1003FA40/1003C650, retaining a common TechnoType pointer.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    convert_script: Option<crate::rules::superweapon_type::DeliveryType>,
 }
 
 impl TechnoTypeReferences {
@@ -4045,6 +4177,8 @@ impl TechnoTypeReferences {
             dead_bodies: Vec::new(),
             free_unit: None,
             to_overlay: None,
+            #[cfg(feature = "ares")]
+            convert_script: None,
         }
     }
 
@@ -4084,6 +4218,8 @@ impl TechnoTypeReferences {
         object.dead_bodies.clone_from(&self.dead_bodies);
         object.free_unit.clone_from(&self.free_unit);
         object.to_overlay.clone_from(&self.to_overlay);
+        #[cfg(feature = "ares")]
+        object.bind_script_conversion(self.convert_script.as_ref());
     }
 }
 
@@ -4331,7 +4467,13 @@ impl ProcessedType {
             ares_warhead: None,
             emp_type: None,
             self_attach_effect: None,
+            #[cfg(feature = "ares")]
+            super_weapon_techno: Default::default(),
             cloak_allowed: true,
+            #[cfg(feature = "ares")]
+            turret_rot_override: None,
+            #[cfg(feature = "ares")]
+            spotlight: Default::default(),
             armor_id: ArmorId::NONE,
             holds_what: None,
             super_weapon_weapon: None,
@@ -4341,7 +4483,13 @@ impl ProcessedType {
             #[cfg(feature = "ares")]
             super_weapon_availability: AresSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
+            super_weapon_influence: Default::default(),
+            #[cfg(feature = "ares")]
             super_weapon_presentation: AresSuperWeaponPresentation::default(),
+            #[cfg(feature = "ares")]
+            super_weapon_targeting: AresSuperWeaponTargetingState::default(),
+            #[cfg(feature = "ares")]
+            super_weapon_charge: AresSuperWeaponCharge::default(),
             #[cfg(feature = "phobos")]
             super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
             #[cfg(feature = "ares")]
@@ -4394,8 +4542,13 @@ fn find_or_construct_type(
     }
     #[cfg(feature = "ares")]
     if family == RulesTypeFamily::Country {
-        members[index].country_veterancy.ares.loading =
+        let ares = &mut members[index].country_veterancy.ares;
+        ares.loading =
             crate::rules::country_loading::AresCountryLoading::for_country_id(&native_stored_id);
+        ares.presentation =
+            crate::rules::ares_country_presentation::AresCountryPresentation::for_country_id(
+                &native_stored_id,
+            );
     }
     #[cfg(feature = "ares")]
     if family == RulesTypeFamily::Building {
@@ -4433,7 +4586,7 @@ fn find_or_construct_type(
     index
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct RulesPassProcessor {
     image_theater: ImageTheater,
     compatibility: RulesCompatibility,
@@ -4928,6 +5081,59 @@ impl RulesPassProcessor {
             }
         }
         Some(resolved)
+    }
+
+    /// Installed Ares Find10007EA0 resolves a nullable TechnoType pointer.
+    /// The common construction array decides equal names across categories.
+    #[cfg(feature = "ares")]
+    fn find_existing_techno_type(
+        &self,
+        name: &str,
+    ) -> Option<crate::rules::superweapon_type::DeliveryType> {
+        let index = ares_type_index_of_name(
+            name,
+            self.techno_type_order
+                .iter()
+                .map(|&(family, index)| self.families[&family][index].native_stored_id.as_str()),
+        )?;
+        let (family, member) = self.techno_type_order[index];
+        Some(crate::rules::superweapon_type::DeliveryType {
+            category: family.object_category().expect("TechnoType array category"),
+            id: self.families[&family][member].native_stored_id.clone(),
+        })
+    }
+
+    /// Ares pointer reader1003C650: ReadString2048, Find10007EA0, then
+    /// none10003950; absent/empty/unknown retains, an explicit none clears.
+    #[cfg(feature = "ares")]
+    fn resolve_existing_techno_type_from(
+        &self,
+        section: &IniSection,
+        key: &str,
+    ) -> Option<Option<crate::rules::superweapon_type::DeliveryType>> {
+        let name = section.read_name(key, 2048)?;
+        if is_native_none_type_name(name) {
+            return Some(None);
+        }
+        self.find_existing_techno_type(name).map(Some)
+    }
+
+    /// Ares ValueableVector<TechnoTypeClass*> 1000EDD0: each token goes
+    /// through the same Find10007EA0; unknown tokens are skipped and a reached
+    /// read replaces the list.
+    #[cfg(feature = "ares")]
+    fn resolve_existing_techno_type_list_from(
+        &self,
+        section: &IniSection,
+        key: &str,
+    ) -> Option<Vec<crate::rules::superweapon_type::TechnoTypeReference>> {
+        Some(
+            section
+                .read_list(key, 2048)?
+                .into_iter()
+                .filter_map(|token| self.find_existing_techno_type(token))
+                .collect(),
+        )
     }
 
     /// Installed Ares Anim pointer Parser1000C9C0/Find1000D3E0: look up
@@ -5438,22 +5644,28 @@ impl RulesPassProcessor {
         #[cfg(feature = "ares")]
         {
             let side_types = SideRegisteredTypes::collect(&self.families);
-            for (array_index, member) in self
-                .family_mut(RulesTypeFamily::Side)
-                .iter_mut()
-                .enumerate()
-            {
-                member
+            let side_count = self
+                .families
+                .get(&RulesTypeFamily::Side)
+                .map_or(0, Vec::len);
+            for array_index in 0..side_count {
+                // Move the extension out so the shared ColorScheme lookup can
+                // read the retained registry; it goes back to the same Side.
+                let member = &mut self.family_mut(RulesTypeFamily::Side)[array_index];
+                let id = member.native_stored_id.clone();
+                let mut side = member
                     .ares_side
-                    .as_mut()
-                    .expect("allocated Side owns its Ares extension")
-                    .read_pass(
-                        &member.native_stored_id,
-                        i32::try_from(array_index).expect("[Sides] exceeds i32 identity space"),
-                        pass,
-                        _fixed_eva,
-                        &side_types,
-                    );
+                    .take()
+                    .expect("allocated Side owns its Ares extension");
+                side.read_pass(
+                    &id,
+                    i32::try_from(array_index).expect("[Sides] exceeds i32 identity space"),
+                    pass,
+                    _fixed_eva,
+                    &side_types,
+                    |name| self.loading_color_index(name),
+                );
+                self.family_mut(RulesTypeFamily::Side)[array_index].ares_side = Some(side);
             }
         }
         // Installed BeforeTypeData679A15 reads ArmorTypes/defaults before
@@ -5598,79 +5810,20 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .loading = loading;
-            let mut presentation = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .presentation
-                .clone();
-            presentation.initialize_stock(index);
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .presentation = presentation;
             self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
                 .ares
                 .phase = 1;
         }
         // GUI1001C770 runs only for the selected primary Rules object and
-        // BEFORE common1001C5D0's one-shot parent copy1001BDC0.
+        // BEFORE common1001C5D0's one-shot parent copy1001BDC0, which
+        // overwrites these loading and presentation fields.
         if primary_rules && let Some(section) = pass.section(&id) {
-            self.family_mut(RulesTypeFamily::Country)[index]
+            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
-                .ares
-                .loading
-                .read_primary(section);
-        }
-        // `HouseTypeExt::LoadFromRulesFile @ 0x1001C530` reads the country's own
-        // paradrop block after the file/status keys: `Parachute.Anim`,
-        // `ParaDrop.Aircraft`, then `ParaDrop.Types` (keeping only InfantryType
-        // and UnitType identities) and `ParaDrop.Num`. Each is Valueable: a key
-        // that is present replaces the field, an absent key retains it.
-        if primary_rules && let Some(section) = pass.section(&id) {
-            let types = SideRegisteredTypes::collect(&self.families);
-            // `AI.PowerPlants=` comes first in the same block; an empty list is
-            // what defers to the per-side `[General]` plant.
-            let current = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .power_plants
-                .clone();
-            let power_plants =
-                read_valueable_type_vector(section, "AI.PowerPlants", &current, |name| {
-                    SideRegisteredTypes::find(&types.buildings, name)
-                });
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .power_plants = power_plants;
-            let current = self.families[&RulesTypeFamily::Country][index]
-                .country_veterancy
-                .ares
-                .paradrop
-                .clone();
-            let mut paradrop = current;
-            paradrop.parachute_anim = read_valueable_type(
-                section,
-                "Parachute.Anim",
-                &paradrop.parachute_anim,
-                |name| SideRegisteredTypes::find(&types.animations, name),
-            );
-            paradrop.aircraft =
-                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
-                    SideRegisteredTypes::find(&types.aircraft, name)
-                });
-            // `remove_non_paradroppables` keeps only InfantryType and UnitType
-            // identities after the vector read.
-            paradrop.types =
-                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
-                    types.techno(name)
-                });
-            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
-            self.family_mut(RulesTypeFamily::Country)[index]
-                .country_veterancy
-                .ares
-                .paradrop = paradrop;
+                .ares;
+            current.loading.read_primary(section);
+            current.presentation.read_primary(section);
         }
         if inherit {
             let inherited = ares_country_index_of_name(
@@ -5702,19 +5855,49 @@ impl RulesPassProcessor {
                 .ares
                 .parent_initialized = true;
         }
-        // The Ares country presentation keys are read after the one-shot
-        // parent copy: a child overrides what it inherits. The file/status
-        // block is primary-Rules only; weights and ListIndex are common.
-        {
-            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
+        // Common1001C5D0's first read after its one-shot parent copy1001BDC0,
+        // on every pass: `AI.PowerPlants`1001C60C, through the same Building
+        // vector reader10010850 as `VeteranBuildings`. An empty list is what
+        // GetPowerplants1001BD20 answers with the side's `[General]` plants.
+        if let Some(resolved) = pass.section(&id).and_then(|section| {
+            self.resolve_existing_list_from(
+                section,
+                "AI.PowerPlants",
+                RulesTypeFamily::Building,
+                0x800,
+            )
+        }) {
+            self.family_mut(RulesTypeFamily::Country)[index]
                 .country_veterancy
-                .ares;
-            if primary_rules && let Some(section) = pass.section(&id) {
-                current.presentation.read_primary(section);
-            }
-            if let Some(section) = pass.section(&id) {
-                current.presentation.read_common(section);
-            }
+                .ares
+                .power_plants = resolved;
+        }
+        // Common1001C5D0 reads the paradrop block on every pass, after its
+        // one-shot parent copy1001BDC0 and before the color: `Parachute.Anim`
+        //1001C620, `ParaDrop.Aircraft`1001C636, `ParaDrop.Types`1001C64C
+        // (then remove_non_paradroppables100768C0 keeps InfantryType and
+        // UnitType identities) and `ParaDrop.Num`1001C670.
+        if let Some(section) = pass.section(&id) {
+            let types = SideRegisteredTypes::collect(&self.families);
+            let paradrop = &mut self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .paradrop;
+            paradrop.parachute_anim = read_valueable_type(
+                section,
+                "Parachute.Anim",
+                &paradrop.parachute_anim,
+                |name| SideRegisteredTypes::find(&types.animations, name),
+            );
+            paradrop.aircraft =
+                read_valueable_type(section, "ParaDrop.Aircraft", &paradrop.aircraft, |name| {
+                    SideRegisteredTypes::find(&types.aircraft, name)
+                });
+            paradrop.types =
+                read_valueable_type_vector(section, "ParaDrop.Types", &paradrop.types, |name| {
+                    types.techno(name)
+                });
+            paradrop.counts = read_valueable_int_vector(section, "ParaDrop.Num", &paradrop.counts);
         }
         // Color1001C686 is common to every pass and follows inheritance.
         if let Some(section) = pass.section(&id) {
@@ -5728,6 +5911,15 @@ impl RulesPassProcessor {
                 .country_veterancy
                 .ares
                 .loading = loading;
+        }
+        // Common weights and ListIndex1001C69C..1001C6D9 follow the color and
+        // override what the parent copy wrote.
+        if let Some(section) = pass.section(&id) {
+            self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares
+                .presentation
+                .read_common(section);
         }
         if let Some(resolved) = pass.section(&id).and_then(|section| {
             self.resolve_existing_list_from(
@@ -5836,15 +6028,58 @@ impl RulesPassProcessor {
                 #[cfg(feature = "ares")]
                 {
                     let animation = self.resolve_existing_anim_from(&raw, "SW.Animation");
+                    // 10033824 -> 1001CC70.
+                    let message_color = raw.read_ares_color_scheme_index(
+                        "Message.Color",
+                        self.families[&RulesTypeFamily::SuperWeapon][index]
+                            .super_weapon_presentation
+                            .messages
+                            .color_scheme(),
+                        |name| self.loading_color_index(name),
+                    );
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_presentation
-                        .read_pass(&raw, animation);
+                        .read_pass(&raw, animation, message_color);
+                    let kind = effective.read_name("Type", 0x28);
+                    let generic_warhead =
+                        kind.is_some_and(|kind| kind.eq_ignore_ascii_case("GenericWarhead"));
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_targeting
+                        .read_pass(
+                            &raw,
+                            kind.map_or(
+                                0,
+                                crate::rules::superweapon_targeting::handler_initial_mode,
+                            ),
+                        );
                     // Same SWTypeExt owner and native read order: controller
                     // flags, Country masks, building vectors, then shot limit.
                     let mut availability = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_availability
                         .clone();
                     availability.read_allowance_pass(&raw);
+                    let designators =
+                        self.resolve_existing_techno_type_list_from(&raw, "SW.Designators");
+                    if let Some(designators) = designators {
+                        self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                            .super_weapon_influence
+                            .designators = designators;
+                    }
+                    let influence = &mut self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_influence;
+                    influence.any_designator =
+                        raw.read_ares_bool("SW.AnyDesignator", influence.any_designator);
+                    let inhibitors =
+                        self.resolve_existing_techno_type_list_from(&raw, "SW.Inhibitors");
+                    if let Some(inhibitors) = inhibitors {
+                        self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                            .super_weapon_influence
+                            .inhibitors = inhibitors;
+                    }
+                    let influence = &mut self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_influence;
+                    influence.any_inhibitor =
+                        raw.read_ares_bool("SW.AnyInhibitor", influence.any_inhibitor);
                     availability.read_house_pass(|key, prior| {
                         raw.read_list(key, 128).map_or(prior, |tokens| {
                             house_type_mask_from_indices(
@@ -5883,10 +6118,11 @@ impl RulesPassProcessor {
                     }
                     availability.read_shots_pass(&raw);
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_charge
+                        .read_pass(&raw);
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_availability = availability;
-                    if effective
-                        .read_name("Type", 0x28)
-                        .is_some_and(|kind| kind.eq_ignore_ascii_case("GenericWarhead"))
+                    if generic_warhead
                         && let Some(warhead) = self.resolve_scalar_from(
                             &raw,
                             "SW.Warhead",
@@ -5958,6 +6194,11 @@ impl RulesPassProcessor {
                 }
                 #[cfg(not(feature = "ares"))]
                 let _ = effective;
+            } else {
+                #[cfg(feature = "ares")]
+                self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                    .super_weapon_targeting
+                    .skip_pass();
             }
             index += 1;
         }
@@ -6168,6 +6409,20 @@ impl RulesPassProcessor {
                         .read_pass(&raw, animation);
                     member.cloak_allowed =
                         raw.read_ares_bool("Cloakable.Allowed", member.cloak_allowed);
+                    member.turret_rot_override =
+                        raw.read_ares_nullable_int("TurretROT", member.turret_rot_override);
+                    //1003E232: the common extension applies to all Technos.
+                    member.building_has_spotlight =
+                        raw.read_ares_bool("HasSpotlight", member.building_has_spotlight);
+                    member.spotlight.read_pass(&raw);
+                    member.super_weapon_techno.read_pass(&raw);
+                }
+                #[cfg(feature = "ares")]
+                if let Some(target) = self.resolve_existing_techno_type_from(&raw, "Convert.Script")
+                {
+                    self.family_mut(family)[index]
+                        .techno_references
+                        .convert_script = target;
                 }
                 match family {
                     RulesTypeFamily::Building => {
@@ -6187,8 +6442,11 @@ impl RulesPassProcessor {
                         let member = &mut self.families.get_mut(&family).unwrap()[index];
                         // ReadINI460F50..460F9C: exact Rules key, ReadCoord529CA0,
                         // current value as default, no clamp or conversion.
-                        member.building_has_spotlight =
-                            raw.read_bool("HasSpotlight", member.building_has_spotlight);
+                        #[cfg(not(feature = "ares"))]
+                        {
+                            member.building_has_spotlight =
+                                raw.read_bool("HasSpotlight", member.building_has_spotlight);
+                        }
                         member.building_light.read_pass(&raw);
                         member.building_extra_power.read_pass(&raw);
                         member

@@ -411,6 +411,29 @@ impl IniSection {
             })
     }
 
+    /// Ares `ValueableIdx<ColorScheme>` 1001CC70: ReadString 2048, then
+    /// `find`, the ColorScheme Find 1001BB30 with shade count 1. A found
+    /// scheme stores its index and `none`/`<none>` (10003950) stores -1;
+    /// anything else, or an absent key, keeps `current`.
+    #[cfg(feature = "ares")]
+    pub(crate) fn read_ares_color_scheme_index(
+        &self,
+        key: &str,
+        current: i32,
+        find: impl Fn(&str) -> Option<i32>,
+    ) -> i32 {
+        let Some(name) = self.read_name(key, 2048) else {
+            return current;
+        };
+        find(name).unwrap_or(
+            if crate::rules::ini_parser::is_native_none_type_name(name) {
+                -1
+            } else {
+                current
+            },
+        )
+    }
+
     /// CCINIClass::ReadEdge475980: ReadString into128 bytes with an empty
     /// default. Empty retains the caller's value; case-insensitive cardinal
     /// names map to0..3 and every other nonempty name returns literal-1.
@@ -483,10 +506,14 @@ impl IniSection {
         })
     }
 
-    /// Ares `Valueable<int>` presence for a `Nullable<int>` reader: absent,
-    /// empty and failed conversions are `None`; a successful scan is the value.
-    pub fn read_ares_int_value(&self, key: &str) -> Option<i32> {
-        self.read_string_with(key, 2048, None, |_, value| parse_ares_int(value))
+    /// Ares Nullable<int>::Read 10008CC0 (SideExt SurvivorDivisor at 1002E59F,
+    /// TechnoTypeExt TurretROT at 1003F267) sets presence only after its
+    /// Valueable<int> read succeeds. Absent, empty and invalid input keep the
+    /// previous value and presence.
+    pub fn read_ares_nullable_int(&self, key: &str, current: Option<i32>) -> Option<i32> {
+        self.read_string_with(key, 2048, current, |previous, value| {
+            parse_ares_int(value).or(previous)
+        })
     }
 
     /// Ares/Phobos `PartialVector2D<int>` (`Utilities/TemplateDef.h`'s

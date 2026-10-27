@@ -30,16 +30,33 @@ const MODE_TWO_DIALOG_ART: [(&str, &str); 4] = [
     ("PUDLGBGY.SHP", "DIALOGY.PAL"),
 ];
 
-/// The four mode-2 dialog backgrounds the paint selects by side: slot 0 is the
-/// no-session art and slots 1..3 take the side-selected one. A side naming both
-/// `DialogBackground.Image=` and `.Palette=` replaces the three side slots with
-/// its pair, exactly as the hook at `0x622223` resumes past the stock selection;
-/// the no-session slot is not patched and keeps `PUDLGBGN`.
-fn mode_two_dialog_art<'a>(side_art: Option<(&'a str, &'a str)>) -> [(&'a str, &'a str); 4] {
-    match side_art {
-        Some(pair) => [MODE_TWO_DIALOG_ART[0], pair, pair, pair],
-        None => MODE_TWO_DIALOG_ART,
-    }
+/// Ares `DialogBackground.Image/.Palette`: `0x1002ECC0` loads the side's image
+/// and palette into two slots at game load, each only from a set name that
+/// loads, and the hook at `0x622223` (body `0x1002FB50`) draws them in place
+/// of the side-selected stock background only while both are non-null. The
+/// entry is labeled by both files, so a pair that reuses a stock SHP name with
+/// another palette keeps its own entry.
+fn render_side_dialog_art(
+    assets: &AssetManager,
+    (image, palette_name): (&str, &str),
+) -> Option<RenderedShellEntry> {
+    let palette = load_named_palette(assets, palette_name)?;
+    let label = format!(
+        "{}#{}",
+        image.to_ascii_lowercase(),
+        palette_name.to_ascii_lowercase()
+    );
+    render_shp_entry_labeled(assets, image, &label, &palette, 0)
+}
+
+/// The atlas label of each mode-2 dialog background slot: the stock art, or
+/// for the three side slots the rendered side pair. The no-session slot 0
+/// (`0x62225F`) is not patched and keeps `PUDLGBGN`.
+fn mode_two_dialog_labels(side_art: Option<&str>) -> [String; 4] {
+    std::array::from_fn(|slot| match side_art {
+        Some(label) if slot > 0 => label.to_owned(),
+        _ => format!("{}#0", MODE_TWO_DIALOG_ART[slot].0.to_ascii_lowercase()),
+    })
 }
 
 fn mode_two_dialog_background_slot(side: Option<SidebarTheme>) -> usize {
@@ -397,7 +414,6 @@ pub fn build_skirmish_shell_chrome_atlas(
     extra_flags: &[String],
     dialog_background: Option<(&str, &str)>,
 ) -> Option<SkirmishShellChromeAtlas> {
-    let dialog_art = mode_two_dialog_art(dialog_background);
     let shell_palette = load_shell_palette(assets)?;
     let shell2_palette = load_named_palette(assets, "SHELL2.PAL")?;
     let sdbtnanm_palette = load_named_palette(assets, "SDBTNANM.PAL");
@@ -490,12 +506,7 @@ pub fn build_skirmish_shell_chrome_atlas(
     }
     // Original loaders 72B060/72B0D0 and getters 72AFF0/72B010/72B030.
     // AssetManager retains the mounted retail winner and the SHP's dimensions.
-    let mut seen_dialog_art: Vec<&str> = Vec::new();
-    for (name, palette_name) in dialog_art {
-        if seen_dialog_art.contains(&name) {
-            continue;
-        }
-        seen_dialog_art.push(name);
+    for (name, palette_name) in MODE_TWO_DIALOG_ART {
         if let Some(palette) = load_named_palette(assets, palette_name) {
             push_optional(
                 &mut rendered,
@@ -514,6 +525,13 @@ pub fn build_skirmish_shell_chrome_atlas(
             );
         }
     }
+    let side_dialog_art = dialog_background
+        .and_then(|pair| render_side_dialog_art(assets, pair))
+        .map(|entry| {
+            let label = entry.label.clone();
+            rendered.push(entry);
+            label
+        });
     rendered.push(mandatory_shp(
         assets,
         "SDMPBTN.SHP",
@@ -742,11 +760,8 @@ pub fn build_skirmish_shell_chrome_atlas(
         wol_setup_icons: WOL_SETUP_PCX_NAMES.map(|name| by_label.get(name).copied()),
         lower_side_640_lwscrns: by_label.get("lwscrns.shp").copied(),
         lower_side_large_lwscrnl: by_label.get("lwscrnl.shp").copied(),
-        mode_two_dialog_backgrounds: dialog_art.map(|(name, _)| {
-            by_label
-                .get(&format!("{}#0", name.to_ascii_lowercase()))
-                .copied()
-        }),
+        mode_two_dialog_backgrounds: mode_two_dialog_labels(side_dialog_art.as_deref())
+            .map(|label| by_label.get(&label).copied()),
         button_up_left_30: by_label.get("bue_li30.pcx").copied(),
         button_up_mid_30: by_label.get("bue_mi30.pcx").copied(),
         button_up_right_30: by_label.get("bue_ri30.pcx").copied(),
@@ -1286,14 +1301,28 @@ mod tests {
     };
     use crate::assets::asset_manager::MediaArchiveMode;
 
+    /// The hook at `0x622223` keeps the stock selection unless both slots of
+    /// the side's pair loaded; a loaded pair takes the three side slots, keyed
+    /// on both files.
     #[test]
-    fn ares_dialog_background_replaces_only_the_side_slots() {
-        let stock = super::mode_two_dialog_art(None);
-        assert_eq!(stock, super::MODE_TWO_DIALOG_ART);
-        let custom = super::mode_two_dialog_art(Some(("mybkg.shp", "mypal.pal")));
-        // The hook at 0x622223 leaves the no-session branch (PUDLGBGN) alone.
-        assert_eq!(custom[0], super::MODE_TWO_DIALOG_ART[0]);
-        assert_eq!(custom[1..], [("mybkg.shp", "mypal.pal"); 3]);
+    fn ares_dialog_background_takes_the_side_slots_only_once_loaded() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let stock = super::mode_two_dialog_labels(None);
+        assert_eq!(stock[1], "pudlgbga.shp#0");
+        for missing in [("NOSUCH.SHP", "DIALOG.PAL"), ("PUDLGBGA.SHP", "NOSUCH.PAL")] {
+            assert!(super::render_side_dialog_art(&assets, missing).is_none());
+        }
+        let side = super::render_side_dialog_art(&assets, ("PUDLGBGA.SHP", "DIALOGY.PAL"))
+            .expect("a stock SHP under another palette renders");
+        let labels = super::mode_two_dialog_labels(Some(&side.label));
+        assert_eq!(labels[0], stock[0]);
+        assert_eq!(
+            labels[1..],
+            [side.label.clone(), side.label.clone(), side.label]
+        );
+        assert_ne!(labels[1], stock[1]);
     }
 
     #[test]

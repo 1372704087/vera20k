@@ -1071,9 +1071,7 @@ impl App {
             .skirmish_shell_state
             .choose_map_modal
             .as_mut()
-            && modal
-                .statics
-                .hover(&text, crate::util::time::Instant::now())
+            && modal.statics.hover(&text, crate::util::time::Instant::now())
         {
             state.platform.window.request_redraw();
         }

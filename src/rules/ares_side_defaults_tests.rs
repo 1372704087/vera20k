@@ -237,26 +237,23 @@ fn process_owner(ini: &str) -> crate::rules::process_owner::NativeRulesProcessOw
 
 #[test]
 fn ares_side_dialog_background_needs_both_files() {
-    let rules = processed(&format!(
+    let owner = process_owner(&format!(
         "{TYPES}{GENERAL}\
          [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
+         [Nod]\nDialogBackground.Image=mybkg.shp\n\
          [Fourth]\n\
          DialogBackground.Image=mybkg.shp\n\
          DialogBackground.Palette=mypal.pal\n"
     ));
     assert_eq!(
-        rules.side_dialog_background(3),
+        owner.side_dialog_background(3),
         Some(("mybkg.shp", "mypal.pal"))
     );
-    // The hook at 0x622223 keeps the stock selection when either slot is null.
-    let image_only = processed(&format!(
-        "{TYPES}{GENERAL}\
-         [Sides]\nGDI=x\nNod=x\nThirdSide=x\nFourth=x\n\
-         [Fourth]\nDialogBackground.Image=mybkg.shp\n"
-    ));
-    assert_eq!(image_only.side_dialog_background(3), None);
+    // 0x1002ECC0 leaves the palette slot null without a name, and the hook at
+    // 0x622223 then keeps the stock selection.
+    assert_eq!(owner.side_dialog_background(1), None);
     // No SideExt for an unallocated side.
-    assert_eq!(rules.side_dialog_background(9), None);
+    assert_eq!(owner.side_dialog_background(9), None);
 }
 
 #[test]

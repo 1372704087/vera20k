@@ -41,7 +41,9 @@ reader also retains `HunterSeeker`; that has no consumer in this chain yet.
 (body `0x1002FB50`) substitutes the side's image and palette for the three
 side-selected backgrounds while both loaded slots are non-null, and resumes at
 `0x62226A`; the no-session branch at `0x62225F` stays `PUDLGBGN.SHP` because the
-hook does not patch it. `GraphicalText.*` is consumed by the
+hook does not patch it. The game-load writer `0x1002ECC0` fills each slot only
+when its name is set and the file loads, so a missing or unloadable file keeps
+the stock selection. `GraphicalText.*` is consumed by the
 victory/defeat banner: `Game_LoadUI_LoadSideData` (`0x1002F4A0`) loads the
 local side's two files into the overlay slots through the writer at
 `0x1002ECC0`, and the draw hook `0x1002FAD0` (patch site `0x6D4E79`) reads each
@@ -102,9 +104,6 @@ same build as `tools/rules_oracle/ares_side_sidebar.py`):
   the three side slots and is dropped when a load resolves a different pair, so
   a side that changes its `DialogBackground.*` between matches rebuilds on the
   next paint. Slot 0 (`PUDLGBGN`) is process art and never rebuilt.
-- A side naming a `DialogBackground.Image` whose SHP or palette fails to load
-  keeps the stock slots; native sees a null slot and returns to the same stock
-  selection.
 - **HunterSeeker** is retained but the Hunter Seeker superweapon launch is
   not ported, so it has no effect.
 - **Vehicle entries in `ParaDrop.Types`** are retained but the passenger

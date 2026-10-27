@@ -8798,25 +8798,6 @@ impl RuleSet {
         ))
     }
 
-    /// `[Side] DialogBackground.Image=` and `.Palette=` (SideExt `+0x238` /
-    /// `+0x258`), which the hook at `0x622223` (body `0x1002FB50`) substitutes
-    /// for the side-selected shell dialog background. Both files must be named:
-    /// the hook returns to the stock selection when either loaded slot is null.
-    pub fn side_dialog_background(&self, side: i32) -> Option<(&str, &str)> {
-        #[cfg(feature = "ares")]
-        {
-            let extension = self.side_extension(side)?;
-            let image = extension.dialog_background_image.as_deref()?;
-            let palette = extension.dialog_background_palette.as_deref()?;
-            return (!image.is_empty() && !palette.is_empty()).then_some((image, palette));
-        }
-        #[cfg(not(feature = "ares"))]
-        {
-            let _ = side;
-            None
-        }
-    }
-
     /// Return the country's effective side after its optional `Side=`
     /// override has superseded `[Sides]` membership.
     pub fn country_side_index(&self, id: &str) -> Option<SideIdx> {

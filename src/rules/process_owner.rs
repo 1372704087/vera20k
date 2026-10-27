@@ -458,32 +458,6 @@ impl NativeRulesProcessOwner {
             .collect()
     }
 
-    /// The live registry's `DialogBackground.Image/.Palette` pair for a side.
-    /// Both must be present: the hook at `0x622223` keeps the stock selection
-    /// when either slot is null.
-    pub fn side_dialog_background(&self, side: i32) -> Option<(&str, &str)> {
-        let state = self
-            .registry
-            .as_ref()
-            .expect("Rules transition reentered")
-            .registry_state();
-        let (_, extension) = state
-            .side_projection()
-            .nth(usize::try_from(side).unwrap_or(usize::MAX))?;
-        #[cfg(feature = "ares")]
-        {
-            let extension = extension?;
-            let image = extension.dialog_background_image.as_deref()?;
-            let palette = extension.dialog_background_palette.as_deref()?;
-            return (!image.is_empty() && !palette.is_empty()).then_some((image, palette));
-        }
-        #[cfg(not(feature = "ares"))]
-        {
-            let _ = extension;
-            None
-        }
-    }
-
     /// The live registry's SideExt for a side index: `None` for a negative or
     /// unallocated side, where the native hooks skip (`Scenario+0x34B8` < 0).
     /// The score shells read it before any match Rules projection exists.
@@ -517,6 +491,17 @@ impl NativeRulesProcessOwner {
             let _ = (side, theme);
             None
         }
+    }
+
+    /// The side's `DialogBackground.Image/.Palette` names for the shell dialog
+    /// chrome ([`AresSideExtension::dialog_background`]), or `None` to keep
+    /// the stock per-side backgrounds: a side with no SideExt, or one that
+    /// leaves either name unset.
+    ///
+    /// [`AresSideExtension::dialog_background`]: crate::rules::ares_side_extension::AresSideExtension::dialog_background
+    #[cfg(feature = "ares")]
+    pub fn side_dialog_background(&self, side: i32) -> Option<(&str, &str)> {
+        self.side_extension(side)?.dialog_background()
     }
 
     /// The side's seven score-screen file names (SideExt `+0x98..+0x158`). A

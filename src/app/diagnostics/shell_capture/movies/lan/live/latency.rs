@@ -26,6 +26,17 @@ struct Action {
     quiet: Option<ActorPresentation>,
     error: Option<&'static str>,
     completion_logged: bool,
+    stop_reaction: StopReaction,
+}
+
+#[derive(Default)]
+struct StopReaction {
+    baseline: Option<ActorPresentation>,
+    no_op: bool,
+    rendered_travel_before: bool,
+    deceleration_frame: Option<u32>,
+    first: Option<ActorPresentation>,
+    criterion: Option<&'static str>,
 }
 
 struct Execution {
@@ -59,6 +70,8 @@ pub(super) struct LatencyCapture {
     recent: std::collections::VecDeque<ProgressPoint>,
     last_sample: Option<ObservationTime>,
     last_present: Option<ObservationTime>,
+    latest_actor_draw: Option<ActorPresentation>,
+    previous_actor_draw: Option<ActorPresentation>,
     maximum_render_interval_us: u64,
     next_issue: Option<crate::util::time::Instant>,
     errors: Vec<String>,
@@ -97,6 +110,11 @@ impl LatencyCapture {
             return;
         }
         let index = self.executions.len();
+        let rendered_before = self
+            .latest_actor_draw
+            .as_ref()
+            .filter(|draw| draw.at.instant < observed.observed_at.instant)
+            .cloned();
         if let Some(action) = self.actions.iter_mut().find(|action| {
             action.execution.is_none()
                 && action.kind == kind
@@ -108,6 +126,25 @@ impl LatencyCapture {
                 action.error = Some("receiver rejected command");
             }
             action.execution = Some(index);
+            if kind == "Stop" {
+                action.stop_reaction.no_op = rendered_before
+                    .as_ref()
+                    .is_some_and(|draw| draw.motion.moving == Some(false))
+                    && observed
+                        .motion
+                        .as_ref()
+                        .is_some_and(|motion| motion.moving == Some(false));
+                action.stop_reaction.rendered_travel_before = rendered_before
+                    .as_ref()
+                    .zip(self.previous_actor_draw.as_ref())
+                    .is_some_and(|(latest, previous)| {
+                        previous.at.instant < latest.at.instant
+                            && previous.frame < latest.frame
+                            && latest.frame.saturating_sub(previous.frame) <= 2
+                            && previous.screen != latest.screen
+                    });
+                action.stop_reaction.baseline = rendered_before;
+            }
         }
         self.executions.push(Execution {
             observed,
@@ -124,6 +161,7 @@ impl LatencyCapture {
             return;
         };
         let execution = &self.executions[index].observed;
+        observe_stop_reaction(&mut action.stop_reaction, execution, &presented);
         if action.response.is_some() || presented.at.instant < execution.observed_at.instant {
             return;
         }
@@ -184,7 +222,15 @@ impl LatencyCapture {
             self.observe_execution(observation);
         }
         if let Some(presented) = state.match_state.match_diagnostics.actor_presentation() {
-            self.observe_presented(presented);
+            self.observe_presented(presented.clone());
+            if self
+                .latest_actor_draw
+                .as_ref()
+                .is_some_and(|last| last.frame < presented.frame)
+            {
+                self.previous_actor_draw = self.latest_actor_draw.clone();
+            }
+            self.latest_actor_draw = Some(presented);
         }
         let sim = &state
             .match_state
@@ -425,6 +471,7 @@ impl LatencyCapture {
             quiet: None,
             error: None,
             completion_logged: false,
+            stop_reaction: StopReaction::default(),
         });
         Ok(())
     }
@@ -443,7 +490,7 @@ impl LatencyCapture {
         json!({"execution_key":{"house":observed.record.house_id(),"opcode":observed.record.opcode(),
             "scheduled_frame":observed.record.frame_stamp(),"actor":observed.actor,"record_hex":record_hex},
             "kind":execution.kind,"target":execution.target,"dispatch":dispatch,
-            "receiver":{"destination":observed.destination,"cell":observed.cell,"mission":observed.mission}})
+            "receiver":{"destination":observed.destination,"cell":observed.cell,"mission":observed.mission,"motion":observed.motion}})
     }
 
     pub(super) fn receipt(&self) -> Value {
@@ -458,11 +505,25 @@ impl LatencyCapture {
             });
             let gpu = action.response.as_ref().and_then(|response| response.gpu_completed_at().map(|at| (at,response.frame)));
             let gpu_ms = gpu.map(|(at,_)|latency(at));
+            let first_stop_response = action.stop_reaction.first.as_ref().map(|first| {
+                let mut submitted = self.timestamp(first.at, first.frame);
+                submitted["motion"] = json!(first.motion);
+                submitted["sampled_from_frame"] = json!(first.sampled_from_frame);
+                json!({"criterion":action.stop_reaction.criterion,"submitted":submitted,
+                    "gpu":first.gpu_completed_at().map(|at|self.timestamp(at,first.frame)),
+                    "submitted_ms":latency(first.at),"gpu_ms":first.gpu_completed_at().map(latency)})
+            });
+            let stop_baseline = action.stop_reaction.baseline.as_ref().map(|draw|json!({
+                "at":self.timestamp(draw.at,draw.frame),"motion":draw.motion}));
             json!({"id":id,"kind":action.kind,"actor":action.actor,"target":action.target,
                 "issue":self.timestamp(action.issue,action.issue_frame),"admission":action.admission,
                 "execution_key":execution.as_ref().map(|value|&value["execution_key"]),
                 "dispatch":execution.as_ref().map(|value|&value["dispatch"]),
                 "submitted_response":submitted,"gpu_response":gpu.map(|(at,frame)|self.timestamp(at,frame)),"error":action.error,
+                "first_stop_response":first_stop_response,"stop_baseline":stop_baseline,
+                "stop_rendered_travel_before":action.stop_reaction.rendered_travel_before,
+                "dispatch_motion":action.execution.and_then(|index|self.executions[index].observed.motion.as_ref()),
+                "stop_response_status":(action.kind=="Stop").then_some(if action.stop_reaction.no_op {"no_op"} else if action.stop_reaction.first.is_some() {"observed"} else {"unproven"}),
                 "latency_ms":{"dispatch":dispatch_ms,"submitted_response":response_ms,"gpu_response":gpu_ms},
                 "exceeds_500ms":{"dispatch":dispatch_ms.map(|ms|ms>500.0),"submitted_response":response_ms.map(|ms|ms>500.0),"gpu_response":gpu_ms.map(|ms|ms>500.0)}})
         }).collect();
@@ -483,7 +544,57 @@ impl LatencyCapture {
             "keep_up":self.samples,"startup_keep_up":self.startup_samples,"peer_round_trip_ms":self.peer_rtt,"peer_round_trip_scope":"one-shot startup peer RTT; 16ms buckets; separate from command latency",
             "validation":{"movement_observed":self.movement_observed,"navigation_clear_at_end":self.navigation_clear_at_end,
                 "last_stop_submitted":self.actions.last().is_some_and(|a|a.kind=="Stop" && a.response.is_some())},
+            "drive_target_fraction":"unavailable through public core getters; drive_destination is the coordinate target",
             "errors":self.errors})
+    }
+}
+
+/// The last actual pre-dispatch draw and the immediate post-dispatch speed
+/// are independent baselines. A lowered logical speed alone is insufficient:
+/// every endpoint contributing to the admitted draw must include that change.
+fn observe_stop_reaction(
+    reaction: &mut StopReaction,
+    execution: &CommandExecutionObservation,
+    draw: &ActorPresentation,
+) {
+    if reaction.no_op
+        || !reaction.rendered_travel_before
+        || reaction.first.is_some()
+        || !execution.applied
+        || draw.at.instant < execution.observed_at.instant
+    {
+        return;
+    }
+    let (Some(before), Some(after)) = (reaction.baseline.as_ref(), execution.motion.as_ref())
+    else {
+        return;
+    };
+    if before.motion.locomotor.as_deref() != Some("Drive")
+        || after.locomotor.as_deref() != Some("Drive")
+        || draw.motion.locomotor.as_deref() != Some("Drive")
+        || after.drive_destination.is_some()
+        || draw.motion.drive_destination.is_some()
+        || before.motion.moving != Some(true)
+    {
+        return;
+    }
+    let speed = draw.motion.applied_fraction;
+    if !speed.is_finite()
+        || speed < 0.0
+        || speed >= before.motion.applied_fraction
+        || speed >= after.applied_fraction
+        || draw.frame <= execution.frame
+    {
+        return;
+    }
+    let first_lowered = *reaction.deceleration_frame.get_or_insert(draw.frame);
+    if draw.sampled_from_frame >= first_lowered {
+        reaction.first = Some(draw.clone());
+        reaction.criterion = Some(if draw.motion.moving == Some(false) {
+            "settled_stop_on_post_deceleration_draw"
+        } else {
+            "lower_applied_speed_with_post_deceleration_endpoints"
+        });
     }
 }
 
@@ -520,6 +631,122 @@ fn action_gpu_complete(action: &Action) -> bool {
 mod tests {
     use super::*;
     use crate::sim::command::{CommandRecord, IDLE_OPCODE};
+
+    fn test_motion(
+        fraction: f64,
+        moving: bool,
+    ) -> crate::app::match_diagnostics::ActorMotionObservation {
+        let mut sim = crate::sim::world::Simulation::new();
+        let owner = sim.intern("Human");
+        let typ = sim.intern("MTNK");
+        let mut entity = crate::sim::game_entity::GameEntity::new_at_frame_zero_for_test(
+            7,
+            10,
+            10,
+            0,
+            0,
+            owner,
+            crate::sim::combat::Health::new(100),
+            typ,
+            crate::map::entities::EntityCategory::Unit,
+            0,
+            5,
+            false,
+        );
+        entity.locomotor = Some(
+            crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+                crate::rules::locomotor_type::LocomotorKind::Drive,
+            ),
+        );
+        let loco = entity.locomotor.as_mut().unwrap();
+        loco.ensure_installed_track_state();
+        loco.store_track_destination(
+            crate::sim::movement::track_process::TrackFamily::Drive,
+            moving.then(|| crate::sim::components::DriveCoord::cell(14, 10, 0)),
+        );
+        entity
+            .foot_speed
+            .set_speed_fraction_native_bits(fraction.to_bits());
+        crate::app::match_diagnostics::ActorMotionObservation::read(&sim, &entity)
+    }
+
+    #[test]
+    fn stop_braking_requires_fresh_speed_drop_and_post_deceleration_draw_endpoints() {
+        let start = ObservationTime::now();
+        let draw = |ms, frame, from, speed| ActorPresentation {
+            at: at(start, ms),
+            frame,
+            screen: [frame as f32, 0.],
+            body: 0,
+            motion: test_motion(speed, false),
+            sampled_from_frame: from,
+            gpu_done: Default::default(),
+        };
+        let mut baseline = draw(100, 10, 9, 0.8);
+        baseline.motion = test_motion(0.8, true);
+        let mut reaction = StopReaction {
+            baseline: Some(baseline),
+            rendered_travel_before: true,
+            ..Default::default()
+        };
+        let mut execution = stop(start, 200, 7, 12);
+        execution.motion = Some(test_motion(0.9, false));
+        observe_stop_reaction(&mut reaction, &execution, &draw(250, 13, 12, 0.9));
+        observe_stop_reaction(&mut reaction, &execution, &draw(270, 14, 13, 0.85));
+        assert!(
+            reaction.first.is_none(),
+            "unchanged speed or only lower than transit speed is insufficient"
+        );
+        observe_stop_reaction(&mut reaction, &execution, &draw(300, 15, 14, 0.7));
+        assert!(
+            reaction.first.is_none(),
+            "the blended prior endpoint predates observed deceleration"
+        );
+        let first = draw(340, 16, 15, 0.7);
+        let completed = first.gpu_done.clone();
+        observe_stop_reaction(&mut reaction, &execution, &first);
+        let observed = reaction.first.as_ref().unwrap();
+        assert_eq!(observed.at.unix_us, at(start, 340).unix_us);
+        assert!(observed.gpu_completed_at().is_none());
+        *completed.lock().unwrap() = Some(at(start, 355));
+        assert_eq!(
+            observed.gpu_completed_at().unwrap().unix_us,
+            at(start, 355).unix_us
+        );
+    }
+
+    #[test]
+    fn stop_at_rest_never_becomes_a_braking_response() {
+        let start = ObservationTime::now();
+        let rest = ActorPresentation {
+            at: start,
+            frame: 10,
+            screen: [0., 0.],
+            body: 0,
+            motion: test_motion(0.0, false),
+            sampled_from_frame: 10,
+            gpu_done: Default::default(),
+        };
+        let mut capture = LatencyCapture {
+            started: Some(start),
+            latest_actor_draw: Some(rest.clone()),
+            ..Default::default()
+        };
+        capture.actions.push(action(start));
+        let mut execution = stop(start, 200, 7, 12);
+        execution.motion = Some(test_motion(0.0, false));
+        capture.observe_execution(execution);
+        assert!(capture.actions[0].stop_reaction.no_op);
+        let mut later = rest;
+        later.frame = 30;
+        later.at = at(start, 500);
+        capture.observe_presented(later);
+        assert!(capture.actions[0].stop_reaction.first.is_none());
+        assert_eq!(
+            capture.receipt()["actions"][0]["stop_response_status"],
+            "no_op"
+        );
+    }
 
     #[test]
     fn warmup_requires_recent_sustainable_cadence_without_backlog_or_recovery() {
@@ -580,6 +807,7 @@ mod tests {
             applied: true,
             actor: Some(actor),
             timing: None,
+            motion: None,
             destination: None,
             cell: Some((10, 10)),
             mission: Some((0, 0)),
@@ -599,6 +827,7 @@ mod tests {
             quiet: None,
             error: None,
             completion_logged: false,
+            stop_reaction: StopReaction::default(),
         }
     }
 
@@ -645,6 +874,8 @@ mod tests {
             frame,
             screen: [x, 0.],
             body: 0,
+            motion: test_motion(0.0, false),
+            sampled_from_frame: frame,
             gpu_done: std::sync::Arc::new(std::sync::Mutex::new(Some(at(start, ms + 10)))),
         };
         capture.observe_presented(presentation(150, 12, 1.));

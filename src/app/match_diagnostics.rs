@@ -53,10 +53,47 @@ pub(crate) struct CommandExecutionObservation {
     pub record: crate::sim::command::CommandRecord,
     pub applied: bool,
     pub actor: Option<u64>,
+    pub motion: Option<ActorMotionObservation>,
     pub timing: Option<CommandTimingObservation>,
     pub destination: Option<crate::sim::components::NavTargetRef>,
     pub cell: Option<(u16, u16)>,
     pub mission: Option<(i32, i32)>,
+}
+
+/// Existing movement owners projected for app diagnostics; no mutable access.
+#[derive(Clone, serde::Serialize)]
+pub(crate) struct ActorMotionObservation {
+    pub actor_type: String,
+    pub locomotor: Option<String>,
+    pub applied_fraction: f64,
+    pub applied_fraction_bits: u64,
+    pub moving: Option<bool>,
+    pub drive_destination: Option<crate::sim::components::DriveCoord>,
+    pub drive_head: Option<crate::sim::components::DriveCoord>,
+}
+impl ActorMotionObservation {
+    pub(crate) fn read(
+        sim: &crate::sim::world::Simulation,
+        entity: &crate::sim::game_entity::GameEntity,
+    ) -> Self {
+        use crate::sim::movement::track_process::TrackFamily;
+        let drive = entity.locomotor.as_ref().filter(|loco| {
+            loco.active_kind() == crate::rules::locomotor_type::LocomotorKind::Drive
+        });
+        let bits = entity.foot_speed.native_applied_fraction().bits();
+        Self {
+            actor_type: sim.interner().resolve(entity.type_ref()).to_owned(),
+            locomotor: entity
+                .locomotor
+                .as_ref()
+                .map(|loco| format!("{:?}", loco.active_kind())),
+            applied_fraction: f64::from_bits(bits),
+            applied_fraction_bits: bits,
+            moving: crate::sim::movement::motion_query::is_moving(entity),
+            drive_destination: drive.and_then(|loco| loco.track_destination(TrackFamily::Drive)),
+            drive_head: drive.and_then(|loco| loco.track_head(TrackFamily::Drive)),
+        }
+    }
 }
 
 /// App-only clocks for measurement. Neither clock enters commands or hashes.
@@ -85,6 +122,8 @@ pub(crate) struct ActorPresentation {
     pub frame: u32,
     pub screen: [f32; 2],
     pub body: u16,
+    pub motion: ActorMotionObservation,
+    pub sampled_from_frame: u32,
     pub gpu_done: GpuCompletion,
 }
 impl ActorPresentation {
@@ -97,7 +136,7 @@ impl ActorPresentation {
 }
 struct ActorPresentationProbe {
     actor: u64,
-    pending: Option<(u32, [f32; 2], u16)>,
+    pending: Option<(u32, [f32; 2], u16, ActorMotionObservation, u32)>,
     submitted: Option<ActorPresentation>,
 }
 pub(crate) struct CommandTimingObservation {
@@ -141,6 +180,7 @@ impl CommandExecutionLog {
             record: record.clone(),
             applied,
             actor,
+            motion: entity.map(|entity| ActorMotionObservation::read(sim, entity)),
             timing: sim
                 .session()
                 .network_command_timing()
@@ -185,25 +225,44 @@ impl MatchDiagnosticsState {
             probe.submitted = None;
         }
     }
-    pub(crate) fn record_actor_draw(&self, actor: u64, frame: u32, screen: [f32; 2], body: u16) {
+    pub(crate) fn record_actor_draw(
+        &self,
+        sim: &crate::sim::world::Simulation,
+        entity: &crate::sim::game_entity::GameEntity,
+        frame: u32,
+        screen: [f32; 2],
+        body: u16,
+        interpolation: &crate::app::presentation::interpolation::RenderInterpolation,
+    ) {
         if let Some(probe) = self.actor_presentation.borrow_mut().as_mut()
-            && probe.actor == actor
+            && probe.actor == entity.stable_id()
         {
-            probe.pending = Some((frame, screen, body));
+            probe.pending = Some((
+                frame,
+                screen,
+                body,
+                ActorMotionObservation::read(sim, entity),
+                interpolation.sampled_from_frame(entity, frame),
+            ));
         }
     }
     pub(crate) fn commit_presentation_observation(&self) -> Option<GpuCompletion> {
         if let Some(probe) = self.actor_presentation.borrow_mut().as_mut() {
-            probe.submitted = probe
-                .pending
-                .take()
-                .map(|(frame, screen, body)| ActorPresentation {
-                    at: ObservationTime::now(),
-                    frame,
-                    screen,
-                    body,
-                    gpu_done: Default::default(),
-                });
+            probe.submitted =
+                probe
+                    .pending
+                    .take()
+                    .map(
+                        |(frame, screen, body, motion, sampled_from_frame)| ActorPresentation {
+                            at: ObservationTime::now(),
+                            frame,
+                            screen,
+                            body,
+                            motion,
+                            sampled_from_frame,
+                            gpu_done: Default::default(),
+                        },
+                    );
             return probe.submitted.as_ref().map(|frame| frame.gpu_done.clone());
         }
         None

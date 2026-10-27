@@ -142,6 +142,7 @@ mod stop_observation_tests {
                 record,
                 applied: true,
                 actor: Some(7),
+                motion: None,
                 timing: None,
                 destination: None,
                 cell: Some((12, 10)),

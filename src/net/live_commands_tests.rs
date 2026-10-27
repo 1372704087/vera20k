@@ -3152,6 +3152,186 @@ fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
 }
 
 #[test]
+fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
+    use crate::net::udp::{
+        OrderingCertificate, RelayTicket,
+        test_support::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key},
+    };
+    use vera20k_relay_protocol::OrderEvent;
+
+    let key = SecretKey::new([31; 32]);
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let std::net::SocketAddr::V4(address) = socket.local_addr().unwrap() else {
+        unreachable!()
+    };
+    let ticket = RelayTicket {
+        room: [27; 16],
+        player: [1; 16],
+        source: 0,
+        generation: 1,
+        expires: 300,
+        nonce: [3; 16],
+    }
+    .sign(&key)
+    .unwrap();
+    let certificate = OrderingCertificate {
+        room: [27; 16],
+        sources_mask: 1,
+        tick_hz: 30,
+        expires: 86_500,
+    }
+    .sign(&key)
+    .unwrap();
+    let mut wire = transport();
+    wire.enable_relay(
+        address,
+        &ticket,
+        *derive_packet_key(&key, &ticket).expose_for_https(),
+        [29; 32],
+    )
+    .unwrap();
+    wire.set_ordering_certificate(certificate.to_vec()).unwrap();
+    let agreement =
+        StartupAgreement::new([(0, 0)], [0], 73, 10, 30, NonZeroU32::new(1).unwrap(), 0).unwrap();
+    let mut session = sequenced::SequencedSession::new(&agreement, &wire, 0).unwrap();
+    let mut relay = RelayServer::new(key, 1);
+    let pump = |wire: &mut LanUdpTransport, relay: &mut RelayServer, now: u32| {
+        wire.service(now >> 4);
+        loop {
+            let mut packet = [0; MAX_DATAGRAM + 1];
+            let (length, std::net::SocketAddr::V4(from)) = (match socket.recv_from(&mut packet) {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            }) else {
+                unreachable!()
+            };
+            for reply in relay
+                .process_at(
+                    from,
+                    &packet[..length],
+                    100 + u64::from(now) / 1000,
+                    u64::from(now),
+                )
+                .unwrap()
+            {
+                socket.send_to(&reply.bytes, reply.endpoint).unwrap();
+            }
+        }
+        wire.service(now >> 4);
+    };
+    let mut now = 16_000;
+    for _ in 0..60 {
+        session.service(&mut wire, now);
+        pump(&mut wire, &mut relay, now);
+        if session.started() {
+            break;
+        }
+        now += 16;
+    }
+    assert!(session.started(), "authenticated ordering startup");
+    let mut sim = Simulation::new();
+    sim.session.set_game_mode(ScenarioGameMode::Wol);
+    assert_eq!(
+        session
+            .poll(
+                &mut wire,
+                &mut sim.network_command_queues(),
+                NetworkQueueContext {
+                    frame: 0,
+                    checksum: 0
+                },
+                now
+            )
+            .unwrap(),
+        NetworkQueuePass::SkipDispatch
+    );
+
+    // The production silence timer withdraws readiness. Retain the same
+    // ordering session and source; its next first-send attempt cannot go out.
+    now += 10_016;
+    wire.service(now >> 4);
+    assert!(!wire.relay_ready());
+    let mut stop = CommandRecord::encode(crate::sim::command::IDLE_OPCODE, 0, 0, &[]).unwrap();
+    crate::sim::command::StopRecord {
+        house_id: 0,
+        frame: 0,
+        entity_id: 7,
+    }
+    .write_into(&mut stop);
+    assert!(sim.issue_local_command(CommandEnvelope::synchronized(stop.clone(), 0)));
+    session
+        .poll(
+            &mut wire,
+            &mut sim.network_command_queues(),
+            NetworkQueueContext {
+                frame: 1,
+                checksum: 0,
+            },
+            now,
+        )
+        .unwrap();
+
+    let recovered_at = now + 16;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !wire.relay_ready() && Instant::now() < deadline {
+        pump(&mut wire, &mut relay, recovered_at);
+        std::thread::yield_now();
+    }
+    assert!(
+        wire.relay_ready(),
+        "same route completed its real challenge"
+    );
+    session.service(&mut wire, recovered_at);
+    pump(&mut wire, &mut relay, recovered_at);
+    let drain_ack = |wire: &mut LanUdpTransport| {
+        let mut acknowledged = false;
+        while let Some(event) = wire.pop_ordering_received() {
+            match event {
+                OrderEvent::Ack { batch_id: 1, .. } => acknowledged = true,
+                OrderEvent::Error { code, .. } => {
+                    panic!("relay rejected immutable batch: {code:?}")
+                }
+                _ => {}
+            }
+        }
+        acknowledged
+    };
+    let mut acknowledged = drain_ack(&mut wire);
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !acknowledged && Instant::now() < deadline {
+        pump(&mut wire, &mut relay, recovered_at);
+        acknowledged = drain_ack(&mut wire);
+        std::thread::yield_now();
+    }
+    assert!(
+        acknowledged,
+        "an unsent batch must not wait for the 100ms retransmission deadline"
+    );
+
+    // Withhold the acceptance from the app owner. The ordinary later retry
+    // must receive another ACK, rather than a ModifiedRetry rejection.
+    session.service(&mut wire, recovered_at + 112);
+    let mut acknowledged = false;
+    let deadline = Instant::now() + Duration::from_secs(2);
+    while !acknowledged && Instant::now() < deadline {
+        pump(&mut wire, &mut relay, recovered_at + 112);
+        acknowledged = drain_ack(&mut wire);
+        std::thread::yield_now();
+    }
+    assert!(
+        acknowledged,
+        "sealed retry retained the accepted ciphertext"
+    );
+    assert_eq!(session.sent_commands(), 0);
+    assert_eq!(
+        sim.network_command_queues().local_records().unwrap(),
+        vec![&stop]
+    );
+}
+
+#[test]
 fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
     use crate::net::udp::{
         OrderingCertificate, RelayTicket, relay_peer_endpoint,

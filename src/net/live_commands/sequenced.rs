@@ -191,9 +191,15 @@ impl SequencedSession {
             let _ = transport.pull_ordering(self.next_sequence);
         }
         for pending in &mut self.submissions {
-            if pending.id > self.accepted_batch && service_due(pending.last_sent, now, 100) {
+            // An unready route or failed local send cannot start the remote
+            // receipt timer. The next service retries the same retained bytes.
+            if pending.id > self.accepted_batch
+                && service_due(pending.last_sent, now, 100)
+                && transport
+                    .submit_ordering(pending.id, &pending.bytes)
+                    .is_ok()
+            {
                 pending.last_sent = Some(now);
-                let _ = transport.submit_ordering(pending.id, &pending.bytes);
             }
         }
         // Network silence is recoverable. Keep the same stream cursor,

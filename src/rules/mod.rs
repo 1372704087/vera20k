@@ -119,6 +119,9 @@
 pub mod airstrike;
 pub mod digital_display;
 pub mod phobos_parallel_ai_queues;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_infantry_deploy_tests.rs"]
+mod phobos_infantry_deploy_tests;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
 #[cfg(feature = "phobos")]

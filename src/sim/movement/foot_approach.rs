@@ -289,6 +289,92 @@ impl Simulation {
         }
         self.approach_foot_target(id, rules, registry, frame_effects)
             .expect("ordinary Foot approach requires valid live map/navigation state");
+        // Phobos `InfantryAutoDeploy`: the hook at 0x00522373 re-enters the
+        // deploy arm after the Foot body, which retail YR only reaches for a
+        // man already in Doing 27..30.
+        #[cfg(feature = "phobos")]
+        self.approach_infantry_auto_deploy(id, rules, registry, frame_effects);
+    }
+
+    /// Phobos `[General]`/`[InfantryType] InfantryAutoDeploy`: the arm at
+    /// `0x00522434`, which retail YR never reaches because the entry test at
+    /// `0x00522352..0x0052236A` admits only Doing 27..30 to `0x00522378`.
+    /// `InfantryClass_ApproachTarget_InfantryAutoDeploy` at `0x00522373`
+    /// replaces the epilogue with a jump back into that arm, so an undeployed
+    /// man takes it after the Foot body has run.
+    ///
+    /// The gates, in native order: a computer house (`0x00522378..0x00522386`),
+    /// `Deployer=`/`DeployFire=` (`+0xEC8`/`+0x6AC`), a non-`AreaFire=`
+    /// weapon in the `DeployFireWeapon=` slot (`+0x6A8`, GetWeapon vt+0x3F8),
+    /// an in-reach CanFireAt on the Target with that slot (`0x005223C3`), and
+    /// the caller's zero no-move argument (`0x00522411`). A moving locomotor
+    /// (`ILocomotion+0x10`) is stopped (`+0x48`; its own `+0x54C` callback
+    /// runs before the flag is written), Infantry `+0x6E4` is then set and one
+    /// Scenario `RandomRanged(0, 2)` is drawn and discarded
+    /// (`0x0052249C..0x005224C1`); a stopped one requests unforced
+    /// `Do_Action(27)` (`0x00522472`).
+    ///
+    /// Not ported: the `Get_MissionControl` call at `0x005224A8` only supplies
+    /// a pointer whose result the arm discards.
+    #[cfg(feature = "phobos")]
+    fn approach_infantry_auto_deploy(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+    ) {
+        let Some(actor) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if actor.category() != EntityCategory::Infantry || actor.infantry_deploy_doing() {
+            return;
+        }
+        let Some(target) = actor.attack_target.target() else {
+            return;
+        };
+        let owner = actor.owner();
+        let Some(object) = self.object_type(actor.type_ref(), rules) else {
+            return;
+        };
+        if self.owner_is_human(owner)
+            || !object.deployer
+            || !object.deploy_fire
+            || !rules.infantry_auto_deploy_for(object)
+        {
+            return;
+        }
+        let slot = object.deploy_fire_weapon;
+        if crate::sim::world::weapon_at_index(self, rules, id, slot)
+            .is_none_or(|weapon| weapon.area_fire)
+        {
+            return;
+        }
+        if !crate::sim::world::can_fire_at(self, rules, id, target, slot, registry) {
+            return;
+        }
+        let moving = crate::sim::movement::motion_query::is_moving(actor).unwrap_or(false);
+        if !moving {
+            if let Err(cause) = self.infantry_do_action(
+                id,
+                super::infantry_action::DO_DEPLOY,
+                false,
+                rules,
+                frame_effects,
+            ) {
+                log::debug!("infantry {id} Approach auto-deploy: {cause}");
+            }
+            return;
+        }
+        if let Err(cause) = self.locomotor_stop_moving(id, rules, registry, frame_effects) {
+            log::debug!("infantry {id} Approach auto-deploy stop: {cause}");
+        }
+        // 0x005224A1 writes the pending-deploy byte AFTER Stop_Moving returns,
+        // so the Stop callback that just ran could not consume it.
+        if let Some(actor) = self.substrate.entities.get_mut(id) {
+            actor.mission_leaf.set_infantry_pending_deploy(1);
+        }
+        let _ = self.scenario_rng.next_range_u32_inclusive(0, 2);
     }
 
     /// The head of Approach ([`Self::approach_target`]) for a Unit

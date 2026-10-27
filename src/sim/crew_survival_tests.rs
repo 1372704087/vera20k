@@ -2292,3 +2292,86 @@ fn ares_fourth_side_crew_and_survivor_defaults_follow_side_extension() {
         4
     );
 }
+
+/// Unit ReceiveDamage737F80..737F92 clears +82 before the low-altitude
+/// Crashable early exit737FB0; Transporter+11C and cargo stay attached.
+#[test]
+fn open_topped_death_clears_rider_flags_before_crashable_exit() {
+    use crate::sim::passenger::{BoardingArm, board_passenger};
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n0=RIDER\n[VehicleTypes]\n0=HULL\n1=INNER\n\
+         [HULL]\nStrength=100\nPassengers=2\nOpenTopped=yes\nCrashable=yes\n\
+         [INNER]\nStrength=100\nPassengers=1\n\
+         [RIDER]\nStrength=100\n",
+    ))
+    .unwrap();
+    let mut sim = sim_with_houses(7);
+    let hull = spawn(&mut sim, &rules, "HULL", "Americans", 10, 10);
+    let rider = spawn(&mut sim, &rules, "RIDER", "Americans", 11, 10);
+    let inner = spawn(&mut sim, &rules, "INNER", "Americans", 12, 10);
+    for (id, arm) in [
+        (rider, BoardingArm::InfantryTransport),
+        (inner, BoardingArm::UnitTransport),
+    ] {
+        assert!(board_passenger(
+            &mut sim,
+            &rules,
+            id,
+            hull,
+            arm,
+            None,
+            Default::default()
+        ));
+        assert_eq!(
+            sim.entities()
+                .get(id)
+                .unwrap()
+                .passenger_role
+                .inside_transport(),
+            Some((hull, true))
+        );
+    }
+    let before = sim.scenario_rng.state();
+    sim.release_dying_unit_passengers(
+        &rules,
+        None,
+        hull,
+        DyingTransport {
+            attacker: None,
+            ignore_defenses: false,
+            selected_by_player: false,
+        },
+        Default::default(),
+    );
+    assert_eq!(sim.scenario_rng.state(), before, "the prefix draws no RNG");
+    assert_eq!(
+        sim.entities()
+            .get(hull)
+            .unwrap()
+            .passenger_role
+            .cargo()
+            .unwrap()
+            .count(),
+        2
+    );
+    for id in [rider, inner] {
+        let passenger = sim.entities().get(id).unwrap();
+        assert_eq!(
+            passenger.passenger_role.inside_transport(),
+            Some((hull, false))
+        );
+        assert!(
+            passenger.lifecycle.in_limbo(),
+            "clearing +82 does not unload"
+        );
+    }
+    assert!(
+        sim.entities()
+            .get(inner)
+            .unwrap()
+            .passenger_role
+            .cargo()
+            .is_some(),
+        "a rider's own hold survives"
+    );
+}

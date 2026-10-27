@@ -559,6 +559,15 @@ pub struct GeneralRules {
     /// speed by it at `0x004DB1F1..0x004DB200` for a `FASTER`-ability holder.
     /// Constructor default UNCHECKED.
     pub veteran_speed: f64,
+    /// Phobos `[General] ProneSpeed.Crawls=` (default 0.67): the multiplier
+    /// `InfantryClass::GetMovementSpeed @ 0x00521D80` applies to a prone
+    /// infantryman whose type has `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_crawls: f64,
+    /// Phobos `[General] ProneSpeed.NoCrawls=` (default 1.5): the same
+    /// multiplier for a prone type without `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_no_crawls: f64,
     /// `[General] VeteranROF=` — `RulesClass+0x690`, read at `0x0066EF61`.
     /// `TechnoClass::GetROF @ 0x006FCFA0` multiplies the jittered reload by it
     /// at `0x006FD136..0x006FD145` for a `ROF`-ability holder. Constructor
@@ -1693,6 +1702,12 @@ pub struct GeneralRules {
     /// building starts only after the held one is placed.
     #[cfg(feature = "phobos")]
     pub building_production_queue: bool,
+    /// Phobos `[General] BuildingTypeSelectable=` (default false): type select
+    /// admits every building, not only the `UndeploysInto=` ones the retail ID
+    /// match admits (`0x00732C61..0x00732C83`). Phobos disables the switch
+    /// without Ares (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
+    #[cfg(all(feature = "phobos", feature = "ares"))]
+    pub building_type_selectable: bool,
     /// Phobos `[General] AIFireSale=` (default true): whether a computer
     /// house on its last legs (`0x004FD879..0x004FD904`, no live
     /// `Factory=` building) sells every building.
@@ -1917,6 +1932,11 @@ pub struct GeneralRules {
     /// Rules+E2C (data+E30), indexed Hard/Normal/Easy by Infantry52155C.
     /// Constructor666932..666961 leaves it empty; stock15,25,100 is authored.
     pub ai_auto_deploy_frame_delay: Vec<i32>,
+    /// Phobos `[General] InfantryAutoDeploy` (`RulesExt`, default false): the
+    /// default for the TechnoType key that re-enables the undeployed
+    /// `Approach_Target` arm at `0x00522434`.
+    #[cfg(feature = "phobos")]
+    pub infantry_auto_deploy: bool,
     /// `[AI] AIForcePredictionFudge=`, the signed DynamicVector at `Rules+0x9A8`
     /// (items `+0x9AC`) indexed Hard/Normal/Easy by the House difficulty:
     /// the percent by which the computer's estimate of its enemy's forces
@@ -2729,6 +2749,8 @@ impl Default for GeneralRules {
             maximum_queued_objects: 5,
             #[cfg(feature = "phobos")]
             building_production_queue: false,
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: false,
             #[cfg(feature = "phobos")]
             ai_fire_sale: true,
             #[cfg(feature = "phobos")]
@@ -2786,6 +2808,10 @@ impl Default for GeneralRules {
             infantry_repair_rate: 0.016,
             repair_step: 5,
             repair_percent: 0.25,
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: 0.67,
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: 1.5,
             // RulesClass constructor 0x0066738F.
             reload_rate: 0.05,
             // PathDelay=.01 min = 0.6 sec = 9 ticks at 15 Hz.
@@ -2793,6 +2819,8 @@ impl Default for GeneralRules {
             // BlockagePathDelay=60 frames (directly in frames, not minutes).
             blockage_path_delay_ticks: 60,
             ai_auto_deploy_frame_delay: Vec::new(),
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: false,
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
             // RulesClass constructor clears PlayerScatter and stores 3 into
@@ -4006,6 +4034,8 @@ impl GeneralRules {
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
             #[cfg(feature = "phobos")]
             building_production_queue: general.read_bool("BuildingProductionQueue", false),
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: general.read_bool("BuildingTypeSelectable", false),
             #[cfg(feature = "phobos")]
             ai_fire_sale: general.read_bool("AIFireSale", true),
             #[cfg(feature = "phobos")]
@@ -4082,6 +4112,12 @@ impl GeneralRules {
             // Repair service scalars below are projected from the ordered
             // native reader; do not reread them from this flattened INI.
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: general
+                .read_phobos_double("ProneSpeed.Crawls", defaults.prone_speed_crawls),
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: general
+                .read_phobos_double("ProneSpeed.NoCrawls", defaults.prone_speed_no_crawls),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
             unit_repair_rate: defaults.unit_repair_rate,
             charge_to_drain_ratio: defaults.charge_to_drain_ratio,
@@ -4095,6 +4131,8 @@ impl GeneralRules {
             ai_auto_deploy_frame_delay: general
                 .read_int_list("AIAutoDeployFrameDelay")
                 .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")
                 .unwrap_or_default(),
@@ -8496,6 +8534,51 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `InfantryAutoDeploy`, resolved the way `InfantryClass::
+    /// Approach_Target`'s hook resolves it: the TechnoType's own value, then
+    /// `[General]`, defaulting to `false` (the retail YR behaviour). `true`
+    /// re-enables the deploy arm at original `0x00522434`.
+    #[cfg(feature = "phobos")]
+    pub fn infantry_auto_deploy_for(&self, ty: &ObjectType) -> bool {
+        ty.infantry_auto_deploy()
+            .unwrap_or(self.general.infantry_auto_deploy)
+    }
+
+    /// Phobos `ProneSpeed`, resolved the way the hook at original `0x00521D94`
+    /// resolves it: the InfantryType's own value, then the global that the
+    /// type's `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub fn prone_speed_for(&self, ty: &ObjectType) -> f64 {
+        ty.prone_speed().unwrap_or(if ty.crawls {
+            self.general.prone_speed_crawls
+        } else {
+            self.general.prone_speed_no_crawls
+        })
+    }
+
+    /// Type-select admission for a structure.
+    ///
+    /// The native ID match (`0x00732C30`) admits a building of a listed type
+    /// when CanBeSelectedNow (vt+0x13C) answers true or its type has
+    /// `UndeploysInto=` (`0x00732C61..0x00732C83`). A building's
+    /// CanBeSelectedNow (`0x00459C00`) first asks `0x00465D40`, true only for
+    /// a 1x1 `UndeploysInto=` type, so retail admits exactly the
+    /// `UndeploysInto=` buildings. Phobos's hook makes `0x00465D40` answer true
+    /// during the ID match under `BuildingTypeSelectable`, with Ares loaded.
+    /// RESIDUAL: with the switch on, native still applies CanBeSelectedNow's
+    /// TechnoClass checks (`0x006FC030`); this admits every building of the
+    /// type.
+    pub fn structure_type_selectable(&self, id: &str) -> bool {
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        {
+            if self.general.building_type_selectable {
+                return true;
+            }
+        }
+        self.object(id)
+            .is_some_and(|object| object.undeploys_into.is_some())
     }
 
     /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or

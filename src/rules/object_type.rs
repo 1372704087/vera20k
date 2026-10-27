@@ -1298,6 +1298,10 @@ pub struct ObjectType {
     pub fraidycat: bool,
     /// `Crawls=yes` from art.ini. Controls the prone movement speed branch.
     pub crawls: bool,
+    /// Phobos `InfantryTypeExt::ProneSpeed`: the prone movement multiplier for
+    /// this type. Unset defers to the `[General]` value `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub(crate) prone_speed: Option<f64>,
     /// InfantryType+E40 signed primary standing frame, art.ini `FireUp=`.
     /// ART ReadInt5246D6 retains this field independently; constructor0.
     pub fire_up_frame: i32,
@@ -1764,6 +1768,12 @@ pub struct ObjectType {
     /// weapon slot a deployed unit fires. Constructor default slot 1
     /// (`0x0071113A`).
     pub deploy_fire_weapon: i32,
+
+    /// Phobos `InfantryTypeExt::InfantryAutoDeploy`: re-enables the undeployed
+    /// `Approach_Target` arm at `0x00522434` for this type. Unset defers to
+    /// `[General] InfantryAutoDeploy`.
+    #[cfg(feature = "phobos")]
+    pub(crate) infantry_auto_deploy: Option<bool>,
 
     /// Maximum number of garrison occupants for CanBeOccupied buildings.
     /// Parsed from `MaxNumberOccupants=N` in rules.ini. Default 0.
@@ -2752,6 +2762,19 @@ impl ObjectType {
         self.is_dropship
     }
 
+    /// Phobos `InfantryTypeExt::InfantryAutoDeploy`, unset when the key is
+    /// absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn infantry_auto_deploy(&self) -> Option<bool> {
+        self.infantry_auto_deploy
+    }
+
+    /// Phobos `InfantryTypeExt::ProneSpeed`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn prone_speed(&self) -> Option<f64> {
+        self.prone_speed
+    }
+
     /// Phobos `AircraftTypeExt::FlyNoWobbles`, unset when the key is absent.
     #[cfg(feature = "phobos")]
     pub(crate) const fn fly_no_wobbles(&self) -> Option<bool> {
@@ -3499,6 +3522,14 @@ impl ObjectType {
             slowdown_distance: section.read_int("SlowdownDistance", 500),
             flight_level: section.read_int("FlightLevel", -1),
             is_dropship: section.read_bool("IsDropship", false),
+            // Phobos holds this in InfantryTypeExt, so only an
+            // `[InfantryTypes]` section carries it.
+            #[cfg(feature = "phobos")]
+            prone_speed: if category == ObjectCategory::Infantry {
+                section.read_phobos_nullable_double("ProneSpeed", None)
+            } else {
+                None
+            },
             // Phobos keeps this in AircraftTypeExt, so a non-aircraft section
             // carries no value even when it repeats the key.
             #[cfg(feature = "phobos")]
@@ -4045,6 +4076,14 @@ impl ObjectType {
             undeploy_delay: section.read_int("UndeployDelay", -1),
             fire_angle: section.read_int("FireAngle", 8),
             deploy_fire_weapon: section.read_int("DeployFireWeapon", 1),
+            // Phobos holds this in InfantryTypeExt, so only an
+            // `[InfantryTypes]` section carries it.
+            #[cfg(feature = "phobos")]
+            infantry_auto_deploy: if category == ObjectCategory::Infantry {
+                section.read_phobos_nullable_bool("InfantryAutoDeploy", None)
+            } else {
+                None
+            },
             max_number_occupants: section.read_int("MaxNumberOccupants", 0).max(0) as u32,
             occupier: section.read_bool("Occupier", false),
             assaulter: section.read_bool("Assaulter", false),

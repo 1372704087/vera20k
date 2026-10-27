@@ -22,6 +22,10 @@ const MAX_FRAME_RECORDS: usize = 4096;
 const SAMPLE_HISTORY: usize = 4096;
 const BATCH_HEADER: usize = 9;
 
+fn service_due(last: Option<u32>, now: u32, interval: i32) -> bool {
+    last.is_none_or(|last| super::probe_due(last, now, interval))
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SequencedError {
     #[error("online command history expired; reconnect to a new match")]
@@ -41,7 +45,6 @@ struct Submission {
     id: u64,
     records: Vec<CommandRecord>,
     bytes: Vec<u8>,
-    acknowledged: bool,
     last_sent: Option<u32>,
 }
 
@@ -70,7 +73,8 @@ pub(super) struct SequencedSession {
     frames: VecDeque<CommittedFrame>,
     last_batch: [u64; 30],
     next_batch: u64,
-    submission: Option<Submission>,
+    accepted_batch: u64,
+    submissions: VecDeque<Submission>,
     sample_sent: Option<u32>,
     // Derived checksum samples from immutable post-Logic contexts, evicted in
     // frame order. Late reports outside this cache are not compared to aliases.
@@ -131,7 +135,8 @@ impl SequencedSession {
             frames: VecDeque::new(),
             last_batch: [0; 30],
             next_batch: 1,
-            submission: None,
+            accepted_batch: 0,
+            submissions: VecDeque::new(),
             sample_sent: None,
             samples: VecDeque::new(),
             current: None,
@@ -178,28 +183,30 @@ impl SequencedSession {
             self.error = Some(error);
             return;
         }
-        if self
-            .last_control
-            .is_none_or(|last| now.wrapping_sub(last) >= if self.started { 16 } else { 125 })
-        {
+        if service_due(self.last_control, now, if self.started { 16 } else { 125 }) {
             self.last_control = Some(now);
             if !self.started {
                 let _ = transport.configure_ordering(self.agreement);
             }
             let _ = transport.pull_ordering(self.next_sequence);
         }
-        if let Some(pending) = &mut self.submission
-            && !pending.acknowledged
-            && pending
-                .last_sent
-                .is_none_or(|last| now.wrapping_sub(last) >= 100)
-        {
-            pending.last_sent = Some(now);
-            let _ = transport.submit_ordering(pending.id, &pending.bytes);
+        for pending in &mut self.submissions {
+            if pending.id > self.accepted_batch && service_due(pending.last_sent, now, 100) {
+                pending.last_sent = Some(now);
+                let _ = transport.submit_ordering(pending.id, &pending.bytes);
+            }
         }
         // Network silence is recoverable. Keep the same stream cursor,
         // unacknowledged bytes and world until the route/lease returns. Neither
         // a timeout nor peer progress may manufacture an EXIT or fail a frame.
+    }
+
+    fn accept_through(&mut self, id: u64) -> Result<(), SequencedError> {
+        if id >= self.next_batch {
+            return Err(SequencedError::InvalidTimeline);
+        }
+        self.accepted_batch = self.accepted_batch.max(id);
+        Ok(())
     }
 
     fn receive(&mut self, event: OrderEvent) -> Result<(), SequencedError> {
@@ -217,11 +224,10 @@ impl SequencedSession {
                 self.head_frame = self.head_frame.max(status.head_frame);
             }
             OrderEvent::Ack { batch_id, .. } => {
-                if let Some(pending) = &mut self.submission
-                    && pending.id == batch_id
-                {
-                    pending.acknowledged = true;
+                if batch_id == 0 {
+                    return Err(SequencedError::InvalidTimeline);
                 }
+                self.accept_through(batch_id)?;
             }
             OrderEvent::Entry(entry) => {
                 let sequence = match &entry {
@@ -231,11 +237,8 @@ impl SequencedSession {
                         batch_id,
                         ..
                     } => {
-                        if *source == self.local_source
-                            && let Some(pending) = &mut self.submission
-                            && pending.id == *batch_id
-                        {
-                            pending.acknowledged = true;
+                        if *source == self.local_source {
+                            self.accept_through(*batch_id)?;
                         }
                         *sequence
                     }
@@ -247,12 +250,28 @@ impl SequencedSession {
                     self.entries.entry(sequence).or_insert(entry);
                 }
             }
-            OrderEvent::Error { code, .. } => match code {
+            OrderEvent::Error { code, expected } => match code {
                 OrderError::NotConfigured => {
                     self.started = false;
                     self.last_control = None;
                 }
                 OrderError::NotStarted | OrderError::Backpressure => {}
+                OrderError::BatchGap => {
+                    let accepted = expected
+                        .checked_sub(1)
+                        .ok_or(SequencedError::InvalidTimeline)?;
+                    // Reordered submissions and retries of older accepted
+                    // IDs both return the relay's next expected ID. Its
+                    // authenticated prefix receipt never moves backwards.
+                    self.accept_through(accepted)?;
+                    if expected > self.accepted_batch {
+                        for pending in &mut self.submissions {
+                            if pending.id >= expected {
+                                pending.last_sent = None;
+                            }
+                        }
+                    }
+                }
                 OrderError::HistoryGap => return Err(SequencedError::HistoryExpired),
                 OrderError::Inactive | OrderError::StorageUnavailable => {
                     return Err(SequencedError::Unavailable);
@@ -397,65 +416,69 @@ impl SequencedSession {
             }
             self.samples.push_back((context.frame, context.checksum));
         }
-        if self
-            .submission
-            .as_ref()
-            .is_some_and(|pending| pending.acknowledged)
+        while self
+            .submissions
+            .front()
+            .is_some_and(|pending| pending.id <= self.accepted_batch)
         {
-            let pending = self.submission.take().unwrap();
+            let pending = self.submissions.pop_front().unwrap();
             queues
                 .commit_local_submission(&pending.records)
                 .map_err(super::CommandExchangeError::from)?;
             self.sent_commands += pending.records.len() as u64;
-            self.next_batch = self
-                .next_batch
-                .checked_add(1)
-                .ok_or(SequencedError::InvalidTimeline)?;
         }
-        if self.submission.is_none()
-            && (queues.local_len() != 0
-                || context.frame % 15 == 0 && self.sample_sent != Some(context.frame))
+        // Unacknowledged records remain the authoritative OutList prefix.
+        // Encode only its not-yet-sealed suffix; do not mirror or requeue it.
+        let sample_due = context.frame % 15 == 0 && self.sample_sent != Some(context.frame);
+        if self.submissions.len()
+            < vera20k_relay_protocol::ClientSession::ORDERING_SUBMISSION_WINDOW
         {
             let records = queues
-                .local_records()
+                .local_records_after(self.submissions.iter().flat_map(|batch| &batch.records))
                 .map_err(super::CommandExchangeError::from)?;
-            if records
-                .iter()
-                .any(|record| !gameplay_opcode(record.opcode()))
-            {
-                return Err(SequencedError::InvalidTimeline.into());
+            if !records.is_empty() || sample_due {
+                if records
+                    .iter()
+                    .any(|record| !gameplay_opcode(record.opcode()))
+                {
+                    return Err(SequencedError::InvalidTimeline.into());
+                }
+                let encoded = EventPacketCodec::default()
+                    .encode_packet(
+                        &records,
+                        FrameInfo {
+                            house_id: self.houses[usize::from(self.local_source)].unwrap(),
+                            event_frame: 0,
+                            checksum: 0,
+                            timing_word: 0,
+                            delay: 0,
+                        },
+                        0,
+                        ORDERING_BATCH_CAPACITY - BATCH_HEADER,
+                    )
+                    .map_err(super::CommandExchangeError::from)?;
+                if !records.is_empty() && encoded.mirrors.is_empty() {
+                    return Err(SequencedError::InvalidTimeline.into());
+                }
+                let mut bytes = Vec::with_capacity(ORDERING_BATCH_CAPACITY);
+                bytes.push(1);
+                bytes.extend(context.frame.to_le_bytes());
+                bytes.extend(context.checksum.to_le_bytes());
+                bytes.extend(encoded.bytes);
+                self.sample_sent = Some(context.frame);
+                let next_batch = self
+                    .next_batch
+                    .checked_add(1)
+                    .ok_or(SequencedError::InvalidTimeline)?;
+                self.submissions.push_back(Submission {
+                    id: self.next_batch,
+                    records: encoded.mirrors,
+                    bytes,
+                    last_sent: None,
+                });
+                self.next_batch = next_batch;
+                self.service(transport, now);
             }
-            let encoded = EventPacketCodec::default()
-                .encode_packet(
-                    &records,
-                    FrameInfo {
-                        house_id: self.houses[usize::from(self.local_source)].unwrap(),
-                        event_frame: 0,
-                        checksum: 0,
-                        timing_word: 0,
-                        delay: 0,
-                    },
-                    0,
-                    ORDERING_BATCH_CAPACITY - BATCH_HEADER,
-                )
-                .map_err(super::CommandExchangeError::from)?;
-            if !records.is_empty() && encoded.mirrors.is_empty() {
-                return Err(SequencedError::InvalidTimeline.into());
-            }
-            let mut bytes = Vec::with_capacity(ORDERING_BATCH_CAPACITY);
-            bytes.push(1);
-            bytes.extend(context.frame.to_le_bytes());
-            bytes.extend(context.checksum.to_le_bytes());
-            bytes.extend(encoded.bytes);
-            self.sample_sent = Some(context.frame);
-            self.submission = Some(Submission {
-                id: self.next_batch,
-                records: encoded.mirrors,
-                bytes,
-                acknowledged: false,
-                last_sent: None,
-            });
-            self.service(transport, now);
         }
         if self
             .frames
@@ -532,4 +555,19 @@ fn decode_batch(
         return Err(SequencedError::InvalidTimeline);
     }
     Ok((records, (sample_frame, checksum)))
+}
+
+#[cfg(test)]
+mod service_clock_tests {
+    use super::service_due;
+
+    #[test]
+    fn retry_deadline_survives_bucket_rounding_and_uptime_wrap() {
+        assert!(service_due(None, 1008, 100));
+        assert!(!service_due(Some(1018), 1008, 100));
+        assert!(!service_due(Some(1018), 1117, 100));
+        assert!(service_due(Some(1018), 1118, 100));
+        assert!(!service_due(Some(u32::MAX - 50), 48, 100));
+        assert!(service_due(Some(u32::MAX - 50), 49, 100));
+    }
 }

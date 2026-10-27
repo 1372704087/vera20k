@@ -595,7 +595,15 @@ impl LiveCommandSession {
                 &mut self.last_service,
                 self.transport.service(now_wall_bucket),
             );
-            let result = session.poll(&mut self.transport, queues, context, now_millis);
+            // Transport-only service receives the same wall bucket. Do not
+            // alternate raw milliseconds with its rounded value: a later
+            // rounded sample can otherwise underflow sequenced retry timers.
+            let result = session.poll(
+                &mut self.transport,
+                queues,
+                context,
+                now_wall_bucket.wrapping_shl(4),
+            );
             self.sequenced_failed = result.is_err();
             return result;
         }

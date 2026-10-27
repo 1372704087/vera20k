@@ -189,15 +189,29 @@ struct SealedBatch {
     id: u64,
     digest: [u8; 32],
     opaque: Vec<u8>,
-    acknowledged: bool,
 }
 
 #[derive(Clone)]
 pub(super) struct ClientOrdering {
     certificate: [u8; ORDERING_CERTIFICATE_LEN],
     agreement: [u8; 32],
-    last: Option<SealedBatch>,
+    // The four most recently sealed batches retain their exact ciphertext.
+    // Accepted entries stay cached until a new batch needs the slot, so a
+    // delayed app-side acceptance receipt can still retry immutable bytes.
+    sealed: VecDeque<SealedBatch>,
+    next_batch: u64,
+    accepted_through: u64,
     leave: Option<(u64, Vec<u8>)>,
+}
+
+impl ClientOrdering {
+    fn accept_through(&mut self, id: u64) -> Result<(), RelayError> {
+        if id >= self.next_batch {
+            return Err(RelayError::Authentication);
+        }
+        self.accepted_through = self.accepted_through.max(id);
+        Ok(())
+    }
 }
 
 fn order_cipher(key: &SecretKey, room: &[u8; 16], source: u8) -> XChaCha20Poly1305 {
@@ -219,6 +233,10 @@ fn order_aad(room: &[u8; 16], source: u8, batch_id: u64) -> [u8; 29] {
 }
 
 impl ClientSession {
+    /// Bounded client pipeline, below the existing relay's eight pending
+    /// batches per source. This changes neither its wire format nor admission.
+    pub const ORDERING_SUBMISSION_WINDOW: usize = 4;
+
     /// Move the current stream cache at hop-lease promotion, after the old
     /// route's last receive/submit. Candidate creation alone is only a snapshot.
     pub fn adopt_ordering_from(&mut self, previous: &mut Self) -> Result<(), RelayError> {
@@ -264,7 +282,9 @@ impl ClientSession {
             self.ordering = Some(ClientOrdering {
                 certificate,
                 agreement,
-                last: None,
+                sealed: VecDeque::new(),
+                next_batch: 1,
+                accepted_through: 0,
                 leave: None,
             });
         }
@@ -274,7 +294,8 @@ impl ClientSession {
         self.encode(CONTROL, BROADCAST, &payload, out)
     }
 
-    /// One in-flight batch, stable ciphertext across retries and hop renewals.
+    /// Consecutive bounded batches, with stable ciphertext across retries and
+    /// hop renewals. Retired IDs can never be sealed again with the same nonce.
     pub fn submit_ordering(
         &mut self,
         batch_id: u64,
@@ -289,25 +310,20 @@ impl ClientSession {
         }
         let ordering = self.ordering.as_mut().ok_or(RelayError::Unregistered)?;
         let digest: [u8; 32] = Sha256::digest(plaintext).into();
-        let same = ordering
-            .last
-            .as_ref()
-            .is_some_and(|last| last.id == batch_id);
-        if same {
-            if ordering.last.as_ref().unwrap().digest != digest {
+        if let Some(batch) = ordering.sealed.iter().find(|batch| batch.id == batch_id) {
+            if batch.digest != digest {
                 return Err(RelayError::Authentication);
             }
         } else {
-            let expected = match &ordering.last {
-                Some(last) if last.acknowledged => {
-                    last.id.checked_add(1).ok_or(RelayError::CounterExhausted)?
-                }
-                Some(_) => return Err(RelayError::Replay),
-                None => 1,
-            };
-            if batch_id != expected {
+            if batch_id != ordering.next_batch {
                 return Err(RelayError::Replay);
             }
+            if batch_id - ordering.accepted_through - 1 >= Self::ORDERING_SUBMISSION_WINDOW as u64 {
+                return Err(RelayError::Full);
+            }
+            let next_batch = batch_id
+                .checked_add(1)
+                .ok_or(RelayError::CounterExhausted)?;
             let mut nonce = [0; 24];
             nonce[..16].copy_from_slice(&self.payload_prefix);
             nonce[16..].copy_from_slice(&batch_id.to_le_bytes());
@@ -322,14 +338,26 @@ impl ClientSession {
                 )
                 .map_err(|_| RelayError::Authentication)?;
             opaque.extend_from_slice(&tag);
-            ordering.last = Some(SealedBatch {
+            if ordering.sealed.len() == Self::ORDERING_SUBMISSION_WINDOW {
+                let oldest = ordering.sealed.front().expect("full sealed batch cache");
+                if oldest.id > ordering.accepted_through {
+                    return Err(RelayError::Full);
+                }
+                ordering.sealed.pop_front();
+            }
+            ordering.sealed.push_back(SealedBatch {
                 id: batch_id,
                 digest,
                 opaque,
-                acknowledged: false,
             });
+            ordering.next_batch = next_batch;
         }
-        let opaque = &ordering.last.as_ref().unwrap().opaque;
+        let opaque = &ordering
+            .sealed
+            .iter()
+            .find(|batch| batch.id == batch_id)
+            .expect("sealed or retained batch")
+            .opaque;
         let mut payload = Vec::with_capacity(9 + opaque.len());
         payload.push(SUBMIT_REQUEST);
         payload.extend_from_slice(&batch_id.to_le_bytes());
@@ -394,13 +422,13 @@ impl ClientSession {
             }),
             (ACK_EVENT, 13) => {
                 let batch_id = read_u64(payload, 1);
-                if let Some(last) = self
-                    .ordering
-                    .as_mut()
-                    .and_then(|ordering| ordering.last.as_mut())
-                    && last.id == batch_id
-                {
-                    last.acknowledged = true;
+                if batch_id == 0 {
+                    return Err(RelayError::Malformed);
+                }
+                if let Some(ordering) = self.ordering.as_mut() {
+                    // The unchanged relay only accepts consecutive IDs, so
+                    // acceptance of this batch also acknowledges its prefix.
+                    ordering.accept_through(batch_id)?;
                 }
                 OrderEvent::Ack {
                     batch_id,
@@ -445,16 +473,17 @@ impl ClientSession {
                 // The canonical batch is also its acceptance receipt. A lost
                 // ACK must not block the next local submission after replay.
                 if source == self.ticket.source
-                    && let Some(last) = self
-                        .ordering
-                        .as_mut()
-                        .and_then(|ordering| ordering.last.as_mut())
-                    && last.id == batch_id
+                    && let Some(ordering) = self.ordering.as_mut()
                 {
-                    if last.opaque != opaque {
+                    if ordering
+                        .sealed
+                        .iter()
+                        .find(|batch| batch.id == batch_id)
+                        .is_some_and(|batch| batch.opaque != opaque)
+                    {
                         return Err(RelayError::Authentication);
                     }
-                    last.acknowledged = true;
+                    ordering.accept_through(batch_id)?;
                 }
                 OrderEvent::Entry(OrderEntry::Batch {
                     sequence: read_u64(payload, 1),
@@ -464,10 +493,17 @@ impl ClientSession {
                     bytes,
                 })
             }
-            (ERROR_EVENT, 10) => OrderEvent::Error {
-                code: OrderError::parse(payload[1])?,
-                expected: read_u64(payload, 2),
-            },
+            (ERROR_EVENT, 10) => {
+                let code = OrderError::parse(payload[1])?;
+                let expected = read_u64(payload, 2);
+                if code == OrderError::BatchGap {
+                    let accepted = expected.checked_sub(1).ok_or(RelayError::Malformed)?;
+                    if let Some(ordering) = self.ordering.as_mut() {
+                        ordering.accept_through(accepted)?;
+                    }
+                }
+                OrderEvent::Error { code, expected }
+            }
             _ => return Err(RelayError::Malformed),
         })
     }
@@ -1528,6 +1564,114 @@ mod tests {
             !room.exists(),
             "explicit-all-left retires only the completed journal"
         );
+    }
+
+    #[test]
+    fn pipelined_batches_recover_reordering_and_lost_ack_without_duplicate_entries() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut sender, mut peer) = (client(&key, 0), client(&key, 1));
+        for client in [&mut sender, &mut peer] {
+            connect(&mut server, client, 0);
+        }
+        let cert = certificate(&key, 3, 1300);
+        configure(&mut server, &mut sender, &cert, 0);
+        configure(&mut server, &mut peer, &cert, 0);
+        let mut bytes = Vec::new();
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        sender.submit_ordering(2, b"move", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Error {
+                code: OrderError::BatchGap,
+                expected: 1
+            }
+        ));
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        let lost_ack = server
+            .process_at(endpoint(&sender), &bytes, 1000, 0)
+            .unwrap();
+        sender.submit_ordering(2, b"move", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Ack { batch_id: 2, .. }
+        ));
+        // A delayed ACK cannot move the accepted prefix backwards.
+        sender.receive(&lost_ack[0].bytes).unwrap();
+        assert_eq!(sender.ordering.as_ref().unwrap().accepted_through, 2);
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Error {
+                code: OrderError::BatchGap,
+                expected: 3
+            }
+        ));
+        server.advance_clock(400, 1000);
+        let batches: Vec<_> = pull(&mut server, &mut peer, 1, 400)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Batch {
+                    batch_id, bytes, ..
+                }) => Some((batch_id, bytes.as_bytes().to_vec())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(batches, [(1, b"checksum".to_vec()), (2, b"move".to_vec())]);
+    }
+
+    #[test]
+    fn full_submission_window_survives_renewal_with_immutable_retry_ciphertext() {
+        let key = SecretKey::new([74; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut sender, mut peer) = (client(&key, 0), client(&key, 1));
+        for client in [&mut sender, &mut peer] {
+            connect(&mut server, client, 0);
+        }
+        let cert = certificate(&key, 3, 1300);
+        configure(&mut server, &mut sender, &cert, 0);
+        configure(&mut server, &mut peer, &cert, 0);
+        let mut bytes = Vec::new();
+        let mut sealed = Vec::new();
+        for id in 1..=4 {
+            sender.submit_ordering(id, &[id as u8], &mut bytes).unwrap();
+            sealed.push(bytes[CLIENT_HEADER..bytes.len() - MAC_LEN].to_vec());
+        }
+        assert_eq!(
+            sender.submit_ordering(5, b"fifth", &mut bytes),
+            Err(RelayError::Full)
+        );
+        assert_eq!(
+            sender.submit_ordering(2, b"changed", &mut bytes),
+            Err(RelayError::Authentication)
+        );
+        renew(&mut server, &mut sender, 1000);
+        let mut final_ack = None;
+        for id in 1..=4 {
+            sender.submit_ordering(id, &[id as u8], &mut bytes).unwrap();
+            assert_eq!(
+                bytes[CLIENT_HEADER..bytes.len() - MAC_LEN],
+                sealed[(id - 1) as usize]
+            );
+            final_ack = Some(
+                server
+                    .process_at(endpoint(&sender), &bytes, 1001, 1000)
+                    .unwrap(),
+            );
+        }
+        // Only the final receipt arrives; strict server admission proves all
+        // four predecessors, and one new slot becomes available immediately.
+        sender.receive(&final_ack.unwrap()[0].bytes).unwrap();
+        sender.submit_ordering(5, b"fifth", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 1000)[0],
+            OrderEvent::Ack { batch_id: 5, .. }
+        ));
+        assert_eq!(
+            sender.submit_ordering(1, b"new old nonce", &mut bytes),
+            Err(RelayError::Replay)
+        );
+        assert_eq!(sender.ordering.as_ref().unwrap().sealed.len(), 4);
     }
 
     #[test]

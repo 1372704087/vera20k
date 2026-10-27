@@ -3150,3 +3150,193 @@ fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
     drop(relay);
     std::fs::remove_dir_all(journal_dir).unwrap();
 }
+
+#[test]
+fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
+    use crate::net::udp::{
+        OrderingCertificate, RelayTicket, relay_peer_endpoint,
+        test_support::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key},
+    };
+    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
+    use std::num::NonZeroU8;
+    let key = SecretKey::new([21; 32]);
+    let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
+    socket.set_nonblocking(true).unwrap();
+    let std::net::SocketAddr::V4(address) = socket.local_addr().unwrap() else {
+        unreachable!()
+    };
+    let mut relay = RelayServer::new(key.clone(), 2);
+    let (first, rules, actor) = stop_scene();
+    let (second, _, _) = stop_scene();
+    let mut worlds = [first, second];
+    for sim in &mut worlds {
+        sim.session.set_game_mode(ScenarioGameMode::Wol);
+        sim.network_command_queues()
+            .install_timing(0, NonZeroU8::new(1).unwrap(), [0, 1]);
+        sim.network_command_queues().configure_sequenced_clock(30);
+    }
+    let certificate = OrderingCertificate {
+        room: [17; 16],
+        sources_mask: 3,
+        tick_hz: 30,
+        expires: 86_500,
+    }
+    .sign(&key)
+    .unwrap();
+    let agreement = StartupAgreement::new(
+        [(0, 0), (1, 1)],
+        [0, 1],
+        73,
+        10,
+        30,
+        NonZeroU32::new(1).unwrap(),
+        worlds[0].state_hash(),
+    )
+    .unwrap();
+    let boundaries: Vec<_> = (0..2u8)
+        .map(|source| {
+            let ticket = RelayTicket {
+                room: [17; 16],
+                player: [source + 1; 16],
+                source,
+                generation: 1,
+                expires: 300,
+                nonce: [source + 3; 16],
+            }
+            .sign(&key)
+            .unwrap();
+            let mut wire = transport();
+            wire.enable_relay(
+                address,
+                &ticket,
+                *derive_packet_key(&key, &ticket).expose_for_https(),
+                [19; 32],
+            )
+            .unwrap();
+            wire.set_ordering_certificate(certificate.to_vec()).unwrap();
+            wire.connections_mut()
+                .add_peer(
+                    i32::from(1 - source),
+                    relay_peer_endpoint(1 - source).unwrap(),
+                )
+                .unwrap();
+            Boundary::new(
+                LiveCommandSession::new(
+                    agreement.clone(),
+                    wire,
+                    source as i8,
+                    73,
+                    NonZeroU32::new(1).unwrap(),
+                    LiveCommandMode::Wol,
+                )
+                .unwrap(),
+            )
+        })
+        .collect();
+    let first_address = boundaries[0].live.borrow().primary_addr().unwrap();
+    let mut hold_receipts = false;
+    let mut issued = false;
+    let mut observed = false;
+    for step in 0..250 {
+        let now_ms = 16_000 + step * 16;
+        // Frame15 emits the normal checksum-only batch. Withhold every
+        // response to this sender, including its canonical acceptance entry.
+        let checksum_already_held = hold_receipts;
+        hold_receipts |= worlds[0].session().binary_frame() >= 15;
+        if checksum_already_held && !issued {
+            let owner = worlds[0].interner.get("Alpha").unwrap();
+            let record = worlds[0]
+                .encode_megamission_record(
+                    owner,
+                    &Command::Move {
+                        entity_id: actor,
+                        target_rx: 42,
+                        target_ry: 42,
+                    },
+                )
+                .unwrap();
+            let tick = worlds[0].session().tick();
+            assert!(worlds[0].issue_local_command(CommandEnvelope::synchronized(record, tick)));
+            issued = true;
+        }
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for boundary in &boundaries {
+            boundary.now.set((now_ms >> 4) as u32);
+            boundary
+                .live
+                .borrow_mut()
+                .service_transport((now_ms >> 4) as u32);
+        }
+        loop {
+            let mut packet = [0; MAX_DATAGRAM + 1];
+            let (length, std::net::SocketAddr::V4(from)) = (match socket.recv_from(&mut packet) {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            }) else {
+                unreachable!()
+            };
+            for forwarded in relay
+                .process_at(
+                    from,
+                    &packet[..length],
+                    100 + (now_ms - 16_000) / 1000,
+                    now_ms,
+                )
+                .unwrap_or_default()
+            {
+                if !hold_receipts || forwarded.endpoint != first_address {
+                    socket
+                        .send_to(&forwarded.bytes, forwarded.endpoint)
+                        .unwrap();
+                }
+            }
+        }
+        for side in 0..2 {
+            production_frame(&mut worlds[side], &rules, &boundaries[side]);
+        }
+        observed = boundaries[1]
+            .applied
+            .borrow()
+            .iter()
+            .any(|(_, record, applied)| {
+                record.opcode() == MEGAMISSION_OPCODE && record.house_id() == 0 && *applied
+            });
+        if observed {
+            break;
+        }
+    }
+    assert!(
+        hold_receipts && issued,
+        "setup did not reach the held checksum: frames={:?}",
+        worlds
+            .iter()
+            .map(|sim| sim.session().binary_frame())
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        observed,
+        "another client must execute the Move while its sender's checksum ACK is withheld"
+    );
+    assert_eq!(
+        boundaries[0].live.borrow().sent_commands(),
+        0,
+        "the sender received no acceptance receipt for either batch"
+    );
+    assert_eq!(
+        worlds[0].network_command_queues().local_len(),
+        1,
+        "unacknowledged input stays in the authoritative OutList"
+    );
+    assert_eq!(
+        boundaries[1]
+            .applied
+            .borrow()
+            .iter()
+            .filter(|(_, record, applied)| record.opcode() == MEGAMISSION_OPCODE
+                && record.house_id() == 0
+                && *applied)
+            .count(),
+        1
+    );
+}

@@ -4389,6 +4389,10 @@ pub struct RuleSet {
     /// `IsDropship` alone disables the Fly wobble.
     #[cfg(feature = "phobos")]
     fly_no_wobbles: Option<bool>,
+    /// Phobos `[AudioVisual] ShowPowerPlantEnhancerRange=`: the rules switch
+    /// for the placement-time enhancer rings.
+    #[cfg(feature = "phobos")]
+    pub power_plant_enhancer: crate::rules::phobos_power_plant_enhancer::PowerPlantEnhancerGlobals,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
@@ -5894,6 +5898,9 @@ impl RuleSet {
             .section("AudioVisual")
             .and_then(|section| section.read_phobos_nullable_bool("FlyNoWobbles", None));
         #[cfg(feature = "phobos")]
+        let power_plant_enhancer =
+            crate::rules::phobos_power_plant_enhancer::PowerPlantEnhancerGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -6193,6 +6200,8 @@ impl RuleSet {
             selection_flash,
             #[cfg(feature = "phobos")]
             fly_no_wobbles,
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer,
             #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
             #[cfg(feature = "ares")]

@@ -2362,6 +2362,33 @@ pub struct ObjectType {
     pub cloak_radius_in_cells: i8,
     /// `CloakGenerator=` — cloak field provider flag used by GetSensorRange.
     pub cloak_generator: bool,
+    /// Phobos `PowerPlantEnhancer.PowerPlants=`: BuildingType IDs this
+    /// building enhances (`ValueableVector<BuildingTypeClass*>`: a present
+    /// value replaces the list, split on `,` without trimming). VERA keeps the
+    /// tokens and matches them case-insensitively, as `BuildingTypeClass::Find`
+    /// does; an unknown name matches nothing.
+    #[cfg(feature = "phobos")]
+    power_plant_enhancer_power_plants: Vec<String>,
+    /// Phobos `PowerPlantEnhancer.Range=` (`Valueable<Leptons>`): cells read
+    /// by `INI_EX::ReadDouble`, then `F2I(cells * 256)`; default 0.
+    #[cfg(feature = "phobos")]
+    power_plant_enhancer_range: i32,
+    /// Phobos `PowerPlantEnhancer.Amount=` (`Valueable<int>`): default 0.
+    #[cfg(feature = "phobos")]
+    power_plant_enhancer_amount: i32,
+    /// Phobos `PowerPlantEnhancer.Factor=` (`Nullable<float>`, constructed
+    /// 1.0): `<default>`, `none` and `<none>` reset it to 0.
+    #[cfg(feature = "phobos")]
+    power_plant_enhancer_factor: f32,
+    /// Phobos `PowerPlantEnhancer.MaxCount=` (`Valueable<int>`): default -1
+    /// (no limit).
+    #[cfg(feature = "phobos")]
+    power_plant_enhancer_max_count: i32,
+    /// Phobos `PowerPlant.DamageFactor=` (`Valueable<double>`): the
+    /// health-scaling factor for a power plant's output, default 1.0 (the
+    /// stock curve).
+    #[cfg(feature = "phobos")]
+    power_plant_damage_factor: f64,
 }
 
 fn native_minutes_to_ticks(value: f64) -> u32 {
@@ -2901,6 +2928,56 @@ impl ObjectType {
 
     pub const fn concentric_radial_indicator(&self) -> bool {
         self.concentric_radial_indicator
+    }
+
+    /// Phobos registers a building as a power plant enhancer only when its
+    /// `PowerPlantEnhancer.PowerPlants` list is non-empty and its `Amount` or
+    /// `Factor` actually changes the output (`src/Ext/Building/Hooks.cpp`:
+    /// Unlimbo `0x441553`, SetOwningHouse `0x449197`).
+    #[cfg(feature = "phobos")]
+    pub fn is_power_plant_enhancer(&self) -> bool {
+        !self.power_plant_enhancer_power_plants.is_empty()
+            && (self.power_plant_enhancer_amount != 0 || self.power_plant_enhancer_factor != 1.0)
+    }
+
+    /// Whether this enhancer's `PowerPlantEnhancer.PowerPlants` list names
+    /// `building_type` (case-insensitive, like `BuildingTypeClass::Find`).
+    #[cfg(feature = "phobos")]
+    pub fn power_plant_enhancer_enhances(&self, building_type: &str) -> bool {
+        self.power_plant_enhancer_power_plants
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(building_type))
+    }
+
+    /// `PowerPlantEnhancer.Range` in leptons (`Valueable<Leptons>`); 0
+    /// disables the ring.
+    #[cfg(feature = "phobos")]
+    pub const fn power_plant_enhancer_range(&self) -> i32 {
+        self.power_plant_enhancer_range
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn power_plant_enhancer_amount(&self) -> i32 {
+        self.power_plant_enhancer_amount
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn power_plant_enhancer_factor(&self) -> f32 {
+        self.power_plant_enhancer_factor
+    }
+
+    /// Signed `PowerPlantEnhancer.MaxCount`; a non-positive value means no
+    /// per-type limit.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn power_plant_enhancer_max_count(&self) -> i32 {
+        self.power_plant_enhancer_max_count
+    }
+
+    /// `PowerPlant.DamageFactor`, the multiplier on the health-driven output
+    /// loss; 1.0 is the stock curve.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn power_plant_damage_factor(&self) -> f64 {
+        self.power_plant_damage_factor
     }
 
     /// Building GetSensorRange4566B0. The caller supplies retained+268 and
@@ -4402,6 +4479,29 @@ impl ObjectType {
             cloak_stop: section.read_bool("CloakStop", false),
             cloak_radius_in_cells: section.read_int("CloakRadiusInCells", 20) as i8,
             cloak_generator: section.read_bool("CloakGenerator", false),
+            // Phobos `BuildingTypeExt::ExtData::LoadFromINIFile` reads these
+            // through INI_EX and its 2048-byte buffer.
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer_power_plants: section
+                .read_list("PowerPlantEnhancer.PowerPlants", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer_range: (section
+                .read_phobos_double("PowerPlantEnhancer.Range", 0.0)
+                * crate::util::lepton::LEPTONS_PER_CELL_I32 as f64)
+                as i32,
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer_amount: section.read_ares_int("PowerPlantEnhancer.Amount", 0),
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer_factor: section
+                .read_phobos_nullable_double("PowerPlantEnhancer.Factor", Some(1.0))
+                .map_or(0.0, |factor| factor as f32),
+            #[cfg(feature = "phobos")]
+            power_plant_enhancer_max_count: section
+                .read_ares_int("PowerPlantEnhancer.MaxCount", -1),
+            #[cfg(feature = "phobos")]
+            power_plant_damage_factor: section.read_phobos_double("PowerPlant.DamageFactor", 1.0),
         }
     }
 }

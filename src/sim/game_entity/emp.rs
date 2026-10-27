@@ -26,6 +26,10 @@ impl GameEntity {
     pub(crate) fn emp_remaining(&self) -> i32 {
         self.emp.remaining
     }
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_emp_remaining_for_test(&mut self, remaining: i32) {
+        self.emp.remaining = remaining;
+    }
     pub(crate) fn emp_sparkle(&self) -> Option<u64> {
         self.emp.sparkle
     }

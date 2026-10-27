@@ -132,6 +132,8 @@ pub mod phobos_pause_menu;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
 #[cfg(feature = "phobos")]
+pub mod phobos_power_plant_enhancer;
+#[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;

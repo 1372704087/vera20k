@@ -119,6 +119,10 @@ pub(crate) struct MatchPresentationState {
     /// applied to the active-game shell's background rectangle.
     #[cfg(feature = "phobos")]
     pub(crate) center_pause_menu_background: bool,
+    /// Phobos `[Phobos] ShowPowerPlantEnhancerRange` (source default false):
+    /// the client half of the placement-time enhancer ring switch.
+    #[cfg(feature = "phobos")]
+    pub(crate) show_power_plant_enhancer_range: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

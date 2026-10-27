@@ -33,8 +33,17 @@ and `SelectClass::Action`'s busy structure check is skipped at `0x6AB689`
 
 - The computer's base planner still requests one building at a time; the
   switch does not add new AI planning or queue depth.
-- Queued building cameos use the existing generic queue state; no new strip
-  painting is added.
+- Queued building cameos use the existing generic queue count. The badge's
+  factory lookup resolves a structure's Factory only under Phobos'
+  `StripClass_DrawStrip_FindFactoryDehardCode @ 0x006A9C54`, which is
+  unconditional, so `shows_queue_badge` opens the Building/Defense categories
+  for the `phobos` feature rather than for this switch.
+- Whether a lone placement-ready structure (nothing else queued) draws `1`
+  there is not demonstrated against a Phobos capture; the count comes from the
+  existing projection, which includes the held product.
+- Right-click removes the strip's current product, not one queued copy: Phobos
+  rewrites `HouseClass::AbandonProduction @ 0x04FAAD8` to call
+  `FactoryClass::RemoveOneFromQueue` first, and that rewrite is not ported.
 - Shift-Click batching for buildings is VERA's convenience, not native
   behavior; it remains governed by `[VERA] ShiftQueue=` and
   `[General] MaximumQueuedObjects=`.

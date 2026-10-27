@@ -1702,6 +1702,12 @@ pub struct GeneralRules {
     /// building starts only after the held one is placed.
     #[cfg(feature = "phobos")]
     pub building_production_queue: bool,
+    /// Phobos `[General] BuildingTypeSelectable=` (default false): type select
+    /// admits every building, not only the `UndeploysInto=` ones the retail ID
+    /// match admits (`0x00732C61..0x00732C83`). Phobos disables the switch
+    /// without Ares (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
+    #[cfg(all(feature = "phobos", feature = "ares"))]
+    pub building_type_selectable: bool,
     /// Phobos `[General] AIFireSale=` (default true): whether a computer
     /// house on its last legs (`0x004FD879..0x004FD904`, no live
     /// `Factory=` building) sells every building.
@@ -2738,6 +2744,8 @@ impl Default for GeneralRules {
             maximum_queued_objects: 5,
             #[cfg(feature = "phobos")]
             building_production_queue: false,
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: false,
             #[cfg(feature = "phobos")]
             ai_fire_sale: true,
             #[cfg(feature = "phobos")]
@@ -4019,6 +4027,8 @@ impl GeneralRules {
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
             #[cfg(feature = "phobos")]
             building_production_queue: general.read_bool("BuildingProductionQueue", false),
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: general.read_bool("BuildingTypeSelectable", false),
             #[cfg(feature = "phobos")]
             ai_fire_sale: general.read_bool("AIFireSale", true),
             #[cfg(feature = "phobos")]
@@ -4328,6 +4338,11 @@ pub struct RuleSet {
     /// superweapon sidebar.
     #[cfg(feature = "phobos")]
     pub sw_sidebar: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals,
+    /// Phobos `[AudioVisual] FlyNoWobbles=`: the default a TechnoType's own
+    /// `FlyNoWobbles` overrides. `None` keeps the retail rule, where
+    /// `IsDropship` alone disables the Fly wobble.
+    #[cfg(feature = "phobos")]
+    fly_no_wobbles: Option<bool>,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
@@ -5786,6 +5801,10 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let sw_sidebar = crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let fly_no_wobbles = ini
+            .section("AudioVisual")
+            .and_then(|section| section.read_phobos_nullable_bool("FlyNoWobbles", None));
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -6081,6 +6100,8 @@ impl RuleSet {
             side_gdi_positions,
             #[cfg(feature = "phobos")]
             sw_sidebar,
+            #[cfg(feature = "phobos")]
+            fly_no_wobbles,
             #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
             #[cfg(feature = "ares")]
@@ -8509,6 +8530,29 @@ impl RuleSet {
         })
     }
 
+    /// Type-select admission for a structure.
+    ///
+    /// The native ID match (`0x00732C30`) admits a building of a listed type
+    /// when CanBeSelectedNow (vt+0x13C) answers true or its type has
+    /// `UndeploysInto=` (`0x00732C61..0x00732C83`). A building's
+    /// CanBeSelectedNow (`0x00459C00`) first asks `0x00465D40`, true only for
+    /// a 1x1 `UndeploysInto=` type, so retail admits exactly the
+    /// `UndeploysInto=` buildings. Phobos's hook makes `0x00465D40` answer true
+    /// during the ID match under `BuildingTypeSelectable`, with Ares loaded.
+    /// RESIDUAL: with the switch on, native still applies CanBeSelectedNow's
+    /// TechnoClass checks (`0x006FC030`); this admits every building of the
+    /// type.
+    pub fn structure_type_selectable(&self, id: &str) -> bool {
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        {
+            if self.general.building_type_selectable {
+                return true;
+            }
+        }
+        self.object(id)
+            .is_some_and(|object| object.undeploys_into.is_some())
+    }
+
     /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or
     /// out-of-range side falls back to the first-side default (index 0 true).
     #[cfg(feature = "phobos")]
@@ -8517,6 +8561,19 @@ impl RuleSet {
             .ok()
             .and_then(|index| self.side_gdi_positions.get(index).copied())
             .unwrap_or(index == 0)
+    }
+
+    /// Phobos `FlyNoWobbles`, resolved the way the hook at original `0x4CF8B1`
+    /// resolves it: the TechnoType's own value, then `[AudioVisual]`, then the
+    /// retail rule that branch reads in an unmodified game (`IsDropship`).
+    /// `true` skips the `FlyLocomotionClass::Draw_Point` wobble.
+    #[cfg(feature = "phobos")]
+    pub fn fly_no_wobbles_for(&self, ty: &ObjectType) -> bool {
+        crate::rules::phobos_fly_wobble::resolve(
+            ty.fly_no_wobbles(),
+            self.fly_no_wobbles,
+            ty.is_dropship(),
+        )
     }
 
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` for a native side index.

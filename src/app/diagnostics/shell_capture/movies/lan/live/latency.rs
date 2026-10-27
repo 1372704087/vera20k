@@ -297,7 +297,9 @@ impl LatencyCapture {
                     .push("prepared latency camera/zoom/viewport changed".into());
             }
             if self.warmup_started.is_none() && prepared.ready() {
-                self.warmup_started = Some(now);
+                // The asynchronous completion may arrive after this step's
+                // initial timestamp. Read the clock after observing it.
+                self.warmup_started = Some(ObservationTime::now());
                 self.start_frame = frame;
                 self.recent.clear();
                 self.last_sample = None;
@@ -337,12 +339,13 @@ impl LatencyCapture {
         self.maximum_render_interval_us =
             self.maximum_render_interval_us.max(interval.unwrap_or(0));
         self.last_present = Some(now);
-        if self.last_sample.is_none_or(|last| {
+        let sample_updated = self.last_sample.is_none_or(|last| {
             now.instant
                 .saturating_duration_since(last.instant)
                 .as_millis()
                 >= 250
-        }) {
+        });
+        if sample_updated {
             let mut sample = self.timestamp(now, frame);
             sample["fps"] = json!(fps);
             sample["committed_frontier"] = json!(frontier);
@@ -385,20 +388,20 @@ impl LatencyCapture {
                 .saturating_duration_since(start.instant)
                 .as_millis() as u64
         });
-        if self.warmup.is_none() && warmup_elapsed.is_some_and(|elapsed| elapsed >= WARMUP_MS) {
+        if self.warmup.is_none()
+            && let Some((keeping_up, recent_fps, window_ms)) = warmup_elapsed
+                .and_then(|elapsed| warmup_decision(&self.recent, elapsed, sample_updated))
+        {
             let elapsed = warmup_elapsed.unwrap();
-            let (keeping_up, recent_fps, window_ms) = stable_window(&self.recent);
             let keeping_up = keeping_up && self.errors.is_empty();
-            if keeping_up || elapsed >= WARMUP_LIMIT_MS {
-                self.warmup = Some(json!({"minimum_ms":WARMUP_MS,"maximum_ms":WARMUP_LIMIT_MS,
+            self.warmup = Some(json!({"minimum_ms":WARMUP_MS,"maximum_ms":WARMUP_LIMIT_MS,
                     "elapsed_ms":elapsed,"passed":keeping_up,"frames_advanced":frame.saturating_sub(self.start_frame),
                     "maximum_render_gap_us":MAX_RENDER_GAP_US,
                     "recent_maximum_render_gap_us":self.recent.iter().map(|point|point.maximum_render_interval_us).max(),
                     "recent_window_ms":window_ms,"recent_fps":recent_fps,"fps":fps,
                     "frontier_gap":frontier.saturating_sub(frame),"recovery":format!("{recovery:?}")}));
-                if !keeping_up {
-                    self.errors.push("prepared view did not sustain negotiated cadence, low backlog, and render gaps <=100ms for two seconds within 30000ms".into());
-                }
+            if !keeping_up {
+                self.errors.push("prepared view did not sustain negotiated cadence, low backlog, and render gaps <=100ms for two seconds within 30000ms".into());
             }
         } else if self.warmup.is_none()
             && self.warmup_started.is_none()
@@ -694,6 +697,22 @@ fn observe_stop_reaction(
 
 /// A catch-up burst is not sustainable cadence. Require a full recent window,
 /// negotiated rate in both directions, and no reported backlog/recovery sample.
+fn warmup_decision(
+    points: &std::collections::VecDeque<ProgressPoint>,
+    elapsed_ms: u64,
+    sample_updated: bool,
+) -> Option<(bool, Option<f64>, u64)> {
+    let timed_out = elapsed_ms >= WARMUP_LIMIT_MS;
+    if elapsed_ms < WARMUP_MS || (!sample_updated && !timed_out) {
+        return None;
+    }
+    let (steady, fps, window_ms) = stable_window(points);
+    // Only a newly sampled window contains this draw's gap and current
+    // frontier/recovery state. A deadline still terminates a stale window.
+    let ready = sample_updated && steady;
+    (ready || timed_out).then_some((ready, fps, window_ms))
+}
+
 fn stable_window(points: &std::collections::VecDeque<ProgressPoint>) -> (bool, Option<f64>, u64) {
     let (Some(first), Some(last)) = (points.front(), points.back()) else {
         return (false, None, 0);
@@ -880,6 +899,41 @@ mod tests {
         assert!(view.ready());
         view.maintained = false;
         assert!(!view.ready(), "changed camera invalidates preparation");
+    }
+
+    #[test]
+    fn warmup_does_not_pass_on_stale_samples_between_render_gaps() {
+        let start = crate::util::time::Instant::now();
+        let mut points = std::collections::VecDeque::from([
+            ProgressPoint {
+                at: start,
+                frame: 100,
+                fps: Some(45),
+                backlog: 0,
+                recovering: false,
+                maximum_render_interval_us: 22_222,
+            },
+            ProgressPoint {
+                at: start + std::time::Duration::from_secs(2),
+                frame: 190,
+                fps: Some(45),
+                backlog: 0,
+                recovering: false,
+                maximum_render_interval_us: 22_222,
+            },
+        ]);
+        assert!(
+            warmup_decision(&points, 5_020, false).is_none(),
+            "a new draw gap is not yet represented by the old good samples"
+        );
+        points[1].maximum_render_interval_us = 130_000;
+        assert!(warmup_decision(&points, 5_050, true).is_none());
+        points[1].maximum_render_interval_us = 22_222;
+        assert!(warmup_decision(&points, 5_050, true).unwrap().0);
+        assert!(
+            !warmup_decision(&points, 30_000, false).unwrap().0,
+            "the deadline ends an unsampled interval without calling it ready"
+        );
     }
 
     #[test]

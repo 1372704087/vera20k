@@ -559,6 +559,15 @@ pub struct GeneralRules {
     /// speed by it at `0x004DB1F1..0x004DB200` for a `FASTER`-ability holder.
     /// Constructor default UNCHECKED.
     pub veteran_speed: f64,
+    /// Phobos `[General] ProneSpeed.Crawls=` (default 0.67): the multiplier
+    /// `InfantryClass::GetMovementSpeed @ 0x00521D80` applies to a prone
+    /// infantryman whose type has `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_crawls: f64,
+    /// Phobos `[General] ProneSpeed.NoCrawls=` (default 1.5): the same
+    /// multiplier for a prone type without `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_no_crawls: f64,
     /// `[General] VeteranROF=` — `RulesClass+0x690`, read at `0x0066EF61`.
     /// `TechnoClass::GetROF @ 0x006FCFA0` multiplies the jittered reload by it
     /// at `0x006FD136..0x006FD145` for a `ROF`-ability holder. Constructor
@@ -2794,6 +2803,10 @@ impl Default for GeneralRules {
             infantry_repair_rate: 0.016,
             repair_step: 5,
             repair_percent: 0.25,
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: 0.67,
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: 1.5,
             // RulesClass constructor 0x0066738F.
             reload_rate: 0.05,
             // PathDelay=.01 min = 0.6 sec = 9 ticks at 15 Hz.
@@ -4092,6 +4105,12 @@ impl GeneralRules {
             // Repair service scalars below are projected from the ordered
             // native reader; do not reread them from this flattened INI.
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: general
+                .read_phobos_double("ProneSpeed.Crawls", defaults.prone_speed_crawls),
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: general
+                .read_phobos_double("ProneSpeed.NoCrawls", defaults.prone_speed_no_crawls),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
             unit_repair_rate: defaults.unit_repair_rate,
             charge_to_drain_ratio: defaults.charge_to_drain_ratio,
@@ -8497,6 +8516,18 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `ProneSpeed`, resolved the way the hook at original `0x00521D94`
+    /// resolves it: the InfantryType's own value, then the global that the
+    /// type's `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub fn prone_speed_for(&self, ty: &ObjectType) -> f64 {
+        ty.prone_speed().unwrap_or(if ty.crawls {
+            self.general.prone_speed_crawls
+        } else {
+            self.general.prone_speed_no_crawls
+        })
     }
 
     /// Type-select admission for a structure.

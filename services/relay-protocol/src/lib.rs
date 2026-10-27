@@ -615,8 +615,12 @@ struct RateBudget {
 
 impl RateBudget {
     fn permits(&self, now: u64, amount: u64, limit: u64) -> bool {
+        amount <= self.remaining(now, limit)
+    }
+
+    fn remaining(&self, now: u64, limit: u64) -> u64 {
         let spent = if self.second == now { self.spent } else { 0 };
-        amount <= limit.saturating_sub(spent)
+        limit.saturating_sub(spent)
     }
 
     fn charge(&mut self, now: u64, amount: u64) {
@@ -679,6 +683,7 @@ pub struct RelayServer {
     handshakes: RateBudget,
     outgoing: RateBudget,
     order_packets: RateBudget,
+    repeat_packets: RateBudget,
     last_pruned: u64,
     push_after: Option<([u8; 16], u8)>,
     journal_directory: Option<journal::JournalDirectory>,
@@ -696,6 +701,7 @@ impl RelayServer {
             handshakes: RateBudget::default(),
             outgoing: RateBudget::default(),
             order_packets: RateBudget::default(),
+            repeat_packets: RateBudget::default(),
             last_pruned: 0,
             push_after: None,
             journal_directory: None,

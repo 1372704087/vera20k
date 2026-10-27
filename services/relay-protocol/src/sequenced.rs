@@ -38,6 +38,14 @@ const PUSH_PEER_PACKETS: usize = 8;
 const PUSH_ROOM_PACKETS: usize = 32;
 const PUSH_DRAIN_PACKETS: usize = 128;
 const PUSH_DRAIN_BYTES: usize = 96 * 1024;
+// A reader sees a lost push only at a later entry, then repairs it a round
+// trip later. Unacknowledged entries are pushed once more when the oldest one
+// still owed a copy is this old: past a back-to-back drop and inside the
+// reader's one-frame gap grace.
+const PUSH_REPEAT_MS: u64 = 8;
+// Repeats per second relay-wide. They spend no fresh budget, so they add at
+// most one room's packet budget to the relay's ordering output.
+const PUSH_REPEAT_PACKETS: u64 = 8192;
 pub(super) const LEAVE_REQUEST: u8 = 3;
 const READY_EVENT: u8 = 0;
 const STATUS_EVENT: u8 = 1;
@@ -631,6 +639,10 @@ fn ack(batch_id: u64, frame: u32) -> Vec<Vec<u8>> {
 pub(super) struct PushSubscription {
     acknowledged_next: u64,
     sent_next: u64,
+    // Entries before this were pushed twice or acknowledged.
+    repeat_next: u64,
+    // When the oldest entry still owed a second push was first sent.
+    unrepeated_since: Option<u64>,
     refreshed_at: u64,
     status_at: u64,
     status_state: (bool, u32),
@@ -1097,14 +1109,18 @@ impl OrderingRoom {
                 (OrderError::StorageUnavailable, self.next_seq)
             })
         } else {
-            Ok(self
-                .history
-                .iter()
-                .skip((cursor - self.hot_oldest_seq()) as usize)
-                .take(limit)
-                .map(|entry| entry.bytes.clone())
-                .collect())
+            Ok(self.hot_page(cursor, limit))
         }
+    }
+
+    /// Committed bytes from `cursor` on, which must still be in RAM.
+    fn hot_page(&self, cursor: u64, limit: usize) -> Vec<Vec<u8>> {
+        self.history
+            .iter()
+            .skip((cursor - self.hot_oldest_seq()) as usize)
+            .take(limit)
+            .map(|entry| entry.bytes.clone())
+            .collect()
     }
 
     fn push_status_state(&self, now_ms: u64) -> (bool, u32) {
@@ -1832,6 +1848,95 @@ mod tests {
                     })
                 )),
             "the unchanged bounded Pull recovers the dropped entry"
+        );
+    }
+
+    #[test]
+    fn push_repeats_unacknowledged_entries_once_after_a_short_delay() {
+        fn frame_ends(reader: &mut ClientSession, packets: Vec<ForwardDatagram>) -> Vec<u64> {
+            packets
+                .into_iter()
+                .filter_map(|packet| match reader.receive(&packet.bytes).unwrap() {
+                    ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::FrameEnd {
+                        sequence,
+                        ..
+                    })) => Some(sequence),
+                    _ => None,
+                })
+                .collect()
+        }
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut reader, mut other) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut reader, &mut other] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        subscribe(&mut server, &mut reader, true, 1, 0);
+        server.advance_clock(350, unix(350));
+        let mut first = server.drain_ordering_push(350, unix(350));
+        let lost = first.pop().unwrap();
+        assert_eq!(lost.bytes[SERVER_HEADER], FRAME_END_EVENT);
+        assert_eq!(frame_ends(&mut reader, first), [1, 2, 3, 4, 5]);
+        // Requests advance the clock, and frame 7 is due only at 355.6 ms.
+        subscribe(&mut server, &mut reader, true, 5, 351);
+        assert!(server.drain_ordering_push(357, unix(357)).is_empty());
+        assert_eq!(
+            frame_ends(&mut reader, server.drain_ordering_push(358, unix(358))),
+            [5, 6],
+            "unacknowledged entries return without a reader request"
+        );
+        assert!(
+            server.drain_ordering_push(400, unix(400)).is_empty(),
+            "each entry is repeated once"
+        );
+    }
+
+    #[test]
+    fn repeats_take_only_what_fresh_pushes_leave() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut readers: Vec<_> = (0..5).map(|source| client(&key, source)).collect();
+        let cert = certificate(&key, 31, 1400);
+        for reader in &mut readers {
+            connect(&mut server, reader, 0);
+            configure(&mut server, reader, &cert, 0);
+            subscribe(&mut server, reader, true, 1, 0);
+        }
+        // Every reader holds frames 1-7, due for a repeat when frame 8 commits.
+        // A fresh entry plus seven repeats fill one reader's pass share, so
+        // four readers could otherwise take the room's whole pass.
+        server.advance_clock(360, unix(360));
+        while !server.drain_ordering_push(360, unix(360)).is_empty() {}
+        server.advance_clock(380, unix(380));
+        let spent = server.rooms[&[5; 16]].order_packets.spent;
+        let packets = server.drain_ordering_push(380, unix(380));
+        assert_eq!(packets.len(), PUSH_ROOM_PACKETS);
+        let fresh = packets
+            .iter()
+            .filter(|packet| {
+                let reader = readers
+                    .iter_mut()
+                    .find(|reader| endpoint(reader) == packet.endpoint)
+                    .unwrap();
+                matches!(
+                    reader.receive(&packet.bytes),
+                    Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                        OrderEntry::FrameEnd { sequence: 8, .. }
+                    )))
+                )
+            })
+            .count();
+        assert_eq!(
+            fresh,
+            readers.len(),
+            "repeats never take a fresh entry's place"
+        );
+        assert_eq!(
+            server.rooms[&[5; 16]].order_packets.spent - spent,
+            5,
+            "repeats spend no fresh budget"
         );
     }
 
@@ -3125,6 +3230,8 @@ impl RelayServer {
                     let push = peer.push.get_or_insert(PushSubscription {
                         acknowledged_next: cursor,
                         sent_next: cursor,
+                        repeat_next: cursor,
+                        unrepeated_since: None,
                         refreshed_at: now_ms,
                         status_at: now_ms,
                         status_state: state,
@@ -3179,6 +3286,9 @@ impl RelayServer {
         let mut output = Vec::new();
         let mut output_bytes = 0;
         let mut room_packets = HashMap::new();
+        // Each reader reached, with its stream end before this pass and the
+        // fresh packets it was sent.
+        let mut reached = Vec::new();
         for (id, source) in recipients {
             if output.len() == PUSH_DRAIN_PACKETS || output_bytes >= PUSH_DRAIN_BYTES {
                 break;
@@ -3199,6 +3309,7 @@ impl RelayServer {
                 .expect("listed peer");
             let ticket = peer.ticket;
             let push = peer.push.expect("listed subscription");
+            reached.push((id, ticket, push.sent_next, 0));
             let ordering = room.ordering.as_mut().expect("subscribed ordering room");
             let state = ordering.push_status_state(now_ms);
             let status_due = state != push.status_state
@@ -3234,6 +3345,9 @@ impl RelayServer {
             let Ok(datagrams) = self.ordering_reply(ticket, replies, now) else {
                 continue;
             };
+            if let Some((.., fresh)) = reached.last_mut() {
+                *fresh = datagrams.len();
+            }
             *room_packets.entry(id).or_insert(0) += datagrams.len();
             output_bytes += bytes;
             output.extend(datagrams);
@@ -3248,11 +3362,75 @@ impl RelayServer {
             if terminal {
                 peer.push = None;
             } else if let Some(push) = peer.push.as_mut() {
+                // With no older entry owed a copy, this pass starts the delay.
+                if entries > 0 && push.repeat_next.max(push.acknowledged_next) >= push.sent_next {
+                    push.unrepeated_since = Some(now_ms);
+                }
                 push.sent_next += entries as u64;
                 if status_due {
                     push.status_at = now_ms;
                     push.status_state = state;
                 }
+            }
+        }
+        // Fresh delivery has priority. Repeats then use only what this pass
+        // has left and a budget of their own, checked before any history is
+        // copied, so they never delay or rate-limit a fresh entry or a request
+        // reply. They copy entries sent before this pass, which the reader
+        // holds or lost, so they take no credit; a reader replaying the
+        // journal repairs its own losses.
+        for (id, ticket, before, fresh) in reached {
+            if output.len() == PUSH_DRAIN_PACKETS || output_bytes >= PUSH_DRAIN_BYTES {
+                break;
+            }
+            let room_used = *room_packets.get(&id).unwrap_or(&0);
+            let room = self.rooms.get_mut(&id).expect("listed room");
+            let Some(peer) = room.peers.iter_mut().find(|peer| peer.ticket == ticket) else {
+                continue;
+            };
+            let (Some(push), Some(ordering)) = (peer.push, room.ordering.as_ref()) else {
+                continue;
+            };
+            if push
+                .unrepeated_since
+                .is_none_or(|at| now_ms.saturating_sub(at) < PUSH_REPEAT_MS)
+            {
+                continue;
+            }
+            let from = push
+                .repeat_next
+                .max(push.acknowledged_next)
+                .max(ordering.hot_oldest_seq());
+            let capacity = (PUSH_PEER_PACKETS - fresh)
+                .min(PUSH_ROOM_PACKETS - room_used)
+                .min(PUSH_DRAIN_PACKETS - output.len());
+            let count = before
+                .saturating_sub(from)
+                .min(capacity as u64)
+                .min(self.repeat_packets.remaining(now, PUSH_REPEAT_PACKETS));
+            let mut repeated = 0;
+            if count > 0 {
+                for payload in ordering.hot_page(from, count as usize) {
+                    let bytes = SERVER_HEADER + MAC_LEN + payload.len();
+                    if output_bytes + bytes > PUSH_DRAIN_BYTES {
+                        break;
+                    }
+                    let Ok(datagram) = server_packet(peer, CONTROL, ticket.source, &payload) else {
+                        break;
+                    };
+                    output_bytes += bytes;
+                    output.push(datagram);
+                    repeated += 1;
+                }
+            }
+            self.repeat_packets.charge(now, repeated);
+            *room_packets.entry(id).or_insert(0) += repeated as usize;
+            let push = peer.push.as_mut().expect("subscribed reader");
+            push.repeat_next = from + repeated;
+            // Once every entry sent before this pass went twice, this pass's
+            // entries start the next wait.
+            if push.repeat_next >= before {
+                push.unrepeated_since = (push.sent_next > before).then_some(now_ms);
             }
         }
         output

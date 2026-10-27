@@ -131,6 +131,7 @@ pub(super) struct SequencedSession {
     push: PushDelivery,
     last_push_control: Option<u32>,
     push_watermark: u64,
+    push_confirmations: u64,
     remote_next_sequence: u64,
     repair_gap_since: Option<u32>,
     pause: CanonicalPause,
@@ -206,6 +207,7 @@ impl SequencedSession {
             push: PushDelivery::Probing { attempts: 0 },
             last_push_control: None,
             push_watermark: 1,
+            push_confirmations: 0,
             remote_next_sequence: 1,
             repair_gap_since: None,
             pause: CanonicalPause::default(),
@@ -397,18 +399,28 @@ impl SequencedSession {
                             // Old relays reject unknown controls. Keep their
                             // established pull path after a bounded handshake.
                             self.push = PushDelivery::PullOnly;
-                        } else if transport
-                            .set_ordering_push(true, self.next_sequence)
-                            .is_ok()
-                        {
-                            *attempts += 1;
-                            self.last_push_control = Some(now);
-                            self.push_watermark = self.next_sequence;
+                        } else {
+                            let confirmations = transport.relay_confirmations();
+                            if transport
+                                .set_ordering_push(true, self.next_sequence)
+                                .is_ok()
+                            {
+                                *attempts += 1;
+                                self.last_push_control = Some(now);
+                                self.push_watermark = self.next_sequence;
+                                self.push_confirmations = confirmations;
+                            }
                         }
                     }
                 }
                 PushDelivery::Active => {
-                    if (self.next_sequence.saturating_sub(self.push_watermark) >= 32
+                    // RelayServer::confirm starts a renewed lease or a new path
+                    // without the old subscription. Re-subscribe on any READY
+                    // rather than up to a watermark interval later; after a
+                    // keepalive READY that is only an early watermark.
+                    let confirmations = transport.relay_confirmations();
+                    if (confirmations != self.push_confirmations
+                        || self.next_sequence.saturating_sub(self.push_watermark) >= 32
                         || service_due(self.last_push_control, now, PUSH_WATERMARK_INTERVAL_MS))
                         && transport
                             .set_ordering_push(true, self.next_sequence)
@@ -416,6 +428,7 @@ impl SequencedSession {
                     {
                         self.last_push_control = Some(now);
                         self.push_watermark = self.next_sequence;
+                        self.push_confirmations = confirmations;
                     }
                 }
                 PushDelivery::PullOnly => {}

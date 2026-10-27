@@ -11,12 +11,14 @@ fn inspection_lists_required_failures_and_keeps_later_readable_archives() {
 
     let (assets, issues) =
         AssetManager::inspect_install(directory.path(), MediaArchiveMode::STOCK_DIGITAL).unwrap();
+    // Missing MOVMD03 falls through to MOVIES03 in mount_startup_movie_media;
+    // the required failure names that final attempted fallback archive.
     assert_eq!(
         issues
             .iter()
             .map(|issue| issue.name.as_str())
             .collect::<Vec<_>>(),
-        ["cachemd.mix", "cameo.mix", "mapsmd03.mix", "movmd03.mix"]
+        ["cachemd.mix", "cameo.mix", "mapsmd03.mix", "movies03.mix"]
     );
     assert!(issues.iter().all(|issue| issue.required));
     assert!(issues[1].detail.contains("Invalid MIX archive"));

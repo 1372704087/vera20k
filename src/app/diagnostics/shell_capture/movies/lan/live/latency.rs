@@ -193,6 +193,8 @@ impl PreparedView {
 #[derive(Default)]
 pub(super) struct LatencyCapture {
     started: Option<ObservationTime>,
+    render_deferral_start: u64,
+    render_deferred_passes: u64,
     start_frame: u32,
     warmup: Option<Value>,
     prepared: Option<PreparedView>,
@@ -343,6 +345,7 @@ impl LatencyCapture {
         let frame = sim.session().binary_frame();
         if self.started.is_none() {
             self.started = Some(now);
+            self.render_deferral_start = state.platform.frame_pacer.total_render_deferrals();
             self.start_frame = frame;
             state
                 .match_state
@@ -374,6 +377,11 @@ impl LatencyCapture {
             .instant
             .saturating_duration_since(self.started.unwrap().instant)
             .as_millis() as u64;
+        self.render_deferred_passes = state
+            .platform
+            .frame_pacer
+            .total_render_deferrals()
+            .saturating_sub(self.render_deferral_start);
         for observation in state
             .match_state
             .match_diagnostics
@@ -466,6 +474,7 @@ impl LatencyCapture {
             sample["recovery"] = json!(format!("{recovery:?}"));
             sample["render_interval_us"] = json!(interval);
             sample["maximum_render_interval_us"] = json!(self.maximum_render_interval_us);
+            sample["render_deferred_passes"] = json!(self.render_deferred_passes);
             sample["pending_local_commands"] = json!(sim.pending_local_command_count());
             sample["pending_synchronized_commands"] =
                 json!(sim.synchronized_network_command_count());
@@ -646,8 +655,12 @@ impl LatencyCapture {
     fn issue(&mut self, state: &mut AppState, kind: &'static str, frame: u32) -> Result<()> {
         let actor = self.actor.context("prepared latency actor")?;
         let (actor, target, input) = if kind == "Move" {
-            let (target, at) =
-                battle::latency_move_with_mouse(state, actor, self.actions.len() / 2)?;
+            let (target, at) = battle::latency_move_with_mouse(
+                state,
+                actor,
+                self.origin.context("prepared latency origin")?,
+                self.actions.len() / 2,
+            )?;
             (actor, Some(target), at)
         } else {
             (
@@ -749,6 +762,7 @@ impl LatencyCapture {
         let complete = completed_pairs == TARGET_PAIRS && self.errors.is_empty();
         let preparation = self.prepared.as_ref().map(|prepared| json!({
             "mode":"fixed_view_selected_actor", "actor":self.actor,"origin":self.origin,
+            "waypoint_policy":"six-cell offsets from the initial actor origin; only visible legal goals",
             "selected_at":self.timestamp(prepared.at,prepared.frame),
             "camera":prepared.camera,"zoom":prepared.zoom,"viewport":prepared.viewport,
             "fixed_view_maintained":prepared.maintained,
@@ -771,6 +785,7 @@ impl LatencyCapture {
             "criterion":"at least three translating admitted Drive draws on distinct recent logical frames; unchanged applied fraction >=0.5 for 100ms; latest draw <=100ms old; consecutive frame gaps <=2"
         })).collect();
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
+            "render_deferred_passes":self.render_deferred_passes,
             "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"incomplete"} else {"sampling"},
             "limitation":"submitted admitted Unit draw-plan geometry; GPU callback is a completion upper bound, not monitor scanout; remote observations are dispatch only",
             "clock":{"unix_unit":"microseconds","mono_unit":"microseconds since this round observer began","remote_requires_calibration":true},

@@ -3007,6 +3007,7 @@ pub(super) fn prepare_latency_view(state: &mut AppState) -> Result<(u64, (u16, u
 pub(super) fn latency_move_with_mouse(
     state: &mut AppState,
     actor: u64,
+    origin: (u16, u16),
     direction: usize,
 ) -> Result<((u16, u16), LatencyInput)> {
     ensure!(
@@ -3020,6 +3021,10 @@ pub(super) fn latency_move_with_mouse(
         .context("latency actor disappeared")?;
     let from = (entity.position.rx(), entity.position.ry());
     let owner_name = local_owner(state)?;
+    let input = &state.match_state.input;
+    let camera = (input.camera_x, input.camera_y);
+    let zoom = input.zoom_level;
+    let viewport = crate::app::input::camera::tactical_viewport_px(state);
     let offsets = [(6, 0), (-6, 0), (0, 6), (0, -6)];
     let to = offsets
         .into_iter()
@@ -3027,10 +3032,9 @@ pub(super) fn latency_move_with_mouse(
         .skip(direction % 4)
         .take(4)
         .find_map(|(dx, dy)| {
-            let desired = (
-                u16::try_from(i32::from(from.0) + dx).ok()?,
-                u16::try_from(i32::from(from.1) + dy).ok()?,
-            );
+            // Offsets from the partially stopped actor made this route drift
+            // out of view. The prepared origin keeps every waypoint bounded.
+            let desired = latency_waypoint(origin, (dx, dy))?;
             legal_move_cell(state, actor, desired)
                 .ok()
                 .filter(|cell| *cell != from)
@@ -3039,15 +3043,17 @@ pub(super) fn latency_move_with_mouse(
                         .resolved_terrain()
                         .and_then(|terrain| terrain.cell(cell.0, cell.1))
                         .is_some_and(|terrain| {
-                            empty_ground_point(
-                                crate::app::input::entity_pick::presented(state, sim),
-                                crate::app::input::camera::cell_centre_world_point(
-                                    cell.0,
-                                    cell.1,
-                                    terrain.level,
-                                ),
-                                &owner_name,
-                            )
+                            let world = crate::app::input::camera::cell_centre_world_point(
+                                cell.0,
+                                cell.1,
+                                terrain.level,
+                            );
+                            fixed_view_cursor(world, camera, zoom, viewport).is_ok()
+                                && empty_ground_point(
+                                    crate::app::input::entity_pick::presented(state, sim),
+                                    world,
+                                    &owner_name,
+                                )
                         })
                 })
         })
@@ -3075,6 +3081,13 @@ pub(super) fn latency_move_with_mouse(
         Some(to),
     )?;
     Ok((to, LatencyInput { at, admission }))
+}
+
+fn latency_waypoint(origin: (u16, u16), offset: (i32, i32)) -> Option<(u16, u16)> {
+    Some((
+        u16::try_from(i32::from(origin.0) + offset.0).ok()?,
+        u16::try_from(i32::from(origin.1) + offset.1).ok()?,
+    ))
 }
 
 /// The bounded live-network input for maps with preplaced mobile units. It uses
@@ -3698,6 +3711,14 @@ mod identity_tests {
     use super::*;
     use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
     use crate::sim::house_state::HouseState;
+
+    #[test]
+    fn latency_waypoints_stay_anchored_and_do_not_wrap_at_map_edges() {
+        let origin = (52, 97);
+        assert_eq!(latency_waypoint(origin, (6, 0)), Some((58, 97)));
+        assert_eq!(latency_waypoint(origin, (-6, 0)), Some((46, 97)));
+        assert_eq!(latency_waypoint((3, 97), (-6, 0)), None);
+    }
 
     #[test]
     fn latency_fixed_view_projects_inside_and_rejects_offscreen_targets() {

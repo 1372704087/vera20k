@@ -2514,6 +2514,30 @@ impl ShellCaptureSession {
             .saturating_add(MAX_CAPTURE_FRAMES)
     }
 
+    fn is_online_latency(&self) -> bool {
+        self.request
+            .live_online
+            .as_ref()
+            .is_some_and(|config| config.latency)
+    }
+
+    fn check_capture_budget(&self, elapsed: Duration) -> Result<()> {
+        // Latency uses the ordinary immediate redraw cadence: render count
+        // no longer estimates wall time. Its existing wall deadline remains
+        // mandatory even if a fast GPU produces many more than 125 draws/sec.
+        let max_frames = self.max_capture_frames();
+        ensure!(
+            self.is_online_latency() || self.frames_seen <= max_frames,
+            "shell capture exceeded {max_frames} frames"
+        );
+        ensure!(
+            elapsed <= self.timeout(),
+            "shell capture timed out after {} seconds",
+            self.timeout().as_secs()
+        );
+        Ok(())
+    }
+
     fn steady_ready(&self, state: &AppState) -> Result<bool> {
         if let Some(capture) = &self.movies {
             return capture.ready(state);
@@ -2535,12 +2559,7 @@ impl ShellCaptureSession {
         state: &mut AppState,
         rendered: PresentedShell,
     ) -> Result<()> {
-        if self
-            .request
-            .live_online
-            .as_ref()
-            .is_some_and(|config| config.latency)
-        {
+        if self.is_online_latency() {
             ensure!(
                 (
                     state.renderer.gpu.config.width,
@@ -2600,16 +2619,7 @@ impl ShellCaptureSession {
             .started_at
             .context("shell capture was not initialized")?;
         self.frames_seen = self.frames_seen.saturating_add(1);
-        let max_frames = self.max_capture_frames();
-        ensure!(
-            self.frames_seen <= max_frames,
-            "shell capture exceeded {max_frames} frames"
-        );
-        ensure!(
-            started_at.elapsed() <= self.timeout(),
-            "shell capture timed out after {} seconds",
-            self.timeout().as_secs()
-        );
+        self.check_capture_budget(started_at.elapsed())?;
 
         if self.is_entry_sequence() {
             return Ok(false);
@@ -2773,7 +2783,15 @@ impl ShellCaptureSession {
     }
 
     pub(crate) fn next_wake_deadline(&self) -> Instant {
-        Instant::now() + CAPTURE_FRAME_INTERVAL
+        self.next_wake_deadline_at(Instant::now())
+    }
+
+    fn next_wake_deadline_at(&self, now: Instant) -> Instant {
+        if self.is_online_latency() {
+            now
+        } else {
+            now + CAPTURE_FRAME_INTERVAL
+        }
     }
 
     pub(crate) fn complete(
@@ -4568,6 +4586,45 @@ mod tests {
                 .contains("duplicate shell-capture option --shell-capture-timeout-seconds")
         );
         assert!(parse_launch_args(args(&["--shell-capture-timeout-seconds", "3500"])).is_err());
+    }
+
+    #[test]
+    fn latency_capture_uses_immediate_redraws_but_keeps_its_wall_deadline() {
+        let output = new_output_path("latency-cadence");
+        let mut values = valid_args(&output);
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values.clone()).unwrap()
+        else {
+            panic!("capture")
+        };
+        let mut still = ShellCaptureSession::new(request);
+        let now = Instant::now();
+        assert_eq!(
+            still.next_wake_deadline_at(now),
+            now + Duration::from_millis(8)
+        );
+        still.frames_seen = still.max_capture_frames() + 1;
+        assert!(still.check_capture_budget(Duration::ZERO).is_err());
+
+        values[1] = "online-live-host".into();
+        values.extend(args(&[
+            "--online-account",
+            "Host",
+            "--online-latency",
+            "--online-frames",
+            "9000",
+        ]));
+        let AppLaunchMode::ShellCapture(request) = parse_launch_args(values).unwrap() else {
+            panic!("capture")
+        };
+        let mut latency = ShellCaptureSession::new(request);
+        assert_eq!(latency.next_wake_deadline_at(now), now);
+        latency.frames_seen = u32::MAX;
+        assert!(latency.check_capture_budget(latency.timeout()).is_ok());
+        assert!(
+            latency
+                .check_capture_budget(latency.timeout() + Duration::from_nanos(1))
+                .is_err()
+        );
     }
 
     #[test]

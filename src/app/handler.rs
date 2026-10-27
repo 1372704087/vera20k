@@ -1806,7 +1806,11 @@ impl ApplicationHandler for App {
                 if let Some(service) = shell_scroll_wake {
                     deadline = deadline.min(service);
                 }
-                event_loop.set_control_flow(ControlFlow::WaitUntil(deadline));
+                event_loop.set_control_flow(if deadline <= Instant::now() {
+                    ControlFlow::Poll
+                } else {
+                    ControlFlow::WaitUntil(deadline)
+                });
             }
         } else if let Some(state) = self.state.as_mut() {
             if Self::next_online_render_frame(state).is_none() {

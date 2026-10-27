@@ -559,6 +559,15 @@ pub struct GeneralRules {
     /// speed by it at `0x004DB1F1..0x004DB200` for a `FASTER`-ability holder.
     /// Constructor default UNCHECKED.
     pub veteran_speed: f64,
+    /// Phobos `[General] ProneSpeed.Crawls=` (default 0.67): the multiplier
+    /// `InfantryClass::GetMovementSpeed @ 0x00521D80` applies to a prone
+    /// infantryman whose type has `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_crawls: f64,
+    /// Phobos `[General] ProneSpeed.NoCrawls=` (default 1.5): the same
+    /// multiplier for a prone type without `Crawls=`.
+    #[cfg(feature = "phobos")]
+    pub prone_speed_no_crawls: f64,
     /// `[General] VeteranROF=` — `RulesClass+0x690`, read at `0x0066EF61`.
     /// `TechnoClass::GetROF @ 0x006FCFA0` multiplies the jittered reload by it
     /// at `0x006FD136..0x006FD145` for a `ROF`-ability holder. Constructor
@@ -1693,6 +1702,12 @@ pub struct GeneralRules {
     /// building starts only after the held one is placed.
     #[cfg(feature = "phobos")]
     pub building_production_queue: bool,
+    /// Phobos `[General] BuildingTypeSelectable=` (default false): type select
+    /// admits every building, not only the `UndeploysInto=` ones the retail ID
+    /// match admits (`0x00732C61..0x00732C83`). Phobos disables the switch
+    /// without Ares (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
+    #[cfg(all(feature = "phobos", feature = "ares"))]
+    pub building_type_selectable: bool,
     /// Phobos `[General] AIFireSale=` (default true): whether a computer
     /// house on its last legs (`0x004FD879..0x004FD904`, no live
     /// `Factory=` building) sells every building.
@@ -2734,6 +2749,8 @@ impl Default for GeneralRules {
             maximum_queued_objects: 5,
             #[cfg(feature = "phobos")]
             building_production_queue: false,
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: false,
             #[cfg(feature = "phobos")]
             ai_fire_sale: true,
             #[cfg(feature = "phobos")]
@@ -2791,6 +2808,10 @@ impl Default for GeneralRules {
             infantry_repair_rate: 0.016,
             repair_step: 5,
             repair_percent: 0.25,
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: 0.67,
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: 1.5,
             // RulesClass constructor 0x0066738F.
             reload_rate: 0.05,
             // PathDelay=.01 min = 0.6 sec = 9 ticks at 15 Hz.
@@ -4013,6 +4034,8 @@ impl GeneralRules {
             maximum_queued_objects: general.read_int("MaximumQueuedObjects", 5),
             #[cfg(feature = "phobos")]
             building_production_queue: general.read_bool("BuildingProductionQueue", false),
+            #[cfg(all(feature = "phobos", feature = "ares"))]
+            building_type_selectable: general.read_bool("BuildingTypeSelectable", false),
             #[cfg(feature = "phobos")]
             ai_fire_sale: general.read_bool("AIFireSale", true),
             #[cfg(feature = "phobos")]
@@ -4089,6 +4112,12 @@ impl GeneralRules {
             // Repair service scalars below are projected from the ordered
             // native reader; do not reread them from this flattened INI.
             repair_percent: general.read_double("RepairPercent", defaults.repair_percent),
+            #[cfg(feature = "phobos")]
+            prone_speed_crawls: general
+                .read_phobos_double("ProneSpeed.Crawls", defaults.prone_speed_crawls),
+            #[cfg(feature = "phobos")]
+            prone_speed_no_crawls: general
+                .read_phobos_double("ProneSpeed.NoCrawls", defaults.prone_speed_no_crawls),
             repair_step: general.read_int("RepairStep", defaults.repair_step),
             unit_repair_rate: defaults.unit_repair_rate,
             charge_to_drain_ratio: defaults.charge_to_drain_ratio,
@@ -4318,6 +4347,11 @@ pub struct RuleSet {
     /// superweapon sidebar.
     #[cfg(feature = "phobos")]
     pub sw_sidebar: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals,
+    /// Phobos `[AudioVisual] FlyNoWobbles=`: the default a TechnoType's own
+    /// `FlyNoWobbles` overrides. `None` keeps the retail rule, where
+    /// `IsDropship` alone disables the Fly wobble.
+    #[cfg(feature = "phobos")]
+    fly_no_wobbles: Option<bool>,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
@@ -5776,6 +5810,10 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let sw_sidebar = crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let fly_no_wobbles = ini
+            .section("AudioVisual")
+            .and_then(|section| section.read_phobos_nullable_bool("FlyNoWobbles", None));
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -6071,6 +6109,8 @@ impl RuleSet {
             side_gdi_positions,
             #[cfg(feature = "phobos")]
             sw_sidebar,
+            #[cfg(feature = "phobos")]
+            fly_no_wobbles,
             #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
             #[cfg(feature = "ares")]
@@ -8497,6 +8537,41 @@ impl RuleSet {
             .unwrap_or(self.general.infantry_auto_deploy)
     }
 
+    /// Phobos `ProneSpeed`, resolved the way the hook at original `0x00521D94`
+    /// resolves it: the InfantryType's own value, then the global that the
+    /// type's `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub fn prone_speed_for(&self, ty: &ObjectType) -> f64 {
+        ty.prone_speed().unwrap_or(if ty.crawls {
+            self.general.prone_speed_crawls
+        } else {
+            self.general.prone_speed_no_crawls
+        })
+    }
+
+    /// Type-select admission for a structure.
+    ///
+    /// The native ID match (`0x00732C30`) admits a building of a listed type
+    /// when CanBeSelectedNow (vt+0x13C) answers true or its type has
+    /// `UndeploysInto=` (`0x00732C61..0x00732C83`). A building's
+    /// CanBeSelectedNow (`0x00459C00`) first asks `0x00465D40`, true only for
+    /// a 1x1 `UndeploysInto=` type, so retail admits exactly the
+    /// `UndeploysInto=` buildings. Phobos's hook makes `0x00465D40` answer true
+    /// during the ID match under `BuildingTypeSelectable`, with Ares loaded.
+    /// RESIDUAL: with the switch on, native still applies CanBeSelectedNow's
+    /// TechnoClass checks (`0x006FC030`); this admits every building of the
+    /// type.
+    pub fn structure_type_selectable(&self, id: &str) -> bool {
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        {
+            if self.general.building_type_selectable {
+                return true;
+            }
+        }
+        self.object(id)
+            .is_some_and(|object| object.undeploys_into.is_some())
+    }
+
     /// Phobos `Sidebar.GDIPositions=` for a native side index. A missing or
     /// out-of-range side falls back to the first-side default (index 0 true).
     #[cfg(feature = "phobos")]
@@ -8505,6 +8580,19 @@ impl RuleSet {
             .ok()
             .and_then(|index| self.side_gdi_positions.get(index).copied())
             .unwrap_or(index == 0)
+    }
+
+    /// Phobos `FlyNoWobbles`, resolved the way the hook at original `0x4CF8B1`
+    /// resolves it: the TechnoType's own value, then `[AudioVisual]`, then the
+    /// retail rule that branch reads in an unmodified game (`IsDropship`).
+    /// `true` skips the `FlyLocomotionClass::Draw_Point` wobble.
+    #[cfg(feature = "phobos")]
+    pub fn fly_no_wobbles_for(&self, ty: &ObjectType) -> bool {
+        crate::rules::phobos_fly_wobble::resolve(
+            ty.fly_no_wobbles(),
+            self.fly_no_wobbles,
+            ty.is_dropship(),
+        )
     }
 
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` for a native side index.

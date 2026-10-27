@@ -595,6 +595,12 @@ pub struct ObjectType {
     /// TechnoType+C95: ctor7113B9=false, ReadINI712350..712373 reads
     /// IsDropship; Fly4CDA28 selects its distinct vertical motion.
     pub(crate) is_dropship: bool,
+    /// Phobos `AircraftTypeExt::FlyNoWobbles`: overrides whether the Fly
+    /// `Draw_Point` wobble runs, which retail gates on `IsDropship` alone at
+    /// `0x4CF8B1`. Unset defers to `[AudioVisual] FlyNoWobbles`, then to that
+    /// retail rule; `rules::phobos_fly_wobble` owns the resolution.
+    #[cfg(feature = "phobos")]
+    pub(crate) fly_no_wobbles: Option<bool>,
     /// TechnoType+7FC, read from the current Image section of fixed ARTMD.
     /// The ordered processor owns its retained default (constructor0).
     voxel_shadow_index: i32,
@@ -1292,6 +1298,10 @@ pub struct ObjectType {
     pub fraidycat: bool,
     /// `Crawls=yes` from art.ini. Controls the prone movement speed branch.
     pub crawls: bool,
+    /// Phobos `InfantryTypeExt::ProneSpeed`: the prone movement multiplier for
+    /// this type. Unset defers to the `[General]` value `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub(crate) prone_speed: Option<f64>,
     /// InfantryType+E40 signed primary standing frame, art.ini `FireUp=`.
     /// ART ReadInt5246D6 retains this field independently; constructor0.
     pub fire_up_frame: i32,
@@ -2759,6 +2769,18 @@ impl ObjectType {
         self.infantry_auto_deploy
     }
 
+    /// Phobos `InfantryTypeExt::ProneSpeed`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn prone_speed(&self) -> Option<f64> {
+        self.prone_speed
+    }
+
+    /// Phobos `AircraftTypeExt::FlyNoWobbles`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn fly_no_wobbles(&self) -> Option<bool> {
+        self.fly_no_wobbles
+    }
+
     pub const fn building_light(&self) -> crate::rules::building_light::BuildingLightRules {
         self.building_light
     }
@@ -3500,6 +3522,22 @@ impl ObjectType {
             slowdown_distance: section.read_int("SlowdownDistance", 500),
             flight_level: section.read_int("FlightLevel", -1),
             is_dropship: section.read_bool("IsDropship", false),
+            // Phobos holds this in InfantryTypeExt, so only an
+            // `[InfantryTypes]` section carries it.
+            #[cfg(feature = "phobos")]
+            prone_speed: if category == ObjectCategory::Infantry {
+                section.read_phobos_nullable_double("ProneSpeed", None)
+            } else {
+                None
+            },
+            // Phobos keeps this in AircraftTypeExt, so a non-aircraft section
+            // carries no value even when it repeats the key.
+            #[cfg(feature = "phobos")]
+            fly_no_wobbles: if category == ObjectCategory::Aircraft {
+                section.read_phobos_nullable_bool("FlyNoWobbles", None)
+            } else {
+                None
+            },
             voxel_shadow_index: 0,
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",

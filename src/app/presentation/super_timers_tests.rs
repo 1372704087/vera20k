@@ -191,8 +191,8 @@ fn each_line_prints_as_native() {
 }
 
 /// Phobos `[AudioVisual] TimerBlinkColorScheme=`: the named `[Colors]` entry
-/// prints the blinking time, and the key absent, empty or naming no entry
-/// keeps the native third entry.
+/// prints the blinking time; the key absent, or `none` (scheme -1), prints the
+/// native third entry.
 #[cfg(feature = "phobos")]
 #[test]
 fn timer_blink_color_scheme_selects_the_named_colors_entry() {
@@ -205,9 +205,8 @@ fn timer_blink_color_scheme_selects_the_named_colors_entry() {
     let white = crate::rules::color_scheme::hsv_to_rgb([0, 0, 240]);
     // `[Colors]` entry 2 is the native ColorScheme::Array[5].
     assert_eq!(blink_rgb_of(""), white);
-    assert_eq!(blink_rgb_of("[AudioVisual]\nTimerBlinkColorScheme=\n"), white);
     assert_eq!(
-        blink_rgb_of("[AudioVisual]\nTimerBlinkColorScheme=Nope\n"),
+        blink_rgb_of("[AudioVisual]\nTimerBlinkColorScheme=none\n"),
         white
     );
     assert_eq!(

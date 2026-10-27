@@ -1559,11 +1559,11 @@ pub(crate) fn handle_type_select_key_edge(
         if !is_type_select {
             return false;
         }
-        state
-            .match_state
-            .input
-            .type_select
-            .press(physical_code, crate::util::time::Instant::now(), repeat);
+        state.match_state.input.type_select.press(
+            physical_code,
+            crate::util::time::Instant::now(),
+            repeat,
+        );
         return true;
     }
     if !is_type_select && !state.match_state.input.type_select.owns_key(physical_code) {
@@ -2019,6 +2019,15 @@ pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: 
 // Native 653952 -> GameState1 -> 48C9BA/4F10E0 opens the pause menu.
 // The button and ordinary Options hotkey share this modal entry.
 fn open_pause_menu(state: &mut AppState) {
+    if state.match_state.multiplayer_paused() {
+        // No future EventClass tail exists until the relay resumes. Open the
+        // same local dialog directly so its shared Resume remains reachable.
+        crate::app::App::enter_in_game_menu_state(
+            state,
+            crate::ui::pause_menu::InGameMenuState::Menu,
+        );
+        return;
+    }
     if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
         // Queue_Options647040 does not open the dialog. Its accepted local
         // OPTIONS event requests GameState1 at the due EventClass tail.
@@ -2357,12 +2366,24 @@ pub(crate) fn reconcile_selection_order_after_sim(
         state.match_state.input.type_select.reset_scope();
         return;
     };
+    let selected = logic_selects(outputs);
     reconcile_selection_order_for_sim(
         &mut state.match_state.input,
         &runtime.simulation,
         Some(&runtime.resources.rules),
-        &logic_selects(outputs),
+        &selected,
     );
+    // Phobos "Flashing Technos on selecting" sits in ObjectClass::Select
+    // (`0x005F46AE`/`0x005F4718`), so the frame's logic Selects flash too.
+    #[cfg(feature = "phobos")]
+    if state.match_state.match_presentation.show_flash_on_selecting
+        && !selected.is_empty()
+        && let Some(runtime) = state.match_state.sim_runtime.as_mut()
+    {
+        runtime
+            .simulation
+            .flash_selected_for_current_player(&selected, &runtime.resources.rules);
+    }
 }
 
 /// Reconcile the existing input owner against its bound simulation. Kept
@@ -2487,6 +2508,20 @@ fn apply_selection_mutation(
         &mutation,
     );
     state.match_state.input.follow_target = follow_target;
+    // Phobos "Flashing Technos on selecting": the client switch gates the
+    // `[AudioVisual] SelectionFlashDuration` the sim's flash owner reads.
+    // ObjectClass_Select flashes each newly selected Techno the current player
+    // controls (0x005F46AE/0x005F4718); an already-selected object makes no
+    // Select call and therefore no flash.
+    #[cfg(feature = "phobos")]
+    if state.match_state.match_presentation.show_flash_on_selecting
+        && !successful_adds.is_empty()
+        && let Some(runtime) = state.match_state.sim_runtime.as_mut()
+    {
+        runtime
+            .simulation
+            .flash_selected_for_current_player(&successful_adds, &runtime.resources.rules);
+    }
     if unselected_all {
         // Unselect_All's tail, BeaconManager ClearSelection (0x0048DCB8).
         state

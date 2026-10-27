@@ -40,11 +40,16 @@ Supported extensions:
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
+- [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)
+- [Fly wobble switch](phobos-fly-no-wobbles.md) (`FlyNoWobbles` for `Locomotor=Fly`, per type and globally)
+- [Centred pause-menu background](phobos-center-pause-menu.md) (`uimd.ini [Sidebar] CenterPauseMenuBackground`)
 - [Building production queue](phobos-building-queue.md) (queue buildings and start the next after placement)
 - [Skirmish AI dehardcoding](phobos-ai-dehardcode.md) (last-legs sale/hunt switches and MCV deploy regroup)
 - [Parallel AI queue limits](phobos-parallel-ai-queues.md) (per-category and per-type AI clone forbids)
 - [Unlimited skirmish colours](phobos-skirmish-unlimited-colors.md) (spawner colour indices address any `[Colors]` entry)
 - [Superweapon sidebar](phobos-superweapon-sidebar.md) (left-edge superweapon cameos, toggle and positional hotkeys)
+- [Prone movement speed](phobos-prone-speed.md) (`ProneSpeed` for crawling and non-crawling prone infantry)
+- [Type select for buildings](phobos-building-type-selectable.md) (`BuildingTypeSelectable` for every building type)
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
 
 ## Original project and authors
@@ -71,7 +76,11 @@ originate with:
   **JunJacobYoung**, **CrimRecya**.
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
+- Infantry auto deploy - **TaranDahl**.
+- Fly wobble switch (`FlyNoWobbles`) - **Noble_Fish**.
+- Centred pause-menu background - **Starkku**.
 - Unhardcoded timer blinking colour scheme - **Starkku**.
+- Semantic locomotor aliases (`Locomotor=Drive` and the like) - **Belonit**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
 - Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -
@@ -80,6 +89,9 @@ originate with:
   **Starkku** (by TechnoType).
 - Unlimited skirmish colours - **Morton**.
 - Superweapon sidebar - **NetsuNegi**, **CrimRecya**.
+- Prone speed customization - **TaranDahl**.
+- Type select for buildings - **TaranDahl** (code), **Ollerus** (doc).
+- Flashing Technos on selecting - **Fryone**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

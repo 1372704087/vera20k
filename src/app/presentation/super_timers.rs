@@ -202,17 +202,15 @@ fn localized(csf: Option<&CsfFile>, key: &str) -> String {
     csf.map_or_else(|| key.to_string(), |csf| csf.text(key).into_owned())
 }
 
-/// The colour a blinking time prints in.
-///
-/// Phobos `[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry;
-/// an absent or empty key, or one naming no entry, keeps the native
-/// [`BLINK_SCHEME`] (`ColorScheme::FindIndex` failing retains the current
-/// index).
-pub(crate) fn blink_rgb(rules: &RuleSet) -> [u8; 3] {
+/// The colour a blinking time prints in: [`BLINK_SCHEME`], or with Phobos
+/// `ColorScheme::Array[TimerBlinkColorScheme]` (`PrintTimerOnTactical_BlinkColor`
+/// at `0x006D4CD9`). A `none` (-1) keeps the native scheme where Phobos would
+/// read `Array[-1]`.
+fn blink_rgb(rules: &RuleSet) -> [u8; 3] {
     #[cfg(feature = "phobos")]
-    let scheme = rules
-        .timer_blink_scheme_entry()
-        .and_then(|entry| u8::try_from(entry).ok())
+    let scheme = usize::try_from(rules.general.timer_blink_color_scheme)
+        .ok()
+        .and_then(|scheme| u8::try_from(scheme / 2).ok())
         .map_or(BLINK_SCHEME, HouseColorIndex);
     #[cfg(not(feature = "phobos"))]
     let scheme = BLINK_SCHEME;

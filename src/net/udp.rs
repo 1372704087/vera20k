@@ -51,6 +51,14 @@ use super::global::{
 };
 use super::lan_messages::{SessionScope, ingame::LoadingProgressMessage};
 use super::reliable::{LanConnections, ReceiveError, ReceivedMessage, udp_checksum};
+use crate::util::time::Instant;
+
+/// Receipt metadata belongs to the socket owner, before rendering or Logic
+/// can delay consumption of the authenticated ordering event.
+pub(super) struct ReceivedOrderEvent {
+    pub event: vera20k_relay_protocol::OrderEvent,
+    pub received_at: Instant,
+}
 
 /// Original UDP port data at841F30/841F38. The alternate socket is a separate
 /// receive path; it does not change the default destination port.
@@ -591,6 +599,30 @@ impl LanUdpTransport {
         })
     }
 
+    pub fn set_ordering_push(&mut self, enabled: bool, next_sequence: u64) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route
+                .session
+                .set_ordering_push(enabled, next_sequence, &mut route.encoded)
+        })
+    }
+
+    pub fn control_ordering_pause(
+        &mut self,
+        request_id: u64,
+        expected_epoch: u64,
+        paused: bool,
+    ) -> io::Result<()> {
+        self.send_ordering(|route| {
+            route.session.control_ordering_pause(
+                request_id,
+                expected_epoch,
+                paused,
+                &mut route.encoded,
+            )
+        })
+    }
+
     pub fn leave_ordering(&mut self) -> io::Result<()> {
         self.send_ordering(|route| route.session.leave_ordering(&mut route.encoded))
     }
@@ -613,6 +645,11 @@ impl LanUdpTransport {
     }
 
     pub fn pop_ordering_received(&mut self) -> Option<vera20k_relay_protocol::OrderEvent> {
+        self.pop_ordering_received_with_time()
+            .map(|received| received.event)
+    }
+
+    pub(super) fn pop_ordering_received_with_time(&mut self) -> Option<ReceivedOrderEvent> {
         self.lock().relay.as_mut()?.ordering_inbox.pop_front()
     }
 
@@ -751,7 +788,7 @@ struct RelayRoute {
     ordering_certificate: Option<Vec<u8>>,
     // Dropped excess packets are recovered from the immutable stream cursor.
     // This bounds worker memory even while the UI/simulation thread is paused.
-    ordering_inbox: VecDeque<vera20k_relay_protocol::OrderEvent>,
+    ordering_inbox: VecDeque<ReceivedOrderEvent>,
     retiring: Option<RelayRetirement>,
 }
 
@@ -1394,6 +1431,7 @@ fn drain_socket(
                 break;
             }
         };
+        let received_at = Instant::now();
         report.received_datagrams += 1;
         let SocketAddr::V4(source) = source else {
             report.malformed_datagrams += 1;
@@ -1457,7 +1495,9 @@ fn drain_socket(
                 Ok(ServerEvent::Ordering(event)) => {
                     route.last_response = Some(now_ticks);
                     if route.ordering_inbox.len() < 256 {
-                        route.ordering_inbox.push_back(event);
+                        route
+                            .ordering_inbox
+                            .push_back(ReceivedOrderEvent { event, received_at });
                     }
                     continue;
                 }

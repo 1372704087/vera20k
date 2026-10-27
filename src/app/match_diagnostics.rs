@@ -70,6 +70,7 @@ pub(crate) struct ActorMotionObservation {
     pub moving: Option<bool>,
     pub drive_destination: Option<crate::sim::components::DriveCoord>,
     pub drive_head: Option<crate::sim::components::DriveCoord>,
+    pub mission: (i32, i32),
 }
 impl ActorMotionObservation {
     pub(crate) fn read(
@@ -92,6 +93,10 @@ impl ActorMotionObservation {
             moving: crate::sim::movement::motion_query::is_moving(entity),
             drive_destination: drive.and_then(|loco| loco.track_destination(TrackFamily::Drive)),
             drive_head: drive.and_then(|loco| loco.track_head(TrackFamily::Drive)),
+            mission: (
+                entity.mission.current().raw(),
+                entity.mission.queued().raw(),
+            ),
         }
     }
 }

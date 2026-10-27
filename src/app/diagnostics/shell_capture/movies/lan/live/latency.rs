@@ -206,6 +206,7 @@ pub(super) struct LatencyCapture {
     movement_observed: bool,
     navigation_clear_at_end: bool,
     actions: Vec<Action>,
+    first_move_trace: Vec<ActorPresentation>,
     stop_preparations: Vec<StopPreparation>,
     executions: Vec<Execution>,
     samples: Vec<Value>,
@@ -295,6 +296,18 @@ impl LatencyCapture {
     }
 
     fn observe_presented(&mut self, presented: ActorPresentation) {
+        if self.actions.len() == 1
+            && self.actions[0].kind == "Move"
+            && self.actions[0].response.is_none()
+            && presented.at.instant >= self.actions[0].issue.instant
+            && self.first_move_trace.len() < 64
+            && self
+                .first_move_trace
+                .last()
+                .is_none_or(|last| last.frame < presented.frame)
+        {
+            self.first_move_trace.push(presented.clone());
+        }
         let Some(action) = self.actions.last_mut() else {
             return;
         };
@@ -741,6 +754,7 @@ impl LatencyCapture {
                 "at":self.timestamp(draw.at,draw.frame),"motion":draw.motion}));
             json!({"id":id,"kind":action.kind,"actor":action.actor,"target":action.target,
                 "issue":self.timestamp(action.issue,action.issue_frame),"admission":action.admission,
+                "input_pose":{"screen":action.baseline.0,"body":action.baseline.1},
                 "execution_key":execution.as_ref().map(|value|&value["execution_key"]),
                 "dispatch":execution.as_ref().map(|value|&value["dispatch"]),
                 "submitted_response":submitted,"gpu_response":gpu.map(|(at,frame)|self.timestamp(at,frame)),"error":action.error,
@@ -760,6 +774,18 @@ impl LatencyCapture {
             })
             .count();
         let complete = completed_pairs == TARGET_PAIRS && self.errors.is_empty();
+        let first_move_trace: Vec<_> = self
+            .first_move_trace
+            .iter()
+            .map(|draw| {
+                json!({
+                    "submitted":self.timestamp(draw.at,draw.frame),
+                    "gpu":draw.gpu_completed_at().map(|at|self.timestamp(at,draw.frame)),
+                    "screen":draw.screen,"body":draw.body,"motion":draw.motion,
+                    "sampled_from_frame":draw.sampled_from_frame
+                })
+            })
+            .collect();
         let preparation = self.prepared.as_ref().map(|prepared| json!({
             "mode":"fixed_view_selected_actor", "actor":self.actor,"origin":self.origin,
             "waypoint_policy":"six-cell offsets from the initial actor origin; only visible legal goals",
@@ -786,6 +812,7 @@ impl LatencyCapture {
         })).collect();
         json!({"schema":"vera20k.online-input-latency.v1","target_pairs":TARGET_PAIRS,
             "render_deferred_passes":self.render_deferred_passes,
+            "first_move_trace":first_move_trace,
             "completed_pairs":completed_pairs,"status":if complete {"complete"} else if self.finished {"incomplete"} else {"sampling"},
             "limitation":"submitted admitted Unit draw-plan geometry; GPU callback is a completion upper bound, not monitor scanout; remote observations are dispatch only",
             "clock":{"unix_unit":"microseconds","mono_unit":"microseconds since this round observer began","remote_requires_calibration":true},
@@ -936,6 +963,48 @@ mod tests {
             .foot_speed
             .set_speed_fraction_native_bits(fraction.to_bits());
         crate::app::match_diagnostics::ActorMotionObservation::read(&sim, &entity)
+    }
+
+    #[test]
+    fn first_move_trace_is_bounded_to_distinct_draws_of_the_first_action() {
+        let start = ObservationTime::now();
+        let mut capture = LatencyCapture {
+            started: Some(start),
+            ..Default::default()
+        };
+        let mut first = action(start);
+        first.kind = "Move";
+        capture.actions.push(first);
+        for frame in 0..65 {
+            let draw = ActorPresentation {
+                at: at(start, u64::from(frame)),
+                frame,
+                screen: [0., 0.],
+                body: 0,
+                motion: test_motion(0.0, false),
+                sampled_from_frame: frame,
+                gpu_done: Default::default(),
+            };
+            capture.observe_presented(draw.clone());
+            capture.observe_presented(draw);
+        }
+        assert_eq!(capture.first_move_trace.len(), 64);
+        assert_eq!(
+            capture.receipt()["first_move_trace"][63]["submitted"]["frame"],
+            63
+        );
+        capture.first_move_trace.clear();
+        capture.actions.push(action(start));
+        capture.observe_presented(ActorPresentation {
+            at: start,
+            frame: 70,
+            screen: [0., 0.],
+            body: 0,
+            motion: test_motion(0.0, false),
+            sampled_from_frame: 70,
+            gpu_done: Default::default(),
+        });
+        assert!(capture.first_move_trace.is_empty());
     }
 
     #[test]

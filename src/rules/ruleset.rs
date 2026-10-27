@@ -4347,6 +4347,10 @@ pub struct RuleSet {
     /// superweapon sidebar.
     #[cfg(feature = "phobos")]
     pub sw_sidebar: crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals,
+    /// Phobos `[AudioVisual] SelectionFlashDuration=`: frames a newly selected
+    /// Techno flashes for; 0 disables it.
+    #[cfg(feature = "phobos")]
+    pub selection_flash: crate::rules::phobos_selection_flash::SelectionFlashGlobals,
     /// Phobos `[AudioVisual] FlyNoWobbles=`: the default a TechnoType's own
     /// `FlyNoWobbles` overrides. `None` keeps the retail rule, where
     /// `IsDropship` alone disables the Fly wobble.
@@ -5810,6 +5814,9 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let sw_sidebar = crate::rules::phobos_sw_sidebar::SuperWeaponSidebarGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let selection_flash =
+            crate::rules::phobos_selection_flash::SelectionFlashGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let fly_no_wobbles = ini
             .section("AudioVisual")
             .and_then(|section| section.read_phobos_nullable_bool("FlyNoWobbles", None));
@@ -6109,6 +6116,8 @@ impl RuleSet {
             side_gdi_positions,
             #[cfg(feature = "phobos")]
             sw_sidebar,
+            #[cfg(feature = "phobos")]
+            selection_flash,
             #[cfg(feature = "phobos")]
             fly_no_wobbles,
             #[cfg(feature = "phobos")]

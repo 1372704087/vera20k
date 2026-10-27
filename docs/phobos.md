@@ -88,6 +88,7 @@ originate with:
 - Superweapon sidebar - **NetsuNegi**, **CrimRecya**.
 - Prone speed customization - **TaranDahl**.
 - Type select for buildings - **TaranDahl** (code), **Ollerus** (doc).
+- Flashing Technos on selecting - **Fryone**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

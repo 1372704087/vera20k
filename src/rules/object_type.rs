@@ -1292,6 +1292,10 @@ pub struct ObjectType {
     pub fraidycat: bool,
     /// `Crawls=yes` from art.ini. Controls the prone movement speed branch.
     pub crawls: bool,
+    /// Phobos `InfantryTypeExt::ProneSpeed`: the prone movement multiplier for
+    /// this type. Unset defers to the `[General]` value `Crawls=` selects.
+    #[cfg(feature = "phobos")]
+    pub(crate) prone_speed: Option<f64>,
     /// InfantryType+E40 signed primary standing frame, art.ini `FireUp=`.
     /// ART ReadInt5246D6 retains this field independently; constructor0.
     pub fire_up_frame: i32,
@@ -2746,6 +2750,12 @@ impl ObjectType {
         self.is_dropship
     }
 
+    /// Phobos `InfantryTypeExt::ProneSpeed`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn prone_speed(&self) -> Option<f64> {
+        self.prone_speed
+    }
+
     pub const fn building_light(&self) -> crate::rules::building_light::BuildingLightRules {
         self.building_light
     }
@@ -3487,6 +3497,14 @@ impl ObjectType {
             slowdown_distance: section.read_int("SlowdownDistance", 500),
             flight_level: section.read_int("FlightLevel", -1),
             is_dropship: section.read_bool("IsDropship", false),
+            // Phobos holds this in InfantryTypeExt, so only an
+            // `[InfantryTypes]` section carries it.
+            #[cfg(feature = "phobos")]
+            prone_speed: if category == ObjectCategory::Infantry {
+                section.read_phobos_nullable_double("ProneSpeed", None)
+            } else {
+                None
+            },
             voxel_shadow_index: 0,
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",

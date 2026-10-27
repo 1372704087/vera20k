@@ -561,7 +561,7 @@ impl App {
             .match_diagnostics
             .actor_presentation_observer_active()
         {
-            // wgpu27 dispatches completed submission callbacks at poll/submit.
+            // wgpu dispatches completed submission callbacks at poll/submit.
             // Observe already-finished work before this pass's CPU rendering;
             // Poll never waits for GPU completion and the callback keeps now.
             let _ = state.renderer.gpu.device.poll(wgpu::PollType::Poll);

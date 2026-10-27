@@ -164,13 +164,41 @@ impl App {
             else {
                 break;
             };
-            if !live.has_terminal_network_error()
-                && !crate::app::match_runtime::frame_pacer::LocalFramePacer::admits_canonical_frame(
-                    session.binary_frame(),
-                    live.committed_frontier(),
-                )
-            {
-                break;
+            if !live.has_terminal_network_error() {
+                let frame = session.binary_frame();
+                let frontier = live.committed_frontier();
+                let may_continue = if let Some(timing) = live.sequenced_timing().filter(|_| {
+                    !state.match_state.paused()
+                        && !state.focus_freeze_active()
+                        && !session.scenario_paused()
+                        && !state.match_state.match_diagnostics.is_replay_playback()
+                }) {
+                    let recovering = live
+                        .recovery_status(
+                            crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32,
+                            frame,
+                        )
+                        .is_some();
+                    state
+                        .platform
+                        .frame_pacer
+                        .online_frame_decision(
+                            Instant::now(),
+                            frame,
+                            frontier,
+                            timing,
+                            runtime.simulation.pending_network_wait(),
+                            recovering,
+                        )
+                        .admits()
+                } else {
+                    crate::app::match_runtime::frame_pacer::LocalFramePacer::admits_canonical_frame(
+                        frame, frontier,
+                    )
+                };
+                if !may_continue {
+                    break;
+                }
             }
         }
         result
@@ -479,6 +507,23 @@ impl App {
             return None;
         }
         let frame = sim.session().binary_frame();
+        if let Some(timing) = live.sequenced_timing() {
+            let recovering = live
+                .recovery_status(
+                    crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32,
+                    frame,
+                )
+                .is_some();
+            if !state.platform.frame_pacer.online_catch_up_ready(
+                Instant::now(),
+                frame,
+                live.committed_frontier(),
+                timing,
+                recovering,
+            ) {
+                return None;
+            }
+        }
         (frame > 0).then_some((frame, live.committed_frontier()))
     }
 

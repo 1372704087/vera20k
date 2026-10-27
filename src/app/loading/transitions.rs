@@ -618,7 +618,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
     state.match_state.input.keys_held.clear();
     state.match_state.input.cursor_x = tactical_width as f32 * 0.5;
     state.match_state.input.cursor_y = tactical_height as f32 * 0.5;
-    state.platform.frame_pacer.reset_for_immediate_frame();
+    state.platform.frame_pacer.reset_for_new_world();
     state.match_state.input.queued_order_mode = render::OrderMode::Move;
     state.match_state.local_owner_override = result.scenario.initial_local_owner;
     state.match_state.match_audio.reset_for_new_match();

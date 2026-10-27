@@ -15,7 +15,7 @@ use std::num::NonZeroU32;
 mod sequenced;
 mod startup;
 mod timing;
-pub use sequenced::SequencedError;
+pub use sequenced::{SequencedError, SequencedTiming};
 pub use startup::{StartupAgreement, StartupError};
 
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
@@ -282,6 +282,12 @@ impl LiveCommandSession {
 
     pub fn fixed_frames_per_second(&self) -> Option<u16> {
         self.sequenced.as_ref().map(|session| session.fps)
+    }
+
+    /// App-only pacing observation. Availability and canonical dispatch remain
+    /// owned by this session, irrespective of presentation's chosen cadence.
+    pub fn sequenced_timing(&self) -> Option<SequencedTiming> {
+        self.sequenced.as_ref()?.timing()
     }
 
     pub fn recovery_status(

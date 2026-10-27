@@ -3032,6 +3032,16 @@ fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
             late_issued = true;
         }
         relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for forwarded in relay.drain_ordering_push(now_ms, 100 + (now_ms - 16_000) / 1000) {
+            // A disconnected client loses unsolicited delivery too; dropping
+            // only its requests no longer pauses a server-pushed stream.
+            if !paused || forwarded.endpoint != boundaries[1].live.borrow().primary_addr().unwrap()
+            {
+                socket
+                    .send_to(&forwarded.bytes, forwarded.endpoint)
+                    .unwrap();
+            }
+        }
         for side in 0..2 {
             boundaries[side].now.set((now_ms >> 4) as u32);
             boundaries[side]
@@ -3422,6 +3432,185 @@ fn sequenced_pair() -> (
 }
 
 #[test]
+fn sequenced_push_advances_without_requests_and_repairs_a_lost_range() {
+    use crate::net::udp::test_support::MAX_DATAGRAM;
+    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
+
+    let (mut worlds, rules, actor, boundaries, socket, mut relay) = sequenced_pair();
+    let second_address = boundaries[1].live.borrow().primary_addr().unwrap();
+    let pump = |relay: &mut crate::net::udp::test_support::RelayServer,
+                now_ms: u64,
+                accept_requests: bool,
+                lose_second: bool| {
+        let deliver = |packet: vera20k_relay_protocol::ForwardDatagram| {
+            if !lose_second || packet.endpoint != second_address {
+                socket.send_to(&packet.bytes, packet.endpoint).unwrap();
+            }
+        };
+        let mut requests = 0;
+        {
+            loop {
+                let mut bytes = [0; MAX_DATAGRAM + 1];
+                let (length, std::net::SocketAddr::V4(source)) = (match socket.recv_from(&mut bytes)
+                {
+                    Ok(packet) => packet,
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                    Err(error) => panic!("{error}"),
+                }) else {
+                    unreachable!()
+                };
+                requests += 1;
+                if !accept_requests {
+                    continue;
+                }
+                for packet in relay
+                    .process_at(
+                        source,
+                        &bytes[..length],
+                        100 + (now_ms - 16_000) / 1000,
+                        now_ms,
+                    )
+                    .unwrap_or_default()
+                {
+                    deliver(packet);
+                }
+            }
+        }
+        for packet in relay.drain_ordering_push(now_ms, 100 + (now_ms - 16_000) / 1000) {
+            deliver(packet);
+        }
+        requests
+    };
+    let service = |worlds: &mut [Simulation; 2], now_ms: u64| {
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            boundary.now.set((now_ms >> 4) as u32);
+            boundary.live.borrow_mut().service_pending_commands(
+                &mut world.network_command_queues(),
+                (now_ms >> 4) as u32,
+            );
+        }
+    };
+    let mut now_ms = 16_000;
+    for _ in 0..250 {
+        now_ms += 16;
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        service(&mut worlds, now_ms);
+        pump(&mut relay, now_ms, true, false);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            production_frame(world, &rules, boundary);
+        }
+        if boundaries
+            .iter()
+            .all(|boundary| boundary.live.borrow().sequenced_timing().is_some())
+            && worlds
+                .iter()
+                .all(|world| world.session().binary_frame() >= 20)
+        {
+            break;
+        }
+    }
+    assert!(
+        boundaries
+            .iter()
+            .all(|boundary| boundary.live.borrow().sequenced_timing().is_some())
+    );
+    let before = worlds.each_ref().map(|world| world.session().tick());
+    // For less than one credit window, discard every client request before
+    // server processing. Only independently clocked push supplies these frames.
+    let mut idle_requests = 0;
+    for _ in 0..24 {
+        now_ms += 16;
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        service(&mut worlds, now_ms);
+        idle_requests += pump(&mut relay, now_ms, false, false);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            production_frame(world, &rules, boundary);
+        }
+    }
+    for (world, before) in worlds.iter().zip(before) {
+        assert!(
+            world.session().tick() >= before + 8,
+            "push cannot depend on frame requests"
+        );
+    }
+    assert!(
+        idle_requests < 48,
+        "healthy clients must not request frames on every service pass"
+    );
+    let owner = worlds[0].interner.get("Alpha").unwrap();
+    let record = worlds[0]
+        .encode_megamission_record(
+            owner,
+            &Command::Move {
+                entity_id: actor,
+                target_rx: 42,
+                target_ry: 42,
+            },
+        )
+        .unwrap();
+    let tick = worlds[0].session().tick();
+    assert!(worlds[0].issue_local_command(CommandEnvelope::synchronized(record, tick)));
+    let mut recovered = false;
+    let mut committed = [
+        std::collections::BTreeMap::new(),
+        std::collections::BTreeMap::new(),
+    ];
+    for step in 0..250 {
+        now_ms += 16;
+        relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        service(&mut worlds, now_ms);
+        // Lose a real range of pushed frames and replies, then allow the
+        // existing Pull/history owner to repair the contiguous stream.
+        pump(&mut relay, now_ms, true, step < 15);
+        for (side, (world, boundary)) in worlds.iter_mut().zip(&boundaries).enumerate() {
+            for _ in 0..4 {
+                if production_frame(world, &rules, boundary)
+                    .tick
+                    .frame_committed
+                {
+                    committed[side].insert(world.session().binary_frame(), world.state_hash());
+                } else {
+                    break;
+                }
+            }
+            assert!(world.pending_network_interruption().is_none());
+        }
+        let applied = |boundary: &Boundary| {
+            boundary
+                .applied
+                .borrow()
+                .iter()
+                .filter(|(_, record, ok)| {
+                    record.opcode() == MEGAMISSION_OPCODE && record.house_id() == 0 && *ok
+                })
+                .count()
+        };
+        if step >= 15
+            && applied(&boundaries[0]) == 1
+            && applied(&boundaries[1]) == 1
+            && worlds[0].session().binary_frame() == worlds[1].session().binary_frame()
+        {
+            let frame = worlds[0].session().binary_frame();
+            // Current state may already include the following frame's Logic
+            // while its network boundary waits. Compare only completed ticks.
+            assert_eq!(committed[0].get(&frame), committed[1].get(&frame));
+            assert!(committed[0].contains_key(&frame));
+            for (frame, hash) in &committed[0] {
+                if let Some(other) = committed[1].get(frame) {
+                    assert_eq!(hash, other, "replayed frame {frame}");
+                }
+            }
+            recovered = true;
+            break;
+        }
+    }
+    assert!(
+        recovered,
+        "the lost push range must replay exactly once to the same world"
+    );
+}
+
+#[test]
 fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
     use crate::net::udp::test_support::MAX_DATAGRAM;
     use crate::sim::command::{Command, MEGAMISSION_OPCODE};
@@ -3453,6 +3642,13 @@ fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
             issued = true;
         }
         relay.advance_clock(now_ms, 100 + (now_ms - 16_000) / 1000);
+        for forwarded in relay.drain_ordering_push(now_ms, 100 + (now_ms - 16_000) / 1000) {
+            if !hold_receipts || forwarded.endpoint != first_address {
+                socket
+                    .send_to(&forwarded.bytes, forwarded.endpoint)
+                    .unwrap();
+            }
+        }
         for boundary in &boundaries {
             boundary.now.set((now_ms >> 4) as u32);
             boundary
@@ -3569,6 +3765,13 @@ fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
                 }
             }
         }
+        for forwarded in relay.drain_ordering_push(now_ms, 100 + (now_ms - 16_000) / 1000) {
+            if !hold_sender || forwarded.endpoint != first_address {
+                socket
+                    .send_to(&forwarded.bytes, forwarded.endpoint)
+                    .unwrap();
+            }
+        }
     };
     let mut hold_sender = false;
     let mut held_tick = None;
@@ -3644,6 +3847,7 @@ fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
     // committed, each relay frame adds only its FrameEnd record. Repeated
     // empty services must not manufacture checksum-only submissions.
     let mut committed_batches = None;
+    let mut status_cursor = 1;
     let quiescent_start = u64::from(boundaries[0].now.get()) * 16;
     for step in 1..=32 {
         let now_ms = quiescent_start + step * 16;
@@ -3656,6 +3860,9 @@ fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
         }
         pump(&mut relay, now_ms, false);
         let mut peer = boundaries[1].live.borrow_mut();
+        // An explicit diagnostic read is independent of normal pushed
+        // delivery. Idle clients no longer request a status every frame.
+        peer.transport.pull_ordering(status_cursor).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let mut saw_status = false;
         while !saw_status && Instant::now() < deadline {
@@ -3665,6 +3872,7 @@ fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
                 match event {
                     vera20k_relay_protocol::OrderEvent::Status(status) => {
                         saw_status = true;
+                        status_cursor = status.next_seq;
                         if step >= 12 {
                             let count = status.next_seq - u64::from(status.head_frame);
                             assert_eq!(

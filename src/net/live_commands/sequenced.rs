@@ -15,12 +15,40 @@ use crate::net::udp::LanUdpTransport;
 use crate::sim::command::{CommandRecord, ExitRecord};
 use crate::sim::command_queue::FrameInfo;
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
+use crate::util::time::Instant;
 
 const BUFFERED_FRAMES: usize = 64;
 const REORDER_WINDOW: u64 = 256;
 const MAX_FRAME_RECORDS: usize = 4096;
 const SAMPLE_HISTORY: usize = 4096;
 const BATCH_HEADER: usize = 9;
+const PUSH_PROBE_INTERVAL_MS: i32 = 500;
+const PUSH_WATERMARK_INTERVAL_MS: i32 = 100;
+const REPLAY_RETRY_INTERVAL_MS: i32 = 100;
+const PUSH_SILENCE_REPAIR_MS: u32 = 1_000;
+
+/// The socket's latest contiguous-frame receipt, independent of when the app
+/// drains it. Presentation can pace these frames; only the sequencer admits
+/// canonical commands. This clock never enters deterministic simulation.
+#[derive(Debug, Clone, Copy)]
+pub struct SequencedTiming {
+    pub frame: u32,
+    pub received_at: Instant,
+    pub frames_per_second: u16,
+}
+
+#[derive(Debug)]
+enum PushDelivery {
+    Probing { attempts: u8 },
+    Active,
+    PullOnly,
+}
+
+#[derive(Debug)]
+struct ReceivedEntry {
+    entry: OrderEntry,
+    received_at: Instant,
+}
 
 fn service_due(last: Option<u32>, now: u32, interval: i32) -> bool {
     last.is_none_or(|last| super::probe_due(last, now, interval))
@@ -67,8 +95,15 @@ pub(super) struct SequencedSession {
     last_response: Option<u32>,
     first_service: Option<u32>,
     last_control: Option<u32>,
+    push: PushDelivery,
+    last_push_control: Option<u32>,
+    push_watermark: u64,
+    remote_next_sequence: u64,
+    repair_gap_since: Option<u32>,
     next_sequence: u64,
-    entries: BTreeMap<u64, OrderEntry>,
+    entries: BTreeMap<u64, ReceivedEntry>,
+    contiguous_received_at: Option<Instant>,
+    latest_frame_receipt: Option<SequencedTiming>,
     assembling: CommittedFrame,
     frames: VecDeque<CommittedFrame>,
     last_batch: [u64; 30],
@@ -126,8 +161,15 @@ impl SequencedSession {
             last_response: None,
             first_service: None,
             last_control: None,
+            push: PushDelivery::Probing { attempts: 0 },
+            last_push_control: None,
+            push_watermark: 1,
+            remote_next_sequence: 1,
+            repair_gap_since: None,
             next_sequence: 1,
             entries: BTreeMap::new(),
+            contiguous_received_at: None,
+            latest_frame_receipt: None,
             assembling: CommittedFrame {
                 frame: 1,
                 ..Default::default()
@@ -165,11 +207,17 @@ impl SequencedSession {
         self.sent_commands
     }
 
+    pub(super) fn timing(&self) -> Option<SequencedTiming> {
+        matches!(self.push, PushDelivery::Active)
+            .then_some(self.latest_frame_receipt)
+            .flatten()
+    }
+
     pub(super) fn service(&mut self, transport: &mut LanUdpTransport, now: u32) {
         self.first_service.get_or_insert(now);
-        while let Some(event) = transport.pop_ordering_received() {
+        while let Some(received) = transport.pop_ordering_received_with_time() {
             self.last_response = Some(now);
-            match self.receive(event) {
+            match self.receive(received.event, received.received_at) {
                 Ok(()) => {}
                 Err(error) => {
                     self.error.get_or_insert(error.into());
@@ -183,13 +231,7 @@ impl SequencedSession {
             self.error = Some(error.into());
             return;
         }
-        if service_due(self.last_control, now, if self.started { 16 } else { 125 }) {
-            self.last_control = Some(now);
-            if !self.started {
-                let _ = transport.configure_ordering(self.agreement);
-            }
-            let _ = transport.pull_ordering(self.next_sequence);
-        }
+        self.service_delivery(transport, now);
         for pending in &mut self.submissions {
             // An unready route or failed local send cannot start the remote
             // receipt timer. The next service retries the same retained bytes.
@@ -207,6 +249,77 @@ impl SequencedSession {
         // a timeout nor peer progress may manufacture an EXIT or fail a frame.
     }
 
+    fn service_delivery(&mut self, transport: &mut LanUdpTransport, now: u32) {
+        if self.started {
+            match &mut self.push {
+                PushDelivery::Probing { attempts } => {
+                    if service_due(self.last_push_control, now, PUSH_PROBE_INTERVAL_MS) {
+                        if *attempts == 3 {
+                            // Old relays reject unknown controls. Keep their
+                            // established pull path after a bounded handshake.
+                            self.push = PushDelivery::PullOnly;
+                        } else if transport
+                            .set_ordering_push(true, self.next_sequence)
+                            .is_ok()
+                        {
+                            *attempts += 1;
+                            self.last_push_control = Some(now);
+                            self.push_watermark = self.next_sequence;
+                        }
+                    }
+                }
+                PushDelivery::Active => {
+                    if (self.next_sequence.saturating_sub(self.push_watermark) >= 32
+                        || service_due(self.last_push_control, now, PUSH_WATERMARK_INTERVAL_MS))
+                        && transport
+                            .set_ordering_push(true, self.next_sequence)
+                            .is_ok()
+                    {
+                        self.last_push_control = Some(now);
+                        self.push_watermark = self.next_sequence;
+                    }
+                }
+                PushDelivery::PullOnly => {}
+            }
+        }
+        let active_push = self.started && matches!(self.push, PushDelivery::Active);
+        let gap = self.frames.len() < BUFFERED_FRAMES
+            && (self.remote_next_sequence > self.next_sequence
+                || self
+                    .entries
+                    .first_key_value()
+                    .is_some_and(|(seq, _)| *seq > self.next_sequence));
+        // A status can overtake its immediately following pushed datagrams.
+        // Allow one nominal frame for reordering before requesting repair;
+        // healthy delivery must not turn every watermark into another Pull.
+        let gap_ready = if gap {
+            let since = *self.repair_gap_since.get_or_insert(now);
+            now.wrapping_sub(since) >= 1000_u32.div_ceil(u32::from(self.fps))
+        } else {
+            self.repair_gap_since = None;
+            false
+        };
+        let silent = self
+            .last_response
+            .is_some_and(|last| now.wrapping_sub(last) > PUSH_SILENCE_REPAIR_MS);
+        let pull_needed = !active_push || gap_ready || silent;
+        let interval = if active_push {
+            REPLAY_RETRY_INTERVAL_MS
+        } else if self.started {
+            16
+        } else {
+            125
+        };
+        if pull_needed && service_due(self.last_control, now, interval) {
+            if !self.started {
+                let _ = transport.configure_ordering(self.agreement);
+            }
+            if transport.pull_ordering(self.next_sequence).is_ok() {
+                self.last_control = Some(now);
+            }
+        }
+    }
+
     fn accept_through(&mut self, id: u64) -> Result<(), SequencedError> {
         if id >= self.next_batch {
             return Err(SequencedError::InvalidTimeline);
@@ -215,7 +328,7 @@ impl SequencedSession {
         Ok(())
     }
 
-    fn receive(&mut self, event: OrderEvent) -> Result<(), SequencedError> {
+    fn receive(&mut self, event: OrderEvent, received_at: Instant) -> Result<(), SequencedError> {
         match event {
             OrderEvent::Left => return Err(SequencedError::InvalidTimeline),
             OrderEvent::Ready { .. } => {}
@@ -228,6 +341,20 @@ impl SequencedSession {
                 }
                 self.started |= status.started;
                 self.head_frame = self.head_frame.max(status.head_frame);
+                self.remote_next_sequence = self.remote_next_sequence.max(status.next_seq);
+            }
+            OrderEvent::PushState {
+                enabled,
+                next_sequence,
+            } => {
+                if next_sequence == 0 || next_sequence > self.next_sequence {
+                    return Err(SequencedError::InvalidTimeline);
+                }
+                self.push = if enabled {
+                    PushDelivery::Active
+                } else {
+                    PushDelivery::PullOnly
+                };
             }
             OrderEvent::Ack { batch_id, .. } => {
                 if batch_id == 0 {
@@ -253,13 +380,18 @@ impl SequencedSession {
                 };
                 if sequence >= self.next_sequence && sequence - self.next_sequence < REORDER_WINDOW
                 {
-                    self.entries.entry(sequence).or_insert(entry);
+                    self.entries
+                        .entry(sequence)
+                        .or_insert(ReceivedEntry { entry, received_at });
                 }
             }
             OrderEvent::Error { code, expected } => match code {
                 OrderError::NotConfigured => {
                     self.started = false;
                     self.last_control = None;
+                    self.push = PushDelivery::Probing { attempts: 0 };
+                    self.last_push_control = None;
+                    self.repair_gap_since = None;
                 }
                 OrderError::NotStarted | OrderError::Backpressure => {}
                 OrderError::BatchGap => {
@@ -304,14 +436,18 @@ impl SequencedSession {
 
     fn assemble(&mut self) -> Result<(), SequencedError> {
         while self.frames.len() < BUFFERED_FRAMES {
-            let Some(entry) = self.entries.remove(&self.next_sequence) else {
+            let Some(received) = self.entries.remove(&self.next_sequence) else {
                 break;
             };
+            self.contiguous_received_at = Some(
+                self.contiguous_received_at
+                    .map_or(received.received_at, |old| old.max(received.received_at)),
+            );
             self.next_sequence = self
                 .next_sequence
                 .checked_add(1)
                 .ok_or(SequencedError::InvalidTimeline)?;
-            match entry {
+            match received.entry {
                 OrderEntry::Batch {
                     frame,
                     source,
@@ -363,6 +499,11 @@ impl SequencedSession {
                             ..Default::default()
                         },
                     ));
+                    self.latest_frame_receipt = Some(SequencedTiming {
+                        frame,
+                        received_at: self.contiguous_received_at.expect("consumed frame end"),
+                        frames_per_second: self.fps,
+                    });
                 }
             }
         }

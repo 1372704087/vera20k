@@ -510,6 +510,12 @@ impl LatencyCapture {
             sample["render_interval_us"] = json!(interval);
             sample["maximum_render_interval_us"] = json!(self.maximum_render_interval_us);
             sample["render_deferred_passes"] = json!(self.render_deferred_passes);
+            sample["server_push"] = json!(live.sequenced_timing().is_some());
+            if let Some(pacing) = state.platform.frame_pacer.online_pacing_status() {
+                sample["pacing_reserve_us"] = json!(pacing.reserve_micros);
+                sample["pacing_underruns"] = json!(pacing.underruns);
+                sample["pacing_catching_up"] = json!(pacing.catching_up);
+            }
             sample["pending_local_commands"] = json!(sim.pending_local_command_count());
             sample["pending_synchronized_commands"] =
                 json!(sim.synchronized_network_command_count());

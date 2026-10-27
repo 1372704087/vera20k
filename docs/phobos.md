@@ -45,6 +45,7 @@ Supported extensions:
 - [Parallel AI queue limits](phobos-parallel-ai-queues.md) (per-category and per-type AI clone forbids)
 - [Unlimited skirmish colours](phobos-skirmish-unlimited-colors.md) (spawner colour indices address any `[Colors]` entry)
 - [Superweapon sidebar](phobos-superweapon-sidebar.md) (left-edge superweapon cameos, toggle and positional hotkeys)
+- [Missing cameo](phobos-missing-cameo.md) (`[AudioVisual] MissingCameo=` for types with no cameo art)
 
 ## Original project and authors
 
@@ -70,6 +71,7 @@ originate with:
   **JunJacobYoung**, **CrimRecya**.
 - Placement preview - **Otamaa**, **Belonit**.
 - Sidebar GDI/NOD positions - **Belonit**.
+- Missing cameo - **Uranusian**.
 - Building production queue - **CrimRecya**.
 - INI `$Include` / `$Inherits` - **Morton**.
 - Skirmish AI dehardcoding (last-legs sale/hunt, MCV deploy regroup) -

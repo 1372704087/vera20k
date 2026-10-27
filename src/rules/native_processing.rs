@@ -2180,6 +2180,16 @@ impl ProcessedRulesLayers {
             .as_deref()
     }
 
+    /// Phobos `[AudioVisual] MissingCameo=`, retained with the Rules scalars
+    /// rather than read from the compatibility projection.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn missing_cameo(&self) -> &str {
+        &self
+            .native_type_construction_trace
+            .registry_state()
+            .rules_missing_cameo
+    }
+
     /// `[General] PrerequisiteProcAlternate=` (Rules `+0x400`), the stored ID
     /// of its UnitType.
     pub(crate) fn prerequisite_proc_alternate(&self) -> Option<&str> {
@@ -3171,6 +3181,14 @@ pub(crate) struct NativeRulesRegistryState {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    /// Phobos `[AudioVisual] MissingCameo=`: the file a type with no cameo art
+    /// and a superweapon with no icon fall back to. The hook at `0x715A4D`
+    /// (`TechnoTypeClass::ReadINI`, again at `0x00716D13`) and both
+    /// `SWTypeClass` readers take it, so the ordered AudioVisual pass retains
+    /// it like any other Rules scalar.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "crate::rules::ruleset::default_missing_cameo")]
+    rules_missing_cameo: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -3253,6 +3271,8 @@ impl Default for NativeRulesRegistryState {
             rules_ion_blast_anim: String::new(),
             rules_ion_beam_anim: String::new(),
             rules_ion_cannon_warhead: String::new(),
+            #[cfg(feature = "phobos")]
+            rules_missing_cameo: crate::rules::ruleset::DEFAULT_MISSING_CAMEO.to_owned(),
             // MindControlAttackLineFrames, Rules+310: constructor 0x00665ABE.
             rules_mind_control_attack_line_frames: 15,
             rules_line_trail_override: general.line_trail_color_override,
@@ -4663,6 +4683,10 @@ struct RulesPassProcessor {
     rules_ion_blast_anim: String,
     rules_ion_beam_anim: String,
     rules_ion_cannon_warhead: String,
+    /// Phobos `[AudioVisual] MissingCameo=`, retained with the other Rules
+    /// scalars for the pass.
+    #[cfg(feature = "phobos")]
+    rules_missing_cameo: String,
     rules_mind_control_attack_line_frames: i32,
     rules_line_trail_override: [u8; 3],
     rules_chrono_beam_color: [u8; 3],
@@ -4734,6 +4758,8 @@ impl RulesPassProcessor {
             rules_ion_blast_anim: registry_state.rules_ion_blast_anim,
             rules_ion_beam_anim: registry_state.rules_ion_beam_anim,
             rules_ion_cannon_warhead: registry_state.rules_ion_cannon_warhead,
+            #[cfg(feature = "phobos")]
+            rules_missing_cameo: registry_state.rules_missing_cameo,
             rules_mind_control_attack_line_frames: registry_state
                 .rules_mind_control_attack_line_frames,
             rules_line_trail_override: registry_state.rules_line_trail_override,
@@ -7604,6 +7630,13 @@ impl RulesPassProcessor {
         for key in ["SmallFire", "LargeFire"] {
             let _ = self.resolve_scalar_from(section, key, RulesTypeFamily::Animation, 0x80);
         }
+        // Phobos `RulesExt::MissingCameo` (`1002B0D0`-family load, after the
+        // ordinary AudioVisual reads): a retained 32-byte filename, so a later
+        // pass whose copy is empty keeps the earlier pass's value.
+        #[cfg(feature = "phobos")]
+        if let Some(name) = section.read_name("MissingCameo", 0x20) {
+            self.rules_missing_cameo = name.to_owned();
+        }
     }
 
     fn process_special_weapons(&mut self, pass: &IniFile) {
@@ -7768,6 +7801,8 @@ impl RulesPassProcessor {
                     rules_ion_blast_anim: self.rules_ion_blast_anim,
                     rules_ion_beam_anim: self.rules_ion_beam_anim,
                     rules_ion_cannon_warhead: self.rules_ion_cannon_warhead,
+                    #[cfg(feature = "phobos")]
+                    rules_missing_cameo: self.rules_missing_cameo,
                     rules_mind_control_attack_line_frames: self
                         .rules_mind_control_attack_line_frames,
                     rules_line_trail_override: self.rules_line_trail_override,

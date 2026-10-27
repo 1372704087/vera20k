@@ -143,12 +143,32 @@ struct Action {
 
 #[derive(Default)]
 struct StopReaction {
+    prepared_draw: Option<ActorPresentation>,
     baseline: Option<ActorPresentation>,
     no_op: bool,
     rendered_travel_before: bool,
     deceleration_frame: Option<u32>,
     first: Option<ActorPresentation>,
     criterion: Option<&'static str>,
+}
+impl StopReaction {
+    fn from_prepared_move(preparation: Option<&StopPreparation>, at: ObservationTime) -> Self {
+        let prepared_draw = preparation
+            .filter(|preparation| {
+                !preparation.failed
+                    && preparation
+                        .ready
+                        .is_some_and(|ready| ready.instant <= at.instant)
+            })
+            .and_then(|preparation| preparation.latest.as_ref())
+            .filter(|draw| recent_draw(draw, at))
+            .cloned();
+        Self {
+            rendered_travel_before: prepared_draw.is_some(),
+            prepared_draw,
+            ..Default::default()
+        }
+    }
 }
 
 struct Execution {
@@ -281,7 +301,9 @@ impl LatencyCapture {
                         .motion
                         .as_ref()
                         .is_some_and(|motion| motion.moving == Some(false));
-                action.stop_reaction.rendered_travel_before = rendered_before
+                // Keep the validated steady moving proof from the click even
+                // if one later admitted draw repeats the same pixel position.
+                action.stop_reaction.rendered_travel_before |= rendered_before
                     .as_ref()
                     .zip(self.previous_actor_draw.as_ref())
                     .is_some_and(|(latest, previous)| recent_translation(previous, latest));
@@ -683,6 +705,16 @@ impl LatencyCapture {
             )
         };
         let at = input.at;
+        let stop_reaction = if kind == "Stop" {
+            StopReaction::from_prepared_move(
+                self.stop_preparations
+                    .last()
+                    .filter(|preparation| preparation.move_action_id + 1 == self.actions.len()),
+                at,
+            )
+        } else {
+            StopReaction::default()
+        };
         let sim = &state
             .match_state
             .sim_runtime
@@ -708,7 +740,7 @@ impl LatencyCapture {
             quiet: None,
             error: None,
             completion_logged: false,
-            stop_reaction: StopReaction::default(),
+            stop_reaction,
         });
         Ok(())
     }
@@ -759,6 +791,8 @@ impl LatencyCapture {
                 "dispatch":execution.as_ref().map(|value|&value["dispatch"]),
                 "submitted_response":submitted,"gpu_response":gpu.map(|(at,frame)|self.timestamp(at,frame)),"error":action.error,
                 "first_stop_response":first_stop_response,"stop_baseline":stop_baseline,
+                "stop_prepared_movement":action.stop_reaction.prepared_draw.as_ref().map(|draw|json!({
+                    "at":self.timestamp(draw.at,draw.frame),"screen":draw.screen,"motion":draw.motion})),
                 "stop_rendered_travel_before":action.stop_reaction.rendered_travel_before,
                 "dispatch_motion":action.execution.and_then(|index|self.executions[index].observed.motion.as_ref()),
                 "stop_response_status":(action.kind=="Stop").then_some(if action.stop_reaction.no_op {"no_op"} else if action.stop_reaction.first.is_some() {"observed"} else {"unproven"}),
@@ -963,6 +997,67 @@ mod tests {
             .foot_speed
             .set_speed_fraction_native_bits(fraction.to_bits());
         crate::app::match_diagnostics::ActorMotionObservation::read(&sim, &entity)
+    }
+
+    #[test]
+    fn prepared_stop_motion_survives_one_unchanged_predispatch_pose() {
+        let start = ObservationTime::now();
+        let draw = |ms, frame, x, speed, moving| ActorPresentation {
+            at: at(start, ms),
+            frame,
+            screen: [x, 0.],
+            body: 0,
+            motion: test_motion(speed, moving),
+            sampled_from_frame: frame,
+            gpu_done: Default::default(),
+        };
+        let mut preparation = StopPreparation::new(0, start, 0);
+        preparation.observe(&draw(350, 10, 1., 1., true));
+        preparation.observe(&draw(400, 13, 2., 1., true));
+        preparation.observe(&draw(450, 16, 3., 1., true));
+        assert!(preparation.poll(at(start, 450)));
+        let mut action = action(at(start, 460));
+        action.stop_reaction = StopReaction::from_prepared_move(Some(&preparation), action.issue);
+        assert!(action.stop_reaction.prepared_draw.is_some());
+        assert!(
+            StopReaction::from_prepared_move(Some(&preparation), at(start, 551))
+                .prepared_draw
+                .is_none()
+        );
+        let mut capture = LatencyCapture {
+            started: Some(start),
+            previous_actor_draw: Some(draw(500, 19, 42., 1., true)),
+            latest_actor_draw: Some(draw(520, 20, 42., 1., true)),
+            ..Default::default()
+        };
+        capture.actions.push(action);
+        let mut execution = stop(start, 550, 7, 22);
+        execution.motion = Some(test_motion(1., false));
+        capture.observe_execution(execution);
+        assert!(capture.actions[0].stop_reaction.rendered_travel_before);
+        capture.observe_presented(draw(560, 23, 42., 1., false));
+        assert!(
+            capture.actions[0].stop_reaction.first.is_none(),
+            "unchanged speed is insufficient"
+        );
+        let mut blended = draw(580, 24, 43., 0.8, false);
+        blended.sampled_from_frame = 23;
+        capture.observe_presented(blended);
+        assert!(
+            capture.actions[0].stop_reaction.first.is_none(),
+            "prior endpoint predates deceleration"
+        );
+        let mut admitted = draw(610, 25, 44., 0.8, false);
+        admitted.sampled_from_frame = 24;
+        let completed = admitted.gpu_done.clone();
+        capture.observe_presented(admitted);
+        let first = capture.actions[0].stop_reaction.first.as_ref().unwrap();
+        assert!(first.gpu_completed_at().is_none());
+        *completed.lock().unwrap() = Some(at(start, 620));
+        assert_eq!(
+            first.gpu_completed_at().unwrap().unix_us,
+            at(start, 620).unix_us
+        );
     }
 
     #[test]

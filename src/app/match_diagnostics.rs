@@ -217,6 +217,10 @@ pub(crate) struct ReplayLogFlush {
 }
 
 impl MatchDiagnosticsState {
+    pub(crate) fn actor_presentation_observer_active(&self) -> bool {
+        self.actor_presentation.borrow().is_some()
+    }
+
     pub(crate) fn observe_actor_presentation(&self, actor: u64) {
         *self.actor_presentation.borrow_mut() = Some(ActorPresentationProbe {
             actor,
@@ -677,6 +681,19 @@ mod tests {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEST_PATH: AtomicU64 = AtomicU64::new(0);
+
+    #[test]
+    fn actor_observer_is_active_before_a_draw_and_until_explicit_end() {
+        let diagnostics = MatchDiagnosticsState::default();
+        assert!(!diagnostics.actor_presentation_observer_active());
+        diagnostics.observe_actor_presentation(7);
+        assert!(diagnostics.actor_presentation_observer_active());
+        assert!(diagnostics.actor_presentation().is_none());
+        diagnostics.begin_presentation_observation();
+        assert!(diagnostics.actor_presentation_observer_active());
+        diagnostics.end_presentation_observation();
+        assert!(!diagnostics.actor_presentation_observer_active());
+    }
 
     #[cfg(feature = "debug-tools")]
     #[test]

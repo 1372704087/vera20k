@@ -556,6 +556,16 @@ impl App {
             shell_capture.is_none() || tactical_capture.is_none(),
             "shell and tactical capture cannot share a render"
         );
+        if state
+            .match_state
+            .match_diagnostics
+            .actor_presentation_observer_active()
+        {
+            // wgpu27 dispatches completed submission callbacks at poll/submit.
+            // Observe already-finished work before this pass's CPU rendering;
+            // Poll never waits for GPU completion and the callback keeps now.
+            let _ = state.renderer.gpu.device.poll(wgpu::PollType::Poll);
+        }
         state.platform.frame_pacer.clear_render_continuation();
         #[cfg(feature = "telemetry-dashboard")]
         crate::app::telemetry_capture::synchronize_observer(state);

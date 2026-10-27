@@ -382,12 +382,25 @@ fn cameo_status_text<'a>(
     }
 }
 
-fn shows_queue_badge(item: &crate::ui::sidebar::SidebarItem) -> bool {
-    !matches!(
+/// Whether a Building or Defense cameo may draw a queue count at all.
+///
+/// gamemd's badge path resolves the requested type's House Factory with a
+/// hard-coded `BuildCat` (`StripClass::Draw`, `0x006A9C48..0x006A9CC3`), so a
+/// structure entry never finds its own Factory and never counts. Phobos'
+/// `StripClass_DrawStrip_FindFactoryDehardCode @ 0x006A9C54`
+/// (`src/Ext/Building/Hooks.cpp`) replaces that `BuildCat` with the building
+/// type's own, unconditionally — it is not gated on
+/// `[General] BuildingProductionQueue=`, which only decides whether a
+/// structure strip may stack copies at all.
+const STRUCTURE_QUEUE_BADGES: bool = cfg!(feature = "phobos");
+
+fn shows_queue_badge(item: &crate::ui::sidebar::SidebarItem, structure_badges: bool) -> bool {
+    let counts = !matches!(
         item.queue_category,
         crate::sim::production::ProductionCategory::Building
             | crate::sim::production::ProductionCategory::Defense
-    ) && (item.queued_count > 1 || (item.queued_count > 0 && !item.is_building_this_type))
+    ) || structure_badges;
+    counts && (item.queued_count > 1 || (item.queued_count > 0 && !item.is_building_this_type))
 }
 
 /// Whether a cameo draws the build clock. gamemd's strip draw sets its clock
@@ -610,7 +623,7 @@ pub(crate) fn build_sidebar_cameo_instances(
             }
         }
 
-        let has_queue_badge = shows_queue_badge(item);
+        let has_queue_badge = shows_queue_badge(item, STRUCTURE_QUEUE_BADGES);
 
         // Dark strip overlay behind the cameo status text (alpha 0xAF).
         // When a queue badge is also present, the status strip shifts left.
@@ -707,7 +720,7 @@ pub(crate) fn build_sidebar_text_instances(
     for item in &view.items {
         let slot = item.rect;
 
-        let has_queue_badge = shows_queue_badge(item);
+        let has_queue_badge = shows_queue_badge(item, STRUCTURE_QUEUE_BADGES);
 
         // Cameo status text ("Ready" / "On Hold") — at the top of the cameo.
         // When a queue badge is also shown, the status text shifts left to
@@ -1056,5 +1069,54 @@ mod tests {
         item.is_ready = true;
         item.progress = 1.0;
         assert!(!shows_build_clock(&item), "ready");
+    }
+
+    /// A structure cameo counts queued copies only where the badge can resolve
+    /// its Factory: gamemd keeps a hard-coded `BuildCat` there, and Phobos
+    /// de-hard-codes it at `0x006A9C54` for every Phobos build.
+    #[test]
+    fn structure_queue_badge_needs_the_phobos_factory_lookup() {
+        use super::shows_queue_badge;
+        let item = |category, queued_count| crate::ui::sidebar::SidebarItem {
+            rect: Rect {
+                x: 0.0,
+                y: 0.0,
+                w: 60.0,
+                h: 48.0,
+            },
+            type_id: "GAPOWR".to_string(),
+            display_name: "GAPOWR".to_string(),
+            cost: Some(600),
+            has_cameo_art: true,
+            alt_cameo: false,
+            flash_darkened: false,
+            queue_category: category,
+            enabled: true,
+            at_build_limit: false,
+            progress: 0.0,
+            queued_count,
+            is_building_this_type: true,
+            is_ready: false,
+            is_on_hold: false,
+            is_armed: false,
+            is_superweapon: false,
+            super_weapon_section: None,
+            super_weapon_display: None,
+        };
+        let structure = crate::sim::production::ProductionCategory::Building;
+        let defense = crate::sim::production::ProductionCategory::Defense;
+        let vehicle = crate::sim::production::ProductionCategory::Vehicle;
+
+        let stacked = item(structure, 2);
+        assert!(
+            !shows_queue_badge(&stacked, false),
+            "a default build never stacks structures"
+        );
+        assert!(shows_queue_badge(&stacked, true));
+        assert!(shows_queue_badge(&item(defense, 3), true));
+
+        let mobile = item(vehicle, 2);
+        assert!(shows_queue_badge(&mobile, false));
+        assert!(shows_queue_badge(&mobile, true));
     }
 }

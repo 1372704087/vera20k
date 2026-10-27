@@ -559,13 +559,20 @@ impl IniSection {
     /// The shared scanner/percent kernel also serves the stock reader.
     pub fn read_ares_double_bits(&self, key: &str, default: NativeF64Bits) -> NativeF64Bits {
         self.read_string_with(key, 2048, default, |current, value| {
-            try_parse_leading_f64(value, FloatScanRounding::AresChop).map_or(current, |number| {
-                NativeF64Bits::from_bits(if value.contains('%') {
-                    scale_percent(number).to_bits()
-                } else {
-                    number.to_bits()
-                })
-            })
+            parse_ares_double_bits(value).unwrap_or(current)
+        })
+    }
+
+    /// Ares Nullable<double>10008CE0 ->10008E90 ->10076B60: only a
+    /// successful shared double parse sets presence. `none` is invalid,
+    /// so it retains the pair instead of clearing a prior value.
+    pub fn read_ares_nullable_double_bits(
+        &self,
+        key: &str,
+        current: Option<NativeF64Bits>,
+    ) -> Option<NativeF64Bits> {
+        self.read_string_with(key, 2048, current, |current, value| {
+            parse_ares_double_bits(value).or(current)
         })
     }
 
@@ -676,27 +683,19 @@ impl IniSection {
         self.read_phobos_nullable_with(key, current, read_bool_decision)
     }
 
-    /// Phobos b90ab4bc Utilities/Parser.h:248..271: `strtod`, cast to
-    /// binary32, optional binary32 percent scaling, then widen to double.
+    /// Phobos `Nullable<double>`: the clearing tokens of
+    /// [`Self::read_phobos_nullable_with`], then [`parse_phobos_double`].
     /// Unlike stock ReadDouble, a failed conversion keeps the old nullable.
     pub fn read_phobos_nullable_double(&self, key: &str, current: Option<f64>) -> Option<f64> {
-        self.read_phobos_nullable_with(key, current, |raw| {
-            let parsed = try_parse_leading_f64(raw, FloatScanRounding::Nearest)?;
-            // strtod reports ERANGE on overflow and underflow. Reuse the
-            // decimal scanner's token to distinguish underflow from literal 0.
-            let token = leading_float_token(raw)?;
-            let mantissa = token.split(['e', 'E']).next().unwrap_or(token);
-            if !parsed.is_finite()
-                || (parsed != 0.0 && parsed.abs() < f64::MIN_POSITIVE)
-                || (parsed == 0.0 && mantissa.bytes().any(|byte| matches!(byte, b'1'..=b'9')))
-            {
-                return None;
-            }
-            let mut value = parsed as f32;
-            if raw.contains('%') {
-                value *= 0.01_f32;
-            }
-            Some(f64::from(value))
+        self.read_phobos_nullable_with(key, current, parse_phobos_double)
+    }
+
+    /// Phobos `Valueable<double>` (`INI_EX::ReadDouble`): ReadString(2048),
+    /// then [`parse_phobos_double`]. Absent, empty and failed reads keep the
+    /// current value.
+    pub fn read_phobos_double(&self, key: &str, current: f64) -> f64 {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            parse_phobos_double(raw).unwrap_or(current)
         })
     }
 
@@ -1727,6 +1726,38 @@ impl PartialIntPair {
     pub const fn is_single(&self) -> bool {
         self.values < 2 || self.low >= self.high
     }
+}
+
+/// Phobos b90ab4bc Utilities/Parser.h:248..271 `Parser<double>`: `strtod`,
+/// cast to binary32, optional binary32 percent scaling, then widen to double.
+/// `None` where `strtod` converts nothing or reports ERANGE.
+fn parse_phobos_double(raw: &str) -> Option<f64> {
+    let parsed = try_parse_leading_f64(raw, FloatScanRounding::Nearest)?;
+    // strtod reports ERANGE on overflow and underflow. Reuse the decimal
+    // scanner's token to distinguish underflow from literal 0.
+    let token = leading_float_token(raw)?;
+    let mantissa = token.split(['e', 'E']).next().unwrap_or(token);
+    if !parsed.is_finite()
+        || (parsed != 0.0 && parsed.abs() < f64::MIN_POSITIVE)
+        || (parsed == 0.0 && mantissa.bytes().any(|byte| matches!(byte, b'1'..=b'9')))
+    {
+        return None;
+    }
+    let mut value = parsed as f32;
+    if raw.contains('%') {
+        value *= 0.01_f32;
+    }
+    Some(f64::from(value))
+}
+
+/// Installed Ares Parser<double>10076B60, shared by value and nullable reads.
+fn parse_ares_double_bits(value: &str) -> Option<NativeF64Bits> {
+    let number = try_parse_leading_f64(value, FloatScanRounding::AresChop)?;
+    Some(NativeF64Bits::from_bits(if value.contains('%') {
+        scale_percent(number).to_bits()
+    } else {
+        number.to_bits()
+    }))
 }
 
 /// The single Ares Parser<int> core, also used by compound int/bool readers.

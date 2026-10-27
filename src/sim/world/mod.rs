@@ -115,6 +115,8 @@ pub use frame_error::FrameAdvanceError;
 pub(crate) use world_orders::CapturedInfantryType;
 pub use world_orders::EngineerBuildingAction;
 pub use world_orders::UnitRepairAction;
+#[cfg(feature = "ares")]
+pub(crate) use world_orders::VehicleCaptureOutcome;
 pub use world_orders::{EntryBaseAction, EntryClickAction};
 mod projectile_collision;
 mod shroud_refresh;

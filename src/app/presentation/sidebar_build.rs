@@ -400,7 +400,10 @@ fn shows_queue_badge(item: &crate::ui::sidebar::SidebarItem, structure_badges: b
         crate::sim::production::ProductionCategory::Building
             | crate::sim::production::ProductionCategory::Defense
     ) || structure_badges;
-    counts && (item.queued_count > 1 || (item.queued_count > 0 && !item.is_building_this_type))
+    // `Factory::CountType @ 0x004CA670` counts the held product as one when it
+    // is this type, so a count of one is a queued copy only while the held
+    // product is something else (`0x006A9C99..0x006A9CC3`).
+    counts && (item.queued_count > 1 || (item.queued_count > 0 && !item.is_held_this_type))
 }
 
 /// Whether a status label sits at the cameo's left edge instead of centered.
@@ -412,14 +415,8 @@ fn shows_queue_badge(item: &crate::ui::sidebar::SidebarItem, structure_badges: b
 /// `cameo_x + 30` with flags `0x142`. Only the production Hold label, resolved
 /// separately at `0x006A9ECC`, reads the count-badge flag at `0x006A9EE4` and
 /// moves to `cameo_x + 2` with `0x42` (`0x006A9EF8..0x006A9EFE`).
-fn status_text_shifts_left(
-    item: &crate::ui::sidebar::SidebarItem,
-    has_queue_badge: bool,
-) -> bool {
-    has_queue_badge
-        && item.is_on_hold
-        && !item.is_ready
-        && item.super_weapon_display.is_none()
+fn status_text_shifts_left(item: &crate::ui::sidebar::SidebarItem, has_queue_badge: bool) -> bool {
+    has_queue_badge && item.is_on_hold && !item.is_ready && item.super_weapon_display.is_none()
 }
 
 /// Whether a cameo draws the build clock. gamemd's strip draw sets its clock
@@ -1028,6 +1025,7 @@ mod tests {
             progress: 0.5,
             queued_count: 1,
             is_building_this_type: false,
+            is_held_this_type: false,
             is_ready: false,
             is_on_hold: false,
             is_armed: false,
@@ -1070,6 +1068,7 @@ mod tests {
             progress: 0.0,
             queued_count: 1,
             is_building_this_type: false,
+            is_held_this_type: false,
             is_ready: false,
             is_on_hold: false,
             is_armed: false,
@@ -1089,13 +1088,14 @@ mod tests {
         assert!(!shows_build_clock(&item), "ready");
     }
 
-    /// A structure cameo counts queued copies only where the badge can resolve
-    /// its Factory: gamemd keeps a hard-coded `BuildCat` there, and Phobos
-    /// de-hard-codes it at `0x006A9C54` for every Phobos build.
-    #[test]
-    fn structure_queue_badge_needs_the_phobos_factory_lookup() {
-        use super::shows_queue_badge;
-        let item = |category, queued_count| crate::ui::sidebar::SidebarItem {
+    /// The `StripClass::Draw` badge inputs for one cameo.
+    fn badge_item(
+        category: crate::sim::production::ProductionCategory,
+        queued_count: usize,
+        is_building: bool,
+        is_held: bool,
+    ) -> crate::ui::sidebar::SidebarItem {
+        crate::ui::sidebar::SidebarItem {
             rect: Rect {
                 x: 0.0,
                 y: 0.0,
@@ -1113,27 +1113,34 @@ mod tests {
             at_build_limit: false,
             progress: 0.0,
             queued_count,
-            is_building_this_type: true,
+            is_building_this_type: is_building,
+            is_held_this_type: is_held,
             is_ready: false,
             is_on_hold: false,
             is_armed: false,
             is_superweapon: false,
             super_weapon_section: None,
             super_weapon_display: None,
-        };
-        let structure = crate::sim::production::ProductionCategory::Building;
-        let defense = crate::sim::production::ProductionCategory::Defense;
-        let vehicle = crate::sim::production::ProductionCategory::Vehicle;
+        }
+    }
 
-        let stacked = item(structure, 2);
+    /// A structure cameo counts queued copies only where the badge can resolve
+    /// its Factory: gamemd keeps a hard-coded `BuildCat` there, and Phobos
+    /// de-hard-codes it at `0x006A9C54` for every Phobos build.
+    #[test]
+    fn structure_queue_badge_needs_the_phobos_factory_lookup() {
+        use super::shows_queue_badge;
+        use crate::sim::production::ProductionCategory::{Building, Defense, Vehicle};
+
+        let stacked = badge_item(Building, 2, true, true);
         assert!(
             !shows_queue_badge(&stacked, false),
             "a default build never stacks structures"
         );
         assert!(shows_queue_badge(&stacked, true));
-        assert!(shows_queue_badge(&item(defense, 3), true));
+        assert!(shows_queue_badge(&badge_item(Defense, 3, true, true), true));
 
-        let mobile = item(vehicle, 2);
+        let mobile = badge_item(Vehicle, 2, true, true);
         assert!(shows_queue_badge(&mobile, false));
         assert!(shows_queue_badge(&mobile, true));
     }
@@ -1144,33 +1151,16 @@ mod tests {
     #[test]
     fn only_the_production_hold_label_shifts_left_beside_a_badge() {
         use super::status_text_shifts_left;
-        let mut item = crate::ui::sidebar::SidebarItem {
-            rect: Rect {
-                x: 0.0,
-                y: 0.0,
-                w: 60.0,
-                h: 48.0,
-            },
-            type_id: "MTNK".to_string(),
-            display_name: "MTNK".to_string(),
-            cost: Some(700),
-            has_cameo_art: true,
-            alt_cameo: false,
-            flash_darkened: false,
-            queue_category: crate::sim::production::ProductionCategory::Vehicle,
-            enabled: true,
-            at_build_limit: false,
-            progress: 0.0,
-            queued_count: 2,
-            is_building_this_type: true,
-            is_ready: false,
-            is_on_hold: false,
-            is_armed: false,
-            is_superweapon: false,
-            super_weapon_section: None,
-            super_weapon_display: None,
-        };
-        assert!(!status_text_shifts_left(&item, true), "not held, not shifted");
+        let mut item = badge_item(
+            crate::sim::production::ProductionCategory::Vehicle,
+            2,
+            true,
+            true,
+        );
+        assert!(
+            !status_text_shifts_left(&item, true),
+            "not held, not shifted"
+        );
         assert!(!status_text_shifts_left(&item, false));
         item.is_on_hold = true;
         assert!(status_text_shifts_left(&item, true));
@@ -1192,5 +1182,29 @@ mod tests {
             !status_text_shifts_left(&item, true),
             "a held superweapon is the other slot"
         );
+    }
+
+    /// A count of one is the held product rather than a queued copy whenever the
+    /// linked Factory holds this entry's type, whether that product is finished
+    /// or on hold: gamemd compares `Factory+0x58`'s type with the requested one
+    /// at `0x006A9CBF..0x006A9CC3` and draws nothing. Reading the building flag
+    /// instead left a bare `1` on a placement-ready structure.
+    #[test]
+    fn queue_badge_of_one_waits_for_a_copy_that_is_not_the_held_product() {
+        use super::shows_queue_badge;
+        use crate::sim::production::ProductionCategory::{Building, Vehicle};
+
+        assert!(!shows_queue_badge(
+            &badge_item(Building, 1, false, true),
+            true
+        ));
+        assert!(!shows_queue_badge(
+            &badge_item(Vehicle, 1, false, true),
+            false
+        ));
+        assert!(shows_queue_badge(
+            &badge_item(Vehicle, 1, false, false),
+            false
+        ));
     }
 }

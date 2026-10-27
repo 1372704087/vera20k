@@ -1559,11 +1559,11 @@ pub(crate) fn handle_type_select_key_edge(
         if !is_type_select {
             return false;
         }
-        state
-            .match_state
-            .input
-            .type_select
-            .press(physical_code, crate::util::time::Instant::now(), repeat);
+        state.match_state.input.type_select.press(
+            physical_code,
+            crate::util::time::Instant::now(),
+            repeat,
+        );
         return true;
     }
     if !is_type_select && !state.match_state.input.type_select.owns_key(physical_code) {
@@ -2019,6 +2019,15 @@ pub(crate) fn dispatch_command_bar(state: &mut AppState, command: usize, right: 
 // Native 653952 -> GameState1 -> 48C9BA/4F10E0 opens the pause menu.
 // The button and ordinary Options hotkey share this modal entry.
 fn open_pause_menu(state: &mut AppState) {
+    if state.match_state.multiplayer_paused() {
+        // No future EventClass tail exists until the relay resumes. Open the
+        // same local dialog directly so its shared Resume remains reachable.
+        crate::app::App::enter_in_game_menu_state(
+            state,
+            crate::ui::pause_menu::InGameMenuState::Menu,
+        );
+        return;
+    }
     if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
         // Queue_Options647040 does not open the dialog. Its accepted local
         // OPTIONS event requests GameState1 at the due EventClass tail.

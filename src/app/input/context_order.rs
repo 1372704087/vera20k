@@ -260,7 +260,9 @@ fn object_target_is_legal(
 /// `cell_move_action` and `ordinary_cell_move_goal`. Any other house's object
 /// answers 0 there (`0x00700AB7..0x00700AC4`).
 ///
-/// This asks no ROF or reload. The class post-processing follows below. See
+/// This asks no ROF or reload. Over an object a Foot's shroud rung comes
+/// next ([`Simulation::foot_object_shroud_action`]), then the class
+/// post-processing below. See
 /// the original DetermineAction/Unit/Foot/Techno and Display action corpus
 /// in tools/spatial_oracle/bunker_attack_action.json.
 ///
@@ -277,10 +279,14 @@ fn object_target_is_legal(
 ///   its `+0x1EC`/`+0x1F4` timer runs, or it wears no house (vt+0xD0) and the
 ///   weapon may fire at terrain (vt+0x398, `0x0070EF00`, `TerrainFire=`).
 ///
-/// Active YR Battle authors AttackCursorOnDisguise=yes, and SPY also authors
-/// PermaDisguise=yes: an ordinary stock Spy/Mirage is not evidence of a missed
-/// rejection. A layer disabling those disguise grants still requires the
-/// remaining disguise admission; that conditional path remains open.
+/// DORMANT: `[Rules+0xD6C]` is `AttackCursorOnDisguise=` ([General], stored
+/// at `0x0066FC50`), which retail RULESMD sets to yes, so the grant always
+/// holds and retail never reaches the disguise refusal (SPY also authors
+/// `PermaDisguise=yes`). Trigger: a rules or map layer setting it to no, then
+/// an unforced hover or click over a disguised Spy or Mirage. Effect: VERA
+/// may answer Attack where native's rung refuses and the tail answers.
+///
+/// [`Simulation::foot_object_shroud_action`]: crate::sim::world::Simulation::foot_object_shroud_action
 pub(crate) fn attack_action(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -360,7 +366,10 @@ pub(crate) fn attack_action(
         // (`cmp ebp,5` at 0x0051E9F1 and 0x0051EE62), but `infantry_c4_action`
         // and `infiltrator_capture_orders` decide without it, so a
         // NoManualFire Tanya or Spy still plants C4 or infiltrates. Only Ares
-        // builds read the key; retail rules never set it.
+        // builds read the key; retail rules never set it. The same holds
+        // for Foot's shroud rung below, which retail reaches: in a campaign
+        // a Tanya, SEAL or Spy over a building whose coordinate is shrouded
+        // still plants C4 or infiltrates where native moves. Rare.
         && !kind.no_manual_fire()
     {
         AttackAction::Attack
@@ -371,6 +380,31 @@ pub(crate) fn attack_action(
     } else {
         AttackAction::None
     };
+    // Foot's shroud rung (`0x004DDED0`) between Techno's answer and the class
+    // rungs: in a campaign a nonzero answer over an object whose coordinate
+    // the local player's map shrouds (the Map's own shroud, whoever owns the
+    // actor) becomes Move or NoMove, which the Move-action class rungs then
+    // take.
+    if action != AttackAction::None
+        && let TargetKind::Entity(target_id) = *target
+        && let Some(player) = sim.session().current_house()
+        && let Some(shrouded) = sim.foot_object_shroud_action(player, actor_id, target_id, rules)
+    {
+        action = match sim.foot_object_class_action(
+            actor.owner(),
+            actor_id,
+            target_id,
+            shrouded,
+            rules,
+            overlay_registry,
+        ) {
+            crate::sim::world::MoveAction::Move => AttackAction::Move,
+            crate::sim::world::MoveAction::NoMove => AttackAction::NoMove,
+            crate::sim::world::MoveAction::None | crate::sim::world::MoveAction::Harvest => {
+                AttackAction::None
+            }
+        };
+    }
     let healing_unit = actor.category() == EntityCategory::Unit
         && human
         && crate::sim::combat::combat_weapon::weapon_damage_value(
@@ -2708,9 +2742,14 @@ pub(crate) fn try_queue_context_order(
             // (Self) or rewrite it (the passenger rows, [`entry_orders`]) are
             // handled above. Others are not asked here (#605): the class
             // rungs noted above, and Foot's shroud rung
-            // (`0x004DDF45..0x004DDF82`), which only GameMode 0 reaches. An
-            // enemy the player cannot see is no object to click, as for the
-            // cursor: the Cell under it takes the click.
+            // ([`Simulation::foot_object_shroud_action`]), which rewrites the
+            // key rungs' answers too. RESIDUAL: in a campaign, Shift, Alt or
+            // Ctrl+Alt over an object whose coordinate is shrouded keeps its
+            // toggle-select, Move or guard where native answers Move for a
+            // MoveToShroud= receiver, else NoMove (refused by 4D74E0). Rare:
+            // the clicked Cell itself must be open. An enemy the player cannot
+            // see is no object to click, as for the cursor: the Cell under it
+            // takes the click.
             let force_move_target = hover_object
                 .and_then(|object| object_key_target(object, hover.as_ref()))
                 .filter(|&(object, target)| {
@@ -5419,6 +5458,111 @@ mod tests {
             cursor(harrier, HoverTargetKind::FriendlyUnit),
             CursorFeedbackKind::Default
         );
+    }
+
+    /// Foot What_Action's shroud rung (`0x004DDED0`): in a campaign, Techno's
+    /// Attack over an enemy Tesla Reactor whose coordinate the player's map
+    /// shrouds becomes Move for a Grizzly (`MoveToShroud=` defaults to yes),
+    /// so the Move cursor and a move to it, and NoMove for a Chrono
+    /// Legionnaire (`MoveToShroud=no`), whose click Foot `0x004D74E0`
+    /// refuses there. Outside a campaign both keep Attack.
+    #[test]
+    fn campaign_shroud_over_an_object_answers_move_or_no_move() {
+        use crate::app::types::CursorFeedbackKind;
+        use crate::sim::scenario_session::ScenarioGameMode;
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = retail.rules;
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x4DDED0);
+        let owner = sim.interner().get("Americans").unwrap();
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(owner));
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 5, 5, 0, &rules)
+            .unwrap();
+        let legionnaire = sim
+            .spawn_object("CLEG", "Americans", 5, 6, 0, &rules)
+            .unwrap();
+        let reactor = sim
+            .spawn_object("NAPOWR", "Russians", 10, 10, 0, &rules)
+            .unwrap();
+        let centre = sim.object_coords_cell(reactor).unwrap();
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        sim.fog_mut_for_test().reveal_cells_for_owner(
+            owner,
+            (0..32)
+                .flat_map(|y| (0..32).map(move |x| (x, y)))
+                .filter(|&cell| cell != centre),
+        );
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
+        let action = |sim: &Simulation, actor| {
+            attack_action(
+                sim,
+                &rules,
+                actor,
+                &TargetKind::Entity(reactor),
+                false,
+                None,
+            )
+        };
+        let click = |sim: &Simulation, actor| {
+            object_attack_click_command(
+                sim,
+                &rules,
+                &overlays,
+                owner,
+                OrderMode::Move,
+                OrderModifier::Normal,
+                false,
+                actor,
+                reactor,
+            )
+        };
+
+        sim.session_mut_for_test()
+            .set_game_mode(ScenarioGameMode::Skirmish);
+        for actor in [tank, legionnaire] {
+            assert_eq!(action(&sim, actor), AttackAction::Attack);
+        }
+        assert!(matches!(click(&sim, tank), Some(Command::Attack { .. })));
+
+        sim.session_mut_for_test()
+            .set_game_mode(ScenarioGameMode::Campaign);
+        assert_eq!(action(&sim, tank), AttackAction::Move);
+        assert_eq!(action(&sim, legionnaire), AttackAction::NoMove);
+        for (actor, cursor) in [
+            (tank, CursorFeedbackKind::Move),
+            (legionnaire, CursorFeedbackKind::Invalid),
+        ] {
+            assert_eq!(
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    &sim,
+                    &[actor],
+                    Some(actor),
+                    &HoverTargetKindWithId {
+                        kind: HoverTargetKind::EnemyStructure,
+                        stable_id: reactor,
+                    },
+                    Some(&rules),
+                    None,
+                    OrderModifier::Normal,
+                    false,
+                    false,
+                ),
+                cursor
+            );
+        }
+        assert!(
+            matches!(
+                click(&sim, tank),
+                Some(Command::Move { entity_id, .. } | Command::MoveToObject { entity_id, .. })
+                    if entity_id == tank
+            ),
+            "{:?}",
+            click(&sim, tank)
+        );
+        assert_eq!(click(&sim, legionnaire), None);
     }
 
     /// The Harrier's Cell query under the object (`0x00417D7C..0x00417DCB`)

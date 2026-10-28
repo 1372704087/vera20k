@@ -29,8 +29,6 @@ use crate::rules::ruleset::RuleSet;
 
 use crate::sim::world::Simulation;
 
-use crate::app::frontend::skirmish::deployable_building_types;
-
 pub(crate) fn build_sidebar_cameo_atlas(
     gpu: &GpuContext,
     batch: &BatchRenderer,
@@ -530,21 +528,14 @@ pub(crate) fn prepare_presentation_manifest(
             Some(sim.interner()),
         )
     });
-    // Pre-load building types that can be spawned at runtime (e.g., ConYards from MCV deploy).
-    let extra_buildings: Vec<&str> = deployable_building_types(rules);
-    let mut anim_remap_keys = sprite_atlas::collect_anim_remap_base_keys(sim, house_colors);
+    // Mid-match growth collects the same coverage; only the scenario-start
+    // crate remaps are load-only.
+    let mut coverage = sprite_atlas::EntityAtlasCoverage::collect(sim, rules, house_colors);
     if let Some(rules) = rules {
-        anim_remap_keys.extend(startup_crate_anim_remap_keys(rules, overlay_registry));
+        coverage
+            .anim_remap_keys
+            .extend(startup_crate_anim_remap_keys(rules, overlay_registry));
     }
-    let cell_drawer_type_ids: HashSet<String> = sim
-        .resolved_terrain()
-        .into_iter()
-        .flat_map(|terrain| terrain.tile_animations())
-        .map(|anim| anim.anim_name.to_ascii_uppercase())
-        .collect();
-    let frozen_keys = rules.map_or_else(HashSet::new, |rules| {
-        sprite_atlas::collect_fogged_sprite_keys(sim, rules, house_colors)
-    });
     let sprite_work = palette.map(|pal| {
         sprite_atlas::prepare_sprite_atlas(
             gpu.device.limits().max_texture_dimension_2d,
@@ -556,10 +547,10 @@ pub(crate) fn prepare_presentation_manifest(
             rules,
             art,
             house_colors,
-            &extra_buildings,
-            &anim_remap_keys,
-            &cell_drawer_type_ids,
-            &frozen_keys,
+            &coverage.extra_buildings,
+            &coverage.anim_remap_keys,
+            &coverage.cell_drawer_type_ids,
+            &coverage.frozen_keys,
             theater_iso_palette,
             None, // initial build — no existing cache
             Some(sim.interner()),

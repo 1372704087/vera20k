@@ -280,6 +280,11 @@ fn load_with_assets(
         cold_rules_owner = owner;
         &mut cold_rules_owner
     };
+    // ThemeClass::ReadINI720590 is process data even without an output device.
+    // Keep the existing headless archive stack: THEMEMD.MIX and the preserved
+    // RA2 THEME.MIX extension were mounted at startup; this route has no shell
+    // neutral-archive activation. Resolve before scenario Rules/theater changes.
+    let themes = crate::rules::theme_ini::ThemeCatalog::select(&assets);
     let scenario_prefix_plan =
         crate::sim::scenario_bootstrap::prepare_stock_offline_scenario_prefix_plan(
             &launch,
@@ -385,6 +390,7 @@ fn load_with_assets(
         &team_ai_registry,
         Some(audio_definitions.eva()),
         Some(audio_definitions.sounds().as_ref()),
+        Some(&themes),
     );
     let (mut scenario_fill_rng, variant_main_rng) = sim.terrain_load_draws();
     let mut scenario_fill_ranged =

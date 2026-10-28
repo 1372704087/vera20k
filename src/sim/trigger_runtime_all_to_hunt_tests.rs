@@ -339,7 +339,7 @@ fn all06_elapsed_enable_chain(with_enemy: bool) {
                 ))
     );
     let cropped = super::tests::trigger_fixture_map(&body);
-    sim.initialize_trigger_definitions(&cropped, &teams, None, None);
+    sim.initialize_trigger_definitions(&cropped, &teams, None, None, None);
     sim.install_team_ai_registry(&teams, &rules).unwrap();
     sim.install_authored_cell_trigger_tags(&cropped);
     sim.classify_map_triggers(&rules);
@@ -404,7 +404,7 @@ fn all06_elapsed_enable_chain(with_enemy: bool) {
     let action = sim
         .trigger_runtime
         .definitions
-        .resolve_action(entry, None, None);
+        .resolve_action(entry, None, None, None);
     assert!(sim.apply_live_trigger_action(
         &action,
         TriggerActionContext {

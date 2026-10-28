@@ -1092,6 +1092,7 @@ fn hijacked_vehicle_preserves_its_transferable_tag_until_captor_death() {
         &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
         None,
         None,
+        None,
     );
     let unit = spawn(&mut sim, &rules, "APC", "AlliedHuman", 10, 10);
     let attacker = spawn(&mut sim, &rules, "AMCV", "Russians", 20, 10);
@@ -1765,6 +1766,7 @@ fn a_select_started_by_a_partners_tag_event_does_not_expand() {
     sim.initialize_trigger_definitions(
         &map,
         &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
+        None,
         None,
         None,
     );

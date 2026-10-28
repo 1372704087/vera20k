@@ -361,7 +361,16 @@ pub(crate) fn attack_action(
         // and `infiltrator_capture_orders` decide without it, so a
         // NoManualFire Tanya or Spy still plants C4 or infiltrates. Only Ares
         // builds read the key; retail rules never set it.
+        // NPBUG (NPExt bug-fix changelog item 92, issue #2952): the rung
+        // also refuses an unforced attack on a target the selected weapon's
+        // warhead cannot affect through vanilla receiver-side immunity —
+        // native (0x00700255..0x0070043E) tests only the type's Immune=
+        // flag, so the cursor and the orders both aimed waste at immune
+        // targets. A forced order stays the player override.
         && !kind.no_manual_fire()
+        && (!crate::rules::NPBUG_ENABLED
+            || forced
+            || !sim.chosen_warhead_cannot_affect(rules, actor_id, *target))
     {
         AttackAction::Attack
     } else if let TargetKind::Entity(target_id) = *target

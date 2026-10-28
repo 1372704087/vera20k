@@ -42,3 +42,11 @@ adds no behavior yet.
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime
+
+- #2952 (NPExt changelog item 92): the attack rung refuses an unforced
+  attack on a target the selected warhead cannot affect through vanilla
+  receiver-side immunity — `Radiation=yes` against `ImmuneToRadiation=`,
+  `Psychedelic=yes` against `ImmuneToPsionics=` / `ImmuneToPsionicWeapons=`
+  (native `0x00700255..0x0070043E` tests only the type's `Immune=` flag).
+  A forced order stays the override; NP-specific immunity flags and a
+  vanilla virus pair are out of scope.

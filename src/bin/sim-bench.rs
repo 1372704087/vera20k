@@ -7,8 +7,10 @@
 //! `--scenario march` (the default) adds `--houses` hostile houses on a ring
 //! around the map centre, spawns `--units` objects in formation around each
 //! house's home cell, and orders every object to attack-move to the opposite
-//! house's home. Its houses own no buildings and are passive, so objects march
-//! and jam but almost never fight: it measures movement and path searches.
+//! house's home. Its houses are human players' houses built by the launch's
+//! house constructor, with the match scenario's countries; they own no
+//! buildings and are passive, so objects march and jam but almost never
+//! fight: it measures movement and path searches.
 //! `--return-at T` also gives every object a second attack-move, back home,
 //! from tick T, spread like the first orders, so movers already under way
 //! take a new destination at scale.
@@ -61,9 +63,8 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use vera20k_core::headless_scenario::{self, SIM_TICK_MS};
+use vera20k_core::headless_scenario::{self, HeadlessScenario, SIM_TICK_MS};
 use vera20k_core::sim::command::{Command, CommandEnvelope};
-use vera20k_core::sim::house_state::HouseState;
 use vera20k_core::sim::intern::InternedId;
 use vera20k_core::sim::runtime::SimRuntime;
 
@@ -292,7 +293,7 @@ fn spawn_armies(
 
 /// The march scenario's houses and armies, and every frame's commands.
 fn march(
-    runtime: &mut SimRuntime,
+    scenario: &mut HeadlessScenario,
     args: &Args,
     houses: usize,
 ) -> (usize, Vec<Vec<CommandEnvelope>>) {
@@ -301,16 +302,15 @@ fn march(
         .iter()
         .enumerate()
         .map(|(index, name)| {
-            let sim = &mut runtime.simulation;
-            let id = sim.intern(name);
-            let mut house = HouseState::new(id, (index % 2) as u8, None, false, 0, 10);
+            let countries = &sim_bench_match::HUMAN_COUNTRIES;
+            let id = scenario.add_human_house(name, countries[index % countries.len()]);
             // No house owns a building, so exempt every house from the defeat
             // scan; objects still fight because only same-house pairs are allied.
-            house.make_multiplay_passive();
-            sim.register_house(house);
+            scenario.runtime.simulation.make_house_multiplay_passive(id);
             id
         })
         .collect();
+    let runtime = &mut scenario.runtime;
     let homes = home_cells(&map_cells(runtime), houses);
     let spawned = spawn_armies(runtime, args, &owners, &homes);
     runtime
@@ -572,7 +572,7 @@ fn main() -> Result<(), String> {
     let (houses, spawned, mut plan, ticks) = match args.scenario {
         ScenarioKind::March => {
             let houses = args.houses.unwrap_or(8);
-            let (spawned, orders) = march(&mut scenario.runtime, &args, houses);
+            let (spawned, orders) = march(&mut scenario, &args, houses);
             let ticks = args.ticks.map_or(300, NonZeroU64::get);
             (houses, spawned, Plan::March(orders), ticks)
         }

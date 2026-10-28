@@ -90,8 +90,9 @@ const COMPUTER_ROSTER: [(LaunchCountry, AiDifficulty); COMPUTERS] = [
     (LaunchCountry::GreatBritain, AiDifficulty::Hard),
 ];
 
-/// The human houses' countries, in a fixed rotation over the ten.
-const HUMAN_COUNTRIES: [LaunchCountry; 10] = [
+/// The human houses' countries, in a fixed rotation over the ten; the march
+/// scenario's houses take them too.
+pub(crate) const HUMAN_COUNTRIES: [LaunchCountry; 10] = [
     LaunchCountry::America,
     LaunchCountry::Russia,
     LaunchCountry::Yuri,

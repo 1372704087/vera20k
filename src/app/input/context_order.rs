@@ -633,25 +633,39 @@ fn shrouded_object_action(
 }
 
 /// Whether Infantry's C4 and infiltration arms see Attack over `target_id`
-/// (`cmp ebp,5` at `0x0051E9F1` and `0x0051EE62`): the unforced
-/// [`base_action`], so they refuse where Techno's rung does (an ILLEGAL shot
-/// without the Infiltrate grant, `NoManualFire=`) or Foot's shroud rung
-/// answers Move or NoMove. Cursor and click ask it alike.
+/// (`cmp ebp,5` at `0x0051E9F1` and `0x0051EE62`): no key rung answers
+/// ([`object_key_action`]; Ctrl+Shift+Alt's Move, as Shift clears Ctrl at
+/// `0x007000AC..0x007000B4`), and the unforced [`base_action`] is Attack, so
+/// they refuse where Techno's rung does (an ILLEGAL shot without the
+/// Infiltrate grant, `NoManualFire=`) or Foot's shroud rung answers Move or
+/// NoMove. Cursor and click ask it alike.
 pub(super) fn infantry_arm_attacks(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     actor_id: u64,
     target_id: u64,
+    modifier: OrderModifier,
+    force_move_key: bool,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> bool {
-    base_action(
+    object_key_action(
         sim,
         rules,
         actor_id,
-        &TargetKind::Entity(target_id),
-        false,
-        overlay_registry,
-    ) == AttackAction::Attack
+        target_id,
+        Some(target_id),
+        modifier,
+        force_move_key,
+    )
+    .is_none()
+        && base_action(
+            sim,
+            rules,
+            actor_id,
+            &TargetKind::Entity(target_id),
+            false,
+            overlay_registry,
+        ) == AttackAction::Attack
 }
 
 /// Whether an Aircraft's 0 over the object `target_id` becomes Attack. The
@@ -2210,7 +2224,12 @@ pub(crate) fn try_queue_context_order(
         // Alt's ([`object_key_action`]), and the release dispatches it: each
         // receiver takes its own, as under Alt. Infantry's Engineer arms
         // after the rung ignore its answer, so the Engineer prefixes below
-        // run as they do for Alt.
+        // run as they do for Alt. The key rungs still see Shift
+        // (`key_modifier`): its rung admits a player's object that is no
+        // loaner, Alt's only one the player may control (vt+0xA0). A
+        // selected building's rungs read the force-move key itself
+        // ([`building_click_orders`]), so its Shift orders nothing.
+        let key_modifier = modifier;
         if matches!(
             shift_key_action,
             Some(ObjectKeyAction::Move | ObjectKeyAction::NoMove)
@@ -2425,7 +2444,7 @@ pub(crate) fn try_queue_context_order(
                     owner,
                     terrain,
                     None,
-                    modifier,
+                    key_modifier,
                     force_move_key,
                 )
                 .is_none()
@@ -2635,6 +2654,8 @@ pub(crate) fn try_queue_context_order(
                     Some(&resources.overlay_registry),
                     &mut selected_units,
                     target,
+                    key_modifier,
+                    force_move_key,
                 ) {
                     consumed_building_action = true;
                     queued.extend(
@@ -2660,7 +2681,7 @@ pub(crate) fn try_queue_context_order(
                     &current_objects,
                     &mut selected_units,
                     target,
-                    modifier,
+                    key_modifier,
                     force_move_key,
                     Some(&resources.overlay_registry),
                 )
@@ -2677,24 +2698,31 @@ pub(crate) fn try_queue_context_order(
                 }
             }
 
-            // RESIDUAL: Infantry's garrison arm (`0x0051E668..0x0051E6B1`)
-            // ignores Foot's answer and is refused only by Ctrl without Shift
-            // (`0x0051E3B0..0x0051E42A`), so Alt's Move, and Shift's under the
-            // campaign shroud rung, still garrison natively, as the cursor
-            // shows. This click skips it under those chords
-            // (`context_actions_enabled`) and moves the infantry instead.
-            // Trigger: an Alt click by an Occupier on a building it may
-            // garrison; uncommon, and it swaps one order for another.
-            if context_actions_enabled && let Some(target) = hover.as_ref() {
-                let orders =
-                    garrison_entry_orders(sim, &resources.rules, &selected_units, target.stable_id);
+            // The garrison arm runs under Alt too ([`infantry_garrisons`]);
+            // there the other receivers take Alt's Move below.
+            if let Some(target) = hover.as_ref() {
+                let orders = garrison_entry_orders(
+                    sim,
+                    &resources.rules,
+                    &selected_units,
+                    target.stable_id,
+                    key_modifier,
+                    force_move_key,
+                );
                 if !orders.is_empty() {
+                    selected_units.retain(|&id| {
+                        !orders.iter().any(|order| {
+                            matches!(order, Command::CaptureBuilding { engineer_id, .. } if *engineer_id == id)
+                        })
+                    });
                     queued.extend(
                         orders
                             .into_iter()
                             .map(|command| CommandEnvelope::new(owner_id, execute_tick, command)),
                     );
-                    return finish_order(state, queued, speaker_id, rally_announce, None);
+                    if !force_move || selected_units.is_empty() {
+                        return finish_order(state, queued, speaker_id, rally_announce, None);
+                    }
                 }
             }
 
@@ -2709,6 +2737,8 @@ pub(crate) fn try_queue_context_order(
                             &resources.rules,
                             id,
                             target.stable_id,
+                            key_modifier,
+                            force_move_key,
                             Some(&resources.overlay_registry),
                         );
                         infantry_c4_action(sim, &resources.rules, id, target, attacks)
@@ -2876,7 +2906,7 @@ pub(crate) fn try_queue_context_order(
                                         owner,
                                         object,
                                         target,
-                                        modifier,
+                                        key_modifier,
                                         force_move_key,
                                     ),
                                     Some(ObjectKeyAction::Move | ObjectKeyAction::NoMove)
@@ -3048,7 +3078,7 @@ pub(crate) fn try_queue_context_order(
                                         stable_id,
                                         object,
                                         target,
-                                        modifier,
+                                        key_modifier,
                                         force_move_key,
                                     ) {
                                         Some(ObjectKeyAction::NoMove) => {
@@ -3481,31 +3511,60 @@ fn self_action(
     })
 }
 
-/// Garrison orders use the same admission owner as the hover cursor.
-/// Infantry What_Action51E668..51E6B1 answers action9 for an admitted
-/// garrison; Foot ClickedAction4D7716..4D773A sends Capture8 with NULL
-/// Target and the building as Destination. Actual arrival belongs to the
-/// existing Capture/PerCell owners, as for computer occupiers (#1400).
-/// Passenger carriers take [`entry_orders`].
+/// Infantry's garrison arm (`0x0051E668..0x0051E6B1`): `actor_id` may
+/// occupy the `CanBeOccupied=` building `building_id`
+/// ([`crate::sim::passenger::can_enter_transport`]). It ignores Foot's
+/// answer, save Shift's ToggleSelect, which returns first (`0x0051E453`),
+/// and only Ctrl without Shift refuses it (`0x0051E3B0..0x0051E42A`): Alt
+/// and Ctrl+Shift+Alt garrison, Ctrl and Ctrl+Alt do not. Cursor and click
+/// ask it alike.
+pub(super) fn infantry_garrisons(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    actor_id: u64,
+    building_id: u64,
+    modifier: OrderModifier,
+    force_move_key: bool,
+) -> bool {
+    !matches!(
+        modifier,
+        OrderModifier::ForceFire | OrderModifier::GuardArea
+    ) && sim
+        .entities()
+        .get(building_id)
+        .filter(|target| target.category() == EntityCategory::Structure)
+        .and_then(|target| sim.interner().object_type(target.type_ref(), rules))
+        .is_some_and(|object| object.can_be_occupied)
+        && object_key_action(
+            sim,
+            rules,
+            actor_id,
+            building_id,
+            Some(building_id),
+            modifier,
+            force_move_key,
+        ) != Some(ObjectKeyAction::ToggleSelect)
+        && crate::sim::passenger::can_enter_transport(sim, rules, actor_id, building_id)
+}
+
+/// The garrison orders of the `selected` objects [`infantry_garrisons`]
+/// admits: Infantry What_Action answers action 9, and Foot ClickedAction
+/// (`0x004D7716..0x004D773A`) sends Capture8 with NULL Target and the
+/// building as Destination. Actual arrival belongs to the existing
+/// Capture/PerCell owners, as for computer occupiers (#1400). Passenger
+/// carriers take [`entry_orders`].
 fn garrison_entry_orders(
     sim: &crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
     selected: &[u64],
     building_id: u64,
+    modifier: OrderModifier,
+    force_move_key: bool,
 ) -> Vec<Command> {
-    let garrison = sim
-        .entities()
-        .get(building_id)
-        .filter(|target| target.category() == EntityCategory::Structure)
-        .and_then(|target| sim.interner().object_type(target.type_ref(), rules))
-        .is_some_and(|object| object.can_be_occupied);
-    if !garrison {
-        return Vec::new();
-    }
     selected
         .iter()
         .copied()
-        .filter(|&id| crate::sim::passenger::can_enter_transport(sim, rules, id, building_id))
+        .filter(|&id| infantry_garrisons(sim, rules, id, building_id, modifier, force_move_key))
         .map(|engineer_id| Command::CaptureBuilding {
             engineer_id,
             target_building_id: building_id,
@@ -3513,14 +3572,14 @@ fn garrison_entry_orders(
         .collect()
 }
 
-/// [`Simulation::entry_click_action`] under the base action the modifier and
-/// [`attack_action`] give:
+/// [`Simulation::entry_click_action`] under the base action the key rungs
+/// ([`object_key_action`]) and [`attack_action`] give:
 /// - Shift's ToggleSelect (8) returns first (`0x0051E453`), and Ctrl+Alt's
 ///   GuardArea (0x1A) skips every entry row;
 /// - Alt answers Move (1) first (`0x007001E9`), in the Ctrl+Shift+Alt chord
-///   too, which only the passenger rows take. A player's deployed `Deployer=`
-///   infantryman (Doing 27..30) answers NoMove (2) for it before them
-///   (`0x0051EB81..0x0051EBD7`);
+///   too, which only the passenger rows take, as they take the Move or
+///   NoMove Foot's shroud rung makes of Shift's or Alt's answer in a
+///   campaign;
 /// - otherwise [`attack_action`], forced under Ctrl: Select (7) takes every
 ///   row, and Attack (5) none. Every other answer takes only the passenger
 ///   rows: an armed player's object over another house's object (0,
@@ -3528,6 +3587,16 @@ fn garrison_entry_orders(
 ///   tail for an actor neither armed nor `Infiltrate=`
 ///   (`0x00700444..0x00700474`), so an Engineer's Ctrl over a carrier still
 ///   asks it.
+///
+/// A player's deployed `Deployer=` infantryman (Doing 27..30) answers NoMove
+/// (2) for a Move before the rows (`0x0051EB81..0x0051EBD7`).
+///
+/// RESIDUAL: Ctrl+Alt skips the rows also where its guard rung refuses (an
+/// Aircraft, `0x007001B4..0x007001BA`) and Alt's Move answers, or where the
+/// campaign shroud rung rewrites it; natively the rows that take Alt's Move
+/// take those. Cursor and click skip them alike. Trigger: Ctrl+Alt by an
+/// Aircraft over a friendly object it may enter, or over a shrouded carrier
+/// in a campaign; rare.
 ///
 /// [`Simulation::entry_click_action`]: crate::sim::world::Simulation::entry_click_action
 pub(super) fn entry_action(
@@ -3540,28 +3609,36 @@ pub(super) fn entry_action(
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<crate::sim::world::EntryClickAction> {
     use crate::sim::world::EntryBaseAction;
-    let base = match modifier {
-        OrderModifier::Shift | OrderModifier::GuardArea => return None,
-        OrderModifier::ForceMove => EntryBaseAction::Other,
-        OrderModifier::AttackMove if force_move_key => EntryBaseAction::Other,
-        OrderModifier::Normal | OrderModifier::AttackMove | OrderModifier::ForceFire => {
-            match attack_action(
-                sim,
-                rules,
-                actor_id,
-                &TargetKind::Entity(target_id),
-                modifier == OrderModifier::ForceFire,
-                overlay_registry,
-            ) {
-                AttackAction::Select => EntryBaseAction::Select,
-                AttackAction::Attack => return None,
-                _ => EntryBaseAction::Other,
-            }
-        }
+    if modifier == OrderModifier::GuardArea {
+        return None;
+    }
+    let key = object_key_action(
+        sim,
+        rules,
+        actor_id,
+        target_id,
+        Some(target_id),
+        modifier,
+        force_move_key,
+    );
+    let (base, moves) = match key {
+        Some(ObjectKeyAction::ToggleSelect | ObjectKeyAction::GuardArea) => return None,
+        Some(ObjectKeyAction::Move) => (EntryBaseAction::Other, true),
+        Some(ObjectKeyAction::NoMove) => (EntryBaseAction::Other, false),
+        None => match attack_action(
+            sim,
+            rules,
+            actor_id,
+            &TargetKind::Entity(target_id),
+            modifier == OrderModifier::ForceFire,
+            overlay_registry,
+        ) {
+            AttackAction::Select => (EntryBaseAction::Select, false),
+            AttackAction::Attack => return None,
+            action => (EntryBaseAction::Other, action == AttackAction::Move),
+        },
     };
-    let alt = modifier == OrderModifier::ForceMove
-        || (modifier == OrderModifier::AttackMove && force_move_key);
-    if alt
+    if moves
         && sim.entities().get(actor_id).is_some_and(|actor| {
             actor.category() == EntityCategory::Infantry
                 && sim.house_is_human_player(actor.owner())
@@ -3924,6 +4001,8 @@ fn infiltrator_capture_orders(
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     selected: &mut Vec<u64>,
     hover: &HoverTargetKindWithId,
+    modifier: OrderModifier,
+    force_move_key: bool,
 ) -> Option<Vec<Command>> {
     if !matches!(
         hover.kind,
@@ -3934,7 +4013,15 @@ fn infiltrator_capture_orders(
     let mut consumed = false;
     let mut orders = Vec::new();
     selected.retain(|&id| {
-        let attacks = infantry_arm_attacks(sim, rules, id, hover.stable_id, overlay_registry);
+        let attacks = infantry_arm_attacks(
+            sim,
+            rules,
+            id,
+            hover.stable_id,
+            modifier,
+            force_move_key,
+            overlay_registry,
+        );
         if !attacks
             || infantry_c4_action(sim, rules, id, hover, attacks).is_some()
             || crate::sim::passenger::can_enter_transport(sim, rules, id, hover.stable_id)
@@ -4992,7 +5079,15 @@ mod tests {
             assert!(sim.infiltrator_building_action(seal, target, &rules));
             let mut selected = vec![seal, spy];
             assert_eq!(
-                infiltrator_capture_orders(&sim, &rules, None, &mut selected, &hover),
+                infiltrator_capture_orders(
+                    &sim,
+                    &rules,
+                    None,
+                    &mut selected,
+                    &hover,
+                    OrderModifier::Normal,
+                    false,
+                ),
                 Some(vec![Command::CaptureBuilding {
                     engineer_id: spy,
                     target_building_id: target
@@ -5005,7 +5100,15 @@ mod tests {
                     &rules,
                     seal,
                     &hover,
-                    infantry_arm_attacks(&sim, &rules, seal, target, None)
+                    infantry_arm_attacks(
+                        &sim,
+                        &rules,
+                        seal,
+                        target,
+                        OrderModifier::Normal,
+                        false,
+                        None
+                    )
                 ),
                 Some(expected_action)
             );
@@ -5029,10 +5132,26 @@ mod tests {
             stable_id: fold,
         };
         assert!(rules.object("FOLD").unwrap().is_1x1_with_undeploy());
-        assert!(infantry_arm_attacks(&sim, &rules, seal, fold, None));
+        assert!(infantry_arm_attacks(
+            &sim,
+            &rules,
+            seal,
+            fold,
+            OrderModifier::Normal,
+            false,
+            None
+        ));
         assert_eq!(infantry_c4_action(&sim, &rules, seal, &hover, true), None);
         assert_eq!(
-            infiltrator_capture_orders(&sim, &rules, None, &mut vec![seal], &hover),
+            infiltrator_capture_orders(
+                &sim,
+                &rules,
+                None,
+                &mut vec![seal],
+                &hover,
+                OrderModifier::Normal,
+                false,
+            ),
             Some(vec![Command::CaptureBuilding {
                 engineer_id: seal,
                 target_building_id: fold
@@ -5864,14 +5983,80 @@ mod tests {
         assert_eq!(guard_click(&sim, legionnaire), None);
     }
 
-    /// Infantry's C4 and infiltration arms need the Attack Foot's What_Action
-    /// hands them (`cmp ebp,5` at `0x0051E9F1` and `0x0051EE62`). In a
-    /// campaign the shroud rung (`0x004DDED0`) makes it Move over an enemy
-    /// Tesla Reactor whose coordinate the map shrouds, so Tanya neither
-    /// shows Demolish nor plants C4 and the Spy neither shows Enter nor
-    /// infiltrates: both show Move. Outside a campaign both arms answer.
+    /// The passenger rows take the Move Foot's shroud rung (`0x004DDED0`)
+    /// makes of Shift's ToggleSelect (`0x00700107`), which otherwise returns
+    /// first (`0x0051E453`): in a campaign a GI's Shift over the player's own
+    /// IFV whose coordinate the map shrouds enters it, cursor and click
+    /// alike. In a skirmish Shift toggles the selection.
     #[test]
-    fn campaign_shroud_refuses_c4_and_infiltration() {
+    fn campaign_shroud_shift_takes_the_passenger_rows() {
+        use crate::app::types::CursorFeedbackKind;
+        use crate::sim::scenario_session::ScenarioGameMode;
+        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+            return;
+        };
+        let rules = retail.rules;
+        let (mut sim, _, actors, ifv) =
+            shrouded_campaign_arena(&rules, 0x0051_E453, &["E1"], ("FV", "Americans"));
+        let gi = actors[0];
+        let hover = HoverTargetKindWithId {
+            kind: HoverTargetKind::FriendlyUnit,
+            stable_id: ifv,
+        };
+        let cursor = |sim: &Simulation| {
+            crate::app::input::cursor::capability_cursor_for_hover(
+                sim,
+                &[gi],
+                Some(gi),
+                &hover,
+                Some(&rules),
+                None,
+                OrderModifier::Shift,
+                false,
+                false,
+            )
+        };
+        let click = |sim: &Simulation| {
+            entry_orders(
+                sim,
+                &rules,
+                &[gi],
+                &mut vec![gi],
+                &hover,
+                OrderModifier::Shift,
+                false,
+                None,
+            )
+        };
+
+        sim.session_mut_for_test()
+            .set_game_mode(ScenarioGameMode::Skirmish);
+        assert_eq!(cursor(&sim), CursorFeedbackKind::Select);
+        assert_eq!(click(&sim), None);
+        sim.session_mut_for_test()
+            .set_game_mode(ScenarioGameMode::Campaign);
+        assert_eq!(cursor(&sim), CursorFeedbackKind::Enter);
+        assert_eq!(
+            click(&sim),
+            Some(vec![Command::MegaMission {
+                entity_id: gi,
+                mission: crate::sim::mission::MissionType::Enter,
+                target: None,
+                destination: Some(TargetKind::Entity(ifv)),
+            }])
+        );
+    }
+
+    /// Infantry's C4 and infiltration arms need the Attack Foot's What_Action
+    /// hands them (`cmp ebp,5` at `0x0051E9F1` and `0x0051EE62`). Over an
+    /// enemy Tesla Reactor Ctrl+Shift+Alt answers Move (Shift clears Ctrl at
+    /// `0x007000AC..0x007000B4`, Alt's rung `0x007001E9..0x00700217`), and in
+    /// a campaign the shroud rung (`0x004DDED0`) makes a plain click's Attack
+    /// Move where the map shrouds the reactor's coordinate. Then Tanya
+    /// neither shows Demolish nor plants C4, and the Spy neither shows Enter
+    /// nor infiltrates: both show Move. A plain skirmish click takes both.
+    #[test]
+    fn c4_and_infiltration_need_the_attack_foot_hands_them() {
         use crate::app::types::CursorFeedbackKind;
         use crate::sim::scenario_session::ScenarioGameMode;
         let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
@@ -5887,52 +6072,58 @@ mod tests {
             kind: HoverTargetKind::EnemyStructure,
             stable_id: reactor,
         };
-        let cursor = |sim: &Simulation, actor| {
-            crate::app::input::cursor::capability_cursor_for_hover(
-                sim,
-                &[actor],
-                Some(actor),
-                &hover,
-                Some(&rules),
-                None,
-                OrderModifier::Normal,
-                false,
-                false,
-            )
-        };
-        let c4 = |sim: &Simulation| {
-            infantry_c4_action(
+        let check = |sim: &Simulation, modifier, alt, takes_arms| {
+            let cursor = |actor| {
+                crate::app::input::cursor::capability_cursor_for_hover(
+                    sim,
+                    &[actor],
+                    Some(actor),
+                    &hover,
+                    Some(&rules),
+                    None,
+                    modifier,
+                    alt,
+                    false,
+                )
+            };
+            let attacks = infantry_arm_attacks(sim, &rules, tanya, reactor, modifier, alt, None);
+            let c4 = infantry_c4_action(sim, &rules, tanya, &hover, attacks);
+            let infiltrate = infiltrator_capture_orders(
                 sim,
                 &rules,
-                tanya,
+                None,
+                &mut vec![spy],
                 &hover,
-                infantry_arm_attacks(sim, &rules, tanya, reactor, None),
-            )
-        };
-        let infiltrate = |sim: &Simulation| {
-            infiltrator_capture_orders(sim, &rules, None, &mut vec![spy], &hover)
+                modifier,
+                alt,
+            );
+            if takes_arms {
+                assert_eq!(cursor(tanya), CursorFeedbackKind::Demolish);
+                assert_eq!(c4, Some(InfantryC4Action::Sabotage));
+                assert_eq!(cursor(spy), CursorFeedbackKind::Enter);
+                assert_eq!(
+                    infiltrate,
+                    Some(vec![Command::CaptureBuilding {
+                        engineer_id: spy,
+                        target_building_id: reactor,
+                    }])
+                );
+            } else {
+                for actor in [tanya, spy] {
+                    assert_eq!(cursor(actor), CursorFeedbackKind::Move, "{modifier:?}");
+                }
+                assert_eq!(c4, None, "{modifier:?}");
+                assert_eq!(infiltrate, None, "{modifier:?}");
+            }
         };
 
         sim.session_mut_for_test()
             .set_game_mode(ScenarioGameMode::Skirmish);
-        assert_eq!(cursor(&sim, tanya), CursorFeedbackKind::Demolish);
-        assert_eq!(c4(&sim), Some(InfantryC4Action::Sabotage));
-        assert_eq!(cursor(&sim, spy), CursorFeedbackKind::Enter);
-        assert_eq!(
-            infiltrate(&sim),
-            Some(vec![Command::CaptureBuilding {
-                engineer_id: spy,
-                target_building_id: reactor,
-            }])
-        );
-
+        check(&sim, OrderModifier::Normal, false, true);
+        check(&sim, OrderModifier::AttackMove, true, false);
         sim.session_mut_for_test()
             .set_game_mode(ScenarioGameMode::Campaign);
-        for actor in [tanya, spy] {
-            assert_eq!(cursor(&sim, actor), CursorFeedbackKind::Move);
-        }
-        assert_eq!(c4(&sim), None);
-        assert_eq!(infiltrate(&sim), None);
+        check(&sim, OrderModifier::Normal, false, false);
     }
 
     /// One of several selected own tanks under the cursor: Techno's self rung
@@ -7184,84 +7375,6 @@ mod tests {
             cursor_id_for_feedback(group),
             Some(CursorId::Default),
             "a group hover over a selected factory is the arrow"
-        );
-    }
-
-    /// A Construction Yard's self click is its factory primary rung, not an
-    /// undeploy: Building What_Action (`0x00447210`) keeps Self (4) over
-    /// itself only for a factory (`Factory=BuildingType`) that is not
-    /// primary, whose ClickedAction (`0x00443410`) queues Event17 for it
-    /// (`0x00448160`); `UndeploysInto=` has no self arm. The primary yard
-    /// answers 0, which over itself, selected, does nothing (`0x004AC294`).
-    #[test]
-    fn retail_construction_yard_self_click_toggles_primary_not_undeploy() {
-        use crate::app::types::CursorFeedbackKind;
-        let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
-            return;
-        };
-        let rules = retail.rules;
-        assert!(rules.object("GACNST").unwrap().undeploys_into.is_some());
-        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x0044_7210);
-        let owner = sim.interner().get("Americans").unwrap();
-        sim.session_mut_for_test()
-            .set_current_house_for_test(Some(owner));
-        let primary = sim
-            .spawn_object("GACNST", "Americans", 6, 6, 0, &rules)
-            .unwrap();
-        let second = sim
-            .spawn_object("GACNST", "Americans", 20, 6, 0, &rules)
-            .unwrap();
-        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::empty();
-        let hover = |stable_id| HoverTargetKindWithId {
-            kind: HoverTargetKind::FriendlyStructure,
-            stable_id,
-        };
-        let mut check = |yard: u64, feedback, click: BuildingClick| {
-            sim.entities_mut_for_test()
-                .get_mut(yard)
-                .unwrap()
-                .selection
-                .set_selected_for_test(true);
-            let cell = sim.object_coords_cell(yard).unwrap();
-            assert_eq!(
-                crate::app::input::cursor::capability_cursor_for_hover(
-                    &sim,
-                    &[yard],
-                    Some(yard),
-                    &hover(yard),
-                    Some(&rules),
-                    None,
-                    OrderModifier::Normal,
-                    false,
-                    false,
-                ),
-                feedback
-            );
-            assert_eq!(
-                building_selection_click(
-                    &sim,
-                    &rules,
-                    &overlays,
-                    &[yard],
-                    &[yard],
-                    owner,
-                    Some(&hover(yard)),
-                    None,
-                    cell,
-                    OrderModifier::Normal,
-                    false,
-                ),
-                click
-            );
-        };
-        check(primary, CursorFeedbackKind::Default, BuildingClick::Nothing);
-        check(
-            second,
-            CursorFeedbackKind::Deploy,
-            BuildingClick::Orders(
-                vec![Command::TogglePrimaryFactory { entity_id: second }],
-                false,
-            ),
         );
     }
 

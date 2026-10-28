@@ -945,16 +945,18 @@ pub(super) fn capability_cursor_for_hover(
 
         let is_infantry = sel_entity.category() == EntityCategory::Infantry;
 
-        // 6. Infantry garrisoning uses the shared CanBeOccupiedBy-equivalent predicate.
-        //    garrisonable — only show Enter for those, not actual enemy-player buildings.
+        // 6. Infantry's garrison arm, shared with the click.
         if is_infantry
-            && !matches!(
-                modifier,
-                OrderModifier::ForceFire | OrderModifier::GuardArea
-            )
-            && hovered_obj.is_some_and(|object| object.can_be_occupied)
-            && let Some(rules) = rules
-            && crate::sim::passenger::can_enter_transport(sim, rules, best_id, hover.stable_id)
+            && rules.is_some_and(|rules| {
+                super::context_order::infantry_garrisons(
+                    sim,
+                    rules,
+                    best_id,
+                    hover.stable_id,
+                    modifier,
+                    force_move_key,
+                )
+            })
         {
             return CursorFeedbackKind::Enter;
         }
@@ -1000,6 +1002,8 @@ pub(super) fn capability_cursor_for_hover(
                 rules,
                 best_id,
                 hover.stable_id,
+                modifier,
+                force_move_key,
                 overlay_registry,
             )
         });

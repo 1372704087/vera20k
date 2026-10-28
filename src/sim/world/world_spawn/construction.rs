@@ -130,6 +130,17 @@ impl Simulation {
         let category = ge.category();
         let initial = ge.body_facing.destination();
         let uses_voxel = ge.is_voxel();
+        // Phobos attaches the type's AttachEffect.AttachTypes at creation,
+        // before the object can be observed or act.
+        #[cfg(feature = "phobos")]
+        if let Some(obj) = obj {
+            crate::sim::attach_effect::attach_initial_effects(
+                ge.phobos_attach_effects_mut(),
+                obj,
+                rules,
+                None,
+            );
+        }
         // InitManagers6F3F40 classifies the owner after construction; it does
         // not manufacture either discovery-history byte. The launch-owned
         // current house is distinct from the notification/viewer binding.

@@ -428,29 +428,24 @@ fn paired(list: &[i32], index: usize, default: i32) -> i32 {
 
 /// Phobos attaches a techno type's `AttachEffect.AttachTypes` once when the
 /// entity is created, pairing `DurationOverrides`, `Delays`, `InitialDelays`
-/// and `RecreationDelays` by index.
+/// and `RecreationDelays` by index. `source` is the invoking pair when the
+/// attachment came from outside (a warhead or weapon); a type's own list has
+/// none.
 #[cfg(feature = "phobos")]
 pub fn attach_initial_effects(
-    sim: &mut crate::sim::world::Simulation,
-    entity_id: u64,
+    list: &mut AttachEffectList,
+    object: &crate::rules::object_type::ObjectType,
     rules: &crate::rules::ruleset::RuleSet,
     source: Option<AttachSource>,
 ) -> usize {
-    let Some(entity) = sim.substrate.entities.get(entity_id) else {
-        return 0;
-    };
-    let type_name = sim.interner.resolve(entity.type_ref()).to_owned();
-    let Some(object) = rules.object(&type_name) else {
-        return 0;
-    };
-    let names = object.attach_effect_attach_types().to_vec();
+    let names = object.attach_effect_attach_types();
     if names.is_empty() {
         return 0;
     }
-    let overrides = object.attach_effect_duration_overrides().to_vec();
-    let delays = object.attach_effect_delays().to_vec();
-    let initial_delays = object.attach_effect_initial_delays().to_vec();
-    let recreation_delays = object.attach_effect_recreation_delays().to_vec();
+    let overrides = object.attach_effect_duration_overrides();
+    let delays = object.attach_effect_delays();
+    let initial_delays = object.attach_effect_initial_delays();
+    let recreation_delays = object.attach_effect_recreation_delays();
     let policy = AttachPolicy {
         replace_longer_duration: rules.attach_effect_globals().replace_longer_duration,
         ..AttachPolicy::default()
@@ -463,17 +458,12 @@ pub fn attach_initial_effects(
         };
         let effect = &catalog.types()[type_index];
         let params = AttachEffectParams {
-            duration_override: paired(&overrides, index, 0),
-            delay: paired(&delays, index, 0),
-            initial_delay: paired(&initial_delays, index, 0),
-            recreation_delay: paired(&recreation_delays, index, -1),
+            duration_override: paired(overrides, index, 0),
+            delay: paired(delays, index, 0),
+            initial_delay: paired(initial_delays, index, 0),
+            recreation_delay: paired(recreation_delays, index, -1),
         };
-        let Some(entity) = sim.substrate.entities.get_mut(entity_id) else {
-            break;
-        };
-        if let AttachOutcome::Attached(_) = entity
-            .phobos_attach_effects_mut()
-            .attach(type_index, params, effect, policy, source)
+        if let AttachOutcome::Attached(_) = list.attach(type_index, params, effect, policy, source)
         {
             attached += 1;
         }
@@ -638,6 +628,36 @@ mod tests {
             AttachPolicy::default(),
             None,
         )
+    }
+
+    /// A creation attach reads the type's list with each paired value and
+    /// keeps an unknown catalog name out.
+    #[test]
+    fn creation_attaches_the_type_list_with_paired_values() {
+        use crate::rules::ruleset::RuleSet;
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[AttachEffectTypes]
+0=FIRST
+[FIRST]
+Duration=40
+             [VehicleTypes]
+0=MTNK
+[MTNK]
+Name=Apocalypse
+             AttachEffect.AttachTypes=FIRST,MISSING
+AttachEffect.InitialDelays=3
+",
+        ))
+        .expect("rules");
+        let object = rules.object("MTNK").expect("techno");
+        let mut list = AttachEffectList::default();
+        assert_eq!(
+            attach_initial_effects(&mut list, object, &rules, None),
+            1,
+            "only the catalog name attaches"
+        );
+        assert_eq!(list.instances().len(), 1);
+        assert_eq!(list.instances()[0].remaining(), 40);
     }
 
     /// A paired list uses its own index, else the last value, else the key's

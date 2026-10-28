@@ -284,18 +284,23 @@ impl App {
             // while Main_Tick's terminal tests and frame tail wait for Stop.
             crate::app::match_runtime::network_failure::show(state);
             crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+            let frame_stopped = state.match_state.frame_stopped;
             if crate::app::match_runtime::network_failure::take_acknowledged(state) {
-                main_tick_admitted =
-                    crate::app::match_runtime::sim_tick::resume_after_network_failure(state);
-                // Main_Tick55DE4F..55DE71 and Main_Game55CFD0 retain their
-                // independent restart/EXIT/outcome priority after the modal.
-                Self::consume_scenario_restart_request(state);
-                Self::consume_executed_abort_exit(state, scenario_now_ms);
-                crate::app::match_runtime::sim_tick::drive_local_player_outcome_exit(
-                    state,
-                    scenario_now_ms,
-                );
-                Self::drive_scenario_exit(state, scenario_now_ms);
+                // A stopped frame has no suspended native frame to finish and
+                // its world must not run again: Stop goes straight to the shell.
+                if !frame_stopped {
+                    main_tick_admitted =
+                        crate::app::match_runtime::sim_tick::resume_after_network_failure(state);
+                    // Main_Tick55DE4F..55DE71 and Main_Game55CFD0 retain their
+                    // independent restart/EXIT/outcome priority after the modal.
+                    Self::consume_scenario_restart_request(state);
+                    Self::consume_executed_abort_exit(state, scenario_now_ms);
+                    crate::app::match_runtime::sim_tick::drive_local_player_outcome_exit(
+                        state,
+                        scenario_now_ms,
+                    );
+                    Self::drive_scenario_exit(state, scenario_now_ms);
+                }
                 if matches!(state.frontend.screen, GameScreen::InGame)
                     && state.match_state.scenario_exit.is_none()
                     && state.match_state.scenario_outcome.is_none()

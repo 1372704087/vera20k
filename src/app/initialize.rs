@@ -852,6 +852,7 @@ impl App {
                 session: Default::default(),
                 network_wait: Default::default(),
                 network_failure: None,
+                frame_stopped: false,
                 live_network: None,
                 lan_service: None,
                 startup: Default::default(),

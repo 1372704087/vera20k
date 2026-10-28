@@ -165,11 +165,15 @@ pub(crate) mod ares_spotlight;
 pub(crate) mod ares_driver;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_crew;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_bounty;
 pub mod armor;
 pub mod alpha_image_assets;
 pub mod country_loading;
 #[cfg(test)]
 mod ares_manual_control_tests;
+#[cfg(test)]
+mod ares_type_selection_tests;
 pub mod compatibility;
 pub mod animation_sequence;
 pub mod art_data;
@@ -234,6 +238,7 @@ pub mod shp_vehicle_sequence;
 pub mod skirmish_colors;
 pub mod smudge_type;
 pub mod sound_ini;
+pub mod theme_ini;
 #[cfg(feature = "ares")]
 pub(crate) mod superweapon_influence;
 pub mod superweapon_targeting;

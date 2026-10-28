@@ -59,9 +59,8 @@ const EVENT_TECHTYPE_EXISTS: i32 = 60;
 const EVENT_TECHTYPE_DOES_NOT_EXIST: i32 = 61;
 const LOGICAL_FRAMES_PER_SECOND: i32 = crate::util::fixed_math::RA2_LOGIC_FRAMES_PER_SECOND as i32;
 
-/// Action20's music operand. Theme owns the immutable process catalog, so a
-/// type8 name is kept verbatim until that owner resolves it. This preserves
-/// Read6DD7E0's From_Name721210 result without a second music registry in sim.
+/// Action20's music operand. Fresh reads retain the process catalog's index;
+/// Name remains supported for old saved actions/effects and existing callers.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeRequest {
     Name(String),
@@ -231,7 +230,7 @@ struct TagType {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-struct RuntimeDefinitions {
+pub(crate) struct RuntimeDefinitions {
     team_types: Vec<String>,
     /// TeamType+D0 references resolved during physical Read6F1341. This is
     /// the sole owner; Team constructors consume the retained ordinal and
@@ -242,6 +241,27 @@ struct RuntimeDefinitions {
 }
 
 impl RuntimeDefinitions {
+    /// TeamTypeClass::FindByIDOrName @ 0x006F0FC0 (retail gamemd.exe).
+    /// Scan the constructor vector, ID then Name for each entry; callers own
+    /// token preprocessing. This never allocates, trims or handles sentinels.
+    pub(crate) fn find_team_type(
+        &self,
+        requested: &str,
+        teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
+    ) -> Option<&str> {
+        self.team_types
+            .iter()
+            .find(|id| {
+                id.eq_ignore_ascii_case(requested)
+                    || teams.team_type_name(id).eq_ignore_ascii_case(requested)
+            })
+            .map(String::as_str)
+    }
+
+    pub(crate) fn team_type_ids(&self) -> impl Iterator<Item = &str> {
+        self.team_types.iter().map(String::as_str)
+    }
+
     fn team_type(&mut self, name: &str) -> Option<usize> {
         if is_native_none_type_name(name) {
             return None;
@@ -302,6 +322,7 @@ impl RuntimeDefinitions {
         entry: ActionEntry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
         sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     ) -> RuntimeAction {
         let reference = match entry.definition_reference() {
             Some(ActionDefinitionReference::Team(selector)) => match selector {
@@ -328,23 +349,34 @@ impl RuntimeDefinitions {
             None => None,
         };
         let parameter_type = entry.params.first().map_or(0, |v| crt_atoi(v));
-        let value = if parameter_type == 6 {
-            // Original753250 scans the raw, untrimmed name. Missing names
-            // materialize -1; no cue-name resolution runs during Execute.
-            Some(
+        let value = match parameter_type {
+            // TAction::Read6DD7BC/6DD7CE stores the raw name's EVA753250
+            // or Voc7514D0 ordinal in +90 for every action, including timer
+            // Execute27 at6DE5C9. Unknown names materialize -1, not zero.
+            6 | 7 => Some(
                 entry
                     .params
                     .get(1)
-                    .and_then(|name| eva.and_then(|catalog| catalog.index_of(name)))
+                    .and_then(|name| {
+                        if parameter_type == 6 {
+                            eva?.index_of(name)
+                        } else {
+                            sounds?.index_of(name)
+                        }
+                    })
                     .unwrap_or(-1),
-            )
-        } else {
-            entry.literal_value()
+            ),
+            // TActionClass::Read6DD7E0..6DD7EB, original instruction listing:
+            // From_Name721210 stores its signed result at +90 for every
+            // ActionID, independently of playback admission. Reuse the same
+            // process-selected catalog as Theme; raw missing names become -1.
+            8 => Some(entry.params.get(1).map_or(-1, |name| {
+                themes.map_or(-1, |catalog| catalog.from_name(name))
+            })),
+            _ => entry.literal_value(),
         };
         // FindIndex7514D0 compares the untrimmed token case-insensitively.
-        let sound = if parameter_type == 7 {
-            entry.params.get(1).and_then(|name| sounds?.get(name))
-        } else if matches!(entry.kind, 19 | 98 | 99) {
+        let sound = if parameter_type == 7 || matches!(entry.kind, 19 | 98 | 99) {
             //Execute's Voc call consumes +90 regardless of the authored
             //parameter type. Resolve a literal ordinal once in this reader,
             //through the same fixed catalog as a type7 name.
@@ -360,19 +392,15 @@ impl RuntimeDefinitions {
             sound,
         }
     }
-    fn read_map(
-        map: &crate::map::map_file::MapFile,
-        teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
-        eva: Option<&crate::rules::sound_ini::EvaRegistry>,
-        sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
-    ) -> Self {
+    pub(crate) fn read_teams(teams: &crate::rules::team_ai_ini::TeamAiIniRegistry) -> Self {
         let mut definitions = Self::default();
         // Full_Init687984/68798D: reads are transactions, not the final merged
         // TeamType vector. Team.Tag can first-construct TagTypes here.
-        for team in teams.team_type_read_sequence() {
-            let Some(index) = definitions.team_type(&team.id) else {
+        for (id, read) in teams.team_type_registration_sequence() {
+            let Some(index) = definitions.team_type(id) else {
                 continue;
             };
+            let Some(team) = read else { continue };
             // Read6F131E retains +D0 on an absent/empty ReadString; a
             // nonempty value calls6E6310, including either null literal.
             // Only this physical pass can construct a new TagType identity.
@@ -382,6 +410,17 @@ impl RuntimeDefinitions {
                 definitions.team_tags[index] = resolved;
             }
         }
+        definitions
+    }
+
+    fn read_map(
+        map: &crate::map::map_file::MapFile,
+        teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
+        eva: Option<&crate::rules::sound_ini::EvaRegistry>,
+        sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
+    ) -> Self {
+        let mut definitions = Self::read_teams(teams);
         // LoadFromINIList7275D0/6E5ED0 find or allocate each key's Type,
         // ignoring case, and ReadINI727240/6E6080 read every record by that
         // Type's own ID, exact case. A key differing from an earlier one only
@@ -411,13 +450,12 @@ impl RuntimeDefinitions {
                     .events
                     .get(&id)
                     .map_or_else(Vec::new, |record| record.conditions().to_vec());
-                // Events are prepended, but their reference factories ran in
-                // source order before the retained reverse traversal.
+                // TEvent::Read71F595 is find-only and runs before this
+                // Trigger's action factories. Unknown references stay null.
                 for event in events.iter_mut().rev() {
                     if let Some(team) = event.team_name.as_deref() {
-                        event.team_name = definitions
-                            .team_type(team)
-                            .map(|index| definitions.team_types[index].clone());
+                        event.team_name =
+                            definitions.find_team_type(team, teams).map(str::to_owned);
                     }
                 }
                 //727530..7275A3: a present entry rebuilds the action list.
@@ -426,7 +464,7 @@ impl RuntimeDefinitions {
                         .entries()
                         .iter()
                         .cloned()
-                        .map(|entry| definitions.resolve_action(entry, eva, sounds))
+                        .map(|entry| definitions.resolve_action(entry, eva, sounds, themes))
                         .collect::<Vec<_>>()
                 });
                 let typ = &mut definitions.trigger_types[index];
@@ -1089,6 +1127,50 @@ impl Simulation {
         Ok(())
     }
 
+    /// Install fixed AIMD plus scenario AI definitions after RuleSet identities
+    /// are interned and before the first gameplay tick. This is data ingress
+    /// only: the installed VM contains no live TeamClass instances.
+    ///
+    /// A fixed-AIMD definition that fails RuleSet resolution refuses the whole
+    /// install (`Err`, nothing installed); scenario-origin omissions install
+    /// and come back as logged, nonfatal diagnostics.
+    pub fn install_team_ai_registry(
+        &mut self,
+        registry: &crate::rules::team_ai_ini::TeamAiIniRegistry,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Result<
+        Vec<crate::sim::team_script_vm::TeamAiInstallDiagnostic>,
+        Vec<crate::sim::team_script_vm::TeamAiInstallDiagnostic>,
+    > {
+        // Cold callers stage the same physical Team prefix. Ordinary loaders
+        // already prepared the map and its action-created identities; never
+        // replay those reads or replace that tail during AI installation.
+        let staged = (!self.trigger_runtime.definitions_prepared)
+            .then(|| RuntimeDefinitions::read_teams(registry));
+        let definitions = staged.as_ref().unwrap_or(&self.trigger_runtime.definitions);
+        let (vm, diagnostics) =
+            crate::sim::team_script_vm::TeamScriptVm::from_prepared_ini_registry(
+                registry,
+                definitions,
+                &mut self.interner,
+                rules,
+            );
+        if diagnostics
+            .iter()
+            .any(crate::sim::team_script_vm::TeamAiInstallDiagnostic::is_fixed_source_refusal)
+        {
+            return Err(diagnostics);
+        }
+        if let Some(definitions) = staged {
+            self.trigger_runtime.definitions = definitions;
+        }
+        self.team_script_vm = vm;
+        for diagnostic in &diagnostics {
+            log::warn!("Team AI install diagnostic: {diagnostic:?}");
+        }
+        Ok(diagnostics)
+    }
+
     pub(crate) fn trigger_definitions_prepared(&self) -> bool {
         self.trigger_runtime.definitions_prepared
     }
@@ -1115,6 +1197,7 @@ impl Simulation {
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
         sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     ) {
         // ReadLocal689B2E clears names only. Missing second tokens and slots
         // absent from the map keep their current value;689C24 writes explicit
@@ -1132,7 +1215,7 @@ impl Simulation {
             }
         }
         self.trigger_runtime = TriggerRuntime {
-            definitions: RuntimeDefinitions::read_map(map, teams, eva, sounds),
+            definitions: RuntimeDefinitions::read_map(map, teams, eva, sounds, themes),
             definitions_prepared: true,
             locals_set,
             ..TriggerRuntime::default()
@@ -2751,8 +2834,12 @@ impl Simulation {
                         );
                         result = true;
                         detach_all = true;
+                    } else {
+                        // TagClass::ProcessTriggerEvent, original gamemd.exe:
+                        // refs1 takes 0x006E5463 to 0x006E5484, skipping the
+                        // source-cleanup flag write at 0x006E547F.
+                        detach_attachment = true;
                     }
-                    detach_attachment = true;
                 }
                 2 => {
                     self.spring_live_trigger(
@@ -3369,15 +3456,15 @@ impl Simulation {
             20 => {
                 // Steam gamemd: Execute6DE8E4..6DE903 passes +90
                 // to Theme720B20 and returns AL1, even when audio is gated.
-                // Type8 is an untrimmed section key, not Sound= or an ordinal.
-                // The process catalog is immutable, so its existing owner can
-                // resolve the retained name at delivery; numeric sentinels
-                // pass through unchanged. No scenario RNG/timer/detach here.
-                let request = if action.params.first().map_or(0, |v| crt_atoi(v)) == 8 {
-                    ThemeRequest::Name(action.params.get(1).cloned().unwrap_or_default())
-                } else {
-                    ThemeRequest::Index(value.unwrap_or(-1))
-                };
+                // Fresh type8 reads already retained From_Name's index. Keep
+                // late Name delivery only for older saved None operands;
+                // numeric sentinels pass unchanged. No RNG/timer/detach here.
+                let request =
+                    if value.is_none() && action.params.first().map_or(0, |v| crt_atoi(v)) == 8 {
+                        ThemeRequest::Name(action.params.get(1).cloned().unwrap_or_default())
+                    } else {
+                        ThemeRequest::Index(value.unwrap_or(-1))
+                    };
                 effects.push(TriggerEffect::MusicTheme { request });
             }
             0 => {
@@ -5272,7 +5359,7 @@ mod meteor_action_tests {
                     ry: 40,
                 },
             )]));
-        let action = RuntimeDefinitions::default().resolve_action(entry, None, None);
+        let action = RuntimeDefinitions::default().resolve_action(entry, None, None, None);
         let mut effects = Vec::new();
         assert!(sim.apply_live_trigger_action(
             &action,

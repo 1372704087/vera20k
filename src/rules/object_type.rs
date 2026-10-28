@@ -1045,6 +1045,11 @@ pub struct ObjectType {
     spotlight: crate::rules::ares_spotlight::SpotlightTypeRules,
     #[cfg(feature = "ares")]
     driver: crate::rules::ares_driver::DriverTypeRules,
+    /// Ares TypeExt+250, projected from the retained rules reader.
+    #[cfg(feature = "ares")]
+    selection_group: String,
+    #[cfg(feature = "ares")]
+    bounty: crate::rules::ares_bounty::BountyTypeRules,
     #[cfg(feature = "ares")]
     crew: crate::rules::ares_crew::CrewTypeRules,
     /// Immutable projection of the retained TechnoTypeExt+308/+314/+320/+321
@@ -2545,6 +2550,19 @@ impl ObjectType {
     }
 
     #[cfg(feature = "ares")]
+    pub(crate) fn bounty_rules(&self) -> &crate::rules::ares_bounty::BountyTypeRules {
+        &self.bounty
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bind_bounty_rules(
+        &mut self,
+        bounty: &crate::rules::ares_bounty::BountyTypeRules,
+    ) {
+        self.bounty = bounty.clone();
+    }
+
+    #[cfg(feature = "ares")]
     pub(crate) fn aircraft_crashable_override(&self) -> Option<bool> {
         self.aircraft_crashable
     }
@@ -2565,6 +2583,22 @@ impl ObjectType {
         driver: &crate::rules::ares_driver::DriverTypeRules,
     ) {
         self.driver = driver.clone();
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bind_selection_group(&mut self, group: &str) {
+        group.clone_into(&mut self.selection_group);
+    }
+
+    /// Installed Ares GetSelectionGroupID1003DB30: an empty override uses
+    /// the type's stored ID, not its localized name or another type's group.
+    #[cfg(feature = "ares")]
+    pub(crate) fn type_selection_key(&self) -> &str {
+        if self.selection_group.is_empty() {
+            &self.id
+        } else {
+            &self.selection_group
+        }
     }
 
     pub(crate) fn bind_ares_techno_rules(
@@ -3977,6 +4011,10 @@ impl ObjectType {
             spotlight: Default::default(),
             #[cfg(feature = "ares")]
             driver: Default::default(),
+            #[cfg(feature = "ares")]
+            selection_group: String::new(),
+            #[cfg(feature = "ares")]
+            bounty: Default::default(),
             #[cfg(feature = "ares")]
             crew: Default::default(),
             #[cfg(feature = "ares")]

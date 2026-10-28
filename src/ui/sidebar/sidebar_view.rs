@@ -252,9 +252,9 @@ pub(crate) fn build_sidebar_view_with_spec(
 
     // Repair / Sell SHP-driven toggle buttons. Position comes from
     // SidebarChromeLayoutSpec (already-scaled). Dimensions come from the
-    // chrome atlas via repair_button_size / sell_button_size (already × ui_scale
-    // at the call site) — matches the tab_button_size convention so hit-test
-    // and render rects agree at every UI scale. When the atlas is unavailable
+    // chrome atlas via repair_button_size / sell_button_size — matches the
+    // tab_button_size convention so hit-test and render rects agree. When the
+    // atlas is unavailable
     // (callers passing None), rects collapse to zero size so hit-test never
     // matches. Frame index comes from SidebarGadgetState.
     let [repair_w, repair_h] = repair_button_size.unwrap_or([0.0, 0.0]);

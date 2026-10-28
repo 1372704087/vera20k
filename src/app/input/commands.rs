@@ -2,20 +2,14 @@
 //!
 //! Split from the presentation render path. Part of the app layer — may depend on everything.
 
-use std::collections::HashMap;
-
 use crate::app::AppState;
 use crate::map::entities::EntityCategory;
 use crate::sim::command::{Command, CommandEnvelope};
 use crate::sim::intern::InternedId;
-use crate::sim::production;
 
 #[cfg(test)]
 #[path = "ground_command_native_tests.rs"]
 mod ground_command_native_tests;
-
-/// Default owner name when no playable house is found.
-const DEFAULT_OWNER: &str = "Americans";
 
 /// Intern a string (owner name or type id) against the live simulation's
 /// interner, returning its InternedId. Returns the default ID when there is
@@ -30,16 +24,6 @@ fn intern_in_sim(state: &mut AppState, s: &str) -> InternedId {
         .unwrap_or_default()
 }
 
-/// Resolve the local owner and return the owned String.
-///
-/// Read-only: identity comes from the live scenario's saved current House
-/// (or the sandbox heuristic when absent). Command issue never rewrites it —
-/// the old per-action override write made "who am I" drift with whatever
-/// the heuristic last returned, a lockstep hazard.
-fn resolve_owner(state: &mut AppState) -> String {
-    preferred_local_owner(state).unwrap_or_else(|| DEFAULT_OWNER.to_string())
-}
-
 /// Queue `repeat` builds of `type_id` as `repeat` ordinary PRODUCE events.
 ///
 /// `repeat` comes from [`crate::app::input::sidebar_eva::shift_queue_repeat`],
@@ -50,7 +34,9 @@ fn resolve_owner(state: &mut AppState) -> String {
 /// hash exactly like repeated clicks. All of them carry the current tick, so
 /// they execute in one frame and in issue order.
 pub(crate) fn queue_build_by_type(state: &mut AppState, type_id: &str, repeat: u32) {
-    let owner: String = resolve_owner(state);
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let type_interned = intern_in_sim(state, type_id);
     for _ in 0..repeat.max(1) {
         schedule_command(
@@ -70,7 +56,9 @@ pub(crate) fn queue_build_by_type(state: &mut AppState, type_id: &str, repeat: u
 }
 
 pub(crate) fn suspend_build(state: &mut AppState, type_id: &str) {
-    let owner: String = resolve_owner(state);
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let record = state.match_state.sim_runtime.as_ref().and_then(|runtime| {
         let sim = &runtime.simulation;
         sim.encode_production_record(
@@ -91,7 +79,9 @@ pub(crate) fn suspend_build(state: &mut AppState, type_id: &str) {
 }
 
 pub(crate) fn cancel_build_by_type(state: &mut AppState, type_id: &str, all: bool) {
-    let owner: String = resolve_owner(state);
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let type_interned = intern_in_sim(state, type_id);
     schedule_command(
         state,
@@ -358,8 +348,9 @@ pub(crate) fn try_repair_sell_mode_click(state: &mut AppState) -> bool {
         }
     });
     if let Some(entity_id) = building {
-        let owner: String =
-            preferred_local_owner(state).unwrap_or_else(|| DEFAULT_OWNER.to_string());
+        let Some(owner) = preferred_local_owner(state) else {
+            return true;
+        };
         let payload = if repair {
             Command::ToggleRepair { entity_id }
         } else {
@@ -556,7 +547,9 @@ pub(crate) fn launch_super_weapon_at_cell(
     section: &str,
     (rx, ry): (u16, u16),
 ) {
-    let owner: String = resolve_owner(state);
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let sw_type_id = intern_in_sim(state, section);
     queue_super_weapon_click(state, &owner, sw_type_id, (rx, ry));
     log::info!(
@@ -633,7 +626,9 @@ fn super_weapon_click_command(
 /// never a direct Simulation write. Called after input and before the next
 /// ordinary frame so building placement and campaign mode clears participate.
 pub(crate) fn reconcile_paid_super_weapon_cursor(state: &mut AppState) {
-    let owner = resolve_owner(state);
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
         return;
     };
@@ -700,106 +695,13 @@ pub(crate) fn preferred_local_owner_name(state: &AppState) -> Option<String> {
     preferred_local_owner(state)
 }
 
+/// The local player is the live scenario's saved current House
+/// ([`crate::app::match_runtime::state::scenario_local_owner`], native
+/// `A83D4C`). A world without one has no local player: commands are not
+/// issued and presentation draws no local-owner state. Selection, structure
+/// counts and roster order never stand in for it.
 pub(crate) fn preferred_local_owner(state: &AppState) -> Option<String> {
-    let sim = &state.match_state.sim_runtime.as_ref()?.simulation;
-    preferred_local_owner_for_sim(
-        sim,
-        state.rules(),
-        &state.match_state.match_presentation.house_roster,
-        state.match_state.local_owner_override.as_deref(),
-    )
-}
-
-fn preferred_local_owner_for_sim(
-    sim: &crate::sim::world::Simulation,
-    rules: Option<&crate::rules::ruleset::RuleSet>,
-    roster: &crate::map::houses::HouseRoster,
-    sandbox_override: Option<&str>,
-) -> Option<String> {
-    // Normal command and presentation consumers share saved native identity.
-    // App debug preferences and selection apply only to identity-less sandboxes.
-    if let Some(owner) = crate::app::match_runtime::state::scenario_local_owner(sim) {
-        return Some(owner.to_string());
-    }
-    // Sandbox fallback: prefer owner of selected unit first.
-    for entity in sim.entities().values() {
-        let owner_str = sim.interner().resolve(entity.owner());
-        if entity.selection.is_selected() && is_playable_house_name(owner_str) {
-            return Some(owner_str.to_string());
-        }
-    }
-
-    // Then the sandbox load's explicit initial owner.
-    if let Some(owner) = sandbox_override
-        && is_playable_house_name(owner)
-    {
-        return Some(owner.to_string());
-    }
-
-    // Prefer owners that currently have structures.
-    let mut structure_counts: HashMap<String, usize> = HashMap::new();
-    for entity in sim.entities().values() {
-        let owner_str = sim.interner().resolve(entity.owner());
-        if entity.category() == EntityCategory::Structure && is_playable_house_name(owner_str) {
-            *structure_counts.entry(owner_str.to_string()).or_insert(0) += 1;
-        }
-    }
-    if !structure_counts.is_empty() {
-        let mut ranked: Vec<(usize, String)> = structure_counts
-            .into_iter()
-            .filter_map(|(owner, count)| {
-                let strict_buildable = rules.is_some_and(|rules| {
-                    production::has_build_option_for_owner(sim, rules, &owner)
-                });
-                strict_buildable.then_some((count, owner))
-            })
-            .collect();
-        ranked.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.cmp(&b.1)));
-        if let Some((_, owner)) = ranked.first() {
-            return Some(owner.to_string());
-        }
-    }
-
-    // Next fallback: playable houses from map config.
-    let houses = collect_playable_owners_from(roster, Some(sim));
-    if let Some(owner) = houses.first() {
-        return Some(owner.to_string());
-    }
-
-    // Last fallback: any playable owner present in entity store.
-    let mut owners: Vec<String> = sim
-        .entities()
-        .values()
-        .map(|e| sim.interner().resolve(e.owner()).to_string())
-        .filter(|o| is_playable_house_name(o))
-        .collect();
-    owners.sort();
-    owners.dedup();
-    owners.first().cloned()
-}
-
-fn collect_playable_owners_from(
-    roster: &crate::map::houses::HouseRoster,
-    simulation: Option<&crate::sim::world::Simulation>,
-) -> Vec<String> {
-    let mut owners: Vec<String> = roster
-        .houses
-        .iter()
-        .filter(|house| is_playable_house_name(&house.name))
-        .filter(|house| house.player_control != Some(false))
-        .map(|house| house.name.clone())
-        .collect();
-    if let Some(sim) = simulation {
-        for entity in sim.entities().values() {
-            let owner_str = sim.interner().resolve(entity.owner());
-            if is_playable_house_name(owner_str) {
-                owners.push(owner_str.to_string());
-            }
-        }
-    }
-    owners.sort();
-    owners.dedup();
-    owners
+    state.match_state.local_player_owner().map(str::to_owned)
 }
 
 pub(crate) fn schedule_command_in_sim(
@@ -1164,14 +1066,6 @@ pub(super) fn queue_house_cheer_in_sim(
         rules.general.maximum_cheer_rate(),
         local_defeated,
         || schedule_command_in_sim(sim, owner, Command::Cheer),
-    )
-}
-
-pub(crate) fn is_playable_house_name(name: &str) -> bool {
-    let up = name.to_ascii_uppercase();
-    !matches!(
-        up.as_str(),
-        "NEUTRAL" | "SPECIAL" | "CIVILIAN" | "GOODGUY" | "BADGUY" | "JP"
     )
 }
 

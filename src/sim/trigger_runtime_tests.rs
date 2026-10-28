@@ -10,7 +10,7 @@ use crate::sim::projectile::{
 };
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
 use crate::sim::snapshot::GameSnapshot;
-use crate::sim::world::{FrameEffects, MasterFrameTestRung, Simulation, TickLane};
+use crate::sim::world::{FrameEffects, FrameStep, Simulation, TickLane};
 
 #[test]
 fn local_reload_preserves_unnamed_and_unassigned_values() {
@@ -27,10 +27,12 @@ fn local_reload_preserves_unnamed_and_unassigned_values() {
         &Default::default(),
         None,
         None,
+        None,
     );
     sim.initialize_trigger_definitions(
         &map("8=Renamed\n9=ExplicitClear,0\n"),
         &Default::default(),
+        None,
         None,
         None,
     );
@@ -168,7 +170,7 @@ fn loss_threshold_events_poll_recorded_losses_and_create_real_reinforcements() {
         sim.install_team_ai_registry(&teams, &rules).unwrap();
         // The shared simple-map fixture initially has no Team registry.
         // Re-enter the real definition reader with the authored Team inputs.
-        sim.initialize_trigger_definitions(&map, &teams, None, None);
+        sim.initialize_trigger_definitions(&map, &teams, None, None, None);
         sim.session.install_waypoints(&map.waypoints);
         sim.classify_map_triggers(&rules);
         let team_type = sim.interner.get("TT").unwrap();
@@ -395,13 +397,18 @@ fn naval_land_events_poll_final_tracking_removal_from_the_master_house_rung() {
 #[test]
 fn music_action_reaches_the_ordered_presentation_effects() {
     let (mut sim, rules, overlay, _) = event_ingress_fixture();
-    install_event_ingress_map(
-        &mut sim,
-        &rules,
+    let map = trigger_fixture_map(
         "[Triggers]\nMUSIC=Country0,<none>,Music,0,1,1,1,0\n\
          [Events]\nMUSIC=1,8,0,0\n\
          [Actions]\nMUSIC=3,20,8,DROK,0,0,0,0,A,20,0,-3,0,0,0,0,A,11,4,AFTER_MUSIC,0,0,0,0,A\n",
     );
+    let themes = crate::rules::theme_ini::ThemeCatalog::from_entries_for_test(
+        crate::rules::theme_ini::catalog_from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[Themes]\n0=INTRO\n1=Drok\n",
+        )),
+    );
+    sim.initialize_trigger_definitions(&map, &Default::default(), None, None, Some(&themes));
+    sim.classify_map_triggers(&rules);
     let source = sim
         .trigger_runtime
         .definitions
@@ -425,7 +432,7 @@ fn music_action_reaches_the_ordered_presentation_effects() {
         effects,
         [
             TriggerEffect::MusicTheme {
-                request: ThemeRequest::Name("DROK".into()),
+                request: ThemeRequest::Index(1),
             },
             TriggerEffect::MusicTheme {
                 request: ThemeRequest::Index(-3),
@@ -734,6 +741,131 @@ fn retail_sov01_transport_hint_emits_the_named_cameo_on_the_native_clock() {
 }
 
 #[test]
+fn scenario_timer_uses_the_sound_parameter_ordinal_before_expiring() {
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(
+        &crate::rules::ini_parser::IniFile::from_str(
+            "[SoundList]\n5=First\n99=Second\n100=SECOND\n",
+        ),
+    );
+    let map = trigger_fixture_map(
+        "[Triggers]\nSTART=Neutral,<none>,Start,0,1,1,1,0\nEND=Neutral,<none>,End,0,1,1,1,0\n\
+         [Events]\nSTART=1,13,0,0\nEND=1,14,0,0\n\
+         [Actions]\nSTART=1,27,7,sEcOnD,0,0,0,0,A\nEND=1,28,0,7,0,0,0,0,A\n\
+         [Tags]\nSTART_TAG=0,Start,START\nEND_TAG=0,End,END\n",
+    );
+    let mut sim = Simulation::new();
+    let rules = crate::rules::ruleset::RuleSet::empty_for_test();
+    sim.initialize_trigger_definitions(&map, &Default::default(), None, Some(&sounds), None);
+    sim.classify_map_triggers(rules);
+    let rng = sim.rng_state();
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    // Read6DD7CE stores FindIndex7514D0's retained ordinal, not the list
+    // key or zero. Execute27 at6DE5C9 consumes it as signed seconds.
+    assert_eq!(sim.session.scenario_timer_view(), Some((15, "")));
+    assert!(!sim.global_variables()[7]);
+    sim.session.set_binary_frame_for_test(14);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    assert_eq!(sim.session.scenario_timer_view(), Some((1, "")));
+    assert!(!sim.global_variables()[7]);
+    sim.session.set_binary_frame_for_test(15);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    assert!(sim.global_variables()[7]);
+    assert_eq!(sim.session.scenario_timer_view(), None);
+    assert!(
+        sim.sound_events.is_empty(),
+        "a sound parameter does not play a cue"
+    );
+    assert_eq!(sim.rng_state(), rng);
+}
+
+#[test]
+fn scenario_timer_extends_by_minus_one_for_an_untrimmed_unknown_sound() {
+    let sounds = crate::rules::sound_ini::SoundRegistry::from_ini(
+        &crate::rules::ini_parser::IniFile::from_str("[SoundList]\n0=First\n1=Second\n"),
+    );
+    let map = trigger_fixture_map(
+        "[Triggers]\nSTART=Neutral,<none>,Start,0,1,1,1,0\n\
+         [Events]\nSTART=1,13,0,0\n\
+         [Actions]\nSTART=2,27,0,2,0,0,0,0,A,25,7,Second ,0,0,0,0,A\n\
+         [Tags]\nSTART_TAG=0,Start,START\n",
+    );
+    let mut sim = Simulation::new();
+    let rules = crate::rules::ruleset::RuleSet::empty_for_test();
+    sim.initialize_trigger_definitions(&map, &Default::default(), None, Some(&sounds), None);
+    sim.classify_map_triggers(rules);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    // FindIndex7514D0 does not trim; its -1 reaches Extend6DE4A0.
+    assert_eq!(sim.session.scenario_timer_view(), Some((15, "")));
+}
+
+#[test]
+fn scenario_timer_uses_the_theme_parameter_ordinal_before_expiring() {
+    let directory = crate::map::source::test_support::TestDirectory::new("theme-scalar");
+    directory.write(
+        "thememd.ini",
+        b"[Themes]\n5=First\n99=Second\n100=SECOND\n[Second]\nNormal=no\n",
+    );
+    let themes = crate::rules::theme_ini::ThemeCatalog::select(
+        &crate::assets::asset_manager::AssetManager::from_loose_root_for_test(directory.path()),
+    );
+    let map = trigger_fixture_map(
+        "[Triggers]\nSTART=Neutral,<none>,Start,0,1,1,1,0\nEND=Neutral,<none>,End,0,1,1,1,0\n\
+         [Events]\nSTART=1,13,0,0\nEND=1,14,0,0\n\
+         [Actions]\nSTART=1,27,8,sEcOnD,0,0,0,0,A\nEND=1,28,0,7,0,0,0,0,A\n\
+         [Tags]\nSTART_TAG=0,Start,START\nEND_TAG=0,End,END\n",
+    );
+    let mut sim = Simulation::new();
+    let rules = crate::rules::ruleset::RuleSet::empty_for_test();
+    sim.initialize_trigger_definitions(&map, &Default::default(), None, None, Some(&themes));
+    sim.classify_map_triggers(rules);
+    let rng = sim.rng_state();
+    let effects = sim.advance_triggers(rules, None, FrameEffects::default());
+    assert!(
+        effects.is_empty(),
+        "a scalar does not request music playback"
+    );
+    // Read6DD7E0 stores From_Name721210's retained ordinal, not the list
+    // key or zero. Execute27 at6DE5C9 consumes it as signed seconds.
+    assert_eq!(sim.session.scenario_timer_view(), Some((15, "")));
+    assert!(!sim.global_variables()[7]);
+    sim.session.set_binary_frame_for_test(14);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    assert_eq!(sim.session.scenario_timer_view(), Some((1, "")));
+    assert!(!sim.global_variables()[7]);
+    sim.session.set_binary_frame_for_test(15);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    assert!(sim.global_variables()[7]);
+    assert_eq!(sim.session.scenario_timer_view(), None);
+    assert!(
+        sim.sound_events.is_empty(),
+        "a theme scalar does not play a cue"
+    );
+    assert_eq!(sim.rng_state(), rng);
+}
+
+#[test]
+fn scenario_timer_extends_by_minus_one_for_an_untrimmed_unknown_theme() {
+    let directory = crate::map::source::test_support::TestDirectory::new("unknown-theme-scalar");
+    directory.write("thememd.ini", b"[Themes]\n0=First\n1=Second\n");
+    let themes = crate::rules::theme_ini::ThemeCatalog::select(
+        &crate::assets::asset_manager::AssetManager::from_loose_root_for_test(directory.path()),
+    );
+    let map = trigger_fixture_map(
+        "[Triggers]\nSTART=Neutral,<none>,Start,0,1,1,1,0\n\
+         [Events]\nSTART=1,13,0,0\n\
+         [Actions]\nSTART=2,27,0,2,0,0,0,0,A,25,8,Second ,0,0,0,0,A\n\
+         [Tags]\nSTART_TAG=0,Start,START\n",
+    );
+    let mut sim = Simulation::new();
+    let rules = crate::rules::ruleset::RuleSet::empty_for_test();
+    sim.initialize_trigger_definitions(&map, &Default::default(), None, None, Some(&themes));
+    sim.classify_map_triggers(rules);
+    sim.advance_triggers(rules, None, FrameEffects::default());
+    // From_Name721210 does not trim; its -1 reaches Extend6DE4A0.
+    assert_eq!(sim.session.scenario_timer_view(), Some((15, "")));
+}
+
+#[test]
 fn scenario_timer_expiry_polls_all_tags_before_stopping() {
     let rules = crate::rules::ruleset::RuleSet::empty_for_test();
     let map = trigger_fixture_map(
@@ -935,6 +1067,7 @@ fn all_change_house_retail_sov01_handoff_transfers_units_and_powered_buildings()
     sim.initialize_trigger_definitions(
         &map,
         &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
+        None,
         None,
         None,
     );
@@ -1243,7 +1376,7 @@ fn retail_sov01_script_context() -> Option<(
         ));
     sim.session.set_current_house_for_test(Some(owner));
     sim.install_team_ai_registry(&registry, &rules).unwrap();
-    sim.initialize_trigger_definitions(&map, &registry, None, None);
+    sim.initialize_trigger_definitions(&map, &registry, None, None, None);
     Some((sim, rules, overlay, map))
 }
 
@@ -2273,7 +2406,7 @@ fn flat_trigger_playfield_terrain(
 
 /// One fixture INI body behind a minimal map header, read by the production
 /// map reader.
-fn trigger_fixture_map(body: &str) -> crate::map::map_file::MapFile {
+pub(super) fn trigger_fixture_map(body: &str) -> crate::map::map_file::MapFile {
     let text = format!(
         "[Map]\nTheater=TEMPERATE\nSize=0,0,2,1\nLocalSize=0,0,2,1\n\
          [IsoMapPack5]\n1=DwALABwBAAIA/////wAAABEAAA==\n\
@@ -2283,12 +2416,17 @@ fn trigger_fixture_map(body: &str) -> crate::map::map_file::MapFile {
 }
 
 /// Install the map's trigger definitions through the production scenario-init
-/// reader, without Team, EVA or sound tables. Fill (`classify_map_triggers`)
-/// stays the caller's next step.
+/// reader, including authored Teams but no fixed AIMD, EVA or sound tables.
+/// Fill (`classify_map_triggers`) stays the caller's next step.
 fn install_map_triggers(sim: &mut Simulation, map: &crate::map::map_file::MapFile) {
     sim.initialize_trigger_definitions(
         map,
-        &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
+        &crate::rules::team_ai_ini::TeamAiIniRegistry::from_sources(
+            &crate::rules::ini_parser::IniFile::empty(),
+            &map.ini,
+            true,
+        ),
+        None,
         None,
         None,
     );
@@ -2384,7 +2522,7 @@ fn create_building_type10_reaches_placement_and_house_publication() {
     let action = sim
         .trigger_runtime
         .definitions
-        .resolve_action(entry, None, None);
+        .resolve_action(entry, None, None, None);
     assert!(sim.apply_live_trigger_action(
         &action,
         TriggerActionContext {
@@ -2579,7 +2717,7 @@ fn damage_at_waypoint_reaches_the_shared_building_receiver() {
         .unwrap()
         .entries()[0]
         .clone();
-    let action = definitions.resolve_action(entry, None, None);
+    let action = definitions.resolve_action(entry, None, None, None);
     sim.trigger_runtime.definitions = definitions;
     assert!(sim.apply_live_trigger_action(
         &action,
@@ -3090,20 +3228,23 @@ fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
     let tick = ordinary_master_frame(&mut sim, None, None, true);
 
     assert!(tick.frame_committed);
-    assert_eq!(
-        sim.take_master_frame_test_trace(),
-        vec![
-            MasterFrameTestRung::SessionCommands,
-            MasterFrameTestRung::Triggers,
-            MasterFrameTestRung::TeamScript,
-            MasterFrameTestRung::DiskLasers,
-            MasterFrameTestRung::LightningStorm,
-            MasterFrameTestRung::LogicVector,
-            MasterFrameTestRung::Houses,
-            MasterFrameTestRung::FrameCommit,
-            MasterFrameTestRung::PendingDelete,
-        ]
-    );
+    let order = [
+        FrameStep::SessionCommands,
+        FrameStep::Triggers,
+        FrameStep::TeamScript,
+        FrameStep::DiskLasers,
+        FrameStep::LightningStorm,
+        FrameStep::LogicVector,
+        FrameStep::Houses,
+        FrameStep::FrameCommit,
+        FrameStep::PendingDelete,
+    ];
+    let trace = sim.take_frame_step_trace();
+    let visited: Vec<_> = trace
+        .into_iter()
+        .filter(|step| order.contains(step))
+        .collect();
+    assert_eq!(visited, order);
     assert_eq!(
         sim.drain_trigger_effects(),
         vec![TriggerEffect::CameraAtCoord {
@@ -4032,7 +4173,7 @@ fn physical_readers_take_each_record_by_the_type_id() {
         .as_bytes(),
     )
     .unwrap();
-    let definitions = RuntimeDefinitions::read_map(&map, &Default::default(), None, None);
+    let definitions = RuntimeDefinitions::read_map(&map, &Default::default(), None, None, None);
     let [trigger] = definitions.trigger_types.as_slice() else {
         panic!("one TriggerType: {:?}", definitions.trigger_types);
     };
@@ -4090,7 +4231,7 @@ fn cell_tags_split_by_ini_format_and_keep_the_first_tag_per_cell() {
             16,
             crate::map::resolved_terrain::test_clear_cell,
         ));
-        sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+        sim.initialize_trigger_definitions(&map, &Default::default(), None, None, None);
         sim.install_authored_cell_trigger_tags(&map);
         let identity = Simulation::trigger_cell_identity(&sim.resolved_terrain, (5, 6));
         let tag = sim.trigger_runtime.cell_tags[&identity];

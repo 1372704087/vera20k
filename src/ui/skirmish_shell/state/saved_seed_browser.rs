@@ -322,6 +322,25 @@ impl SavedSeedBrowserState<NativeFileName> {
     }
 }
 
+impl<I> SavedSeedBrowserState<I> {
+    /// Raise a message box over the browser. It takes the edit focus and ends
+    /// any held press or scroll repeat; its buttons own input until answered.
+    pub fn show_prompt(&mut self, prompt: SavedSeedPrompt<I>) {
+        self.description_edit.focused = false;
+        self.pressed_control = None;
+        self.scroll_repeat_at = None;
+        self.prompt = Some(prompt);
+    }
+
+    /// Window focus loss: the release that would end the held press, the
+    /// scroll repeat and the double-click pair never arrives.
+    pub fn reset_interaction(&mut self) {
+        self.pressed_control = None;
+        self.scroll_repeat_at = None;
+        self.last_list_press = None;
+    }
+}
+
 impl<I: Clone + PartialEq> SavedSeedBrowserState<I> {
     /// Shared native list/editor mechanism. The caller supplies opaque file
     /// identities and metadata; no filename encoding or filesystem I/O occurs.

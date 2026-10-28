@@ -269,7 +269,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     if !query.cell_visible(cell) {
         return Some(query.hidden_cell(cell));
     }
-    let owner = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    let owner = preferred_local_owner_name(state)?;
     let hover_object = crate::app::input::entity_pick::hover_object_at_point(
         crate::app::input::entity_pick::presented(state, sim),
         world_x,
@@ -278,7 +278,14 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
         state.match_state.sandbox_full_visibility,
     );
     if selected.is_empty() {
-        return no_selection_cursor(hover_object.and_then(HoverObject::techno).as_ref());
+        let fog = (!state.match_state.sandbox_full_visibility).then(|| sim.fog());
+        let player = sim.interner().get(&owner);
+        let hover = hover_object.and_then(HoverObject::techno).filter(|hover| {
+            sim.entities().get(hover.stable_id).is_some_and(|entity| {
+                !crate::app::input::entity_pick::no_selection_refuses_select(entity, fog, player)
+            })
+        });
+        return no_selection_cursor(hover.as_ref());
     }
     query.selection_action(cell, hover_object)
 }
@@ -313,7 +320,6 @@ impl<'a> ActionQuery<'a> {
         selected: &'a [u64],
         mouse_over: bool,
     ) -> Self {
-        let owner = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
         let mut modifier = crate::app::input::context_order::resolve_order_modifiers(
             crate::app::input::dispatch::is_ctrl_held(state),
             crate::app::input::dispatch::is_shift_held(state),
@@ -333,7 +339,7 @@ impl<'a> ActionQuery<'a> {
             sim,
             rules: state.rules(),
             overlays: state.overlay_registry(),
-            viewer: sim.interner().get(&owner),
+            viewer: preferred_local_owner_name(state).and_then(|owner| sim.interner().get(&owner)),
             selected,
             modifier,
             force_move_key,

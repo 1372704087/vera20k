@@ -1923,6 +1923,21 @@ impl ProcessedRulesLayers {
     }
 
     #[cfg(feature = "ares")]
+    pub(crate) fn selection_group_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, &str)> {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                member.selection_group.as_str(),
+            )
+        })
+    }
+
+    #[cfg(feature = "ares")]
     pub(crate) fn driver_states(
         &self,
     ) -> impl Iterator<
@@ -1939,6 +1954,27 @@ impl ProcessedRulesLayers {
                 family.object_category().expect("TechnoType category"),
                 member.native_stored_id.as_str(),
                 &member.driver,
+            )
+        })
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bounty_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &crate::rules::ares_bounty::BountyTypeRules,
+        ),
+    > {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                &member.bounty,
             )
         })
     }
@@ -3035,7 +3071,7 @@ fn read_valueable_int_vector(section: &IniSection, key: &str, current: &[i32]) -
 /// list and an unconsumed parent attempt. This state shares the existing
 /// Country owner, persistence and immutable RuleSet projection.
 #[cfg(feature = "ares")]
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct AresCountryState {
     phase: i32,
     parent_initialized: bool,
@@ -3049,6 +3085,33 @@ struct AresCountryState {
     /// 1001BDC0..1001C0D6 deliberately does not copy this pair.
     #[serde(default)]
     can_be_driven: Option<bool>,
+    /// CountryExt+1D1: ctor1001B908 stores the pair+1D0 as0x0100;
+    /// common reader1001C74C..1001C75D retains GivesBounty on missing keys.
+    /// Parent copy1001BDC0..1001C0D6 stops before these appended flags.
+    #[serde(default = "default_gives_bounty")]
+    gives_bounty: bool,
+}
+
+#[cfg(feature = "ares")]
+fn default_gives_bounty() -> bool {
+    true // CountryExt constructor1001B908's high byte.
+}
+
+#[cfg(feature = "ares")]
+impl Default for AresCountryState {
+    fn default() -> Self {
+        Self {
+            phase: 0,
+            parent_initialized: false,
+            buildings: Vec::new(),
+            loading: Default::default(),
+            presentation: Default::default(),
+            paradrop: Default::default(),
+            power_plants: Vec::new(),
+            can_be_driven: None,
+            gives_bounty: default_gives_bounty(),
+        }
+    }
 }
 
 // GUI fields are process-retained and persisted, but do not enter simulation CRC.
@@ -3064,10 +3127,16 @@ impl Hash for AresCountryState {
             b"ares-country-driving-v1".hash(state);
             value.hash(state);
         }
+        self.gives_bounty.hash(state);
     }
 }
 
 impl CountryVeterancyState {
+    #[cfg(feature = "ares")]
+    pub(crate) fn gives_bounty(&self) -> bool {
+        self.ares.gives_bounty
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn can_be_driven_override(&self) -> Option<bool> {
         self.ares.can_be_driven
@@ -3123,7 +3192,7 @@ impl CountryVeterancyState {
 /// Native constructor/phase2 reads: rules_oracle/ares_factory_owners.json
 /// global_controls; Process caller/order rests on installed instructions.
 #[cfg(feature = "ares")]
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AresGlobalControls {
     phase: i32,
     /// RulesExt+70: constructor empty; LoadAfterTypeData reads HSBuilding.
@@ -3133,10 +3202,41 @@ pub(crate) struct AresGlobalControls {
     // RulesExt+160/+164: constructor zero/unset; retained by the global
     // Rules owner, independently of per-Type reset.
     emp_ai_recover_mission: Option<crate::rules::mission_data::MissionType>,
+    /// RulesExt+4B: constructor1002A3DF sets true; reader1002AC23..35.
+    #[serde(default = "AresGlobalControls::default_type_select_use_deploy")]
+    type_select_use_deploy: bool,
+    #[serde(default)]
+    bounty: crate::rules::ares_bounty::BountyGlobalRules,
+}
+
+#[cfg(feature = "ares")]
+impl Default for AresGlobalControls {
+    fn default() -> Self {
+        Self {
+            phase: 0,
+            hunter_seeker_buildings: Vec::new(),
+            allow_bypass_build_limit: [false; 3],
+            emp_ai_recover_mission: None,
+            type_select_use_deploy: Self::default_type_select_use_deploy(),
+            bounty: Default::default(),
+        }
+    }
 }
 
 #[cfg(feature = "ares")]
 impl AresGlobalControls {
+    const fn default_type_select_use_deploy() -> bool {
+        true
+    }
+
+    pub(crate) fn type_select_use_deploy(&self) -> bool {
+        self.type_select_use_deploy
+    }
+
+    pub(crate) fn bounty(&self) -> &crate::rules::ares_bounty::BountyGlobalRules {
+        &self.bounty
+    }
+
     pub(crate) fn hunter_seeker_buildings(&self) -> &[String] {
         &self.hunter_seeker_buildings
     }
@@ -3156,6 +3256,12 @@ impl AresGlobalControls {
     /// Unlike the Process-entry controls above, this unconditional reader
     /// runs immediately before Type data. The native named lookup is5B3910.
     fn read_before_type_data(&mut self, pass: &IniFile) {
+        // Installed Ares1002AC23..1002AC35: General, retained bool reader.
+        if let Some(section) = pass.section("General") {
+            self.type_select_use_deploy =
+                section.read_ares_bool("TypeSelectUseDeploy", self.type_select_use_deploy);
+        }
+        self.bounty.read_before_type_data(pass);
         if let Some(mission) = pass
             .section("CombatDamage")
             .and_then(|section| section.read_name("EMPAIRecoverMission", 2048))
@@ -4150,6 +4256,13 @@ struct ProcessedType {
     #[cfg(feature = "ares")]
     #[serde(default)]
     driver: crate::rules::ares_driver::DriverTypeRules,
+    /// Ares TypeExt+250, empty in constructor1003CA53. Read1003EC3C..7C.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    selection_group: String,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    bounty: crate::rules::ares_bounty::BountyTypeRules,
     #[cfg(feature = "ares")]
     #[serde(default)]
     crew: crate::rules::ares_crew::CrewTypeRules,
@@ -4662,6 +4775,10 @@ impl ProcessedType {
             #[cfg(feature = "ares")]
             driver: Default::default(),
             #[cfg(feature = "ares")]
+            selection_group: String::new(),
+            #[cfg(feature = "ares")]
+            bounty: Default::default(),
+            #[cfg(feature = "ares")]
             crew: Default::default(),
             #[cfg(feature = "ares")]
             aircraft_crashable: None,
@@ -4984,6 +5101,22 @@ impl RulesPassProcessor {
             self.resolve_existing_list_from(section, "HSBuilding", RulesTypeFamily::Building, 2048)
         }) {
             self.ares_global_controls.hunter_seeker_buildings = buildings;
+        }
+        // The same LoadAfterTypeData1002A800 continues with General's
+        // BountyEnablers1002AAAB and AudioVisual's BountyDisplay1002AAC5.
+        #[cfg(feature = "ares")]
+        {
+            let enablers = pass.section("General").and_then(|section| {
+                self.resolve_existing_list_from(
+                    section,
+                    "BountyEnablers",
+                    RulesTypeFamily::Building,
+                    2048,
+                )
+            });
+            self.ares_global_controls
+                .bounty
+                .read_after_type_data(pass, enablers);
         }
 
         // ReadDifficulty66D270 skips an absent section. Once present, each
@@ -6180,6 +6313,12 @@ impl RulesPassProcessor {
                 .ares
                 .buildings = resolved;
         }
+        if let Some(section) = pass.section(&id) {
+            let current = &mut self.family_mut(RulesTypeFamily::Country)[index]
+                .country_veterancy
+                .ares;
+            current.gives_bounty = section.read_ares_bool("GivesBounty", current.gives_bounty);
+        }
         self.family_mut(RulesTypeFamily::Country)[index]
             .country_veterancy
             .ares
@@ -6701,6 +6840,21 @@ impl RulesPassProcessor {
                     self.family_mut(family)[index].crew.read_pass(&raw, &pilots);
                     // TypeExt ReadINI1003EADC..1003EAED, NullableBool1000E9B0.
                     let member = &mut self.family_mut(family)[index];
+                    // Ares1003EC3C..1003EC7C reads 2048 then strncpy_s with
+                    // capacity32/_TRUNCATE. Missing/empty retains; either
+                    // native none spelling clears the override.
+                    member.selection_group = raw.read_string_with(
+                        "GroupAs",
+                        2048,
+                        std::mem::take(&mut member.selection_group),
+                        |_, value| {
+                            if is_native_none_type_name(value) {
+                                String::new()
+                            } else {
+                                crate::rules::ini_value::truncate_native_bytes(value, 31).to_owned()
+                            }
+                        },
+                    );
                     member.aircraft_crashable =
                         raw.read_ares_nullable_bool("Crashable", member.aircraft_crashable);
                 }
@@ -6726,6 +6880,7 @@ impl RulesPassProcessor {
                     self.family_mut(family)[index]
                         .driver
                         .read_pass(&raw, operator);
+                    self.family_mut(family)[index].bounty.read_pass(&raw);
                 }
                 #[cfg(feature = "ares")]
                 {

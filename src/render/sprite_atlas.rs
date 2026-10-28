@@ -1101,6 +1101,66 @@ fn object_pairs<'a>(
     placed.chain(deploy_targets)
 }
 
+/// The world-derived inputs, beyond the live objects, that decide which SHP
+/// sprites the entity atlas must hold. Map load and mid-match growth both
+/// collect them here, so the two builds cannot cover different keys. Map load
+/// alone adds the scenario-start crate CellAnim remaps
+/// (`startup_crate_anim_remap_keys`), whose AnimObjects do not exist yet.
+pub(crate) struct EntityAtlasCoverage<'r> {
+    /// Deploy targets, pre-loaded in every house colour.
+    pub(crate) extra_buildings: Vec<&'r str>,
+    /// Live AnimClass palette variants.
+    pub(crate) anim_remap_keys: HashSet<AnimRemapKey>,
+    /// Terrain tile animations, drawn from the theater ISO palette.
+    pub(crate) cell_drawer_type_ids: HashSet<String>,
+    /// FoggedObject frames that outlive their source.
+    pub(crate) frozen_keys: HashSet<ShpSpriteKey>,
+}
+
+impl<'r> EntityAtlasCoverage<'r> {
+    pub(crate) fn collect(
+        sim: &crate::sim::world::Simulation,
+        rules: Option<&'r RuleSet>,
+        house_colors: &HouseColorMap,
+    ) -> Self {
+        Self {
+            extra_buildings: deployable_building_types(rules),
+            anim_remap_keys: collect_anim_remap_base_keys(sim, house_colors),
+            cell_drawer_type_ids: sim
+                .resolved_terrain()
+                .into_iter()
+                .flat_map(|terrain| terrain.tile_animations())
+                .map(|anim| anim.anim_name.to_ascii_uppercase())
+                .collect(),
+            frozen_keys: rules.map_or_else(HashSet::new, |rules| {
+                collect_fogged_sprite_keys(sim, rules, house_colors)
+            }),
+        }
+    }
+}
+
+/// Building types reachable through `DeploysInto=` (e.g. AMCV→GACNST). Units
+/// with DeploysInto can appear through production or scripted events without
+/// being on the map yet, so the atlas pre-loads every deploy target in the
+/// rules; no MCV/ConYard pair is hard-coded.
+pub(crate) fn deployable_building_types(rules: Option<&RuleSet>) -> Vec<&str> {
+    let Some(rules) = rules else {
+        return Vec::new();
+    };
+    let mut result: Vec<&str> = Vec::new();
+    for obj in rules.all_objects() {
+        if let Some(target_id) = &obj.deploys_into
+            && let Some(target_obj) = rules.object(target_id)
+            && !result
+                .iter()
+                .any(|r| r.eq_ignore_ascii_case(&target_obj.id))
+        {
+            result.push(&target_obj.id);
+        }
+    }
+    result
+}
+
 /// Live AnimClass palette variants that must exist in the atlas. Producers
 /// install these after construction (notably OverlayClass CellAnim over a
 /// Tiberium cell and Unit deploy animations), so the attached object's live

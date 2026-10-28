@@ -173,14 +173,20 @@ fn game_speed_transition_applies_at_ingress_before_triggers_and_hash() {
     assert_eq!(control.session.game_options().game_speed, 1);
     assert_ne!(result.state_hash, control_result.state_hash);
     assert_eq!(result.state_hash, Some(sim.state_hash()));
-    assert!(sim.take_master_frame_test_trace().starts_with(&[
-        MasterFrameTestRung::SessionCommands,
-        MasterFrameTestRung::Triggers,
-        MasterFrameTestRung::TeamScript,
-        MasterFrameTestRung::DiskLasers,
-        MasterFrameTestRung::LightningStorm,
-        MasterFrameTestRung::LogicVector,
-    ]));
+    let order = [
+        FrameStep::SessionCommands,
+        FrameStep::Triggers,
+        FrameStep::TeamScript,
+        FrameStep::DiskLasers,
+        FrameStep::LightningStorm,
+        FrameStep::LogicVector,
+    ];
+    let trace = sim.take_frame_step_trace();
+    let visited: Vec<_> = trace
+        .into_iter()
+        .filter(|step| order.contains(step))
+        .collect();
+    assert!(visited.starts_with(&order));
 }
 
 #[test]
@@ -5399,6 +5405,7 @@ fn event33_select_command_raises_tags_once_in_payload_order_after_admission() {
     sim.initialize_trigger_definitions(
         &map,
         &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
+        None,
         None,
         None,
     );

@@ -8,7 +8,6 @@
 
 #[cfg(feature = "telemetry-dashboard")]
 use crate::util::time::Instant;
-use std::collections::HashSet;
 use std::path::Path;
 
 use crate::app::AppState;
@@ -1345,6 +1344,14 @@ fn advance_one_simulation_frame(
                         .as_mut()
                         .and_then(|radar| radar.set_has_radar(available))
                 };
+                #[cfg(feature = "ares")]
+                let flying_credits = &state.match_state.match_presentation.flying_credits;
+                #[cfg(feature = "ares")]
+                let queue_bounty = |sim: &crate::sim::world::Simulation,
+                                    rules: &crate::rules::ruleset::RuleSet,
+                                    text: crate::sim::bounty::BountyText| {
+                    flying_credits.borrow_mut().admit(sim, rules, text);
+                };
                 let boundary = super::frame_effects::FrameClientBoundary::new(
                     playback,
                     local_owner_name.as_deref(),
@@ -1372,6 +1379,8 @@ fn advance_one_simulation_frame(
                     .with_network_commands(&boundary)
                     .with_production_strip(&production_visits, &clear_production_request)
                     .with_before_logic(&before_logic);
+                #[cfg(feature = "ares")]
+                let effects = effects.with_bounty_text(&queue_bounty);
                 // Recorded completion owns outcome timing during playback;
                 // a local audio wait cannot add a frame or change its hash.
                 let effects = if replaying {
@@ -2053,8 +2062,9 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
         // it is neither an abandon nor a permission to emit another PLACE.
         return;
     }
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
-    let (Some(sim), Some(rules)) = (
+    let owner = preferred_local_owner(state);
+    let (Some(owner), Some(sim), Some(rules)) = (
+        owner,
         state
             .match_state
             .sim_runtime
@@ -2138,27 +2148,22 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
 
     // Check if the sprite atlas lacks an object (type, house colour), an
     // AnimClass colour remap or the harvest overlay the world now draws.
-    let extra_buildings: Vec<&str> =
-        crate::app::frontend::skirmish::deployable_building_types(bound_rules);
-    let anim_remap_keys = sprite_atlas::collect_anim_remap_base_keys(
+    // Map load collects the same coverage (`prepare_presentation_manifest`).
+    let coverage = sprite_atlas::EntityAtlasCoverage::collect(
         sim,
-        &state.match_state.match_presentation.house_color_map,
-    );
-    let frozen_keys = sprite_atlas::collect_fogged_sprite_keys(
-        sim,
-        &rt.resources.rules,
+        bound_rules,
         &state.match_state.match_presentation.house_color_map,
     );
     let sprite_rebuild = !sprite_atlas::atlas_covers_world(
         state.match_state.match_presentation.sprite_atlas.as_ref(),
         sim.entities(),
         &state.match_state.match_presentation.house_color_map,
-        &extra_buildings,
-        &anim_remap_keys,
+        &coverage.extra_buildings,
+        &coverage.anim_remap_keys,
         Some(sim.interner()),
     ) || !sprite_atlas::atlas_covers_sprite_keys(
         state.match_state.match_presentation.sprite_atlas.as_ref(),
-        &frozen_keys,
+        &coverage.frozen_keys,
         bound_rules,
     );
 
@@ -2195,12 +2200,6 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
     if sprite_rebuild {
         log::info!("Refreshing the sprite atlas: new SHP object types or colour remaps");
         let existing = state.match_state.match_presentation.sprite_atlas.take();
-        let cell_drawer_type_ids: HashSet<String> = sim
-            .resolved_terrain()
-            .into_iter()
-            .flat_map(|terrain| terrain.tile_animations())
-            .map(|anim| anim.anim_name.to_ascii_uppercase())
-            .collect();
         if let Some(new_sprite_atlas) = sprite_atlas::build_sprite_atlas(
             &state.renderer.gpu.device,
             &state.renderer.gpu.queue,
@@ -2213,10 +2212,10 @@ pub(crate) fn refresh_entity_atlases(state: &mut AppState) {
             bound_rules,
             bound_rules.map(|rules| rules.art()),
             &state.match_state.match_presentation.house_color_map,
-            &extra_buildings,
-            &anim_remap_keys,
-            &cell_drawer_type_ids,
-            &frozen_keys,
+            &coverage.extra_buildings,
+            &coverage.anim_remap_keys,
+            &coverage.cell_drawer_type_ids,
+            &coverage.frozen_keys,
             Some(&cell_palette),
             existing,
             Some(sim.interner()),

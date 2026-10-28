@@ -1148,6 +1148,80 @@ impl Simulation {
             .phobos_attach_effects_mut() = list;
     }
 
+    /// Phobos' House owner-change hook: every effect with
+    /// `DiscardOn=ownerchange` is flagged when the human/computer direction
+    /// and the two per-type switches admit it, except a revert driven by a
+    /// transport exit. RESIDUAL: VERA has no `Passengers.SyncOwner`
+    /// revert-on-exit caller, so `IgnoreRevertOnExit` is always false here.
+    pub(crate) fn phobos_attach_effects_on_owner_change(
+        &mut self,
+        id: u64,
+        old_owner: crate::sim::intern::InternedId,
+        new_owner: crate::sim::intern::InternedId,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.phobos_attach_effects().is_empty() {
+            return;
+        }
+        let game_mode_nonzero = self.session.game_mode_nonzero();
+        let old_human = self
+            .houses
+            .get(&old_owner)
+            .is_some_and(|house| house.is_controlled_by_human(game_mode_nonzero));
+        let new_human = self
+            .houses
+            .get(&new_owner)
+            .is_some_and(|house| house.is_controlled_by_human(game_mode_nonzero));
+        let human_and_computer = old_human != new_human;
+        let has_transporter = entity.passenger_role.inside_transport_id().is_some();
+        let effects = rules.attach_effect_types().types();
+        let mut list = std::mem::take(
+            self.substrate
+                .entities
+                .get_mut(id)
+                .expect("the gated entity still exists")
+                .phobos_attach_effects_mut(),
+        );
+        for instance in &mut list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if !effect.discard_on.contains(DiscardOn::OWNER_CHANGE) {
+                continue;
+            }
+            let human_to_computer = effect.discard_owner_change_human_to_computer;
+            let computer_to_human = effect.discard_owner_change_computer_to_human;
+            let ignore_revert = false;
+            let mut discard = false;
+            if effect.discard_owner_change_ignore_revert_on_exit && ignore_revert {
+                discard = false;
+            } else if human_to_computer && computer_to_human {
+                discard = true;
+            } else if human_to_computer || computer_to_human {
+                if human_and_computer
+                    && ((old_human && human_to_computer) || (!old_human && computer_to_human))
+                {
+                    discard = true;
+                }
+            }
+            if discard && has_transporter && !ignore_revert {
+                discard = false;
+            }
+            if discard {
+                instance.should_be_discarded = true;
+            }
+        }
+        *self
+            .substrate
+            .entities
+            .get_mut(id)
+            .expect("the gated entity still exists")
+            .phobos_attach_effects_mut() = list;
+    }
+
     /// Phobos `TechnoClass_Limbo_Wrapper` (call/vtable replacements): every
     /// effect with `DiscardOn=Entry` is reset or removed when the object
     /// enters limbo, except an undeploying building (`UndeploysInto=` while
@@ -1251,6 +1325,21 @@ impl Simulation {
         let globals = *rules.attach_effect_globals();
         let facts = self.phobos_discard_facts(id, rules);
         list.online_check_all(effects, owner_active);
+        // `PointerGotInvalid` flags an `InvokerDie` effect whose invoker is
+        // gone. VERA checks the store each frame instead of the native
+        // pointer-expiry broadcast, so a target that ran earlier in the
+        // invoker's death frame sees it one frame later.
+        for instance in &mut list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if effect.discard_on.contains(DiscardOn::INVOKER_DIE)
+                && let Some(invoker) = instance.source.and_then(|source| source.invoker)
+                && self.substrate.entities.get(invoker).is_none()
+            {
+                instance.should_be_discarded = true;
+            }
+        }
         let initialized_before: Vec<bool> = list
             .instances
             .iter()
@@ -2511,6 +2600,84 @@ mod tests {
 
         sim.limbo_phobos_attach_effects(target, &rules);
         assert_eq!(count(&sim), 0, "limbo entry discards ENTRY");
+    }
+
+    /// An owner change and a dead external invoker flag through their owners.
+    #[test]
+    fn owner_change_and_invoker_death_flag_the_effect() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=500\nSpeed=6\nAttachEffect.AttachTypes=OWNER\n\
+             [AttachEffectTypes]\n0=OWNER\n1=DEADINV\n\
+             [OWNER]\nDuration=10\nDiscardOn=ownerchange\n\
+             [DEADINV]\nDuration=10\nDiscardOn=invokerdie\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        // A second effect attached from outside names an invoker that is gone.
+        let catalog = rules.attach_effect_types();
+        let effect = &catalog.types()[1];
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .phobos_attach_effects_mut()
+            .attach(
+                1,
+                AttachEffectParams {
+                    delay: -1,
+                    recreation_delay: -1,
+                    ..AttachEffectParams::default()
+                },
+                effect,
+                AttachPolicy::default(),
+                Some(AttachSource {
+                    invoker: Some(999_999),
+                    source: None,
+                }),
+            );
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .len(),
+            2
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        let instances = sim
+            .entities()
+            .get(target)
+            .unwrap()
+            .phobos_attach_effects()
+            .instances();
+        assert_eq!(instances.len(), 1, "the dead invoker discards DEADINV");
+        assert_eq!(instances[0].type_index, 0);
+
+        let russians = sim.interner().get("Russians").expect("rival house");
+        sim.change_owner_with_rules(
+            target,
+            russians,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .is_empty(),
+            "the human-to-computer owner change discards OWNER"
+        );
     }
 
     /// `DiscardOn=ammo` erases the effect on the AI frame that observes the

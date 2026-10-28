@@ -115,6 +115,7 @@ struct OnlinePacer {
     receipt: SequencedTiming,
     reserve: Duration,
     decay_at: Instant,
+    stable: Duration,
     underrun: Option<(u32, Instant)>,
     underruns: u64,
     catching_up: bool,
@@ -127,6 +128,7 @@ impl OnlinePacer {
             receipt,
             reserve: Duration::ZERO,
             decay_at: now,
+            stable: Duration::ZERO,
             underrun: None,
             underruns: 0,
             catching_up: false,
@@ -182,6 +184,7 @@ impl OnlinePacer {
         if required > self.reserve {
             self.reserve = required;
             self.decay_at = now;
+            self.stable = Duration::ZERO;
         }
     }
 
@@ -207,12 +210,15 @@ impl OnlinePacer {
             self.receipt = receipt;
         }
         if !recovering && !self.catching_up && self.underrun.is_none() {
-            let seconds = now.saturating_duration_since(self.decay_at).as_secs();
-            if seconds > 0 {
-                self.reserve = self.reserve.saturating_sub(Duration::from_millis(seconds));
-                self.decay_at += Duration::from_secs(seconds);
-            }
+            // Stable delivery returns 1ms per second. Accrue it between
+            // observations: a slow renderer catches up after most passes,
+            // and each burst only pauses the decay instead of restarting it.
+            self.stable += now.saturating_duration_since(self.decay_at);
+            let seconds = self.stable.as_secs();
+            self.reserve = self.reserve.saturating_sub(Duration::from_millis(seconds));
+            self.stable -= Duration::from_secs(seconds);
         }
+        self.decay_at = now;
     }
 
     fn decide(
@@ -241,7 +247,7 @@ impl OnlinePacer {
             {
                 self.underrun = Some((next_frame, deadline));
                 self.underruns = self.underruns.saturating_add(1);
-                self.decay_at = now;
+                self.stable = Duration::ZERO;
             }
             return OnlineFrameDecision::WaitingForCanonical;
         }
@@ -257,7 +263,6 @@ impl OnlinePacer {
                     && now.saturating_duration_since(self.deadline(next_frame)) > self.span(2)))
         {
             self.catching_up = true;
-            self.decay_at = now;
         }
         if self.catching_up {
             if recovering || available > 1 {
@@ -268,7 +273,6 @@ impl OnlinePacer {
             self.origin_frame = self.receipt.frame;
             self.origin_at = self.receipt.received_at;
             self.catching_up = false;
-            self.decay_at = now;
         }
         let deadline = self.deadline(next_frame);
         if now >= deadline {
@@ -818,6 +822,34 @@ mod tests {
         let arrived = push_receipt(due + Duration::from_millis(30), 95);
         pacer.online_frame_decision(arrived.received_at, 95, 95, arrived, false, false);
         assert_eq!(pacer.online_pacing_status().unwrap().reserve_micros, 20_000);
+    }
+
+    #[test]
+    fn pushed_reserve_decays_across_render_paced_catch_up_bursts() {
+        let start = Instant::now();
+        let tick = Duration::from_nanos(1_000_000_000 / 45);
+        let mut pacer = LocalFramePacer::new();
+        pacer.online_frame_decision(start, 1, 1, push_receipt(start, 1), false, false);
+        let late = push_receipt(start + tick + Duration::from_millis(15), 2);
+        pacer.online_frame_decision(late.received_at, 2, 2, late, false, false);
+        assert_eq!(pacer.online_pacing_status().unwrap().reserve_micros, 15_000);
+        // A 15Hz renderer services three on-time frames per pass, so every
+        // pass starts a short catch-up. Six seconds must still decay.
+        let mut next = 3;
+        for pass in 1..=90 {
+            let frontier = 2 + pass * 3;
+            let receipt = push_receipt(start + tick * (frontier - 1), frontier);
+            let now = receipt.received_at + Duration::from_millis(1);
+            while next <= frontier
+                && pacer
+                    .online_frame_decision(now, next, frontier, receipt, false, false)
+                    .admits()
+            {
+                next += 1;
+            }
+        }
+        assert!(next > 260, "the passes kept up");
+        assert!(pacer.online_pacing_status().unwrap().reserve_micros <= 10_000);
     }
 
     #[test]

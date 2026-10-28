@@ -65,7 +65,7 @@ Modern ordering uses authenticated control kind4 and a lobby-signed `VO1C`
 certificate (see `../lobby/protocol.md`). All sources certify the same initial
 world; fixed FPS deadlines then commit encrypted batches sorted by source and
 batch ID, followed by an explicit frame end. An absent input contributes nothing.
-Late input goes at least two frames beyond the sealed head. New clients opt in
+Input joins the open frame after the sealed head. New clients opt in
 to server-pushed updates through ordering request4 and its authenticated
 `PushState` acknowledgement. Older clients continue pulling the same history.
 The subscription is bound to the confirmed hop and expires after3seconds without

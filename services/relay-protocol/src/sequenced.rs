@@ -939,7 +939,7 @@ impl OrderingRoom {
         self.active &= !bit;
         let final_frame = (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32;
         self.pending
-            .entry((self.head + 2).min(final_frame))
+            .entry((self.head + 1).min(final_frame))
             .or_default()
             .push(Pending {
                 source,
@@ -1175,7 +1175,9 @@ impl OrderingRoom {
                 if id != expected {
                     return Ok(error(OrderError::BatchGap, expected));
                 }
-                let frame = self.head + 2;
+                // The open frame: `advance` above already sealed every due
+                // frame, and no reader executes a frame before its FrameEnd.
+                let frame = self.head + 1;
                 if frame > (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32 {
                     return Ok(error(OrderError::Inactive, 0));
                 }
@@ -1582,7 +1584,7 @@ mod tests {
             }
         }
         assert_eq!(markers, [(1, true), (2, false)]);
-        assert_eq!(inputs, [(6, b"accepted before pause".to_vec())]);
+        assert_eq!(inputs, [(5, b"accepted before pause".to_vec())]);
     }
 
     #[test]
@@ -1627,7 +1629,7 @@ mod tests {
                     ..
                 }) => resumed = true,
                 OrderEvent::Entry(OrderEntry::Departure {
-                    source, frame: 2, ..
+                    source, frame: 1, ..
                 }) => departed.push(source),
                 _ => {}
             }
@@ -1638,7 +1640,7 @@ mod tests {
         );
         assert_eq!(departed, [0, 1]);
         let ordering = server.rooms[&[5; 16]].ordering.as_ref().unwrap();
-        assert_eq!(ordering.head, 2);
+        assert_eq!(ordering.head, 1);
         assert!(ordering.finished_at.is_some());
     }
 
@@ -2318,8 +2320,8 @@ mod tests {
         assert_eq!(
             batch,
             [
-                (2, 2, 1, b"active input".as_slice()),
-                (3, 2, 2, b"third input".as_slice())
+                (1, 1, 1, b"active input".as_slice()),
+                (2, 1, 2, b"third input".as_slice())
             ]
         );
         let ends: Vec<_> = received
@@ -2331,7 +2333,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(ends, [(1, 1), (4, 2), (5, 3), (6, 4)]);
+        assert_eq!(ends, [(3, 1), (4, 2), (5, 3), (6, 4)]);
         active
             .submit_ordering(2, b"healthy input during outage", &mut bytes)
             .unwrap();
@@ -2524,26 +2526,26 @@ mod tests {
             events(&mut server, &mut first, &bytes, 300)[0],
             OrderEvent::Ack {
                 batch_id: 2,
-                frame: 6
+                frame: 5
             }
         ));
         first.leave_ordering(&mut bytes).unwrap();
         events(&mut server, &mut first, &bytes, 300);
         server.advance_clock(400, 1000);
-        let tail = pull(&mut server, &mut second, 7, 400);
-        let at_six: Vec<_> = tail
+        let tail = pull(&mut server, &mut second, 6, 400);
+        let at_five: Vec<_> = tail
             .iter()
             .filter_map(|event| match event {
-                OrderEvent::Entry(OrderEntry::Batch { frame: 6, .. }) => Some("batch"),
+                OrderEvent::Entry(OrderEntry::Batch { frame: 5, .. }) => Some("batch"),
                 OrderEvent::Entry(OrderEntry::Departure {
-                    frame: 6,
+                    frame: 5,
                     source: 0,
                     ..
                 }) => Some("departure"),
                 _ => None,
             })
             .collect();
-        assert_eq!(at_six, ["batch", "departure"]);
+        assert_eq!(at_five, ["batch", "departure"]);
         second.leave_ordering(&mut bytes).unwrap();
         events(&mut server, &mut second, &bytes, 400);
         server.advance_clock(600, unix(600));
@@ -2741,9 +2743,10 @@ mod tests {
         ));
         assert!(matches!(
             replay[1],
-            OrderEvent::Entry(OrderEntry::FrameEnd {
+            OrderEvent::Entry(OrderEntry::Batch {
                 sequence: 1,
-                frame: 1
+                frame: 1,
+                ..
             })
         ));
         assert!(

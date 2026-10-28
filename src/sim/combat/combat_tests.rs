@@ -908,6 +908,7 @@ fn retail_bridge_repair_hut_area_hit_returns_before_the_techno_receiver() {
                 false,
                 0,
                 None,
+                None,
             )
             .is_none()
         };

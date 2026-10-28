@@ -13,6 +13,8 @@
 
 use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag};
 #[cfg(feature = "phobos")]
+use crate::rules::phobos_shields::AffectedHouse;
+#[cfg(feature = "phobos")]
 use crate::sim::world::Simulation;
 
 /// `AttachEffectClass`'s constructor arguments, as the attach sites supply
@@ -942,6 +944,164 @@ impl Simulation {
             }
         }
     }
+
+    /// Phobos `TechnoExt::CalculateArmorMultipliers` at the receiver hook
+    /// (`0x00701966`, `hitAnim = true`): the cached unrestricted product, then
+    /// one `RandomDouble` per active restricted effect with the chance, house
+    /// and warhead gates; every applied effect multiplies and, when it lists a
+    /// `HitAnim`, picks one and spawns it on the target.
+    ///
+    /// Native draws each chance before its gates and the pick before the anim
+    /// constructor, so a HitAnim's own constructor draws stay between the
+    /// following effects' chance draws; this loop keeps that order.
+    ///
+    /// RESIDUAL: the shield pre-stage still divides with the unrestricted
+    /// product only, and this roll runs before the receiver's LaserFence,
+    /// bridge-hut, zero-health and null-warhead early returns where native
+    /// would not reach the armor step.
+    pub(crate) fn attach_effect_armor_multiplier(
+        &mut self,
+        target_id: u64,
+        warhead: Option<crate::sim::intern::InternedId>,
+        source_house: Option<crate::sim::intern::InternedId>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> f64 {
+        let warhead_name = warhead.map(|id| self.interner.resolve(id).to_owned());
+        let warhead_name = warhead_name.as_deref();
+        let Some(target) = self.substrate.entities.get(target_id) else {
+            return 1.0;
+        };
+        let stats = *target.phobos_stat_multipliers();
+        if !stats.has_restricted_armor {
+            return stats.armor;
+        }
+        let target_owner = target.owner();
+        let position = crate::sim::movement::ground_pose::position_world_coord(&target.position);
+        let world = crate::sim::anim_class::AnimWorldCoord {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+        };
+        let effects = rules.attach_effect_types().types();
+        // Type indices keep the attach order without holding the entity borrow.
+        let restricted: Vec<usize> = target
+            .phobos_attach_effects()
+            .active_effects(effects)
+            .filter(|(_, effect)| effect.restricted_armor_multiplier())
+            .map(|(instance, _)| instance.type_index)
+            .collect();
+        if restricted.is_empty() {
+            return stats.armor;
+        }
+        let mut multiplier = stats.armor;
+        for type_index in restricted {
+            let Some(effect) = effects.get(type_index) else {
+                continue;
+            };
+            // `type->ArmorMultiplier_Chance < random.RandomDouble()`: the draw
+            // happens for every restricted effect, whatever the chance value.
+            let chance = self.scenario_rng.random_double();
+            if effect.armor_multiplier_chance < chance {
+                continue;
+            }
+            if !affects_house(
+                effect.armor_multiplier_affects_house,
+                source_house,
+                target_owner,
+                self.house_alliances.as_map(),
+                &self.interner,
+            ) {
+                continue;
+            }
+            if let Some(warhead) = warhead_name {
+                if effect
+                    .armor_multiplier_disallow_warheads
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(warhead))
+                {
+                    continue;
+                }
+                if !effect.armor_multiplier_allow_warheads.is_empty()
+                    && !effect
+                        .armor_multiplier_allow_warheads
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(warhead))
+                {
+                    continue;
+                }
+            }
+            multiplier *= effect.armor_multiplier;
+            if !effect.armor_multiplier_hit_anim.is_empty() {
+                let pick = self
+                    .scenario_rng
+                    .next_range_i32_inclusive(0, effect.armor_multiplier_hit_anim.len() as i32 - 1);
+                let name = effect.armor_multiplier_hit_anim[pick as usize].clone();
+                self.spawn_attach_effect_hit_anim(target_id, &name, world, target_owner, rules);
+            }
+        }
+        multiplier
+    }
+
+    /// `AnimExt::CreateRandomAnim`'s creation arm: one anim at the target's
+    /// coordinates, owned by the target and attached to it.
+    fn spawn_attach_effect_hit_anim(
+        &mut self,
+        target: u64,
+        name: &str,
+        world: crate::sim::anim_class::AnimWorldCoord,
+        house: crate::sim::intern::InternedId,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let (rx, ry, sub_x, sub_y, z) = world.to_cell_sub_z();
+        let type_name = self.interner.intern(name);
+        let descriptor = crate::sim::components::AnimClassSpawnDescriptor {
+            draw_flags: 0x600,
+            owner: Some(target),
+            ..crate::sim::components::AnimClassSpawnDescriptor::new(
+                type_name, rx, ry, sub_x, sub_y, z,
+            )
+        };
+        match self.spawn_anim_at_world(rules, descriptor, world) {
+            Ok(anim) => {
+                self.substrate.set_anim_owner_house(anim, house);
+            }
+            Err(error) => log::debug!(
+                "attach effect hit animation [{name}] on {target} did not construct: {error}"
+            ),
+        }
+    }
+}
+
+/// Phobos `EnumFunctions::CanTargetHouse`: `All` always matches, the owner
+/// takes its bucket, an ally's, otherwise the enemy's. VERA has no
+/// `IsNeutral` reader here, so a Neutral-only flag follows the allied/enemy
+/// relation.
+#[cfg(feature = "phobos")]
+fn affects_house(
+    flags: AffectedHouse,
+    source: Option<crate::sim::intern::InternedId>,
+    target: crate::sim::intern::InternedId,
+    alliances: &crate::map::houses::HouseAllianceMap,
+    interner: &crate::sim::intern::StringInterner,
+) -> bool {
+    if flags == AffectedHouse::ALL {
+        return true;
+    }
+    let Some(source) = source else {
+        return flags.contains(AffectedHouse::ENEMIES);
+    };
+    if source == target {
+        return flags.contains(AffectedHouse::OWNER);
+    }
+    if crate::map::houses::is_allied_with(
+        alliances,
+        interner.resolve(source),
+        interner.resolve(target),
+    ) {
+        flags.contains(AffectedHouse::ALLIES)
+    } else {
+        flags.contains(AffectedHouse::ENEMIES)
+    }
 }
 
 #[cfg(all(test, feature = "phobos"))]
@@ -1330,6 +1490,100 @@ mod tests {
         }
     }
 
+    /// Phobos `CalculateArmorMultipliers`'s restricted arm: one chance draw
+    /// per active restricted effect (even when it can never pass), the
+    /// warhead gates, and the picked HitAnim.
+    #[test]
+    fn restricted_armor_rolls_chance_gates_and_hit_animations() {
+        use crate::rules::art_data::ArtRegistry;
+        use crate::rules::ini_parser::IniFile;
+
+        let scene = |roll: &str| {
+            let ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nAttachEffect.AttachTypes=BASE,ROLL\n\
+                 [Warheads]\n0=HIT\n1=OTHER\n[HIT]\n[OTHER]\n\
+                 [AttachEffectTypes]\n0=BASE\n1=ROLL\n\
+                 [BASE]\nDuration=10\nArmorMultiplier=0.5\n\
+                 [ROLL]\nDuration=10\nArmorMultiplier=0.5\n{roll}"
+            ));
+            let art = IniFile::from_str("[PULSE]\nRate=900\nEnd=4\n");
+            let processed = crate::rules::native_processing::RulesLayerStack::new(ini)
+                .process_with_fixed_art(&art)
+                .expect("rules process");
+            let mut rules =
+                crate::rules::ruleset::RuleSet::from_processed_rules(&processed).expect("rules");
+            let mut registry = ArtRegistry::from_ini(&art);
+            registry.bind_anim_frame_count_for_test("PULSE", 4);
+            rules.install_art_data(registry);
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let target = sim
+                .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+                .expect("spawn");
+            sim.update_phobos_attach_effects(target, &rules);
+            (sim, rules, target)
+        };
+
+        // A passing roll multiplies the unrestricted base and spawns the pick.
+        let (mut sim, rules, target) =
+            scene("ArmorMultiplier.Chance=1.0\nArmorMultiplier.HitAnim=PULSE\n");
+        let hit = sim.interner.intern("HIT");
+        let owner = sim.entities().get(target).unwrap().owner();
+        let before = sim.scenario_rng.native_state_hex();
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), Some(owner), &rules),
+            0.25,
+            "base 0.5 times the applied 0.5"
+        );
+        assert_ne!(
+            before,
+            sim.scenario_rng.native_state_hex(),
+            "the chance and the pick both drew"
+        );
+        assert!(
+            sim.substrate.anims.iter().any(|(_, anim)| {
+                anim.owner_entity() == Some(target)
+                    && sim
+                        .interner()
+                        .resolve(anim.type_id())
+                        .eq_ignore_ascii_case("PULSE")
+            }),
+            "the picked HitAnim is attached to the target"
+        );
+
+        // Chance 0 still draws, then rejects.
+        let (mut sim, rules, target) = scene("ArmorMultiplier.Chance=0.0\n");
+        let hit = sim.interner.intern("HIT");
+        let before = sim.scenario_rng.native_state_hex();
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), None, &rules),
+            0.5,
+            "the base product survives the failed roll"
+        );
+        assert_ne!(
+            before,
+            sim.scenario_rng.native_state_hex(),
+            "the chance draw happens even at zero"
+        );
+
+        // The warhead lists gate the same multiplier.
+        let (mut sim, rules, target) = scene("ArmorMultiplier.DisallowWarheads=HIT\n");
+        let hit = sim.interner.intern("HIT");
+        let other = sim.interner.intern("OTHER");
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), None, &rules),
+            0.5,
+            "a disallowed warhead skips the effect"
+        );
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(other), None, &rules),
+            0.25,
+            "an unlisted warhead passes"
+        );
+    }
+
     /// `RecalculateStatMultipliers` folds every active armor multiplier into
     /// the cached factor, and the receiver's extra divide consumes it after
     /// the first AI frame.
@@ -1373,6 +1627,10 @@ mod tests {
             &rules,
             sim.interner(),
             sim.houses(),
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_armor_multiplier(),
         );
         assert_eq!(divisors.ae_armor, 0.25);
         assert_eq!(

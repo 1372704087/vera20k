@@ -281,6 +281,7 @@ pub(crate) fn preview_receive_damage(
         rules,
         &sim.interner,
         &sim.houses,
+        target.phobos_armor_multiplier(),
     );
     shield_stage(sim, rules, event, receiver_input, &divisors).map(|result| result.remaining)
 }

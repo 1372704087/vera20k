@@ -1214,6 +1214,7 @@ pub(crate) fn commit_entities(
                         rules,
                         &world.interner,
                         &world.houses,
+                        target.phobos_armor_multiplier(),
                     );
                     let input = event.damage;
                     crate::sim::shield::pre_receive_damage(world, rules, event, input, &divisors)
@@ -1228,6 +1229,37 @@ pub(crate) fn commit_entities(
             .map_or(event.damage > 0, |receipt| receipt.remaining > 0);
         #[cfg(all(feature = "ares", not(feature = "phobos")))]
         let ares_initially_positive = event.damage > 0;
+        // Phobos TechnoClass_ReceiveDamage_ArmorMultiplier (0x00701966): the
+        // effects' armor chances belong to the positive, defended divide on
+        // the post-shield damage. `None` keeps the cached unrestricted product.
+        #[cfg(feature = "phobos")]
+        let receiver_ae_armor = {
+            let input = shield_receipt
+                .as_ref()
+                .map_or(event.damage, |receipt| receipt.remaining);
+            if !event.receiver_flags.ignore_defenses
+                && input >= 0
+                && rules
+                    .warhead(world.interner.resolve(event.warhead_ref))
+                    .is_some()
+            {
+                let source_house = event.source_house.or_else(|| {
+                    world
+                        .substrate
+                        .entities
+                        .get(event.attacker_id)
+                        .map(|attacker| attacker.owner())
+                });
+                Some(world.attach_effect_armor_multiplier(
+                    target_id,
+                    Some(event.warhead_ref),
+                    source_house,
+                    rules,
+                ))
+            } else {
+                None
+            }
+        };
         #[cfg(feature = "phobos")]
         let receiver_outcome = match shield_receipt {
             Some(receipt) => resolve_receive_damage_with_input(
@@ -1242,6 +1274,7 @@ pub(crate) fn commit_entities(
                 world.resolved_terrain.as_ref(),
                 receipt.remaining,
                 receipt.remaining == 0,
+                receiver_ae_armor,
             ),
             None => resolve_receive_damage(
                 event,
@@ -1253,6 +1286,7 @@ pub(crate) fn commit_entities(
                 scenario_no_damage,
                 current_tick,
                 world.resolved_terrain.as_ref(),
+                receiver_ae_armor,
             ),
         };
         #[cfg(not(feature = "phobos"))]
@@ -1266,6 +1300,7 @@ pub(crate) fn commit_entities(
             scenario_no_damage,
             current_tick,
             world.resolved_terrain.as_ref(),
+            None,
         );
         // Techno701ADB..701B62 precedes bunker/warhead/Object gates, even
         // when those gates suppress the HP write. It also runs for healing

@@ -4530,7 +4530,6 @@ impl TacticalCaptureSession {
             "instance_counts": super::super::evidence::RenderInstanceCountEvidence::from_counts(output.instance_counts)?,
             "internal_extent": [state.render_width(), state.render_height()],
             "surface_extent": [state.renderer.gpu.config.width, state.renderer.gpu.config.height],
-            "ui_scale": state.match_state.match_presentation.ui_scale,
             "gpu": super::super::evidence::GpuAdapterEvidence::from_observation(state.renderer.gpu.capture_adapter_observation()),
             "unit_atlas": unit_atlas,
             "frame_wall_mean_ms": frame_wall_mean_ms,

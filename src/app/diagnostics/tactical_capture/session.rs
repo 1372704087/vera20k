@@ -245,13 +245,6 @@ impl TacticalCaptureSession {
             "tactical swapchain lacks COPY_SRC readback usage"
         );
         ensure!(
-            (state.match_state.match_presentation.ui_scale - capture.app_ui_scale as f32).abs()
-                <= f32::EPSILON,
-            "app UI scale {} differs from sealed {}",
-            state.match_state.match_presentation.ui_scale,
-            capture.app_ui_scale
-        );
-        ensure!(
             state.match_state.configured_input_delay_ticks
                 == u64::from(profile.launch.input_delay_ticks),
             "configured input delay differs from sealed launch"
@@ -1473,7 +1466,6 @@ impl TacticalCaptureSession {
                 state.renderer.gpu.config.width,
                 state.renderer.gpu.config.height,
             ],
-            state.match_state.match_presentation.ui_scale,
             bitmap_font,
         )?;
         let script = self

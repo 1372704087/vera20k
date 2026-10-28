@@ -1298,7 +1298,6 @@ pub(super) fn build_sidebar_instances(state: &mut AppState) -> SidebarInstances 
             crate::app::presentation::sidebar_text::build_sidebar_credits_instances(
                 &state.renderer.bit_font,
                 v,
-                state.match_state.match_presentation.ui_scale,
                 crate::app::presentation::sidebar_text::credits_tint(theme),
                 [
                     state.match_state.input.camera_x,
@@ -1378,13 +1377,12 @@ fn build_radar_anim_instance(state: &AppState) -> Vec<SpriteInstance> {
     let spec = state.match_state.match_presentation.sidebar_layout_spec;
     let layout = crate::ui::sidebar::compute_layout_with_spec(spec, sw, sh, 0);
 
-    let s = state.match_state.match_presentation.ui_scale;
     vec![SpriteInstance {
         position: [
             state.match_state.input.camera_x + layout.sidebar_x,
             state.match_state.input.camera_y + layout.radar_y,
         ],
-        size: [ra.width as f32 * s, ra.height as f32 * s],
+        size: [ra.width as f32, ra.height as f32],
         uv_origin: [0.0, 0.0],
         uv_size: [1.0, 1.0],
         depth: 0.00048,

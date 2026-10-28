@@ -278,9 +278,8 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
         scroll_up_btn_size,
         top_btn_sizes,
     ) = {
-        let scale = state.match_state.match_presentation.ui_scale;
         let size = |entry: Option<&crate::render::sidebar_chrome::SidebarChromeEntry>| {
-            entry.map(|entry| [entry.pixel_size[0] * scale, entry.pixel_size[1] * scale])
+            entry.map(|entry| entry.pixel_size)
         };
         let atlas = current_sidebar_chrome(state);
         (

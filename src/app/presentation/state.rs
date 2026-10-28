@@ -100,7 +100,7 @@ pub(crate) struct MatchPresentationState {
         Option<crate::render::sidebar_chrome::ResolvedSidebarChromeIdentity>,
     /// Content insets [left, top, right, bottom] derived from the transparent opening
     /// in radar.shp frame 0. Used to position the minimap inside the chrome housing.
-    /// Unscaled pixels — multiply by `ui_scale` at use site.
+    /// radar.shp pixels, which draw one-to-one in render pixels.
     pub(crate) radar_content_insets: Option<[u32; 4]>,
     /// Whether the local player currently has operational radar (power-gated).
     pub(crate) has_radar: bool,
@@ -169,8 +169,6 @@ pub(crate) struct MatchPresentationState {
     pub(crate) active_sidebar_tab: SidebarTab,
     /// Native side-specific geometry in physical render pixels.
     pub(crate) sidebar_layout_spec: SidebarChromeLayoutSpec,
-    /// Ordinary retail artwork uses one render pixel per source pixel.
-    pub(crate) ui_scale: f32,
     /// Shared tooltip service (study S1) — the model is clock-injected; only
     /// `input::tooltips` reads the wall clock.
     pub(crate) tooltips: crate::ui::tooltips::TooltipService,

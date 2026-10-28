@@ -135,9 +135,7 @@ impl App {
             .saved_game_browser
             .as_mut()
         {
-            browser.pressed_control = None;
-            browser.scroll_repeat_at = None;
-            browser.last_list_press = None;
+            browser.reset_interaction();
         }
     }
 
@@ -877,9 +875,7 @@ impl ApplicationHandler for App {
                         .saved_seed_browser
                         .as_mut()
                     {
-                        browser.pressed_control = None;
-                        browser.scroll_repeat_at = None;
-                        browser.last_list_press = None;
+                        browser.reset_interaction();
                     }
                     if let Some(dialog) = state.frontend.keyboard_dialog.as_mut() {
                         dialog.reset_interaction();

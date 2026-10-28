@@ -11,7 +11,7 @@
 //! animation each effect shows. Stat multipliers, tint rendering and discard
 //! conditions read this state from their own owners.
 
-use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag};
+use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag, DiscardOn};
 #[cfg(feature = "phobos")]
 use crate::rules::phobos_shields::AffectedHouse;
 #[cfg(feature = "phobos")]
@@ -60,6 +60,15 @@ pub struct AttachEffectInstance {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     should_be_discarded: bool,
+    /// `FiringCount`: shots counted towards `DiscardOn.Firing.Count`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    firing_count: i32,
+    /// `ReceivedDamageCount`: hits counted towards
+    /// `DiscardOn.ReceivedDamage.Count`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    received_damage_count: i32,
 }
 
 impl AttachEffectInstance {
@@ -82,6 +91,10 @@ impl AttachEffectInstance {
             anim: None,
             #[cfg(feature = "phobos")]
             should_be_discarded: false,
+            #[cfg(feature = "phobos")]
+            firing_count: 0,
+            #[cfg(feature = "phobos")]
+            received_damage_count: 0,
         };
         instance.refresh(effect);
         instance
@@ -791,6 +804,7 @@ pub(crate) struct DiscardFacts {
     pub health_ratio: f64,
     pub health_and_strength_zero: bool,
     pub land_type: Option<crate::rules::terrain_rules::LandType>,
+    pub mission: Option<crate::rules::mission_data::MissionType>,
     pub owner_human: bool,
 }
 
@@ -880,6 +894,26 @@ impl AttachEffectInstance {
                     .discard_land_types
                     .iter()
                     .any(|token| token.eq_ignore_ascii_case(land.section_name()))
+                {
+                    return true;
+                }
+            }
+        }
+        if flags.contains(DiscardOn::MISSION) {
+            // A human-controlled owner uses `DiscardOn.Missions`; an AI uses
+            // `DiscardOn.AIMissions` when it is set.
+            let missions = if facts.owner_human {
+                &effect.discard_missions
+            } else {
+                effect
+                    .discard_ai_missions
+                    .as_ref()
+                    .unwrap_or(&effect.discard_missions)
+            };
+            if let Some(mission) = facts.mission {
+                if missions
+                    .iter()
+                    .any(|name| mission.ini_section().eq_ignore_ascii_case(name))
                 {
                     return true;
                 }
@@ -1003,11 +1037,177 @@ impl Simulation {
             },
             health_and_strength_zero: health == 0 && strength == 0,
             land_type,
+            mission,
             owner_human: self
                 .houses
                 .get(&entity.owner())
                 .is_some_and(|house| house.is_human()),
         }
+    }
+
+    /// Phobos `TechnoClass_FireAt_BeforeTruelyFire` (`0x6FDDC0`, 6 bytes
+    /// replaced): every admitted shot counts towards `DiscardOn.Firing.Count`,
+    /// including spawner, drain and suicide weapons that launch no bullet.
+    pub(crate) fn record_phobos_attach_firing(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.phobos_attach_effects().is_empty() {
+            return;
+        }
+        let effects = rules.attach_effect_types().types();
+        let mut list = std::mem::take(
+            self.substrate
+                .entities
+                .get_mut(id)
+                .expect("the gated firer still exists")
+                .phobos_attach_effects_mut(),
+        );
+        for instance in &mut list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if !effect.discard_on.contains(DiscardOn::FIRING) {
+                continue;
+            }
+            instance.firing_count += 1;
+            if instance.firing_count >= effect.discard_firing_count {
+                instance.should_be_discarded = true;
+            }
+        }
+        *self
+            .substrate
+            .entities
+            .get_mut(id)
+            .expect("the gated firer still exists")
+            .phobos_attach_effects_mut() = list;
+    }
+
+    /// Phobos' ReceiveDamage wrapper: a hit whose source house passes
+    /// `DiscardOn.ReceivedDamage.AffectsHouse` counts towards the type's
+    /// `DiscardOn.ReceivedDamage.Count`.
+    pub(crate) fn record_phobos_attach_damage(
+        &mut self,
+        id: u64,
+        source_house: Option<crate::sim::intern::InternedId>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.phobos_attach_effects().is_empty() {
+            return;
+        }
+        let owner = entity.owner();
+        let effects = rules.attach_effect_types().types();
+        let mut list = std::mem::take(
+            self.substrate
+                .entities
+                .get_mut(id)
+                .expect("the gated target still exists")
+                .phobos_attach_effects_mut(),
+        );
+        for instance in &mut list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if !effect.discard_on.contains(DiscardOn::RECEIVED_DAMAGE) {
+                continue;
+            }
+            // `CanTargetHouse(flags, pThis->Owner, pSourceHouse)`: the target's
+            // owner is the "owner" argument and the source house the target.
+            let gated = match source_house {
+                Some(source) => affects_house(
+                    effect.discard_received_damage_affects_house,
+                    Some(owner),
+                    source,
+                    self.house_alliances.as_map(),
+                    &self.interner,
+                ),
+                None => effect
+                    .discard_received_damage_affects_house
+                    .contains(AffectedHouse::ENEMIES),
+            };
+            if !gated {
+                continue;
+            }
+            instance.received_damage_count += 1;
+            if instance.received_damage_count >= effect.discard_received_damage_count {
+                instance.should_be_discarded = true;
+            }
+        }
+        *self
+            .substrate
+            .entities
+            .get_mut(id)
+            .expect("the gated target still exists")
+            .phobos_attach_effects_mut() = list;
+    }
+
+    /// Phobos `TechnoClass_Limbo_Wrapper` (call/vtable replacements): every
+    /// effect with `DiscardOn=Entry` is reset or removed when the object
+    /// enters limbo, except an undeploying building (`UndeploysInto=` while
+    /// its mission is Selling at status 2).
+    pub(crate) fn limbo_phobos_attach_effects(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.phobos_attach_effects().is_empty() {
+            return;
+        }
+        if entity.category() == crate::map::entities::EntityCategory::Structure {
+            let undeploying = self
+                .interner
+                .object_type(entity.type_ref(), rules)
+                .is_some_and(|object| object.undeploys_into.is_some())
+                && entity.mission.current().known()
+                    == Some(crate::rules::mission_data::MissionType::Selling)
+                && entity.mission.handler_state() == 2;
+            if undeploying {
+                return;
+            }
+        }
+        let effects = rules.attach_effect_types().types();
+        let mut list = std::mem::take(
+            self.substrate
+                .entities
+                .get_mut(id)
+                .expect("the gated entity still exists")
+                .phobos_attach_effects_mut(),
+        );
+        let mut index = 0;
+        while index < list.instances.len() {
+            let entry = effects
+                .get(list.instances[index].type_index)
+                .is_some_and(|effect| effect.discard_on.contains(DiscardOn::ENTRY));
+            if !entry {
+                index += 1;
+                continue;
+            }
+            list.instances[index].clear_discarded();
+            if let Some(anim) = list.instances[index].anim.take() {
+                self.destroy_anim_with_context(anim, rules);
+            }
+            if list.instances[index].reset_if_recreatable() {
+                index += 1;
+                continue;
+            }
+            list.instances.remove(index);
+        }
+        *self
+            .substrate
+            .entities
+            .get_mut(id)
+            .expect("the gated entity still exists")
+            .phobos_attach_effects_mut() = list;
     }
 
     pub(crate) fn update_phobos_attach_effects(
@@ -1095,14 +1295,13 @@ impl Simulation {
                 })
             })
             .collect();
-        let mut index = 0;
-        while index < list.instances.len() {
+        // Reverse order keeps the flag vector aligned with the shifting list.
+        for index in (0..list.instances.len()).rev() {
             let expired = list.instances[index].has_expired();
             let discard = discarded.get(index).copied().unwrap_or(false)
                 && list.instances[index]
                     .is_active_ignoring_power(list.instances[index].is_self_owned());
             if !(expired || discard) {
-                index += 1;
                 continue;
             }
             if discard {
@@ -1111,7 +1310,6 @@ impl Simulation {
                     if let Some(anim) = list.instances[index].anim.take() {
                         self.destroy_anim_with_context(anim, rules);
                     }
-                    index += 1;
                     continue;
                 }
             }
@@ -2236,11 +2434,83 @@ mod tests {
         facts.land_type = Some(crate::rules::terrain_rules::LandType::Road);
         assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
 
+        // Mission list: a human owner reads DiscardOn.Missions, an AI reads
+        // DiscardOn.AIMissions when it is set.
+        use crate::rules::mission_data::MissionType;
+        effect.discard_on = DiscardOn::MISSION;
+        effect.discard_missions = vec![MissionType::Guard.ini_section().to_owned()];
+        effect.discard_ai_missions = Some(vec![MissionType::Hunt.ini_section().to_owned()]);
+        facts = DiscardFacts {
+            mission: Some(MissionType::Guard),
+            owner_human: true,
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.mission = Some(MissionType::Hunt);
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.owner_human = false;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.mission = Some(MissionType::Guard);
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_ai_missions = None;
+        assert!(
+            instance.should_be_discarded_now(&effect, &facts, &globals),
+            "an absent AI list inherits DiscardOn.Missions"
+        );
+
         // The event flag wins even with no condition list.
         let mut flagged = instance.clone();
         flagged.mark_discarded();
         effect.discard_on = DiscardOn::NONE;
         assert!(flagged.should_be_discarded_now(&effect, &DiscardFacts::default(), &globals));
+    }
+
+    /// The event conditions flag through their owners (a fired count, a
+    /// received hit, limbo entry), and the AI walk removes the effect.
+    #[test]
+    fn event_discards_remove_after_their_counts() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=500\nSpeed=6\n\
+             AttachEffect.AttachTypes=FIRE,RECEIVE,ENTRY\n\
+             [AttachEffectTypes]\n0=FIRE\n1=RECEIVE\n2=ENTRY\n\
+             [FIRE]\nDuration=10\nDiscardOn=firing\nDiscardOn.Firing.Count=2\n\
+             [RECEIVE]\nDuration=10\nDiscardOn=receiveddamage\n\
+             DiscardOn.ReceivedDamage.Count=1\n\
+             [ENTRY]\nDuration=10\nDiscardOn=entry\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        let count = |sim: &crate::sim::world::Simulation| {
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .len()
+        };
+        assert_eq!(count(&sim), 3);
+
+        sim.record_phobos_attach_firing(target, &rules);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim), 3, "one shot is below Firing.Count=2");
+        sim.record_phobos_attach_firing(target, &rules);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim), 2, "the second shot discards FIRE");
+
+        let owner = sim.entities().get(target).unwrap().owner();
+        sim.record_phobos_attach_damage(target, Some(owner), &rules);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim), 1, "one hit discards RECEIVE");
+
+        sim.limbo_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim), 0, "limbo entry discards ENTRY");
     }
 
     /// `DiscardOn=ammo` erases the effect on the AI frame that observes the

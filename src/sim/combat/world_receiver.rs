@@ -1238,6 +1238,19 @@ pub(crate) fn commit_entities(
         #[cfg(feature = "phobos")]
         let unkillable_clamp =
             world.apply_unkillable_clamp(target_id, event, post_shield_input, rules);
+        // Phobos' ReceiveDamage wrapper counts a non-IgnoreDefenses hit whose
+        // source house passes DiscardOn.ReceivedDamage.AffectsHouse.
+        #[cfg(feature = "phobos")]
+        if !event.receiver_flags.ignore_defenses {
+            let source_house = event.source_house.or_else(|| {
+                world
+                    .substrate
+                    .entities
+                    .get(event.attacker_id)
+                    .map(|attacker| attacker.owner())
+            });
+            world.record_phobos_attach_damage(target_id, source_house, rules);
+        }
         // Phobos TechnoClass_ReceiveDamage_ArmorMultiplier (0x00701966): the
         // effects' armor chances belong to the positive, defended divide on
         // the post-shield damage. `None` keeps the cached unrestricted product.

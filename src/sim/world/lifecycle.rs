@@ -4030,6 +4030,14 @@ impl Simulation {
             .release_foot_air_tracker_before_limbo(stable_id);
         #[cfg(feature = "ares")]
         self.limbo_ares_attach_effects(stable_id, context.rules());
+        // Phobos `TechnoClass_Limbo_Wrapper` replaces the Limbo entry
+        // (vtable + the Foot/Building call sites) and runs its
+        // DiscardOn=Entry pass before calling the original body. Its work
+        // therefore precedes the hooks inside that body; the Ares extension's
+        // relative position is unobserved and kept as the AttachEffect branch
+        // had it.
+        #[cfg(feature = "phobos")]
+        self.limbo_phobos_attach_effects(stable_id, context.rules());
         // Techno Remove6F6AC9 ->1004B140/1004B1A9 flushes even a repeated
         // Limbo, before the base's alive/InLimbo and sight-release branches.
         #[cfg(feature = "ares")]

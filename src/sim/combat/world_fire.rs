@@ -1243,6 +1243,11 @@ pub(super) fn emit_admitted_fire(
             return None;
         }
     }
+    // Phobos TechnoClass_FireAt_BeforeTruelyFire (0x6FDDC0): an admitted shot
+    // counts towards DiscardOn.Firing.Count, including the branches below
+    // that launch no bullet.
+    #[cfg(feature = "phobos")]
+    world.record_phobos_attach_firing(snap.stable_id, rules);
     if weapon.suicide {
         // Techno6FDDC0..6FDE0E: the local packet is type Strength, not
         // current Health or weapon Damage. The real self receiver completes

@@ -6191,6 +6191,10 @@ impl Simulation {
         if category == EntityCategory::Structure {
             self.houses.leave_house_base_lists(stable_id, old_owner);
         }
+        // Ares7014D5 ->10049FB0/10049FD7 displays the old owner's queued
+        // sum before target/destination callbacks and the actual owner store.
+        #[cfg(feature = "ares")]
+        self.flush_bounty_display(stable_id, rules, effects, true);
         // Original7014DB/7014E9 dispatch the class target and destination
         // setters, then70151A clears Archive and70156E queues Guard. All run
         // on the OLD house, before SpawnManager and the701735 owner swap.
@@ -7511,36 +7515,6 @@ impl Simulation {
         if spawned {
             self.mission_spawned_entities = true;
         }
-    }
-
-    /// Install fixed AIMD plus scenario AI definitions after RuleSet identities
-    /// are interned and before the first gameplay tick. This is data ingress
-    /// only: the installed VM contains no live TeamClass instances.
-    ///
-    /// A fixed-AIMD definition that fails RuleSet resolution refuses the whole
-    /// install (`Err`, nothing installed); scenario-origin omissions install
-    /// and come back as logged, nonfatal diagnostics.
-    pub fn install_team_ai_registry(
-        &mut self,
-        registry: &crate::rules::team_ai_ini::TeamAiIniRegistry,
-        rules: &RuleSet,
-    ) -> Result<
-        Vec<crate::sim::team_script_vm::TeamAiInstallDiagnostic>,
-        Vec<crate::sim::team_script_vm::TeamAiInstallDiagnostic>,
-    > {
-        let (vm, diagnostics) =
-            TeamScriptVm::from_ini_registry(registry, &mut self.interner, rules);
-        if diagnostics
-            .iter()
-            .any(crate::sim::team_script_vm::TeamAiInstallDiagnostic::is_fixed_source_refusal)
-        {
-            return Err(diagnostics);
-        }
-        self.team_script_vm = vm;
-        for diagnostic in &diagnostics {
-            log::warn!("Team AI install diagnostic: {diagnostic:?}");
-        }
-        Ok(diagnostics)
     }
 
     /// The Drive, Hover and Ship locomotors each spawn `Rules->Wake`

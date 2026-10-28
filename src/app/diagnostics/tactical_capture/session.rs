@@ -1606,7 +1606,6 @@ fn validate_loaded_resources(state: &AppState) -> Result<()> {
             && state.match_state.match_presentation.tile_atlas.is_some()
             && state.match_state.match_presentation.terrain_grid.is_some()
             && state.terrain_template().is_some()
-            && state.match_state.match_presentation.unit_atlas.is_some()
             && state.match_state.match_presentation.palette_set.is_some()
             && state.match_state.match_presentation.sprite_atlas.is_some()
             && state.match_state.match_presentation.overlay_atlas.is_some()

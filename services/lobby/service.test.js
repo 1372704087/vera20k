@@ -280,6 +280,16 @@ test('public chat accepts the legacy client lobby key without weakening game-roo
   assert.equal((await f.command(guest, 'join', { channel: channel.name, key: 'wrong-key' })).status, 403);
 });
 
+test('password games carry the key flag that clients lock and prompt on, whatever the creator sent', async () => {
+  const f = fixture(); const host = await f.player('Host'); const other = await f.player('Other'); const guest = await f.player('Guest');
+  assert.equal((await f.command(host, 'create', { channel, key: 'secret' })).status, 200);
+  assert.equal((await f.command(other, 'create', { channel: { ...channel, name: 'Open Room', flags: 0x100 }, key: '' })).status, 200);
+  const listed = (await f.request('/v1/channels?kind=41', guest.token)).body.channels;
+  assert.deepEqual(Object.fromEntries(listed.map((room) => [room.name, room.flags])), { 'Test Room': 0x100, 'Open Room': 0 });
+  const joined = await f.command(guest, 'join', { channel: channel.name, key: 'secret' });
+  assert.equal(joined.body.events.find((event) => event.kind === 'joined').payload.channel.flags, 0x100);
+});
+
 test('host can create a same-name rematch before the former guest leaves results', async () => {
   const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
   const newcomer = await f.player('NextGuest');

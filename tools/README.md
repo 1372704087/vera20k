@@ -2,8 +2,8 @@
 
 Start here before writing a session-local helper. Run commands from the checkout
 root with Python 3.12 or newer (the build runner alone supports 3.11). Individual native tools also require Unicorn;
-see [native setup](native_oracle.md). This index currently covers the shared entry
-points; the exhaustive oracle/tool inventory remains tracked in issue #746.
+see [native setup](native_oracle.md). This index covers the shared entry points;
+oracle families index their own fixtures and producers.
 
 | Job | Owner / entry point |
 | --- | --- |
@@ -36,6 +36,7 @@ points; the exhaustive oracle/tool inventory remains tracked in issue #746.
 | Replay a recorded annotation pass onto another copy of the Ghidra database | [Ghidra annotation passes](ghidra_pass.md), `ApplyGhidraPass.java` |
 | Reproduce Foot coordinates and bridge source-layer / reachability queries | [checked Foot bridge-layer oracle](spatial_oracle/foot_bridge_layer.md) |
 | Run native executable comparisons | [native oracle runner](native_oracle.md) |
+| Find a spatial, rules or shell/storage oracle's shared fixtures, producers and Rust consumers | [spatial](spatial_oracle/README.md), [rules](rules_oracle/README.md), [storage](storage_oracle/README.md) |
 | Reproduce occupied-Building weapon/foundation queries and the scan-bound slice | [garrison queries](garrison_oracle/weapon_range.py), with JSON goldens and coverage sidecar |
 | Preserve failed native execution context and diagnose timeouts | [native failure reports](native_oracle.md#investigating-a-failed-native-run) |
 | Compare shell captures | `python -m tools.shell_capture_diff --help` |

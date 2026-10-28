@@ -220,30 +220,19 @@ impl AttachEffectType {
             .map(String::as_str)
     }
 
-    /// `UpdateConditionalAnimDrawingLogic`'s draw offset: every rule whose
-    /// `RequiredTypes` is empty or all attached adds its offset, so the rules
-    /// accumulate rather than the last one winning.
-    pub fn draw_offset(&self, attached: &[&str]) -> [i32; 2] {
-        let mut offset = [0, 0];
-        for rule in &self.animation_draw_offsets {
-            let required_met = rule
-                .required_types
-                .iter()
-                .all(|want| attached.iter().any(|have| have.eq_ignore_ascii_case(want)));
-            if rule.required_types.is_empty() || required_met {
-                offset[0] += rule.offset[0];
-                offset[1] += rule.offset[1];
-            }
+    /// `HasAnim()`: a cumulative type shows through its cumulative list, every
+    /// other type through its single `Animation`.
+    pub fn has_animation(&self) -> bool {
+        if self.cumulative {
+            !self.cumulative_animations.is_empty() || self.animation.is_some()
+        } else {
+            self.animation.is_some()
         }
-        offset
     }
 
-    /// `Animation.HideIfAttachedWith`: any listed type being attached hides
-    /// this effect's animation.
-    pub fn animation_hidden_by(&self, attached: &[&str]) -> bool {
-        self.animation_hide_if_attached_with
-            .iter()
-            .any(|want| attached.iter().any(|have| have.eq_ignore_ascii_case(want)))
+    /// `HasTint()`: a colour or a nonzero intensity.
+    pub fn has_tint(&self) -> bool {
+        self.tint_color.is_some() || self.tint_intensity != 0.0
     }
 
     /// `AllowTransfer`: an effect a techno attaches to itself defaults to
@@ -566,16 +555,17 @@ Animation.DrawOffset2=0,0
     }
 
     /// The layer count picks a cumulative animation, the last entry covers
-    /// deeper layers, and draw offsets accumulate only for rules whose
-    /// required types are all attached.
+    /// deeper layers, and the animation/tint presence checks follow the
+    /// constructor's shape.
     #[test]
-    fn cumulative_animations_and_draw_offsets_follow_the_attached_set() {
+    fn cumulative_animations_and_presence_follow_the_type() {
         let mut effect = AttachEffectType::default();
         assert_eq!(
             effect.cumulative_animation(1),
             None,
             "no list, no animation"
         );
+        effect.cumulative = true;
         effect.cumulative_animations = vec!["A".to_owned(), "B".to_owned()];
         assert_eq!(effect.cumulative_animation(1), Some("A"));
         assert_eq!(effect.cumulative_animation(2), Some("B"));
@@ -584,27 +574,12 @@ Animation.DrawOffset2=0,0
             Some("B"),
             "the last covers the rest"
         );
-
-        effect.animation_draw_offsets = vec![
-            AnimationDrawOffset {
-                offset: [2, -1],
-                required_types: Vec::new(),
-            },
-            AnimationDrawOffset {
-                offset: [5, 5],
-                required_types: vec!["NEEDED".to_owned()],
-            },
-        ];
-        assert_eq!(
-            effect.draw_offset(&[]),
-            [2, -1],
-            "the unconditional rule adds"
-        );
-        assert_eq!(effect.draw_offset(&["needed"]), [7, 4], "both rules add");
-
-        effect.animation_hide_if_attached_with = vec!["HIDER".to_owned()];
-        assert!(!effect.animation_hidden_by(&[]));
-        assert!(effect.animation_hidden_by(&["hider"]));
+        assert!(effect.has_animation(), "a cumulative list counts as one");
+        assert!(!effect.has_tint());
+        effect.animation = Some("ONE".to_owned());
+        assert!(effect.has_animation());
+        effect.tint_intensity = 0.25;
+        assert!(effect.has_tint(), "a nonzero intensity tints");
     }
 
     /// `AllowTransfer` defaults to whether the effect is self-owned, and

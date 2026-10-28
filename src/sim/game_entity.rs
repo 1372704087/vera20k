@@ -2536,8 +2536,10 @@ mod mission_shadow_tests {
 
 #[cfg(feature = "phobos")]
 impl GameEntity {
-    /// Phobos AttachEffect instances, in attach order.
-    pub(crate) fn phobos_attach_effects(&self) -> &crate::sim::attach_effect::AttachEffectList {
+    /// Phobos AttachEffect instances, in attach order. Presentation reads the
+    /// list for animation draw offsets and tint; only `sim::attach_effect`
+    /// writes it.
+    pub fn phobos_attach_effects(&self) -> &crate::sim::attach_effect::AttachEffectList {
         &self.phobos_attach_effects
     }
 

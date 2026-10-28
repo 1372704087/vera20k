@@ -11,6 +11,8 @@
 //! and discard conditions read it from their own slices.
 
 use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag};
+#[cfg(feature = "phobos")]
+use crate::sim::world::Simulation;
 
 /// `AttachEffectClass`'s constructor arguments, as the attach sites supply
 /// them (`AEAttachParams`).
@@ -45,6 +47,11 @@ pub struct AttachEffectInstance {
     source: Option<AttachSource>,
     /// `IsOnline`: only a `Powered` type follows its owner.
     is_online: bool,
+    /// `Animation`: the live `AnimClass` showing this effect, owned by the
+    /// same tree as the entity so a save restores the pair.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    anim: Option<u64>,
 }
 
 impl AttachEffectInstance {
@@ -63,6 +70,8 @@ impl AttachEffectInstance {
             has_initialized: false,
             source: None,
             is_online: true,
+            #[cfg(feature = "phobos")]
+            anim: None,
         };
         instance.refresh(effect);
         instance
@@ -78,6 +87,35 @@ impl AttachEffectInstance {
 
     pub fn should_refresh(&self) -> bool {
         self.should_refresh
+    }
+
+    /// `IsSelfOwned`: the attach site said the effect belongs to the type
+    /// itself (only the type/country list entry does so today); an effect
+    /// attached from outside carries its invoker/source pair instead.
+    pub fn is_self_owned(&self) -> bool {
+        self.source.is_none()
+    }
+
+    /// The frame's `AI()` walk reaches the animation check: not in the initial
+    /// delay, the re-creation delay or the queued refresh (those return early),
+    /// and the effect still has a duration to show.
+    pub fn animation_phase(&self) -> bool {
+        self.initial_delay <= 0
+            && self.has_initialized
+            && self.current_delay == 0
+            && !self.should_refresh
+            && self.remaining != 0
+    }
+
+    /// The live animation this effect shows, if one is attached.
+    #[cfg(feature = "phobos")]
+    pub fn anim(&self) -> Option<u64> {
+        self.anim
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_anim(&mut self, anim: Option<u64>) {
+        self.anim = anim;
     }
 
     /// `HasExpired()`: a re-creating effect (`Delay >= 0`) never expires; a
@@ -471,6 +509,285 @@ pub fn attach_initial_effects(
     attached
 }
 
+#[cfg(feature = "phobos")]
+impl AttachEffectList {
+    /// `TechnoExt::ExtData::HasAttachedEffects` with `requireAll=false`: any
+    /// list entry with an active instance matches. `require_anims` adds the
+    /// effect's own guard: a type that declares an animation only matches
+    /// while that instance holds one.
+    pub fn has_active_type(
+        &self,
+        names: &[String],
+        effects: &[AttachEffectType],
+        require_anims: bool,
+    ) -> bool {
+        self.instances.iter().any(|instance| {
+            let Some(effect) = effects.get(instance.type_index) else {
+                return false;
+            };
+            instance.is_active(instance.is_self_owned())
+                && (!require_anims || !effect.has_animation() || instance.anim.is_some())
+                && names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&effect.name))
+        })
+    }
+
+    /// `UpdateConditionalAnimDrawingLogic`'s draw offset for the animation of
+    /// `instance`: every rule whose `RequiredTypes` is empty or matches at
+    /// least one attached effect adds its offset, so the rules accumulate
+    /// rather than the last one winning.
+    pub fn draw_offset(&self, instance: usize, effects: &[AttachEffectType]) -> [i32; 2] {
+        let Some(instance) = self.instances.get(instance) else {
+            return [0, 0];
+        };
+        let Some(effect) = effects.get(instance.type_index) else {
+            return [0, 0];
+        };
+        let mut offset = [0, 0];
+        for rule in &effect.animation_draw_offsets {
+            if rule.required_types.is_empty()
+                || self.has_active_type(&rule.required_types, effects, true)
+            {
+                offset[0] += rule.offset[0];
+                offset[1] += rule.offset[1];
+            }
+        }
+        offset
+    }
+}
+
+/// Where an effect's animation lives: attached to `owner` at its world point,
+/// drawn under `house`, and paused or running with the effect's state.
+#[cfg(feature = "phobos")]
+struct AttachEffectAnimTarget {
+    owner: u64,
+    house: crate::sim::intern::InternedId,
+    world: crate::sim::anim_class::AnimWorldCoord,
+    paused: bool,
+}
+
+#[cfg(feature = "phobos")]
+impl Simulation {
+    /// Phobos `TechnoExt::UpdateAttachEffects`
+    /// (`src/Ext/Techno/Body.Update.cpp:895..975`): every effect runs one
+    /// `AI()` phase, expired effects are removed, and each surviving effect
+    /// reconciles its `AnimClass` with `CanShowAnim`. `DiscardOn` belongs to
+    /// its own slice, so no effect is discarded here yet.
+    pub(crate) fn update_phobos_attach_effects(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        // `InLimbo || IsImmobilized`: an object that cannot act keeps its
+        // effects untouched. Chrono warp and transport interior stand in for
+        // the native immobilised states VERA models.
+        if entity.lifecycle.in_limbo()
+            || entity.chrono_warp_latch()
+            || entity.passenger_role.inside_transport_id().is_some()
+            || entity.phobos_attach_effects().is_empty()
+        {
+            return;
+        }
+        // `OnlineCheck`: Deactivated, EMP, and a building's power-online latch.
+        let owner_active = !entity.deactivated.is_offline()
+            && entity.emp_remaining() <= 0
+            && (entity.category() != crate::map::entities::EntityCategory::Structure
+                || entity.building_online());
+        let owner_house = entity.owner();
+        let position = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+        let world = crate::sim::anim_class::AnimWorldCoord {
+            x: position.x,
+            y: position.y,
+            z: position.z,
+        };
+        let mut list = std::mem::take(
+            self.substrate
+                .entities
+                .get_mut(id)
+                .expect("the gated entity still exists")
+                .phobos_attach_effects_mut(),
+        );
+        let effects = rules.attach_effect_types().types();
+        list.online_check_all(effects, owner_active);
+        list.tick_all(effects, |_| false);
+        // `HasExpired` removal runs after the AI walk; the effect's destructor
+        // unlinks its animation.
+        let mut index = 0;
+        while index < list.instances.len() {
+            if list.instances[index].has_expired() {
+                if let Some(anim) = list.instances[index].anim.take() {
+                    self.destroy_anim_with_context(anim, rules);
+                }
+                list.instances.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+        // `UpdateConditionalAnimDrawingLogic` reacts to other effects on the
+        // same object, so every effect re-evaluates it each frame.
+        let mut state = Vec::with_capacity(list.instances.len());
+        let mut can_show = Vec::with_capacity(list.instances.len());
+        for instance in &list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                state.push(AttachAnimState::default());
+                can_show.push(false);
+                continue;
+            };
+            // Temporal state is not tracked yet, so only the power gate applies.
+            let anim_state = instance.animation_state(effect, false);
+            let hidden =
+                list.has_active_type(&effect.animation_hide_if_attached_with, effects, false);
+            can_show.push(instance.animation_phase() && anim_state.show && !hidden);
+            state.push(anim_state);
+        }
+        // One cumulative type shows one animation no matter how many layers it
+        // has: `UpdateCumulativeAttachEffects` keeps the instance with the
+        // longest remaining duration (any negative duration wins, last seen).
+        let mut designated = vec![None; effects.len()];
+        for (type_index, effect) in effects.iter().enumerate() {
+            if !(effect.cumulative && !effect.cumulative_animations.is_empty()) {
+                continue;
+            }
+            let mut best = None;
+            let mut duration = 0;
+            for (instance_index, instance) in list.instances.iter().enumerate() {
+                if instance.type_index != type_index || !can_show[instance_index] {
+                    continue;
+                }
+                let current = instance.remaining();
+                if current < 0 || current > duration {
+                    best = Some(instance_index);
+                    duration = current;
+                }
+            }
+            designated[type_index] = best;
+        }
+        for instance_index in 0..list.instances.len() {
+            let type_index = list.instances[instance_index].type_index;
+            let Some(effect) = effects.get(type_index) else {
+                continue;
+            };
+            let desired = if can_show[instance_index] {
+                if effect.cumulative && !effect.cumulative_animations.is_empty() {
+                    let count = list
+                        .instances
+                        .iter()
+                        .filter(|other| other.type_index == type_index)
+                        .filter(|other| other.is_active(other.is_self_owned()))
+                        .count() as i32;
+                    if designated[type_index] == Some(instance_index) {
+                        effect.cumulative_animation(count)
+                    } else {
+                        None
+                    }
+                } else {
+                    effect.animation.as_deref()
+                }
+            } else {
+                None
+            };
+            let house = if effect.animation_use_invoker_as_owner {
+                list.instances[instance_index]
+                    .source
+                    .and_then(|source| source.invoker)
+                    .and_then(|invoker| self.substrate.entities.get(invoker).map(|e| e.owner()))
+                    .unwrap_or(owner_house)
+            } else {
+                owner_house
+            };
+            self.maintain_phobos_attach_effect_anim(
+                &mut list.instances[instance_index],
+                desired,
+                AttachEffectAnimTarget {
+                    owner: id,
+                    house,
+                    world,
+                    paused: state[instance_index].paused,
+                },
+                rules,
+            );
+        }
+        *self
+            .substrate
+            .entities
+            .get_mut(id)
+            .expect("the gated entity still exists")
+            .phobos_attach_effects_mut() = list;
+    }
+
+    /// `CreateAnim` / `KillAnim`: keep exactly `desired` alive on the effect.
+    /// Phobos creates the animation at the owner's location, attaches it with
+    /// `SetOwnerObject`, and holds its loops; a changed cumulative type is
+    /// rebuilt here because `AnimExt::ChangeAnimType` has no VERA owner yet.
+    fn maintain_phobos_attach_effect_anim(
+        &mut self,
+        instance: &mut AttachEffectInstance,
+        desired: Option<&str>,
+        target: AttachEffectAnimTarget,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        let AttachEffectAnimTarget {
+            owner,
+            house,
+            world,
+            paused,
+        } = target;
+        if let Some(anim) = instance.anim {
+            let keeps = desired.is_some_and(|name| {
+                self.substrate.anims.get(anim).is_some_and(|live| {
+                    self.interner
+                        .resolve(live.type_id())
+                        .eq_ignore_ascii_case(name)
+                })
+            });
+            if !keeps {
+                self.destroy_anim_with_context(anim, rules);
+                instance.anim = None;
+            }
+        }
+        if instance.anim.is_none()
+            && let Some(name) = desired
+        {
+            let (rx, ry, sub_x, sub_y, z) = world.to_cell_sub_z();
+            let type_name = self.interner.intern(name);
+            let descriptor = crate::sim::components::AnimClassSpawnDescriptor {
+                draw_flags: 0x600,
+                owner: Some(owner),
+                ..crate::sim::components::AnimClassSpawnDescriptor::new(
+                    type_name, rx, ry, sub_x, sub_y, z,
+                )
+            };
+            match self.spawn_anim_at_world(rules, descriptor, world) {
+                Ok(anim) => {
+                    self.substrate
+                        .anims
+                        .get_mut(anim)
+                        .expect("the new effect animation")
+                        .hold_loops();
+                    self.substrate.set_anim_owner_house(anim, house);
+                    instance.anim = Some(anim);
+                }
+                Err(error) => log::debug!(
+                    "attach effect animation [{name}] on {owner} did not construct: {error}"
+                ),
+            }
+        }
+        if let Some(anim) = instance.anim
+            && let Some(live) = self.substrate.anims.get_mut(anim)
+        {
+            if paused {
+                live.pause();
+            } else {
+                live.resume();
+            }
+        }
+    }
+}
+
 #[cfg(all(test, feature = "phobos"))]
 mod tests {
     use super::*;
@@ -628,6 +945,285 @@ mod tests {
             AttachPolicy::default(),
             None,
         )
+    }
+
+    /// The first AI frame creates the effect's animation through the animation
+    /// owner, attached to the techno with its loops held; the frame that ends
+    /// the duration removes the effect and retires the animation.
+    #[test]
+    fn the_effect_animation_is_created_attached_and_retired() {
+        use crate::rules::art_data::ArtRegistry;
+        use crate::rules::ini_parser::IniFile;
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=1000\nSpeed=6\nAttachEffect.AttachTypes=PULSEAE\n\
+             AttachEffect.Delays=-1\n\
+             [AttachEffectTypes]\n0=PULSEAE\n\
+             [PULSEAE]\nDuration=3\nAnimation=PULSE\n",
+        );
+        let art = IniFile::from_str("[PULSE]\nRate=900\nEnd=4\n");
+        let processed = crate::rules::native_processing::RulesLayerStack::new(ini)
+            .process_with_fixed_art(&art)
+            .expect("rules process");
+        let mut rules =
+            crate::rules::ruleset::RuleSet::from_processed_rules(&processed).expect("rules");
+        let mut registry = ArtRegistry::from_ini(&art);
+        registry.bind_anim_frame_count_for_test("PULSE", 4);
+        rules.install_art_data(registry);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+
+        let instances = sim
+            .entities()
+            .get(target)
+            .unwrap()
+            .phobos_attach_effects()
+            .instances();
+        assert_eq!(instances.len(), 1);
+        assert!(
+            instances[0].anim().is_none(),
+            "the constructor only attaches; AI creates the animation"
+        );
+
+        sim.update_phobos_attach_effects(target, &rules);
+        let anim = sim
+            .entities()
+            .get(target)
+            .unwrap()
+            .phobos_attach_effects()
+            .instances()[0]
+            .anim()
+            .expect("the first AI frame creates the animation");
+        assert_eq!(
+            sim.anim(anim).unwrap().owner_entity(),
+            Some(target),
+            "SetOwnerObject binds the animation to its techno"
+        );
+        assert_eq!(
+            sim.anim(anim).unwrap().runtime().loop_remaining,
+            u8::MAX,
+            "the effect holds its animation loops"
+        );
+        assert!(
+            sim.interner
+                .resolve(sim.anim(anim).unwrap().type_id())
+                .eq_ignore_ascii_case("PULSE")
+        );
+        let position = crate::sim::movement::ground_pose::position_world_coord(
+            &sim.entities().get(target).unwrap().position,
+        );
+        assert_eq!(
+            sim.anim_absolute_coord(anim),
+            Some(crate::sim::anim_class::AnimWorldCoord {
+                x: position.x,
+                y: position.y,
+                z: position.z,
+            }),
+            "an attached animation follows its owner's coordinate"
+        );
+
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()[0]
+                .remaining(),
+            1
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .is_empty(),
+            "the frame that ends the duration removes the effect"
+        );
+        assert!(
+            sim.substrate.pending_delete.contains_object(&anim),
+            "the removed effect retires its animation"
+        );
+    }
+
+    /// `Animation.HideIfAttachedWith`: a listed type being attached keeps the
+    /// effect's animation away; when that type expires the next frame
+    /// recreates it.
+    #[test]
+    fn hide_if_attached_with_hides_and_restores_the_animation() {
+        use crate::rules::art_data::ArtRegistry;
+        use crate::rules::ini_parser::IniFile;
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=1000\nSpeed=6\nAttachEffect.AttachTypes=SHOOTER,HIDER\n\
+             AttachEffect.Delays=-1\n\
+             [AttachEffectTypes]\n0=SHOOTER\n1=HIDER\n\
+             [SHOOTER]\nDuration=100\nAnimation=PULSE\n\
+             Animation.HideIfAttachedWith=HIDER\n\
+             [HIDER]\nDuration=3\n",
+        );
+        let art = IniFile::from_str("[PULSE]\nRate=900\nEnd=4\n");
+        let processed = crate::rules::native_processing::RulesLayerStack::new(ini)
+            .process_with_fixed_art(&art)
+            .expect("rules process");
+        let mut rules =
+            crate::rules::ruleset::RuleSet::from_processed_rules(&processed).expect("rules");
+        let mut registry = ArtRegistry::from_ini(&art);
+        registry.bind_anim_frame_count_for_test("PULSE", 4);
+        rules.install_art_data(registry);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        let shooter_anim = |sim: &Simulation| {
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .iter()
+                .find(|instance| instance.type_index == 0)
+                .and_then(|instance| instance.anim())
+        };
+
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            shooter_anim(&sim).is_none(),
+            "HIDER is attached, so the animation stays hidden"
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(shooter_anim(&sim).is_none());
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            shooter_anim(&sim).is_some(),
+            "the expired HIDER no longer hides the animation"
+        );
+    }
+
+    /// `TechnoExt::ExtData::HasAttachedEffects(..., requireAll=false,
+    /// requireAnims=true)`: a required set matches on any active attached
+    /// type, and a type that declares an animation only counts while its
+    /// instance holds one.
+    #[test]
+    fn draw_offsets_match_any_active_required_type_and_need_their_animation() {
+        use crate::rules::attach_effect::AnimationDrawOffset;
+
+        let mut host = AttachEffectType::default();
+        host.name = "HOST".to_owned();
+        host.duration = 10;
+        host.animation_draw_offsets = vec![
+            AnimationDrawOffset {
+                offset: [2, -1],
+                required_types: Vec::new(),
+            },
+            AnimationDrawOffset {
+                offset: [5, 5],
+                required_types: vec!["NEEDED".to_owned(), "OTHER".to_owned()],
+            },
+        ];
+        let mut needed = AttachEffectType::default();
+        needed.name = "NEEDED".to_owned();
+        needed.duration = 10;
+        needed.animation = Some("LOOP".to_owned());
+        let mut other = AttachEffectType::default();
+        other.name = "OTHER".to_owned();
+        other.duration = 10;
+        let effects = vec![host, needed, other];
+        let attach = |list: &mut AttachEffectList, type_index| {
+            list.attach(
+                type_index,
+                AttachEffectParams {
+                    delay: -1,
+                    ..AttachEffectParams::default()
+                },
+                &effects[type_index],
+                AttachPolicy::default(),
+                None,
+            )
+        };
+
+        let mut list = AttachEffectList::default();
+        attach(&mut list, 0);
+        attach(&mut list, 1);
+        list.tick_all(&effects, |_| false);
+        assert_eq!(
+            list.draw_offset(0, &effects),
+            [2, -1],
+            "the unconditional rule adds on its own; a type that declares an \
+             animation does not match without one"
+        );
+        list.instances[1].set_anim(Some(9));
+        assert_eq!(
+            list.draw_offset(0, &effects),
+            [7, 4],
+            "the animated instance satisfies the rule"
+        );
+        // `RequiredTypes` is any-of, and a second match must not add twice.
+        list.instances[1].set_anim(None);
+        attach(&mut list, 2);
+        list.tick_all(&effects, |_| false);
+        assert_eq!(
+            list.draw_offset(0, &effects),
+            [7, 4],
+            "OTHER declares no animation, so it matches on its own"
+        );
+        list.instances[1].set_anim(Some(9));
+        assert_eq!(
+            list.draw_offset(0, &effects),
+            [7, 4],
+            "a rule adds once however many listed types match"
+        );
+
+        // An ended terminal effect no longer satisfies a required type.
+        let mut host = AttachEffectType::default();
+        host.name = "HOST".to_owned();
+        host.duration = 10;
+        host.animation_draw_offsets = vec![AnimationDrawOffset {
+            offset: [7, 4],
+            required_types: vec!["OTHER".to_owned()],
+        }];
+        let mut short = AttachEffectType::default();
+        short.name = "OTHER".to_owned();
+        short.duration = 2;
+        let short_effects = vec![host, short];
+        let mut list = AttachEffectList::default();
+        list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &short_effects[0],
+            AttachPolicy::default(),
+            None,
+        );
+        // Attached from outside: activity follows the remaining duration, so a
+        // run-out effect leaves the required set even before removal.
+        list.attach(
+            1,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &short_effects[1],
+            AttachPolicy::default(),
+            Some(AttachSource::default()),
+        );
+        list.tick_all(&short_effects, |_| false);
+        assert_eq!(list.draw_offset(0, &short_effects), [7, 4]);
+        list.tick_all(&short_effects, |_| false);
+        assert_eq!(
+            list.draw_offset(0, &short_effects),
+            [0, 0],
+            "an expired effect is not active"
+        );
     }
 
     /// A creation attach reads the type's list with each paired value and

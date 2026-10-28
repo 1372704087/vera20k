@@ -35,6 +35,12 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2944 (NPExt changelog item 14): a wave remembers the slot whose FireAt
+  emitted it. Native re-reads GetFLH(0) (`0x00762AF0`) for the geometry and
+  GetWeapon(0) for the sonic cell damage, so a non-primary emitter anchored
+  its visuals and paid the primary's AmbientDamage/warhead. Under npbug both
+  follow the emitting weapon.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

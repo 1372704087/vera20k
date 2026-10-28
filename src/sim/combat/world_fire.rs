@@ -3218,7 +3218,8 @@ fn infantry_fire_frame(
 /// `TechnoClass::EstimateDamage @ 0x006FDB80` for `attacker_id` shooting
 /// `target_id` with `weapon` (see [`damage::estimate`]): the target house's
 /// category multiplier for the attacker's type, the attacker's
-/// `ArmorMultiplier`, the attacker's FIREPOWER and the target's STRONGER ranks.
+/// `ArmorMultiplier`, the attacker's FIREPOWER, the target's AttachEffect
+/// armor product and the target's STRONGER ranks.
 ///
 /// House+188 comes from the shared SetDifficulty owner, as in FireAt's
 /// damage build; Techno+160 is the attacker's live firepower_multiplier.
@@ -3280,7 +3281,9 @@ pub(crate) fn estimated_damage_on(
         divisors: damage::DefenceDivisors {
             house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
             unit_armor: attacker.crate_multipliers.armor(),
-            ae_armor: attacker.phobos_armor_multiplier(),
+            // Phobos 0x006FDC87 divides by `CalculateArmorMultipliers(pTarget,
+            // warhead, pThis->Owner)`: the target's effects, not the firer's.
+            ae_armor: target.phobos_armor_multiplier(),
             rank_armor,
         },
         warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {

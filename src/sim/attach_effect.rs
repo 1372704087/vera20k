@@ -3281,6 +3281,50 @@ mod tests {
         );
     }
 
+    /// `TechnoClass::EstimateDamage`'s Phobos divide (`0x006FDC87`) reads
+    /// `CalculateArmorMultipliers(pTarget, warhead, pThis->Owner)`, so the
+    /// target's effect armor applies, not the firer's.
+    #[test]
+    fn the_damage_estimate_divides_by_the_targets_effect_armor() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=FIRER\n1=TARGET\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nDamage=100\nRange=5\nROF=20\nWarhead=WH\n\
+             [WarheadTypes]\n0=WH\n\
+             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [FIRER]\nStrength=500\nSpeed=6\nPrimary=GUN\n\
+             AttachEffect.AttachTypes=FIRER_ARMOR\n\
+             [TARGET]\nStrength=500\nSpeed=6\n\
+             AttachEffect.AttachTypes=TARGET_ARMOR\n\
+             [AttachEffectTypes]\n0=FIRER_ARMOR\n1=TARGET_ARMOR\n\
+             [FIRER_ARMOR]\nDuration=100\nArmorMultiplier=4\n\
+             [TARGET_ARMOR]\nDuration=100\nArmorMultiplier=2\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let firer = sim
+            .spawn_object("FIRER", "Americans", 20, 20, 0, &rules)
+            .expect("firer");
+        let target = sim
+            .spawn_object("TARGET", "Americans", 22, 20, 0, &rules)
+            .expect("target");
+        sim.update_phobos_attach_effects(firer, &rules);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(
+            crate::sim::combat::estimated_damage_on(
+                &sim,
+                &rules,
+                firer,
+                target,
+                rules.weapon("GUN").expect("weapon"),
+            ),
+            50,
+            "100 damage divided by the target's ArmorMultiplier=2"
+        );
+    }
+
     /// `TechnoExt::ExtData::HasAttachedEffects(..., requireAll=false,
     /// requireAnims=true)`: a required set matches on any active attached
     /// type, and a type that declares an animation only counts while its

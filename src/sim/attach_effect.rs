@@ -908,6 +908,26 @@ impl AttachEffectInstance {
                 }
             }
         }
+        if flags.contains(DiscardOn::MISSION) {
+            // A human-controlled owner uses `DiscardOn.Missions`; an AI uses
+            // `DiscardOn.AIMissions` when it is set.
+            let missions = if facts.owner_human {
+                &effect.discard_missions
+            } else {
+                effect
+                    .discard_ai_missions
+                    .as_ref()
+                    .unwrap_or(&effect.discard_missions)
+            };
+            if let Some(mission) = facts.mission {
+                if missions
+                    .iter()
+                    .any(|name| mission.ini_section().eq_ignore_ascii_case(name))
+                {
+                    return true;
+                }
+            }
+        }
         if flags.contains(DiscardOn::SEQUENCE) && !effect.discard_sequences.is_empty() {
             if let Some(current) = facts.sequence {
                 let matches = |kind| {
@@ -926,26 +946,6 @@ impl AttachEffectInstance {
                 } else if let Some(last) = self.last_sequence_check
                     && last != current
                     && matches(last)
-                {
-                    return true;
-                }
-            }
-        }
-        if flags.contains(DiscardOn::MISSION) {
-            // A human-controlled owner uses `DiscardOn.Missions`; an AI uses
-            // `DiscardOn.AIMissions` when it is set.
-            let missions = if facts.owner_human {
-                &effect.discard_missions
-            } else {
-                effect
-                    .discard_ai_missions
-                    .as_ref()
-                    .unwrap_or(&effect.discard_missions)
-            };
-            if let Some(mission) = facts.mission {
-                if missions
-                    .iter()
-                    .any(|name| mission.ini_section().eq_ignore_ascii_case(name))
                 {
                     return true;
                 }
@@ -1157,10 +1157,11 @@ impl Simulation {
             mission,
             sequence,
             target,
-            owner_human: self
-                .houses
-                .get(&entity.owner())
-                .is_some_and(|house| house.is_human()),
+            // `HouseClass::IsControlledByHuman @ 0x0050B730`, the predicate
+            // the mission list reads.
+            owner_human: self.houses.get(&entity.owner()).is_some_and(|house| {
+                house.is_controlled_by_human(self.session.game_mode_nonzero())
+            }),
         }
     }
 
@@ -1477,7 +1478,11 @@ impl Simulation {
                 })
             })
             .collect();
-        for instance in &mut list.instances {
+        for (index, instance) in list.instances.iter_mut().enumerate() {
+            // An earlier condition returned before the native sequence block.
+            if discarded.get(index).copied().unwrap_or(false) {
+                continue;
+            }
             let Some(effect) = effects.get(instance.type_index) else {
                 continue;
             };

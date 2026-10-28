@@ -719,20 +719,6 @@ hit, since a type selector cannot bind a still-limboed DRON. The profile does no
 prescribe a successful hit or native timing and is not an original scene/pixel
 comparison.
 
-The [building power-status profile](map_observation.building-power-status.example.json)
-selects an ordinary full-health owned GAPOWR in the existing clear-ground scene:
-
-```sh
-python tools/render_depth_fixture.py target/building-power-status.map --building-brackets
-```
-
-Copy the profile and set the generated map's absolute path. Its three owned
-plants keep their retail Power, health and rules. Inspect the selected building's
-localized House power/drain text, then the same scene after an ordinary right-click
-deselect. The text reads the House's retained totals; it does not sum buildings or
-assess power during drawing. The existing Building-array text pass draws after
-Ground2, with the same physical GAME.FNT and House color as PRIMARY labels.
-
 The [Ivan bomb-clock profile](map_observation.bomb-clock.example.json) uses an
 ordinary Crazy Ivan planting order on a friendly stock tank:
 

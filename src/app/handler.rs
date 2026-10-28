@@ -5,11 +5,13 @@
 
 use super::frame::FrameRenderOutcome;
 use super::input::dispatch;
+use super::input::precedence::{InputLayer, ModalPage, ScreenPage};
 use super::{
     ActiveEventLoop, App, AppState, ApplicationHandler, ControlFlow, GameScreen, Instant, KeyCode,
     KeyEventExtModifierSupplement, MouseButton, MouseScrollDelta, PhysicalKey, PhysicalSize,
     ShellKey, WindowEvent, WindowId,
 };
+use crate::ui::pause_menu::InGameMenuState;
 
 /// Active YR's launcher parent ignores IDCANCEL. Taking only an immutable
 /// reference makes the no-close/no-replacement guarantee explicit at the
@@ -958,17 +960,21 @@ impl ApplicationHandler for App {
                 if event.state.is_pressed() && state.platform.ime.composing() {
                     return;
                 }
-                if Self::house_outcome_wait_pending(state) {
-                    if !event.state.is_pressed()
-                        && let PhysicalKey::Code(code) = event.physical_key
-                    {
-                        state.match_state.input.keys_held.remove(&code);
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => {
+                        if !event.state.is_pressed()
+                            && let PhysicalKey::Code(code) = event.physical_key
+                        {
+                            state.match_state.input.keys_held.remove(&code);
+                        }
+                        return;
                     }
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::key(state, &event);
-                    return;
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::key(state, &event);
+                        return;
+                    }
+                    _ => {}
                 }
                 // Host delivery adaptation: dialogs may consume ordinary keys,
                 // but a release for an admitted planning gesture must still
@@ -1015,37 +1021,43 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // The wait loop pumps 0xEA without IsDialogMessage and polls
-                // no game keys while it is open (0x006497EC).
-                if state.match_state.network_wait.dialog_open() {
-                    if !event.state.is_pressed()
-                        && let PhysicalKey::Code(code) = event.physical_key
-                    {
-                        state.match_state.input.keys_held.remove(&code);
+                // The keys above work under every layer; the rest follow it.
+                let screen = match layer {
+                    InputLayer::Screen(screen) => screen,
+                    // The wait loop pumps 0xEA without IsDialogMessage and
+                    // polls no game keys while it is open (0x006497EC).
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        if !event.state.is_pressed()
+                            && let PhysicalKey::Code(code) = event.physical_key
+                        {
+                            state.match_state.input.keys_held.remove(&code);
+                        }
+                        return;
                     }
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::key(state, &event);
-                    return;
-                }
-                if crate::app::input::coop_score::active(state) {
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::key(state, &event);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::key(state, &event);
+                        return;
+                    }
+                    // The status card took the shell error's keys.
+                    InputLayer::ShellTransition
+                    | InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure | ModalPage::ShellError) => {
+                        return;
+                    }
+                };
+                if screen == ScreenPage::CoopScore {
                     crate::app::input::coop_score::key(state, &event);
                     return;
                 }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::key(state, &event);
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_lobby()
-                {
+                if screen == ScreenPage::LanLobby {
                     crate::app::shell_lan::key(state, &event);
                     return;
                 }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.network_setup()
-                {
+                if screen == ScreenPage::NetworkSetup {
                     if state
                         .frontend
                         .skirmish_shell_state
@@ -1072,16 +1084,14 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                if Self::native_skirmish_shell_active(state)
+                if screen == ScreenPage::Skirmish
                     && state
                         .frontend
                         .skirmish_shell_state
                         .saved_seed_browser
                         .is_some()
                 {
-                    if !crate::app::frontend::shell_transition::blocks_shell_input(state)
-                        && event.state.is_pressed()
-                    {
+                    if event.state.is_pressed() {
                         let code = match event.physical_key {
                             PhysicalKey::Code(code) => Some(code),
                             _ => None,
@@ -1100,10 +1110,6 @@ impl ApplicationHandler for App {
                     let paused_at_event = in_game && state.match_state.paused();
                     let locally_paused_at_event = in_game && state.match_state.local_paused();
 
-                    if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                        return;
-                    }
-
                     // A shared pause must be resumable without a simulation
                     // tick, including while the local Options dialog is open.
                     let modifiers = state.platform.live_modifiers;
@@ -1121,15 +1127,11 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if state.frontend.screen == GameScreen::MainMenu
-                        && state.frontend.fullscreen_movie.is_some()
-                    {
+                    if screen == ScreenPage::FullscreenMovie {
                         Self::fullscreen_movie_key(state, code, event.state.is_pressed());
                         return;
                     }
-                    if state.frontend.screen == GameScreen::MainMenu
-                        && state.frontend.credits_roll.is_some()
-                    {
+                    if screen == ScreenPage::CreditsRoll {
                         let modifiers = state.platform.live_modifiers;
                         let bare = !(modifiers.shift_key()
                             || modifiers.control_key()
@@ -1157,7 +1159,7 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::native_skirmish_shell_active(state)
+                    if screen == ScreenPage::Skirmish
                         && event.state.is_pressed()
                         && !event.repeat
                         && Self::shell_key_for_code(code)
@@ -1166,7 +1168,7 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::native_skirmish_shell_active(state)
+                    if screen == ScreenPage::Skirmish
                         && event.state.is_pressed()
                         && !event.repeat
                         && matches!(
@@ -1177,7 +1179,7 @@ impl ApplicationHandler for App {
                     {
                         return;
                     }
-                    if Self::native_skirmish_shell_active(state) && is_escape {
+                    if screen == ScreenPage::Skirmish && is_escape {
                         if state
                             .frontend
                             .skirmish_shell_state
@@ -1197,7 +1199,7 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::wol_active(state) {
+                    if screen == ScreenPage::Wol {
                         Self::handle_wol_key(
                             state,
                             Some(code),
@@ -1208,7 +1210,7 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::load_saved_game_active(state) {
+                    if screen == ScreenPage::LoadSavedGame {
                         // The message box takes Enter/Escape; the page
                         // ignores IDOK/IDCANCEL (0x00558A30).
                         if event.state.is_pressed() {
@@ -1218,10 +1220,13 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if (Self::menu_page_active(state)
-                        || Self::movie_list_active(state)
-                        || Self::campaign_active(state))
-                        && is_escape
+                    if matches!(
+                        screen,
+                        ScreenPage::SinglePlayer
+                            | ScreenPage::MoviesAndCredits
+                            | ScreenPage::MovieList
+                            | ScreenPage::Campaign
+                    ) && is_escape
                     {
                         // IsDialogMessageA turns Escape into IDCANCEL (id 2),
                         // which the 0x100/0x101/0x129/0x94 procs and the common
@@ -1229,12 +1234,10 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if in_game
-                        && matches!(
-                            state.match_state.match_presentation.in_game_menu,
-                            crate::ui::pause_menu::InGameMenuState::SavedGame(_)
-                        )
-                    {
+                    if matches!(
+                        screen,
+                        ScreenPage::InGameShell(InGameMenuState::SavedGame(_))
+                    ) {
                         if event.state.is_pressed() {
                             Self::saved_game_key(state, Some(code), event.text.as_deref());
                         }
@@ -1243,7 +1246,7 @@ impl ApplicationHandler for App {
                     }
                     if in_game
                         && state.match_state.match_presentation.in_game_menu
-                            == crate::ui::pause_menu::InGameMenuState::Surrender
+                            == InGameMenuState::Surrender
                     {
                         // 0x005D36A0: IDOK and IDCANCEL both answer result 1.
                         if event.state.is_pressed()
@@ -1260,7 +1263,7 @@ impl ApplicationHandler for App {
                     }
                     if in_game
                         && state.match_state.match_presentation.in_game_menu
-                            == crate::ui::pause_menu::InGameMenuState::Page
+                            == InGameMenuState::Page
                     {
                         // 0xCF's loop takes every key; Escape names nothing.
                         // A release still drops its held key: the loop's
@@ -1277,24 +1280,21 @@ impl ApplicationHandler for App {
                         state.platform.window.request_redraw();
                         return;
                     }
-                    if in_game
-                        && matches!(
-                            state.match_state.match_presentation.in_game_menu,
-                            crate::ui::pause_menu::InGameMenuState::Sound
-                                | crate::ui::pause_menu::InGameMenuState::Diplomacy
-                                | crate::ui::pause_menu::InGameMenuState::MissionBriefing
+                    if matches!(
+                        screen,
+                        ScreenPage::InGameShell(
+                            InGameMenuState::Sound
+                                | InGameMenuState::Diplomacy
+                                | InGameMenuState::MissionBriefing
                         )
-                    {
+                    ) {
                         // B8 has no IDOK/IDCANCEL close command. Neither has
                         // 0x73: its proc keys commands by GetDlgCtrlID(lParam)
                         // (0x006581A7), and Return 0x423 is owner-drawn, so
                         // Enter and Escape name no child it handles.
                         return;
                     }
-                    if in_game
-                        && state.match_state.match_presentation.in_game_menu
-                            == crate::ui::pause_menu::InGameMenuState::AbortConfirm
-                    {
+                    if screen == ScreenPage::InGameShell(InGameMenuState::AbortConfirm) {
                         // B6 accepts default IDOK1 as Resume (4F1A59..4F1A65).
                         // Owner buttons reject focus through610CA0:6118BF..DE;
                         // their resource has no WS_TABSTOP. Do not invent a
@@ -1320,7 +1320,7 @@ impl ApplicationHandler for App {
                         return;
                     }
 
-                    if Self::native_skirmish_shell_active(state)
+                    if screen == ScreenPage::Skirmish
                         && event.state.is_pressed()
                         && !is_escape
                         && Self::handle_skirmish_shell_key_input(state, code, event.text.as_deref())
@@ -1363,97 +1363,79 @@ impl ApplicationHandler for App {
                     state.match_state.input.cursor_from_touch = false;
                 }
                 state.set_cursor_from_window(position.x as f32, position.y as f32);
-                if Self::house_outcome_wait_pending(state) {
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::cursor_moved(state);
-                    return;
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => return,
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::cursor_moved(state);
+                        return;
+                    }
+                    _ => {}
                 }
                 // Shared tooltip service: every move restarts the show delay
                 // and hides a visible tip (study S1).
                 crate::app::input::tooltips::on_mouse_move(state);
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::cursor_moved(state);
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::cursor_moved(state);
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_lobby()
-                {
-                    crate::app::shell_lan::cursor_moved(state);
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.network_setup()
-                {
-                    if state
-                        .frontend
-                        .skirmish_shell_state
-                        .choose_map_modal
-                        .is_some()
-                    {
-                        Self::handle_skirmish_shell_mouse_move(state);
-                    } else {
-                        crate::app::input::multiplayer_setup::cursor_moved(state);
+                let screen = match layer {
+                    InputLayer::Screen(screen) => screen,
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        crate::app::input::connection::cursor_moved(state);
+                        return;
                     }
-                    return;
-                }
-                if Self::native_launcher_options_active(state) {
-                    Self::handle_launcher_options_mouse(state, None);
-                    return;
-                }
-                if state.frontend.screen == GameScreen::InGame {
-                    dispatch::handle_cursor_moved_in_game(state);
-                }
-                if Self::native_skirmish_shell_active(state) {
-                    Self::handle_skirmish_shell_mouse_move(state);
-                }
-                if Self::menu_page_active(state) {
-                    Self::handle_menu_page_mouse_move(state);
-                }
-                if Self::movie_list_active(state) {
-                    Self::handle_movie_list_mouse_move(state);
-                }
-                if Self::campaign_active(state) {
-                    Self::handle_campaign_mouse_move(state);
-                }
-                if Self::load_saved_game_active(state) {
-                    Self::handle_load_saved_game_mouse_move(state);
-                }
-                if Self::wol_active(state) {
-                    Self::handle_wol_mouse_move(state);
-                }
-                if crate::app::input::coop_score::active(state) {
-                    crate::app::input::coop_score::cursor_moved(state);
-                }
-                if Self::score_shell_active(state) {
-                    Self::handle_score_shell_mouse_move(state);
-                }
-                if Self::campaign_score_shell_active(state) {
-                    Self::handle_campaign_score_mouse_move(state);
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.main_menu_shell_error.is_none()
-                    && !Self::menu_page_active(state)
-                    && !Self::movie_list_active(state)
-                    && !Self::campaign_active(state)
-                    && !Self::load_saved_game_active(state)
-                    && !Self::wol_active(state)
-                    && state.frontend.fullscreen_movie.is_none()
-                    && state.frontend.credits_roll.is_none()
-                    && !Self::native_skirmish_shell_active(state)
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::cursor_moved(state);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::cursor_moved(state);
+                        return;
+                    }
+                    // The status card took the shell error's moves.
+                    InputLayer::ShellTransition
+                    | InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure | ModalPage::ShellError) => {
+                        return;
+                    }
+                };
+                match screen {
+                    ScreenPage::LanLobby => crate::app::shell_lan::cursor_moved(state),
+                    ScreenPage::NetworkSetup => {
+                        if state
+                            .frontend
+                            .skirmish_shell_state
+                            .choose_map_modal
+                            .is_some()
+                        {
+                            Self::handle_skirmish_shell_mouse_move(state);
+                        } else {
+                            crate::app::input::multiplayer_setup::cursor_moved(state);
+                        }
+                    }
+                    ScreenPage::LauncherOptions => Self::handle_launcher_options_mouse(state, None),
+                    ScreenPage::InGameShell(_) | ScreenPage::Battlefield => {
+                        dispatch::handle_cursor_moved_in_game(state);
+                    }
+                    ScreenPage::Skirmish => Self::handle_skirmish_shell_mouse_move(state),
+                    ScreenPage::SinglePlayer | ScreenPage::MoviesAndCredits => {
+                        Self::handle_menu_page_mouse_move(state);
+                    }
+                    ScreenPage::MovieList => Self::handle_movie_list_mouse_move(state),
+                    ScreenPage::Campaign => Self::handle_campaign_mouse_move(state),
+                    ScreenPage::LoadSavedGame => Self::handle_load_saved_game_mouse_move(state),
+                    ScreenPage::Wol => Self::handle_wol_mouse_move(state),
+                    ScreenPage::CoopScore => crate::app::input::coop_score::cursor_moved(state),
+                    ScreenPage::Score => Self::handle_score_shell_mouse_move(state),
+                    ScreenPage::CampaignScore => Self::handle_campaign_score_mouse_move(state),
                     // While the SHP quit-confirm modal owns the controller, the menu
                     // move handler must not re-activate 0xE2 and reset the gesture.
-                    && state.frontend.shell_message_box.is_none()
-                {
-                    Self::handle_main_menu_shell_mouse_move(state);
+                    ScreenPage::MainMenu if state.frontend.shell_message_box.is_none() => {
+                        Self::handle_main_menu_shell_mouse_move(state);
+                    }
+                    ScreenPage::MainMenu
+                    | ScreenPage::FullscreenMovie
+                    | ScreenPage::CreditsRoll
+                    | ScreenPage::Loading
+                    | ScreenPage::InGameCard
+                    | ScreenPage::ResultCard => {}
                 }
             }
             WindowEvent::MouseInput {
@@ -1461,223 +1443,196 @@ impl ApplicationHandler for App {
                 button,
                 ..
             } => {
-                if Self::house_outcome_wait_pending(state) {
-                    if !btn_state.is_pressed() {
-                        Self::release_in_game_pointer_state(state);
-                    }
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::mouse(
-                        state,
-                        button,
-                        btn_state.is_pressed(),
-                    );
-                    return;
-                }
-                // Any button press/release kills a visible tooltip + pending
-                // timer (all buttons incl. middle — study S1).
-                crate::app::input::tooltips::on_button_event(state);
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu {
-                    // Play_Movie reads and ignores mouse buttons; Show_Credits
-                    // queues them as ordinary Keyboard entries.
-                    if state.frontend.fullscreen_movie.is_some() {
-                        return;
-                    }
-                    if state.frontend.credits_roll.is_some() {
-                        Self::credits_roll_input(
-                            state,
-                            crate::app::frontend::credits_roll::CreditsInput::Other,
-                        );
-                        return;
-                    }
-                    if Self::movie_list_active(state) {
-                        if button == MouseButton::Left {
-                            if btn_state.is_pressed() {
-                                Self::handle_movie_list_mouse_down(state);
-                            } else {
-                                Self::handle_movie_list_mouse_up(state);
-                            }
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => {
+                        if !btn_state.is_pressed() {
+                            Self::release_in_game_pointer_state(state);
                         }
                         return;
                     }
-                    if Self::campaign_active(state) {
-                        if button == MouseButton::Left {
-                            if btn_state.is_pressed() {
-                                Self::handle_campaign_mouse_down(state);
-                            } else {
-                                Self::handle_campaign_mouse_up(state);
-                            }
-                        }
-                        return;
-                    }
-                    if Self::load_saved_game_active(state) {
-                        if button == MouseButton::Left {
-                            Self::handle_load_saved_game_mouse(state, btn_state.is_pressed());
-                            state.platform.window.request_redraw();
-                        }
-                        return;
-                    }
-                    if Self::wol_active(state) {
-                        if button == MouseButton::Left {
-                            if btn_state.is_pressed() {
-                                Self::handle_wol_mouse_down(state);
-                            } else {
-                                Self::handle_wol_mouse_up(state);
-                            }
-                            state.platform.window.request_redraw();
-                        }
-                        return;
-                    }
-                }
-                // While a main-menu modal dialog is open, route the click to the
-                // SHP quit-confirm modal's OK/Cancel hit-test on the normal shell
-                // path; native child dialogs own their input routes below.
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::mouse(state, button, btn_state.is_pressed());
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::mouse(
-                        state,
-                        button,
-                        btn_state.is_pressed(),
-                    );
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.lan_lobby()
-                {
-                    crate::app::shell_lan::mouse(state, button, btn_state.is_pressed());
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.shell_route.network_setup()
-                {
-                    if state
-                        .frontend
-                        .skirmish_shell_state
-                        .choose_map_modal
-                        .is_some()
-                    {
-                        if button == MouseButton::Left {
-                            if btn_state.is_pressed() {
-                                Self::handle_skirmish_shell_mouse_down(state);
-                            } else {
-                                Self::handle_skirmish_shell_mouse_up(state);
-                            }
-                        }
-                    } else {
-                        crate::app::input::multiplayer_setup::mouse(
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::mouse(
                             state,
                             button,
                             btn_state.is_pressed(),
                         );
-                    }
-                    return;
-                }
-                if Self::main_menu_dialog_open(state) {
-                    if Self::native_launcher_options_active(state) && button == MouseButton::Left {
-                        Self::handle_launcher_options_mouse(state, Some(btn_state.is_pressed()));
                         return;
                     }
-                    if state.frontend.shell_message_box.is_some()
-                        && state.frontend.screen == GameScreen::MainMenu
-                        && state.frontend.main_menu_shell_error.is_none()
-                        && button == MouseButton::Left
-                    {
-                        if btn_state.is_pressed() {
-                            Self::handle_shell_message_box_mouse_down(state);
+                    _ => {}
+                }
+                // Any button press/release kills a visible tooltip + pending
+                // timer (all buttons incl. middle — study S1).
+                crate::app::input::tooltips::on_button_event(state);
+                let screen = match layer {
+                    InputLayer::Screen(screen) => screen,
+                    // 0xEA's route belongs to the in-game dispatch.
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        dispatch::handle_mouse_input(state, button, btn_state);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::mouse(state, button, btn_state.is_pressed());
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::mouse(
+                            state,
+                            button,
+                            btn_state.is_pressed(),
+                        );
+                        return;
+                    }
+                    // The status card took the shell error's buttons.
+                    InputLayer::ShellTransition
+                    | InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure | ModalPage::ShellError) => {
+                        return;
+                    }
+                };
+                let left = button == MouseButton::Left;
+                let pressed = btn_state.is_pressed();
+                match screen {
+                    // Play_Movie reads and ignores mouse buttons; Show_Credits
+                    // queues them as ordinary Keyboard entries.
+                    ScreenPage::FullscreenMovie => {}
+                    ScreenPage::CreditsRoll => Self::credits_roll_input(
+                        state,
+                        crate::app::frontend::credits_roll::CreditsInput::Other,
+                    ),
+                    ScreenPage::MovieList if left => {
+                        if pressed {
+                            Self::handle_movie_list_mouse_down(state);
                         } else {
-                            Self::handle_shell_message_box_mouse_up(state);
+                            Self::handle_movie_list_mouse_up(state);
                         }
                     }
-                    return;
-                }
-                if crate::app::input::coop_score::active(state) {
-                    crate::app::input::coop_score::mouse(state, button, btn_state.is_pressed());
-                } else if Self::campaign_score_shell_active(state) {
-                    if button == MouseButton::Left {
-                        if btn_state.is_pressed() {
+                    ScreenPage::Campaign if left => {
+                        if pressed {
+                            Self::handle_campaign_mouse_down(state);
+                        } else {
+                            Self::handle_campaign_mouse_up(state);
+                        }
+                    }
+                    ScreenPage::LoadSavedGame if left => {
+                        Self::handle_load_saved_game_mouse(state, pressed);
+                        state.platform.window.request_redraw();
+                    }
+                    ScreenPage::Wol if left => {
+                        if pressed {
+                            Self::handle_wol_mouse_down(state);
+                        } else {
+                            Self::handle_wol_mouse_up(state);
+                        }
+                        state.platform.window.request_redraw();
+                    }
+                    ScreenPage::LanLobby => crate::app::shell_lan::mouse(state, button, pressed),
+                    ScreenPage::NetworkSetup => {
+                        if state
+                            .frontend
+                            .skirmish_shell_state
+                            .choose_map_modal
+                            .is_none()
+                        {
+                            crate::app::input::multiplayer_setup::mouse(state, button, pressed);
+                        } else if left && pressed {
+                            Self::handle_skirmish_shell_mouse_down(state);
+                        } else if left {
+                            Self::handle_skirmish_shell_mouse_up(state);
+                        }
+                    }
+                    ScreenPage::LauncherOptions if left => {
+                        Self::handle_launcher_options_mouse(state, Some(pressed));
+                    }
+                    // A retained main-menu dialog takes the click: the SHP
+                    // quit-confirm modal hit-tests its OK/Cancel here.
+                    _ if Self::main_menu_dialog_open(state) => {
+                        if screen == ScreenPage::MainMenu
+                            && state.frontend.shell_message_box.is_some()
+                            && left
+                        {
+                            if pressed {
+                                Self::handle_shell_message_box_mouse_down(state);
+                            } else {
+                                Self::handle_shell_message_box_mouse_up(state);
+                            }
+                        }
+                    }
+                    ScreenPage::CoopScore => {
+                        crate::app::input::coop_score::mouse(state, button, pressed)
+                    }
+                    ScreenPage::CampaignScore if left => {
+                        if pressed {
                             Self::handle_campaign_score_mouse_down(state);
                         } else {
                             Self::handle_campaign_score_mouse_up(state);
                         }
                     }
-                } else if Self::score_shell_active(state) {
-                    if button == MouseButton::Left {
-                        if btn_state.is_pressed() {
+                    ScreenPage::Score if left => {
+                        if pressed {
                             Self::handle_score_shell_mouse_down(state);
                         } else {
                             Self::handle_score_shell_mouse_up(state);
                         }
                     }
-                } else if Self::native_skirmish_shell_active(state) {
-                    if button == MouseButton::Left {
-                        if btn_state.is_pressed() {
+                    ScreenPage::Skirmish if left => {
+                        if pressed {
                             Self::handle_skirmish_shell_mouse_down(state);
                         } else {
                             Self::handle_skirmish_shell_mouse_up(state);
                         }
                     }
-                } else if Self::menu_page_active(state) {
-                    if button == MouseButton::Left {
-                        if btn_state.is_pressed() {
+                    ScreenPage::SinglePlayer | ScreenPage::MoviesAndCredits if left => {
+                        if pressed {
                             Self::handle_menu_page_mouse_down(state);
                         } else {
                             Self::handle_menu_page_mouse_up(state);
                         }
                     }
-                } else if state.frontend.screen == GameScreen::MainMenu
-                    && state.frontend.main_menu_shell_error.is_none()
-                {
-                    if button == MouseButton::Left {
-                        if btn_state.is_pressed() {
+                    ScreenPage::MainMenu if left => {
+                        if pressed {
                             Self::handle_main_menu_shell_mouse_down(state);
                         } else {
                             Self::handle_main_menu_shell_mouse_up(state);
                         }
                     }
-                } else if state.frontend.screen == GameScreen::InGame {
-                    dispatch::handle_mouse_input(state, button, btn_state);
+                    ScreenPage::InGameShell(_) | ScreenPage::Battlefield => {
+                        dispatch::handle_mouse_input(state, button, btn_state);
+                    }
+                    _ => {}
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if Self::house_outcome_wait_pending(state) {
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    return;
-                }
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(pos) => (pos.y as f32 / 30.0).clamp(-3.0, 3.0),
                 };
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::wheel(state, lines);
-                    state.platform.window.request_redraw();
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    // ComboDropWin consumes no mouse-wheel selection/scroll.
-                    return;
-                }
-                if state.frontend.screen == GameScreen::MainMenu
-                    && Self::native_skirmish_shell_active(state)
+                let screen = match crate::app::input::precedence::input_layer(state) {
+                    InputLayer::Screen(screen) => screen,
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::wheel(state, lines);
+                        state.platform.window.request_redraw();
+                        return;
+                    }
+                    // ComboDropWin consumes no mouse-wheel selection/scroll;
+                    // the other pages have no wheel route.
+                    InputLayer::HouseOutcomeWait
+                    | InputLayer::ShellTransition
+                    | InputLayer::Page(
+                        ModalPage::ShellError
+                        | ModalPage::NetworkFailure
+                        | ModalPage::NetworkWait
+                        | ModalPage::NetworkOptions,
+                    ) => return,
+                };
+                if screen == ScreenPage::Skirmish
                     && Self::handle_skirmish_shell_mouse_wheel(state, lines)
                 {
                     state.platform.window.request_redraw();
                     return;
                 }
-                if state.frontend.screen == GameScreen::InGame
+                if matches!(screen, ScreenPage::InGameShell(_) | ScreenPage::Battlefield)
                     && !state.match_state.paused()
-                    && !state.match_state.network_wait.dialog_open()
                     && !crate::app::input::campaign_input::is_locked(state)
                 {
                     // Optional player setting: over the battlefield the wheel changes the view

@@ -218,6 +218,7 @@ impl TacticalCaptureSession {
             return Ok(());
         }
         let profile = self.request.profile()?;
+        profile.check_roster_mode(&state.frontend.skirmish_modes)?;
         let capture = &profile.capture;
         ensure!(
             state.renderer.gpu.config.width == capture.output_width

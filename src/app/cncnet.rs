@@ -559,7 +559,7 @@ impl App {
                 state
                     .process_assets
                     .multiplayer_rules_digest(
-                        crate::app::frontend::cncnet_spawn::BATTLE_MODE_OVERRIDE_FILE,
+                        &crate::app::frontend::cncnet_spawn::spawn_battle_mode().override_file,
                     )
                     .map_err(anyhow::Error::msg)
             },

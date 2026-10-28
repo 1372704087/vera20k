@@ -132,8 +132,8 @@ struct Side {
 static ALLIED: Side = Side {
     base: &[
         "GACNST", "GAPOWR", "GAPOWR", "GAPILE", "GAREFN", "GAWEAP", "GAPOWR", "GAREFN", "GAAIRC",
-        "AMRADR", "GADEPT", "GATECH", "GAPOWR", "GAPILL", "GAPILL", "NASAM", "NASAM", "ATESLA",
-        "ATESLA", "GTGCAN",
+        "AMRADR", "GADEPT", "GATECH", "GAPOWR", "GAPOWR", "GAGAP", "GAPILL", "GAPILL", "NASAM",
+        "NASAM", "ATESLA", "ATESLA", "GTGCAN",
     ],
     refinery: "GAREFN",
     defenses: &["GAPILL", "NASAM", "ATESLA", "GTGCAN"],

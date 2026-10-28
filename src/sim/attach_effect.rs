@@ -10,7 +10,7 @@
 //! This module owns the timing state only. Stat multipliers, animations, tints
 //! and discard conditions read it from their own slices.
 
-use crate::rules::attach_effect::AttachEffectType;
+use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag};
 
 /// `AttachEffectClass`'s constructor arguments, as the attach sites supply
 /// them (`AEAttachParams`).
@@ -148,6 +148,37 @@ impl AttachEffectInstance {
         self.is_online && self.active_ignoring_power(self_owned)
     }
 
+    /// `CanShowAnim` with the two flag actions: an offline owner and a temporal
+    /// freeze hide, pause or freeze the animation.
+    pub fn animation_state(
+        &self,
+        effect: &AttachEffectType,
+        under_temporal: bool,
+    ) -> AttachAnimState {
+        let mut state = AttachAnimState {
+            show: true,
+            paused: false,
+            temporal: false,
+        };
+        let mut apply = |action: AttachedAnimFlag| match action {
+            AttachedAnimFlag::None => {}
+            AttachedAnimFlag::Hides => state.show = false,
+            AttachedAnimFlag::Temporal => state.temporal = true,
+            AttachedAnimFlag::Paused => state.paused = true,
+            AttachedAnimFlag::PausedTemporal => {
+                state.paused = true;
+                state.temporal = true;
+            }
+        };
+        if effect.powered && !self.is_online {
+            apply(effect.animation_offline_action);
+        }
+        if under_temporal {
+            apply(effect.animation_temporal_action);
+        }
+        state
+    }
+
     /// One `AI()` frame. `discarded` is `ShouldBeDiscardedNow()`: a pending
     /// delay or refresh does not advance while the effect is being discarded.
     pub fn tick(&mut self, effect: &AttachEffectType, discarded: bool) {
@@ -193,6 +224,24 @@ impl AttachEffectInstance {
             }
         } else {
             self.refresh(effect);
+        }
+    }
+}
+
+/// What the effect's animation should do this frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AttachAnimState {
+    pub show: bool,
+    pub paused: bool,
+    pub temporal: bool,
+}
+
+impl Default for AttachAnimState {
+    fn default() -> Self {
+        Self {
+            show: true,
+            paused: false,
+            temporal: false,
         }
     }
 }
@@ -610,6 +659,48 @@ mod tests {
         assert!(instance.should_refresh());
         instance.tick(&cycling, false);
         assert!(instance.is_active(false), "refreshed and counting again");
+    }
+
+    /// The offline and temporal actions hide, pause or freeze the animation.
+    #[test]
+    fn animation_state_maps_the_offline_and_temporal_actions() {
+        let mut powered = effect(3);
+        powered.powered = true;
+        let mut instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &powered,
+        );
+        instance.tick(&powered, false);
+        let online = instance.animation_state(&powered, false);
+        assert!(online.show && !online.paused && !online.temporal);
+
+        instance.online_check(&powered, false);
+        let offline = instance.animation_state(&powered, false);
+        assert!(!offline.show, "the default OfflineAction hides");
+
+        powered.animation_offline_action = AttachedAnimFlag::Paused;
+        let offline = instance.animation_state(&powered, false);
+        assert!(offline.show && offline.paused && !offline.temporal);
+
+        powered.animation_temporal_action = AttachedAnimFlag::PausedTemporal;
+        let frozen = instance.animation_state(&powered, true);
+        assert!(frozen.show && frozen.paused && frozen.temporal);
+
+        let plain = effect(3);
+        let instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &plain,
+        );
+        let untouched = instance.animation_state(&plain, true);
+        assert!(untouched.show && !untouched.paused && !untouched.temporal);
     }
 
     /// The list round-trips through serde with its instance state intact.

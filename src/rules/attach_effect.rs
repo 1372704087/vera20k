@@ -155,8 +155,6 @@ pub struct AttachEffectType {
     /// covers every deeper layer.
     pub cumulative_animations: Vec<String>,
     pub cumulative_animations_restart_on_change: bool,
-    /// `CumulativeAnimations.CountIncrement`; values below 1 read as 1.
-    pub cumulative_animations_count_increment: i32,
     pub animation_reset_on_reapply: bool,
     pub animation_offline_action: AttachedAnimFlag,
     pub animation_temporal_action: AttachedAnimFlag,
@@ -197,7 +195,6 @@ impl AttachEffectType {
             animation: None,
             cumulative_animations: Vec::new(),
             cumulative_animations_restart_on_change: true,
-            cumulative_animations_count_increment: 1,
             animation_reset_on_reapply: false,
             animation_offline_action: AttachedAnimFlag::Hides,
             animation_temporal_action: AttachedAnimFlag::None,
@@ -208,6 +205,45 @@ impl AttachEffectType {
             tint_intensity: 0.0,
             tint_visible_to_houses: AffectedHouse::ALL,
         }
+    }
+
+    /// `GetCumulativeAnimation(count)`: the layer count picks the animation,
+    /// and every layer past the list keeps the last one.
+    pub fn cumulative_animation(&self, count: i32) -> Option<&str> {
+        if count < 1 || self.cumulative_animations.is_empty() {
+            return None;
+        }
+        let size = self.cumulative_animations.len() as i32;
+        let index = if count >= size { size - 1 } else { count - 1 };
+        self.cumulative_animations
+            .get(index as usize)
+            .map(String::as_str)
+    }
+
+    /// `UpdateConditionalAnimDrawingLogic`'s draw offset: every rule whose
+    /// `RequiredTypes` is empty or all attached adds its offset, so the rules
+    /// accumulate rather than the last one winning.
+    pub fn draw_offset(&self, attached: &[&str]) -> [i32; 2] {
+        let mut offset = [0, 0];
+        for rule in &self.animation_draw_offsets {
+            let required_met = rule
+                .required_types
+                .iter()
+                .all(|want| attached.iter().any(|have| have.eq_ignore_ascii_case(want)));
+            if rule.required_types.is_empty() || required_met {
+                offset[0] += rule.offset[0];
+                offset[1] += rule.offset[1];
+            }
+        }
+        offset
+    }
+
+    /// `Animation.HideIfAttachedWith`: any listed type being attached hides
+    /// this effect's animation.
+    pub fn animation_hidden_by(&self, attached: &[&str]) -> bool {
+        self.animation_hide_if_attached_with
+            .iter()
+            .any(|want| attached.iter().any(|have| have.eq_ignore_ascii_case(want)))
     }
 
     /// `AllowTransfer`: an effect a techno attaches to itself defaults to
@@ -329,12 +365,6 @@ impl AttachEffectTypeCatalog {
                 "CumulativeAnimations.RestartOnChange",
                 entry.cumulative_animations_restart_on_change,
             );
-            entry.cumulative_animations_count_increment = section
-                .read_int(
-                    "CumulativeAnimations.CountIncrement",
-                    entry.cumulative_animations_count_increment,
-                )
-                .max(1);
             entry.animation_reset_on_reapply =
                 section.read_bool("Animation.ResetOnReapply", entry.animation_reset_on_reapply);
             entry.animation_offline_action = section.read_string_with(
@@ -486,7 +516,6 @@ mod tests {
         let entry = catalog.entry("A").expect("entry");
         assert_eq!(entry.animation, None);
         assert!(entry.cumulative_animations_restart_on_change);
-        assert_eq!(entry.cumulative_animations_count_increment, 1);
         assert_eq!(entry.animation_offline_action, AttachedAnimFlag::Hides);
         assert_eq!(entry.animation_temporal_action, AttachedAnimFlag::None);
         assert_eq!(entry.tint_color, None);
@@ -501,8 +530,7 @@ mod tests {
 Animation=LOOP
              CumulativeAnimations=ONE,TWO
 CumulativeAnimations.RestartOnChange=no
-             CumulativeAnimations.CountIncrement=0
-Animation.ResetOnReapply=yes
+             Animation.ResetOnReapply=yes
              Animation.OfflineAction=Paused
 Animation.TemporalAction=PausedTemporal
              Animation.UseInvokerAsOwner=yes
@@ -520,10 +548,6 @@ Animation.DrawOffset2=0,0
         assert_eq!(entry.animation.as_deref(), Some("LOOP"));
         assert_eq!(entry.cumulative_animations, vec!["ONE", "TWO"]);
         assert!(!entry.cumulative_animations_restart_on_change);
-        assert_eq!(
-            entry.cumulative_animations_count_increment, 1,
-            "a value below 1 reads as 1"
-        );
         assert!(entry.animation_reset_on_reapply);
         assert_eq!(entry.animation_offline_action, AttachedAnimFlag::Paused);
         assert_eq!(
@@ -539,6 +563,48 @@ Animation.DrawOffset2=0,0
         assert_eq!(entry.animation_draw_offsets[0].offset, [7, -3]);
         assert_eq!(entry.animation_draw_offsets[0].required_types, vec!["REQ"]);
         assert_eq!(entry.animation_draw_offsets[1].offset, [2, 0]);
+    }
+
+    /// The layer count picks a cumulative animation, the last entry covers
+    /// deeper layers, and draw offsets accumulate only for rules whose
+    /// required types are all attached.
+    #[test]
+    fn cumulative_animations_and_draw_offsets_follow_the_attached_set() {
+        let mut effect = AttachEffectType::default();
+        assert_eq!(
+            effect.cumulative_animation(1),
+            None,
+            "no list, no animation"
+        );
+        effect.cumulative_animations = vec!["A".to_owned(), "B".to_owned()];
+        assert_eq!(effect.cumulative_animation(1), Some("A"));
+        assert_eq!(effect.cumulative_animation(2), Some("B"));
+        assert_eq!(
+            effect.cumulative_animation(5),
+            Some("B"),
+            "the last covers the rest"
+        );
+
+        effect.animation_draw_offsets = vec![
+            AnimationDrawOffset {
+                offset: [2, -1],
+                required_types: Vec::new(),
+            },
+            AnimationDrawOffset {
+                offset: [5, 5],
+                required_types: vec!["NEEDED".to_owned()],
+            },
+        ];
+        assert_eq!(
+            effect.draw_offset(&[]),
+            [2, -1],
+            "the unconditional rule adds"
+        );
+        assert_eq!(effect.draw_offset(&["needed"]), [7, 4], "both rules add");
+
+        effect.animation_hide_if_attached_with = vec!["HIDER".to_owned()];
+        assert!(!effect.animation_hidden_by(&[]));
+        assert!(effect.animation_hidden_by(&["hider"]));
     }
 
     /// `AllowTransfer` defaults to whether the effect is self-owned, and

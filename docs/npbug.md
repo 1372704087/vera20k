@@ -33,6 +33,11 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2985 (NPExt changelog item 77): the T41 land refusal
+  (`0x006FC7EB..0x006FC868`) also applies to a terrain object on land — a
+  tree is an Object target, so the Cell-only `LandTargeting=1` check never
+  reached it and submerged naval units could shell shore trees.
+
 - #2982 (NPExt changelog item 66): a garrison kill's veterancy pays the
   shooter — the rotation slot one step back from the post-advance fire
   index — not the next occupant in line. Native reads the slot after

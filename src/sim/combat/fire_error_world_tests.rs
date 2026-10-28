@@ -145,3 +145,75 @@ fn a_mapless_fire_gate_takes_the_shared_range_answer() {
     assert_ne!(error(2, "ART", 4), FireError::Range, "5 cells away");
     assert_eq!(error(2, "ART", 5), FireError::Range, "beyond Range");
 }
+
+/// NPBUG (NPExt bug-fix changelog item 77, issue #2985): a submerged
+/// LandTargeting=1 firer refuses a terrain tree on land — native's Cell-only
+/// refusal never reached the Object target, so submarines shelled shore
+/// trees.
+#[test]
+fn npbug_a_submerged_unit_refuses_a_shore_tree() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[VehicleTypes]\n0=SUB\n\
+         [InfantryTypes]\n\
+         [TerrainTypes]\n0=TREE01\n\
+         [SUB]\nStrength=300\nArmor=light\nPrimary=Torpedo\nLandTargeting=1\n\
+         [Torpedo]\nDamage=50\nROF=30\nRange=6\nWarhead=AP\nProjectile=TorpedoP\n\
+         [TorpedoP]\nAG=yes\n\
+         [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+         [TREE01]\nStrength=50\n",
+    ))
+    .unwrap();
+    let cells = (0..16u16)
+        .flat_map(|ry| (0..16u16).map(move |rx| (rx, ry)))
+        .map(|(rx, ry)| crate::map::resolved_terrain::test_flat_cell(rx, ry))
+        .collect();
+    let mut sim = crate::sim::world::Simulation::new();
+    sim.resolved_terrain =
+        Some(crate::map::resolved_terrain::ResolvedTerrainGrid::from_cells(16, 16, cells));
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    spawn(
+        &mut sim.substrate.entities,
+        1,
+        "SUB",
+        EntityCategory::Unit,
+        "Soviet",
+        (10, 10),
+    );
+    crate::sim::terrain_spawn::construct_terrain_objects(
+        &mut sim,
+        &[crate::map::overlay::TerrainObject {
+            rx: 12,
+            ry: 10,
+            name: "TREE01".into(),
+        }],
+        &rules,
+        false,
+    );
+    let tree = sim.terrain_objects.cell_index()[&(12, 10)];
+    sim.interner = test_interner();
+    let firer = sim.substrate.entities.get(1).unwrap();
+    let subject = crate::sim::combat::fire_error_world::FireSubject {
+        world: &sim,
+        rules: &rules,
+        overlay_registry: None,
+        fog: None,
+        firer,
+        obj: rules.object("SUB").unwrap(),
+        target: Some(crate::sim::combat::TargetKind::Entity(tree)),
+        weapon_index: 0,
+    };
+    let error = subject.fire_error(false);
+    if crate::rules::NPBUG_ENABLED {
+        assert_eq!(
+            error,
+            crate::sim::combat::fire_error::FireError::Illegal,
+            "the shore tree is refused under npbug"
+        );
+    } else {
+        assert_ne!(
+            error,
+            crate::sim::combat::fire_error::FireError::Illegal,
+            "stock admits the tree force-attack"
+        );
+    }
+}

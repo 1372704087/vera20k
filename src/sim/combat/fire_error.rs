@@ -1022,6 +1022,18 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
         {
             return Illegal;
         }
+        // NPBUG (NPExt bug-fix changelog item 77, issue #2985): a terrain
+        // tree is an Object target, so the Cell-only LandTargeting=1 refusal
+        // never reached it and a submerged naval unit could shell shore
+        // trees. The same land refusal applies to a terrain object on land.
+        if crate::rules::NPBUG_ENABLED
+            && kind == FireTargetKind::Object
+            && target.land_type != LAND_WATER
+            && target.land_type != LAND_BEACH
+            && firer_type.land_targeting == 1
+        {
+            return Illegal;
+        }
     }
     // T42/T43 `0x006FC879..0x006FC8E6`: the Magnetron's beam is busy. T43
     // (`+0x2AC == target`) is dominated by T4.

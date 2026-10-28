@@ -1228,7 +1228,6 @@ fn mutable_handouts_and_setters_are_owner_operations() {
             "install_receipt",
             "the map read builds the tube receipt in place once; binding takes it once",
         ),
-        ("net/lockstep.rs", "payload_mut", PAYLOAD),
         (
             "net/udp.rs",
             "deref_mut",

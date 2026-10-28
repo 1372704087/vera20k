@@ -613,14 +613,15 @@ pub(crate) fn range_with_attach_effects(
 /// AI frame, restored from the save like Phobos' own `TechnoExt::AE`, and
 /// never enters the state hash.
 ///
-/// RESIDUALS: `has_restricted_armor` marks a per-hit `CalculateArmorMultipliers`
-/// roll (Chance/AffectsHouse/warhead lists/HitAnim) that still needs the
-/// Scenario RNG and animation owner threaded into the receiver; the
-/// `cloakable`/`force_decloak` consumers need the native `IsReadyToCloak` /
-/// `ShouldNotBeCloaked` bodies, `disable_weapons` needs `GetFireError`
-/// (`0x006FC0B0`, not ported), `unkillable` needs the Phobos `CanKill` wrapper,
-/// `has_range_modifier` needs an entity-aware `GetWeaponRange` fold, and
-/// `has_crit_modifiers` needs the Phobos warhead critical-hit mechanism.
+/// RESIDUALS: the shield pre-stage still divides with the unrestricted armor
+/// product and the receiver's restricted roll runs before the receiver's rare
+/// early returns (see the two methods); `disable_weapons` needs
+/// `GetFireError` (`0x006FC0B0`, not ported); `has_crit_modifiers` needs the
+/// Phobos warhead critical-hit mechanism; the open-topped transport range
+/// switch and its per-type `OpenTopped.UseTransportRangeModifiers` /
+/// `CheckTransportDisableWeapons` keys are not read; and the charge-turret
+/// half of `ROFMultiplier.ApplyOnCurrentTimer` needs the
+/// `LastRearmWasFullDelay`/charge-timer state VERA does not keep.
 #[cfg(feature = "phobos")]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct PhobosStatMultipliers {

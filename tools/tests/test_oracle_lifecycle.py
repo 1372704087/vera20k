@@ -1,4 +1,5 @@
 """Oracle imports and help must never execute native code or publish references."""
+import ast
 import os
 from pathlib import Path
 import subprocess
@@ -172,6 +173,25 @@ class OracleLifecycleTests(unittest.TestCase):
         result = subprocess.run([sys.executable, '-O', '-c', script], cwd=ROOT,
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual((result.returncode, result.stderr), (0, ''))
+
+    def test_producer_asserts_never_execute_native_code_or_consume_rows(self):
+        # `python -O` strips asserts, and with them any native call or row pop
+        # inside one: a producer must use native_oracle.require instead.
+        effects = {'invoke', 'call', 'run', 'emu_start', 'pop', 'cstring', 'light_constructor'}
+        found = []
+        for path in sorted((ROOT / 'tools').rglob('*.py')):
+            if 'tests' in path.relative_to(ROOT).parts:
+                continue
+            for node in ast.walk(ast.parse(path.read_bytes(), str(path))):
+                if not isinstance(node, ast.Assert):
+                    continue
+                for part in ast.walk(node.test):
+                    name = getattr(getattr(part, 'func', None), 'attr',
+                                   getattr(getattr(part, 'func', None), 'id', None))
+                    if isinstance(part, ast.NamedExpr) or (isinstance(part, ast.Call)
+                                                          and name in effects):
+                        found.append(f'{path.relative_to(ROOT)}:{node.lineno}')
+        self.assertEqual(found, [])
 
     def test_anim_translucency_import_and_help_are_inert(self):
         for operation in ('import', 'help'):

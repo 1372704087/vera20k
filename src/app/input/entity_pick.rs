@@ -637,6 +637,14 @@ pub(crate) fn compute_type_select_tap_with_playfield(
         };
         let own = interner.map_or("", |i| i.resolve(entity.type_ref()));
         push_exact_seed(&mut seeds, entity.type_ref());
+        // NPBUG (NPExt bug-fix changelog item 45, issue #2980): native grows
+        // the seed set with the `DeploysInto`/`UndeploysInto` counterpart
+        // type (the 0x00732C30 ID match reads it at 0x00732C61..0x00732C83),
+        // so T with an MCV selected also selects the Construction Yard and
+        // vice versa. Under npbug the seed set stays the selected types alone.
+        if crate::rules::NPBUG_ENABLED {
+            continue;
+        }
         if let Some(object) = rules.and_then(|r| r.object(own)) {
             if let Some(deploys_into) = object.deploys_into.as_deref()
                 && let Some(type_ref) = interner.and_then(|i| i.get(deploys_into))

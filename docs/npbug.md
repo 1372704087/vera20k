@@ -42,3 +42,8 @@ adds no behavior yet.
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime
+
+- #2980 (NPExt changelog item 45): the T type-select seed set no longer grows
+  the `DeploysInto`/`UndeploysInto` counterpart type (the 0x00732C30 ID match
+  reads it at 0x00732C61..0x00732C83), so T with an MCV selected gathers MCVs
+  only instead of also taking the Construction Yard, and vice versa.

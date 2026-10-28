@@ -253,8 +253,10 @@ about that state. An explicit `null` means no installed track state was observed
 The explicit profile schema belongs to
 `src/app/diagnostics/tactical_capture/map_observation.rs`. Start from
 [`map_observation.example.json`](map_observation.example.json), whose launch is the
-existing Rust `SkirmishLaunchSession` DTO. Change `launch.selected_map_file` to the
-chosen retail map. Keep explicit countries, colors and distinct start slots, and
+existing Rust `SkirmishLaunchSession` DTO. Its v2 `cursor_position` parks the cursor
+over the sidebar: the post-load centre of the tactical view can rest on the local
+MCV, whose Select cursor fails the static-cursor check. Change
+`launch.selected_map_file` to the chosen retail map. Keep explicit countries, colors and distinct start slots, and
 keep `pre_fill_house_roster` consistent with the opponents. Rust validates launch
 admission; Python does not maintain a second launch parser or synthesize defaults.
 

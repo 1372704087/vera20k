@@ -793,8 +793,7 @@ impl AttachEffectList {
 }
 
 /// The per-frame target facts `AttachEffectClass::ShouldBeDiscardedNow`
-/// reads. Facts whose owners are not ported stay neutral and are named on the
-/// evaluator.
+/// reads.
 #[cfg(feature = "phobos")]
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct DiscardFacts {
@@ -813,14 +812,16 @@ pub(crate) struct DiscardFacts {
     pub land_type: Option<crate::rules::terrain_rules::LandType>,
     pub mission: Option<crate::rules::mission_data::MissionType>,
     pub sequence: Option<crate::rules::animation_sequence::SequenceKind>,
+    /// The held target's 3-D distance and the selected weapon's effective
+    /// range in leptons (`-1` without a weapon).
+    pub target: Option<(i32, i32)>,
     pub owner_human: bool,
 }
 
 #[cfg(feature = "phobos")]
 impl AttachEffectInstance {
     /// `ShouldBeDiscardedNow`: the event flag or any continuous condition the
-    /// type lists. RESIDUALS: the mission, sequence, inrange/outofrange and
-    /// drain conditions wait on the facts their owners have not exposed yet.
+    /// type lists. RESIDUAL: `Drain` waits on a victim-side drain owner.
     pub(crate) fn should_be_discarded_now(
         &self,
         effect: &AttachEffectType,
@@ -950,6 +951,18 @@ impl AttachEffectInstance {
                 }
             }
         }
+        if flags.contains(DiscardOn::IN_RANGE) || flags.contains(DiscardOn::OUT_OF_RANGE) {
+            if let Some((distance, weapon_range)) = facts.target {
+                let range = effect
+                    .discard_range_override
+                    .map_or(weapon_range, |cells| cpp_i32(cells * 256.0));
+                if (flags.contains(DiscardOn::IN_RANGE) && distance <= range)
+                    || (flags.contains(DiscardOn::OUT_OF_RANGE) && distance >= range)
+                {
+                    return true;
+                }
+            }
+        }
         false
     }
 }
@@ -996,11 +1009,13 @@ impl Simulation {
     /// still restarts; `Animation.ResetOnReapply` does not restart a refreshed
     /// effect's animation.
     /// `ShouldBeDiscardedNow`'s target facts for one entity, read once per
-    /// frame before the AI walk.
+    /// frame before the AI walk. `needs_range` skips the weapon selection
+    /// when no effect on the object reads inrange/outofrange.
     fn phobos_discard_facts(
         &self,
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
+        needs_range: bool,
     ) -> DiscardFacts {
         let Some(entity) = self.substrate.entities.get(id) else {
             return DiscardFacts::default();
@@ -1035,6 +1050,66 @@ impl Simulation {
                     .and_then(|leaf| crate::rules::infantry_sequence::action_kind(leaf.doing()))
             })
             .flatten();
+        let target = if needs_range {
+            entity.attack_target.target().and_then(|target| {
+                let target_coords = match target {
+                    crate::sim::combat::TargetKind::Entity(id) => {
+                        let target = self.substrate.entities.get(id)?;
+                        let coord = crate::sim::movement::ground_pose::position_world_coord(
+                            &target.position,
+                        );
+                        [coord.x, coord.y, coord.z]
+                    }
+                    crate::sim::combat::TargetKind::Cell(rx, ry) => {
+                        let floor_z = self
+                            .resolved_terrain
+                            .as_ref()
+                            .and_then(|terrain| terrain.cell(rx, ry))
+                            .map_or(0, |cell| {
+                                i32::from(cell.level)
+                                    .wrapping_mul(crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS)
+                            });
+                        let centre = crate::sim::cell_kernel::cell_center(
+                            crate::sim::cell_kernel::CellCoordinate {
+                                x: i32::from(rx),
+                                y: i32::from(ry),
+                            },
+                            floor_z,
+                        );
+                        [centre.x, centre.y, centre.z]
+                    }
+                };
+                let source =
+                    crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+                let distance = crate::util::native_x87::distance_3d_leptons(
+                    [source.x, source.y, source.z],
+                    target_coords,
+                );
+                let object = self.interner.object_type(entity.type_ref(), rules)?;
+                let (_, selected) = crate::sim::combat::combat_weapon::select_weapon_against(
+                    rules,
+                    entity,
+                    object,
+                    &crate::sim::combat::combat_weapon::attacker_facts(entity, object),
+                    Some(&target),
+                    self,
+                    &self.interner,
+                    self.resolved_terrain.as_ref(),
+                    Some(self.house_alliances.as_map()),
+                )?;
+                let range = selected.map_or(-1, |selected| {
+                    range_with_attach_effects(
+                        entity,
+                        &selected.weapon.id,
+                        selected.weapon.range_leptons,
+                        rules,
+                    )
+                });
+                Some((distance, range))
+            })
+        } else {
+            None
+        };
         let land_type = self.resolved_terrain.as_ref().and_then(|terrain| {
             terrain
                 .cell(entity.position.rx(), entity.position.ry())
@@ -1068,8 +1143,9 @@ impl Simulation {
             mission_harvest_on_tiberium,
             selling,
             undeploying: selling && entity.archive_target().is_some(),
-            // No DrainingMe owner is ported yet.
-            draining: false,
+            // `TechnoClass+0x1D0 DrainingMe`, the Floating Disc victim side
+            // owned by [`crate::sim::credit_income::Drain`].
+            draining: entity.drain.draining_me().is_some(),
             ammo: entity.ammo().map_or(0, |ammo| ammo.current()),
             health_ratio: if strength > 0 {
                 f64::from(health) / f64::from(strength)
@@ -1080,6 +1156,7 @@ impl Simulation {
             land_type,
             mission,
             sequence,
+            target,
             owner_human: self
                 .houses
                 .get(&entity.owner())
@@ -1365,7 +1442,13 @@ impl Simulation {
         );
         let effects = rules.attach_effect_types().types();
         let globals = *rules.attach_effect_globals();
-        let facts = self.phobos_discard_facts(id, rules);
+        let needs_range = list.instances().iter().any(|instance| {
+            effects.get(instance.type_index).is_some_and(|effect| {
+                effect.discard_on.contains(DiscardOn::IN_RANGE)
+                    || effect.discard_on.contains(DiscardOn::OUT_OF_RANGE)
+            })
+        });
+        let facts = self.phobos_discard_facts(id, rules, needs_range);
         list.online_check_all(effects, owner_active);
         // `PointerGotInvalid` flags an `InvokerDie` effect whose invoker is
         // gone. VERA checks the store each frame instead of the native
@@ -2611,6 +2694,37 @@ mod tests {
         deferred.last_sequence_check = Some(SequenceKind::Stand);
         assert!(!deferred.should_be_discarded_now(&effect, &facts, &globals));
 
+        // InRange/OutOfRange use the held target's distance and the selected
+        // weapon's range; RangeOverride replaces the range in cells.
+        effect.discard_on = DiscardOn::IN_RANGE;
+        effect.discard_range_override = None;
+        facts = DiscardFacts {
+            target: Some((100, 200)),
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.target = Some((300, 200));
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_on = DiscardOn::OUT_OF_RANGE;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.target = Some((200, 200));
+        assert!(
+            instance.should_be_discarded_now(&effect, &facts, &globals),
+            "the exact range boundary discards either way"
+        );
+        effect.discard_on = DiscardOn::IN_RANGE;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_range_override = Some(0.5);
+        facts.target = Some((100, 9_999));
+        assert!(
+            instance.should_be_discarded_now(&effect, &facts, &globals),
+            "the override replaces the weapon range"
+        );
+        facts.target = Some((200, 9_999));
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.target = None;
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+
         // Mission list: a human owner reads DiscardOn.Missions, an AI reads
         // DiscardOn.AIMissions when it is set.
         use crate::rules::mission_data::MissionType;
@@ -2836,6 +2950,47 @@ mod tests {
         );
     }
 
+    /// `DiscardOn=outofrange` reads the live held target; a zero-cell override
+    /// makes any positive distance discard.
+    #[test]
+    fn out_of_range_discard_reads_the_held_target() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nRange=5\nDamage=10\nROF=20\n\
+             [TARGET]\nStrength=500\nSpeed=6\nPrimary=GUN\n\
+             AttachEffect.AttachTypes=OUT\n\
+             [AttachEffectTypes]\n0=OUT\n\
+             [OUT]\nDuration=10\nDiscardOn=outofrange\nDiscardOn.RangeOverride=0\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        assert!(
+            sim.assign_target_represented(
+                target,
+                Some(crate::sim::combat::TargetKind::Cell(30, 30)),
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            )
+            .is_ok()
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .is_empty(),
+            "a positive distance is outside the zero range"
+        );
+    }
+
     /// `DiscardOn=ammo` erases the effect on the AI frame that observes the
     /// target's rounds inside the interval.
     #[test]
@@ -2873,6 +3028,53 @@ mod tests {
                 .phobos_attach_effects()
                 .is_empty(),
             "the empty magazine discards the effect"
+        );
+    }
+
+    /// `DiscardOn=drain` reads the victim side of the Floating Disc link
+    /// (`TechnoClass+0x1D0 DrainingMe`).
+    #[test]
+    fn a_drain_link_discards_the_effect() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=500\nSpeed=6\n\
+             AttachEffect.AttachTypes=AE_DRAIN\n\
+             [AttachEffectTypes]\n0=AE_DRAIN\n\
+             [AE_DRAIN]\nDuration=10\nDiscardOn=drain\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .len(),
+            1,
+            "no drainer keeps the effect"
+        );
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .drain
+            .set_draining_me_for_test(Some(999));
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .is_empty(),
+            "the drained victim discards the effect"
         );
     }
 

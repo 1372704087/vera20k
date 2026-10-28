@@ -16,6 +16,7 @@
 use crate::rules::ini_parser::IniFile;
 #[cfg(feature = "phobos")]
 use crate::rules::ini_value::truncate_native_bytes;
+use crate::rules::phobos_shields::AffectedHouse;
 
 /// `Enumerable` stores `Name[32]` with `_TRUNCATE`.
 #[cfg(feature = "phobos")]
@@ -87,6 +88,40 @@ impl AttachEffectTargets {
     }
 }
 
+/// Phobos `AttachedAnimFlag`: what the effect's animation does while the
+/// owner is offline or the target is under a temporal freeze.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AttachedAnimFlag {
+    #[default]
+    None,
+    Hides,
+    Temporal,
+    Paused,
+    PausedTemporal,
+}
+
+impl AttachedAnimFlag {
+    #[cfg(feature = "phobos")]
+    fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "none" => Some(Self::None),
+            "hides" => Some(Self::Hides),
+            "temporal" => Some(Self::Temporal),
+            "paused" => Some(Self::Paused),
+            "pausedtemporal" => Some(Self::PausedTemporal),
+            _ => None,
+        }
+    }
+}
+
+/// One `Animation.DrawOffsetN` rule. The first absent or `0,0` index ends the
+/// list, so the array is always contiguous from index 0.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AnimationDrawOffset {
+    pub offset: [i32; 2],
+    pub required_types: Vec<String>,
+}
+
 /// One `[AttachEffectTypes]` entry. Defaults are the constructor's
 /// (`AttachEffectTypeClass.h`), never retail values.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -114,6 +149,24 @@ pub struct AttachEffectType {
     pub allow_transfer: Option<bool>,
     /// `AllowTransfer.Convert`; `None` defaults to `allow_transfer`.
     pub allow_transfer_convert: Option<bool>,
+    /// `Animation`: the looping animation's `[Animations]` name.
+    pub animation: Option<String>,
+    /// `CumulativeAnimations`: one animation per stacked layer; the last
+    /// covers every deeper layer.
+    pub cumulative_animations: Vec<String>,
+    pub cumulative_animations_restart_on_change: bool,
+    /// `CumulativeAnimations.CountIncrement`; values below 1 read as 1.
+    pub cumulative_animations_count_increment: i32,
+    pub animation_reset_on_reapply: bool,
+    pub animation_offline_action: AttachedAnimFlag,
+    pub animation_temporal_action: AttachedAnimFlag,
+    pub animation_use_invoker_as_owner: bool,
+    pub animation_hide_if_attached_with: Vec<String>,
+    pub animation_draw_offsets: Vec<AnimationDrawOffset>,
+    /// `Tint.Color`; `None` leaves the target untinted.
+    pub tint_color: Option<[u8; 3]>,
+    pub tint_intensity: f64,
+    pub tint_visible_to_houses: AffectedHouse,
 }
 
 impl Default for AttachEffectType {
@@ -141,6 +194,19 @@ impl AttachEffectType {
             groups: Vec::new(),
             allow_transfer: None,
             allow_transfer_convert: None,
+            animation: None,
+            cumulative_animations: Vec::new(),
+            cumulative_animations_restart_on_change: true,
+            cumulative_animations_count_increment: 1,
+            animation_reset_on_reapply: false,
+            animation_offline_action: AttachedAnimFlag::Hides,
+            animation_temporal_action: AttachedAnimFlag::None,
+            animation_use_invoker_as_owner: false,
+            animation_hide_if_attached_with: Vec::new(),
+            animation_draw_offsets: Vec::new(),
+            tint_color: None,
+            tint_intensity: 0.0,
+            tint_visible_to_houses: AffectedHouse::ALL,
         }
     }
 
@@ -251,6 +317,79 @@ impl AttachEffectTypeCatalog {
                 section.read_phobos_nullable_bool("AllowTransfer", entry.allow_transfer);
             entry.allow_transfer_convert = section
                 .read_phobos_nullable_bool("AllowTransfer.Convert", entry.allow_transfer_convert);
+            entry.animation = section
+                .read_name("Animation", 0x100)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned);
+            if let Some(tokens) = section.read_list("CumulativeAnimations", 0x800) {
+                entry.cumulative_animations =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.cumulative_animations_restart_on_change = section.read_bool(
+                "CumulativeAnimations.RestartOnChange",
+                entry.cumulative_animations_restart_on_change,
+            );
+            entry.cumulative_animations_count_increment = section
+                .read_int(
+                    "CumulativeAnimations.CountIncrement",
+                    entry.cumulative_animations_count_increment,
+                )
+                .max(1);
+            entry.animation_reset_on_reapply =
+                section.read_bool("Animation.ResetOnReapply", entry.animation_reset_on_reapply);
+            entry.animation_offline_action = section.read_string_with(
+                "Animation.OfflineAction",
+                0x40,
+                entry.animation_offline_action,
+                |current, raw| AttachedAnimFlag::parse(raw).unwrap_or(current),
+            );
+            entry.animation_temporal_action = section.read_string_with(
+                "Animation.TemporalAction",
+                0x40,
+                entry.animation_temporal_action,
+                |current, raw| AttachedAnimFlag::parse(raw).unwrap_or(current),
+            );
+            entry.animation_use_invoker_as_owner = section.read_bool(
+                "Animation.UseInvokerAsOwner",
+                entry.animation_use_invoker_as_owner,
+            );
+            if let Some(tokens) = section.read_list("Animation.HideIfAttachedWith", 0x800) {
+                entry.animation_hide_if_attached_with =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.tint_color =
+                section.read_phobos_nullable_with("Tint.Color", entry.tint_color, |raw| {
+                    Some(crate::rules::ini_parser::IniSection::read_color_rgb_value(
+                        raw,
+                        [0, 0, 0],
+                    ))
+                });
+            entry.tint_intensity =
+                section.read_phobos_double("Tint.Intensity", entry.tint_intensity);
+            entry.tint_visible_to_houses = section.read_string_with(
+                "Tint.VisibleToHouses",
+                0x100,
+                entry.tint_visible_to_houses,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            // The native loop appends into the retained vector, which would
+            // duplicate every rule on a second Rules pass; rebuild instead.
+            entry.animation_draw_offsets.clear();
+            for index in 0.. {
+                let key = format!("Animation.DrawOffset{index}");
+                let offset = section.read_phobos_int_pair(&key, [0, 0]);
+                if offset == [0, 0] {
+                    break;
+                }
+                let required_types = section
+                    .read_list(&format!("{key}.RequiredTypes"), 0x800)
+                    .map(|tokens| tokens.iter().map(|name| (*name).to_owned()).collect())
+                    .unwrap_or_default();
+                entry.animation_draw_offsets.push(AnimationDrawOffset {
+                    offset,
+                    required_types,
+                });
+            }
             if let Some(tokens) = section.read_list("Groups", 0x800) {
                 entry.groups = tokens
                     .iter()
@@ -332,6 +471,74 @@ mod tests {
         let mut catalog = AttachEffectTypeCatalog::default();
         catalog.apply_pass(&ini);
         catalog
+    }
+
+    /// Animation and tint keys take the constructor's defaults, and the
+    /// `Animation.DrawOffsetN` list stops at the first `0,0`.
+    #[test]
+    fn animation_and_tint_keys_read_with_documented_defaults() {
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=A
+[A]
+",
+        );
+        let entry = catalog.entry("A").expect("entry");
+        assert_eq!(entry.animation, None);
+        assert!(entry.cumulative_animations_restart_on_change);
+        assert_eq!(entry.cumulative_animations_count_increment, 1);
+        assert_eq!(entry.animation_offline_action, AttachedAnimFlag::Hides);
+        assert_eq!(entry.animation_temporal_action, AttachedAnimFlag::None);
+        assert_eq!(entry.tint_color, None);
+        assert_eq!(entry.tint_intensity, 0.0);
+        assert_eq!(entry.tint_visible_to_houses, AffectedHouse::ALL);
+        assert!(entry.animation_draw_offsets.is_empty());
+
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=B
+[B]
+Animation=LOOP
+             CumulativeAnimations=ONE,TWO
+CumulativeAnimations.RestartOnChange=no
+             CumulativeAnimations.CountIncrement=0
+Animation.ResetOnReapply=yes
+             Animation.OfflineAction=Paused
+Animation.TemporalAction=PausedTemporal
+             Animation.UseInvokerAsOwner=yes
+Animation.HideIfAttachedWith=HIDE
+             Tint.Color=10,20,30
+Tint.Intensity=1.5
+Tint.VisibleToHouses=owner
+             Animation.DrawOffset0=7,-3
+Animation.DrawOffset0.RequiredTypes=REQ
+             Animation.DrawOffset1=2,0
+Animation.DrawOffset2=0,0
+",
+        );
+        let entry = catalog.entry("B").expect("entry");
+        assert_eq!(entry.animation.as_deref(), Some("LOOP"));
+        assert_eq!(entry.cumulative_animations, vec!["ONE", "TWO"]);
+        assert!(!entry.cumulative_animations_restart_on_change);
+        assert_eq!(
+            entry.cumulative_animations_count_increment, 1,
+            "a value below 1 reads as 1"
+        );
+        assert!(entry.animation_reset_on_reapply);
+        assert_eq!(entry.animation_offline_action, AttachedAnimFlag::Paused);
+        assert_eq!(
+            entry.animation_temporal_action,
+            AttachedAnimFlag::PausedTemporal
+        );
+        assert!(entry.animation_use_invoker_as_owner);
+        assert_eq!(entry.animation_hide_if_attached_with, vec!["HIDE"]);
+        assert_eq!(entry.tint_color, Some([10, 20, 30]));
+        assert_eq!(entry.tint_intensity, 1.5);
+        assert_eq!(entry.tint_visible_to_houses, AffectedHouse::OWNER);
+        assert_eq!(entry.animation_draw_offsets.len(), 2, "0,0 ends the list");
+        assert_eq!(entry.animation_draw_offsets[0].offset, [7, -3]);
+        assert_eq!(entry.animation_draw_offsets[0].required_types, vec!["REQ"]);
+        assert_eq!(entry.animation_draw_offsets[1].offset, [2, 0]);
     }
 
     /// `AllowTransfer` defaults to whether the effect is self-owned, and

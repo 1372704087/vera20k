@@ -616,6 +616,10 @@ impl RelayServer {
         let room = self.rooms.get_mut(&id).ok_or(RelayError::Unregistered)?;
         let federation = room.federation.as_mut().ok_or(RelayError::Unregistered)?;
         let (position, kind, payload) = federation.open(bytes)?;
+        if !self.ingress.permits(now, 1, INGRESS_PER_SECOND) {
+            return Err(RelayError::RateLimited);
+        }
+        self.ingress.charge(now, 1);
         match kind {
             FRAME_KIND => {
                 federation.receive_frame(position, payload, room.ordering.as_mut(), now_ms)?;

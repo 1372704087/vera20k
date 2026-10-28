@@ -449,6 +449,36 @@ test('signed-in players behind one NAT have independent command budgets', async 
   }
 });
 
+const from = (address) => ({ 'CF-Connecting-IP': address });
+
+test('addresses inside one IPv6 /64 share its sign-up budget', async () => {
+  const f = fixture();
+  for (let i = 1; i <= 40; i++) await f.player(`Host${i}`, from(`2001:db8:5:1::${i.toString(16)}`));
+  const refused = await f.request('/v1/sessions', null, { nickname: 'Host41' }, from('2001:0db8:0005:0001:ffff::29'));
+  assert.equal(refused.status, 429);
+  await f.player('NextNetwork', from('2001:db8:5:2::1'));
+});
+
+test('one IPv6 /48 cannot hold more than its share of lobby sessions', async () => {
+  const f = fixture();
+  for (let i = 0; i < 64; i++) await f.player(`Range${i}`, from(`2001:db8:7:${i.toString(16)}::1`));
+  const refused = await f.request('/v1/sessions', null, { nickname: 'RangeFull' }, from('2001:db8:7:ffff::2'));
+  assert.equal(refused.status, 503); assert.equal(refused.body.error.code, 'network_full');
+  await f.player('Elsewhere', from('2001:db8:8::1'));
+});
+
+test('polling shares one full session and match sweep per second', async () => {
+  const f = fixture(); const user = await f.player('Poller');
+  const list = f.store.list.bind(f.store);
+  let sweeps = 0;
+  f.store.list = (prefix) => { if (prefix === 'match:') sweeps++; return list(prefix); };
+  for (let second = 1; second <= 2; second++) {
+    f.advance(1);
+    for (let i = 0; i < 20; i++) assert.equal((await f.request('/v1/events?after=0', user.token)).status, 200);
+    assert.equal(sweeps, second);
+  }
+});
+
 test('thirty-player setup traffic delivers final options within a bounded control window', async () => {
   const f = fixture(); const users = [await f.player('Host')];
   for (let i = 1; i < 30; i++) users.push(await f.player(`Guest${i}`));
@@ -796,6 +826,8 @@ test('upgrade retires a stored v2 active membership without deleting accounts or
   assert.equal((await f.request('/v1/sessions', null, { nickname: 'HOST' })).status, 409);
   assert.equal((await f.request('/v1/channels?kind=0', host.token)).status, 200);
   old.protocol = 2; f.store.put(`session:${old.id}`, old);
+  // Stored v2 sessions predate the upgrade; the next second's sweep retires them.
+  f.advance(1);
   const replacement = await f.request('/v1/sessions', null, { nickname: 'Host' });
   assert.equal(replacement.status, 200); assert.equal(f.store.get(`session:${old.id}`), null);
   assert.deepEqual(f.store.get(old.account_key), account);

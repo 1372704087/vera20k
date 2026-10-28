@@ -31,6 +31,8 @@
 //! compared for identical behavior as well as for speed. The periodic hashes
 //! are timed on their own, which measures what each hashing frame also takes.
 //! The scenarios' own work (choosing each frame's commands) is not timed.
+//! A frame that fails ends the run with its error, after the CSV, summary and
+//! periodic hashes of the frames before it; `final_hash` is then left out.
 //!
 //! Frames hash their own state as normal play does, every
 //! `sim::replay::PLAY_HASH_INTERVAL`th frame; `--frame-hash-every 1` hashes
@@ -54,6 +56,7 @@
 
 mod sim_bench_match;
 
+use std::io::Write;
 use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -351,9 +354,180 @@ enum Plan {
     Match(MatchScenario),
 }
 
+/// Zero for no frames, as when the first frame failed.
 fn percentile(sorted: &[Duration], fraction: f64) -> f64 {
     let index = ((sorted.len() as f64 - 1.0) * fraction).round() as usize;
-    sorted[index].as_secs_f64() * 1000.0
+    sorted
+        .get(index)
+        .map_or(0.0, |time| time.as_secs_f64() * 1000.0)
+}
+
+/// What the frame loop measured, up to the first frame that failed.
+#[derive(Default)]
+struct Measured {
+    times: Vec<Duration>,
+    cpu_times: Vec<Option<Duration>>,
+    hashes: Vec<(u64, u64)>,
+    hash_times: Vec<Duration>,
+}
+
+/// The benchmark's frames: each frame's commands and progress are untimed,
+/// its advance is timed.
+trait Frames {
+    fn commands(&mut self, tick: u64) -> Vec<CommandEnvelope>;
+    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<(), String>;
+    fn state_hash(&self) -> u64;
+    /// After each completed frame, with every completed frame's time.
+    fn completed(&mut self, tick: u64, times: &[Duration]);
+}
+
+struct Bench<'a> {
+    runtime: &'a mut SimRuntime,
+    plan: &'a mut Plan,
+}
+
+impl Frames for Bench<'_> {
+    fn commands(&mut self, tick: u64) -> Vec<CommandEnvelope> {
+        match &mut *self.plan {
+            Plan::March(orders) => orders.get(tick as usize).cloned().unwrap_or_default(),
+            Plan::Match(script) => script.orders(self.runtime, tick),
+        }
+    }
+
+    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<(), String> {
+        self.runtime
+            .advance_frame_for_tooling(commands, SIM_TICK_MS)
+            .map_err(|error| error.to_string())
+    }
+
+    fn state_hash(&self) -> u64 {
+        self.runtime.simulation.state_hash()
+    }
+
+    fn completed(&mut self, tick: u64, times: &[Duration]) {
+        if let Plan::Match(script) = &*self.plan
+            && (tick + 1) % PROGRESS_EVERY == 0
+        {
+            let recent = &times[times.len().saturating_sub(PROGRESS_EVERY as usize)..];
+            let mean: Duration = recent.iter().sum::<Duration>() / recent.len() as u32;
+            println!(
+                "progress tick={} mean_ms={:.1} {}",
+                tick + 1,
+                mean.as_secs_f64() * 1000.0,
+                script.progress(self.runtime)
+            );
+        }
+    }
+}
+
+/// Run `ticks` frames, stopping at the first that fails. The frames before it
+/// keep their times and hashes, so the report still covers them.
+fn run_frames(
+    frames: &mut impl Frames,
+    ticks: u64,
+    hash_every: u64,
+) -> (Measured, Result<(), String>) {
+    let mut measured = Measured {
+        times: Vec::with_capacity(ticks as usize),
+        cpu_times: Vec::with_capacity(ticks as usize),
+        ..Measured::default()
+    };
+    for tick in 0..ticks {
+        let commands = frames.commands(tick);
+        let cpu_started = thread_cpu_time();
+        let started = Instant::now();
+        if let Err(error) = frames.advance(&commands) {
+            return (measured, Err(format!("tick {tick}: {error}")));
+        }
+        measured.times.push(started.elapsed());
+        measured.cpu_times.push(
+            cpu_started
+                .zip(thread_cpu_time())
+                .map(|(started, ended)| ended.saturating_sub(started)),
+        );
+        if hash_every > 0 && (tick + 1) % hash_every == 0 {
+            let started = Instant::now();
+            let hash = frames.state_hash();
+            measured.hash_times.push(started.elapsed());
+            measured.hashes.push((tick + 1, hash));
+        }
+        frames.completed(tick, &measured.times);
+    }
+    (measured, Ok(()))
+}
+
+/// The `--csv` file: one row per completed frame.
+fn csv(measured: &Measured) -> String {
+    let mut text = String::from("tick,ms,cpu_ms\n");
+    for (tick, (time, cpu)) in measured.times.iter().zip(&measured.cpu_times).enumerate() {
+        text.push_str(&format!(
+            "{},{:.3},{}\n",
+            tick + 1,
+            time.as_secs_f64() * 1000.0,
+            cpu.map_or(String::new(), |cpu| format!(
+                "{:.3}",
+                cpu.as_secs_f64() * 1000.0
+            ))
+        ));
+    }
+    text
+}
+
+/// The timing summary and periodic hashes of the completed frames.
+fn report(out: &mut impl Write, measured: &Measured, warmup: u64) -> std::io::Result<()> {
+    let times = &measured.times;
+    let total: Duration = times.iter().sum();
+    let steady: Vec<Duration> = times.iter().skip(warmup as usize).copied().collect();
+    let mut sorted = times.clone();
+    sorted.sort_unstable();
+    writeln!(
+        out,
+        "ticks={} total_s={:.2} mean_ms={:.2} p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
+        times.len(),
+        total.as_secs_f64(),
+        total.as_secs_f64() * 1000.0 / times.len().max(1) as f64,
+        percentile(&sorted, 0.5),
+        percentile(&sorted, 0.95),
+        percentile(&sorted, 1.0),
+    )?;
+    let mut cpu_sorted: Vec<Duration> = measured.cpu_times.iter().flatten().copied().collect();
+    if cpu_sorted.len() == times.len() && !cpu_sorted.is_empty() {
+        let cpu_total: Duration = cpu_sorted.iter().sum();
+        cpu_sorted.sort_unstable();
+        writeln!(
+            out,
+            "main_thread_cpu_mean_ms={:.2} p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
+            cpu_total.as_secs_f64() * 1000.0 / cpu_sorted.len() as f64,
+            percentile(&cpu_sorted, 0.5),
+            percentile(&cpu_sorted, 0.95),
+            percentile(&cpu_sorted, 1.0),
+        )?;
+    }
+    if !steady.is_empty() {
+        let steady_total: Duration = steady.iter().sum();
+        writeln!(
+            out,
+            "after_orders_mean_ms={:.2} (ticks {}..={})",
+            steady_total.as_secs_f64() * 1000.0 / steady.len() as f64,
+            warmup + 1,
+            times.len()
+        )?;
+    }
+    for (tick, hash) in &measured.hashes {
+        writeln!(out, "hash tick={tick} {hash:016x}")?;
+    }
+    if !measured.hash_times.is_empty() {
+        let total: Duration = measured.hash_times.iter().sum();
+        let mut hash_times = measured.hash_times.clone();
+        hash_times.sort_unstable();
+        writeln!(
+            out,
+            "periodic_hash_mean_ms={:.3} p50_ms={:.3}",
+            total.as_secs_f64() * 1000.0 / hash_times.len() as f64,
+            percentile(&hash_times, 0.5)
+        )?;
+    }
+    Ok(())
 }
 
 fn main() -> Result<(), String> {
@@ -434,110 +608,24 @@ fn main() -> Result<(), String> {
         println!("progress tick=0 {}", script.progress(runtime));
     }
 
-    let mut times = Vec::with_capacity(ticks as usize);
-    let mut cpu_times = Vec::with_capacity(ticks as usize);
-    let mut hashes = Vec::new();
-    let mut hash_times = Vec::new();
-    for tick in 0..ticks {
-        let batch = match &mut plan {
-            Plan::March(orders) => orders.get(tick as usize).cloned().unwrap_or_default(),
-            Plan::Match(script) => script.orders(runtime, tick),
-        };
-        let cpu_started = thread_cpu_time();
-        let started = Instant::now();
-        runtime
-            .advance_frame_for_tooling(&batch, SIM_TICK_MS)
-            .map_err(|error| format!("tick {tick}: {error}"))?;
-        times.push(started.elapsed());
-        cpu_times.push(
-            cpu_started
-                .zip(thread_cpu_time())
-                .map(|(started, ended)| ended.saturating_sub(started)),
-        );
-        if args.hash_every > 0 && (tick + 1) % args.hash_every == 0 {
-            let started = Instant::now();
-            let hash = runtime.simulation.state_hash();
-            hash_times.push(started.elapsed());
-            hashes.push((tick + 1, hash));
-        }
-        if let Plan::Match(script) = &plan
-            && (tick + 1) % PROGRESS_EVERY == 0
-        {
-            let recent = &times[times.len().saturating_sub(PROGRESS_EVERY as usize)..];
-            let mean: Duration = recent.iter().sum::<Duration>() / recent.len() as u32;
-            println!(
-                "progress tick={} mean_ms={:.1} {}",
-                tick + 1,
-                mean.as_secs_f64() * 1000.0,
-                script.progress(runtime)
-            );
-        }
-    }
-    let final_hash = runtime.simulation.state_hash();
-    let live_at_end = runtime.simulation.entities().len();
-
-    if let Some(path) = &args.csv {
-        let mut text = String::from("tick,ms,cpu_ms\n");
-        for (tick, (time, cpu)) in times.iter().zip(&cpu_times).enumerate() {
-            text.push_str(&format!(
-                "{},{:.3},{}\n",
-                tick + 1,
-                time.as_secs_f64() * 1000.0,
-                cpu.map_or(String::new(), |cpu| format!(
-                    "{:.3}",
-                    cpu.as_secs_f64() * 1000.0
-                ))
-            ));
-        }
-        std::fs::write(path, text).map_err(|error| format!("{}: {error}", path.display()))?;
-    }
-    let total: Duration = times.iter().sum();
-    let steady: Vec<Duration> = times.iter().skip(warmup as usize).copied().collect();
-    let mut sorted = times.clone();
-    sorted.sort_unstable();
-    println!(
-        "ticks={} total_s={:.2} mean_ms={:.2} p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
-        times.len(),
-        total.as_secs_f64(),
-        total.as_secs_f64() * 1000.0 / times.len().max(1) as f64,
-        percentile(&sorted, 0.5),
-        percentile(&sorted, 0.95),
-        percentile(&sorted, 1.0),
+    // A failed frame still reports the frames before it, then fails the run.
+    let (measured, frames) = run_frames(
+        &mut Bench {
+            runtime: &mut *runtime,
+            plan: &mut plan,
+        },
+        ticks,
+        args.hash_every,
     );
-    let mut cpu_sorted: Vec<Duration> = cpu_times.iter().flatten().copied().collect();
-    if cpu_sorted.len() == times.len() && !cpu_sorted.is_empty() {
-        let cpu_total: Duration = cpu_sorted.iter().sum();
-        cpu_sorted.sort_unstable();
-        println!(
-            "main_thread_cpu_mean_ms={:.2} p50_ms={:.2} p95_ms={:.2} max_ms={:.2}",
-            cpu_total.as_secs_f64() * 1000.0 / cpu_sorted.len() as f64,
-            percentile(&cpu_sorted, 0.5),
-            percentile(&cpu_sorted, 0.95),
-            percentile(&cpu_sorted, 1.0),
-        );
-    }
-    if !steady.is_empty() {
-        let steady_total: Duration = steady.iter().sum();
-        println!(
-            "after_orders_mean_ms={:.2} (ticks {}..={})",
-            steady_total.as_secs_f64() * 1000.0 / steady.len() as f64,
-            warmup + 1,
-            times.len()
-        );
-    }
-    for (tick, hash) in &hashes {
-        println!("hash tick={tick} {hash:016x}");
-    }
-    if !hash_times.is_empty() {
-        let total: Duration = hash_times.iter().sum();
-        hash_times.sort_unstable();
-        println!(
-            "periodic_hash_mean_ms={:.3} p50_ms={:.3}",
-            total.as_secs_f64() * 1000.0 / hash_times.len() as f64,
-            percentile(&hash_times, 0.5)
-        );
-    }
+    let live_at_end = runtime.simulation.entities().len();
+    let csv_written = args.csv.as_ref().map_or(Ok(()), |path| {
+        std::fs::write(path, csv(&measured)).map_err(|error| format!("{}: {error}", path.display()))
+    });
+    report(&mut std::io::stdout().lock(), &measured, warmup).map_err(|error| error.to_string())?;
     println!("live_objects start={live_at_start} end={live_at_end}");
+    frames?;
+    csv_written?;
+    let final_hash = runtime.simulation.state_hash();
     println!("final_hash={final_hash:016x}");
     Ok(())
 }
@@ -555,4 +643,64 @@ fn thread_cpu_time() -> Option<Duration> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod partial_report_tests {
+    use super::*;
+
+    /// Frames that fail at `fail_at`; the state hash counts completed frames.
+    struct Scripted {
+        fail_at: u64,
+        done: u64,
+    }
+
+    impl Frames for Scripted {
+        fn commands(&mut self, _tick: u64) -> Vec<CommandEnvelope> {
+            Vec::new()
+        }
+
+        fn advance(&mut self, _commands: &[CommandEnvelope]) -> Result<(), String> {
+            if self.done == self.fail_at {
+                return Err("boom".to_string());
+            }
+            self.done += 1;
+            Ok(())
+        }
+
+        fn state_hash(&self) -> u64 {
+            self.done
+        }
+
+        fn completed(&mut self, _tick: u64, _times: &[Duration]) {}
+    }
+
+    fn run(fail_at: u64) -> (Measured, Result<(), String>, String) {
+        let mut frames = Scripted { fail_at, done: 0 };
+        let (measured, result) = run_frames(&mut frames, 5, 1);
+        let mut out = Vec::new();
+        report(&mut out, &measured, 1).unwrap();
+        (measured, result, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn failed_frame_keeps_the_frames_before_it() {
+        let (measured, result, out) = run(2);
+        assert_eq!(result, Err("tick 2: boom".to_string()));
+        assert_eq!(measured.hashes, [(1, 1), (2, 2)]);
+        assert_eq!(csv(&measured).lines().count(), 3);
+        assert!(out.starts_with("ticks=2 "), "{out}");
+        assert!(out.contains("hash tick=2 0000000000000002\n"), "{out}");
+    }
+
+    #[test]
+    fn first_frame_failure_reports_no_frames() {
+        let (measured, result, out) = run(0);
+        assert_eq!(result, Err("tick 0: boom".to_string()));
+        assert_eq!(csv(&measured), "tick,ms,cpu_ms\n");
+        assert!(
+            out.starts_with("ticks=0 total_s=0.00 mean_ms=0.00 p50_ms=0.00 "),
+            "{out}"
+        );
+    }
 }

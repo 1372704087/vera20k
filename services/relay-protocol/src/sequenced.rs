@@ -2201,6 +2201,21 @@ mod tests {
         ));
         assert_eq!(server.room_count(), 0, "terminal ACK never recreates state");
         assert!(!room.exists());
+        // An expired ticket's replays stop at the player's own budget instead
+        // of spending the relay-wide order budget everyone's input needs.
+        for _ in 1..PLAYER_HANDSHAKES_PER_SECOND {
+            assert!(
+                server
+                    .process_at(endpoint(&first), &leave, unix(652_000), 652_000)
+                    .is_ok()
+            );
+        }
+        assert_eq!(
+            server
+                .process_at(endpoint(&first), &leave, unix(652_000), 652_000)
+                .err(),
+            Some(RelayError::RateLimited)
+        );
     }
 
     #[test]
@@ -2889,7 +2904,13 @@ impl RelayServer {
         now_ms: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
         let cost = (SERVER_HEADER + MAC_LEN) as u64;
-        if !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
+        // Leave needs no admission and accepts expired tickets. Like a
+        // handshake, the player's own budget comes before the relay's.
+        if !self.player_handshakes(&message.ticket.player).permits(
+            now,
+            1,
+            PLAYER_HANDSHAKES_PER_SECOND,
+        ) || !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
             || !self.order_packets.permits(now, 1, INGRESS_PER_SECOND)
         {
             return Err(RelayError::RateLimited);
@@ -2948,6 +2969,7 @@ impl RelayServer {
         }
         self.outgoing.charge(now, cost);
         self.order_packets.charge(now, 1);
+        self.charge_player_handshake(message.ticket.player, now);
         Ok(vec![ForwardDatagram {
             endpoint,
             bytes: encode_server(

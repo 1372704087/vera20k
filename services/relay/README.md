@@ -23,11 +23,16 @@ key only through authenticated HTTPS, derives a distinct source key, and uses a
 fresh OS-random 128-bit nonce prefix plus a checked packet counter. Renewal or
 reconstruction generates a new prefix; NAT rebinding retains the counter.
 
-The relay bounds aggregate input at 16,384 datagrams/second and handshakes at
-512/second; admitted principals get eight handshakes/second, enough for paired
-old/new routes during renewal. The existing 2,048 packet/second principal cap
-is joined by actual ciphertext output budgets: 2 MiB/second per sender and
-64 MiB/second per room and relay. Whole broadcasts reserve all recipient bytes
+Each player gets eight handshakes/second, admitted or not, enough for paired
+old/new routes during renewal; Leave acknowledgements, which need no admission,
+share that budget. Only permitted handshakes count toward the relay's
+512/second. Relay-wide input of 16,384 datagrams/second counts only datagrams
+that authenticate and pass their sender's own limits, including the replay
+window and the 2,048 packet/second principal cap, so forged, junk or replayed
+traffic cannot spend capacity other players need. Rejecting one costs at most
+three HMACs. These packet caps are joined by actual ciphertext output budgets:
+2 MiB/second per sender and 64 MiB/second per room and relay. Whole broadcasts
+reserve all recipient bytes
 before forwarding, preventing partial delivery when a budget is exhausted.
 Fixed one-second windows allow ordinary short bursts, including simultaneous
 NAT rebinding. Limits count ciphertext, framing and MAC bytes, not just input

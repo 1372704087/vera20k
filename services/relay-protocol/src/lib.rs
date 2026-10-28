@@ -706,6 +706,9 @@ pub struct RelayServer {
     max_principals: usize,
     ingress: RateBudget,
     handshakes: RateBudget,
+    // Handshake budgets of players without an admission. Only permitted
+    // exchanges add an entry, and `prune` clears them every second.
+    unadmitted_handshakes: HashMap<[u8; 16], RateBudget>,
     outgoing: RateBudget,
     order_packets: RateBudget,
     repeat_packets: RateBudget,
@@ -724,6 +727,7 @@ impl RelayServer {
             max_principals: max_rooms.saturating_mul(usize::from(MAX_PEERS)),
             ingress: RateBudget::default(),
             handshakes: RateBudget::default(),
+            unadmitted_handshakes: HashMap::new(),
             outgoing: RateBudget::default(),
             order_packets: RateBudget::default(),
             repeat_packets: RateBudget::default(),
@@ -765,12 +769,10 @@ impl RelayServer {
         now: u64,
         now_millis: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
-        // The cheap global gate bounds even malformed/forged authentication
-        // work. No source-address map can grow under spoofed UDP traffic.
-        if !self.ingress.permits(now, 1, INGRESS_PER_SECOND) {
-            return Err(RelayError::RateLimited);
-        }
-        self.ingress.charge(now, 1);
+        // Relay-wide budgets are charged only after authentication and the
+        // sender's own limits, so forged, junk or replayed datagrams cannot
+        // spend capacity other players need. Rejecting one costs at most
+        // three HMACs. No source-address map grows under spoofed UDP traffic.
         if bytes.starts_with(sequenced::federation::LINK_MAGIC) {
             return self.federation_receive(bytes, now, now_millis);
         }
@@ -825,10 +827,13 @@ impl RelayServer {
             .admissions
             .get_mut(&message.ticket.player)
             .ok_or(RelayError::Unregistered)?;
-        if !admission.packets.permits(now, 1, 2048) {
+        if !admission.packets.permits(now, 1, 2048)
+            || !self.ingress.permits(now, 1, INGRESS_PER_SECOND)
+        {
             return Err(RelayError::RateLimited);
         }
         admission.packets.charge(now, 1);
+        self.ingress.charge(now, 1);
         room.peers[index].last_seen = now;
         if message.kind == CONTROL {
             return self.ordering_request(&message, now, now_millis);
@@ -921,26 +926,48 @@ impl RelayServer {
         });
         self.admissions
             .retain(|_, admission| admission.retain_until > now);
+        self.unadmitted_handshakes.clear();
         self.last_pruned = now;
     }
 
+    /// A player's own handshake budget, admitted or not. It is checked before
+    /// the relay-wide budgets: replaying one valid ticket must not spend the
+    /// capacity other players need to join, renew or change address.
+    fn player_handshakes(&self, player: &[u8; 16]) -> RateBudget {
+        match self.admissions.get(player) {
+            Some(admission) => admission.handshakes,
+            None => self
+                .unadmitted_handshakes
+                .get(player)
+                .copied()
+                .unwrap_or_default(),
+        }
+    }
+
+    fn charge_player_handshake(&mut self, player: [u8; 16], now: u64) {
+        match self.admissions.get_mut(&player) {
+            Some(admission) => admission.handshakes.charge(now, 1),
+            None => self
+                .unadmitted_handshakes
+                .entry(player)
+                .or_default()
+                .charge(now, 1),
+        }
+    }
+
     fn allow_handshake(&mut self, message: &Incoming<'_>, now: u64) -> Result<(), RelayError> {
-        if !self.handshakes.permits(now, 1, HANDSHAKES_PER_SECOND)
-            || self
-                .admissions
-                .get(&message.ticket.player)
-                .is_some_and(|admission| {
-                    !admission
-                        .handshakes
-                        .permits(now, 1, PLAYER_HANDSHAKES_PER_SECOND)
-                })
+        let player = message.ticket.player;
+        if !self
+            .player_handshakes(&player)
+            .permits(now, 1, PLAYER_HANDSHAKES_PER_SECOND)
+            || !self.handshakes.permits(now, 1, HANDSHAKES_PER_SECOND)
+            || !self.ingress.permits(now, 1, INGRESS_PER_SECOND)
         {
             return Err(RelayError::RateLimited);
         }
+        self.charge_player_handshake(player, now);
         self.handshakes.charge(now, 1);
-        if let Some(admission) = self.admissions.get_mut(&message.ticket.player) {
-            admission.handshakes.charge(now, 1);
-        }
+        self.ingress.charge(now, 1);
         Ok(())
     }
 
@@ -1064,14 +1091,16 @@ impl RelayServer {
             room: message.ticket.room,
             source: message.ticket.source,
             retain_until: 0,
-            handshakes: RateBudget::default(),
+            // This Confirm and any earlier Hello this second are already
+            // charged here; admission keeps that count.
+            handshakes: self
+                .unadmitted_handshakes
+                .remove(&message.ticket.player)
+                .unwrap_or_default(),
             packets: RateBudget::default(),
             outgoing: RateBudget::default(),
             order_packets: RateBudget::default(),
         });
-        if prior.is_none() {
-            admission.handshakes.charge(now, 1);
-        }
         if prior.is_none() || newer {
             // Even an unseen older grant cannot outlive this tombstone. Its
             // signed maximum lifetime is measured at the time we see the newer
@@ -1198,12 +1227,16 @@ mod tests {
     use super::*;
 
     fn client(key: &SecretKey, room: u8, source: u8) -> ClientSession {
+        client_as(key, room, source, [source + 1; 16])
+    }
+
+    fn client_as(key: &SecretKey, room: u8, source: u8, player: [u8; 16]) -> ClientSession {
         let ticket = Ticket {
             room: [room; 16],
             source,
             expires: 1200,
             nonce: [source + 1; 16],
-            player: [source + 1; 16],
+            player,
             generation: 1,
         }
         .sign(key)
@@ -1331,8 +1364,10 @@ mod tests {
         let mut first = client(&key, 1, 0);
         let mut server = RelayServer::new(key.clone(), 1);
         let mut bytes = Vec::new();
+        // Replays of one never-confirmed ticket stop at its player's budget
+        // and leave the relay's handshakes to everyone else.
         first.probe(&mut bytes).unwrap();
-        for _ in 0..HANDSHAKES_PER_SECOND {
+        for _ in 0..PLAYER_HANDSHAKES_PER_SECOND {
             assert!(server.process(endpoint, &bytes, 1000).is_ok());
         }
         assert!(matches!(
@@ -1340,6 +1375,26 @@ mod tests {
             Err(RelayError::RateLimited)
         ));
         assert_eq!(server.room_count(), 0);
+        connect(
+            &mut server,
+            &mut client(&key, 1, 1),
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, 32002),
+        );
+
+        // Distinct players still share the relay-wide budget.
+        let mut server = RelayServer::new(key.clone(), 1);
+        let players = HANDSHAKES_PER_SECOND / PLAYER_HANDSHAKES_PER_SECOND;
+        for player in 1..=players + 1 {
+            let mut id = [0; 16];
+            id[..8].copy_from_slice(&player.to_le_bytes());
+            client_as(&key, 1, 0, id).probe(&mut bytes).unwrap();
+            for _ in 0..PLAYER_HANDSHAKES_PER_SECOND {
+                assert_eq!(
+                    server.process(endpoint, &bytes, 1000).err(),
+                    (player > players).then_some(RelayError::RateLimited)
+                );
+            }
+        }
 
         let mut server = RelayServer::new(key, 1);
         connect(&mut server, &mut first, endpoint);
@@ -1349,7 +1404,8 @@ mod tests {
         let ServerEvent::Challenge(cookie) = first.receive(&challenge.bytes).unwrap() else {
             panic!("challenge");
         };
-        for _ in 0..6 {
+        // The connecting Hello and Confirm count too: three of eight are spent.
+        for _ in 0..5 {
             first.confirm(cookie, &mut bytes).unwrap();
             assert!(server.process(endpoint, &bytes, 1000).is_ok());
         }
@@ -1358,6 +1414,31 @@ mod tests {
             server.process(endpoint, &bytes, 1000),
             Err(RelayError::RateLimited)
         ));
+    }
+
+    #[test]
+    fn forged_and_replayed_datagrams_cannot_spend_relay_input_budget() {
+        let key = SecretKey::new([74; 32]);
+        let mut server = RelayServer::new(key.clone(), 1);
+        let mut sender = client(&key, 1, 0);
+        let endpoint = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 32200);
+        connect(&mut server, &mut sender, endpoint);
+        let mut accepted = Vec::new();
+        sender.data(BROADCAST, b"input", &mut accepted).unwrap();
+        assert!(server.process(endpoint, &accepted, 1000).is_ok());
+        let mut forged = accepted.clone();
+        *forged.last_mut().unwrap() ^= 1;
+        for attempt in 0..=INGRESS_PER_SECOND {
+            let (packet, error) = if attempt % 2 == 0 {
+                (&forged, RelayError::Authentication)
+            } else {
+                (&accepted, RelayError::Replay)
+            };
+            assert_eq!(server.process(endpoint, packet, 1000).err(), Some(error));
+        }
+        let mut fresh = Vec::new();
+        sender.data(BROADCAST, b"input", &mut fresh).unwrap();
+        assert!(server.process(endpoint, &fresh, 1000).is_ok());
     }
 
     #[test]

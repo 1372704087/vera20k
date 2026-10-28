@@ -11,7 +11,7 @@ function fixture() {
         if (!elements.has(key)) elements.set(key, {
             textContent: '', hidden: false, dataset: {},
             classList: {add() {}, remove() {}, toggle() {}},
-            addEventListener() {}, setAttribute() {},
+            addEventListener() {}, setAttribute() {}, closest: () => ({}),
         });
         return elements.get(key);
     };

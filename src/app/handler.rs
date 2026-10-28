@@ -1879,10 +1879,14 @@ impl ApplicationHandler for App {
         log::logger().flush();
         #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
         {
-            // The confirmed quit cascade (0x0052E7EC) has finished before notifying the host.
-            self.state.take();
+            // A confirmed quit (its cascade's Theme Stop(0), 0x0052E7EC, has run)
+            // or a page unload tears down a running game. A failed startup has no
+            // state and keeps its "Startup failed" status on the page.
+            let started = self.state.take().is_some();
             crate::audio::web_output::shutdown();
-            crate::web::status("Exited");
+            if started {
+                crate::web::status("Exited");
+            }
         }
     }
 }

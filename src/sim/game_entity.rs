@@ -132,6 +132,10 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_attach_effects: crate::sim::attach_effect::AttachEffectList,
+    /// Derived from those instances each AI frame; never hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_stat_multipliers: crate::sim::attach_effect::PhobosStatMultipliers,
     /// Phobos ShieldClass state: shield points and their recovery timers.
     #[cfg(feature = "phobos")]
     #[serde(default)]
@@ -1832,6 +1836,8 @@ impl GameEntity {
             attach_effects: Default::default(),
             #[cfg(feature = "phobos")]
             phobos_attach_effects: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_stat_multipliers: Default::default(),
             techno_ctor_random_word,
             secret_lab_fallback: None,
             object_group: -1,
@@ -2549,6 +2555,21 @@ impl GameEntity {
         &mut self.phobos_attach_effects
     }
 
+    /// The stat fold `sim::attach_effect` recomputes from the instance list
+    /// every AI frame.
+    pub(crate) fn phobos_stat_multipliers(
+        &self,
+    ) -> &crate::sim::attach_effect::PhobosStatMultipliers {
+        &self.phobos_stat_multipliers
+    }
+
+    pub(crate) fn set_phobos_stat_multipliers(
+        &mut self,
+        stats: crate::sim::attach_effect::PhobosStatMultipliers,
+    ) {
+        self.phobos_stat_multipliers = stats;
+    }
+
     /// A live effect drives future frames, so it joins the state hash; an
     /// entity with none contributes nothing.
     pub(crate) fn hash_phobos_attach_effects<H: std::hash::Hasher>(&self, hasher: &mut H) {
@@ -2556,6 +2577,46 @@ impl GameEntity {
         if !self.phobos_attach_effects.is_empty() {
             b"phobos-attach-effects-v1".hash(hasher);
             self.phobos_attach_effects.hash(hasher);
+        }
+    }
+}
+
+/// The derived AttachEffect stat factors, identity when the feature is off so
+/// shared code paths need no feature gates.
+impl GameEntity {
+    /// The cached AttachEffect speed factor; identity without the feature.
+    pub(crate) fn phobos_speed_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.speed
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
+        }
+    }
+
+    /// The cached AttachEffect armor factor for the unrestricted effects.
+    pub(crate) fn phobos_armor_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.armor
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
+        }
+    }
+
+    /// The cached AttachEffect ROF factor; identity without the feature.
+    pub(crate) fn phobos_rof_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.rof
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
         }
     }
 }

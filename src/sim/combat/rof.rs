@@ -131,6 +131,11 @@ pub(crate) struct RofQuery<'a> {
     pub unit_burst_delays: Option<[i32; 4]>,
     /// The owner's ROF bias (`House+0x1A8`).
     pub house_rof: NativeF64Bits,
+    /// Phobos `TechnoClass_RearmDelay_ROF` (`0x006FD0B5`, 6 bytes replaced):
+    /// the active AttachEffect `ROFMultiplier` product, a C++ double multiply
+    /// on `ROF=` before the house fold and jitter. The direct sonic/particle
+    /// and mid-burst returns never reach it.
+    pub ae_rof: f64,
     /// Installed Ares GetROF hooks10047A40/10047A60. None describes the
     /// unpatched retail kernel for native controls; Ares gameplay supplies
     /// Some even at identity, including the building-ammo shortcut bypass.
@@ -199,7 +204,10 @@ pub(crate) fn get_rof(query: &RofQuery<'_>, rng: &mut SimRng) -> i32 {
         return rng.next_range_u32_inclusive(3, 5) as i32;
     }
     let jitter = rng.next_range_u32_inclusive(0, 2) as i32;
-    let weapon_rof = X::load_i32(weapon.rof);
+    // Phobos 0x006FD0B5 loads `ROF * AE` (C++ double) in place of the stock
+    // int `ROF`. An identity factor loads the same exact value.
+    let phobos_rof = f64::from(weapon.rof) * query.ae_rof;
+    let weapon_rof = X::load_f64(NativeF64Bits::from_bits(phobos_rof.to_bits()));
     // Installed Ares TechnoClass_GetROF_AttachEffect10047A40 hooks6FD0BF,
     // after FILD weaponROF, before House FMUL6FD0C5 and jitter FIADD6FD0CB.
     // Direct particle/sonic and mid-burst returns never reach that hook.
@@ -247,6 +255,54 @@ pub(crate) fn get_rof(query: &RofQuery<'_>, rng: &mut SimRng) -> i32 {
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    /// Phobos `TechnoClass_RearmDelay_ROF` (`0x006FD0B5`): `ROF * AE` replaces
+    /// the stock `ROF=` before the house fold and jitter, while the direct
+    /// sonic/particle and mid-burst returns never see it.
+    #[test]
+    fn attach_effect_rof_scales_the_ordinary_arm_before_house_and_jitter() {
+        let weapon = |text: &str| {
+            let ini = IniFile::from_str(text);
+            WeaponType::from_ini_section("GUN", ini.section("GUN").unwrap())
+        };
+        let ordinary = weapon("[GUN]\nROF=40\nBurst=1\n");
+        fn query<'a>(weapon: &'a WeaponType, ae_rof: f64) -> RofQuery<'a> {
+            RofQuery {
+                building_ammo: None,
+                weapon: Some(weapon),
+                live: LiveParticles::default(),
+                burst_index: 1,
+                unit_burst_delays: None,
+                house_rof: NativeF64Bits::ONE,
+                ae_rof,
+                #[cfg(feature = "ares")]
+                attached_rof: None,
+                rof_ability: false,
+                veteran_rof: 1.0,
+                occupants: None,
+                bunkered: false,
+                occupy_rof_multiplier: 1.0,
+                bunker_rof_multiplier: 1.0,
+            }
+        }
+        let mut base_rng = SimRng::new(9);
+        let mut ae_rng = SimRng::new(9);
+        let base = get_rof(&query(&ordinary, 1.0), &mut base_rng);
+        let doubled = get_rof(&query(&ordinary, 2.0), &mut ae_rng);
+        assert_eq!(
+            doubled,
+            base + 40,
+            "the shared jitter draw cancels; only ROF is doubled"
+        );
+
+        let sonic = weapon("[GUN]\nROF=40\nBurst=1\nIsSonic=yes\n");
+        let mut rng = SimRng::new(3);
+        assert_eq!(
+            get_rof(&query(&sonic, 2.0), &mut rng),
+            40,
+            "the sonic return precedes the AE multiply"
+        );
+    }
 
     #[test]
     fn attached_rof_hook_preserves_native_reload_order_and_rng() {
@@ -298,6 +354,7 @@ mod tests {
                 burst_index: 1,
                 unit_burst_delays: None,
                 house_rof: NativeF64Bits::from_bits(house),
+                ae_rof: 1.0,
                 #[cfg(feature = "ares")]
                 attached_rof: Some(NativeF64Bits::from_bits(_factor)),
                 rof_ability: false,
@@ -377,6 +434,7 @@ mod tests {
                 burst_index: int("burst_index", 1),
                 unit_burst_delays: (class == 1).then_some(delays),
                 house_rof: NativeF64Bits::from_bits(hex("house_bits", "3ff0000000000000")),
+                ae_rof: 1.0,
                 #[cfg(feature = "ares")]
                 attached_rof: None,
                 rof_ability: (veteran && veteran_byte) || (elite && (veteran_byte || elite_byte)),

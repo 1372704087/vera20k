@@ -165,6 +165,40 @@ pub struct AttachEffectType {
     pub tint_color: Option<[u8; 3]>,
     pub tint_intensity: f64,
     pub tint_visible_to_houses: AffectedHouse,
+    /// `FirepowerMultiplier`.
+    pub firepower_multiplier: f64,
+    /// `ArmorMultiplier` and its conditional form.
+    pub armor_multiplier: f64,
+    pub armor_multiplier_allow_warheads: Vec<String>,
+    pub armor_multiplier_disallow_warheads: Vec<String>,
+    /// `.Delay` is documented but the class has no such reader, so it is not
+    /// read here.
+    pub armor_multiplier_chance: f64,
+    pub armor_multiplier_affects_house: AffectedHouse,
+    /// `ArmorMultiplier.HitAnim`: one is picked when the multiplier applies to
+    /// a received hit.
+    pub armor_multiplier_hit_anim: Vec<String>,
+    /// `SpeedMultiplier`.
+    pub speed_multiplier: f64,
+    /// `ROFMultiplier`; `.ApplyOnCurrentTimer` scales the timer already
+    /// running when the effect initializes.
+    pub rof_multiplier: f64,
+    pub rof_multiplier_apply_on_current_timer: bool,
+    pub cloakable: bool,
+    pub force_decloak: bool,
+    /// `WeaponRange.Multiplier` applies first, `.ExtraRange` (in cells) adds
+    /// after every effect's multiplier, and the two weapon lists gate both.
+    pub weapon_range_multiplier: f64,
+    pub weapon_range_extra_range: f64,
+    pub weapon_range_allow_weapons: Vec<String>,
+    pub weapon_range_disallow_weapons: Vec<String>,
+    /// `Crit.Multiplier` / `Crit.ExtraChance`, gated by warhead.
+    pub crit_multiplier: f64,
+    pub crit_extra_chance: f64,
+    pub crit_allow_warheads: Vec<String>,
+    pub crit_disallow_warheads: Vec<String>,
+    pub disable_weapons: bool,
+    pub unkillable: bool,
 }
 
 impl Default for AttachEffectType {
@@ -204,6 +238,28 @@ impl AttachEffectType {
             tint_color: None,
             tint_intensity: 0.0,
             tint_visible_to_houses: AffectedHouse::ALL,
+            firepower_multiplier: 1.0,
+            armor_multiplier: 1.0,
+            armor_multiplier_allow_warheads: Vec::new(),
+            armor_multiplier_disallow_warheads: Vec::new(),
+            armor_multiplier_chance: 1.0,
+            armor_multiplier_affects_house: AffectedHouse::ALL,
+            armor_multiplier_hit_anim: Vec::new(),
+            speed_multiplier: 1.0,
+            rof_multiplier: 1.0,
+            rof_multiplier_apply_on_current_timer: true,
+            cloakable: false,
+            force_decloak: false,
+            weapon_range_multiplier: 1.0,
+            weapon_range_extra_range: 0.0,
+            weapon_range_allow_weapons: Vec::new(),
+            weapon_range_disallow_weapons: Vec::new(),
+            crit_multiplier: 1.0,
+            crit_extra_chance: 0.0,
+            crit_allow_warheads: Vec::new(),
+            crit_disallow_warheads: Vec::new(),
+            disable_weapons: false,
+            unkillable: false,
         }
     }
 
@@ -233,6 +289,28 @@ impl AttachEffectType {
     /// `HasTint()`: a colour or a nonzero intensity.
     pub fn has_tint(&self) -> bool {
         self.tint_color.is_some() || self.tint_intensity != 0.0
+    }
+
+    /// `RestrictedArmorMultiplier`: the armor factor is only rolled at hit
+    /// time when a hit anim is listed or any gate can reject it.
+    pub fn restricted_armor_multiplier(&self) -> bool {
+        !self.armor_multiplier_hit_anim.is_empty()
+            || (self.armor_multiplier != 1.0
+                && (!self.armor_multiplier_allow_warheads.is_empty()
+                    || !self.armor_multiplier_disallow_warheads.is_empty()
+                    || self.armor_multiplier_chance < 1.0
+                    || self.armor_multiplier_affects_house != AffectedHouse::ALL))
+    }
+
+    /// `GetRangeWithModifiers` skips a type whose multiplier is 1.0 and whose
+    /// extra range is 0.
+    pub fn has_range_modifier(&self) -> bool {
+        self.weapon_range_multiplier != 1.0 || self.weapon_range_extra_range != 0.0
+    }
+
+    /// `HasCritModifiers`.
+    pub fn has_crit_modifiers(&self) -> bool {
+        self.crit_multiplier != 1.0 || self.crit_extra_chance != 0.0
     }
 
     /// `AllowTransfer`: an effect a techno attaches to itself defaults to
@@ -391,6 +469,65 @@ impl AttachEffectTypeCatalog {
                 entry.tint_visible_to_houses,
                 |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
             );
+            entry.firepower_multiplier =
+                section.read_phobos_double("FirepowerMultiplier", entry.firepower_multiplier);
+            entry.armor_multiplier =
+                section.read_phobos_double("ArmorMultiplier", entry.armor_multiplier);
+            if let Some(tokens) = section.read_list("ArmorMultiplier.AllowWarheads", 0x800) {
+                entry.armor_multiplier_allow_warheads =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            if let Some(tokens) = section.read_list("ArmorMultiplier.DisallowWarheads", 0x800) {
+                entry.armor_multiplier_disallow_warheads =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.armor_multiplier_chance =
+                section.read_phobos_double("ArmorMultiplier.Chance", entry.armor_multiplier_chance);
+            entry.armor_multiplier_affects_house = section.read_string_with(
+                "ArmorMultiplier.AffectsHouse",
+                0x100,
+                entry.armor_multiplier_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            if let Some(tokens) = section.read_list("ArmorMultiplier.HitAnim", 0x800) {
+                entry.armor_multiplier_hit_anim =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.speed_multiplier =
+                section.read_phobos_double("SpeedMultiplier", entry.speed_multiplier);
+            entry.rof_multiplier =
+                section.read_phobos_double("ROFMultiplier", entry.rof_multiplier);
+            entry.rof_multiplier_apply_on_current_timer = section.read_bool(
+                "ROFMultiplier.ApplyOnCurrentTimer",
+                entry.rof_multiplier_apply_on_current_timer,
+            );
+            entry.cloakable = section.read_bool("Cloakable", entry.cloakable);
+            entry.force_decloak = section.read_bool("ForceDecloak", entry.force_decloak);
+            entry.weapon_range_multiplier =
+                section.read_phobos_double("WeaponRange.Multiplier", entry.weapon_range_multiplier);
+            entry.weapon_range_extra_range = section
+                .read_phobos_double("WeaponRange.ExtraRange", entry.weapon_range_extra_range);
+            if let Some(tokens) = section.read_list("WeaponRange.AllowWeapons", 0x800) {
+                entry.weapon_range_allow_weapons =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            if let Some(tokens) = section.read_list("WeaponRange.DisallowWeapons", 0x800) {
+                entry.weapon_range_disallow_weapons =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.crit_multiplier =
+                section.read_phobos_double("Crit.Multiplier", entry.crit_multiplier);
+            entry.crit_extra_chance =
+                section.read_phobos_double("Crit.ExtraChance", entry.crit_extra_chance);
+            if let Some(tokens) = section.read_list("Crit.AllowWarheads", 0x800) {
+                entry.crit_allow_warheads = tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            if let Some(tokens) = section.read_list("Crit.DisallowWarheads", 0x800) {
+                entry.crit_disallow_warheads =
+                    tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.disable_weapons = section.read_bool("DisableWeapons", entry.disable_weapons);
+            entry.unkillable = section.read_bool("Unkillable", entry.unkillable);
             // The native loop appends into the retained vector, which would
             // duplicate every rule on a second Rules pass; rebuild instead.
             entry.animation_draw_offsets.clear();
@@ -511,6 +648,23 @@ mod tests {
         assert_eq!(entry.tint_intensity, 0.0);
         assert_eq!(entry.tint_visible_to_houses, AffectedHouse::ALL);
         assert!(entry.animation_draw_offsets.is_empty());
+        assert_eq!(entry.firepower_multiplier, 1.0);
+        assert_eq!(entry.armor_multiplier, 1.0);
+        assert_eq!(entry.armor_multiplier_chance, 1.0);
+        assert_eq!(entry.armor_multiplier_affects_house, AffectedHouse::ALL);
+        assert!(entry.armor_multiplier_hit_anim.is_empty());
+        assert_eq!(entry.speed_multiplier, 1.0);
+        assert_eq!(entry.rof_multiplier, 1.0);
+        assert!(entry.rof_multiplier_apply_on_current_timer);
+        assert!(!entry.cloakable && !entry.force_decloak);
+        assert_eq!(entry.weapon_range_multiplier, 1.0);
+        assert_eq!(entry.weapon_range_extra_range, 0.0);
+        assert_eq!(entry.crit_multiplier, 1.0);
+        assert_eq!(entry.crit_extra_chance, 0.0);
+        assert!(!entry.disable_weapons && !entry.unkillable);
+        assert!(!entry.restricted_armor_multiplier());
+        assert!(!entry.has_range_modifier());
+        assert!(!entry.has_crit_modifiers());
 
         let catalog = parse(
             "[AttachEffectTypes]
@@ -552,6 +706,83 @@ Animation.DrawOffset2=0,0
         assert_eq!(entry.animation_draw_offsets[0].offset, [7, -3]);
         assert_eq!(entry.animation_draw_offsets[0].required_types, vec!["REQ"]);
         assert_eq!(entry.animation_draw_offsets[1].offset, [2, 0]);
+    }
+
+    /// The stat-multiplier keys read with their documented defaults, their
+    /// name lists keep order, and the derived restriction flags follow the
+    /// constructor's post-read pass.
+    #[test]
+    fn multiplier_keys_read_with_documented_defaults() {
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=M
+[M]
+FirepowerMultiplier=1.5
+ArmorMultiplier=0.5
+ArmorMultiplier.AllowWarheads=WH1,WH2
+ArmorMultiplier.DisallowWarheads=WH3
+ArmorMultiplier.Chance=0.25
+ArmorMultiplier.AffectsHouse=enemies
+ArmorMultiplier.HitAnim=HIT1
+SpeedMultiplier=2.0
+ROFMultiplier=0.75
+ROFMultiplier.ApplyOnCurrentTimer=no
+Cloakable=yes
+ForceDecloak=yes
+WeaponRange.Multiplier=1.25
+WeaponRange.ExtraRange=2
+WeaponRange.AllowWeapons=W1
+WeaponRange.DisallowWeapons=W2
+Crit.Multiplier=1.5
+Crit.ExtraChance=0.1
+Crit.AllowWarheads=WH1
+Crit.DisallowWarheads=WH2
+DisableWeapons=yes
+Unkillable=yes
+",
+        );
+        let entry = catalog.entry("M").expect("entry");
+        assert_eq!(entry.firepower_multiplier, 1.5);
+        assert_eq!(entry.armor_multiplier, 0.5);
+        assert_eq!(entry.armor_multiplier_allow_warheads, vec!["WH1", "WH2"]);
+        assert_eq!(entry.armor_multiplier_disallow_warheads, vec!["WH3"]);
+        assert_eq!(entry.armor_multiplier_chance, 0.25);
+        assert_eq!(entry.armor_multiplier_affects_house, AffectedHouse::ENEMIES);
+        assert_eq!(entry.armor_multiplier_hit_anim, vec!["HIT1"]);
+        assert!(entry.restricted_armor_multiplier());
+        assert_eq!(entry.speed_multiplier, 2.0);
+        assert_eq!(entry.rof_multiplier, 0.75);
+        assert!(!entry.rof_multiplier_apply_on_current_timer);
+        assert!(entry.cloakable && entry.force_decloak);
+        assert_eq!(entry.weapon_range_multiplier, 1.25);
+        assert_eq!(entry.weapon_range_extra_range, 2.0);
+        assert_eq!(entry.weapon_range_allow_weapons, vec!["W1"]);
+        assert_eq!(entry.weapon_range_disallow_weapons, vec!["W2"]);
+        assert!(entry.has_range_modifier());
+        assert_eq!(entry.crit_multiplier, 1.5);
+        assert_eq!(
+            entry.crit_extra_chance,
+            f64::from(0.1_f32),
+            "ReadDouble is f32"
+        );
+        assert_eq!(entry.crit_allow_warheads, vec!["WH1"]);
+        assert_eq!(entry.crit_disallow_warheads, vec!["WH2"]);
+        assert!(entry.has_crit_modifiers());
+        assert!(entry.disable_weapons && entry.unkillable);
+
+        // A bare multiplier with no gate stays unrestricted.
+        let catalog = parse("[AttachEffectTypes]\n0=N\n[N]\nArmorMultiplier=0.5\n");
+        assert!(!catalog.entry("N").unwrap().restricted_armor_multiplier());
+        let catalog = parse("[AttachEffectTypes]\n0=O\n[O]\nArmorMultiplier.Chance=0.5\n");
+        assert!(
+            !catalog.entry("O").unwrap().restricted_armor_multiplier(),
+            "the constructor's post-read pass needs a non-1.0 multiplier too"
+        );
+        let catalog = parse("[AttachEffectTypes]\n0=P\n[P]\nArmorMultiplier.HitAnim=HIT\n");
+        assert!(
+            catalog.entry("P").unwrap().restricted_armor_multiplier(),
+            "a hit animation restricts on its own"
+        );
     }
 
     /// The layer count picks a cumulative animation, the last entry covers

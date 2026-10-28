@@ -317,6 +317,7 @@ pub(crate) fn receiver_divisors(
             house_type_armor.to_bits(),
         ),
         unit_armor: target.crate_multipliers.armor(),
+        ae_armor: target.phobos_armor_multiplier(),
         rank_armor,
     }
 }

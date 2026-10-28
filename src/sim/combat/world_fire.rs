@@ -935,6 +935,10 @@ fn fireat_damage(
         open_topped: firer
             .filter(|firer| firer.passenger_role.in_open_transport())
             .map(|_| f32_bits(multipliers.open_topped_damage_multiplier)),
+        #[cfg(feature = "phobos")]
+        ae_firepower: firer.map_or(1.0, |firer| firer.phobos_stat_multipliers().firepower),
+        #[cfg(not(feature = "phobos"))]
+        ae_firepower: 1.0,
     };
     damage::attacker::fire_damage(
         weapon.damage,
@@ -1158,6 +1162,7 @@ pub(crate) fn snapshot_get_rof(
                 .map_or(crate::util::native_x87::NativeF64Bits::ONE, |house| {
                     house.rof_bias()
                 }),
+            ae_rof: firer.map_or(1.0, |entity| entity.phobos_rof_multiplier()),
             #[cfg(feature = "ares")]
             attached_rof: Some(
                 firer.map_or(crate::util::native_x87::NativeF64Bits::ONE, |entity| {
@@ -3262,10 +3267,15 @@ pub(crate) fn estimated_damage_on(
             occupied: None,
             bunkered: None,
             open_topped: None,
+            #[cfg(feature = "phobos")]
+            ae_firepower: attacker.phobos_stat_multipliers().firepower,
+            #[cfg(not(feature = "phobos"))]
+            ae_firepower: 1.0,
         },
         divisors: damage::DefenceDivisors {
             house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
             unit_armor: attacker.crate_multipliers.armor(),
+            ae_armor: attacker.phobos_armor_multiplier(),
             rank_armor,
         },
         warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {

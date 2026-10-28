@@ -90,6 +90,11 @@ impl AttachEffectInstance {
         self.should_refresh
     }
 
+    /// `HasInitialized`: the AI reached its first active frame.
+    pub fn has_initialized(&self) -> bool {
+        self.has_initialized
+    }
+
     /// `IsSelfOwned`: the attach site said the effect belongs to the type
     /// itself (only the type/country list entry does so today); an effect
     /// attached from outside carries its invoker/source pair instead.
@@ -510,8 +515,118 @@ pub fn attach_initial_effects(
     attached
 }
 
+/// C++ `static_cast<int>(value * multiplier)` as MSVC compiles it: truncation
+/// toward zero, and `i32::MIN` for a NaN or out-of-range product. Phobos
+/// performs its integer stat hooks in C++ doubles, so each one crosses this
+/// boundary; gamemd's own x87 steps stay with `native_x87`.
+pub fn scale_i32(value: i32, multiplier: f64) -> i32 {
+    cpp_i32(f64::from(value) * multiplier)
+}
+
+/// C++ `static_cast<int>(value / divisor)` (MSVC `cvttsd2si`): the armor
+/// divide Phobos' receive hook performs on its own.
+pub fn divide_i32(value: i32, divisor: f64) -> i32 {
+    cpp_i32(f64::from(value) / divisor)
+}
+
+fn cpp_i32(value: f64) -> i32 {
+    if value.is_nan() || value < f64::from(i32::MIN) || value >= 2_147_483_648.0 {
+        i32::MIN
+    } else {
+        value.trunc() as i32
+    }
+}
+
+/// Phobos `AttachEffectTechnoProperties`'s cached stat fold
+/// (`TechnoExt::RecalculateStatMultipliers`, Body.Update.cpp:1124). The
+/// instance list stays the source of truth; this is recomputed from it every
+/// AI frame, restored from the save like Phobos' own `TechnoExt::AE`, and
+/// never enters the state hash.
+///
+/// RESIDUALS: `has_restricted_armor` marks a per-hit `CalculateArmorMultipliers`
+/// roll (Chance/AffectsHouse/warhead lists/HitAnim) that still needs the
+/// Scenario RNG and animation owner threaded into the receiver; the
+/// `cloakable`/`force_decloak` consumers need the native `IsReadyToCloak` /
+/// `ShouldNotBeCloaked` bodies, `disable_weapons` needs `GetFireError`
+/// (`0x006FC0B0`, not ported), `unkillable` needs the Phobos `CanKill` wrapper,
+/// `has_range_modifier` needs an entity-aware `GetWeaponRange` fold, and
+/// `has_crit_modifiers` needs the Phobos warhead critical-hit mechanism.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub(crate) struct PhobosStatMultipliers {
+    pub firepower: f64,
+    pub armor: f64,
+    pub speed: f64,
+    pub rof: f64,
+    pub cloakable: bool,
+    pub force_decloak: bool,
+    pub disable_weapons: bool,
+    pub unkillable: bool,
+    pub has_restricted_armor: bool,
+    pub has_range_modifier: bool,
+    pub has_crit_modifiers: bool,
+}
+
+#[cfg(feature = "phobos")]
+impl Default for PhobosStatMultipliers {
+    fn default() -> Self {
+        Self {
+            firepower: 1.0,
+            armor: 1.0,
+            speed: 1.0,
+            rof: 1.0,
+            cloakable: false,
+            force_decloak: false,
+            disable_weapons: false,
+            unkillable: false,
+            has_restricted_armor: false,
+            has_range_modifier: false,
+            has_crit_modifiers: false,
+        }
+    }
+}
+
 #[cfg(feature = "phobos")]
 impl AttachEffectList {
+    /// The active effects with their catalog entries, in attach order.
+    pub(crate) fn active_effects<'a>(
+        &'a self,
+        effects: &'a [AttachEffectType],
+    ) -> impl Iterator<Item = (&'a AttachEffectInstance, &'a AttachEffectType)> {
+        self.instances
+            .iter()
+            .filter(|instance| instance.is_active(instance.is_self_owned()))
+            .filter_map(|instance| {
+                effects
+                    .get(instance.type_index)
+                    .map(|effect| (instance, effect))
+            })
+    }
+
+    /// `RecalculateStatMultipliers`'s full pass over the active effects: the
+    /// four products, the four flags and the three derived "has" flags.
+    pub(crate) fn stat_multipliers(&self, effects: &[AttachEffectType]) -> PhobosStatMultipliers {
+        let mut stats = PhobosStatMultipliers::default();
+        for (_, effect) in self.active_effects(effects) {
+            stats.firepower *= effect.firepower_multiplier;
+            stats.speed *= effect.speed_multiplier;
+            stats.rof *= effect.rof_multiplier;
+            if effect.restricted_armor_multiplier() {
+                stats.has_restricted_armor = true;
+            } else {
+                stats.armor *= effect.armor_multiplier;
+            }
+            stats.cloakable |= effect.cloakable;
+            stats.force_decloak |= effect.force_decloak;
+            stats.disable_weapons |= effect.disable_weapons;
+            stats.unkillable |= effect.unkillable;
+            stats.has_range_modifier |=
+                effect.weapon_range_multiplier != 1.0 || effect.weapon_range_extra_range != 0.0;
+            stats.has_crit_modifiers |= effect.has_crit_modifiers();
+        }
+        stats
+    }
+
     /// `TechnoExt::ExtData::HasAttachedEffects` with `requireAll=false`: any
     /// list entry with an active instance matches. `require_anims` adds the
     /// effect's own guard: a type that declares an animation only matches
@@ -623,7 +738,36 @@ impl Simulation {
         );
         let effects = rules.attach_effect_types().types();
         list.online_check_all(effects, owner_active);
+        let initialized_before: Vec<bool> = list
+            .instances
+            .iter()
+            .map(|instance| instance.has_initialized())
+            .collect();
         list.tick_all(effects, |_| false);
+        // `AI()`'s initialization block: `ROFMultiplier.ApplyOnCurrentTimer`
+        // scales the timer already running when the effect first activates.
+        let frame = self.session.binary_frame() as i32;
+        for (index, instance) in list.instances.iter().enumerate() {
+            if initialized_before.get(index).copied().unwrap_or(true) || !instance.has_initialized()
+            {
+                continue;
+            }
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if effect.rof_multiplier <= 0.0 || !effect.rof_multiplier_apply_on_current_timer {
+                continue;
+            }
+            let Some(entity) = self.substrate.entities.get_mut(id) else {
+                continue;
+            };
+            let remaining = entity.rearm_timer.remaining(frame);
+            if remaining > 0 {
+                entity
+                    .rearm_timer
+                    .start(frame, scale_i32(remaining, effect.rof_multiplier));
+            }
+        }
         // `HasExpired` removal runs after the AI walk; the effect's destructor
         // unlinks its animation.
         let mut index = 0;
@@ -721,12 +865,14 @@ impl Simulation {
                 rules,
             );
         }
-        *self
+        let stats = list.stat_multipliers(effects);
+        let entity = self
             .substrate
             .entities
             .get_mut(id)
-            .expect("the gated entity still exists")
-            .phobos_attach_effects_mut() = list;
+            .expect("the gated entity still exists");
+        *entity.phobos_attach_effects_mut() = list;
+        entity.set_phobos_stat_multipliers(stats);
     }
 
     /// `CreateAnim` / `KillAnim`: keep exactly `desired` alive on the effect.
@@ -1114,6 +1260,125 @@ mod tests {
         assert!(
             shooter_anim(&sim).is_some(),
             "the expired HIDER no longer hides the animation"
+        );
+    }
+
+    /// Phobos' C++ int casts: truncation toward zero, `i32::MIN` for a NaN or
+    /// out-of-range product.
+    #[test]
+    fn scale_i32_matches_the_cpp_cast() {
+        assert_eq!(scale_i32(7, 1.0), 7);
+        assert_eq!(scale_i32(7, 1.5), 10);
+        assert_eq!(scale_i32(7, -0.5), -3);
+        assert_eq!(scale_i32(7, f64::INFINITY), i32::MIN);
+        assert_eq!(scale_i32(7, f64::NAN), i32::MIN);
+        assert_eq!(scale_i32(i32::MAX, 2.0), i32::MIN);
+        assert_eq!(scale_i32(i32::MIN, 1.0), i32::MIN);
+    }
+
+    /// `ROFMultiplier.ApplyOnCurrentTimer`: the rearm timer already running
+    /// when the effect first initializes is scaled; the key can turn it off.
+    #[test]
+    fn rof_multiplier_scales_the_running_rearm_timer_on_initialization() {
+        use crate::rules::ini_parser::IniFile;
+
+        for (apply, expected) in [(false, 30), (true, 60)] {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nAttachEffect.AttachTypes=ROFAE\n\
+                 AttachEffect.InitialDelays=1\n\
+                 [AttachEffectTypes]\n0=ROFAE\n\
+                 [ROFAE]\nDuration=10\nROFMultiplier=2\n\
+                 ROFMultiplier.ApplyOnCurrentTimer={}\n",
+                if apply { "yes" } else { "no" }
+            )))
+            .expect("rules");
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let target = sim
+                .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+                .expect("spawn");
+            let frame = sim.session().binary_frame() as i32;
+            sim.substrate
+                .entities
+                .get_mut(target)
+                .unwrap()
+                .rearm_timer
+                .start(frame, 30);
+
+            sim.update_phobos_attach_effects(target, &rules);
+            assert_eq!(
+                sim.entities()
+                    .get(target)
+                    .unwrap()
+                    .rearm_timer
+                    .remaining(frame),
+                30,
+                "the initial-delay frame never initializes the effect"
+            );
+            sim.update_phobos_attach_effects(target, &rules);
+            assert_eq!(
+                sim.entities()
+                    .get(target)
+                    .unwrap()
+                    .rearm_timer
+                    .remaining(frame),
+                expected,
+                "ApplyOnCurrentTimer={apply}"
+            );
+        }
+    }
+
+    /// `RecalculateStatMultipliers` folds every active armor multiplier into
+    /// the cached factor, and the receiver's extra divide consumes it after
+    /// the first AI frame.
+    #[test]
+    fn active_effects_fold_into_the_receiver_armor_divider() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=1000\nSpeed=6\nAttachEffect.AttachTypes=ARMORA,ARMORB\n\
+             [AttachEffectTypes]\n0=ARMORA\n1=ARMORB\n\
+             [ARMORA]\nDuration=10\nArmorMultiplier=0.5\n\
+             [ARMORB]\nDuration=10\nArmorMultiplier=0.5\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_armor_multiplier(),
+            1.0,
+            "the fold starts at identity until the first AI frame"
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_armor_multiplier(),
+            0.25,
+            "two active effects stack"
+        );
+        let divisors = crate::sim::combat::receiver_divisors(
+            sim.entities().get(target).unwrap(),
+            rules.object("TARGET"),
+            &rules,
+            sim.interner(),
+            sim.houses(),
+        );
+        assert_eq!(divisors.ae_armor, 0.25);
+        assert_eq!(
+            crate::sim::combat::damage::receive::defence_divides(100, &divisors),
+            400,
+            "the stock divide then the effect divide"
         );
     }
 

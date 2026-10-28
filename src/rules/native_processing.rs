@@ -5122,6 +5122,11 @@ impl RulesPassProcessor {
         self.allocate_general_references(pass);
         #[cfg(feature = "ares")]
         self.ares_global_controls.read_before_type_data(pass);
+        // Phobos `AttachEffectTypeClass::LoadFromINI`'s `Read<true>` type
+        // factories run before this pass's type bodies, so a WeaponType or
+        // WarheadType only an AttachEffect key names is read in this pass.
+        #[cfg(feature = "phobos")]
+        self.allocate_attach_effect_references(pass);
         self.process_type_data(pass, fixed_art, fixed_eva, primary_rules);
         // RulesExt LoadAfterTypeData: installed679CAF ->1002C9B0 ->1002AAF0
         // ->1002A800 reads HSBuilding at1002A8DD with the BuildingType
@@ -8056,13 +8061,65 @@ impl RulesPassProcessor {
         }
     }
 
+    /// The `Read<true>` type factories of `AttachEffectTypeClass::LoadFromINI`
+    /// (`ExpireWeapon`, `RevengeWeapon`, `ReflectDamage.Warhead`), run ahead of
+    /// the type-body pass so those types are constructed and read this pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_attach_effect_references(&mut self, pass: &IniFile) {
+        let Some(list) = pass.section("AttachEffectTypes") else {
+            return;
+        };
+        for key in list.physical_keys() {
+            let Some(name) = list.read_name(key, 2048) else {
+                continue;
+            };
+            let section = pass.section(name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            for weapon_key in ["ExpireWeapon", "RevengeWeapon"] {
+                if let Some(weapon) = section.read_type_name(weapon_key, 0x100) {
+                    self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+                }
+            }
+            if let Some(warhead) = section.read_type_name("ReflectDamage.Warhead", 0x100) {
+                self.find_or_allocate(RulesTypeFamily::Warhead, warhead);
+            }
+        }
+    }
+
     /// Phobos `AttachEffectTypeClass::LoadFromINIList` + each type's
     /// `LoadFromINI`, reached on every Rules pass.
     #[cfg(feature = "phobos")]
     fn allocate_attach_effect_types(&mut self, pass: &IniFile) {
-        if let Some(catalog) = self.phobos_attach_effect_types.as_mut() {
-            catalog.apply_pass(pass);
+        let Some(mut catalog) = self.phobos_attach_effect_types.take() else {
+            return;
+        };
+        catalog.apply_pass(pass);
+        // Phobos `Valueable<WeaponTypeClass*>::Read<true>` (`ExpireWeapon`,
+        // `RevengeWeapon`) and `Nullable<WarheadTypeClass*>` (`ReflectDamage.
+        // Warhead`) call their factories while the type's section is read, so
+        // this pass's type-body reads reach types only these keys name.
+        for entry in catalog.types() {
+            for name in [
+                entry.expire_weapon.as_deref(),
+                entry.revenge_weapon.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                self.find_or_allocate(RulesTypeFamily::Weapon, name);
+            }
+            if let Some(name) = entry.reflect_damage_warhead.as_deref() {
+                self.find_or_allocate(RulesTypeFamily::Warhead, name);
+            }
         }
+        self.phobos_attach_effect_types = Some(catalog);
     }
 
     fn allocate_audio_visual_references(&mut self, pass: &IniFile) {

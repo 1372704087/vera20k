@@ -194,6 +194,56 @@ impl DiscardOn {
     }
 }
 
+/// Phobos `ExpireWeaponCondition` flags, in declaration order. `All` is the
+/// literal `0xFF` mask, so it covers every condition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ExpireWeaponCondition(u8);
+
+impl ExpireWeaponCondition {
+    pub const NONE: Self = Self(0);
+    pub const EXPIRE: Self = Self(0x1);
+    pub const REMOVE: Self = Self(0x2);
+    pub const DEATH: Self = Self(0x4);
+    pub const DISCARD: Self = Self(0x8);
+    pub const ALL: Self = Self(0xFF);
+
+    pub fn contains(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    /// `read<ExpireWeaponCondition>`: comma-separated tokens. A token outside
+    /// the enumeration makes the whole read fail, so the caller keeps its
+    /// current value (unlike `DiscardOn`, whose parser ignores it).
+    #[cfg(feature = "phobos")]
+    fn parse(raw: &str) -> Option<Self> {
+        let mut parsed = Self::NONE;
+        for token in raw.split(|c: char| matches!(c, ',' | ' ' | '\t' | '\r')) {
+            let token = token.trim();
+            if token.is_empty() {
+                continue;
+            }
+            parsed.0 |= match token.to_ascii_lowercase().as_str() {
+                "none" => Self::NONE,
+                "expire" => Self::EXPIRE,
+                "remove" => Self::REMOVE,
+                "death" => Self::DEATH,
+                "discard" => Self::DISCARD,
+                "all" => Self::ALL,
+                _ => return None,
+            }
+            .0;
+        }
+        Some(parsed)
+    }
+}
+
+impl Default for ExpireWeaponCondition {
+    /// The constructor's `ExpireWeapon.TriggerOn=expire`.
+    fn default() -> Self {
+        Self::EXPIRE
+    }
+}
+
 /// One `Animation.DrawOffsetN` rule. The first absent or `0,0` index ends the
 /// list, so the array is always contiguous from index 0.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -291,6 +341,31 @@ pub struct AttachEffectType {
     /// VERA has no LaserTrail owner or trail catalog yet, so the raw key text
     /// is retained and no trail is spawned.
     pub laser_trail_type: Option<String>,
+    /// `ExpireWeapon`: the weapon this effect fires when it ends. `.TriggerOn`
+    /// is the flag mask of the ends that fire it, `.CumulativeOnlyOnce` fires
+    /// a cumulative type once at its last ending, and `.UseInvokerAsOwner`
+    /// gives the shot the invoker's identity.
+    pub expire_weapon: Option<String>,
+    pub expire_weapon_trigger_on: ExpireWeaponCondition,
+    pub expire_weapon_cumulative_only_once: bool,
+    pub expire_weapon_use_invoker_as_owner: bool,
+    /// `RevengeWeapon`: fired at whoever dealt the killing damage.
+    pub revenge_weapon: Option<String>,
+    pub revenge_weapon_affects_house: AffectedHouse,
+    pub revenge_weapon_use_invoker_as_owner: bool,
+    /// `ReflectDamage`: every received hit can be dealt back to its source
+    /// with `.Warhead` (default `[CombatDamage] C4Warhead`), at
+    /// `.Multiplier` or the fixed `.Override`, under `.Chance` and
+    /// `.AffectsHouse`. `.Warhead.Detonate` detonates at the source instead of
+    /// calling its receiver.
+    pub reflect_damage: bool,
+    pub reflect_damage_warhead: Option<String>,
+    pub reflect_damage_warhead_detonate: bool,
+    pub reflect_damage_multiplier: f64,
+    pub reflect_damage_affects_house: AffectedHouse,
+    pub reflect_damage_chance: f64,
+    pub reflect_damage_override: Option<i32>,
+    pub reflect_damage_use_invoker_as_owner: bool,
     /// `DiscardOn` and the keys its conditions read.
     pub discard_on: DiscardOn,
     pub discard_ammo_minimum: i32,
@@ -381,6 +456,21 @@ impl AttachEffectType {
             disable_weapons: false,
             unkillable: false,
             laser_trail_type: None,
+            expire_weapon: None,
+            expire_weapon_trigger_on: ExpireWeaponCondition::default(),
+            expire_weapon_cumulative_only_once: false,
+            expire_weapon_use_invoker_as_owner: false,
+            revenge_weapon: None,
+            revenge_weapon_affects_house: AffectedHouse::ALL,
+            revenge_weapon_use_invoker_as_owner: false,
+            reflect_damage: false,
+            reflect_damage_warhead: None,
+            reflect_damage_warhead_detonate: false,
+            reflect_damage_multiplier: 1.0,
+            reflect_damage_affects_house: AffectedHouse::ALL,
+            reflect_damage_chance: 1.0,
+            reflect_damage_override: None,
+            reflect_damage_use_invoker_as_owner: false,
             discard_on: DiscardOn::NONE,
             discard_ammo_minimum: -1,
             discard_ammo_maximum: -1,
@@ -690,6 +780,83 @@ impl AttachEffectTypeCatalog {
                 .read_name("LaserTrail.Type", 2048)
                 .filter(|name| !name.is_empty())
                 .map(str::to_owned);
+            // `ExpireWeapon.Read<true>` and friends: the type factories answer
+            // null for an empty or `none` name, so an absent key keeps the
+            // retained pointer.
+            if section.is_present("ExpireWeapon") {
+                entry.expire_weapon = section
+                    .read_type_name("ExpireWeapon", 0x100)
+                    .map(str::to_owned);
+            }
+            entry.expire_weapon_trigger_on = section.read_string_with(
+                "ExpireWeapon.TriggerOn",
+                0x100,
+                entry.expire_weapon_trigger_on,
+                |current, raw| ExpireWeaponCondition::parse(raw).unwrap_or(current),
+            );
+            entry.expire_weapon_cumulative_only_once = section.read_bool(
+                "ExpireWeapon.CumulativeOnlyOnce",
+                entry.expire_weapon_cumulative_only_once,
+            );
+            entry.expire_weapon_use_invoker_as_owner = section.read_bool(
+                "ExpireWeapon.UseInvokerAsOwner",
+                entry.expire_weapon_use_invoker_as_owner,
+            );
+            if section.is_present("RevengeWeapon") {
+                entry.revenge_weapon = section
+                    .read_type_name("RevengeWeapon", 0x100)
+                    .map(str::to_owned);
+            }
+            // `.AffectsHouses` is the deprecated spelling; the underscore-free
+            // key wins when both are present.
+            entry.revenge_weapon_affects_house = section.read_string_with(
+                "RevengeWeapon.AffectsHouses",
+                0x100,
+                entry.revenge_weapon_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            entry.revenge_weapon_affects_house = section.read_string_with(
+                "RevengeWeapon.AffectsHouse",
+                0x100,
+                entry.revenge_weapon_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            entry.revenge_weapon_use_invoker_as_owner = section.read_bool(
+                "RevengeWeapon.UseInvokerAsOwner",
+                entry.revenge_weapon_use_invoker_as_owner,
+            );
+            entry.reflect_damage = section.read_bool("ReflectDamage", entry.reflect_damage);
+            if section.is_present("ReflectDamage.Warhead") {
+                entry.reflect_damage_warhead = section
+                    .read_type_name("ReflectDamage.Warhead", 0x100)
+                    .map(str::to_owned);
+            }
+            entry.reflect_damage_warhead_detonate = section.read_bool(
+                "ReflectDamage.Warhead.Detonate",
+                entry.reflect_damage_warhead_detonate,
+            );
+            entry.reflect_damage_multiplier = section
+                .read_phobos_double("ReflectDamage.Multiplier", entry.reflect_damage_multiplier);
+            entry.reflect_damage_affects_house = section.read_string_with(
+                "ReflectDamage.AffectsHouses",
+                0x100,
+                entry.reflect_damage_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            entry.reflect_damage_affects_house = section.read_string_with(
+                "ReflectDamage.AffectsHouse",
+                0x100,
+                entry.reflect_damage_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            entry.reflect_damage_chance =
+                section.read_phobos_double("ReflectDamage.Chance", entry.reflect_damage_chance);
+            entry.reflect_damage_override = section
+                .read_phobos_nullable_int("ReflectDamage.Override", entry.reflect_damage_override);
+            entry.reflect_damage_use_invoker_as_owner = section.read_bool(
+                "ReflectDamage.UseInvokerAsOwner",
+                entry.reflect_damage_use_invoker_as_owner,
+            );
             entry.discard_on =
                 section.read_string_with("DiscardOn", 0x400, entry.discard_on, |_, raw| {
                     DiscardOn::parse(raw)
@@ -1317,6 +1484,126 @@ AttachEffect.Delays=5,7
         assert_eq!(
             rules.country_attach_effect_types("Americans"),
             ["NATIONAE".to_owned()]
+        );
+    }
+
+    /// The ExpireWeapon, RevengeWeapon and ReflectDamage keys: the constructor
+    /// defaults, the condition flag parser, and the deprecated `AffectsHouses`
+    /// spelling the underscore-free key overrides.
+    #[test]
+    fn weapon_and_reflect_keys_read_with_constructor_defaults() {
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=PLAIN
+[PLAIN]
+",
+        );
+        let entry = catalog.entry("PLAIN").expect("entry");
+        assert_eq!(entry.expire_weapon, None);
+        assert_eq!(
+            entry.expire_weapon_trigger_on,
+            ExpireWeaponCondition::EXPIRE,
+            "the constructor's TriggerOn=expire"
+        );
+        assert!(!entry.expire_weapon_cumulative_only_once);
+        assert!(!entry.expire_weapon_use_invoker_as_owner);
+        assert_eq!(entry.revenge_weapon, None);
+        assert_eq!(entry.revenge_weapon_affects_house, AffectedHouse::ALL);
+        assert!(!entry.revenge_weapon_use_invoker_as_owner);
+        assert!(!entry.reflect_damage);
+        assert_eq!(entry.reflect_damage_warhead, None);
+        assert!(!entry.reflect_damage_warhead_detonate);
+        assert_eq!(entry.reflect_damage_multiplier, 1.0);
+        assert_eq!(entry.reflect_damage_affects_house, AffectedHouse::ALL);
+        assert_eq!(entry.reflect_damage_chance, 1.0);
+        assert_eq!(entry.reflect_damage_override, None);
+        assert!(!entry.reflect_damage_use_invoker_as_owner);
+
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=FULL
+[FULL]
+ExpireWeapon=DEATHBLAST
+ExpireWeapon.TriggerOn=remove, death ,discard
+ExpireWeapon.CumulativeOnlyOnce=yes
+ExpireWeapon.UseInvokerAsOwner=yes
+RevengeWeapon=PAYBACK
+RevengeWeapon.AffectsHouses=enemies
+RevengeWeapon.AffectsHouse=allies
+RevengeWeapon.UseInvokerAsOwner=yes
+ReflectDamage=yes
+ReflectDamage.Warhead=SPIKE
+ReflectDamage.Warhead.Detonate=yes
+ReflectDamage.Multiplier=0.5
+ReflectDamage.AffectsHouses=owner
+ReflectDamage.AffectsHouse=enemies
+ReflectDamage.Chance=0.25
+ReflectDamage.Override=12
+ReflectDamage.UseInvokerAsOwner=yes
+",
+        );
+        let entry = catalog.entry("FULL").expect("entry");
+        assert_eq!(entry.expire_weapon.as_deref(), Some("DEATHBLAST"));
+        assert!(
+            entry
+                .expire_weapon_trigger_on
+                .contains(ExpireWeaponCondition::REMOVE)
+        );
+        assert!(
+            entry
+                .expire_weapon_trigger_on
+                .contains(ExpireWeaponCondition::DEATH)
+        );
+        assert!(
+            entry
+                .expire_weapon_trigger_on
+                .contains(ExpireWeaponCondition::DISCARD)
+        );
+        assert!(
+            !entry
+                .expire_weapon_trigger_on
+                .contains(ExpireWeaponCondition::EXPIRE)
+        );
+        assert!(entry.expire_weapon_cumulative_only_once);
+        assert!(entry.expire_weapon_use_invoker_as_owner);
+        assert_eq!(entry.revenge_weapon.as_deref(), Some("PAYBACK"));
+        assert_eq!(
+            entry.revenge_weapon_affects_house,
+            AffectedHouse::ALLIES,
+            "the underscore-free key wins"
+        );
+        assert!(entry.revenge_weapon_use_invoker_as_owner);
+        assert!(entry.reflect_damage);
+        assert_eq!(entry.reflect_damage_warhead.as_deref(), Some("SPIKE"));
+        assert!(entry.reflect_damage_warhead_detonate);
+        assert_eq!(entry.reflect_damage_multiplier, 0.5);
+        assert_eq!(entry.reflect_damage_affects_house, AffectedHouse::ENEMIES);
+        assert_eq!(entry.reflect_damage_chance, 0.25);
+        assert_eq!(entry.reflect_damage_override, Some(12));
+        assert!(entry.reflect_damage_use_invoker_as_owner);
+
+        // `all` covers every condition, a valid later pass replaces the mask,
+        // and an unknown token keeps it (the native reader fails the read).
+        let mut catalog = AttachEffectTypeCatalog::default();
+        catalog.apply_pass(&IniFile::from_str(
+            "[AttachEffectTypes]\n0=T\n[T]\nExpireWeapon.TriggerOn=all\n",
+        ));
+        let all = catalog.entry("T").unwrap().expire_weapon_trigger_on;
+        for condition in [
+            ExpireWeaponCondition::EXPIRE,
+            ExpireWeaponCondition::REMOVE,
+            ExpireWeaponCondition::DEATH,
+            ExpireWeaponCondition::DISCARD,
+        ] {
+            assert!(all.contains(condition));
+        }
+        catalog.apply_pass(&IniFile::from_str("[T]\nExpireWeapon.TriggerOn=death\n"));
+        catalog.apply_pass(&IniFile::from_str(
+            "[T]\nExpireWeapon.TriggerOn=death,bogus\n",
+        ));
+        assert_eq!(
+            catalog.entry("T").unwrap().expire_weapon_trigger_on,
+            ExpireWeaponCondition::DEATH
         );
     }
 

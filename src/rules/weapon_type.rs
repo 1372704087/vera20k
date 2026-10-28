@@ -215,6 +215,34 @@ pub struct WeaponType {
     pub is_rad_eruption: bool,
     /// Weapon fires a magnetron beam (+0x15c).
     pub is_mag_beam: bool,
+
+    // ── Phobos AttachEffect gating ───────────────────────────────────
+    // `WeaponTypeExt::HasRequiredAttachedEffects` gates a shot on the AE the
+    // target (or, with `CheckOnFirer`, the firer) carries. The required lists
+    // must all match; the disallowed lists refuse the shot on any match.
+    // Counts pair with the type/group lists by position, the last value
+    // covering the rest.
+    pub attach_effect_required_types: Vec<String>,
+    pub attach_effect_disallowed_types: Vec<String>,
+    pub attach_effect_required_groups: Vec<String>,
+    pub attach_effect_disallowed_groups: Vec<String>,
+    pub attach_effect_required_min_counts: Vec<i32>,
+    pub attach_effect_required_max_counts: Vec<i32>,
+    pub attach_effect_disallowed_min_counts: Vec<i32>,
+    pub attach_effect_disallowed_max_counts: Vec<i32>,
+    pub attach_effect_check_on_firer: bool,
+    pub attach_effect_ignore_from_same_source: bool,
+}
+
+impl WeaponType {
+    /// `WeaponTypeExt::HasRequiredAttachedEffects` reads no list: every shot
+    /// passes without asking the target.
+    pub fn has_attach_effect_gates(&self) -> bool {
+        !self.attach_effect_required_types.is_empty()
+            || !self.attach_effect_disallowed_types.is_empty()
+            || !self.attach_effect_required_groups.is_empty()
+            || !self.attach_effect_disallowed_groups.is_empty()
+    }
 }
 
 impl WeaponType {
@@ -250,6 +278,69 @@ impl WeaponType {
         let rad_type = section.read_name("RadType", 0x80).map(str::to_owned);
         #[cfg(not(feature = "phobos"))]
         let rad_type = None;
+        // `WeaponTypeExt::LoadFromINIFile`'s AttachEffect gates. A missing key
+        // keeps the constructor's empty list / false.
+        #[cfg(feature = "phobos")]
+        let (
+            attach_effect_required_types,
+            attach_effect_disallowed_types,
+            attach_effect_required_groups,
+            attach_effect_disallowed_groups,
+        ) = (
+            name_list(section, "AttachEffect.RequiredTypes"),
+            name_list(section, "AttachEffect.DisallowedTypes"),
+            name_list(section, "AttachEffect.RequiredGroups"),
+            name_list(section, "AttachEffect.DisallowedGroups"),
+        );
+        #[cfg(feature = "phobos")]
+        let (
+            attach_effect_required_min_counts,
+            attach_effect_required_max_counts,
+            attach_effect_disallowed_min_counts,
+            attach_effect_disallowed_max_counts,
+        ) = (
+            section
+                .read_int_list("AttachEffect.RequiredMinCounts")
+                .unwrap_or_default(),
+            section
+                .read_int_list("AttachEffect.RequiredMaxCounts")
+                .unwrap_or_default(),
+            section
+                .read_int_list("AttachEffect.DisallowedMinCounts")
+                .unwrap_or_default(),
+            section
+                .read_int_list("AttachEffect.DisallowedMaxCounts")
+                .unwrap_or_default(),
+        );
+        #[cfg(feature = "phobos")]
+        let attach_effect_check_on_firer = section.read_bool("AttachEffect.CheckOnFirer", false);
+        #[cfg(feature = "phobos")]
+        let attach_effect_ignore_from_same_source =
+            section.read_bool("AttachEffect.IgnoreFromSameSource", false);
+        #[cfg(not(feature = "phobos"))]
+        let (
+            attach_effect_required_types,
+            attach_effect_disallowed_types,
+            attach_effect_required_groups,
+            attach_effect_disallowed_groups,
+            attach_effect_required_min_counts,
+            attach_effect_required_max_counts,
+            attach_effect_disallowed_min_counts,
+            attach_effect_disallowed_max_counts,
+            attach_effect_check_on_firer,
+            attach_effect_ignore_from_same_source,
+        ) = (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            false,
+            false,
+        );
         Self {
             id: id.to_string(),
             damage: 0,
@@ -346,8 +437,29 @@ impl WeaponType {
             is_rad_beam: section.read_bool("IsRadBeam", false),
             is_rad_eruption: section.read_bool("IsRadEruption", false),
             is_mag_beam: section.read_bool("IsMagBeam", false),
+
+            attach_effect_required_types,
+            attach_effect_disallowed_types,
+            attach_effect_required_groups,
+            attach_effect_disallowed_groups,
+            attach_effect_required_min_counts,
+            attach_effect_required_max_counts,
+            attach_effect_disallowed_min_counts,
+            attach_effect_disallowed_max_counts,
+            attach_effect_check_on_firer,
+            attach_effect_ignore_from_same_source,
         }
     }
+}
+
+/// A Phobos name list: `ReadString(2048)`, `strtok(",")`, tokens kept as the
+/// factory would resolve them. Absent keys leave the constructor's empty list.
+#[cfg(feature = "phobos")]
+fn name_list(section: &IniSection, key: &str) -> Vec<String> {
+    section
+        .read_list(key, 0x800)
+        .map(|tokens| tokens.into_iter().map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 /// `Report=` through ReadSoundList (`0x00772394`); production binding resolves
@@ -577,6 +689,62 @@ mod tests {
             identities[0].1, identities[1].1,
             "different retained laser admission"
         );
+    }
+
+    /// Phobos `WeaponTypeExt` AttachEffect gates: the constructor's empty
+    /// lists and false switches, then every key through the production reader.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn attach_effect_gate_keys_read_with_their_defaults() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let mut layers = RulesLayerStack::new(IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n[UNIT]\nPrimary=Plain\nSecondary=Gated\n\
+             [Plain]\nDamage=1\n\
+             [Gated]\nDamage=1\nAttachEffect.RequiredTypes=AE1,AE2\n\
+             AttachEffect.DisallowedTypes=AE3\n\
+             AttachEffect.RequiredGroups=tag\nAttachEffect.DisallowedGroups=bad\n\
+             AttachEffect.RequiredMinCounts=2,3\nAttachEffect.RequiredMaxCounts=4\n\
+             AttachEffect.DisallowedMinCounts=1\nAttachEffect.DisallowedMaxCounts=5,6\n\
+             AttachEffect.CheckOnFirer=yes\nAttachEffect.IgnoreFromSameSource=yes\n\
+             [AttachEffectTypes]\n0=AE1\n1=AE2\n2=AE3\n\
+             [AE1]\n[AE2]\n[AE3]\n",
+        ));
+        layers.push(
+            RulesLayerKind::GameMode,
+            IniFile::from_str("[Gated]\nAttachEffect.RequiredGroups=other\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        let plain = rules.weapon("Plain").unwrap();
+        assert!(!plain.has_attach_effect_gates());
+        assert!(plain.attach_effect_required_types.is_empty());
+        assert!(plain.attach_effect_disallowed_types.is_empty());
+        assert!(plain.attach_effect_required_groups.is_empty());
+        assert!(plain.attach_effect_disallowed_groups.is_empty());
+        assert!(plain.attach_effect_required_min_counts.is_empty());
+        assert!(plain.attach_effect_required_max_counts.is_empty());
+        assert!(plain.attach_effect_disallowed_min_counts.is_empty());
+        assert!(plain.attach_effect_disallowed_max_counts.is_empty());
+        assert!(!plain.attach_effect_check_on_firer);
+        assert!(!plain.attach_effect_ignore_from_same_source);
+
+        let gated = rules.weapon("Gated").unwrap();
+        assert!(gated.has_attach_effect_gates());
+        assert_eq!(gated.attach_effect_required_types, vec!["AE1", "AE2"]);
+        assert_eq!(gated.attach_effect_disallowed_types, vec!["AE3"]);
+        assert_eq!(
+            gated.attach_effect_required_groups,
+            vec!["other"],
+            "the later pass replaces the list"
+        );
+        assert_eq!(gated.attach_effect_disallowed_groups, vec!["bad"]);
+        assert_eq!(gated.attach_effect_required_min_counts, vec![2, 3]);
+        assert_eq!(gated.attach_effect_required_max_counts, vec![4]);
+        assert_eq!(gated.attach_effect_disallowed_min_counts, vec![1]);
+        assert_eq!(gated.attach_effect_disallowed_max_counts, vec![5, 6]);
+        assert!(gated.attach_effect_check_on_firer);
+        assert!(gated.attach_effect_ignore_from_same_source);
     }
 
     #[test]

@@ -6149,7 +6149,6 @@ impl RuleSet {
             weapon.attached_particle_system = state.attached_particle_system.map(str::to_owned);
             weapons.insert(section.name.clone(), weapon);
         }
-
         // Step 3: Parse warhead sections. The projected [Warheads] registry is
         // the processor's whole Warhead family: the [Warheads] values and
         // every reference-driven allocation, weapons' warheads and the

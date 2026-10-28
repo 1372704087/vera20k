@@ -714,7 +714,7 @@ mod tests {
             .as_bytes(),
         )
         .unwrap();
-        sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+        sim.initialize_trigger_definitions(&map, &Default::default(), None, None, None);
         sim.attach_object_trigger_tag(host, Some("TAG"));
 
         let context = UninitContext::new(&rules, None);

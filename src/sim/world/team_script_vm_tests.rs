@@ -311,7 +311,7 @@ fn team_lookup_ordinary_ai_recruits_and_moves_first_name() {
             Some(&map.ini),
         );
         sim.session.install_waypoints(&map.waypoints);
-        sim.initialize_trigger_definitions(&map, &registry, None, None);
+        sim.initialize_trigger_definitions(&map, &registry, None, None, None);
         sim.install_team_ai_registry(&registry, &rules).unwrap();
         assert_eq!(sim.spawn_from_map(&map.entities, Some(&rules)), 5);
         let owner = sim.interner.get("Computer").unwrap();

@@ -59,9 +59,8 @@ const EVENT_TECHTYPE_EXISTS: i32 = 60;
 const EVENT_TECHTYPE_DOES_NOT_EXIST: i32 = 61;
 const LOGICAL_FRAMES_PER_SECOND: i32 = crate::util::fixed_math::RA2_LOGIC_FRAMES_PER_SECOND as i32;
 
-/// Action20's music operand. Theme owns the immutable process catalog, so a
-/// type8 name is kept verbatim until that owner resolves it. This preserves
-/// Read6DD7E0's From_Name721210 result without a second music registry in sim.
+/// Action20's music operand. Fresh reads retain the process catalog's index;
+/// Name remains supported for old saved actions/effects and existing callers.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeRequest {
     Name(String),
@@ -323,6 +322,7 @@ impl RuntimeDefinitions {
         entry: ActionEntry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
         sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     ) -> RuntimeAction {
         let reference = match entry.definition_reference() {
             Some(ActionDefinitionReference::Team(selector)) => match selector {
@@ -366,6 +366,13 @@ impl RuntimeDefinitions {
                     })
                     .unwrap_or(-1),
             ),
+            // TActionClass::Read6DD7E0..6DD7EB, original instruction listing:
+            // From_Name721210 stores its signed result at +90 for every
+            // ActionID, independently of playback admission. Reuse the same
+            // process-selected catalog as Theme; raw missing names become -1.
+            8 => Some(entry.params.get(1).map_or(-1, |name| {
+                themes.map_or(-1, |catalog| catalog.from_name(name))
+            })),
             _ => entry.literal_value(),
         };
         // FindIndex7514D0 compares the untrimmed token case-insensitively.
@@ -411,6 +418,7 @@ impl RuntimeDefinitions {
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
         sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     ) -> Self {
         let mut definitions = Self::read_teams(teams);
         // LoadFromINIList7275D0/6E5ED0 find or allocate each key's Type,
@@ -456,7 +464,7 @@ impl RuntimeDefinitions {
                         .entries()
                         .iter()
                         .cloned()
-                        .map(|entry| definitions.resolve_action(entry, eva, sounds))
+                        .map(|entry| definitions.resolve_action(entry, eva, sounds, themes))
                         .collect::<Vec<_>>()
                 });
                 let typ = &mut definitions.trigger_types[index];
@@ -1189,6 +1197,7 @@ impl Simulation {
         teams: &crate::rules::team_ai_ini::TeamAiIniRegistry,
         eva: Option<&crate::rules::sound_ini::EvaRegistry>,
         sounds: Option<&crate::rules::sound_ini::SoundRegistry>,
+        themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     ) {
         // ReadLocal689B2E clears names only. Missing second tokens and slots
         // absent from the map keep their current value;689C24 writes explicit
@@ -1206,7 +1215,7 @@ impl Simulation {
             }
         }
         self.trigger_runtime = TriggerRuntime {
-            definitions: RuntimeDefinitions::read_map(map, teams, eva, sounds),
+            definitions: RuntimeDefinitions::read_map(map, teams, eva, sounds, themes),
             definitions_prepared: true,
             locals_set,
             ..TriggerRuntime::default()
@@ -3443,15 +3452,15 @@ impl Simulation {
             20 => {
                 // Steam gamemd: Execute6DE8E4..6DE903 passes +90
                 // to Theme720B20 and returns AL1, even when audio is gated.
-                // Type8 is an untrimmed section key, not Sound= or an ordinal.
-                // The process catalog is immutable, so its existing owner can
-                // resolve the retained name at delivery; numeric sentinels
-                // pass through unchanged. No scenario RNG/timer/detach here.
-                let request = if action.params.first().map_or(0, |v| crt_atoi(v)) == 8 {
-                    ThemeRequest::Name(action.params.get(1).cloned().unwrap_or_default())
-                } else {
-                    ThemeRequest::Index(value.unwrap_or(-1))
-                };
+                // Fresh type8 reads already retained From_Name's index. Keep
+                // late Name delivery only for older saved None operands;
+                // numeric sentinels pass unchanged. No RNG/timer/detach here.
+                let request =
+                    if value.is_none() && action.params.first().map_or(0, |v| crt_atoi(v)) == 8 {
+                        ThemeRequest::Name(action.params.get(1).cloned().unwrap_or_default())
+                    } else {
+                        ThemeRequest::Index(value.unwrap_or(-1))
+                    };
                 effects.push(TriggerEffect::MusicTheme { request });
             }
             0 => {
@@ -5346,7 +5355,7 @@ mod meteor_action_tests {
                     ry: 40,
                 },
             )]));
-        let action = RuntimeDefinitions::default().resolve_action(entry, None, None);
+        let action = RuntimeDefinitions::default().resolve_action(entry, None, None, None);
         let mut effects = Vec::new();
         assert!(sim.apply_live_trigger_action(
             &action,

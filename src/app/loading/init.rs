@@ -1713,6 +1713,7 @@ mod fresh_transport_tests {
             &Default::default(),
             None,
             None,
+            None,
         );
         let resident_hash = resident.state_hash();
         let mut initial = MapLoadInitial::from_test_map_source(
@@ -1732,9 +1733,21 @@ mod fresh_transport_tests {
         staged.inherit_local_variables_for_fresh_load(
             initial.retained_local_variables.take().unwrap(),
         );
-        staged.initialize_trigger_definitions(&initial.map_data, &Default::default(), None, None);
+        staged.initialize_trigger_definitions(
+            &initial.map_data,
+            &Default::default(),
+            None,
+            None,
+            None,
+        );
         let mut cold = Simulation::new();
-        cold.initialize_trigger_definitions(&initial.map_data, &Default::default(), None, None);
+        cold.initialize_trigger_definitions(
+            &initial.map_data,
+            &Default::default(),
+            None,
+            None,
+            None,
+        );
         assert_ne!(
             staged.state_hash(),
             cold.state_hash(),
@@ -2714,6 +2727,7 @@ pub(crate) fn load_map_from_initial(
         crate::rules::process_owner::NativeNonCampaignPrefixPreparation,
     >,
     audio: Option<&crate::app::process_assets::ProcessAudioCatalog>,
+    themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     shared_cell_dummy: crate::map::resolved_terrain::SharedCellDummy,
     tile_variant_selector_cache: &mut crate::map::tile_variant_selector::TileVariantSelectorCache,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
@@ -2735,6 +2749,7 @@ pub(crate) fn load_map_from_initial(
             #[cfg(feature = "ares")]
             prepared_noncampaign_prefix,
             audio,
+            themes,
             shared_cell_dummy: shared_cell_dummy.clone(),
             tile_variant_selector_cache,
             progress,
@@ -3150,6 +3165,7 @@ fn load_map_first_step(
                                 services
                                     .audio
                                     .map(crate::app::process_assets::ProcessAudioCatalog::sounds),
+                                services.themes,
                             );
                             let (mut scenario_fill_rng, variant_main_rng) =
                                 staged_simulation.terrain_load_draws();

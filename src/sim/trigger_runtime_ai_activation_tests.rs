@@ -34,7 +34,7 @@ fn team_lookup_fixed_ai_uses_final_map_names_and_dependencies() {
         let mut sim = Simulation::new();
         sim.intern_rule_type_ids(&rules);
         if prepared {
-            sim.initialize_trigger_definitions(&map, &registry, None, None);
+            sim.initialize_trigger_definitions(&map, &registry, None, None, None);
         }
         let rng = sim.scenario_rng.native_state_hex();
         let diagnostics = sim.install_team_ai_registry(&registry, &rules).unwrap();
@@ -638,7 +638,7 @@ fn retail_all05_elapsed_stop_keeps_explicit_teams_and_saved_activation() {
     );
     sim.session.install_waypoints(&map.waypoints);
     sim.install_team_ai_registry(&teams, &rules).unwrap();
-    sim.initialize_trigger_definitions(&map, &teams, None, None);
+    sim.initialize_trigger_definitions(&map, &teams, None, None, None);
     let targets: Vec<_> = retail["target_houses"]
         .as_array()
         .unwrap()
@@ -888,7 +888,7 @@ fn house_control_action(
         .unwrap()
         .entries()[0]
         .clone();
-    let action = RuntimeDefinitions::default().resolve_action(entry, None, None);
+    let action = RuntimeDefinitions::default().resolve_action(entry, None, None, None);
     sim.apply_live_trigger_action(
         &action,
         TriggerActionContext {

@@ -488,9 +488,6 @@ impl App {
             .as_ref()
             .map(|cfg| u64::from(cfg.gameplay.input_delay_ticks))
             .unwrap_or_else(|| u64::from(crate::util::config::default_input_delay_ticks()));
-        // Ordinary gamemd chrome is one physical render pixel per asset pixel.
-        // 6A5090/6A5130 change row capacity on resize, never artwork scale.
-        let ui_scale = 1.0;
         let sidebar_layout_spec = SidebarChromeLayoutSpec::stock();
         let mut startup_asset_manager = game_config.as_ref().and_then(|config| {
             startup_asset_or_error(
@@ -875,7 +872,6 @@ impl App {
                     sidebar_projection: Default::default(),
                     active_sidebar_tab: SidebarTab::default_active_tab(),
                     sidebar_layout_spec,
-                    ui_scale,
                     tooltips: startup_tooltips,
                     tooltip_epoch: Instant::now(),
                     message_list: crate::ui::messages::MessageList::new(

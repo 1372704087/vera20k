@@ -31,6 +31,12 @@ adds no behavior yet.
 
 ### Superweapon and AI strategy
 
+- #2938 (NPExt changelog item 80): the Psychic Dominator strike's area
+  damage books its kills to the Dominator's owner. Native passes the
+  lightning-storm house slot (`0x00A9FACC`) — empty without an active
+  storm — so building kills reached no score and no destroyed-buildings
+  count.
+
 ### Combat target, order, fire and damage eligibility
 
 ### Weapon, wave and projectile source, path and range

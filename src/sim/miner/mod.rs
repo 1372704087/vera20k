@@ -227,6 +227,12 @@ pub struct Miner {
 }
 
 impl Miner {
+    /// `UnitClass::IsHarvesting`, the bit the DiscardOn harvesting condition
+    /// reads.
+    pub(crate) fn is_harvesting(&self) -> bool {
+        self.harvesting
+    }
+
     /// Create a new miner in SearchOre state with the given kind and config.
     ///
     /// `obj_storage` is the per-unit `Storage=` value from rules.ini (in bales).

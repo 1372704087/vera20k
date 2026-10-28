@@ -114,6 +114,72 @@ impl AttachedAnimFlag {
     }
 }
 
+/// Phobos `DiscardCondition` flags, in declaration order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct DiscardOn(u32);
+
+impl DiscardOn {
+    pub const NONE: Self = Self(0);
+    pub const ENTRY: Self = Self(0x1);
+    pub const MOVE: Self = Self(0x2);
+    pub const STATIONARY: Self = Self(0x4);
+    pub const DRAIN: Self = Self(0x8);
+    pub const IN_RANGE: Self = Self(0x10);
+    pub const OUT_OF_RANGE: Self = Self(0x20);
+    pub const FIRING: Self = Self(0x40);
+    pub const SELLING: Self = Self(0x80);
+    pub const UNDEPLOYING: Self = Self(0x100);
+    pub const HARVESTING: Self = Self(0x200);
+    pub const INVOKER_DIE: Self = Self(0x400);
+    pub const AMMO: Self = Self(0x800);
+    pub const HEALTH: Self = Self(0x1000);
+    pub const MISSION: Self = Self(0x2000);
+    pub const LAND_TYPE: Self = Self(0x4000);
+    pub const SEQUENCE: Self = Self(0x8000);
+    pub const RECEIVED_DAMAGE: Self = Self(0x10000);
+    pub const OWNER_CHANGE: Self = Self(0x20000);
+
+    pub fn contains(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    pub fn is_none(self) -> bool {
+        self.0 == 0
+    }
+
+    /// `read<DiscardCondition>`: comma-separated tokens, unknown tokens
+    /// ignored, `none` contributes no bit.
+    #[cfg(feature = "phobos")]
+    fn parse(raw: &str) -> Self {
+        let mut parsed = Self::NONE;
+        for token in raw.split(|c: char| matches!(c, ',' | ' ' | '\t' | '\r')) {
+            parsed.0 |= match token.trim().to_ascii_lowercase().as_str() {
+                "entry" => Self::ENTRY,
+                "move" => Self::MOVE,
+                "stationary" => Self::STATIONARY,
+                "drain" => Self::DRAIN,
+                "inrange" => Self::IN_RANGE,
+                "outofrange" => Self::OUT_OF_RANGE,
+                "firing" => Self::FIRING,
+                "selling" => Self::SELLING,
+                "undeploying" => Self::UNDEPLOYING,
+                "harvesting" => Self::HARVESTING,
+                "invokerdie" => Self::INVOKER_DIE,
+                "ammo" => Self::AMMO,
+                "health" => Self::HEALTH,
+                "mission" => Self::MISSION,
+                "landtype" => Self::LAND_TYPE,
+                "sequence" => Self::SEQUENCE,
+                "receiveddamage" => Self::RECEIVED_DAMAGE,
+                "ownerchange" => Self::OWNER_CHANGE,
+                _ => Self::NONE,
+            }
+            .0;
+        }
+        parsed
+    }
+}
+
 /// One `Animation.DrawOffsetN` rule. The first absent or `0,0` index ends the
 /// list, so the array is always contiguous from index 0.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -199,6 +265,31 @@ pub struct AttachEffectType {
     pub crit_disallow_warheads: Vec<String>,
     pub disable_weapons: bool,
     pub unkillable: bool,
+    /// `DiscardOn` and the keys its conditions read.
+    pub discard_on: DiscardOn,
+    pub discard_ammo_minimum: i32,
+    pub discard_ammo_maximum: i32,
+    pub discard_health_below: f64,
+    pub discard_health_above: f64,
+    pub discard_firing_count: i32,
+    pub discard_received_damage_count: i32,
+    pub discard_received_damage_affects_house: AffectedHouse,
+    pub discard_missions: Vec<String>,
+    /// `DiscardOn.AIMissions`; `None` inherits `discard_missions`.
+    pub discard_ai_missions: Option<Vec<String>>,
+    pub discard_land_types: Vec<String>,
+    pub discard_sequences: Vec<String>,
+    /// `DiscardOn.Sequences.Immediate`; `None` inherits `[General]`.
+    pub discard_sequences_immediate: Option<bool>,
+    /// `DiscardOn.RangeOverride`, in cells.
+    pub discard_range_override: Option<f64>,
+    /// `DiscardOn.MoveBasedOnDestination`; `None` inherits `[General]`.
+    pub discard_move_based_on_destination: Option<bool>,
+    /// `DiscardOn.ConsiderHarvestingAsStationary`; `None` inherits `[General]`.
+    pub discard_consider_harvesting_as_stationary: Option<bool>,
+    pub discard_owner_change_human_to_computer: bool,
+    pub discard_owner_change_computer_to_human: bool,
+    pub discard_owner_change_ignore_revert_on_exit: bool,
 }
 
 impl Default for AttachEffectType {
@@ -260,6 +351,25 @@ impl AttachEffectType {
             crit_disallow_warheads: Vec::new(),
             disable_weapons: false,
             unkillable: false,
+            discard_on: DiscardOn::NONE,
+            discard_ammo_minimum: -1,
+            discard_ammo_maximum: -1,
+            discard_health_below: -1.0,
+            discard_health_above: -1.0,
+            discard_firing_count: 1,
+            discard_received_damage_count: 1,
+            discard_received_damage_affects_house: AffectedHouse::ALL,
+            discard_missions: Vec::new(),
+            discard_ai_missions: None,
+            discard_land_types: Vec::new(),
+            discard_sequences: Vec::new(),
+            discard_sequences_immediate: None,
+            discard_range_override: None,
+            discard_move_based_on_destination: None,
+            discard_consider_harvesting_as_stationary: None,
+            discard_owner_change_human_to_computer: true,
+            discard_owner_change_computer_to_human: true,
+            discard_owner_change_ignore_revert_on_exit: false,
         }
     }
 
@@ -528,6 +638,70 @@ impl AttachEffectTypeCatalog {
             }
             entry.disable_weapons = section.read_bool("DisableWeapons", entry.disable_weapons);
             entry.unkillable = section.read_bool("Unkillable", entry.unkillable);
+            entry.discard_on =
+                section.read_string_with("DiscardOn", 0x400, entry.discard_on, |_, raw| {
+                    DiscardOn::parse(raw)
+                });
+            entry.discard_ammo_minimum =
+                section.read_int("DiscardOn.Ammo.MinimumAmount", entry.discard_ammo_minimum);
+            entry.discard_ammo_maximum =
+                section.read_int("DiscardOn.Ammo.MaximumAmount", entry.discard_ammo_maximum);
+            entry.discard_health_below = section
+                .read_phobos_double("DiscardOn.Health.BelowPercent", entry.discard_health_below);
+            entry.discard_health_above = section
+                .read_phobos_double("DiscardOn.Health.AbovePercent", entry.discard_health_above);
+            entry.discard_firing_count =
+                section.read_int("DiscardOn.Firing.Count", entry.discard_firing_count);
+            entry.discard_received_damage_count = section.read_int(
+                "DiscardOn.ReceivedDamage.Count",
+                entry.discard_received_damage_count,
+            );
+            entry.discard_received_damage_affects_house = section.read_string_with(
+                "DiscardOn.ReceivedDamage.AffectsHouse",
+                0x100,
+                entry.discard_received_damage_affects_house,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            );
+            if let Some(tokens) = section.read_list("DiscardOn.Missions", 0x800) {
+                entry.discard_missions = tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.discard_ai_missions = section
+                .read_list("DiscardOn.AIMissions", 0x800)
+                .map(|tokens| tokens.iter().map(|name| (*name).to_owned()).collect());
+            if let Some(tokens) = section.read_list("DiscardOn.LandTypes", 0x800) {
+                entry.discard_land_types = tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            if let Some(tokens) = section.read_list("DiscardOn.Sequences", 0x800) {
+                entry.discard_sequences = tokens.iter().map(|name| (*name).to_owned()).collect();
+            }
+            entry.discard_sequences_immediate = section.read_phobos_nullable_bool(
+                "DiscardOn.Sequences.Immediate",
+                entry.discard_sequences_immediate,
+            );
+            entry.discard_range_override = section.read_phobos_nullable_double(
+                "DiscardOn.RangeOverride",
+                entry.discard_range_override,
+            );
+            entry.discard_move_based_on_destination = section.read_phobos_nullable_bool(
+                "DiscardOn.MoveBasedOnDestination",
+                entry.discard_move_based_on_destination,
+            );
+            entry.discard_consider_harvesting_as_stationary = section.read_phobos_nullable_bool(
+                "DiscardOn.ConsiderHarvestingAsStationary",
+                entry.discard_consider_harvesting_as_stationary,
+            );
+            entry.discard_owner_change_human_to_computer = section.read_bool(
+                "DiscardOn.OwnerChange.HumanToComputer",
+                entry.discard_owner_change_human_to_computer,
+            );
+            entry.discard_owner_change_computer_to_human = section.read_bool(
+                "DiscardOn.OwnerChange.ComputerToHuman",
+                entry.discard_owner_change_computer_to_human,
+            );
+            entry.discard_owner_change_ignore_revert_on_exit = section.read_bool(
+                "DiscardOn.OwnerChange.IgnoreRevertOnExit",
+                entry.discard_owner_change_ignore_revert_on_exit,
+            );
             // The native loop appends into the retained vector, which would
             // duplicate every rule on a second Rules pass; rebuild instead.
             entry.animation_draw_offsets.clear();
@@ -665,6 +839,25 @@ mod tests {
         assert!(!entry.restricted_armor_multiplier());
         assert!(!entry.has_range_modifier());
         assert!(!entry.has_crit_modifiers());
+        assert!(entry.discard_on.is_none());
+        assert_eq!(entry.discard_ammo_minimum, -1);
+        assert_eq!(entry.discard_ammo_maximum, -1);
+        assert_eq!(entry.discard_health_below, -1.0);
+        assert_eq!(entry.discard_health_above, -1.0);
+        assert_eq!(entry.discard_firing_count, 1);
+        assert_eq!(entry.discard_received_damage_count, 1);
+        assert_eq!(
+            entry.discard_received_damage_affects_house,
+            AffectedHouse::ALL
+        );
+        assert!(entry.discard_ai_missions.is_none());
+        assert!(entry.discard_sequences_immediate.is_none());
+        assert!(entry.discard_range_override.is_none());
+        assert!(entry.discard_move_based_on_destination.is_none());
+        assert!(entry.discard_consider_harvesting_as_stationary.is_none());
+        assert!(entry.discard_owner_change_human_to_computer);
+        assert!(entry.discard_owner_change_computer_to_human);
+        assert!(!entry.discard_owner_change_ignore_revert_on_exit);
 
         let catalog = parse(
             "[AttachEffectTypes]
@@ -706,6 +899,67 @@ Animation.DrawOffset2=0,0
         assert_eq!(entry.animation_draw_offsets[0].offset, [7, -3]);
         assert_eq!(entry.animation_draw_offsets[0].required_types, vec!["REQ"]);
         assert_eq!(entry.animation_draw_offsets[1].offset, [2, 0]);
+    }
+
+    /// The DiscardOn flag tokens are case-insensitive, unknown tokens are
+    /// ignored, and every condition key reads its list or scalar.
+    #[test]
+    fn discard_keys_read_tokens_lists_and_defaults() {
+        let catalog = parse(
+            "[AttachEffectTypes]
+0=D
+[D]
+DiscardOn=move, Ammo,health,none,bogus
+DiscardOn.Ammo.MinimumAmount=2
+DiscardOn.Ammo.MaximumAmount=6
+DiscardOn.Health.BelowPercent=0.5
+DiscardOn.Health.AbovePercent=0.2
+DiscardOn.Firing.Count=3
+DiscardOn.ReceivedDamage.Count=2
+DiscardOn.ReceivedDamage.AffectsHouse=enemies
+DiscardOn.Missions=Guard,Move
+DiscardOn.AIMissions=Hunt
+DiscardOn.LandTypes=Clear,Road
+DiscardOn.Sequences=Walk,Attack
+DiscardOn.Sequences.Immediate=no
+DiscardOn.RangeOverride=1.5
+DiscardOn.MoveBasedOnDestination=yes
+DiscardOn.ConsiderHarvestingAsStationary=no
+DiscardOn.OwnerChange.HumanToComputer=no
+DiscardOn.OwnerChange.ComputerToHuman=no
+DiscardOn.OwnerChange.IgnoreRevertOnExit=yes
+",
+        );
+        let entry = catalog.entry("D").expect("entry");
+        assert!(entry.discard_on.contains(DiscardOn::MOVE));
+        assert!(entry.discard_on.contains(DiscardOn::AMMO));
+        assert!(entry.discard_on.contains(DiscardOn::HEALTH));
+        assert!(!entry.discard_on.contains(DiscardOn::MISSION));
+        assert_eq!(entry.discard_ammo_minimum, 2);
+        assert_eq!(entry.discard_ammo_maximum, 6);
+        assert_eq!(entry.discard_health_below, 0.5);
+        assert_eq!(
+            entry.discard_health_above,
+            f64::from(0.2_f32),
+            "ReadDouble is f32"
+        );
+        assert_eq!(entry.discard_firing_count, 3);
+        assert_eq!(entry.discard_received_damage_count, 2);
+        assert_eq!(
+            entry.discard_received_damage_affects_house,
+            AffectedHouse::ENEMIES
+        );
+        assert_eq!(entry.discard_missions, vec!["Guard", "Move"]);
+        assert_eq!(entry.discard_ai_missions, Some(vec!["Hunt".to_owned()]));
+        assert_eq!(entry.discard_land_types, vec!["Clear", "Road"]);
+        assert_eq!(entry.discard_sequences, vec!["Walk", "Attack"]);
+        assert_eq!(entry.discard_sequences_immediate, Some(false));
+        assert_eq!(entry.discard_range_override, Some(1.5));
+        assert_eq!(entry.discard_move_based_on_destination, Some(true));
+        assert_eq!(entry.discard_consider_harvesting_as_stationary, Some(false));
+        assert!(!entry.discard_owner_change_human_to_computer);
+        assert!(!entry.discard_owner_change_computer_to_human);
+        assert!(entry.discard_owner_change_ignore_revert_on_exit);
     }
 
     /// The stat-multiplier keys read with their documented defaults, their

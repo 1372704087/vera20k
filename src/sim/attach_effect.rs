@@ -55,6 +55,11 @@ pub struct AttachEffectInstance {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     anim: Option<u64>,
+    /// `ShouldBeDiscarded`: set by the effect's event conditions (a fired
+    /// count, received damage, entry, owner change, invoker death).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    should_be_discarded: bool,
 }
 
 impl AttachEffectInstance {
@@ -75,6 +80,8 @@ impl AttachEffectInstance {
             is_online: true,
             #[cfg(feature = "phobos")]
             anim: None,
+            #[cfg(feature = "phobos")]
+            should_be_discarded: false,
         };
         instance.refresh(effect);
         instance
@@ -192,6 +199,27 @@ impl AttachEffectInstance {
     /// `IsActive()`.
     pub fn is_active(&self, self_owned: bool) -> bool {
         self.is_online && self.active_ignoring_power(self_owned)
+    }
+
+    /// `IsActiveIgnorePowered()`: the delay rules without the power gate.
+    pub fn is_active_ignoring_power(&self, self_owned: bool) -> bool {
+        self.active_ignoring_power(self_owned)
+    }
+
+    /// `ShouldBeDiscarded`: an event condition asked for removal.
+    #[cfg(feature = "phobos")]
+    pub fn is_flagged_discarded(&self) -> bool {
+        self.should_be_discarded
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn mark_discarded(&mut self) {
+        self.should_be_discarded = true;
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn clear_discarded(&mut self) {
+        self.should_be_discarded = false;
     }
 
     /// `CanShowAnim` with the two flag actions: an offline owner and a temporal
@@ -449,14 +477,14 @@ impl AttachEffectList {
     pub fn tick_all(
         &mut self,
         effects: &[AttachEffectType],
-        mut discarded: impl FnMut(&AttachEffectInstance) -> bool,
+        mut discarded: impl FnMut(&AttachEffectInstance, &AttachEffectType) -> bool,
     ) {
         for index in 0..self.instances.len() {
             let type_index = self.instances[index].type_index;
             let Some(effect) = effects.get(type_index) else {
                 continue;
             };
-            let discarded = discarded(&self.instances[index]);
+            let discarded = discarded(&self.instances[index], effect);
             self.instances[index].tick(effect, discarded);
         }
     }
@@ -744,6 +772,138 @@ impl AttachEffectList {
     }
 }
 
+/// The per-frame target facts `AttachEffectClass::ShouldBeDiscardedNow`
+/// reads. Facts whose owners are not ported stay neutral and are named on the
+/// evaluator.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct DiscardFacts {
+    pub is_foot: bool,
+    pub is_building: bool,
+    pub is_moving: bool,
+    pub is_really_moving: bool,
+    pub harvesting: bool,
+    pub mission_harvest_on_tiberium: bool,
+    pub selling: bool,
+    pub undeploying: bool,
+    pub draining: bool,
+    pub ammo: i32,
+    pub health_ratio: f64,
+    pub health_and_strength_zero: bool,
+    pub land_type: Option<crate::rules::terrain_rules::LandType>,
+    pub owner_human: bool,
+}
+
+#[cfg(feature = "phobos")]
+impl AttachEffectInstance {
+    /// `ShouldBeDiscardedNow`: the event flag or any continuous condition the
+    /// type lists. RESIDUALS: the mission, sequence, inrange/outofrange and
+    /// drain conditions wait on the facts their owners have not exposed yet.
+    pub(crate) fn should_be_discarded_now(
+        &self,
+        effect: &AttachEffectType,
+        facts: &DiscardFacts,
+        globals: &crate::rules::attach_effect::AttachEffectGlobals,
+    ) -> bool {
+        use crate::rules::attach_effect::DiscardOn;
+        if self.should_be_discarded {
+            return true;
+        }
+        let flags = effect.discard_on;
+        if flags.is_none() {
+            return false;
+        }
+        if facts.is_foot {
+            let by_destination = effect
+                .discard_move_based_on_destination
+                .unwrap_or(globals.discard_move_based_on_destination);
+            let moving = if by_destination {
+                facts.is_moving
+            } else {
+                facts.is_really_moving
+            };
+            if moving {
+                if flags.contains(DiscardOn::MOVE) {
+                    return true;
+                }
+            } else if effect
+                .discard_consider_harvesting_as_stationary
+                .unwrap_or(globals.discard_consider_harvesting_as_stationary)
+            {
+                if flags.contains(DiscardOn::STATIONARY) {
+                    return true;
+                }
+            } else if facts.harvesting {
+                if flags.contains(DiscardOn::HARVESTING) {
+                    return true;
+                }
+            } else if facts.mission_harvest_on_tiberium {
+                // The intermediate state that is about to start harvesting is
+                // neither harvesting nor stationary this frame.
+                return false;
+            } else if flags.contains(DiscardOn::STATIONARY) {
+                return true;
+            }
+        }
+        if facts.is_building && facts.selling {
+            if facts.undeploying {
+                if flags.contains(DiscardOn::UNDEPLOYING) {
+                    return true;
+                }
+            } else if flags.contains(DiscardOn::SELLING) {
+                return true;
+            }
+        }
+        if facts.draining && flags.contains(DiscardOn::DRAIN) {
+            return true;
+        }
+        if flags.contains(DiscardOn::AMMO) {
+            let min = effect.discard_ammo_minimum;
+            let max = effect.discard_ammo_maximum;
+            if (min < 0 || facts.ammo >= min) && (max < 0 || facts.ammo <= max) {
+                return true;
+            }
+        }
+        if flags.contains(DiscardOn::HEALTH)
+            && health_in_threshold(
+                facts.health_ratio,
+                facts.health_and_strength_zero,
+                effect.discard_health_above,
+                effect.discard_health_below,
+            )
+        {
+            return true;
+        }
+        if flags.contains(DiscardOn::LAND_TYPE) && !effect.discard_land_types.is_empty() {
+            if let Some(land) = facts.land_type {
+                if effect
+                    .discard_land_types
+                    .iter()
+                    .any(|token| token.eq_ignore_ascii_case(land.section_name()))
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+}
+
+/// `TechnoExt::IsHealthInThreshold`: the interval `(above, below]`, with
+/// `above` inclusive at zero health; a zero-health, zero-strength object
+/// matches unconditionally.
+#[cfg(feature = "phobos")]
+fn health_in_threshold(health_ratio: f64, both_zero: bool, above: f64, below: f64) -> bool {
+    if both_zero {
+        return true;
+    }
+    (if health_ratio > 0.0 {
+        health_ratio > above
+    } else {
+        health_ratio >= above
+    }) && health_ratio <= below
+}
+
 /// Where an effect's animation lives: attached to `owner` at its world point,
 /// drawn under `house`, and paused or running with the effect's state.
 #[cfg(feature = "phobos")]
@@ -770,6 +930,86 @@ impl Simulation {
     /// `AnimExt::ChangeAnimType`, so `CumulativeAnimations.RestartOnChange=no`
     /// still restarts; `Animation.ResetOnReapply` does not restart a refreshed
     /// effect's animation.
+    /// `ShouldBeDiscardedNow`'s target facts for one entity, read once per
+    /// frame before the AI walk.
+    fn phobos_discard_facts(
+        &self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> DiscardFacts {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return DiscardFacts::default();
+        };
+        use crate::map::entities::EntityCategory;
+        let category = entity.category();
+        let is_foot = matches!(
+            category,
+            EntityCategory::Unit | EntityCategory::Infantry | EntityCategory::Aircraft
+        );
+        let is_building = category == EntityCategory::Structure;
+        let frame = self.session.binary_frame();
+        let (is_moving, is_really_moving) = if is_foot {
+            (
+                crate::sim::movement::motion_query::is_moving(entity).unwrap_or(false),
+                crate::sim::movement::motion_query::is_really_moving_now(
+                    entity,
+                    crate::sim::movement::SpeedRules::new(rules, &self.interner, &self.houses),
+                    frame,
+                ),
+            )
+        } else {
+            (false, false)
+        };
+        let land_type = self.resolved_terrain.as_ref().and_then(|terrain| {
+            terrain
+                .cell(entity.position.rx(), entity.position.ry())
+                .and_then(|cell| crate::rules::terrain_rules::LandType::from_index(cell.land_type))
+        });
+        let mission = entity.mission.current().known();
+        let harvesting = is_foot
+            && (entity
+                .miner
+                .as_ref()
+                .is_some_and(|miner| miner.is_harvesting())
+                || entity.animation.as_ref().is_some_and(|animation| {
+                    animation.sequence() == crate::rules::animation_sequence::SequenceKind::Shovel
+                }));
+        let mission_harvest_on_tiberium = mission
+            == Some(crate::rules::mission_data::MissionType::Harvest)
+            && land_type == Some(crate::rules::terrain_rules::LandType::Tiberium);
+        let selling =
+            is_building && mission == Some(crate::rules::mission_data::MissionType::Selling);
+        let strength = self
+            .interner
+            .object_type(entity.type_ref(), rules)
+            .map_or(0, |object| object.strength);
+        let health = entity.health.current();
+        DiscardFacts {
+            is_foot,
+            is_building,
+            is_moving,
+            is_really_moving,
+            harvesting,
+            mission_harvest_on_tiberium,
+            selling,
+            undeploying: selling && entity.archive_target().is_some(),
+            // No DrainingMe owner is ported yet.
+            draining: false,
+            ammo: entity.ammo().map_or(0, |ammo| ammo.current()),
+            health_ratio: if strength > 0 {
+                f64::from(health) / f64::from(strength)
+            } else {
+                0.0
+            },
+            health_and_strength_zero: health == 0 && strength == 0,
+            land_type,
+            owner_human: self
+                .houses
+                .get(&entity.owner())
+                .is_some_and(|house| house.is_human()),
+        }
+    }
+
     pub(crate) fn update_phobos_attach_effects(
         &mut self,
         id: u64,
@@ -808,13 +1048,17 @@ impl Simulation {
                 .phobos_attach_effects_mut(),
         );
         let effects = rules.attach_effect_types().types();
+        let globals = *rules.attach_effect_globals();
+        let facts = self.phobos_discard_facts(id, rules);
         list.online_check_all(effects, owner_active);
         let initialized_before: Vec<bool> = list
             .instances
             .iter()
             .map(|instance| instance.has_initialized())
             .collect();
-        list.tick_all(effects, |_| false);
+        list.tick_all(effects, |instance, effect| {
+            instance.should_be_discarded_now(effect, &facts, &globals)
+        });
         // `AI()`'s initialization block: `ROFMultiplier.ApplyOnCurrentTimer`
         // scales the timer already running when the effect first activates.
         let frame = self.session.binary_frame() as i32;
@@ -839,18 +1083,42 @@ impl Simulation {
                     .start(frame, scale_i32(remaining, effect.rof_multiplier));
             }
         }
-        // `HasExpired` removal runs after the AI walk; the effect's destructor
-        // unlinks its animation.
+        // `HasExpired || (IsActiveIgnorePowered && ShouldBeDiscardedNow)`:
+        // a discardable effect behind a recreation delay is reset instead of
+        // erased; the destructor unlinks the animation either way.
+        let discarded: Vec<bool> = list
+            .instances
+            .iter()
+            .map(|instance| {
+                effects.get(instance.type_index).is_some_and(|effect| {
+                    instance.should_be_discarded_now(effect, &facts, &globals)
+                })
+            })
+            .collect();
         let mut index = 0;
         while index < list.instances.len() {
-            if list.instances[index].has_expired() {
-                if let Some(anim) = list.instances[index].anim.take() {
-                    self.destroy_anim_with_context(anim, rules);
-                }
-                list.instances.remove(index);
-            } else {
+            let expired = list.instances[index].has_expired();
+            let discard = discarded.get(index).copied().unwrap_or(false)
+                && list.instances[index]
+                    .is_active_ignoring_power(list.instances[index].is_self_owned());
+            if !(expired || discard) {
                 index += 1;
+                continue;
             }
+            if discard {
+                list.instances[index].clear_discarded();
+                if list.instances[index].reset_if_recreatable() {
+                    if let Some(anim) = list.instances[index].anim.take() {
+                        self.destroy_anim_with_context(anim, rules);
+                    }
+                    index += 1;
+                    continue;
+                }
+            }
+            if let Some(anim) = list.instances[index].anim.take() {
+                self.destroy_anim_with_context(anim, rules);
+            }
+            list.instances.remove(index);
         }
         // `UpdateConditionalAnimDrawingLogic` reacts to other effects on the
         // same object, so every effect re-evaluates it each frame.
@@ -1843,6 +2111,178 @@ mod tests {
         );
     }
 
+    /// `ShouldBeDiscardedNow`'s continuous conditions over injected facts.
+    #[test]
+    fn discard_conditions_follow_their_facts() {
+        use crate::rules::attach_effect::{AttachEffectType, DiscardOn};
+        let mut effect = AttachEffectType::default();
+        effect.duration = 10;
+        let mut list = AttachEffectList::default();
+        list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            AttachPolicy::default(),
+            None,
+        );
+        let instance = list.instances()[0].clone();
+        let globals = crate::rules::attach_effect::AttachEffectGlobals::default();
+
+        // Ammo `[min, max]`, inclusive, `-1` unbounded.
+        effect.discard_on = DiscardOn::AMMO;
+        effect.discard_ammo_minimum = 2;
+        effect.discard_ammo_maximum = 4;
+        let mut facts = DiscardFacts::default();
+        for (ammo, expected) in [(1, false), (2, true), (4, true), (5, false)] {
+            facts.ammo = ammo;
+            assert_eq!(
+                instance.should_be_discarded_now(&effect, &facts, &globals),
+                expected,
+                "ammo {ammo}"
+            );
+        }
+        effect.discard_ammo_maximum = -1;
+        facts.ammo = 9;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+
+        // Health `(above, below]`, above inclusive at zero health.
+        effect.discard_on = DiscardOn::HEALTH;
+        effect.discard_health_above = 0.2;
+        effect.discard_health_below = 0.5;
+        facts = DiscardFacts::default();
+        for (ratio, both_zero, expected) in [
+            (0.5, false, true),
+            (0.2, false, false),
+            (0.6, false, false),
+            (0.0, true, true),
+        ] {
+            facts.health_ratio = ratio;
+            facts.health_and_strength_zero = both_zero;
+            assert_eq!(
+                instance.should_be_discarded_now(&effect, &facts, &globals),
+                expected,
+                "health {ratio} zero {both_zero}"
+            );
+        }
+
+        // Move / stationary / harvesting.
+        effect.discard_on = DiscardOn::MOVE;
+        facts = DiscardFacts {
+            is_foot: true,
+            is_really_moving: true,
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.is_really_moving = false;
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_move_based_on_destination = Some(true);
+        facts.is_moving = true;
+        assert!(
+            instance.should_be_discarded_now(&effect, &facts, &globals),
+            "the destination query replaces the locomotor motion query"
+        );
+        facts.is_moving = false;
+
+        effect.discard_on = DiscardOn::STATIONARY;
+        effect.discard_consider_harvesting_as_stationary = Some(true);
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.harvesting = true;
+        assert!(
+            instance.should_be_discarded_now(&effect, &facts, &globals),
+            "harvesting counts as stationary on this switch"
+        );
+        effect.discard_consider_harvesting_as_stationary = Some(false);
+        effect.discard_on = DiscardOn::HARVESTING;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.harvesting = false;
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_on = DiscardOn::STATIONARY;
+        facts.harvesting = true;
+        assert!(
+            !instance.should_be_discarded_now(&effect, &facts, &globals),
+            "harvesting is not stationary on this switch"
+        );
+        facts.harvesting = false;
+        facts.mission_harvest_on_tiberium = true;
+        assert!(
+            !instance.should_be_discarded_now(&effect, &facts, &globals),
+            "the intermediate harvest state is neither"
+        );
+
+        // Selling vs undeploying split on the archive target.
+        effect.discard_on = DiscardOn::SELLING;
+        facts = DiscardFacts {
+            is_building: true,
+            selling: true,
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_on = DiscardOn::UNDEPLOYING;
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.undeploying = true;
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+
+        // Land type names.
+        effect.discard_on = DiscardOn::LAND_TYPE;
+        effect.discard_land_types = vec!["Clear".to_owned()];
+        facts = DiscardFacts {
+            land_type: Some(crate::rules::terrain_rules::LandType::Clear),
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.land_type = Some(crate::rules::terrain_rules::LandType::Road);
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+
+        // The event flag wins even with no condition list.
+        let mut flagged = instance.clone();
+        flagged.mark_discarded();
+        effect.discard_on = DiscardOn::NONE;
+        assert!(flagged.should_be_discarded_now(&effect, &DiscardFacts::default(), &globals));
+    }
+
+    /// `DiscardOn=ammo` erases the effect on the AI frame that observes the
+    /// target's rounds inside the interval.
+    #[test]
+    fn an_ammo_discard_removes_the_effect() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=500\nSpeed=6\nAmmo=0\n\
+             AttachEffect.AttachTypes=AE_AMMO\n\
+             [AttachEffectTypes]\n0=AE_AMMO\n\
+             [AE_AMMO]\nDuration=10\nDiscardOn=ammo\n\
+             DiscardOn.Ammo.MinimumAmount=0\nDiscardOn.Ammo.MaximumAmount=0\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        assert_eq!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .len(),
+            1
+        );
+        sim.update_phobos_attach_effects(target, &rules);
+        assert!(
+            sim.entities()
+                .get(target)
+                .unwrap()
+                .phobos_attach_effects()
+                .is_empty(),
+            "the empty magazine discards the effect"
+        );
+    }
+
     /// `RecalculateStatMultipliers` folds every active armor multiplier into
     /// the cached factor, and the receiver's extra divide consumes it after
     /// the first AI frame.
@@ -1944,7 +2384,7 @@ mod tests {
         let mut list = AttachEffectList::default();
         attach(&mut list, 0);
         attach(&mut list, 1);
-        list.tick_all(&effects, |_| false);
+        list.tick_all(&effects, |_, _| false);
         assert_eq!(
             list.draw_offset(0, &effects),
             [2, -1],
@@ -1960,7 +2400,7 @@ mod tests {
         // `RequiredTypes` is any-of, and a second match must not add twice.
         list.instances[1].set_anim(None);
         attach(&mut list, 2);
-        list.tick_all(&effects, |_| false);
+        list.tick_all(&effects, |_, _| false);
         assert_eq!(
             list.draw_offset(0, &effects),
             [7, 4],
@@ -2008,9 +2448,9 @@ mod tests {
             AttachPolicy::default(),
             Some(AttachSource::default()),
         );
-        list.tick_all(&short_effects, |_| false);
+        list.tick_all(&short_effects, |_, _| false);
         assert_eq!(list.draw_offset(0, &short_effects), [7, 4]);
-        list.tick_all(&short_effects, |_| false);
+        list.tick_all(&short_effects, |_, _| false);
         assert_eq!(
             list.draw_offset(0, &short_effects),
             [0, 0],
@@ -2192,7 +2632,7 @@ AttachEffect.InitialDelays=3
         let effect = cumulative_effect(4, 2);
         let mut list = AttachEffectList::default();
         attach_with(&mut list, &effect, 0);
-        list.tick_all(std::slice::from_ref(&effect), |_| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
         let json = serde_json::to_string(&list).expect("serialize");
         let back: AttachEffectList = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, list);
@@ -2209,8 +2649,8 @@ AttachEffect.InitialDelays=3
             attach_with(&mut list, &effect, 0),
             AttachOutcome::Attached(0)
         );
-        list.tick_all(std::slice::from_ref(&effect), |_| false);
-        list.tick_all(std::slice::from_ref(&effect), |_| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
         assert_eq!(list.instances()[0].remaining(), 3);
 
         assert_eq!(attach_with(&mut list, &effect, 2), AttachOutcome::Refreshed);

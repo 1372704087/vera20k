@@ -2493,7 +2493,7 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "requires extracted retail rulesmd.ini and aimd.ini"]
+    #[ignore = "requires VERA20K_RETAIL_AIMD and VERA20K_RETAIL_RULESMD naming extracted retail INIs"]
     fn gsi_04_05_retail_aimd_installs_all_resolved_definitions_without_teams() {
         use crate::rules::ini_parser::IniFile;
 

@@ -1923,6 +1923,21 @@ impl ProcessedRulesLayers {
     }
 
     #[cfg(feature = "ares")]
+    pub(crate) fn selection_group_states(
+        &self,
+    ) -> impl Iterator<Item = (ObjectCategory, &str, &str)> {
+        let registry = self.native_type_construction_trace.registry_state();
+        registry.techno_type_order.iter().map(|&(family, index)| {
+            let member = &registry.families[&family][index];
+            (
+                family.object_category().expect("TechnoType category"),
+                member.native_stored_id.as_str(),
+                member.selection_group.as_str(),
+            )
+        })
+    }
+
+    #[cfg(feature = "ares")]
     pub(crate) fn driver_states(
         &self,
     ) -> impl Iterator<
@@ -3177,7 +3192,7 @@ impl CountryVeterancyState {
 /// Native constructor/phase2 reads: rules_oracle/ares_factory_owners.json
 /// global_controls; Process caller/order rests on installed instructions.
 #[cfg(feature = "ares")]
-#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub(crate) struct AresGlobalControls {
     phase: i32,
     /// RulesExt+70: constructor empty; LoadAfterTypeData reads HSBuilding.
@@ -3187,12 +3202,37 @@ pub(crate) struct AresGlobalControls {
     // RulesExt+160/+164: constructor zero/unset; retained by the global
     // Rules owner, independently of per-Type reset.
     emp_ai_recover_mission: Option<crate::rules::mission_data::MissionType>,
+    /// RulesExt+4B: constructor1002A3DF sets true; reader1002AC23..35.
+    #[serde(default = "AresGlobalControls::default_type_select_use_deploy")]
+    type_select_use_deploy: bool,
     #[serde(default)]
     bounty: crate::rules::ares_bounty::BountyGlobalRules,
 }
 
 #[cfg(feature = "ares")]
+impl Default for AresGlobalControls {
+    fn default() -> Self {
+        Self {
+            phase: 0,
+            hunter_seeker_buildings: Vec::new(),
+            allow_bypass_build_limit: [false; 3],
+            emp_ai_recover_mission: None,
+            type_select_use_deploy: Self::default_type_select_use_deploy(),
+            bounty: Default::default(),
+        }
+    }
+}
+
+#[cfg(feature = "ares")]
 impl AresGlobalControls {
+    const fn default_type_select_use_deploy() -> bool {
+        true
+    }
+
+    pub(crate) fn type_select_use_deploy(&self) -> bool {
+        self.type_select_use_deploy
+    }
+
     pub(crate) fn bounty(&self) -> &crate::rules::ares_bounty::BountyGlobalRules {
         &self.bounty
     }
@@ -3216,6 +3256,11 @@ impl AresGlobalControls {
     /// Unlike the Process-entry controls above, this unconditional reader
     /// runs immediately before Type data. The native named lookup is5B3910.
     fn read_before_type_data(&mut self, pass: &IniFile) {
+        // Installed Ares1002AC23..1002AC35: General, retained bool reader.
+        if let Some(section) = pass.section("General") {
+            self.type_select_use_deploy =
+                section.read_ares_bool("TypeSelectUseDeploy", self.type_select_use_deploy);
+        }
         self.bounty.read_before_type_data(pass);
         if let Some(mission) = pass
             .section("CombatDamage")
@@ -4211,6 +4256,10 @@ struct ProcessedType {
     #[cfg(feature = "ares")]
     #[serde(default)]
     driver: crate::rules::ares_driver::DriverTypeRules,
+    /// Ares TypeExt+250, empty in constructor1003CA53. Read1003EC3C..7C.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    selection_group: String,
     #[cfg(feature = "ares")]
     #[serde(default)]
     bounty: crate::rules::ares_bounty::BountyTypeRules,
@@ -4725,6 +4774,8 @@ impl ProcessedType {
             spotlight: Default::default(),
             #[cfg(feature = "ares")]
             driver: Default::default(),
+            #[cfg(feature = "ares")]
+            selection_group: String::new(),
             #[cfg(feature = "ares")]
             bounty: Default::default(),
             #[cfg(feature = "ares")]
@@ -6789,6 +6840,21 @@ impl RulesPassProcessor {
                     self.family_mut(family)[index].crew.read_pass(&raw, &pilots);
                     // TypeExt ReadINI1003EADC..1003EAED, NullableBool1000E9B0.
                     let member = &mut self.family_mut(family)[index];
+                    // Ares1003EC3C..1003EC7C reads 2048 then strncpy_s with
+                    // capacity32/_TRUNCATE. Missing/empty retains; either
+                    // native none spelling clears the override.
+                    member.selection_group = raw.read_string_with(
+                        "GroupAs",
+                        2048,
+                        std::mem::take(&mut member.selection_group),
+                        |_, value| {
+                            if is_native_none_type_name(value) {
+                                String::new()
+                            } else {
+                                crate::rules::ini_value::truncate_native_bytes(value, 31).to_owned()
+                            }
+                        },
+                    );
                     member.aircraft_crashable =
                         raw.read_ares_nullable_bool("Crashable", member.aircraft_crashable);
                 }

@@ -6,7 +6,7 @@ use crate::sim::snapshot::GameSnapshot;
 use crate::sim::team_script_vm::{TeamAiInstallDiagnostic, TeamScriptDefinition};
 use crate::util::native_x87::NativeF64Bits;
 
-use super::{MasterFrameTestRung, Simulation};
+use super::{FrameStep, Simulation};
 
 fn zero_ai_trigger_comparison() -> String {
     "00".repeat(32)
@@ -64,17 +64,21 @@ fn a_computer_team_recruits_forms_and_succeeds_in_the_master_frame() {
     let (mut sim, rules, team_id, members) = recruiting_team_fixture();
 
     sim.advance_tick(&[], Some(&rules), None, None, 67);
-    let trace = sim.take_master_frame_test_trace();
+    let order = [
+        FrameStep::SessionCommands,
+        FrameStep::Triggers,
+        FrameStep::TeamScript,
+        FrameStep::DiskLasers,
+        FrameStep::LightningStorm,
+        FrameStep::LogicVector,
+    ];
+    let trace = sim.take_frame_step_trace();
+    let visited: Vec<_> = trace
+        .into_iter()
+        .filter(|step| order.contains(step))
+        .collect();
     assert_eq!(
-        &trace[..6],
-        &[
-            MasterFrameTestRung::SessionCommands,
-            MasterFrameTestRung::Triggers,
-            MasterFrameTestRung::TeamScript,
-            MasterFrameTestRung::DiskLasers,
-            MasterFrameTestRung::LightningStorm,
-            MasterFrameTestRung::LogicVector,
-        ],
+        visited, order,
         "native TeamClass AI (0x0055B502) precedes the Disk walk (0x0055B5A1), \
          LightningStorm::Process (0x0055B5C8) and every live LogicClass object visit"
     );

@@ -1304,6 +1304,13 @@ impl FogState {
         }
     }
 
+    /// Set the live fog flag the way a freeze or reveal would, for client
+    /// fixtures that cannot reach the FogOfWar cell walk.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_object_fogged_for_test(&mut self, viewer: InternedId, id: u64, fogged: bool) {
+        self.set_object_fogged(viewer, id, fogged);
+    }
+
     pub(crate) fn forget_fogged_live_object(&mut self, id: u64) {
         self.fogged_live_objects.retain(|(_, candidate)| *candidate != id);
     }

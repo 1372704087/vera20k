@@ -38,6 +38,16 @@ thread_local! {
     static OUTPUT: RefCell<Option<WebOutput>> = const { RefCell::new(None) };
 }
 
+/// Stop the page-owned output when the application exits, including queued blocks.
+pub(crate) fn shutdown() {
+    OUTPUT.with(|slot| {
+        if let Some(output) = slot.borrow_mut().as_mut() {
+            output.stopped = true;
+            let _ = output.ctx.close();
+        }
+    });
+}
+
 /// Handle to the shared browser output. The output lives for the page, so
 /// dropping a handle does not stop playback.
 pub struct WebAudioSink {
@@ -67,6 +77,7 @@ impl WebAudioSink {
 
 struct WebOutput {
     ctx: AudioContext,
+    stopped: bool,
     mixer: Mixer,
     source: MixerSource,
     buffers: Vec<AudioBuffer>,
@@ -97,6 +108,7 @@ impl WebOutput {
         );
         Ok(Self {
             ctx,
+            stopped: false,
             mixer,
             source,
             buffers,
@@ -117,6 +129,9 @@ impl WebOutput {
 
     /// Schedule blocks until [`BLOCKS_AHEAD`] are queued past the clock.
     fn top_up(&mut self) {
+        if self.stopped {
+            return;
+        }
         let now = self.ctx.current_time();
         if self.next_start < now {
             self.next_start = now + RESTART_MARGIN_SECS;

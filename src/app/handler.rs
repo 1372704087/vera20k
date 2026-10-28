@@ -1877,6 +1877,13 @@ impl ApplicationHandler for App {
             crate::app::match_runtime::sim_tick::flush_replay_log(state);
         }
         log::logger().flush();
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            // The confirmed quit cascade (0x0052E7EC) has finished before notifying the host.
+            self.state.take();
+            crate::audio::web_output::shutdown();
+            crate::web::status("Exited");
+        }
     }
 }
 

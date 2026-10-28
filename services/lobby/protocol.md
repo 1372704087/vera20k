@@ -33,7 +33,8 @@ room/match cleanup and cannot renew grants.
 `GET /v1/stats` needs no bearer and returns `{online,in_game,open_games,games_24h,games_total}`:
 active sessions, those in a playing match, joinable game rooms, and games whose play
 began in the last 24 hours and ever. It names no player or room, is limited to 30
-requests a minute per address, and one answer serves every reader for 10 seconds.
+requests a minute per address (an IPv4 address or IPv6 /64), and one answer serves
+every reader for 10 seconds.
 
 `POST /v1/commands` accepts `{request_id,after,operation,payload}`. A request ID is unique
 within a session and retries are idempotent. Responses and
@@ -257,9 +258,12 @@ to 128 MiB/minute. Map upload/download bytes each have a 32 MiB/minute player bu
 Canonical options are limited to 24 KiB, choice objects use the exact canonical
 slot schema, and unknown request/option fields are rejected. The actor also caps
 pending requests/parsed bodies at 128/4 MiB and individual events at 64 KiB. Active
-sessions, guest profiles and public-room membership are capped at 256. New guest
-entries are limited to 40/hour/IP and 256/hour globally, with the existing sign-in
-and ingress limits also applied. These are service admission limits, not gameplay timers.
+sessions, guest profiles and public-room membership are capped at 256. Per-address
+limits key on the client's network: an IPv4 address, or an IPv6 /64, with the
+enclosing /48 as the range. New guest entries are limited to 40/hour per address,
+64/hour per range and 256/hour globally, and one range holds at most 64 active
+sessions (503 `network_full`), with the existing sign-in and ingress limits also
+applied. These are service admission limits, not gameplay timers.
 Clients verify and install into a
 local cache, preserve existing installed maps, and still require user readiness.
 Generated maps transfer the `.SED` bytes as the map and the separate native PCX

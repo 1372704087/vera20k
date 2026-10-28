@@ -416,6 +416,71 @@ impl AttachEffectList {
     }
 }
 
+/// One value of a paired list: the index's own entry, else the last, else the
+/// key's default. Phobos' `ValueableVector` reads extend the same way.
+#[cfg(feature = "phobos")]
+fn paired(list: &[i32], index: usize, default: i32) -> i32 {
+    list.get(index)
+        .or_else(|| list.last())
+        .copied()
+        .unwrap_or(default)
+}
+
+/// Phobos attaches a techno type's `AttachEffect.AttachTypes` once when the
+/// entity is created, pairing `DurationOverrides`, `Delays`, `InitialDelays`
+/// and `RecreationDelays` by index.
+#[cfg(feature = "phobos")]
+pub fn attach_initial_effects(
+    sim: &mut crate::sim::world::Simulation,
+    entity_id: u64,
+    rules: &crate::rules::ruleset::RuleSet,
+    source: Option<AttachSource>,
+) -> usize {
+    let Some(entity) = sim.substrate.entities.get(entity_id) else {
+        return 0;
+    };
+    let type_name = sim.interner.resolve(entity.type_ref()).to_owned();
+    let Some(object) = rules.object(&type_name) else {
+        return 0;
+    };
+    let names = object.attach_effect_attach_types().to_vec();
+    if names.is_empty() {
+        return 0;
+    }
+    let overrides = object.attach_effect_duration_overrides().to_vec();
+    let delays = object.attach_effect_delays().to_vec();
+    let initial_delays = object.attach_effect_initial_delays().to_vec();
+    let recreation_delays = object.attach_effect_recreation_delays().to_vec();
+    let policy = AttachPolicy {
+        replace_longer_duration: rules.attach_effect_globals().replace_longer_duration,
+        ..AttachPolicy::default()
+    };
+    let catalog = rules.attach_effect_types();
+    let mut attached = 0;
+    for (index, name) in names.iter().enumerate() {
+        let Some(type_index) = catalog.index_of(name) else {
+            continue;
+        };
+        let effect = &catalog.types()[type_index];
+        let params = AttachEffectParams {
+            duration_override: paired(&overrides, index, 0),
+            delay: paired(&delays, index, 0),
+            initial_delay: paired(&initial_delays, index, 0),
+            recreation_delay: paired(&recreation_delays, index, -1),
+        };
+        let Some(entity) = sim.substrate.entities.get_mut(entity_id) else {
+            break;
+        };
+        if let AttachOutcome::Attached(_) = entity
+            .phobos_attach_effects_mut()
+            .attach(type_index, params, effect, policy, source)
+        {
+            attached += 1;
+        }
+    }
+    attached
+}
+
 #[cfg(all(test, feature = "phobos"))]
 mod tests {
     use super::*;
@@ -573,6 +638,16 @@ mod tests {
             AttachPolicy::default(),
             None,
         )
+    }
+
+    /// A paired list uses its own index, else the last value, else the key's
+    /// documented default.
+    #[test]
+    fn paired_lists_take_the_last_value_for_the_remaining_types() {
+        assert_eq!(paired(&[5, 7], 0, 0), 5);
+        assert_eq!(paired(&[5, 7], 1, 0), 7);
+        assert_eq!(paired(&[5, 7], 4, 0), 7, "the last covers the rest");
+        assert_eq!(paired(&[], 0, -1), -1, "an absent list keeps the default");
     }
 
     /// A re-creating effect is inactive until its initial delay clears, and a

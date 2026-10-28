@@ -72,10 +72,25 @@ fn award_kill_experience(
         killer.spawn_owner_id.owner().and_then(trainable_cost)
     } else {
         // Branch 4: an occupied building pays the occupant at its fire index.
-        combat_weapon::firing_occupant_id(killer, killer_type).and_then(|occupant| {
-            let occupant_type = interner.object_type(entities.get(occupant)?.type_ref(), rules)?;
-            Some((occupant, cost_of(occupant_type)))
-        })
+        // NPBUG (NPExt bug-fix changelog item 66, issue #2982): FireAt has
+        // already advanced the index past the shooter when its bullet kills,
+        // so the stock read — like native — pays the NEXT one in line. The
+        // shooter is the rotation slot one step back from the post-advance
+        // head; occupants leaving between shot and kill stay the recorded
+        // stale-slot residual.
+        if crate::rules::NPBUG_ENABLED {
+            combat_weapon::garrison_shooter_id(killer, killer_type).and_then(|occupant| {
+                let occupant_type =
+                    interner.object_type(entities.get(occupant)?.type_ref(), rules)?;
+                Some((occupant, cost_of(occupant_type)))
+            })
+        } else {
+            combat_weapon::firing_occupant_id(killer, killer_type).and_then(|occupant| {
+                let occupant_type =
+                    interner.object_type(entities.get(occupant)?.type_ref(), rules)?;
+                Some((occupant, cost_of(occupant_type)))
+            })
+        }
     };
     let Some((recipient_id, recipient_cost)) = recipient else {
         return;
@@ -474,6 +489,85 @@ fn record_kill_credit(
             && let Some(house) = houses.get_mut(&killer)
         {
             house.stats_mut().record_kill(victim.category());
+        }
+    }
+}
+
+#[cfg(test)]
+mod npbug_garrison_xp_tests {
+    use super::*;
+    use crate::map::entities::EntityCategory;
+    use crate::rules::ini_parser::IniFile;
+    use crate::sim::entity_store::EntityStore;
+    use crate::sim::game_entity::GameEntity;
+    use crate::sim::intern::test_interner;
+    use crate::sim::passenger::PassengerRole;
+
+    fn occupied_building_scene() -> (EntityStore, StringInterner, RuleSet, u64, u64, u64) {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[BuildingTypes]\n0=TOWER\n[TOWER]\nStrength=600\nArmor=heavy\nCanBeOccupied=yes\nCanOccupyFire=yes\nMaxNumberOccupants=5\n\
+             [InfantryTypes]\n0=E1\n[E1]\nStrength=100\nArmor=none\nCost=100\n\
+             [Warheads]\n0=AP\n[AP]\nVersus=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+        ))
+        .unwrap();
+        let mut entities = EntityStore::default();
+        let mut building = GameEntity::test_default(1, "TOWER", "Soviet", 10, 10);
+        building.set_category_for_test(EntityCategory::Structure);
+        entities.insert(building);
+        let mut shooter = GameEntity::test_default(2, "E1", "Soviet", 10, 10);
+        shooter.passenger_role = PassengerRole::inside_for_test(1, false);
+        entities.insert(shooter);
+        let mut next = GameEntity::test_default(3, "E1", "Soviet", 10, 10);
+        next.passenger_role = PassengerRole::inside_for_test(1, false);
+        entities.insert(next);
+        let mut victim = GameEntity::test_default(4, "E1", "Americans", 12, 10);
+        victim.set_category_for_test(EntityCategory::Infantry);
+        entities.insert(victim);
+        let building = entities.get_mut(1).unwrap();
+        building.passenger_role.occupants_mut().add(2);
+        building.passenger_role.occupants_mut().add(3);
+        // FireAt advanced past the shooter: the rotation head now names the
+        // NEXT occupant in line.
+        building
+            .passenger_role
+            .occupants_mut()
+            .set_fire_index_for_test(1);
+        // The interner snapshot must come after the test_default interns.
+        let interner = test_interner();
+        (entities, interner, rules, 1, 2, 4)
+    }
+
+    /// NPBUG (NPExt bug-fix changelog item 66, issue #2982): a garrison
+    /// kill's veterancy pays the SHOOTER — the rotation slot one step back
+    /// from the post-advance head — not the next one in line. Stock pays
+    /// the next occupant.
+    #[test]
+    fn npbug_garrison_kill_xp_pays_the_shooter_not_the_next_in_line() {
+        let (mut entities, interner, rules, building_id, shooter_id, victim_id) =
+            occupied_building_scene();
+        award_kill_experience(
+            &mut entities,
+            &rules,
+            &interner,
+            building_id,
+            victim_id,
+            100,
+            None,
+        );
+        let shooter = entities.get(shooter_id).unwrap();
+        let next = entities.get(3).unwrap();
+        if crate::rules::NPBUG_ENABLED {
+            assert!(shooter.veterancy.raw().bits() != 0, "the shooter is paid");
+            assert_eq!(
+                next.veterancy.raw().bits(),
+                0,
+                "the next occupant is not paid"
+            );
+        } else {
+            assert!(
+                next.veterancy.raw().bits() != 0,
+                "stock pays the next occupant in line"
+            );
         }
     }
 }

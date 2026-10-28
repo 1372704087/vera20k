@@ -33,6 +33,13 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2982 (NPExt changelog item 66): a garrison kill's veterancy pays the
+  shooter — the rotation slot one step back from the post-advance fire
+  index — not the next occupant in line. Native reads the slot after
+  `FireAt` advanced it (`0x006FF031..0x006FF085`), so promotion landed on
+  the wrong soldier; occupants leaving between shot and kill stay the
+  recorded stale-slot residual.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

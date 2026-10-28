@@ -1232,6 +1232,23 @@ pub(crate) fn firing_occupant_id(entity: &GameEntity, obj: &ObjectType) -> Optio
         .copied()
 }
 
+/// NPBUG (NPExt bug-fix changelog item 66, issue #2982): the occupant a
+/// garrison kill credits — the rotation slot one step back from the
+/// post-advance fire index, i.e. the shooter. Occupants leaving between the
+/// shot and the kill remain the recorded stale-slot residual.
+pub(crate) fn garrison_shooter_id(entity: &GameEntity, obj: &ObjectType) -> Option<u64> {
+    if !is_occupied(entity, obj) {
+        return None;
+    }
+    let occupants = entity.passenger_role.occupants();
+    let count = occupants.ids().len();
+    let advanced = usize::try_from(occupants.fire_index()).ok()?;
+    occupants
+        .ids()
+        .get((advanced + count.saturating_sub(1)) % count.max(1))
+        .copied()
+}
+
 /// `BuildingClass::GetWeapon @ 0x004526F0`'s occupied arm, which answers every
 /// index: `Some` with the [`firing_occupant_id`]'s [`occupant_weapon`] (itself
 /// `None` when the occupant has no weapon), or `None` when the object's own

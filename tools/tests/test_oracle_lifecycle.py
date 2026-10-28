@@ -157,6 +157,22 @@ class OracleLifecycleTests(unittest.TestCase):
                 with self.subTest(module=module, optimized=optimized):
                     self.check_lifecycle('help', module, optimized)
 
+    def test_fixture_checks_and_source_edits_fail_in_optimized_python(self):
+        # A missing or repeated edit anchor, or a failed fixture check, stops the
+        # producer even where `python -O` strips assert statements.
+        script = (
+            'from tools.native_oracle import OracleError, edited_source, require\n'
+            'if "pass" not in edited_source(require, ("raise OracleError(message)", "pass")):\n'
+            '    raise SystemExit("edit not applied")\n'
+            'for attempt in (lambda: edited_source(require, ("condition", "")),\n'
+            '                lambda: edited_source(require, ("absent anchor", "")),\n'
+            '                lambda: require(False, "fixture")):\n'
+            '    try:\n        attempt()\n    except OracleError:\n        continue\n'
+            '    raise SystemExit("accepted")\n')
+        result = subprocess.run([sys.executable, '-O', '-c', script], cwd=ROOT,
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual((result.returncode, result.stderr), (0, ''))
+
     def test_anim_translucency_import_and_help_are_inert(self):
         for operation in ('import', 'help'):
             for optimized in (False, True):

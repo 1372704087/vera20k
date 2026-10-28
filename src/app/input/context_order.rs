@@ -1959,7 +1959,9 @@ pub(crate) fn try_queue_context_order(
     // (`0x004D79EC..0x004D7A14`), whatever chord it is part of.
     let force_move_key = is_alt_held(state);
     let order_mode = state.match_state.input.queued_order_mode;
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
+    let Some(owner) = preferred_local_owner(state) else {
+        return false;
+    };
     let owner_id: InternedId = state
         .match_state
         .sim_runtime

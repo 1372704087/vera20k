@@ -52,7 +52,9 @@ pub(crate) fn advance_sidebar_credits_after_frame(
     if !crate::app::sidebar_projection::credits_advance_for_frame(frame_committed, tick_lane) {
         return;
     }
-    let owner_name = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    let Some(owner_name) = preferred_local_owner_name(state) else {
+        return;
+    };
     let Some(sim) = state
         .match_state
         .sim_runtime
@@ -136,8 +138,14 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
     let (screen_w, screen_h) = state.sidebar_frame().layout_screen();
     let visible_rows =
         sidebar::compute_layout_with_spec(spec, screen_w, screen_h, 0).side2_tile_count;
-    let owner_name: String =
-        preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    let Some(owner_name) = preferred_local_owner_name(state) else {
+        state
+            .match_state
+            .match_presentation
+            .sidebar_projection
+            .replace_view(None);
+        return;
+    };
     let Some((
         build_options,
         queue_items,
@@ -425,18 +433,9 @@ pub(crate) fn refresh_sidebar_projection(state: &mut AppState) {
 /// two House rechecks must reach the very next frame. Membership and the House
 /// pass stay with [`refresh_sidebar_projection`].
 pub(crate) fn refresh_sidebar_cameo_draw_state(state: &mut AppState) {
-    // Without a current House the projection's owner comes from the sandbox
-    // guess, whose resolution scans every entity and each candidate's build
-    // options. That debug path keeps the drawn state of its last rebuild.
-    if state
-        .match_state
-        .sim_runtime
-        .as_ref()
-        .is_none_or(|runtime| runtime.simulation.session().current_house().is_none())
-    {
+    let Some(owner_name) = preferred_local_owner_name(state) else {
         return;
-    }
-    let owner_name = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    };
     let AppState { match_state, .. } = state;
     let Some(runtime) = match_state.sim_runtime.as_ref() else {
         return;

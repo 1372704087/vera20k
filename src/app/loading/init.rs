@@ -18,8 +18,8 @@ use crate::app::loading::fresh_scenario::{
     FreshMapMaterialization, FreshScenarioLoadContextDescriptor, FreshScenarioParts,
 };
 use crate::app::loading::init_helpers::{
-    DebugSpawnMarch, build_tile_atlas, cells_by_distance_from, parse_debug_spawn_march_env,
-    parse_debug_spawn_units_env, theater_ext_for,
+    DebugSpawnMarch, build_tile_atlas, cells_by_distance_from, debug_spawn_owner,
+    parse_debug_spawn_march_env, parse_debug_spawn_units_env, theater_ext_for,
 };
 use crate::app::match_bootstrap::LoadingStartup;
 use crate::sim::scenario_bootstrap::{
@@ -1474,8 +1474,6 @@ pub struct ScenarioLoadInputs {
     pub theater_name: String,
     /// Current theater extension (e.g., "des", "tem").
     pub theater_ext: String,
-    /// Preferred initial local owner when the loader seeded a sandbox opening.
-    pub initial_local_owner: Option<String>,
     /// Keep full map visibility for the empty-map sandbox opening.
     pub sandbox_full_visibility: bool,
     /// Opening campaign waypoint selected by the shared post-map owner.
@@ -3620,19 +3618,11 @@ fn load_map_first_step(
                                                         // the army standing.
                                                         if let Some(debug_units) =
                                                             parse_debug_spawn_units_env()
+                                                            && let Some(owner) = debug_spawn_owner(
+                                                                &staged_simulation,
+                                                            )
                                                         {
                                                             let ruleset = &rules;
-                                                            let owner: String = house_color_map
-                                                                .keys()
-                                                                .find(|h| {
-                                                                    let up = h.to_ascii_uppercase();
-                                                                    up != "NEUTRAL"
-                                                                        && up != "SPECIAL"
-                                                                })
-                                                                .cloned()
-                                                                .unwrap_or_else(|| {
-                                                                    "Americans".to_string()
-                                                                });
 
                                                             let (anchor_rx, anchor_ry): (u16, u16) = map_data
             .entities
@@ -3977,7 +3967,6 @@ fn load_map_first_step(
             theater_name,
             theater_ext: theater_ext.to_string(),
             sandbox_full_visibility: false,
-            initial_local_owner,
             opening_view_cell,
             camera_anchor_x,
             camera_anchor_y,

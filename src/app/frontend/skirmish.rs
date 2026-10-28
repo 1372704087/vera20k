@@ -42,18 +42,15 @@ pub(crate) fn house_color_map_for_launch_session(
     let mut colors = HouseColorMap::new();
     colors.insert("Neutral".to_string(), neutral_color);
     colors.insert("Special".to_string(), neutral_color);
+    // CreateHouses builds only the participants and these two literal Houses,
+    // which take the roster's spelling when it defines them
+    // (`populate_special_houses`). No other roster House exists in a launched
+    // game, so none other gets a color. The two keep CreateHouses' explicit
+    // color rather than campaign Color=.
     for house in &house_roster.houses {
-        if !is_playable_faction_name(&house.name) {
-            // Preserve authored identity casing, but these two skirmish houses
-            // use CreateHouses' explicit color rather than campaign Color=.
-            let color = if house.name.eq_ignore_ascii_case("Neutral")
-                || house.name.eq_ignore_ascii_case("Special")
-            {
-                neutral_color
-            } else {
-                house.color
-            };
-            colors.insert(house.name.clone(), color);
+        if house.name.eq_ignore_ascii_case("Neutral") || house.name.eq_ignore_ascii_case("Special")
+        {
+            colors.insert(house.name.clone(), neutral_color);
         }
     }
     for slot in normalized_launch_slots(session) {
@@ -65,15 +62,6 @@ pub(crate) fn house_color_map_for_launch_session(
         colors.insert(slot.owner_name, HouseColorIndex(entry));
     }
     colors
-}
-
-/// Returns true for faction names that represent real players (not neutral/civilian).
-fn is_playable_faction_name(name: &str) -> bool {
-    let up = name.to_ascii_uppercase();
-    !matches!(
-        up.as_str(),
-        "NEUTRAL" | "SPECIAL" | "CIVILIAN" | "GOODGUY" | "BADGUY" | "JP"
-    )
 }
 
 /// Resident overlay, bridge and radar presentation derived from already-bound
@@ -750,9 +738,13 @@ mod tests {
             return;
         };
         let schemes = crate::rules::color_scheme::parse_color_schemes(&rules);
+        let mut roster = roster_with_neutral_and_playable();
+        let mut civilian = roster.houses[0].clone();
+        civilian.name = "Civilian".to_string();
+        roster.houses.push(civilian);
         let colors = house_color_map_for_launch_session(
             &test_session(),
-            &roster_with_neutral_and_playable(),
+            &roster,
             &schemes,
             SkirmishColorMode::VANILLA,
         );
@@ -765,7 +757,9 @@ mod tests {
         assert_eq!(colors.get("Special"), Some(&HouseColorIndex(2)));
         assert_eq!(colors.get("Player"), Some(&HouseColorIndex(5)));
         assert_eq!(colors.get("Computer1"), Some(&HouseColorIndex(10)));
+        // Roster Houses CreateHouses does not build own nothing in the game.
         assert!(!colors.contains_key("Americans"));
+        assert!(!colors.contains_key("Civilian"));
     }
 
     /// Phobos SkirmishUnlimitedColors: the spawner's colour index is the

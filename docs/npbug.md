@@ -33,6 +33,12 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2937 (NPExt changelog item 41): the passive acquisition scan
+  (`TechnoClass::Greatest_Threat @ 0x006F8DF0`'s candidate gates) refuses an
+  invulnerable candidate. Native gates G1..G13 have no invulnerability arm —
+  the Iron Curtain is enforced receiver-side only — so auto-acquisition
+  dumped fire into curtained units.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

@@ -1299,6 +1299,12 @@ pub struct Simulation {
     /// bypass API; balanced at frame boundaries; not saved/hash state.
     #[serde(skip, default)]
     buildup_bypass: bool,
+    /// Phobos `WarheadTypeExt::Reflected`: the warhead whose own damage is
+    /// being reflected right now, so a reflected hit never reflects again.
+    /// Synchronous, never saved or hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(skip, default)]
+    pub(crate) reflected_warhead: Option<crate::sim::intern::InternedId>,
     /// Scenario RNG — gamemd `Scenario->Random` (Scen+0x218). Drives in-object-tick
     /// sim draws: scatter, sub-cell placement, smudge/destruction, particles,
     /// wall/overlay damage, bridge collapse/destruction presentation, ore growth/spread, TIBTRE,
@@ -4401,6 +4407,8 @@ impl Simulation {
             frame_profile: Default::default(),
             object_placement_scope_depth: 0,
             buildup_bypass: false,
+            #[cfg(feature = "phobos")]
+            reflected_warhead: None,
             scenario_rng: SimRng::new(seed),
             main_rng: MainRng::new(seed),
             mapgen_rng: SimRng::new(0),

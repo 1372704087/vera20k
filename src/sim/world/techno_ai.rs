@@ -1480,7 +1480,7 @@ fn techno_common_steps(
     // Phobos `TechnoExt::UpdateAttachEffects` (Body.Update.cpp:895): one AI
     // phase and the animation check for every AttachEffect on this object.
     #[cfg(feature = "phobos")]
-    sim.update_phobos_attach_effects(id, rules);
+    sim.update_phobos_attach_effects_with(id, rules, effects, overlay_registry);
     #[cfg(feature = "ares")]
     sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before

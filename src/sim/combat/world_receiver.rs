@@ -1318,6 +1318,26 @@ pub(crate) fn commit_entities(
             world.resolved_terrain.as_ref(),
             None,
         );
+        // Phobos `TechnoClass_ReceiveDamage_ReflectDamage` (`0x701E18`) runs
+        // after the defense divides and before the Object body: the divided
+        // packet is what a reflecting effect sends back to its source.
+        #[cfg(feature = "phobos")]
+        if attacker_id != RAD_NO_ATTACKER
+            && let Some(damage) =
+                receiver_outcome.and_then(|resolved| resolved.outcome.readiness_damage)
+            && damage > 0
+        {
+            world.apply_attach_effect_reflect_damage(
+                target_id,
+                attacker_id,
+                event.source_house,
+                event.warhead_ref,
+                damage,
+                rules,
+                overlay_registry,
+                run.effects(),
+            );
+        }
         // Techno701ADB..701B62 precedes bunker/warhead/Object gates, even
         // when those gates suppress the HP write. It also runs for healing
         // and IgnoreDefenses; only the earlier receiver exits skip it.
@@ -2249,6 +2269,21 @@ pub(crate) fn handle_death(
                     under_attack_events.extend(commit.under_attack_events);
                     blast_effects.append(commit.effects);
                 }
+            }
+            // Phobos `TechnoClass_ReceiveDamage_RevengeWeapon` (`0x702672`):
+            // after the death weapon, an effect-granted revenge weapon fires
+            // at the killing source, if one exists.
+            #[cfg(feature = "phobos")]
+            if callbacks_enabled(world)
+                && let Some(attacker_id) = killing_attacker(world, damage_events, dead_id)
+            {
+                world.apply_attach_effect_revenge_weapons(
+                    dead_id,
+                    attacker_id,
+                    rules,
+                    overlay_registry,
+                    run.effects(),
+                );
             }
             // `0x0070267F`: after its death weapon, the bomb it carries goes
             // off (`BombClass::Detonate @ 0x00438720`).
@@ -3285,6 +3320,48 @@ fn emit_detonation_receivers<'r>(
                 ),
                 effects,
             );
+            // Phobos `BulletClass_Detonate @ 0x46920B`: the warhead's
+            // AttachEffect lists reach every target of this detonation before
+            // its damage. The no-spread arm follows the bullet target within
+            // the 64-lepton tolerance (`DetonateOnOneUnit`).
+            #[cfg(feature = "phobos")]
+            if !warhead.attach_effect.is_empty() {
+                use crate::sim::combat::combat_aoe::AreaDamageReceiver;
+                let mut targets: Vec<u64> = Vec::new();
+                if warhead.cell_spread_f64 > 0.0 {
+                    for receiver in &area.aoe.receivers {
+                        if let AreaDamageReceiver::Entity(event) = receiver {
+                            targets.push(event.target_id);
+                        }
+                    }
+                } else if let crate::sim::projectile::ProjectileTarget::Entity(id) =
+                    detonation.target
+                    && world.substrate.entities.get(id).is_some_and(|target| {
+                        let coords = crate::sim::movement::ground_pose::object_get_coords(
+                            target,
+                            world.resolved_terrain.as_ref(),
+                        );
+                        let dx = i64::from(detonation.impact.x) - i64::from(coords.x);
+                        let dy = i64::from(detonation.impact.y) - i64::from(coords.y);
+                        let dz = i64::from(detonation.impact.z) - i64::from(coords.z);
+                        dx * dx + dy * dy + dz * dz <= 4096
+                    })
+                {
+                    targets.push(id);
+                }
+                let invoker = (detonation.source_id != 0).then_some(detonation.source_id);
+                for target_id in targets {
+                    world.apply_warhead_attach_effects(
+                        target_id,
+                        detonation.payload.warhead,
+                        invoker,
+                        source_house,
+                        rules,
+                        effects,
+                        overlay_registry,
+                    );
+                }
+            }
             #[cfg(test)]
             append_fixture_tiberium(world, &mut out.effects.tiberium_reduction_requests);
             #[cfg(any(test, feature = "test-support"))]
@@ -3621,10 +3698,15 @@ pub(crate) fn commit_projectile_detonations_inline(
             .payload
             .projectile_type()
             .and_then(|projectile| rules.projectile(world.interner.resolve(projectile)));
-        let death_weapon =
-            detonation.reason == crate::sim::projectile::ProjectileDetonationReason::DeathWeapon;
+        // A death weapon and a Phobos instant AttachEffect shot both skip the
+        // BulletClass cluster loop and its draws.
+        let single_detonation = matches!(
+            detonation.reason,
+            crate::sim::projectile::ProjectileDetonationReason::DeathWeapon
+                | crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot
+        );
         let (clusters, cluster_draws) = match projectile_type {
-            Some(projectile) if !projectile.airburst && !death_weapon => {
+            Some(projectile) if !projectile.airburst && !single_detonation => {
                 (projectile.cluster.max(0), true)
             }
             _ => (1, false),

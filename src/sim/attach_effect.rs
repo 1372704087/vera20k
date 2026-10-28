@@ -11,7 +11,9 @@
 //! animation each effect shows. Stat multipliers, tint rendering and discard
 //! conditions read this state from their own owners.
 
-use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag, DiscardOn};
+use crate::rules::attach_effect::{
+    AttachEffectType, AttachedAnimFlag, DiscardOn, ExpireWeaponCondition,
+};
 #[cfg(feature = "phobos")]
 use crate::rules::phobos_shields::AffectedHouse;
 #[cfg(feature = "phobos")]
@@ -330,6 +332,84 @@ impl AttachEffectInstance {
     }
 }
 
+/// One weapon an effect asks the world to fire (`AEWeaponParams`): the weapon
+/// name, the invoker that owns the shot, and the house to use when the
+/// invoker is gone.
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AttachEffectWeaponShot {
+    pub weapon: String,
+    pub invoker: Option<u64>,
+    /// The firing house the shot carries (`InvokerHouse`, or the effect
+    /// owner's house for an owner shot).
+    pub house: Option<crate::sim::intern::InternedId>,
+}
+
+#[cfg(feature = "phobos")]
+impl AttachEffectInstance {
+    /// `AttachEffectClass::AddExpireWeaponParams` (`AttachEffectClass.cpp:1345`):
+    /// the weapon this instance fires for `condition`, if it does. `owner` and
+    /// `owner_house` are the effect's techno, used unless the shot takes the
+    /// invoker. `active_count` is `GetAttachedEffectCumulativeCount` at the
+    /// call site: the expiring instance is already inactive, so only the
+    /// others count, while a discarded one still counts itself.
+    pub(crate) fn expire_weapon_shot(
+        &self,
+        effect: &AttachEffectType,
+        condition: ExpireWeaponCondition,
+        owner: u64,
+        owner_house: crate::sim::intern::InternedId,
+        active_count: i32,
+        ignore_cumulative_count_check: bool,
+    ) -> Option<AttachEffectWeaponShot> {
+        let weapon = effect.expire_weapon.as_ref()?;
+        if !effect.expire_weapon_trigger_on.contains(condition) {
+            return None;
+        }
+        if effect.cumulative
+            && effect.expire_weapon_cumulative_only_once
+            && (ignore_cumulative_count_check || active_count >= 1)
+        {
+            return None;
+        }
+        if effect.expire_weapon_use_invoker_as_owner {
+            return Some(AttachEffectWeaponShot {
+                weapon: weapon.clone(),
+                invoker: self.source.and_then(|source| source.invoker),
+                house: self.source.and_then(|source| source.invoker_house),
+            });
+        }
+        Some(AttachEffectWeaponShot {
+            weapon: weapon.clone(),
+            invoker: Some(owner),
+            house: Some(owner_house),
+        })
+    }
+
+    /// `TechnoExt::ApplyRevengeWeapon`'s per-effect arm: the weapon and the
+    /// identity of the shot. The house gate belongs to the caller.
+    pub(crate) fn revenge_weapon_shot(
+        &self,
+        effect: &AttachEffectType,
+        owner: u64,
+        owner_house: crate::sim::intern::InternedId,
+    ) -> Option<AttachEffectWeaponShot> {
+        let weapon = effect.revenge_weapon.as_ref()?;
+        if effect.revenge_weapon_use_invoker_as_owner {
+            return Some(AttachEffectWeaponShot {
+                weapon: weapon.clone(),
+                invoker: self.source.and_then(|source| source.invoker),
+                house: self.source.and_then(|source| source.invoker_house),
+            });
+        }
+        Some(AttachEffectWeaponShot {
+            weapon: weapon.clone(),
+            invoker: Some(owner),
+            house: Some(owner_house),
+        })
+    }
+}
+
 /// What the effect's animation should do this frame.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AttachAnimState {
@@ -350,12 +430,43 @@ impl Default for AttachAnimState {
 
 /// Who handed the effect over: `IsFromSource` compares both the invoker and
 /// the source object, so a warhead and the unit that fired it are distinct.
+///
+/// `source` is the attaching `AbstractClass`: VERA's attach sites are warheads,
+/// so it holds the interned warhead handle (compared by name through the
+/// interner); a self-owned attach keeps it empty. `invoker_house` is the
+/// `InvokerHouse` the instance retains for a shot whose invoker is gone.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]
 pub struct AttachSource {
     pub invoker: Option<u64>,
     pub source: Option<u64>,
+    #[serde(default)]
+    pub invoker_house: Option<crate::sim::intern::InternedId>,
+}
+
+impl AttachSource {
+    /// `AttachEffectClass::IsFromSource(pInvoker, pSource)` compares the two
+    /// pointers only; the retained house is not part of it. `warhead` is the
+    /// querying weapon's warhead name, resolved against the stored handle.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn matches(
+        self,
+        invoker: Option<u64>,
+        warhead: Option<&str>,
+        interner: &crate::sim::intern::StringInterner,
+    ) -> bool {
+        if self.invoker != invoker {
+            return false;
+        }
+        match (self.source, warhead) {
+            (None, None) => true,
+            (Some(source), Some(warhead)) => interner
+                .try_resolve(crate::sim::intern::InternedId::from_index(source as u32))
+                .is_some_and(|name| name.eq_ignore_ascii_case(warhead)),
+            _ => false,
+        }
+    }
 }
 
 /// The attach site's cumulative switches (`AEAttachInfoTypeClass`), separate
@@ -851,6 +962,126 @@ impl AttachEffectList {
             stats.has_crit_modifiers |= effect.has_crit_modifiers();
         }
         stats
+    }
+
+    /// `TechnoExt::ExtData::GetAttachedEffectCumulativeCount` with no source
+    /// filtering: how many active instances of `type_index` the techno carries.
+    pub(crate) fn active_count(&self, type_index: usize) -> i32 {
+        self.instances
+            .iter()
+            .filter(|instance| instance.type_index == type_index)
+            .filter(|instance| instance.is_active(instance.is_self_owned()))
+            .count() as i32
+    }
+
+    /// `AttachEffectTypeClass::HasGroups(groups, false)` over the catalog: the
+    /// type indices of every type carrying at least one listed group, in
+    /// catalog order. Phobos' `GetTypesFromGroups` returns a set of pointers;
+    /// VERA keeps the catalog order for determinism.
+    pub(crate) fn types_with_groups(
+        effect_count: usize,
+        groups: &[String],
+        effects: &[AttachEffectType],
+    ) -> Vec<usize> {
+        (0..effect_count)
+            .filter(|&index| {
+                effects.get(index).is_some_and(|effect| {
+                    effect.groups.iter().any(|group| {
+                        groups
+                            .iter()
+                            .any(|required| group.eq_ignore_ascii_case(required))
+                    })
+                })
+            })
+            .collect()
+    }
+
+    /// `TechnoExt::ExtData::HasAttachedEffects` (`Body.cpp:484`): every entry
+    /// of `types` needs an active instance when `require_all`, any one when it
+    /// does not. A cumulative entry counts through
+    /// [`Self::active_count`] and is bounded by the paired counts; a plain
+    /// entry matches its first active instance. `ignore_same_source` drops
+    /// instances attached by the same invoker and warhead.
+    pub(crate) fn has_attached_effects(
+        &self,
+        types: &[usize],
+        require_all: bool,
+        ignore_same_source: bool,
+        invoker: Option<u64>,
+        warhead: Option<&str>,
+        effects: &[AttachEffectType],
+        interner: &crate::sim::intern::StringInterner,
+        min_counts: &[i32],
+        max_counts: &[i32],
+    ) -> bool {
+        let check_source = ignore_same_source && invoker.is_some() && warhead.is_some();
+        let min_size = min_counts.len();
+        let max_size = max_counts.len();
+        let mut found_count = 0usize;
+        let mut type_counter = 1usize;
+
+        for &type_index in types {
+            let Some(effect) = effects.get(type_index) else {
+                continue;
+            };
+            if effect.cumulative {
+                let count: i32 = self
+                    .instances
+                    .iter()
+                    .filter(|instance| instance.type_index == type_index)
+                    .filter(|instance| instance.is_active(instance.is_self_owned()))
+                    .filter(|instance| {
+                        !(check_source
+                            && instance
+                                .source
+                                .is_some_and(|source| source.matches(invoker, warhead, interner)))
+                    })
+                    .count() as i32;
+                let mut matched = count > 0;
+                if matched && min_size > 0 {
+                    if count < paired(min_counts, type_counter - 1, -1) {
+                        matched = false;
+                    }
+                }
+                if matched && max_size > 0 {
+                    if count > paired(max_counts, type_counter - 1, -1) {
+                        matched = false;
+                    }
+                }
+                if matched {
+                    if !require_all {
+                        return true;
+                    }
+                    found_count += 1;
+                }
+            } else {
+                for instance in &self.instances {
+                    if instance.type_index != type_index
+                        || !instance.is_active(instance.is_self_owned())
+                    {
+                        continue;
+                    }
+                    if check_source
+                        && instance
+                            .source
+                            .is_some_and(|source| source.matches(invoker, warhead, interner))
+                    {
+                        continue;
+                    }
+                    if !require_all {
+                        return true;
+                    }
+                    found_count += 1;
+                    break;
+                }
+            }
+            if require_all && found_count < type_counter {
+                return false;
+            }
+            type_counter += 1;
+        }
+
+        require_all && found_count == types.len()
     }
 
     /// `TechnoExt::ExtData::HasAttachedEffects` with `requireAll=false`: any
@@ -1501,10 +1732,28 @@ impl Simulation {
             .phobos_attach_effects_mut() = list;
     }
 
+    /// [`Self::update_phobos_attach_effects_with`] without a caller frame
+    /// boundary: fixtures that observe the list directly.
+    #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn update_phobos_attach_effects(
         &mut self,
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
+    ) {
+        self.update_phobos_attach_effects_with(
+            id,
+            rules,
+            crate::sim::world::FrameEffects::empty(),
+            None,
+        );
+    }
+
+    pub(crate) fn update_phobos_attach_effects_with(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        frame_effects: crate::sim::world::FrameEffects<'_>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
@@ -1648,11 +1897,33 @@ impl Simulation {
         // a discardable effect behind a recreation delay is reset instead of
         // erased; the destructor unlinks the animation either way.
         // Reverse order keeps the flag vector aligned with the shifting list.
+        let mut expire_shots: Vec<AttachEffectWeaponShot> = Vec::new();
         for index in (0..list.instances.len()).rev() {
             let expired = list.instances[index].has_expired();
             let discard = discarded.get(index).copied().unwrap_or(false);
             if !(expired || discard) {
                 continue;
+            }
+            // `AddExpireWeaponParams` runs before the reset/erase, and its
+            // cumulative check reads the count at this moment.
+            let type_index = list.instances[index].type_index;
+            if let Some(effect) = effects.get(type_index) {
+                let condition = if expired {
+                    ExpireWeaponCondition::EXPIRE
+                } else {
+                    ExpireWeaponCondition::DISCARD
+                };
+                let active_count = list.active_count(type_index);
+                if let Some(shot) = list.instances[index].expire_weapon_shot(
+                    effect,
+                    condition,
+                    id,
+                    owner_house,
+                    active_count,
+                    false,
+                ) {
+                    expire_shots.push(shot);
+                }
             }
             if discard {
                 list.instances[index].clear_discarded();
@@ -1668,6 +1939,8 @@ impl Simulation {
             }
             list.instances.remove(index);
         }
+        // The removal walks backwards; the shots keep native's attach order.
+        expire_shots.reverse();
         // `UpdateConditionalAnimDrawingLogic` reacts to other effects on the
         // same object, so every effect re-evaluates it each frame.
         let mut state = Vec::with_capacity(list.instances.len());
@@ -1760,6 +2033,20 @@ impl Simulation {
             .expect("the gated entity still exists");
         *entity.phobos_attach_effects_mut() = list;
         entity.set_phobos_stat_multipliers(stats);
+        // `UpdateAttachEffects` fires one weapon per expired/discarded effect
+        // at the object's own coordinates, after stats and animations.
+        if !expire_shots.is_empty() {
+            let detonations: Vec<_> = expire_shots
+                .iter()
+                .filter_map(|shot| self.attach_effect_weapon_detonation(shot, id, rules))
+                .collect();
+            self.commit_attach_effect_detonations(
+                &detonations,
+                rules,
+                overlay_registry,
+                frame_effects,
+            );
+        }
     }
 
     /// `CreateAnim` / `KillAnim`: keep exactly `desired` alive on the effect.
@@ -2056,6 +2343,636 @@ impl Simulation {
                 "attach effect hit animation [{name}] on {target} did not construct: {error}"
             ),
         }
+    }
+}
+
+#[cfg(feature = "phobos")]
+impl Simulation {
+    /// `WeaponTypeExt::HasRequiredAttachedEffects` (`src/Ext/WeaponType/Body.cpp:11`):
+    /// a weapon carrying no AE list always allows the shot. Otherwise the
+    /// effects of the target (or, with `AttachEffect.CheckOnFirer`, of the
+    /// firer) must satisfy the disallowed and required lists in native order,
+    /// skipping effects attached by the same invoker and warhead when
+    /// `AttachEffect.IgnoreFromSameSource` is set.
+    pub(crate) fn weapon_attach_effects_allow(
+        &self,
+        weapon: &crate::rules::weapon_type::WeaponType,
+        target: Option<&crate::sim::game_entity::GameEntity>,
+        firer: Option<&crate::sim::game_entity::GameEntity>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> bool {
+        if !weapon.has_attach_effect_gates() {
+            return true;
+        }
+        let techno = if weapon.attach_effect_check_on_firer {
+            firer
+        } else {
+            target
+        };
+        let Some(techno) = techno else {
+            return true;
+        };
+        let catalog = rules.attach_effect_types();
+        let effects = catalog.types();
+        let warhead = weapon.warhead.as_deref();
+        let invoker = firer.map(|entity| entity.stable_id());
+        let ignore = weapon.attach_effect_ignore_from_same_source;
+        let list = techno.phobos_attach_effects();
+
+        let resolve = |names: &[String]| -> Vec<usize> {
+            names
+                .iter()
+                .filter_map(|name| catalog.index_of(name))
+                .collect()
+        };
+        let refused = |types: &[usize], require_all: bool, min: &[i32], max: &[i32]| {
+            list.has_attached_effects(
+                types,
+                require_all,
+                ignore,
+                invoker,
+                warhead,
+                effects,
+                &self.interner,
+                min,
+                max,
+            )
+        };
+        let disallowed = resolve(&weapon.attach_effect_disallowed_types);
+        if !disallowed.is_empty()
+            && refused(
+                &disallowed,
+                false,
+                &weapon.attach_effect_disallowed_min_counts,
+                &weapon.attach_effect_disallowed_max_counts,
+            )
+        {
+            return false;
+        }
+        let disallowed_groups = AttachEffectList::types_with_groups(
+            effects.len(),
+            &weapon.attach_effect_disallowed_groups,
+            effects,
+        );
+        if !disallowed_groups.is_empty()
+            && refused(
+                &disallowed_groups,
+                false,
+                &weapon.attach_effect_disallowed_min_counts,
+                &weapon.attach_effect_disallowed_max_counts,
+            )
+        {
+            return false;
+        }
+        let required = resolve(&weapon.attach_effect_required_types);
+        if !required.is_empty()
+            && !refused(
+                &required,
+                true,
+                &weapon.attach_effect_required_min_counts,
+                &weapon.attach_effect_required_max_counts,
+            )
+        {
+            return false;
+        }
+        let required_groups = AttachEffectList::types_with_groups(
+            effects.len(),
+            &weapon.attach_effect_required_groups,
+            effects,
+        );
+        if !required_groups.is_empty()
+            && !refused(
+                &required_groups,
+                true,
+                &weapon.attach_effect_required_min_counts,
+                &weapon.attach_effect_required_max_counts,
+            )
+        {
+            return false;
+        }
+        true
+    }
+
+    /// One `WeaponTypeExt::DetonateAt`-style shot carried by an effect: a
+    /// bullet of the weapon, created at the target and detonated there.
+    fn attach_effect_weapon_detonation(
+        &mut self,
+        shot: &AttachEffectWeaponShot,
+        target_id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Option<crate::sim::projectile::ProjectileDetonation> {
+        let weapon = rules.weapon(&shot.weapon)?;
+        let warhead_name = weapon.warhead.as_deref()?;
+        let impact = {
+            let target = self.substrate.entities.get(target_id)?;
+            crate::sim::movement::ground_pose::object_get_coords(
+                target,
+                self.resolved_terrain.as_ref(),
+            )
+        };
+        let warhead_ref = self.interner.intern(warhead_name);
+        let weapon_ref = self.interner.intern(&weapon.id);
+        let projectile = weapon
+            .projectile
+            .as_deref()
+            .map(|name| self.interner.intern(name));
+        Some(crate::sim::projectile::ProjectileDetonation {
+            projectile_id: target_id,
+            source_id: shot.invoker.unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
+            target: crate::sim::projectile::ProjectileTarget::Entity(target_id),
+            impact: crate::sim::projectile::ProjectileCoord::new(impact.x, impact.y, impact.z),
+            payload: crate::sim::projectile::ProjectilePayload::new(
+                weapon.damage,
+                warhead_ref,
+                projectile,
+                weapon.bright,
+            )
+            .with_installed_weapon(Some(weapon_ref)),
+            reason: crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
+        })
+    }
+
+    /// `WarheadTypeExt::DetonateAt` (`src/Ext/WarheadType/Body.cpp:107`): a
+    /// bullet with no weapon type, carrying `warhead` and `damage`.
+    fn attach_effect_warhead_detonation(
+        &mut self,
+        warhead_name: &str,
+        damage: i32,
+        target_id: u64,
+        invoker: Option<u64>,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Option<(
+        crate::sim::projectile::ProjectileDetonation,
+        crate::sim::intern::InternedId,
+    )> {
+        let warhead = rules.warhead(warhead_name)?;
+        let impact = {
+            let target = self.substrate.entities.get(target_id)?;
+            crate::sim::movement::ground_pose::object_get_coords(
+                target,
+                self.resolved_terrain.as_ref(),
+            )
+        };
+        let warhead_ref = self.interner.intern(warhead_name);
+        Some((
+            crate::sim::projectile::ProjectileDetonation {
+                projectile_id: target_id,
+                source_id: invoker.unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
+                target: crate::sim::projectile::ProjectileTarget::Entity(target_id),
+                impact: crate::sim::projectile::ProjectileCoord::new(impact.x, impact.y, impact.z),
+                payload: crate::sim::projectile::ProjectilePayload::new(
+                    damage,
+                    warhead_ref,
+                    None,
+                    warhead.bright,
+                ),
+                reason: crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
+            },
+            warhead_ref,
+        ))
+    }
+
+    /// Detonate the given shots through the ordinary bullet receiver chain.
+    pub(crate) fn commit_attach_effect_detonations(
+        &mut self,
+        detonations: &[crate::sim::projectile::ProjectileDetonation],
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        if detonations.is_empty() {
+            return;
+        }
+        let mut run =
+            crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(effects);
+        let commit = crate::sim::combat::world_receiver::commit_projectiles(
+            self,
+            &mut run,
+            detonations,
+            rules,
+            overlay_registry,
+        );
+        let navigation = run.finish();
+        let _ = self.absorb_noncombat_damage_effects(
+            rules,
+            overlay_registry,
+            commit.effects,
+            commit.under_attack_events,
+            navigation,
+            effects,
+        );
+    }
+
+    /// Phobos `TechnoClass_ReceiveDamage_ReflectDamage` (`0x701E18`): every
+    /// active effect with `ReflectDamage` may deal the received, defense-
+    /// divided damage back to the attacker, under its chance, warhead,
+    /// multiplier/override and house gates. A reflected hit whose warhead is
+    /// already marked `Reflected` never reflects again. `attack` is the
+    /// post-divide value the native hook reads from `args->Damage`.
+    pub(crate) fn apply_attach_effect_reflect_damage(
+        &mut self,
+        target_id: u64,
+        attacker_id: u64,
+        source_house: Option<crate::sim::intern::InternedId>,
+        warhead_ref: crate::sim::intern::InternedId,
+        damage: i32,
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        if damage <= 0 || self.reflected_warhead == Some(warhead_ref) {
+            return;
+        }
+        let Some(warhead) = rules.warhead(self.interner.resolve(warhead_ref)) else {
+            return;
+        };
+        let info = warhead.attach_effect.clone();
+        // Without a source object the native hook has nothing to hit.
+        let Some(list) = self
+            .substrate
+            .entities
+            .get(target_id)
+            .map(|target| target.phobos_attach_effects().clone())
+        else {
+            return;
+        };
+        let victim_owner = self
+            .substrate
+            .entities
+            .get(target_id)
+            .map(|target| target.owner())
+            .expect("the gated target still exists");
+        let Some(attacker_owner) = source_house.or_else(|| {
+            self.substrate
+                .entities
+                .get(attacker_id)
+                .map(|attacker| attacker.owner())
+        }) else {
+            return;
+        };
+        let suppress = info.suppress_reflect_damage;
+        let suppress_by_type = !info.suppress_reflect_damage_types.is_empty();
+        let suppress_by_group = !info.suppress_reflect_damage_groups.is_empty();
+        // `(!suppress || suppressByType || suppressByGroup)` gates the loop,
+        // so a bare `SuppressReflectDamage` suppresses every effect before any
+        // chance draw.
+        if suppress && !suppress_by_type && !suppress_by_group {
+            return;
+        }
+        let effects_table = rules.attach_effect_types().types();
+        let mut actions: Vec<(
+            bool,
+            i32,
+            Option<u64>,
+            Option<crate::sim::intern::InternedId>,
+            String,
+        )> = Vec::new();
+        for (instance, effect) in list.active_effects(effects_table) {
+            if !effect.reflect_damage {
+                continue;
+            }
+            if effect.reflect_damage_chance < self.scenario_rng.random_double() {
+                continue;
+            }
+            if suppress {
+                if suppress_by_type
+                    && info
+                        .suppress_reflect_damage_types
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(&effect.name))
+                {
+                    continue;
+                }
+                if suppress_by_group
+                    && effect.groups.iter().any(|group| {
+                        info.suppress_reflect_damage_groups
+                            .iter()
+                            .any(|suppressed| suppressed.eq_ignore_ascii_case(group))
+                    })
+                {
+                    continue;
+                }
+            }
+            let reflected = effect
+                .reflect_damage_override
+                .unwrap_or_else(|| scale_i32(damage, effect.reflect_damage_multiplier));
+            let warhead_name = effect
+                .reflect_damage_warhead
+                .clone()
+                .unwrap_or_else(|| rules.bridge_warheads.c4_name.clone());
+            if warhead_name.is_empty() || rules.warhead(&warhead_name).is_none() {
+                continue;
+            }
+            let affects = effect.reflect_damage_affects_house;
+            let shot = if effect.reflect_damage_use_invoker_as_owner {
+                let invoker = instance.source.and_then(|source| source.invoker);
+                let house = instance.source.and_then(|source| source.invoker_house);
+                let invoker_house = invoker.and_then(|entity| {
+                    self.substrate
+                        .entities
+                        .get(entity)
+                        .map(|entity| entity.owner())
+                });
+                if invoker.is_some()
+                    && affects_house(
+                        affects,
+                        invoker_house,
+                        attacker_owner,
+                        self.house_alliances.as_map(),
+                        &self.interner,
+                    )
+                {
+                    Some((invoker, invoker_house, true))
+                } else if affects_house(
+                    affects,
+                    house,
+                    attacker_owner,
+                    self.house_alliances.as_map(),
+                    &self.interner,
+                ) {
+                    Some((None, house, true))
+                } else {
+                    None
+                }
+            } else if affects_house(
+                affects,
+                Some(victim_owner),
+                attacker_owner,
+                self.house_alliances.as_map(),
+                &self.interner,
+            ) {
+                Some((Some(target_id), Some(victim_owner), false))
+            } else {
+                None
+            };
+            if let Some((invoker, house, detonate)) = shot {
+                actions.push((detonate, reflected, invoker, house, warhead_name));
+            }
+        }
+
+        for (detonate, reflected, invoker, house, warhead_name) in actions {
+            let previous = self
+                .reflected_warhead
+                .replace(self.interner.intern(&warhead_name));
+            if detonate {
+                if let Some((detonation, _)) = self.attach_effect_warhead_detonation(
+                    &warhead_name,
+                    reflected,
+                    attacker_id,
+                    invoker,
+                    rules,
+                ) {
+                    self.commit_attach_effect_detonations(
+                        &[detonation],
+                        rules,
+                        overlay_registry,
+                        effects,
+                    );
+                }
+            } else {
+                let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                    attacker_id,
+                    reflected,
+                    0,
+                    invoker.unwrap_or(crate::sim::combat::RAD_NO_ATTACKER),
+                    house,
+                    self.interner.intern(&warhead_name),
+                    crate::sim::combat::ReceiverCallFlags {
+                        ignore_defenses: false,
+                        arg6: false,
+                    },
+                );
+                self.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
+            }
+            self.reflected_warhead = previous;
+        }
+    }
+
+    /// Phobos `TechnoExt::ApplyRevengeWeapon` (`src/Ext/Techno/WeaponHelpers.cpp:254`):
+    /// once a victim dies from a sourced hit, every active effect carrying
+    /// `RevengeWeapon` fires that weapon at the attacker, under the effect's
+    /// house gate and invoker ownership.
+    pub(crate) fn apply_attach_effect_revenge_weapons(
+        &mut self,
+        victim_id: u64,
+        attacker_id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        let Some(victim) = self.substrate.entities.get(victim_id) else {
+            return;
+        };
+        let Some(attacker) = self.substrate.entities.get(attacker_id) else {
+            return;
+        };
+        let victim_owner = victim.owner();
+        let attacker_owner = attacker.owner();
+        let table = rules.attach_effect_types().types();
+        let mut shots = Vec::new();
+        for (instance, effect) in victim.phobos_attach_effects().active_effects(table) {
+            if effect.revenge_weapon.is_none() {
+                continue;
+            }
+            let Some(shot) = instance.revenge_weapon_shot(effect, victim_id, victim_owner) else {
+                continue;
+            };
+            if !affects_house(
+                effect.revenge_weapon_affects_house,
+                shot.house,
+                attacker_owner,
+                self.house_alliances.as_map(),
+                &self.interner,
+            ) {
+                continue;
+            }
+            shots.push(shot);
+        }
+        let detonations: Vec<_> = shots
+            .iter()
+            .filter_map(|shot| self.attach_effect_weapon_detonation(shot, attacker_id, rules))
+            .collect();
+        self.commit_attach_effect_detonations(&detonations, rules, overlay_registry, effects);
+    }
+
+    /// `AttachEffectClass::RemoveAllOfType` (`AttachEffectClass.cpp:1131`): the
+    /// list-position bounded removal pass. A cumulative type below
+    /// `min_count` is kept entirely; at most `max_count` instances are
+    /// removed; a recreatable instance resets instead and stays. Every removed
+    /// instance contributes its `ExpireWeapon.TriggerOn=remove` shot.
+    fn remove_attach_effect_type(
+        &mut self,
+        list: &mut AttachEffectList,
+        type_index: usize,
+        min_count: i32,
+        max_count: i32,
+        owner: u64,
+        owner_house: crate::sim::intern::InternedId,
+        effects: &[AttachEffectType],
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> Vec<AttachEffectWeaponShot> {
+        let Some(effect) = effects.get(type_index) else {
+            return Vec::new();
+        };
+        let mut shots = Vec::new();
+        // `stackCount` keeps the active count read before any removal and is
+        // -1 for a non-cumulative type.
+        let stack = if effect.cumulative {
+            list.active_count(type_index)
+        } else {
+            -1
+        };
+        if min_count > 0 && stack > -1 && min_count > stack {
+            return shots;
+        }
+        let ignore_cumulative_count_check = stack != 1;
+        let mut detached = 0;
+        let mut index = 0;
+        while index < list.instances.len() {
+            if max_count > 0 && detached >= max_count {
+                break;
+            }
+            if list.instances[index].type_index != type_index {
+                index += 1;
+                continue;
+            }
+            detached += 1;
+            let active_count = list.active_count(type_index);
+            if let Some(shot) = list.instances[index].expire_weapon_shot(
+                effect,
+                ExpireWeaponCondition::REMOVE,
+                owner,
+                owner_house,
+                active_count,
+                ignore_cumulative_count_check,
+            ) {
+                shots.push(shot);
+            }
+            if list.instances[index].reset_if_recreatable() {
+                index += 1;
+                continue;
+            }
+            if let Some(anim) = list.instances[index].anim.take() {
+                self.destroy_anim_with_context(anim, rules);
+            }
+            list.instances.remove(index);
+            if !effect.cumulative {
+                break;
+            }
+        }
+        shots
+    }
+
+    /// Phobos `WarheadTypeExt::ApplyAttachEffects` (`src/Ext/WarheadType/Detonate.cpp:726`),
+    /// reached per target before its damage: attach every `AttachTypes` entry,
+    /// then remove `RemoveTypes` and every type carrying a `RemoveGroups`
+    /// group. `invoker` and `source_house` are the detonation's attacker and
+    /// captured source house.
+    pub(crate) fn apply_warhead_attach_effects(
+        &mut self,
+        target_id: u64,
+        warhead_ref: crate::sim::intern::InternedId,
+        invoker: Option<u64>,
+        source_house: Option<crate::sim::intern::InternedId>,
+        rules: &crate::rules::ruleset::RuleSet,
+        effects: crate::sim::world::FrameEffects<'_>,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) {
+        let Some(warhead) = rules.warhead(self.interner.resolve(warhead_ref)) else {
+            return;
+        };
+        let info = warhead.attach_effect.clone();
+        if info.is_empty() {
+            return;
+        }
+        let Some(target) = self.substrate.entities.get(target_id) else {
+            return;
+        };
+        // `DetonateOnOneUnit`'s target gate.
+        if target.lifecycle.in_limbo()
+            || !target.lifecycle.object_alive()
+            || target.health.current() <= 0
+            || target.chrono_warp_latch()
+        {
+            return;
+        }
+        let target_owner = target.owner();
+        if !crate::sim::shield::can_target_house(warhead, source_house, target_owner, self) {
+            return;
+        }
+        let catalog = rules.attach_effect_types();
+        let table = catalog.types();
+        let policy = AttachPolicy {
+            replace_longer_duration: rules.attach_effect_globals().replace_longer_duration,
+            ..AttachPolicy::default()
+        };
+        let source = Some(AttachSource {
+            invoker,
+            source: Some(u64::from(warhead_ref.index())),
+            invoker_house: source_house,
+        });
+        let Some(target) = self.substrate.entities.get_mut(target_id) else {
+            return;
+        };
+        let mut list = std::mem::take(target.phobos_attach_effects_mut());
+        for name in &info.attach_types {
+            let Some(type_index) = catalog.index_of(name) else {
+                continue;
+            };
+            let effect = &table[type_index];
+            let params = AttachEffectParams {
+                // The warhead attach site carries no duration/delay list.
+                duration_override: 0,
+                delay: -1,
+                initial_delay: 0,
+                recreation_delay: 0,
+            };
+            list.attach(type_index, params, effect, policy, source);
+        }
+        let mut shots = Vec::new();
+        for (position, name) in info.remove_types.iter().enumerate() {
+            let Some(type_index) = catalog.index_of(name) else {
+                continue;
+            };
+            let min_count = paired(&info.cumulative_remove_min_counts, position, -1);
+            let max_count = paired(&info.cumulative_remove_max_counts, position, -1);
+            shots.extend(self.remove_attach_effect_type(
+                &mut list,
+                type_index,
+                min_count,
+                max_count,
+                target_id,
+                target_owner,
+                table,
+                rules,
+            ));
+        }
+        let group_types =
+            AttachEffectList::types_with_groups(table.len(), &info.remove_groups, table);
+        for (position, type_index) in group_types.into_iter().enumerate() {
+            let min_count = paired(&info.cumulative_remove_min_counts, position, -1);
+            let max_count = paired(&info.cumulative_remove_max_counts, position, -1);
+            shots.extend(self.remove_attach_effect_type(
+                &mut list,
+                type_index,
+                min_count,
+                max_count,
+                target_id,
+                target_owner,
+                table,
+                rules,
+            ));
+        }
+        let stats = list.stat_multipliers(table);
+        if let Some(target) = self.substrate.entities.get_mut(target_id) {
+            *target.phobos_attach_effects_mut() = list;
+            target.set_phobos_stat_multipliers(stats);
+        }
+        let detonations: Vec<_> = shots
+            .iter()
+            .filter_map(|shot| self.attach_effect_weapon_detonation(shot, target_id, rules))
+            .collect();
+        self.commit_attach_effect_detonations(&detonations, rules, overlay_registry, effects);
     }
 }
 
@@ -3094,6 +4011,7 @@ mod tests {
                 Some(AttachSource {
                     invoker: Some(999_999),
                     source: None,
+                    invoker_house: None,
                 }),
             );
         assert_eq!(
@@ -3967,10 +4885,12 @@ AttachEffect.InitialDelays=3
         let first = Some(AttachSource {
             invoker: Some(1),
             source: Some(10),
+            invoker_house: None,
         });
         let second = Some(AttachSource {
             invoker: Some(2),
             source: Some(20),
+            invoker_house: None,
         });
         let policy = AttachPolicy::default();
         list.attach(
@@ -4013,6 +4933,7 @@ AttachEffect.InitialDelays=3
         let source = Some(AttachSource {
             invoker: Some(1),
             source: Some(10),
+            invoker_house: None,
         });
         let policy = AttachPolicy {
             cumulative_source_max_count: 1,
@@ -4040,6 +4961,447 @@ AttachEffect.InitialDelays=3
         );
         assert_eq!(outcome, AttachOutcome::Refreshed);
         assert_eq!(list.instances().len(), 1, "the source cap blocks the copy");
+    }
+
+    /// A two-house arena built from the given rules text, with every type id
+    /// and rule handle interned, ready for production spawns.
+    fn arena_scene(text: &str, seed: u64) -> (Simulation, crate::rules::ruleset::RuleSet) {
+        let ini = crate::sim::arena_fixture::clear_ground_ini(text);
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("rules parse");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, seed);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        (sim, rules)
+    }
+
+    fn spawn(
+        sim: &mut Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        type_name: &str,
+        owner: &str,
+        rx: u16,
+        ry: u16,
+    ) -> u64 {
+        sim.spawn_object(type_name, owner, rx, ry, 0, rules)
+            .expect("arena spawn")
+    }
+
+    fn health(sim: &Simulation, id: u64) -> i32 {
+        sim.substrate
+            .entities
+            .get(id)
+            .expect("live entity")
+            .health
+            .current()
+    }
+
+    fn attach_count(sim: &Simulation, id: u64) -> usize {
+        sim.substrate
+            .entities
+            .get(id)
+            .expect("live entity")
+            .phobos_attach_effects()
+            .instances()
+            .len()
+    }
+
+    fn direct_hit(
+        target: u64,
+        damage: i32,
+        attacker: u64,
+        warhead: crate::sim::intern::InternedId,
+    ) -> crate::sim::combat::EntityDamageEvent {
+        crate::sim::combat::EntityDamageEvent::direct_receiver(
+            target,
+            damage,
+            0,
+            attacker,
+            None,
+            warhead,
+            crate::sim::combat::ReceiverCallFlags {
+                ignore_defenses: false,
+                arg6: false,
+            },
+        )
+    }
+
+    const ALL_HIT: &str = "Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
+
+    /// Phobos `ExpireWeapon.TriggerOn=expire`: a terminal effect fires its
+    /// weapon at its own owner when the duration runs out. The weapon is named
+    /// only by the AttachEffect key, so this also covers the catalog's type
+    /// factory keeping it.
+    #[test]
+    fn an_expiring_effect_fires_its_expire_weapon_at_its_owner() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nDamageSelf=yes\n\
+                 AttachEffect.AttachTypes=EXPIRES\nAttachEffect.Delays=-1\n\
+                 [HIT]\n{ALL_HIT}\
+                 [EXPW]\nDamage=5\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=EXPIRES\n\
+                 [EXPIRES]\nDuration=1\nExpireWeapon=EXPW\n"
+            ),
+            17,
+        );
+        assert!(rules.weapon("EXPW").is_some(), "the AE key allocated EXPW");
+        assert_eq!(
+            rules.weapon("EXPW").unwrap().warhead.as_deref(),
+            Some("HIT")
+        );
+        let target = spawn(&mut sim, &rules, "TARGET", "Americans", 20, 20);
+        assert_eq!(health(&sim, target), 1000);
+
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(attach_count(&sim, target), 0, "the effect ended");
+        assert_eq!(
+            health(&sim, target),
+            995,
+            "the expire weapon detonated at the owner"
+        );
+    }
+
+    /// Phobos `RevengeWeapon`: a killed effect owner fires its weapon at the
+    /// killing source, through the ordinary receiver and detonation paths.
+    #[test]
+    fn a_dying_effect_owner_fires_its_revenge_weapon_at_the_killer() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=50\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REV\n\
+                 [HIT]\n{ALL_HIT}\
+                 [KILLW]\nDamage=100\nRange=1\nWarhead=HIT\n\
+                 [REVW]\nDamage=7\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=REV\n[REV]\nDuration=-1\nRevengeWeapon=REVW\n"
+            ),
+            23,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+        assert_eq!(attach_count(&sim, victim), 1);
+
+        let warhead = sim.interner.intern("HIT");
+        let event = direct_hit(victim, 100, attacker, warhead);
+        let _ = sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert!(
+            sim.substrate.entities.get(victim).is_none() || health(&sim, victim) == 0,
+            "the victim died"
+        );
+        assert_eq!(
+            health(&sim, attacker),
+            993,
+            "the revenge weapon hit the killer for 7"
+        );
+    }
+
+    /// Phobos `ReflectDamage`: the `.Override` fixed value and the
+    /// `.Multiplier` form of the defense-divided received damage.
+    #[test]
+    fn reflect_damage_returns_the_received_packet_by_override_or_multiplier() {
+        for (keys, expected) in [
+            ("ReflectDamage.Override=9\n", 991),
+            ("ReflectDamage.Multiplier=0.5\n", 995),
+        ] {
+            let (mut sim, rules) = arena_scene(
+                &format!(
+                    "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                     [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                     [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REF\n\
+                     [HIT]\n{ALL_HIT}\
+                     [KILLW]\nDamage=1\nRange=1\nWarhead=HIT\n\
+                     [AttachEffectTypes]\n0=REF\n\
+                     [REF]\nDuration=-1\nReflectDamage=yes\nReflectDamage.Warhead=HIT\n{keys}"
+                ),
+                29,
+            );
+            let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+            let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+            sim.update_phobos_attach_effects(victim, &rules);
+
+            let warhead = sim.interner.intern("HIT");
+            let event = direct_hit(victim, 10, attacker, warhead);
+            let _ = sim.commit_direct_damage_receiver(
+                &rules,
+                None,
+                event,
+                crate::sim::world::FrameEffects::empty(),
+            );
+            assert_eq!(health(&sim, victim), 990, "{keys}");
+            assert_eq!(health(&sim, attacker), expected, "{keys}");
+        }
+    }
+
+    /// Phobos `SuppressReflectDamage`: a bare key suppresses every reflecting
+    /// effect, so the hit deals no reflected damage.
+    #[test]
+    fn suppress_reflect_damage_stops_the_return_hit() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REF\n\
+                 [HIT]\n{ALL_HIT}SuppressReflectDamage=yes\n\
+                 [KILLW]\nDamage=1\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=REF\n\
+                 [REF]\nDuration=-1\nReflectDamage=yes\nReflectDamage.Warhead=HIT\n\
+                 ReflectDamage.Override=9\n"
+            ),
+            31,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+
+        let warhead = sim.interner.intern("HIT");
+        let event = direct_hit(victim, 10, attacker, warhead);
+        let _ = sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(health(&sim, victim), 990);
+        assert_eq!(health(&sim, attacker), 1000, "the suppressor refused it");
+    }
+
+    /// The reflected hit's own warhead is marked `Reflected` while it lands,
+    /// so two reflectors carrying the same warhead cannot ping-pong.
+    #[test]
+    fn a_reflected_hit_never_reflects_again() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 AttachEffect.AttachTypes=REF\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REF\n\
+                 [HIT]\n{ALL_HIT}\
+                 [ECHO]\n{ALL_HIT}\
+                 [KILLW]\nDamage=1\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=REF\n\
+                 [REF]\nDuration=-1\nReflectDamage=yes\nReflectDamage.Warhead=ECHO\n"
+            ),
+            37,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(attacker, &rules);
+        sim.update_phobos_attach_effects(victim, &rules);
+
+        let warhead = sim.interner.intern("HIT");
+        let event = direct_hit(victim, 10, attacker, warhead);
+        let _ = sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(health(&sim, victim), 990, "the incoming hit only");
+        assert_eq!(
+            health(&sim, attacker),
+            990,
+            "one reflected ECHO hit, and its own reflection was refused"
+        );
+    }
+
+    /// Phobos `AttachEffect.RequiredTypes` on a weapon: without the effect on
+    /// the target GetFireError returns `Cant`; with it the same shot is legal.
+    #[test]
+    fn a_weapon_attach_effect_requirement_gates_the_fire_error() {
+        use crate::sim::combat::fire_error::FireError;
+
+        let build = |attach: bool| {
+            let (sim, rules) = arena_scene(
+                &format!(
+                    "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                     [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=GATEW\n\
+                     [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\n{}\
+                     [HIT]\n{ALL_HIT}\
+                     [GATEW]\nDamage=10\nRange=-2\nWarhead=HIT\nOmniFire=yes\n\
+                     AttachEffect.RequiredTypes=REQ\n\
+                     [AttachEffectTypes]\n0=REQ\n[REQ]\nDuration=-1\n",
+                    if attach {
+                        "AttachEffect.AttachTypes=REQ\n"
+                    } else {
+                        ""
+                    }
+                ),
+                41,
+            );
+            (sim, rules)
+        };
+
+        let (mut sim, rules) = build(false);
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 23, 20);
+        let error = |sim: &Simulation| {
+            crate::sim::combat::fire_error_world::FireSubject {
+                world: sim,
+                rules: &rules,
+                overlay_registry: None,
+                fog: None,
+                firer: sim.substrate.entities.get(attacker).unwrap(),
+                obj: rules.object("ATTACKER").unwrap(),
+                target: Some(crate::sim::combat::TargetKind::Entity(victim)),
+                weapon_index: 0,
+            }
+            .fire_error(false)
+        };
+        assert_eq!(error(&sim), FireError::Cant, "the target lacks REQ");
+
+        let (mut sim, rules) = build(true);
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 23, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+        let error = |sim: &Simulation| {
+            crate::sim::combat::fire_error_world::FireSubject {
+                world: sim,
+                rules: &rules,
+                overlay_registry: None,
+                fog: None,
+                firer: sim.substrate.entities.get(attacker).unwrap(),
+                obj: rules.object("ATTACKER").unwrap(),
+                target: Some(crate::sim::combat::TargetKind::Entity(victim)),
+                weapon_index: 0,
+            }
+            .fire_error(false)
+        };
+        assert_eq!(
+            error(&sim),
+            FireError::Ok,
+            "the target carries REQ, so the shot is legal"
+        );
+    }
+
+    /// Phobos `AttachEffect.CumulativeRemoveMinCounts` / `MaxCounts` and
+    /// `RemoveGroups`: the min keeps the whole stack, the max removes only
+    /// that many, a later pass below the min keeps the rest, and a group
+    /// removes what is left.
+    #[test]
+    fn warhead_removal_boundaries_follow_min_max_counts_and_groups() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nDamageSelf=yes\n\
+                 AttachEffect.AttachTypes=STACK,STACK,STACK\nAttachEffect.Delays=-1\n\
+                 [Warheads]\n0=KEEPMIN\n1=LIMITMAX\n2=LATERMIN\n3=GROUPOFF\n\
+                 [KEEPMIN]\n{ALL_HIT}AttachEffect.RemoveTypes=STACK\n\
+                 AttachEffect.CumulativeRemoveMinCounts=4\n\
+                 [LIMITMAX]\n{ALL_HIT}AttachEffect.RemoveTypes=STACK\n\
+                 AttachEffect.CumulativeRemoveMaxCounts=2\n\
+                 [LATERMIN]\n{ALL_HIT}AttachEffect.RemoveTypes=STACK\n\
+                 AttachEffect.CumulativeRemoveMinCounts=3\n\
+                 [GROUPOFF]\n{ALL_HIT}AttachEffect.RemoveGroups=tag\n\
+                 [AttachEffectTypes]\n0=STACK\n\
+                 [STACK]\nDuration=100\nCumulative=yes\nGroups=tag\n"
+            ),
+            43,
+        );
+        let target = spawn(&mut sim, &rules, "TARGET", "Americans", 20, 20);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(attach_count(&sim, target), 3, "three stacked instances");
+
+        let detonate = |sim: &mut Simulation, warhead: &str| {
+            let warhead_ref = sim.interner.intern(warhead);
+            let impact = {
+                let entity = sim.substrate.entities.get(target).unwrap();
+                crate::sim::movement::ground_pose::object_get_coords(
+                    entity,
+                    sim.resolved_terrain.as_ref(),
+                )
+            };
+            let detonation = crate::sim::projectile::ProjectileDetonation {
+                projectile_id: u64::MAX,
+                source_id: target,
+                target: crate::sim::projectile::ProjectileTarget::Entity(target),
+                impact: crate::sim::projectile::ProjectileCoord::new(impact.x, impact.y, impact.z),
+                payload: crate::sim::projectile::ProjectilePayload::new(
+                    1,
+                    warhead_ref,
+                    None,
+                    false,
+                ),
+                reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+            };
+            sim.commit_attach_effect_detonations(
+                &[detonation],
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::empty(),
+            );
+        };
+
+        detonate(&mut sim, "KEEPMIN");
+        assert_eq!(attach_count(&sim, target), 3, "min 4 keeps the stack of 3");
+
+        detonate(&mut sim, "LIMITMAX");
+        assert_eq!(attach_count(&sim, target), 1, "max 2 removed two");
+
+        detonate(&mut sim, "LATERMIN");
+        assert_eq!(attach_count(&sim, target), 1, "min 3 keeps the last one");
+
+        detonate(&mut sim, "GROUPOFF");
+        assert_eq!(attach_count(&sim, target), 0, "the group removed the last");
+    }
+
+    /// Phobos `ExpireWeapon.TriggerOn=remove`: the weapon fires when a
+    /// warhead's `AttachEffect.RemoveTypes` takes the effect off its owner.
+    #[test]
+    fn a_removed_effect_fires_its_remove_weapon() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nDamageSelf=yes\n\
+                 AttachEffect.AttachTypes=REMOVABLE\nAttachEffect.Delays=-1\n\
+                 [Warheads]\n0=REMWH\n\
+                 [REMWH]\n{ALL_HIT}AttachEffect.RemoveTypes=REMOVABLE\n\
+                 [HIT]\n{ALL_HIT}\
+                 [EXPW]\nDamage=5\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=REMOVABLE\n\
+                 [REMOVABLE]\nDuration=100\nExpireWeapon=EXPW\n\
+                 ExpireWeapon.TriggerOn=remove\n"
+            ),
+            47,
+        );
+        let target = spawn(&mut sim, &rules, "TARGET", "Americans", 20, 20);
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(attach_count(&sim, target), 1);
+
+        let warhead_ref = sim.interner.intern("REMWH");
+        let impact = {
+            let entity = sim.substrate.entities.get(target).unwrap();
+            crate::sim::movement::ground_pose::object_get_coords(
+                entity,
+                sim.resolved_terrain.as_ref(),
+            )
+        };
+        let detonation = crate::sim::projectile::ProjectileDetonation {
+            projectile_id: u64::MAX,
+            source_id: target,
+            target: crate::sim::projectile::ProjectileTarget::Entity(target),
+            impact: crate::sim::projectile::ProjectileCoord::new(impact.x, impact.y, impact.z),
+            payload: crate::sim::projectile::ProjectilePayload::new(1, warhead_ref, None, false),
+            reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+        };
+        sim.commit_attach_effect_detonations(
+            &[detonation],
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(attach_count(&sim, target), 0, "the warhead removed it");
+        assert_eq!(
+            health(&sim, target),
+            994,
+            "the remove weapon fired for 5 on top of the warhead's 1"
+        );
     }
 
     /// A positive re-creation delay clears the duration and arms the delay.

@@ -568,6 +568,49 @@ impl FireQuery for WorldQuery<'_, '_> {
             .map(|weapon| subject.weapon_facts(weapon, self.target.obj))
     }
 
+    /// Phobos `TechnoClass_CanFire` (`0x6FC339`): the cell arm gates the firer
+    /// with `AttachEffect.CheckOnFirer`, and the techno arm asks the target's
+    /// (or, with the same key, the firer's) effects.
+    fn attach_effect_gate(&mut self, weapon_index: i32) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            let subject = self.subject;
+            let Some(weapon) = subject.weapon_at(weapon_index) else {
+                return true;
+            };
+            if !weapon.has_attach_effect_gates() {
+                return true;
+            }
+            let firer = Some(subject.firer);
+            if weapon.attach_effect_check_on_firer
+                && !subject.world.weapon_attach_effects_allow(
+                    weapon,
+                    Some(subject.firer),
+                    firer,
+                    subject.rules,
+                )
+            {
+                return false;
+            }
+            if let Some(target) = self.target.entity
+                && !subject.world.weapon_attach_effects_allow(
+                    weapon,
+                    Some(target),
+                    firer,
+                    subject.rules,
+                )
+            {
+                return false;
+            }
+            true
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = weapon_index;
+            true
+        }
+    }
+
     fn in_range(&mut self) -> bool {
         let subject = self.subject;
         let Some(target) = subject.target else {

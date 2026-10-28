@@ -726,16 +726,13 @@ impl<'a> ShellLifecycleReducer<'a> {
 pub(crate) fn invalidate_main_menu_dialog_instance(state: &mut AppState) {
     ShellLifecycleReducer::from_state(state).invalidate_main_menu_dialog_instance();
     // A new 0xE2 starts with no press or hover: its status line stays empty
-    // until a hover message arrives from the real cursor position.
-    let menu = &mut state.frontend.main_menu_shell_state;
-    menu.pressed_owner_draw_button = None;
-    menu.hovered_owner_draw_button = None;
-    if state.frontend.shell_controller.top_id() == Some(DialogId(0x00E2)) {
-        state
-            .frontend
-            .shell_controller
-            .reset_to(DialogId(0x00E2), false);
-    }
+    // until a hover message arrives from the real cursor position. The
+    // controller's 0xE2 instance is cleared wherever it sits, under a message
+    // box included.
+    state
+        .frontend
+        .shell_controller
+        .restart_instance(crate::ui::main_menu_shell::MAIN_MENU_DIALOG);
 }
 
 /// Deliver the kind-1 timer only while the bare 0xE2 dialog owns steady paint.

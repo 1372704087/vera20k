@@ -22,7 +22,11 @@ class MapObservationTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name).resolve()
         self.profile = json.loads((observation.ROOT / 'tools/map_observation.example.json').read_text())
-        self.profile.update(width=2, height=2, ticks=3, timeout_seconds=1)
+        # These wrapper cases start from the v1 shape; the example's v2 cursor
+        # sits over the 800x600 sidebar, outside the synthetic 2x2 frames.
+        del self.profile['cursor_position']
+        self.profile.update(schema_version=observation.PROFILE_V1, width=2, height=2, ticks=3,
+                            timeout_seconds=1)
         # Rust owns admission and real extent limits. These small synthetic frames
         # intentionally exercise only wrapper receipt/byte validation.
         self.profile_path = self.root / 'profile.json'

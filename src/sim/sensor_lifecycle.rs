@@ -734,7 +734,7 @@ mod tests {
     }
 
     #[test]
-    fn authored_scope_and_runtime_unlimbo_playfield_gate_are_distinct() {
+    fn authored_and_runtime_units_outside_the_playfield_place_without_membership() {
         let rules = rules();
         let mut sim = sim_with_map_authority();
         let bounds = sim.playfield_bounds().unwrap();
@@ -828,9 +828,13 @@ mod tests {
                 .state(),
             0
         );
-        assert!(
-            outside.is_none(),
-            "runtime outside-playfield Unit must fail Unlimbo"
-        );
+        // No Unlimbo layer refuses on the playfield (Techno `0x006F6CA0`,
+        // Object `0x005F4EC0`), so the runtime Unit places outside it like
+        // the authored one. This map-less fixture skips class admission; with
+        // terrain, a Unit whose +3D5 is clear also passes its Can_Enter_Cell
+        // boundary test (`0x0073F37B`).
+        let outside = sim.substrate.entities.get(outside.unwrap()).unwrap();
+        assert!(!outside.in_playfield());
+        assert!(outside.lifecycle.cell_marked());
     }
 }

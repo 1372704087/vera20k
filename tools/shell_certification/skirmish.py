@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from .core import (
-    ALLOWED_SURFACE_FORMATS, ValidationError, _parse_json_bytes,
+    ALLOWED_SURFACE_FORMATS, ValidationError, parse_json_bytes,
     _read_regular_bytes, _require_array, _require_exact_keys, _require_int,
     _require_object, _require_string, _require_value, sha256_bytes,
 )
@@ -36,7 +36,7 @@ def validate_bundle(directory: Path) -> dict:
     if not directory.is_dir() or {p.name for p in directory.iterdir()} != {"capture.json", "frame.bgra"}:
         raise ValidationError("capture inventory must be exactly capture.json and frame.bgra")
     raw = _read_regular_bytes(directory / "capture.json", "skirmish manifest", maximum_length=1024 * 1024)
-    manifest = _require_object(_parse_json_bytes(raw, "skirmish manifest"), "manifest")
+    manifest = _require_object(parse_json_bytes(raw, "skirmish manifest"), "manifest")
     _require_exact_keys(manifest, (
         "schema_version", "checkpoint", "parity_certification", "presenter_domain",
         "surface", "cursor", "route", "dialog_resource_id", "capture_frame",

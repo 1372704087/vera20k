@@ -49,7 +49,9 @@ after other players leave. AI players never acquire network identities.
 Online matches with two or more human sources use a lobby-certified fixed clock
 and one immutable relay command stream. All originally admitted clients must agree
 to the initial world before it starts. At each deadline, missing input is empty;
-late commands are assigned a future frame. The sender also waits for that commit.
+a command joins the next unsealed frame. The sender also waits for that commit.
+Each new command batch goes out twice, so one lost uplink datagram does not hold
+it and every later batch for the 100 ms retry.
 Frames use the existing Event codec and simulation queues, with a fresh compression
 cache per self-contained encrypted batch. The relay never receives payload keys.
 

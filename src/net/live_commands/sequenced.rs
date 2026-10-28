@@ -95,6 +95,16 @@ struct ReceivedEntry {
     received_at: Instant,
 }
 
+fn trace_mut(
+    traces: &mut VecDeque<CommandDeliveryTrace>,
+    batch_id: u64,
+) -> Option<&mut CommandDeliveryTrace> {
+    traces
+        .iter_mut()
+        .rev()
+        .find(|trace| trace.batch_id == batch_id)
+}
+
 fn service_due(last: Option<u32>, now: u32, interval: i32) -> bool {
     last.is_none_or(|last| super::probe_due(last, now, interval))
 }
@@ -278,15 +288,8 @@ impl SequencedSession {
         &self.command_traces
     }
 
-    fn trace_mut(&mut self, batch_id: u64) -> Option<&mut CommandDeliveryTrace> {
-        self.command_traces
-            .iter_mut()
-            .rev()
-            .find(|trace| trace.batch_id == batch_id)
-    }
-
     fn trace_assignment(&mut self, batch_id: u64, frame: u32, received_at: Instant) {
-        if let Some(trace) = self.trace_mut(batch_id) {
+        if let Some(trace) = trace_mut(&mut self.command_traces, batch_id) {
             trace.assigned.get_or_insert((frame, received_at));
         }
     }
@@ -374,12 +377,7 @@ impl SequencedSession {
                 }
                 if sent {
                     pending.last_sent = Some(now);
-                    if let Some(trace) = self
-                        .command_traces
-                        .iter_mut()
-                        .rev()
-                        .find(|trace| trace.batch_id == pending.id)
-                    {
+                    if let Some(trace) = trace_mut(&mut self.command_traces, pending.id) {
                         trace.sent_at.get_or_insert_with(Instant::now);
                     }
                 }

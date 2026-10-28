@@ -935,8 +935,8 @@ mod tests {
         );
 
         assert!(
-            on.take_master_frame_test_trace()
-                .contains(&crate::sim::world::MasterFrameTestRung::CrateRegen),
+            on.take_frame_step_trace()
+                .contains(&crate::sim::world::FrameStep::CrateRegen),
             "the rung is an observable master-frame position, not an incidental call"
         );
 

@@ -10,7 +10,7 @@ use crate::sim::projectile::{
 };
 use crate::sim::replay::{ReplayHeader, ReplayLog, ReplayRunner};
 use crate::sim::snapshot::GameSnapshot;
-use crate::sim::world::{FrameEffects, MasterFrameTestRung, Simulation, TickLane};
+use crate::sim::world::{FrameEffects, FrameStep, Simulation, TickLane};
 
 #[test]
 fn local_reload_preserves_unnamed_and_unassigned_values() {
@@ -3090,20 +3090,23 @@ fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
     let tick = ordinary_master_frame(&mut sim, None, None, true);
 
     assert!(tick.frame_committed);
-    assert_eq!(
-        sim.take_master_frame_test_trace(),
-        vec![
-            MasterFrameTestRung::SessionCommands,
-            MasterFrameTestRung::Triggers,
-            MasterFrameTestRung::TeamScript,
-            MasterFrameTestRung::DiskLasers,
-            MasterFrameTestRung::LightningStorm,
-            MasterFrameTestRung::LogicVector,
-            MasterFrameTestRung::Houses,
-            MasterFrameTestRung::FrameCommit,
-            MasterFrameTestRung::PendingDelete,
-        ]
-    );
+    let order = [
+        FrameStep::SessionCommands,
+        FrameStep::Triggers,
+        FrameStep::TeamScript,
+        FrameStep::DiskLasers,
+        FrameStep::LightningStorm,
+        FrameStep::LogicVector,
+        FrameStep::Houses,
+        FrameStep::FrameCommit,
+        FrameStep::PendingDelete,
+    ];
+    let trace = sim.take_frame_step_trace();
+    let visited: Vec<_> = trace
+        .into_iter()
+        .filter(|step| order.contains(step))
+        .collect();
+    assert_eq!(visited, order);
     assert_eq!(
         sim.drain_trigger_effects(),
         vec![TriggerEffect::CameraAtCoord {

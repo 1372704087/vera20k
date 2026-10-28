@@ -7,6 +7,9 @@ const encoder = new TextEncoder();
 const LOBBY_PROTOCOL = 4;
 const RELAY_PROTOCOL = 2;
 const PUBLIC_LOBBY_NAME = 'Lob_41_2';
+// Channel flags bit 0x100 marks a game with a password: the client's game list
+// (0x00781480) shows its lock and Join (0x00789960) asks for the password first.
+const CHANNEL_KEYED = 0x100;
 const MAX_EVENTS = 1024;
 const MAX_EVENT_BYTES = 65536;
 const MAX_CRITICAL_BYTES = 2 * 1024 * 1024;
@@ -118,8 +121,10 @@ function memberView(member, room) {
     flags: member.player_id === room.owner ? 1 : 0, squad: 0, clan_name: '', clan_tag: '' };
 }
 
+// The key bit comes from the room itself, never from the creator's channel.
 function channelView(room) {
-  return { ...room.channel, id: room.id, users: room.members.length, max_users: room.capacity };
+  return { ...room.channel, id: room.id, users: room.members.length, max_users: room.capacity,
+    flags: room.key ? CHANNEL_KEYED : 0 };
 }
 
 // This codec is shared with services/relay-protocol: fixed-width little-endian
@@ -238,7 +243,7 @@ export class LobbyService {
     this.translations = new Map();
     if (!store.get('room:public')) store.put('room:public', {
       id: 'public', owner: null, capacity: 256, kind: 0,
-      channel: { name: PUBLIC_LOBBY_NAME, kind: 0, tournament: 0, flags: 0, game_flags: 0, ping: -1, ex_info: '' },
+      channel: { name: PUBLIC_LOBBY_NAME, kind: 0, tournament: 0, game_flags: 0, ping: -1, ex_info: '' },
       members: [], revision: 0, phase: 'lobby', ready: {}, maps: {}, agreements: {}, created: this.clock(),
     });
     const publicRoom = store.get('room:public');
@@ -912,7 +917,7 @@ export class LobbyService {
         requireThat(this.store.count('room:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
         room = { id: crypto.randomUUID(), kind: 41, owner: session.player_id,
           capacity: Math.max(2, Math.min(MAX_PLAYERS, Number(channel.max_users) || 6)),
-          channel: { kind: 41, name: channel.name, tournament: 0, flags: Number(channel.flags) || 0,
+          channel: { kind: 41, name: channel.name, tournament: 0,
             game_flags: Number(channel.game_flags) || 0, ping: -1, ex_info: String(channel.ex_info ?? '').slice(0, 512) },
           key: prepared.key, members: [], revision: 0, options: null, ready: {}, maps: {}, agreements: {}, phase: 'lobby', created: this.clock() };
       } else {

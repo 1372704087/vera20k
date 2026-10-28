@@ -710,7 +710,7 @@ impl RelayServer {
 #[cfg(test)]
 mod tests {
     use super::super::tests::{
-        certificate, client, configure, connect, endpoint, events, pull, unix,
+        TestDirectory, certificate, client, configure, connect, endpoint, events, pull, unix,
     };
     use super::*;
 
@@ -721,6 +721,7 @@ mod tests {
     /// San Francisco and Singapore: source 0 homed on A, source 1 on B.
     struct Match {
         relays: [RelayServer; 2],
+        _journals: [TestDirectory; 2],
         clients: [ClientSession; 2],
         addresses: [SocketAddrV4; 2],
         links: Vec<(u64, usize, Vec<u8>)>,
@@ -742,11 +743,14 @@ mod tests {
                 &SecretKey::new([9; 32]),
             )
             .unwrap();
+            // Deployed relays journal every merged frame.
+            let journals = [TestDirectory::new(), TestDirectory::new()];
             let mut game = Self {
                 relays: [
-                    RelayServer::new(keys[0].clone(), 2),
-                    RelayServer::new(keys[1].clone(), 2),
+                    RelayServer::with_journal(keys[0].clone(), 2, &journals[0].0).unwrap(),
+                    RelayServer::with_journal(keys[1].clone(), 2, &journals[1].0).unwrap(),
                 ],
+                _journals: journals,
                 clients: [client(&keys[0], 0), client(&keys[1], 1)],
                 addresses,
                 links: Vec::new(),
@@ -893,6 +897,7 @@ mod tests {
             let frames = [self.submit(0), self.submit(1)];
             let mut latency = [None; 2];
             while latency.iter().any(Option::is_none) {
+                assert!(self.now < submitted + 1000, "commands never merged");
                 self.step();
                 for relay in 0..2 {
                     if latency[relay].is_none() && self.ordering(relay).head >= frames[relay] {

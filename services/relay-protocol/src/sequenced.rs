@@ -988,6 +988,14 @@ impl OrderingRoom {
         if batch_id == 0 {
             self.active &= !(1 << source);
         } else {
+            // Its home relay reserved it there; this journal stores the same
+            // merged stream. The batch is already sealed, so a full journal
+            // fails storage rather than dropping it.
+            if let Some(journal) = self.journal.as_mut()
+                && !journal.reserve_batch(22 + opaque.len())
+            {
+                self.storage_failed = true;
+            }
             self.sources[usize::from(source)].pending += 1;
         }
         self.pending.entry(frame).or_default().push(Pending {
@@ -1305,9 +1313,9 @@ mod tests {
         .unwrap()
     }
 
-    struct TestDirectory(std::path::PathBuf);
+    pub(super) struct TestDirectory(pub(super) std::path::PathBuf);
     impl TestDirectory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let mut random = [0; 16];
             getrandom::fill(&mut random).unwrap();
             let name: String = random.iter().map(|byte| format!("{byte:02x}")).collect();

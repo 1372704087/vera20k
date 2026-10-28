@@ -2,22 +2,25 @@
 //! disk; the in-memory deque is only a bounded cache of this same stream.
 
 use super::sequenced::{DEPARTURE_EVENT, FRAME_END_EVENT};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-const ROOM_QUOTA: u64 = 1024 * 1024 * 1024;
-const GLOBAL_QUOTA: u64 = 8 * ROOM_QUOTA;
+const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
+// Commands one source may archive: about 18 hours of very heavy play.
+const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
 const DEPARTURE_BYTES: u64 = 4 + 14 + 8;
 const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
 
 pub(super) struct JournalDirectory {
     root: PathBuf,
-    // Reservation is logical, never a disk preallocation. Abandoned journals
-    // found after restart retain their quota and are never overwritten.
-    reserved: BTreeSet<[u8; 16]>,
+    // Bytes per room, logical and never a disk preallocation: a live room
+    // holds its whole quota, a finished one only what it wrote. Abandoned
+    // journals found after restart hold their size and are never overwritten.
+    reserved: BTreeMap<[u8; 16], u64>,
+    total: u64,
 }
 
 impl JournalDirectory {
@@ -44,7 +47,7 @@ impl JournalDirectory {
                 return Err(io::ErrorKind::PermissionDenied.into());
             }
         }
-        let mut reserved = BTreeSet::new();
+        let mut reserved = BTreeMap::new();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -58,19 +61,38 @@ impl JournalDirectory {
                 *byte = u8::from_str_radix(&name[index * 2..index * 2 + 2], 16)
                     .map_err(|_| io::ErrorKind::InvalidData)?;
             }
-            reserved.insert(room);
+            let mut bytes = entry.metadata()?.len();
+            if entry.file_type()?.is_dir() {
+                for file in fs::read_dir(entry.path())? {
+                    bytes += file?.metadata()?.len();
+                }
+            }
+            reserved.insert(room, bytes);
         }
+        let total = reserved.values().sum();
         Ok(Self {
             root: root.to_owned(),
             reserved,
+            total,
         })
     }
 
-    pub(super) fn create(&mut self, room: [u8; 16], tick_hz: u16) -> io::Result<Journal> {
-        if self.reserved.contains(&room) {
+    /// Admits a room only while its whole quota fits beside every other
+    /// reservation: its clock records for the full match lifetime and each
+    /// source's command allowance.
+    pub(super) fn create(
+        &mut self,
+        room: [u8; 16],
+        tick_hz: u16,
+        sources: u32,
+    ) -> io::Result<Journal> {
+        if self.reserved.contains_key(&room) {
             return Err(io::ErrorKind::AlreadyExists.into());
         }
-        if self.reserved.len() as u64 >= GLOBAL_QUOTA / ROOM_QUOTA {
+        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
+            + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
+        let quota = reserved_tail + u64::from(sources) * SOURCE_COMMAND_QUOTA;
+        if self.total + quota > GLOBAL_QUOTA {
             return Err(io::ErrorKind::StorageFull.into());
         }
         let name: String = room.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -82,11 +104,10 @@ impl JournalDirectory {
             builder.mode(0o700);
         }
         builder.create(&path)?;
-        self.reserved.insert(room);
+        self.reserved.insert(room, quota);
+        self.total += quota;
         let data = private_new(&path.join("stream.data"))?;
         let index = private_new(&path.join("stream.index"))?;
-        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
-            + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
         Ok(Journal {
             room,
             path,
@@ -94,6 +115,7 @@ impl JournalDirectory {
             index,
             entries: 0,
             used: 0,
+            quota,
             reserved_tail,
             pending: 0,
             failed: false,
@@ -120,8 +142,25 @@ impl JournalDirectory {
         fs::remove_file(path.join("stream.data"))?;
         fs::remove_file(path.join("stream.index"))?;
         fs::remove_dir(&path)?;
-        self.reserved.remove(&room);
+        if let Some(bytes) = self.reserved.remove(&room) {
+            self.total -= bytes;
+        }
         Ok(())
+    }
+
+    /// A finished room writes nothing more; it keeps only the bytes its
+    /// terminal replay grace still serves.
+    pub(super) fn settle(&mut self, journal: &mut Journal) {
+        if journal.quota == journal.used {
+            return;
+        }
+        if let Some(bytes) = self.reserved.get_mut(&journal.room) {
+            self.total -= *bytes - journal.used;
+            *bytes = journal.used;
+        }
+        journal.quota = journal.used;
+        journal.reserved_tail = 0;
+        journal.pending = 0;
     }
 }
 
@@ -143,6 +182,7 @@ pub(super) struct Journal {
     index: File,
     entries: u64,
     used: u64,
+    quota: u64,
     reserved_tail: u64,
     pending: u64,
     failed: bool,
@@ -161,7 +201,7 @@ impl Journal {
         }) else {
             return false;
         };
-        if self.failed || self.used + self.reserved_tail + self.pending + bytes > ROOM_QUOTA {
+        if self.failed || self.used + self.reserved_tail + self.pending + bytes > self.quota {
             return false;
         }
         self.pending += bytes;

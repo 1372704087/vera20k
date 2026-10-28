@@ -33,6 +33,12 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2981 (NPExt changelog item 55): a kill's veterancy award divides by the
+  recipient's OWN house cost factors. Native `Record_The_Kill`
+  (`0x00702ED1..0x00702FD4`) prices every recipient arm through the victim's
+  house, so industrial plants or country discounts on the victim's house
+  skewed the killer's promotion speed.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

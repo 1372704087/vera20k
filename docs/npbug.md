@@ -35,6 +35,11 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2948 (NPExt changelog item 84): the InRange arming ceiling over
+  structural bridges (`0x006F74D7..0x006F7504`) consults the projectile's
+  `SubjectToCliffs=` — a projectile that ignores cliffs may shell a deck
+  three or more levels up; cliff-respecting arcing shots stay refused.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

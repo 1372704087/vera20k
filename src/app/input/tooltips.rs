@@ -195,7 +195,7 @@ fn tactical_world_tip_text(
     world: (f32, f32),
     cursor_coordinates: bool,
 ) -> String {
-    tactical_world_tip_text_sampled(view, rules, csf, world, cursor_coordinates, None)
+    tactical_world_tip_text_sampled(view, rules, csf, world, cursor_coordinates, None, None)
 }
 
 fn tactical_world_tip_text_sampled(
@@ -205,6 +205,7 @@ fn tactical_world_tip_text_sampled(
     world: (f32, f32),
     cursor_coordinates: bool,
     interpolation: Option<&crate::app::presentation::interpolation::RenderInterpolation>,
+    translucent_viewer: Option<crate::sim::intern::InternedId>,
 ) -> String {
     let Some((terrain, viewer)) = view.resolved_terrain().zip(view.session().current_house())
     else {
@@ -233,6 +234,7 @@ fn tactical_world_tip_text_sampled(
         crate::app::input::entity_pick::PresentedWorld {
             sim,
             interpolation: interpolation.unwrap_or(&native),
+            translucent_viewer,
         },
         &order,
         Some(view.fog()),
@@ -383,6 +385,8 @@ fn tactical_tip_text(state: &AppState) -> String {
         input.cursor_x,
         input.cursor_y,
     );
+    let translucent_viewer =
+        crate::app::presentation::instances::translucent_fog_viewer(state, view.simulation());
     tactical_world_tip_text_sampled(
         view,
         rules,
@@ -390,6 +394,7 @@ fn tactical_tip_text(state: &AppState) -> String {
         world,
         input.cursor_coordinates,
         Some(&state.match_state.match_presentation.interpolation),
+        translucent_viewer,
     )
 }
 

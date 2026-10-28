@@ -28,6 +28,18 @@ pub(crate) trait PickSource: Copy {
     fn first_ground_cell_object(&self, _cell: (u16, u16)) -> Option<CellObjectMember> {
         None
     }
+    /// The cell's first Building (`Look_up_building_in_cell @ 0x0047C520`)
+    /// when the session plays with FogOfWar (Scenario bit `0x1000`). A bare
+    /// EntityStore has neither.
+    fn fog_of_war_cell_building(&self, _cell: (u16, u16)) -> Option<u64> {
+        None
+    }
+    /// Has the presentation left this object out of the draw plan? No pick
+    /// may find what is not drawn. Only VERA's translucent fog does this;
+    /// native draws every object and lets the A buffer darken it.
+    fn conceals(&self, _entity: &crate::sim::game_entity::GameEntity) -> bool {
+        false
+    }
 }
 impl PickSource for &EntityStore {
     fn entities(&self) -> &EntityStore {
@@ -45,6 +57,16 @@ impl PickSource for &crate::sim::world::Simulation {
     fn first_ground_cell_object(&self, cell: (u16, u16)) -> Option<CellObjectMember> {
         crate::sim::world::Simulation::first_ground_cell_object(self, cell)
     }
+    fn fog_of_war_cell_building(&self, cell: (u16, u16)) -> Option<u64> {
+        if !self.session().game_options().fog_of_war {
+            return None;
+        }
+        self.occupancy().first_building_on_layer(
+            cell.0,
+            cell.1,
+            crate::sim::movement::locomotor::MovementLayer::Ground,
+        )
+    }
 }
 impl PickWorld for &crate::sim::world::Simulation {
     fn simulation(&self) -> &crate::sim::world::Simulation {
@@ -56,6 +78,8 @@ impl PickWorld for &crate::sim::world::Simulation {
 pub(crate) struct PresentedWorld<'a> {
     pub sim: &'a crate::sim::world::Simulation,
     pub interpolation: &'a crate::app::presentation::interpolation::RenderInterpolation,
+    /// [`crate::app::presentation::instances::translucent_fog_viewer`].
+    pub translucent_viewer: Option<InternedId>,
 }
 impl PickSource for PresentedWorld<'_> {
     fn entities(&self) -> &EntityStore {
@@ -70,6 +94,14 @@ impl PickSource for PresentedWorld<'_> {
     fn first_ground_cell_object(&self, cell: (u16, u16)) -> Option<CellObjectMember> {
         self.sim.first_ground_cell_object(cell)
     }
+    fn fog_of_war_cell_building(&self, cell: (u16, u16)) -> Option<u64> {
+        PickSource::fog_of_war_cell_building(&self.sim, cell)
+    }
+    fn conceals(&self, entity: &crate::sim::game_entity::GameEntity) -> bool {
+        self.translucent_viewer.is_some_and(|viewer| {
+            crate::app::presentation::instances::translucent_fog_conceals(self.sim, viewer, entity)
+        })
+    }
 }
 impl PickWorld for PresentedWorld<'_> {
     fn simulation(&self) -> &crate::sim::world::Simulation {
@@ -83,6 +115,7 @@ pub(crate) fn presented<'a>(
     PresentedWorld {
         sim,
         interpolation: &state.match_state.match_presentation.interpolation,
+        translucent_viewer: crate::app::presentation::instances::translucent_fog_viewer(state, sim),
     }
 }
 
@@ -412,7 +445,7 @@ pub(crate) fn band_rect_contains_drawn_object(
             return false;
         }
         let (sx, sy) = source.screen_position(entity);
-        if !(sx >= min_x && sx <= max_x && sy >= min_y && sy <= max_y) {
+        if !(sx >= min_x && sx <= max_x && sy >= min_y && sy <= max_y) || source.conceals(entity) {
             return false;
         }
         if entity.category() == EntityCategory::Structure {
@@ -461,7 +494,8 @@ pub(crate) fn pick_admits_object(
         || fog.has_sensor_for_house(player, entity.position.rx(), entity.position.ry())
 }
 
-/// Would the local player see this object drawn right now?
+/// Would the local player see this object drawn right now? Presentation's
+/// screen-selection rule ([`crate::app::presentation::instances::object_shown_to_local_owner`]).
 ///
 /// Deliberately distinct from the eligibility gate's visibility tail: with no
 /// fog state at all (the sandbox full-visibility switch) everything is drawn,
@@ -473,22 +507,19 @@ fn is_drawn_for_local_owner(
     entity: &crate::sim::game_entity::GameEntity,
     local_owner_id: Option<InternedId>,
 ) -> bool {
-    let Some(local_owner) = local_owner else {
-        return true;
-    };
     let Some((fog, alliances)) = fog else {
         // Sandbox full visibility: everything is drawn.
         return true;
     };
-    // VERA's policy, with no native ally test: the local player's allies are
-    // drawn, as the local player's house counts them.
-    if crate::map::houses::is_allied_with(alliances, local_owner, entity_owner) {
-        return true;
-    }
-    let owner_id = local_owner_id.unwrap_or_default();
-    let pos = &entity.position;
-    fog.is_cell_revealed(owner_id, pos.rx(), pos.ry())
-        && !fog.is_cell_gap_covered(owner_id, pos.rx(), pos.ry())
+    crate::app::presentation::instances::object_shown_to_local_owner(
+        local_owner,
+        local_owner_id,
+        fog,
+        alliances,
+        &entity.position,
+        entity_owner,
+        false,
+    )
 }
 
 /// Resolve a band-box release into the selection snapshot to commit.
@@ -1091,13 +1122,20 @@ pub(crate) fn pick_entity_at_point<'a>(
 /// `Tactical::PickObjectAtScreenPoint @ 0x006DA380`, with the cloak test
 /// ProcessClickCoords repeats on its result (`0x00692529..0x0069257F`).
 ///
-/// A shrouded clicked cell picks nothing. Otherwise the nearest admitted
+/// A shrouded clicked cell picks nothing (`DisplayClass::ProcessClickCoords @
+/// 0x00692300`, `0x00692480`). Neither does one whose first Building is
+/// frozen in FogOfWar (Building `+0x6E7`, `0x006924A4..0x006924FA`), so the
+/// live building and any unit on that cell stay out of reach. That arm's
+/// IsFogged for a cell without a Building is `0x005865E0`, which always
+/// answers false. Otherwise the nearest admitted
 /// registered object wins on `ftol(dx² + 0.5·dy²) < 200`, the first in
 /// `encounter_order` on a tie. With none, the pick is the head of the clicked
 /// cell's ground list (`CellClass+0xE4`, `0x006DA4B8..0x006DA4FB`): a
 /// building over its whole foundation, a unit standing beyond the ellipse, or
 /// a Terrain object. The bridge-deck list (`+0xE8`) is never read. An
-/// unadmitted head picks nothing; the pick never looks behind it.
+/// unadmitted head picks nothing; the pick never looks behind it. An object
+/// VERA's translucent fog leaves undrawn ([`PickSource::conceals`]) is not
+/// admitted either.
 ///
 /// Residual: the anchor pass scores only entities. Native also scores a
 /// registered Terrain object whose type has `IsVeinhole=` (`+0x2B4`);
@@ -1125,6 +1163,9 @@ pub(crate) fn pick_object_at_point<'a>(
             false,
             terrain,
         ) == crate::app::presentation::instances::CellVisibilityState::Shrouded
+            || source
+                .fog_of_war_cell_building(click_cell)
+                .is_some_and(|building| fog.is_object_fogged(player, building))
         {
             return None;
         }
@@ -1135,7 +1176,7 @@ pub(crate) fn pick_object_at_point<'a>(
         let Some(entity) = entities.get(stable_id) else {
             continue;
         };
-        if !pick_admits_object(entity, fog, player) {
+        if !pick_admits_object(entity, fog, player) || source.conceals(entity) {
             continue;
         }
         // Native6DA380 tests lifecycle/cloak after the clicked Cell gate;
@@ -1155,7 +1196,7 @@ pub(crate) fn pick_object_at_point<'a>(
     match source.first_ground_cell_object(click_cell)? {
         CellObjectMember::Entity(id) => entities
             .get(id)
-            .filter(|entity| pick_admits_object(entity, fog, player))
+            .filter(|entity| pick_admits_object(entity, fog, player) && !source.conceals(entity))
             .map(|_| CellObjectMember::Entity(id)),
         terrain => Some(terrain),
     }
@@ -1386,6 +1427,129 @@ mod tests {
                     .map(|hover| hover.stable_id),
                 expected
             );
+        }
+    }
+
+    /// Under FogOfWar, ProcessClickCoords skips the pick on a cell whose
+    /// Building is frozen in fog (`0x006924A4..0x006924FA`); the fog flag
+    /// alone, without the Scenario FogOfWar bit, does not.
+    #[test]
+    fn a_building_frozen_in_fog_of_war_refuses_the_pick_on_its_cell() {
+        use crate::sim::world::Simulation;
+
+        let mut sim = Simulation::new();
+        let viewer = sim.intern("viewer");
+        let other = sim.intern("other");
+        let typ = sim.intern("GAPOWR");
+        *sim.fog_mut_for_test() = FogState::new(32, 32);
+        sim.fog_mut_for_test().reveal_all_for_owner(viewer);
+        let building = item83_entity(1, 10, 10, other, typ, EntityCategory::Structure, false);
+        let (x, y) = crate::render::locomotor_visual::screen_position(&building);
+        sim.entities_mut_for_test().insert(building);
+        sim.occupancy_mut().add(
+            10,
+            10,
+            1,
+            crate::sim::movement::locomotor::MovementLayer::Ground,
+            None,
+            crate::sim::occupancy::CellListInsertion::AppendBuilding,
+        );
+        sim.resubmit_entity_display_for_test(1);
+        for (fog_of_war, fogged, expected) in [
+            (true, false, Some(1)),
+            (true, true, None),
+            (false, true, Some(1)),
+        ] {
+            sim.session_mut_for_test()
+                .game_options_mut_for_test()
+                .fog_of_war = fog_of_war;
+            sim.fog_mut_for_test()
+                .set_object_fogged_for_test(viewer, 1, fogged);
+            // On the anchor and beyond the ellipse on the same foundation.
+            for point_x in [x, x + 20.] {
+                assert_eq!(
+                    hover_target_at_point(&sim, point_x, y, "viewer", false)
+                        .map(|hover| hover.stable_id),
+                    expected,
+                    "fog_of_war={fog_of_war} fogged={fogged} x={point_x}"
+                );
+            }
+        }
+    }
+
+    /// Draw plan and pickers share one visibility rule. On explored ground
+    /// outside current sight, under VERA's translucent fog with FogOfWar, an
+    /// enemy leaves the draw plan, so neither the point pick nor the band
+    /// preflight finds it; the retail fog keeps it pickable, as native does
+    /// (`0x006924A4..0x006924FA`). The viewer's own and allied units stay
+    /// drawn and pickable on the same ground.
+    #[test]
+    fn translucent_fog_hides_from_the_pickers_what_it_hides_from_the_draw_plan() {
+        use crate::app::presentation::instances::translucent_fog_conceals;
+        use crate::app::presentation::interpolation::RenderInterpolation;
+        use crate::sim::world::Simulation;
+
+        let mut sim = Simulation::new();
+        let viewer = sim.intern("Americans");
+        let ally = sim.intern("British");
+        let enemy = sim.intern("Russians");
+        let typ = sim.intern("MTNK");
+        sim.session_mut_for_test()
+            .game_options_mut_for_test()
+            .fog_of_war = true;
+        sim.house_alliances_mut_for_test()
+            .insert("AMERICANS".into(), ["BRITISH".into()].into());
+        *sim.fog_mut_for_test() = FogState::new(32, 32);
+        // Explored, never in current sight.
+        for rx in 8..20 {
+            for ry in 8..12 {
+                sim.fog_mut_for_test()
+                    .set_ground_bits_for_test(viewer, rx, ry, 0x08);
+            }
+        }
+        for (id, rx, owner) in [(1, 9, viewer), (2, 13, ally), (3, 17, enemy)] {
+            sim.entities_mut_for_test().insert(item83_entity(
+                id,
+                rx,
+                10,
+                owner,
+                typ,
+                EntityCategory::Unit,
+                false,
+            ));
+            sim.resubmit_entity_display_for_test(id);
+        }
+        let native = RenderInterpolation::new(false);
+        for (id, drawn) in [(1, true), (2, true), (3, false)] {
+            let entity = sim.entities().get(id).unwrap();
+            assert_eq!(!translucent_fog_conceals(&sim, viewer, entity), drawn);
+            for (translucent_viewer, pickable) in [(None, true), (Some(viewer), drawn)] {
+                let source = PresentedWorld {
+                    sim: &sim,
+                    interpolation: &native,
+                    translucent_viewer,
+                };
+                let (x, y) = source.screen_position(entity);
+                let picked = hover_target_at_point(source, x, y, "Americans", false)
+                    .map(|hover| hover.stable_id);
+                assert_eq!(
+                    picked,
+                    pickable.then_some(id),
+                    "{id} {translucent_viewer:?}"
+                );
+                let band = band_rect_contains_drawn_object(
+                    source,
+                    &[id],
+                    Some((sim.fog(), sim.house_alliances())),
+                    Some("Americans"),
+                    x - 1.,
+                    y - 1.,
+                    x + 1.,
+                    y + 1.,
+                    Some(sim.interner()),
+                );
+                assert_eq!(band, pickable, "{id} {translucent_viewer:?}");
+            }
         }
     }
 

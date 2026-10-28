@@ -24,10 +24,14 @@ other capabilities (`RulesCompatibility`).
 
 Each implemented fix records its issue, the NPExt changelog item it adopts,
 and the native site the defect lives at, next to the Rust that changes it.
-The sections follow the behavior chains of #3024. The capability scaffold
-adds no behavior yet.
+The sections follow the behavior chains of #3024.
 
 ### Rules and repeated INI reads
+
+- #2929 (NPExt changelog item 88): re-defining a type without `Pip=` /
+  `OccupyPip=` keeps the retained pip frames; native `ReadPip4748A0`
+  re-derives the default name from the retained frame's slot in the
+  adjacent name array (`0x0081B9B0`), drifting every keyless pass.
 
 ### Superweapon and AI strategy
 

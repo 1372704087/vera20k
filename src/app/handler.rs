@@ -1877,6 +1877,17 @@ impl ApplicationHandler for App {
             crate::app::match_runtime::sim_tick::flush_replay_log(state);
         }
         log::logger().flush();
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            // A confirmed quit (its cascade's Theme Stop(0), 0x0052E7EC, has run)
+            // or a page unload tears down a running game. A failed startup has no
+            // state and keeps its "Startup failed" status on the page.
+            let started = self.state.take().is_some();
+            crate::audio::web_output::shutdown();
+            if started {
+                crate::web::status("Exited");
+            }
+        }
     }
 }
 

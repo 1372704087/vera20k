@@ -31,6 +31,11 @@ adds no behavior yet.
 
 ### Superweapon and AI strategy
 
+- #2935 (NPExt changelog item 9): the AI super-weapon rally pick
+  (`AI_FindBestRallyTarget50CBF0`, choice `0x0050CF38..0x0050D16B`) skips a
+  fully cloaked entry instead of letting its `RandomRanged(0, best + 10)`
+  draw beat every real candidate.
+
 ### Combat target, order, fire and damage eligibility
 
 ### Weapon, wave and projectile source, path and range

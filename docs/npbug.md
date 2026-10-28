@@ -33,6 +33,11 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2945 (NPExt changelog item 54): a NULL `Assign_Target` (`0x006FCF5B`)
+  mid-burst keeps the burst slot instead of resetting it, so the
+  interrupted burst resumes and the full ROF still separates bursts — the
+  cancellation no longer skips the reload.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

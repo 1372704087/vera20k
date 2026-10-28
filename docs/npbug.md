@@ -24,4 +24,21 @@ other capabilities (`RulesCompatibility`).
 
 Each implemented fix records its issue, the NPExt changelog item it adopts,
 and the native site the defect lives at, next to the Rust that changes it.
-The capability scaffold adds no behavior yet.
+The sections follow the behavior chains of #3024. The capability scaffold
+adds no behavior yet.
+
+### Rules and repeated INI reads
+
+### Superweapon and AI strategy
+
+### Combat target, order, fire and damage eligibility
+
+### Weapon, wave and projectile source, path and range
+
+### Building placement, construction, economy and sensors
+
+### Movement, crash, ejection, garrison and lifecycle
+
+### Capture, mind control, lift and retaliation
+
+### UI, presentation, audio and scenario lifetime

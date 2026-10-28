@@ -41,6 +41,8 @@ pub struct AttachEffectInstance {
     current_delay: i32,
     should_refresh: bool,
     has_initialized: bool,
+    /// Who attached it: `IsFromSource` compares this pair.
+    source: Option<AttachSource>,
 }
 
 impl AttachEffectInstance {
@@ -57,6 +59,7 @@ impl AttachEffectInstance {
             current_delay: 0,
             should_refresh: false,
             has_initialized: false,
+            source: None,
         };
         instance.refresh(effect);
         instance
@@ -156,6 +159,163 @@ impl AttachEffectInstance {
             }
         } else {
             self.refresh(effect);
+        }
+    }
+}
+
+/// Who handed the effect over: `IsFromSource` compares both the invoker and
+/// the source object, so a warhead and the unit that fired it are distinct.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub struct AttachSource {
+    pub invoker: Option<u64>,
+    pub source: Option<u64>,
+}
+
+/// The attach site's cumulative switches (`AEAttachInfoTypeClass`), separate
+/// from the type's own `Cumulative` fields.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AttachPolicy {
+    /// `AttachEffect.ReplaceLongerDuration`, defaulted from `[General]`.
+    pub replace_longer_duration: bool,
+    /// `AttachEffect.CumulativeSourceMaxCount`; negative means no cap.
+    pub cumulative_source_max_count: i32,
+    pub cumulative_refresh_all: bool,
+    pub cumulative_refresh_all_on_attach: bool,
+    pub cumulative_refresh_same_source_only: bool,
+}
+
+impl Default for AttachPolicy {
+    /// `CumulativeRefreshSameSourceOnly` defaults to `true` in Phobos; the
+    /// source cap is unbounded and the refresh switches are off.
+    fn default() -> Self {
+        Self {
+            replace_longer_duration: false,
+            cumulative_source_max_count: -1,
+            cumulative_refresh_all: false,
+            cumulative_refresh_all_on_attach: false,
+            cumulative_refresh_same_source_only: true,
+        }
+    }
+}
+
+/// What one attach attempt did, mirroring `CreateAndAttach` returning a new
+/// instance or refreshing an existing one and returning null.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AttachOutcome {
+    /// Appended at this index.
+    Attached(usize),
+    /// An existing instance absorbed the attach; nothing was added.
+    Refreshed,
+}
+
+/// One techno's live effects, in attach order.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AttachEffectList {
+    instances: Vec<AttachEffectInstance>,
+}
+
+impl AttachEffectList {
+    pub fn instances(&self) -> &[AttachEffectInstance] {
+        &self.instances
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.instances.is_empty()
+    }
+
+    /// `CreateAndAttach`'s cumulative decision: a non-cumulative type refreshes
+    /// the one existing instance, and a capped cumulative type refreshes the
+    /// shortest match (or every match under `CumulativeRefreshAll`) instead of
+    /// appending.
+    pub fn attach(
+        &mut self,
+        type_index: usize,
+        params: AttachEffectParams,
+        effect: &AttachEffectType,
+        policy: AttachPolicy,
+        source: Option<AttachSource>,
+    ) -> AttachOutcome {
+        let duration = if params.duration_override != 0 {
+            params.duration_override
+        } else {
+            effect.duration
+        };
+        let mut current_type_count = 0i32;
+        let mut current_source_count = 0i32;
+        let mut shortest: Option<usize> = None;
+        let mut matches: Vec<usize> = Vec::new();
+
+        for index in 0..self.instances.len() {
+            let instance = &self.instances[index];
+            if instance.type_index != type_index {
+                continue;
+            }
+            current_type_count += 1;
+            if !effect.cumulative {
+                if policy.replace_longer_duration || duration >= instance.remaining {
+                    self.instances[index].refresh_with(duration);
+                }
+                return AttachOutcome::Refreshed;
+            }
+            let same_source = instance.source == source;
+            if same_source {
+                current_source_count += 1;
+            }
+            if !policy.cumulative_refresh_same_source_only || same_source {
+                matches.push(index);
+                let shorter =
+                    shortest.is_none_or(|best| instance.remaining < self.instances[best].remaining);
+                if shorter {
+                    shortest = Some(index);
+                }
+            }
+        }
+
+        if effect.cumulative {
+            let type_capped = effect.cumulative_max_count >= 0
+                && current_type_count >= effect.cumulative_max_count;
+            let source_capped = policy.cumulative_source_max_count >= 0
+                && current_source_count >= policy.cumulative_source_max_count;
+            if type_capped || source_capped {
+                if policy.cumulative_refresh_all {
+                    for index in matches {
+                        self.instances[index].refresh_with(duration);
+                    }
+                } else if let Some(index) = shortest
+                    && (policy.replace_longer_duration
+                        || duration >= self.instances[index].remaining)
+                {
+                    self.instances[index].refresh_with(duration);
+                }
+                return AttachOutcome::Refreshed;
+            } else if policy.cumulative_refresh_all && policy.cumulative_refresh_all_on_attach {
+                // `CumulativeRefreshAll.OnAttach` refreshes under the cap and
+                // still appends the new instance.
+                for index in matches {
+                    self.instances[index].refresh_with(duration);
+                }
+            }
+        }
+
+        let mut instance = AttachEffectInstance::new(type_index, params, effect);
+        instance.source = source;
+        self.instances.push(instance);
+        AttachOutcome::Attached(self.instances.len() - 1)
+    }
+
+    /// One frame for every instance, in attach order.
+    pub fn tick_all(
+        &mut self,
+        effects: &[AttachEffectType],
+        mut discarded: impl FnMut(&AttachEffectInstance) -> bool,
+    ) {
+        for index in 0..self.instances.len() {
+            let type_index = self.instances[index].type_index;
+            let Some(effect) = effects.get(type_index) else {
+                continue;
+            };
+            let discarded = discarded(&self.instances[index]);
+            self.instances[index].tick(effect, discarded);
         }
     }
 }
@@ -292,6 +452,246 @@ mod tests {
         assert_eq!(instance.remaining(), 7);
         assert!(!instance.reset_if_recreatable());
         assert_eq!(instance.remaining(), 7, "a refused reset changes nothing");
+    }
+
+    fn cumulative_effect(duration: i32, max_count: i32) -> AttachEffectType {
+        let mut effect = effect(duration);
+        effect.cumulative = true;
+        effect.cumulative_max_count = max_count;
+        effect
+    }
+
+    fn attach_with(
+        list: &mut AttachEffectList,
+        effect: &AttachEffectType,
+        override_duration: i32,
+    ) -> AttachOutcome {
+        list.attach(
+            0,
+            AttachEffectParams {
+                duration_override: override_duration,
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            effect,
+            AttachPolicy::default(),
+            None,
+        )
+    }
+
+    /// A non-cumulative type never stacks: the existing instance takes the
+    /// refresh, but only when the new duration wins or the site replaces
+    /// longer ones.
+    #[test]
+    fn reapplying_a_non_cumulative_type_refreshes_by_the_longer_rule() {
+        let effect = effect(5);
+        let mut list = AttachEffectList::default();
+        assert_eq!(
+            attach_with(&mut list, &effect, 0),
+            AttachOutcome::Attached(0)
+        );
+        list.tick_all(std::slice::from_ref(&effect), |_| false);
+        list.tick_all(std::slice::from_ref(&effect), |_| false);
+        assert_eq!(list.instances()[0].remaining(), 3);
+
+        assert_eq!(attach_with(&mut list, &effect, 2), AttachOutcome::Refreshed);
+        assert_eq!(list.instances().len(), 1, "no second instance");
+        assert_eq!(
+            list.instances()[0].remaining(),
+            3,
+            "a shorter reapply is ignored"
+        );
+
+        let mut list = AttachEffectList::default();
+        attach_with(&mut list, &effect, 0);
+        let replace = AttachPolicy {
+            replace_longer_duration: true,
+            ..AttachPolicy::default()
+        };
+        let outcome = list.attach(
+            0,
+            AttachEffectParams {
+                duration_override: 2,
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            replace,
+            None,
+        );
+        assert_eq!(outcome, AttachOutcome::Refreshed);
+        assert_eq!(
+            list.instances()[0].remaining(),
+            2,
+            "replaced even though shorter"
+        );
+    }
+
+    /// Below `Cumulative.MaxCount` the list stacks; at the cap it refreshes
+    /// the shortest match instead of appending.
+    #[test]
+    fn cumulative_stacks_below_the_cap_and_refreshes_the_shortest_at_it() {
+        let effect = cumulative_effect(6, 2);
+        let mut list = AttachEffectList::default();
+        attach_with(&mut list, &effect, 6);
+        attach_with(&mut list, &effect, 2);
+        assert_eq!(list.instances().len(), 2, "below the cap both attach");
+
+        assert_eq!(attach_with(&mut list, &effect, 3), AttachOutcome::Refreshed);
+        assert_eq!(list.instances().len(), 2, "the cap refuses a third");
+        assert_eq!(
+            list.instances()[0].remaining(),
+            6,
+            "the longer match is untouched"
+        );
+        assert_eq!(
+            list.instances()[1].remaining(),
+            3,
+            "the shortest match refreshed"
+        );
+    }
+
+    /// `CumulativeRefreshAll` refreshes every match at the cap.
+    #[test]
+    fn refresh_all_at_the_cap_refreshes_every_match() {
+        let effect = cumulative_effect(6, 2);
+        let mut list = AttachEffectList::default();
+        attach_with(&mut list, &effect, 6);
+        attach_with(&mut list, &effect, 2);
+        let policy = AttachPolicy {
+            cumulative_refresh_all: true,
+            ..AttachPolicy::default()
+        };
+        let outcome = list.attach(
+            0,
+            AttachEffectParams {
+                duration_override: 3,
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            None,
+        );
+        assert_eq!(outcome, AttachOutcome::Refreshed);
+        assert_eq!(list.instances()[0].remaining(), 3);
+        assert_eq!(list.instances()[1].remaining(), 3);
+    }
+
+    /// `CumulativeRefreshAll.OnAttach` refreshes under the cap and still adds
+    /// the new instance.
+    #[test]
+    fn refresh_all_on_attach_below_the_cap_still_appends() {
+        let effect = cumulative_effect(5, 3);
+        let mut list = AttachEffectList::default();
+        attach_with(&mut list, &effect, 5);
+        let policy = AttachPolicy {
+            cumulative_refresh_all: true,
+            cumulative_refresh_all_on_attach: true,
+            ..AttachPolicy::default()
+        };
+        let outcome = list.attach(
+            0,
+            AttachEffectParams {
+                duration_override: 2,
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            None,
+        );
+        assert_eq!(outcome, AttachOutcome::Attached(1));
+        assert_eq!(list.instances()[0].remaining(), 2, "the match refreshed");
+        assert_eq!(
+            list.instances()[1].remaining(),
+            2,
+            "the new instance starts at its own"
+        );
+    }
+
+    /// `CumulativeRefreshSameSourceOnly` keeps another source's instance out of
+    /// the match set, so the cap is judged separately per source.
+    #[test]
+    fn same_source_only_skips_other_sources() {
+        let effect = cumulative_effect(4, 2);
+        let mut list = AttachEffectList::default();
+        let first = Some(AttachSource {
+            invoker: Some(1),
+            source: Some(10),
+        });
+        let second = Some(AttachSource {
+            invoker: Some(2),
+            source: Some(20),
+        });
+        let policy = AttachPolicy::default();
+        list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            first,
+        );
+        list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            second,
+        );
+        assert_eq!(
+            list.instances().len(),
+            2,
+            "a different source still attaches"
+        );
+        assert_eq!(
+            list.instances()[1].source,
+            second,
+            "the instance keeps who attached it"
+        );
+    }
+
+    /// A source cap refuses the new instance even when the type cap allows it.
+    #[test]
+    fn the_source_cap_refreshes_instead_of_appending() {
+        let effect = cumulative_effect(4, -1);
+        let mut list = AttachEffectList::default();
+        let source = Some(AttachSource {
+            invoker: Some(1),
+            source: Some(10),
+        });
+        let policy = AttachPolicy {
+            cumulative_source_max_count: 1,
+            ..AttachPolicy::default()
+        };
+        list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            source,
+        );
+        let outcome = list.attach(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &effect,
+            policy,
+            source,
+        );
+        assert_eq!(outcome, AttachOutcome::Refreshed);
+        assert_eq!(list.instances().len(), 1, "the source cap blocks the copy");
     }
 
     /// A positive re-creation delay clears the duration and arms the delay.

@@ -7,8 +7,10 @@
 //! `--scenario march` (the default) adds `--houses` hostile houses on a ring
 //! around the map centre, spawns `--units` objects in formation around each
 //! house's home cell, and orders every object to attack-move to the opposite
-//! house's home. Its houses own no buildings and are passive, so objects march
-//! and jam but almost never fight: it measures movement and path searches.
+//! house's home. Its houses are human players' houses built by the launch's
+//! house constructor, with the match scenario's countries; they own no
+//! buildings and are passive, so objects march and jam but almost never
+//! fight: it measures movement and path searches.
 //! `--return-at T` also gives every object a second attack-move, back home,
 //! from tick T, spread like the first orders, so movers already under way
 //! take a new destination at scale.
@@ -51,6 +53,13 @@
 //! machine other work keeps busy it moves far less than wall time, so it
 //! compares two builds there; it leaves out the worker pool's share.
 //!
+//! `--frame-profile` also prints the simulation's own frame profile
+//! (`sim::frame_profile`) over the measured frames: its four buckets, the
+//! vision slice's share of the mean frame, and every phase's mean. The vision
+//! slice is the frame's own refresh; objects move their sight at their own
+//! cell arrivals, inside the objects bucket. It needs a build with
+//! `--features telemetry`.
+//!
 //! Build with `cargo build --release -p vera20k-core --bin sim-bench`; timings from a debug
 //! build are not meaningful.
 
@@ -61,9 +70,8 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use vera20k_core::headless_scenario::{self, SIM_TICK_MS};
+use vera20k_core::headless_scenario::{self, HeadlessScenario, SIM_TICK_MS};
 use vera20k_core::sim::command::{Command, CommandEnvelope};
-use vera20k_core::sim::house_state::HouseState;
 use vera20k_core::sim::intern::InternedId;
 use vera20k_core::sim::runtime::SimRuntime;
 
@@ -94,6 +102,7 @@ struct Args {
     frame_hash_every: NonZeroU64,
     csv: Option<PathBuf>,
     serial_paths: bool,
+    frame_profile: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -115,6 +124,7 @@ fn parse_args() -> Result<Args, String> {
         frame_hash_every: vera20k_core::sim::replay::PLAY_HASH_INTERVAL,
         csv: None,
         serial_paths: false,
+        frame_profile: false,
     };
     let mut march_flag = None;
     let mut argv = std::env::args().skip(1);
@@ -160,9 +170,13 @@ fn parse_args() -> Result<Args, String> {
             }
             "--csv" => args.csv = Some(PathBuf::from(value()?)),
             "--serial-paths" => args.serial_paths = true,
+            "--frame-profile" => args.frame_profile = true,
             "--serial-scans" => {} // All target scans already run at their object turn.
             other => return Err(format!("unrecognised argument {other}")),
         }
+    }
+    if args.frame_profile && !cfg!(feature = "telemetry") {
+        return Err("--frame-profile needs a build with --features telemetry".to_string());
     }
     if args.ra2_dir.as_os_str().is_empty() {
         return Err("--ra2-dir (or RA2_DIR) must name the retail install".to_string());
@@ -292,7 +306,7 @@ fn spawn_armies(
 
 /// The march scenario's houses and armies, and every frame's commands.
 fn march(
-    runtime: &mut SimRuntime,
+    scenario: &mut HeadlessScenario,
     args: &Args,
     houses: usize,
 ) -> (usize, Vec<Vec<CommandEnvelope>>) {
@@ -301,16 +315,15 @@ fn march(
         .iter()
         .enumerate()
         .map(|(index, name)| {
-            let sim = &mut runtime.simulation;
-            let id = sim.intern(name);
-            let mut house = HouseState::new(id, (index % 2) as u8, None, false, 0, 10);
+            let countries = &sim_bench_match::HUMAN_COUNTRIES;
+            let id = scenario.add_human_house(name, countries[index % countries.len()]);
             // No house owns a building, so exempt every house from the defeat
             // scan; objects still fight because only same-house pairs are allied.
-            house.make_multiplay_passive();
-            sim.register_house(house);
+            scenario.runtime.simulation.make_house_multiplay_passive(id);
             id
         })
         .collect();
+    let runtime = &mut scenario.runtime;
     let homes = home_cells(&map_cells(runtime), houses);
     let spawned = spawn_armies(runtime, args, &owners, &homes);
     runtime
@@ -540,7 +553,8 @@ fn main() -> Result<(), String> {
                  [--scenario march|match] [--seed S] [--units 20000] [--houses N] \
                  [--computers 7 (match)] [--ticks 300 (match: 1800)] \
                  [--types E1,E2,MTNK,HTNK] [--order-spread 30] [--return-at T] (march) \
-                 [--hash-every N] [--frame-hash-every 15] [--csv <path>] [--serial-paths] [--serial-scans]"
+                 [--hash-every N] [--frame-hash-every 15] [--csv <path>] [--serial-paths] [--serial-scans] \
+                 [--frame-profile]"
             );
             std::process::exit(2);
         }
@@ -572,7 +586,7 @@ fn main() -> Result<(), String> {
     let (houses, spawned, mut plan, ticks) = match args.scenario {
         ScenarioKind::March => {
             let houses = args.houses.unwrap_or(8);
-            let (spawned, orders) = march(&mut scenario.runtime, &args, houses);
+            let (spawned, orders) = march(&mut scenario, &args, houses);
             let ticks = args.ticks.map_or(300, NonZeroU64::get);
             (houses, spawned, Plan::March(orders), ticks)
         }
@@ -608,6 +622,8 @@ fn main() -> Result<(), String> {
         println!("progress tick=0 {}", script.progress(runtime));
     }
 
+    #[cfg(feature = "telemetry")]
+    runtime.simulation.set_frame_profiling(args.frame_profile);
     // A failed frame still reports the frames before it, then fails the run.
     let (measured, frames) = run_frames(
         &mut Bench {
@@ -622,12 +638,45 @@ fn main() -> Result<(), String> {
         std::fs::write(path, csv(&measured)).map_err(|error| format!("{}: {error}", path.display()))
     });
     report(&mut std::io::stdout().lock(), &measured, warmup).map_err(|error| error.to_string())?;
+    #[cfg(feature = "telemetry")]
+    if args.frame_profile {
+        print_frame_profile(runtime);
+    }
     println!("live_objects start={live_at_start} end={live_at_end}");
     frames?;
     csv_written?;
     let final_hash = runtime.simulation.state_hash();
     println!("final_hash={final_hash:016x}");
     Ok(())
+}
+
+/// The simulation's frame profile over the measured frames: the buckets, the
+/// vision slice's share of the mean frame, then every phase's mean.
+#[cfg(feature = "telemetry")]
+fn print_frame_profile(runtime: &SimRuntime) {
+    use vera20k_core::sim::frame_profile::PHASE_KEYS;
+    let Some(profile) = runtime.simulation.frame_profile().report() else {
+        return;
+    };
+    println!(
+        "frame_profile frames={} mean_ms={:.2} peak_ms={:.2} logic_ms={:.2} objects_ms={:.2} \
+         vision_ms={:.3} vision_share={:.1}% tail_ms={:.2} unmarked_ms={:.3}",
+        profile.frames,
+        profile.mean_frame_ms,
+        profile.peak_frame_ms,
+        profile.logic_ms,
+        profile.objects_ms,
+        profile.vision_ms,
+        100.0 * profile.vision_ms / profile.mean_frame_ms.max(f64::MIN_POSITIVE),
+        profile.tail_ms,
+        profile.unmarked_ms,
+    );
+    let phases: Vec<String> = PHASE_KEYS
+        .iter()
+        .zip(profile.phases_ms)
+        .map(|(key, ms)| format!("{key}={ms:.3}"))
+        .collect();
+    println!("frame_profile_phases_ms {}", phases.join(" "));
 }
 
 /// The calling thread's CPU time, where the platform reports it.

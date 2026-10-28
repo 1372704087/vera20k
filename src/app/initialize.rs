@@ -1140,11 +1140,14 @@ impl App {
                 #[cfg(feature = "telemetry-dashboard")]
                 attach_dashboard(&mut state);
 
-                if quickplay_allowed && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
-                    // The developer shortcut carries an authored-map sandbox through
-                    // the unverified legacy Battle loader. It has no artificial AI
-                    // opponent or starting forces; this is not campaign admission.
-                    let session = quickplay_launch_session(quickplay);
+                // The developer shortcut carries an authored-map sandbox through
+                // the unverified legacy Battle loader. It has no artificial AI
+                // opponent or starting forces; this is not campaign admission.
+                if quickplay_allowed
+                    && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY")
+                    && let Some(session) =
+                        quickplay_launch_session(quickplay, &state.frontend.skirmish_modes)
+                {
                     #[cfg(feature = "ares")]
                     crate::app::frontend::skirmish_session::prepare_external_skirmish_countries(
                         &mut state.process_assets,
@@ -1167,23 +1170,22 @@ impl App {
 
 /// `RA2_QUICKPLAY=<map>`: VERA-internal authored-map sandbox using the legacy
 /// Battle loader, with one local house and no generated opponents or forces.
-fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::SkirmishLaunchSession {
+/// The mode is the roster's Battle row, as the skirmish shell would select it;
+/// without one the shortcut does not launch.
+fn quickplay_launch_session(
+    selected_map: String,
+    modes: &[crate::skirmish_modes::SkirmishGameMode],
+) -> Option<crate::skirmish_launch::SkirmishLaunchSession> {
     use crate::skirmish_launch::{
-        LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode, SkirmishLaunchOptions,
-        SkirmishLaunchSession, SkirmishLocalSlot,
+        BATTLE_MODE_ID, LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode,
+        SkirmishLaunchOptions, SkirmishLaunchSession, SkirmishLocalSlot,
     };
-    SkirmishLaunchSession {
-        mode: SkirmishLaunchMode {
-            class: crate::skirmish_modes::MpModeClass::Battle,
-            id: 1,
-            ui_name_key: "GUI:Battle".to_string(),
-            tooltip_key: "STT:ModeBattle".to_string(),
-            override_file: "MPBattleMD.ini".to_string(),
-            map_filter: "standard".to_string(),
-            random_maps_allowed: true,
-            allies_allowed: true,
-            must_ally: false,
-        },
+    let Some(battle) = crate::skirmish_modes::mode_by_id(modes, BATTLE_MODE_ID) else {
+        log::warn!("RA2_QUICKPLAY needs the MPModesMD.ini Battle row; not launching");
+        return None;
+    };
+    Some(SkirmishLaunchSession {
+        mode: SkirmishLaunchMode::from_game_mode(battle),
         selected_map_file: Some(selected_map),
         // The local House takes the player name, so naming it after the
         // country lets a fixture map's `Americans`-owned objects spawn.
@@ -1216,7 +1218,7 @@ fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::Ski
             unit_count: 0,
             ..SkirmishLaunchOptions::default()
         },
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1285,7 +1287,11 @@ mod tests {
 
     #[test]
     fn quickplay_authored_fixture_does_not_add_starting_forces() {
-        let session = quickplay_launch_session("rendering-fixture.map".into());
+        let session = quickplay_launch_session(
+            "rendering-fixture.map".into(),
+            &crate::skirmish_modes::stock_skirmish_modes(),
+        )
+        .unwrap();
         assert_eq!(
             session.selected_map_file.as_deref(),
             Some("rendering-fixture.map")
@@ -1322,8 +1328,14 @@ mod tests {
             .unwrap()
             .paths
             .ra2_dir;
+        let assets = crate::assets::asset_manager::AssetManager::new(
+            &root,
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+        )
+        .unwrap();
+        let modes = crate::skirmish_modes::skirmish_modes_from_assets(&assets).unwrap();
         for previous_empty_opponent in [false, true] {
-            let mut session = quickplay_launch_session(path.clone());
+            let mut session = quickplay_launch_session(path.clone(), &modes).unwrap();
             if previous_empty_opponent {
                 // Reproduce the v3 launch defect without adding any MCVs.
                 // Its empty second contender must still exercise ordinary

@@ -385,6 +385,52 @@ fn a_bound_radiation_type_tints_the_field_with_its_own_color() {
     );
 }
 
+/// Phobos `TechnoExt::UpdateTintValues`'s AttachEffect arm: every active
+/// effect with a tint ORs its `Tint.Color` word and sums
+/// `Tint.Intensity * 1000`, filtered by `Tint.VisibleToHouses` against the
+/// current player's Owner/Allies/Enemies bucket.
+#[cfg(feature = "phobos")]
+#[test]
+fn attach_effect_tint_ors_colours_and_sums_intensities_by_viewer() {
+    let ini = IniFile::from_str(
+        "[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+         [VehicleTypes]\n0=TARGET\n\
+         [TARGET]\nStrength=1000\nSpeed=6\n\
+         AttachEffect.AttachTypes=RED,BLUE,HIDDEN\n\
+         [AttachEffectTypes]\n0=RED\n1=BLUE\n2=HIDDEN\n\
+         [RED]\nDuration=100\nTint.Color=255,0,0\nTint.Intensity=1.0\n\
+         [BLUE]\nDuration=100\nTint.Color=0,0,255\nTint.Intensity=0.5\n\
+         Tint.VisibleToHouses=enemies\n\
+         [HIDDEN]\nDuration=100\nTint.Color=0,255,0\nTint.Intensity=2.0\n\
+         Tint.VisibleToHouses=none\n",
+    );
+    let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 3);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let target = sim
+        .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+        .expect("spawn");
+    sim.advance_tick(&[], Some(&rules), None, Some(rules.overlay_registry()), 22);
+    let americans = sim.interner().get("Americans").expect("owner");
+    let russians = sim.interner().get("Russians").expect("rival");
+
+    sim.session_mut_for_test()
+        .set_current_house_for_test(Some(americans));
+    assert_eq!(
+        attach_effect_tint(sim.entities().get(target).unwrap(), &sim, &rules),
+        (0xF800, 1000),
+        "the owner sees RED only; enem-only and none stay out"
+    );
+    sim.session_mut_for_test()
+        .set_current_house_for_test(Some(russians));
+    assert_eq!(
+        attach_effect_tint(sim.entities().get(target).unwrap(), &sim, &rules),
+        (0xF800 | 0x001F, 1500),
+        "an enemy also sees BLUE; HIDDEN never applies"
+    );
+}
+
 /// Phobos `ApplyCustomTintValues` selects the viewer's shield-tint bucket and
 /// `Drawing::RGB_To_Int` packs `Tint.Color` as RGB565.
 #[cfg(feature = "phobos")]

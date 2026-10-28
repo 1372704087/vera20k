@@ -1466,21 +1466,42 @@ impl Simulation {
                 instance.should_be_discarded = true;
             }
         }
-        // `ShouldBeDiscardedNow`, once per effect per frame as native's
-        // LastDiscardCheckFrame cache does. The deferred sequence form reads
-        // the previous frame's value, so record this frame only afterwards.
+        let initialized_before: Vec<bool> = list
+            .instances
+            .iter()
+            .map(|instance| instance.has_initialized())
+            .collect();
+        // `AI()` reads `ShouldBeDiscardedNow()` at its delay and expiry
+        // branches after initialization, so the tick evaluates it lazily
+        // there instead of taking a value cached before the frame.
+        list.tick_all(effects, |_, instance, effect| {
+            instance.should_be_discarded_now(effect, &facts, &globals)
+        });
+        // `IsActiveIgnorePowered() && ShouldBeDiscardedNow()`
+        // (`Body.Update.cpp:940`) runs after `AI()`; the per-frame native
+        // LastDiscardCheckFrame cache makes this value equal to the tick's.
+        let active: Vec<bool> = list
+            .instances
+            .iter()
+            .map(|instance| instance.is_active_ignoring_power(instance.is_self_owned()))
+            .collect();
         let discarded: Vec<bool> = list
             .instances
             .iter()
-            .map(|instance| {
-                effects.get(instance.type_index).is_some_and(|effect| {
-                    instance.should_be_discarded_now(effect, &facts, &globals)
-                })
+            .zip(&active)
+            .map(|(instance, &active)| {
+                active
+                    && effects.get(instance.type_index).is_some_and(|effect| {
+                        instance.should_be_discarded_now(effect, &facts, &globals)
+                    })
             })
             .collect();
+        // `LastSequenceCheck` advances only when the frame reached the
+        // sequence block: an earlier condition returned first.
         for (index, instance) in list.instances.iter_mut().enumerate() {
-            // An earlier condition returned before the native sequence block.
-            if discarded.get(index).copied().unwrap_or(false) {
+            if !active.get(index).copied().unwrap_or(false)
+                || discarded.get(index).copied().unwrap_or(false)
+            {
                 continue;
             }
             let Some(effect) = effects.get(instance.type_index) else {
@@ -1502,14 +1523,6 @@ impl Simulation {
                 None => instance.last_sequence_check = None,
             }
         }
-        let initialized_before: Vec<bool> = list
-            .instances
-            .iter()
-            .map(|instance| instance.has_initialized())
-            .collect();
-        list.tick_all(effects, |index, _, _| {
-            discarded.get(index).copied().unwrap_or(false)
-        });
         // `AI()`'s initialization block: `ROFMultiplier.ApplyOnCurrentTimer`
         // scales the timer already running when the effect first activates.
         let frame = self.session.binary_frame() as i32;
@@ -1540,9 +1553,7 @@ impl Simulation {
         // Reverse order keeps the flag vector aligned with the shifting list.
         for index in (0..list.instances.len()).rev() {
             let expired = list.instances[index].has_expired();
-            let discard = discarded.get(index).copied().unwrap_or(false)
-                && list.instances[index]
-                    .is_active_ignoring_power(list.instances[index].is_self_owned());
+            let discard = discarded.get(index).copied().unwrap_or(false);
             if !(expired || discard) {
                 continue;
             }

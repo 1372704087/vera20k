@@ -69,6 +69,11 @@ pub struct AttachEffectInstance {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     received_damage_count: i32,
+    /// `LastSequenceCheck`: the infantry art sequence the previous frame
+    /// played, for the deferred `DiscardOn.Sequences` form.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    last_sequence_check: Option<crate::rules::animation_sequence::SequenceKind>,
 }
 
 impl AttachEffectInstance {
@@ -95,6 +100,8 @@ impl AttachEffectInstance {
             firing_count: 0,
             #[cfg(feature = "phobos")]
             received_damage_count: 0,
+            #[cfg(feature = "phobos")]
+            last_sequence_check: None,
         };
         instance.refresh(effect);
         instance
@@ -490,14 +497,14 @@ impl AttachEffectList {
     pub fn tick_all(
         &mut self,
         effects: &[AttachEffectType],
-        mut discarded: impl FnMut(&AttachEffectInstance, &AttachEffectType) -> bool,
+        mut discarded: impl FnMut(usize, &AttachEffectInstance, &AttachEffectType) -> bool,
     ) {
         for index in 0..self.instances.len() {
             let type_index = self.instances[index].type_index;
             let Some(effect) = effects.get(type_index) else {
                 continue;
             };
-            let discarded = discarded(&self.instances[index], effect);
+            let discarded = discarded(index, &self.instances[index], effect);
             self.instances[index].tick(effect, discarded);
         }
     }
@@ -805,6 +812,7 @@ pub(crate) struct DiscardFacts {
     pub health_and_strength_zero: bool,
     pub land_type: Option<crate::rules::terrain_rules::LandType>,
     pub mission: Option<crate::rules::mission_data::MissionType>,
+    pub sequence: Option<crate::rules::animation_sequence::SequenceKind>,
     pub owner_human: bool,
 }
 
@@ -894,6 +902,29 @@ impl AttachEffectInstance {
                     .discard_land_types
                     .iter()
                     .any(|token| token.eq_ignore_ascii_case(land.section_name()))
+                {
+                    return true;
+                }
+            }
+        }
+        if flags.contains(DiscardOn::SEQUENCE) && !effect.discard_sequences.is_empty() {
+            if let Some(current) = facts.sequence {
+                let matches = |kind| {
+                    effect.discard_sequences.iter().any(|token| {
+                        crate::rules::animation_sequence::SequenceKind::from_native_name(token)
+                            == Some(kind)
+                    })
+                };
+                let immediate = effect
+                    .discard_sequences_immediate
+                    .unwrap_or(globals.discard_sequences_immediate);
+                if immediate {
+                    if matches(current) {
+                        return true;
+                    }
+                } else if let Some(last) = self.last_sequence_check
+                    && last != current
+                    && matches(last)
                 {
                     return true;
                 }
@@ -994,6 +1025,16 @@ impl Simulation {
         } else {
             (false, false)
         };
+        // `InfantryClass::SequenceAnim` follows the current Doing; VERA maps
+        // the stored action id through the shared sequence table.
+        let sequence = (category == EntityCategory::Infantry)
+            .then(|| {
+                entity
+                    .mission_leaf
+                    .as_infantry()
+                    .and_then(|leaf| crate::rules::infantry_sequence::action_kind(leaf.doing()))
+            })
+            .flatten();
         let land_type = self.resolved_terrain.as_ref().and_then(|terrain| {
             terrain
                 .cell(entity.position.rx(), entity.position.ry())
@@ -1038,6 +1079,7 @@ impl Simulation {
             health_and_strength_zero: health == 0 && strength == 0,
             land_type,
             mission,
+            sequence,
             owner_human: self
                 .houses
                 .get(&entity.owner())
@@ -1340,13 +1382,45 @@ impl Simulation {
                 instance.should_be_discarded = true;
             }
         }
+        // `ShouldBeDiscardedNow`, once per effect per frame as native's
+        // LastDiscardCheckFrame cache does. The deferred sequence form reads
+        // the previous frame's value, so record this frame only afterwards.
+        let discarded: Vec<bool> = list
+            .instances
+            .iter()
+            .map(|instance| {
+                effects.get(instance.type_index).is_some_and(|effect| {
+                    instance.should_be_discarded_now(effect, &facts, &globals)
+                })
+            })
+            .collect();
+        for instance in &mut list.instances {
+            let Some(effect) = effects.get(instance.type_index) else {
+                continue;
+            };
+            if !effect.discard_on.contains(DiscardOn::SEQUENCE) {
+                continue;
+            }
+            match facts.sequence {
+                Some(current) => {
+                    if !effect.discard_sequences.is_empty()
+                        && !effect
+                            .discard_sequences_immediate
+                            .unwrap_or(globals.discard_sequences_immediate)
+                    {
+                        instance.last_sequence_check = Some(current);
+                    }
+                }
+                None => instance.last_sequence_check = None,
+            }
+        }
         let initialized_before: Vec<bool> = list
             .instances
             .iter()
             .map(|instance| instance.has_initialized())
             .collect();
-        list.tick_all(effects, |instance, effect| {
-            instance.should_be_discarded_now(effect, &facts, &globals)
+        list.tick_all(effects, |index, _, _| {
+            discarded.get(index).copied().unwrap_or(false)
         });
         // `AI()`'s initialization block: `ROFMultiplier.ApplyOnCurrentTimer`
         // scales the timer already running when the effect first activates.
@@ -1375,15 +1449,6 @@ impl Simulation {
         // `HasExpired || (IsActiveIgnorePowered && ShouldBeDiscardedNow)`:
         // a discardable effect behind a recreation delay is reset instead of
         // erased; the destructor unlinks the animation either way.
-        let discarded: Vec<bool> = list
-            .instances
-            .iter()
-            .map(|instance| {
-                effects.get(instance.type_index).is_some_and(|effect| {
-                    instance.should_be_discarded_now(effect, &facts, &globals)
-                })
-            })
-            .collect();
         // Reverse order keeps the flag vector aligned with the shifting list.
         for index in (0..list.instances.len()).rev() {
             let expired = list.instances[index].has_expired();
@@ -2523,6 +2588,29 @@ mod tests {
         facts.land_type = Some(crate::rules::terrain_rules::LandType::Road);
         assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
 
+        // Sequence: immediate matches the current action; deferred matches
+        // the previous one once it changes.
+        use crate::rules::animation_sequence::SequenceKind;
+        effect.discard_on = DiscardOn::SEQUENCE;
+        effect.discard_sequences = vec!["walk".to_owned()];
+        effect.discard_sequences_immediate = Some(true);
+        facts = DiscardFacts {
+            sequence: Some(SequenceKind::Walk),
+            ..DiscardFacts::default()
+        };
+        assert!(instance.should_be_discarded_now(&effect, &facts, &globals));
+        facts.sequence = Some(SequenceKind::Stand);
+        assert!(!instance.should_be_discarded_now(&effect, &facts, &globals));
+        effect.discard_sequences_immediate = Some(false);
+        let mut deferred = instance.clone();
+        deferred.last_sequence_check = Some(SequenceKind::Walk);
+        assert!(
+            deferred.should_be_discarded_now(&effect, &facts, &globals),
+            "the previous matching sequence discards on the change"
+        );
+        deferred.last_sequence_check = Some(SequenceKind::Stand);
+        assert!(!deferred.should_be_discarded_now(&effect, &facts, &globals));
+
         // Mission list: a human owner reads DiscardOn.Missions, an AI reads
         // DiscardOn.AIMissions when it is set.
         use crate::rules::mission_data::MissionType;
@@ -2680,6 +2768,74 @@ mod tests {
         );
     }
 
+    /// The sequence condition reads the infantry's current Doing; the
+    /// immediate list form matches at once and the deferred form matches the
+    /// previous sequence after the next one starts.
+    #[test]
+    fn sequence_discard_reads_the_infantry_doing() {
+        use crate::rules::ini_parser::IniFile;
+        let scene = |immediate: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Countries]\n0=Americans\n[InfantryTypes]\n0=E1\n\
+                 [E1]\nStrength=100\nSpeed=4\nAttachEffect.AttachTypes=SEQ\n\
+                 [AttachEffectTypes]\n0=SEQ\n\
+                 [SEQ]\nDuration=10\nDiscardOn=sequence\n\
+                 DiscardOn.Sequences=walk\nDiscardOn.Sequences.Immediate={immediate}\n"
+            )))
+            .expect("rules");
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let target = sim
+                .spawn_object("E1", "Americans", 20, 20, 0, &rules)
+                .expect("spawn");
+            (sim, rules, target)
+        };
+        let count = |sim: &crate::sim::world::Simulation, id: u64| {
+            sim.entities()
+                .get(id)
+                .unwrap()
+                .phobos_attach_effects()
+                .instances()
+                .len()
+        };
+
+        let (mut sim, rules, target) = scene("yes");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(3)
+            .expect("Walk action");
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim, target), 0, "the immediate form matches Walk");
+
+        let (mut sim, rules, target) = scene("no");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(3)
+            .expect("Walk action");
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(count(&sim, target), 1, "the deferred form waits");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .mission_leaf
+            .set_infantry_doing_verified(0)
+            .expect("Ready action");
+        sim.update_phobos_attach_effects(target, &rules);
+        assert_eq!(
+            count(&sim, target),
+            0,
+            "leaving the matching sequence discards"
+        );
+    }
+
     /// `DiscardOn=ammo` erases the effect on the AI frame that observes the
     /// target's rounds inside the interval.
     #[test]
@@ -2821,7 +2977,7 @@ mod tests {
         let mut list = AttachEffectList::default();
         attach(&mut list, 0);
         attach(&mut list, 1);
-        list.tick_all(&effects, |_, _| false);
+        list.tick_all(&effects, |_, _, _| false);
         assert_eq!(
             list.draw_offset(0, &effects),
             [2, -1],
@@ -2837,7 +2993,7 @@ mod tests {
         // `RequiredTypes` is any-of, and a second match must not add twice.
         list.instances[1].set_anim(None);
         attach(&mut list, 2);
-        list.tick_all(&effects, |_, _| false);
+        list.tick_all(&effects, |_, _, _| false);
         assert_eq!(
             list.draw_offset(0, &effects),
             [7, 4],
@@ -2885,9 +3041,9 @@ mod tests {
             AttachPolicy::default(),
             Some(AttachSource::default()),
         );
-        list.tick_all(&short_effects, |_, _| false);
+        list.tick_all(&short_effects, |_, _, _| false);
         assert_eq!(list.draw_offset(0, &short_effects), [7, 4]);
-        list.tick_all(&short_effects, |_, _| false);
+        list.tick_all(&short_effects, |_, _, _| false);
         assert_eq!(
             list.draw_offset(0, &short_effects),
             [0, 0],
@@ -3069,7 +3225,7 @@ AttachEffect.InitialDelays=3
         let effect = cumulative_effect(4, 2);
         let mut list = AttachEffectList::default();
         attach_with(&mut list, &effect, 0);
-        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _, _| false);
         let json = serde_json::to_string(&list).expect("serialize");
         let back: AttachEffectList = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, list);
@@ -3086,8 +3242,8 @@ AttachEffect.InitialDelays=3
             attach_with(&mut list, &effect, 0),
             AttachOutcome::Attached(0)
         );
-        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
-        list.tick_all(std::slice::from_ref(&effect), |_, _| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _, _| false);
+        list.tick_all(std::slice::from_ref(&effect), |_, _, _| false);
         assert_eq!(list.instances()[0].remaining(), 3);
 
         assert_eq!(attach_with(&mut list, &effect, 2), AttachOutcome::Refreshed);

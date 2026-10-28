@@ -88,7 +88,8 @@ An ignore reason must therefore name every input beyond `RA2_DIR` and `ini/`.
 Coverage stops there: the excluded classes stay manual, tests this platform
 compiles out are not listed, and a test that returns early on some condition other
 than a missing retail input still passes without checking anything. The tests run
-in the unoptimized test profile, so the debug cross-checks run with them.
+in the unoptimized test profile, so the debug cross-checks run with them. There
+are no integration test targets; `tests/` holds fixture data only.
 
 ## Dev chord builds
 

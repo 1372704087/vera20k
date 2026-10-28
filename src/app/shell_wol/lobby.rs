@@ -5,7 +5,7 @@
 //! only then shows the dialog. While it shows, its proc `0x0078AC10` drives
 //! the lists, chat, sorts, Create (`0x00789B60`) and Join (`0x00789960`
 //! with admission `0x0079BA60` and the join `0x00788800`), and the chat
-//! sink's OnJoin (`0x007A5E40`) answers joins. Every service exchange is a
+//! sink's OnJoin (`0x007A5890`) answers joins. Every service exchange is a
 //! [`WolServiceRequest`]/[`WolServiceEvent`]; nothing here fabricates a
 //! result. No RNG is drawn on these paths.
 //!
@@ -230,7 +230,7 @@ enum AfterLeave {
 /// What closing a lobby box continues with.
 #[derive(Debug, Clone)]
 enum BoxThen {
-    /// `0x007A5E40`'s failure tail; `close` when it set event 5.
+    /// `0x007A5890`'s failure tail; `close` when it set event 5.
     JoinFailed { close: bool },
     /// Create's boxes: the lobby back with Join disabled.
     CreateFailed,
@@ -2274,7 +2274,7 @@ pub(super) fn box_command(state: &mut AppState, control: u16) {
     }
 }
 
-/// `0x007A5E40`'s failure tail: rejoin flag from the pending channel, the
+/// `0x007A5890`'s failure tail: rejoin flag from the pending channel, the
 /// pending and current channels cleared, the wait closed, the lists
 /// refilled and `0x113` shown; event 5 then ends the runner.
 fn join_failed_tail(state: &mut AppState, close: bool) {
@@ -2348,7 +2348,7 @@ fn entry_shown(state: &mut AppState) {
     );
 }
 
-/// `0x007A5E40` (CChatEventSink vt+0x28) for this user, or a result.
+/// `0x007A5890` (CChatEventSink vt+0x28) for this user, or a result.
 fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
     let online = state
         .frontend
@@ -2466,8 +2466,8 @@ fn joined(state: &mut AppState, result: Result<WolJoined, u32>) {
     }
 }
 
-/// `0x007A5E40`'s HRESULT branches in Custom Match.
-/// How `0x007A5E40` answers a failed join.
+/// `0x007A5890`'s HRESULT branches in Custom Match.
+/// How `0x007A5890` answers a failed join.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum JoinErrorReply {
     /// `0x8004006C`: nothing happens.

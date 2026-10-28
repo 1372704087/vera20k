@@ -463,7 +463,12 @@ pub(crate) fn weapon_range(
     let Some(weapon) = get_weapon(entity, obj, index, entities, rules, interner) else {
         return 0;
     };
-    let range = weapon.range_leptons;
+    let range = crate::sim::attach_effect::range_with_attach_effects(
+        entity,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    );
     open_topped_cargo_range(entity, obj, entities, rules, interner)
         .map_or(range, |cargo| range.min(cargo))
 }
@@ -494,9 +499,13 @@ pub(crate) fn open_topped_cargo_range(
             continue;
         };
         if let Some(weapon) = current_weapon(passenger, kind, entities, rules, interner) {
-            shortest = Some(shortest.map_or(weapon.range_leptons, |range: i32| {
-                range.min(weapon.range_leptons)
-            }));
+            let range = crate::sim::attach_effect::range_with_attach_effects(
+                passenger,
+                &weapon.id,
+                weapon.range_leptons,
+                rules,
+            );
+            shortest = Some(shortest.map_or(range, |shortest: i32| shortest.min(range)));
         }
     }
     shortest

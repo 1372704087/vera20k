@@ -207,7 +207,7 @@ fn shield_armor(
 /// neutral, owner and ally/enemy gates in that native order. A null source
 /// house passes, as native does. `HouseClass::IsNeutral` reads the house's
 /// passive flag, which VERA stamps from `MultiplayPassive=`.
-fn can_target_house(
+pub(crate) fn can_target_house(
     warhead: &crate::rules::warhead_type::WarheadType,
     source_house: Option<crate::sim::intern::InternedId>,
     target_owner: crate::sim::intern::InternedId,

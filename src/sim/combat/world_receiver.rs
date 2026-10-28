@@ -1229,16 +1229,22 @@ pub(crate) fn commit_entities(
             .map_or(event.damage > 0, |receipt| receipt.remaining > 0);
         #[cfg(all(feature = "ares", not(feature = "phobos")))]
         let ares_initially_positive = event.damage > 0;
+        #[cfg(feature = "phobos")]
+        let post_shield_input = shield_receipt
+            .as_ref()
+            .map_or(event.damage, |receipt| receipt.remaining);
+        // The Phobos wrapper's Unkillable arm runs after the shield and
+        // before the original ReceiveDamage body.
+        #[cfg(feature = "phobos")]
+        let unkillable_clamp =
+            world.apply_unkillable_clamp(target_id, event, post_shield_input, rules);
         // Phobos TechnoClass_ReceiveDamage_ArmorMultiplier (0x00701966): the
         // effects' armor chances belong to the positive, defended divide on
         // the post-shield damage. `None` keeps the cached unrestricted product.
         #[cfg(feature = "phobos")]
         let receiver_ae_armor = {
-            let input = shield_receipt
-                .as_ref()
-                .map_or(event.damage, |receipt| receipt.remaining);
             if !event.receiver_flags.ignore_defenses
-                && input >= 0
+                && post_shield_input >= 0
                 && rules
                     .warhead(world.interner.resolve(event.warhead_ref))
                     .is_some()
@@ -1261,34 +1267,31 @@ pub(crate) fn commit_entities(
             }
         };
         #[cfg(feature = "phobos")]
-        let receiver_outcome = match shield_receipt {
-            Some(receipt) => resolve_receive_damage_with_input(
-                event,
-                &world.substrate.entities,
-                rules,
-                &world.interner,
-                &world.houses,
-                world.house_alliances.as_map(),
-                scenario_no_damage,
-                current_tick,
-                world.resolved_terrain.as_ref(),
-                receipt.remaining,
-                receipt.remaining == 0,
-                receiver_ae_armor,
-            ),
-            None => resolve_receive_damage(
-                event,
-                &world.substrate.entities,
-                rules,
-                &world.interner,
-                &world.houses,
-                world.house_alliances.as_map(),
-                scenario_no_damage,
-                current_tick,
-                world.resolved_terrain.as_ref(),
-                receiver_ae_armor,
-            ),
+        let (receiver_input, skip_low_damage_check) = if unkillable_clamp {
+            (0, true)
+        } else {
+            (
+                post_shield_input,
+                shield_receipt
+                    .as_ref()
+                    .is_some_and(|receipt| receipt.remaining == 0),
+            )
         };
+        #[cfg(feature = "phobos")]
+        let receiver_outcome = resolve_receive_damage_with_input(
+            event,
+            &world.substrate.entities,
+            rules,
+            &world.interner,
+            &world.houses,
+            world.house_alliances.as_map(),
+            scenario_no_damage,
+            current_tick,
+            world.resolved_terrain.as_ref(),
+            receiver_input,
+            skip_low_damage_check,
+            receiver_ae_armor,
+        );
         #[cfg(not(feature = "phobos"))]
         let receiver_outcome = resolve_receive_damage(
             event,

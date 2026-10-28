@@ -2619,4 +2619,40 @@ impl GameEntity {
             1.0
         }
     }
+
+    /// `Cloakable` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_cloakable(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.cloakable
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    }
+
+    /// `ForceDecloak` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_force_decloak(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.force_decloak
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    }
+
+    /// `Unkillable` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_unkillable(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.unkillable
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    }
 }

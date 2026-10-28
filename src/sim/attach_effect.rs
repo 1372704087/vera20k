@@ -539,6 +539,74 @@ fn cpp_i32(value: f64) -> i32 {
     }
 }
 
+/// Phobos `GeneralUtils::SafeMultiply(int, double)`: the product clamped to
+/// the `int` range, then MSVC's cast.
+fn safe_multiply(value: i32, multiplier: f64) -> i32 {
+    let product = f64::from(value) * multiplier;
+    if product > f64::from(i32::MAX) {
+        i32::MAX
+    } else if product < f64::from(i32::MIN) {
+        i32::MIN
+    } else {
+        cpp_i32(product)
+    }
+}
+
+/// Phobos `WeaponTypeExt::GetRangeWithModifiers`'s AttachEffect arm: every
+/// active effect whose weapon lists admit `weapon` multiplies the range (in
+/// leptons, clamped) and sums its `WeaponRange.ExtraRange`; the summed cells
+/// are converted to leptons and added after every multiplier, and the result
+/// floors at zero. The `-512` always-in-range sentinel returns before the
+/// fold, and a type with nothing to add leaves the range untouched.
+pub(crate) fn range_with_attach_effects(
+    entity: &crate::sim::game_entity::GameEntity,
+    weapon: &str,
+    range: i32,
+    rules: &crate::rules::ruleset::RuleSet,
+) -> i32 {
+    #[cfg(feature = "phobos")]
+    {
+        const WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS: i32 = -512;
+        if range == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
+            return range;
+        }
+        if !entity.phobos_stat_multipliers().has_range_modifier {
+            return range;
+        }
+        let effects = rules.attach_effect_types().types();
+        let mut range = range;
+        let mut extra_range = 0.0;
+        for (_, effect) in entity.phobos_attach_effects().active_effects(effects) {
+            if !effect.has_range_modifier() {
+                continue;
+            }
+            if !effect.weapon_range_allow_weapons.is_empty()
+                && !effect
+                    .weapon_range_allow_weapons
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(weapon))
+            {
+                continue;
+            }
+            if effect
+                .weapon_range_disallow_weapons
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(weapon))
+            {
+                continue;
+            }
+            range = safe_multiply(range, effect.weapon_range_multiplier.max(0.0));
+            extra_range += effect.weapon_range_extra_range;
+        }
+        range.wrapping_add(cpp_i32(extra_range * 256.0))
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (entity, weapon, rules);
+        range
+    }
+}
+
 /// Phobos `AttachEffectTechnoProperties`'s cached stat fold
 /// (`TechnoExt::RecalculateStatMultipliers`, Body.Update.cpp:1124). The
 /// instance list stays the source of truth; this is recomputed from it every
@@ -1040,6 +1108,61 @@ impl Simulation {
             }
         }
         multiplier
+    }
+
+    /// Phobos' `Unkillable` arm of the ReceiveDamage wrapper:
+    /// `MapClass::GetTotalDamage(input, WH, target armor, distance)` reaching
+    /// the target's health leaves `Health` and `EstimatedHealth` at 1 and the
+    /// receiver packet at 0. `WarheadTypeExt::CanKill` is not ported, so only
+    /// the effect's flag opens the arm. Returns whether it applied.
+    pub(crate) fn apply_unkillable_clamp(
+        &mut self,
+        target_id: u64,
+        event: &crate::sim::combat::EntityDamageEvent,
+        input: i32,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> bool {
+        let Some(target) = self.substrate.entities.get(target_id) else {
+            return false;
+        };
+        if !target.phobos_unkillable() || target.health.current() <= 0 || input == 0 {
+            return false;
+        }
+        let Some(warhead) = rules.warhead(self.interner.resolve(event.warhead_ref)) else {
+            return false;
+        };
+        let Some(object) = self.interner.object_type(target.type_ref(), rules) else {
+            return false;
+        };
+        let source_house = event.source_house.or_else(|| {
+            self.substrate
+                .entities
+                .get(event.attacker_id)
+                .map(|attacker| attacker.owner())
+        });
+        if !crate::sim::shield::can_target_house(warhead, source_house, target.owner(), self) {
+            return false;
+        }
+        let total = crate::sim::combat::damage::kernel::apply_warhead_damage(
+            input,
+            warhead.cell_spread_f64,
+            warhead.percent_at_max_f64,
+            warhead.interaction(object.armor_id()).multiplier(),
+            event.distance_leptons,
+            self.session.no_damage(),
+            rules.combat_damage.max_damage,
+        );
+        if total < target.health.current() {
+            return false;
+        }
+        let target = self
+            .substrate
+            .entities
+            .get_mut(target_id)
+            .expect("the gated target still exists");
+        target.health.set(1);
+        target.estimated_health.reset(1);
+        true
     }
 
     /// `AnimExt::CreateRandomAnim`'s creation arm: one anim at the target's
@@ -1581,6 +1704,141 @@ mod tests {
             sim.attach_effect_armor_multiplier(target, Some(other), None, &rules),
             0.25,
             "an unlisted warhead passes"
+        );
+    }
+
+    /// Phobos' Unkillable arm: a hit whose warhead total damage reaches the
+    /// target's health leaves Health and EstimatedHealth at 1; a nonlethal
+    /// packet or an object without the effect is untouched.
+    #[test]
+    fn unkillable_clamps_a_lethal_receive() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n1=PLAIN\n\
+             [Warheads]\n0=HIT\n\
+             [HIT]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [TARGET]\nStrength=500\nSpeed=6\nArmor=light\n\
+             AttachEffect.AttachTypes=AE_UK\n\
+             [PLAIN]\nStrength=500\nSpeed=6\nArmor=light\n\
+             [AttachEffectTypes]\n0=AE_UK\n\
+             [AE_UK]\nDuration=-1\nUnkillable=yes\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        sim.update_phobos_attach_effects(target, &rules);
+        let warhead = sim.interner.intern("HIT");
+        let event = crate::sim::combat::EntityDamageEvent::area(
+            target,
+            100,
+            0,
+            crate::sim::combat::RAD_NO_ATTACKER,
+            None,
+            warhead,
+        );
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set(50);
+        assert!(sim.apply_unkillable_clamp(target, &event, 100, &rules));
+        assert_eq!(sim.entities().get(target).unwrap().health.current(), 1);
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set(500);
+        assert!(
+            !sim.apply_unkillable_clamp(target, &event, 100, &rules),
+            "100 point of damage does not reach 500 health"
+        );
+        assert_eq!(sim.entities().get(target).unwrap().health.current(), 500);
+
+        let plain = sim
+            .spawn_object("PLAIN", "Americans", 22, 20, 0, &rules)
+            .expect("spawn");
+        sim.substrate
+            .entities
+            .get_mut(plain)
+            .unwrap()
+            .health
+            .set(50);
+        let event = crate::sim::combat::EntityDamageEvent::area(
+            plain,
+            100,
+            0,
+            crate::sim::combat::RAD_NO_ATTACKER,
+            None,
+            warhead,
+        );
+        assert!(
+            !sim.apply_unkillable_clamp(plain, &event, 100, &rules),
+            "an object without the effect takes the lethal hit"
+        );
+    }
+
+    /// `GetRangeWithModifiers`: multipliers apply in attach order, summed
+    /// `ExtraRange` cells are added once after every multiplier, and the
+    /// weapon lists gate both. The `-512` sentinel returns before the fold.
+    #[test]
+    fn attach_effect_range_multiplies_then_adds_extra_cells() {
+        use crate::rules::ini_parser::IniFile;
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nRange=5\nDamage=10\nROF=20\n\
+             [TARGET]\nStrength=1000\nSpeed=6\nPrimary=GUN\n\
+             AttachEffect.AttachTypes=A,B\n\
+             [AttachEffectTypes]\n0=A\n1=B\n\
+             [A]\nDuration=10\nWeaponRange.Multiplier=1.5\n\
+             [B]\nDuration=10\nWeaponRange.Multiplier=2\n\
+             WeaponRange.ExtraRange=1\nWeaponRange.AllowWeapons=GUN\n",
+        ))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        sim.update_phobos_attach_effects(target, &rules);
+        let entity = sim.entities().get(target).unwrap();
+        let obj = rules.object("TARGET").expect("target type");
+        assert_eq!(
+            crate::sim::combat::combat_weapon::weapon_range(
+                entity,
+                obj,
+                0,
+                sim.entities(),
+                &rules,
+                sim.interner(),
+            ),
+            5 * 256 * 3 + 256,
+            "5 cells times 1.5 times 2, then one extra cell"
+        );
+        let fold = |weapon: &str, range: i32| {
+            crate::sim::attach_effect::range_with_attach_effects(entity, weapon, range, &rules)
+        };
+        assert_eq!(
+            fold("OTHER", 1000),
+            1500,
+            "B's allow-list skips it entirely"
+        );
+        assert_eq!(fold("gun", 1000), 3256, "the weapon match ignores case");
+        assert_eq!(
+            fold("GUN", -512),
+            -512,
+            "the always-in-range sentinel precedes the fold"
+        );
+        assert_eq!(
+            fold("OTHER", i32::MAX),
+            i32::MAX,
+            "SafeMultiply clamps instead of overflowing"
         );
     }
 

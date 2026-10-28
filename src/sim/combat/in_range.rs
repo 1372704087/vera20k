@@ -99,7 +99,12 @@ fn reach_leptons(
     rules: &RuleSet,
     interner: &StringInterner,
 ) -> i64 {
-    let mut range_lep: i64 = i64::from(weapon.range_leptons);
+    let mut range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
+        attacker,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    ));
     if target_flies_high
         && let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules)
         && let Some(air_bonus) = attacker_obj.air_range_bonus
@@ -456,7 +461,12 @@ pub(crate) fn compute_range_target(
     cells: &NativeCellQuery<'_>,
     los: &LineOfFireInputs<'_>,
 ) -> bool {
-    let weapon_range_lep: i64 = i64::from(weapon.range_leptons);
+    let weapon_range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
+        attacker,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    ));
 
     // Sentinel — always-in-range short-circuit (`CMP EDI,0xFFFFFE00` at
     // 0x006F724E, before every other read).

@@ -10,6 +10,7 @@ use crate::rules::ares_prerequisites::GenericPrerequisites;
 use crate::rules::armor::ArmorId;
 #[cfg(not(feature = "ares"))]
 use crate::rules::armor::armor_index;
+use crate::rules::attach_effect::AttachEffectTypeCatalog;
 use crate::rules::color_add::{ColorAddSelectors, ColorAddTable};
 use crate::rules::compatibility::RulesCompatibility;
 use crate::rules::crate_rules::CrateRules;
@@ -723,6 +724,16 @@ impl ProcessedRulesLayers {
             .as_ref()
     }
 
+    /// Phobos `[AttachEffectTypes]` catalog with the same retained process
+    /// lifetime as Types.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn attach_effect_types(&self) -> Option<&AttachEffectTypeCatalog> {
+        self.native_type_construction_trace
+            .registry_state
+            .phobos_attach_effect_types
+            .as_ref()
+    }
+
     /// Read-only projection of the retained registry's build capability.
     pub(crate) fn compatibility(&self) -> RulesCompatibility {
         self.native_type_construction_trace
@@ -1060,6 +1071,8 @@ impl ProcessedRulesLayers {
         registry.validate_shield_types()?;
         #[cfg(feature = "phobos")]
         registry.validate_digital_display_types()?;
+        #[cfg(feature = "phobos")]
+        registry.validate_attach_effect_types()?;
         let families = &registry.families;
         let projectile_count = families
             .get(&RulesTypeFamily::Projectile)
@@ -3318,6 +3331,8 @@ pub(crate) struct NativeRulesRegistryState {
     phobos_shield_types: Option<ShieldTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
+    /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
+    phobos_attach_effect_types: Option<AttachEffectTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     families: HashMap<RulesTypeFamily, Vec<ProcessedType>>,
@@ -3418,6 +3433,8 @@ impl Default for NativeRulesRegistryState {
             phobos_shield_types: crate::rules::PHOBOS_ENABLED.then(ShieldTypeCatalog::default),
             phobos_digital_display_types: crate::rules::PHOBOS_ENABLED
                 .then(DigitalDisplayTypeCatalog::default),
+            phobos_attach_effect_types: crate::rules::PHOBOS_ENABLED
+                .then(AttachEffectTypeCatalog::default),
             #[cfg(feature = "ares")]
             ares_global_controls: AresGlobalControls::default(),
             families: HashMap::new(),
@@ -3579,6 +3596,16 @@ impl NativeRulesRegistryState {
         if self.phobos_shield_types.is_some() != crate::rules::PHOBOS_ENABLED {
             return Err(RulesError::InvalidSavedState(
                 "saved shield type catalog does not match the compiled capability",
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "phobos")]
+    fn validate_attach_effect_types(&self) -> Result<(), RulesError> {
+        if self.phobos_attach_effect_types.is_some() != crate::rules::PHOBOS_ENABLED {
+            return Err(RulesError::InvalidSavedState(
+                "saved attach effect type catalog does not match the compiled capability",
             ));
         }
         Ok(())
@@ -4909,6 +4936,8 @@ struct RulesPassProcessor {
     phobos_shield_types: Option<ShieldTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
+    /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
+    phobos_attach_effect_types: Option<AttachEffectTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     ordinary: Option<IniFile>,
@@ -4992,6 +5021,7 @@ impl RulesPassProcessor {
             phobos_radiation_types: registry_state.phobos_radiation_types,
             phobos_shield_types: registry_state.phobos_shield_types,
             phobos_digital_display_types: registry_state.phobos_digital_display_types,
+            phobos_attach_effect_types: registry_state.phobos_attach_effect_types,
             #[cfg(feature = "ares")]
             ares_global_controls: registry_state.ares_global_controls,
             families: registry_state.families,
@@ -5153,6 +5183,8 @@ impl RulesPassProcessor {
         self.allocate_shield_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_digital_display_types(pass);
+        #[cfg(feature = "phobos")]
+        self.allocate_attach_effect_types(pass);
         // Elevation and Wall contain no Type factories.
         self.allocate_audio_visual_references(pass);
         self.process_special_weapons(pass);
@@ -8024,6 +8056,15 @@ impl RulesPassProcessor {
         }
     }
 
+    /// Phobos `AttachEffectTypeClass::LoadFromINIList` + each type's
+    /// `LoadFromINI`, reached on every Rules pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_attach_effect_types(&mut self, pass: &IniFile) {
+        if let Some(catalog) = self.phobos_attach_effect_types.as_mut() {
+            catalog.apply_pass(pass);
+        }
+    }
+
     fn allocate_audio_visual_references(&mut self, pass: &IniFile) {
         let Some(section) = pass.section("AudioVisual") else {
             return;
@@ -8204,6 +8245,7 @@ impl RulesPassProcessor {
                     phobos_radiation_types: self.phobos_radiation_types,
                     phobos_shield_types: self.phobos_shield_types,
                     phobos_digital_display_types: self.phobos_digital_display_types,
+                    phobos_attach_effect_types: self.phobos_attach_effect_types,
                     #[cfg(feature = "ares")]
                     ares_global_controls: self.ares_global_controls,
                     families: self.families,

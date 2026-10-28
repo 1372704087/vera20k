@@ -511,6 +511,23 @@ pub struct ObjectType {
     /// techno uses its category's `[AudioVisual]` default list.
     #[cfg(feature = "phobos")]
     digital_display_types: Vec<String>,
+    /// Phobos `AttachEffect.AttachTypes`: authored `[AttachEffectTypes]`
+    /// names, in list order.
+    #[cfg(feature = "phobos")]
+    attach_effect_attach_types: Vec<String>,
+    /// `AttachEffect.DurationOverrides`, paired with `attach_types` by index.
+    #[cfg(feature = "phobos")]
+    attach_effect_duration_overrides: Vec<i32>,
+    /// `AttachEffect.Delays`: re-creation delay after a natural end.
+    #[cfg(feature = "phobos")]
+    attach_effect_delays: Vec<i32>,
+    /// `AttachEffect.InitialDelays`: first attachment delay.
+    #[cfg(feature = "phobos")]
+    attach_effect_initial_delays: Vec<i32>,
+    /// `AttachEffect.RecreationDelays`: delay after a full removal; negative
+    /// forbids re-creation.
+    #[cfg(feature = "phobos")]
+    attach_effect_recreation_delays: Vec<i32>,
     /// Phobos `TechnoTypeExt::DigitalDisplay_Disable`.
     #[cfg(feature = "phobos")]
     digital_display_disable: bool,
@@ -2892,6 +2909,40 @@ impl ObjectType {
         &self.digital_display_types
     }
 
+    /// Phobos `AttachEffect.AttachTypes`, in authored list order.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_attach_types(&self) -> &[String] {
+        &self.attach_effect_attach_types
+    }
+
+    /// Phobos `AttachEffect.DurationOverrides`, paired by index with
+    /// [`Self::attach_effect_attach_types`]; the last value covers the rest.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_duration_overrides(&self) -> &[i32] {
+        &self.attach_effect_duration_overrides
+    }
+
+    /// Phobos `AttachEffect.Delays`, paired by index with
+    /// [`Self::attach_effect_attach_types`].
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_delays(&self) -> &[i32] {
+        &self.attach_effect_delays
+    }
+
+    /// Phobos `AttachEffect.InitialDelays`, paired by index with
+    /// [`Self::attach_effect_attach_types`].
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_initial_delays(&self) -> &[i32] {
+        &self.attach_effect_initial_delays
+    }
+
+    /// Phobos `AttachEffect.RecreationDelays`, paired by index with
+    /// [`Self::attach_effect_attach_types`].
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_recreation_delays(&self) -> &[i32] {
+        &self.attach_effect_recreation_delays
+    }
+
     /// Phobos `DigitalDisplay.Disable=`.
     #[cfg(feature = "phobos")]
     pub fn digital_display_disable(&self) -> bool {
@@ -3734,6 +3785,32 @@ impl ObjectType {
                         .map(|token| token.trim().to_owned())
                         .collect()
                 })
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_types: section
+                .read_list("AttachEffect.AttachTypes", 0x800)
+                .map(|tokens| {
+                    tokens
+                        .into_iter()
+                        .map(|token| token.trim().to_owned())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_duration_overrides: section
+                .read_int_list("AttachEffect.DurationOverrides")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_delays: section
+                .read_int_list("AttachEffect.Delays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_initial_delays: section
+                .read_int_list("AttachEffect.InitialDelays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_recreation_delays: section
+                .read_int_list("AttachEffect.RecreationDelays")
                 .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             digital_display_disable: section.read_bool("DigitalDisplay.Disable", false),

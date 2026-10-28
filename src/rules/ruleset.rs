@@ -4572,6 +4572,12 @@ pub struct RuleSet {
     /// default lists and `DigitalDisplay.Health.FakeAtDisguise`.
     #[cfg(feature = "phobos")]
     pub(crate) digital_display_globals: crate::rules::digital_display::DigitalDisplayGlobals,
+    /// Phobos `[AttachEffectTypes]` catalog, retained across Rules passes.
+    #[cfg(feature = "phobos")]
+    pub(crate) attach_effect_types: crate::rules::attach_effect::AttachEffectTypeCatalog,
+    /// Phobos AttachEffect globals (`[General]`).
+    #[cfg(feature = "phobos")]
+    pub(crate) attach_effect_globals: crate::rules::attach_effect::AttachEffectGlobals,
     /// Phobos placement preview globals (`[AudioVisual] PlacementPreview*`).
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_globals:
@@ -5910,6 +5916,18 @@ impl RuleSet {
             )
         };
         #[cfg(feature = "phobos")]
+        let (attach_effect_types, attach_effect_globals) = {
+            let attach_effect_types = processed.attach_effect_types().cloned().unwrap_or_default();
+            log::info!(
+                "Phobos attach effect types: [{}]",
+                attach_effect_types.names().collect::<Vec<_>>().join(", ")
+            );
+            (
+                attach_effect_types,
+                crate::rules::attach_effect::AttachEffectGlobals::from_ini(ini),
+            )
+        };
+        #[cfg(feature = "phobos")]
         let placement_preview_globals =
             crate::rules::phobos_placement_preview::PlacementPreviewGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
@@ -6339,6 +6357,10 @@ impl RuleSet {
             digital_display_types,
             #[cfg(feature = "phobos")]
             digital_display_globals,
+            #[cfg(feature = "phobos")]
+            attach_effect_types,
+            #[cfg(feature = "phobos")]
+            attach_effect_globals,
             #[cfg(feature = "phobos")]
             placement_preview_globals,
             #[cfg(feature = "phobos")]
@@ -6796,6 +6818,12 @@ impl RuleSet {
         &self,
     ) -> &crate::rules::digital_display::DigitalDisplayTypeCatalog {
         &self.digital_display_types
+    }
+
+    /// Phobos `[AttachEffectTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_types(&self) -> &crate::rules::attach_effect::AttachEffectTypeCatalog {
+        &self.attach_effect_types
     }
 
     /// Phobos DigitalDisplay globals (`[AudioVisual]`).

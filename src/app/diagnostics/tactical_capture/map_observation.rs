@@ -5610,7 +5610,7 @@ mod tests {
     #[test]
     fn gestures_require_sealed_neutral_cursor_and_strict_tactical_pixel_arguments() {
         let mut profile = example();
-        profile.schema_version = PROFILE_V2.to_owned();
+        profile.cursor_position = None;
         profile.gestures = Some(Vec::new());
         assert!(profile.validate().is_err());
         profile.cursor_position = Some([720, 556]);

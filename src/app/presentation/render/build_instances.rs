@@ -455,28 +455,13 @@ pub(super) fn build_world_instances(
     // live enemy objects the local viewer cannot see leave the draw plan fully
     // (body, shadow, attached anim parts and extras) instead of showing through
     // the fog. Terrain, overlays and revealed map art stay visible.
-    if state.translucent_fog_enabled() && !state.match_state.sandbox_full_visibility {
-        let viewer_name = crate::app::input::commands::preferred_local_owner_name(state);
-        if let (Some(rt), Some(viewer_name)) = (
-            state.match_state.sim_runtime.as_ref(),
-            viewer_name.as_deref(),
-        ) {
-            let sim = &rt.simulation;
+    if let Some(rt) = state.match_state.sim_runtime.as_ref() {
+        let sim = &rt.simulation;
+        if let Some(viewer) = instances::translucent_fog_viewer(state, sim) {
             let rules = &rt.resources.rules;
-            let viewer = sim.interner().get(viewer_name);
             let fog_of_war = sim.session().game_options().fog_of_war;
             let concealed = |entity: &crate::sim::game_entity::GameEntity| {
-                let owner = sim.interner().resolve(entity.owner());
-                instances::translucent_fog_conceals(
-                    Some(viewer_name),
-                    sim.fog(),
-                    sim.house_alliances(),
-                    &entity.position,
-                    owner,
-                    false,
-                    viewer,
-                    fog_of_war,
-                )
+                instances::translucent_fog_conceals(sim, viewer, entity)
             };
             // Particles owned by an object follow it out of the fog.
             let particle_owners: std::collections::BTreeMap<u64, Option<u64>> = sim
@@ -525,7 +510,7 @@ pub(super) fn build_world_instances(
                 };
                 let cell = instances::lepton_cell(coord.x, coord.y);
                 !instances::translucent_fog_conceals_cell(
-                    viewer,
+                    Some(viewer),
                     Some(sim.fog()),
                     cell.0,
                     cell.1,

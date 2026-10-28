@@ -31,6 +31,11 @@ adds no behavior yet.
 
 ### Superweapon and AI strategy
 
+- #2936 (NPExt changelog item 11): insufficient house power refuses the
+  pre-selected ChronoWarp click (`ClickFire4FB1E0` admission, the PostClick=
+  exemption at `0x006CB933..0x006CB95F`) before any launch or paired Sphere
+  write, so the warp neither fires nor restarts the countdown while held.
+
 ### Combat target, order, fire and damage eligibility
 
 ### Weapon, wave and projectile source, path and range

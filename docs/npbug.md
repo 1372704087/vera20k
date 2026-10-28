@@ -42,3 +42,9 @@ adds no behavior yet.
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime
+
+- #2979 (NPExt changelog item 28): the action determination's warp rung also
+  catches a still-warping-in actor over an entity target. Native limits the
+  warp-in arm to Cell targets, so a pre-emergence chrono legionnaire fell
+  through to the attack rung's pure weapon-range alternative and showed a
+  force-attack cursor over friendlies.

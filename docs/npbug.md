@@ -33,6 +33,11 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2961 (NPExt changelog item 72): the fire-error cell arm
+  (`0x006FC7EB..0x006FC868`) consults the naval selector — a
+  `NavalTargeting=6` firer refuses the water surface itself, closing the
+  open-water force-attack the Techno-only T40 gate missed.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

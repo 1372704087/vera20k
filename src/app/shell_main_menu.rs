@@ -374,12 +374,6 @@ impl App {
             .refresh_multiplayer_country_catalog(&state.process_assets);
     }
 
-    /// A right-panel menu page (Single Player `0x100` or Movies & Credits
-    /// `0x101`) owns the `MainMenu` screen.
-    pub(super) fn menu_page_active(state: &AppState) -> bool {
-        crate::app::frontend::menu_page_render::ActiveMenuPage::from_state(state).is_some()
-    }
-
     /// The score page `0x108` owns the result screen once its model is set
     /// and its art and the shell chrome exist; otherwise the result screen
     /// uses the asset-independent status card when retail score art is absent.

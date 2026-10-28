@@ -37,6 +37,14 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2971 (NPExt changelog item 95): a tech building (`NeedsEngineer=`) starts
+  its active animations only when a real house owns it. Native fills
+  Idle18 + Active3..6 at first opening (`0x0044632E..0x00446374`) with no
+  ownership arm, so an un-owned oil derrick pumps from scenario placement and
+  keeps pumping after the damaged-art swap; the capture's `Grand_Opening`
+  re-run (Building `0x00448CEF`) starts it. A building transferred back to a
+  passive house keeps the slots it already has.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

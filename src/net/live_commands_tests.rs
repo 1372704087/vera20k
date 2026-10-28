@@ -3887,6 +3887,111 @@ fn sequenced_pause_stops_at_one_boundary_and_recovers_a_lost_resume() {
 }
 
 #[test]
+fn sequenced_push_resubscribes_as_soon_as_a_renewed_lease_is_confirmed() {
+    use crate::net::udp::{
+        RelayTicket,
+        test_support::{MAX_DATAGRAM, SecretKey, derive_packet_key},
+    };
+    let (mut worlds, rules, _, boundaries, socket, mut relay) = sequenced_pair();
+    let std::net::SocketAddr::V4(address) = socket.local_addr().unwrap() else {
+        unreachable!()
+    };
+    let mut pass = |relay_ms: u64, client_ms: u64| {
+        let now = 100 + (relay_ms - 16_000) / 1000;
+        relay.advance_clock(relay_ms, now);
+        for packet in relay.drain_ordering_push(relay_ms, now) {
+            socket.send_to(&packet.bytes, packet.endpoint).unwrap();
+        }
+        for boundary in &boundaries {
+            boundary.now.set((client_ms >> 4) as u32);
+            boundary
+                .live
+                .borrow_mut()
+                .service_transport((client_ms >> 4) as u32);
+        }
+        let mut bytes = [0; MAX_DATAGRAM + 1];
+        while let Ok((length, std::net::SocketAddr::V4(source))) = socket.recv_from(&mut bytes) {
+            for packet in relay
+                .process_at(source, &bytes[..length], now, relay_ms)
+                .unwrap_or_default()
+            {
+                socket.send_to(&packet.bytes, packet.endpoint).unwrap();
+            }
+        }
+    };
+    let mut now_ms = 16_000;
+    for _ in 0..250 {
+        if boundaries
+            .iter()
+            .all(|boundary| boundary.live.borrow().sequenced_timing().is_some())
+            && worlds
+                .iter()
+                .all(|world| world.session().binary_frame() >= 20)
+        {
+            break;
+        }
+        now_ms += 16;
+        pass(now_ms, now_ms);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            production_frame(world, &rules, boundary);
+        }
+    }
+    assert!(boundaries[0].live.borrow().sequenced_timing().is_some());
+    let key = SecretKey::new([21; 32]);
+    let renewed = RelayTicket {
+        room: [17; 16],
+        player: [1; 16],
+        source: 0,
+        generation: 1,
+        // Outlives the first lease and stays within the relay's ticket lifetime.
+        expires: 350,
+        nonce: [42; 16],
+    }
+    .sign(&key)
+    .unwrap();
+    boundaries[0]
+        .live
+        .borrow_mut()
+        .renew_relay(
+            address,
+            &renewed,
+            *derive_packet_key(&key, &renewed).expose_for_https(),
+            [19; 32],
+        )
+        .unwrap();
+    // Hold the client clock so no watermark falls due. Loopback datagrams can
+    // land passes late, so wait on the confirmed lease itself.
+    for _ in 0..64 {
+        if boundaries[0].live.borrow().relay_expires() == Some(350) {
+            break;
+        }
+        pass(now_ms, now_ms);
+    }
+    assert_eq!(boundaries[0].live.borrow().relay_expires(), Some(350));
+    let frame = || {
+        boundaries[0]
+            .live
+            .borrow()
+            .sequenced_timing()
+            .unwrap()
+            .frame
+    };
+    let before = frame();
+    // The relay keeps closing frames, but this client's watermark never falls
+    // due. The confirmed lease starts unsubscribed, so only the READY can
+    // restore push.
+    let mut relay_ms = now_ms;
+    while frame() == before && relay_ms < now_ms + 1_000 {
+        relay_ms += 16;
+        pass(relay_ms, now_ms);
+    }
+    assert!(
+        frame() > before,
+        "a renewed lease must resume push without waiting for a watermark"
+    );
+}
+
+#[test]
 fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
     use crate::net::udp::test_support::MAX_DATAGRAM;
     use crate::sim::command::{Command, MEGAMISSION_OPCODE};

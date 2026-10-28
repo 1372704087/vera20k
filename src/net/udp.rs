@@ -653,6 +653,14 @@ impl LanUdpTransport {
         self.lock().relay.as_mut()?.ordering_inbox.pop_front()
     }
 
+    /// READYs received on the current relay route, keepalive replies included.
+    pub(super) fn relay_confirmations(&self) -> u64 {
+        self.lock()
+            .relay
+            .as_ref()
+            .map_or(0, |route| route.confirmations)
+    }
+
     pub fn renew_relay(
         &mut self,
         address: SocketAddrV4,
@@ -789,6 +797,9 @@ struct RelayRoute {
     // Dropped excess packets are recovered from the immutable stream cursor.
     // This bounds worker memory even while the UI/simulation thread is paused.
     ordering_inbox: VecDeque<ReceivedOrderEvent>,
+    // READYs on this route. Every keepalive PING gets one, and so does a renewed
+    // lease or new path, which the relay starts without its push subscription.
+    confirmations: u64,
     retiring: Option<RelayRetirement>,
 }
 
@@ -972,6 +983,7 @@ impl UdpIo {
             peer_probes: None,
             ordering_certificate: None,
             ordering_inbox: VecDeque::new(),
+            confirmations: 0,
             retiring: None,
         });
         self.global.require_authenticated_acknowledgments();
@@ -1467,6 +1479,7 @@ fn drain_socket(
                         }
                         route.session = next;
                         route.last_response = Some(now_ticks);
+                        route.confirmations += 1;
                         continue;
                     }
                     ServerEvent::Challenge(cookie) => {
@@ -1512,6 +1525,7 @@ fn drain_socket(
                 }
                 Ok(ServerEvent::Ready) => {
                     route.last_response = Some(now_ticks);
+                    route.confirmations += 1;
                     continue;
                 }
                 Ok(ServerEvent::Challenge(cookie)) => {

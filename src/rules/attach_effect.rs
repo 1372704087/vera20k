@@ -112,6 +112,13 @@ pub struct AttachEffectType {
     pub groups: Vec<String>,
 }
 
+impl Default for AttachEffectType {
+    /// The constructor's defaults with no catalog name.
+    fn default() -> Self {
+        Self::named("")
+    }
+}
+
 impl AttachEffectType {
     fn named(name: &str) -> Self {
         Self {

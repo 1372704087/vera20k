@@ -1967,6 +1967,9 @@ pub(crate) fn try_queue_context_order(
         .map(|rt| &rt.simulation)
         .and_then(|s| s.interner().get(&owner))
         .unwrap_or_default();
+    let translucent_viewer = state.match_state.sim_runtime.as_ref().and_then(|rt| {
+        crate::app::presentation::instances::translucent_fog_viewer(state, &rt.simulation)
+    });
 
     let mut queued: Vec<CommandEnvelope> = Vec::new();
     // The one object that speaks the order-ack line. Retail lets only the first
@@ -2020,6 +2023,7 @@ pub(crate) fn try_queue_context_order(
                     crate::app::input::entity_pick::PresentedWorld {
                         sim,
                         interpolation: &state.match_state.match_presentation.interpolation,
+                        translucent_viewer,
                     },
                     world_x,
                     world_y,

@@ -647,6 +647,7 @@ fn the_computers_low_credit_sale_matches_the_original_admission() {
                 &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
                 None,
                 None,
+                None,
             );
             sim.attach_object_trigger_tag(1, Some("SALE_KEEP_TAG"));
             assert!(sim.object_has_trigger_tag(1), "{name}: actual attachment");

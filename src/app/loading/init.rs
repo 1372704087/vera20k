@@ -98,33 +98,6 @@ fn connect_startup_crate_overlays(
     synced
 }
 
-/// Refresh the legacy generated presentation entries whose overlay resolves
-/// to a TiberiumClass from the live grid. The generator tail's final
-/// `InitCellAttributes(1)` rewrote every ore density after those entries were
-/// built from the raw packs; non-resource identities keep their source frame.
-fn refresh_generated_tiberium_presentation_frames(
-    overlays_connected: &mut [OverlayEntry],
-    overlay_grid: &crate::sim::overlay_grid::OverlayGrid,
-    overlay_registry: &OverlayTypeRegistry,
-    tiberium_types: &crate::rules::tiberium_type::TiberiumTypeRegistry,
-) -> usize {
-    let mut refreshed = 0;
-    for entry in overlays_connected {
-        if overlay_registry
-            .tiberium_type_for_overlay(tiberium_types, entry.overlay_id)
-            .is_none()
-        {
-            continue;
-        }
-        let cell = overlay_grid.cell(entry.rx, entry.ry);
-        if cell.overlay_id == Some(entry.overlay_id) && cell.overlay_data != entry.frame {
-            entry.frame = cell.overlay_data;
-            refreshed += 1;
-        }
-    }
-    refreshed
-}
-
 #[cfg(test)]
 mod map_wall_owner_candidate_tests {
     use super::*;
@@ -1740,6 +1713,7 @@ mod fresh_transport_tests {
             &Default::default(),
             None,
             None,
+            None,
         );
         let resident_hash = resident.state_hash();
         let mut initial = MapLoadInitial::from_test_map_source(
@@ -1759,9 +1733,21 @@ mod fresh_transport_tests {
         staged.inherit_local_variables_for_fresh_load(
             initial.retained_local_variables.take().unwrap(),
         );
-        staged.initialize_trigger_definitions(&initial.map_data, &Default::default(), None, None);
+        staged.initialize_trigger_definitions(
+            &initial.map_data,
+            &Default::default(),
+            None,
+            None,
+            None,
+        );
         let mut cold = Simulation::new();
-        cold.initialize_trigger_definitions(&initial.map_data, &Default::default(), None, None);
+        cold.initialize_trigger_definitions(
+            &initial.map_data,
+            &Default::default(),
+            None,
+            None,
+            None,
+        );
         assert_ne!(
             staged.state_hash(),
             cold.state_hash(),
@@ -2741,6 +2727,7 @@ pub(crate) fn load_map_from_initial(
         crate::rules::process_owner::NativeNonCampaignPrefixPreparation,
     >,
     audio: Option<&crate::app::process_assets::ProcessAudioCatalog>,
+    themes: Option<&crate::rules::theme_ini::ThemeCatalog>,
     shared_cell_dummy: crate::map::resolved_terrain::SharedCellDummy,
     tile_variant_selector_cache: &mut crate::map::tile_variant_selector::TileVariantSelectorCache,
     progress: &mut dyn crate::app::loading::pump::LoadingProgressSink,
@@ -2762,6 +2749,7 @@ pub(crate) fn load_map_from_initial(
             #[cfg(feature = "ares")]
             prepared_noncampaign_prefix,
             audio,
+            themes,
             shared_cell_dummy: shared_cell_dummy.clone(),
             tile_variant_selector_cache,
             progress,
@@ -3177,6 +3165,7 @@ fn load_map_first_step(
                                 services
                                     .audio
                                     .map(crate::app::process_assets::ProcessAudioCatalog::sounds),
+                                services.themes,
                             );
                             let (mut scenario_fill_rng, variant_main_rng) =
                                 staged_simulation.terrain_load_draws();
@@ -3821,18 +3810,17 @@ fn load_map_first_step(
                                                             FreshMapLoadContinuation::new(
                                                                 "overlays",
                                                                 move |services| {
-                                                                    // Fresh map presentation has its established connectivity pass. The
-                                                                    // common asset builder also serves saved worlds and never changes frames.
+                                                                    // Present the finalized grid (authored second sweep or generated
+                                                                    // germination) through the projection saved worlds restore. Native
+                                                                    // `ReadMapOverlayPacks @ 0x005FD2E0` writes each `[OverlayDataPack]`
+                                                                    // byte to Cell+0x11E after every pass-1 Mark, so a map wall keeps its
+                                                                    // authored connectivity and damage nibble; later wall changes belong to
+                                                                    // `PostDestructionWallCleanup @ 0x00480630` in that grid. Taken before
+                                                                    // the post-map tail places scenario-start crates, which are appended
+                                                                    // from the live grid below.
                                                                     let mut overlays_connected =
-                                                                        map_data.overlays.clone();
-                                                                    let walls_updated =
-        crate::map::overlay::compute_wall_connectivity(&mut overlays_connected, &overlay_registry);
-                                                                    if walls_updated > 0 {
-                                                                        log::info!(
-                                                                            "Wall connectivity: {} wall entries updated",
-                                                                            walls_updated
-                                                                        );
-                                                                    }
+                                                                        overlay_grid
+                                                                            .occupied_entries();
                                                                     let overlay_assets =
                                                             build_overlay_presentation(
                                                                 &overlays_connected,
@@ -3857,40 +3845,6 @@ fn load_map_first_step(
                                                                     // reconstruction, overlay-grid installation, smudge-grid seeding, and the
                                                                     // authoritative post-map tail — runs through the same sim-owned function
                                                                     // the headless loader uses.
-                                                                    //
-                                                                    // Authored presentation is rebuilt from the completed second-sweep grid;
-                                                                    // generated presentation retains its legacy source entries and only drops
-                                                                    // identities cleared during eager projection. Do this before the shared
-                                                                    // post-map tail can place scenario-start crates, because those runtime
-                                                                    // overlays are not map-authored presentation entries.
-                                                                    if materialization == FreshMapMaterialization::Authored {
-        overlays_connected = overlay_grid
-            .iter_occupied()
-            .filter_map(|(rx, ry, cell)| {
-                cell.overlay_id.map(|overlay_id| OverlayEntry {
-                    rx,
-                    ry,
-                    overlay_id,
-                    frame: cell.overlay_data,
-                })
-            })
-            .collect();
-    } else {
-        overlays_connected.retain(|entry| {
-            overlay_grid.cell(entry.rx, entry.ry).overlay_id == Some(entry.overlay_id)
-        });
-        let refreshed = refresh_generated_tiberium_presentation_frames(
-            &mut overlays_connected,
-            &overlay_grid,
-            &overlay_registry,
-            &rules.tiberium_types,
-        );
-        if refreshed != 0 {
-            log::info!(
-                "Refreshed {refreshed} generated ore presentation frame(s) from the germinated grid"
-            );
-        }
-    }
                                                                     let rules_for_post_map = &rules;
                                                                     let opening_view_cell =
                                                                         if let Some(sim) =

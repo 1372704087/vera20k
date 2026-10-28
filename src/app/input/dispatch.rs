@@ -30,6 +30,7 @@ use crate::app::input::entity_pick::{
     map_entity_creation_order, pick_entity_at_point,
 };
 use crate::app::input::hotkeys::{HotkeyCommand, HotkeyFallback, HotkeyResolution};
+use crate::app::input::precedence::{ModalPage, modal_page};
 use crate::app::input::sidebar_eva;
 use crate::app::presentation::sidebar_render::current_sidebar_view;
 use crate::app::types::OrderMode;
@@ -66,7 +67,9 @@ pub(crate) fn handle_mouse_input(
     button: MouseButton,
     btn_state: ElementState,
 ) {
-    if crate::app::match_runtime::network_failure::pending(state) {
+    // The window path routes these pages in its own handler from the same
+    // decision (`input::precedence`); captures enter here directly.
+    if modal_page(state) == Some(ModalPage::NetworkFailure) {
         crate::app::match_runtime::network_failure::mouse(state, button, btn_state.is_pressed());
         return;
     }
@@ -82,22 +85,27 @@ fn handle_mouse_input_inner(state: &mut AppState, button: MouseButton, btn_state
         .input
         .tactical_mouse
         .record_physical_button(button, pressed);
-    if state.frontend.keyboard_dialog.is_some() {
-        crate::app::input::keyboard::mouse(state, button, pressed);
-        return;
-    }
-    // 0xEA is pushed over the game and any open page.
-    if state.match_state.network_wait.dialog_open() {
-        if !pressed {
-            state.match_state.input.cancel_tactical_drag();
-            state
-                .match_state
-                .match_presentation
-                .in_game_gadgets
-                .cancel_pointer_capture();
+    match modal_page(state) {
+        // 0xEA is pushed over the game and any open page.
+        Some(ModalPage::NetworkWait) => {
+            if !pressed {
+                state.match_state.input.cancel_tactical_drag();
+                state
+                    .match_state
+                    .match_presentation
+                    .in_game_gadgets
+                    .cancel_pointer_capture();
+            }
+            crate::app::input::connection::mouse(state, button, pressed);
+            return;
         }
-        crate::app::input::connection::mouse(state, button, pressed);
-        return;
+        Some(ModalPage::Keyboard) => {
+            crate::app::input::keyboard::mouse(state, button, pressed);
+            return;
+        }
+        // The shell error card is main-menu only.
+        Some(ModalPage::ShellError | ModalPage::NetworkFailure | ModalPage::NetworkOptions)
+        | None => {}
     }
     // Paused in-game Options overlay owns the mouse: route press/release/checkbox/
     // Back here and CONSUME the click so it never reaches the tactical viewport or
@@ -829,17 +837,20 @@ fn clamp_tactical_drag_endpoint(
 }
 
 pub(crate) fn handle_cursor_moved_in_game(state: &mut AppState) {
-    if crate::app::match_runtime::network_failure::pending(state) {
-        crate::app::match_runtime::network_failure::cursor_moved(state);
-        return;
-    }
-    if state.frontend.keyboard_dialog.is_some() {
-        crate::app::input::keyboard::cursor_moved(state);
-        return;
-    }
-    if state.match_state.network_wait.dialog_open() {
-        crate::app::input::connection::cursor_moved(state);
-        return;
+    match modal_page(state) {
+        Some(ModalPage::NetworkFailure) => {
+            crate::app::match_runtime::network_failure::cursor_moved(state);
+            return;
+        }
+        Some(ModalPage::NetworkWait) => {
+            crate::app::input::connection::cursor_moved(state);
+            return;
+        }
+        Some(ModalPage::Keyboard) => {
+            crate::app::input::keyboard::cursor_moved(state);
+            return;
+        }
+        Some(ModalPage::ShellError | ModalPage::NetworkOptions) | None => {}
     }
     // Paused in-game Options overlay: drive a live slider drag (visual/stored only —
     // cadence applies on close, KD-8) and swallow the move so it can't begin a

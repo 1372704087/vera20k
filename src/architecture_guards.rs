@@ -71,8 +71,9 @@ fn production_dependency_edges_match_frozen_ledger_inventory() {
 
 /// F09: `Simulation::advance_master_frame` and `advance_app_frame` accept
 /// swappable rules/map/path resources, so their production call sites are
-/// pinned — the master frame is reached only inside `sim/world/mod.rs`, the
-/// app frame only there and in `SimRuntime::advance_frame`. Every other
+/// pinned — the master frame is reached only inside
+/// `sim/world/master_frame.rs`, the app frame only there and in
+/// `SimRuntime::advance_frame`. Every other
 /// caller must be `#[cfg(test)]` (the `advance_tick` fixture adapter and the
 /// replay `run_fixture*` runners are compile-time gated already); production
 /// and tooling advance exclusively through the bound-resource runtime.
@@ -80,8 +81,11 @@ fn production_dependency_edges_match_frozen_ledger_inventory() {
 fn master_frame_adapters_have_pinned_production_callers() {
     let src_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let allowed: &[(&str, &[&str])] = &[
-        ("advance_master_frame", &["sim/world/mod.rs"]),
-        ("advance_app_frame", &["sim/world/mod.rs", "sim/runtime.rs"]),
+        ("advance_master_frame", &["sim/world/master_frame.rs"]),
+        (
+            "advance_app_frame",
+            &["sim/world/master_frame.rs", "sim/runtime.rs"],
+        ),
     ];
     let mut violations: Vec<String> = Vec::new();
     for file in source_files(&src_root) {

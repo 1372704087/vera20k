@@ -1304,6 +1304,13 @@ impl FogState {
         }
     }
 
+    /// Set the live fog flag the way a freeze or reveal would, for client
+    /// fixtures that cannot reach the FogOfWar cell walk.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_object_fogged_for_test(&mut self, viewer: InternedId, id: u64, fogged: bool) {
+        self.set_object_fogged(viewer, id, fogged);
+    }
+
     pub(crate) fn forget_fogged_live_object(&mut self, id: u64) {
         self.fogged_live_objects.retain(|(_, candidate)| *candidate != id);
     }
@@ -1616,7 +1623,7 @@ impl FogState {
     /// `BuildingClass::AddDetectDisguiseAt @ 0x00455A80` — the same strict
     /// outer-Y/inner-X circle the sensor deposit walks, incrementing
     /// `CellClass+0xAC[house]` (`CellClass::IncrementDisguiseDetectCount`).
-    /// The caller owns the powered gate (native vt+0x350).
+    /// The caller owns the Is_Operational gate (native vt+0x350).
     pub fn disguise_detect_add_at(
         &mut self,
         house: InternedId,

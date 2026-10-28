@@ -7,8 +7,9 @@
 //! then a queued duration refresh, then the duration tick. `RefreshDuration`
 //! takes the override, the type's `Duration` and the two duration multipliers.
 //!
-//! This module owns the timing state only. Stat multipliers, animations, tints
-//! and discard conditions read it from their own slices.
+//! This module owns the timing state and the per-frame AI walk, including the
+//! animation each effect shows. Stat multipliers, tint rendering and discard
+//! conditions read this state from their own owners.
 
 use crate::rules::attach_effect::{AttachEffectType, AttachedAnimFlag};
 #[cfg(feature = "phobos")]
@@ -570,10 +571,19 @@ struct AttachEffectAnimTarget {
 #[cfg(feature = "phobos")]
 impl Simulation {
     /// Phobos `TechnoExt::UpdateAttachEffects`
-    /// (`src/Ext/Techno/Body.Update.cpp:895..975`): every effect runs one
-    /// `AI()` phase, expired effects are removed, and each surviving effect
-    /// reconciles its `AnimClass` with `CanShowAnim`. `DiscardOn` belongs to
-    /// its own slice, so no effect is discarded here yet.
+    /// (`src/Ext/Techno/Body.Update.cpp:895..975`, reached from the
+    /// `TechnoClass_AI_0x6F9E50` early update): every effect runs one `AI()`
+    /// phase, expired effects are removed, and each surviving effect
+    /// reconciles its `AnimClass` with `CanShowAnim`.
+    ///
+    /// RESIDUALS: `DiscardOn` belongs to its own slice, so nothing is discarded
+    /// here yet; native `IsImmobilized` is approximated by the chrono-warp and
+    /// transport-interior gates VERA models; `CloakCheck` and the tunnel
+    /// animation state are not ported; a cumulative type's animation is
+    /// rebuilt when the layer count changes instead of going through
+    /// `AnimExt::ChangeAnimType`, so `CumulativeAnimations.RestartOnChange=no`
+    /// still restarts; `Animation.ResetOnReapply` does not restart a refreshed
+    /// effect's animation.
     pub(crate) fn update_phobos_attach_effects(
         &mut self,
         id: u64,

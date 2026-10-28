@@ -342,6 +342,11 @@ fn viewer_bucket(
 /// colour word and sums its intensity, in attach order.
 ///
 /// Read only: no simulation state, timer, RNG or detach is written.
+///
+/// RESIDUAL: the `AnimClass_Draw_TintColor` hook (`0x00423420`) also applies
+/// the owner's custom tint to an owner-attached animation; building slot anims
+/// already take it, ordinary attached anims (AttachEffect and parachutes) do
+/// not yet.
 #[cfg(feature = "phobos")]
 pub(crate) fn attach_effect_tint(
     entity: &crate::sim::game_entity::GameEntity,

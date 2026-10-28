@@ -5,6 +5,7 @@
 
 use super::frame::FrameRenderOutcome;
 use super::input::dispatch;
+use super::input::precedence::{InputLayer, ModalPage};
 use super::{
     ActiveEventLoop, App, AppState, ApplicationHandler, ControlFlow, GameScreen, Instant, KeyCode,
     KeyEventExtModifierSupplement, MouseButton, MouseScrollDelta, PhysicalKey, PhysicalSize,
@@ -935,17 +936,21 @@ impl ApplicationHandler for App {
                 if event.state.is_pressed() && state.platform.ime.composing() {
                     return;
                 }
-                if Self::house_outcome_wait_pending(state) {
-                    if !event.state.is_pressed()
-                        && let PhysicalKey::Code(code) = event.physical_key
-                    {
-                        state.match_state.input.keys_held.remove(&code);
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => {
+                        if !event.state.is_pressed()
+                            && let PhysicalKey::Code(code) = event.physical_key
+                        {
+                            state.match_state.input.keys_held.remove(&code);
+                        }
+                        return;
                     }
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::key(state, &event);
-                    return;
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::key(state, &event);
+                        return;
+                    }
+                    _ => {}
                 }
                 // Host delivery adaptation: dialogs may consume ordinary keys,
                 // but a release for an admitted planning gesture must still
@@ -992,26 +997,33 @@ impl ApplicationHandler for App {
                     }
                     return;
                 }
-                // The wait loop pumps 0xEA without IsDialogMessage and polls
-                // no game keys while it is open (0x006497EC).
-                if state.match_state.network_wait.dialog_open() {
-                    if !event.state.is_pressed()
-                        && let PhysicalKey::Code(code) = event.physical_key
-                    {
-                        state.match_state.input.keys_held.remove(&code);
+                // The keys above work under every layer; the rest follow it.
+                match layer {
+                    InputLayer::ShellTransition => return,
+                    // The wait loop pumps 0xEA without IsDialogMessage and
+                    // polls no game keys while it is open (0x006497EC).
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        if !event.state.is_pressed()
+                            && let PhysicalKey::Code(code) = event.physical_key
+                        {
+                            state.match_state.input.keys_held.remove(&code);
+                        }
+                        return;
                     }
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::key(state, &event);
-                    return;
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::key(state, &event);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::key(state, &event);
+                        return;
+                    }
+                    InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure)
+                    | InputLayer::Screen => {}
                 }
                 if crate::app::input::coop_score::active(state) {
                     crate::app::input::coop_score::key(state, &event);
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::key(state, &event);
                     return;
                 }
                 if state.frontend.screen == GameScreen::MainMenu
@@ -1056,9 +1068,7 @@ impl ApplicationHandler for App {
                         .saved_seed_browser
                         .is_some()
                 {
-                    if !crate::app::frontend::shell_transition::blocks_shell_input(state)
-                        && event.state.is_pressed()
-                    {
+                    if event.state.is_pressed() {
                         let code = match event.physical_key {
                             PhysicalKey::Code(code) => Some(code),
                             _ => None,
@@ -1076,10 +1086,6 @@ impl ApplicationHandler for App {
                     let in_game: bool = state.frontend.screen == GameScreen::InGame;
                     let paused_at_event = in_game && state.match_state.paused();
                     let locally_paused_at_event = in_game && state.match_state.local_paused();
-
-                    if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                        return;
-                    }
 
                     // A shared pause must be resumable without a simulation
                     // tick, including while the local Options dialog is open.
@@ -1340,26 +1346,35 @@ impl ApplicationHandler for App {
                     state.match_state.input.cursor_from_touch = false;
                 }
                 state.set_cursor_from_window(position.x as f32, position.y as f32);
-                if Self::house_outcome_wait_pending(state) {
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::cursor_moved(state);
-                    return;
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => return,
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::cursor_moved(state);
+                        return;
+                    }
+                    _ => {}
                 }
                 // Shared tooltip service: every move restarts the show delay
                 // and hides a visible tip (study S1).
                 crate::app::input::tooltips::on_mouse_move(state);
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::cursor_moved(state);
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::cursor_moved(state);
-                    return;
+                match layer {
+                    InputLayer::ShellTransition => return,
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        crate::app::input::connection::cursor_moved(state);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::cursor_moved(state);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::cursor_moved(state);
+                        return;
+                    }
+                    InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure)
+                    | InputLayer::Screen => {}
                 }
                 if state.frontend.screen == GameScreen::MainMenu
                     && state.frontend.shell_route.lan_lobby()
@@ -1438,25 +1453,49 @@ impl ApplicationHandler for App {
                 button,
                 ..
             } => {
-                if Self::house_outcome_wait_pending(state) {
-                    if !btn_state.is_pressed() {
-                        Self::release_in_game_pointer_state(state);
+                let layer = crate::app::input::precedence::input_layer(state);
+                match layer {
+                    InputLayer::HouseOutcomeWait => {
+                        if !btn_state.is_pressed() {
+                            Self::release_in_game_pointer_state(state);
+                        }
+                        return;
                     }
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    crate::app::match_runtime::network_failure::mouse(
-                        state,
-                        button,
-                        btn_state.is_pressed(),
-                    );
-                    return;
+                    InputLayer::Page(ModalPage::NetworkFailure) => {
+                        crate::app::match_runtime::network_failure::mouse(
+                            state,
+                            button,
+                            btn_state.is_pressed(),
+                        );
+                        return;
+                    }
+                    _ => {}
                 }
                 // Any button press/release kills a visible tooltip + pending
                 // timer (all buttons incl. middle — study S1).
                 crate::app::input::tooltips::on_button_event(state);
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
+                match layer {
+                    InputLayer::ShellTransition => return,
+                    // 0xEA's route belongs to the in-game dispatch.
+                    InputLayer::Page(ModalPage::NetworkWait) => {
+                        dispatch::handle_mouse_input(state, button, btn_state);
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::mouse(state, button, btn_state.is_pressed());
+                        return;
+                    }
+                    InputLayer::Page(ModalPage::NetworkOptions) => {
+                        crate::app::input::network_options::mouse(
+                            state,
+                            button,
+                            btn_state.is_pressed(),
+                        );
+                        return;
+                    }
+                    InputLayer::HouseOutcomeWait
+                    | InputLayer::Page(ModalPage::NetworkFailure)
+                    | InputLayer::Screen => {}
                 }
                 if state.frontend.screen == GameScreen::MainMenu {
                     // Play_Movie reads and ignores mouse buttons; Show_Credits
@@ -1513,18 +1552,6 @@ impl ApplicationHandler for App {
                 // While a main-menu modal dialog is open, route the click to the
                 // SHP quit-confirm modal's OK/Cancel hit-test on the normal shell
                 // path; native child dialogs own their input routes below.
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::mouse(state, button, btn_state.is_pressed());
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    crate::app::input::network_options::mouse(
-                        state,
-                        button,
-                        btn_state.is_pressed(),
-                    );
-                    return;
-                }
                 if state.frontend.screen == GameScreen::MainMenu
                     && state.frontend.shell_route.lan_lobby()
                 {
@@ -1623,27 +1650,26 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                if Self::house_outcome_wait_pending(state) {
-                    return;
-                }
-                if crate::app::match_runtime::network_failure::pending(state) {
-                    return;
-                }
                 let lines = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(pos) => (pos.y as f32 / 30.0).clamp(-3.0, 3.0),
                 };
-                if crate::app::frontend::shell_transition::blocks_shell_input(state) {
-                    return;
-                }
-                if state.frontend.keyboard_dialog.is_some() {
-                    crate::app::input::keyboard::wheel(state, lines);
-                    state.platform.window.request_redraw();
-                    return;
-                }
-                if state.frontend.network_options.is_some() {
-                    // ComboDropWin consumes no mouse-wheel selection/scroll.
-                    return;
+                match crate::app::input::precedence::input_layer(state) {
+                    // ComboDropWin consumes no mouse-wheel selection/scroll;
+                    // the other pages have no wheel route.
+                    InputLayer::HouseOutcomeWait
+                    | InputLayer::ShellTransition
+                    | InputLayer::Page(
+                        ModalPage::NetworkFailure
+                        | ModalPage::NetworkWait
+                        | ModalPage::NetworkOptions,
+                    ) => return,
+                    InputLayer::Page(ModalPage::Keyboard) => {
+                        crate::app::input::keyboard::wheel(state, lines);
+                        state.platform.window.request_redraw();
+                        return;
+                    }
+                    InputLayer::Screen => {}
                 }
                 if state.frontend.screen == GameScreen::MainMenu
                     && Self::native_skirmish_shell_active(state)
@@ -1654,7 +1680,6 @@ impl ApplicationHandler for App {
                 }
                 if state.frontend.screen == GameScreen::InGame
                     && !state.match_state.paused()
-                    && !state.match_state.network_wait.dialog_open()
                     && !crate::app::input::campaign_input::is_locked(state)
                 {
                     // Optional player setting: over the battlefield the wheel changes the view

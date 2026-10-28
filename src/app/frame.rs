@@ -3,6 +3,7 @@
 //! Simulation admission, draw composition, submit/present, transition commits,
 //! captures, and loading-after-present remain in their original source order.
 
+use super::input::precedence::ModalPage;
 use super::loading::transitions;
 use super::{
     ActiveEventLoop, App, AppState, GameScreen, Instant, Result, frontend::startup_splash, render,
@@ -791,8 +792,10 @@ impl App {
             Self::ensure_skirmish_shell_chrome(state);
         }
         Self::update_saved_game_browser(state, false);
+        // Input routes to this same page (`input::precedence`).
+        let page = crate::app::input::precedence::modal_page(state);
         match &state.frontend.screen {
-            GameScreen::InGame if crate::app::match_runtime::network_failure::pending(state) => {
+            _ if page == Some(ModalPage::NetworkFailure) => {
                 crate::app::frontend::skirmish_shell_render::render_network_failure(
                     state, &mut encoder, &output.texture,
                 )?;
@@ -800,7 +803,14 @@ impl App {
             GameScreen::MainMenu if state.frontend.main_menu_shell_error.is_some() => {
                 Self::render_shell_error(state, &mut encoder, &view)?;
             }
-            _ if state.frontend.keyboard_dialog.is_some() => {
+            GameScreen::InGame
+                if page == Some(ModalPage::NetworkWait)
+                    && crate::app::frontend::skirmish_shell_render::connection_shell_drawable(state) =>
+            {
+                // 0xEA is pushed over whatever the game shows, in-game A3 included.
+                crate::app::frontend::skirmish_shell_render::render_connection_shell(state, &mut encoder, &output.texture)?;
+            }
+            _ if page == Some(ModalPage::Keyboard) => {
                 // The launcher's A3 is a family page, so its entry wave has to be
                 // pumped here: it is the only place that advances and completes a
                 // non-main-menu wave, and an uncompleted wave leaves the page
@@ -821,7 +831,7 @@ impl App {
                     crate::app::frontend::skirmish_shell_render::render_keyboard_shell(state, &mut encoder, &output.texture)?;
                 }
             }
-            _ if state.frontend.network_options.is_some() => {
+            _ if page == Some(ModalPage::NetworkOptions) => {
                 presented_shell = PresentedShell::NetworkOptions;
                 let slid = matches!(
                     crate::app::frontend::shell_transition::render_shell_first_paint_slide(
@@ -1003,10 +1013,6 @@ impl App {
                         transitions::clear_screen(&mut encoder, &view);
                     }
                 }
-            }
-            GameScreen::InGame if crate::app::frontend::skirmish_shell_render::connection_shell_drawable(state) => {
-                // 0xEA is pushed over whatever the game shows.
-                crate::app::frontend::skirmish_shell_render::render_connection_shell(state, &mut encoder, &output.texture)?;
             }
             GameScreen::InGame if crate::app::frontend::skirmish_shell_render::native_in_game_shell_active(state) => {
                 // 621FCE -> 72F540 clears and paints a complete active-game shell.

@@ -48,10 +48,12 @@ pub fn radar_minimap_rect(screen_w: f32) -> Rect {
 }
 
 pub fn radar_minimap_rect_with_spec(screen_w: f32, spec: SidebarChromeLayoutSpec) -> Rect {
-    // Radar One_Time 652CF0 and Init_For_House 652E90: fixed aperture.
+    // Radar One_Time 652CF0 and Init_For_House 652E90: the aperture itself is
+    // the radar source frame (stock 140x108); the GDI/NOD tables move the
+    // gadget over it, which the spec carries.
     Rect {
-        x: screen_w - spec.sidebar_width + 16.0,
-        y: 49.0,
+        x: screen_w - spec.sidebar_width + spec.radar_x,
+        y: spec.radar_y,
         w: 140.0,
         h: 108.0,
     }

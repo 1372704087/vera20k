@@ -17,6 +17,9 @@ mod refinery_dock;
 pub(crate) use refinery_dock::UnloadImage;
 
 #[cfg(test)]
+mod full_reinforcement_tests;
+
+#[cfg(test)]
 #[path = "outbound_drive_tests.rs"]
 mod outbound_drive_tests;
 
@@ -300,6 +303,15 @@ impl Miner {
     /// The bales in the hold, oldest first.
     pub fn cargo(&self) -> &[CargoBale] {
         &self.cargo
+    }
+
+    /// StorageClass::AddAmount @ 0x006C9690, represented as whole bales.
+    /// Native adds to the selected slot without clearing or capacity clamping;
+    /// harvesting owns its admission limit, while Full reinforcements add the
+    /// positive Type.Storage to a freshly zeroed hold (CreateMembers65DE7B).
+    pub(crate) fn add_bales(&mut self, bale: CargoBale, amount: u16) {
+        self.cargo
+            .extend(std::iter::repeat_n(bale, usize::from(amount)));
     }
 
     /// The hold's capacity in bales.

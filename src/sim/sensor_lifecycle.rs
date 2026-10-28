@@ -866,7 +866,7 @@ mod tests {
     }
 
     #[test]
-    fn authored_scope_and_runtime_unlimbo_playfield_gate_are_distinct() {
+    fn authored_and_runtime_units_outside_the_playfield_place_without_membership() {
         let rules = rules();
         let mut sim = sim_with_map_authority();
         let bounds = sim.playfield_bounds().unwrap();
@@ -960,9 +960,12 @@ mod tests {
                 .state(),
             0
         );
-        assert!(
-            outside.is_none(),
-            "runtime outside-playfield Unit must fail Unlimbo"
-        );
+        // No Unlimbo layer refuses on the playfield (Techno `0x006F6CA0`,
+        // Object `0x005F4EC0`), and a Unit whose +3D5 is clear passes its
+        // own Can_Enter_Cell boundary test (`0x0073F37B`): the runtime Unit
+        // places outside the playfield like the authored one.
+        let outside = sim.substrate.entities.get(outside.unwrap()).unwrap();
+        assert!(!outside.in_playfield());
+        assert!(outside.lifecycle.cell_marked());
     }
 }

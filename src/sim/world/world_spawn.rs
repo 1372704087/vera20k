@@ -2278,7 +2278,7 @@ impl Simulation {
                 return PlacementEvidence::RejectedEarly;
             }
             // These admissions hold the building's only playfield refusal:
-            // CanPlaceAt asks Is_Clear_To_Build (`0x0047C878`) of each
+            // CanPlaceAt asks Is_Clear_To_Build (`0x0047C620`) of each
             // foundation cell unless the type is PlaceAnywhere. No later
             // Unlimbo layer asks; Mark(PUT) owns the rest.
             return PlacementEvidence::EvaluateMark;

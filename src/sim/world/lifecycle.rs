@@ -496,9 +496,10 @@ pub enum PlacementEvidence {
     /// a map-less fixture) goes straight to Mark(PUT): no Unlimbo layer
     /// refuses on the playfield (Building `0x00440580..0x004415E6`, Techno
     /// `0x006F6CA0`, Object `0x005F4EC0`). A building's playfield refusal is
-    /// its own Can_Enter_Cell (`0x00449440`), whose CanPlaceAt asks
-    /// Is_Clear_To_Build (`0x0047C878`) of each foundation cell unless the
-    /// type is `PlaceAnywhere=`.
+    /// its own Can_Enter_Cell (`0x00449440`), reached through Object
+    /// Unlimbo's +1AC call (`0x005F4F3C`), whose CanPlaceAt asks
+    /// Is_Clear_To_Build (`0x0047C620`; playfield test at `0x0047C878`) of
+    /// each foundation cell unless the type is `PlaceAnywhere=`.
     EvaluateMark,
     /// Object5F4F1B accepted a Foot's admission (Unit, Infantry or Aircraft):
     /// either its class +1AC receiver returned zero or the caller's A8E7AC

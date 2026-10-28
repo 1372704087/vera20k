@@ -1309,7 +1309,7 @@ fn building_light_allocates_only_after_authored_or_held_placement_succeeds() {
     assert!(held.lighting_sources.buildings()[&held_id].active);
     assert_eq!(held.lighting_sources.pending().len(), 1);
 
-    // Is_Clear_To_Build (`0x0047C878`) refuses (1,1), outside the playfield.
+    // Is_Clear_To_Build (`0x0047C620`) refuses (1,1), outside the playfield.
     let mut failed_new = Simulation::with_seed(0x1a43);
     install_constructor_test_playfield(&mut failed_new);
     install_constructor_flat_terrain(&mut failed_new);
@@ -1468,7 +1468,7 @@ fn an_admitted_aircraft_takes_no_playfield_gate() {
 /// No Unlimbo layer refuses a building on the playfield: Building
 /// (`0x00440580..0x004415E6`), Techno (`0x006F6CA0`) and Object
 /// (`0x005F4EC0`). Its own Can_Enter_Cell (`0x00449440`) does, through each
-/// foundation cell's Is_Clear_To_Build (`0x0047C878`), unless CanPlaceAt
+/// foundation cell's Is_Clear_To_Build (`0x0047C620`), unless CanPlaceAt
 /// (`0x00464AC0`) admits a `PlaceAnywhere=` type first. Cell (5,5) lies just
 /// outside this playfield.
 #[test]
@@ -1852,7 +1852,7 @@ fn techno_constructor_runtime_fresh_paths_draw_once_after_type_resolution() {
     let mut sim = Simulation::with_seed(seed);
     install_constructor_test_playfield(&mut sim);
     // BASE fails at (1,1), outside the playfield: Is_Clear_To_Build
-    // (`0x0047C878`) refuses it.
+    // (`0x0047C620`) refuses it.
     install_constructor_flat_terrain(&mut sim);
     let mut expected = SimRng::new(seed);
 

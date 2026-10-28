@@ -961,9 +961,10 @@ mod tests {
             0
         );
         // No Unlimbo layer refuses on the playfield (Techno `0x006F6CA0`,
-        // Object `0x005F4EC0`), and a Unit whose +3D5 is clear passes its
-        // own Can_Enter_Cell boundary test (`0x0073F37B`): the runtime Unit
-        // places outside the playfield like the authored one.
+        // Object `0x005F4EC0`), so the runtime Unit places outside it like
+        // the authored one. This map-less fixture skips class admission; with
+        // terrain, a Unit whose +3D5 is clear also passes its Can_Enter_Cell
+        // boundary test (`0x0073F37B`).
         let outside = sim.substrate.entities.get(outside.unwrap()).unwrap();
         assert!(!outside.in_playfield());
         assert!(outside.lifecycle.cell_marked());

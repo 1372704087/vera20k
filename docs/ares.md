@@ -85,6 +85,11 @@ Supported extensions:
   the current mode's full tooltip name. Default builds retain the original bound
   and FV-only mapping. Barrel geometry and `TurretLocked` retain their separate
   support limits documented in the [firing-offset owner](../src/rules/weapon_offsets.rs).
+- [Type selection groups](https://ares-developers.github.io/Ares-docs/new/typeselect.html):
+  retained `GroupAs` keys share type IDs' case-insensitive namespace in T tap,
+  held-T click/band and additive removal. `General/TypeSelectUseDeploy` controls
+  automatic deployed-form seeds. Without `ares`, both tags are ignored and
+  retail selection remains active.
 - [NoManualFire](../src/app/input/context_order.rs) blocks ordinary manual attacks;
   C4 and infiltration remain incomplete.
 - [AttachEffect](ares-attach-effect.md): ground warhead effects and type-owned

@@ -37,9 +37,11 @@ pub(crate) struct SpawnRequest {
     pub(crate) expected: SpawnExpectations,
 }
 
-/// The mode file every spawn Battle selects (`GameMode=1`); the multiplayer
-/// rules agreement and `--probe` digest the rules through this mode.
-pub(crate) const BATTLE_MODE_OVERRIDE_FILE: &str = "MPBattleMD.ini";
+/// The stock Battle row every spawn selects (`GameMode=1`); the multiplayer
+/// rules agreement and `--probe` digest the rules through its mode file.
+pub(crate) fn spawn_battle_mode() -> SkirmishLaunchMode {
+    SkirmishLaunchMode::stock(crate::skirmish_launch::BATTLE_MODE_ID).expect("stock Battle row")
+}
 
 /// `[Settings] ExpectedVersion`, `ExpectedRulesDigest`, `ExpectedMapDigest`
 /// (docs/spawn.md). Absent values are not checked.
@@ -625,18 +627,7 @@ fn skirmish(
         ally_change_allowed: boolean(settings, "AlliesAllowed", false)?,
     };
     let mut session = SkirmishLaunchSession {
-        // Exact stock descriptor accepted by the shared pre-Fill owner.
-        mode: SkirmishLaunchMode {
-            class: crate::skirmish_modes::MpModeClass::Battle,
-            id: 1,
-            ui_name_key: "GUI:Battle".to_string(),
-            tooltip_key: "STT:ModeBattle".to_string(),
-            override_file: BATTLE_MODE_OVERRIDE_FILE.to_string(),
-            map_filter: "standard".to_string(),
-            random_maps_allowed: true,
-            allies_allowed: true,
-            must_ally: false,
-        },
+        mode: spawn_battle_mode(),
         selected_map_file: Some(scenario),
         humans,
         local_player_index,

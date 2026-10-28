@@ -4,6 +4,7 @@ use super::*;
 use crate::app::match_diagnostics::{
     ActorPresentation, CommandExecutionObservation, ObservationTime,
 };
+use crate::net::live_commands::CommandDeliveryTrace;
 use crate::sim::command::{MegaMissionOrder, MegaMissionRecord, StopRecord};
 
 const TARGET_PAIRS: usize = 30;
@@ -242,6 +243,7 @@ pub(super) struct LatencyCapture {
     next_issue: Option<crate::util::time::Instant>,
     errors: Vec<String>,
     peer_rtt: Option<Vec<(u8, u32)>>,
+    command_delivery: std::collections::BTreeMap<u64, CommandDeliveryTrace>,
     finished: bool,
 }
 
@@ -483,6 +485,13 @@ impl LatencyCapture {
             .live_network
             .as_ref()
             .context("latency transport")?;
+        for trace in live.command_delivery_traces() {
+            if self.command_delivery.len() < 4096
+                || self.command_delivery.contains_key(&trace.batch_id)
+            {
+                self.command_delivery.insert(trace.batch_id, *trace);
+            }
+        }
         let fps = live.fixed_frames_per_second();
         let frontier = live.committed_frontier();
         let recovery = live.recovery_status(
@@ -823,6 +832,17 @@ impl LatencyCapture {
                 let mut value = self.timestamp(response.at, response.frame);
                 value["screen"] = json!(response.screen); value["body"] = json!(response.body); value
             });
+            let since_issue = |at: crate::util::time::Instant| at.saturating_duration_since(action.issue.instant).as_secs_f64() * 1000.0;
+            // The local batch the relay sealed into this command's frame.
+            let network = action.execution.and_then(|index| {
+                let frame = u32::try_from(self.executions[index].observed.record.frame_stamp()).ok()?;
+                self.command_delivery.values().rev().find(|trace| {
+                    trace.assigned.is_some_and(|(assigned, _)| assigned == frame)
+                        && trace.sent_at.is_some_and(|sent| sent >= action.issue.instant)
+                })
+            }).map(|trace| json!({"batch_id":trace.batch_id,"sent_ms":trace.sent_at.map(since_issue),
+                "assigned_frame":trace.assigned.map(|(frame,_)|frame),"assigned_ms":trace.assigned.map(|(_,at)|since_issue(at)),
+                "frame_received_ms":trace.frame_received_at.map(since_issue)}));
             let gpu = action.response.as_ref().and_then(|response| response.gpu_completed_at().map(|at| (at,response.frame)));
             let gpu_ms = gpu.map(|(at,_)|latency(at));
             let first_stop_response = action.stop_reaction.first.as_ref().map(|first| {
@@ -847,7 +867,7 @@ impl LatencyCapture {
                 "stop_rendered_travel_before":action.stop_reaction.rendered_travel_before,
                 "dispatch_motion":action.execution.and_then(|index|self.executions[index].observed.motion.as_ref()),
                 "stop_response_status":(action.kind=="Stop").then_some(if action.stop_reaction.no_op {"no_op"} else if action.stop_reaction.first.is_some() {"observed"} else {"unproven"}),
-                "latency_ms":{"dispatch":dispatch_ms,"submitted_response":response_ms,"gpu_response":gpu_ms},
+                "latency_ms":{"dispatch":dispatch_ms,"submitted_response":response_ms,"gpu_response":gpu_ms},"network":network,
                 "exceeds_500ms":{"dispatch":dispatch_ms.map(|ms|ms>500.0),"submitted_response":response_ms.map(|ms|ms>500.0),"gpu_response":gpu_ms.map(|ms|ms>500.0)}})
         }).collect();
         let completed_pairs = self.completed_pairs();

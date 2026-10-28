@@ -28,6 +28,18 @@ const REPLAY_RETRY_INTERVAL_MS: i32 = 100;
 const PUSH_SILENCE_REPAIR_MS: u32 = 1_000;
 const PAUSE_PROBE_INTERVAL_MS: i32 = 500;
 const PAUSE_COMPATIBILITY_PROBE_INTERVAL_MS: i32 = 5_000;
+const COMMAND_TRACE_HISTORY: usize = 256;
+
+/// App diagnostics for one local command batch: its first transmission, the
+/// relay's frame assignment and the contiguous receipt of that sealed frame.
+/// Socket receipt times; this never enters simulation or delivery decisions.
+#[derive(Debug, Clone, Copy)]
+pub struct CommandDeliveryTrace {
+    pub batch_id: u64,
+    pub sent_at: Option<Instant>,
+    pub assigned: Option<(u32, Instant)>,
+    pub frame_received_at: Option<Instant>,
+}
 
 /// The socket's latest contiguous-frame receipt, independent of when the app
 /// drains it. Presentation can pace these frames; only the sequencer admits
@@ -159,6 +171,7 @@ pub(super) struct SequencedSession {
     samples: VecDeque<(u32, u32)>,
     current: Option<(NetworkQueueContext, bool)>,
     sent_commands: u64,
+    command_traces: VecDeque<CommandDeliveryTrace>,
 }
 
 impl SequencedSession {
@@ -236,6 +249,7 @@ impl SequencedSession {
             samples: VecDeque::new(),
             current: None,
             sent_commands: 0,
+            command_traces: VecDeque::new(),
         })
     }
 
@@ -258,6 +272,23 @@ impl SequencedSession {
     }
     pub(super) fn sent_commands(&self) -> u64 {
         self.sent_commands
+    }
+
+    pub(super) fn command_traces(&self) -> &VecDeque<CommandDeliveryTrace> {
+        &self.command_traces
+    }
+
+    fn trace_mut(&mut self, batch_id: u64) -> Option<&mut CommandDeliveryTrace> {
+        self.command_traces
+            .iter_mut()
+            .rev()
+            .find(|trace| trace.batch_id == batch_id)
+    }
+
+    fn trace_assignment(&mut self, batch_id: u64, frame: u32, received_at: Instant) {
+        if let Some(trace) = self.trace_mut(batch_id) {
+            trace.assigned.get_or_insert((frame, received_at));
+        }
     }
 
     pub(super) fn timing(&self) -> Option<SequencedTiming> {
@@ -329,13 +360,29 @@ impl SequencedSession {
         for pending in &mut self.submissions {
             // An unready route or failed local send cannot start the remote
             // receipt timer. The next service retries the same retained bytes.
-            if pending.id > self.accepted_batch
-                && service_due(pending.last_sent, now, 100)
-                && transport
-                    .submit_ordering(pending.id, &pending.bytes)
-                    .is_ok()
-            {
-                pending.last_sent = Some(now);
+            if pending.id > self.accepted_batch && service_due(pending.last_sent, now, 100) {
+                // A fresh transmission goes out twice. The relay accepts batch
+                // IDs in order, so one lost datagram would otherwise hold this
+                // and every later batch until the retry; the copy is an
+                // idempotent retry of identical ciphertext.
+                let copies = if pending.last_sent.is_none() { 2 } else { 1 };
+                let mut sent = false;
+                for _ in 0..copies {
+                    sent |= transport
+                        .submit_ordering(pending.id, &pending.bytes)
+                        .is_ok();
+                }
+                if sent {
+                    pending.last_sent = Some(now);
+                    if let Some(trace) = self
+                        .command_traces
+                        .iter_mut()
+                        .rev()
+                        .find(|trace| trace.batch_id == pending.id)
+                    {
+                        trace.sent_at.get_or_insert_with(Instant::now);
+                    }
+                }
             }
         }
         // Network silence is recoverable. Keep the same stream cursor,
@@ -543,11 +590,12 @@ impl SequencedSession {
                     PushDelivery::PullOnly
                 };
             }
-            OrderEvent::Ack { batch_id, .. } => {
+            OrderEvent::Ack { batch_id, frame } => {
                 if batch_id == 0 {
                     return Err(SequencedError::InvalidTimeline);
                 }
                 self.accept_through(batch_id)?;
+                self.trace_assignment(batch_id, frame, received_at);
             }
             OrderEvent::Entry(entry) => {
                 let sequence = match &entry {
@@ -555,10 +603,12 @@ impl SequencedSession {
                         sequence,
                         source,
                         batch_id,
+                        frame,
                         ..
                     } => {
                         if *source == self.local_source {
                             self.accept_through(*batch_id)?;
+                            self.trace_assignment(*batch_id, *frame, received_at);
                         }
                         *sequence
                     }
@@ -687,9 +737,18 @@ impl SequencedSession {
                             ..Default::default()
                         },
                     ));
+                    let received_at = self.contiguous_received_at.expect("consumed frame end");
+                    for trace in &mut self.command_traces {
+                        if trace
+                            .assigned
+                            .is_some_and(|(assigned, _)| assigned == frame)
+                        {
+                            trace.frame_received_at.get_or_insert(received_at);
+                        }
+                    }
                     self.latest_frame_receipt = Some(SequencedTiming {
                         frame,
-                        received_at: self.contiguous_received_at.expect("consumed frame end"),
+                        received_at,
                         frames_per_second: self.fps,
                         clock_epoch: self.pause.epoch,
                     });
@@ -821,6 +880,17 @@ impl SequencedSession {
                     .next_batch
                     .checked_add(1)
                     .ok_or(SequencedError::InvalidTimeline)?;
+                if !encoded.mirrors.is_empty() {
+                    if self.command_traces.len() == COMMAND_TRACE_HISTORY {
+                        self.command_traces.pop_front();
+                    }
+                    self.command_traces.push_back(CommandDeliveryTrace {
+                        batch_id: self.next_batch,
+                        sent_at: None,
+                        assigned: None,
+                        frame_received_at: None,
+                    });
+                }
                 self.submissions.push_back(Submission {
                     id: self.next_batch,
                     records: encoded.mirrors,

@@ -4112,6 +4112,130 @@ fn sequenced_player_input_passes_an_unacknowledged_checksum_batch() {
 }
 
 #[test]
+fn sequenced_fresh_batch_survives_one_lost_datagram_without_a_retry_wait() {
+    use crate::net::udp::test_support::MAX_DATAGRAM;
+    use crate::sim::command::{Command, MEGAMISSION_OPCODE};
+    let (mut worlds, rules, actor, boundaries, socket, mut relay) = sequenced_pair();
+    let first_address = boundaries[0].live.borrow().primary_addr().unwrap();
+    let mut issued = false;
+    let mut sent = None;
+    let mut lost = false;
+    let mut observed = None;
+    let traced_send = |boundary: &Boundary| {
+        boundary
+            .live
+            .borrow()
+            .command_delivery_traces()
+            .last()
+            .is_some_and(|trace| trace.sent_at.is_some())
+    };
+    for step in 0..250 {
+        let now_ms = 16_000 + step * 16;
+        let unix = 100 + (now_ms - 16_000) / 1000;
+        if !issued && worlds[0].session().binary_frame() >= 20 {
+            let owner = worlds[0].interner.get("Alpha").unwrap();
+            let record = worlds[0]
+                .encode_megamission_record(
+                    owner,
+                    &Command::Move {
+                        entity_id: actor,
+                        target_rx: 42,
+                        target_ry: 42,
+                    },
+                )
+                .unwrap();
+            let tick = worlds[0].session().tick();
+            assert!(worlds[0].issue_local_command(CommandEnvelope::synchronized(record, tick)));
+            issued = true;
+        }
+        relay.advance_clock(now_ms, unix);
+        for forwarded in relay.drain_ordering_push(now_ms, unix) {
+            socket
+                .send_to(&forwarded.bytes, forwarded.endpoint)
+                .unwrap();
+        }
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            boundary.now.set((now_ms >> 4) as u32);
+            boundary.live.borrow_mut().service_pending_commands(
+                &mut world.network_command_queues(),
+                (now_ms >> 4) as u32,
+            );
+        }
+        if sent.is_none() && traced_send(&boundaries[0]) {
+            sent = Some(step);
+        }
+        let mut packets = Vec::new();
+        loop {
+            let mut packet = [0; MAX_DATAGRAM + 1];
+            let (length, std::net::SocketAddr::V4(from)) = (match socket.recv_from(&mut packet) {
+                Ok(value) => value,
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => break,
+                Err(error) => panic!("{error}"),
+            }) else {
+                unreachable!()
+            };
+            packets.push((from, packet[..length].to_vec()));
+        }
+        if sent.is_some() && !lost {
+            // Lose the first datagram of the fresh command batch, the
+            // sender's largest; small control datagrams still arrive.
+            let largest = packets
+                .iter()
+                .filter(|(from, _)| *from == first_address)
+                .map(|(_, bytes)| bytes.len())
+                .max();
+            let index = packets
+                .iter()
+                .position(|(from, bytes)| *from == first_address && Some(bytes.len()) == largest)
+                .unwrap();
+            packets.remove(index);
+            lost = true;
+        }
+        for (from, bytes) in packets {
+            for forwarded in relay
+                .process_at(from, &bytes, unix, now_ms)
+                .unwrap_or_default()
+            {
+                socket
+                    .send_to(&forwarded.bytes, forwarded.endpoint)
+                    .unwrap();
+            }
+        }
+        for side in 0..2 {
+            production_frame(&mut worlds[side], &rules, &boundaries[side]);
+        }
+        if sent.is_none() && traced_send(&boundaries[0]) {
+            sent = Some(step);
+        }
+        if boundaries[1]
+            .applied
+            .borrow()
+            .iter()
+            .any(|(_, record, applied)| {
+                record.opcode() == MEGAMISSION_OPCODE && record.house_id() == 0 && *applied
+            })
+        {
+            observed = Some(step);
+            break;
+        }
+    }
+    let (sent, observed) = (sent.unwrap(), observed.expect("Move executed"));
+    assert!(lost);
+    // The 100ms retry is seven 16ms buckets away; the duplicate needs none.
+    assert!(
+        observed - sent <= 4,
+        "Move waited {} steps after one lost datagram",
+        observed - sent
+    );
+    let live = boundaries[0].live.borrow();
+    let trace = live
+        .command_delivery_traces()
+        .last()
+        .expect("command batch traced");
+    assert!(trace.sent_at.is_some() && trace.assigned.is_some());
+}
+
+#[test]
 fn sequenced_transport_sends_input_while_the_canonical_frontier_is_closed() {
     use crate::net::udp::test_support::MAX_DATAGRAM;
     use crate::sim::command::{Command, MEGAMISSION_OPCODE};

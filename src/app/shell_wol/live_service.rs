@@ -260,6 +260,18 @@ pub(super) struct LiveService {
     /// Each admission barrier's client deadline; `[Relay] AdmissionTimeout`
     /// for a spawned match.
     relay_timeout: Duration,
+    /// The sign-in (`auth_attempt`) that already showed its lobby-upgrade notice.
+    outdated_notice: Option<u64>,
+}
+
+/// Where players download a newer build (README "Download and play").
+const RELEASES_URL: &str = "https://github.com/YuriPlanet/vera20k/releases";
+
+/// The lobby's own 426 reason when it gave a plain one, then where to get a
+/// newer build.
+fn update_required_text(message: Option<&str>) -> String {
+    let reason = message.unwrap_or("Update VERA20k to use secure online multiplayer.");
+    format!("{reason} {RELEASES_URL}")
 }
 
 /// The external launch's online visit: once its match ends or admission
@@ -517,6 +529,16 @@ impl LiveService {
             finish_result: None,
             finish_opponents_left: false,
             relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
+        })
+    }
+
+    /// The first lobby-upgrade refusal of this sign-in, as one notice; the
+    /// sign-in's later refused requests add none.
+    fn outdated_notice(&mut self, message: Option<&str>) -> Option<String> {
+        (self.outdated_notice != Some(self.auth_attempt)).then(|| {
+            self.outdated_notice = Some(self.auth_attempt);
+            update_required_text(message)
         })
     }
 
@@ -1564,14 +1586,19 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(code)));
         }
-        http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
+        http::Response::UpgradeRequired { attempt, message } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
             // The login has no lobby yet, so a chat line would be lost: the
             // failure's own box says why.
-            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
-            if !super::service::replace_open_box_body(state, UPDATE) {
-                notice(state, UPDATE);
+            let text = update_required_text(message.as_deref());
+            if !super::service::replace_open_box_body(state, &text) {
+                notice(state, &text);
+            }
+        }
+        http::Response::Outdated { message } => {
+            if let Some(text) = service.outdated_notice(message.as_deref()) {
+                notice(state, &text);
             }
         }
         http::Response::Channels(list) => service_event(
@@ -2712,8 +2739,27 @@ mod completion_tests {
             finish_result: None,
             finish_opponents_left: false,
             relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
         };
         (service, input, output)
+    }
+
+    #[test]
+    fn lobby_upgrade_notice_names_the_download_once_per_sign_in() {
+        let (mut service, _input, _output) = control_service(None);
+        let reason = "Online play needs VERA20k 0.3.0 or newer.";
+        assert_eq!(
+            service.outdated_notice(Some(reason)).as_deref(),
+            Some(format!("{reason} {RELEASES_URL}").as_str())
+        );
+        assert_eq!(service.outdated_notice(Some(reason)), None);
+        service.auth_attempt += 1;
+        assert_eq!(
+            service.outdated_notice(None).as_deref(),
+            Some(
+                format!("Update VERA20k to use secure online multiplayer. {RELEASES_URL}").as_str()
+            )
+        );
     }
 
     fn finish_payload_sent(service: &mut LiveService, input: &Receiver<http::Request>) -> Value {

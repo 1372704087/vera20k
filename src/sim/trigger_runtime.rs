@@ -657,6 +657,7 @@ pub struct TriggerRuntime {
     #[serde(skip)]
     spring_actions_left: usize,
     #[cfg(any(test, feature = "test-support"))]
+    #[serde(skip)]
     fixture_difficulty: Option<i32>,
     #[cfg(any(test, feature = "test-support"))]
     #[serde(skip)]
@@ -1540,6 +1541,13 @@ impl Simulation {
                 }
                 (actor.emp_remaining() > 0) == matches!(condition.kind, 62 | 63)
             }
+            // TEventClass::HasOccurred, original gamemd.exe:
+            // 0x0071E950/0x0071EC83 bypass the raised-kind/editor gates for
+            // negative or >=62 kinds; 0x0071F084 reaches AL1 at0x0071F1B4.
+            // No persistence or retained-House write. Keep Ares' replacement
+            // dispatcher and the known0..61 predicates separate.
+            #[cfg(not(feature = "ares"))]
+            kind if !(0..=61).contains(&kind) => true,
             53 => {
                 // HasOccurred71ECF5..71ED56, original gamemd: raised53
                 // and clear A8ED6B admit a forced GetDisplayOwner(+D0,1).

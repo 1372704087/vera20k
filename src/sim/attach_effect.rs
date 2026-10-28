@@ -711,10 +711,13 @@ pub(crate) fn range_with_attach_effects(
 ///
 /// RESIDUALS: the shield pre-stage still divides with the unrestricted armor
 /// product and the receiver's restricted roll runs before the receiver's rare
-/// early returns (see the two methods); `disable_weapons` and the open-topped
-/// `OpenTopped.CheckTransportDisableWeapons` switch need `GetFireError`
-/// (`0x006FC0B0`, not ported); `has_crit_modifiers` needs the Phobos warhead
-/// critical-hit mechanism; and the charge-turret half of
+/// early returns (see the two methods); `disable_weapons` needs the
+/// `GetFireError` hooks at `0x006FC0C5` (REARM, unless the firer's
+/// `FootClass+0x6CC IsAttackedByLocomotor` is set) and `0x006FC5C7`
+/// (open-topped `CheckTransportDisableWeapons` asks the transport's flag),
+/// plus the gattling AI arms, and VERA keeps no `IsAttackedByLocomotor`
+/// producer; `has_crit_modifiers` needs the Phobos warhead critical-hit
+/// mechanism; and the charge-turret half of
 /// `ROFMultiplier.ApplyOnCurrentTimer` needs the
 /// `LastRearmWasFullDelay`/charge-timer state VERA does not keep.
 #[cfg(feature = "phobos")]

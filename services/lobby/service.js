@@ -127,6 +127,57 @@ function channelView(room) {
     flags: room.key ? CHANNEL_KEYED : 0 };
 }
 
+// The Worker sets this from Cloudflare's IP geolocation (`request.cf`), which
+// the Durable Object may not receive, and drops any copy a client sent.
+export const LOCATION_HEADER = 'vera-client-location';
+
+export function locatedRequest(request) {
+  const forwarded = new Request(request);
+  forwarded.headers.delete(LOCATION_HEADER);
+  const { latitude, longitude } = request.cf ?? {};
+  if (latitude && longitude) forwarded.headers.set(LOCATION_HEADER, `${latitude},${longitude}`);
+  return forwarded;
+}
+
+// Whole degrees (about 110 km) are enough to tell regional relays apart.
+function requestLocation(request) {
+  const value = request.headers.get(LOCATION_HEADER) ?? '';
+  if (!/^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?$/.test(value)) return null;
+  const [latitude, longitude] = value.split(',').map(Number);
+  return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? [Math.round(latitude), Math.round(longitude)] : null;
+}
+
+// RELAYS lists every relay as JSON [{address, key, latitude, longitude}], where
+// `key` names that relay's ticket-key secret. Without it, the single
+// RELAY_ADDRESS relay uses RELAY_TICKET_KEY.
+function relayFleet(env) {
+  if (!env.RELAYS) return [{ address: env.RELAY_ADDRESS, key: 'RELAY_TICKET_KEY' }];
+  let fleet = null;
+  try { fleet = JSON.parse(env.RELAYS); } catch { /* rejected below */ }
+  requireThat(Array.isArray(fleet) && fleet.length > 0 && fleet.length <= 16 && fleet.every((relay) =>
+    record(relay, ['address', 'key', 'latitude', 'longitude']) && /^RELAY_TICKET_KEY(_[A-Z0-9]+)*$/.test(relay.key) &&
+    Number.isFinite(relay.latitude) && Math.abs(relay.latitude) <= 90 && Number.isFinite(relay.longitude) && Math.abs(relay.longitude) <= 180),
+  'relay_unavailable', 'Gameplay service is unavailable.', 503);
+  return fleet.map(({ address, key, latitude, longitude }) => ({ address, key, location: [latitude, longitude] }));
+}
+
+function distanceKm([latitude1, longitude1], [latitude2, longitude2]) {
+  const radians = Math.PI / 180;
+  const a = Math.sin((latitude2 - latitude1) * radians / 2) ** 2 + Math.cos(latitude1 * radians) * Math.cos(latitude2 * radians) *
+    Math.sin((longitude2 - longitude1) * radians / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(a));
+}
+
+// Every own command waits one round trip to the match relay, so the relay
+// nearest the farthest player serves the match. Without every location, the
+// first relay does, as the single relay did before.
+function matchRelay(fleet, locations) {
+  if (fleet.length === 1 || locations.some((location) => !location)) return { address: fleet[0].address, key: fleet[0].key };
+  const farthest = (relay) => Math.max(...locations.map((location) => distanceKm(location, relay.location)));
+  const { address, key } = fleet.reduce((best, relay) => farthest(relay) < farthest(best) ? relay : best);
+  return { address, key };
+}
+
 // This codec is shared with services/relay-protocol: fixed-width little-endian
 // ticket, domain-separated HMACs. The server key never leaves secret bindings.
 export async function relayGrant(secretHex, address, matchId, sourceIndex, now, playerId, generation, payloadKey, lifetime, ordering = null) {
@@ -425,7 +476,8 @@ export class LobbyService {
     const mapRequest = url.pathname.startsWith('/v1/maps/') || body?.operation === 'map_upload';
     // A thirty-player host legitimately bursts options, pings and readiness as peers join.
     this.rateLimit(`${mapRequest ? 'map' : 'session'}:${session.player_id}`, 600, 60);
-    session.seen = this.clock(); this.store.put(`session:${sessionId}`, session);
+    session.seen = this.clock(); session.location = requestLocation(request) ?? session.location ?? null;
+    this.store.put(`session:${sessionId}`, session);
     this.reap();
     if (url.pathname === '/v1/match/resume' && request.method === 'GET') {
       const matchId = url.searchParams.get('match_id');
@@ -438,9 +490,7 @@ export class LobbyService {
       // The relay journal owns gameplay history. Rejoining the SAME active
       // match may skip stale shell callbacks, without creating membership,
       // advancing a generation, or accepting a different match's cursor.
-      const relay = await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
-        match.payload_key, GRANT_SECONDS, match.ordering);
+      const relay = await this.matchGrant(match, user, GRANT_SECONDS);
       session.ack = session.sequence;
       session.expires_at = this.clock() + SESSION_SECONDS;
       this.store.put(`session:${sessionId}`, session);
@@ -770,6 +820,14 @@ export class LobbyService {
     session.match_id = null; this.store.put(`session:${session.id}`, session);
   }
 
+  // Every grant of a match names the relay chosen at its start. Matches begun
+  // before relay choice existed stay on the first relay.
+  matchGrant(match, user, lifetime) {
+    const relay = match.relay ?? relayFleet(this.env)[0];
+    return relayGrant(this.env[relay.key], relay.address, match.id, user.source_index, this.clock(), user.player_id,
+      user.admission_generation, match.payload_key, lifetime, match.ordering ?? null);
+  }
+
   async prepare(session, operation, payload) {
     if (operation === 'options') return { staging: await stagingDigest(payload.options?.random_map) };
     if (operation === 'renew_relay') {
@@ -777,15 +835,12 @@ export class LobbyService {
       const user = match?.users.find((user) => user.player_id === session.player_id);
       requireThat(match?.id === payload.match_id && match.phase === 'playing' && user &&
         !match.finished.includes(session.player_id), 'unknown_match', 'No matching active game.', 409);
-      return { relay: await relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-        match.id, user.source_index, this.clock(), user.player_id, user.admission_generation, match.payload_key, GRANT_SECONDS, match.ordering ?? null) };
+      return { relay: await this.matchGrant(match, user, GRANT_SECONDS) };
     }
     if (operation === 'latency_ready') {
       const { match, canonical } = this.latencyReport(session, payload);
       const complete = Object.keys({ ...match.latencies, [session.player_id]: canonical }).length === match.users.length;
-      const grants = complete ? await Promise.all(match.users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY,
-        this.env.RELAY_ADDRESS, match.id, user.source_index, this.clock(), user.player_id, user.admission_generation,
-        match.payload_key, GRANT_SECONDS, match.ordering ?? null))) : null;
+      const grants = complete ? await Promise.all(match.users.map((user) => this.matchGrant(match, user, GRANT_SECONDS))) : null;
       return { match, canonical, grants };
     }
     if (operation === 'map_upload') {
@@ -873,9 +928,12 @@ export class LobbyService {
     });
     const ordering = { sources_mask: 2 ** users.length - 1,
       tick_hz: [60, 45, 30, 20, 15, 12, 10][room.options.launch.options.game_speed] ?? 10 };
-    const grants = await Promise.all(users.map((user) => relayGrant(this.env.RELAY_TICKET_KEY, this.env.RELAY_ADDRESS,
-      matchId, user.source_index, this.clock(), user.player_id, user.admission_generation, payloadKey, BOOTSTRAP_GRANT_SECONDS, ordering)));
-    return { matchId, seed, users, grants, payloadKey, ordering };
+    // Observers issue no commands, so only playing humans place the relay.
+    const relay = matchRelay(relayFleet(this.env), launch.humans.filter((human) => human.role !== 'Observer').map((human) =>
+      this.store.get(`session:${room.members.find((member) => member.name === human.name).session_id}`).location ?? null));
+    const pending = { id: matchId, relay, payload_key: payloadKey, ordering };
+    const grants = await Promise.all(users.map((user) => this.matchGrant(pending, user, BOOTSTRAP_GRANT_SECONDS)));
+    return { matchId, seed, users, grants, payloadKey, ordering, relay };
   }
 
   latencyReport(session, payload) {
@@ -1097,9 +1155,9 @@ export class LobbyService {
         this.broadcast(room, 'map_status', { from: session.nickname, status: payload.status, revision: room.revision }, sessionId);
       }
     } else if (operation === 'start') {
-      const { matchId, seed, users, grants, payloadKey, ordering } = prepared;
+      const { matchId, seed, users, grants, payloadKey, ordering, relay } = prepared;
       const match = { id: matchId, room_id: room.id, users, finished: [], ready: [], latencies: {}, phase: 'connecting',
-        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey, ordering };
+        expires: this.clock() + 30, options: room.options, revision: room.revision, payload_key: payloadKey, ordering, relay };
       this.store.put(`match:${matchId}`, match);
       room.phase = 'connecting'; room.match_id = matchId;
       for (const user of users) {

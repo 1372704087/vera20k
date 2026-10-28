@@ -137,7 +137,8 @@ Event kinds and payloads:
 | `kicked` | `{channel:<Channel>,user:<Member>,by:<Member>}` |
 | `error` | `{code,message}` |
 
-RelayGrant is `{address,ticket,packet_key,payload_key,source_index,ordering_certificate}`. Address is `IPv4:port`;
+RelayGrant is `{address,ticket,packet_key,payload_key,source_index,ordering_certificate}`. Address is `IPv4:port`
+of the match's relay. The service chooses it at start and every later grant for that match names it;
 ticket is the signed relay protocol ticket encoded base64url without padding and
 packet_key is 32 bytes encoded the same way. Credentials are unique to each user
 and each new match. `payload_key` is a random 32-byte match payload-encryption key

@@ -20,6 +20,9 @@ created or consulted. Existing stored accounts and their current v3 sessions rem
 intact until their ordinary cleanup; active legacy sessions reserve their names too.
 `POST /v1/accounts` and password-bearing sign-in requests return 426 `upgrade_required`.
 Failed requests return `{error:{code,message}}`; messages must not echo credentials.
+Clients show a 426 `message` (plain text, at most 160 characters) to the player with
+the releases link, so it should name the version players need; older clients show a
+fixed line.
 The HTTP paths retain `/v1`; `protocol:4` is the required client capability.
 Older/missing capabilities cannot enter new games. Existing v3 sessions may poll, renew an active lease and finish/leave/logout; their active match is preserved.
 Lobby capability4 adds the signed fixed-clock ordering capability.

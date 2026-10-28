@@ -28,7 +28,7 @@ pub struct AttachEffectParams {
 }
 
 /// One live instance on a techno.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct AttachEffectInstance {
     /// Catalog index of the type, so the instance survives a rules reload
     /// whose types keep their order.
@@ -43,6 +43,8 @@ pub struct AttachEffectInstance {
     has_initialized: bool,
     /// Who attached it: `IsFromSource` compares this pair.
     source: Option<AttachSource>,
+    /// `IsOnline`: only a `Powered` type follows its owner.
+    is_online: bool,
 }
 
 impl AttachEffectInstance {
@@ -60,6 +62,7 @@ impl AttachEffectInstance {
             should_refresh: false,
             has_initialized: false,
             source: None,
+            is_online: true,
         };
         instance.refresh(effect);
         instance
@@ -114,6 +117,37 @@ impl AttachEffectInstance {
         self.remaining = duration.max(0);
     }
 
+    pub fn is_online(&self) -> bool {
+        self.is_online
+    }
+
+    /// `OnlineCheck`: a `Powered` type follows its owner's activity (not
+    /// deactivated, not under EMP, and for a building power-online); every
+    /// other type stays online.
+    pub fn online_check(&mut self, effect: &AttachEffectType, owner_active: bool) {
+        if effect.powered {
+            self.is_online = owner_active;
+        }
+    }
+
+    /// `IsActiveIgnorePowered()`: a re-creating or self-owned effect waits for
+    /// its delays to clear; a terminal one is active while its duration runs.
+    fn active_ignoring_power(&self, self_owned: bool) -> bool {
+        if self_owned || self.delay >= 0 {
+            self.initial_delay <= 0
+                && self.current_delay == 0
+                && self.has_initialized
+                && !self.should_refresh
+        } else {
+            self.remaining > 0
+        }
+    }
+
+    /// `IsActive()`.
+    pub fn is_active(&self, self_owned: bool) -> bool {
+        self.is_online && self.active_ignoring_power(self_owned)
+    }
+
     /// One `AI()` frame. `discarded` is `ShouldBeDiscardedNow()`: a pending
     /// delay or refresh does not advance while the effect is being discarded.
     pub fn tick(&mut self, effect: &AttachEffectType, discarded: bool) {
@@ -165,7 +199,9 @@ impl AttachEffectInstance {
 
 /// Who handed the effect over: `IsFromSource` compares both the invoker and
 /// the source object, so a warhead and the unit that fired it are distinct.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
 pub struct AttachSource {
     pub invoker: Option<u64>,
     pub source: Option<u64>,
@@ -209,7 +245,7 @@ pub enum AttachOutcome {
 }
 
 /// One techno's live effects, in attach order.
-#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct AttachEffectList {
     instances: Vec<AttachEffectInstance>,
 }
@@ -301,6 +337,17 @@ impl AttachEffectList {
         instance.source = source;
         self.instances.push(instance);
         AttachOutcome::Attached(self.instances.len() - 1)
+    }
+
+    /// `OnlineCheck` against one owner state, for every instance.
+    pub fn online_check_all(&mut self, effects: &[AttachEffectType], owner_active: bool) {
+        for index in 0..self.instances.len() {
+            let type_index = self.instances[index].type_index;
+            let Some(effect) = effects.get(type_index) else {
+                continue;
+            };
+            self.instances[index].online_check(effect, owner_active);
+        }
     }
 
     /// One frame for every instance, in attach order.
@@ -477,6 +524,104 @@ mod tests {
             AttachPolicy::default(),
             None,
         )
+    }
+
+    /// A re-creating effect is inactive until its initial delay clears, and a
+    /// `Powered` type follows its owner's activity; a plain type does not.
+    #[test]
+    fn active_state_follows_delays_and_the_powered_owner() {
+        let plain = effect(3);
+        let mut instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                initial_delay: 1,
+                delay: 0,
+                ..AttachEffectParams::default()
+            },
+            &plain,
+        );
+        instance.tick(&plain, false);
+        assert!(
+            !instance.is_active(false),
+            "the delay frame does not initialize"
+        );
+        instance.tick(&plain, false);
+        assert!(instance.is_active(false), "initialized, no pending delay");
+        instance.online_check(&plain, false);
+        assert!(instance.is_online(), "a plain type ignores its owner");
+
+        let mut powered = effect(3);
+        powered.powered = true;
+        let mut instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                delay: 0,
+                ..AttachEffectParams::default()
+            },
+            &powered,
+        );
+        instance.tick(&powered, false);
+        instance.online_check(&powered, false);
+        assert!(
+            !instance.is_active(false),
+            "a powered type follows its owner"
+        );
+        instance.online_check(&powered, true);
+        assert!(instance.is_active(false));
+    }
+
+    /// A terminal effect is active only while its duration runs; a re-creating
+    /// one is inactive while its re-creation delay is pending.
+    #[test]
+    fn a_terminal_effect_follows_its_duration_and_a_recreating_one_its_delay() {
+        let terminal = effect(1);
+        let mut instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                delay: -1,
+                ..AttachEffectParams::default()
+            },
+            &terminal,
+        );
+        assert!(
+            instance.is_active(false),
+            "a terminal effect reads its duration"
+        );
+        instance.tick(&terminal, false);
+        assert!(!instance.is_active(false), "duration ran out");
+
+        let cycling = effect(1);
+        let mut instance = AttachEffectInstance::new(
+            0,
+            AttachEffectParams {
+                delay: 2,
+                ..AttachEffectParams::default()
+            },
+            &cycling,
+        );
+        instance.tick(&cycling, false);
+        assert_eq!(instance.current_delay(), 2);
+        assert!(
+            !instance.is_active(false),
+            "the pending re-creation delay keeps it inactive"
+        );
+        instance.tick(&cycling, false);
+        instance.tick(&cycling, false);
+        assert!(instance.should_refresh());
+        instance.tick(&cycling, false);
+        assert!(instance.is_active(false), "refreshed and counting again");
+    }
+
+    /// The list round-trips through serde with its instance state intact.
+    #[test]
+    fn the_list_round_trips_through_serde() {
+        let effect = cumulative_effect(4, 2);
+        let mut list = AttachEffectList::default();
+        attach_with(&mut list, &effect, 0);
+        list.tick_all(std::slice::from_ref(&effect), |_| false);
+        let json = serde_json::to_string(&list).expect("serialize");
+        let back: AttachEffectList = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back, list);
     }
 
     /// A non-cumulative type never stacks: the existing instance takes the

@@ -110,6 +110,10 @@ pub struct AttachEffectType {
     pub affects_target: AttachEffectTargets,
     /// `Groups`: comma-separated group ids.
     pub groups: Vec<String>,
+    /// `AllowTransfer`; `None` defaults to whether the effect is self-owned.
+    pub allow_transfer: Option<bool>,
+    /// `AllowTransfer.Convert`; `None` defaults to `allow_transfer`.
+    pub allow_transfer_convert: Option<bool>,
 }
 
 impl Default for AttachEffectType {
@@ -135,6 +139,20 @@ impl AttachEffectType {
             ignore_types: Vec::new(),
             affects_target: AttachEffectTargets::ALL,
             groups: Vec::new(),
+            allow_transfer: None,
+            allow_transfer_convert: None,
+        }
+    }
+
+    /// `AllowTransfer`: an effect a techno attaches to itself defaults to
+    /// carrying across a conversion, one attached from outside does not.
+    /// `AllowTransfer.Convert` splits the conversion case out.
+    pub fn allows_transfer(&self, self_owned: bool, converting: bool) -> bool {
+        let base = self.allow_transfer.unwrap_or(self_owned);
+        if converting {
+            self.allow_transfer_convert.unwrap_or(base)
+        } else {
+            base
         }
     }
 
@@ -229,6 +247,10 @@ impl AttachEffectTypeCatalog {
                 entry.affects_target =
                     AttachEffectTargets::from_tokens(entry.affects_target, &tokens);
             }
+            entry.allow_transfer =
+                section.read_phobos_nullable_bool("AllowTransfer", entry.allow_transfer);
+            entry.allow_transfer_convert = section
+                .read_phobos_nullable_bool("AllowTransfer.Convert", entry.allow_transfer_convert);
             if let Some(tokens) = section.read_list("Groups", 0x800) {
                 entry.groups = tokens
                     .iter()
@@ -310,6 +332,37 @@ mod tests {
         let mut catalog = AttachEffectTypeCatalog::default();
         catalog.apply_pass(&ini);
         catalog
+    }
+
+    /// `AllowTransfer` defaults to whether the effect is self-owned, and
+    /// `.Convert` splits the conversion case out.
+    #[test]
+    fn allow_transfer_defaults_follow_ownership_and_convert() {
+        let mut effect = AttachEffectType::default();
+        assert!(effect.allows_transfer(true, false), "self-owned carries");
+        assert!(!effect.allows_transfer(false, false), "attached does not");
+        assert!(effect.allows_transfer(true, true));
+        effect.allow_transfer = Some(false);
+        assert!(!effect.allows_transfer(true, false));
+        assert!(
+            !effect.allows_transfer(true, true),
+            "Convert inherits the base"
+        );
+        effect.allow_transfer_convert = Some(true);
+        assert!(!effect.allows_transfer(true, false));
+        assert!(effect.allows_transfer(true, true));
+
+        let parsed = parse(
+            "[AttachEffectTypes]
+0=T
+[T]
+AllowTransfer=no
+AllowTransfer.Convert=yes
+",
+        );
+        let entry = parsed.entry("T").expect("entry");
+        assert_eq!(entry.allow_transfer, Some(false));
+        assert_eq!(entry.allow_transfer_convert, Some(true));
     }
 
     /// The catalog appends listed entries only, keeps constructor defaults for

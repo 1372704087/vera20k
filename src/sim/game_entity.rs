@@ -128,6 +128,10 @@ pub struct GameEntity {
     #[cfg(feature = "ares")]
     #[serde(default)]
     attach_effects: attach_effect::AttachEffects,
+    /// Phobos AttachEffect instances, owned by `sim::attach_effect`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_attach_effects: crate::sim::attach_effect::AttachEffectList,
     /// Phobos ShieldClass state: shield points and their recovery timers.
     #[cfg(feature = "phobos")]
     #[serde(default)]
@@ -1826,6 +1830,8 @@ impl GameEntity {
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_attach_effects: Default::default(),
             techno_ctor_random_word,
             secret_lab_fallback: None,
             object_group: -1,
@@ -2525,5 +2531,29 @@ mod mission_shadow_tests {
             MissionId::from_known(MissionType::Guard)
         );
         assert_eq!(restored.mission.ai_counter(), 99);
+    }
+}
+
+#[cfg(feature = "phobos")]
+impl GameEntity {
+    /// Phobos AttachEffect instances, in attach order.
+    pub(crate) fn phobos_attach_effects(&self) -> &crate::sim::attach_effect::AttachEffectList {
+        &self.phobos_attach_effects
+    }
+
+    pub(crate) fn phobos_attach_effects_mut(
+        &mut self,
+    ) -> &mut crate::sim::attach_effect::AttachEffectList {
+        &mut self.phobos_attach_effects
+    }
+
+    /// A live effect drives future frames, so it joins the state hash; an
+    /// entity with none contributes nothing.
+    pub(crate) fn hash_phobos_attach_effects<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        if !self.phobos_attach_effects.is_empty() {
+            b"phobos-attach-effects-v1".hash(hasher);
+            self.phobos_attach_effects.hash(hasher);
+        }
     }
 }

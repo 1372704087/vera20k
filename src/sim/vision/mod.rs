@@ -1615,7 +1615,7 @@ impl FogState {
     /// `BuildingClass::AddDetectDisguiseAt @ 0x00455A80` — the same strict
     /// outer-Y/inner-X circle the sensor deposit walks, incrementing
     /// `CellClass+0xAC[house]` (`CellClass::IncrementDisguiseDetectCount`).
-    /// The caller owns the powered gate (native vt+0x350).
+    /// The caller owns the Is_Operational gate (native vt+0x350).
     pub fn disguise_detect_add_at(
         &mut self,
         house: InternedId,

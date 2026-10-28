@@ -35,6 +35,12 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2946 (NPExt changelog item 59): the GetROF early return for sonic
+  weapons and live spark/fire/railgun systems (`0x006FCFE0..0x006FD036`)
+  also takes the ROF-ability reduction (`0x006FD0E2..0x006FD14C`), so
+  veteran and elite dolphins, squids and effect weapons keep their reload
+  bonus.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

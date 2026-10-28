@@ -37,6 +37,14 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2965 (NPExt changelog item 6): a refused `UndeploysInto=` conversion
+  (`BuildingClass::Mission_Selling @ 0x00449C30`, the Unlimbo refund tail
+  `0x0044A16B..0x0044A176`) deletes the never-placed limbo Unit with the
+  building. Native retains it, so its `Add_Tracking @ 0x004FF700` count kept
+  feeding ShortGame's BaseUnit sum and the defeat gate
+  (`HouseClass::Update` `0x004F8E92..0x004F8F77`) never declared the emptied
+  house defeated.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

@@ -35,6 +35,13 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2947 (NPExt changelog item 44): a `Suicide=` weapon works from any slot
+  — the shot launches first and the self Strength packet lands after it
+  (`Techno6FDDC0..6FDE0E`'s branch no longer returns before the launch), so
+  the weapon deals its own damage and the death still completes the nested
+  DeathWeapon. NPExt's exact slot gating was not disassembled; every slot
+  takes the corrected flow as a recorded residual.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

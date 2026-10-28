@@ -352,6 +352,53 @@ mod tests {
         assert!(entry.powered, "absent key keeps the previous value");
     }
 
+    /// The catalog, the globals and the country/techno attach lists all
+    /// survive the production Rules parse and are reachable from `RuleSet`.
+    #[test]
+    fn ruleset_retains_the_catalog_and_the_attach_lists() {
+        use crate::rules::ruleset::RuleSet;
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[General]
+AttachEffect.ReplaceLongerDuration=yes
+             [AttachEffectTypes]
+0=FIRST
+[FIRST]
+Duration=40
+             [Countries]
+0=Americans
+[Americans]
+AttachEffect.AttachTypes=NATIONAE
+             [VehicleTypes]
+0=MTNK
+[MTNK]
+Name=Apocalypse
+             AttachEffect.AttachTypes=FIRST,SECOND
+AttachEffect.Delays=5,7
+",
+        ))
+        .expect("rules parse");
+
+        assert_eq!(
+            rules
+                .attach_effect_types()
+                .entry("FIRST")
+                .map(|entry| entry.duration),
+            Some(40)
+        );
+        assert!(rules.attach_effect_globals().replace_longer_duration);
+        let techno = rules.object("MTNK").expect("techno");
+        assert_eq!(
+            techno.attach_effect_attach_types(),
+            ["FIRST".to_owned(), "SECOND".to_owned()]
+        );
+        assert_eq!(techno.attach_effect_delays(), [5, 7]);
+        assert_eq!(
+            rules.country_attach_effect_types("Americans"),
+            ["NATIONAE".to_owned()]
+        );
+    }
+
     /// `[General]` defaults match the documented values.
     #[test]
     fn globals_default_to_the_documented_switches() {

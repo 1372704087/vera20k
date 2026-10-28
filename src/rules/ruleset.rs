@@ -80,6 +80,24 @@ pub struct CountryRules {
     pub multiplay_passive: bool,
     /// `WallOwner=` allows this house type's buildings to claim nearby map walls.
     pub wall_owner: bool,
+    /// Phobos `AttachEffect.AttachTypes` on a country.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_attach_types: Vec<String>,
+    /// `AttachEffect.DurationOverrides`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_duration_overrides: Vec<i32>,
+    /// `AttachEffect.Delays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_delays: Vec<i32>,
+    /// `AttachEffect.InitialDelays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_initial_delays: Vec<i32>,
+    /// `AttachEffect.RecreationDelays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_recreation_delays: Vec<i32>,
+    /// `AttachEffect.AttachOnOwnerChange`; `None` inherits `[General]`.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_attach_on_owner_change: Option<bool>,
     /// HouseType+148: ReadDouble511D0B -> FSTP float511D10, default1.0.
     /// Both base and purifier deposits read these exact retained float bits.
     pub income_mult: NativeF32Bits,
@@ -182,6 +200,18 @@ impl Default for CountryRules {
             multiplay: false,
             multiplay_passive: false,
             wall_owner: true,
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_types: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_duration_overrides: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_initial_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_recreation_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_on_owner_change: None,
             income_mult: NativeF32Bits::ONE,
             armor_infantry_mult: 1.0,
             armor_units_mult: 1.0,
@@ -222,6 +252,37 @@ impl CountryRules {
             multiplay: section.read_bool("Multiplay", Self::default().multiplay),
             multiplay_passive: section.read_bool("MultiplayPassive", false),
             wall_owner: section.read_bool("WallOwner", true),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_types: section
+                .read_list("AttachEffect.AttachTypes", 0x800)
+                .map(|tokens| {
+                    tokens
+                        .into_iter()
+                        .map(|token| token.trim().to_owned())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_duration_overrides: section
+                .read_int_list("AttachEffect.DurationOverrides")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_delays: section
+                .read_int_list("AttachEffect.Delays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_initial_delays: section
+                .read_int_list("AttachEffect.InitialDelays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_recreation_delays: section
+                .read_int_list("AttachEffect.RecreationDelays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_on_owner_change: section.read_phobos_nullable_bool(
+                "AttachEffect.AttachOnOwnerChange",
+                Self::default().attach_effect_attach_on_owner_change,
+            ),
             // IncomeMult is a raw multiplier (NOT a percent). Round in f64 to avoid f32
             // drift; absent -> the neutral 1.0 (stock).
             // HouseTypeClass::ReadINI stores these as floats (`FSTP dword` at
@@ -6824,6 +6885,19 @@ impl RuleSet {
     #[cfg(feature = "phobos")]
     pub fn attach_effect_types(&self) -> &crate::rules::attach_effect::AttachEffectTypeCatalog {
         &self.attach_effect_types
+    }
+
+    /// Phobos AttachEffect `[General]` switches.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_globals(&self) -> &crate::rules::attach_effect::AttachEffectGlobals {
+        &self.attach_effect_globals
+    }
+
+    /// Phobos `AttachEffect.AttachTypes` authored on a country/house type.
+    #[cfg(feature = "phobos")]
+    pub fn country_attach_effect_types(&self, id: &str) -> &[String] {
+        self.country_rules(id)
+            .map_or(&[], |country| country.attach_effect_attach_types.as_slice())
     }
 
     /// Phobos DigitalDisplay globals (`[AudioVisual]`).

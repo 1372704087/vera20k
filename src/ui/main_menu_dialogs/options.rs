@@ -486,6 +486,15 @@ pub(crate) enum LauncherCue {
     ComboClose,
 }
 
+impl From<crate::ui::shell::combobox::ComboCue> for LauncherCue {
+    fn from(cue: crate::ui::shell::combobox::ComboCue) -> Self {
+        match cue {
+            crate::ui::shell::combobox::ComboCue::Open => Self::ComboOpen,
+            crate::ui::shell::combobox::ComboCue::Close => Self::ComboClose,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 /// gamemd-derived: notification order in launcher primary-proc slice
 /// `0x0055FDB0..0x0056047A`; owner `OptionsClass__ShowLauncherDialog @

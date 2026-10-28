@@ -1310,6 +1310,26 @@ impl Simulation {
         );
     }
 
+    /// The canonical cell and overlay a wall sale's signed CellStruct names.
+    fn wall_sale_cell(
+        &self,
+        x: i16,
+        y: i16,
+    ) -> Option<(u16, u16, crate::sim::overlay_grid::OverlayCell)> {
+        // EventClass rejects only the exact packed null CellStruct. Every
+        // other signed pair is resolved by MapClass' fixed 512-wide linear
+        // cell array, so out-of-range components may alias a canonical slot.
+        if (x, y) == (0, 0) {
+            return None;
+        }
+        let (rx, ry) = canonical_cell_coord(i32::from(x), i32::from(y))?;
+        let grid = self.overlay_grid.as_ref()?;
+        if rx >= grid.width() || ry >= grid.height() {
+            return None;
+        }
+        Some((rx, ry, *grid.cell(rx, ry)))
+    }
+
     /// `HouseClass::Sell_Building_At_Cell @ 0x004FCE80` for house
     /// `command_owner` at cell `(x, y)`: the player's wall sale and the
     /// computer's in `AI_Manage_Build_Queue` (`sim::ai_build_need`). It sells
@@ -1327,22 +1347,9 @@ impl Simulation {
         overlays: &crate::rules::overlay_types::OverlayTypeRegistry,
         effects: FrameEffects<'_>,
     ) -> bool {
-        // EventClass rejects only the exact packed null CellStruct. Every
-        // other signed pair is resolved by MapClass' fixed 512-wide linear
-        // cell array, so out-of-range components may alias a canonical slot.
-        if (x, y) == (0, 0) {
-            return false;
-        }
-        let Some((rx, ry)) = canonical_cell_coord(i32::from(x), i32::from(y)) else {
+        let Some((rx, ry, cell)) = self.wall_sale_cell(x, y) else {
             return false;
         };
-        let Some(grid) = self.overlay_grid.as_ref() else {
-            return false;
-        };
-        if rx >= grid.width() || ry >= grid.height() {
-            return false;
-        }
-        let cell = *grid.cell(rx, ry);
         let (Some(overlay_id), Some(wall_owner)) = (cell.overlay_id, cell.wall_owner) else {
             return false;
         };
@@ -1647,6 +1654,9 @@ impl Simulation {
         } else {
             cmd
         };
+        if self.network_command_actor_foreign(command_owner, cmd) {
+            return false;
+        }
         let ordinary_actor = match cmd {
             Command::Stop { entity_id }
             | Command::Scatter { entity_id }
@@ -2196,7 +2206,7 @@ impl Simulation {
             // GoOffline 0x00452360. go_building_online/offline carry the native
             // semantics (idempotent latch, house power + tech-tree invalidation,
             // Stuff flag, factory queue refresh, EVA line for a human house). The
-            // dispatch has no owner check, and none is added here.
+            // dispatch has no owner check; only the VERA network gate above adds one.
             Command::SetBuildingOnLine { entity_id, on } => {
                 let Some(owner) = self.interner.get(command_owner) else {
                     return false;
@@ -3055,14 +3065,69 @@ impl Simulation {
 
     /// Check ownership using stable_id via EntityStore.
     ///
-    /// Used only by receivers whose contract includes an owner gate. The
-    /// MEGAMISSION receiver4C71CA..4C74CA resolves its actor independently of
-    /// the event house; its admission checks lifetime and tokens instead.
+    /// Used by receivers whose contract includes an owner gate and by the
+    /// VERA network actor gate. The native MEGAMISSION receiver4C71CA..4C74CA
+    /// resolves its actor independently of the event house; its admission
+    /// checks lifetime and tokens instead.
     pub(crate) fn entity_owned_by_id(&self, command_owner: &str, stable_id: u64) -> bool {
         self.substrate
             .entities
             .get(stable_id)
             .is_some_and(|e| command_owner.eq_ignore_ascii_case(self.interner.resolve(e.owner())))
+    }
+
+    /// VERA-only network admission, not a native receiver test: refuse an
+    /// event whose acting object exists and belongs to another House.
+    ///
+    /// `EventClass::Execute @ 0x004C6CB0` trusts the sender for most object
+    /// orders (MEGAMISSION, IDLE, Deploy, Repair, Primary, On/Off-line,
+    /// Archive, wall sale @ 0x004FCE80, PlanMgr connect @ 0x00639800 and
+    /// append @ 0x00638120), so a modified client could retask, deploy, sell
+    /// or power down an opponent's objects. Ordinary input orders
+    /// `IsHumanPlayer @ 0x0050B6F0` actors, the sending House in every
+    /// network mode. Offline modes keep the native receivers unchanged
+    /// (campaign PlayerControl houses).
+    ///
+    /// Intended retail differences, all refused alike on every client:
+    /// * retail input quirks that order a selected enemy object — the Guard
+    ///   key's miner arm (`0x00730D60`) and Stop on an enemy building with a
+    ///   rally line — do nothing online;
+    /// * an order whose actor is captured or mind-controlled between issue
+    ///   and execution is dropped, including its planning detach, where
+    ///   retail runs it on the new owner's object. The flag-2 planning
+    ///   acknowledge stays ahead of this gate, so that actor's latch clears.
+    fn network_command_actor_foreign(&self, command_owner: &str, cmd: &Command) -> bool {
+        if !self.session.game_mode().is_network() {
+            return false;
+        }
+        let foreign = |id: u64| {
+            self.substrate.entities.get(id).is_some() && !self.entity_owned_by_id(command_owner, id)
+        };
+        match cmd {
+            Command::Stop { entity_id }
+            | Command::Scatter { entity_id }
+            | Command::DeployMcv { entity_id }
+            | Command::UndeployBuilding { entity_id }
+            | Command::ToggleRepair { entity_id }
+            | Command::SellBuilding { entity_id }
+            | Command::TogglePrimaryFactory { entity_id }
+            | Command::SetBuildingOnLine { entity_id, .. }
+            | Command::ArchiveObject { entity_id, .. } => foreign(*entity_id),
+            Command::SetRally { producer_ids, .. } => producer_ids.iter().any(|&id| foreign(id)),
+            Command::SynchronizedRecord { record } => ArchiveRecord::decode(record)
+                .and_then(|event| u64::try_from(event.entity_id).ok())
+                .is_some_and(foreign),
+            Command::PlanningRecord { record } => {
+                super::planning::planning_record_actor(record).is_some_and(foreign)
+            }
+            Command::SellWallAtCell { x, y } => self
+                .wall_sale_cell(*x, *y)
+                .and_then(|(_, _, cell)| cell.wall_owner)
+                .is_some_and(|owner| {
+                    !command_owner.eq_ignore_ascii_case(self.interner.resolve(owner))
+                }),
+            _ => cmd.megamission_actor().is_some_and(foreign),
+        }
     }
 
     /// The acting object's half of the native order-admission gate.
@@ -3512,6 +3577,76 @@ mod tests {
         // reads that byte, so the fixture must model a revealed object.
         entity.lifecycle.set_in_limbo_for_test(false);
         sim.substrate.entities.insert(entity);
+    }
+
+    #[test]
+    fn network_match_refuses_orders_for_another_houses_object() {
+        use crate::sim::house_state::HouseState;
+        use crate::sim::scenario_session::ScenarioGameMode;
+        let rules = amcv_move_rules();
+        let world = |mode| {
+            let mut sim = Simulation::new();
+            for (index, name) in [(0, "Americans"), (1, "British")] {
+                let owner = sim.intern(name);
+                sim.houses
+                    .register(HouseState::new(owner, index, None, true, 0, 10));
+            }
+            sim.session.set_game_mode(mode);
+            spawn_rule_backed_unit(&mut sim, 42, "AMCV", &rules);
+            sim
+        };
+        let move_order = Command::Move {
+            entity_id: 42,
+            target_rx: 25,
+            target_ry: 20,
+        };
+        let stop = Command::Stop { entity_id: 42 };
+
+        let mut sim = world(ScenarioGameMode::Wol);
+        assert!(!sim.apply_command("British", &move_order, Some(&rules)));
+        assert!(!sim.apply_command("British", &stop, Some(&rules)));
+        let actor = sim.substrate.entities.get(42).unwrap();
+        assert_eq!(actor.mission.queued(), MissionId::NONE);
+        assert!(actor.navigation.nav_com().is_none());
+        assert!(sim.apply_command("Americans", &move_order, Some(&rules)));
+        assert!(sim.apply_command("Americans", &stop, Some(&rules)));
+
+        // Offline receivers stay native: MEGAMISSION has no sender gate.
+        let mut sim = world(ScenarioGameMode::Skirmish);
+        assert!(sim.apply_command("British", &move_order, Some(&rules)));
+    }
+
+    #[test]
+    fn network_match_refuses_selling_another_houses_wall() {
+        use crate::sim::house_state::HouseState;
+        let (rules, overlays) = crate::sim::world::tests::gsi_04_07_wall_sell_rules(false, false);
+        let mut sim = Simulation::new();
+        let owner = sim.intern("Americans");
+        for (index, house) in [(0, owner), (1, sim.intern("British"))] {
+            sim.houses
+                .register(HouseState::new(house, index, None, true, 0, 10));
+        }
+        sim.session
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+        let mut grid = crate::sim::overlay_grid::OverlayGrid::new(3, 3);
+        grid.place_owned_wall(1, 1, 2, 0, owner);
+        sim.overlay_grid = Some(grid);
+        let sale = Command::SellWallAtCell { x: 1, y: 1 };
+        let sell = |sim: &mut Simulation, house: &str| {
+            sim.apply_command_with_overlays(
+                house,
+                &sale,
+                &rules,
+                Some(&overlays),
+                FrameEffects::default(),
+            )
+        };
+        let wall = |sim: &Simulation| sim.overlay_grid.as_ref().unwrap().cell(1, 1).overlay_id;
+
+        assert!(!sell(&mut sim, "British"));
+        assert!(wall(&sim).is_some());
+        assert!(sell(&mut sim, "Americans"));
+        assert_eq!(wall(&sim), None);
     }
 
     #[test]

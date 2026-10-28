@@ -3096,6 +3096,8 @@ fn master_frame_polls_triggers_before_logic_houses_commit_and_delete() {
             MasterFrameTestRung::SessionCommands,
             MasterFrameTestRung::Triggers,
             MasterFrameTestRung::TeamScript,
+            MasterFrameTestRung::DiskLasers,
+            MasterFrameTestRung::LightningStorm,
             MasterFrameTestRung::LogicVector,
             MasterFrameTestRung::Houses,
             MasterFrameTestRung::FrameCommit,

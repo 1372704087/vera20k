@@ -269,7 +269,7 @@ pub(crate) fn current_cursor_feedback_kind(state: &AppState) -> Option<CursorFee
     if !query.cell_visible(cell) {
         return Some(query.hidden_cell(cell));
     }
-    let owner = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
+    let owner = preferred_local_owner_name(state)?;
     let hover_object = crate::app::input::entity_pick::hover_object_at_point(
         crate::app::input::entity_pick::presented(state, sim),
         world_x,
@@ -320,7 +320,6 @@ impl<'a> ActionQuery<'a> {
         selected: &'a [u64],
         mouse_over: bool,
     ) -> Self {
-        let owner = preferred_local_owner_name(state).unwrap_or_else(|| "Americans".to_string());
         let mut modifier = crate::app::input::context_order::resolve_order_modifiers(
             crate::app::input::dispatch::is_ctrl_held(state),
             crate::app::input::dispatch::is_shift_held(state),
@@ -340,7 +339,7 @@ impl<'a> ActionQuery<'a> {
             sim,
             rules: state.rules(),
             overlays: state.overlay_registry(),
-            viewer: sim.interner().get(&owner),
+            viewer: preferred_local_owner_name(state).and_then(|owner| sim.interner().get(&owner)),
             selected,
             modifier,
             force_move_key,

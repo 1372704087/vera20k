@@ -2062,8 +2062,9 @@ pub(crate) fn update_building_placement_preview(state: &mut AppState) {
         // it is neither an abandon nor a permission to emit another PLACE.
         return;
     }
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
-    let (Some(sim), Some(rules)) = (
+    let owner = preferred_local_owner(state);
+    let (Some(owner), Some(sim), Some(rules)) = (
+        owner,
         state
             .match_state
             .sim_runtime

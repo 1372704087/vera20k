@@ -990,7 +990,6 @@ impl App {
                 scenario_elapsed_clock:
                     crate::app::match_runtime::frame_pacer::ScenarioElapsedClock::new(),
                 configured_input_delay_ticks: input_delay_ticks,
-                local_owner_override: None,
                 sandbox_full_visibility: false,
                 debug_pause: false,
                 // KD-3: unify the two game-speed sources. `in_game_options.game_speed`

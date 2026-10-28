@@ -2549,7 +2549,9 @@ fn apply_selection_mutation(
     }
     state.match_state.input.selection_order = ordered.clone();
     state.match_state.input.selection_order_pending = true;
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
+    let Some(owner) = preferred_local_owner(state) else {
+        return true;
+    };
     schedule_command(
         state,
         &owner,
@@ -3637,8 +3639,10 @@ fn queue_deploy_undeploy_for_selected(state: &mut AppState) {
     if selected_ids.is_empty() {
         return;
     }
-    let owner: String = preferred_local_owner(state).unwrap_or_else(|| "Americans".to_string());
     // Collect commands first to avoid borrow conflict with schedule_command.
+    let Some(owner) = preferred_local_owner(state) else {
+        return;
+    };
     let local_owner = sim.interner().get(&owner);
     let commands = deploy_key_commands(sim, state.rules(), &selected_ids, local_owner);
     // Selection730AF0 sends DEPLOY9 through Techno6FFE00. During

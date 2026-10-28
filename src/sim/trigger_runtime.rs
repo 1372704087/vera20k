@@ -2834,8 +2834,12 @@ impl Simulation {
                         );
                         result = true;
                         detach_all = true;
+                    } else {
+                        // TagClass::ProcessTriggerEvent, original gamemd.exe:
+                        // refs1 takes 0x006E5463 to 0x006E5484, skipping the
+                        // source-cleanup flag write at 0x006E547F.
+                        detach_attachment = true;
                     }
-                    detach_attachment = true;
                 }
                 2 => {
                     self.spring_live_trigger(

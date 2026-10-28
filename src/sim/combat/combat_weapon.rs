@@ -463,8 +463,10 @@ pub(crate) fn weapon_range(
     let Some(weapon) = get_weapon(entity, obj, index, entities, rules, interner) else {
         return 0;
     };
+    let source =
+        crate::sim::attach_effect::range_modifier_source(entity, Some(entities), rules, interner);
     let range = crate::sim::attach_effect::range_with_attach_effects(
-        entity,
+        source,
         &weapon.id,
         weapon.range_leptons,
         rules,
@@ -499,8 +501,14 @@ pub(crate) fn open_topped_cargo_range(
             continue;
         };
         if let Some(weapon) = current_weapon(passenger, kind, entities, rules, interner) {
-            let range = crate::sim::attach_effect::range_with_attach_effects(
+            let source = crate::sim::attach_effect::range_modifier_source(
                 passenger,
+                Some(entities),
+                rules,
+                interner,
+            );
+            let range = crate::sim::attach_effect::range_with_attach_effects(
+                source,
                 &weapon.id,
                 weapon.range_leptons,
                 rules,

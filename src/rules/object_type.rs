@@ -535,6 +535,12 @@ pub struct ObjectType {
     /// inherits `[AudioVisual] DigitalDisplay.Health.FakeAtDisguise`.
     #[cfg(feature = "phobos")]
     digital_display_health_fake_at_disguise: Option<bool>,
+    /// Phobos `TechnoTypeExt::OpenTopped_UseTransportRangeModifiers`
+    /// (`OpenTopped.UseTransportRangeModifiers=`); `None` inherits
+    /// `[General]`. A passenger inside an `OpenTopped` transport with this
+    /// set folds the transport's range modifiers instead of its own.
+    #[cfg(feature = "phobos")]
+    open_topped_use_transport_range_modifiers: Option<bool>,
     /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
     /// default true. The preview also needs the rules global and the client
     /// switch.
@@ -2949,6 +2955,13 @@ impl ObjectType {
         self.digital_display_disable
     }
 
+    /// Phobos `TechnoTypeExt::OpenTopped_UseTransportRangeModifiers`;
+    /// `None` inherits `[General] OpenTopped.UseTransportRangeModifiers`.
+    #[cfg(feature = "phobos")]
+    pub fn open_topped_use_transport_range_modifiers(&self) -> Option<bool> {
+        self.open_topped_use_transport_range_modifiers
+    }
+
     /// Phobos `DigitalDisplay.Health.FakeAtDisguise=`, `None` when inheriting.
     #[cfg(feature = "phobos")]
     pub fn digital_display_health_fake_at_disguise(&self) -> Option<bool> {
@@ -3817,6 +3830,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             digital_display_health_fake_at_disguise: section
                 .read_phobos_nullable_bool("DigitalDisplay.Health.FakeAtDisguise", None),
+            #[cfg(feature = "phobos")]
+            open_topped_use_transport_range_modifiers: section
+                .read_phobos_nullable_bool("OpenTopped.UseTransportRangeModifiers", None),
             #[cfg(feature = "phobos")]
             placement_preview: category == ObjectCategory::Building
                 && section.read_bool("PlacementPreview", true),

@@ -600,12 +600,60 @@ fn safe_multiply(value: i32, multiplier: f64) -> i32 {
     }
 }
 
+/// `WeaponTypeExt::GetRangeWithModifiers` (`WeaponType/Body.cpp:398..443`):
+/// the entity whose AttachEffect range fold applies. A passenger inside an
+/// `OpenTopped` transport whose type enables
+/// `OpenTopped.UseTransportRangeModifiers` (defaulting to `[General]`) folds
+/// the transport's active effects instead of its own. `None` entities
+/// (mapless probes) keep the firer.
+#[cfg(feature = "phobos")]
+pub(crate) fn range_modifier_source<'a>(
+    entity: &'a crate::sim::game_entity::GameEntity,
+    entities: Option<&'a crate::sim::entity_store::EntityStore>,
+    rules: &crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+) -> &'a crate::sim::game_entity::GameEntity {
+    let Some(entities) = entities else {
+        return entity;
+    };
+    let Some(transport_id) = entity.passenger_role.inside_transport_id() else {
+        return entity;
+    };
+    let Some(transport) = entities.get(transport_id) else {
+        return entity;
+    };
+    let Some(kind) = interner.object_type(transport.type_ref(), rules) else {
+        return entity;
+    };
+    let enabled = kind.open_topped_use_transport_range_modifiers().unwrap_or(
+        rules
+            .attach_effect_globals()
+            .open_topped_use_transport_range_modifiers,
+    );
+    if enabled && kind.open_topped {
+        transport
+    } else {
+        entity
+    }
+}
+
+#[cfg(not(feature = "phobos"))]
+pub(crate) fn range_modifier_source<'a>(
+    entity: &'a crate::sim::game_entity::GameEntity,
+    _entities: Option<&'a crate::sim::entity_store::EntityStore>,
+    _rules: &crate::rules::ruleset::RuleSet,
+    _interner: &crate::sim::intern::StringInterner,
+) -> &'a crate::sim::game_entity::GameEntity {
+    entity
+}
+
 /// Phobos `WeaponTypeExt::GetRangeWithModifiers`'s AttachEffect arm: every
 /// active effect whose weapon lists admit `weapon` multiplies the range (in
 /// leptons, clamped) and sums its `WeaponRange.ExtraRange`; the summed cells
 /// are converted to leptons and added after every multiplier, and the result
 /// floors at zero. The `-512` always-in-range sentinel returns before the
 /// fold, and a type with nothing to add leaves the range untouched.
+/// `entity` is the fold source [`range_modifier_source`] resolved.
 pub(crate) fn range_with_attach_effects(
     entity: &crate::sim::game_entity::GameEntity,
     weapon: &str,
@@ -663,12 +711,11 @@ pub(crate) fn range_with_attach_effects(
 ///
 /// RESIDUALS: the shield pre-stage still divides with the unrestricted armor
 /// product and the receiver's restricted roll runs before the receiver's rare
-/// early returns (see the two methods); `disable_weapons` needs
-/// `GetFireError` (`0x006FC0B0`, not ported); `has_crit_modifiers` needs the
-/// Phobos warhead critical-hit mechanism; the open-topped transport range
-/// switch and its per-type `OpenTopped.UseTransportRangeModifiers` /
-/// `CheckTransportDisableWeapons` keys are not read; and the charge-turret
-/// half of `ROFMultiplier.ApplyOnCurrentTimer` needs the
+/// early returns (see the two methods); `disable_weapons` and the open-topped
+/// `OpenTopped.CheckTransportDisableWeapons` switch need `GetFireError`
+/// (`0x006FC0B0`, not ported); `has_crit_modifiers` needs the Phobos warhead
+/// critical-hit mechanism; and the charge-turret half of
+/// `ROFMultiplier.ApplyOnCurrentTimer` needs the
 /// `LastRearmWasFullDelay`/charge-timer state VERA does not keep.
 #[cfg(feature = "phobos")]
 #[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -1098,8 +1145,14 @@ impl Simulation {
                     Some(self.house_alliances.as_map()),
                 )?;
                 let range = selected.map_or(-1, |selected| {
-                    range_with_attach_effects(
+                    let source = range_modifier_source(
                         entity,
+                        Some(&self.substrate.entities),
+                        rules,
+                        &self.interner,
+                    );
+                    range_with_attach_effects(
+                        source,
                         &selected.weapon.id,
                         selected.weapon.range_leptons,
                         rules,
@@ -2559,6 +2612,84 @@ mod tests {
             fold("OTHER", i32::MAX),
             i32::MAX,
             "SafeMultiply clamps instead of overflowing"
+        );
+    }
+
+    /// `OpenTopped.UseTransportRangeModifiers`: inside an `OpenTopped`
+    /// transport that enables the key, a rider folds the transport's
+    /// `WeaponRange` effects instead of its own.
+    #[test]
+    fn an_open_topped_transport_lends_its_range_modifiers_to_riders() {
+        use crate::rules::ini_parser::IniFile;
+        let scene = |enabled: bool| {
+            let key = if enabled {
+                "OpenTopped.UseTransportRangeModifiers=yes\n"
+            } else {
+                ""
+            };
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TRUCK\n1=RIDER\n\
+                 [WeaponTypes]\n0=GUN\n[GUN]\nRange=5\nDamage=10\nROF=20\n\
+                 [TRUCK]\nStrength=500\nSpeed=6\nOpenTopped=yes\nPassengers=1\n{key}\
+                 AttachEffect.AttachTypes=TRANSPORT_RANGE\n\
+                 [RIDER]\nStrength=100\nSpeed=4\nPrimary=GUN\n\
+                 AttachEffect.AttachTypes=RIDER_RANGE\n\
+                 [AttachEffectTypes]\n0=TRANSPORT_RANGE\n1=RIDER_RANGE\n\
+                 [TRANSPORT_RANGE]\nDuration=100\nWeaponRange.Multiplier=2\n\
+                 [RIDER_RANGE]\nDuration=100\nWeaponRange.Multiplier=3\n"
+            )))
+            .expect("rules");
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let truck = sim
+                .spawn_object("TRUCK", "Americans", 20, 20, 0, &rules)
+                .expect("truck");
+            let rider = sim
+                .spawn_object("RIDER", "Americans", 21, 20, 0, &rules)
+                .expect("rider");
+            sim.update_phobos_attach_effects(truck, &rules);
+            sim.update_phobos_attach_effects(rider, &rules);
+            let range = move |sim: &crate::sim::world::Simulation| {
+                crate::sim::combat::combat_weapon::weapon_range(
+                    sim.entities().get(rider).unwrap(),
+                    rules.object("RIDER").expect("rider type"),
+                    0,
+                    sim.entities(),
+                    &rules,
+                    sim.interner(),
+                )
+            };
+            (sim, truck, rider, range)
+        };
+
+        let (mut sim, truck, rider, range) = scene(true);
+        assert_eq!(
+            range(&sim),
+            5 * 256 * 3,
+            "outside a transport the rider folds its own effects"
+        );
+        sim.substrate
+            .entities
+            .get_mut(rider)
+            .unwrap()
+            .passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(truck, true);
+        assert_eq!(
+            range(&sim),
+            5 * 256 * 2,
+            "the transport's fold applies while aboard"
+        );
+
+        let (mut sim, truck, rider, range) = scene(false);
+        sim.substrate
+            .entities
+            .get_mut(rider)
+            .unwrap()
+            .passenger_role = crate::sim::passenger::PassengerRole::inside_for_test(truck, true);
+        assert_eq!(
+            range(&sim),
+            5 * 256 * 3,
+            "the default keeps the rider's own fold"
         );
     }
 

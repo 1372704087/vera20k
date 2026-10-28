@@ -600,6 +600,7 @@ impl FireQuery for WorldQuery<'_, '_> {
                         overlay_registry: subject.overlay_registry,
                         alliances: subject.fog.map(|fog| fog.alliances),
                     },
+                    Some(&subject.world.substrate.entities),
                 )
                 .unwrap_or(false)
             }
@@ -646,6 +647,7 @@ impl FireQuery for WorldQuery<'_, '_> {
                     weapon,
                     subject.rules,
                     &subject.world.interner,
+                    Some(&subject.world.substrate.entities),
                 )
             }
         }

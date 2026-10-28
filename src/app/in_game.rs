@@ -87,6 +87,7 @@ impl App {
         state.match_state.match_presentation.saved_game_browser = None;
         state.match_state.network_wait = Default::default();
         state.match_state.network_failure = None;
+        state.match_state.frame_stopped = false;
         crate::app::lan_service::return_transport(state);
         // Persist the deterministic diagnostic log before leaving the scenario.
         // Runtime and presentation resources remain retained in the shell.

@@ -3455,8 +3455,11 @@ mod tests {
             }]
         ));
         assert!(!directory.0.join("05".repeat(16)).exists());
-        // The marker lasts until the certificate expires.
-        server.advance_clock(1_000_000, 2000);
+        // The marker outlasts any certificate verified before the cleanup.
+        let expiry = unix(cleaned) + MAX_MATCH_SECONDS;
+        server.advance_clock(1_000_000, expiry - 1);
+        assert!(!server.ended_orderings.is_empty());
+        server.advance_clock(1_000_000, expiry);
         assert!(server.ended_orderings.is_empty());
     }
 
@@ -3555,6 +3558,29 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// A burst merge, such as a healed federation link's backlog, draws later
+    /// hours instead of failing the room, and nothing stays counted after it.
+    #[test]
+    fn a_burst_of_frame_ends_draws_later_hours_and_releases_them() {
+        let directory = TestDirectory::new();
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now())
+                .unwrap();
+        // One frame a second makes an hour 3600 frame ends of 25 bytes.
+        let mut journal = journals.create([0x0d; 16], 1, 2).unwrap();
+        let (total, growth) = (journals.total(), journals.growth());
+        let mut frame_end = vec![0; 13];
+        frame_end[0] = FRAME_END_EVENT;
+        journal.commit(&vec![frame_end; 3700]).unwrap();
+        journals.reserve_frames(&mut journal);
+        assert_eq!(journals.total(), total + 3600 * 25);
+        assert_eq!(journals.growth(), growth);
+        journals.settle(&mut journal, 0);
+        assert_eq!(journals.growth(), 0);
+        journals.cleanup(journal, false);
+        assert_eq!(journals.total(), 0);
     }
 
     #[test]
@@ -3850,10 +3876,10 @@ impl RelayServer {
             if !retire {
                 continue;
             }
-            if !ordering.expired(now) {
-                self.ended_orderings
-                    .insert(id, ordering.certificate.expires);
-            }
+            // Every certificate for this match, renewed ones included, was
+            // verified to expire within MAX_MATCH_SECONDS of now or earlier.
+            self.ended_orderings
+                .insert(id, now.saturating_add(MAX_MATCH_SECONDS));
             room.ordering = None;
             if room.peers.is_empty() {
                 self.rooms.remove(&id);

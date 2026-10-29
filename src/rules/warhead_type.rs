@@ -419,13 +419,6 @@ impl WarheadType {
         self.allow_damage_on_self
     }
 
-    /// Phobos is compiled out: this warhead never overrides the native
-    /// `DamageSelf` gate.
-    #[cfg(not(feature = "phobos"))]
-    pub fn allow_damage_on_self(&self) -> Option<bool> {
-        None
-    }
-
     /// Parse a WarheadType from a rules.ini section.
     pub fn from_ini_section(id: &str, section: &IniSection) -> Self {
         let verses_f64 = read_verses(section, [1.0; 11]);
@@ -757,26 +750,6 @@ MaxDebris=2
         assert_eq!((neg.min_debris, neg.max_debris), (0, 2));
         let inv = WarheadType::from_ini_section("Inverted", ini.section("Inverted").unwrap());
         assert_eq!((inv.min_debris, inv.max_debris), (7, 7));
-    }
-
-    /// Phobos `Nullable<bool>`: `yes`/`no` set the override, while `none`,
-    /// `<default>` and invalid tokens leave it unset for the `[General]`
-    /// fallback.
-    #[cfg(feature = "phobos")]
-    #[test]
-    fn allow_damage_on_self_is_a_nullable_bool() {
-        let ini = IniFile::from_str(
-            "[Unset]\nFixtureOnly=1\n[On]\nAllowDamageOnSelf=yes\n\
-             [Off]\nAllowDamageOnSelf=no\n[Cleared]\nAllowDamageOnSelf=none\n\
-             [Invalid]\nAllowDamageOnSelf=perhaps\n",
-        );
-        let read =
-            |id| WarheadType::from_ini_section(id, ini.section(id).unwrap()).allow_damage_on_self();
-        assert_eq!(read("Unset"), None);
-        assert_eq!(read("On"), Some(true));
-        assert_eq!(read("Off"), Some(false));
-        assert_eq!(read("Cleared"), None);
-        assert_eq!(read("Invalid"), None);
     }
 
     /// The `[General] AllowDamageOnSelf` fallback and per-warhead override

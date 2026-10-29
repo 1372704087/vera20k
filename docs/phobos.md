@@ -53,6 +53,7 @@ Supported extensions:
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
 - [Missing cameo](phobos-missing-cameo.md) (`[AudioVisual] MissingCameo=` for types with no cameo art)
 - [Power plant enhancers](phobos-power-plant-enhancer.md) (`PowerPlantEnhancer.*` output boosts, `PowerPlant.DamageFactor` and placement range rings)
+- [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
 
 ## Original project and authors
 
@@ -98,6 +99,8 @@ originate with:
 - Prone speed customization - **TaranDahl**.
 - Type select for buildings - **TaranDahl** (code), **Ollerus** (doc).
 - Flashing Technos on selecting - **Fryone**.
+- Warhead self-damaging toggle (`AllowDamageOnSelf`) - **Starkku**; its and
+  `DamageSelf`'s airborne fix - **NetsuNegi**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

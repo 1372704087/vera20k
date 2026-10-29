@@ -167,7 +167,9 @@ that cleanup, longer than any of its certificates lasts, a cleaned-up match
 answers Ready with `Inactive`, so a player returning later cannot start a new
 timeline under its ID; the marker lives in memory and a relay restart drops it. No reader
 acknowledgement gates advancement or retention.
-The service checks deadlines every6ms even when no packets arrive.
+The service checks deadlines every6ms even when no packets arrive. Its pass over
+every room starts a millisecond after the previous one ended, plus once after
+each datagram it accepts, so rejected traffic, junk included, adds no pass.
 
 Explicit Leave is retried on the original socket until a terminal acknowledgement
 echoes that exact signed request. This idempotent operation alone remains valid

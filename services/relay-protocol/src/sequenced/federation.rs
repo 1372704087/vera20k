@@ -175,6 +175,8 @@ pub(crate) struct Federation {
     // This relay's sealed contributions, (frame, encoded entry), from `outbox_base`.
     outbox: VecDeque<(u32, Vec<u8>)>,
     outbox_base: u64,
+    // When a follower last moved its start toward the coordinator's.
+    slewed_ms: u64,
 }
 
 impl Federation {
@@ -244,6 +246,7 @@ impl Federation {
             links,
             outbox: VecDeque::new(),
             outbox_base: 0,
+            slewed_ms: 0,
         })
     }
 
@@ -372,7 +375,7 @@ impl Federation {
     /// the same start on their own clocks and keep slewing toward it. Only
     /// the coordinator cancels, on any relay's request before its start; each
     /// relay requests it once its own startup reaches the loading limit.
-    pub(super) fn coordinate(&self, ordering: &mut OrderingRoom, now_ms: u64) {
+    pub(super) fn coordinate(&mut self, ordering: &mut OrderingRoom, now_ms: u64) {
         if ordering.finished_at.is_some() {
             return;
         }
@@ -442,11 +445,15 @@ impl Federation {
             return;
         };
         let target = (i128::from(coordinator.start_at) - i128::from(offset)).max(0) as u64;
+        // At most a millisecond per elapsed millisecond, however often this
+        // relay passes: its frame clock runs at most double speed, or stands,
+        // while it converges.
+        let step = now_ms.saturating_sub(self.slewed_ms);
+        self.slewed_ms = now_ms;
         ordering.starts_at = Some(match ordering.starts_at {
             None => target,
-            Some(start) if start < target => start + 1,
-            Some(start) if start > target => start - 1,
-            Some(start) => start,
+            Some(start) if start < target => target.min(start + step),
+            Some(start) => target.max(start.saturating_sub(step)),
         });
     }
 
@@ -1017,6 +1024,24 @@ mod tests {
         );
         let commands: Vec<_> = streams[0].iter().filter_map(|(.., entry)| *entry).collect();
         assert_eq!(commands, [(0, 1), (1, 1), (1, 0)]);
+    }
+
+    #[test]
+    fn a_follower_slews_its_start_by_elapsed_time_however_often_it_passes() {
+        let mut game = Match::new(false);
+        game.play();
+        // Relay B's start is 50 ms off the coordinator's. Ten passes in one
+        // millisecond move it one millisecond; one pass ten later, ten more.
+        let clock = game.clock(1);
+        let start = game.ordering(1).starts_at.unwrap() + 50;
+        let room = game.relays[1].rooms.get_mut(&[5; 16]).unwrap();
+        room.ordering.as_mut().unwrap().starts_at = Some(start);
+        for (now_ms, passes, moved) in [(clock + 1, 10, 1), (clock + 11, 1, 11)] {
+            for _ in 0..passes {
+                game.relays[1].drain_federation(now_ms, unix(now_ms));
+            }
+            assert_eq!(game.ordering(1).starts_at, Some(start - moved));
+        }
     }
 
     #[test]

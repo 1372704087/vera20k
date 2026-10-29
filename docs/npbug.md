@@ -33,6 +33,12 @@ adds no behavior yet.
 
 ### Combat target, order, fire and damage eligibility
 
+- #2963 (NPExt changelog item 96): the crash latch joins the fall refusal
+  (fire-error T19/T35) — a crashing Rocketeer can neither fire nor be
+  attacked. Native's fall state covered only the parachute/bomb/flaming
+  fall, so crash-latched aircraft absorbed fire and hit the ground
+  shooting.
+
 ### Weapon, wave and projectile source, path and range
 
 ### Building placement, construction, economy and sensors

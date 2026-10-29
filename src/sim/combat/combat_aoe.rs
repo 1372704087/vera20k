@@ -540,12 +540,17 @@ impl AoECollector {
         if origin.source_house.is_none() && origin.source_id != super::RAD_NO_ATTACKER {
             origin.source_house = entities.get(origin.source_id).map(|source| source.owner());
         }
+        // `MapClass::DamageArea @ 0x00489280`'s ground/deck list excludes the
+        // source object unless its type opts into `DamageSelf`, the warhead is
+        // Rules.CrushWarhead, or Phobos `AllowDamageOnSelf` admits the firer
+        // (`Explosion_Damage_DamageSelf @ 0x004896EC`).
         let ground_source_admitted = handles
             .is_some_and(|handles| handles.is_crush(origin.warhead_ref))
             || entities
                 .get(origin.source_id)
                 .and_then(|source| interner.object_type(source.type_ref(), rules))
-                .is_some_and(|source_type| source_type.damage_self);
+                .is_some_and(|source_type| source_type.damage_self)
+            || warhead.allow_damage_on_self();
 
         let cell_spread = warhead.cell_spread_f64;
 
@@ -1078,9 +1083,9 @@ fn push_entity_aoe_damage(
     warhead_ref: crate::sim::intern::InternedId,
 ) {
     // Apply_area_damage's selected ground/deck list excludes the source object
-    // unless its type opts into DamageSelf or this is Rules.CrushWarhead.
-    // Airborne collection is a separate native phase and deliberately does
-    // not use this admission gate.
+    // unless its type opts into DamageSelf, the warhead is Rules.CrushWarhead,
+    // or Phobos AllowDamageOnSelf admits the firer. Airborne collection is a
+    // separate native phase and deliberately does not use this admission gate.
     if entity_id == source_id && !source_self_admitted {
         return;
     }
@@ -3229,12 +3234,13 @@ mod tests {
                  [VehicleTypes]\n0=SOURCE\n1=TARGET\n\
                  [AircraftTypes]\n\
                  [BuildingTypes]\n\
-                 [Warheads]\n0=OrdinaryWH\n1=CrushWH\n\
+                 [Warheads]\n0=OrdinaryWH\n1=CrushWH\n2=SelfWH\n\
                  [CombatDamage]\nCrushWarhead=CrushWH\nMaxDamage=10000\n\
                  [SOURCE]\nStrength=100\nArmor=heavy\nDamageSelf={}\n\
                  [TARGET]\nStrength=100\nArmor=heavy\n\
                  [OrdinaryWH]\nCellSpread=0\nAffectsAllies=no\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
-                 [CrushWH]\nCellSpread=0\nAffectsAllies=no\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+                 [CrushWH]\nCellSpread=0\nAffectsAllies=no\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+                 [SelfWH]\nCellSpread=0\nAffectsAllies=no\nAllowDamageOnSelf=yes\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
                 if damage_self { "yes" } else { "no" }
             ));
             let rules = RuleSet::from_ini(&ini).expect("receiver admission fixture");
@@ -3324,6 +3330,15 @@ mod tests {
         let (crush_ids, _, crush_hp) = run(false, "CrushWH");
         assert_eq!(crush_ids, vec![1, 2, 3]);
         assert_eq!(crush_hp, [60, 100, 60]);
+
+        // Phobos `Explosion_Damage_DamageSelf @ 0x004896EC` skips the source
+        // exclusion, so a DamageSelf=no source still collects its own hit.
+        #[cfg(feature = "phobos")]
+        {
+            let (allow_ids, _, allow_hp) = run(false, "SelfWH");
+            assert_eq!(allow_ids, vec![1, 2, 3]);
+            assert_eq!(allow_hp, [60, 100, 60]);
+        }
     }
 
     #[test]

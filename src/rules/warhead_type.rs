@@ -339,6 +339,22 @@ pub struct WarheadType {
     /// -> warhead `+0x1C4`. Native RAISES this to `min_debris` when it is
     /// lower (`0x0075DAE0`); it never lowers `min_debris` to meet it.
     pub max_debris: i32,
+    /// Phobos `WarheadTypeExt::AllowDamageOnSelf` (`Nullable<bool>`): this
+    /// warhead may deal damage and damage-adjacent effects to the object that
+    /// fired it even when that object's type keeps `DamageSelf=no`.
+    /// `Explosion_Damage_DamageSelf @ 0x004896EC` skips the area-list source
+    /// exclusion and `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F`
+    /// skips the building wrapper's self return. An absent or `none` key falls
+    /// back to the Phobos `[General] AllowDamageOnSelf`, which is not ported
+    /// and stays false.
+    ///
+    /// RESIDUAL: Phobos also fixes `DamageSelf`/`AllowDamageOnSelf` for
+    /// airborne receivers (`MapClass_DamageArea_AirDamageSelfFix @
+    /// 0x00489416`). VERA's airborne phase keeps retail's unconditional
+    /// source admission, so an aircraft's own area damage already reaches it
+    /// whether or not this key is set.
+    #[cfg(feature = "phobos")]
+    allow_damage_on_self: bool,
     /// Phobos warhead shield overrides (`Shield.Penetrate`,
     /// `Shield.AffectTypes`, `Shield.Penetrate.Types`, absorb/pass and
     /// received-damage bounds). Phobos `WarheadTypeExt` reads them after the
@@ -398,6 +414,19 @@ impl WarheadType {
 
     pub(crate) fn ares_verses_hash_state(&self) -> Option<&AresWarheadVerses> {
         self.ares_verses.as_ref()
+    }
+
+    /// Phobos `AllowDamageOnSelf`: admit the firer to this warhead's damage
+    /// even when its type keeps `DamageSelf=no`.
+    #[cfg(feature = "phobos")]
+    pub fn allow_damage_on_self(&self) -> bool {
+        self.allow_damage_on_self
+    }
+
+    /// Phobos is compiled out: the native `DamageSelf` gate stays final.
+    #[cfg(not(feature = "phobos"))]
+    pub fn allow_damage_on_self(&self) -> bool {
+        false
     }
 
     /// Parse a WarheadType from a rules.ini section.
@@ -509,6 +538,10 @@ impl WarheadType {
             debris_maximums,
             min_debris,
             max_debris,
+            #[cfg(feature = "phobos")]
+            allow_damage_on_self: section
+                .read_phobos_nullable_bool("AllowDamageOnSelf", None)
+                .unwrap_or(false),
             #[cfg(feature = "phobos")]
             shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
         }
@@ -729,5 +762,25 @@ MaxDebris=2
         assert_eq!((neg.min_debris, neg.max_debris), (0, 2));
         let inv = WarheadType::from_ini_section("Inverted", ini.section("Inverted").unwrap());
         assert_eq!((inv.min_debris, inv.max_debris), (7, 7));
+    }
+
+    /// Phobos `Nullable<bool>`: `yes` sets it, `no` clears it, while `none`,
+    /// `<default>` and invalid tokens keep the unset global fallback (false
+    /// here, since the `[General]` key is not ported).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn allow_damage_on_self_is_a_nullable_bool() {
+        let ini = IniFile::from_str(
+            "[Unset]\nFixtureOnly=1\n[On]\nAllowDamageOnSelf=yes\n\
+             [Off]\nAllowDamageOnSelf=no\n[Cleared]\nAllowDamageOnSelf=none\n\
+             [Invalid]\nAllowDamageOnSelf=perhaps\n",
+        );
+        let read =
+            |id| WarheadType::from_ini_section(id, ini.section(id).unwrap()).allow_damage_on_self();
+        assert!(!read("Unset"));
+        assert!(read("On"));
+        assert!(!read("Off"));
+        assert!(!read("Cleared"));
+        assert!(!read("Invalid"));
     }
 }

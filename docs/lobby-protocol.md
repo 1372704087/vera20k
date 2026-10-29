@@ -3,9 +3,12 @@
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens,
 relay tickets and packet keys must never be logged. Names are ASCII letters,
 digits, `_` or `-`, 1–24 bytes, unique without case among active sessions.
-Request bodies are at most 64 KiB and 64 nested containers; every JSON string and
-property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
-not replaced, before any event or persistent state is created.
+Request bodies are at most 64 KiB and 64 nested containers and arrive within 5
+seconds; one player may have 4 and one network 8 bodies arriving at once, and a
+further POST returns 429 `rate_limited`. Requests without a body never wait for
+arriving bodies. Every JSON string and property name must be well-formed Unicode.
+Escaped unpaired surrogates are rejected, not replaced, before any event or
+persistent state is created.
 
 `POST /v1/sessions` accepts exactly `{nickname,protocol:4}` and returns
 `{player_id,nickname,token,expires_at}`. Each entry receives a fresh random player
@@ -60,8 +63,9 @@ bearer before discarding a session whose history expired.
 Channel: `{id,kind,max_users,users,tournament,flags,game_flags,ping,name,ex_info}`.
 `kind` is 0 for chat and 41 for a game. The service sets `flags` from the room, never
 from the creator: 256 when a game has a password, which clients show as a lock and
-ask for before joining, otherwise 0. The other fields are presentation metadata,
-not authority. `name` identifies a channel uniquely for compatibility with the
+ask for before joining, otherwise 0. `max_users` (1–30) from `create` and the host's
+`advertise` is the room's join limit, never below its current members; a join past
+it fails with `room_full`. The other fields are presentation metadata, not authority. `name` identifies a channel uniquely for compatibility with the
 existing shell. Member: `{player_id,name,flags,squad,clan_name,clan_tag}`. Flags bit 0
 is the channel owner, bit 1 voice; the client adds its own local bit 32768. Servers
 set identity and flags from the authenticated membership, never from user payloads.
@@ -201,12 +205,15 @@ is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players d
 not receive source indices or relay credentials. Such a match runs its commands
 locally: its grant still carries an ordering certificate, which released clients
 require, but the relay refuses a one-source certificate.
-Only then does game loading start. Each barrier has a 30-second timeout.
+Only then does game loading start. Each barrier has a 30-second timeout. Within it,
+clients resend `relay_ready` and `latency_ready` under the same request ID after a
+429, a 5xx or no answer, and a UDP I/O error alone does not end admission.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients
-renew before their remaining ticket lifetime falls below 30 seconds, timed from
-grant receipt on a monotonic clock rather than the ticket's expiry against the
-local wall clock, so a changed grant lifetime needs a client update. The server
+renew once half of that lifetime has passed, so a lobby outage of up to 150 seconds
+cannot expire a running match's ticket. Renewal is timed from grant receipt on an
+uptime clock that keeps counting through sleep, rather than the ticket's expiry
+against the local wall clock, so a changed grant lifetime needs a client update. The server
 selects the source from authenticated frozen membership, issues a fresh 300-second
 grant and extends the private match lease. Clients authenticate the replacement
 on the existing socket before promoting it; game/reliable queues remain intact.
@@ -261,9 +268,9 @@ upload is hash-checked before `map_available`. Authenticated room members use
 only roster/settings revisions preserves the blob. A map change or room cleanup
 removes it. Uploads/downloads have a separate 600-request/minute/player budget;
 ordinary commands and events share 600/minute/player. Action limits additionally
-bound starts to 12 per 10 minutes, chat to 30/minute and 24 KiB/minute, and room chat
-to 120/minute. Control payloads are bounded to 4 MiB/minute/player and room fanout
-to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
+bound starts to 12 per 10 minutes, relay renewals to 12/minute, chat to 30/minute and
+24 KiB/minute, and room chat to 120/minute. Control payloads are bounded to
+4 MiB/minute/player and room fanout to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
 host. German Bunker takes 120 joins/minute and each network 30 of them and 30 of its
 chats/minute; a game room takes 60 joins/minute. Re-joining the current room is free.
 Map upload/download bytes each have a 32 MiB/minute player budget, and so do the
@@ -298,13 +305,17 @@ survives that idle interval while another unfinished player of the match is onli
 (polled in the last 120 seconds), and otherwise through 10 minutes of silence, until
 explicit finish/leave or the match/session lifetime; lost internet does not remove
 its gameplay source. Names held by crashed clients therefore free once nobody else
-in their match is online.
+in their match is online. A lobby outage or overload is not player silence: these
+intervals count from the later of the player's last request and the lobby's last
+restart, its first request after 30 seconds without any, or its latest 429 `busy`
+refusal.
 
 `POST /v1/translate` accepts exactly `{text,target}` from a v4 bearer and returns
 `{text}`: `text` translated into `target`, a language tag such as `en` or `zh-Hans`.
 `text` is non-blank and at most 2048 UTF-8 bytes, the chat limit. Clients translate
 received chat only after the player opts in, and always keep the original visible.
-A deployment without a translator, a failed model call, the service's daily budget
+A deployment without a translator, a failed model call or one taking over 10 seconds,
+a new message while 8 others wait on the model, the service's daily budget
 of 10,000 model calls or one network's daily 2,500 of them returns 503
 `translation_unavailable`; an unsupported target
 returns 400 `invalid_request`. Each player may ask 60 times a minute. Successful

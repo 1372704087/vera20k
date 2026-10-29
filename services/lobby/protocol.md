@@ -160,8 +160,11 @@ first34 bytes with domain `VERA20k relay ordering certificate v1\0`. The signed
 mask includes all human sources (including observers); AI has no source. FPS
 follows launch speed `[60,45,30,20,15,12,10]`. The certificate lasts24 hours;
 every UDP control still needs a live authenticated short-lived ticket. The relay
-binds the first matching startup agreement to this roster/clock and starts only
-when every signed source is ready. Renewals preserve the timeline and batch IDs.
+binds the first matching startup agreement to this roster/clock and starts once
+every remaining signed source is ready. A source that never becomes ready leaves
+in the first frame after 60 seconds of silence, or 3 minutes after the first
+Ready; a match federated over several relays is cancelled instead. Renewals
+preserve the timeline and batch IDs.
 `federation`, present only in a federated match, is the same base64url roster
 in every grant: `VO1F`, room UUID16, relay count (2–6), then per relay IPv4,
 LE port and LE source mask, then per relay nonce16, wrapped32 and tag32. The
@@ -195,11 +198,15 @@ Every `latency_ready` report contains each other canonical source exactly once;
 the service sends the same per-source maxima in `timing_confirmed` to everyone.
 For one human playing against AI, there are no remote peers: the latency report
 is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players do
-not receive source indices or relay credentials.
+not receive source indices or relay credentials. Such a match runs its commands
+locally: its grant still carries an ordering certificate, which released clients
+require, but the relay refuses a one-source certificate.
 Only then does game loading start. Each barrier has a 30-second timeout.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients
-renew before their remaining ticket lifetime falls below 30 seconds. The server
+renew before their remaining ticket lifetime falls below 30 seconds, timed from
+grant receipt on a monotonic clock rather than the ticket's expiry against the
+local wall clock, so a changed grant lifetime needs a client update. The server
 selects the source from authenticated frozen membership, issues a fresh 300-second
 grant and extends the private match lease. Clients authenticate the replacement
 on the existing socket before promoting it; game/reliable queues remain intact.

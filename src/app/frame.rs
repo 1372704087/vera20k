@@ -313,6 +313,11 @@ impl App {
                         state,
                         super::cncnet::ExternalMatchResult::Disconnected,
                     );
+                    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                    Self::browser_match_ended(
+                        state,
+                        super::cncnet::ExternalMatchResult::Disconnected,
+                    );
                     Self::return_to_main_menu(state);
                 }
             }
@@ -386,13 +391,14 @@ impl App {
                 // `Stop(1)` that began the wait; the exit ends any fade tail.
                 state.audio.stop_theme();
                 state.frontend.quit_cascade = None;
-                // docs/spawn.md: the browser host learns that the external
-                // launch is over and the page may start another; desktop
-                // exits the process instead and writes its result file.
+                // Browser launchers receive the report after network cleanup,
+                // immediately before their engine exits.
                 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
                 if state.frontend.external_launch {
                     Self::finish_browser_external_launch(state, None);
+                    Self::poll_browser_exit(state, event_loop);
                     return RuntimeServiceResult {
+                        quit_requested: true,
                         main_tick_admitted,
                         screen_shake_offset,
                         ..Default::default()
@@ -470,6 +476,8 @@ impl App {
                     state,
                     super::cncnet::ExternalMatchResult::Disconnected,
                 );
+                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Disconnected);
                 Self::return_to_main_menu(state);
                 return RuntimeServiceResult {
                     main_tick_admitted,

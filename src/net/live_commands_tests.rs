@@ -3435,6 +3435,57 @@ fn sequenced_pair() -> (
 }
 
 #[test]
+fn sequenced_push_is_probed_again_after_three_lost_replies() {
+    use crate::net::udp::test_support::MAX_DATAGRAM;
+
+    let (mut worlds, rules, _, boundaries, socket, mut relay) = sequenced_pair();
+    let second_address = boundaries[1].live.borrow().primary_addr().unwrap();
+    let mut now_ms = 16_000;
+    for step in 0..900 {
+        now_ms += 16;
+        let unix = 100 + (now_ms - 16_000) / 1000;
+        relay.advance_clock(now_ms, unix);
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            boundary.now.set((now_ms >> 4) as u32);
+            boundary.live.borrow_mut().service_pending_commands(
+                &mut world.network_command_queues(),
+                (now_ms >> 4) as u32,
+            );
+        }
+        let mut replies = Vec::new();
+        let mut bytes = [0; MAX_DATAGRAM + 1];
+        while let Ok((length, std::net::SocketAddr::V4(source))) = socket.recv_from(&mut bytes) {
+            replies.extend(
+                relay
+                    .process_at(source, &bytes[..length], unix, now_ms)
+                    .unwrap_or_default(),
+            );
+        }
+        replies.extend(relay.drain_ordering_push(now_ms, unix));
+        for packet in replies {
+            // The first two seconds lose every push reply (CONTROL kind 4,
+            // payload event 7 after the 48-byte server header) to the second.
+            let push_reply = packet.bytes[4] == 4 && packet.bytes.get(48) == Some(&7);
+            if step >= 125 || packet.endpoint != second_address || !push_reply {
+                socket.send_to(&packet.bytes, packet.endpoint).unwrap();
+            }
+        }
+        for (world, boundary) in worlds.iter_mut().zip(&boundaries) {
+            production_frame(world, &rules, boundary);
+        }
+        if step == 124 {
+            assert!(boundaries[1].live.borrow().sequenced_timing().is_none());
+        }
+    }
+    assert!(
+        boundaries
+            .iter()
+            .all(|boundary| boundary.live.borrow().sequenced_timing().is_some()),
+        "a relay that answers a later probe delivers by push"
+    );
+}
+
+#[test]
 fn sequenced_push_advances_without_requests_and_repairs_a_lost_range() {
     use crate::net::udp::test_support::MAX_DATAGRAM;
     use crate::sim::command::{Command, MEGAMISSION_OPCODE};

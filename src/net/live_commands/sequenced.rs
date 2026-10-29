@@ -23,6 +23,7 @@ const MAX_FRAME_RECORDS: usize = 4096;
 const SAMPLE_HISTORY: usize = 4096;
 const BATCH_HEADER: usize = 9;
 const PUSH_PROBE_INTERVAL_MS: i32 = 500;
+const PUSH_REPROBE_INTERVAL_MS: i32 = 5_000;
 const PUSH_WATERMARK_INTERVAL_MS: i32 = 100;
 const REPLAY_RETRY_INTERVAL_MS: i32 = 100;
 const PUSH_SILENCE_REPAIR_MS: u32 = 1_000;
@@ -470,22 +471,25 @@ impl SequencedSession {
         if self.started {
             match &mut self.push {
                 PushDelivery::Probing { attempts } => {
-                    if service_due(self.last_push_control, now, PUSH_PROBE_INTERVAL_MS) {
-                        if *attempts == 3 {
-                            // Old relays reject unknown controls. Keep their
-                            // established pull path after a bounded handshake.
-                            self.push = PushDelivery::PullOnly;
-                        } else {
-                            let confirmations = transport.relay_confirmations();
-                            if transport
-                                .set_ordering_push(true, self.next_sequence)
-                                .is_ok()
-                            {
-                                *attempts += 1;
-                                self.last_push_control = Some(now);
-                                self.push_watermark = self.next_sequence;
-                                self.push_confirmations = confirmations;
-                            }
+                    // Old relays reject unknown controls, but three lost
+                    // replies look the same. Pull meanwhile and keep probing
+                    // at a slower rate; only a relay's explicit refusal ends
+                    // the handshake.
+                    let interval = if *attempts < 3 {
+                        PUSH_PROBE_INTERVAL_MS
+                    } else {
+                        PUSH_REPROBE_INTERVAL_MS
+                    };
+                    if service_due(self.last_push_control, now, interval) {
+                        let confirmations = transport.relay_confirmations();
+                        if transport
+                            .set_ordering_push(true, self.next_sequence)
+                            .is_ok()
+                        {
+                            *attempts = attempts.saturating_add(1);
+                            self.last_push_control = Some(now);
+                            self.push_watermark = self.next_sequence;
+                            self.push_confirmations = confirmations;
                         }
                     }
                 }

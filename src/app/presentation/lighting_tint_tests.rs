@@ -431,6 +431,49 @@ fn attach_effect_tint_ors_colours_and_sums_intensities_by_viewer() {
     );
 }
 
+/// `Tint.Cumulative`: stacked instances of one cumulative effect sum their
+/// colour channels and intensities before a single tint; without it the type
+/// tints once with its own colour.
+#[cfg(feature = "phobos")]
+#[test]
+fn cumulative_effect_tint_stacks_by_type_or_once() {
+    let scene = |extra: &str| {
+        let ini = IniFile::from_str(&format!(
+            "[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+             [VehicleTypes]\n0=TARGET\n\
+             [TARGET]\nStrength=1000\nSpeed=6\n\
+             AttachEffect.AttachTypes=SAME,SAME\n\
+             [AttachEffectTypes]\n0=SAME\n\
+             [SAME]\nDuration=100\nCumulative=yes\nCumulative.MaxCount=3\n\
+             Tint.Color=10,20,30\nTint.Intensity=0.5\n{extra}"
+        ));
+        let rules = crate::rules::ruleset::RuleSet::from_ini(&ini).expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 3);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let target = sim
+            .spawn_object("TARGET", "Americans", 20, 20, 0, &rules)
+            .expect("spawn");
+        sim.advance_tick(&[], Some(&rules), None, Some(rules.overlay_registry()), 22);
+        (sim, rules, target)
+    };
+
+    // Base (10,20,30)/(0.5) stacked twice sums to (20,40,60)/1.0.
+    let (sim, rules, target) = scene("");
+    assert_eq!(
+        attach_effect_tint(sim.entities().get(target).unwrap(), &sim, &rules),
+        (0x1147, 1000),
+        "the two instances of one type sum their tint"
+    );
+
+    let (sim, rules, target) = scene("Tint.Cumulative=no\n");
+    assert_eq!(
+        attach_effect_tint(sim.entities().get(target).unwrap(), &sim, &rules),
+        (0x08A3, 500),
+        "without Tint.Cumulative the type tints once"
+    );
+}
+
 /// Phobos `ApplyCustomTintValues` selects the viewer's shield-tint bucket and
 /// `Drawing::RGB_To_Int` packs `Tint.Color` as RGB565.
 #[cfg(feature = "phobos")]

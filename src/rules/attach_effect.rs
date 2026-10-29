@@ -235,6 +235,9 @@ pub struct AttachEffectType {
     /// covers every deeper layer.
     pub cumulative_animations: Vec<String>,
     pub cumulative_animations_restart_on_change: bool,
+    /// `CumulativeAnimations.CountIncrement`: above 1 the layer count divides
+    /// by it instead of indexing from one; LoadFromINI clamps it to at least 1.
+    pub cumulative_animations_count_increment: i32,
     pub animation_reset_on_reapply: bool,
     pub animation_offline_action: AttachedAnimFlag,
     pub animation_temporal_action: AttachedAnimFlag,
@@ -245,15 +248,19 @@ pub struct AttachEffectType {
     pub tint_color: Option<[u8; 3]>,
     pub tint_intensity: f64,
     pub tint_visible_to_houses: AffectedHouse,
+    /// `Tint.Cumulative`: a cumulative effect's tints of the same type add
+    /// up instead of the type tinting once.
+    pub tint_cumulative: bool,
     /// `FirepowerMultiplier`.
     pub firepower_multiplier: f64,
     /// `ArmorMultiplier` and its conditional form.
     pub armor_multiplier: f64,
     pub armor_multiplier_allow_warheads: Vec<String>,
     pub armor_multiplier_disallow_warheads: Vec<String>,
-    /// `.Delay` is documented but the class has no such reader, so it is not
-    /// read here.
     pub armor_multiplier_chance: f64,
+    /// `ArmorMultiplier.Delay`: a real hit that applied this multiplier blocks
+    /// later applications for this many frames.
+    pub armor_multiplier_delay: i32,
     pub armor_multiplier_affects_house: AffectedHouse,
     /// `ArmorMultiplier.HitAnim`: one is picked when the multiplier applies to
     /// a received hit.
@@ -339,6 +346,7 @@ impl AttachEffectType {
             animation: None,
             cumulative_animations: Vec::new(),
             cumulative_animations_restart_on_change: true,
+            cumulative_animations_count_increment: 1,
             animation_reset_on_reapply: false,
             animation_offline_action: AttachedAnimFlag::Hides,
             animation_temporal_action: AttachedAnimFlag::None,
@@ -348,11 +356,13 @@ impl AttachEffectType {
             tint_color: None,
             tint_intensity: 0.0,
             tint_visible_to_houses: AffectedHouse::ALL,
+            tint_cumulative: true,
             firepower_multiplier: 1.0,
             armor_multiplier: 1.0,
             armor_multiplier_allow_warheads: Vec::new(),
             armor_multiplier_disallow_warheads: Vec::new(),
             armor_multiplier_chance: 1.0,
+            armor_multiplier_delay: 0,
             armor_multiplier_affects_house: AffectedHouse::ALL,
             armor_multiplier_hit_anim: Vec::new(),
             speed_multiplier: 1.0,
@@ -393,14 +403,20 @@ impl AttachEffectType {
         }
     }
 
-    /// `GetCumulativeAnimation(count)`: the layer count picks the animation,
-    /// and every layer past the list keeps the last one.
+    /// `GetCumulativeAnimation(count)` (`AttachEffectTypeClass.h:241`): above
+    /// a `CountIncrement` of 1 the layer count divides by it, otherwise it
+    /// indexes from one; every layer past the list keeps the last one.
     pub fn cumulative_animation(&self, count: i32) -> Option<&str> {
         if count < 1 || self.cumulative_animations.is_empty() {
             return None;
         }
         let size = self.cumulative_animations.len() as i32;
-        let index = if count >= size { size - 1 } else { count - 1 };
+        let increment = self.cumulative_animations_count_increment.max(1);
+        let index = if increment > 1 {
+            (count / increment).clamp(0, size - 1)
+        } else {
+            (count - 1).min(size - 1)
+        };
         self.cumulative_animations
             .get(index as usize)
             .map(String::as_str)
@@ -422,13 +438,15 @@ impl AttachEffectType {
     }
 
     /// `RestrictedArmorMultiplier`: the armor factor is only rolled at hit
-    /// time when a hit anim is listed or any gate can reject it.
+    /// time when a hit anim is listed or any gate (chance, delay, warhead
+    /// lists, house) can reject it.
     pub fn restricted_armor_multiplier(&self) -> bool {
         !self.armor_multiplier_hit_anim.is_empty()
             || (self.armor_multiplier != 1.0
                 && (!self.armor_multiplier_allow_warheads.is_empty()
                     || !self.armor_multiplier_disallow_warheads.is_empty()
                     || self.armor_multiplier_chance < 1.0
+                    || self.armor_multiplier_delay > 0
                     || self.armor_multiplier_affects_house != AffectedHouse::ALL))
     }
 
@@ -562,6 +580,13 @@ impl AttachEffectTypeCatalog {
                 "CumulativeAnimations.RestartOnChange",
                 entry.cumulative_animations_restart_on_change,
             );
+            // LoadFromINI's post-read correction: a value below 1 becomes 1.
+            entry.cumulative_animations_count_increment = section
+                .read_int(
+                    "CumulativeAnimations.CountIncrement",
+                    entry.cumulative_animations_count_increment,
+                )
+                .max(1);
             entry.animation_reset_on_reapply =
                 section.read_bool("Animation.ResetOnReapply", entry.animation_reset_on_reapply);
             entry.animation_offline_action = section.read_string_with(
@@ -599,6 +624,7 @@ impl AttachEffectTypeCatalog {
                 entry.tint_visible_to_houses,
                 |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
             );
+            entry.tint_cumulative = section.read_bool("Tint.Cumulative", entry.tint_cumulative);
             entry.firepower_multiplier =
                 section.read_phobos_double("FirepowerMultiplier", entry.firepower_multiplier);
             entry.armor_multiplier =
@@ -613,6 +639,8 @@ impl AttachEffectTypeCatalog {
             }
             entry.armor_multiplier_chance =
                 section.read_phobos_double("ArmorMultiplier.Chance", entry.armor_multiplier_chance);
+            entry.armor_multiplier_delay =
+                section.read_int("ArmorMultiplier.Delay", entry.armor_multiplier_delay);
             entry.armor_multiplier_affects_house = section.read_string_with(
                 "ArmorMultiplier.AffectsHouse",
                 0x100,
@@ -1083,12 +1111,47 @@ Unkillable=yes
             Some("B"),
             "the last covers the rest"
         );
+        // `CountIncrement > 1` divides the layer count before indexing.
+        effect.cumulative_animations = vec!["A".to_owned(), "B".to_owned(), "C".to_owned()];
+        effect.cumulative_animations_count_increment = 3;
+        assert_eq!(effect.cumulative_animation(1), Some("A"));
+        assert_eq!(effect.cumulative_animation(2), Some("A"));
+        assert_eq!(effect.cumulative_animation(3), Some("B"));
+        assert_eq!(effect.cumulative_animation(5), Some("B"));
+        assert_eq!(effect.cumulative_animation(6), Some("C"));
+        assert_eq!(
+            effect.cumulative_animation(30),
+            Some("C"),
+            "the last covers deeper layers"
+        );
         assert!(effect.has_animation(), "a cumulative list counts as one");
         assert!(!effect.has_tint());
         effect.animation = Some("ONE".to_owned());
         assert!(effect.has_animation());
         effect.tint_intensity = 0.25;
         assert!(effect.has_tint(), "a nonzero intensity tints");
+    }
+
+    /// `CumulativeAnimations.CountIncrement` is clamped at 1, and the armor
+    /// delay and tint-cumulative key keep their constructor defaults.
+    #[test]
+    fn count_increment_armor_delay_and_tint_cumulative_read() {
+        let catalog = parse(
+            "[AttachEffectTypes]\n0=T\n[T]\nCumulativeAnimations.CountIncrement=0\n\
+             ArmorMultiplier.Delay=5\nTint.Cumulative=no\n",
+        );
+        let entry = catalog.entry("T").expect("entry");
+        assert_eq!(
+            entry.cumulative_animations_count_increment, 1,
+            "below one is corrected to one"
+        );
+        assert_eq!(entry.armor_multiplier_delay, 5);
+        assert!(!entry.tint_cumulative);
+
+        let defaults = AttachEffectType::default();
+        assert_eq!(defaults.cumulative_animations_count_increment, 1);
+        assert_eq!(defaults.armor_multiplier_delay, 0);
+        assert!(defaults.tint_cumulative);
     }
 
     /// `AllowTransfer` defaults to whether the effect is self-owned, and

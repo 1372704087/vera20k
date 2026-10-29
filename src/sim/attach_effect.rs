@@ -74,6 +74,12 @@ pub struct AttachEffectInstance {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     last_sequence_check: Option<crate::rules::animation_sequence::SequenceKind>,
+    /// `ArmorMultiplierTimer`: a real hit that applied a restricted
+    /// `ArmorMultiplier` with `.Delay > 0` blocks further rolls until it runs
+    /// out (`TechnoHooks.cpp:552`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    armor_multiplier_timer: crate::sim::timer::CdTimer,
 }
 
 impl AttachEffectInstance {
@@ -102,6 +108,8 @@ impl AttachEffectInstance {
             received_damage_count: 0,
             #[cfg(feature = "phobos")]
             last_sequence_check: None,
+            #[cfg(feature = "phobos")]
+            armor_multiplier_timer: crate::sim::timer::CdTimer::default(),
         };
         instance.refresh(effect);
         instance
@@ -1860,21 +1868,49 @@ impl Simulation {
             z: position.z,
         };
         let effects = rules.attach_effect_types().types();
-        // Type indices keep the attach order without holding the entity borrow.
-        let restricted: Vec<usize> = target
+        // Instance positions keep the attach order without holding the entity
+        // borrow, so the per-instance `ArmorMultiplierTimer` can be read and
+        // restarted between the other state and RNG writes.
+        let restricted: Vec<(usize, usize)> = target
             .phobos_attach_effects()
-            .active_effects(effects)
-            .filter(|(_, effect)| effect.restricted_armor_multiplier())
-            .map(|(instance, _)| instance.type_index)
+            .instances()
+            .iter()
+            .enumerate()
+            .filter(|(_, instance)| instance.is_active(instance.is_self_owned()))
+            .filter(|(_, instance)| {
+                effects
+                    .get(instance.type_index)
+                    .is_some_and(|effect| effect.restricted_armor_multiplier())
+            })
+            .map(|(index, instance)| (index, instance.type_index))
             .collect();
         if restricted.is_empty() {
             return stats.armor;
         }
+        let frame = self.session.binary_frame() as i32;
         let mut multiplier = stats.armor;
-        for type_index in restricted {
+        for (instance_index, type_index) in restricted {
             let Some(effect) = effects.get(type_index) else {
                 continue;
             };
+            // `attachEffect->ArmorMultiplierTimer.InProgress()` skips the
+            // effect before its chance draw (`TechnoHooks.cpp:552`).
+            let timer = self
+                .substrate
+                .entities
+                .get(target_id)
+                .and_then(|target| {
+                    target
+                        .phobos_attach_effects()
+                        .instances()
+                        .get(instance_index)
+                })
+                .map_or_else(crate::sim::timer::CdTimer::default, |instance| {
+                    instance.armor_multiplier_timer
+                });
+            if timer.remaining(frame) > 0 {
+                continue;
+            }
             // `type->ArmorMultiplier_Chance < random.RandomDouble()`: the draw
             // happens for every restricted effect, whatever the chance value.
             let chance = self.scenario_rng.random_double();
@@ -1909,6 +1945,24 @@ impl Simulation {
                 }
             }
             multiplier *= effect.armor_multiplier;
+            // The real-hit arm starts the per-instance delay before the hit
+            // animation (`TechnoHooks.cpp:573..579`).
+            if effect.armor_multiplier_delay > 0
+                && let Some(instance) =
+                    self.substrate
+                        .entities
+                        .get_mut(target_id)
+                        .and_then(|target| {
+                            target
+                                .phobos_attach_effects_mut()
+                                .instances
+                                .get_mut(instance_index)
+                        })
+            {
+                instance
+                    .armor_multiplier_timer
+                    .start(frame, effect.armor_multiplier_delay);
+            }
             if !effect.armor_multiplier_hit_anim.is_empty() {
                 let pick = self
                     .scenario_rng
@@ -2500,6 +2554,33 @@ mod tests {
             sim.attach_effect_armor_multiplier(target, Some(other), None, &rules),
             0.25,
             "an unlisted warhead passes"
+        );
+
+        // `ArmorMultiplier.Delay`: a real hit starts the per-instance timer,
+        // which skips later rolls until it runs out.
+        let (mut sim, rules, target) = scene("ArmorMultiplier.Delay=5\n");
+        let hit = sim.interner.intern("HIT");
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), None, &rules),
+            0.25,
+            "the first hit applies the multiplier"
+        );
+        let before = sim.scenario_rng.native_state_hex();
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), None, &rules),
+            0.5,
+            "the running delay skips the effect"
+        );
+        assert_eq!(
+            before,
+            sim.scenario_rng.native_state_hex(),
+            "a skipped effect draws nothing"
+        );
+        sim.session.set_binary_frame_for_test(6);
+        assert_eq!(
+            sim.attach_effect_armor_multiplier(target, Some(hit), None, &rules),
+            0.25,
+            "once the delay runs out the multiplier applies again"
         );
     }
 

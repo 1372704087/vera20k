@@ -337,9 +337,14 @@ fn viewer_bucket(
 }
 
 /// Phobos `TechnoExt::UpdateTintValues`'s AttachEffect arm
-/// (`src/Ext/Techno/Body.Update.cpp:1262..1282`): every active effect whose
-/// type has a tint and whose `Tint.VisibleToHouses` admits the viewer ORs its
-/// colour word and sums its intensity, in attach order.
+/// (`src/Ext/Techno/Body.Update.cpp:1332..1399`): every active effect whose
+/// type has a tint and whose `Tint.VisibleToHouses` admits the viewer adds its
+/// colour and intensity, in attach order.
+///
+/// A non-cumulative type tints once per instance. A cumulative type tints once
+/// per type unless `Tint.Cumulative` is set; with a black colour it still
+/// tints once per instance, and with a real colour the instances of one type
+/// sum their colour channels and intensities before one tint.
 ///
 /// Read only: no simulation state, timer, RNG or detach is written.
 ///
@@ -361,6 +366,10 @@ pub(crate) fn attach_effect_tint(
     }
     let bucket = viewer_bucket(entity, simulation);
     let effects = rules.attach_effect_types().types();
+    // The native pass applies the per-instance tints inline and folds each
+    // cumulative tint type's colours into one entry applied afterwards.
+    let mut seen_types: Vec<usize> = Vec::new();
+    let mut cumulative_tints: Vec<(usize, [u8; 3], f64)> = Vec::new();
     for instance in list.instances() {
         let Some(effect) = effects.get(instance.type_index) else {
             continue;
@@ -371,8 +380,43 @@ pub(crate) fn attach_effect_tint(
         if !effect.tint_visible_to_houses.contains(bucket) {
             continue;
         }
-        word |= effect.tint_color.map_or(0, rgb565_word);
-        intensity += (effect.tint_intensity * 1000.0) as i32;
+        let instance_intensity = (effect.tint_intensity * 1000.0) as i32;
+        if !effect.cumulative {
+            word |= effect.tint_color.map_or(0, rgb565_word);
+            intensity += instance_intensity;
+            continue;
+        }
+        if !effect.tint_cumulative {
+            if seen_types.contains(&instance.type_index) {
+                continue;
+            }
+            seen_types.push(instance.type_index);
+            word |= effect.tint_color.map_or(0, rgb565_word);
+            intensity += instance_intensity;
+            continue;
+        }
+        let Some(color) = effect.tint_color.filter(|color| *color != [0, 0, 0]) else {
+            // A black colour cannot be summed; the type tints per instance.
+            intensity += instance_intensity;
+            continue;
+        };
+        if let Some(entry) = cumulative_tints
+            .iter_mut()
+            .find(|entry| entry.0 == instance.type_index)
+        {
+            entry.1 = [
+                entry.1[0].saturating_add(color[0]),
+                entry.1[1].saturating_add(color[1]),
+                entry.1[2].saturating_add(color[2]),
+            ];
+            entry.2 += effect.tint_intensity;
+        } else {
+            cumulative_tints.push((instance.type_index, color, effect.tint_intensity));
+        }
+    }
+    for (_, color, intensity_sum) in cumulative_tints {
+        word |= rgb565_word(color);
+        intensity += (intensity_sum * 1000.0) as i32;
     }
     (word, intensity)
 }

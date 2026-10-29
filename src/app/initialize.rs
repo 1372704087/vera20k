@@ -542,20 +542,11 @@ impl App {
         });
         // Native `Init_Game` plays its logo only when the bulk MIX mount
         // returned success (`0x0052C5A1..A3`), and VERA plays nothing for a
-        // sealed capture or a client-selected launch.
+        // sealed capture or a client-selected launch. A client-selected game
+        // enters scenario loading directly, with no splash either.
         let process_movies =
             !external_launch && capture_dimensions.is_none() && main_menu_shell_error.is_none();
-        // `Init_Game` plays `EA_WWLOGO` through `Play_Movie` at `0x0052C5E2`
-        // and presents its splash at `0x0052C5F3`. Both are serviced by the
-        // frame loop (see `startup_movies`), so nothing here blocks the event
-        // loop: this only paints the black frame the logo starts from.
-        // A client-selected game enters scenario loading directly. This splash
-        // is presented synchronously below, before start_spawn_session runs;
-        // clearing it in that later callback cannot hide the first frame.
-        let mut startup_splash = if !external_launch
-            && capture_dimensions.is_none()
-            && main_menu_shell_error.is_none()
-        {
+        let startup_splash = if process_movies {
             startup_asset_manager
                 .as_ref()
                 .zip(startup_fnt.as_ref())
@@ -577,45 +568,30 @@ impl App {
             None
         };
         if process_movies {
-            // `Init_Game` plays `EA_WWLOGO` at `0x0052C5E2` and presents its
-            // splash at `0x0052C5F3`, so the logo owns the window first. Until
-            // it ends, a black frame keeps the surface painted; the frame loop
-            // presents the splash as soon as the logo is done.
-            match crate::app::startup_movies::present_startup_black(&gpu, &shell_surface_presenter)
-            {
-                Ok(true) => {}
-                Ok(false) => log::warn!("Initial startup black present deferred: no surface frame"),
-                Err(err) => log::warn!("Initial startup black present deferred: {err:#}"),
-            }
-        } else if let Some(splash) = startup_splash.as_mut() {
-            // Surface acquisition can be transient before the first event-loop
-            // redraw. A splash that did not reach the screen stays unarmed for
-            // the frame loop to retry.
+            // `Init_Game` plays `EA_WWLOGO` (`0x0052C5E2`) before it presents
+            // the splash (`0x0052C5F3`), and the logo needs the frame loop, so
+            // the load below runs on black. The frame loop presents the splash
+            // and arms its hold once the logo has ended.
             match startup_splash::render_and_present(
                 &gpu,
                 &batch_renderer,
                 &shell_surface_presenter,
                 &depth_view,
                 &fps_overlay,
-                splash,
+                None,
             ) {
-                Ok(true) => splash.mark_presented(Instant::now()),
-                Ok(false) => {
-                    log::warn!("Initial retail startup splash present deferred: no surface frame");
-                }
-                Err(err) => {
-                    log::warn!("Initial retail startup splash present deferred: {err:#}");
-                }
+                Ok(true) => {}
+                Ok(false) => log::warn!("Initial startup black present deferred: no surface frame"),
+                Err(err) => log::warn!("Initial startup black present deferred: {err:#}"),
             }
         }
         if external_launch {
             log::info!("External launch: process-start splash skipped");
         }
         InitializationStep::pending(window.clone(), move || {
-            // Ordinary interactive startup runs with the splash already on screen: the
-            // presented swapchain frame stays composited while this thread blocks,
-            // and the hold armed above is measured from that present, so a slow
-            // load is spent inside the five seconds instead of before them.
+            // Ordinary interactive startup runs with the black frame above on
+            // screen: the presented swapchain frame stays composited while this
+            // thread blocks.
             let mut process_assets =
                 crate::app::process_assets::ProcessAssets::new_with_ini_config(
                     startup_options.media_archive_mode,
@@ -817,9 +793,6 @@ impl App {
                     crate::web::take_music_output(),
                     crate::web::take_sfx_output(),
                 );
-                // Native's output device exists before the logo it plays, so
-                // this player was created above the splash and is handed on
-                // here instead of paying for a second device.
                 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
                 let music_player = startup_audio
                     .initialize_music_output
@@ -1087,8 +1060,7 @@ impl App {
                 shell_exit: None,
                 quit_cascade: None,
                 startup_splash,
-                startup_logo: None,
-                startup_intro: None,
+                startup_intro_pending: false,
                 shell_message_box: None,
                 options_dialog: None,
                 keyboard_dialog: None,
@@ -1176,18 +1148,15 @@ impl App {
                 // even without a music device. The profile keeps native negative values
                 // for round-trip; physical output owners provide the safe gain clamp.
                 apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
-                // The logo plays over the black frame above and the splash
-                // follows it; the intro follows the splash hold. Both are
-                // frame-loop plays, in native's order (`0x0052C5E2`,
-                // `0x0052C5F3`, `0x0052CA65`).
+                // `Init_Game` plays the logo through Play_Movie (`0x0052C5E2`),
+                // then presents the splash (`0x0052C5F3`); the frame loop
+                // starts the first-run intro once the splash hold ends.
                 if process_movies && state.frontend.screen == GameScreen::MainMenu {
-                    state.frontend.startup_logo = crate::app::startup_movies::StartupMovie::armed(
-                        true,
-                        crate::app::startup_movies::StartupMovieSlot::Logo,
-                    );
-                    state.frontend.startup_intro = crate::app::startup_movies::StartupMovie::armed(
-                        play_intro,
-                        crate::app::startup_movies::StartupMovieSlot::Intro,
+                    state.frontend.startup_intro_pending = play_intro;
+                    Self::start_fullscreen_movie(
+                        &mut state,
+                        crate::app::frontend::fullscreen_movie::STARTUP_LOGO_MOVIE,
+                        crate::app::frontend::fullscreen_movie::MovieReturn::StartupLogo,
                     );
                 }
                 Self::sync_zoom_pass(&mut state);

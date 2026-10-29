@@ -200,16 +200,16 @@ impl StartupSplashPresentation {
     }
 }
 
-/// Draw and present the splash. Returns whether it reached the screen: a
-/// surface with no frame to give this time leaves the hold unarmed for the
-/// next redraw.
+/// Draw and present the splash, or with `None` the black frame the startup
+/// logo starts from. Returns whether it reached the screen: a surface with no
+/// frame to give this time leaves the hold unarmed for the next redraw.
 pub(crate) fn render_and_present(
     gpu: &GpuContext,
     batch: &BatchRenderer,
     presenter: &ShellSurfacePresenter,
     depth: &wgpu::TextureView,
     fps_overlay: &crate::app::diagnostics::fps_overlay::FpsOverlay,
-    splash: &StartupSplashPresentation,
+    splash: Option<&StartupSplashPresentation>,
 ) -> Result<bool> {
     batch.update_camera(
         gpu,
@@ -259,12 +259,14 @@ pub(crate) fn render_and_present(
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        batch.draw_with_buffer_ui_passthrough(
-            &mut pass,
-            &splash.texture,
-            &splash.instance_buffer,
-            1,
-        );
+        if let Some(splash) = splash {
+            batch.draw_with_buffer_ui_passthrough(
+                &mut pass,
+                &splash.texture,
+                &splash.instance_buffer,
+                1,
+            );
+        }
     }
     presenter.encode_present(&mut encoder, &output.texture);
     fps_overlay.encode(gpu, batch, &mut encoder, &output.texture);

@@ -24,8 +24,20 @@ use crate::render::native_surface_format::{ACTIVE_RETAIL_RGB565_PRESENTATION, RG
 use crate::render::shell_paint::{MOVIE_DEPTH, TEXT_DEPTH};
 use crate::render::shell_text::{ScissorRect, ShellAlign, ShellTextDraw, TextRect};
 
+/// `Init_Game` `0x0052C5E2..0x0052C5EE`: the logo Play_Movie plays on every
+/// launch, before the startup splash (name `0x825F20`).
+pub(crate) const STARTUP_LOGO_MOVIE: &str = "EA_WWLOGO";
+/// `0x0052CB50` (called at `0x0052CA65`): the intro Play_Movie plays while
+/// WinMain's `[Intro] Play=` bit `[0xA8E960] & 4` is set (name `0x82618C`).
+pub(crate) const STARTUP_INTRO_MOVIE: &str = "A00_F00E";
+
 /// The continuation owned by Play_Movie's caller.
 pub(crate) enum MovieReturn {
+    /// `Init_Game` presents the startup splash next (`0x0052C5F3`).
+    StartupLogo,
+    /// `0x0052CB50` draws the empty shell backdrop next; the main menu's
+    /// first paint follows.
+    StartupIntro,
     /// State `0xD` (Sneak Peeks) sets state 4: Movies & Credits `0x101`.
     MoviesAndCredits,
     /// State `0xE` stays in place: the movie list `0x129` reopens.
@@ -89,30 +101,6 @@ pub(crate) fn movie_rect(screen_w: i32, screen_h: i32, movie_w: i32, movie_h: i3
     [(screen_w - w) / 2, (screen_h - h) / 2, w, h]
 }
 
-/// Where one movie surface is drawn, as a full-window sprite.
-pub(crate) fn surface_instance(
-    surface: &BinkMovieSurface,
-    screen_w: i32,
-    screen_h: i32,
-) -> SpriteInstance {
-    let [x, y, w, h] = movie_rect(
-        screen_w,
-        screen_h,
-        surface.width() as i32,
-        surface.height() as i32,
-    );
-    SpriteInstance {
-        position: [x as f32, y as f32],
-        size: [w as f32, h as f32],
-        uv_origin: [0.0, 0.0],
-        uv_size: [1.0, 1.0],
-        depth: MOVIE_DEPTH,
-        tint: [1.0, 1.0, 1.0],
-        alpha: 1.0,
-        ..Default::default()
-    }
-}
-
 pub(crate) struct FullscreenMovie {
     playback: crate::app::movie_playback::MoviePlayback,
     return_to: MovieReturn,
@@ -162,7 +150,22 @@ impl FullscreenMovie {
         self.playback.surface()
     }
     pub(crate) fn instance(&self, screen_w: i32, screen_h: i32) -> SpriteInstance {
-        surface_instance(self.surface(), screen_w, screen_h)
+        let [x, y, w, h] = movie_rect(
+            screen_w,
+            screen_h,
+            self.surface().width() as i32,
+            self.surface().height() as i32,
+        );
+        SpriteInstance {
+            position: [x as f32, y as f32],
+            size: [w as f32, h as f32],
+            uv_origin: [0.0, 0.0],
+            uv_size: [1.0, 1.0],
+            depth: MOVIE_DEPTH,
+            tint: [1.0, 1.0, 1.0],
+            alpha: 1.0,
+            ..Default::default()
+        }
     }
 
     /// The shown subtitle's glyphs over the movie, scaled with it.

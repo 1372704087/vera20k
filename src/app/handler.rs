@@ -763,54 +763,16 @@ impl ApplicationHandler for App {
                 .record_physical_button(*button, edge.is_pressed());
         }
 
-        // Play_Movie's only input is a bare Escape release; every other key and
-        // mouse event stays consumed while a process-start movie owns the
-        // display. Redraw, resize, occlusion and close stay with their own
-        // owners: the movies need redraws to advance and present their frames.
-        // This gate sits above the splash's because the logo holds the display
-        // before the splash has even been presented.
-        if (state.frontend.startup_logo.is_some() || state.frontend.startup_intro.is_some())
-            && matches!(
-                &event,
-                WindowEvent::KeyboardInput { .. }
-                    | WindowEvent::ModifiersChanged(_)
-                    | WindowEvent::Ime(_)
-                    | WindowEvent::CursorMoved { .. }
-                    | WindowEvent::CursorEntered { .. }
-                    | WindowEvent::CursorLeft { .. }
-                    | WindowEvent::MouseWheel { .. }
-                    | WindowEvent::MouseInput { .. }
-                    | WindowEvent::PinchGesture { .. }
-                    | WindowEvent::PanGesture { .. }
-                    | WindowEvent::DoubleTapGesture { .. }
-                    | WindowEvent::RotationGesture { .. }
-                    | WindowEvent::TouchpadPressure { .. }
-                    | WindowEvent::AxisMotion { .. }
-                    | WindowEvent::Touch(_)
-            )
-        {
-            if let WindowEvent::KeyboardInput { event, .. } = &event
-                && event.physical_key == PhysicalKey::Code(KeyCode::Escape)
-                && !event.state.is_pressed()
-            {
-                let modifiers = state.platform.live_modifiers;
-                let bare =
-                    !(modifiers.shift_key() || modifiers.control_key() || modifiers.alt_key());
-                if bare {
-                    Self::startup_movie_key(state);
-                }
-            }
-            return;
-        }
-
         // Native does not expose menu/game input while its process-start splash
         // owns the display. Keep close/resize/redraw operational, but discard
-        // player input until the post-present deadline has elapsed.
-        if state
-            .frontend
-            .startup_splash
-            .as_ref()
-            .is_some_and(|splash| splash.is_active(Instant::now()))
+        // player input until the post-present deadline has elapsed. The startup
+        // logo plays before the splash and takes Play_Movie's own input.
+        if state.frontend.fullscreen_movie.is_none()
+            && state
+                .frontend
+                .startup_splash
+                .as_ref()
+                .is_some_and(|splash| splash.is_active(Instant::now()))
             && matches!(
                 &event,
                 WindowEvent::KeyboardInput { .. }

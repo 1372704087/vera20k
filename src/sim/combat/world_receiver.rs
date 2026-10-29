@@ -1205,6 +1205,21 @@ pub(crate) fn commit_entities(
             }
         };
         #[cfg(feature = "phobos")]
+        if shield_receipt
+            .as_ref()
+            .is_some_and(|receipt| receipt.shield_damage_positive)
+            && rules
+                .warhead(world.interner.resolve(event.warhead_ref))
+                .is_some_and(|warhead| rules.decloak_damaged_targets_for(warhead))
+        {
+            // Phobos `ShieldClass::ReceiveDamage` (`ShieldClass.cpp:249..255`)
+            // uncloaks the target before the native receiver body runs, so a
+            // shield absorbed hit still surfaces it. The later native-slot
+            // call rejects the already-uncloaking state.
+            start_uncloaking_for_damage(world, target_id, rules, current_tick, sound_enabled);
+        }
+
+        #[cfg(feature = "phobos")]
         #[cfg(feature = "ares")]
         let ares_initially_positive = shield_receipt
             .as_ref()
@@ -1508,43 +1523,7 @@ pub(crate) fn commit_entities(
         // `StartUncloaking(0)` argument is zero, so it owns one positional
         // `[AudioVisual] CloakSound`.
         if uncloak_after_damage {
-            // Production combat callers derive `current_tick` from
-            // `ScenarioSession::binary_frame`, which is the clock the cloak step
-            // timer is compared against in `CloakingTick`.
-            let now = current_tick as i32;
-            let cloaking_speed = world
-                .substrate
-                .entities
-                .get(target_id)
-                .and_then(|target| world.interner.object_type(target.type_ref(), rules))
-                .map_or(1, |object| object.cloaking_speed);
-            // `TechnoClass::ReceiveDamage @ 0x0070281D` invokes virtual
-            // `+0xFC` (`0x00703850`, a plain `StartUncloaking(0)` wrapper) for
-            // every damage result that is not NowDead — the heal case
-            // included, because the `if (damage < 0) return` early-out sits
-            // AFTER this call. Argument zero, so the transition owns a
-            // `CloakSound`.
-            let surfaced = world
-                .substrate
-                .entities
-                .get_mut(target_id)
-                .and_then(|target| target.cloak.as_mut())
-                .map(|cloak| {
-                    cloak.start_uncloaking(
-                        now,
-                        cloaking_speed,
-                        rules.general.cloaking_stages,
-                        false,
-                    )
-                });
-            if surfaced.is_some_and(|result| result.play_sound) && sound_enabled {
-                emit_configured_cloak_sound(
-                    &world.substrate,
-                    &mut world.sound_events,
-                    target_id,
-                    rules,
-                );
-            }
+            start_uncloaking_for_damage(world, target_id, rules, current_tick, sound_enabled);
         }
 
         if latch_hostile_hit && let Some(target) = world.substrate.entities.get_mut(target_id) {
@@ -3701,6 +3680,40 @@ fn receiver_tick(world: &Simulation) -> u64 {
         return fixture.current_tick;
     }
     u64::from(world.session.binary_frame())
+}
+
+/// One `StartUncloaking(0)` for a damage receiver: `TechnoClass::ReceiveDamage
+/// @ 0x0070281D`'s virtual `+0xFC` (`0x00703850`) and Phobos
+/// `ShieldClass::ReceiveDamage` (`ShieldClass.cpp:249..255`) share it.
+/// Production combat callers derive `current_tick` from
+/// `ScenarioSession::binary_frame`, the clock `CloakingTick` compares against.
+/// The native call passes the sound-suppression argument zero, so an accepted
+/// transition owns one positional `[AudioVisual] CloakSound`.
+fn start_uncloaking_for_damage(
+    world: &mut Simulation,
+    target_id: u64,
+    rules: &RuleSet,
+    current_tick: u64,
+    sound_enabled: bool,
+) {
+    let now = current_tick as i32;
+    let cloaking_speed = world
+        .substrate
+        .entities
+        .get(target_id)
+        .and_then(|target| world.interner.object_type(target.type_ref(), rules))
+        .map_or(1, |object| object.cloaking_speed);
+    let surfaced = world
+        .substrate
+        .entities
+        .get_mut(target_id)
+        .and_then(|target| target.cloak.as_mut())
+        .map(|cloak| {
+            cloak.start_uncloaking(now, cloaking_speed, rules.general.cloaking_stages, false)
+        });
+    if surfaced.is_some_and(|result| result.play_sound) && sound_enabled {
+        emit_configured_cloak_sound(&world.substrate, &mut world.sound_events, target_id, rules);
+    }
 }
 
 #[inline]

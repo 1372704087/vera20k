@@ -605,3 +605,39 @@ fn a_temporal_warhead_still_applies_the_minimum_shield_damage() {
     assert_eq!(shield(&sim).hp(), 90);
     assert_eq!(health(&sim), 200);
 }
+
+/// Phobos `ShieldClass::ReceiveDamage` (`ShieldClass.cpp:249..255`) uncloaks
+/// a target whose shield absorbed a positive hit, gated by the warhead's
+/// `DecloakDamagedTargets`.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_shield_damage_decloaks_only_when_the_warhead_allows_it() {
+    fn hit_cloaked(rules: &RuleSet) -> i32 {
+        let (mut sim, _) = scene(rules);
+        let mut cloak = crate::sim::cloak_disguise::CloakRuntime::new(0);
+        cloak.establish_unlimbo_fully_cloaked();
+        sim.substrate.entities.get_mut(1).unwrap().cloak = Some(cloak);
+        hit(&mut sim, rules, 40);
+        assert_eq!(shield(&sim).hp(), 60, "the shield owns the hit");
+        assert_eq!(health(&sim), 200, "no hull damage reaches the receiver");
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .cloak
+            .as_ref()
+            .unwrap()
+            .state()
+    }
+
+    assert_eq!(
+        hit_cloaked(&rules("", "")),
+        3,
+        "an admitting warhead starts uncloaking"
+    );
+    assert_eq!(
+        hit_cloaked(&rules("", "DecloakDamagedTargets=no")),
+        2,
+        "the per-warhead no keeps the shield owner hidden"
+    );
+}

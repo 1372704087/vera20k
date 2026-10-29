@@ -829,6 +829,38 @@ impl TriggerRuntime {
         self.definitions_prepared.hash(hasher);
         self.classified.hash(hasher);
     }
+
+    /// VERA-only match-checksum terms
+    /// ([`Simulation::compute_multiplayer_frame_checksum`]): each set
+    /// Scenario global, then each set local (high bit set), then each live
+    /// trigger in registration order with what `TriggerClass::ComputeCRC @
+    /// 0x00726790` folds (type, Destroyed `+0x30`, Enabled, the timer's
+    /// remaining time, the occurred-event bits), then each live Tag with
+    /// what `TagClass::ComputeCRC @ 0x006E56E0` folds (type, Destroyed).
+    /// `ScenarioClass::ComputeCRC @ 0x0068B940` folds no variable; VERA adds
+    /// them because actions write them and events poll them.
+    pub(crate) fn fold_match_checksum(
+        &self,
+        frame: i32,
+        checksum: &mut crate::sim::multiplayer_checksum::RetailChecksumAccumulator,
+    ) {
+        for &index in &self.globals_set {
+            checksum.fold_value(index);
+        }
+        for &index in &self.locals_set {
+            checksum.fold_value(index | 0x8000_0000);
+        }
+        for trigger in self.trigger_order.iter().filter_map(|&i| self.trigger(i)) {
+            checksum.fold_value(trigger.type_index as u32);
+            checksum.fold_value(u32::from(trigger.pending) | u32::from(trigger.enabled) << 1);
+            checksum.fold_value(trigger.timer.remaining(frame) as u32);
+            checksum.fold_value(trigger.completed);
+        }
+        for tag in self.tag_order.iter().filter_map(|&i| self.tag(i)) {
+            checksum.fold_value(tag.type_index as u32);
+            checksum.fold_value(u32::from(tag.pending));
+        }
+    }
     fn tag(&self, index: usize) -> Option<&LiveTag> {
         self.tags.get(index)?.as_ref()
     }
@@ -1642,7 +1674,14 @@ impl Simulation {
                 let Some(actor) = input.actor.and_then(|id| self.substrate.entities.get(id)) else {
                     return false;
                 };
-                let displayed = actor.disguise_house(true, self.session.current_house(), false);
+                // VERA network adaptation: an undisguised agent falls back
+                // to PlayerPtr, which differs per client and now feeds the
+                // match checksum, so a network game compares the worn
+                // identity alone.
+                let viewer = (!self.session.game_mode().is_network())
+                    .then(|| self.session.current_house())
+                    .flatten();
+                let displayed = actor.disguise_house(true, viewer, false);
                 let selected = u16::try_from(condition.value).ok().and_then(|country| {
                     self.house_by_country_index(crate::rules::ruleset::CountryIdx(country), rules)
                 });

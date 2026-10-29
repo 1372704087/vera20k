@@ -162,7 +162,10 @@ started or not), or the match's final frame ends participation. The certificate
 bounds only a startup; a started room ends at its final frame, which pauses
 postpone, and is retired regardless 48 hours and 3 minutes after it was created.
 Once every source has departed, a
-300-second terminal replay grace precedes exact-file cleanup. No reader
+300-second terminal replay grace precedes exact-file cleanup. For 24 hours after
+that cleanup, longer than any of its certificates lasts, a cleaned-up match
+answers Ready with `Inactive`, so a player returning later cannot start a new
+timeline under its ID; the marker lives in memory and a relay restart drops it. No reader
 acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
 
@@ -183,9 +186,17 @@ explicit absolute `VERA_RELAY_STATE_DIR` for local development. Journal files
 are mode0600 in a mode0700 directory named only from the16-byte signed room ID.
 They contain encrypted batches and public ordering metadata, never payload keys.
 Journal reservations share 8 GiB and never preallocate disk space. Each room
-reserves 24 hours of empty frame ends and all departures at its certified FPS
-(21–124 MiB) plus 32 MiB of commands per certified source: about 52 two-player
-or 23 eight-player matches at once at 45 FPS, 43 two-player at 60 FPS. Reaching
+reserves all departures, an hour of empty frame ends at its certified FPS
+(0.9–5.2 MiB) and 32 MiB of commands per certified source, and keeps what it
+wrote. A new room is admitted only while the next hour of every live room, its
+own included, still fits beside the reservations: about 114 two-player or 31
+eight-player new matches at once at 45 FPS, 110 two-player at 60 FPS. A full
+relay therefore refuses new matches rather than running ones: once less than
+half an hour of frame ends is left, a live room reserves its next hour without
+waiting on the quota, up to the 24 hours its certificate allows, as does a burst
+of frames that outgrows the reserved hour; running rooms' later hours can take
+the total past 8 GiB, to about 22 GB if 110 two-player 60 FPS matches all ran
+for 24 hours. Reaching
 the command allowance backpressures new batches while the clock and already
 accepted entries remain writable. A finished room keeps only the bytes it wrote
 through its replay grace. A room whose files could not all be created, or whose

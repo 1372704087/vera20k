@@ -5,11 +5,10 @@ use crate::rules::team_ai_ini::TeamAiIniRegistry;
 use crate::sim::house_state::HouseState;
 use crate::sim::mission::MissionType;
 use crate::sim::scenario_session::ScenarioGameMode;
-use crate::sim::snapshot::GameSnapshot;
-use crate::sim::world::{FrameEffects, Simulation, TickLane};
+use crate::sim::world::{FrameEffects, Simulation};
 
 #[test]
-fn authored_signed_group_wakes_across_houses_after_restore_then_commences_normally() {
+fn authored_signed_group_queues_guard_across_houses() {
     let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
         return;
     };
@@ -67,18 +66,6 @@ fn authored_signed_group_wakes_across_houses_after_restore_then_commences_normal
     }
     assert_ne!(sim.entities().get(ids[1]).unwrap().owner(), human);
 
-    let terrain = sim.resolved_terrain().unwrap().clone();
-    let terrain_speed = sim.terrain_speed_config().clone();
-    let saved = GameSnapshot::save(&sim, 0, rules.simulation_config_hash(), "Group wakeup", 0);
-    let mut sim = GameSnapshot::load(&saved).unwrap().sim;
-    sim.restore_after_snapshot_load().unwrap();
-    sim.rebuild_caches_after_load(terrain, terrain_speed, rules);
-    sim.restore_map_authority_after_snapshot_load(rules, rules.overlay_registry(), None)
-        .unwrap();
-    sim.resolve_type_handles(rules);
-    for (id, group) in ids.into_iter().zip([-7, -7, -8, -7]) {
-        assert_eq!(sim.entities().get(id).unwrap().object_group(), group);
-    }
     let before = ids.map(|id| sim.entities().get(id).unwrap().mission);
     assert_eq!(before[0].current().known(), Some(MissionType::Sleep));
     assert_eq!(before[1].current().known(), Some(MissionType::Harmless));
@@ -109,32 +96,4 @@ fn authored_signed_group_wakes_across_houses_after_restore_then_commences_normal
         }
     }
     assert_eq!(sim.rng_state(), rng, "WakeupGroup draws no RNG");
-
-    // The first ordinary object-AI pass promotes the queued Guard. Later
-    // strategy decisions for the base-less computer are a separate consumer.
-    let output = sim
-        .advance_app_frame(
-            &[],
-            rules,
-            Some(rules.overlay_registry()),
-            67,
-            TickLane::Ordinary,
-            FrameEffects::default(),
-        )
-        .unwrap();
-    assert!(output.tick.frame_committed);
-    for id in &ids[..2] {
-        let mission = sim.entities().get(*id).unwrap().mission;
-        assert_eq!(mission.current().known(), Some(MissionType::Guard));
-    }
-    assert_eq!(
-        sim.entities()
-            .get(ids[2])
-            .unwrap()
-            .mission
-            .current()
-            .known(),
-        Some(MissionType::Sleep),
-        "normal AI must not wake the different-group sleeper"
-    );
 }

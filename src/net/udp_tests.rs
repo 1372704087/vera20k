@@ -372,7 +372,7 @@ fn ordered_relay() -> (
     socket.set_nonblocking(false).unwrap();
     let cert = OrderingCertificate {
         room: [11; 16],
-        sources_mask: 1,
+        sources_mask: 3,
         tick_hz: 45,
         expires: 2000,
     }

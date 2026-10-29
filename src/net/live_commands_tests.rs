@@ -3167,10 +3167,10 @@ fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
 #[test]
 fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
     use crate::net::udp::{
-        OrderingCertificate, RelayTicket,
+        OrderingCertificate, RelayTicket, relay_peer_endpoint,
         test_support::{MAX_DATAGRAM, RelayServer, SecretKey, derive_packet_key},
     };
-    use vera20k_relay_protocol::OrderEvent;
+    use vera20k_relay_protocol::{ClientSession, OrderEvent, ServerEvent};
 
     let key = SecretKey::new([31; 32]);
     let socket = UdpSocket::bind("127.0.0.1:0").unwrap();
@@ -3190,7 +3190,7 @@ fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
     .unwrap();
     let certificate = OrderingCertificate {
         room: [27; 16],
-        sources_mask: 1,
+        sources_mask: 3,
         tick_hz: 30,
         expires: 86_500,
     }
@@ -3205,10 +3205,53 @@ fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
     )
     .unwrap();
     wire.set_ordering_certificate(certificate.to_vec()).unwrap();
-    let agreement =
-        StartupAgreement::new([(0, 0)], [0], 73, 10, 30, NonZeroU32::new(1).unwrap(), 0).unwrap();
+    wire.connections_mut()
+        .add_peer(1, relay_peer_endpoint(1).unwrap())
+        .unwrap();
+    let agreement = StartupAgreement::new(
+        [(0, 0), (1, 1)],
+        [0, 1],
+        73,
+        10,
+        30,
+        NonZeroU32::new(1).unwrap(),
+        0,
+    )
+    .unwrap();
     let mut session = sequenced::SequencedSession::new(&agreement, &wire, 0).unwrap();
-    let mut relay = RelayServer::new(key, 1);
+    let mut relay = RelayServer::new(key.clone(), 1);
+    // The relay orders only matches of two or more sources. Source 1 readies
+    // in process and then stays silent.
+    let ticket = RelayTicket {
+        room: [27; 16],
+        player: [2; 16],
+        source: 1,
+        generation: 1,
+        expires: 300,
+        nonce: [4; 16],
+    }
+    .sign(&key)
+    .unwrap();
+    let packet_key = *derive_packet_key(&key, &ticket).expose_for_https();
+    let mut second = ClientSession::new(&ticket, packet_key, [29; 32]).unwrap();
+    let from = std::net::SocketAddrV4::new(std::net::Ipv4Addr::LOCALHOST, 9);
+    let mut bytes = Vec::new();
+    second.probe(&mut bytes).unwrap();
+    let challenge = relay.process_at(from, &bytes, 116, 16_000).unwrap();
+    let Ok(ServerEvent::Challenge(cookie)) = second.receive(&challenge[0].bytes) else {
+        panic!("challenge");
+    };
+    second.confirm(&cookie.to_vec(), &mut bytes).unwrap();
+    let ready = relay.process_at(from, &bytes, 116, 16_000).unwrap();
+    assert!(matches!(
+        second.receive(&ready[0].bytes),
+        Ok(ServerEvent::Ready)
+    ));
+    let identity = agreement.sequencing_identity().unwrap().0;
+    second
+        .configure_ordering(&certificate, identity, &mut bytes)
+        .unwrap();
+    relay.process_at(from, &bytes, 116, 16_000).unwrap();
     let pump = |wire: &mut LanUdpTransport, relay: &mut RelayServer, now: u32| {
         wire.service(now >> 4);
         loop {

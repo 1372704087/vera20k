@@ -18,6 +18,7 @@
 
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::object_image::{ImageTheater, ObjectImageKind, ObjectImageState};
+use crate::util::native_x87::NativeF64Bits;
 
 /// Shared inputs captured by ObjectType::LoadSHP5F9070; asset binding resolves
 /// the attempted name independently of constructor or later Image text.
@@ -131,6 +132,11 @@ pub struct ProjectileType {
     // --- Float fields ---
     /// Bounce elasticity coefficient (0.0 = no bounce, 1.0 = perfect bounce). (+0x2C8)
     pub elasticity: f64,
+    /// Phobos `BulletTypeExt::Gravity` (`Nullable<double>`): the ballistic
+    /// gravity this type uses, defaulting to `[General] Gravity=` and halved
+    /// for `Floater=`. Kept as exact binary64 bits, like `Elasticity=`.
+    #[cfg(feature = "phobos")]
+    gravity: Option<NativeF64Bits>,
 
     // --- Color ---
     /// Native BulletType +2D4 runtime ColorScheme index. The retained rules
@@ -330,6 +336,18 @@ impl ProjectileArtState {
 }
 
 impl ProjectileType {
+    /// Phobos `BulletTypeExt::Gravity`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub fn gravity(&self) -> Option<NativeF64Bits> {
+        self.gravity
+    }
+
+    /// Phobos is compiled out: every shot uses the Rules gravity.
+    #[cfg(not(feature = "phobos"))]
+    pub fn gravity(&self) -> Option<NativeF64Bits> {
+        None
+    }
+
     /// Runtime ColorScheme index (two native shade variants per Colors entry).
     pub fn color_scheme(&self) -> i32 {
         self.color_scheme
@@ -401,6 +419,10 @@ impl ProjectileType {
             // ReadDouble -> `FSTP qword [ESI+0x2C8]` (`0x0046BF71`) over the
             // constructor's 0.75 (`0x0046BC65`/`0x0046BC9A`).
             elasticity: section.read_double("Elasticity", 0.75),
+            #[cfg(feature = "phobos")]
+            gravity: section
+                .read_phobos_nullable_double("Gravity", None)
+                .map(|value| NativeF64Bits::from_bits(value.to_bits())),
             // Constructor46BCA4. Resolution requires the pass-local Colors
             // registry and is supplied by the retained rules processor.
             color_scheme: 0,
@@ -533,6 +555,24 @@ mod tests {
             rules.simulation_config_hash(),
             "late binding cannot replace Bullet state"
         );
+    }
+
+    /// Phobos `Nullable<double> Gravity`: absent keeps the Rules fallback
+    /// (None), `<default>` clears it, and a value keeps its exact binary64.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_gravity_reads_nullable_double_and_clears() {
+        let ini =
+            IniFile::from_str("[P]\nGravity=6.5\n[Q]\nGravity=<default>\n[R]\nGravity=garbage\n");
+        let gravity = |name: &str| {
+            ProjectileType::from_ini_section(name, ini.section(name).unwrap(), None).gravity()
+        };
+        assert_eq!(
+            gravity("P"),
+            Some(NativeF64Bits::from_bits(6.5f64.to_bits()))
+        );
+        assert_eq!(gravity("Q"), None);
+        assert_eq!(gravity("R"), None);
     }
 
     #[test]

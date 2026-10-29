@@ -7579,9 +7579,23 @@ impl RulesPassProcessor {
             };
             let bullet = &self.families[&RulesTypeFamily::Projectile][projectile].body;
             if bullet.read_int("ROT", 0) == 0 {
+                // Phobos `WeaponTypeClass_SetSpeed_ApplyGravity` 0x772A0A
+                // selects the type's own `Gravity` over the current Rules one.
+                #[cfg(feature = "phobos")]
+                let gravity = bullet.read_phobos_nullable_double("Gravity", None).map_or(
+                    crate::util::native_ballistics::BallisticGravity::Rules(self.rules_gravity),
+                    |value| {
+                        crate::util::native_ballistics::BallisticGravity::Value(
+                            crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits()),
+                        )
+                    },
+                );
+                #[cfg(not(feature = "phobos"))]
+                let gravity =
+                    crate::util::native_ballistics::BallisticGravity::Rules(self.rules_gravity);
                 let speed = crate::util::native_ballistics::ballistic_launch_speed(
                     state.range_leptons,
-                    self.rules_gravity,
+                    gravity,
                     bullet.read_bool("Floater", false),
                 );
                 self.family_mut(RulesTypeFamily::Weapon)[index].weapon.speed = speed;

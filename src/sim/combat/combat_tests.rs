@@ -10939,6 +10939,7 @@ fn gsi_08_06_point_blank_shot_clamps_the_launch_speed_to_half_the_distance() {
         Some(crate::sim::projectile::launch::LaunchSpeedProjectile {
             rot: 0,
             floater: false,
+            gravity: None,
         }),
         200,
         crate::sim::projectile::launch::fireat_launch_distance(

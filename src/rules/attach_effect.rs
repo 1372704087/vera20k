@@ -785,7 +785,7 @@ impl AttachEffectGlobals {
                 defaults.replace_longer_duration,
             ),
             attach_on_owner_change: section.read_bool(
-                "AttachEffect.AttachOnOwnerChange",
+                "AttachEffects.AttachOnOwnerChange",
                 defaults.attach_on_owner_change,
             ),
         }

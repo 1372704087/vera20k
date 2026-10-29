@@ -74,3 +74,35 @@ python3 -m unittest tools.tests.test_wasm_build
 ```
 
 内存文件系统测试覆盖嵌套资源、归档字节共享、缺失文件、目录创建、排他创建存档以及恢复修改时间。串行工作测试将有序结果与原生执行进行比较。独立的手动 Wasm workflow 打包单机和联机版本，不改变桌面 workflow。网络检查覆盖传输边界和平台隔离；完整的浏览器之间及浏览器与桌面之间的对局、状态收敛、重连和对局结束后的重新进入都需要实机游玩验证。浏览器渲染结果、音频、持久化数据重新加载及存档读写也需要运行验证。
+
+## 生命周期回调
+
+在 `init()` 后、`start_game` / `start_spawn` 前注册
+`set_lifecycle_callback(callback)`。回调接收结构化 JavaScript 对象：
+
+- `match-ended`：`event.match` 携带结果、退出码、连接模式、对局 ID、本地
+  SourceIndex、帧数、时长、对手离开标志及错误原因，并附地图来源、地图名称、
+  本地 House、十进制字符串种子和结算快照。每个已开始并结束的对局只通知一次；
+  战役重开按 `quit` 结束，局内读档直接替换对局、不发送该事件。原版多人地图通常
+  没有 `[Basic] Name`，此时 `map_name` 为 `null`。
+  结算快照直接读取模拟已有结果，不额外消耗 RNG；没有快照时 `scores` 为 `null`。
+- `engine-exited`：引擎收尾后通知一次，`reason` 为 `quit`、`match-ended` 或
+  `error`，`error` 携带错误文本或 `null`。资源加载失败后点击退出也携带原错误。
+- `engine-error`：panic 的尽力通知，不能视为已正常收尾。浏览器终止页面或
+  没有经过 panic hook 的 Wasm trap 无法保证回调。
+
+外部 `start_spawn` 启动的对局跳过结算页“继续”和战役下一关，在已有网络
+finish/leave 收尾完成后发送 `match-ended`，随即请求退出引擎，然后通知
+`engine-exited`。普通菜单启动仍保留结算和返回菜单流程。未开始对局的启动
+失败不生成虚假的对局结束事件。
+
+旧的 `spawn:finished:<json>` 状态通知保留一次，但不再允许同一引擎连续启动。
+下一次启动需要新页面/实例；回调内再次启动会被拒绝。JS 回调抛错不阻止退出，
+Rust 不等待回调返回的 Promise。
+
+已启动的引擎在 `engine-exited` 之后还会发送状态 `Exited`。示例宿主据此隐藏
+游戏、等待 IndexedDB 写入完成后尝试关闭标签页，保存失败时保留警告；网站宿主
+可在保存完成后返回自己的大厅。重新加载后需重新选择游戏资源。引擎退出也
+会停止 WebAudio。桌面原生启动、结算、退出码和结果文件逻辑保持不变。
+
+完整字段和接入示例见 [英文说明](wasm.md#lifecycle-callbacks)。

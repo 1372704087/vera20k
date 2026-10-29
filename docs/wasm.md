@@ -131,3 +131,61 @@ changing desktop workflows. Network checks cover transport boundaries and platfo
 isolation; full browser/browser and browser/desktop matches, convergence,
 reconnection and postmatch re-entry require actual play-tests. Browser rendered
 output, audio, persisted reload and save/load also require runtime validation.
+
+## Lifecycle callbacks
+
+Register `set_lifecycle_callback(callback)` after `init()` and before
+`start_game` or `start_spawn`. The callback receives a JavaScript object:
+
+```js
+set_lifecycle_callback(event => {
+    if (event.type === 'match-ended') {
+        showMatchResult(event.match);
+    } else if (event.type === 'engine-exited') {
+        // Flush the host's pending persistence writes before navigating.
+        showExitPage(event.reason, event.error);
+    } else if (event.type === 'engine-error') {
+        showFatalError(event.error);
+    }
+});
+```
+
+- `match-ended`: one event for each installed match that ends through the
+  scenario exit paths (win/loss, abort, disconnect or engine shutdown).
+  `match` contains `result`, `exit_code`, `mode`, `match_id`, `source_index`,
+  `frames`, `duration_seconds`, `opponents_left` and nullable `reason`, using
+  the existing external-launch result vocabulary. It also includes `map`
+  (the consumed map source), nullable `map_name` (the map's `[Basic] Name`;
+  retail multiplayer maps usually have none), `local_house` (the local
+  house's simulation name), decimal-string `seed`,
+  and nullable `scores`. Score rows contain `house`, `country`, `survived`,
+  `kills`, `losses`, `built`, `raw_score` and `score`; they read the simulation's
+  finalized snapshot without new RNG draws. `scores: null` means no terminal
+  score snapshot was produced, including abort and cooperative paths.
+  Ordinary menu launches keep their normal score/menu flow. A campaign
+  restart ends the match as `quit`; loading a saved game from inside a match
+  replaces it without a `match-ended`.
+- `engine-exited`: one terminal event after application teardown, with
+  `reason: "quit" | "match-ended" | "error"` and nullable error text. Missing
+  asset errors retain their error message when the player presses Quit.
+  Startup failure before a match starts emits no fictional `match-ended`.
+- `engine-error`: a best-effort panic notification with error text. It does
+  not promise orderly teardown. Browser termination or a Wasm trap that never
+  reaches the panic hook cannot guarantee a callback.
+
+A `start_spawn` launch skips the result-screen Continue button and campaign
+continuation. It freezes its result, completes the existing network finish/leave
+cleanup, delivers `match-ended`, and immediately requests engine shutdown;
+`engine-exited` follows. The old `spawn:finished:<json>` status notification is
+retained once for existing result consumers, but does **not** admit another
+launch. Both entry points now require a new page/instance for another engine.
+Calling Start from a lifecycle callback is rejected. Callback exceptions do
+not prevent shutdown; returned Promises are not awaited by Rust.
+
+After `engine-exited`, an engine that had started also sends the status
+`Exited`. The supplied host uses that status: it hides the game, waits for
+pending IndexedDB writes and then tries to close the tab, keeping a warning
+visible if storage failed. A hosting website may instead return to its own
+lobby once storage completes. Reloading discards imported retail bytes. Browser audio
+pumping stops on engine exit; stopping winit alone would leave WebAudio alive.
+Desktop startup, scores, process exit codes and result-file writes are unchanged.

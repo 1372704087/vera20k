@@ -8,7 +8,7 @@ use serde::de::{Deserialize, Deserializer, MapAccess, Visitor};
 use serde::ser::{Serialize, SerializeMap, Serializer};
 
 /// Cells per side of gamemd's fixed cell array.
-const SIDE: usize = crate::map::cell_index::CELL_ROW_STRIDE as usize;
+const SIDE: usize = crate::map::cell_index::MAX_CELL_SIDE as usize;
 /// Slots per strip: eight columns of the array.
 const STRIP_SLOTS: usize = 8 * SIDE;
 
@@ -266,11 +266,11 @@ mod tests {
     fn coordinate(n: u64) -> u16 {
         match n % 6 {
             0 => 0,
-            1 => 511,
-            2 => 512,
+            1 => (super::SIDE - 1) as u16,
+            2 => super::SIDE as u16,
             3 => u16::MAX,
             4 => (n / 6 % 16) as u16,
-            _ => 500 + (n / 6 % 24) as u16,
+            _ => (super::SIDE as u16 - 12) + (n / 6 % 24) as u16,
         }
     }
 

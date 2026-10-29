@@ -19,20 +19,20 @@ use crate::rules::overlay_types::OverlayTypeRegistry;
 use crate::util::base64;
 use crate::util::lcw;
 
-/// Width of the overlay grid (RA2 maps are max 512×512 cells).
-pub(crate) const OVERLAY_GRID_SIZE: usize = crate::map::cell_index::CELL_ROW_STRIDE as usize;
+/// Maximum overlay plane side supported by the engine.
+pub(crate) const OVERLAY_GRID_SIZE: usize = crate::map::cell_index::MAX_CELL_SIDE as usize;
 
-// Retail packs retain their 512 stride even in an experimental large-map build.
-// Extended authored packs contain a complete 1024-square plane.
+// Retail packs retain their 512 stride. Bodies larger than the retail plane
+// use the extended 1024 stride; short bodies retain failed-read semantics.
 fn pack_stride(bytes: &[u8]) -> usize {
-    if cfg!(feature = "large-maps") && bytes.len() > 512 * 512 {
+    if bytes.len() > 512 * 512 {
         OVERLAY_GRID_SIZE
     } else {
         512
     }
 }
 
-/// Total cells in the overlay grid (512 × 512 = 262,144).
+/// Maximum decoded cells in an extended overlay plane.
 pub(crate) const OVERLAY_TOTAL_CELLS: usize = OVERLAY_GRID_SIZE * OVERLAY_GRID_SIZE;
 
 /// Sentinel value meaning "no overlay at this cell".
@@ -149,10 +149,16 @@ impl OverlayDataPack {
     /// Used by the map generator to emit an overlay-density grid alongside the
     /// overlay list; out-of-grid coordinates are ignored.
     pub fn from_cells(cells: impl IntoIterator<Item = (u16, u16, u8)>) -> Self {
-        let mut bytes = vec![0u8; OVERLAY_TOTAL_CELLS];
+        let cells: Vec<_> = cells.into_iter().collect();
+        let side = if cells.iter().any(|&(x, y, _)| x >= 512 || y >= 512) {
+            OVERLAY_GRID_SIZE
+        } else {
+            512
+        };
+        let mut bytes = vec![0u8; side * side];
         for (rx, ry, frame) in cells {
-            if (rx as usize) < OVERLAY_GRID_SIZE && (ry as usize) < OVERLAY_GRID_SIZE {
-                bytes[ry as usize * OVERLAY_GRID_SIZE + rx as usize] = frame;
+            if usize::from(rx) < side && usize::from(ry) < side {
+                bytes[usize::from(ry) * side + usize::from(rx)] = frame;
             }
         }
         Self {
@@ -406,8 +412,8 @@ mod tests {
 
     #[test]
     fn overlay_pack_limits_cumulative_output_and_keeps_short_pack_reads() {
-        // Four 65535-byte RLE chunks plus five more bytes exceed 512x512.
-        let packed = "BQD///7///+ABQD///7///+ABQD///7///+ABQD///7///+ABQAFAP4FAP+A";
+        // Seventeen 65535-byte RLE chunks exceed the extended 1024-square cap.
+        let packed = "BQD///7///+A".repeat(17);
         let ini = IniFile::from_str(&format!(
             "[OverlayPack]\n1={packed}\n[OverlayDataPack]\n1={packed}\n"
         ));
@@ -423,8 +429,9 @@ mod tests {
 
     #[test]
     fn raw_identity_pack_distinguishes_sentinel_from_failed_short_read() {
-        let mut bytes = vec![NO_OVERLAY; OVERLAY_GRID_SIZE + 1];
-        bytes[OVERLAY_GRID_SIZE] = 7;
+        // A short retail body still has its native 512-byte row stride.
+        let mut bytes = vec![NO_OVERLAY; 512 + 1];
+        bytes[512] = 7;
         let pack = OverlayIdentityPack::from_decoded(bytes);
 
         assert!(pack.has_positive_length());
@@ -661,7 +668,7 @@ Tiberium=yes
     }
 }
 
-#[cfg(all(test, feature = "large-maps"))]
+#[cfg(test)]
 mod large_map_tests {
     use super::*;
     #[test]

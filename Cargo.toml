@@ -49,8 +49,6 @@ wasm-lan = ["wasm-net", "vera20k-core/wasm-lan"]
 default = ["dev-overlays"]
 # Optional gameplay extensions. Neither default nor shipping builds enable this.
 ares = ["vera20k-core/ares"]
-# Experimental extended cell grid; both peers and authored packs must match.
-large-maps = ["vera20k-core/large-maps"]
 # Optional Phobos extensions, independent of the Ares capability; neither
 # default nor shipping builds enable this either.
 phobos = ["vera20k-core/phobos"]

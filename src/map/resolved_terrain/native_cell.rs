@@ -201,19 +201,11 @@ impl NativeAllocatedCellCursor {
         terrain: &ResolvedTerrainGrid,
         size_width: i32,
     ) -> Option<NativeCellIdentity> {
-        let index = self
-            .y
-            .wrapping_mul(crate::map::cell_index::CELL_ROW_STRIDE as i32)
-            .wrapping_add(self.x);
-        let selected = (0..=(crate::map::cell_index::MAX_CELL_INDEX as i32))
-            .contains(&index)
-            .then(|| {
-                terrain.native_fixed_cell_index(
-                    (index % crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
-                    (index / crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
-                )
-            })
-            .flatten()
+        let grid = terrain.cell_grid();
+        let index = self.y.wrapping_shl(grid.shift()).wrapping_add(self.x);
+        let selected = grid
+            .coord_from_index(i64::from(index))
+            .and_then(|(x, y)| terrain.native_fixed_cell_index(x as i16, y as i16))
             .map(NativeCellIdentity::Real);
         self.advance(size_width);
         selected
@@ -284,14 +276,10 @@ impl<'a> NativeCellQuery<'a> {
 
     pub fn lookup_world(&self, x: i32, y: i32) -> NativeCellIdentity {
         let (x, y) = (x / 256, y / 256);
-        let index = y
-            .wrapping_mul(crate::map::cell_index::CELL_ROW_STRIDE as i32)
-            .wrapping_add(x);
-        if (0..=(crate::map::cell_index::MAX_CELL_INDEX as i32)).contains(&index)
-            && let Some(real) = self.terrain.native_fixed_cell_index(
-                (index % crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
-                (index / crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
-            )
+        let grid = self.terrain.cell_grid();
+        let index = y.wrapping_shl(grid.shift()).wrapping_add(x);
+        if let Some((rx, ry)) = grid.coord_from_index(i64::from(index))
+            && let Some(real) = self.terrain.native_fixed_cell_index(rx as i16, ry as i16)
         {
             return NativeCellIdentity::Real(real);
         }
@@ -819,9 +807,9 @@ pub(super) fn native_resolved_cell_index(
     x: i32,
     y: i32,
 ) -> Option<usize> {
-    let linear = crate::map::cell_index::cell_linear_index(x, y)?;
-    let rx = (linear % crate::map::cell_index::CELL_ROW_STRIDE) as usize;
-    let ry = (linear / crate::map::cell_index::CELL_ROW_STRIDE) as usize;
+    let grid = crate::map::cell_index::CellGrid::for_extent(width, height);
+    let (rx, ry) = grid.canonical_coord(x, y)?;
+    let (rx, ry) = (usize::from(rx), usize::from(ry));
     if rx >= usize::from(width) || ry >= usize::from(height) {
         return None;
     }
@@ -832,6 +820,11 @@ pub(super) fn native_resolved_cell_index(
 }
 
 impl ResolvedTerrainGrid {
+    /// Derived from this grid's existing rectangle; no global map mode is retained.
+    pub fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
+        crate::map::cell_index::CellGrid::for_extent(self.width, self.height)
+    }
+
     pub fn shared_cell_dummy(&self) -> SharedCellDummy {
         self.shared_cell_dummy.clone()
     }
@@ -1099,7 +1092,7 @@ impl ResolvedTerrainGrid {
     /// outside the fixed array instead of reproducing native out-of-array UB.
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn cellclass_allocation_probe(&self, x: i32, y: i32) -> bool {
-        let Some((rx, ry)) = crate::map::cell_index::canonical_cell_coord(x, y) else {
+        let Some((rx, ry)) = self.cell_grid().canonical_coord(x, y) else {
             return false;
         };
         self.cell(rx, ry).is_some()

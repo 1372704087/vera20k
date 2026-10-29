@@ -78,12 +78,6 @@ class Capability:
 # compile-covered only, as `npatch` is until its first chain lands.
 CAPABILITIES: tuple[Capability, ...] = (
     Capability(
-        "large-maps",
-        ("large-maps",),
-        "Experimental 1024-stride cell grid; ordinary builds retain retail indexing.",
-        focus=("large_map_",),
-    ),
-    Capability(
         "ares",
         ("ares",),
         "Ares extension behaviour; its tests are gated per module and named "

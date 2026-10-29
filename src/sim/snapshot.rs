@@ -1901,6 +1901,9 @@ impl Simulation {
                 }
             }
         }
+        let cell_grid = self.cell_grid();
+        self.terrain_objects.configure_cell_grid(cell_grid);
+        self.houses.configure_cell_grid(cell_grid);
         self.terrain_objects
             .validate_membership()
             .map_err(|reason| SnapshotRestoreError::InvalidCellMembership { reason })?;

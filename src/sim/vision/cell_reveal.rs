@@ -634,8 +634,8 @@ impl FogState {
         let vis = self
             .by_owner
             .get_or_insert_with(viewer, || OwnerVisibility::new(self.width, self.height));
-        for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
-            for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+        for y in 0..crate::map::cell_index::CellGrid::for_map_size(size.0, size.1).side() {
+            for x in 0..crate::map::cell_index::CellGrid::for_map_size(size.0, size.1).side() {
                 if !crate::map::playfield::size_diamond_contains(
                     size.0,
                     size.1,
@@ -653,8 +653,8 @@ impl FogState {
                 }
             }
         }
-        for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
-            for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+        for y in 0..crate::map::cell_index::CellGrid::for_map_size(size.0, size.1).side() {
+            for x in 0..crate::map::cell_index::CellGrid::for_map_size(size.0, size.1).side() {
                 if !crate::map::playfield::size_diamond_contains(
                     size.0,
                     size.1,

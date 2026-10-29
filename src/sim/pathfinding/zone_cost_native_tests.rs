@@ -165,7 +165,13 @@ fn original_full_and_local_hierarchy_producers_retain_seed_threat_index() {
     assert!(writes.iter().any(|row| row["pc"] == "00584a78"));
     for row in writes {
         let seed = cell(&row["seed"]);
-        let record = ZoneRecord::from_seed(row["zone"].as_u64().unwrap() as ZoneId, 0, 0, seed);
+        let record = ZoneRecord::from_seed(
+            row["zone"].as_u64().unwrap() as ZoneId,
+            0,
+            0,
+            seed,
+            crate::map::cell_index::CellGrid::Retail,
+        );
         assert_eq!(
             record.native_threat_index().unwrap() as u32,
             row["index"].as_u64().unwrap() as u32,

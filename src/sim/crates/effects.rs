@@ -438,6 +438,7 @@ pub(super) fn apply_tiberium_crate(
     // edi,edi` at `0x00481ECC..0x00481ED1`) — both paths fall into the same
     // `IncreaseTiberium(type, 1)` at `0x00481ED3..0x00481ED8`, so the arm
     // never abandons on the draw.
+    let cell_grid = sim.cell_grid();
     let tiberium_count = rules.tiberium_types.len();
     if tiberium_count == 0 {
         // Unpinned defensive edge: with no registered ore type native would
@@ -512,6 +513,7 @@ pub(super) fn apply_tiberium_crate(
     for _ in 0..count.max(0) {
         let distance = context.rng.next_range_i32_inclusive(0, 0x300);
         let (x, y) = crate::sim::combat::inviso_scatter::random_direction_coord(
+            cell_grid,
             context.rng,
             base.x,
             base.y,
@@ -595,6 +597,7 @@ pub(super) fn apply_explosion_crate(
         // one raw direction draw, no cell snap.
         let distance = sim.scenario_rng.next_range_i32_inclusive(0, 0x200);
         let (x, y) = crate::sim::combat::inviso_scatter::random_direction_coord(
+            sim.cell_grid(),
             &mut sim.scenario_rng,
             center.x,
             center.y,

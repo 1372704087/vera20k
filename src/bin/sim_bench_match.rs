@@ -321,19 +321,22 @@ pub(crate) struct MatchScenario {
     reinforcements: usize,
 }
 
-/// A 512x512 cell bitmap, gamemd's cell array.
+/// Cell claims over the engine capacity; coordinates are already canonical.
 struct CellSet(Vec<bool>);
+const CLAIM_SIDE: usize = vera20k::map::cell_index::MAX_CELL_SIDE as usize;
 
 impl CellSet {
     fn new() -> Self {
-        Self(vec![false; 512 * 512])
+        Self(vec![false; CLAIM_SIDE * CLAIM_SIDE])
     }
     fn contains(&self, x: i32, y: i32) -> bool {
-        (0..512).contains(&x) && (0..512).contains(&y) && self.0[y as usize * 512 + x as usize]
+        (0..CLAIM_SIDE as i32).contains(&x)
+            && (0..CLAIM_SIDE as i32).contains(&y)
+            && self.0[y as usize * CLAIM_SIDE + x as usize]
     }
     fn insert(&mut self, x: i32, y: i32) {
-        if (0..512).contains(&x) && (0..512).contains(&y) {
-            self.0[y as usize * 512 + x as usize] = true;
+        if (0..CLAIM_SIDE as i32).contains(&x) && (0..CLAIM_SIDE as i32).contains(&y) {
+            self.0[y as usize * CLAIM_SIDE + x as usize] = true;
         }
     }
 }

@@ -48,7 +48,7 @@ pub(crate) fn append_repaired_bridge_edges(
             for (from, to) in [(from, to), (to, from)] {
                 // Native sign-extends this word into an unchecked node pointer.
                 // Retain prior writes and expose unsupported pointer inputs.
-                if (!cfg!(feature = "large-maps") && from > i16::MAX as super::ZoneId)
+                if (!graph.cell_grid().is_extended() && from > i16::MAX as super::ZoneId)
                     || from as usize >= graph.record_slot_count()
                 {
                     return Err(format!(

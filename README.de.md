@@ -133,7 +133,9 @@ ursprüngliche Engine mit Ghidra, übertragen dann ihr Verhalten nach Rust und p
 
 ## Anpassung
 
-VERA20K spielt sich standardmäßig wie das Originalspiel. Jede neue Funktion, auch Erweiterungen
+Die Kartenkapazität wird ohne Build-Schalter automatisch gewählt: Die Summe von `Size`-Breite und -Höhe darf bis zu 1024 betragen. Bis 512 bleibt die bisherige Adressierung erhalten, darüber gilt das erweiterte Raster. Generator, Speicherstandversionen und Prüfgrenzen: [große Karten](README.md#large-maps).
+
+VERA20K spielt sich standardmäßig wie das Originalspiel. Jede andere neue Funktion, auch Erweiterungen
 aus Mods wie Ares, muss ausgeschaltet bleiben, bis sie auf einem dieser Wege aktiviert wird:
 
 - **Eine VERA-Spieleroption** unter **Options → Vera Options**, gespeichert im Abschnitt `[VERA]` in `VERA.INI`.

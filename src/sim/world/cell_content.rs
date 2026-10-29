@@ -136,8 +136,9 @@ impl Simulation {
                 // list; FogCell486BA4/contact483495 follow Object+30. The
                 // list identity of an alias differs from Get_Cell_Packed.
                 let (x, y) = terrain.cell();
-                let cell =
-                    crate::map::cell_index::canonical_cell_coord(i32::from(x), i32::from(y))?;
+                let cell = self
+                    .cell_grid()
+                    .canonical_coord(i32::from(x), i32::from(y))?;
                 Some((cell, MovementLayer::Ground))
             }
         }

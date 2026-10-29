@@ -257,6 +257,7 @@ pub(crate) fn rebuild_base_zone_topology(
             zone_count,
             &adjacency,
             MovementZone::all_ground()[row],
+            crate::map::cell_index::CellGrid::for_extent(width, height),
         )
     });
 
@@ -288,7 +289,12 @@ pub(crate) fn build_zone_map_from_base_topology(
                 return ZONE_INVALID;
             }
             let derived = derived_by_base[base_id as usize];
-            if derived > 1 && derived != ZoneId::MAX {
+            if derived > 1
+                && derived
+                    != super::zone_map::raw_zone_invalid(
+                        crate::map::cell_index::CellGrid::for_extent(width, height),
+                    )
+            {
                 derived
             } else {
                 ZONE_INVALID
@@ -580,6 +586,7 @@ fn rebuild_zone_ids_for_movement_zone(
     node_count: ZoneId,
     node_adj: &[Vec<ZoneId>],
     movement_zone: MovementZone,
+    grid: crate::map::cell_index::CellGrid,
 ) -> Vec<ZoneId> {
     let mut node_movement_classes = vec![zone_class::OUTSIDE; node_count as usize + 1];
     for (&node, &movement_class) in node_indices.iter().zip(movement_classes.iter()) {
@@ -622,7 +629,7 @@ fn rebuild_zone_ids_for_movement_zone(
         next_label += 1;
     }
 
-    zone_id_by_node[0] = ZoneId::MAX;
+    zone_id_by_node[0] = super::zone_map::raw_zone_invalid(grid);
     zone_id_by_node
 }
 
@@ -950,6 +957,7 @@ mod tests {
                 zone_count,
                 &adjacency,
                 MovementZone::all_ground()[row],
+                crate::map::cell_index::CellGrid::Retail,
             )
         });
         BaseZoneTopology {
@@ -1298,16 +1306,25 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "large-maps")]
     #[test]
     fn large_map_hierarchy_preserves_ids_and_edges_above_65535() {
-        let base = hierarchy_base(vec![zone_class::GROUND; 600 * 500], vec![1; 600 * 500]);
+        let mut base = hierarchy_base(vec![zone_class::GROUND; 600 * 500], vec![1; 600 * 500]);
+        for row in &mut base.raw_zone_ids_by_row {
+            row[0] = ZoneId::MAX;
+        }
         let hierarchy = build_zone_hierarchy(&base, None, &[], 600, 500);
         let fine = hierarchy.level(0).unwrap();
         assert!(fine.zone_count() > 65535);
         let high = fine.zone_at(599, 499);
         assert!(high > 65535);
         assert!(fine.record(high).is_some());
+        let saved = crate::util::save_codec::serialize(&base).unwrap();
+        let restored: BaseZoneTopology = crate::util::save_codec::deserialize(&saved).unwrap();
+        assert_eq!(restored.raw_zone_ids_by_row[0][0], ZoneId::MAX);
+        let rebuilt = build_zone_hierarchy(&restored, None, &[], 600, 500);
+        assert_eq!(rebuilt.level(0).unwrap().zone_at(599, 499), high);
+        assert_eq!(rebuilt.level(0).unwrap().edges(high), fine.edges(high));
+
         let marked: crate::sim::pathfinding::zone_hierarchy::MarkedZones =
             [high].into_iter().collect();
         assert!(marked.contains(&high));
@@ -1315,8 +1332,20 @@ mod tests {
 
         // These two pairs collided in the old bucket/16-bit-field packed key.
         let mut edges = HierarchyEdgeBuckets::new();
-        hierarchy::register_native_hierarchy_pair(&mut edges, 65538, 1, 0);
-        hierarchy::register_native_hierarchy_pair(&mut edges, 2, 1, 0);
+        hierarchy::register_native_hierarchy_pair(
+            &mut edges,
+            65538,
+            1,
+            0,
+            crate::map::cell_index::CellGrid::Extended,
+        );
+        hierarchy::register_native_hierarchy_pair(
+            &mut edges,
+            2,
+            1,
+            0,
+            crate::map::cell_index::CellGrid::Extended,
+        );
         let mut graph = ZoneLevelGraph::new(65538);
         edges.drain_into(&mut graph);
         let neighbors: Vec<_> = graph.edges(1).iter().map(|edge| edge.neighbor).collect();
@@ -1602,11 +1631,23 @@ mod tests {
         );
         assert_eq!(
             level2.record(1),
-            Some(ZoneRecord::from_seed(1, 0, zone_class::GROUND, (0, 0)))
+            Some(ZoneRecord::from_seed(
+                1,
+                0,
+                zone_class::GROUND,
+                (0, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
         assert_eq!(
             level2.record(2),
-            Some(ZoneRecord::from_seed(2, 0, zone_class::GROUND, (8, 0)))
+            Some(ZoneRecord::from_seed(
+                2,
+                0,
+                zone_class::GROUND,
+                (8, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
 
         let level1 = hierarchy.level(1).unwrap();
@@ -1617,15 +1658,33 @@ mod tests {
         );
         assert_eq!(
             level1.record(1),
-            Some(ZoneRecord::from_seed(1, 1, zone_class::GROUND, (0, 0)))
+            Some(ZoneRecord::from_seed(
+                1,
+                1,
+                zone_class::GROUND,
+                (0, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
         assert_eq!(
             level1.record(2),
-            Some(ZoneRecord::from_seed(2, 1, zone_class::GROUND, (4, 0)))
+            Some(ZoneRecord::from_seed(
+                2,
+                1,
+                zone_class::GROUND,
+                (4, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
         assert_eq!(
             level1.record(3),
-            Some(ZoneRecord::from_seed(3, 2, zone_class::GROUND, (8, 0)))
+            Some(ZoneRecord::from_seed(
+                3,
+                2,
+                zone_class::GROUND,
+                (8, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
 
         let level0 = hierarchy.level(0).unwrap();
@@ -1641,7 +1700,8 @@ mod tests {
                     zone,
                     parent,
                     zone_class::GROUND,
-                    ((zone as i16 - 1) * 2, 0)
+                    ((zone as i16 - 1) * 2, 0),
+                    crate::map::cell_index::CellGrid::Retail
                 ))
             );
         }
@@ -1688,11 +1748,23 @@ mod tests {
         );
         assert_eq!(
             level0.record(1),
-            Some(ZoneRecord::from_seed(1, 1, zone_class::GROUND, (0, 0)))
+            Some(ZoneRecord::from_seed(
+                1,
+                1,
+                zone_class::GROUND,
+                (0, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
         assert_eq!(
             level0.record(2),
-            Some(ZoneRecord::from_seed(2, 2, zone_class::BEACH, (2, 0)))
+            Some(ZoneRecord::from_seed(
+                2,
+                2,
+                zone_class::BEACH,
+                (2, 0),
+                crate::map::cell_index::CellGrid::Retail
+            ))
         );
         assert_eq!(level0.edges(2), &[ZoneEdgeRecord::new(1, 1)]);
         assert_eq!(level0.edges(1), &[ZoneEdgeRecord::new(2, 1)]);

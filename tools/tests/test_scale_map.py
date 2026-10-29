@@ -30,12 +30,14 @@ class ScaleMapTests(unittest.TestCase):
         self.assertEqual(set(decode_overlay_section(ini['OverlayPack'])), {0xFF})
 
     def test_size_is_bounded_by_the_playfield_and_the_cell_array(self):
-        for size in (15, 257):
+        for size in (15, 513):
             with self.assertRaises(ValueError):
                 build_map(size)
+        with self.assertRaises(ValueError):
+            build_map(500, cell_array_width=512)
 
     def test_extended_grid_keeps_high_coordinate_overlays_and_literal_map_size(self):
-        ini = parse_ini(build_map(500, 30, cell_array_width=1024))
+        ini = parse_ini(build_map(500, 30))
         self.assertEqual(ini['Map']['Size'], '0,0,500,500')
         cells = decode_iso_cells(ini['IsoMapPack5'])
         self.assertEqual(len(cells), 499500)

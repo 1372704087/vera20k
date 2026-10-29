@@ -538,7 +538,7 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_goal_bridge_flag() {
     {
         let base = zones.base_topology_mut();
         base.zone_ids = vec![2, 3, 2, 3];
-        base.raw_zone_ids_by_row[row] = vec![0, 0, 1, ZoneId::MAX];
+        base.raw_zone_ids_by_row[row] = vec![0, 0, 1, (u16::MAX as ZoneId)];
     }
     {
         let map = zones.map_mut(MovementZone::Normal).unwrap();
@@ -570,7 +570,7 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_goal_bridge_flag() {
     );
     assert_eq!(
         zones.get_zone_id_native(&terrain, (1, 0), MovementZone::Normal, false),
-        Some(u32::from(ZoneId::MAX))
+        Some(u32::from((u16::MAX as ZoneId)))
     );
     assert_eq!(
         zones

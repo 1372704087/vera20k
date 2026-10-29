@@ -52,12 +52,17 @@ impl ZoneQueryCell {
 mod bridge_repair_zones;
 
 /// Zone ID: 0 = impassable/unassigned, 1+ = valid zone.
-// VERA large-map extension: the 500x500 hierarchy has more than 65,535
-// records. Keep the retail-width identifier and save layout in normal builds.
-#[cfg(not(feature = "large-maps"))]
-pub type ZoneId = u16;
-#[cfg(feature = "large-maps")]
+// In-memory IDs can address a large hierarchy. Native word interpretation
+// remains selected by each map; snapshot layout versions describe this storage.
 pub type ZoneId = u32;
+
+pub(crate) fn raw_zone_invalid(grid: crate::map::cell_index::CellGrid) -> ZoneId {
+    if grid.is_extended() {
+        ZoneId::MAX
+    } else {
+        u32::from(u16::MAX)
+    }
+}
 
 /// Sentinel for impassable or unassigned cells.
 pub const ZONE_INVALID: ZoneId = 0;
@@ -924,7 +929,9 @@ impl ZoneGrid {
                 .ok_or("583820 requires the native hierarchy node")?;
             // The native load sign-extends the stored short, whereas its
             // requested zone argument is the zero-extended path identifier.
-            if if cfg!(feature = "large-maps") {
+            if if crate::map::cell_index::CellGrid::for_extent(self.width, self.height)
+                .is_extended()
+            {
                 found == zone
             } else {
                 i64::from(found as i16) == i64::from(zone)
@@ -1031,8 +1038,15 @@ impl ZoneGrid {
             let raw = self.base_topology.raw_zone_ids_by_row[row]
                 .get(cluster as usize)
                 .copied()
-                .unwrap_or(ZoneId::MAX);
-            let projected = if raw > 1 && raw != ZoneId::MAX {
+                .unwrap_or(raw_zone_invalid(
+                    crate::map::cell_index::CellGrid::for_extent(self.width, self.height),
+                ));
+            let projected = if raw > 1
+                && raw
+                    != raw_zone_invalid(crate::map::cell_index::CellGrid::for_extent(
+                        self.width,
+                        self.height,
+                    )) {
                 raw
             } else {
                 ZONE_INVALID

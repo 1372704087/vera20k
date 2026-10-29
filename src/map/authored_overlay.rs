@@ -146,8 +146,8 @@ impl NativeOverlayMapShape {
     /// increasing `x`, decreasing `y` for each sum in
     /// `W+1 ..= W+2H`. Dimensions must fit the selected cell grid.
     pub(crate) fn recalc_cells(self) -> Vec<(i16, i16)> {
-        if !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.width)
-            || !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.height)
+        if !(1..=crate::map::cell_index::MAX_CELL_SIDE as i32).contains(&self.width)
+            || !(1..=crate::map::cell_index::MAX_CELL_SIDE as i32).contains(&self.height)
         {
             return Vec::new();
         }
@@ -516,8 +516,8 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
     ) -> Result<FinalizedOverlayPayload, AuthoredOverlayFinalizeError<H::Error>> {
         // gamemd-derived: ReadMapOverlayPacks @ 0x005FD2E0, followed by the
         // Full_Init first Recalc boundary @ 0x00687A3E..0x00687A6B.
-        if !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.shape.width)
-            || !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.shape.height)
+        if !(1..=crate::map::cell_index::MAX_CELL_SIDE as i32).contains(&self.shape.width)
+            || !(1..=crate::map::cell_index::MAX_CELL_SIDE as i32).contains(&self.shape.height)
         {
             return Err(AuthoredOverlayFinalizeError::InvalidMapShape {
                 width: self.shape.width,
@@ -526,8 +526,18 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
         }
         let (identity, data) = packs.into_parts();
         if self.signed_new_ini_format > 1 && identity.has_positive_length() {
-            for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
-                for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+            for y in 0..crate::map::cell_index::CellGrid::for_map_size(
+                self.shape.width,
+                self.shape.height,
+            )
+            .side()
+            {
+                for x in 0..crate::map::cell_index::CellGrid::for_map_size(
+                    self.shape.width,
+                    self.shape.height,
+                )
+                .side()
+                {
                     let Some(overlay_id) = identity.read_byte(x, y) else {
                         continue;
                     };
@@ -540,8 +550,18 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
         }
 
         if self.signed_new_ini_format > 1 && data.has_positive_length() {
-            for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
-                for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+            for y in 0..crate::map::cell_index::CellGrid::for_map_size(
+                self.shape.width,
+                self.shape.height,
+            )
+            .side()
+            {
+                for x in 0..crate::map::cell_index::CellGrid::for_map_size(
+                    self.shape.width,
+                    self.shape.height,
+                )
+                .side()
+                {
                     let cell = (x as i16, y as i16);
                     if !self.shape.admits(cell.0, cell.1) {
                         continue;
@@ -883,10 +903,11 @@ impl LiveOverlayCells {
     /// `MapClass::Get_CellClass` narrows both operands to signed words before
     /// sign-extending `y * 512 + x`. A true miss stamps only dummy coordinates.
     pub(crate) fn target(&self, x: i16, y: i16) -> NativeOverlayCellTarget {
-        let real = crate::map::cell_index::cell_linear_index(i32::from(x), i32::from(y)).and_then(
-            |linear| {
-                let rx = (linear % crate::map::cell_index::CELL_ROW_STRIDE) as usize;
-                let ry = (linear / crate::map::cell_index::CELL_ROW_STRIDE) as usize;
+        let grid = crate::map::cell_index::CellGrid::for_extent(self.width, self.height);
+        let real = grid
+            .canonical_coord(i32::from(x), i32::from(y))
+            .and_then(|(rx, ry)| {
+                let (rx, ry) = (usize::from(rx), usize::from(ry));
                 if rx >= usize::from(self.width) || ry >= usize::from(self.height) {
                     return None;
                 }
@@ -897,8 +918,7 @@ impl LiveOverlayCells {
                         .as_deref()
                         .is_none_or(|mask| mask.get(index).copied().unwrap_or(false)))
                 .then_some(index)
-            },
-        );
+            });
         if let Some(index) = real {
             return NativeOverlayCellTarget::Real(index);
         }

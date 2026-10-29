@@ -5075,7 +5075,6 @@ fn destroyable_cliff_origin_recovery_accepts_every_present_a_and_b_subtile() {
     }
 }
 
-#[cfg(feature = "large-maps")]
 #[test]
 fn large_map_production_diamond_lookup_and_path_cross_512() {
     let mut map = make_map(Vec::new(), Vec::new(), Vec::new());
@@ -5093,6 +5092,10 @@ fn large_map_production_diamond_lookup_and_path_cross_512() {
     let first = grid.native_fixed_cell_index(700, 600).unwrap();
     let second = grid.native_fixed_cell_index(188, 601).unwrap();
     assert_ne!(
+        crate::sim::wave::WaveRecordedCell::real(700, 600).identity,
+        crate::sim::wave::WaveRecordedCell::real(188, 601).identity
+    );
+    assert_ne!(
         first, second,
         "a high coordinate must not alias the old 512 stride"
     );
@@ -5100,4 +5103,14 @@ fn large_map_production_diamond_lookup_and_path_cross_512() {
     let path_grid = crate::sim::pathfinding::PathGrid::from_resolved_terrain(&grid);
     let route = crate::sim::pathfinding::find_path(&path_grid, (700, 600), (740, 640)).unwrap();
     assert_eq!(route.last(), Some(&(740, 640)));
+    map.header.width = 128;
+    map.header.height = 128;
+    let (retail, _) = build_production_grid_without_theater(&map, &mut cache);
+    assert_eq!(retail.cell_grid(), crate::map::cell_index::CellGrid::Retail);
+    assert_eq!(
+        retail.native_fixed_cell_index(712, 99),
+        retail.native_fixed_cell_index(200, 100)
+    );
+    assert!(retail.native_fixed_cell_index(200, 100).is_some());
+    assert_eq!((grid.cells()[first].rx, grid.cells()[first].ry), (700, 600));
 }

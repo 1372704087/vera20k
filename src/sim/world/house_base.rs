@@ -591,6 +591,7 @@ impl Simulation {
             crate::sim::movement::target_cell_coord(origin.0, origin.1, Some(&native_cells))
         };
         let (x, y) = crate::sim::combat::inviso_scatter::random_direction_coord(
+            self.cell_grid(),
             &mut self.scenario_rng,
             base.x,
             base.y,

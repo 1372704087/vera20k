@@ -13,7 +13,6 @@ use super::{SimSoundEvent, Simulation, SimulationWallRuntimeHost};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
 use crate::sim::command::{
     ArchiveRecord, BUILDING_OFF_LINE_OPCODE, BUILDING_ON_LINE_OPCODE, BuildingOnLineRecord,
@@ -344,9 +343,7 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                if i64::from(target_rx) >= crate::map::cell_index::CELL_ROW_STRIDE
-                    || i64::from(target_ry) >= crate::map::cell_index::CELL_ROW_STRIDE
-                {
+                if target_rx >= self.cell_grid().side() || target_ry >= self.cell_grid().side() {
                     return None;
                 }
                 return SpecialPlaceRecord {
@@ -405,8 +402,8 @@ impl Simulation {
                 .get(rules.super_weapon_order.get(usize::try_from(index).ok()?)?)
         };
         if let Some(event) = SpecialPlaceRecord::decode(record) {
-            if !(0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&event.cell.0)
-                || !(0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&event.cell.1)
+            if !(0..self.cell_grid().side() as i16).contains(&event.cell.0)
+                || !(0..self.cell_grid().side() as i16).contains(&event.cell.1)
             {
                 return None;
             }
@@ -1337,7 +1334,7 @@ impl Simulation {
         if (x, y) == (0, 0) {
             return false;
         }
-        let Some((rx, ry)) = canonical_cell_coord(i32::from(x), i32::from(y)) else {
+        let Some((rx, ry)) = self.cell_grid().canonical_coord(i32::from(x), i32::from(y)) else {
             return false;
         };
         let Some(grid) = self.overlay_grid.as_ref() else {

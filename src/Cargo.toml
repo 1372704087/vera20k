@@ -37,7 +37,6 @@ wasm-net = ["wasm", "dep:wasm-bindgen"]
 wasm-lan = ["wasm-net"]
 # Compile the supported Ares behavior; INIs cannot enable an absent capability.
 ares = []
-large-maps = []
 # Compile the supported Phobos behavior; INIs cannot enable an absent capability.
 # Independent of `ares`: Phobos itself does not require Ares.
 phobos = []

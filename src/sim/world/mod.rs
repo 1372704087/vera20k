@@ -4124,6 +4124,9 @@ impl Simulation {
     /// Install a newly constructed map grid and capture the real CellClass
     /// `0x1180` value authority after row-major OverlayPack marking.
     pub fn install_resolved_terrain_for_new_map(&mut self, resolved_terrain: ResolvedTerrainGrid) {
+        let grid = resolved_terrain.cell_grid();
+        self.houses.configure_cell_grid(grid);
+        self.terrain_objects.configure_cell_grid(grid);
         self.bind_shared_cell_dummy(resolved_terrain.shared_cell_dummy());
         self.real_cell_bridge_flags_0x1180 =
             resolved_terrain.capture_real_cell_bridge_flags_0x1180();
@@ -5013,6 +5016,18 @@ impl Simulation {
     }
 
     /// `MapClass+0xF4/+0xF8`, the `In_Bounds` diamond's width and height.
+    /// The loaded terrain owns cell addressing; before Fill use the scenario's Size.
+    pub(crate) fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
+        self.resolved_terrain
+            .as_ref()
+            .map(|terrain| terrain.cell_grid())
+            .or_else(|| {
+                self.map_size_diamond()
+                    .map(|(w, h)| crate::map::cell_index::CellGrid::for_map_size(w, h))
+            })
+            .unwrap_or_default()
+    }
+
     pub fn map_size_diamond(&self) -> Option<(i32, i32)> {
         self.playfield_bounds
             .zip(self.playfield_size_height)

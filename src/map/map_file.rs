@@ -39,12 +39,14 @@ use crate::util::lzo::{self, LzoError};
 const CELL_RECORD_SIZE: usize = 11;
 /// Size of the coordinate header that precedes each terrain cell payload.
 const CELL_HEADER_SIZE: usize = 4;
-/// Native IsoMapPack5 lookup dimensions.
-const ISO_MAP_ROW_WIDTH: i32 = crate::map::cell_index::CELL_ROW_STRIDE as i32;
-const ISO_MAP_CELL_COUNT: i32 = ISO_MAP_ROW_WIDTH * ISO_MAP_ROW_WIDTH;
-// One serialized record per fixed-grid cell, followed by the optional null
-// coordinate header. Untrusted maps must not expand beyond this before parsing.
-const ISO_MAP_MAX_BYTES: usize = ISO_MAP_CELL_COUNT as usize * CELL_RECORD_SIZE + CELL_HEADER_SIZE;
+/// Engine admission capacity; decoding retains each map's selected budget.
+const ISO_MAP_ROW_WIDTH: i32 = crate::map::cell_index::MAX_CELL_SIDE as i32;
+const fn iso_map_max_bytes(grid: crate::map::cell_index::CellGrid) -> usize {
+    let side = grid.side() as usize;
+    side * side * CELL_RECORD_SIZE + CELL_HEADER_SIZE
+}
+#[cfg(test)]
+const ISO_MAP_MAX_BYTES: usize = iso_map_max_bytes(crate::map::cell_index::CellGrid::Retail);
 const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
 // Untrusted wrappers must not multiply a small physical file into unbounded
 // INI parsing work through many entries or repeated/overlapping ranges.
@@ -163,7 +165,11 @@ pub struct MapHeader {
 }
 
 impl MapHeader {
-    /// The fixed 512x512 cell lookup shared by map admission and materialization.
+    pub fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
+        crate::map::cell_index::CellGrid::for_map_size(self.width as i32, self.height as i32)
+    }
+
+    /// Bounded cell-grid capacity shared by admission and materialization.
     /// Keep signed-bit-pattern and oversized INI values out of allocation loops.
     pub(crate) fn fits_cell_grid(&self) -> bool {
         self.width != 0
@@ -401,7 +407,7 @@ impl MapFile {
                 log::warn!("Map preview decode failed; continuing without preview: {err}");
             }
         }
-        let iso_map_pack = parse_iso_map_pack(&ini)?;
+        let iso_map_pack = parse_iso_map_pack(&ini, header.cell_grid())?;
         let entities: Vec<MapEntity> = entities::parse_map_entities(&ini);
         let overlay::ParsedOverlayPacks {
             identity: overlay_identity,
@@ -657,7 +663,10 @@ fn parse_header(ini: &IniFile) -> Result<MapHeader, MapError> {
 /// 2. Base64 decode the concatenated string.
 /// 3. LZO decompress the chunks.
 /// 4. Parse 11-byte terrain cell records.
-fn parse_iso_map_pack(ini: &IniFile) -> Result<ParsedIsoMapPack, MapError> {
+fn parse_iso_map_pack(
+    ini: &IniFile,
+    grid: crate::map::cell_index::CellGrid,
+) -> Result<ParsedIsoMapPack, MapError> {
     let section = ini
         .section("IsoMapPack5")
         .ok_or(MapError::MissingIsoMapPack)?;
@@ -670,9 +679,9 @@ fn parse_iso_map_pack(ini: &IniFile) -> Result<ParsedIsoMapPack, MapError> {
 
     // Base64 decode → LZO decompress.
     let compressed: Vec<u8> = base64::base64_decode(&b64_data).map_err(MapError::Base64)?;
-    let decompressed: Vec<u8> = lzo::decompress_chunks(&compressed, ISO_MAP_MAX_BYTES)?;
+    let decompressed: Vec<u8> = lzo::decompress_chunks(&compressed, iso_map_max_bytes(grid))?;
 
-    let parsed = parse_iso_map_pack_records(&decompressed)?;
+    let parsed = parse_iso_map_pack_records(&decompressed, grid)?;
 
     // Diagnostic: tile_index distribution. Lets a reader of the load logs see
     // how high a map's IsoMapPack5 reaches vs. what the theater INI defines.
@@ -706,11 +715,15 @@ fn parse_iso_map_pack(ini: &IniFile) -> Result<ParsedIsoMapPack, MapError> {
 }
 
 /// Parse native IsoMapPack5 records after chunk decompression.
-fn parse_iso_map_pack_records(decompressed: &[u8]) -> Result<ParsedIsoMapPack, MapError> {
-    if decompressed.len() > ISO_MAP_MAX_BYTES {
+fn parse_iso_map_pack_records(
+    decompressed: &[u8],
+    grid: crate::map::cell_index::CellGrid,
+) -> Result<ParsedIsoMapPack, MapError> {
+    let maximum = iso_map_max_bytes(grid);
+    if decompressed.len() > maximum {
         return Err(MapError::CellDataTooLarge {
             actual: decompressed.len(),
-            maximum: ISO_MAP_MAX_BYTES,
+            maximum,
         });
     }
     let mut cells: Vec<MapCell> = Vec::with_capacity(decompressed.len() / CELL_RECORD_SIZE);
@@ -750,11 +763,11 @@ fn parse_iso_map_pack_records(decompressed: &[u8]) -> Result<ParsedIsoMapPack, M
         // gamemd.exe IsoMapPack5 decoder @ 0x0056BAC0: X is sign-extended,
         // Y is unsigned, and every non-sentinel header performs this fixed
         // 512-wide lookup before either applying or discarding its payload.
-        let linear: i32 = i32::from(y) * ISO_MAP_ROW_WIDTH + i32::from(x);
-        let canonical = (0..ISO_MAP_CELL_COUNT).contains(&linear).then_some((
-            (linear % ISO_MAP_ROW_WIDTH) as u16,
-            (linear / ISO_MAP_ROW_WIDTH) as u16,
-        ));
+        let row_width = i32::from(grid.side());
+        let linear: i32 = i32::from(y) * row_width + i32::from(x);
+        let canonical = (0..row_width * row_width)
+            .contains(&linear)
+            .then_some(((linear % row_width) as u16, (linear / row_width) as u16));
         lookups.push(IsoMapPackLookup {
             raw_x: x,
             raw_y: y,
@@ -861,7 +874,6 @@ mod tests {
     const ONE_CELL_ISO_MAP_PACK: &str = "DwALABwBAAIA/////wAAABEAAA==";
     const TWO_PIXEL_PREVIEW_PACK: &str = "CgAGABcBAgMEBQYRAAA=";
 
-    #[cfg(feature = "large-maps")]
     #[test]
     fn large_map_parser_admits_literal_500_size_and_keeps_high_cell_identity() {
         let ini = IniFile::from_str(&format!(
@@ -878,7 +890,7 @@ mod tests {
         record.extend_from_slice(&600u16.to_le_bytes());
         record.extend_from_slice(&0i32.to_le_bytes());
         record.extend_from_slice(&[0, 0, 0]);
-        let parsed = parse_iso_map_pack_records(&record).unwrap();
+        let parsed = parse_iso_map_pack_records(&record, map.header.cell_grid()).unwrap();
         assert_eq!((parsed.cells[0].rx, parsed.cells[0].ry), (700, 600));
         assert_eq!(parsed.lookups[0].canonical, Some((700, 600)));
         let mut bad = map.header.clone();
@@ -936,7 +948,7 @@ mod tests {
         let root = crate::map::source::test_support::TestDirectory::new("bounded-map");
         let cache = root.path().join("NetworkMaps");
         let dimensions =
-            format!("[Map]\nSize=0,0,257,256\n[IsoMapPack5]\n1={ONE_CELL_ISO_MAP_PACK}\n");
+            format!("[Map]\nSize=0,0,513,512\n[IsoMapPack5]\n1={ONE_CELL_ISO_MAP_PACK}\n");
         let error = crate::map::source::install_received_map(
             &cache,
             dimensions.as_bytes().to_vec(),
@@ -1196,7 +1208,8 @@ mod tests {
         bytes.extend_from_slice(&[0; CELL_HEADER_SIZE]);
         bytes.extend_from_slice(&iso_map_record(2, 0, 8, 4, 5));
 
-        let parsed = parse_iso_map_pack_records(&bytes).expect("sentinel terminates decoding");
+        let parsed = parse_iso_map_pack_records(&bytes, crate::map::cell_index::CellGrid::Retail)
+            .expect("sentinel terminates decoding");
         let cells = parsed.cells;
 
         assert_eq!(cells.len(), 1);
@@ -1210,7 +1223,7 @@ mod tests {
             let mut bytes = iso_map_record(1, 0, 1, 0, 0).to_vec();
             bytes.extend(std::iter::repeat_n(1, actual));
             assert!(matches!(
-                parse_iso_map_pack_records(&bytes),
+                parse_iso_map_pack_records(&bytes, crate::map::cell_index::CellGrid::Retail),
                 Err(MapError::CellDataTruncated {
                     expected: CELL_HEADER_SIZE,
                     actual: got,
@@ -1225,7 +1238,7 @@ mod tests {
         bytes[0] = 1;
 
         assert!(matches!(
-            parse_iso_map_pack_records(&bytes),
+            parse_iso_map_pack_records(&bytes, crate::map::cell_index::CellGrid::Retail),
             Err(MapError::CellDataTruncated {
                 expected: CELL_RECORD_SIZE,
                 actual,
@@ -1239,7 +1252,8 @@ mod tests {
         bytes.extend_from_slice(&iso_map_record(1, 0, 0x0000_FFFF, 0, 0));
         bytes.extend_from_slice(&iso_map_record(2, 0, -1, 0, 0));
 
-        let parsed = parse_iso_map_pack_records(&bytes).expect("records are valid");
+        let parsed = parse_iso_map_pack_records(&bytes, crate::map::cell_index::CellGrid::Retail)
+            .expect("records are valid");
         let cells = parsed.cells;
 
         assert_eq!(cells[0].tile_index, 65_535);
@@ -1254,7 +1268,8 @@ mod tests {
         bytes.extend_from_slice(&iso_map_record(511, 511, 103, 5, 6));
         bytes.extend_from_slice(&[0; CELL_HEADER_SIZE]);
 
-        let parsed = parse_iso_map_pack_records(&bytes).expect("complete records parse");
+        let parsed = parse_iso_map_pack_records(&bytes, crate::map::cell_index::CellGrid::Retail)
+            .expect("complete records parse");
 
         assert_eq!(
             parsed.lookups,

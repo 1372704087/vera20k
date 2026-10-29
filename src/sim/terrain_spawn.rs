@@ -595,6 +595,8 @@ pub fn construct_terrain_objects_with_rules(
     for stable_id in old_terrain_ids {
         sim.unregister_non_entity_object(stable_id);
     }
+    let cell_grid = sim.cell_grid();
+    sim.terrain_objects.configure_cell_grid(cell_grid);
     sim.terrain_objects.clear();
 
     let mut constructed = 0usize;

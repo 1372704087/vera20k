@@ -330,6 +330,7 @@ fn patch_hierarchy_level(
                 parent_id,
                 cells.class(x, y),
                 (x as i16, y as i16),
+                crate::map::cell_index::CellGrid::for_extent(cells.width, cells.height),
             )) {
                 return false;
             }
@@ -404,7 +405,8 @@ fn build_hierarchy_level(
                 zone,
                 parent_id,
                 cells.class(x, y),
-                (x as i16, y as i16)
+                (x as i16, y as i16),
+                crate::map::cell_index::CellGrid::for_extent(cells.width, cells.height)
             )));
             let block = HierarchyBlock {
                 x_min: x & !(size - 1),
@@ -540,7 +542,7 @@ pub(super) fn register_bridge_hierarchy_edges_with_lookup(
     for (from, to) in [(a, b), (side_a, side_b), (opposite_a, opposite_b)] {
         let from = zone_at(from);
         let to = zone_at(to);
-        register_native_hierarchy_pair(edge_buckets, from, to, 0);
+        register_native_hierarchy_pair(edge_buckets, from, to, 0, terrain.cell_grid());
     }
 }
 
@@ -612,11 +614,12 @@ pub(super) fn register_native_hierarchy_pair(
     a: ZoneId,
     b: ZoneId,
     flag: u8,
+    grid: crate::map::cell_index::CellGrid,
 ) {
     //582FFD..583012 sign-extends both words before OR. Preserve exact packed
     //transcript, including the native high-bit zone-ID limitation.
     let bucket = (((a & 15) << 4) | (b & 15)) as usize;
-    let (existing, current) = if cfg!(feature = "large-maps") {
+    let (existing, current) = if grid.is_extended() {
         // VERA extension: native word packing corrupts identifiers above 32767
         // and cannot represent the >65535 records in a literal 500x500 map.
         (a, b)

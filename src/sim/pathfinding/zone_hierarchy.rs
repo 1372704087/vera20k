@@ -61,9 +61,9 @@ fn estimate_zone_threat(
         return lookup(target_index);
     }
     let decode = |index: i32| {
-        let remainder = index.wrapping_sub(1) % crate::sim::house_threat::THREAT_GRID_SIDE;
+        let remainder = index.wrapping_sub(1) % (i32::from(graph.cell_grid().side()) / 4 + 2);
         let x = remainder.wrapping_mul(4);
-        let y = (index.wrapping_sub(remainder) / crate::sim::house_threat::THREAT_GRID_SIDE)
+        let y = (index.wrapping_sub(remainder) / (i32::from(graph.cell_grid().side()) / 4 + 2))
             .wrapping_mul(4)
             .wrapping_sub(4);
         let raw = (x as i16, y as i16);
@@ -75,8 +75,11 @@ fn estimate_zone_threat(
     };
     let (source_raw, source) = decode(index(source)?);
     let (target_raw, target) = decode(target_index);
-    let read =
-        |coord: (i16, i16)| lookup(crate::sim::house_threat::HouseSpatialThreat::index(coord));
+    let read = |coord: (i16, i16)| {
+        lookup(
+            crate::sim::house_threat::HouseSpatialThreat::index_for_grid(graph.cell_grid(), coord),
+        )
+    };
     if source == target {
         let a = read(target_raw)?;
         return Ok(a.wrapping_add(read(source_raw)?) >> 1);
@@ -175,10 +178,11 @@ impl ZoneRecord {
         parent: ZoneId,
         zone_type: u8,
         seed: (i16, i16),
+        grid: crate::map::cell_index::CellGrid,
     ) -> Self {
         let mut record = Self::new(zone_id, parent, zone_type);
         record.native_threat_index =
-            Some(crate::sim::house_threat::HouseSpatialThreat::index(seed));
+            Some(crate::sim::house_threat::HouseSpatialThreat::index_for_grid(grid, seed));
         record
     }
 
@@ -216,6 +220,9 @@ pub struct ZoneLevelGraph {
 }
 
 impl ZoneLevelGraph {
+    pub(crate) fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
+        crate::map::cell_index::CellGrid::for_extent(self.width, self.height)
+    }
     pub(crate) fn new(zone_count: ZoneId) -> Self {
         Self {
             records: vec![None; zone_count as usize + 1],
@@ -254,7 +261,9 @@ impl ZoneLevelGraph {
         let Ok(expected) = ZoneId::try_from(self.records.len()) else {
             return false;
         };
-        if record.zone_id != expected {
+        if (!self.cell_grid().is_extended() && expected > u32::from(u16::MAX))
+            || record.zone_id != expected
+        {
             return false;
         }
         self.records.push(Some(record));

@@ -452,13 +452,14 @@ pub struct SimFrameOutput {
     /// retained screen offset and applies these after Logic.
     pub screen_shake_updates: Vec<crate::sim::combat::ScreenShakeUpdate>,
     pub lighting_events: Vec<crate::sim::light_sources::LightingEvent>,
-    /// The retail sync checksum this frame's multiplayer `Queue_AI` computed
-    /// for the native history ring; `None` on single-player routes and on
+    /// The sync checksum this frame's multiplayer `Queue_AI` computed for
+    /// the native history ring (retail fold plus VERA's money, health and
+    /// trigger terms); `None` on single-player routes and on
     /// frames that terminated before the tail.
     pub multiplayer_checksum: Option<FrameSyncChecksum>,
 }
 
-/// One frame's retail multiplayer checksum, stamped with the pre-commit
+/// One frame's multiplayer sync checksum, stamped with the pre-commit
 /// native frame it describes (`Frame` when `0x00647684` runs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameSyncChecksum {

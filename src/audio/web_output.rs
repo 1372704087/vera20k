@@ -39,9 +39,10 @@ thread_local! {
 }
 
 /// Stop the page-owned output when the application exits, including queued blocks.
+/// Also reached from the panic hook, which may interrupt a borrow of the output.
 pub(crate) fn shutdown() {
     OUTPUT.with(|slot| {
-        if let Some(output) = slot.borrow_mut().as_mut() {
+        if let Some(output) = slot.try_borrow_mut().ok().as_deref_mut().and_then(Option::as_mut) {
             output.stopped = true;
             let _ = output.ctx.close();
         }

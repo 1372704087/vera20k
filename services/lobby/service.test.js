@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { FEDERATION_HEADER, LOCATION_HEADER, LobbyService, SqlStore, locatedRequest } from './service.js';
+import { CLIENT_ADDRESS_HEADER, FEDERATION_HEADER, GATEWAY_KEY_HEADER, LOCATION_HEADER, LobbyService, SqlStore,
+  locatedRequest } from './service.js';
 
 function fixture(bodyTimeoutMs = 5000) {
   const db = new DatabaseSync(':memory:');
@@ -457,6 +458,19 @@ test('addresses inside one IPv6 /64 share its sign-up budget', async () => {
   const refused = await f.request('/v1/sessions', null, { nickname: 'Host41' }, from('2001:0db8:0005:0001:ffff::29'));
   assert.equal(refused.status, 429);
   await f.player('NextNetwork', from('2001:db8:5:2::1'));
+});
+
+test('only a gateway holding the deployment key names its players\' own networks', async () => {
+  const f = fixture();
+  f.env.GATEWAY_KEY = 'k'.repeat(32);
+  const proxied = (address, key = f.env.GATEWAY_KEY) =>
+    ({ ...from('198.51.100.9'), [GATEWAY_KEY_HEADER]: key, [CLIENT_ADDRESS_HEADER]: address });
+  // Each proxied player spends its own sign-up budget, not the gateway's.
+  for (let i = 1; i <= 41; i++) await f.player(`Web${i}`, proxied(`203.0.113.${i}`));
+  // Without the key, the named address is ignored and the sender's budget is shared.
+  for (let i = 1; i <= 40; i++) await f.player(`Spoof${i}`, proxied(`192.0.2.${i}`, 'x'.repeat(32)));
+  const refused = await f.request('/v1/sessions', null, { nickname: 'Spoof41' }, proxied('192.0.2.41', 'x'.repeat(32)));
+  assert.equal(refused.status, 429);
 });
 
 test('one IPv6 /48 cannot hold more than its share of lobby sessions', async () => {

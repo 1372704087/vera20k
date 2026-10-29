@@ -75,7 +75,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut counts = TrafficCounts::default();
     let mut reported_at = Instant::now();
     let clock_origin = Instant::now();
-    // The millisecond of the last pass over every room, and whether the
+    // The millisecond the last pass over every room ended, and whether the
     // server has accepted a datagram since.
     let mut passed_ms = None;
     let mut accepted = false;
@@ -83,12 +83,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     loop {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let monotonic_ms = clock_origin.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        // A pass costs time in every room, so it runs once a millisecond and
+        // A pass costs time in every room, so it starts a millisecond after
+        // the last one ended, even when a full relay's pass takes longer, and
         // before the next receive after an accepted datagram, which may owe
-        // pushes or link packets. A rejected one, junk included, costs only
-        // its rejection.
-        if accepted || passed_ms != Some(monotonic_ms) {
-            passed_ms = Some(monotonic_ms);
+        // pushes or link packets. A rejected one, junk included, adds none.
+        if accepted || passed_ms.is_none_or(|passed| monotonic_ms > passed) {
             accepted = false;
             // Clock advancement is independent of datagram arrivals and readers.
             server.advance_clock(monotonic_ms, now);
@@ -103,6 +102,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &mut counts,
                 server.drain_ordering_push(monotonic_ms, now),
             );
+            passed_ms = Some(clock_origin.elapsed().as_millis().min(u128::from(u64::MAX)) as u64);
         }
         let elapsed = reported_at.elapsed().as_secs();
         if elapsed >= 60 {

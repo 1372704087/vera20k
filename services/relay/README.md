@@ -165,8 +165,8 @@ Once every source has departed, a
 300-second terminal replay grace precedes exact-file cleanup. No reader
 acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive. Its pass over
-every room runs at most once a millisecond, plus once after each datagram it
-accepts, so rejected traffic, junk included, costs only its rejection.
+every room starts a millisecond after the previous one ended, plus once after
+each datagram it accepts, so rejected traffic, junk included, adds no pass.
 
 Explicit Leave is retried on the original socket until a terminal acknowledgement
 echoes that exact signed request. This idempotent operation alone remains valid

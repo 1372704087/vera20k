@@ -540,6 +540,12 @@ impl SimRng {
         }
     }
 
+    /// `RandomClass::RandomDouble`: one signed `RandomRanged(1, INT_MAX)`
+    /// draw divided by `2^31`, so the answer lies in `(0.0, 1.0)`.
+    pub fn random_double(&mut self) -> f64 {
+        f64::from(self.next_range_i32_inclusive(1, i32::MAX)) / 2_147_483_648.0
+    }
+
     /// Random integer in `[low, high]` inclusive on both ends.
     /// Sorts reversed bounds and consumes no draw when the bounds are equal.
     /// Mirrors binary `Random__RandomRanged(low, high)` for ordinary spans.

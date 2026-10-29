@@ -7653,6 +7653,18 @@ impl RulesPassProcessor {
                     )
                     .map(|value| NativeF64Bits::from_bits(value.to_bits()));
                 }
+                #[cfg(feature = "phobos")]
+                {
+                    // Phobos `Crit.Warhead` is read with `Read<true>`, so the
+                    // warhead it names is allocated here even when no other
+                    // key lists it; the type body then reads like any other.
+                    let _ = self.resolve_scalar_from(
+                        &raw,
+                        "Crit.Warhead",
+                        RulesTypeFamily::Warhead,
+                        0x80,
+                    );
+                }
             }
             #[cfg(feature = "ares")]
             {

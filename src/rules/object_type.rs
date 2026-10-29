@@ -1099,6 +1099,18 @@ pub struct ObjectType {
     pub veteran_abilities: AbilityFlags,
     /// The full native `EliteAbilities=` byte array (`TechnoTypeClass+0x2AE`).
     pub elite_abilities: AbilityFlags,
+    /// Phobos `TechnoTypeExt::ImmuneToCrit` (`ImmuneToCrit=`), default false.
+    #[cfg(feature = "phobos")]
+    pub(crate) immune_to_crit: bool,
+    /// Phobos `TechnoTypeExt::VeteranCritChance`; `None` inherits
+    /// `[General] VeteranCritChance`. Read only when the firer's
+    /// `CRITCHANCE` rank ability holds.
+    #[cfg(feature = "phobos")]
+    pub(crate) veteran_crit_chance: Option<f64>,
+    /// The five Phobos rank abilities read from the same
+    /// `VeteranAbilities=`/`EliteAbilities=` lists as the stock array.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_abilities: crate::rules::phobos_crit::PhobosAbilityFlags,
     /// `SelfHealing=` (`TechnoTypeClass+0xD14`, `ReadBool` at `0x00714AE8`).
     /// A type with this set heals at every rank; otherwise the `SELF_HEAL`
     /// ability gates the same pulse (`FUN_0070BE80`).
@@ -2855,6 +2867,25 @@ impl ObjectType {
         self.shield_type.as_deref()
     }
 
+    /// Phobos `TechnoTypeExt::ImmuneToCrit`.
+    #[cfg(feature = "phobos")]
+    pub fn immune_to_crit(&self) -> bool {
+        self.immune_to_crit
+    }
+
+    /// Phobos `TechnoTypeExt::VeteranCritChance`; `None` inherits
+    /// `[General] VeteranCritChance`.
+    #[cfg(feature = "phobos")]
+    pub fn veteran_crit_chance(&self) -> Option<f64> {
+        self.veteran_crit_chance
+    }
+
+    /// Phobos extension rank abilities (`ReadAdditionalAbilities`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_abilities(&self) -> &crate::rules::phobos_crit::PhobosAbilityFlags {
+        &self.phobos_abilities
+    }
+
     /// Phobos `DigitalDisplayTypes=`, in authored list order.
     #[cfg(feature = "phobos")]
     pub fn digital_display_types(&self) -> &[String] {
@@ -3597,6 +3628,12 @@ impl ObjectType {
             section.read_list("EliteAbilities", 0x80),
             AbilityFlags::default(),
         );
+        // Phobos `ReadAdditionalAbilities` parses the same two keys for its
+        // five extension tokens, independently of the stock array above.
+        #[cfg(feature = "phobos")]
+        let mut phobos_abilities = crate::rules::phobos_crit::PhobosAbilityFlags::default();
+        #[cfg(feature = "phobos")]
+        phobos_abilities.read_pass(section);
 
         // `TechnoTypeClass::ReadINI @ 0x00712587..0x007125DF` reads the debris
         // span in a fixed order and then clamps it twice:
@@ -4034,6 +4071,12 @@ impl ObjectType {
             explodes: section.read_bool("Explodes", false),
             veteran_abilities,
             elite_abilities,
+            #[cfg(feature = "phobos")]
+            immune_to_crit: section.read_bool("ImmuneToCrit", false),
+            #[cfg(feature = "phobos")]
+            veteran_crit_chance: section.read_phobos_nullable_double("VeteranCritChance", None),
+            #[cfg(feature = "phobos")]
+            phobos_abilities,
             self_healing: section.read_bool("SelfHealing", false),
             // Constructor null; only the ordered Process owner reads it.
             death_weapon: None,

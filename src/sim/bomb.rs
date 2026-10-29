@@ -635,6 +635,7 @@ impl Simulation {
             land,
             blast.location,
             blast.location,
+            false,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(self, rules, effect);
         }

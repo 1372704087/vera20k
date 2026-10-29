@@ -1412,6 +1412,10 @@ pub enum ProjectileDetonationReason {
     DeathWeapon,
     /// A `NUKE` impact's wait ended: its anim is gone (`0x00466771`).
     AnimEnded,
+    /// Phobos `ApplyCrit`'s `Crit.Warhead_FullDetonation` arm:
+    /// `WarheadTypeExt::DetonateAt` builds a bullet with no weapon type and
+    /// explodes it at the target (`Ext/WarheadType/Body.cpp:102..110`).
+    CritWarhead,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

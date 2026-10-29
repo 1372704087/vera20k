@@ -676,6 +676,7 @@ pub(super) fn ground_strike(
             land,
             coordinate,
             coordinate,
+            false,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
         }

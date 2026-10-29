@@ -218,7 +218,7 @@ pub(crate) fn apply_foot_radiation(
                     if effective.site_warhead_detonate_full {
                         let land = crate::sim::combat::detonation_anim::land_at(world, impact);
                         if let Some(effect) = crate::sim::combat::detonation_anim::effect(
-                            world, rules, warhead, damage, land, impact, impact,
+                            world, rules, warhead, damage, land, impact, impact, false,
                         ) {
                             crate::sim::world::damage_consequences::admit_explosion_effect(
                                 world, rules, effect,
@@ -657,6 +657,36 @@ pub(crate) fn apply_area_damage_in_run(
     effects
         .cell_target_detaches
         .extend(area.aoe.cell_target_detaches);
+    // Phobos `MapClass_DamageArea @ 0x489286`: a direct `DamageArea` caller's
+    // per-target pass runs before the native area damage, exactly like the
+    // bullet path. There is no bullet target, so the no-spread arm is empty.
+    #[cfg(feature = "phobos")]
+    {
+        let targets: Vec<u64> = area
+            .aoe
+            .receivers
+            .iter()
+            .filter_map(|receiver| match receiver {
+                combat_aoe::AreaDamageReceiver::Entity(event) => Some(event.target_id),
+                combat_aoe::AreaDamageReceiver::Terrain(_) => None,
+            })
+            .collect();
+        if let Some(roll) = super::crit::begin(world, rules, warhead, origin.0, origin.1, impact) {
+            super::crit::apply_targets(
+                world,
+                run,
+                rules,
+                overlay_registry,
+                warhead,
+                origin.2,
+                origin.0,
+                origin.1,
+                &roll,
+                &targets,
+                &mut effects,
+            );
+        }
+    }
     let (nested, mut pings, area_result) =
         commit_area_with_dispatch(world, run, &area.aoe.receivers, rules, overlay_registry);
     effects.append(nested);
@@ -778,6 +808,11 @@ pub(crate) struct ReceiverRun<'a> {
     /// callback deselects the unit, and a dying one hands it to its
     /// passengers and crewman.
     pub(crate) selected_units: Vec<u64>,
+    /// Phobos `WarheadTypeExt::InApplyCrit`: the warhead types whose crit is
+    /// currently applying, so a nested detonation of the same warhead cannot
+    /// re-enter. Transaction-local and never saved.
+    #[cfg(feature = "phobos")]
+    pub(crate) crit_warheads: Vec<InternedId>,
     effects: FrameEffects<'a>,
 }
 
@@ -993,7 +1028,7 @@ pub(crate) fn commit_terrain(
         // sound, RNG, persistence and deferred cleanup keep their owners.
         let land = detonation_anim::land_at(world, impact);
         if let Some(effect) =
-            detonation_anim::effect(world, rules, c4_warhead, 100, land, impact, impact)
+            detonation_anim::effect(world, rules, c4_warhead, 100, land, impact, impact, false)
         {
             crate::sim::world::damage_consequences::admit_explosion_effect(world, rules, effect);
         }
@@ -3072,13 +3107,14 @@ pub(crate) fn ares_warhead_effect_coordinate(
 /// @ 0x004684E0` nulled `+0xB0`) damages with no house.
 fn emit_detonation_receivers<'r>(
     world: &mut Simulation,
+    run: &mut ReceiverRun<'_>,
     rules: &RuleSet,
     overlay_registry: Option<&OverlayTypeRegistry>,
     detonation: &ProjectileDetonation,
     warhead: &'r WarheadType,
     out: &mut CombatEmit,
-    effects: FrameEffects<'_>,
-) -> Option<AreaDamageContinuation<'r>> {
+) -> (Option<AreaDamageContinuation<'r>>, bool) {
+    let effects = run.effects();
     let (impact_rx, impact_ry, ..) = projectile_impact_cell(detonation.impact);
 
     // Named location: `BulletClass::Detonate @ 0x004690b0`. Radiation is
@@ -3207,9 +3243,47 @@ fn emit_detonation_receivers<'r>(
             out.effects
                 .cell_target_detaches
                 .extend(area.aoe.cell_target_detaches);
+            // Phobos `BulletClass_Detonate @ 0x46920B`: the warhead's
+            // per-target pass (AttachEffect lists, crit) runs before the
+            // native area damage, so a target it kills is skipped by the
+            // dispatch gates below.
+            #[cfg(feature = "phobos")]
+            let crit_active = {
+                let targets = super::crit::detonation_targets(
+                    world,
+                    warhead,
+                    detonation,
+                    &area.aoe.receivers,
+                );
+                match super::crit::begin(
+                    world,
+                    rules,
+                    warhead,
+                    detonation.source_id,
+                    source_house,
+                    detonation.impact,
+                ) {
+                    Some(roll) => super::crit::apply_targets(
+                        world,
+                        run,
+                        rules,
+                        overlay_registry,
+                        warhead,
+                        detonation.payload.warhead,
+                        detonation.source_id,
+                        source_house,
+                        &roll,
+                        &targets,
+                        &mut out.effects,
+                    ),
+                    None => false,
+                }
+            };
+            #[cfg(not(feature = "phobos"))]
+            let crit_active = false;
             out.damage_events.extend(area.aoe.receivers);
 
-            Some(area.continuation)
+            (Some(area.continuation), crit_active)
         }
         claimed => {
             run_special_detonation_arm(
@@ -3220,7 +3294,7 @@ fn emit_detonation_receivers<'r>(
                 overlay_registry,
                 effects,
             );
-            None
+            (None, false)
         }
     }
 }
@@ -3387,6 +3461,7 @@ fn emit_detonation_anim(
     inviso: bool,
     bright: bool,
     area_result: Option<AreaDamageResult>,
+    crit_active: bool,
     out: &mut CombatEmit,
 ) {
     //469AA4 retains the raw coordinate before49F420; packing first would
@@ -3424,6 +3499,7 @@ fn emit_detonation_anim(
         land,
         selection_coordinate,
         placement,
+        crit_active,
     );
     // `0x00469BD6..0x00469C41`: a Bright bullet (`+0xE0`, the weapon's
     // `Bright=`) lights the anim coordinate with its damage (`+0x6C`),
@@ -3537,14 +3613,14 @@ pub(crate) fn commit_projectile_detonations_inline(
             let damage_start = emit.damage_events.len();
             let explosion_start = emit.effects.explosion_effects.len();
             let smudge_start = emit.effects.smudge_spawn_requests.len();
-            let area_continuation = emit_detonation_receivers(
+            let (area_continuation, crit_active) = emit_detonation_receivers(
                 world,
+                run,
                 rules,
                 overlay_registry,
                 &clustered,
                 warhead,
                 emit,
-                run.effects(),
             );
             let outer_explosion_effects = emit.effects.explosion_effects.split_off(explosion_start);
             let outer_anim_requests = emit.effects.smudge_spawn_requests.split_off(smudge_start);
@@ -3601,6 +3677,7 @@ pub(crate) fn commit_projectile_detonations_inline(
                 inviso,
                 live_tail.payload.bright(),
                 area_continuation.map(|_| area_result),
+                crit_active,
                 emit,
             );
             let mut anim_requests = outer_anim_requests;

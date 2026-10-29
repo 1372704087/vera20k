@@ -345,6 +345,9 @@ pub struct WarheadType {
     /// stock keys; a build without the capability carries only the defaults.
     #[cfg(feature = "phobos")]
     pub shield: crate::rules::phobos_shields::ShieldWarheadRules,
+    /// Phobos `WarheadTypeExt`'s `Crit.*` block, read in `LoadFromINI` order.
+    #[cfg(feature = "phobos")]
+    pub crit: crate::rules::phobos_crit::CritRules,
 }
 
 impl WarheadType {
@@ -511,6 +514,8 @@ impl WarheadType {
             max_debris,
             #[cfg(feature = "phobos")]
             shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            crit: crate::rules::phobos_crit::CritRules::from_section(section),
         }
     }
 }

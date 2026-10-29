@@ -105,6 +105,7 @@ pub(crate) fn select(
     damage: i32,
     land: i32,
     coordinate: ProjectileCoord,
+    crit_active: bool,
 ) -> Option<InternedId> {
     if damage == 0 {
         return None;
@@ -137,8 +138,30 @@ pub(crate) fn select(
                 .intern(&rules.general.weather_con_bolt_explosion)
         });
     }
+    #[cfg(not(feature = "phobos"))]
+    let _ = crit_active;
     if warhead.anim_list.is_empty() {
         return None;
+    }
+    // Phobos `SelectDamageAnimation_CritAnim` (`0x48A5B3`): an active crit
+    // replaces the damage animation with a `Crit.AnimList` entry while that
+    // list stays off the affected targets.
+    #[cfg(feature = "phobos")]
+    if crit_active
+        && !warhead.crit.anim_list().is_empty()
+        && !warhead.crit.anim_on_affected_targets(rules.crit_globals())
+    {
+        let list = warhead.crit.anim_list();
+        let name = if warhead.em_effect || warhead.crit.anim_list_pick_random() {
+            let index = world.scenario_rng.next_range_i32_inclusive(
+                0,
+                i32::try_from(list.len() - 1).expect("native AnimList count fits i32"),
+            );
+            &list[index as usize]
+        } else {
+            damage_band(list, damage, 25)?
+        };
+        return Some(world.interner.intern(name));
     }
     let name = if warhead.em_effect {
         let index = world.scenario_rng.next_range_i32_inclusive(
@@ -162,8 +185,17 @@ pub(crate) fn effect(
     land: i32,
     selection_coordinate: ProjectileCoord,
     placement: ProjectileCoord,
+    crit_active: bool,
 ) -> Option<ExplosionEffect> {
-    let shp_name = select(world, rules, warhead, damage, land, selection_coordinate)?;
+    let shp_name = select(
+        world,
+        rules,
+        warhead,
+        damage,
+        land,
+        selection_coordinate,
+        crit_active,
+    )?;
     Some(placed_effect(shp_name, placement))
 }
 
@@ -368,6 +400,7 @@ mod tests {
                 25,
                 land,
                 coordinate,
+                false,
             );
             assert_eq!(
                 selected.map(|id| world.interner.resolve(id)),
@@ -504,6 +537,7 @@ mod tests {
                     input["damage"].as_i64().unwrap() as i32,
                     land,
                     coordinate,
+                    false,
                 )
             };
             assert_eq!(

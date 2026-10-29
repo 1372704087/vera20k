@@ -33,6 +33,10 @@ pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
 pub(crate) mod combat_targeting;
 pub mod combat_weapon;
+#[cfg(feature = "phobos")]
+pub(crate) mod crit;
+#[cfg(all(test, feature = "phobos"))]
+mod crit_tests;
 pub(crate) mod damage;
 pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;

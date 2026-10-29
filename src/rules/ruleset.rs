@@ -4560,6 +4560,10 @@ pub struct RuleSet {
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
     pub(crate) shield_globals: crate::rules::phobos_shields::ShieldGlobals,
+    /// Phobos crit defaults: `[CombatDamage] Crit.*` and `[General]
+    /// VeteranCritChance`.
+    #[cfg(feature = "phobos")]
+    pub(crate) crit_globals: crate::rules::phobos_crit::CritGlobals,
     /// Phobos `[DigitalDisplayTypes]` catalog, read per Rules pass by the
     /// ordered Process owner. Empty in builds without the capability.
     #[cfg(feature = "phobos")]
@@ -6330,6 +6334,8 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             shield_globals,
             #[cfg(feature = "phobos")]
+            crit_globals: crate::rules::phobos_crit::CritGlobals::from_ini(ini),
+            #[cfg(feature = "phobos")]
             digital_display_types,
             #[cfg(feature = "phobos")]
             digital_display_globals,
@@ -6776,6 +6782,12 @@ impl RuleSet {
     #[cfg(feature = "phobos")]
     pub fn shield_globals(&self) -> &crate::rules::phobos_shields::ShieldGlobals {
         &self.shield_globals
+    }
+
+    /// Phobos crit defaults (`[CombatDamage]`/`[General]`).
+    #[cfg(feature = "phobos")]
+    pub fn crit_globals(&self) -> &crate::rules::phobos_crit::CritGlobals {
+        &self.crit_globals
     }
 
     /// Phobos `[DigitalDisplayTypes]` catalog.

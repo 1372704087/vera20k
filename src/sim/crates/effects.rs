@@ -621,7 +621,7 @@ pub(super) fn apply_explosion_crate(
         // `0x0048267D` passes the constant LandType 0 (Clear), so the
         // water-splash branch never fires here.
         if let Some(effect) = crate::sim::combat::detonation_anim::effect(
-            sim, rules, warhead, amount, 0, scattered, scattered,
+            sim, rules, warhead, amount, 0, scattered, scattered, false,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
         }

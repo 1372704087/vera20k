@@ -2678,7 +2678,8 @@ impl Simulation {
                         affects,
                         invoker_house,
                         attacker_owner,
-                        self.house_alliances.as_map(),
+                        &self.houses,
+                        &self.house_alliances,
                         &self.interner,
                     )
                 {
@@ -2687,7 +2688,8 @@ impl Simulation {
                     affects,
                     house,
                     attacker_owner,
-                    self.house_alliances.as_map(),
+                    &self.houses,
+                    &self.house_alliances,
                     &self.interner,
                 ) {
                     Some((None, house, true))
@@ -2698,7 +2700,8 @@ impl Simulation {
                 affects,
                 Some(victim_owner),
                 attacker_owner,
-                self.house_alliances.as_map(),
+                &self.houses,
+                &self.house_alliances,
                 &self.interner,
             ) {
                 Some((Some(target_id), Some(victim_owner), false))
@@ -2781,7 +2784,8 @@ impl Simulation {
                 effect.revenge_weapon_affects_house,
                 shot.house,
                 attacker_owner,
-                self.house_alliances.as_map(),
+                &self.houses,
+                &self.house_alliances,
                 &self.interner,
             ) {
                 continue;

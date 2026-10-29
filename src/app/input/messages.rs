@@ -606,7 +606,8 @@ fn movie_subtitle_post(
         prefix: None,
         text,
         rgb,
-        timeout_ms: (duration != u32::MAX).then(|| u64::from(duration) * 16),
+        // 0x005BF360 passes the cue duration as Add_Message's signed timeout.
+        timeout_ms: message_timeout_ms_from_buckets(duration as i32),
         silent: false,
     }
 }
@@ -945,7 +946,11 @@ mod tests {
         list.manage(3_879);
         assert_eq!(list.messages().len(), 1);
         list.manage(3_880);
-        assert_eq!(list.messages().len(), 1, "MessageList expires strictly after its deadline");
+        assert_eq!(
+            list.messages().len(),
+            1,
+            "MessageList expires strictly after its deadline"
+        );
         list.manage(3_881);
         assert!(list.messages().is_empty());
         assert!(

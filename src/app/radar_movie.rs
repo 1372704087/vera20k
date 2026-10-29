@@ -533,6 +533,7 @@ mod tests {
                     .iter()
                     .map(|pause| QueuedMovie {
                         surface: None,
+                        subtitles: None,
                         pause_simulation: pause.as_bool().unwrap(),
                     }),
             );

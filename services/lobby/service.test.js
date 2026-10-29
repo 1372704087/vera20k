@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { FEDERATION_HEADER, LOCATION_HEADER, LobbyService, SqlStore, locatedRequest } from './service.js';
+import { CLIENT_ADDRESS_HEADER, FEDERATION_HEADER, GATEWAY_KEY_HEADER, LOCATION_HEADER, LobbyService, SqlStore,
+  locatedRequest } from './service.js';
 
 function fixture(bodyTimeoutMs = 5000) {
   const db = new DatabaseSync(':memory:');
@@ -459,12 +460,55 @@ test('addresses inside one IPv6 /64 share its sign-up budget', async () => {
   await f.player('NextNetwork', from('2001:db8:5:2::1'));
 });
 
+test('only a gateway holding the deployment key names its players\' own networks', async () => {
+  const f = fixture();
+  f.env.GATEWAY_KEY = 'k'.repeat(32);
+  const proxied = (address, key = f.env.GATEWAY_KEY) =>
+    ({ ...from('198.51.100.9'), [GATEWAY_KEY_HEADER]: key, [CLIENT_ADDRESS_HEADER]: address });
+  // Each proxied player spends its own sign-up budget, not the gateway's.
+  for (let i = 1; i <= 41; i++) await f.player(`Web${i}`, proxied(`203.0.113.${i}`));
+  // Without the key, the named address is ignored and the sender's budget is shared.
+  for (let i = 1; i <= 40; i++) await f.player(`Spoof${i}`, proxied(`192.0.2.${i}`, 'x'.repeat(32)));
+  const refused = await f.request('/v1/sessions', null, { nickname: 'Spoof41' }, proxied('192.0.2.41', 'x'.repeat(32)));
+  assert.equal(refused.status, 429);
+});
+
 test('one IPv6 /48 cannot hold more than its share of lobby sessions', async () => {
   const f = fixture();
   for (let i = 0; i < 64; i++) await f.player(`Range${i}`, from(`2001:db8:7:${i.toString(16)}::1`));
   const refused = await f.request('/v1/sessions', null, { nickname: 'RangeFull' }, from('2001:db8:7:ffff::2'));
   assert.equal(refused.status, 503); assert.equal(refused.body.error.code, 'network_full');
   await f.player('Elsewhere', from('2001:db8:8::1'));
+});
+
+test('attempts at an active name cannot lock it out once it is free', async () => {
+  const f = fixture(); const holder = await f.player('Victim');
+  for (let i = 0; i < 30; i++)
+    assert.equal((await f.request('/v1/sessions', null, { nickname: 'victim' }, from('203.0.113.9'))).status, 409);
+  assert.equal((await f.command(holder, 'logout')).status, 200);
+  await f.player('Victim');
+});
+
+test('German Bunker re-joins are free and one network cannot spend its joins or chat', async () => {
+  const f = fixture(); let id = 0;
+  const send = async (user, operation, payload = {}) =>
+    (await f.request('/v1/commands', user.token, { request_id: `bunker_${++id}`, operation, payload })).status;
+  const join = (user) => send(user, 'join', { channel: 'Lob_41_2', key: '' });
+  const crowd = [];
+  for (let i = 0; i < 6; i++) crowd.push(await f.player(`Crowd${i}`, from('198.51.100.7')));
+  for (const user of crowd.slice(0, 4)) for (let i = 0; i < 24; i++) assert.equal(await join(user), 200);
+  let joined = 4;
+  for (const user of crowd.slice(4)) {
+    if (await join(user) !== 200) break;
+    for (joined++; joined < 40; joined++) if (await send(user, 'leave') !== 200 || await join(user) !== 200) break;
+  }
+  assert.equal(joined, 30, 'one network takes a thirty-player game of Bunker joins a minute');
+  const other = await f.player('Other', from('203.0.113.5'));
+  assert.equal(await join(other), 200);
+  const chats = [];
+  for (const user of crowd.slice(0, 4)) for (let i = 0; i < 30; i++) chats.push(await send(user, 'chat', { text: 'spam', to: [] }));
+  assert.equal(chats.filter((status) => status === 200).length, 30);
+  assert.equal(await send(other, 'chat', { text: 'still heard', to: [] }), 200);
 });
 
 test('polling shares one full session and match sweep per second', async () => {
@@ -702,6 +746,55 @@ test('disconnected admitted players retain identity and can renew after internet
   const leave = await f.command(host, 'leave');
   assert.equal(leave.body.events.some((event) => event.kind === 'channel_left'), true);
   assert.equal(f.store.list('session:').find((session) => session.player_id === host.player_id).channel_id, null);
+});
+
+test('crashed players free their names once nobody else in the match is online', async () => {
+  const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
+  const revision = await room(f, host, guest);
+  const started = await f.command(host, 'start', { users: ['Host', 'Guest'], ...agreement(revision) });
+  const id = started.body.events.find((event) => event.kind === 'game_started').payload.match_id;
+  for (const user of [host, guest]) await f.command(user, 'relay_ready', { match_id: id });
+  await f.command(host, 'latency_ready', { match_id: id, pings: [{ source_index: 1, round_trip_ms: 30 }] });
+  await f.command(guest, 'latency_ready', { match_id: id, pings: [{ source_index: 0, round_trip_ms: 40 }] });
+  const enter = async (nickname) => (await f.request('/v1/sessions', null, { nickname })).status;
+  f.advance(3600);
+  assert.equal((await f.command(host, 'ping')).status, 200);
+  assert.equal(await enter('Guest'), 409, 'held while the host is online');
+  f.advance(599);
+  assert.deepEqual([await enter('Guest'), await enter('Host')], [200, 409]);
+  f.advance(2);
+  assert.equal(await enter('Host'), 200);
+  assert.equal(f.store.list('match:').length, 0);
+});
+
+test('retrying a failed final map chunk is bounded by the bytes it re-hashes', async () => {
+  const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
+  await room(f, host, guest);
+  const bytes = Buffer.alloc(8 * 1024 * 1024, 7);
+  const digest = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex');
+  await f.command(host, 'options', { options: { ...options, map_metadata: { ...options.map_metadata, byte_length: bytes.length, source_sha256: digest } } });
+  let id = 0;
+  const upload = async (offset, value = bytes.subarray(offset, offset + 32768)) => (await f.request('/v1/commands', host.token,
+    { request_id: `map_${++id}`, operation: 'map_upload', payload: { digest, byte_length: bytes.length, offset, data: value.toString('base64url') } })).status;
+  const last = bytes.length - 32768;
+  for (let offset = 0; offset < last; offset += 32768) assert.equal(await upload(offset), 200);
+  const retries = [];
+  for (let i = 0; i < 5; i++) retries.push(await upload(last, Buffer.alloc(32768, 8)));
+  assert.deepEqual(retries, [400, 400, 400, 400, 429]);
+  f.advance(60);
+  assert.equal(await upload(last), 200);
+});
+
+test('guests cannot spend the room budgets the host needs', async () => {
+  const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
+  const revision = await room(f, host, guest);
+  const id = f.store.list('room:').find((value) => value.kind === 41).id;
+  for (const [key, count] of [[`rate:room:${id}:control`, 1800], [`rate:room-bytes:${id}`, 128 * 1024 * 1024]])
+    f.store.put(key, { ...f.store.get(key), count });
+  assert.equal((await f.command(guest, 'map_status', { status: 1, ...agreement(revision) })).status, 429);
+  const changed = { ...options, launch: { ...options.launch, options: { ...options.launch.options, starting_credits: 5000 } } };
+  assert.equal((await f.command(host, 'options', { options: changed })).status, 200);
+  assert.equal((await f.command(host, 'kick', { name: 'Guest' })).status, 200);
 });
 
 test('room map transfer checks ownership, ordering, bytes and cleanup independently of roster revision', async () => {
@@ -984,6 +1077,19 @@ test('translation failures, unsupported requests and the daily budget never cach
   reply = { text: 'goodbye' };
   assert.equal((await translate('再见')).body.error.code, 'translation_unavailable');
   assert.deepEqual(await translate('你好'), { status: 200, body: { text: 'hello' } });
+});
+
+test('one network cannot spend the daily translation budget, even by signing in again', async () => {
+  const f = fixture(); f.env.TRANSLATOR = { translate: async ({ text }) => ({ text: `en:${text}` }) };
+  const translate = async (user, text) => (await f.request('/v1/translate', user.token, { text, target: 'en' })).status;
+  const first = await f.player('First', from('198.51.100.7'));
+  assert.equal(await translate(first, 'один'), 200);
+  const key = `rate:translate:budget:${f.store.list('session:')[0].network}`;
+  f.store.put(key, { ...f.store.get(key), count: 2500 });
+  const again = await f.player('Again', from('198.51.100.7'));
+  assert.equal(await translate(again, 'два'), 503);
+  assert.equal(await translate(again, 'один'), 200, 'cached replies cost no model call');
+  assert.equal(await translate(await f.player('Elsewhere', from('203.0.113.5')), 'два'), 200);
 });
 
 const ADMIN_KEY = 'cd'.repeat(32);

@@ -284,18 +284,23 @@ impl App {
             // while Main_Tick's terminal tests and frame tail wait for Stop.
             crate::app::match_runtime::network_failure::show(state);
             crate::app::match_runtime::sim_tick::pump_audio_service(state, scenario_now_ms);
+            let frame_stopped = state.match_state.frame_stopped;
             if crate::app::match_runtime::network_failure::take_acknowledged(state) {
-                main_tick_admitted =
-                    crate::app::match_runtime::sim_tick::resume_after_network_failure(state);
-                // Main_Tick55DE4F..55DE71 and Main_Game55CFD0 retain their
-                // independent restart/EXIT/outcome priority after the modal.
-                Self::consume_scenario_restart_request(state);
-                Self::consume_executed_abort_exit(state, scenario_now_ms);
-                crate::app::match_runtime::sim_tick::drive_local_player_outcome_exit(
-                    state,
-                    scenario_now_ms,
-                );
-                Self::drive_scenario_exit(state, scenario_now_ms);
+                // A stopped frame has no suspended native frame to finish and
+                // its world must not run again: Stop goes straight to the shell.
+                if !frame_stopped {
+                    main_tick_admitted =
+                        crate::app::match_runtime::sim_tick::resume_after_network_failure(state);
+                    // Main_Tick55DE4F..55DE71 and Main_Game55CFD0 retain their
+                    // independent restart/EXIT/outcome priority after the modal.
+                    Self::consume_scenario_restart_request(state);
+                    Self::consume_executed_abort_exit(state, scenario_now_ms);
+                    crate::app::match_runtime::sim_tick::drive_local_player_outcome_exit(
+                        state,
+                        scenario_now_ms,
+                    );
+                    Self::drive_scenario_exit(state, scenario_now_ms);
+                }
                 if matches!(state.frontend.screen, GameScreen::InGame)
                     && state.match_state.scenario_exit.is_none()
                     && state.match_state.scenario_outcome.is_none()
@@ -305,6 +310,11 @@ impl App {
                     // This is the same route as WaitPass::Leave, without an
                     // EXIT command or BattleControlTerminated686570.
                     Self::record_external_match_result(
+                        state,
+                        super::cncnet::ExternalMatchResult::Disconnected,
+                    );
+                    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                    Self::browser_match_ended(
                         state,
                         super::cncnet::ExternalMatchResult::Disconnected,
                     );
@@ -381,13 +391,14 @@ impl App {
                 // `Stop(1)` that began the wait; the exit ends any fade tail.
                 state.audio.stop_theme();
                 state.frontend.quit_cascade = None;
-                // docs/spawn.md: the browser host learns that the external
-                // launch is over and the page may start another; desktop
-                // exits the process instead and writes its result file.
+                // Browser launchers receive the report after network cleanup,
+                // immediately before their engine exits.
                 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
                 if state.frontend.external_launch {
                     Self::finish_browser_external_launch(state, None);
+                    Self::poll_browser_exit(state, event_loop);
                     return RuntimeServiceResult {
+                        quit_requested: true,
                         main_tick_admitted,
                         screen_shake_offset,
                         ..Default::default()
@@ -465,6 +476,8 @@ impl App {
                     state,
                     super::cncnet::ExternalMatchResult::Disconnected,
                 );
+                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Disconnected);
                 Self::return_to_main_menu(state);
                 return RuntimeServiceResult {
                     main_tick_admitted,

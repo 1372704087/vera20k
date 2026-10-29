@@ -259,6 +259,21 @@ impl LiveCommandSession {
         self.sequenced.is_some()
     }
 
+    /// Remote Houses whose connection the relay ended in frames dispatched so
+    /// far; their shared EVENT_REMOVEPLAYER already ran in that frame.
+    pub fn take_lost_houses(&mut self) -> Vec<i8> {
+        self.sequenced
+            .as_mut()
+            .map_or_else(Vec::new, |session| session.take_lost())
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn mark_sequenced_started_for_test(&mut self) {
+        if let Some(session) = &mut self.sequenced {
+            session.mark_started_for_test();
+        }
+    }
+
     /// Replay records this immutable admission cadence once at startup. Solo
     /// online Local input and relay commits both dispatch each frame; ordinary
     /// LAN retains its configured native send cadence.

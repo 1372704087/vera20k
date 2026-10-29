@@ -14,7 +14,9 @@ returns 409 `name_unavailable`; entering its name never replaces that session.
 Guest locale, buddies and relay admission counters belong to this player identity
 and are removed with its session on logout or expiry. Idle lobby visits expire
 after 120 seconds without polling; admitted v4 players retain their session during
-a network outage until explicit finish/leave or the match/session lifetime.
+a network outage while another unfinished player of their match is online, and
+otherwise through 10 minutes of silence, until explicit finish/leave or the
+match/session lifetime.
 A later entry gets a new identity and empty preferences. No password account is
 created or consulted. Existing stored accounts and their current v3 sessions remain
 intact until their ordinary cleanup; active legacy sessions reserve their names too.
@@ -158,8 +160,11 @@ first34 bytes with domain `VERA20k relay ordering certificate v1\0`. The signed
 mask includes all human sources (including observers); AI has no source. FPS
 follows launch speed `[60,45,30,20,15,12,10]`. The certificate lasts24 hours;
 every UDP control still needs a live authenticated short-lived ticket. The relay
-binds the first matching startup agreement to this roster/clock and starts only
-when every signed source is ready. Renewals preserve the timeline and batch IDs.
+binds the first matching startup agreement to this roster/clock and starts once
+every remaining signed source is ready. A source that never becomes ready leaves
+in the first frame after 60 seconds of silence, or 3 minutes after the first
+Ready; a match federated over several relays is cancelled instead. Renewals
+preserve the timeline and batch IDs.
 `federation`, present only in a federated match, is the same base64url roster
 in every grant: `VO1F`, room UUID16, relay count (2–6), then per relay IPv4,
 LE port and LE source mask, then per relay nonce16, wrapped32 and tag32. The
@@ -193,11 +198,15 @@ Every `latency_ready` report contains each other canonical source exactly once;
 the service sends the same per-source maxima in `timing_confirmed` to everyone.
 For one human playing against AI, there are no remote peers: the latency report
 is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players do
-not receive source indices or relay credentials.
+not receive source indices or relay credentials. Such a match runs its commands
+locally: its grant still carries an ordering certificate, which released clients
+require, but the relay refuses a one-source certificate.
 Only then does game loading start. Each barrier has a 30-second timeout.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients
-renew before their remaining ticket lifetime falls below 30 seconds. The server
+renew before their remaining ticket lifetime falls below 30 seconds, timed from
+grant receipt on a monotonic clock rather than the ticket's expiry against the
+local wall clock, so a changed grant lifetime needs a client update. The server
 selects the source from authenticated frozen membership, issues a fresh 300-second
 grant and extends the private match lease. Clients authenticate the replacement
 on the existing socket before promoting it; game/reliable queues remain intact.
@@ -254,7 +263,11 @@ removes it. Uploads/downloads have a separate 600-request/minute/player budget;
 ordinary commands and events share 600/minute/player. Action limits additionally
 bound starts to 12 per 10 minutes, chat to 30/minute and 24 KiB/minute, and room chat
 to 120/minute. Control payloads are bounded to 4 MiB/minute/player and room fanout
-to 128 MiB/minute. Map upload/download bytes each have a 32 MiB/minute player budget.
+to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
+host. German Bunker takes 120 joins/minute and each network 30 of them and 30 of its
+chats/minute; a game room takes 60 joins/minute. Re-joining the current room is free.
+Map upload/download bytes each have a 32 MiB/minute player budget, and so do the
+earlier chunks the service re-reads to check a finished upload.
 Canonical options are limited to 24 KiB, choice objects use the exact canonical
 slot schema, and unknown request/option fields are rejected. The actor also caps
 pending requests/parsed bodies at 128/4 MiB and individual events at 64 KiB. Active
@@ -263,7 +276,7 @@ limits key on the client's network: an IPv4 address, or an IPv6 /64, with the
 enclosing /48 as the range. New guest entries are limited to 40/hour per address,
 64/hour per range and 256/hour globally, and one range holds at most 64 active
 sessions (503 `network_full`), with the existing sign-in and ingress limits also
-applied. These are service admission limits, not gameplay timers.
+applied. One name can be taken 30 times in 5 minutes; refused entries do not count. These are service admission limits, not gameplay timers.
 Clients verify and install into a
 local cache, preserve existing installed maps, and still require user readiness.
 Generated maps transfer the `.SED` bytes as the map and the separate native PCX
@@ -281,15 +294,19 @@ this is a fresh match with fresh relay credentials. A channel owner leaving befo
 start closes the room and emits a failure/leave event to the guests. Membership,
 authorization, readiness, sequence history and idle expiration are server-owned.
 Idle lobby visits expire after 120 seconds. An unfinished v4 playing membership
-survives that idle interval until explicit finish/leave or the match/session
-lifetime; lost internet does not remove its gameplay source.
+survives that idle interval while another unfinished player of the match is online
+(polled in the last 120 seconds), and otherwise through 10 minutes of silence, until
+explicit finish/leave or the match/session lifetime; lost internet does not remove
+its gameplay source. Names held by crashed clients therefore free once nobody else
+in their match is online.
 
 `POST /v1/translate` accepts exactly `{text,target}` from a v4 bearer and returns
 `{text}`: `text` translated into `target`, a language tag such as `en` or `zh-Hans`.
 `text` is non-blank and at most 2048 UTF-8 bytes, the chat limit. Clients translate
 received chat only after the player opts in, and always keep the original visible.
-A deployment without a translator, a failed model call or the service's daily budget
-of 10,000 model calls returns 503 `translation_unavailable`; an unsupported target
+A deployment without a translator, a failed model call, the service's daily budget
+of 10,000 model calls or one network's daily 2,500 of them returns 503
+`translation_unavailable`; an unsupported target
 returns 400 `invalid_request`. Each player may ask 60 times a minute. Successful
 replies are cached for 24 hours by `target` and `text`, and readers asking for the
 same message while it is translated share one model call. Translation never waits

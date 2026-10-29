@@ -2115,6 +2115,12 @@ impl GameEntity {
         self.fall.begin_bomb();
     }
 
+    /// ObjectClass+8D raised alone (FlamingGuy425BFC's writer, also the
+    /// NPBUG #2957 in-air parasite eject): the fall runs without a rate.
+    pub(crate) fn begin_fall(&mut self) {
+        self.fall.begin_fall();
+    }
+
     pub(crate) fn finish_fall(&mut self) {
         self.fall.finish();
     }

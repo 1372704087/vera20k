@@ -141,6 +141,11 @@ impl ParasiteState {
 
     /// `+0x28` Victim, which the owner's own `Can_Enter_Cell` also reads
     /// (Unit `0x0073F530`, Infantry `0x0051C259`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn set_victim_for_test(&mut self, victim: Option<u64>) {
+        self.victim = victim;
+    }
+
     pub(crate) fn victim(&self) -> Option<u64> {
         self.victim
     }
@@ -841,6 +846,12 @@ impl Simulation {
                             self.resolved_terrain.as_ref(),
                         ) > 0
                 });
+        // Latch the fall BEFORE unlimbo: Unlimbo's Z resolution keeps a
+        // falling object's exact Z, so the drone stays at the air height
+        // instead of snapping to the ground.
+        if victim_was_airborne && let Some(entity) = self.substrate.entities.get_mut(owner) {
+            entity.begin_fall();
+        }
         let coords = self.parasite_release_coords(owner, victim, rules);
         // 0x0062A2F8..0x0062A379: the 0xA8E7AC bracket around Unlimbo.
         let placed = coords.is_some_and(|coords| {
@@ -893,17 +904,25 @@ impl Simulation {
             .get(owner)
             .is_some_and(|o| o.category() == EntityCategory::Unit);
         let victim_on_bridge = victim_entity.on_bridge();
+        // NPBUG (NPExt bug-fix changelog item 26, issue #2957): a drone
+        // ejected from a victim killed in flight appears at the victim's
+        // position and crashes. Native's IsInAir refusal (and the ground-cell
+        // snap) dropped it straight to the ground cell under the kill.
+        let in_air_victim =
+            crate::rules::NPBUG_ENABLED && victim_entity.category() == EntityCategory::Aircraft;
+        if in_air_victim {
+            let coords = ground_pose::position_world_coord(&victim_entity.position);
+            self.substrate
+                .entities
+                .get_mut(owner)?
+                .on_bridge
+                .store(false);
+            return Some(coords);
+        }
         if self.parasite_can_place_at_victim(owner, victim, rules) {
             let victim_entity = self.substrate.entities.get(victim)?;
             let mut coords = ground_pose::position_world_coord(&victim_entity.position);
-            // NPBUG (NPExt bug-fix changelog item 26, issue #2957): a drone
-            // ejected from a victim killed in flight appears at the victim's
-            // position and crashes, instead of snapping to the ground cell
-            // under the kill.
-            if owner_is_unit
-                && !(crate::rules::NPBUG_ENABLED
-                    && victim_entity.category() == EntityCategory::Aircraft)
-            {
+            if owner_is_unit {
                 coords = target_cell_coord(
                     (coords.x / 256) as u16,
                     (coords.y / 256) as u16,
@@ -1164,20 +1183,18 @@ impl Simulation {
         ) else {
             return false;
         };
-        matches!(
-            self.try_reveal_entity_with_context(
-                owner,
-                RevealRequest {
-                    position,
-                    placement,
-                    logic_eligible: true,
-                },
-                UninitContext::new(rules, registry)
-                    .with_effects(effects)
-                    .with_unlimbo_facing(Some(facing)),
-            ),
-            RevealOutcome::Revealed { .. }
-        )
+        let outcome = self.try_reveal_entity_with_context(
+            owner,
+            RevealRequest {
+                position,
+                placement,
+                logic_eligible: true,
+            },
+            UninitContext::new(rules, registry)
+                .with_effects(effects)
+                .with_unlimbo_facing(Some(facing)),
+        );
+        matches!(outcome, crate::sim::world::RevealOutcome::Revealed { .. })
     }
 
     /// `TechnoClass::Fire @ 0x006FF749..0x006FF872`, the LimboLaunch block,

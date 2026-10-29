@@ -39,6 +39,11 @@ adds no behavior yet.
 
 ### Movement, crash, ejection, garrison and lifecycle
 
+- #2957 (NPExt changelog item 26): a drone ejected from a victim killed in
+  flight appears at the victim's air position and crashes (fall latched,
+  foot crash). Native's IsInAir refusal and ground-cell snap dropped it
+  straight to the ground cell under the kill.
+
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime

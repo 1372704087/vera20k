@@ -1411,22 +1411,51 @@ fn npbug_a_drone_ejected_in_flight_stays_at_the_air_position_and_crashes() {
     let rules = rules();
     let mut arena = Arena::new(&rules);
     let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
-    // The victim is an aircraft hovering over land, killed in flight.
-    let plane = arena.spawn(&rules, "HORV", "Americans", (11, 10));
+    // The victim is a flier reclassified as an aircraft hovering over a
+    // free land cell, killed in flight.
+    let plane = arena.spawn(&rules, "DRON", "Americans", (20, 20));
+    {
+        let entity = arena.sim.substrate.entities.get_mut(plane).unwrap();
+        entity.set_category_for_test(crate::map::entities::EntityCategory::Aircraft);
+        entity.position.set_exact_z_leptons_for_test(Some(3000));
+    }
+    // The drone rides inside the victim: limboed, like the native host ride.
+    arena
+        .sim
+        .substrate
+        .entities
+        .get_mut(drone)
+        .unwrap()
+        .lifecycle
+        .set_in_limbo_for_test(true);
+    arena
+        .sim
+        .substrate
+        .entities
+        .get_mut(drone)
+        .unwrap()
+        .lifecycle
+        .set_cell_marked_for_test(false);
+    // Attach the drone by hand: the eject (PointerExpired) path is what the
+    // fix changes, not the capture admission.
+    arena
+        .sim
+        .substrate
+        .entities
+        .get_mut(drone)
+        .unwrap()
+        .parasite
+        .class_mut()
+        .unwrap()
+        .set_victim_for_test(Some(plane));
     arena
         .sim
         .substrate
         .entities
         .get_mut(plane)
         .unwrap()
-        .position
-        .set_exact_z_leptons_for_test(Some(3000));
-    // Attach the drone by hand: the eject (PointerExpired) path is what the
-    // fix changes, not the capture admission.
-    arena.attack(drone, plane);
-    arena
-        .sim
-        .parasite_attach(drone, Some(plane), &rules, FrameEffects::default());
+        .parasite
+        .eater = Some(drone);
     assert_eq!(
         arena.eater_of(plane),
         Some(drone),
@@ -1440,9 +1469,12 @@ fn npbug_a_drone_ejected_in_flight_stays_at_the_air_position_and_crashes() {
         .unwrap()
         .health
         .set_for_test(0);
-    arena
-        .sim
-        .parasite_pointer_expired(drone, plane, &rules, FrameEffects::default());
+    arena.sim.parasite_pointer_expired(
+        drone,
+        plane,
+        &rules,
+        crate::sim::world::FrameEffects::default(),
+    );
 
     let released = arena.sim.substrate.entities.get(drone).unwrap();
     assert!(

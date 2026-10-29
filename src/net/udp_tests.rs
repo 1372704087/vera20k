@@ -324,8 +324,15 @@ fn relay_uses_existing_reliable_owner_across_a_lost_and_duplicated_datagram() {
     assert_eq!(first.global().queued_send_count(), 0);
 }
 
-#[test]
-fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledged() {
+/// An admitted relay route whose startup agreement the relay accepted, so
+/// retirement retains it for an explicit Leave.
+fn ordered_relay() -> (
+    UdpSocket,
+    vera20k_relay_protocol::RelayServer,
+    LanUdpTransport,
+    [u8; vera20k_relay_protocol::TICKET_LEN],
+    [u8; 32],
+) {
     use vera20k_relay_protocol::{MAX_DATAGRAM, RelayServer, SecretKey, Ticket, derive_packet_key};
 
     let socket = raw_peer();
@@ -334,7 +341,6 @@ fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledg
     let key = SecretKey::new([42; 32]);
     let mut server = RelayServer::new(key.clone(), 1);
     let mut wire = transport();
-    let primary = wire.primary_addr().unwrap();
     let ticket = Ticket {
         room: [11; 16],
         source: 0,
@@ -383,6 +389,15 @@ fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledg
     {
         socket.send_to(&output.bytes, output.endpoint).unwrap();
     }
+    (socket, server, wire, ticket, packet_key)
+}
+
+#[test]
+fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledged() {
+    let (socket, mut server, mut wire, ticket, packet_key) = ordered_relay();
+    let address = ipv4_addr(&socket).unwrap();
+    let primary = wire.primary_addr().unwrap();
+    let mut bytes = [0; vera20k_relay_protocol::MAX_DATAGRAM + 1];
     wire.retire_relay();
     assert!(wire.relay_retirement_pending());
     assert_eq!(
@@ -433,6 +448,31 @@ fn relay_retirement_keeps_the_original_route_until_a_retried_leave_is_acknowledg
     }
     assert_eq!(wire.relay_source(), None);
     assert_eq!(wire.primary_addr().unwrap(), primary);
+}
+
+#[test]
+fn unacknowledged_relay_leave_releases_the_route_after_bounded_attempts() {
+    // The relay went down: no Leave attempt is acknowledged.
+    let (socket, _server, mut wire, ticket, packet_key) = ordered_relay();
+    let mut bytes = [0; vera20k_relay_protocol::MAX_DATAGRAM + 1];
+    wire.retire_relay();
+    let attempts = u32::from(RELAY_LEAVE_ATTEMPTS);
+    for attempt in 0..attempts {
+        assert!(wire.relay_retirement_pending());
+        wire.service(attempt * 16);
+        socket.recv_from(&mut bytes).unwrap();
+    }
+    wire.service(attempts * 16 - 1);
+    assert!(
+        wire.relay_retirement_pending(),
+        "the last attempt keeps its full retry interval"
+    );
+    wire.service(attempts * 16);
+    assert!(!wire.relay_retirement_pending());
+    assert_eq!(wire.relay_source(), None);
+    let address = ipv4_addr(&socket).unwrap();
+    wire.enable_relay(address, &ticket, packet_key, [17; 32])
+        .unwrap();
 }
 
 #[test]

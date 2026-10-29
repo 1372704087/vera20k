@@ -168,7 +168,9 @@ both MACs still verify, and an existing room checks its
 certified source and retained principal/generation. An already expired, absent
 room can acknowledge without recreating membership or storage. Other expired
 operations remain rejected. Menu cleanup retains this transport until the
-acknowledgement; network silence never creates a Leave request.
+acknowledgement, or until 235 unanswered attempts 256 ms apart (about a minute);
+the client then releases it, leaving the place to be treated as a lost
+connection. Network silence never creates a Leave request.
 
 The unit owns `/var/lib/vera20k-relay` through `StateDirectory=vera20k-relay` and
 `StateDirectoryMode=0700`. The executable requires `STATE_DIRECTORY`, or an

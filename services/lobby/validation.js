@@ -107,7 +107,7 @@ export function validOptions(value) {
 
 export function validChannel(value) {
   return record(value, ['name', 'kind', 'max_users'], ['id', 'users', 'tournament', 'flags', 'game_flags', 'ping', 'ex_info'])
-    && text(value.name, 80) && value.kind === 41 && integer(value.max_users, 2, 30)
+    && text(value.name, 80) && value.kind === 41 && integer(value.max_users, 1, 30)
     && (value.id === undefined || text(value.id, 64, true))
     && ['users', 'tournament', 'ping'].every((key) => value[key] === undefined || i32(value[key]))
     && ['flags', 'game_flags'].every((key) => value[key] === undefined || integer(value[key], 0, 0xffffffff))

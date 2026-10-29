@@ -309,16 +309,7 @@ impl App {
                     // Main_Game55D347 returns directly to shell cleanup.
                     // This is the same route as WaitPass::Leave, without an
                     // EXIT command or BattleControlTerminated686570.
-                    Self::record_external_match_result(
-                        state,
-                        super::cncnet::ExternalMatchResult::Disconnected,
-                    );
-                    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                    Self::browser_match_ended(
-                        state,
-                        super::cncnet::ExternalMatchResult::Disconnected,
-                    );
-                    Self::return_to_main_menu(state);
+                    Self::return_disconnected_to_main_menu(state);
                 }
             }
             return RuntimeServiceResult {
@@ -461,24 +452,7 @@ impl App {
             if crate::app::match_runtime::network_match::service_wait(state, now_ms)
                 == crate::app::match_runtime::network_match::WaitPass::Leave
             {
-                if state
-                    .match_state
-                    .sim_runtime
-                    .as_ref()
-                    .is_some_and(|rt| rt.simulation.pending_network_wait())
-                {
-                    sim_tick::leave_network_wait(state);
-                }
-                // Result 8 clears GameActive without an EXIT event, so
-                // Main_Game returns past the router without 0x00686570's
-                // EVA and fades (0x0064806C..0x006482A6, 0x0055D347).
-                Self::record_external_match_result(
-                    state,
-                    super::cncnet::ExternalMatchResult::Disconnected,
-                );
-                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Disconnected);
-                Self::return_to_main_menu(state);
+                Self::leave_network_wait_to_main_menu(state);
                 return RuntimeServiceResult {
                     main_tick_admitted,
                     screen_shake_offset,

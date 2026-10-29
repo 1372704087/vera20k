@@ -371,6 +371,10 @@ impl SequencedSession {
         self.keep_running_for_exit = true;
     }
 
+    pub(super) fn exit_requested(&self) -> bool {
+        self.keep_running_for_exit
+    }
+
     pub(super) fn service(&mut self, transport: &mut LanUdpTransport, now: u32) {
         self.first_service.get_or_insert(now);
         while let Some(received) = transport.pop_ordering_received_with_time() {

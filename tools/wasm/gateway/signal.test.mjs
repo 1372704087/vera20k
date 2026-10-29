@@ -71,3 +71,22 @@ test('peers sharing a public address meet; descriptions are forwarded only withi
   const returning = client('203.0.113.7', `?prefer=${0x0a140002}`);
   assert.equal((await returning.next()).address, 0x0a140002);
 });
+
+test('a departed member\'s address waits for its own return instead of going to a newcomer', { timeout: 10000 }, async t => {
+  const { client } = await fixture(t, { lanSignal: { iceServers: [] }, clientIpHeader: 'x-forwarded-for' });
+  const host = client('203.0.113.7');
+  assert.equal((await host.next()).address, 0x0a140001);
+  const guest = client('203.0.113.7');
+  assert.equal((await guest.next()).address, 0x0a140002);
+  await host.next();
+  // Both lose signaling while their data channel stays open; the group empties.
+  guest.close();
+  assert.deepEqual(await host.next(), { type: 'leave', peer: 0x0a140002 });
+  const hostClosed = once(host, 'close');
+  host.close();
+  await hostClosed;
+  const newcomer = client('203.0.113.7');
+  assert.deepEqual(await newcomer.next(), { type: 'welcome', address: 0x0a140003, peers: [], iceServers: [] });
+  const returning = client('203.0.113.7', `?prefer=${0x0a140002}`);
+  assert.equal((await returning.next()).address, 0x0a140002);
+});

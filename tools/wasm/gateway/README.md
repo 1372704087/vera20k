@@ -52,7 +52,9 @@ never pass through it. Behind a reverse proxy, route `/lan/*` WebSocket Upgrades
 here; groups use the address from `VERA_CLIENT_IP_HEADER`. `VERA_LAN_STUN` optionally lists
 comma-separated `stun:` URLs for networks that hide host candidates; TURN is
 rejected. Limits are in `signal.mjs`: 256 connections, 16 members per group,
-16 KiB messages and 64 messages per second per connection.
+16 KiB messages and 64 messages per second per connection. A departed browser's
+virtual address is held for two minutes, until its peers have dropped it; only
+a signaling reconnect that asks for it back gets it.
 
 Local development can use `VERA_WEB_ORIGIN=http://localhost:8000`. An HTTP lobby
 requires both `VERA_ALLOW_LOCAL_HTTP=1` and a loopback lobby origin, for example

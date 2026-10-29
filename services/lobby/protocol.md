@@ -199,7 +199,9 @@ not receive source indices or relay credentials.
 Only then does game loading start. Each barrier has a 30-second timeout.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients
-renew before their remaining ticket lifetime falls below 30 seconds. The server
+renew before their remaining ticket lifetime falls below 30 seconds, timed from
+grant receipt on a monotonic clock rather than the ticket's expiry against the
+local wall clock, so a changed grant lifetime needs a client update. The server
 selects the source from authenticated frozen membership, issues a fresh 300-second
 grant and extends the private match lease. Clients authenticate the replacement
 on the existing socket before promoting it; game/reliable queues remain intact.

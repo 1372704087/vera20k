@@ -86,6 +86,11 @@ impl GameEntity {
     pub fn has_airstrike_marker(&self) -> bool {
         self.airstrike.link.is_some()
     }
+    /// The strike owner this marker borrows its `+0x294` pointer from; its
+    /// type supplies the Phobos airstrike colours. `None` without a marker.
+    pub fn airstrike_owner(&self) -> Option<u64> {
+        self.airstrike.link
+    }
 }
 
 impl Simulation {
@@ -542,6 +547,35 @@ impl Simulation {
 
     pub fn airstrike_tint_active(&self, target: u64) -> bool {
         self.substrate.airstrike_tint_active(target)
+    }
+
+    /// Phobos `TechnoExt::GetTintColor`'s airstrike arm: the `[ColorAdd]`
+    /// index the targeting building's owner type resolves through
+    /// `LaserTargetColor`, or `[AudioVisual] LaserTargetColor` without one.
+    #[cfg(feature = "phobos")]
+    pub fn airstrike_laser_target_color(&self, target: u64, rules: &RuleSet) -> i32 {
+        self.substrate
+            .entities
+            .get(target)
+            .and_then(GameEntity::airstrike_owner)
+            .and_then(|owner| self.substrate.entities.get(owner))
+            .and_then(|owner| self.object_type(owner.type_ref(), rules))
+            .map_or(rules.general.laser_target_color, |ty| {
+                rules.laser_target_color_for(ty)
+            })
+    }
+
+    /// Phobos `AirstrikeLineColor` for a strike launched by `owner`: its type's
+    /// own value, then `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub fn airstrike_line_color(&self, owner: u64, rules: &RuleSet) -> [u8; 3] {
+        self.substrate
+            .entities
+            .get(owner)
+            .and_then(|owner| self.object_type(owner.type_ref(), rules))
+            .map_or(rules.general.airstrike_line_color, |ty| {
+                rules.airstrike_line_color_for(ty)
+            })
     }
 }
 

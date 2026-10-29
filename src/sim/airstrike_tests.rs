@@ -61,6 +61,49 @@ impl Fixture {
     }
 }
 
+/// Phobos resolves both airstrike colours through the strike owner's
+/// TechnoType, falling back to `[AudioVisual]` when the key or the owner is
+/// absent (`src/Ext/Techno/Body.Internal.cpp:178`,
+/// `src/Ext/Techno/Hooks.Airstrike.cpp:308`).
+#[cfg(feature = "phobos")]
+#[test]
+fn airstrike_colours_resolve_from_the_owner_type() {
+    use crate::rules::ini_parser::IniFile;
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[AudioVisual]\nLaserTargetColor=4\nAirstrikeLineColor=255,0,0\n\
+         [InfantryTypes]\n0=BORIS\n[BORIS]\nLaserTargetColor=7\nAirstrikeLineColor=0,0,255\n",
+    ))
+    .unwrap();
+    let mut sim = Simulation::new();
+    let boris_type = sim.interner_mut_for_test().intern("BORIS");
+    let power_type = sim.interner_mut_for_test().intern("GAPOWR");
+    let mut owner = GameEntity::test_default(1, "BORIS", "Americans", 10, 10);
+    owner.set_type_ref_for_test(boris_type);
+    let mut target = GameEntity::test_default_of_category(
+        2,
+        "GAPOWR",
+        "Russians",
+        12,
+        10,
+        EntityCategory::Structure,
+    );
+    target.set_type_ref_for_test(power_type);
+    target.airstrike.set_test_link(Some(1));
+    sim.entities_mut_for_test().insert(owner);
+    sim.entities_mut_for_test().insert(target);
+    assert_eq!(sim.airstrike_laser_target_color(2, &rules), 7);
+    assert_eq!(sim.airstrike_line_color(1, &rules), [0, 0, 255]);
+    // A marker whose owner is gone, and an unknown owner id, keep the globals.
+    sim.entities_mut_for_test()
+        .get_mut(2)
+        .unwrap()
+        .airstrike
+        .set_test_link(Some(99));
+    assert_eq!(sim.airstrike_laser_target_color(2, &rules), 4);
+    assert_eq!(sim.airstrike_line_color(99, &rules), [255, 0, 0]);
+}
+
 #[test]
 fn retail_boris_building_attack_enters_designation_pose_and_starts_sortie() {
     let Some(mut f) = Fixture::new() else { return };

@@ -601,6 +601,15 @@ pub struct ObjectType {
     /// retail rule; `rules::phobos_fly_wobble` owns the resolution.
     #[cfg(feature = "phobos")]
     pub(crate) fly_no_wobbles: Option<bool>,
+    /// Phobos `TechnoTypeExt::LaserTargetColor`: the `[ColorAdd]` index whose
+    /// word tints a building this type's Boris airstrike targets. Unset takes
+    /// `[AudioVisual] LaserTargetColor` (`rules::phobos_airstrike_color`).
+    #[cfg(feature = "phobos")]
+    pub(crate) laser_target_color: Option<i32>,
+    /// Phobos `TechnoTypeExt::AirstrikeLineColor`: the RGB this type's airstrike
+    /// beam and target dot use. Unset takes `[AudioVisual] AirstrikeLineColor`.
+    #[cfg(feature = "phobos")]
+    pub(crate) airstrike_line_color: Option<[u8; 3]>,
     /// TechnoType+7FC, read from the current Image section of fixed ARTMD.
     /// The ordered processor owns its retained default (constructor0).
     voxel_shadow_index: i32,
@@ -2950,6 +2959,18 @@ impl ObjectType {
         self.fly_no_wobbles
     }
 
+    /// Phobos `TechnoTypeExt::LaserTargetColor`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn laser_target_color(&self) -> Option<i32> {
+        self.laser_target_color
+    }
+
+    /// Phobos `TechnoTypeExt::AirstrikeLineColor`, unset when the key is absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn airstrike_line_color(&self) -> Option<[u8; 3]> {
+        self.airstrike_line_color
+    }
+
     pub const fn building_light(&self) -> crate::rules::building_light::BuildingLightRules {
         self.building_light
     }
@@ -3783,6 +3804,10 @@ impl ObjectType {
             } else {
                 None
             },
+            #[cfg(feature = "phobos")]
+            laser_target_color: section.read_phobos_nullable_int("LaserTargetColor", None),
+            #[cfg(feature = "phobos")]
+            airstrike_line_color: section.read_phobos_nullable_color("AirstrikeLineColor", None),
             voxel_shadow_index: 0,
             pitch_speed: section.read_double_bits(
                 "PitchSpeed",

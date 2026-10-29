@@ -65,6 +65,7 @@ fn draws(row: &Value) -> Vec<SurfaceDraw> {
         coord(&input["source"]),
         coord(&input["target"]),
         main.draws().ranged(190, 270),
+        None,
         view,
     ));
     result.extend(opaque("opaque_after"));
@@ -162,7 +163,10 @@ fn composite_preserves_opaque_beam_order_and_advances_only_the_shared_main_draws
             rect: [25, 25, 3, 1],
             word: 0xFFFF,
         },
-        TacticalLineCall::Designation([from, to]),
+        TacticalLineCall::Designation {
+            coords: [from, to],
+            color: None,
+        },
         TacticalLineCall::Opaque {
             rect: [25, 25, 3, 1],
             word: 0xFFFF,
@@ -179,6 +183,49 @@ fn composite_preserves_opaque_beam_order_and_advances_only_the_shared_main_draws
             save_codec::serialize(&reference).unwrap()
         );
     }
+}
+
+/// Phobos `TechnoClass_DrawAirstrikeFlare_LineColor` (`0x007058F6`): a supplied
+/// `AirstrikeLineColor` replaces the stock ranged gradient for both the beam
+/// and the target dot, while the Main ranged draw that precedes the hook stays.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_line_and_dot_take_the_supplied_airstrike_color() {
+    let row = native()["cases"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| row["input"]["name"] == "reverse")
+        .unwrap();
+    let input = &row["input"];
+    let color = [12u8, 200, 45];
+    let draws = geometry(
+        coord(&input["source"]),
+        coord(&input["target"]),
+        230,
+        Some(color),
+        viewport(input),
+    );
+    let dot_word = crate::render::native_surface_format::RGB565.pack_rgb8(color);
+    let mut lines = 0;
+    let mut dots = 0;
+    for draw in &draws {
+        match draw {
+            SurfaceDraw::OpaqueRect { word, .. } => {
+                dots += 1;
+                assert_eq!(*word, dot_word);
+            }
+            SurfaceDraw::Line(line) => {
+                lines += 1;
+                match line.blend {
+                    SurfaceLineBlend::Mix { rgb, .. } => assert_eq!(rgb, color),
+                    _ => panic!("the airstrike beam is a mixed-color line"),
+                }
+            }
+            _ => {}
+        }
+    }
+    assert_eq!((lines, dots), (12, 4));
 }
 
 #[test]

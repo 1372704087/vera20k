@@ -1059,6 +1059,13 @@ pub struct GeneralRules {
     /// AudioVisual LaserTargetColor (Rules+18A4), constructor6678AA=0;
     /// ReadInt66B818..66B832 retains the current ColorAdd table index.
     pub laser_target_color: i32,
+    /// Phobos `[AudioVisual] AirstrikeLineColor=`, `RulesExt`'s
+    /// `Valueable<ColorStruct>` (constructor `255,0,0`, `src/Ext/Rules/Body.h`):
+    /// the RGB a Boris airstrike beam and its target dot draw. A TechnoType's
+    /// own `AirstrikeLineColor` overrides it; `rules::phobos_airstrike_color`
+    /// owns the resolution.
+    #[cfg(feature = "phobos")]
+    pub airstrike_line_color: [u8; 3],
     /// AudioVisual66B832..66B857, Rules+18A8; constructor6678B0=0.
     pub iron_curtain_color: i32,
     /// AudioVisual66B857..66B877, Rules+18AC; constructor6678B6=0.
@@ -2636,6 +2643,8 @@ impl Default for GeneralRules {
             idle_action_frequency: f64::from_bits(0x3fb5_3f7c_ed91_6873),
             force_shield_color: 0,
             laser_target_color: 0,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color: [255, 0, 0],
             iron_curtain_color: 0,
             berserk_color: 0,
             airstrike_abort_sound: None,
@@ -3529,6 +3538,11 @@ impl GeneralRules {
             "ExtraAircraftLight",
             defaults.extra_aircraft_light as f64 / 1000.0,
         ) * 1000.0) as i32;
+        // Phobos `RulesExt` reads this `[AudioVisual]` key independently of
+        // RulesClass's `[General]` gate.
+        #[cfg(feature = "phobos")]
+        let airstrike_line_color =
+            audio_visual.read_phobos_color("AirstrikeLineColor", defaults.airstrike_line_color);
         let Some(general) = ini.section("General") else {
             return Self {
                 message_delay_minutes,
@@ -3555,6 +3569,8 @@ impl GeneralRules {
                 extra_unit_light,
                 extra_infantry_light,
                 extra_aircraft_light,
+                #[cfg(feature = "phobos")]
+                airstrike_line_color,
                 ..defaults
             };
         };
@@ -4247,6 +4263,8 @@ impl GeneralRules {
             chrono_beam_color: defaults.chrono_beam_color,
             force_shield_color: defaults.force_shield_color,
             laser_target_color: defaults.laser_target_color,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color,
             iron_curtain_color: defaults.iron_curtain_color,
             berserk_color: defaults.berserk_color,
             parachute_max_fall_rate: defaults.parachute_max_fall_rate,
@@ -8854,6 +8872,26 @@ impl RuleSet {
             ty.fly_no_wobbles(),
             self.fly_no_wobbles,
             ty.is_dropship(),
+        )
+    }
+
+    /// Phobos `AirstrikeLineColor`, resolved as the hook at `0x007058F6` does:
+    /// the strike owner type's own value, then `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub fn airstrike_line_color_for(&self, ty: &ObjectType) -> [u8; 3] {
+        crate::rules::phobos_airstrike_color::airstrike_line_color(
+            ty.airstrike_line_color(),
+            self.general.airstrike_line_color,
+        )
+    }
+
+    /// Phobos `TintColorAirstrike`'s input, resolved as `TechnoTypeExt` does:
+    /// the type's own `LaserTargetColor`, then `[AudioVisual] LaserTargetColor`.
+    #[cfg(feature = "phobos")]
+    pub fn laser_target_color_for(&self, ty: &ObjectType) -> i32 {
+        crate::rules::phobos_airstrike_color::laser_target_color(
+            ty.laser_target_color(),
+            self.general.laser_target_color,
         )
     }
 

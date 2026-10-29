@@ -33,17 +33,31 @@ pub(super) fn build(
     target: DriveCoord,
     wall_ms: u32,
     main: &MainRngDraws,
+    color: Option<[u8; 3]>,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
-    geometry(from, wobble(target, wall_ms), main.ranged(190, 270), view)
+    geometry(
+        from,
+        wobble(target, wall_ms),
+        main.ranged(190, 270),
+        color,
+        view,
+    )
 }
 
 ///705860 requests one Main ranged value, even if clipping/A/Z hides the beam.
-///The color is red/orange independent of Flare.IsHouseColor and LaserTargetColor.
+///The stock color is red/orange independent of Flare.IsHouseColor and
+///LaserTargetColor. Phobos's `TechnoClass_DrawAirstrikeFlare_LineColor`
+///(`0x007058F6`) replaces it with the caller's resolved `AirstrikeLineColor`
+///and the dot with `RGB_To_Int` of the same color.
+///RESIDUAL: Phobos also scales the lines by
+///`Randomizer::Global.RandomRanged(745,1000)/1000` per frame; VERA has no Phobos
+///global randomizer, so the lines keep the base color at full brightness.
 fn geometry(
     from: DriveCoord,
     to: DriveCoord,
     random: i32,
+    color: Option<[u8; 3]>,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
     use crate::util::native_x87::adjust_for_z_standard;
@@ -53,14 +67,24 @@ fn geometry(
     };
     let start = project(from);
     let end = project(to);
-    let rgb = if random <= 255 {
-        [random as u8, 0, 0]
-    } else {
-        [
-            255,
-            (55 * (random - 256) / 7) as u8,
-            (15 * (random - 256) / 7) as u8,
-        ]
+    let (rgb, dot_word) = match color {
+        #[cfg(feature = "phobos")]
+        Some(color) => (
+            color,
+            crate::render::native_surface_format::RGB565.pack_rgb8(color),
+        ),
+        _ => {
+            let rgb = if random <= 255 {
+                [random as u8, 0, 0]
+            } else {
+                [
+                    255,
+                    (55 * (random - 256) / 7) as u8,
+                    (15 * (random - 256) / 7) as u8,
+                ]
+            };
+            (rgb, 0xF800)
+        }
     };
     let mut draws = Vec::with_capacity(16);
     //70597E: ordinary XSurface lines clip against the whole surface, with no A/Z.
@@ -72,7 +96,10 @@ fn geometry(
             [x - 1, y - 1, 1, 4],
             [x, y - 1, 1, 4],
         ] {
-            draws.push(SurfaceDraw::OpaqueRect { rect, word: 0xF800 });
+            draws.push(SurfaceDraw::OpaqueRect {
+                rect,
+                word: dot_word,
+            });
         }
     }
     let delta = [end[0].wrapping_sub(start[0]), end[1].wrapping_sub(start[1])];
@@ -117,8 +144,16 @@ fn geometry(
 /// phase. They are discarded with the UI build, never saved simulation state.
 #[derive(Clone, Copy)]
 pub(crate) enum TacticalLineCall {
-    Opaque { rect: [i32; 4], word: u16 },
-    Designation([DriveCoord; 2]),
+    Opaque {
+        rect: [i32; 4],
+        word: u16,
+    },
+    /// `color` is `None` on the stock path; Phobos supplies the strike owner's
+    /// resolved `AirstrikeLineColor`.
+    Designation {
+        coords: [DriveCoord; 2],
+        color: Option<[u8; 3]>,
+    },
 }
 
 /// The existing action-line producer emits opaque white-texture rectangles.
@@ -156,9 +191,10 @@ pub(crate) fn composite(
             TacticalLineCall::Opaque { rect, word } => {
                 draws.push(SurfaceDraw::OpaqueRect { rect, word })
             }
-            TacticalLineCall::Designation([from, to]) => {
-                draws.extend(build(from, to, wall_ms, main, view))
-            }
+            TacticalLineCall::Designation {
+                coords: [from, to],
+                color,
+            } => draws.extend(build(from, to, wall_ms, main, color, view)),
         }
     }
     draws

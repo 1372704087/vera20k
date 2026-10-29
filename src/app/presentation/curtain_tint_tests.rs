@@ -624,3 +624,41 @@ fn building_animation_retains_the_pre_techno_airstrike_sample() {
         retained.brightness()
     );
 }
+
+/// Phobos `TechnoExt::GetTintColor` (`src/Ext/Techno/Body.Internal.cpp:178`):
+/// a marked building ORs the strike owner type's `LaserTargetColor` word, not
+/// the `[AudioVisual]` global the stock path uses.
+#[cfg(feature = "phobos")]
+#[test]
+fn airstrike_tint_uses_the_strike_owner_types_laser_target_color() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[ColorAdd]\nNone=0,0,0\nA=31,0,0\nB=0,63,0\nC=0,0,31\nD=24,0,0\n\
+         E=0,56,0\nF=0,0,24\nG=31,63,31\n\
+         [AudioVisual]\nLaserTargetColor=4\n\
+         [InfantryTypes]\n0=BORIS\n[BORIS]\nLaserTargetColor=7\n",
+    ))
+    .unwrap();
+    let mut sim = Simulation::new();
+    let boris_type = sim.interner_mut_for_test().intern("BORIS");
+    let power_type = sim.interner_mut_for_test().intern("GAPOWR");
+    let mut owner = GameEntity::test_default(1, "BORIS", "Americans", 10, 10);
+    owner.set_type_ref_for_test(boris_type);
+    let mut target = GameEntity::test_default_of_category(
+        2,
+        "GAPOWR",
+        "Russians",
+        12,
+        10,
+        EntityCategory::Structure,
+    );
+    target.set_type_ref_for_test(power_type);
+    target.airstrike.set_test_link(Some(1));
+    sim.entities_mut_for_test().insert(owner);
+    sim.entities_mut_for_test().insert(target);
+    let expected = rules.color_add.rgb565_word(7);
+    assert_ne!(expected, rules.color_add.rgb565_word(4));
+    assert_eq!(
+        shp_colour_word(sim.entities().get(2).unwrap(), &sim, &rules, || false),
+        expected
+    );
+}

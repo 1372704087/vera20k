@@ -66,9 +66,9 @@ pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to p
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
 pub(crate) const ORIGINAL_SHAPE_HELP: &str =
     "Battles keep the original 4:3 shape, with bars on wide screens.";
-pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "YR Loading & Menu Movie";
+pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "Original YR Style";
 pub(crate) const YR_ORIGINAL_STYLE_HELP: &str =
-    "Show the Yuri's Revenge loading screen and menu movie.";
+    "Use Yuri's Revenge's loading screen and menu movie, plus the Skirmish and multiplayer lobby backgrounds.";
 pub(crate) const RENDER_INTERPOLATION_LABEL: &str = "Render Interpolation";
 pub(crate) const RENDER_INTERPOLATION_HELP: &str = "Smooth motion between simulation frames. Adds one frame of visual latency; does not increase simulation speed.";
 pub(crate) const MOUSE_WHEEL_ZOOM_LABEL: &str = "Mouse Wheel Zoom";
@@ -450,13 +450,13 @@ pub(crate) enum LauncherCheckboxId {
     /// VERA's own box: battles keep gamemd's 4:3 screen shape instead of the
     /// window's. Like Full Screen, it applies at once.
     OriginalShape,
-    /// VERA's own box: the startup splash and the menu movie use Yuri's
-    /// Revenge's art instead of Red Alert 2's. The movie changes at once; the
-    /// splash, drawn before any menu, at the next launch.
+    /// VERA's own box: the startup splash, the menu movie, the offline
+    /// Skirmish background and the LAN/WOL lobby backgrounds use Yuri's
+    /// Revenge's art instead of Red Alert 2's. The movie and the shell atlas
+    /// change at once; the splash, drawn before any menu, at the next launch.
     ///
-    /// User-set scope: this box switches only those two. Every other shell
-    /// screen follows gamemd's ordinary asset lookup, and the Skirmish, LAN and
-    /// WOL setup backgrounds keep their fixed RA2 art (see
+    /// User-set scope: this box switches only those surfaces. Every other
+    /// shell screen follows gamemd's ordinary asset lookup (see
     /// `render::skirmish_shell_chrome`), whatever the box says. Widening it
     /// needs the user's explicit request.
     YrOriginalStyle,

@@ -123,9 +123,10 @@ pub(crate) struct RetailOptionsProfile {
     pub(crate) original_shape: bool,
     /// The Options page's battle sidebar size.
     pub(crate) sidebar: crate::ui::main_menu_dialogs::options::SidebarSize,
-    /// `[VERA] YROriginalStyle=`: whether the startup splash and the menu
-    /// movie use Yuri's Revenge's art. Off by default, so new profiles show
-    /// Red Alert 2's. Only those two read it; see
+    /// `[VERA] YROriginalStyle=`: whether the startup splash, the menu movie,
+    /// the offline Skirmish background and the LAN/WOL lobby backgrounds use
+    /// Yuri's Revenge's art. Off by default, so new profiles show Red Alert
+    /// 2's. Only those surfaces read it; see
     /// [`LauncherCheckboxId::YrOriginalStyle`](crate::ui::main_menu_dialogs::options::LauncherCheckboxId::YrOriginalStyle).
     pub(crate) yr_original_style: bool,
     /// `[VERA] RenderInterpolation=`: client-only motion smoothing. Off by
@@ -1535,7 +1536,7 @@ ScoreVolume=0.3\nIsScoreShuffle=yes\nSoundLatency=4\nInGameMusic=no\n[VERA]\nZoo
         let defaults = load_snapshot(&RetailStartupOptions::default(), b"[VERA]\n");
         assert!(
             !defaults.retained_profile.yr_original_style,
-            "unchecked YR Loading & Menu Movie selects the default RA2 look"
+            "unchecked Original YR Style selects the default RA2 look"
         );
 
         for value in ["yes", "no"] {

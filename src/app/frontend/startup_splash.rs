@@ -76,7 +76,8 @@ const fn splash_art(yr_original_style: bool) -> SplashArt {
         RA2_SPLASH
     }
 }
-const MINIMUM_VISIBLE_TIME: Duration = Duration::from_millis(5000);
+/// How long the splash stays up at least: 6 s, the maintainer's choice.
+const MINIMUM_VISIBLE_TIME: Duration = Duration::from_millis(6000);
 const TEXT_COLOR: [u8; 4] = [255, 255, 255, 255];
 
 const COPYRIGHT_KEY: &str = "TXT_COPYRIGHT";
@@ -760,7 +761,7 @@ mod tests {
         assert!(hold.is_active(start));
         assert!(hold.is_active(start + MINIMUM_VISIBLE_TIME - Duration::from_millis(1)));
         // The hold is measured from the present, so initialization work that
-        // runs after it is spent inside the five seconds, not added to them.
+        // runs after it is spent inside the hold, not added to it.
         assert!(!hold.is_active(start + MINIMUM_VISIBLE_TIME));
         assert!(!hold.is_active(start + MINIMUM_VISIBLE_TIME + Duration::from_secs(1)));
     }

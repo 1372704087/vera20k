@@ -42,3 +42,8 @@ adds no behavior yet.
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime
+
+- #2984 (NPExt changelog item 70): the mind-control removal sound plays
+  only for the two involved parties — the (former) controller and the
+  owner the unit returns to. Native emitted a plain positional VocAt with
+  no house filter, so every player heard it.

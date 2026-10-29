@@ -1619,6 +1619,22 @@ mod tests {
     }
 
     #[test]
+    fn a_one_source_certificate_opens_no_ordering_room() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut solo = client(&key, 0);
+        connect(&mut server, &mut solo, 0);
+        let mut bytes = Vec::new();
+        solo.configure_ordering(&certificate(&key, 1, 1400), [7; 32], &mut bytes)
+            .unwrap();
+        assert!(matches!(
+            server.process_at(endpoint(&solo), &bytes, unix(0), 0),
+            Err(RelayError::Authentication)
+        ));
+        assert!(server.rooms[&[5; 16]].ordering.is_none());
+    }
+
+    #[test]
     fn pause_requires_all_capabilities_and_rejects_stale_control_epochs() {
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::new(key.clone(), 2);
@@ -3701,8 +3717,13 @@ impl RelayServer {
                 &self.key,
                 now,
             )?;
+            // A one-source match runs its commands locally (the client's
+            // original-singleton policy) and never orders through the relay.
+            // The lobby still signs its certificate for released clients, so
+            // refuse it here: a lone client cannot hold a room and journal.
             if certificate.room != message.ticket.room
                 || certificate.sources_mask & (1 << message.ticket.source) == 0
+                || certificate.sources_mask.count_ones() < 2
             {
                 return Err(RelayError::Authentication);
             }

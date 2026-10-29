@@ -198,7 +198,9 @@ Every `latency_ready` report contains each other canonical source exactly once;
 the service sends the same per-source maxima in `timing_confirmed` to everyone.
 For one human playing against AI, there are no remote peers: the latency report
 is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players do
-not receive source indices or relay credentials.
+not receive source indices or relay credentials. Such a match runs its commands
+locally: its grant still carries an ordering certificate, which released clients
+require, but the relay refuses a one-source certificate.
 Only then does game loading start. Each barrier has a 30-second timeout.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients

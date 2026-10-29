@@ -3544,12 +3544,14 @@ mod tests {
         assert!(server.rooms[&[5; 16]].ordering.is_some());
         server.advance_clock(freed, unix(freed));
         assert!(server.rooms[&[5; 16]].ordering.is_none());
-        // A renewed Ready cannot start a new timeline under its match ID.
+        // A renewed Ready cannot start a new timeline under its match ID: the
+        // ended-match marker answers while the certificate lasts, the files
+        // after it.
         let cert = certificate(&server.key, 3, 2000);
         assert!(matches!(
             configure(&mut server, &mut first, &cert, freed)[0],
             OrderEvent::Error {
-                code: OrderError::StorageUnavailable,
+                code: OrderError::Inactive,
                 ..
             }
         ));

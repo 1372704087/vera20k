@@ -56,6 +56,7 @@ Supported extensions:
 - [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
+- [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)
 
 ## Original project and authors
 
@@ -105,6 +106,7 @@ originate with:
   `DamageSelf`'s airborne fix - **NetsuNegi**.
 - Custom gravity for projectiles - **secsome**.
 - Warhead decloaking toggle (`DecloakDamagedTargets`) - **Starkku**.
+- Airstrike flare visual customizations and fixes - **Starkku**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

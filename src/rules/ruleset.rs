@@ -1059,6 +1059,18 @@ pub struct GeneralRules {
     /// AudioVisual LaserTargetColor (Rules+18A4), constructor6678AA=0;
     /// ReadInt66B818..66B832 retains the current ColorAdd table index.
     pub laser_target_color: i32,
+    /// Phobos `[AudioVisual] AirstrikeLineColor=`, `RulesExt`'s
+    /// `Valueable<ColorStruct>` (constructor `255,0,0`, `src/Ext/Rules/Body.h`):
+    /// the RGB an airstrike beam and its target dot draw. A TechnoType's own
+    /// `AirstrikeLineColor` overrides it (`Simulation::airstrike_line_color`).
+    #[cfg(feature = "phobos")]
+    pub airstrike_line_color: [u8; 3],
+    /// Phobos `[AudioVisual] AirstrikeLineZAdjust=`, `RulesExt`'s
+    /// `Valueable<int>` (constructor 0): added to the smaller of the beam's two
+    /// end depths, which `TechnoClass_DrawAirstrikeFlare_LineColor`
+    /// (`0x007058F6`) then gives the whole beam.
+    #[cfg(feature = "phobos")]
+    pub airstrike_line_z_adjust: i32,
     /// AudioVisual66B832..66B857, Rules+18A8; constructor6678B0=0.
     pub iron_curtain_color: i32,
     /// AudioVisual66B857..66B877, Rules+18AC; constructor6678B6=0.
@@ -2646,6 +2658,10 @@ impl Default for GeneralRules {
             idle_action_frequency: f64::from_bits(0x3fb5_3f7c_ed91_6873),
             force_shield_color: 0,
             laser_target_color: 0,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color: [255, 0, 0],
+            #[cfg(feature = "phobos")]
+            airstrike_line_z_adjust: 0,
             iron_curtain_color: 0,
             berserk_color: 0,
             airstrike_abort_sound: None,
@@ -3543,6 +3559,14 @@ impl GeneralRules {
             "ExtraAircraftLight",
             defaults.extra_aircraft_light as f64 / 1000.0,
         ) * 1000.0) as i32;
+        // Phobos `RulesExt` reads these `[AudioVisual]` keys independently of
+        // RulesClass's `[General]` gate.
+        #[cfg(feature = "phobos")]
+        let airstrike_line_color =
+            audio_visual.read_phobos_color("AirstrikeLineColor", defaults.airstrike_line_color);
+        #[cfg(feature = "phobos")]
+        let airstrike_line_z_adjust =
+            audio_visual.read_ares_int("AirstrikeLineZAdjust", defaults.airstrike_line_z_adjust);
         let Some(general) = ini.section("General") else {
             return Self {
                 message_delay_minutes,
@@ -3569,6 +3593,10 @@ impl GeneralRules {
                 extra_unit_light,
                 extra_infantry_light,
                 extra_aircraft_light,
+                #[cfg(feature = "phobos")]
+                airstrike_line_color,
+                #[cfg(feature = "phobos")]
+                airstrike_line_z_adjust,
                 ..defaults
             };
         };
@@ -4265,6 +4293,10 @@ impl GeneralRules {
             chrono_beam_color: defaults.chrono_beam_color,
             force_shield_color: defaults.force_shield_color,
             laser_target_color: defaults.laser_target_color,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color,
+            #[cfg(feature = "phobos")]
+            airstrike_line_z_adjust,
             iron_curtain_color: defaults.iron_curtain_color,
             berserk_color: defaults.berserk_color,
             parachute_max_fall_rate: defaults.parachute_max_fall_rate,

@@ -66,6 +66,7 @@ fn draws(row: &Value) -> Vec<SurfaceDraw> {
         coord(&input["target"]),
         main.draws().ranged(190, 270),
         None,
+        None,
         view,
     ));
     result.extend(opaque("opaque_after"));
@@ -199,11 +200,14 @@ fn phobos_line_and_dot_take_the_supplied_airstrike_color() {
         .unwrap();
     let input = &row["input"];
     let color = [12u8, 200, 45];
+    // 745/1000 of each channel, truncated: 8.94, 149.0, 33.525.
+    let line_color = [8, 149, 33];
     let draws = geometry(
         coord(&input["source"]),
         coord(&input["target"]),
         230,
         Some(color),
+        Some(745),
         viewport(input),
     );
     let dot_word = crate::render::native_surface_format::RGB565.pack_rgb8(color);
@@ -218,7 +222,7 @@ fn phobos_line_and_dot_take_the_supplied_airstrike_color() {
             SurfaceDraw::Line(line) => {
                 lines += 1;
                 match line.blend {
-                    SurfaceLineBlend::Mix { rgb, .. } => assert_eq!(rgb, color),
+                    SurfaceLineBlend::Mix { rgb, .. } => assert_eq!(rgb, line_color),
                     _ => panic!("the airstrike beam is a mixed-color line"),
                 }
             }
@@ -226,6 +230,47 @@ fn phobos_line_and_dot_take_the_supplied_airstrike_color() {
         }
     }
     assert_eq!((lines, dots), (12, 4));
+}
+
+/// The Phobos hook draws `Randomizer::Global.RandomRanged(745,1000)` after the
+/// stock `190..270` draw, on the same process Main stream. One designation
+/// spends exactly those two draws in that order.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_scale_draws_the_main_value_after_the_stock_value() {
+    let main = MainRng::new(31);
+    let reference = MainRng::new(31);
+    let from = DriveCoord {
+        x: 5248,
+        y: 5248,
+        z: 100,
+    };
+    let to = DriveCoord {
+        x: 5504,
+        y: 5248,
+        z: 0,
+    };
+    let view = viewport(&native()["cases"][0]["input"]);
+    let color = [255, 255, 255];
+    let draws = build(from, to, 0, &main.draws(), Some(color), view);
+    reference.draws().ranged(190, 270);
+    let percentage = reference.draws().ranged(745, 1000);
+    assert_eq!(
+        save_codec::serialize(&main).unwrap(),
+        save_codec::serialize(&reference).unwrap()
+    );
+    let expected = scaled_line_color(color, percentage);
+    let mut lines = 0;
+    for draw in &draws {
+        if let SurfaceDraw::Line(line) = draw {
+            lines += 1;
+            match line.blend {
+                SurfaceLineBlend::Mix { rgb, .. } => assert_eq!(rgb, expected),
+                _ => panic!("the airstrike beam is a mixed-color line"),
+            }
+        }
+    }
+    assert_eq!(lines, 12);
 }
 
 #[test]

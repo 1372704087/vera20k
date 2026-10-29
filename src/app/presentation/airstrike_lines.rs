@@ -36,11 +36,25 @@ pub(super) fn build(
     color: Option<[u8; 3]>,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
+    //705860 draws the stock 190..270 value before the Phobos color hook at
+    //7058F6, so it stays even when Phobos replaces the color.
+    let random = main.ranged(190, 270);
+    // `TechnoClass_DrawAirstrikeFlare_LineColor` then draws
+    // `Randomizer::Global.RandomRanged(745,1000)`, the process Main RNG VERA
+    // exposes as MainRngDraws. The dot skips this scale.
+    #[cfg(feature = "phobos")]
+    let percentage: Option<i32> = color.map(|_| main.ranged(745, 1000));
+    #[cfg(not(feature = "phobos"))]
+    let percentage: Option<i32> = {
+        let _ = color;
+        None
+    };
     geometry(
         from,
         wobble(target, wall_ms),
-        main.ranged(190, 270),
+        random,
         color,
+        percentage,
         view,
     )
 }
@@ -49,15 +63,14 @@ pub(super) fn build(
 ///The stock color is red/orange independent of Flare.IsHouseColor and
 ///LaserTargetColor. Phobos's `TechnoClass_DrawAirstrikeFlare_LineColor`
 ///(`0x007058F6`) replaces it with the caller's resolved `AirstrikeLineColor`
-///and the dot with `RGB_To_Int` of the same color.
-///RESIDUAL: Phobos also scales the lines by
-///`Randomizer::Global.RandomRanged(745,1000)/1000` per frame; VERA has no Phobos
-///global randomizer, so the lines keep the base color at full brightness.
+///and scales the lines by its `RandomRanged(745,1000)/1000` draw; the dot
+///keeps the unscaled `RGB_To_Int` word.
 fn geometry(
     from: DriveCoord,
     to: DriveCoord,
     random: i32,
     color: Option<[u8; 3]>,
+    percentage: Option<i32>,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
     use crate::util::native_x87::adjust_for_z_standard;
@@ -67,10 +80,10 @@ fn geometry(
     };
     let start = project(from);
     let end = project(to);
-    let (rgb, dot_word) = match color {
+    let (rgb, dot_word) = match (color, percentage) {
         #[cfg(feature = "phobos")]
-        Some(color) => (
-            color,
+        (Some(color), Some(percentage)) => (
+            scaled_line_color(color, percentage),
             crate::render::native_surface_format::RGB565.pack_rgb8(color),
         ),
         _ => {
@@ -138,6 +151,16 @@ fn geometry(
         previous_z = next_z;
     }
     draws
+}
+
+/// Phobos `TechnoClass_DrawAirstrikeFlare_LineColor`: each line channel is
+/// `base * (RandomRanged(745,1000) / 1000.0)` truncated to a byte, while the
+/// dot keeps the base word. The hook writes `(BYTE)(baseColor.R * percentage)`
+/// using double math (`src/Ext/Techno/Hooks.Airstrike.cpp:309`).
+#[cfg(feature = "phobos")]
+fn scaled_line_color(color: [u8; 3], percentage: i32) -> [u8; 3] {
+    let percentage = f64::from(percentage) / 1000.0;
+    color.map(|channel| (f64::from(channel) * percentage) as u8)
 }
 
 /// Per-composite calls retain Tactical's object order before the Main RNG

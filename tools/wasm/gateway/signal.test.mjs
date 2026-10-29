@@ -8,12 +8,12 @@ import { groupKey, iceServersFromEnv } from './signal.mjs';
 
 const origin = 'https://game.example';
 
-async function fixture(t, lanSignal) {
+async function fixture(t, options = {}) {
   const udp = dgram.createSocket('udp4');
   udp.bind(0, '127.0.0.1');
   await once(udp, 'listening');
   const gateway = createGateway({ lobby: 'https://lobby.example', relayHost: '127.0.0.1',
-    relayPort: udp.address().port, origin, lanSignal });
+    relayPort: udp.address().port, origin, ...options });
   await new Promise(resolve => gateway.server.listen(0, '127.0.0.1', resolve));
   t.after(async () => { await gateway.close(); udp.close(); });
   const base = `ws://127.0.0.1:${gateway.server.address().port}/lan/signal`;
@@ -47,7 +47,7 @@ test('signaling is off unless configured and admits STUN only', async t => {
 });
 
 test('peers sharing a public address meet; descriptions are forwarded only within the group', { timeout: 10000 }, async t => {
-  const { client } = await fixture(t, { iceServers: [], clientIpHeader: 'x-forwarded-for' });
+  const { client } = await fixture(t, { lanSignal: { iceServers: [] }, clientIpHeader: 'x-forwarded-for' });
   const host = client('203.0.113.7');
   const hello = await host.next();
   assert.deepEqual(hello, { type: 'welcome', address: 0x0a140001, peers: [], iceServers: [] });

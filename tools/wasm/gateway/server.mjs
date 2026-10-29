@@ -6,7 +6,7 @@ import dgram from 'node:dgram';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
 import { fairBudget, rateLimit } from './rate_limit.mjs';
-import { createSignaling, iceServersFromEnv } from './signal.mjs';
+import { clientAddress, createSignaling, iceServersFromEnv } from './signal.mjs';
 
 export const LIMITS = Object.freeze({
   datagram: 2048, connections: 256, httpRequests: 128,
@@ -25,19 +25,25 @@ function originUrl(value, allowLocalHttp = false) {
   return url;
 }
 
-export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp = false, lanSignal }) {
+export function createGateway({
+  lobby, relayHost, relayPort, origin, allowHttp = false, clientIpHeader, lobbyKey, lanSignal,
+}) {
   const upstream = originUrl(lobby, allowHttp);
   const allowed = originUrl(origin, true).origin;
   if (typeof relayHost !== 'string' || !/^[a-zA-Z0-9.-]+$/.test(relayHost)
     || !Number.isInteger(relayPort) || relayPort < 1 || relayPort > 65535) {
     throw new Error('Configure a fixed relay host and UDP port');
   }
+  if (lobbyKey !== undefined && !(typeof lobbyKey === 'string' && lobbyKey.length >= 32)) {
+    throw new Error('VERA_GATEWAY_KEY needs at least 32 characters');
+  }
   const exchanges = new Set();
   const closeSockets = new Map();
   // Combined incoming and outgoing datagrams of every game WebSocket.
   const packets = fairBudget(LIMITS.totalPacketsPerSecond, LIMITS.packetsPerSecond);
   const handshakes = rateLimit(512);
-  const signaling = lanSignal ? createSignaling({ origin: allowed, ...lanSignal }) : null;
+  const signaling = lanSignal
+    ? createSignaling({ origin: allowed, clientIpHeader, iceServers: lanSignal.iceServers }) : null;
   let closing = false;
   const server = http.createServer({ maxHeaderSize: 16384 }, (req, res) => {
     if (closing) { res.writeHead(503).end(); return; }
@@ -102,6 +108,13 @@ export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp =
       const headers = { 'accept': 'application/json', 'user-agent': 'VERA20k-wasm-gateway' };
       for (const name of ['authorization', 'content-type']) {
         if (req.headers[name]) headers[name] = req.headers[name];
+      }
+      // The lobby keys its per-network limits on this player's address, which
+      // only a gateway holding the lobby's GATEWAY_KEY may name.
+      const address = lobbyKey && clientAddress(req, clientIpHeader);
+      if (address) {
+        headers['vera-gateway-key'] = lobbyKey;
+        headers['vera-client-address'] = address;
       }
       const client = upstream.protocol === 'https:' ? https : http;
       // Fixed authority; the request contributes only the existing /v1/ path.
@@ -241,10 +254,10 @@ export function gatewayOptionsFromEnv(env) {
     relayPort: Number(env.VERA_RELAY_PORT ?? 5000),
     origin: env.VERA_WEB_ORIGIN,
     allowHttp: env.VERA_ALLOW_LOCAL_HTTP === '1',
-    lanSignal: env.VERA_LAN_SIGNAL === '1' ? {
-      iceServers: iceServersFromEnv(env.VERA_LAN_STUN),
-      clientIpHeader: env.VERA_CLIENT_IP_HEADER?.toLowerCase() || undefined,
-    } : undefined,
+    clientIpHeader: env.VERA_CLIENT_IP_HEADER?.toLowerCase() || undefined,
+    lobbyKey: env.VERA_GATEWAY_KEY || undefined,
+    lanSignal: env.VERA_LAN_SIGNAL === '1'
+      ? { iceServers: iceServersFromEnv(env.VERA_LAN_STUN) } : undefined,
   };
 }
 

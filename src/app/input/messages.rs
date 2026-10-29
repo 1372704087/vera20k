@@ -306,11 +306,13 @@ impl HudMessage {
         rules: &crate::rules::ruleset::RuleSet,
         rgb: [f32; 3],
     ) -> Option<crate::ui::messages::MessagePost<'static>> {
+        let t = self.timeout_ms(rules);
         Some(crate::ui::messages::MessagePost {
             prefix: None,
             text: self.csf_key()?,
             rgb,
-            timeout_ms: self.timeout_ms(rules),
+            visible_timeout_ms: t,
+            retain_timeout_ms: t,
             silent: false,
         })
     }
@@ -379,7 +381,8 @@ fn ares_refusal_post<'a>(
         prefix: None,
         text,
         rgb,
-        timeout_ms: ares_message_delay_timeout_ms(delay),
+        visible_timeout_ms: ares_message_delay_timeout_ms(delay),
+        retain_timeout_ms: ares_message_delay_timeout_ms(delay),
         silent: false,
     })
 }
@@ -676,7 +679,8 @@ fn movie_subtitle_post(
         text,
         rgb,
         // 0x005BF360 passes the cue duration as Add_Message's signed timeout.
-        timeout_ms: message_timeout_ms_from_buckets(duration as i32),
+        visible_timeout_ms: message_timeout_ms_from_buckets(duration as i32),
+        retain_timeout_ms: message_timeout_ms_from_buckets(duration as i32),
         silent: false,
     }
 }
@@ -1819,10 +1823,13 @@ mod tests {
         assert!(list.messages().is_empty());
         assert!(
             movie_subtitle_post("persistent", u32::MAX, rgb)
-                .timeout_ms
+                .visible_timeout_ms
                 .is_none()
         );
-        assert_eq!(movie_subtitle_post("zero", 0, rgb).timeout_ms, Some(0));
+        assert_eq!(
+            movie_subtitle_post("zero", 0, rgb).visible_timeout_ms,
+            Some(0)
+        );
     }
 
     #[cfg(feature = "ares")]
@@ -1865,7 +1872,7 @@ mod tests {
         };
         let post = build("Strike", Some("FirerHouse"));
         assert_eq!(post.rgb, [0.0, 0.0, 1.0]);
-        assert_eq!(post.timeout_ms, Some(14_400));
+        assert_eq!(post.visible_timeout_ms, Some(14_400));
         assert!(post.prefix.is_none() && !post.silent);
         assert_eq!(build("Configured", Some("FirerHouse")).rgb, [1.0, 0.0, 0.0]);
         assert_eq!(build("Firer", Some("FirerHouse")).rgb, [1.0, 0.0, 0.0]);

@@ -149,9 +149,10 @@ pub(crate) struct RetailOptionsProfile {
     /// service instead of showing `TXT_APIMISSING`: the Options page's
     /// developer box. Off by default; no real service exists yet.
     pub(crate) wol_test_service: bool,
-    /// `[VERA] SoloSkirmish=`: Start accepts a skirmish whose AI rows are all
-    /// `None`, for an undisturbed test match. Off by default, so retail's
-    /// "at least two players" gate stays.
+    /// `[VERA] SoloSkirmish=`: Start accepts a skirmish that has fewer than two
+    /// sides for an undisturbed test match — either no AI row enabled, or every
+    /// enabled AI on the local player's own explicit team. Off by default, so
+    /// retail's "at least two players" and "more than one team" gates stay.
     pub(crate) solo_skirmish: bool,
     /// `[VERA] TranslateChat=`: the language received online chat is
     /// translated into, or `None`, the default, for off. Only the `/translate`

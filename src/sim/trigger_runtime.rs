@@ -89,7 +89,8 @@ pub enum TriggerEffect {
     },
     /// Execute115's named TechnoType cameo pulse, on the native frame clock.
     FlashSidebarCameo {
-        type_id: crate::sim::intern::InternedId,
+        category: crate::sim::production::ProductionCategory,
+        type_index: i32,
         duration: i32,
         frame: i32,
     },
@@ -3699,7 +3700,7 @@ impl Simulation {
                 }
                 return found;
             }
-            81..=83 => {
+            81..=84 => {
                 use crate::map::entities::EntityCategory;
                 use crate::sim::mission::{MissionId, MissionType};
 
@@ -3710,8 +3711,11 @@ impl Simulation {
                 //81 walks Techno by live Trigger identity and deliberately
                 //does NOT test Health or Limbo. 82/83 walk Foot and compare
                 //the incoming House, not the scalar or retained House.
+                //84's active Execute6DDCEC..6DDD74 (WakeupGroup6E03B0)
+                //walks every Techno category and matches raw signed Group,
+                //without a House or Tag gate, before Queue(Guard,false).
                 let mut ordinal = 0;
-                while let Some(id) = if action.kind == 81 {
+                while let Some(id) = if matches!(action.kind, 81 | 84) {
                     self.substrate.entities.techno_registry_at(ordinal)
                 } else {
                     self.substrate.entities.foot_registry_at(ordinal)
@@ -3735,7 +3739,13 @@ impl Simulation {
                             } else {
                                 entity.health.current() > 0
                                     && !entity.lifecycle.in_limbo()
-                                    && if action.kind == 82 {
+                                    && if action.kind == 84 {
+                                        entity.object_group() == value.unwrap_or(0)
+                                            && matches!(
+                                                mission,
+                                                Some(MissionType::Sleep | MissionType::Harmless)
+                                            )
+                                    } else if action.kind == 82 {
                                         mission == Some(MissionType::Sleep)
                                             && Some(entity.owner()) != context.incoming_house
                                     } else {
@@ -4267,20 +4277,19 @@ impl Simulation {
                 //out of deterministic simulation; the UI owns actual admission.
             }
             115 => {
-                //6E4150 scans the common TechnoType array A8EB04 in reverse,
-                //with byte-exact names, then6AC5F0 dispatches its own class.
-                //Retail SOV01 uses the unique SAPC identity; duplicate names
-                //across type classes retain the rules owner's existing order.
-                let Some(object) = rules
-                    .all_objects()
-                    .filter(|object| object.id == action.inline_type_name())
-                    .last()
-                else {
+                // TAction::FlashCameo6E4150, original instructions: reverse
+                // exact-name search of the global constructor chronology.
+                // Sidebar6AC5F0 consumes that selected type's class/index;
+                // retain those facts instead of resolving its name again.
+                let Some(object) = rules.native_techno_type_exact(action.inline_type_name()) else {
                     return false;
                 };
-                let type_id = self.interner.intern(&object.id);
+                let Some(type_index) = rules.type_array_index(object.category, &object.id) else {
+                    return true;
+                };
                 effects.push(TriggerEffect::FlashSidebarCameo {
-                    type_id,
+                    category: crate::sim::production::category_for_object(object),
+                    type_index,
                     duration: value.unwrap_or(0),
                     frame: self.session.binary_frame() as i32,
                 });
@@ -4486,7 +4495,12 @@ impl Simulation {
                 let (Some(index), Some(waypoint)) = (value, action.waypoint_index) else {
                     return false;
                 };
-                return self.trigger_play_anim_at_waypoint(rules, index, waypoint as i32);
+                return self.trigger_play_anim_at_waypoint(
+                    rules,
+                    index,
+                    waypoint as i32,
+                    frame_effects,
+                );
             }
             58 => {
                 let (Some(intensity), Some(waypoint)) = (value, action.waypoint_index) else {
@@ -5288,6 +5302,9 @@ mod house_notification_tests;
 #[path = "trigger_runtime_house_attacked_tests.rs"]
 mod house_attacked_tests;
 
+#[cfg(test)]
+#[path = "trigger_runtime_group_wakeup_tests.rs"]
+mod group_wakeup_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_wakeup_tests.rs"]
 mod wakeup_tests;

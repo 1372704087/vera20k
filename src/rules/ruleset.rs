@@ -1947,6 +1947,11 @@ pub struct GeneralRules {
     /// leaves it unset.
     #[cfg(feature = "phobos")]
     pub allow_damage_on_self: bool,
+    /// Phobos `[General] DecloakDamagedTargets` (`RulesExt`, default true):
+    /// the fallback for a warhead's `Nullable<bool>` when the warhead section
+    /// leaves it unset.
+    #[cfg(feature = "phobos")]
+    pub decloak_damaged_targets: bool,
     /// `[AI] AIForcePredictionFudge=`, the signed DynamicVector at `Rules+0x9A8`
     /// (items `+0x9AC`) indexed Hard/Normal/Easy by the House difficulty:
     /// the percent by which the computer's estimate of its enemy's forces
@@ -2852,6 +2857,8 @@ impl Default for GeneralRules {
             infantry_auto_deploy: false,
             #[cfg(feature = "phobos")]
             allow_damage_on_self: false,
+            #[cfg(feature = "phobos")]
+            decloak_damaged_targets: true,
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
             // RulesClass constructor clears PlayerScatter and stores 3 into
@@ -4168,6 +4175,8 @@ impl GeneralRules {
             infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
             #[cfg(feature = "phobos")]
             allow_damage_on_self: general.read_bool("AllowDamageOnSelf", false),
+            #[cfg(feature = "phobos")]
+            decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")
                 .unwrap_or_default(),
@@ -8804,6 +8813,15 @@ impl RuleSet {
     #[cfg(not(feature = "phobos"))]
     pub fn allow_damage_on_self_for(&self, _warhead: &WarheadType) -> bool {
         false
+    }
+
+    /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the
+    /// warhead's own nullable value, then the global, defaulting to true.
+    #[cfg(feature = "phobos")]
+    pub fn decloak_damaged_targets_for(&self, warhead: &WarheadType) -> bool {
+        warhead
+            .decloak_damaged_targets()
+            .unwrap_or(self.general.decloak_damaged_targets)
     }
 
     /// Phobos `InfantryAutoDeploy`, resolved the way `InfantryClass::

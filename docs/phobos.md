@@ -55,6 +55,7 @@ Supported extensions:
 - [Power plant enhancers](phobos-power-plant-enhancer.md) (`PowerPlantEnhancer.*` output boosts, `PowerPlant.DamageFactor` and placement range rings)
 - [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
+- [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
 
 ## Original project and authors
 
@@ -103,6 +104,7 @@ originate with:
 - Warhead self-damaging toggle (`AllowDamageOnSelf`) - **Starkku**; its and
   `DamageSelf`'s airborne fix - **NetsuNegi**.
 - Custom gravity for projectiles - **secsome**.
+- Warhead decloaking toggle (`DecloakDamagedTargets`) - **Starkku**.
 
 The project's full contributor list is in
 [Phobos CREDITS.md](https://github.com/Phobos-developers/Phobos/blob/develop/CREDITS.md).

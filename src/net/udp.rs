@@ -198,11 +198,20 @@ struct PendingDatagram {
     endpoint: SocketAddrV4,
     bytes: [u8; UDP_DATAGRAM_CAPACITY],
     length: usize,
+    failed_attempts: u8,
 }
 
+// VERA adaptation: native retains a failing head forever (7B3D8B..7B3DB0) and
+// grows without a cap (7B20E0). One unreachable destination, such as a dead
+// peer or a forged source an ACK answers, would then stall every later send.
+// A head is retired like WouldBlock after this many failed attempts.
+const MAX_HEAD_ATTEMPTS: u8 = 8;
+// Twice native7B20E0's 128 pooled slots; past this a new raw attempt is
+// retired like WouldBlock, and its reliable owner may retry it.
+const MAX_PENDING_DATAGRAMS: usize = 256;
+
 /// Winsock7B23B0/UDP7B3AA0 owns attempts independently of reliable messages.
-/// Native7B20E0 falls back to heap blocks after its128 pooled slots; there is
-/// no fixed admission cap here. Only this FIFO owns retained wire bytes.
+/// Only this FIFO owns retained wire bytes.
 #[derive(Debug, Default)]
 struct UdpSendQueue {
     pending: VecDeque<PendingDatagram>,
@@ -249,11 +258,16 @@ impl UdpSendQueue {
             .copy_from_slice(&udp_checksum(frame).to_le_bytes());
         bytes[scope_len + CHECKSUM_LEN..scope_len + CHECKSUM_LEN + frame.len()]
             .copy_from_slice(frame);
-        self.pending.push_back(PendingDatagram {
-            endpoint,
-            bytes,
-            length: scope_len + CHECKSUM_LEN + frame.len(),
-        });
+        if self.pending.len() < MAX_PENDING_DATAGRAMS {
+            self.pending.push_back(PendingDatagram {
+                endpoint,
+                bytes,
+                length: scope_len + CHECKSUM_LEN + frame.len(),
+                failed_attempts: 0,
+            });
+        } else {
+            report.send_would_block += 1;
+        }
         //7B24A6..7B24B9 synchronously dispatches one write callback. An older
         //retained head is attempted first; the newly admitted block can wait.
         self.service(channel, report, send);
@@ -265,7 +279,7 @@ impl UdpSendQueue {
         report: &mut UdpServiceReport,
         send: &mut impl FnMut(&[u8], SocketAddrV4) -> io::Result<usize>,
     ) {
-        let Some(head) = self.pending.front() else {
+        let Some(head) = self.pending.front_mut() else {
             return;
         };
         //Each native FD_WRITE callback7B3BA8..7B3EB8 attempts one head only.
@@ -282,8 +296,16 @@ impl UdpSendQueue {
                 report.send_would_block += 1;
             }
             //7B3D8B..7B3DB0 keeps the exact head for every other error,
-            //including Interrupted. No later datagram overtakes it.
-            Err(error) => record_io_error(report, channel, UdpIoOperation::Send, error),
+            //including Interrupted. No later datagram overtakes it until it
+            //exhausts its attempts.
+            Err(error) => {
+                record_io_error(report, channel, UdpIoOperation::Send, error);
+                head.failed_attempts += 1;
+                if head.failed_attempts == MAX_HEAD_ATTEMPTS {
+                    self.pending.pop_front();
+                    report.send_would_block += 1;
+                }
+            }
         }
     }
 }

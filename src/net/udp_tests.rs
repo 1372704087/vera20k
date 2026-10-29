@@ -539,8 +539,67 @@ fn would_block_retires_raw_attempt_while_reliable_owner_can_retry() {
     assert_eq!(connections.queued_send_count(1), Some(1));
 }
 
+/// A destination that always fails (a dead peer, or a forged source an ACK
+/// answers) loses its head after a bounded number of attempts instead of
+/// stalling every later send, and failing sends cannot grow the FIFO forever.
 #[test]
-fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
+fn failing_destination_cannot_jam_or_grow_the_send_fifo() {
+    let mut queue = UdpSendQueue::default();
+    let mut report = UdpServiceReport::default();
+    let dead = SocketAddrV4::new(Ipv4Addr::new(203, 0, 113, 9), 4321);
+    let peer = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4321);
+    let delivered = std::cell::Cell::new(0);
+    let mut send = |_: &[u8], endpoint: SocketAddrV4| {
+        if endpoint == dead {
+            Err(io::ErrorKind::HostUnreachable.into())
+        } else {
+            delivered.set(delivered.get() + 1);
+            Ok(0)
+        }
+    };
+    queue.send(
+        dead,
+        b"ack",
+        None,
+        UdpChannel::Primary,
+        &mut report,
+        &mut send,
+    );
+    for _ in 0..MAX_HEAD_ATTEMPTS {
+        queue.send(
+            peer,
+            b"frame",
+            None,
+            UdpChannel::Primary,
+            &mut report,
+            &mut send,
+        );
+    }
+    assert_eq!(
+        delivered.get(),
+        1,
+        "the peer's datagrams follow the retired head"
+    );
+    for _ in 0..2 * MAX_PENDING_DATAGRAMS {
+        queue.service(UdpChannel::Primary, &mut report, &mut send);
+    }
+    assert!(queue.pending.is_empty());
+    assert_eq!(delivered.get(), usize::from(MAX_HEAD_ATTEMPTS));
+    for _ in 0..2 * MAX_PENDING_DATAGRAMS {
+        queue.send(
+            dead,
+            b"ack",
+            None,
+            UdpChannel::Primary,
+            &mut report,
+            &mut send,
+        );
+    }
+    assert!(queue.pending.len() <= MAX_PENDING_DATAGRAMS);
+}
+
+#[test]
+fn raw_fifos_retire_failing_heads_and_clear_independently_of_reliability() {
     let mut transport = transport();
     let endpoint = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 4321);
     transport.connections_mut().add_peer(1, endpoint).unwrap();
@@ -568,7 +627,9 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
         &mut report,
         &mut |_, _| Err(io::ErrorKind::PermissionDenied.into()),
     );
-    assert_eq!(transport.lock().primary_send.pending.len(), 130);
+    // Each send attempts the head once; every eighth failure retires one.
+    let retained = 130 - 130 / usize::from(MAX_HEAD_ATTEMPTS);
+    assert_eq!(transport.lock().primary_send.pending.len(), retained);
     assert_eq!(transport.lock().alternate_send.pending.len(), 1);
     let mut alternate = Vec::new();
     transport
@@ -579,7 +640,7 @@ fn raw_fifos_grow_beyond_native_pool_and_clear_independently_of_reliability() {
             Ok(bytes.len())
         });
     assert_eq!(alternate, datagram(b"alternate"));
-    assert_eq!(transport.lock().primary_send.pending.len(), 130);
+    assert_eq!(transport.lock().primary_send.pending.len(), retained);
     transport.lock().alternate_send.send(
         endpoint,
         b"discard",

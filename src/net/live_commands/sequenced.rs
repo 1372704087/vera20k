@@ -30,6 +30,11 @@ const PUSH_SILENCE_REPAIR_MS: u32 = 1_000;
 const PAUSE_PROBE_INTERVAL_MS: i32 = 500;
 const PAUSE_COMPATIBILITY_PROBE_INTERVAL_MS: i32 = 5_000;
 const COMMAND_TRACE_HISTORY: usize = 256;
+// A relay record this build cannot read ends the match once it has held the
+// cursor, or before the start every Status, this long while the relay keeps
+// repeating it. Silence alone never ends a match.
+const UNREADABLE_LIMIT_MS: u32 = 5_000;
+const UNREADABLE_REPEAT_MS: u32 = 1_000;
 
 /// App diagnostics for one local command batch: its first transmission, the
 /// relay's frame assignment and the contiguous receipt of that sealed frame.
@@ -90,6 +95,14 @@ enum PushDelivery {
     PullOnly,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct Unreadable {
+    since: u32,
+    last: u32,
+    next_sequence: u64,
+    statuses: u64,
+}
+
 #[derive(Debug)]
 struct ReceivedEntry {
     entry: OrderEntry,
@@ -122,6 +135,8 @@ pub enum SequencedError {
     Unavailable,
     #[error("online command queue is full")]
     QueueFull,
+    #[error("this online match needs a newer VERA20k")]
+    NewerClientRequired,
 }
 
 #[derive(Debug)]
@@ -152,6 +167,8 @@ pub(super) struct SequencedSession {
     error: Option<LiveCommandError>,
     last_response: Option<u32>,
     first_service: Option<u32>,
+    statuses: u64,
+    unreadable: Option<Unreadable>,
     last_control: Option<u32>,
     push: PushDelivery,
     last_push_control: Option<u32>,
@@ -245,6 +262,8 @@ impl SequencedSession {
             error: None,
             last_response: None,
             first_service: None,
+            statuses: 0,
+            unreadable: None,
             last_control: None,
             push: PushDelivery::Probing { attempts: 0 },
             last_push_control: None,
@@ -379,6 +398,10 @@ impl SequencedSession {
         self.first_service.get_or_insert(now);
         while let Some(received) = transport.pop_ordering_received_with_time() {
             self.last_response = Some(now);
+            if matches!(received.event, OrderEvent::Unrecognized) {
+                self.note_unreadable(now);
+                continue;
+            }
             match self.receive(received.event, received.received_at) {
                 Ok(()) => {}
                 Err(error) => {
@@ -390,6 +413,10 @@ impl SequencedSession {
             return;
         }
         if let Err(error) = self.assemble() {
+            self.error = Some(error.into());
+            return;
+        }
+        if let Err(error) = self.check_unreadable(now) {
             self.error = Some(error.into());
             return;
         }
@@ -519,12 +546,7 @@ impl SequencedSession {
             }
         }
         let active_push = self.started && matches!(self.push, PushDelivery::Active);
-        let gap = self.frames.len() < BUFFERED_FRAMES
-            && (self.remote_next_sequence > self.next_sequence
-                || self
-                    .entries
-                    .first_key_value()
-                    .is_some_and(|(seq, _)| *seq > self.next_sequence));
+        let gap = self.cursor_gap();
         // A status can overtake its immediately following pushed datagrams.
         // Allow one nominal frame for reordering before requesting repair;
         // healthy delivery must not turn every watermark into another Pull.
@@ -556,6 +578,54 @@ impl SequencedSession {
         }
     }
 
+    fn note_unreadable(&mut self, now: u32) {
+        match &mut self.unreadable {
+            // Only a relay that keeps repeating the record holds the match;
+            // after a pause the five seconds start again.
+            Some(unreadable) if now.wrapping_sub(unreadable.last) <= UNREADABLE_REPEAT_MS => {
+                unreadable.last = now
+            }
+            _ => {
+                self.unreadable = Some(Unreadable {
+                    since: now,
+                    last: now,
+                    next_sequence: self.next_sequence,
+                    statuses: self.statuses,
+                })
+            }
+        }
+    }
+
+    /// Released clients cannot be changed: a newer relay's record or Status
+    /// this build cannot read would otherwise stall it forever. Unreadable
+    /// replies that hold nothing back are ignored.
+    fn check_unreadable(&mut self, now: u32) -> Result<(), SequencedError> {
+        let Some(unreadable) = self.unreadable else {
+            return Ok(());
+        };
+        let cursor_held = self.next_sequence == unreadable.next_sequence && self.cursor_gap();
+        let status_held = !self.started && self.statuses == unreadable.statuses;
+        if !cursor_held && !status_held {
+            self.unreadable = None;
+        } else if now.wrapping_sub(unreadable.since) >= UNREADABLE_LIMIT_MS
+            && now.wrapping_sub(unreadable.last) <= UNREADABLE_REPEAT_MS
+        {
+            return Err(SequencedError::NewerClientRequired);
+        }
+        Ok(())
+    }
+
+    /// The relay holds entries past the contiguous cursor, and the frame
+    /// buffer has room for them.
+    fn cursor_gap(&self) -> bool {
+        self.frames.len() < BUFFERED_FRAMES
+            && (self.remote_next_sequence > self.next_sequence
+                || self
+                    .entries
+                    .first_key_value()
+                    .is_some_and(|(seq, _)| *seq > self.next_sequence))
+    }
+
     fn accept_through(&mut self, id: u64) -> Result<(), SequencedError> {
         if id >= self.next_batch {
             return Err(SequencedError::InvalidTimeline);
@@ -568,7 +638,10 @@ impl SequencedSession {
         match event {
             OrderEvent::Left => return Err(SequencedError::InvalidTimeline),
             OrderEvent::Ready { .. } => {}
+            // service times these while they hold the cursor or start.
+            OrderEvent::Unrecognized => {}
             OrderEvent::Status(status) => {
+                self.statuses += 1;
                 if status.tick_hz != self.fps {
                     return Err(SequencedError::InvalidTimeline);
                 }
@@ -1200,6 +1273,69 @@ mod departure_tests {
                 (vec![(EXIT_OPCODE, 2, 0)], vec![]),
             ]
         );
+    }
+
+    /// A record this build cannot read ends the match once it has held the
+    /// cursor for five seconds while the relay repeats it; one that holds
+    /// nothing back is ignored.
+    #[test]
+    fn an_unreadable_record_ends_the_match_only_while_it_holds_the_cursor() {
+        let mut houses = [None; 30];
+        houses[..2].copy_from_slice(&[Some(0), Some(1)]);
+        let mut session = SequencedSession::with_roster(houses, 0, [0; 32], 30);
+        session.mark_started_for_test();
+        session.note_unreadable(0);
+        session.check_unreadable(6_000).unwrap();
+        // A newer departure at 1 holds the frame end that follows it.
+        session.note_unreadable(6_000);
+        let frame_end = OrderEntry::FrameEnd {
+            sequence: 2,
+            frame: 1,
+        };
+        session
+            .receive(OrderEvent::Entry(frame_end), Instant::now())
+            .unwrap();
+        session.assemble().unwrap();
+        for now in (6_500..=10_500).step_by(500) {
+            session.note_unreadable(now);
+        }
+        session.check_unreadable(10_999).unwrap();
+        session.note_unreadable(11_000);
+        assert!(matches!(
+            session.check_unreadable(11_000),
+            Err(SequencedError::NewerClientRequired)
+        ));
+    }
+
+    /// Before the start an unreadable Status ends the match the same way; a
+    /// readable Status in between keeps it waiting.
+    #[test]
+    fn an_unreadable_status_ends_the_match_before_the_start() {
+        use vera20k_relay_protocol::OrderStatus;
+        let mut houses = [None; 30];
+        houses[..2].copy_from_slice(&[Some(0), Some(1)]);
+        let mut session = SequencedSession::with_roster(houses, 0, [0; 32], 30);
+        session.note_unreadable(0);
+        let status = OrderStatus {
+            head_frame: 0,
+            oldest_seq: 1,
+            next_seq: 1,
+            active_sources: 3,
+            tick_hz: 30,
+            start_delay_ms: 0,
+            started: false,
+        };
+        session
+            .receive(OrderEvent::Status(status), Instant::now())
+            .unwrap();
+        session.check_unreadable(5_000).unwrap();
+        for now in (5_000..=10_000).step_by(1_000) {
+            session.note_unreadable(now);
+        }
+        assert!(matches!(
+            session.check_unreadable(10_000),
+            Err(SequencedError::NewerClientRequired)
+        ));
     }
 
     /// A batch the payload key cannot open departs its sender in its frame

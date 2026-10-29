@@ -3164,6 +3164,77 @@ fn sequenced_udp_paused_client_catches_up_without_stalling_healthy_commands() {
     std::fs::remove_dir_all(journal_dir).unwrap();
 }
 
+/// A record a newer relay keeps sending, which this build cannot read, ends
+/// the match through the session's service once repeated for five seconds;
+/// a lone earlier one does not start that window.
+#[test]
+fn sequenced_service_ends_a_match_a_newer_relay_keeps_stalling() {
+    use crate::net::udp::{
+        OrderingCertificate, RelayTicket, relay_peer_endpoint,
+        test_support::{SecretKey, derive_packet_key},
+    };
+    use vera20k_relay_protocol::OrderEvent;
+
+    let key = SecretKey::new([31; 32]);
+    let sink = UdpSocket::bind("127.0.0.1:0").unwrap();
+    let std::net::SocketAddr::V4(address) = sink.local_addr().unwrap() else {
+        unreachable!()
+    };
+    let ticket = RelayTicket {
+        room: [27; 16],
+        player: [1; 16],
+        source: 0,
+        generation: 1,
+        expires: 300,
+        nonce: [3; 16],
+    }
+    .sign(&key)
+    .unwrap();
+    let certificate = OrderingCertificate {
+        room: [27; 16],
+        sources_mask: 3,
+        tick_hz: 30,
+        expires: 86_500,
+    }
+    .sign(&key)
+    .unwrap();
+    let mut wire = transport();
+    wire.enable_relay(
+        address,
+        &ticket,
+        *derive_packet_key(&key, &ticket).expose_for_https(),
+        [29; 32],
+    )
+    .unwrap();
+    wire.set_ordering_certificate(certificate.to_vec()).unwrap();
+    wire.connections_mut()
+        .add_peer(1, relay_peer_endpoint(1).unwrap())
+        .unwrap();
+    let agreement = StartupAgreement::new(
+        [(0, 0), (1, 1)],
+        [0, 1],
+        73,
+        10,
+        30,
+        NonZeroU32::new(1).unwrap(),
+        0,
+    )
+    .unwrap();
+    let mut session = sequenced::SequencedSession::new(&agreement, &wire, 0).unwrap();
+    // Before the start, no Status this build can read arrives.
+    let mut unreadable_at = |now: u32| {
+        wire.push_ordering_received_for_test(OrderEvent::Unrecognized);
+        session.service(&mut wire, now);
+        session.failed()
+    };
+    assert!(!unreadable_at(0));
+    assert!(!unreadable_at(6_000));
+    for now in (7_000..11_000).step_by(1_000) {
+        assert!(!unreadable_at(now));
+    }
+    assert!(unreadable_at(11_000));
+}
+
 #[test]
 fn sequenced_unsent_batch_retries_when_the_relay_route_recovers() {
     use crate::net::udp::{

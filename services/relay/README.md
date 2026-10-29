@@ -55,6 +55,15 @@ the Relay compatibility workflow (`tools/relay_compat.py`) plays the latest
 stable release's and the newest dev build's client code against it, including a
 player the relay removes for silence.
 
+Clients from v0.2.4 read a Status, PushState, PauseStatus, Ready, Ack or Error
+longer than they know by its known prefix, and an unknown error code as an
+unknown reply. A canonical entry must keep its exact layout, because members
+that read it differently would desync. A client that cannot read the record at
+its cursor, or before the start any Status, for about 5 seconds ends the match
+and asks for a newer VERA20k; v0.2.3 and older stall instead. Extend replies
+only by appending fields, and add a record kind, departure reason or entry field
+only after clients that read it have shipped.
+
 Install the executable as `/usr/local/bin/vera20k-relay`, create the unprivileged
 `vera20k-relay` user, and install `vera20k-relay.service`. Allow UDP port 5000 in
 the cloud firewall. Limit administrative SSH access to the management network.

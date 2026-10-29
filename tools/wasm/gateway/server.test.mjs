@@ -136,12 +136,22 @@ test('each WS channel has a stable isolated UDP port, preserves binary boundarie
     await closed;
   }
   // A fresh socket can bind each exact old source port after channel cleanup.
+  // The gateway's side of a WebSocket can close just after the client's, so
+  // each port gets up to a second.
   for (const port of ports) {
-    const rebound = dgram.createSocket('udp4');
-    t.after(() => { try { rebound.close(); } catch {} });
-    rebound.bind(port, '127.0.0.1');
-    await once(rebound, 'listening');
-    rebound.close();
+    for (let attempt = 1; ; attempt++) {
+      const rebound = dgram.createSocket('udp4');
+      try {
+        rebound.bind(port, '127.0.0.1');
+        await once(rebound, 'listening');
+        rebound.close();
+        break;
+      } catch (error) {
+        try { rebound.close(); } catch {}
+        if (error.code !== 'EADDRINUSE' || attempt === 50) throw error;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    }
   }
 });
 

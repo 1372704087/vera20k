@@ -2974,9 +2974,9 @@ mod tests {
         };
         assert_eq!(full.kind(), std::io::ErrorKind::StorageFull);
         // Each two-player 45 FPS room reserves its first hour of clock
-        // records and 32 MiB of commands per player, not a whole day of
-        // clock or a fixed eighth of the quota.
-        assert_eq!(admitted.len(), 120);
+        // records and 32 MiB of commands per player, and leaves its next
+        // hour free: not a whole day of clock or a fixed eighth of the quota.
+        assert_eq!(admitted.len(), 114);
         // A finished room keeps only the bytes it wrote.
         journals.settle(&mut admitted[0], 0);
         assert!(journals.create([0x70; 16], 45, 2).is_ok());
@@ -3024,26 +3024,26 @@ mod tests {
     }
 
     #[test]
-    fn a_match_whose_next_hour_does_not_fit_fails_once_its_first_runs_out() {
+    fn a_full_relay_refuses_new_rooms_and_a_running_one_still_takes_its_next_hour() {
         let directory = TestDirectory::new();
         let mut server = slow_match(&directory);
-        // Other rooms take all but less than an hour of 10 FPS clock.
+        // Other rooms fill the relay until it refuses the smallest one.
         let journals = server.journal_directory.as_mut().unwrap();
         let mut others = Vec::new();
         for (tick_hz, sources) in [(45, 2), (10, 0)] {
-            loop {
+            let refused = loop {
                 let mut room = [0x80; 16];
                 room[..8].copy_from_slice(&(others.len() as u64).to_le_bytes());
                 match journals.create(room, tick_hz, sources) {
                     Ok(journal) => others.push(journal),
-                    Err(_) => break,
+                    Err(error) => break error,
                 }
-            }
+            };
+            assert_eq!(refused.kind(), std::io::ErrorKind::StorageFull);
         }
-        play(&mut server, 0, 3_600_000);
+        play(&mut server, 0, 3_900_000);
         assert!(!ordering(&server).storage_failed);
-        play(&mut server, 3_900_000, 3_900_000);
-        assert!(ordering(&server).storage_failed);
+        assert_eq!(ordering(&server).head, 38_998);
     }
 
     #[test]

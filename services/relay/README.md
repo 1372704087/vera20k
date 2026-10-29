@@ -187,11 +187,13 @@ They contain encrypted batches and public ordering metadata, never payload keys.
 Journal reservations share 8 GiB and never preallocate disk space. Each room
 reserves all departures, an hour of empty frame ends at its certified FPS
 (0.9–5.2 MiB) and 32 MiB of commands per certified source, and keeps what it
-wrote: about 120 two-player or 31 eight-player new matches fit at once at 45
-FPS, 118 two-player at 60 FPS. Once less than half an hour of frame ends is
-left, a live room reserves the next hour. When that does not fit beside the
-other rooms, it keeps trying while its remaining frame ends last, then fails
-with `StorageUnavailable` like a journal out of space. Reaching
+wrote. A new room is admitted only while the next hour of every live room, its
+own included, still fits beside the reservations: about 114 two-player or 31
+eight-player new matches at once at 45 FPS, 110 two-player at 60 FPS. A full
+relay therefore refuses new matches rather than running ones: once less than
+half an hour of frame ends is left, a live room reserves its next hour without
+waiting on the quota, up to the 24 hours its certificate allows, so running
+rooms' later hours can take the total past 8 GiB. Reaching
 the command allowance backpressures new batches while the clock and already
 accepted entries remain writable. A finished room keeps only the bytes it wrote
 through its replay grace. A room whose files could not all be created, or whose

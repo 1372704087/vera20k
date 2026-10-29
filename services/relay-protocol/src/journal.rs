@@ -34,6 +34,10 @@ pub(super) struct JournalDirectory {
     // restart, and failed ones, hold their size and are never overwritten.
     reserved: BTreeMap<[u8; 16], u64>,
     total: u64,
+    // The next hour of frame ends of every live room. Admission keeps it free
+    // beside the reservations, so a full relay refuses new rooms rather than
+    // the next hour of one already running.
+    growth: u64,
     // Ended or partly created archives whose exact files are still on disk.
     // Each keeps its reservation until a retried removal succeeds.
     retiring: BTreeSet<[u8; 16]>,
@@ -112,6 +116,7 @@ impl JournalDirectory {
             root: root.to_owned(),
             reserved,
             total,
+            growth: 0,
             retiring: BTreeSet::new(),
             retry_at: 0,
         })
@@ -122,9 +127,9 @@ impl JournalDirectory {
         self.root.join(name)
     }
 
-    /// Admits a room only while its quota fits beside every other
-    /// reservation: its departures, its first hour of clock records and each
-    /// source's command allowance.
+    /// Admits a room only while its quota (its departures, its first hour of
+    /// clock records and each source's command allowance) fits beside every
+    /// other reservation and every live room's next hour, its own included.
     pub(super) fn create(
         &mut self,
         room: [u8; 16],
@@ -139,7 +144,9 @@ impl JournalDirectory {
         let reserved_tail = chunk_frames.min(frames) * FRAME_END_BYTES
             + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
         let quota = reserved_tail + u64::from(sources) * SOURCE_COMMAND_QUOTA;
-        if self.total + quota > GLOBAL_QUOTA {
+        let unreserved_frames = frames.saturating_sub(chunk_frames);
+        let next_hour = chunk_frames.min(unreserved_frames) * FRAME_END_BYTES;
+        if self.total + quota + self.growth + next_hour > GLOBAL_QUOTA {
             return Err(io::ErrorKind::StorageFull.into());
         }
         let path = self.path(&room);
@@ -162,6 +169,7 @@ impl JournalDirectory {
                 return Err(error);
             }
         };
+        self.growth += next_hour;
         Ok(Journal {
             room,
             data,
@@ -173,31 +181,27 @@ impl JournalDirectory {
             pending: 0,
             failed: false,
             chunk_frames,
-            unreserved_frames: frames.saturating_sub(chunk_frames),
+            unreserved_frames,
         })
     }
 
     /// Reserves a live room's next hour of frame ends once less than half an
-    /// hour is left. When it does not fit beside every other reservation, the
-    /// room keeps trying while what it holds lasts, then fails like any
-    /// journal out of space.
+    /// hour is left. Admission kept that hour free, so it never waits on the
+    /// quota; a room's hours end with the 24 hours its certificate allows.
     pub(super) fn reserve_frames(&mut self, journal: &mut Journal) {
         if journal.unreserved_frames == 0
             || journal.reserved_tail >= journal.chunk_frames / 2 * FRAME_END_BYTES
         {
             return;
         }
-        let frames = journal.chunk_frames.min(journal.unreserved_frames);
-        let bytes = frames * FRAME_END_BYTES;
-        if self.total + bytes > GLOBAL_QUOTA {
-            return;
-        }
+        let bytes = journal.next_hour();
         if let Some(reserved) = self.reserved.get_mut(&journal.room) {
             *reserved += bytes;
             self.total += bytes;
             journal.quota += bytes;
             journal.reserved_tail += bytes;
-            journal.unreserved_frames -= frames;
+            journal.unreserved_frames -= bytes / FRAME_END_BYTES;
+            self.growth = self.growth - bytes + journal.next_hour();
         }
     }
 
@@ -208,6 +212,7 @@ impl JournalDirectory {
     /// on disk.
     pub(super) fn cleanup(&mut self, journal: Journal, failed: bool) {
         let (room, used, failed) = (journal.room, journal.used, failed || journal.failed);
+        self.growth -= journal.next_hour();
         // Windows can defer deletion until the last file handle closes. Close
         // both files before removing them and their containing directory.
         drop(journal);
@@ -226,6 +231,8 @@ impl JournalDirectory {
     /// terminal replay grace serves plus the frame ends of `unmerged` frames
     /// a federated relay sealed before every departure reached it.
     pub(super) fn settle(&mut self, journal: &mut Journal, unmerged: u32) {
+        self.growth -= journal.next_hour();
+        journal.unreserved_frames = 0;
         let tail = journal
             .reserved_tail
             .min(u64::from(unmerged) * FRAME_END_BYTES);
@@ -344,6 +351,11 @@ pub(super) struct Journal {
 }
 
 impl Journal {
+    /// The frame ends this live room reserves at its next top-up.
+    fn next_hour(&self) -> u64 {
+        self.chunk_frames.min(self.unreserved_frames) * FRAME_END_BYTES
+    }
+
     pub(super) fn reserve_batch(&mut self, bytes: usize) -> bool {
         self.reserve_entries(&[bytes])
     }

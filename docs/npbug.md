@@ -37,6 +37,14 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2954 (NPExt changelog item 49): the shared exit owner
+  (`exit_produced_object`) refuses a producer that is still constructing
+  (Building+534 == 0) or selling, returning to the placement wait. Native
+  ran the finished-object exit before the constructing gate — which only
+  guarded starting production — and the Strip PLACE tail had no
+  construction admission either, so vehicles left unfinished factories
+  and stuck inside them.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

@@ -35,6 +35,11 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2986 (NPExt changelog item 85): the magnetic wave takes the
+  tracking-distance decay (`MAX_TRACKING_DISTANCE_LEPTONS`). Native skipped
+  type 3, so a magnetron beam followed its held target at any distance; the
+  decay ends the beam like every other wave type.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

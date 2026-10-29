@@ -2634,8 +2634,12 @@ fn ordinary_motion_candidate(
 ) -> ProjectileCollisionMotion {
     use crate::util::native_x87::X87Chop53;
     let mut motion = ProjectileCollisionMotion::from_coordinate(position, velocity);
-    // 4671B9/48ACF0 select live/types gravity, then 467415/467429
-    // store the subtraction only in the ordinary scratch.
+    // 4671B9/48ACF0 select live gravity, then 467415/467429 store the
+    // subtraction only in the ordinary scratch. Phobos
+    // `BulletClass_AI_ApplyGravity` replaces only the 4671B9 FILD: a Floater
+    // shell still drops that value at 4671C3 and calls 48ACF0 (Rules x 0.5),
+    // so its type `Gravity=` never reaches the flight step.
+    let type_gravity = type_gravity.filter(|_| !floater);
     let gravity = projectile_gravity(rules_gravity, type_gravity, floater);
     motion.velocity[2] = X87Chop53::store_f64(X87Chop53::sub(
         X87Chop53::load_f64(motion.velocity[2]).expect("finite velocity"),
@@ -2983,23 +2987,27 @@ fn detonation(
 mod tests {
     use super::*;
 
-    /// Phobos `BulletTypeExt::GetAdjustedGravity`: a type `Gravity` replaces
-    /// the Rules integer, and `Floater=` halves whichever value was selected.
+    /// Phobos `BulletClass_AI_ApplyGravity` (0x4671B9): a type `Gravity`
+    /// replaces the Rules integer in flight, but a Floater shell still takes
+    /// Rules x 0.5 from 0x48ACF0.
     #[cfg(feature = "phobos")]
     #[test]
-    fn phobos_type_gravity_replaces_rules_and_still_halves_for_floater() {
+    fn phobos_type_gravity_drives_flight_except_for_a_floater() {
         use crate::util::native_x87::NativeF64Bits;
-        let type_gravity = NativeF64Bits::from_bits(6.5f64.to_bits());
-        assert_eq!(
-            projectile_gravity(6, Some(type_gravity), false).bits(),
-            6.5f64.to_bits()
-        );
-        assert_eq!(
-            projectile_gravity(6, Some(type_gravity), true).bits(),
-            3.25f64.to_bits()
-        );
-        assert_eq!(projectile_gravity(6, None, false).bits(), 6.0f64.to_bits());
-        assert_eq!(projectile_gravity(6, None, true).bits(), 3.0f64.to_bits());
+        let type_gravity = Some(NativeF64Bits::from_bits(12.0f64.to_bits()));
+        let fall = |floater| {
+            let velocity = ProjectileVelocity::from_native([NativeF64Bits::from_bits(0); 3]);
+            let motion = ordinary_motion_candidate(
+                ProjectileCoord::new(0, 0, 0),
+                velocity,
+                6,
+                floater,
+                type_gravity,
+            );
+            f64::from_bits(motion.velocity[2].bits())
+        };
+        assert_eq!(fall(false), -12.0);
+        assert_eq!(fall(true), -3.0);
     }
 
     fn flat_32_by_32() -> ResolvedTerrainGrid {

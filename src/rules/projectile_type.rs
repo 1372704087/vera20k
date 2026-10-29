@@ -335,6 +335,18 @@ impl ProjectileArtState {
     }
 }
 
+/// Phobos `BulletTypeExt::Gravity` (`Nullable<double>`) as exact binary64
+/// bits, shared by the type reader and the weapon speed pass. RESIDUAL: a
+/// value the float parse makes infinite (such as `1e39`) counts as unset;
+/// Phobos would carry the infinity through its x87 gravity arithmetic.
+#[cfg(feature = "phobos")]
+pub(crate) fn read_phobos_gravity(section: &IniSection) -> Option<NativeF64Bits> {
+    section
+        .read_phobos_nullable_double("Gravity", None)
+        .filter(|value| value.is_finite())
+        .map(|value| NativeF64Bits::from_bits(value.to_bits()))
+}
+
 impl ProjectileType {
     /// Phobos `BulletTypeExt::Gravity`, unset when the key is absent.
     #[cfg(feature = "phobos")]
@@ -420,9 +432,7 @@ impl ProjectileType {
             // constructor's 0.75 (`0x0046BC65`/`0x0046BC9A`).
             elasticity: section.read_double("Elasticity", 0.75),
             #[cfg(feature = "phobos")]
-            gravity: section
-                .read_phobos_nullable_double("Gravity", None)
-                .map(|value| NativeF64Bits::from_bits(value.to_bits())),
+            gravity: read_phobos_gravity(section),
             // Constructor46BCA4. Resolution requires the pass-local Colors
             // registry and is supplied by the retained rules processor.
             color_scheme: 0,
@@ -558,12 +568,13 @@ mod tests {
     }
 
     /// Phobos `Nullable<double> Gravity`: absent keeps the Rules fallback
-    /// (None), `<default>` clears it, and a value keeps its exact binary64.
+    /// (None), `<default>` clears it, a value keeps its exact binary64, and an
+    /// infinite one is dropped.
     #[cfg(feature = "phobos")]
     #[test]
     fn phobos_gravity_reads_nullable_double_and_clears() {
         let ini =
-            IniFile::from_str("[P]\nGravity=6.5\n[Q]\nGravity=<default>\n[R]\nGravity=garbage\n");
+            IniFile::from_str("[P]\nGravity=6.5\n[Q]\nGravity=<default>\n[R]\nGravity=1e39\n");
         let gravity = |name: &str| {
             ProjectileType::from_ini_section(name, ini.section(name).unwrap(), None).gravity()
         };

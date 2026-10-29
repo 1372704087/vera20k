@@ -7582,13 +7582,9 @@ impl RulesPassProcessor {
                 // Phobos `WeaponTypeClass_SetSpeed_ApplyGravity` 0x772A0A
                 // selects the type's own `Gravity` over the current Rules one.
                 #[cfg(feature = "phobos")]
-                let gravity = bullet.read_phobos_nullable_double("Gravity", None).map_or(
+                let gravity = crate::rules::projectile_type::read_phobos_gravity(bullet).map_or(
                     crate::util::native_ballistics::BallisticGravity::Rules(self.rules_gravity),
-                    |value| {
-                        crate::util::native_ballistics::BallisticGravity::Value(
-                            crate::util::native_x87::NativeF64Bits::from_bits(value.to_bits()),
-                        )
-                    },
+                    crate::util::native_ballistics::BallisticGravity::Value,
                 );
                 #[cfg(not(feature = "phobos"))]
                 let gravity =

@@ -37,6 +37,11 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2978 (NPExt changelog item 18): the prism supporter walk refuses a tower
+  still under construction (Building+534 == 0). Native asked
+  alive/same-type/rearm/idle-ish but never the build state, so unfinished
+  towers contributed beams during base build-up.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

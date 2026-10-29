@@ -1145,3 +1145,60 @@ fn ares_prism_modifier_retains_percent_across_map_layers_and_scales_one_shot() {
     let overridden = RuleSet::from_processed_rules(&layers.process().unwrap()).unwrap();
     assert_eq!(overridden.general.prism_support.modifier, 150);
 }
+
+/// NPBUG (NPExt changelog item 18, issue #2978): a tower still under
+/// construction supplies no support beam — native's supporter walk never
+/// asked the build state.
+#[test]
+fn npbug_an_unfinished_tower_supplies_no_support_beam() {
+    let mut fixture = Fixture::new(&golden()["recruitment"][0]["after"], "master");
+    let master = fixture.buildings["master"];
+    // A second tower of the same type, still constructing
+    // (Building+534 == 0): in the house list, alive, but not built.
+    let unfinished = fixture
+        .sim
+        .spawn_object("TWR", "Americans", 44, 40, 0, &fixture.rules)
+        .unwrap();
+    // Mark constructing through the mission: Building+534 follows.
+    fixture
+        .sim
+        .entities_mut_for_test()
+        .get_mut(unfinished)
+        .unwrap()
+        .mission
+        .apply_test_fixture(crate::sim::mission::state::MissionTestFixture {
+            current: crate::sim::mission::MissionId::from_known(
+                crate::sim::mission::MissionType::Construction,
+            ),
+            suspended: crate::sim::mission::MissionId::NONE,
+            queued: crate::sim::mission::MissionId::NONE,
+            movement_bypass_latch: 0,
+            handler_state: 0,
+            mission_start_frame: 0,
+            ai_counter: 0,
+            dispatch_timer: crate::sim::mission::MissionDispatchTimer::at_frame(0),
+        });
+    fixture
+        .sim
+        .substrate
+        .entities
+        .get_mut(unfinished)
+        .unwrap()
+        .health
+        .set_for_test(1000);
+    let rules = fixture.rules.clone();
+    let obj = fixture
+        .sim
+        .interner
+        .object_type(
+            fixture.sim.entities().get(master).unwrap().type_ref(),
+            &rules,
+        )
+        .unwrap();
+    let supporter = super::prism_supporter(&fixture.sim, master, &rules, obj);
+    assert_ne!(
+        supporter,
+        Some(unfinished),
+        "the constructing tower supplies no beam"
+    );
+}

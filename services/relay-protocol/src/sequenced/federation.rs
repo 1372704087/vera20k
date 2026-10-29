@@ -376,6 +376,20 @@ impl Federation {
         if ordering.finished_at.is_some() {
             return;
         }
+        // Each relay ends only its own players' places, and one that restarts
+        // never reports its players' departures. A started room whose own
+        // players have all left ends once every other relay has been silent
+        // as long as a player may be.
+        if ordering.starts_at.is_some()
+            && ordering.active & self.local == 0
+            && self.links.iter().all(|link| {
+                link.echo
+                    .is_none_or(|(_, heard)| now_ms.saturating_sub(heard) >= super::ABSENT_MS)
+            })
+        {
+            ordering.abandon(now_ms);
+            return;
+        }
         let overdue = ordering.starts_at.is_none()
             && now_ms.saturating_sub(ordering.created_ms) >= super::LOADING_LIMIT_MS;
         if overdue {
@@ -611,8 +625,11 @@ impl Federation {
         {
             return Err(RelayError::Malformed);
         }
-        for (frame, source, batch_id, range) in entries.iter().skip(fresh).cloned() {
-            ordering.accept_remote(frame, source, batch_id, &payload[range]);
+        // A finished room already has every entry it will archive.
+        if ordering.finished_at.is_none() {
+            for (frame, source, batch_id, range) in entries.iter().skip(fresh).cloned() {
+                ordering.accept_remote(frame, source, batch_id, &payload[range]);
+            }
         }
         link.inbox_next = link.inbox_next.max(first + entries.len() as u64);
         link.sealed = link.sealed.max(sealed);
@@ -635,10 +652,13 @@ impl RelayServer {
         let room = self.rooms.get_mut(&id).ok_or(RelayError::Unregistered)?;
         let federation = room.federation.as_mut().ok_or(RelayError::Unregistered)?;
         let (position, kind, payload) = federation.open(bytes)?;
-        if !self.ingress.permits(now, 1, INGRESS_PER_SECOND) {
+        if !self
+            .ingress
+            .admit_part(&mut room.ingress, now, 1, INGRESS_PER_SECOND)
+        {
             return Err(RelayError::RateLimited);
         }
-        self.ingress.charge(now, 1);
+        self.ingress.charge_part(&mut room.ingress, 1);
         match kind {
             FRAME_KIND => {
                 federation.receive_frame(position, payload, room.ordering.as_mut(), now_ms)?;
@@ -673,12 +693,16 @@ impl RelayServer {
                 let cost = (room.peers.iter().filter(|peer| recipients(peer)).count()
                     * (SERVER_HEADER + MAC_LEN + data.len())) as u64;
                 if !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
-                    || !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
+                    || !self.outgoing.admit_part(
+                        &mut room.outgoing,
+                        now,
+                        cost,
+                        TOTAL_BYTES_PER_SECOND,
+                    )
                 {
                     return Err(RelayError::RateLimited);
                 }
-                room.outgoing.charge(now, cost);
-                self.outgoing.charge(now, cost);
+                self.outgoing.charge_part(&mut room.outgoing, cost);
                 room.peers
                     .iter_mut()
                     .filter(|peer| recipients(peer))
@@ -691,6 +715,7 @@ impl RelayServer {
 
     /// Start agreement and contribution exchange for every federated room.
     pub fn drain_federation(&mut self, now_ms: u64, now: u64) -> Vec<ForwardDatagram> {
+        self.prune(now);
         let mut output = Vec::new();
         for room in self.rooms.values_mut() {
             let Some(federation) = room.federation.as_mut() else {
@@ -721,8 +746,11 @@ impl RelayServer {
                 .iter()
                 .map(|datagram| datagram.bytes.len() as u64)
                 .sum();
-            if self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND) {
-                self.outgoing.charge(now, cost);
+            if self
+                .outgoing
+                .admit_part(&mut room.outgoing, now, cost, TOTAL_BYTES_PER_SECOND)
+            {
+                self.outgoing.charge_part(&mut room.outgoing, cost);
                 output.extend(datagrams);
             }
         }
@@ -1013,12 +1041,36 @@ mod tests {
     }
 
     #[test]
+    fn a_relay_ends_the_match_once_its_players_left_and_the_other_relay_went_silent() {
+        let mut game = Match::new(false);
+        game.play();
+        game.leave(0);
+        // Relay B restarts and loses the room, so its player's departure never
+        // reaches relay A. A ends the match once B has been silent as long as
+        // a player may be, and frees the archive after the replay grace.
+        let room = &game.relays[0].rooms[&[5; 16]];
+        let (_, heard) = room.federation.as_ref().unwrap().links[0].echo.unwrap();
+        for (now_ms, finished) in [(heard + ABSENT_MS - 1, false), (heard + ABSENT_MS, true)] {
+            game.relays[0].advance_clock(now_ms, unix(now_ms));
+            game.relays[0].drain_federation(now_ms, unix(now_ms));
+            assert_eq!(game.ordering(0).finished_at.is_some(), finished);
+        }
+        let freed = heard + ABSENT_MS + crate::MAX_TICKET_LIFETIME * 1000;
+        game.relays[0].advance_clock(freed, unix(freed));
+        assert!(!game.journals[0].0.join("05".repeat(16)).exists());
+    }
+
+    #[test]
     fn silent_players_depart_as_lost_once_from_their_own_relay() {
         let mut game = Match::new(false);
         game.play();
-        // Neither player sends anything for ten minutes. Each relay ends only
-        // the place it homes, and both merge both departures.
-        game.now += ABSENT_MS;
+        // Neither player sends anything for ten minutes while the relays keep
+        // their link. Each relay ends only the place it homes, and both merge
+        // both departures.
+        for _ in 0..ABSENT_MS / 1000 {
+            game.now += 999;
+            game.step();
+        }
         for _ in 0..300 {
             game.step();
         }

@@ -74,7 +74,7 @@ pub(super) fn launch(
     let [x, y, z] = super::deck_coords(sim, cell);
     let impact = ProjectileCoord::new(x, y, z);
     let warhead_ref = sim.interner.intern(&warhead.id);
-    world_receiver::apply_area_damage(
+    let receipt = world_receiver::apply_area_damage(
         sim,
         rules,
         overlays,
@@ -95,7 +95,7 @@ pub(super) fn launch(
         land,
         impact,
         impact,
-        false,
+        receipt.crit_active,
     ) {
         crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
     }

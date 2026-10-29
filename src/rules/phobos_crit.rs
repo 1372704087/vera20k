@@ -140,6 +140,10 @@ pub struct CritGlobals {
     pub(crate) anim_on_affected_targets: bool,
     /// `[CombatDamage] Crit.SuppressWhenIntercepted`, default false.
     pub(crate) suppress_when_intercepted: bool,
+    /// `[CombatDamage] ApplyPerTargetEffectsOnDetonate`, default true. When
+    /// false, native moves the per-target pass to ReceiveDamage and rolls a
+    /// fresh chance for every target.
+    pub(crate) apply_per_target_effects_on_detonate: bool,
     /// `[General] VeteranCritChance`, default 1.0.
     pub(crate) veteran_crit_chance: f64,
 }
@@ -151,6 +155,7 @@ impl Default for CritGlobals {
             extra_damage_apply_firepower_mult: false,
             anim_on_affected_targets: false,
             suppress_when_intercepted: false,
+            apply_per_target_effects_on_detonate: true,
             veteran_crit_chance: 1.0,
         }
     }
@@ -179,6 +184,10 @@ impl CritGlobals {
                 "Crit.SuppressWhenIntercepted",
                 defaults.suppress_when_intercepted,
             ),
+            apply_per_target_effects_on_detonate: combat.read_bool(
+                "ApplyPerTargetEffectsOnDetonate",
+                defaults.apply_per_target_effects_on_detonate,
+            ),
             veteran_crit_chance: general
                 .read_phobos_double("VeteranCritChance", defaults.veteran_crit_chance),
         }
@@ -198,6 +207,10 @@ impl CritGlobals {
 
     pub fn suppress_when_intercepted(&self) -> bool {
         self.suppress_when_intercepted
+    }
+
+    pub fn apply_per_target_effects_on_detonate(&self) -> bool {
+        self.apply_per_target_effects_on_detonate
     }
 
     pub fn veteran_crit_chance(&self) -> f64 {

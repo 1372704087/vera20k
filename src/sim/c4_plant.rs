@@ -527,6 +527,7 @@ impl Simulation {
             ),
             effects,
         )
+        .bridge_state_changed
     }
 
     /// `0x0051A738..0x0051A75E`: the land of the NavCom's cell

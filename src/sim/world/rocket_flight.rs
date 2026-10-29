@@ -238,7 +238,8 @@ impl RocketHost for RocketProcessHost<'_> {
             warhead_type,
             (self.id, None, warhead_ref),
             self.frame_effects,
-        );
+        )
+        .bridge_state_changed;
     }
     fn uninit(&mut self) {
         self.sim.uninit_with_context(

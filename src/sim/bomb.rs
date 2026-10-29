@@ -563,7 +563,7 @@ impl Simulation {
             return false;
         };
         let origin = blast.origin(&mut self.interner, warhead);
-        let changed = apply_area_damage(
+        let receipt = apply_area_damage(
             self,
             rules,
             overlay_registry,
@@ -573,7 +573,15 @@ impl Simulation {
             origin,
             frame_effects,
         );
-        changed | self.bomb_blast_tail(&blast, warhead, rules, overlay_registry, frame_effects)
+        receipt.bridge_state_changed
+            | self.bomb_blast_tail(
+                &blast,
+                warhead,
+                rules,
+                overlay_registry,
+                receipt.crit_active,
+                frame_effects,
+            )
     }
 
     /// A dying carrier's bomb (`TechnoClass::ReceiveDamage` `0x0070267F`,
@@ -598,7 +606,7 @@ impl Simulation {
         )?;
         let warhead = ivan_warhead(rules)?;
         let origin = blast.origin(&mut self.interner, warhead);
-        let (mut effects, pings) = apply_area_damage_in_run(
+        let (mut effects, pings, crit_active) = apply_area_damage_in_run(
             self,
             run,
             rules,
@@ -608,8 +616,14 @@ impl Simulation {
             warhead,
             origin,
         );
-        effects.bridge_state_changed |=
-            self.bomb_blast_tail(&blast, warhead, rules, overlay_registry, run.effects());
+        effects.bridge_state_changed |= self.bomb_blast_tail(
+            &blast,
+            warhead,
+            rules,
+            overlay_registry,
+            crit_active,
+            run.effects(),
+        );
         Some((effects, pings))
     }
 
@@ -618,12 +632,14 @@ impl Simulation {
     /// cell's current land (`0x0043880A..0x00438852`), then a
     /// `BridgeRepairHut=` carrier's bridge (`0x0043896A`/`0x00438982`).
     /// Returns whether a bridge changed.
+    #[allow(clippy::too_many_arguments)]
     fn bomb_blast_tail(
         &mut self,
         blast: &BombBlast,
         warhead: &WarheadType,
         rules: &RuleSet,
         overlay_registry: Option<&OverlayTypeRegistry>,
+        crit_active: bool,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
         let land = crate::sim::combat::detonation_anim::land_at(self, blast.location);
@@ -635,7 +651,7 @@ impl Simulation {
             land,
             blast.location,
             blast.location,
-            false,
+            crit_active,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(self, rules, effect);
         }

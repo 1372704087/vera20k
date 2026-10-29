@@ -596,7 +596,7 @@ pub(crate) fn collect_area(
 /// bomb's fuse at `0x006FA712`):
 /// the area's receivers around `impact` committed in order, then area rocking
 /// (`0x00489B49`) and bridge damage (`0x00489E87`). `origin` is the source object, the source
-/// house and the warhead's id. Returns whether a bridge changed.
+/// house and the warhead's id.
 pub(crate) fn apply_area_damage(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -606,9 +606,9 @@ pub(crate) fn apply_area_damage(
     warhead: &WarheadType,
     origin: (u64, Option<InternedId>, InternedId),
     effects: FrameEffects<'_>,
-) -> bool {
+) -> AreaDamageApply {
     let mut run = ReceiverRun::default().with_effects(effects);
-    let (death, pings) = apply_area_damage_in_run(
+    let (death, pings, crit_active) = apply_area_damage_in_run(
         world,
         &mut run,
         rules,
@@ -619,9 +619,28 @@ pub(crate) fn apply_area_damage(
         origin,
     );
     let navigation = run.finish();
-    world
-        .absorb_noncombat_damage_effects(rules, overlay_registry, death, pings, navigation, effects)
-        .bridge_state_changed
+    let receipt = world.absorb_noncombat_damage_effects(
+        rules,
+        overlay_registry,
+        death,
+        pings,
+        navigation,
+        effects,
+    );
+    AreaDamageApply {
+        bridge_state_changed: receipt.bridge_state_changed,
+        crit_active,
+    }
+}
+
+/// What one [`apply_area_damage`] or [`apply_area_damage_in_run`] changed
+/// besides its receivers.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct AreaDamageApply {
+    pub(crate) bridge_state_changed: bool,
+    /// Phobos `WarheadTypeExt::Crit_Active`: a damage-animation selection that
+    /// follows the area damage reads it for the `Crit.AnimList` swap.
+    pub(crate) crit_active: bool,
 }
 
 /// [`apply_area_damage`] inside a damage transaction (a TerrainClass death's
@@ -637,7 +656,7 @@ pub(crate) fn apply_area_damage_in_run(
     damage: i32,
     warhead: &WarheadType,
     origin: (u64, Option<InternedId>, InternedId),
-) -> (DeathEffects, Vec<UnderAttackEvent>) {
+) -> (DeathEffects, Vec<UnderAttackEvent>, bool) {
     let area = collect_area_at(
         world,
         rules,
@@ -659,9 +678,12 @@ pub(crate) fn apply_area_damage_in_run(
         .extend(area.aoe.cell_target_detaches);
     // Phobos `MapClass_DamageArea @ 0x489286`: a direct `DamageArea` caller's
     // per-target pass runs before the native area damage, exactly like the
-    // bullet path. There is no bullet target, so the no-spread arm is empty.
+    // bullet path. This path has no intended target pointer, so it cannot
+    // reach native's no-spread `DamageAreaTarget` arm; the cell-spread arm
+    // still runs.
     #[cfg(feature = "phobos")]
-    {
+    let crit_active = {
+        let mut crit_active = false;
         let targets: Vec<u64> = area
             .aoe
             .receivers
@@ -672,7 +694,7 @@ pub(crate) fn apply_area_damage_in_run(
             })
             .collect();
         if let Some(roll) = super::crit::begin(world, rules, warhead, origin.0, origin.1, impact) {
-            super::crit::apply_targets(
+            crit_active = super::crit::apply_targets(
                 world,
                 run,
                 rules,
@@ -686,7 +708,10 @@ pub(crate) fn apply_area_damage_in_run(
                 &mut effects,
             );
         }
-    }
+        crit_active
+    };
+    #[cfg(not(feature = "phobos"))]
+    let crit_active = false;
     let (nested, mut pings, area_result) =
         commit_area_with_dispatch(world, run, &area.aoe.receivers, rules, overlay_registry);
     effects.append(nested);
@@ -700,7 +725,7 @@ pub(crate) fn apply_area_damage_in_run(
     );
     effects.append(tail);
     pings.append(&mut tail_pings);
-    (effects, pings)
+    (effects, pings, crit_active)
 }
 
 /// Original AreaDamage call arguments and the layer selected at489357..48958D,
@@ -1032,7 +1057,7 @@ pub(crate) fn commit_terrain(
         {
             crate::sim::world::damage_consequences::admit_explosion_effect(world, rules, effect);
         }
-        let (nested, mut pings) = apply_area_damage_in_run(
+        let (nested, mut pings, _crit_active) = apply_area_damage_in_run(
             world,
             run,
             rules,
@@ -3029,7 +3054,7 @@ fn continue_area_damage(
         //Keep the same receiver run across this recursive gameplay chain.
         if let Some(c4) = rules.warhead(&rules.bridge_warheads.c4_name) {
             let reference = world.interner.intern(&c4.id);
-            let (nested, mut nested_pings) = apply_area_damage_in_run(
+            let (nested, mut nested_pings, _crit_active) = apply_area_damage_in_run(
                 world,
                 run,
                 rules,

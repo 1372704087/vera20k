@@ -705,7 +705,8 @@ pub(super) fn ground_strike(
             warhead,
             (crate::sim::combat::RAD_NO_ATTACKER, house, warhead_ref),
             frame_effects,
-        );
+        )
+        .bridge_state_changed;
     } else {
         log::warn!(
             "Lightning warhead '{}' not found in rules",

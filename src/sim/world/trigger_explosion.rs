@@ -58,15 +58,18 @@ impl Simulation {
             force_create: false,
             flags: 0,
         });
-        Some(world_receiver::apply_area_damage(
-            self,
-            rules,
-            overlays,
-            coordinate,
-            damage,
-            warhead,
-            (RAD_NO_ATTACKER, None, warhead_ref),
-            frame_effects,
-        ))
+        Some(
+            world_receiver::apply_area_damage(
+                self,
+                rules,
+                overlays,
+                coordinate,
+                damage,
+                warhead,
+                (RAD_NO_ATTACKER, None, warhead_ref),
+                frame_effects,
+            )
+            .bridge_state_changed,
+        )
     }
 }

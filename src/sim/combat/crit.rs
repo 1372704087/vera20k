@@ -8,24 +8,35 @@
 //! this module kills is already gone when the main warhead dispatches.
 //!
 //! RESIDUALS:
+//! - The pass runs only in the ordinary-damage arm of the bullet detonation
+//!   and in `MapClass::DamageArea`; Phobos runs it before the whole bullet arm
+//!   chain (`0x46920B`). A warhead with a special arm (IvanBomb, MindControl,
+//!   Temporal, Locomotor, ...) therefore skips its crit and the chance draws.
 //! - The per-target list reuses the area receiver collection instead of
-//!   Phobos' own `getCellSpreadItemsExt` walk; differences are limited to the
-//!   cell-list membership filters that walk lacks (no Iron Curtain, layer or
-//!   DamageSelf gate). Because that collection happens after SpawnShrapnel,
-//!   the crit pass runs after the shrapnel draws where native runs it first.
-//! - `ReturnWarhead`'s per-detonation buffer is drawn between the crit buffer
-//!   and `Crit.ActiveChanceAnims` natively; that buffer belongs to the
-//!   AttachEffect weapons chain and is not in this build.
+//!   Phobos' own `getCellSpreadItemsExt` walk, which also reads the
+//!   `AircraftTracker` for airborne items; membership and order can differ
+//!   (no airborne phase, different cell-list filters). Because that collection
+//!   happens after SpawnShrapnel, the crit pass also runs after the shrapnel
+//!   draws, where native runs it first.
 //! - `Crit.Warhead`'s full detonation creates a projectile with no
 //!   `Projectile=` type, so the default bullet type's `Cluster` is not read.
 //! - `Crit.ExtraDamage.ApplyFirepowerMult` reads the owner's live multiplier;
 //!   native uses the bullet's firepower captured at launch.
+//! - A bullet does not retain its firing house (VERA's `firer_house` only
+//!   serves `FirersPalette`), so a round whose firer expired loses the
+//!   `Crit.AffectsHouse` gate and the crit animations' house; native falls
+//!   back to `BulletExt::FirerHouse`.
 //! - Crit animations set the owner house but no invoker (VERA stores no anim
 //!   invoker on this branch).
 //! - `Crit.SuppressWhenIntercepted` is read but VERA tracks no intercepted
 //!   bullet, so the bullet's `false` value never suppresses.
 //! - `Crit.AffectsTarget` treats every building as a plain building; native's
 //!   `IsStrange` split has no VERA reader.
+//! - `ApplyPerTargetEffectsOnDetonate=no` selects the per-target dice here but
+//!   native moves the whole pass into ReceiveDamage and plays no chance
+//!   animations. The per-detonation `ReturnWarhead` buffer Phobos draws before
+//!   `Crit.ActiveChanceAnims` does not exist in VERA at all, so a warhead that
+//!   sets both keys shifts the scenario stream.
 
 use super::combat_aoe::AreaDamageReceiver;
 use super::effects::DeathEffects;
@@ -76,7 +87,12 @@ pub(crate) fn begin(
     if !(chance > 0.0) {
         return None;
     }
-    let per_target = crit.apply_chance_per_target(rules.crit_globals());
+    let globals = rules.crit_globals();
+    // `Crit_ApplyChancePerTarget || !ApplyPerTargetEffectsOnDetonate`: the
+    // second term is native's per-target ReceiveDamage hook, which rolls a
+    // fresh chance for every target.
+    let per_target =
+        crit.apply_chance_per_target(globals) || !globals.apply_per_target_effects_on_detonate();
     let buffer = if per_target {
         0.0
     } else {
@@ -415,7 +431,7 @@ fn crit_effects(
             // pass (no CellSpread arm), which this build leaves empty.
             let crit_ref = world.interner.intern(name);
             let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
-            let (nested, mut pings) = apply_area_damage_in_run(
+            let (nested, mut pings, _crit_active) = apply_area_damage_in_run(
                 world,
                 run,
                 rules,

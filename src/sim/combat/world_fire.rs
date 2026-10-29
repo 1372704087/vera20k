@@ -1170,6 +1170,12 @@ pub(crate) fn snapshot_get_rof(
                     entity.attached_rof_multiplier()
                 }),
             ),
+            #[cfg(feature = "phobos")]
+            rof_random_delay: Some(
+                rof_weapon
+                    .and_then(|weapon| weapon.rof_random_delay)
+                    .unwrap_or(rules.general.rof_random_delay),
+            ),
             rof_ability: self::veterancy::has_weapon_ability(
                 self::veterancy::rank_from_u16(snap.veterancy),
                 obj,

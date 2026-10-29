@@ -100,7 +100,9 @@ mod fireat_launch_tests;
 mod garrison_oracle_tests;
 #[cfg(test)]
 mod homing_shipyard_tests;
-#[cfg(test)]
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(all(test, not(feature = "phobos")))]
 mod ifv_fireat_tests;
 /// Ordinary launch-height, resolved impact presentation and damage-effect
 /// wiring. Bridge Cell+58 launch and +48/+58 impact comparisons use the native

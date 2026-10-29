@@ -141,6 +141,11 @@ pub(crate) struct RofQuery<'a> {
     /// Some even at identity, including the building-ammo shortcut bypass.
     #[cfg(feature = "ares")]
     pub attached_rof: Option<NativeF64Bits>,
+    /// Phobos `ROF.RandomDelay` as `0x006FD0B5` resolves it (the weapon's,
+    /// else `[CombatDamage]`). None describes the unpatched kernel for native
+    /// controls; Phobos gameplay always supplies Some.
+    #[cfg(feature = "phobos")]
+    pub rof_random_delay: Option<crate::rules::ini_value::PartialIntPair>,
     /// The rank holds the ROF ability: a veteran with the type's veteran byte
     /// (`+0x2A0`), or an elite with either byte (`+0x2A0`, `+0x2B2`).
     pub rof_ability: bool,
@@ -204,6 +209,15 @@ pub(crate) fn get_rof(query: &RofQuery<'_>, rng: &mut SimRng) -> i32 {
         return rng.next_range_u32_inclusive(3, 5) as i32;
     }
     let jitter = rng.next_range_u32_inclusive(0, 2) as i32;
+    // Phobos `TechnoClass_RearmDelay_ROF` (`0x006FD0B5`) runs after that draw
+    // and replaces the jitter (EAX, stored at `0x006FD0BB`) with
+    // `GetRangedRandomOrSingleValue(ROF.RandomDelay)`.
+    #[cfg(feature = "phobos")]
+    let jitter = match query.rof_random_delay {
+        Some(range) if range.is_single() => range.low,
+        Some(range) => rng.next_range_i32_inclusive(range.low, range.high),
+        None => jitter,
+    };
     // Phobos 0x006FD0B5 loads `ROF * AE` (C++ double) in place of the stock
     // int `ROF`. An identity factor loads the same exact value.
     let phobos_rof = f64::from(weapon.rof) * query.ae_rof;
@@ -256,6 +270,59 @@ mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
 
+    /// Phobos `TechnoClass_RearmDelay_ROF` (`0x006FD0B5`): after stock's
+    /// `RandomRanged(0, 2)`, a ranged `ROF.RandomDelay` draws the jitter again
+    /// and a single value replaces it without a draw.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn rof_random_delay_replaces_the_stock_jitter() {
+        use crate::rules::ini_value::PartialIntPair;
+        let ini = IniFile::from_str("[GUN]\nROF=40\nBurst=1\n");
+        let weapon = WeaponType::from_ini_section("GUN", ini.section("GUN").unwrap());
+        let rof = |range: PartialIntPair| {
+            let query = RofQuery {
+                building_ammo: None,
+                weapon: Some(&weapon),
+                live: LiveParticles::default(),
+                burst_index: 1,
+                unit_burst_delays: None,
+                house_rof: NativeF64Bits::ONE,
+                ae_rof: 1.0,
+                #[cfg(feature = "ares")]
+                attached_rof: None,
+                rof_random_delay: Some(range),
+                rof_ability: false,
+                veteran_rof: 1.0,
+                occupants: None,
+                bunkered: false,
+                occupy_rof_multiplier: 1.0,
+                bunker_rof_multiplier: 1.0,
+            };
+            let mut rng = SimRng::new(9);
+            let value = get_rof(&query, &mut rng);
+            (value, rng.logical_state())
+        };
+        let mut expected = SimRng::new(9);
+        expected.next_range_u32_inclusive(0, 2);
+        let after_stock = expected.logical_state();
+        let jitter = expected.next_range_i32_inclusive(10, 20);
+
+        assert_eq!(
+            rof(PartialIntPair::single(7)),
+            (47, after_stock),
+            "a single value replaces the jitter with no second draw"
+        );
+        assert_eq!(
+            rof(PartialIntPair {
+                low: 10,
+                high: 20,
+                values: 2,
+            }),
+            (40 + jitter, expected.logical_state()),
+            "a range draws its own jitter after the stock draw"
+        );
+    }
+
     /// Phobos `TechnoClass_RearmDelay_ROF` (`0x006FD0B5`): `ROF * AE` replaces
     /// the stock `ROF=` before the house fold and jitter, while the direct
     /// sonic/particle and mid-burst returns never see it.
@@ -277,6 +344,8 @@ mod tests {
                 ae_rof,
                 #[cfg(feature = "ares")]
                 attached_rof: None,
+                #[cfg(feature = "phobos")]
+                rof_random_delay: None,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -357,6 +426,8 @@ mod tests {
                 ae_rof: 1.0,
                 #[cfg(feature = "ares")]
                 attached_rof: Some(NativeF64Bits::from_bits(_factor)),
+                #[cfg(feature = "phobos")]
+                rof_random_delay: None,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -437,6 +508,8 @@ mod tests {
                 ae_rof: 1.0,
                 #[cfg(feature = "ares")]
                 attached_rof: None,
+                #[cfg(feature = "phobos")]
+                rof_random_delay: None,
                 rof_ability: (veteran && veteran_byte) || (elite && (veteran_byte || elite_byte)),
                 veteran_rof: f64::from_bits(hex("veteran_bits", "3fe3333340000000")),
                 occupants: (int("garrison", 0) != 0).then(|| int("occupants", 0)),

@@ -245,6 +245,11 @@ pub struct WeaponType {
     /// `AttachEffect.SameSourceOnly`: only instances from the shot's exact
     /// invoker and source match.
     pub attach_effect_same_source_only: bool,
+    /// Phobos `ROF.RandomDelay` (`WeaponType/Body.cpp:134`,
+    /// `Nullable<PartialVector2D<int>>`): this weapon's full-rearm jitter
+    /// range; `None` inherits `[CombatDamage]`.
+    #[cfg(feature = "phobos")]
+    pub rof_random_delay: Option<crate::rules::ini_value::PartialIntPair>,
 }
 
 impl WeaponType {
@@ -498,6 +503,16 @@ impl WeaponType {
             attach_effect_required_houses,
             attach_effect_disallowed_houses,
             attach_effect_same_source_only,
+            #[cfg(feature = "phobos")]
+            rof_random_delay: Some(section.read_ares_partial_int_pair(
+                "ROF.RandomDelay",
+                crate::rules::ini_value::PartialIntPair {
+                    low: 0,
+                    high: 0,
+                    values: 0,
+                },
+            ))
+            .filter(|range| range.values > 0),
         }
     }
 }

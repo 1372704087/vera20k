@@ -6,7 +6,10 @@
 //! the main menu is idle, in the shell's own message boxes: Update, Skip This
 //! Version or Later, beside what changed (`notes`). Update downloads it with
 //! progress in the box, checks its size and SHA-256, installs it and restarts
-//! into it. Nothing is asked during a match, and a check that fails, offline
+//! into it. A release this program cannot install, after an updater or key
+//! change, is offered the same way as a download by hand: from vera20k.org,
+//! or after a key change from the GitHub releases (`manifest::Offer`).
+//! Nothing is asked during a match, and a check that fails, offline
 //! included, stays silent.
 //! Publication: `.github/release/downloads.md`.
 
@@ -15,7 +18,7 @@ mod install;
 mod manifest;
 pub(crate) mod notes;
 
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -29,14 +32,17 @@ use crate::util::time::{Duration, Instant};
 
 use fetch::Progress;
 use install::Package;
-use manifest::{Release, Version};
+use manifest::{Offer, Release, Version};
 
 /// How often a pending check or download is polled.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
+/// Where a release that needs a newer updater is downloaded by hand.
+const WEBSITE: &str = "https://vera20k.org/";
+
 /// Set only for the Release workflow's update test (`tools/update_test.py`):
 /// its runners have no retail game data, so no main menu to ask on, and the
-/// test build updates as soon as it finds a release.
+/// test build updates as soon as it finds a release it can install.
 const UNATTENDED: bool = option_env!("VERA20K_UPDATE_UNATTENDED").is_some();
 
 /// The updater's single owner of its progress through one run of the game.
@@ -52,12 +58,12 @@ enum Phase {
     NotStarted,
     Checking {
         package: Package,
-        result: Receiver<anyhow::Result<Option<Release>>>,
+        result: Receiver<anyhow::Result<Option<Offer>>>,
     },
     /// A newer release, waiting for an idle main menu.
-    Found { package: Package, release: Release },
+    Found { package: Package, offer: Offer },
     /// Its offer is on screen, or the menu is sliding out to show it.
-    Offered { package: Package, release: Release },
+    Offered { package: Package, offer: Offer },
     Downloading {
         release: Release,
         progress: Arc<Progress>,
@@ -77,9 +83,14 @@ pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
                 .then(|| Instant::now() + POLL_INTERVAL)
         }
         Phase::Checking { package, result } => match result.try_recv() {
-            Ok(Ok(Some(release))) => {
-                log::info!("Updater: VERA20k {} is available", release.version);
-                state.frontend.updater.phase = Phase::Found { package, release };
+            Ok(Ok(Some(offer))) => {
+                let what = match offer {
+                    Offer::Update(_) => "is available",
+                    Offer::Manual { .. } => "needs a download by hand",
+                    Offer::NewKey { .. } => "is signed by another key",
+                };
+                log::info!("Updater: VERA20k {} {what}", offer.version());
+                state.frontend.updater.phase = Phase::Found { package, offer };
                 poll(state)
             }
             Ok(Ok(None)) => {
@@ -101,19 +112,22 @@ pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
                 None
             }
         },
-        Phase::Found { package, release } if UNATTENDED => {
+        Phase::Found {
+            package,
+            offer: Offer::Update(release),
+        } if UNATTENDED => {
             download(state, package, release);
             Some(Instant::now() + POLL_INTERVAL)
         }
-        Phase::Found { package, release } => {
+        Phase::Found { package, offer } => {
             if main_menu_idle(state) {
-                state.frontend.updater.phase = Phase::Offered { package, release };
+                state.frontend.updater.phase = Phase::Offered { package, offer };
                 App::leave_shell_dialog(
                     state,
                     crate::app::frontend::shell_transition::ShellExitThen::UpdateOffer,
                 );
             } else {
-                state.frontend.updater.phase = Phase::Found { package, release };
+                state.frontend.updater.phase = Phase::Found { package, offer };
             }
             None
         }
@@ -205,20 +219,41 @@ fn main_menu_idle(state: &AppState) -> bool {
 /// The menu has slid out: ask over the empty shell backdrop, as Exit Game
 /// does (`App::open_exit_confirm`).
 pub(crate) fn open_offer(state: &mut AppState) {
-    let Phase::Offered { release, .. } = &state.frontend.updater.phase else {
+    let Phase::Offered { offer, .. } = &state.frontend.updater.phase else {
         return;
+    };
+    let (question, confirm, skip, changes) = match offer {
+        Offer::Update(release) => (
+            "Update now? VERA20K restarts when it is done.",
+            "Update",
+            "Skip Version",
+            release.notes.as_slice(),
+        ),
+        Offer::Manual { notes, .. } => (
+            "This copy cannot install it by itself. Download it from vera20k.org.",
+            "Download",
+            "Skip Version",
+            notes.as_slice(),
+        ),
+        // Unverified: its version is not one to skip.
+        Offer::NewKey { .. } => (
+            "This copy cannot install it by itself. Download it from GitHub.",
+            "Download",
+            "",
+            &[][..],
+        ),
     };
     let labels = ShellMessageBoxLabels {
         title: format!(
-            "VERA20K {} is available. You have {}.\n\nUpdate now? VERA20K restarts when it is done.",
-            release.version,
+            "VERA20K {} is available. You have {}.\n\n{question}",
+            offer.version(),
             Version::current()
         ),
-        confirm: "Update".to_owned(),
-        third: "Skip Version".to_owned(),
+        confirm: confirm.to_owned(),
+        third: skip.to_owned(),
         cancel: "Later".to_owned(),
     };
-    let notes = notes::ReleaseNotes::new(&state.renderer.bit_font, &release.notes);
+    let notes = notes::ReleaseNotes::new(&state.renderer.bit_font, changes);
     crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
     crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
     App::open_shell_message_box(
@@ -230,18 +265,23 @@ pub(crate) fn open_offer(state: &mut AppState) {
     );
 }
 
-/// The offer's answer: 0 Update, 2 Skip This Version, 1 (or Esc/Enter) Later.
+/// The offer's answer: 0 Update (or Download), 2 Skip This Version, 1 (or
+/// Esc/Enter) Later.
 pub(crate) fn answer_offer(state: &mut AppState, result: ModalResult) {
-    let Phase::Offered { package, release } = std::mem::take(&mut state.frontend.updater.phase)
+    let Phase::Offered { package, offer } = std::mem::take(&mut state.frontend.updater.phase)
     else {
         return;
     };
     state.frontend.updater.phase = Phase::Finished;
-    match result {
-        ModalResult::MessageBox(0) => download(state, package, release),
-        ModalResult::MessageBox(2) => {
+    match (result, offer) {
+        (ModalResult::MessageBox(0), Offer::Update(release)) => download(state, package, release),
+        (ModalResult::MessageBox(0), Offer::Manual { .. }) => open_in_browser(WEBSITE),
+        (ModalResult::MessageBox(0), Offer::NewKey { .. }) => {
+            open_in_browser(crate::app::shell_wol::RELEASES_URL)
+        }
+        (ModalResult::MessageBox(2), offer @ (Offer::Update(_) | Offer::Manual { .. })) => {
             let profile = &mut state.persistence.options_profile;
-            profile.skipped_update = release.version.to_string();
+            profile.skipped_update = offer.version().to_string();
             if let Some(config) = state.platform.game_config.as_ref()
                 && let Err(error) = profile.commit_skipped_update(config.paths.settings_dir())
             {
@@ -251,6 +291,33 @@ pub(crate) fn answer_offer(state: &mut AppState, result: ModalResult) {
         _ => {}
     }
     state.platform.window.request_redraw();
+}
+
+/// Open `url` in the player's browser.
+fn open_in_browser(url: &str) {
+    let opener = if cfg!(target_os = "windows") {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let opened = Command::new(opener)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn();
+    match opened {
+        Ok(mut child) => {
+            log::info!("Updater: opening {url}");
+            // xdg-open may run the browser itself: reap it when it ends.
+            let _ = std::thread::Builder::new()
+                .name("vera-update-browser".into())
+                .spawn(move || child.wait());
+        }
+        Err(error) => log::warn!("Updater: cannot open {url}: {error}"),
+    }
 }
 
 fn download(state: &mut AppState, package: Package, release: Release) {

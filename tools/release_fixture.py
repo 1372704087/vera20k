@@ -47,6 +47,12 @@ if tool == "gh":
                 print(json.dumps({"tag_name": latest, "draft": False, "prerelease": False}))
         elif "/releases/tags/" in endpoint:
             print(json.dumps(config["release"]))
+        elif endpoint.startswith("repos/YuriPlanet/vera20k/contents/.github/release/updater-version?ref="):
+            assert endpoint.endswith("?ref=" + config["commit"])
+            if "updater_version" not in config:
+                print("gh: Not Found (HTTP 404)", file=sys.stderr)
+                sys.exit(1)
+            print(config["updater_version"], end="")
         else:
             fail("UnexpectedGhEndpoint")
     elif args[:2] == ["release", "download"]:

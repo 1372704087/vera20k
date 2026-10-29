@@ -9,6 +9,9 @@ import unittest
 
 from tools.release_fixture import Publisher, signing_key, verify_signature
 
+# The updater-version file in the release's commit.
+UPDATER = 3
+
 
 class ReleaseDownloadsTests(unittest.TestCase):
     def setUp(self):
@@ -29,7 +32,7 @@ class ReleaseDownloadsTests(unittest.TestCase):
             data = (name + "\n").encode()
             (self.root / "assets" / name).write_bytes(data)
             assets.append({"id": index + 1, "name": name, "size": len(data), "digest": "sha256:" + hashlib.sha256(data).hexdigest(), "state": "uploaded"})
-        self.config = {"tag": "v0.2.2", "commit": "a" * 40,
+        self.config = {"tag": "v0.2.2", "commit": "a" * 40, "updater_version": f"{UPDATER}\n",
                        "release": {"id": 10, "tag_name": "v0.2.2", "draft": False, "prerelease": False, "assets": assets}}
 
     def run_publisher(self, tag="v0.2.2", signing_key=None):
@@ -59,6 +62,8 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertFalse(verify_signature(self.public_key, manifest.read_bytes() + b" ", signature, self.root))
         data = json.loads(manifest.read_text())
         self.assertEqual(set(data["files"]), {"windows", "macos", "linux"})
+        # What an older game needs to offer a release it cannot install.
+        self.assertEqual((data["updater"], data["update_key"]), (UPDATER, self.public_key))
         for entry in data["files"].values():
             contents = (self.root / "objects" / entry["key"]).read_bytes()
             self.assertEqual(len(contents), entry["size"])
@@ -99,16 +104,19 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 signature = (self.root / "objects/releases/v0.2.2/manifest.json.sig").read_text()
                 self.assertTrue(verify_signature(self.public_key, manifest, signature, self.root))
 
-    def test_a_retry_keeps_the_notes_first_published(self):
+    def test_a_retry_keeps_the_fields_first_published(self):
         manifest = self.root / "objects/releases/v0.2.2/manifest.json"
         self.config["release"]["body"] = "### Changes\n\n- First.\n"
         self.assertEqual(self.run_publisher().returncode, 0)
         self.config["release"]["body"] = "### Changes\n\n- Edited after publication.\n"
+        self.config["updater_version"] = f"{UPDATER + 1}\n"
         result = self.run_publisher()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(manifest.read_bytes())["notes"], ["First."])
+        data = json.loads(manifest.read_bytes())
+        self.assertEqual((data["notes"], data["updater"]), (["First."], UPDATER))
         # As R2 holds the releases mirrored before manifests were signed.
-        stored = subprocess.run(["jq", "-S", "del(.notes)", str(manifest)], capture_output=True, check=True).stdout
+        stored = subprocess.run(["jq", "-S", "del(.notes, .updater, .update_key)", str(manifest)],
+                                capture_output=True, check=True).stdout
         for path in (manifest, self.root / "objects/latest.json"):
             path.write_bytes(stored)
         (self.root / "objects/releases/v0.2.2/manifest.json.sig").unlink()
@@ -117,6 +125,14 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual(manifest.read_bytes(), stored)
         signature = (self.root / "objects/releases/v0.2.2/manifest.json.sig").read_text()
         self.assertTrue(verify_signature(self.public_key, stored, signature, self.root))
+
+    def test_a_release_from_before_updater_versions_names_none(self):
+        del self.config["updater_version"]
+        result = self.run_publisher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        data = json.loads((self.root / "objects/releases/v0.2.2/manifest.json").read_text())
+        self.assertNotIn("updater", data)
+        self.assertEqual(data["update_key"], self.public_key)
 
     def test_signing_key_must_match_the_trusted_public_key(self):
         old_pointer = self.prior_pointer()

@@ -29,5 +29,7 @@
     "Update downloads the release with progress, installs it and restarts VERA20K."
   ],
   "tag": "v1.2.3",
+  "update_key": "XCNx346utVThi1i5oYklyV+uU0QNcq7JGxsRq5ygvyQ=",
+  "updater": 1,
   "version": "1.2.3"
 }

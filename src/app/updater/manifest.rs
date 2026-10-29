@@ -5,6 +5,10 @@
 //! release itself comes from those same bytes once
 //! `releases/v<version>/manifest.json.sig` verifies them (Ed25519 over the
 //! exact bytes, base64). See `.github/release/downloads.md`.
+//!
+//! A newer release this program cannot install is offered as a download by
+//! hand: one whose manifest needs a newer updater, or one that another key
+//! signs, the update key its manifest names, as after a key change.
 
 use std::collections::BTreeMap;
 
@@ -81,32 +85,51 @@ fn installer_suffix(platform: &str) -> &'static str {
     }
 }
 
+/// The updater version this program is (`.github/release/updater-version`):
+/// a release whose manifest needs a higher one is a download by hand.
+fn updater() -> u32 {
+    include_str!("../../../.github/release/updater-version")
+        .trim()
+        .parse()
+        .expect("updater-version holds a number")
+}
+
+/// What every manifest keeps, whichever updater installs its release.
 #[derive(Deserialize)]
-struct Pointer {
+struct Header {
     version: String,
     tag: String,
+    /// The updater version that installs it; manifests before them have none.
+    #[serde(default)]
+    updater: u32,
+    /// The base64 public key that signs it.
+    #[serde(default)]
+    update_key: Option<String>,
+    #[serde(default)]
+    notes: Vec<String>,
+}
+
+fn header(manifest: &[u8]) -> Result<(Header, Version)> {
+    let header: Header = serde_json::from_slice(manifest).context("not a release manifest")?;
+    let version = Version::parse(&header.version).context("the manifest has no valid version")?;
+    ensure!(
+        header.tag == format!("v{version}"),
+        "the manifest names tag {} for version {version}",
+        header.tag
+    );
+    Ok((header, version))
 }
 
 /// The unverified version and tag `latest.json` names.
 pub(crate) fn pointer(latest: &[u8]) -> Result<(Version, String)> {
-    let pointer: Pointer =
-        serde_json::from_slice(latest).context("latest.json is not a manifest")?;
-    let version = Version::parse(&pointer.version).context("latest.json has no valid version")?;
-    ensure!(
-        pointer.tag == format!("v{version}"),
-        "latest.json names tag {} for version {version}",
-        pointer.tag
-    );
-    Ok((version, pointer.tag))
+    let (header, version) = header(latest).context("latest.json is not valid")?;
+    Ok((version, header.tag))
 }
 
+/// The installers in a manifest this program's updater installs.
 #[derive(Deserialize)]
-struct Manifest {
-    version: String,
-    tag: String,
+struct Installers {
     files: BTreeMap<String, ManifestFile>,
-    #[serde(default)]
-    notes: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,30 +154,80 @@ pub(crate) struct Release {
     pub notes: Vec<String>,
 }
 
-/// The release `manifest` describes for `platform`, when `signature` (base64)
-/// is the Ed25519 signature of exactly these bytes by `public_key`.
-pub(crate) fn verified_release(
+/// What this program can do about a newer release.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Offer {
+    /// Install this platform's installer.
+    Update(Release),
+    /// It needs a newer updater: point the player to vera20k.org.
+    Manual {
+        version: Version,
+        notes: Vec<String>,
+    },
+    /// Another key signs it, the one its manifest names, as after a key
+    /// change. Anyone who can write to the download server could sign one
+    /// that way, and vera20k.org's download links follow its `latest.json`:
+    /// only the version is shown, and the player is pointed to the GitHub
+    /// releases instead.
+    NewKey { version: Version },
+}
+
+impl Offer {
+    pub(crate) fn version(&self) -> Version {
+        match self {
+            Self::Update(release) => release.version,
+            Self::Manual { version, .. } | Self::NewKey { version } => *version,
+        }
+    }
+}
+
+/// What `manifest` offers this program on `platform`, given `signature`
+/// (base64), an Ed25519 signature of exactly these bytes. Signed by
+/// `public_key`, it is the release's installer, or [`Offer::Manual`] when it
+/// needs a newer updater; signed by the key it names, [`Offer::NewKey`].
+pub(crate) fn offer(
     manifest: &[u8],
     signature: &[u8],
     public_key: &[u8; 32],
     platform: &str,
-) -> Result<Release> {
+) -> Result<Offer> {
     let signature = base64::engine::general_purpose::STANDARD
         .decode(signature.trim_ascii())
         .context("manifest signature is not base64")?;
-    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, public_key)
-        .verify(manifest, &signature)
-        .map_err(|_| anyhow::anyhow!("manifest signature does not verify"))?;
+    let signed_by = |key: &[u8]| {
+        ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, key)
+            .verify(manifest, &signature)
+            .is_ok()
+    };
+    // Read before it verifies, as `pointer` reads the same bytes.
+    let (header, version) = header(manifest)?;
+    if !signed_by(public_key) {
+        let named = header.update_key.as_deref().and_then(decode_key);
+        ensure!(
+            named.is_some_and(|key| signed_by(&key)),
+            "manifest signature does not verify"
+        );
+        return Ok(Offer::NewKey { version });
+    }
+    if header.updater > updater() {
+        return Ok(Offer::Manual {
+            version,
+            notes: header.notes,
+        });
+    }
+    release(manifest, version, header.notes, platform).map(Offer::Update)
+}
 
-    let manifest: Manifest =
+/// The installer for `platform` in a verified manifest.
+fn release(
+    manifest: &[u8],
+    version: Version,
+    notes: Vec<String>,
+    platform: &str,
+) -> Result<Release> {
+    let installers: Installers =
         serde_json::from_slice(manifest).context("signed manifest is not valid")?;
-    let version =
-        Version::parse(&manifest.version).context("signed manifest has no valid version")?;
-    ensure!(
-        manifest.tag == format!("v{version}"),
-        "signed manifest's tag does not match its version"
-    );
-    let Some(file) = manifest.files.get(platform) else {
+    let Some(file) = installers.files.get(platform) else {
         bail!("release {version} has no {platform} installer");
     };
     let safe_name = !file.name.starts_with('.')
@@ -183,8 +256,17 @@ pub(crate) fn verified_release(
         name: file.name.clone(),
         sha256,
         size: file.size,
-        notes: manifest.notes,
+        notes,
     })
+}
+
+/// A base64 Ed25519 public key, as `update-key.pub` holds it.
+pub(crate) fn decode_key(text: &str) -> Option<[u8; 32]> {
+    base64::engine::general_purpose::STANDARD
+        .decode(text.trim())
+        .ok()?
+        .try_into()
+        .ok()
 }
 
 /// Where the publisher stores one version's files below the download base.
@@ -224,10 +306,10 @@ mod tests {
     }
 
     fn public_key() -> [u8; 32] {
-        let key = base64::engine::general_purpose::STANDARD
-            .decode(crate::test_fixture::text("src/app/updater/fixtures/update-key.pub").trim())
-            .unwrap();
-        key.try_into().unwrap()
+        decode_key(crate::test_fixture::text(
+            "src/app/updater/fixtures/update-key.pub",
+        ))
+        .unwrap()
     }
 
     #[test]
@@ -235,8 +317,11 @@ mod tests {
         let version = Version::parse("1.2.3").unwrap();
         assert_eq!(pointer(manifest()).unwrap(), (version, "v1.2.3".into()));
         for (platform, size) in [("windows", 45), ("macos", 39), ("linux", 42)] {
-            let release =
-                verified_release(manifest(), signature(), &public_key(), platform).unwrap();
+            let Offer::Update(release) =
+                offer(manifest(), signature(), &public_key(), platform).unwrap()
+            else {
+                panic!("the fixture's updater version is this program's");
+            };
             assert_eq!(release.version, version);
             assert_eq!(
                 release.name,
@@ -250,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn a_changed_manifest_or_another_key_is_refused() {
+    fn a_changed_manifest_is_refused_and_a_new_keys_release_only_named() {
         // The Linux installer's SHA-256 begins 7b115c.
         let at = manifest()
             .windows(6)
@@ -258,10 +343,39 @@ mod tests {
             .unwrap();
         let mut changed = manifest().to_vec();
         changed[at] = b'8';
-        assert!(verified_release(&changed, signature(), &public_key(), "linux").is_err());
+        assert!(offer(&changed, signature(), &public_key(), "linux").is_err());
+        // To a program that trusts another key, the fixture is a release
+        // after a key change: signed by the key its manifest names.
         let mut other = public_key();
         other[31] ^= 1;
-        assert!(verified_release(manifest(), signature(), &other, "linux").is_err());
+        let named = Offer::NewKey {
+            version: Version::parse("1.2.3").unwrap(),
+        };
+        assert_eq!(
+            offer(manifest(), signature(), &other, "linux").unwrap(),
+            named
+        );
+        assert!(offer(&changed, signature(), &other, "linux").is_err());
+    }
+
+    #[test]
+    fn a_release_for_a_newer_updater_is_a_download_by_hand_with_its_notes() {
+        use ring::signature::KeyPair;
+        // Its installers may take another form; its header stays.
+        let mut later: serde_json::Value = serde_json::from_slice(manifest()).unwrap();
+        later["updater"] = (updater() + 1).into();
+        later["files"] = "another form".into();
+        let later = serde_json::to_vec(&later).unwrap();
+        let pair = ring::signature::Ed25519KeyPair::from_seed_unchecked(&[7; 32]).unwrap();
+        let signature = base64::engine::general_purpose::STANDARD.encode(pair.sign(&later));
+        let key = pair.public_key().as_ref().try_into().unwrap();
+        let Offer::Manual { version, notes } =
+            offer(&later, signature.as_bytes(), &key, "linux").unwrap()
+        else {
+            panic!("a newer updater's release is not installed");
+        };
+        assert_eq!(version, Version::parse("1.2.3").unwrap());
+        assert_eq!(notes.len(), 6);
     }
 
     #[test]

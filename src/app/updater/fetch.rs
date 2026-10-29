@@ -8,9 +8,8 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
-use base64::Engine;
 
-use super::manifest::{self, Release, Version};
+use super::manifest::{self, Offer, Release, Version};
 
 /// The download base: `latest.json` and `releases/` sit below it
 /// (`.github/release/downloads.md`). A test build names its own server.
@@ -45,11 +44,7 @@ pub(super) struct Progress {
 pub(super) struct Cancelled;
 
 fn public_key() -> Result<[u8; 32]> {
-    base64::engine::general_purpose::STANDARD
-        .decode(PUBLIC_KEY.trim())
-        .ok()
-        .and_then(|key| key.try_into().ok())
-        .context("the update key is not a base64 Ed25519 public key")
+    manifest::decode_key(PUBLIC_KEY).context("the update key is not a base64 Ed25519 public key")
 }
 
 fn agent() -> ureq::Agent {
@@ -94,13 +89,14 @@ fn get_small(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The newest release for `platform` when it is newer than `current` and
-/// not the version the player skipped, verified against the update key.
+/// What this program can do about the newest release on `platform`
+/// ([`manifest::offer`]), when it is newer than `current` and not the
+/// version the player skipped.
 pub(super) fn check(
     current: Version,
     skipped: Option<Version>,
     platform: &str,
-) -> Result<Option<Release>> {
+) -> Result<Option<Offer>> {
     let agent = agent();
     let latest = get_small(&agent, &format!("{BASE_URL}latest.json"), MAX_POINTER_BYTES)?;
     let (version, _) = manifest::pointer(&latest)?;
@@ -118,7 +114,7 @@ pub(super) fn check(
         ),
         MAX_SIGNATURE_BYTES,
     )?;
-    manifest::verified_release(&latest, &signature, &public_key()?, platform).map(Some)
+    manifest::offer(&latest, &signature, &public_key()?, platform).map(Some)
 }
 
 /// Download `release` into `folder` and return the installer's path once its

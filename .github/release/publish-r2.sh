@@ -72,6 +72,23 @@ tag_commit() {
 release_snapshot() {
   jq -cS '{id,tag_name,draft,prerelease,assets:(.assets | map({id,name,size,digest,state}) | sort_by(.name))}' "$1"
 }
+# The updater version that installs the release, which a game whose own is
+# lower offers as a download by hand (src/app/updater/manifest.rs):
+# `updater-version` in the commit its installers were built from, null before
+# that file. A stable release promotes an earlier dev build, so main's may
+# already be higher.
+updater_version() {
+  local text
+  if text=$(gh api "repos/$repo/contents/.github/release/updater-version?ref=$commit" \
+      -H 'Accept: application/vnd.github.raw+json' 2> "$work/updater-version.error"); then
+    text=$(tr -d '[:space:]' <<< "$text")
+    [[ $text =~ ^[1-9][0-9]{0,3}$ ]] || die "the release's updater-version is malformed"
+    printf '%s\n' "$text"
+  else
+    grep -q 'HTTP 404' "$work/updater-version.error" || die "cannot read the release's updater-version"
+    printf 'null\n'
+  fi
+}
 
 # Return 4 only for an absent object; auth, transport and service errors fail.
 # Metadata from the GET, not an earlier HEAD, supplies the latest pointer's ETag.
@@ -106,12 +123,15 @@ commit=$(tag_commit)
 # bullets under its first "Changes" heading (.github/release/notes.sh), without
 # bullets that are only a link ("All changes", "and 3 more") and without
 # Markdown links, emphasis or code marks. At most 12 of 300 characters keep the
-# manifest far below the game's 64 KiB limit. A version's manifest is written
-# once, so a retry keeps the notes it was first published with, none for a
-# release mirrored before them, whatever the page says now.
+# manifest far below the game's 64 KiB limit. Beside them, `updater` and
+# `update_key`, the public key that signs the manifest, let an older game
+# offer a release it cannot install as a download by hand. A version's
+# manifest is written once, so a retry keeps the fields it was first published
+# with, none for a release mirrored before them, whatever the page and
+# update-key.pub say now.
 if fetch_optional "releases/$tag/manifest.json" "$work/stored-manifest.json"; then
-  notes=$(jq -c 'if has("notes") then .notes else null end' "$work/stored-manifest.json") \
-    || die 'existing release manifest is malformed'
+  fields=$(jq -c 'with_entries(select(.key | IN("notes", "updater", "update_key")))' \
+    "$work/stored-manifest.json") || die 'existing release manifest is malformed'
 else
   result=$?
   [[ $result == 4 ]] || die 'cannot inspect release manifest'
@@ -134,10 +154,12 @@ else
         | .[:300])
   | map(select(length > 0)) | .[:12]
 ' "$work/release.json") || die 'cannot read the release notes'
+  updater=$(updater_version)
+  fields=$(jq -nc --argjson notes "$notes" --argjson updater "$updater" --arg key "$public_key" \
+    '{notes:$notes,updater:$updater,update_key:$key} | with_entries(select(.value != null))')
 fi
-jq -nS --arg version "$version" --arg tag "$tag" --arg commit "$commit" --argjson notes "$notes" \
-  '{version:$version,tag:$tag,commit:$commit,files:{}} + if $notes == null then {} else {notes:$notes} end' \
-  > "$work/manifest.json"
+jq -nS --arg version "$version" --arg tag "$tag" --arg commit "$commit" --argjson fields "$fields" \
+  '{version:$version,tag:$tag,commit:$commit,files:{}} + $fields' > "$work/manifest.json"
 
 # Complete every GitHub download/provenance check before writing any R2 object.
 for index in 0 1 2; do

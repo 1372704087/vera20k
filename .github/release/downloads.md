@@ -10,17 +10,28 @@ reads them back and checks their bytes, then stores `manifest.json` for that
 version and `manifest.json.sig`, its Ed25519 signature. The manifest's `notes`
 are the release page's change list in plain text, the bullets under its first
 "Changes" heading that are more than a link, which the game's update offer
-lists. A retry keeps the notes the version was first published with, and none
-for a version mirrored before manifests had them. Finally it
-conditionally replaces `latest.json`, only if this is GitHub's latest stable
-release and the pointer would not move backward. `latest.json` holds the same
-bytes as the version's `manifest.json`, so the website's three
+lists. Its `updater` is the number in `updater-version` at the commit the
+installers were built from (none before that file), and its `update_key` the
+public key that signs it. A retry keeps these fields as the version was first
+published, and none for a version mirrored before manifests had them.
+Finally it conditionally replaces `latest.json`, only if this is GitHub's
+latest stable release and the pointer would not move backward. `latest.json`
+holds the same bytes as the version's `manifest.json`, so the website's three
 `/download/<platform>` routes read it unchanged.
 
 The game's updater (`src/app/updater`) reads `latest.json`, and installs a
 newer version only when `releases/v<version>/manifest.json.sig` verifies those
 exact bytes with the key in `update-key.pub` and the download matches the
-manifest's size and SHA-256.
+manifest's size and SHA-256. A newer version whose `updater` is higher than
+the game's own `updater-version` it offers as a download by hand from
+vera20k.org. One that another key signs, the key its `update_key` names, as
+after a key change, it offers as a download from the GitHub releases, showing
+only its version: anyone who can write to R2 could sign such a manifest, and
+the website's download links follow `latest.json`. Raise `updater-version` in
+the change after which older games can no longer install a release themselves,
+such as a new installer format. Whatever else later manifests change, they
+keep `version`, `tag`, `updater`, `update_key` and `notes` in this form, which
+every older game reads.
 
 ## Setup and retry
 
@@ -32,9 +43,10 @@ Credentials must not appear in code, command arguments or logs.
 
 The secret `UPDATE_SIGNING_KEY` holds the PEM Ed25519 private key whose public
 half is `update-key.pub` (base64 of the raw 32 bytes). The publisher refuses to
-upload anything when the two do not match. Installed games accept only updates
-that key signed: after it is lost or replaced, they stop seeing updates until
-their players install, by hand, a release that carries the new `update-key.pub`.
+upload anything when the two do not match. Installed games install only updates
+that key signed: after it is replaced, they offer each newer release as a
+download from the GitHub releases, until their players install one that
+carries the new `update-key.pub`.
 To make a key at `$KEY`, a path outside the repository readable only by you,
 print its public half and set the secret:
 

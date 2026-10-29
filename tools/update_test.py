@@ -10,12 +10,14 @@ its own, and starts it. Each scenario passes when the game's log shows:
 
 - update: the release starting, with config.toml, saves and replays unchanged;
 - manifest: a latest.json changed after signing refused, the program unchanged;
-- installer: an installer changed after signing refused, the program unchanged.
+- installer: an installer changed after signing refused, the program unchanged;
+- rekey: the release published after a key change, signed by the new key its
+  manifest names, offered as a download from GitHub, the program unchanged.
 
     python -m tools.update_test key DIR
     python -m tools.update_test run --key DIR/signing-key.pem --release INSTALLER \\
         --version X.Y.Z --program OLD_PROGRAM [--game FOLDER] [--attended] \\
-        [--rate BYTES_PER_SECOND] [--scenario manifest installer update]
+        [--rate BYTES_PER_SECOND] [--scenario manifest installer rekey update]
     python -m tools.update_test fixture DIR
 
 `key` makes the signing key and prints its public half. The test build of the
@@ -106,6 +108,7 @@ def publish(work: Path, key: Path, version: str, release: Path | None) -> Path:
                        "digest": "sha256:" + sha256(path), "state": "uploaded"})
     tag = f"v{version}"
     config = {"tag": tag, "commit": "a" * 40,
+              "updater_version": (ROOT / ".github/release/updater-version").read_text(),
               "release": {"id": 1, "tag_name": tag, "draft": False, "prerelease": False, "assets": assets,
                           "body": BODY}}
     result = publisher.run(tag, config, key.read_text())
@@ -249,7 +252,12 @@ def play(game: Game, scenario: str, version: str, attended: bool) -> None:
                     "not offered": r"Updater: no newer release"}
     elif scenario == "manifest":
         outcomes = {"refused": r"Updater: check failed:[^\n]*signature[^\n]*",
-                    "found": r"Updater: VERA20k \S+ is available", "other failure": failed}
+                    "found": r"Updater: VERA20k \S+ (is available|needs a download by hand|is signed by another key)",
+                    "other failure": failed}
+    elif scenario == "rekey":
+        outcomes = {"pointed": rf"Updater: VERA20k {re.escape(version)} is signed by another key",
+                    "found": r"Updater: VERA20k \S+ (is available|needs a download by hand)",
+                    "other failure": failed}
     else:
         if attended:
             print("Answer Update on the main menu's offer; it fails with the game's message box.", flush=True)
@@ -257,8 +265,11 @@ def play(game: Game, scenario: str, version: str, attended: bool) -> None:
                     "other failure": failed, "updated": rf"VERA20k {re.escape(version)} starting"}
     outcome, line = wait_for(game, offset, outcomes, 900 if attended else 300)
     print(f"{scenario}: {outcome} after {time.monotonic() - started:.0f} s: {line}", flush=True)
-    if outcome not in ("updated", "refused") or (outcome == "updated") != (scenario == "update"):
-        raise SystemExit(f"{scenario}: expected {'the update' if scenario == 'update' else 'a refusal'}")
+    expected = {"update": "updated", "rekey": "pointed"}.get(scenario, "refused")
+    if outcome != expected:
+        raise SystemExit(f"{scenario}: expected {expected}, not {outcome}")
+    if attended and scenario == "rekey":
+        input("Answer Later on the main menu's offer of a download from GitHub, then press Enter. ")
     if scenario != "update":
         # Long enough for an update that was not refused to have replaced it.
         time.sleep(10)
@@ -300,13 +311,18 @@ def command_run(args) -> None:
     objects = publish(work, args.key, args.version, args.release)
     pristine = work / "published"
     shutil.copytree(objects, pristine)
+    if "rekey" in args.scenario:
+        new_key = work / "new-key"
+        new_key.mkdir()
+        signing_key(new_key)
+        rekeyed = publish(work / "rekey", new_key / "signing-key.pem", args.version, args.release)
     print(f"published {sorted(p.relative_to(objects).as_posix() for p in objects.rglob('*') if p.is_file())}", flush=True)
     server = serve(objects, args.rate)
     try:
         game = install(work, args.release, args.program, game_folder)
         for scenario in args.scenario:
             shutil.rmtree(objects)
-            shutil.copytree(pristine, objects)
+            shutil.copytree(rekeyed if scenario == "rekey" else pristine, objects)
             tamper(objects, scenario, args.version)
             play(game, scenario, args.version, args.attended)
     finally:
@@ -346,8 +362,8 @@ def main(argv: list[str] | None = None) -> None:
     test.add_argument("--game", type=absolute, help="a game folder; default: the installer's stand-in")
     test.add_argument("--attended", action="store_true", help="a person answers the offer")
     test.add_argument("--rate", type=float, help="serve at most this many bytes a second")
-    test.add_argument("--scenario", nargs="+", choices=["manifest", "installer", "update"],
-                      default=["manifest", "installer", "update"])
+    test.add_argument("--scenario", nargs="+", choices=["manifest", "installer", "rekey", "update"],
+                      default=["manifest", "installer", "rekey", "update"])
     fixture = commands.add_parser("fixture", help="write the Rust updater tests' signed manifest")
     fixture.add_argument("directory", type=Path)
     args = parser.parse_args(argv)

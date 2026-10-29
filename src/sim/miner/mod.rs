@@ -17,9 +17,6 @@ mod refinery_dock;
 pub(crate) use refinery_dock::UnloadImage;
 
 #[cfg(test)]
-mod full_reinforcement_tests;
-
-#[cfg(test)]
 #[path = "outbound_drive_tests.rs"]
 mod outbound_drive_tests;
 

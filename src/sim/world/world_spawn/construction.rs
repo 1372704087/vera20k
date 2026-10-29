@@ -131,13 +131,18 @@ impl Simulation {
         let initial = ge.body_facing.destination();
         let uses_voxel = ge.is_voxel();
         // Phobos attaches the type's AttachEffect.AttachTypes at creation,
-        // before the object can be observed or act.
+        // before the object can be observed or act. The list mutably borrows
+        // the entity, so the gate's target facts are read first.
         #[cfg(feature = "phobos")]
         if let Some(obj) = obj {
+            let invulnerability = ge.invulnerability.clone();
             crate::sim::attach_effect::attach_initial_effects(
                 ge.phobos_attach_effects_mut(),
+                category.into(),
+                invulnerability.as_ref(),
                 obj,
                 rules,
+                session.binary_frame(),
                 None,
             );
         }

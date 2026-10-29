@@ -63,6 +63,20 @@ impl Default for AttachEffectTargets {
 }
 
 impl AttachEffectTargets {
+    /// `EnumFunctions::IsTechnoEligible` with `considerAircraftSeparately`:
+    /// the class flags decide, and `none` (no bits) admits nobody. This struct
+    /// carries only the four content bits, so the native `All` early return and
+    /// the `None` fallback are the same as this match.
+    pub fn allows(self, category: crate::rules::object_type::ObjectCategory) -> bool {
+        use crate::rules::object_type::ObjectCategory;
+        match category {
+            ObjectCategory::Infantry => self.infantry,
+            ObjectCategory::Vehicle => self.units,
+            ObjectCategory::Aircraft => self.aircraft,
+            ObjectCategory::Building => self.buildings,
+        }
+    }
+
     /// Phobos `TechnoTypeFlags` enumeration names, in declaration order.
     /// Unknown tokens keep the previous value, as the native list read does.
     #[cfg(feature = "phobos")]
@@ -265,6 +279,11 @@ pub struct AttachEffectType {
     pub crit_disallow_warheads: Vec<String>,
     pub disable_weapons: bool,
     pub unkillable: bool,
+    /// `LaserTrail.Type`: natively a `ValueableIdx<LaserTrailTypeClass>`
+    /// resolved against `[LaserTrailTypes]` (`AttachEffectTypeClass.cpp:184`).
+    /// VERA has no LaserTrail owner or trail catalog yet, so the raw key text
+    /// is retained and no trail is spawned.
+    pub laser_trail_type: Option<String>,
     /// `DiscardOn` and the keys its conditions read.
     pub discard_on: DiscardOn,
     pub discard_ammo_minimum: i32,
@@ -351,6 +370,7 @@ impl AttachEffectType {
             crit_disallow_warheads: Vec::new(),
             disable_weapons: false,
             unkillable: false,
+            laser_trail_type: None,
             discard_on: DiscardOn::NONE,
             discard_ammo_minimum: -1,
             discard_ammo_maximum: -1,
@@ -638,6 +658,10 @@ impl AttachEffectTypeCatalog {
             }
             entry.disable_weapons = section.read_bool("DisableWeapons", entry.disable_weapons);
             entry.unkillable = section.read_bool("Unkillable", entry.unkillable);
+            entry.laser_trail_type = section
+                .read_name("LaserTrail.Type", 2048)
+                .filter(|name| !name.is_empty())
+                .map(str::to_owned);
             entry.discard_on =
                 section.read_string_with("DiscardOn", 0x400, entry.discard_on, |_, raw| {
                     DiscardOn::parse(raw)
@@ -1129,6 +1153,47 @@ AllowTransfer.Convert=yes
             }
         );
         assert_eq!(catalog.index_of("SECOND"), Some(1));
+    }
+
+    /// `LaserTrail.Type` resolves through a trail catalog natively; until that
+    /// owner exists the raw key text is kept and an absent or blank key stays
+    /// `None`.
+    #[test]
+    fn laser_trail_type_keeps_the_key_text() {
+        let catalog = parse("[AttachEffectTypes]\n0=T\n[T]\nLaserTrail.Type=MyTrail\n");
+        assert_eq!(
+            catalog.entry("T").unwrap().laser_trail_type.as_deref(),
+            Some("MyTrail")
+        );
+        let catalog = parse("[AttachEffectTypes]\n0=U\n[U]\nLaserTrail.Type=\n");
+        assert_eq!(catalog.entry("U").unwrap().laser_trail_type, None);
+    }
+
+    /// `AffectsTarget` splits the four content classes and `none` admits
+    /// nobody.
+    #[test]
+    fn target_class_flags_gate_each_category() {
+        use crate::rules::object_type::ObjectCategory;
+        let all = AttachEffectTargets::ALL;
+        assert!(all.allows(ObjectCategory::Infantry));
+        assert!(all.allows(ObjectCategory::Vehicle));
+        assert!(all.allows(ObjectCategory::Aircraft));
+        assert!(all.allows(ObjectCategory::Building));
+        let none = AttachEffectTargets {
+            infantry: false,
+            units: false,
+            aircraft: false,
+            buildings: false,
+        };
+        assert!(!none.allows(ObjectCategory::Vehicle));
+        let air_only = AttachEffectTargets {
+            infantry: false,
+            units: false,
+            aircraft: true,
+            buildings: false,
+        };
+        assert!(air_only.allows(ObjectCategory::Aircraft));
+        assert!(!air_only.allows(ObjectCategory::Building));
     }
 
     /// A later pass re-reads the same entry and keeps a value whose key it no

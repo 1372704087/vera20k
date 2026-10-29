@@ -520,16 +520,63 @@ fn paired(list: &[i32], index: usize, default: i32) -> i32 {
         .unwrap_or(default)
 }
 
+/// `AttachEffectClass::CreateAndAttach` (`AttachEffectClass.cpp:883..898`)
+/// gates every attach site before the cumulative decision: an active Iron
+/// Curtain or Force Shield needs the type's matching penetration flag,
+/// `AffectsTarget` must admit the target's class, and `AffectTypes` (when
+/// non-empty) then `IgnoreTypes` filter the target's type id.
+#[cfg(feature = "phobos")]
+pub fn can_attach_effect(
+    category: crate::rules::object_type::ObjectCategory,
+    invulnerability: Option<&crate::sim::superweapon::invulnerability::InvulnerabilityState>,
+    object: &crate::rules::object_type::ObjectType,
+    effect: &AttachEffectType,
+    frame: u32,
+) -> bool {
+    if crate::sim::superweapon::invulnerability::is_invulnerable(invulnerability, frame) {
+        // `pTarget->ForceShielded ? PenetratesForceShield.Get(PenetratesIronCurtain) : PenetratesIronCurtain`.
+        let kind = invulnerability.expect("active invulnerability").kind();
+        let penetrates =
+            if kind == crate::sim::superweapon::invulnerability::InvulnKind::ForceShield {
+                effect.penetrates_force_shield()
+            } else {
+                effect.penetrates_iron_curtain
+            };
+        if !penetrates {
+            return false;
+        }
+    }
+    if !effect.affects_target.allows(category) {
+        return false;
+    }
+    if !effect.affect_types.is_empty()
+        && !effect
+            .affect_types
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&object.id))
+    {
+        return false;
+    }
+    !effect
+        .ignore_types
+        .iter()
+        .any(|name| name.eq_ignore_ascii_case(&object.id))
+}
+
 /// Phobos attaches a techno type's `AttachEffect.AttachTypes` once when the
 /// entity is created, pairing `DurationOverrides`, `Delays`, `InitialDelays`
 /// and `RecreationDelays` by index. `source` is the invoking pair when the
 /// attachment came from outside (a warhead or weapon); a type's own list has
-/// none.
+/// none. Each entry passes [`can_attach_effect`] first, as `CreateAndAttach`
+/// does for every attach site.
 #[cfg(feature = "phobos")]
 pub fn attach_initial_effects(
     list: &mut AttachEffectList,
+    category: crate::rules::object_type::ObjectCategory,
+    invulnerability: Option<&crate::sim::superweapon::invulnerability::InvulnerabilityState>,
     object: &crate::rules::object_type::ObjectType,
     rules: &crate::rules::ruleset::RuleSet,
+    frame: u32,
     source: Option<AttachSource>,
 ) -> usize {
     let names = object.attach_effect_attach_types();
@@ -551,6 +598,9 @@ pub fn attach_initial_effects(
             continue;
         };
         let effect = &catalog.types()[type_index];
+        if !can_attach_effect(category, invulnerability, object, effect, frame) {
+            continue;
+        }
         let params = AttachEffectParams {
             duration_override: paired(overrides, index, 0),
             delay: paired(delays, index, 0),
@@ -3440,12 +3490,110 @@ AttachEffect.InitialDelays=3
         let object = rules.object("MTNK").expect("techno");
         let mut list = AttachEffectList::default();
         assert_eq!(
-            attach_initial_effects(&mut list, object, &rules, None),
+            attach_initial_effects(
+                &mut list,
+                crate::rules::object_type::ObjectCategory::Vehicle,
+                None,
+                object,
+                &rules,
+                0,
+                None,
+            ),
             1,
             "only the catalog name attaches"
         );
         assert_eq!(list.instances().len(), 1);
         assert_eq!(list.instances()[0].remaining(), 40);
+    }
+
+    /// `CreateAndAttach` (`AttachEffectClass.cpp:883..898`) refuses an active
+    /// curtain without the matching penetration flag, then applies the class
+    /// whitelist and the type lists. A Force Shield reads its own flag, which
+    /// inherits the Iron Curtain one when absent.
+    #[test]
+    fn attach_gate_follows_curtain_class_and_type_filters() {
+        use crate::rules::attach_effect::AttachEffectTargets;
+        use crate::rules::object_type::ObjectCategory;
+        use crate::rules::ruleset::RuleSet;
+        use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
+        use crate::sim::timer::CdTimer;
+
+        let rules = RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[VehicleTypes]\n0=MTNK\n[MTNK]\nName=Apocalypse\n",
+        ))
+        .expect("rules");
+        let object = rules.object("MTNK").expect("techno");
+        let mut effect = effect(40);
+        assert!(can_attach_effect(
+            ObjectCategory::Vehicle,
+            None,
+            object,
+            &effect,
+            0
+        ));
+
+        effect.affects_target = AttachEffectTargets {
+            infantry: false,
+            units: false,
+            aircraft: false,
+            buildings: true,
+        };
+        assert!(
+            !can_attach_effect(ObjectCategory::Vehicle, None, object, &effect, 0),
+            "a building-only effect rejects a vehicle"
+        );
+        effect.affects_target = AttachEffectTargets::ALL;
+
+        effect.affect_types = vec!["OTHER".to_owned()];
+        assert!(
+            !can_attach_effect(ObjectCategory::Vehicle, None, object, &effect, 0),
+            "the whitelist rejects an unlisted type"
+        );
+        effect.affect_types = vec!["mtnk".to_owned()];
+        assert!(
+            can_attach_effect(ObjectCategory::Vehicle, None, object, &effect, 0),
+            "the whitelist matches its id case-insensitively"
+        );
+        effect.affect_types.clear();
+        effect.ignore_types = vec!["MTNK".to_owned()];
+        assert!(
+            !can_attach_effect(ObjectCategory::Vehicle, None, object, &effect, 0),
+            "the blacklist wins after the whitelist"
+        );
+        effect.ignore_types.clear();
+
+        let curtain = InvulnerabilityState::new(CdTimer::started(0, 100), InvulnKind::IronCurtain);
+        assert!(
+            !can_attach_effect(ObjectCategory::Vehicle, Some(&curtain), object, &effect, 50),
+            "an active curtain blocks the attach"
+        );
+        effect.penetrates_iron_curtain = true;
+        assert!(
+            can_attach_effect(ObjectCategory::Vehicle, Some(&curtain), object, &effect, 50),
+            "PenetratesIronCurtain admits the curtained target"
+        );
+        assert!(
+            can_attach_effect(
+                ObjectCategory::Vehicle,
+                Some(&curtain),
+                object,
+                &effect,
+                100
+            ),
+            "an expired curtain no longer blocks"
+        );
+
+        let shield = InvulnerabilityState::new(CdTimer::started(0, 100), InvulnKind::ForceShield);
+        effect.penetrates_force_shield = Some(false);
+        assert!(
+            !can_attach_effect(ObjectCategory::Vehicle, Some(&shield), object, &effect, 50),
+            "a Force Shield reads PenetratesForceShield"
+        );
+        effect.penetrates_force_shield = None;
+        assert!(
+            can_attach_effect(ObjectCategory::Vehicle, Some(&shield), object, &effect, 50),
+            "an absent PenetratesForceShield inherits the iron curtain flag"
+        );
     }
 
     /// A paired list uses its own index, else the last value, else the key's

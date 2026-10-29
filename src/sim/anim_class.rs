@@ -2161,6 +2161,7 @@ impl Simulation {
             ),
             effects,
         )
+        .bridge_state_changed
     }
 
     /// The end of a `MakeInfantry=` anim's last loop with no `Next=`
@@ -3068,7 +3069,8 @@ impl Simulation {
                     warhead,
                     (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
                     frame_effects,
-                );
+                )
+                .bridge_state_changed;
                 self.combat_light_requests
                     .emit(crate::sim::combat::CombatLightRequest::Impact {
                         target_id: None,

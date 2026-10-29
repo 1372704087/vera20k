@@ -19,6 +19,18 @@ fn scene(
     sections: &str,
     target_house: &str,
 ) -> (Simulation, RuleSet, u64, u64) {
+    scene_with_firer(warheads, wh_ini, target_ini, sections, "", target_house)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn scene_with_firer(
+    warheads: &str,
+    wh_ini: &str,
+    target_ini: &str,
+    sections: &str,
+    firer_ini: &str,
+    target_house: &str,
+) -> (Simulation, RuleSet, u64, u64) {
     let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
         "[Countries]\n0=Americans\n1=Russians\n\
          [VehicleTypes]\n0=FIRER\n1=TARGET\n\
@@ -26,7 +38,7 @@ fn scene(
          [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
          [Warheads]\n0=WH\n{warheads}\
          [WH]\nCellSpread=0\n{wh_ini}\
-         [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
+         [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n{firer_ini}\
          [TARGET]\nStrength=500\nArmor=none\nSpeed=6\n{target_ini}\n\
          {sections}"
     )))
@@ -424,5 +436,142 @@ fn crit_active_chance_anims_draw_after_the_buffer() {
         sim.scenario_rng.logical_state(),
         expected.logical_state(),
         "buffer, then one anim pick"
+    );
+}
+
+/// `CRITCHANCE` + `VeteranCritChance` scale the warhead chance; the same
+/// rules without the rank ability keep the base chance.
+#[test]
+fn crit_chance_rank_ability_scales_the_warhead_chance() {
+    let scene_for = |firer_ini: &str, veteran: bool| {
+        let (mut sim, rules, firer, target) = scene_with_firer(
+            "",
+            "Crit.Chance=0.05
+Crit.ExtraDamage=50
+",
+            "",
+            "",
+            firer_ini,
+            "Russians",
+        );
+        if veteran {
+            sim.substrate
+                .entities
+                .get_mut(firer)
+                .unwrap()
+                .veterancy
+                .set_veteran();
+        }
+        // The shot's dice must miss the base 0.05 chance.
+        let mut probe = sim.scenario_rng.clone();
+        assert!(probe.random_double() > 0.05);
+        (sim, rules, firer, target)
+    };
+    let control_health = |firer_ini: &str, veteran: bool| {
+        let (mut sim, rules, firer, target) = scene_for(firer_ini, veteran);
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        health(&sim, target)
+    };
+
+    let control = control_health("", false);
+    let (mut sim, rules, firer, target) = scene_for(
+        "VeteranAbilities=CRITCHANCE
+VeteranCritChance=20
+",
+        true,
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        control - health(&sim, target),
+        50,
+        "0.05 x 20 reaches a certain crit"
+    );
+
+    let (mut sim, rules, firer, target) = scene_for(
+        "VeteranCritChance=20
+",
+        true,
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        control - health(&sim, target),
+        0,
+        "without the ability the chance stays at 0.05"
+    );
+}
+
+/// `Crit.ExtraDamage.ApplyFirepowerMult` scales the extra damage by the
+/// firer's current firepower multiplier (here its FIREPOWER rank stage).
+#[test]
+fn crit_extra_damage_can_apply_the_firepower_multiplier() {
+    let (mut sim, rules, firer, target) = scene_with_firer(
+        "",
+        "Crit.Chance=1.0\nCrit.ExtraDamage=50\nCrit.ExtraDamage.ApplyFirepowerMult=yes\n",
+        "",
+        "[General]\nVeteranCombat=2\n",
+        "VeteranAbilities=FIREPOWER\n",
+        "Russians",
+    );
+    sim.substrate
+        .entities
+        .get_mut(firer)
+        .unwrap()
+        .veterancy
+        .set_veteran();
+    let (mut plain, plain_rules, plain_firer, plain_target) = scene("", "", "", "", "Russians");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    shoot(&mut plain, &plain_rules, "WH", plain_firer, plain_target, 0);
+    assert_eq!(
+        health(&plain, plain_target) - health(&sim, target),
+        100,
+        "50 extra damage times the veteran FIREPOWER 2"
+    );
+}
+
+/// `Crit.AnimOnAffectedTargets` keeps the ordinary damage animation even when
+/// the crit applies its own animation at the target.
+#[test]
+fn crit_affected_target_anims_keep_the_ordinary_damage_animation() {
+    let (mut sim, rules, _firer, _target) = scene(
+        "",
+        "Crit.Chance=1.0\nCrit.AnimList=CRITICAL\nAnimList=NORMAL\n\
+         Crit.AnimOnAffectedTargets=yes\n",
+        "",
+        "",
+        "Russians",
+    );
+    let warhead = rules.warhead("WH").expect("warhead");
+    let coordinate = ProjectileCoord::new(22 * 256 + 128, 20 * 256 + 128, 0);
+    assert_eq!(
+        super::detonation_anim::select(&mut sim, &rules, warhead, 10, 0, coordinate, true)
+            .map(|id| sim.interner.resolve(id).to_owned()),
+        Some("NORMAL".to_owned()),
+        "the crit list belongs to the affected targets"
+    );
+}
+
+/// `Crit.Warhead` is read with `Read<true>`: a warhead only the key names is
+/// still allocated and detonates.
+#[test]
+fn crit_warhead_allocates_an_unlisted_type() {
+    let sections = "[CRITWH]\nCellSpread=1\n";
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "Crit.Chance=1.0\nCrit.ExtraDamage=30\nCrit.Warhead=CRITWH\n",
+        "",
+        sections,
+        "Russians",
+    );
+    assert!(
+        rules.warhead("CRITWH").is_some(),
+        "the key allocates the type"
+    );
+    let (mut plain, plain_rules, plain_firer, plain_target) = scene("", "", "", "", "Russians");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    shoot(&mut plain, &plain_rules, "WH", plain_firer, plain_target, 0);
+    assert_eq!(
+        health(&plain, plain_target) - health(&sim, target),
+        30,
+        "the allocated crit warhead detonated"
     );
 }

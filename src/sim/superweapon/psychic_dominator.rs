@@ -321,7 +321,8 @@ fn mind_control_area(
             warhead,
             (crate::sim::combat::RAD_NO_ATTACKER, storm_house, warhead_id),
             frame_effects,
-        );
+        )
+        .bridge_state_changed;
     }
 
     let Some(owner) = sim.psychic_dominator.owner else {

@@ -605,7 +605,7 @@ pub(super) fn apply_explosion_crate(
             continue;
         };
         let scattered = crate::sim::projectile::ProjectileCoord::new(x, y, center.z);
-        crate::sim::combat::world_receiver::apply_area_damage(
+        let receipt = crate::sim::combat::world_receiver::apply_area_damage(
             sim,
             rules,
             registry,
@@ -621,7 +621,14 @@ pub(super) fn apply_explosion_crate(
         // `0x0048267D` passes the constant LandType 0 (Clear), so the
         // water-splash branch never fires here.
         if let Some(effect) = crate::sim::combat::detonation_anim::effect(
-            sim, rules, warhead, amount, 0, scattered, scattered, false,
+            sim,
+            rules,
+            warhead,
+            amount,
+            0,
+            scattered,
+            scattered,
+            receipt.crit_active,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
         }

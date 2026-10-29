@@ -3431,6 +3431,9 @@ impl Simulation {
         }
         // The damage centre is raw Object.Location, whereas the retained Cell
         // and child above use GetCoords. Zero damage still leaves the suffix.
+        // RESIDUAL: Start returns nothing, so the bridge-change flag is dropped
+        // and a bridge hit here skips that frame's bridge art refresh; only a
+        // TiberiumExplosionDamage above retail's 0 reaches it.
         if let Some(raw) = self.anim(id).map(|anim| anim.world_coord)
             && let Some(warhead) = rules.warhead(&rules.bridge_warheads.c4_name)
         {

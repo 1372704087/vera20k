@@ -46,7 +46,6 @@ fn scene(resource_name: &str, map_patch: &str) -> Option<(Simulation, RuleSet)> 
         rules.anim_type_name_by_index(ordinal as i32),
         Some("TWLT070T")
     );
-    eprintln!("retail TWLT070T retained ordinal={ordinal}");
     let (_, mut assets) = retail_assets().unwrap();
     crate::map::theater::load_theater(&mut assets, "TEMPERATE").unwrap();
     let roots = crate::map::actions::trigger_anim_class_roots(&rules, &map.actions);

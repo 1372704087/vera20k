@@ -580,8 +580,12 @@ impl SequencedSession {
 
     fn note_unreadable(&mut self, now: u32) {
         match &mut self.unreadable {
-            Some(unreadable) => unreadable.last = now,
-            None => {
+            // Only a relay that keeps repeating the record holds the match;
+            // after a pause the five seconds start again.
+            Some(unreadable) if now.wrapping_sub(unreadable.last) <= UNREADABLE_REPEAT_MS => {
+                unreadable.last = now
+            }
+            _ => {
                 self.unreadable = Some(Unreadable {
                     since: now,
                     last: now,
@@ -1292,7 +1296,9 @@ mod departure_tests {
             .receive(OrderEvent::Entry(frame_end), Instant::now())
             .unwrap();
         session.assemble().unwrap();
-        session.note_unreadable(10_500);
+        for now in (6_500..=10_500).step_by(500) {
+            session.note_unreadable(now);
+        }
         session.check_unreadable(10_999).unwrap();
         session.note_unreadable(11_000);
         assert!(matches!(
@@ -1323,8 +1329,9 @@ mod departure_tests {
             .receive(OrderEvent::Status(status), Instant::now())
             .unwrap();
         session.check_unreadable(5_000).unwrap();
-        session.note_unreadable(5_000);
-        session.note_unreadable(10_000);
+        for now in (5_000..=10_000).step_by(1_000) {
+            session.note_unreadable(now);
+        }
         assert!(matches!(
             session.check_unreadable(10_000),
             Err(SequencedError::NewerClientRequired)

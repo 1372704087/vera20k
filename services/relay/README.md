@@ -62,7 +62,9 @@ that read it differently would desync. A client that cannot read the record at
 its cursor, or before the start any Status, for about 5 seconds ends the match
 and asks for a newer VERA20k; v0.2.3 and older stall instead. Extend replies
 only by appending fields, and add a record kind, departure reason or entry field
-only after clients that read it have shipped.
+only after clients that read it have shipped. A new error code counts as
+unreadable too, so one the relay repeats while a client's cursor waits ends that
+client's match the same way.
 
 Install the executable as `/usr/local/bin/vera20k-relay`, create the unprivileged
 `vera20k-relay` user, and install `vera20k-relay.service`. Allow UDP port 5000 in

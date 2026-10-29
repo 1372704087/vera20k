@@ -60,8 +60,9 @@ bearer before discarding a session whose history expired.
 Channel: `{id,kind,max_users,users,tournament,flags,game_flags,ping,name,ex_info}`.
 `kind` is 0 for chat and 41 for a game. The service sets `flags` from the room, never
 from the creator: 256 when a game has a password, which clients show as a lock and
-ask for before joining, otherwise 0. The other fields are presentation metadata,
-not authority. `name` identifies a channel uniquely for compatibility with the
+ask for before joining, otherwise 0. `max_users` (1–30) from `create` and the host's
+`advertise` is the room's join limit, never below its current members; a join past
+it fails with `room_full`. The other fields are presentation metadata, not authority. `name` identifies a channel uniquely for compatibility with the
 existing shell. Member: `{player_id,name,flags,squad,clan_name,clan_tag}`. Flags bit 0
 is the channel owner, bit 1 voice; the client adds its own local bit 32768. Servers
 set identity and flags from the authenticated membership, never from user payloads.

@@ -295,6 +295,22 @@ test('password games carry the key flag that clients lock and prompt on, whateve
   assert.equal(joined.body.events.find((event) => event.kind === 'joined').payload.channel.flags, 0x100);
 });
 
+test('the host\'s advertised limit, down to a solo game, bounds joins but keeps present members', async () => {
+  const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest'); const late = await f.player('Late');
+  assert.equal((await f.command(host, 'create', { channel, key: '' })).status, 200);
+  const solo = await f.command(host, 'advertise', { channel: { ...channel, max_users: 1, ex_info: 'solo' } });
+  assert.equal(solo.status, 200);
+  const listed = (await f.request('/v1/channels?kind=41', guest.token)).body.channels[0];
+  assert.deepEqual([listed.users, listed.max_users, listed.ex_info], [1, 1, 'solo']);
+  assert.equal((await f.command(guest, 'join', { channel: channel.name, key: '' })).body.error.code, 'room_full');
+  assert.equal((await f.command(host, 'advertise', { channel: { ...channel, max_users: 2 } })).status, 200);
+  assert.equal((await f.command(guest, 'join', { channel: channel.name, key: '' })).status, 200);
+  assert.equal((await f.command(host, 'advertise', { channel: { ...channel, max_users: 1 } })).status, 200);
+  assert.equal(f.store.list('room:').find((room) => room.kind === 41).capacity, 2);
+  assert.equal((await f.command(late, 'join', { channel: channel.name, key: '' })).body.error.code, 'room_full');
+  assert.equal((await f.command(host, 'advertise', { channel: { ...channel, max_users: 0 } })).status, 400);
+});
+
 test('host can create a same-name rematch before the former guest leaves results', async () => {
   const f = fixture(); const host = await f.player('Host'); const guest = await f.player('Guest');
   const newcomer = await f.player('NextGuest');

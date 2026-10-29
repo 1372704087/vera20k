@@ -1146,7 +1146,7 @@ export class LobbyService {
           room.channel.name.toLowerCase() === channel.name.toLowerCase()), 'name_unavailable', 'That room name is already in use.', 409);
         requireThat(this.store.count('room:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
         room = { id: crypto.randomUUID(), kind: 41, owner: session.player_id,
-          capacity: Math.max(2, Math.min(MAX_PLAYERS, Number(channel.max_users) || 6)),
+          capacity: channel.max_users,
           channel: { kind: 41, name: channel.name, tournament: 0,
             game_flags: Number(channel.game_flags) || 0, ping: -1, ex_info: String(channel.ex_info ?? '').slice(0, 512) },
           key: prepared.key, members: [], revision: 0, options: null, ready: {}, maps: {}, agreements: {}, phase: 'lobby', created: this.clock() };
@@ -1303,6 +1303,9 @@ export class LobbyService {
     } else if (operation === 'advertise') {
       const channel = payload.channel;
       requireThat(validChannel(channel), 'invalid_request', 'Invalid advertisement.');
+      // The host's channel limit (0x0078F000's `mode +l`, 1 with only AI or
+      // closed rows) bounds later joins; members already present stay.
+      room.capacity = Math.max(room.members.length, channel.max_users);
       room.channel.ex_info = channel.ex_info;
       room.channel.game_flags = Number(channel.game_flags) || 0;
     } else if (operation === 'choices') {

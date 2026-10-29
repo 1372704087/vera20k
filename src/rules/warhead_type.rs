@@ -545,6 +545,7 @@ impl WarheadType {
             max_debris,
             #[cfg(feature = "phobos")]
             allow_damage_on_self: section.read_phobos_nullable_bool("AllowDamageOnSelf", None),
+            #[cfg(feature = "phobos")]
             decloak_damaged_targets: section
                 .read_phobos_nullable_bool("DecloakDamagedTargets", None),
             #[cfg(feature = "phobos")]

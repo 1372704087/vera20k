@@ -2857,6 +2857,7 @@ impl Default for GeneralRules {
             infantry_auto_deploy: false,
             #[cfg(feature = "phobos")]
             allow_damage_on_self: false,
+            #[cfg(feature = "phobos")]
             decloak_damaged_targets: true,
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
@@ -4174,6 +4175,7 @@ impl GeneralRules {
             infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
             #[cfg(feature = "phobos")]
             allow_damage_on_self: general.read_bool("AllowDamageOnSelf", false),
+            #[cfg(feature = "phobos")]
             decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")

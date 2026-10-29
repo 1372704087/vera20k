@@ -10,6 +10,12 @@ export const SIGNAL_LIMITS = Object.freeze({
 });
 // Virtual LAN 10.20.0.0/24; members use host numbers 1..254.
 const VIRTUAL_NETWORK = 0x0a140000;
+// A departed member's address goes to no newcomer for this long; only a
+// signaling reconnect that asks for it back (`prefer`) gets it, while its
+// peers keep their open data channel to it. A peer drops a vanished browser's
+// channel once WebRTC consent expires after 30 seconds (RFC 7675), and a
+// reconnecting browser waits at most 30 seconds between attempts.
+const RELEASED_MS = 120 * 1000;
 
 function ipv6Groups(address) {
   const [head, tail] = address.split('::');
@@ -78,16 +84,25 @@ export function createSignaling({ origin, iceServers = [], clientIpHeader }) {
   }
 
   function admit(key, prefer) {
-    const members = groups.get(key)?.members;
-    if (members && members.size >= SIGNAL_LIMITS.groupMembers) return 0;
-    const taken = address => members?.has(address);
+    const group = groups.get(key);
+    if (group && group.members.size >= SIGNAL_LIMITS.groupMembers) return 0;
+    const taken = address => group?.members.has(address);
     const preferred = Number(prefer);
     if (Number.isInteger(preferred) && preferred > VIRTUAL_NETWORK
       && preferred < VIRTUAL_NETWORK + 255 && !taken(preferred)) return preferred;
     for (let host = 1; host < 255; host += 1) {
-      if (!taken(VIRTUAL_NETWORK + host)) return VIRTUAL_NETWORK + host;
+      const address = VIRTUAL_NETWORK + host;
+      if (!taken(address) && !group?.released.has(address)) return address;
     }
     return 0;
+  }
+
+  // The group outlives its last member until its released addresses expire.
+  function release(key, group, address) {
+    group.released.set(address, setTimeout(() => {
+      group.released.delete(address);
+      if (group.members.size === 0 && group.released.size === 0) groups.delete(key);
+    }, RELEASED_MS).unref());
   }
 
   return {
@@ -101,10 +116,12 @@ export function createSignaling({ origin, iceServers = [], clientIpHeader }) {
       wss.handleUpgrade(req, socket, head, ws => {
         // Re-check after the asynchronous upgrade completes.
         if (groups.get(key)?.members.has(address)) { ws.terminate(); return; }
-        const group = groups.get(key) ?? { members: new Map() };
+        const group = groups.get(key) ?? { members: new Map(), released: new Map() };
         groups.set(key, group);
         const others = [...group.members.keys()];
         group.members.set(address, ws);
+        clearTimeout(group.released.get(address));
+        group.released.delete(address);
         const traffic = rateLimit(SIGNAL_LIMITS.messagesPerSecond);
         let alive = true;
         let closed = false;
@@ -114,7 +131,7 @@ export function createSignaling({ origin, iceServers = [], clientIpHeader }) {
           finishers.delete(finish);
           clearInterval(heartbeat);
           group.members.delete(address);
-          if (group.members.size === 0) groups.delete(key);
+          release(key, group, address);
           for (const member of group.members.values()) send(member, { type: 'leave', peer: address });
           ws.terminate();
         };
@@ -147,6 +164,8 @@ export function createSignaling({ origin, iceServers = [], clientIpHeader }) {
     },
     close() {
       for (const finish of [...finishers]) finish();
+      for (const group of groups.values()) for (const timer of group.released.values()) clearTimeout(timer);
+      groups.clear();
       wss.close();
     },
   };

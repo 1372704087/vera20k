@@ -133,6 +133,14 @@ fn npbug_a_magnetron_lifted_unit_plays_no_move_sounds() {
         .unwrap()
         .body_frame_counter
         .get();
+    // Force the changed arm: the visit reads the counter as advanced by the
+    // (absent) Process step.
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .body_frame_counter
+        .set_for_test(body_before + 1);
     sim.session
         .set_binary_frame_for_test(timeline["steps"][0]["frame"].as_u64().unwrap() as u32);
     sim.sound_events.clear_for_test();

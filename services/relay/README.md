@@ -126,8 +126,10 @@ journals therefore advertise oldest sequence1 throughout the match.
 
 Poor or disconnected internet never removes a player. Healthy players continue;
 the returning player can replay from its old cursor even after every short hop
-ticket expired. Only explicit Leave or the certified24-hour match lifetime ends
-participation. Explicit-all-left retains a300-second terminal replay grace before
+ticket expired. Only explicit Leave, the player's admission on this relay with a newer
+lobby generation (recorded like Leave, started or not), or the first certificate's
+24-hour lifetime ends participation; a renewed certificate never extends it.
+Explicit-all-left retains a 300-second terminal replay grace before
 exact-file cleanup. No reader acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
 
@@ -144,16 +146,19 @@ The unit owns `/var/lib/vera20k-relay` through `StateDirectory=vera20k-relay` an
 explicit absolute `VERA_RELAY_STATE_DIR` for local development. Journal files
 are mode0600 in a mode0700 directory named only from the16-byte signed room ID.
 They contain encrypted batches and public ordering metadata, never payload keys.
-Logical quotas reserve1 GiB per room under8 GiB globally, admitting at most8
-simultaneous archived matches; this does not preallocate disk space. Each room
-reserves enough space for24hours of empty frame ends and all departures. Reaching
-the optional-command quota backpressures new batches while the clock and already
-accepted entries remain writable.
+Journal reservations share 8 GiB and never preallocate disk space. Each room
+reserves 24 hours of empty frame ends and all departures at its certified FPS
+(21–124 MiB) plus 32 MiB of commands per certified source: about 52 two-player
+or 23 eight-player matches at once at 45 FPS, 43 two-player at 60 FPS. Reaching
+the command allowance backpressures new batches while the clock and already
+accepted entries remain writable. A finished room keeps only the bytes it wrote
+through its replay grace.
 
 Unexpected journal I/O failure reports `StorageUnavailable` and preserves the
 files, rather than silently deleting history or blaming a disconnected player.
 Restart recovery is outside this implementation: a new process refuses an
 existing room's files instead of overwriting them or inventing a new timeline.
-Preserve these files for diagnosis; retire them only after the corresponding
-match ended. The in-memory `RelayServer::new` constructor remains useful for
-short protocol fixtures; deployed ordering uses `RelayServer::with_journal`.
+Each leftover counts its size on disk, not a room's reservation. Preserve these
+files for diagnosis; retire them only after the corresponding match ended. The
+in-memory `RelayServer::new` constructor remains useful for short protocol
+fixtures; deployed ordering uses `RelayServer::with_journal`.

@@ -1113,7 +1113,7 @@ impl RelayServer {
         admission.source = message.ticket.source;
         self.admissions.insert(message.ticket.player, admission);
         self.outgoing.charge(now, cost);
-        self.retire_superseded_startups(message.ticket, now_ms, now);
+        self.retire_superseded(message.ticket, now_ms, now);
         Ok(vec![reply])
     }
 

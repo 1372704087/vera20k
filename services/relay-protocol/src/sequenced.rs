@@ -2223,8 +2223,8 @@ mod tests {
         let directory = TestDirectory::new();
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::with_journal(key.clone(), 16, &directory.0).unwrap();
-        // Nine quick cancellations cross the eight-room archive quota without
-        // waiting for any tombstone's short-ticket grace to elapse.
+        // Nine quick cancellations each free their archive reservation
+        // without waiting for any tombstone's short-ticket grace to elapse.
         for attempt in 1..=9 {
             let now_ms = u64::from(attempt) * 1000;
             let mut ticket = client(&key, 0).ticket;
@@ -2760,6 +2760,89 @@ mod tests {
     }
 
     #[test]
+    fn archive_quota_admits_rooms_by_reserved_bytes() {
+        let directory = TestDirectory::new();
+        crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        // A journal left by an earlier process holds only its size on disk.
+        let leftover = directory.0.join("0b".repeat(16));
+        std::fs::create_dir(&leftover).unwrap();
+        std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
+        let mut journals = crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        assert_eq!(
+            journals.create([11; 16], 45, 2).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        let mut admitted = Vec::new();
+        let full = loop {
+            match journals.create([0x80 + admitted.len() as u8; 16], 45, 2) {
+                Ok(journal) => admitted.push(journal),
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(full.kind(), std::io::ErrorKind::StorageFull);
+        // Each two-player 45 FPS room reserves its 24-hour clock records and
+        // 32 MiB of commands per player, not a fixed eighth of the quota.
+        assert_eq!(admitted.len(), 52);
+        // A finished room keeps only the bytes it wrote.
+        journals.settle(&mut admitted[0], 0);
+        assert!(journals.create([0xf0; 16], 45, 2).is_ok());
+    }
+
+    #[test]
+    fn renewed_certificate_does_not_extend_the_room_lifetime() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1300);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        configure(&mut server, &mut first, &certificate(&key, 3, 1400), 300);
+        server.advance_clock(301_000, unix(301_000));
+        assert!(
+            !directory.0.join("05".repeat(16)).exists(),
+            "the first certificate's expiry ends the match and frees its archive"
+        );
+    }
+
+    #[test]
+    fn newer_admission_departs_the_player_from_an_older_started_match() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        server.advance_clock(300, unix(300));
+        // The lobby admits the first player to its next match; the old
+        // generation can no longer send Leave for itself.
+        let mut ticket = first.ticket;
+        ticket.room = [6; 16];
+        ticket.generation = 2;
+        let signed = ticket.sign(&key).unwrap();
+        let mut next = ClientSession::new(
+            &signed,
+            *derive_packet_key(&key, &signed).expose_for_https(),
+            [89; 32],
+        )
+        .unwrap();
+        connect(&mut server, &mut next, 300);
+        server.advance_clock(400, unix(400));
+        let departed: Vec<_> = pull(&mut server, &mut second, 1, 400)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Departure { source, .. }) => Some(source),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(departed, [0]);
+    }
+
+    #[test]
     fn archive_authentication_tamper_and_storage_failure_preserve_the_committed_stream() {
         let directory = TestDirectory::new();
         let key = SecretKey::new([73; 32]);
@@ -2983,10 +3066,11 @@ impl RelayServer {
         }])
     }
 
-    pub(super) fn retire_superseded_startups(&mut self, ticket: Ticket, now_ms: u64, now: u64) {
+    pub(super) fn retire_superseded(&mut self, ticket: Ticket, now_ms: u64, now: u64) {
         // A higher lobby-signed generation for this principal proves its old
         // membership ended. Source bindings outlive short hop admissions, so
-        // this also closes a canceled load whose final Leave was lost.
+        // this also closes a canceled load or a match whose final Leave was
+        // lost; a started match records the departure like Leave.
         let superseded: Vec<_> = self
             .rooms
             .iter()
@@ -2995,7 +3079,7 @@ impl RelayServer {
                     return None;
                 }
                 let ordering = room.ordering.as_ref()?;
-                if ordering.starts_at.is_some() || ordering.active == 0 || ordering.storage_failed {
+                if ordering.active == 0 || ordering.storage_failed {
                     return None;
                 }
                 ordering
@@ -3050,6 +3134,16 @@ impl RelayServer {
     }
 
     fn cleanup_ordering(&mut self, now_ms: u64, now: u64) {
+        if let Some(directory) = self.journal_directory.as_mut() {
+            for room in self.rooms.values_mut() {
+                if let Some(ordering) = room.ordering.as_mut()
+                    && ordering.finished_at.is_some()
+                    && let Some(journal) = ordering.journal.as_mut()
+                {
+                    directory.settle(journal, ordering.sealed - ordering.head);
+                }
+            }
+        }
         let ended: Vec<_> = self
             .rooms
             .iter()
@@ -3202,7 +3296,11 @@ impl RelayServer {
             let journal = if allocation {
                 match self.journal_directory.as_mut() {
                     Some(directory) => {
-                        match directory.create(certificate.room, certificate.tick_hz) {
+                        match directory.create(
+                            certificate.room,
+                            certificate.tick_hz,
+                            certificate.sources_mask.count_ones(),
+                        ) {
                             Ok(journal) => Some(journal),
                             Err(_) => {
                                 return self.ordering_reply(
@@ -3246,8 +3344,8 @@ impl RelayServer {
                     return Err(RelayError::Authentication);
                 }
                 state.principal = Some(principal);
-                ordering.certificate.expires =
-                    ordering.certificate.expires.max(certificate.expires);
+                // A renewed certificate never extends the room: the first
+                // one's expiry bounds how long it holds its archive quota.
                 ordering.ready |= 1 << message.ticket.source;
                 // A federated start belongs to the coordinator relay.
                 let ready_mask = match room.federation.as_ref() {

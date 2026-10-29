@@ -725,7 +725,7 @@ mod tests {
     /// San Francisco and Singapore: source 0 homed on A, source 1 on B.
     struct Match {
         relays: [RelayServer; 2],
-        _journals: [TestDirectory; 2],
+        journals: [TestDirectory; 2],
         clients: [ClientSession; 2],
         addresses: [SocketAddrV4; 2],
         links: Vec<(u64, usize, Vec<u8>)>,
@@ -754,7 +754,7 @@ mod tests {
                     RelayServer::with_journal(keys[0].clone(), 2, &journals[0].0).unwrap(),
                     RelayServer::with_journal(keys[1].clone(), 2, &journals[1].0).unwrap(),
                 ],
-                _journals: journals,
+                journals,
                 clients: [client(&keys[0], 0), client(&keys[1], 1)],
                 addresses,
                 links: Vec::new(),
@@ -962,6 +962,27 @@ mod tests {
         );
         let commands: Vec<_> = streams[0].iter().filter_map(|(.., entry)| *entry).collect();
         assert_eq!(commands, [(0, 1), (1, 1), (1, 0)]);
+    }
+
+    #[test]
+    fn players_leaving_on_both_relays_at_once_free_both_archives() {
+        let mut game = Match::new(false);
+        game.play();
+        game.leave(0);
+        game.leave(1);
+        for _ in 0..400 {
+            game.step();
+        }
+        // Each relay sealed frames past its last merge before the other's
+        // departure arrived, and merges their frame ends after finishing.
+        for relay in 0..2 {
+            let ordering = game.ordering(relay);
+            assert!(ordering.finished_at.is_some() && !ordering.storage_failed);
+            assert_eq!(ordering.head, ordering.sealed);
+            let clock = game.clock(relay) + crate::MAX_TICKET_LIFETIME * 1000;
+            game.relays[relay].advance_clock(clock, unix(clock));
+            assert!(!game.journals[relay].0.join("05".repeat(16)).exists());
+        }
     }
 
     #[test]

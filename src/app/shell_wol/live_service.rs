@@ -2549,9 +2549,9 @@ pub(crate) fn begin_spawned_match(
     admitted
 }
 
-/// Browser repeat launches (docs/spawn.md): drop an ended external
-/// launch's online visit, handing its worker to the ordinary cleanup owner
-/// so an unacknowledged `finish` still settles. No-op for other visits.
+/// Browser engine exit: retire the external launch's online visit through
+/// the ordinary cleanup owner, so an unacknowledged `finish` still settles
+/// before notifying the host and stopping the event loop.
 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) fn discard_spawned_visit(state: &mut AppState) {
     if !super::spawned_visit(state) {

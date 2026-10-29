@@ -364,6 +364,9 @@ pub struct AttachEffectType {
     pub reflect_damage_multiplier: f64,
     pub reflect_damage_affects_house: AffectedHouse,
     pub reflect_damage_chance: f64,
+    /// `ReflectDamage.Delay`: a successful reflection blocks later ones for
+    /// this many frames.
+    pub reflect_damage_delay: i32,
     pub reflect_damage_override: Option<i32>,
     pub reflect_damage_use_invoker_as_owner: bool,
     /// `DiscardOn` and the keys its conditions read.
@@ -469,6 +472,7 @@ impl AttachEffectType {
             reflect_damage_multiplier: 1.0,
             reflect_damage_affects_house: AffectedHouse::ALL,
             reflect_damage_chance: 1.0,
+            reflect_damage_delay: 0,
             reflect_damage_override: None,
             reflect_damage_use_invoker_as_owner: false,
             discard_on: DiscardOn::NONE,
@@ -851,6 +855,8 @@ impl AttachEffectTypeCatalog {
             );
             entry.reflect_damage_chance =
                 section.read_phobos_double("ReflectDamage.Chance", entry.reflect_damage_chance);
+            entry.reflect_damage_delay =
+                section.read_int("ReflectDamage.Delay", entry.reflect_damage_delay);
             entry.reflect_damage_override = section
                 .read_phobos_nullable_int("ReflectDamage.Override", entry.reflect_damage_override);
             entry.reflect_damage_use_invoker_as_owner = section.read_bool(

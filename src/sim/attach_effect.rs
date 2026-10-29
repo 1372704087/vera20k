@@ -82,6 +82,11 @@ pub struct AttachEffectInstance {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     armor_multiplier_timer: crate::sim::timer::CdTimer,
+    /// `ReflectDamageTimer`: a reflection under `.Delay > 0` blocks the next
+    /// one until it runs out (`Hooks.ReceiveDamage.cpp:429`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    reflect_damage_timer: crate::sim::timer::CdTimer,
 }
 
 impl AttachEffectInstance {
@@ -112,6 +117,8 @@ impl AttachEffectInstance {
             last_sequence_check: None,
             #[cfg(feature = "phobos")]
             armor_multiplier_timer: crate::sim::timer::CdTimer::default(),
+            #[cfg(feature = "phobos")]
+            reflect_damage_timer: crate::sim::timer::CdTimer::default(),
         };
         instance.refresh(effect);
         instance
@@ -1014,20 +1021,25 @@ impl AttachEffectList {
     /// does not. A cumulative entry counts through
     /// [`Self::active_count`] and is bounded by the paired counts; a plain
     /// entry matches its first active instance. `ignore_same_source` drops
-    /// instances attached by the same invoker and warhead.
+    /// instances attached by the same invoker and warhead, `same_source_only`
+    /// keeps only those, and `house_allowed` filters the instance's invoker
+    /// house.
     pub(crate) fn has_attached_effects(
         &self,
         types: &[usize],
         require_all: bool,
         ignore_same_source: bool,
+        same_source_only: bool,
         invoker: Option<u64>,
         warhead: Option<&str>,
         effects: &[AttachEffectType],
         interner: &crate::sim::intern::StringInterner,
         min_counts: &[i32],
         max_counts: &[i32],
+        house_allowed: impl Fn(bool, Option<crate::sim::intern::InternedId>) -> bool,
     ) -> bool {
         let check_source = ignore_same_source && invoker.is_some() && warhead.is_some();
+        let check_same_source = same_source_only && invoker.is_some() && warhead.is_some();
         let min_size = min_counts.len();
         let max_size = max_counts.len();
         let mut found_count = 0usize;
@@ -1048,6 +1060,18 @@ impl AttachEffectList {
                             && instance
                                 .source
                                 .is_some_and(|source| source.matches(invoker, warhead, interner)))
+                    })
+                    .filter(|instance| {
+                        !(check_same_source
+                            && !instance
+                                .source
+                                .is_some_and(|source| source.matches(invoker, warhead, interner)))
+                    })
+                    .filter(|instance| {
+                        house_allowed(
+                            instance.is_self_owned(),
+                            instance.source.and_then(|source| source.invoker_house),
+                        )
                     })
                     .count() as i32;
                 let mut matched = count > 0;
@@ -1079,6 +1103,19 @@ impl AttachEffectList {
                             .source
                             .is_some_and(|source| source.matches(invoker, warhead, interner))
                     {
+                        continue;
+                    }
+                    if check_same_source
+                        && !instance
+                            .source
+                            .is_some_and(|source| source.matches(invoker, warhead, interner))
+                    {
+                        continue;
+                    }
+                    if !house_allowed(
+                        instance.is_self_owned(),
+                        instance.source.and_then(|source| source.invoker_house),
+                    ) {
                         continue;
                     }
                     if !require_all {
@@ -2398,26 +2435,59 @@ impl Simulation {
                 .filter_map(|name| catalog.index_of(name))
                 .collect()
         };
-        let refused = |types: &[usize], require_all: bool, min: &[i32], max: &[i32]| {
+        let refused = |types: &[usize],
+                       require_all: bool,
+                       min: &[i32],
+                       max: &[i32],
+                       houses: AffectedHouse| {
+            // Native checks the matched instance's invoker house only when a
+            // firer is known and the list narrows houses.
+            let firer_owner = firer.map(|entity| entity.owner());
+            let techno_owner = techno.owner();
+            let need_house = firer.is_some() && houses != AffectedHouse::ALL;
             list.has_attached_effects(
                 types,
                 require_all,
                 ignore,
+                weapon.attach_effect_same_source_only,
                 invoker,
                 warhead,
                 effects,
                 &self.interner,
                 min,
                 max,
+                |self_owned, instance_house| {
+                    if !need_house {
+                        return true;
+                    }
+                    // A self-owned effect's invoker is the techno itself.
+                    let instance_house = if self_owned {
+                        Some(techno_owner)
+                    } else {
+                        instance_house
+                    };
+                    match (firer_owner, instance_house) {
+                        (Some(source), Some(target)) => crate::sim::combat::can_target_house(
+                            houses,
+                            source,
+                            target,
+                            &self.houses,
+                            &self.house_alliances,
+                            &self.interner,
+                        ),
+                        _ => false,
+                    }
+                },
             )
         };
         let disallowed = resolve(&weapon.attach_effect_disallowed_types);
         if !disallowed.is_empty()
             && refused(
                 &disallowed,
-                false,
+                !weapon.attach_effect_disallowed_any,
                 &weapon.attach_effect_disallowed_min_counts,
                 &weapon.attach_effect_disallowed_max_counts,
+                weapon.attach_effect_disallowed_houses,
             )
         {
             return false;
@@ -2430,9 +2500,10 @@ impl Simulation {
         if !disallowed_groups.is_empty()
             && refused(
                 &disallowed_groups,
-                false,
+                !weapon.attach_effect_disallowed_any,
                 &weapon.attach_effect_disallowed_min_counts,
                 &weapon.attach_effect_disallowed_max_counts,
+                weapon.attach_effect_disallowed_houses,
             )
         {
             return false;
@@ -2441,9 +2512,10 @@ impl Simulation {
         if !required.is_empty()
             && !refused(
                 &required,
-                true,
+                !weapon.attach_effect_required_any,
                 &weapon.attach_effect_required_min_counts,
                 &weapon.attach_effect_required_max_counts,
+                weapon.attach_effect_required_houses,
             )
         {
             return false;
@@ -2456,9 +2528,10 @@ impl Simulation {
         if !required_groups.is_empty()
             && !refused(
                 &required_groups,
-                true,
+                !weapon.attach_effect_required_any,
                 &weapon.attach_effect_required_min_counts,
                 &weapon.attach_effect_required_max_counts,
+                weapon.attach_effect_required_houses,
             )
         {
             return false;
@@ -2639,9 +2712,24 @@ impl Simulation {
             Option<u64>,
             Option<crate::sim::intern::InternedId>,
             String,
+            usize,
+            i32,
         )> = Vec::new();
-        for (instance, effect) in list.active_effects(effects_table) {
+        let frame = self.session.binary_frame() as i32;
+        for (instance_index, instance) in list.instances().iter().enumerate() {
+            if !instance.is_active(instance.is_self_owned()) {
+                continue;
+            }
+            let Some(effect) = effects_table.get(instance.type_index) else {
+                continue;
+            };
             if !effect.reflect_damage {
+                continue;
+            }
+            // `attachEffect->ReflectDamageTimer.InProgress()` skips before the
+            // chance draw (`Hooks.ReceiveDamage.cpp:429`).
+            if effect.reflect_damage_delay > 0 && instance.reflect_damage_timer.remaining(frame) > 0
+            {
                 continue;
             }
             if effect.reflect_damage_chance < self.scenario_rng.random_double() {
@@ -2722,11 +2810,19 @@ impl Simulation {
                 None
             };
             if let Some((invoker, house, detonate)) = shot {
-                actions.push((detonate, reflected, invoker, house, warhead_name));
+                actions.push((
+                    detonate,
+                    reflected,
+                    invoker,
+                    house,
+                    warhead_name,
+                    instance_index,
+                    effect.reflect_damage_delay,
+                ));
             }
         }
 
-        for (detonate, reflected, invoker, house, warhead_name) in actions {
+        for (detonate, reflected, invoker, house, warhead_name, instance_index, delay) in actions {
             let previous = self
                 .reflected_warhead
                 .replace(self.interner.intern(&warhead_name));
@@ -2759,6 +2855,22 @@ impl Simulation {
                     },
                 );
                 self.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
+            }
+            // The reflection starts the per-instance delay before the
+            // reflected flag clears (`Hooks.ReceiveDamage.cpp:461..464`).
+            if delay > 0
+                && let Some(instance) =
+                    self.substrate
+                        .entities
+                        .get_mut(target_id)
+                        .and_then(|target| {
+                            target
+                                .phobos_attach_effects_mut()
+                                .instances
+                                .get_mut(instance_index)
+                        })
+            {
+                instance.reflect_damage_timer.start(frame, delay);
             }
             self.reflected_warhead = previous;
         }
@@ -5282,6 +5394,54 @@ AttachEffect.InitialDelays=3
         }
     }
 
+    /// Phobos `ReflectDamage.Delay` (`Hooks.ReceiveDamage.cpp:429,461`): a
+    /// successful reflection starts the per-instance timer; a hit inside it is
+    /// not reflected, and one after it is.
+    #[test]
+    fn reflect_damage_delay_blocks_the_next_hit_until_it_runs_out() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REF\n\
+                 [HIT]\n{ALL_HIT}\
+                 [KILLW]\nDamage=1\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=REF\n\
+                 [REF]\nDuration=-1\nReflectDamage=yes\nReflectDamage.Warhead=HIT\n\
+                 ReflectDamage.Override=7\nReflectDamage.Delay=5\n"
+            ),
+            37,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+        let warhead = sim.interner.intern("HIT");
+        let hit = |sim: &mut Simulation| {
+            let event = direct_hit(victim, 1, attacker, warhead);
+            let _ = sim.commit_direct_damage_receiver(
+                &rules,
+                None,
+                event,
+                crate::sim::world::FrameEffects::empty(),
+            );
+        };
+        hit(&mut sim);
+        assert_eq!(health(&sim, attacker), 993, "the first hit reflects");
+        hit(&mut sim);
+        assert_eq!(
+            health(&sim, attacker),
+            993,
+            "the running delay blocks the second"
+        );
+        sim.session.set_binary_frame_for_test(6);
+        hit(&mut sim);
+        assert_eq!(
+            health(&sim, attacker),
+            986,
+            "after the delay it reflects again"
+        );
+    }
+
     /// Phobos `SuppressReflectDamage`: a bare key suppresses every reflecting
     /// effect, so the hit deals no reflected damage.
     #[test]
@@ -5360,16 +5520,15 @@ AttachEffect.InitialDelays=3
     fn a_weapon_attach_effect_requirement_gates_the_fire_error() {
         use crate::sim::combat::fire_error::FireError;
 
-        let build = |attach: bool| {
+        let build = |attach: bool, weapon_extra: &str| {
             let (sim, rules) = arena_scene(
                 &format!(
                     "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
                      [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=GATEW\n\
                      [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\n{}\
                      [HIT]\n{ALL_HIT}\
-                     [GATEW]\nDamage=10\nRange=-2\nWarhead=HIT\nOmniFire=yes\n\
-                     AttachEffect.RequiredTypes=REQ\n\
-                     [AttachEffectTypes]\n0=REQ\n[REQ]\nDuration=-1\n",
+                     [GATEW]\nDamage=10\nRange=-2\nWarhead=HIT\nOmniFire=yes\n{weapon_extra}\
+                     [AttachEffectTypes]\n0=REQ\n1=OTHER\n[REQ]\nDuration=-1\n[OTHER]\nDuration=-1\n",
                     if attach {
                         "AttachEffect.AttachTypes=REQ\n"
                     } else {
@@ -5380,13 +5539,15 @@ AttachEffect.InitialDelays=3
             );
             (sim, rules)
         };
-
-        let (mut sim, rules) = build(false);
-        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
-        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 23, 20);
-        let error = |sim: &Simulation| {
+        let run = |attach: bool, weapon_extra: &str| {
+            let (mut sim, rules) = build(attach, weapon_extra);
+            let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+            let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 23, 20);
+            if attach {
+                sim.update_phobos_attach_effects(victim, &rules);
+            }
             crate::sim::combat::fire_error_world::FireSubject {
-                world: sim,
+                world: &sim,
                 rules: &rules,
                 overlay_registry: None,
                 fog: None,
@@ -5397,29 +5558,73 @@ AttachEffect.InitialDelays=3
             }
             .fire_error(false)
         };
-        assert_eq!(error(&sim), FireError::Cant, "the target lacks REQ");
 
-        let (mut sim, rules) = build(true);
-        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
-        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 23, 20);
-        sim.update_phobos_attach_effects(victim, &rules);
-        let error = |sim: &Simulation| {
-            crate::sim::combat::fire_error_world::FireSubject {
-                world: sim,
-                rules: &rules,
-                overlay_registry: None,
-                fog: None,
-                firer: sim.substrate.entities.get(attacker).unwrap(),
-                obj: rules.object("ATTACKER").unwrap(),
-                target: Some(crate::sim::combat::TargetKind::Entity(victim)),
-                weapon_index: 0,
-            }
-            .fire_error(false)
-        };
         assert_eq!(
-            error(&sim),
+            run(false, "AttachEffect.RequiredTypes=REQ\n"),
+            FireError::Cant,
+            "the target lacks REQ"
+        );
+        assert_eq!(
+            run(true, "AttachEffect.RequiredTypes=REQ\n"),
             FireError::Ok,
             "the target carries REQ, so the shot is legal"
+        );
+
+        // `Required.Any` needs only one listed entry; the default needs all.
+        assert_eq!(
+            run(
+                true,
+                "AttachEffect.RequiredTypes=REQ,OTHER\nAttachEffect.Required.Any=yes\n"
+            ),
+            FireError::Ok,
+            "one of the two required entries is present"
+        );
+        assert_eq!(
+            run(true, "AttachEffect.RequiredTypes=REQ,OTHER\n"),
+            FireError::Cant,
+            "the default needs every required entry"
+        );
+
+        // `Disallowed.Any` defaults true; clearing it needs every entry.
+        assert_eq!(
+            run(true, "AttachEffect.DisallowedTypes=REQ,OTHER\n"),
+            FireError::Cant,
+            "any disallowed entry refuses the shot"
+        );
+        assert_eq!(
+            run(
+                true,
+                "AttachEffect.DisallowedTypes=REQ,OTHER\nAttachEffect.Disallowed.Any=no\n"
+            ),
+            FireError::Ok,
+            "requireAll disallowed needs the whole list"
+        );
+
+        // A self-owned effect does not come from the shot's source.
+        assert_eq!(
+            run(
+                true,
+                "AttachEffect.RequiredTypes=REQ\nAttachEffect.SameSourceOnly=yes\n"
+            ),
+            FireError::Cant,
+            "the target's own effect is not from the firer"
+        );
+        // The instance's house is the target's own house for a self effect.
+        assert_eq!(
+            run(
+                true,
+                "AttachEffect.RequiredTypes=REQ\nAttachEffect.Required.Houses=enemies\n"
+            ),
+            FireError::Ok,
+            "the target's house is the firer's enemy"
+        );
+        assert_eq!(
+            run(
+                true,
+                "AttachEffect.RequiredTypes=REQ\nAttachEffect.Required.Houses=owner\n"
+            ),
+            FireError::Cant,
+            "the target's house is not the firer's"
         );
     }
 

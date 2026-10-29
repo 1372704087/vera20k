@@ -20,6 +20,7 @@
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
 use crate::rules::ini_parser::IniSection;
+use crate::rules::phobos_shields::AffectedHouse;
 
 /// A weapon definition parsed from a rules.ini section.
 ///
@@ -232,6 +233,18 @@ pub struct WeaponType {
     pub attach_effect_disallowed_max_counts: Vec<i32>,
     pub attach_effect_check_on_firer: bool,
     pub attach_effect_ignore_from_same_source: bool,
+    /// `AttachEffect.Required.Any` / `Disallowed.Any`: the native
+    /// `requireAll = !Any` switch. Each list defaults to its constructor value
+    /// (required `false`, disallowed `true`).
+    pub attach_effect_required_any: bool,
+    pub attach_effect_disallowed_any: bool,
+    /// `AttachEffect.Required.Houses` / `Disallowed.Houses`: the house the
+    /// matched instance's invoker must belong to.
+    pub attach_effect_required_houses: AffectedHouse,
+    pub attach_effect_disallowed_houses: AffectedHouse,
+    /// `AttachEffect.SameSourceOnly`: only instances from the shot's exact
+    /// invoker and source match.
+    pub attach_effect_same_source_only: bool,
 }
 
 impl WeaponType {
@@ -317,6 +330,38 @@ impl WeaponType {
         #[cfg(feature = "phobos")]
         let attach_effect_ignore_from_same_source =
             section.read_bool("AttachEffect.IgnoreFromSameSource", false);
+        #[cfg(feature = "phobos")]
+        let (
+            attach_effect_required_any,
+            attach_effect_disallowed_any,
+            attach_effect_required_houses,
+            attach_effect_disallowed_houses,
+            attach_effect_same_source_only,
+        ) = (
+            section.read_bool("AttachEffect.Required.Any", false),
+            section.read_bool("AttachEffect.Disallowed.Any", true),
+            section.read_string_with(
+                "AttachEffect.Required.Houses",
+                0x100,
+                AffectedHouse::ALL,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            ),
+            section.read_string_with(
+                "AttachEffect.Disallowed.Houses",
+                0x100,
+                AffectedHouse::ALL,
+                |current, raw| AffectedHouse::parse(raw).unwrap_or(current),
+            ),
+            section.read_bool("AttachEffect.SameSourceOnly", false),
+        );
+        #[cfg(not(feature = "phobos"))]
+        let (
+            attach_effect_required_any,
+            attach_effect_disallowed_any,
+            attach_effect_required_houses,
+            attach_effect_disallowed_houses,
+            attach_effect_same_source_only,
+        ) = (false, true, AffectedHouse::ALL, AffectedHouse::ALL, false);
         #[cfg(not(feature = "phobos"))]
         let (
             attach_effect_required_types,
@@ -448,6 +493,11 @@ impl WeaponType {
             attach_effect_disallowed_max_counts,
             attach_effect_check_on_firer,
             attach_effect_ignore_from_same_source,
+            attach_effect_required_any,
+            attach_effect_disallowed_any,
+            attach_effect_required_houses,
+            attach_effect_disallowed_houses,
+            attach_effect_same_source_only,
         }
     }
 }
@@ -708,6 +758,9 @@ mod tests {
              AttachEffect.RequiredMinCounts=2,3\nAttachEffect.RequiredMaxCounts=4\n\
              AttachEffect.DisallowedMinCounts=1\nAttachEffect.DisallowedMaxCounts=5,6\n\
              AttachEffect.CheckOnFirer=yes\nAttachEffect.IgnoreFromSameSource=yes\n\
+             AttachEffect.Required.Any=yes\nAttachEffect.Required.Houses=enemies\n\
+             AttachEffect.Disallowed.Any=no\nAttachEffect.Disallowed.Houses=allies\n\
+             AttachEffect.SameSourceOnly=yes\n\
              [AttachEffectTypes]\n0=AE1\n1=AE2\n2=AE3\n\
              [AE1]\n[AE2]\n[AE3]\n",
         ));
@@ -728,6 +781,18 @@ mod tests {
         assert!(plain.attach_effect_disallowed_max_counts.is_empty());
         assert!(!plain.attach_effect_check_on_firer);
         assert!(!plain.attach_effect_ignore_from_same_source);
+        // `AEAttachInfoTypeClass`'s `requireAll = !Any` defaults.
+        assert!(!plain.attach_effect_required_any);
+        assert!(plain.attach_effect_disallowed_any);
+        assert_eq!(
+            plain.attach_effect_required_houses,
+            crate::rules::phobos_shields::AffectedHouse::ALL
+        );
+        assert_eq!(
+            plain.attach_effect_disallowed_houses,
+            crate::rules::phobos_shields::AffectedHouse::ALL
+        );
+        assert!(!plain.attach_effect_same_source_only);
 
         let gated = rules.weapon("Gated").unwrap();
         assert!(gated.has_attach_effect_gates());
@@ -745,6 +810,19 @@ mod tests {
         assert_eq!(gated.attach_effect_disallowed_max_counts, vec![5, 6]);
         assert!(gated.attach_effect_check_on_firer);
         assert!(gated.attach_effect_ignore_from_same_source);
+        assert!(gated.attach_effect_required_any);
+        assert!(!gated.attach_effect_disallowed_any);
+        assert!(
+            gated
+                .attach_effect_required_houses
+                .contains(crate::rules::phobos_shields::AffectedHouse::ENEMIES)
+        );
+        assert!(
+            gated
+                .attach_effect_disallowed_houses
+                .contains(crate::rules::phobos_shields::AffectedHouse::ALLIES)
+        );
+        assert!(gated.attach_effect_same_source_only);
     }
 
     #[test]

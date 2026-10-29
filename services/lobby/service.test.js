@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { CLIENT_ADDRESS_HEADER, FEDERATION_HEADER, GATEWAY_KEY_HEADER, LOCATION_HEADER, LobbyService, SqlStore,
   locatedRequest } from './service.js';
@@ -471,6 +471,21 @@ test('only a gateway holding the deployment key names its players\' own networks
   for (let i = 1; i <= 40; i++) await f.player(`Spoof${i}`, proxied(`192.0.2.${i}`, 'x'.repeat(32)));
   const refused = await f.request('/v1/sessions', null, { nickname: 'Spoof41' }, proxied('192.0.2.41', 'x'.repeat(32)));
   assert.equal(refused.status, 429);
+});
+
+test('stored network keys reveal no address without the deployment secret', async () => {
+  const f = fixture(); const first = await f.player('First', from('203.0.113.7'));
+  const plain = createHash('sha256').update('203.0.113.7').digest('base64url');
+  const stored = () => [...f.store.list('session:').map((session) => session.network),
+    ...f.store.sql.exec("SELECT key FROM state WHERE key >= 'rate:' AND key < 'rate:￿'").toArray().map((row) => row.key)];
+  assert.ok(stored().every((value) => !value.includes(plain)));
+  // A replaced secret gives the same address new keys; older sessions keep working.
+  f.env.RELAY_TICKET_KEY = 'cd'.repeat(32);
+  await f.player('Second', from('203.0.113.7'));
+  const [one, two] = ['First', 'Second'].map((name) => f.store.list('session:').find((session) => session.nickname === name).network);
+  assert.notEqual(one, two);
+  assert.equal((await f.command(first, 'join', { channel: 'Lob_41_2', key: '' })).status, 200);
+  assert.equal((await f.command(first, 'chat', { text: 'still here', to: [] })).status, 200);
 });
 
 test('one IPv6 /48 cannot hold more than its share of lobby sessions', async () => {

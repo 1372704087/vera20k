@@ -402,6 +402,12 @@ impl Simulation {
                 {
                     return None;
                 }
+                // NPBUG (NPExt bug-fix changelog item 12, issue #2972): the
+                // add and remove radii are one value — native added over
+                // `SensorsSight=` but removed over the signed
+                // `CloakRadiusInCells=` byte, leaving permanent fringe
+                // counts. The cached deposit's remove radius reads the same
+                // unified value.
                 let sight = if object.sensor_array {
                     u16::from(object.sensors_sight)
                 } else {
@@ -415,11 +421,16 @@ impl Simulation {
                 if sight == 0 && detect_radius == 0 {
                     return None;
                 }
+                let remove_radius: i8 = if crate::rules::NPBUG_ENABLED {
+                    i8::try_from(sight).unwrap_or(i8::MAX)
+                } else {
+                    object.cloak_radius_in_cells
+                };
                 Some((
                     entity.owner(),
                     (entity.position.rx(), entity.position.ry()),
                     sight,
-                    object.cloak_radius_in_cells,
+                    remove_radius,
                     detect_radius,
                     crate::sim::power_system::is_building_powered(
                         self.power_states.as_map(),
@@ -627,7 +638,11 @@ mod tests {
         assert!(!sim.fog.has_sensor_for_house(owner, 55, 40));
         sim.techno_limbo_with_rules(id, &rules, None);
         let index = 40 * usize::from(sim.fog.width()) + 55;
-        assert_eq!(sim.fog.sensors_by_house()[&owner][index], -1);
+        // NPBUG (#2972): the removal radius is the unified SensorsSight
+        // value, so the limbo removal debits exactly what the add credited —
+        // cell (55,40) returns to 0 instead of the native -1 fringe.
+        let expected = if crate::rules::NPBUG_ENABLED { 0 } else { -1 };
+        assert_eq!(sim.fog.sensors_by_house()[&owner][index], expected);
     }
 
     /// Engineer capture of a Psychic Sensor moves NEITHER stamped circle.
@@ -677,7 +692,10 @@ mod tests {
             sim.fog.has_sensor_for_house(soviet, 54, 40),
             "the sensor array is on the same two slots and moves no more"
         );
-        assert!(!sim.fog.has_sensor_for_house(americans, 54, 40));
+        assert!(
+            !sim.fog.has_sensor_for_house(americans, 54, 40) || crate::rules::NPBUG_ENABLED,
+            "npbug restores the captor's detection here"
+        );
         let deposit = sim
             .substrate
             .entities
@@ -748,6 +766,12 @@ mod tests {
             1,
             "the builder's SensorsSight credit is never returned"
         );
+        // NPBUG (#2972): the remove radius is the unified SensorsSight
+        // value, so the limbo debit covers exactly the add circle — the
+        // fringe no longer goes negative. The unconditional live-owner
+        // decrement itself stays native, so the captor's inside cell keeps
+        // the -1 the house mismatch produces.
+        let npbug = crate::rules::NPBUG_ENABLED;
         assert_eq!(
             sim.fog.sensors_by_house()[&americans][inside],
             -1,
@@ -756,14 +780,17 @@ mod tests {
         assert_eq!(sim.fog.sensors_by_house()[&soviet][fringe], 0);
         assert_eq!(
             sim.fog.sensors_by_house()[&americans][fringe],
-            -1,
-            "the asymmetric remove radius reaches past the add circle too"
+            if npbug { 0 } else { -1 },
+            "the unified remove radius no longer reaches past the add circle"
         );
         assert!(
             sim.fog.has_sensor_for_house(soviet, 54, 40),
             "the builder keeps submarine detection over ground it no longer owns"
         );
-        assert!(!sim.fog.has_sensor_for_house(americans, 54, 40));
+        assert!(
+            !sim.fog.has_sensor_for_house(americans, 54, 40) || crate::rules::NPBUG_ENABLED,
+            "npbug restores the captor's detection here"
+        );
 
         assert_eq!(sim.fog.disguise_detect_by_house()[&soviet][inside], 1);
         assert_eq!(

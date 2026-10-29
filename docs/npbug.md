@@ -37,6 +37,12 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2972 (NPExt changelog item 12): a building sensor array's add and remove
+  radii are the unified `SensorsSight=` value. Native added over
+  `SensorsSight=` but removed over the signed `CloakRadiusInCells=` byte,
+  leaving permanent fringe counts and blind zones around psychic sensors;
+  the dormancy of the cloak-reveal deposit arm stays native.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

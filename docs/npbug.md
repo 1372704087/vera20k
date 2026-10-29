@@ -35,6 +35,11 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2949 (NPExt changelog item 43): a Burst=1 direct shot advances the burst
+  index, so the FLH parity alternates launch sides. Native's remainder
+  (fire_coord parity read; Aegis `Burst=1` Medusa) never advanced, so every
+  missile left from the same side.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

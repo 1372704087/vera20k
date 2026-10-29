@@ -1429,8 +1429,13 @@ impl ApplicationHandler for App {
                     ScreenPage::MainMenu if state.frontend.shell_message_box.is_none() => {
                         Self::handle_main_menu_shell_mouse_move(state);
                     }
-                    ScreenPage::MainMenu
-                    | ScreenPage::FullscreenMovie
+                    // The open message box takes the move; the update offer's
+                    // change list follows it.
+                    ScreenPage::MainMenu => {
+                        #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+                        crate::app::updater::notes::cursor_moved(state);
+                    }
+                    ScreenPage::FullscreenMovie
                     | ScreenPage::CreditsRoll
                     | ScreenPage::Loading
                     | ScreenPage::InGameCard
@@ -1624,6 +1629,12 @@ impl ApplicationHandler for App {
                         | ModalPage::NetworkOptions,
                     ) => return,
                 };
+                #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+                if screen == ScreenPage::MainMenu
+                    && crate::app::updater::notes::wheel(state, lines)
+                {
+                    return;
+                }
                 if screen == ScreenPage::Skirmish
                     && Self::handle_skirmish_shell_mouse_wheel(state, lines)
                 {
@@ -1726,6 +1737,11 @@ impl ApplicationHandler for App {
                 Self::poll_choose_map_scroll(state),
                 Self::poll_campaign(state),
                 Self::campaign_score_animation_deadline(state),
+                // Captures replay sealed input; they never check or ask.
+                #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+                (self.shell_capture.is_none() && self.tactical_capture.is_none())
+                    .then(|| crate::app::updater::poll(state))
+                    .flatten(),
             ]
             .into_iter()
             .flatten()

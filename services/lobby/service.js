@@ -209,10 +209,17 @@ function clientAddress(request, env) {
   return request.headers.get('CF-Connecting-IP');
 }
 
-// Rate keys never hold a raw client address.
+// Stored rate keys and session networks are HMACs of the client's network
+// under a key derived from RELAY_TICKET_KEY, which every deployment holds. A
+// plain hash of an IPv4 address falls to trying all 2^32 of them; these can be
+// tested against an address only with that secret. Keys made before them, or
+// under a replaced secret, simply age out.
 async function networkKeys(request, env) {
   const { host, range } = clientNetwork(clientAddress(request, env));
-  return { host: await sha256(host), range: await sha256(range) };
+  const derived = await hmac(env.RELAY_TICKET_KEY, 'VERA20k lobby network key v1\0');
+  const key = await crypto.subtle.importKey('raw', derived, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const keyed = async (text) => base64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(text))));
+  return { host: await keyed(host), range: await keyed(range) };
 }
 
 // RELAYS lists every relay as JSON [{address, key, latitude, longitude, federation?}],

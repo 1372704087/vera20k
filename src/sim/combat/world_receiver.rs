@@ -1494,6 +1494,15 @@ pub(crate) fn commit_entities(
         let uncloak_after_damage =
             uncloak_after_damage && receive_state != damage::DamageState::Unaffected;
 
+        // Phobos `TechnoClass_ReceiveDamage_Decloak @ 0x00702819` replaces the
+        // retail call with a per-warhead switch: only an admitting warhead
+        // reaches `Uncloak(false)`, and a missing extension skips it.
+        #[cfg(feature = "phobos")]
+        let uncloak_after_damage = uncloak_after_damage
+            && rules
+                .warhead(world.interner.resolve(event.warhead_ref))
+                .is_some_and(|warhead| rules.decloak_damaged_targets_for(warhead));
+
         // `0x0070281D`, in its native slot: after the `ToProtect` response
         // (`0x007027E9`); Object's Kill/Destroy have already returned. The
         // `StartUncloaking(0)` argument is zero, so it owns one positional

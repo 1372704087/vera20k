@@ -339,6 +339,14 @@ pub struct WarheadType {
     /// -> warhead `+0x1C4`. Native RAISES this to `min_debris` when it is
     /// lower (`0x0075DAE0`); it never lowers `min_debris` to meet it.
     pub max_debris: i32,
+    /// Phobos `WarheadTypeExt::DecloakDamagedTargets` (`Nullable<bool>`): a
+    /// surviving object this warhead damages calls native
+    /// `StartUncloaking(0)` (`TechnoClass::ReceiveDamage @ 0x0070281D`) only
+    /// when this is true. `None` falls back to
+    /// [`crate::rules::ruleset::RuleSet::decloak_damaged_targets_for`]'s
+    /// `[General] DecloakDamagedTargets` value.
+    #[cfg(feature = "phobos")]
+    decloak_damaged_targets: Option<bool>,
     /// Phobos warhead shield overrides (`Shield.Penetrate`,
     /// `Shield.AffectTypes`, `Shield.Penetrate.Types`, absorb/pass and
     /// received-damage bounds). Phobos `WarheadTypeExt` reads them after the
@@ -398,6 +406,13 @@ impl WarheadType {
 
     pub(crate) fn ares_verses_hash_state(&self) -> Option<&AresWarheadVerses> {
         self.ares_verses.as_ref()
+    }
+
+    /// Phobos `DecloakDamagedTargets`: `Some` is the authored per-warhead
+    /// value; `None` falls back to the `[General]` global.
+    #[cfg(feature = "phobos")]
+    pub fn decloak_damaged_targets(&self) -> Option<bool> {
+        self.decloak_damaged_targets
     }
 
     /// Parse a WarheadType from a rules.ini section.
@@ -509,6 +524,9 @@ impl WarheadType {
             debris_maximums,
             min_debris,
             max_debris,
+            #[cfg(feature = "phobos")]
+            decloak_damaged_targets: section
+                .read_phobos_nullable_bool("DecloakDamagedTargets", None),
             #[cfg(feature = "phobos")]
             shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
         }
@@ -729,5 +747,54 @@ MaxDebris=2
         assert_eq!((neg.min_debris, neg.max_debris), (0, 2));
         let inv = WarheadType::from_ini_section("Inverted", ini.section("Inverted").unwrap());
         assert_eq!((inv.min_debris, inv.max_debris), (7, 7));
+    }
+
+    /// Phobos `Nullable<bool>`: `yes`/`no` set the override, while `none`,
+    /// `<default>` and invalid tokens leave it unset for the `[General]`
+    /// fallback.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn decloak_damaged_targets_is_a_nullable_bool() {
+        let ini = IniFile::from_str(
+            "[Unset]\nFixtureOnly=1\n[On]\nDecloakDamagedTargets=yes\n\
+             [Off]\nDecloakDamagedTargets=no\n[Cleared]\nDecloakDamagedTargets=none\n\
+             [Invalid]\nDecloakDamagedTargets=perhaps\n",
+        );
+        let read = |id| {
+            WarheadType::from_ini_section(id, ini.section(id).unwrap()).decloak_damaged_targets()
+        };
+        assert_eq!(read("Unset"), None);
+        assert_eq!(read("On"), Some(true));
+        assert_eq!(read("Off"), Some(false));
+        assert_eq!(read("Cleared"), None);
+        assert_eq!(read("Invalid"), None);
+    }
+
+    /// The `[General] DecloakDamagedTargets` fallback (default yes) and the
+    /// per-warhead override that Phobos
+    /// `WarheadTypeExt::DecloakDamagedTargets.Get(...)` applies.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn decloak_damaged_targets_falls_back_to_general() {
+        let read = |text: &str, warhead: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(text)).unwrap();
+            rules.decloak_damaged_targets_for(rules.warhead(warhead).unwrap())
+        };
+        let no_global =
+            "[Warheads]\n0=Unset\n1=Off\n[Unset]\nFixtureOnly=1\n[Off]\nDecloakDamagedTargets=no\n";
+        assert!(read(no_global, "Unset"), "absent global defaults to yes");
+        assert!(!read(no_global, "Off"), "per-warhead no overrides");
+
+        let with_global = "[General]\nDecloakDamagedTargets=no\n\
+             [Warheads]\n0=Unset\n1=On\n\
+             [Unset]\nFixtureOnly=1\n[On]\nDecloakDamagedTargets=yes\n";
+        assert!(
+            !read(with_global, "Unset"),
+            "global no reaches an unset warhead"
+        );
+        assert!(
+            read(with_global, "On"),
+            "per-warhead yes overrides global no"
+        );
     }
 }

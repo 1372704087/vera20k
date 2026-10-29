@@ -190,7 +190,10 @@ pub enum OrderEntry {
         frame: u32,
         source: u8,
         batch_id: u64,
-        bytes: DecryptedPayload,
+        /// `None` when the contents fail authentication under the match
+        /// payload key. Every member holding that key reads the same relayed
+        /// bytes, so all of them find the same batch unreadable.
+        bytes: Option<DecryptedPayload>,
     },
     FrameEnd {
         sequence: u64,
@@ -585,14 +588,17 @@ impl ClientSession {
                 };
                 bytes.bytes[..length].copy_from_slice(&opaque[24..24 + length]);
                 let tag: [u8; 16] = opaque[24 + length..].try_into().unwrap();
-                order_cipher(&self.payload_key, &self.ticket.room, source)
+                // The hop MAC authenticated this entry's place in the stream,
+                // so an unreadable batch is still delivered: dropping it would
+                // leave a sequence gap that every pull repeats.
+                let readable = order_cipher(&self.payload_key, &self.ticket.room, source)
                     .decrypt_inout_detached(
                         &XNonce::from(nonce),
                         &order_aad(&self.ticket.room, source, batch_id),
                         (&mut bytes.bytes[..length]).into(),
                         &Tag::from(tag),
                     )
-                    .map_err(|_| RelayError::Authentication)?;
+                    .is_ok();
                 // The canonical batch is also its acceptance receipt. A lost
                 // ACK must not block the next local submission after replay.
                 if source == self.ticket.source
@@ -613,7 +619,7 @@ impl ClientSession {
                     frame: read_u32(payload, 9),
                     source,
                     batch_id,
-                    bytes,
+                    bytes: readable.then_some(bytes),
                 })
             }
             (ERROR_EVENT, 10) => {
@@ -1746,7 +1752,7 @@ mod tests {
                     frame,
                     bytes,
                     ..
-                })) => inputs.push((frame, bytes.as_bytes().to_vec())),
+                })) => inputs.push((frame, bytes.unwrap().as_bytes().to_vec())),
                 _ => {}
             }
         }
@@ -2132,7 +2138,7 @@ mod tests {
             if let ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::Batch { bytes, .. })) =
                 reader.receive(&packet.bytes).unwrap()
             {
-                assert_eq!(bytes.as_bytes(), b"immutable pushed input");
+                assert_eq!(bytes.unwrap().as_bytes(), b"immutable pushed input");
                 canonical =
                     Some(packet.bytes[SERVER_HEADER..packet.bytes.len() - MAC_LEN].to_vec());
             }
@@ -2494,7 +2500,12 @@ mod tests {
                     source,
                     bytes,
                     ..
-                }) => Some((*sequence, *frame, *source, bytes.as_bytes())),
+                }) => Some((
+                    *sequence,
+                    *frame,
+                    *source,
+                    bytes.as_ref().unwrap().as_bytes(),
+                )),
                 _ => None,
             })
             .collect();
@@ -2575,8 +2586,9 @@ mod tests {
                     }) => {
                         assert_eq!(*sequence, cursor);
                         cursor += 1;
-                        saw_old_input |= bytes.as_bytes() == b"active input";
-                        saw_new_input |= bytes.as_bytes() == b"healthy input after lease renewal";
+                        let bytes = bytes.as_ref().unwrap().as_bytes();
+                        saw_old_input |= bytes == b"active input";
+                        saw_new_input |= bytes == b"healthy input after lease renewal";
                     }
                     OrderEvent::Entry(OrderEntry::FrameEnd { sequence, frame }) => {
                         assert_eq!(*sequence, cursor);
@@ -2789,7 +2801,7 @@ mod tests {
             .filter_map(|event| match event {
                 OrderEvent::Entry(OrderEntry::Batch {
                     batch_id, bytes, ..
-                }) => Some((batch_id, bytes.as_bytes().to_vec())),
+                }) => Some((batch_id, bytes.as_ref().unwrap().as_bytes().to_vec())),
                 _ => None,
             })
             .collect();
@@ -2986,7 +2998,8 @@ mod tests {
             .unwrap()
             .bytes;
         // Even a hop-authenticated ciphertext with altered associated batch id
-        // cannot be released as plaintext to the gameplay owner.
+        // cannot be released as plaintext to the gameplay owner; it arrives
+        // unreadable in its place.
         tampered[SERVER_HEADER + 14] ^= 1;
         let split = tampered.len() - MAC_LEN;
         let tag = second
@@ -2997,7 +3010,9 @@ mod tests {
         tampered[split..].copy_from_slice(&tag);
         assert!(matches!(
             second.receive(&tampered),
-            Err(RelayError::Authentication)
+            Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                OrderEntry::Batch { bytes: None, .. }
+            )))
         ));
         server.advance_clock(112_000, unix(112_000));
         let replay = pull(&mut server, &mut second, 1, 112_000);

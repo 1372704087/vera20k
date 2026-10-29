@@ -314,3 +314,115 @@ fn crit_chance_buffering_follows_apply_chance_per_target() {
         "per-target mode draws once per target"
     );
 }
+
+/// `Crit.Warhead.FullDetonation=no`: `DamageAreaWithTarget` runs the crit
+/// warhead's area damage without a bullet, so the target takes its damage and
+/// no detonation animation is selected.
+#[test]
+fn crit_warhead_area_arm_damages_the_target() {
+    let sections = "[CRITWH]\nCellSpread=1\n";
+    let (mut sim, rules, firer, target) = scene(
+        "1=CRITWH\n",
+        "Crit.Chance=1.0\nCrit.ExtraDamage=30\nCrit.Warhead=CRITWH\n\
+         Crit.Warhead.FullDetonation=no\n",
+        "",
+        sections,
+        "Russians",
+    );
+    let (mut plain, plain_rules, plain_firer, plain_target) = scene(
+        "1=CRITWH\n",
+        "Crit.Warhead=CRITWH\nCrit.Warhead.FullDetonation=no\n",
+        "",
+        sections,
+        "Russians",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    shoot(&mut plain, &plain_rules, "WH", plain_firer, plain_target, 0);
+    assert_eq!(
+        health(&plain, plain_target) - health(&sim, target),
+        30,
+        "the crit warhead's area damage reached the target"
+    );
+}
+
+/// The `CRITIMMUNE` Phobos rank ability and a `Crit.AffectsTarget` that does
+/// not list the target's class each stop the same always-crit warhead.
+#[test]
+fn crit_immune_ability_and_target_filter_stop_the_crit() {
+    let crit_damage = |wh_ini: &str, target_ini: &str, veteran: bool| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, target_ini, "", "Russians");
+        let (mut plain, plain_rules, plain_firer, plain_target) =
+            scene("", "", target_ini, "", "Russians");
+        if veteran {
+            for (world, id) in [(&mut sim, target), (&mut plain, plain_target)] {
+                world
+                    .substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .veterancy
+                    .set_veteran();
+            }
+        }
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        shoot(&mut plain, &plain_rules, "WH", plain_firer, plain_target, 0);
+        health(&plain, plain_target) - health(&sim, target)
+    };
+
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\n",
+            "VeteranAbilities=CRITIMMUNE\n",
+            true,
+        ),
+        0,
+        "a veteran with CRITIMMUNE refuses the crit"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nCrit.AffectsTarget=aircraft\n",
+            "",
+            false,
+        ),
+        0,
+        "an aircraft-only filter skips a ground unit"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\n",
+            "VeteranAbilities=CRITIMMUNE\n",
+            false,
+        ),
+        50,
+        "a rookie with the same list is not immune"
+    );
+}
+
+/// `Crit.ActiveChanceAnims` picks one entry with a `RandomRanged(0, len-1)`
+/// draw after the shared crit buffer.
+#[test]
+fn crit_active_chance_anims_draw_after_the_buffer() {
+    let (mut sim, rules, firer, _target) = scene(
+        "",
+        "Crit.Chance=1.0\nCrit.ExtraDamage=0\nCrit.ActiveChanceAnims=ONE,TWO\n",
+        "",
+        "",
+        "Russians",
+    );
+    let warhead = rules.warhead("WH").expect("warhead");
+    let source_house = sim.entities().get(firer).map(|entity| entity.owner());
+    let impact = ProjectileCoord::new(22 * 256 + 128, 20 * 256 + 128, 0);
+    super::crit::begin(&mut sim, &rules, warhead, firer, source_house, impact)
+        .expect("always-crit warhead");
+    let mut expected = {
+        let (sim, _rules, _firer, _target) = scene("", "", "", "", "Russians");
+        sim.scenario_rng.clone()
+    };
+    expected.random_double();
+    expected.next_range_i32_inclusive(0, 1);
+    assert_eq!(
+        sim.scenario_rng.logical_state(),
+        expected.logical_state(),
+        "buffer, then one anim pick"
+    );
+}

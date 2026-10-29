@@ -147,7 +147,7 @@ fn classify_projectile_type(
             subject_to_cliffs: projectile.subject_to_cliffs,
             flak_scatter: projectile.flak_scatter,
             anti_air: projectile.aa,
-            airburst: projectile.airburst,
+            airburst: projectile.airburst_arm(),
             inaccurate: projectile.inaccurate,
             floater: projectile.floater,
             #[cfg(feature = "phobos")]
@@ -247,6 +247,63 @@ impl FiredBullet {
         origin: ProjectileCoord,
         velocity: crate::sim::projectile::ProjectileVelocity,
     ) -> Option<Self> {
+        Self::launched_inner(
+            world,
+            rules,
+            native_unique_id,
+            source_id,
+            target,
+            payload,
+            max_speed,
+            origin,
+            velocity,
+            true,
+        )
+    }
+
+    /// A Phobos `BulletExt::SimulatedFiringUnlimbo` child: the caller already
+    /// computed the vector Phobos hands `BulletClass::MoveTo`, so it is not
+    /// `BulletClass::Fire` and must keep its magnitude instead of the Fire
+    /// arm's ROT renormalisation. Every other field is the normal launch.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn simulated(
+        world: &Simulation,
+        rules: &RuleSet,
+        native_unique_id: i32,
+        source_id: u64,
+        target: ProjectileTarget,
+        payload: ProjectilePayload,
+        max_speed: i32,
+        origin: ProjectileCoord,
+        velocity: crate::sim::projectile::ProjectileVelocity,
+    ) -> Option<Self> {
+        Self::launched_inner(
+            world,
+            rules,
+            native_unique_id,
+            source_id,
+            target,
+            payload,
+            max_speed,
+            origin,
+            velocity,
+            false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn launched_inner(
+        world: &Simulation,
+        rules: &RuleSet,
+        native_unique_id: i32,
+        source_id: u64,
+        target: ProjectileTarget,
+        payload: ProjectilePayload,
+        max_speed: i32,
+        origin: ProjectileCoord,
+        velocity: crate::sim::projectile::ProjectileVelocity,
+        normalize_homing: bool,
+    ) -> Option<Self> {
         let terrain = world.resolved_terrain.as_ref();
         let target_position = match target {
             ProjectileTarget::Cell { rx, ry } => {
@@ -271,10 +328,11 @@ impl FiredBullet {
         // Direct callers hand Fire a pre-Fire vector; FireAt's own launch
         // path already passes through the same numeric owner. Nuclear stock
         // types have ROT=0; Execute96's ChemMissile has ROT=4 and requires it.
-        let velocity = if payload
-            .projectile_type()
-            .and_then(|id| rules.projectile(world.interner.resolve(id)))
-            .is_some_and(|projectile| projectile.rot > 0)
+        let velocity = if normalize_homing
+            && payload
+                .projectile_type()
+                .and_then(|id| rules.projectile(world.interner.resolve(id)))
+                .is_some_and(|projectile| projectile.rot > 0)
         {
             crate::sim::projectile::launch::bullet_fire_homing_velocity(velocity)
         } else {
@@ -370,6 +428,31 @@ pub(crate) fn admit_fired_bullet(
     bullet_id: u64,
     bullet: FiredBullet,
 ) {
+    admit_fired_bullet_inner(world, rules, weapon, bullet_id, bullet, true);
+}
+
+/// A Phobos `SimulatedFiringUnlimbo` child: `BulletClass::MoveTo` places it at
+/// its source coordinate, so Fire's `Inviso=` arm must not snap it onto the
+/// target.
+#[cfg(feature = "phobos")]
+pub(crate) fn admit_simulated_bullet(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    weapon: &WeaponType,
+    bullet_id: u64,
+    bullet: FiredBullet,
+) {
+    admit_fired_bullet_inner(world, rules, weapon, bullet_id, bullet, false);
+}
+
+fn admit_fired_bullet_inner(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    weapon: &WeaponType,
+    bullet_id: u64,
+    bullet: FiredBullet,
+    inviso_placement: bool,
+) {
     let projectile_type = bullet
         .payload
         .projectile_type()
@@ -394,7 +477,7 @@ pub(crate) fn admit_fired_bullet(
             .admitted_spawns
             .push((bullet_id, delivery.inviso, spawn));
     }
-    if delivery.inviso {
+    if inviso_placement && delivery.inviso {
         let on_bridge = bullet.target_on_bridge;
         let placement = inviso_fire_placement(
             &mut world.scenario_rng,

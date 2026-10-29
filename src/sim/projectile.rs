@@ -361,6 +361,9 @@ pub struct ProjectileCollisionPolicy {
     pub subject_to_cliffs: bool,
     pub flak_scatter: bool,
     pub anti_air: bool,
+    /// `BulletType+294 Airburst=` or, in a Phobos build, `Splits=`:
+    /// `BulletClass::Explodes` skips target snapping and the outer cluster
+    /// loop for either flag.
     pub airburst: bool,
     pub inaccurate: bool,
     /// BulletType +295: 48ACF0 multiplies live Rules gravity by binary64 0.5.
@@ -945,6 +948,12 @@ pub struct ProjectilePayload {
     installed_weapon: Option<InternedId>,
     /// Construct4664E6's byte argument, independent of installed Weapon.
     bright: bool,
+    /// Phobos `BulletExt::FirepowerMult`, the firer's firepower multiplier at
+    /// construction. `AirburstWeapon.ApplyFirepowerMult` scales child damage
+    /// with it, and airburst children carry it onward.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "default_firepower_multiplier")]
+    firepower_multiplier: crate::util::native_x87::NativeF64Bits,
     /// `BulletClass+0x150`, 1/256 units: `BulletClass::Construct` writes
     /// [`Self::UNSCALED`] (`0x00466546`) and only a Prism master's supported
     /// shot writes another value (`BuildingClass::ProcessDelayedFire`,
@@ -953,6 +962,11 @@ pub struct ProjectilePayload {
     /// (`0x004697FC..0x0046980C`, not ported: dormant in retail, see
     /// [`SpecialDetonationAction::DirectRocker`]).
     damage_multiplier: i32,
+}
+
+#[cfg(feature = "phobos")]
+fn default_firepower_multiplier() -> crate::util::native_x87::NativeF64Bits {
+    crate::util::native_x87::NativeF64Bits::ONE
 }
 
 impl ProjectilePayload {
@@ -973,6 +987,8 @@ impl ProjectilePayload {
             installed_weapon: None,
             bright,
             damage_multiplier: Self::UNSCALED,
+            #[cfg(feature = "phobos")]
+            firepower_multiplier: crate::util::native_x87::NativeF64Bits::ONE,
         }
     }
 
@@ -1006,6 +1022,23 @@ impl ProjectilePayload {
 
     pub fn damage_multiplier(&self) -> i32 {
         self.damage_multiplier
+    }
+
+    /// The firer's firepower multiplier captured at construction.
+    #[cfg(feature = "phobos")]
+    pub const fn firepower_multiplier(&self) -> crate::util::native_x87::NativeF64Bits {
+        self.firepower_multiplier
+    }
+
+    /// Carry another bullet's captured firepower multiplier, as Phobos's
+    /// airburst children do.
+    #[cfg(feature = "phobos")]
+    pub fn with_firepower_multiplier(
+        mut self,
+        firepower_multiplier: crate::util::native_x87::NativeF64Bits,
+    ) -> Self {
+        self.firepower_multiplier = firepower_multiplier;
+        self
     }
 
     /// `BulletClass::DetonateAtCoord @ 0x004690B0` hands
@@ -1204,6 +1237,12 @@ impl Projectile {
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_target_for_test(&mut self, value: ProjectileTarget) {
         self.target = value;
+    }
+
+    /// A fired Bullet's retained target coordinate (`+0x140`).
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_last_target_position_for_test(&mut self, value: ProjectileCoord) {
+        self.last_target_position = value;
     }
 
     #[cfg(any(test, feature = "test-support"))]

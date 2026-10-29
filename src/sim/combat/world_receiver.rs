@@ -3713,8 +3713,11 @@ pub(crate) fn commit_projectile_detonations_inline(
             crate::sim::projectile::ProjectileDetonationReason::DeathWeapon
                 | crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot
         );
+        // Phobos `BulletClass_Explodes_AirburstCheck1/2` make `Splits` take
+        // the airburst arm: one detonation and no outer cluster draws.
+        let phobos_splits = cfg!(feature = "phobos") && projectile_type.is_some_and(|p| p.splits());
         let (clusters, cluster_draws) = match projectile_type {
-            Some(projectile) if !projectile.airburst && !single_detonation => {
+            Some(projectile) if !projectile.airburst && !phobos_splits && !single_detonation => {
                 (projectile.cluster.max(0), true)
             }
             _ => (1, false),
@@ -3834,6 +3837,9 @@ pub(crate) fn commit_projectile_detonations_inline(
             // The ordinary outer cluster successor still follows that return.
             if area_continuation.is_none() || area_result != AreaDamageResult::IronCurtain {
                 emit_warhead_debris(world, rules, &live_tail, warhead, emit);
+                #[cfg(feature = "phobos")]
+                super::phobos_airburst::emit(world, rules, &live_tail);
+                #[cfg(not(feature = "phobos"))]
                 super::airburst::emit(world, rules, &live_tail);
             }
             if cluster_draws {

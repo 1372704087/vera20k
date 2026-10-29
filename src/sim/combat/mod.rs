@@ -27,6 +27,8 @@
 pub mod aim_coord;
 mod attack_target;
 mod airburst;
+#[cfg(feature = "phobos")]
+mod phobos_airburst;
 pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
@@ -141,6 +143,8 @@ pub use in_range::can_fire_at_target;
 pub use in_range::{MaplessTarget, can_fire_at_target_in_query, mapless_in_range};
 pub use object_health::{Health, health_category};
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet};
+#[cfg(feature = "phobos")]
+pub(crate) use projectile_delivery::admit_simulated_bullet;
 pub use receiver_call::{DamageWriteback, TerrainDamageEvent};
 pub(crate) use receiver_call::{
     BaseDefenseResponseCallSite, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags,

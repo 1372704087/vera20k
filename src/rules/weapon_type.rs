@@ -250,6 +250,10 @@ pub struct WeaponType {
     /// range; `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub rof_random_delay: Option<crate::rules::ini_value::PartialIntPair>,
+    /// Phobos `WeaponTypeExt::CanTargetHouses` (`AffectedHouse::All` default),
+    /// read for `Splits.UseWeaponTargeting`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_can_target_houses: crate::rules::phobos_shields::AffectedHouse,
 }
 
 impl WeaponType {
@@ -261,9 +265,13 @@ impl WeaponType {
             || !self.attach_effect_required_groups.is_empty()
             || !self.attach_effect_disallowed_groups.is_empty()
     }
-}
 
-impl WeaponType {
+    /// Phobos `CanTargetHouses=`, default `AffectedHouse::All`.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn can_target_houses(&self) -> crate::rules::phobos_shields::AffectedHouse {
+        self.phobos_can_target_houses
+    }
+
     pub(crate) fn ammo_cost(&self) -> i32 {
         #[cfg(feature = "ares")]
         return self.ares_ammo_cost;
@@ -430,6 +438,10 @@ impl WeaponType {
             laser_duration: i32::from(section.read_int("LaserDuration", 10) as i8),
             rad_level: section.read_int("RadLevel", 0),
             rad_type,
+            #[cfg(feature = "phobos")]
+            phobos_can_target_houses: crate::rules::phobos_airburst::read_can_target_houses(
+                section,
+            ),
 
             // The constructor's nulls and empty list (`0x00771C70`); the
             // ordered Process owner reads the Animation references.

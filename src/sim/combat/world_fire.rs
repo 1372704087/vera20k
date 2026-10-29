@@ -900,19 +900,18 @@ fn fireat_launch_aim(
 /// A passenger of an `OpenTopped=` transport (retail: `[BFRT]`) fires with
 /// `+0x82` set (`PerCellProcess 0x0051A45E`/`0x0073A75D` ->
 /// `SetInOpenTransport 0x00710470`), which takes the open-topped stage.
-fn fireat_damage(
+fn fire_damage_stages(
     world: &Simulation,
     rules: &RuleSet,
     snap: &AttackerSnapshot,
     obj: &ObjectType,
-    weapon: &crate::rules::weapon_type::WeaponType,
     is_garrison: bool,
-) -> i32 {
+) -> damage::attacker::FireDamageStages {
     use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
     let firer = world.substrate.entities.get(snap.stable_id);
     let f32_bits = |value: f32| NativeF32Bits::from_bits(value.to_bits());
     let multipliers = &rules.garrison_rules;
-    let stages = damage::attacker::FireDamageStages {
+    damage::attacker::FireDamageStages {
         house_firepower: firer
             .and_then(|firer| world.houses.get(&firer.owner()))
             .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
@@ -940,12 +939,52 @@ fn fireat_damage(
         ae_firepower: firer.map_or(1.0, |firer| firer.phobos_stat_multipliers().firepower),
         #[cfg(not(feature = "phobos"))]
         ae_firepower: 1.0,
-    };
+    }
+}
+
+#[cfg(test)]
+fn fireat_damage(
+    world: &Simulation,
+    rules: &RuleSet,
+    snap: &AttackerSnapshot,
+    obj: &ObjectType,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    is_garrison: bool,
+) -> i32 {
+    let stages = fire_damage_stages(world, rules, snap, obj, is_garrison);
     damage::attacker::fire_damage(
         weapon.damage,
         weapon.is_sonic || weapon.use_fire_particles,
         &stages,
     )
+}
+
+/// Phobos `BulletExt`'s construction-time `TechnoExt::GetCurrentFirepowerMultiplier`:
+/// unit (Techno+160, including Ares attachment), House, veteran FIREPOWER,
+/// then the occupied/bunker/open-topped stages, in the hook's order.
+#[cfg(feature = "phobos")]
+fn phobos_firepower_multiplier(
+    stages: &damage::attacker::FireDamageStages,
+) -> crate::util::native_x87::NativeF64Bits {
+    use crate::util::native_x87::MaskedX87Chop53 as X;
+    let mut value = X::load_f64(stages.unit_firepower);
+    value = X::mul(value, X::load_f64(stages.house_firepower));
+    value = X::mul(
+        value,
+        X::load_f64(crate::util::native_x87::NativeF64Bits::from_bits(
+            stages.ae_firepower.to_bits(),
+        )),
+    );
+    if let Some(rank) = stages.rank_firepower {
+        value = X::mul(value, X::load_f64(rank));
+    }
+    for multiplier in [stages.occupied, stages.bunkered, stages.open_topped]
+        .into_iter()
+        .flatten()
+    {
+        value = X::mul(value, X::load_f32(multiplier));
+    }
+    X::store_f64_masked_chop(value)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -1423,7 +1462,12 @@ pub(super) fn emit_admitted_fire(
         .get(snap.stable_id)
         .map_or(0, |entity| entity.prism_support_count.count());
     let warhead = selected.warhead;
-    let base_damage = fireat_damage(world, rules, snap, obj, weapon, is_garrison);
+    let damage_stages = fire_damage_stages(world, rules, snap, obj, is_garrison);
+    let base_damage = damage::attacker::fire_damage(
+        weapon.damage,
+        weapon.is_sonic || weapon.use_fire_particles,
+        &damage_stages,
+    );
     // FireAt6FE460..6FE4EF constructs a retained DiskLaser before GetROF,
     // advances the burst, stores the unhalved rearm, then calls Fire4A71A0
     // and returns NULL. Disk AI owns the later range/crash gate, discharge
@@ -1736,6 +1780,9 @@ pub(super) fn emit_admitted_fire(
             )
             .with_installed_weapon(Some(world.interner.intern(selected.weapon_id)))
             .with_damage_multiplier(damage_multiplier);
+            #[cfg(feature = "phobos")]
+            let payload =
+                payload.with_firepower_multiplier(phobos_firepower_multiplier(&damage_stages));
             // `BulletClass::Fire` (`0x006FF014`) at the launch source.
             super::admit_fired_bullet(
                 world,

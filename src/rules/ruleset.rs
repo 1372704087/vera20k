@@ -4532,6 +4532,10 @@ pub struct RuleSet {
     /// for the placement-time enhancer rings.
     #[cfg(feature = "phobos")]
     pub power_plant_enhancer: crate::rules::phobos_power_plant_enhancer::PowerPlantEnhancerGlobals,
+    /// Phobos `[CombatDamage]` airburst/splits defaults, consumed by the
+    /// projectile emitter's nullable type keys.
+    #[cfg(feature = "phobos")]
+    pub phobos_airburst: crate::rules::phobos_airburst::PhobosAirburstGlobals,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
@@ -6115,6 +6119,8 @@ impl RuleSet {
         let power_plant_enhancer =
             crate::rules::phobos_power_plant_enhancer::PowerPlantEnhancerGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let phobos_airburst = crate::rules::phobos_airburst::PhobosAirburstGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -6415,6 +6421,8 @@ impl RuleSet {
             fly_no_wobbles,
             #[cfg(feature = "phobos")]
             power_plant_enhancer,
+            #[cfg(feature = "phobos")]
+            phobos_airburst,
             #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
             #[cfg(feature = "ares")]
@@ -7840,6 +7848,72 @@ impl RuleSet {
         if !airburst_flags.is_empty() {
             b"airburst-retained-flag-v1".hash(&mut hasher);
             airburst_flags.hash(&mut hasher);
+        }
+        // Phobos airburst/splits inputs. Defaults leave the stock hash
+        // unchanged; any authored value must invalidate a save.
+        #[cfg(feature = "phobos")]
+        {
+            let phobos_projectiles =
+                self.projectiles
+                    .iter()
+                    .filter_map(|(id, projectile)| {
+                        let value = &projectile.phobos_airburst;
+                        (value != &crate::rules::phobos_airburst::PhobosAirburstType::default())
+                            .then(|| {
+                                let fields = (
+                                    (
+                                        value.splits,
+                                        value.airburst_spread.to_bits(),
+                                        value.retarget_accuracy.to_bits(),
+                                        value.retarget_self,
+                                        value.retarget_self_probability.to_bits(),
+                                    ),
+                                    (
+                                        value.around_target,
+                                        value.airburst_use_cluster,
+                                        value.airburst_random_clusters,
+                                        value.airburst_target_as_source,
+                                        value.airburst_target_as_source_skip_height,
+                                    ),
+                                    (
+                                        value.splits_targeting_distance,
+                                        value.splits_targeting_distance_cylindrical,
+                                        value.splits_allow_repeat_targets,
+                                        value.splits_target_cell_range,
+                                        value.splits_use_weapon_targeting,
+                                        value.airburst_weapon_apply_firepower_mult,
+                                        value.airburst_weapon_source_scatter_min,
+                                        value.airburst_weapon_source_scatter_max,
+                                        value.airburst_weapon_use_firing_effects,
+                                        value.airburst_weapon_head_to_target,
+                                        value.airburst_weapon_radial_fire_segments,
+                                        value.aa_only,
+                                    ),
+                                );
+                                (id.to_ascii_uppercase(), fields)
+                            })
+                    })
+                    .collect::<BTreeMap<_, _>>();
+            if !phobos_projectiles.is_empty() {
+                b"phobos-airburst-splits-v1".hash(&mut hasher);
+                phobos_projectiles.hash(&mut hasher);
+            }
+            if self.phobos_airburst != Default::default() {
+                b"phobos-airburst-globals-v1".hash(&mut hasher);
+                self.phobos_airburst.hash(&mut hasher);
+            }
+            let can_target_houses = self
+                .weapons
+                .iter()
+                .filter(|(_, weapon)| {
+                    weapon.can_target_houses() != crate::rules::phobos_shields::AffectedHouse::ALL
+                })
+                .map(|(id, weapon)| (id.to_ascii_uppercase(), weapon.can_target_houses().bits()))
+                .collect::<BTreeMap<_, _>>();
+            if !can_target_houses.is_empty() {
+                b"phobos-weapon-can-target-houses-v1".hash(&mut hasher);
+                can_target_houses.hash(&mut hasher);
+            }
         }
         self.super_weapons
             .iter()

@@ -75,6 +75,13 @@ const IO_PUMP_INTERVAL: Duration = Duration::from_millis(6);
 // Scope admission precedes every global/private ACK, sequence and receive cache.
 const LAN_SCOPE_MAGIC: &[u8; 4] = b"VLS\x01";
 const LAN_SCOPE_HEADER_LEN: usize = 4 + 16 + 8;
+// Explicit Leave is resent every 16 wall buckets (256 ms) until the relay
+// acknowledges it. A relay that answers none of these attempts (about a
+// minute) is gone or unreachable: release the route rather than block every
+// later online admission. The relay then treats the place as a lost
+// connection, and the next match's newer generation supersedes it
+// (services/relay/README.md).
+const RELAY_LEAVE_ATTEMPTS: u16 = 235;
 
 /// One admitted route progresses from the existing global loading channel to
 /// private gameplay. Loading peers may finish on different service passes.
@@ -839,6 +846,7 @@ struct RelayRoute {
 
 struct RelayRetirement {
     last_sent: Option<u32>,
+    attempts: u16,
 }
 
 struct PeerProbe {
@@ -1092,9 +1100,10 @@ impl UdpIo {
             route.renewing = None;
             route.peer_probes = None;
             route.ordering_inbox.clear();
-            route
-                .retiring
-                .get_or_insert(RelayRetirement { last_sent: None });
+            route.retiring.get_or_insert(RelayRetirement {
+                last_sent: None,
+                attempts: 0,
+            });
         } else {
             self.relay = None;
         }
@@ -1259,13 +1268,16 @@ impl UdpIo {
                 route.last_response = None;
             }
         }
+        let mut leave_unacknowledged = false;
         if let Some(route) = self.relay.as_mut() {
             if let Some(retiring) = route.retiring.as_mut() {
-                if retiring
+                let due = retiring
                     .last_sent
-                    .is_none_or(|last| now_ticks.wrapping_sub(last) >= 16)
-                {
+                    .is_none_or(|last| now_ticks.wrapping_sub(last) >= 16);
+                leave_unacknowledged = due && retiring.attempts == RELAY_LEAVE_ATTEMPTS;
+                if due && !leave_unacknowledged {
                     retiring.last_sent = Some(now_ticks);
+                    retiring.attempts += 1;
                     if let Err(error) = route
                         .session
                         .leave_ordering(&mut route.encoded)
@@ -1330,6 +1342,10 @@ impl UdpIo {
                     }
                 }
             }
+        }
+        if leave_unacknowledged {
+            log::warn!("The relay did not acknowledge leaving the online match.");
+            self.relay = None;
         }
         //Portable polling replaces Windows FD_WRITE notification timing.
         //Give each retained FIFO one write opportunity per pass; each later

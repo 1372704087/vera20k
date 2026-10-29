@@ -1005,6 +1005,21 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
     // framing cannot substitute a controlled-service progress row for it.
     let live = state.match_state.live_network.is_some();
     if live {
+        let frame = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map_or(0, |rt| rt.simulation.session().binary_frame());
+        if state
+            .match_state
+            .live_network
+            .as_ref()
+            .is_some_and(|live| exit_awaits_unreachable_relay(live, now_ms as u32, frame))
+        {
+            log::warn!("The relay is unreachable; leaving without the queued EXIT");
+            state.match_state.network_wait.wait = None;
+            return WaitPass::Leave;
+        }
         let info = state
             .match_state
             .live_network
@@ -1161,6 +1176,23 @@ pub(crate) fn service_wait(state: &mut AppState, now_ms: u64) -> WaitPass {
         return WaitPass::Running;
     }
     WaitPass::Waiting
+}
+
+/// VERA relay adaptation: Abort's EXIT reaches the other players only once
+/// the relay sequences it, none is submitted before the relay starts the
+/// match, and silence never fails a relay match. While a confirmed EXIT waits
+/// on an unreachable relay, the player leaves by Quit Game's route instead;
+/// the returned transport's relay Leave departs this source in the others'
+/// timeline. Dialog 0xEA stays off relay waits: its timeout and votes remove
+/// peers locally (`0x0064B410`), which only the relay may do in a relay match.
+fn exit_awaits_unreachable_relay(
+    live: &crate::net::live_commands::LiveCommandSession,
+    now_millis: u32,
+    frame: u32,
+) -> bool {
+    live.exit_requested()
+        && live.recovery_status(now_millis, frame)
+            == Some(crate::net::live_commands::NetworkRecoveryStatus::Reconnecting)
 }
 
 /// Quit Game 2 (`0x0064AE50` WM_COMMAND 2): the result cell becomes 2 and
@@ -1715,11 +1747,12 @@ mod tests {
         }
     }
 
-    /// Relay-ordered play: the committed departure already carried the shared
-    /// EVENT_REMOVEPLAYER, so DestroyConnection retires only this client's
-    /// connection and posts its line.
-    #[test]
-    fn relay_connection_loss_only_retires_the_local_connection() {
+    /// A started two-player WOL relay match whose relay never answers.
+    fn relay_fixture() -> (
+        MatchSession,
+        Simulation,
+        crate::net::live_commands::LiveCommandSession,
+    ) {
         use crate::net::reliable::{LanConnectionConfig, LanConnections, RetryTiming};
         use crate::net::udp::test_support::{SecretKey, derive_packet_key};
         use crate::net::udp::{
@@ -1740,7 +1773,6 @@ mod tests {
             .unwrap();
         session.freeze_network_start(19).unwrap();
         let local = sim.houses().order()[0];
-        let remote = sim.houses().order()[1];
         sim.session_mut_for_test().set_game_mode(SessionMode::Wol);
         sim.session_mut_for_test()
             .set_current_house_for_test(Some(local));
@@ -1811,6 +1843,28 @@ mod tests {
         .unwrap();
         assert!(live.uses_sequenced_lockstep());
         live.mark_sequenced_started_for_test();
+        (session, sim, live)
+    }
+
+    /// A confirmed Abort's EXIT needs the relay, also when it was queued
+    /// before the relay fell silent; after three silent seconds it leaves.
+    #[test]
+    fn a_queued_exit_leaves_only_once_the_relay_is_unreachable() {
+        let (_, _, mut live) = relay_fixture();
+        live.service_transport(0);
+        assert!(!exit_awaits_unreachable_relay(&live, 3_001, 0));
+        live.keep_running_for_exit();
+        assert!(!exit_awaits_unreachable_relay(&live, 3_000, 0));
+        assert!(exit_awaits_unreachable_relay(&live, 3_001, 0));
+    }
+
+    /// Relay-ordered play: the committed departure already carried the shared
+    /// EVENT_REMOVEPLAYER, so DestroyConnection retires only this client's
+    /// connection and posts its line.
+    #[test]
+    fn relay_connection_loss_only_retires_the_local_connection() {
+        let (mut session, mut sim, mut live) = relay_fixture();
+        let remote = sim.houses().order()[1];
         let removed = destroy_connection(
             &mut session,
             &mut sim,

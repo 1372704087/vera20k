@@ -263,9 +263,9 @@ upload is hash-checked before `map_available`. Authenticated room members use
 only roster/settings revisions preserves the blob. A map change or room cleanup
 removes it. Uploads/downloads have a separate 600-request/minute/player budget;
 ordinary commands and events share 600/minute/player. Action limits additionally
-bound starts to 12 per 10 minutes, chat to 30/minute and 24 KiB/minute, and room chat
-to 120/minute. Control payloads are bounded to 4 MiB/minute/player and room fanout
-to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
+bound starts to 12 per 10 minutes, relay renewals to 12/minute, chat to 30/minute and
+24 KiB/minute, and room chat to 120/minute. Control payloads are bounded to
+4 MiB/minute/player and room fanout to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
 host. German Bunker takes 120 joins/minute and each network 30 of them and 30 of its
 chats/minute; a game room takes 60 joins/minute. Re-joining the current room is free.
 Map upload/download bytes each have a 32 MiB/minute player budget, and so do the

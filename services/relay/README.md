@@ -79,7 +79,7 @@ Use them to distinguish rate limits, expired grants and authentication failures
 from packet loss and client timeouts.
 
 Modern ordering uses authenticated control kind4 and a lobby-signed `VO1C`
-certificate (see `../lobby/protocol.md`). Every source that becomes ready
+certificate (see `../../docs/lobby-protocol.md`). Every source that becomes ready
 certifies the same initial world; fixed FPS deadlines then commit encrypted
 batches sorted by source and
 batch ID, followed by an explicit frame end. An absent input contributes nothing.
@@ -115,7 +115,7 @@ resume a game;
 the last explicit Leave appends a resume marker so the departure tail can finish.
 
 A federated match spreads its sources over up to six relays, each serving the
-players nearest it. The lobby-signed `VO1F` roster (see `../lobby/protocol.md`)
+players nearest it. The lobby-signed `VO1F` roster (see `../../docs/lobby-protocol.md`)
 rides in every CONFIRM after the cookie; a relay admits only the sources its
 own roster entry homes and recovers the match link key with its ticket key. Each
 relay seals its own players' entries at the shared frame deadlines and sends

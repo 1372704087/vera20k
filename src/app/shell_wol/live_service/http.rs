@@ -233,7 +233,7 @@ enum RequestFailure {
         code: u32,
     },
     AlreadyFinished,
-    /// 426 `upgrade_required` (services/lobby/protocol.md), with the lobby's
+    /// 426 `upgrade_required` (docs/lobby-protocol.md), with the lobby's
     /// message when it is one short line of plain text.
     UpgradeRequired(Option<String>),
 }
@@ -417,7 +417,7 @@ impl Client {
                 concat!("VERA20k/", env!("CARGO_PKG_VERSION"), " multiplayer-client"),
             );
             if path == "/v1/sessions" {
-                // Its relay CONFIRM carries a federation roster; see services/lobby.
+                // Its relay CONFIRM carries a federation roster; see docs/lobby-protocol.md.
                 request = request.header("Vera-Relay-Federation", "1");
             }
             if let Some(token) = &self.token {
@@ -548,7 +548,7 @@ macro_rules! serial_driver {
     $($asynchronous)? fn session_failed(&mut self, error: RequestFailure, output: &Sender<Response>) -> bool {
         if let RequestFailure::UpgradeRequired(message) = error {
             // The lobby keeps serving an outdated session's events, finish,
-            // leave and logout (services/lobby/service.js), so it stays.
+            // leave and logout (docs/lobby-protocol.md), so it stays.
             let _ = output.send(Response::Outdated { message });
             return false;
         }

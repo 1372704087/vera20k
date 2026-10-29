@@ -58,6 +58,9 @@ twice, so one lost uplink datagram does not hold it and every later batch for
 the 100 ms retry.
 Frames use the existing Event codec and simulation queues, with a fresh compression
 cache per self-contained encrypted batch. The relay never receives payload keys.
+A batch that fails the payload key's authentication or does not decode makes its
+sender leave at that frame on every client, as if by Leave; the rest of its
+stream is ignored.
 
 Clients negotiate server-pushed updates from that same retained history. Healthy
 clients send cumulative receive watermarks instead of continually requesting new

@@ -174,6 +174,9 @@ pub(super) struct SequencedSession {
     assembling: CommittedFrame,
     frames: VecDeque<CommittedFrame>,
     last_batch: [u64; 30],
+    // Sources whose batch could not be read; each departed at that batch's
+    // frame and the rest of its stream is ignored.
+    refused: u32,
     next_batch: u64,
     accepted_batch: u64,
     submissions: VecDeque<Submission>,
@@ -267,6 +270,7 @@ impl SequencedSession {
             },
             frames: VecDeque::new(),
             last_batch: [0; 30],
+            refused: 0,
             next_batch: 1,
             accepted_batch: 0,
             submissions: VecDeque::new(),
@@ -721,7 +725,31 @@ impl SequencedSession {
                     self.last_batch[usize::from(source)] = batch_id;
                     let house =
                         self.houses[usize::from(source)].ok_or(SequencedError::InvalidTimeline)?;
-                    let (records, report) = decode_batch(bytes.as_bytes(), house, frame)?;
+                    if self.refused & 1 << source != 0 {
+                        continue;
+                    }
+                    let decoded = bytes
+                        .as_ref()
+                        .and_then(|bytes| decode_batch(bytes.as_bytes(), house, frame).ok());
+                    let Some((records, report)) = decoded else {
+                        // VERA relay adaptation: every client reads the same
+                        // ordered bytes, so each refuses the same batch. Its
+                        // sender leaves at this frame, as by Leave, instead
+                        // of one bad batch ending the match for everyone.
+                        log::warn!(
+                            "Relay source {source} sent an unreadable batch; it leaves at frame {frame}."
+                        );
+                        self.refused |= 1 << source;
+                        self.assembling.records.push(
+                            ExitRecord {
+                                house_id: house,
+                                frame,
+                            }
+                            .encode()
+                            .map_err(|_| SequencedError::InvalidTimeline)?,
+                        );
+                        continue;
+                    };
                     if self.assembling.records.len() + records.len() > MAX_FRAME_RECORDS {
                         return Err(SequencedError::QueueFull);
                     }
@@ -739,6 +767,10 @@ impl SequencedSession {
                     }
                     let house =
                         self.houses[usize::from(source)].ok_or(SequencedError::InvalidTimeline)?;
+                    if self.refused & 1 << source != 0 {
+                        // It already left at its refused batch.
+                        continue;
+                    }
                     let record = if lost {
                         // Silence ended this place: native connection loss.
                         // DestroyConnection(house, 1) (0x005DA750) sends
@@ -1160,5 +1192,137 @@ mod departure_tests {
                 (vec![(EXIT_OPCODE, 2, 0)], vec![]),
             ]
         );
+    }
+
+    /// A batch the payload key cannot open departs its sender in its frame
+    /// instead of leaving a sequence gap that every pull repeats.
+    #[test]
+    fn an_unreadable_batch_departs_its_sender_in_its_frame() {
+        let mut houses = [None; 30];
+        houses[..2].copy_from_slice(&[Some(0), Some(1)]);
+        let mut session = SequencedSession::with_roster(houses, 0, [0; 32], 30);
+        for event in [
+            OrderEntry::FrameEnd {
+                sequence: 1,
+                frame: 1,
+            },
+            OrderEntry::Batch {
+                sequence: 2,
+                frame: 2,
+                source: 1,
+                batch_id: 1,
+                bytes: None,
+            },
+            OrderEntry::FrameEnd {
+                sequence: 3,
+                frame: 2,
+            },
+        ] {
+            session
+                .receive(OrderEvent::Entry(event), Instant::now())
+                .unwrap();
+        }
+        session.assemble().unwrap();
+        let frames: Vec<_> = session
+            .frames
+            .iter()
+            .map(|frame| {
+                let records: Vec<_> = frame
+                    .records
+                    .iter()
+                    .map(|record| (record.opcode(), record.house_id()))
+                    .collect();
+                (frame.frame, records)
+            })
+            .collect();
+        assert_eq!(frames, [(1, vec![]), (2, vec![(EXIT_OPCODE, 1)])]);
+    }
+
+    /// A batch whose contents do not decode ends only its sender's place: it
+    /// leaves at that frame and its later batches and departure are ignored.
+    #[test]
+    fn a_malformed_batch_departs_its_sender_instead_of_ending_the_match() {
+        use std::net::{Ipv4Addr, SocketAddrV4};
+        use vera20k_relay_protocol::{
+            ClientSession, RelayServer, SecretKey, ServerEvent, Ticket, derive_packet_key,
+        };
+        let key = SecretKey::new([5; 32]);
+        let mut server = RelayServer::new(key.clone(), 1);
+        let mut events = |client: &mut ClientSession, bytes: &[u8], now_ms| {
+            let from = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 31000 + u16::from(client.source()));
+            let replies = server.process_at(from, bytes, 1000 + now_ms / 1000, now_ms);
+            replies
+                .unwrap()
+                .into_iter()
+                .filter_map(|reply| match client.receive(&reply.bytes).unwrap() {
+                    ServerEvent::Ordering(event) => Some(Ok(event)),
+                    ServerEvent::Challenge(cookie) => Some(Err(cookie.to_vec())),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let certificate = OrderingCertificate {
+            room: [9; 16],
+            sources_mask: 3,
+            tick_hz: 30,
+            expires: 2000,
+        }
+        .sign(&key)
+        .unwrap();
+        let mut clients: Vec<_> = (0..2u8)
+            .map(|source| {
+                let ticket = Ticket {
+                    room: [9; 16],
+                    player: [source + 1; 16],
+                    source,
+                    generation: 1,
+                    expires: 1200,
+                    nonce: [source + 1; 16],
+                }
+                .sign(&key)
+                .unwrap();
+                let packet_key = *derive_packet_key(&key, &ticket).expose_for_https();
+                ClientSession::new(&ticket, packet_key, [7; 32]).unwrap()
+            })
+            .collect();
+        let mut bytes = Vec::new();
+        for client in &mut clients {
+            client.probe(&mut bytes).unwrap();
+            let [Err(cookie)] = &events(client, &bytes, 0)[..] else {
+                panic!("challenge");
+            };
+            client.confirm(&cookie.clone(), &mut bytes).unwrap();
+            events(client, &bytes, 0);
+            client
+                .configure_ordering(&certificate, [7; 32], &mut bytes)
+                .unwrap();
+            events(client, &bytes, 0);
+        }
+        for batch_id in 1..=2 {
+            clients[1]
+                .submit_ordering(batch_id, b"not a batch", &mut bytes)
+                .unwrap();
+            events(&mut clients[1], &bytes, 0);
+        }
+        clients[1].leave_ordering(&mut bytes).unwrap();
+        events(&mut clients[1], &bytes, 100);
+        clients[0].pull_ordering(1, &mut bytes).unwrap();
+        let mut houses = [None; 30];
+        houses[..2].copy_from_slice(&[Some(0), Some(1)]);
+        let mut session = SequencedSession::with_roster(houses, 0, [7; 32], 30);
+        for event in events(&mut clients[0], &bytes, 300) {
+            if let Ok(event @ OrderEvent::Entry(_)) = event {
+                session.receive(event, Instant::now()).unwrap();
+            }
+        }
+        session.assemble().unwrap();
+        let records: Vec<_> = session
+            .frames
+            .iter()
+            .flat_map(|frame| &frame.records)
+            .map(|record| (record.opcode(), record.house_id()))
+            .collect();
+        assert!(session.frames.len() > 2);
+        assert_eq!(records, [(EXIT_OPCODE, 1)]);
     }
 }

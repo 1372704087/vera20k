@@ -58,6 +58,9 @@ impl App {
     /// stops the elapsed clock, theme, sounds and speech before
     /// Start_Scenario).
     fn retire_running_scenario(state: &mut AppState) {
+        // Shell return and campaign restart both end the installed match.
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
         state.match_state.input.planning.reset();
         let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         crate::app::radar_movie::retire(state, wall_ms);
@@ -87,6 +90,7 @@ impl App {
         state.match_state.match_presentation.saved_game_browser = None;
         state.match_state.network_wait = Default::default();
         state.match_state.network_failure = None;
+        state.match_state.frame_stopped = false;
         crate::app::lan_service::return_transport(state);
         // Persist the deterministic diagnostic log before leaving the scenario.
         // Runtime and presentation resources remain retained in the shell.
@@ -716,6 +720,16 @@ impl App {
             log::error!("Scenario exit finished without a destination");
             return;
         };
+        // Browser launchers own their result UI. Snapshot before teardown;
+        // external launches skip score/movie/next-mission presentation.
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
+            if state.frontend.external_launch {
+                Self::return_to_main_menu(state);
+                return;
+            }
+        }
         let movie = state.process_assets.native_rules().and_then(|rules| {
             crate::app::campaign_victory::win_movie(
                 &destination,

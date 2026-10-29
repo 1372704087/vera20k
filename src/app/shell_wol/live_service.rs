@@ -41,6 +41,13 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STATS_INTERVAL: Duration = Duration::from_secs(30);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
+/// Gameplay grants (timing confirmation, `relay_renewed`, match resume) are
+/// issued for GRANT_SECONDS (services/lobby/service.js relayGrant). Their
+/// `expires` is lobby wall time; a local clock running slow would renew after
+/// the relay already rejects the ticket, so renewal is timed from receipt.
+const RELAY_GRANT_LIFETIME: Duration = Duration::from_secs(300);
+/// protocol.md: renew before the remaining ticket lifetime falls below 30 s.
+const RELAY_RENEWAL_MARGIN: Duration = Duration::from_secs(30);
 
 /// The departing visit's same HTTP/cleanup owner survives the menu teardown.
 /// Native WOL_Main77B532 releases WOLAPI786080 after logout785EA0. VERA's
@@ -248,6 +255,8 @@ pub(super) struct LiveService {
     leaving: Option<RetryingCommand>,
     logging_out: Option<RetryingCommand>,
     next_renewal_attempt: Option<Instant>,
+    /// Monotonic renewal deadline of the newest gameplay grant received.
+    relay_renewal_due: Option<Instant>,
     maps: maps::Transfers,
     translations: Translations,
     /// A match an external launcher formed (docs/spawn.md): adopted bearer,
@@ -260,6 +269,18 @@ pub(super) struct LiveService {
     /// Each admission barrier's client deadline; `[Relay] AdmissionTimeout`
     /// for a spawned match.
     relay_timeout: Duration,
+    /// The sign-in (`auth_attempt`) that already showed its lobby-upgrade notice.
+    outdated_notice: Option<u64>,
+}
+
+/// Where players download a newer build (README "Download and play").
+const RELEASES_URL: &str = "https://github.com/YuriPlanet/vera20k/releases";
+
+/// The lobby's own 426 reason when it gave a plain one, then where to get a
+/// newer build.
+fn update_required_text(message: Option<&str>) -> String {
+    let reason = message.unwrap_or("Update VERA20k to use secure online multiplayer.");
+    format!("{reason} {RELEASES_URL}")
 }
 
 /// The external launch's online visit: once its match ends or admission
@@ -511,12 +532,23 @@ impl LiveService {
             leaving: None,
             logging_out: None,
             next_renewal_attempt: None,
+            relay_renewal_due: None,
             maps: Default::default(),
             translations: Translations::default(),
             spawned: false,
             finish_result: None,
             finish_opponents_left: false,
             relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
+        })
+    }
+
+    /// The first lobby-upgrade refusal of this sign-in, as one notice; the
+    /// sign-in's later refused requests add none.
+    fn outdated_notice(&mut self, message: Option<&str>) -> Option<String> {
+        (self.outdated_notice != Some(self.auth_attempt)).then(|| {
+            self.outdated_notice = Some(self.auth_attempt);
+            update_required_text(message)
         })
     }
 
@@ -558,6 +590,7 @@ impl LiveService {
             return;
         }
         self.next_renewal_attempt = None;
+        self.relay_renewal_due = None;
         self.finishing = Some(RetryingCommand::new(self.next_request, now));
         let payload = self.finish_payload(&match_id);
         self.command("finish", payload);
@@ -655,6 +688,29 @@ impl LiveService {
         self.logging_out = None;
         self.match_id = None;
         self.next_renewal_attempt = None;
+        self.relay_renewal_due = None;
+    }
+
+    /// A gameplay grant reached its UDP owner at `now`.
+    fn relay_granted(&mut self, now: Instant) {
+        self.relay_renewal_due = Some(now + RELAY_GRANT_LIFETIME - RELAY_RENEWAL_MARGIN);
+    }
+
+    fn poll_renewal(&mut self, now: Instant) {
+        if self.finishing.is_some() {
+            return;
+        }
+        let (Some(match_id), Some(due)) = (self.match_id.as_ref(), self.relay_renewal_due) else {
+            return;
+        };
+        // Short-lived grants renew before expiry. Retry a missing reply without
+        // replacing the live route or resetting the event cursor.
+        if now < due || self.next_renewal_attempt.is_some_and(|next| now < next) {
+            return;
+        }
+        let match_id = match_id.clone();
+        self.next_renewal_attempt = Some(now + Duration::from_secs(10));
+        self.command("renew_relay", json!({"match_id":match_id}));
     }
 
     fn admission_blocked(&self) -> bool {
@@ -900,7 +956,9 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         if !service.spawned && service.pending.is_none() && service.match_id.is_none() {
             maps::poll(state, &mut service);
         }
-        poll_renewal(state, &mut service);
+        if crate::app::lan_service::has_online_relay_route(state) {
+            service.poll_renewal(Instant::now());
+        }
         if service.spawned {
             poll_spawned_exit(state, &mut service);
         } else {
@@ -1564,14 +1622,19 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(code)));
         }
-        http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
+        http::Response::UpgradeRequired { attempt, message } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
             // The login has no lobby yet, so a chat line would be lost: the
             // failure's own box says why.
-            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
-            if !super::service::replace_open_box_body(state, UPDATE) {
-                notice(state, UPDATE);
+            let text = update_required_text(message.as_deref());
+            if !super::service::replace_open_box_body(state, &text) {
+                notice(state, &text);
+            }
+        }
+        http::Response::Outdated { message } => {
+            if let Some(text) = service.outdated_notice(message.as_deref()) {
+                notice(state, &text);
             }
         }
         http::Response::Channels(list) => service_event(
@@ -1838,33 +1901,6 @@ pub(crate) fn decode_external_relay_grant(
     )
 }
 
-fn poll_renewal(state: &AppState, service: &mut LiveService) {
-    if service.finishing.is_some() {
-        return;
-    }
-    let Some(match_id) = service.match_id.as_ref() else {
-        return;
-    };
-    let Some(expires) = crate::app::lan_service::online_relay_expires(state) else {
-        return;
-    };
-    let unix_now = crate::util::time::SystemTime::now()
-        .duration_since(crate::util::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    let now = Instant::now();
-    // Short-lived grants renew before expiry. Retry a missing reply without
-    // replacing the live route or resetting the event cursor.
-    if unix_now.saturating_add(30) < expires
-        || service.next_renewal_attempt.is_some_and(|next| now < next)
-    {
-        return;
-    }
-    let match_id = match_id.clone();
-    service.next_renewal_attempt = Some(now + Duration::from_secs(10));
-    service.command("renew_relay", json!({"match_id":match_id}));
-}
-
 fn apply_event(
     state: &mut AppState,
     service: &mut LiveService,
@@ -1892,6 +1928,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
+            service.relay_granted(Instant::now());
         }
         "joined" | "created" => {
             let joined: wire::Joined = decode(payload)?;
@@ -2238,6 +2275,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
+            service.relay_granted(Instant::now());
             crate::app::lan_service::apply_online_timing(state, &timing.pings)?;
             let count = state
                 .match_state
@@ -2522,9 +2560,9 @@ pub(crate) fn begin_spawned_match(
     admitted
 }
 
-/// Browser repeat launches (docs/spawn.md): drop an ended external
-/// launch's online visit, handing its worker to the ordinary cleanup owner
-/// so an unacknowledged `finish` still settles. No-op for other visits.
+/// Browser engine exit: retire the external launch's online visit through
+/// the ordinary cleanup owner, so an unacknowledged `finish` still settles
+/// before notifying the host and stopping the event loop.
 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
 pub(crate) fn discard_spawned_visit(state: &mut AppState) {
     if !super::spawned_visit(state) {
@@ -2706,14 +2744,34 @@ mod completion_tests {
             leaving: None,
             logging_out: None,
             next_renewal_attempt: None,
+            relay_renewal_due: None,
             maps: Default::default(),
             translations: Translations::default(),
             spawned: false,
             finish_result: None,
             finish_opponents_left: false,
             relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
         };
         (service, input, output)
+    }
+
+    #[test]
+    fn lobby_upgrade_notice_names_the_download_once_per_sign_in() {
+        let (mut service, _input, _output) = control_service(None);
+        let reason = "Online play needs VERA20k 0.3.0 or newer.";
+        assert_eq!(
+            service.outdated_notice(Some(reason)).as_deref(),
+            Some(format!("{reason} {RELEASES_URL}").as_str())
+        );
+        assert_eq!(service.outdated_notice(Some(reason)), None);
+        service.auth_attempt += 1;
+        assert_eq!(
+            service.outdated_notice(None).as_deref(),
+            Some(
+                format!("Update VERA20k to use secure online multiplayer. {RELEASES_URL}").as_str()
+            )
+        );
     }
 
     fn finish_payload_sent(service: &mut LiveService, input: &Receiver<http::Request>) -> Value {
@@ -2756,6 +2814,33 @@ mod completion_tests {
         assert_eq!(retry, payload);
         spawned.finish_opponents_left = true;
         assert_eq!(spawned.finish_payload("m")["opponents_left"], json!(true));
+    }
+
+    #[test]
+    fn relay_renewal_is_timed_from_grant_receipt_not_the_wall_clock() {
+        // A slow local clock made the ticket's lobby-time expiry look distant,
+        // so renewal was requested only after the relay rejected the ticket.
+        let (mut service, input, _output) = control_service(Some("renew-match"));
+        let received = Instant::now();
+        service.relay_granted(received);
+        service.poll_renewal(received + Duration::from_secs(269));
+        assert!(input.try_recv().is_err());
+        let due = received + Duration::from_secs(270);
+        service.poll_renewal(due);
+        let http::Request::Command {
+            operation, payload, ..
+        } = input.try_recv().unwrap()
+        else {
+            panic!("renewal command");
+        };
+        assert_eq!(
+            (operation, payload),
+            ("renew_relay", json!({"match_id":"renew-match"}))
+        );
+        // The reply's fresh grant moves the deadline a full lifetime on.
+        service.relay_granted(due + Duration::from_secs(1));
+        service.poll_renewal(due + Duration::from_secs(11));
+        assert!(input.try_recv().is_err());
     }
 
     #[test]

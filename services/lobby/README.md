@@ -52,6 +52,14 @@ Operators can post one notice into the lobby chat. Add `ADMIN_KEY`, a random
 secret of at least 32 characters (`openssl rand -hex 32`), to the same secrets
 file and keep a copy with the relay key; without it the endpoint does not exist.
 
+A browser gateway (`tools/wasm/gateway`) proxies its players' requests from its
+own address. Add `GATEWAY_KEY`, a random secret of at least 32 characters, to the
+secrets file and give the gateway the same value as `VERA_GATEWAY_KEY`. Requests
+carrying it in `Vera-Gateway-Key` name the player's address in
+`Vera-Client-Address`, which then keys that player's per-network limits. Without
+the secret, or from any other sender, the named address is ignored and the
+gateway's players share its address.
+
 ```sh
 curl https://lobby.vera20k.org/v1/admin/notice -H "Authorization: Bearer $ADMIN_KEY" \
   -H 'Content-Type: application/json' -d '{"text":"Server restart at 20:00 UTC.","minutes":60}'
@@ -60,7 +68,7 @@ curl https://lobby.vera20k.org/v1/admin/notice -H "Authorization: Bearer $ADMIN_
 The notice appears as public chat from `VERA20k`: at once for players in German
 Bunker or a game room that has not started, and for the others when they next
 enter German Bunker, until it expires. A new notice replaces it and
-`{"minutes":0}` clears it. Players who show only buddy or clan chat don't see it.
+`{"minutes":0}` clears it.
 
 The client defaults to the deployed lobby at `https://lobby.vera20k.org`, the
 Worker's custom domain. Its workers.dev and preview URLs stay off because their

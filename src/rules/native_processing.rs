@@ -10,6 +10,7 @@ use crate::rules::ares_prerequisites::GenericPrerequisites;
 use crate::rules::armor::ArmorId;
 #[cfg(not(feature = "ares"))]
 use crate::rules::armor::armor_index;
+use crate::rules::attach_effect::AttachEffectTypeCatalog;
 use crate::rules::color_add::{ColorAddSelectors, ColorAddTable};
 use crate::rules::compatibility::RulesCompatibility;
 use crate::rules::crate_rules::CrateRules;
@@ -723,6 +724,16 @@ impl ProcessedRulesLayers {
             .as_ref()
     }
 
+    /// Phobos `[AttachEffectTypes]` catalog with the same retained process
+    /// lifetime as Types.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn attach_effect_types(&self) -> Option<&AttachEffectTypeCatalog> {
+        self.native_type_construction_trace
+            .registry_state
+            .phobos_attach_effect_types
+            .as_ref()
+    }
+
     /// Read-only projection of the retained registry's build capability.
     pub(crate) fn compatibility(&self) -> RulesCompatibility {
         self.native_type_construction_trace
@@ -1060,6 +1071,8 @@ impl ProcessedRulesLayers {
         registry.validate_shield_types()?;
         #[cfg(feature = "phobos")]
         registry.validate_digital_display_types()?;
+        #[cfg(feature = "phobos")]
+        registry.validate_attach_effect_types()?;
         let families = &registry.families;
         let projectile_count = families
             .get(&RulesTypeFamily::Projectile)
@@ -3344,6 +3357,8 @@ pub(crate) struct NativeRulesRegistryState {
     phobos_shield_types: Option<ShieldTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
+    /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
+    phobos_attach_effect_types: Option<AttachEffectTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     families: HashMap<RulesTypeFamily, Vec<ProcessedType>>,
@@ -3445,6 +3460,8 @@ impl Default for NativeRulesRegistryState {
             phobos_shield_types: crate::rules::PHOBOS_ENABLED.then(ShieldTypeCatalog::default),
             phobos_digital_display_types: crate::rules::PHOBOS_ENABLED
                 .then(DigitalDisplayTypeCatalog::default),
+            phobos_attach_effect_types: crate::rules::PHOBOS_ENABLED
+                .then(AttachEffectTypeCatalog::default),
             #[cfg(feature = "ares")]
             ares_global_controls: AresGlobalControls::default(),
             families: HashMap::new(),
@@ -3608,6 +3625,16 @@ impl NativeRulesRegistryState {
         if self.phobos_shield_types.is_some() != crate::rules::PHOBOS_ENABLED {
             return Err(RulesError::InvalidSavedState(
                 "saved shield type catalog does not match the compiled capability",
+            ));
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "phobos")]
+    fn validate_attach_effect_types(&self) -> Result<(), RulesError> {
+        if self.phobos_attach_effect_types.is_some() != crate::rules::PHOBOS_ENABLED {
+            return Err(RulesError::InvalidSavedState(
+                "saved attach effect type catalog does not match the compiled capability",
             ));
         }
         Ok(())
@@ -4945,6 +4972,8 @@ struct RulesPassProcessor {
     phobos_shield_types: Option<ShieldTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
+    /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
+    phobos_attach_effect_types: Option<AttachEffectTypeCatalog>,
     #[cfg(feature = "ares")]
     ares_global_controls: AresGlobalControls,
     ordinary: Option<IniFile>,
@@ -5029,6 +5058,7 @@ impl RulesPassProcessor {
             phobos_radiation_types: registry_state.phobos_radiation_types,
             phobos_shield_types: registry_state.phobos_shield_types,
             phobos_digital_display_types: registry_state.phobos_digital_display_types,
+            phobos_attach_effect_types: registry_state.phobos_attach_effect_types,
             #[cfg(feature = "ares")]
             ares_global_controls: registry_state.ares_global_controls,
             families: registry_state.families,
@@ -5130,6 +5160,11 @@ impl RulesPassProcessor {
         self.allocate_general_references(pass);
         #[cfg(feature = "ares")]
         self.ares_global_controls.read_before_type_data(pass);
+        // Phobos `AttachEffectTypeClass::LoadFromINI`'s `Read<true>` type
+        // factories run before this pass's type bodies, so a WeaponType or
+        // WarheadType only an AttachEffect key names is read in this pass.
+        #[cfg(feature = "phobos")]
+        self.allocate_attach_effect_references(pass);
         self.process_type_data(pass, fixed_art, fixed_eva, primary_rules);
         // RulesExt LoadAfterTypeData: installed679CAF ->1002C9B0 ->1002AAF0
         // ->1002A800 reads HSBuilding at1002A8DD with the BuildingType
@@ -5191,6 +5226,8 @@ impl RulesPassProcessor {
         self.allocate_shield_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_digital_display_types(pass);
+        #[cfg(feature = "phobos")]
+        self.allocate_attach_effect_types(pass);
         // Elevation and Wall contain no Type factories.
         self.allocate_audio_visual_references(pass);
         self.process_special_weapons(pass);
@@ -7701,6 +7738,18 @@ impl RulesPassProcessor {
                     )
                     .map(|value| NativeF64Bits::from_bits(value.to_bits()));
                 }
+                #[cfg(feature = "phobos")]
+                {
+                    // Phobos `Crit.Warhead` is read with `Read<true>`, so the
+                    // warhead it names is allocated here even when no other
+                    // key lists it; the type body then reads like any other.
+                    let _ = self.resolve_scalar_from(
+                        &raw,
+                        "Crit.Warhead",
+                        RulesTypeFamily::Warhead,
+                        0x80,
+                    );
+                }
             }
             #[cfg(feature = "ares")]
             {
@@ -8067,6 +8116,67 @@ impl RulesPassProcessor {
         }
     }
 
+    /// The `Read<true>` type factories of `AttachEffectTypeClass::LoadFromINI`
+    /// (`ExpireWeapon`, `RevengeWeapon`, `ReflectDamage.Warhead`), run ahead of
+    /// the type-body pass so those types are constructed and read this pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_attach_effect_references(&mut self, pass: &IniFile) {
+        let Some(list) = pass.section("AttachEffectTypes") else {
+            return;
+        };
+        for key in list.physical_keys() {
+            let Some(name) = list.read_name(key, 2048) else {
+                continue;
+            };
+            let section = pass.section(name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            for weapon_key in ["ExpireWeapon", "RevengeWeapon"] {
+                if let Some(weapon) = section.read_type_name(weapon_key, 0x100) {
+                    self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+                }
+            }
+            if let Some(warhead) = section.read_type_name("ReflectDamage.Warhead", 0x100) {
+                self.find_or_allocate(RulesTypeFamily::Warhead, warhead);
+            }
+        }
+    }
+
+    /// Phobos `AttachEffectTypeClass::LoadFromINIList` + each type's
+    /// `LoadFromINI`, reached on every Rules pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_attach_effect_types(&mut self, pass: &IniFile) {
+        let Some(mut catalog) = self.phobos_attach_effect_types.take() else {
+            return;
+        };
+        catalog.apply_pass(pass);
+        // Phobos `Valueable<WeaponTypeClass*>::Read<true>` (`ExpireWeapon`,
+        // `RevengeWeapon`) and `Nullable<WarheadTypeClass*>` (`ReflectDamage.
+        // Warhead`) call their factories while the type's section is read, so
+        // this pass's type-body reads reach types only these keys name.
+        for entry in catalog.types() {
+            for name in [
+                entry.expire_weapon.as_deref(),
+                entry.revenge_weapon.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            {
+                self.find_or_allocate(RulesTypeFamily::Weapon, name);
+            }
+            if let Some(name) = entry.reflect_damage_warhead.as_deref() {
+                self.find_or_allocate(RulesTypeFamily::Warhead, name);
+            }
+        }
+        self.phobos_attach_effect_types = Some(catalog);
+    }
+
     fn allocate_audio_visual_references(&mut self, pass: &IniFile) {
         let Some(section) = pass.section("AudioVisual") else {
             return;
@@ -8263,6 +8373,7 @@ impl RulesPassProcessor {
                     phobos_radiation_types: self.phobos_radiation_types,
                     phobos_shield_types: self.phobos_shield_types,
                     phobos_digital_display_types: self.phobos_digital_display_types,
+                    phobos_attach_effect_types: self.phobos_attach_effect_types,
                     #[cfg(feature = "ares")]
                     ares_global_controls: self.ares_global_controls,
                     families: self.families,

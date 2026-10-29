@@ -233,7 +233,8 @@ impl Simulation {
             true,
             (RAD_NO_ATTACKER, None, warhead_ref),
             effects,
-        );
+        )
+        .bridge_state_changed;
         //74A1F6..225 reloads the shared Type value after the nested area.
         let damage = self.voxel_type_damage(type_id, rules);
         self.combat_light_requests.emit(CombatLightRequest::Impact {

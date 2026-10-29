@@ -1708,13 +1708,13 @@ fn emit_building_anims(
         // Preserve the existing body's color-word path. The shared pass
         // builder clears it independently for the later shadow.
         let policy = BlitPolicy::z_read(SpriteEncoding::Plain);
-        // AnimClass::Draw's tint hook (`0x00423420`) ORs the custom shield
-        // tint into the building anim's colour word independently of the
-        // ShouldUseCellDrawer intensity arm.
-        let shield_word = rules.map_or(0, |rules| {
-            crate::app::presentation::lighting::shield_tint(building, sim, rules).0
+        // AnimClass::Draw's tint hook (`0x00423420`) ORs the owner's custom
+        // tint (shield and AttachEffect) into the building anim's colour word
+        // independently of the ShouldUseCellDrawer intensity arm.
+        let custom_word = rules.map_or(0, |rules| {
+            crate::app::presentation::lighting::custom_tint(building, sim, rules).0
         });
-        let palette_light = palette_light.with_colour_word(anim_word(anim_id) | shield_word);
+        let palette_light = palette_light.with_colour_word(anim_word(anim_id) | custom_word);
         // DrawIt422CA0 -> 4AED70 retains the Anim's Convert selector. Reducing
         // it to alpha loses the indexed palette/A lookup and packed RGB565
         // blend (spatial_oracle/building_anim_translucency). The inherited

@@ -413,6 +413,7 @@ fn ignore_defenses_skips_the_shield_stage() {
         &rules,
         &sim.interner,
         &sim.houses,
+        target.phobos_armor_multiplier(),
     );
     assert!(
         pre_receive_damage(&mut sim, &rules, &event, input, &divisors).is_none(),
@@ -445,6 +446,7 @@ fn pre_stage_absorbs_before_the_receiver() {
         &rules,
         &sim.interner,
         &sim.houses,
+        target.phobos_armor_multiplier(),
     );
     let receipt = pre_receive_damage(&mut sim, &rules, &event, input, &divisors)
         .expect("a shield owns the hit");
@@ -515,6 +517,7 @@ fn the_wave_preview_reports_the_surviving_damage_without_consuming_the_shield() 
         &rules,
         &sim.interner,
         &sim.houses,
+        target.phobos_armor_multiplier(),
     );
     let receipt =
         pre_receive_damage(&mut sim, &rules, &event, 40, &divisors).expect("a shield owns the hit");

@@ -1428,8 +1428,17 @@ pub enum ProjectileDetonationReason {
     /// straight to `DetonateAtCoord` (`0x0070D782`): one detonation, without
     /// the BulletClass cluster loop and its draws.
     DeathWeapon,
+    /// Phobos `BulletExt::Detonate` (an AttachEffect `ExpireWeapon`,
+    /// `RevengeWeapon` or `ReflectDamage` shot): the bullet is created at the
+    /// shot's coordinates and exploded at once, so it takes no cluster loop
+    /// but keeps its real impact coordinate.
+    AttachEffectShot,
     /// A `NUKE` impact's wait ended: its anim is gone (`0x00466771`).
     AnimEnded,
+    /// Phobos `ApplyCrit`'s `Crit.Warhead_FullDetonation` arm:
+    /// `WarheadTypeExt::DetonateAt` builds a bullet with no weapon type and
+    /// explodes it at the target (`Ext/WarheadType/Body.cpp:102..110`).
+    CritWarhead,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

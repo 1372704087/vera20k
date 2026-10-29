@@ -105,10 +105,21 @@ pub(crate) fn select(
     damage: i32,
     land: i32,
     coordinate: ProjectileCoord,
+    crit_active: bool,
 ) -> Option<InternedId> {
     if damage == 0 {
         return None;
     }
+    // Phobos `SelectDamageAnimation_NegativeZeroDamage` (`0x48A4F3`): a
+    // negative packet selects by its magnitude. RESIDUAL: its
+    // `CreateAnimsOnZeroDamage` key is unread, so a zero packet keeps
+    // stock's no-animation return (the key's default).
+    #[cfg(feature = "phobos")]
+    let damage = if damage < 0 {
+        damage.wrapping_neg()
+    } else {
+        damage
+    };
     // 48A50D..48A592: water's Conventional branch precedes the weather
     // override, and the cell's structural flag suppresses splash selection.
     if land == 2
@@ -137,6 +148,30 @@ pub(crate) fn select(
                 .intern(&rules.general.weather_con_bolt_explosion)
         });
     }
+    // Phobos `SelectDamageAnimation_CritAnim` (`0x48A5B3`, ahead of the
+    // AnimList count load and empty test at `0x48A5BB`): an active crit
+    // replaces the damage animation with a `Crit.AnimList` entry while that
+    // list stays off the affected targets, even when `AnimList=` is empty.
+    #[cfg(feature = "phobos")]
+    if crit_active
+        && !warhead.crit.anim_list().is_empty()
+        && !warhead.crit.anim_on_affected_targets(rules.crit_globals())
+    {
+        let list = warhead.crit.anim_list();
+        let index = if warhead.em_effect || warhead.crit.anim_list_pick_random() {
+            world.scenario_rng.next_range_i32_inclusive(
+                0,
+                i32::try_from(list.len() - 1).expect("native AnimList count fits i32"),
+            ) as usize
+        } else {
+            // `std::min(size * 25 - 1, (size_t)nDamage) / 25`: the unsigned
+            // cast sends a negative packet to the last entry.
+            (list.len() * 25 - 1).min(damage as u32 as usize) / 25
+        };
+        return Some(world.interner.intern(&list[index]));
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = crit_active;
     if warhead.anim_list.is_empty() {
         return None;
     }
@@ -162,8 +197,17 @@ pub(crate) fn effect(
     land: i32,
     selection_coordinate: ProjectileCoord,
     placement: ProjectileCoord,
+    crit_active: bool,
 ) -> Option<ExplosionEffect> {
-    let shp_name = select(world, rules, warhead, damage, land, selection_coordinate)?;
+    let shp_name = select(
+        world,
+        rules,
+        warhead,
+        damage,
+        land,
+        selection_coordinate,
+        crit_active,
+    )?;
     Some(placed_effect(shp_name, placement))
 }
 
@@ -368,6 +412,7 @@ mod tests {
                 25,
                 land,
                 coordinate,
+                false,
             );
             assert_eq!(
                 selected.map(|id| world.interner.resolve(id)),
@@ -504,6 +549,7 @@ mod tests {
                     input["damage"].as_i64().unwrap() as i32,
                     land,
                     coordinate,
+                    false,
                 )
             };
             assert_eq!(

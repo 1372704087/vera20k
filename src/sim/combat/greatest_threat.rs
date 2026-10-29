@@ -2272,6 +2272,7 @@ fn evaluate_candidate(
                         ctx.interner,
                         &cells,
                         &ctx.los,
+                        Some(ctx.entities),
                     )
                 }
                 None => super::in_range::mapless_in_range(
@@ -2280,6 +2281,7 @@ fn evaluate_candidate(
                     selected.weapon,
                     ctx.rules,
                     ctx.interner,
+                    Some(ctx.entities),
                 ),
             },
             _ => unarmed_range_ok(),

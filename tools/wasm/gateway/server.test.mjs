@@ -8,6 +8,15 @@ import { createGateway, gatewayOptionsFromEnv, LIMITS } from './server.mjs';
 
 const origin = 'https://game.example';
 const listen = server => new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+// Resolves once `done()` holds, checked on each relay datagram, or after `ms`.
+const until = (udp, done, ms) => new Promise(resolve => {
+  const check = () => { if (done()) finish(); };
+  const finish = () => { clearTimeout(timer); udp.off('message', check); resolve(); };
+  const timer = setTimeout(finish, ms);
+  udp.on('message', check);
+  check();
+});
 
 async function fixture(t) {
   const udp = dgram.createSocket('udp4');
@@ -117,7 +126,7 @@ test('each WS channel has a stable isolated UDP port, preserves binary boundarie
   }
 });
 
-test('WS rejects arbitrary routes, foreign origins, text, oversized messages and a datagram flood', { timeout: 10000 }, async t => {
+test('WS rejects arbitrary routes, foreign origins, text and oversized messages', { timeout: 10000 }, async t => {
   const { base, socket } = await fixture(t);
   const url = `${base.replace('http:', 'ws:')}/game/primary`;
   const foreign = new WebSocket(url, { origin: 'https://foreign.example' });
@@ -133,9 +142,54 @@ test('WS rejects arbitrary routes, foreign origins, text, oversized messages and
   oversized.send(Buffer.alloc(2049));
   const [code] = await closed;
   assert.equal(code, 1009);
+});
+
+test('datagrams past a connection budget or full queue are lost while the connection stays open', { timeout: 10000 }, async t => {
+  const { udp, socket } = await fixture(t);
   const flood = await socket();
-  closed = once(flood, 'close');
-  // Small messages exhaust either the bounded queue or the one-second rate cap.
+  // Small messages overrun both the bounded queue and the one-second budget.
   for (let i = 0; i <= LIMITS.packetsPerSecond; i++) flood.send(Buffer.from([1]));
-  await closed;
+  await sleep(1100);
+  assert.equal(flood.readyState, WebSocket.OPEN);
+  let marked = false;
+  udp.on('message', data => { if (data[0] === 2) marked = true; });
+  flood.send(Buffer.from([2]));
+  await until(udp, () => marked, 2000);
+  assert.equal(marked, true);
+});
+
+test('connections spending the aggregate budget cannot take a steady connection\'s share', { timeout: 10000 }, async t => {
+  const { udp, socket } = await fixture(t);
+  const ports = new Map();
+  const steadyPackets = [];
+  udp.on('message', (data, peer) => {
+    if (!ports.has(data[0])) ports.set(data[0], peer.port);
+    if (data[0] === 0) steadyPackets.push(data);
+  });
+  const steady = await socket();
+  // One more flooder than the aggregate needs, so its budget is spent in full.
+  const count = LIMITS.totalPacketsPerSecond / LIMITS.packetsPerSecond + 1;
+  const flooders = await Promise.all(Array.from({ length: count }, () => socket()));
+  let flooded = 0;
+  for (const ws of flooders) ws.on('message', () => { flooded += 1; });
+  // The first window records each connection's traffic: four steady datagrams.
+  for (let i = 0; i < 4; i++) steady.send(Buffer.from([0]));
+  flooders.forEach((ws, index) => ws.send(Buffer.from([index + 1])));
+  await until(udp, () => ports.size === count + 1 && steadyPackets.length === 4, 2000);
+  await sleep(1100);
+  // Next window the relay floods every flooder past its own budget.
+  const targets = flooders.map((_, index) => ports.get(index + 1));
+  for (let sent = 0; sent < LIMITS.packetsPerSecond; sent += 32) {
+    for (const port of targets) for (let i = 0; i < 32; i++) udp.send(Buffer.from([9]), port, '127.0.0.1');
+    await new Promise(resolve => setImmediate(resolve));
+  }
+  const spare = LIMITS.totalPacketsPerSecond - 4;
+  const deadline = Date.now() + 500;
+  while (flooded < spare && Date.now() < deadline) await sleep(5);
+  for (let i = 0; i < 4; i++) steady.send(Buffer.from([0]));
+  await until(udp, () => steadyPackets.length === 8, 500);
+  assert.equal(steadyPackets.length, 8);
+  // The flooders spent all the rest, and every connection stays open.
+  assert.equal(flooded, spare);
+  for (const ws of [steady, ...flooders]) assert.equal(ws.readyState, WebSocket.OPEN);
 });

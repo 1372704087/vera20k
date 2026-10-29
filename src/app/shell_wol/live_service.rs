@@ -1594,7 +1594,7 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         | http::Response::MapPending { .. }) => {
             maps::response(state, service, response);
         }
-        http::Response::StartRejected { id } => {
+        http::Response::StartRejected { id, retryable } => {
             if !service
                 .start_preparation
                 .as_ref()
@@ -1605,7 +1605,11 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             cancel_pending(state, service);
             fail_start(
                 state,
-                "The match could not start. Check every player's map, rules, version and readiness.",
+                if retryable {
+                    "The online lobby is busy or not responding. Try Start again."
+                } else {
+                    "The match could not start. Check every player's map, rules, version and readiness."
+                },
             );
         }
         http::Response::Authenticated {
@@ -1745,6 +1749,8 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                     );
                 }
             }
+            // The host's 5 s ping; an outage is reported once by the poll.
+            "ping" => {}
             _ => notice(state, "The online request was not accepted."),
         },
         http::Response::Translated { id, outcome } => {
@@ -1753,6 +1759,10 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             }
         }
         http::Response::Failure(message) => notice(state, message),
+        http::Response::LobbyUnreachable => {
+            notice(state, "The online lobby is not responding. Retrying.")
+        }
+        http::Response::LobbyReachable => notice(state, "The online lobby is responding again."),
         http::Response::Offline => {
             crate::app::loading::pump::cancel_network_loading(
                 state,

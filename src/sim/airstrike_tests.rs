@@ -61,6 +61,37 @@ impl Fixture {
     }
 }
 
+/// Phobos `AirstrikeLineColor` through the production readers: the drawing
+/// techno type's `Nullable<ColorStruct>` wins, and a type text that
+/// `Parser<BYTE,3>` rejects (two channels, or one above 255), like an unknown
+/// techno, leaves `[AudioVisual]`'s value. `AirstrikeLineZAdjust` is read from
+/// `[AudioVisual]` too.
+#[cfg(feature = "phobos")]
+#[test]
+fn airstrike_line_color_resolves_from_the_owner_type_then_the_global() {
+    use crate::rules::ini_parser::IniFile;
+
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[AudioVisual]\nAirstrikeLineColor=0,64,0\nAirstrikeLineZAdjust=-5\n\
+         [InfantryTypes]\n0=BLUE\n1=SHORT\n2=WIDE\n\
+         [BLUE]\nAirstrikeLineColor=0,0,255\n[SHORT]\nAirstrikeLineColor=1,2\n\
+         [WIDE]\nAirstrikeLineColor=1,2,300\n",
+    ))
+    .unwrap();
+    let mut sim = Simulation::new();
+    for (id, name) in [(1, "BLUE"), (2, "SHORT"), (3, "WIDE")] {
+        let ty = sim.interner_mut_for_test().intern(name);
+        let mut techno = GameEntity::test_default(id, name, "Americans", 10, 10);
+        techno.set_type_ref_for_test(ty);
+        sim.entities_mut_for_test().insert(techno);
+    }
+    assert_eq!(sim.airstrike_line_color(1, &rules), [0, 0, 255]);
+    for id in [2, 3, 99] {
+        assert_eq!(sim.airstrike_line_color(id, &rules), [0, 64, 0], "{id}");
+    }
+    assert_eq!(rules.general.airstrike_line_z_adjust, -5);
+}
+
 #[test]
 fn retail_boris_building_attack_enters_designation_pose_and_starts_sortie() {
     let Some(mut f) = Fixture::new() else { return };

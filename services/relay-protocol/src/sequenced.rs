@@ -250,6 +250,11 @@ pub enum OrderEvent {
     },
     /// The exact terminal Leave was accepted, or its expired room is gone.
     Left,
+    /// An authenticated control payload this build cannot read: a newer
+    /// relay's record, reply or error code. Replies may grow and are read by
+    /// their known prefix; a canonical entry must match its layout exactly,
+    /// because members that read different bytes would simulate differently.
+    Unrecognized,
 }
 
 #[derive(Clone)]
@@ -515,7 +520,7 @@ impl ClientSession {
             return Err(RelayError::Unregistered);
         }
         Ok(match (payload[0], payload.len()) {
-            (PAUSE_STATUS_EVENT, 30) if payload[25] <= 1 => OrderEvent::PauseStatus {
+            (PAUSE_STATUS_EVENT, 30..) if payload[25] <= 1 => OrderEvent::PauseStatus {
                 supported_sources: read_u32(payload, 1),
                 active_sources: read_u32(payload, 5),
                 request_id: read_u64(payload, 9),
@@ -532,17 +537,17 @@ impl ClientSession {
                     source: payload[22],
                 })
             }
-            (PUSH_EVENT, 10) if payload[1] <= 1 && read_u64(payload, 2) != 0 => {
+            (PUSH_EVENT, 10..) if payload[1] <= 1 && read_u64(payload, 2) != 0 => {
                 OrderEvent::PushState {
                     enabled: payload[1] != 0,
                     next_sequence: read_u64(payload, 2),
                 }
             }
-            (READY_EVENT, 9) => OrderEvent::Ready {
+            (READY_EVENT, 9..) => OrderEvent::Ready {
                 ready_mask: read_u32(payload, 1),
                 sources_mask: read_u32(payload, 5),
             },
-            (STATUS_EVENT, 32) => OrderEvent::Status(OrderStatus {
+            (STATUS_EVENT, 32..) => OrderEvent::Status(OrderStatus {
                 head_frame: read_u32(payload, 1),
                 oldest_seq: read_u64(payload, 5),
                 next_seq: read_u64(payload, 13),
@@ -551,7 +556,7 @@ impl ClientSession {
                 start_delay_ms: read_u32(payload, 27),
                 started: payload[31] != 0,
             }),
-            (ACK_EVENT, 13) => {
+            (ACK_EVENT, 13..) => {
                 let batch_id = read_u64(payload, 1);
                 if batch_id == 0 {
                     return Err(RelayError::Malformed);
@@ -630,8 +635,10 @@ impl ClientSession {
                     bytes: readable.then_some(bytes),
                 })
             }
-            (ERROR_EVENT, 10) => {
-                let code = OrderError::parse(payload[1])?;
+            (ERROR_EVENT, 10..) => {
+                let Ok(code) = OrderError::parse(payload[1]) else {
+                    return Ok(OrderEvent::Unrecognized);
+                };
                 let expected = read_u64(payload, 2);
                 if code == OrderError::BatchGap {
                     let accepted = expected.checked_sub(1).ok_or(RelayError::Malformed)?;
@@ -641,7 +648,7 @@ impl ClientSession {
                 }
                 OrderEvent::Error { code, expected }
             }
-            _ => return Err(RelayError::Malformed),
+            _ => OrderEvent::Unrecognized,
         })
     }
 }
@@ -732,6 +739,8 @@ pub(super) struct OrderingRoom {
     pending: BTreeMap<u32, Vec<Pending>>,
     journal: Option<crate::journal::Journal>,
     storage_failed: bool,
+    // When `advance` first found the storage failure.
+    failed_at: Option<u64>,
     finished_at: Option<u64>,
     created_ms: u64,
 }
@@ -767,6 +776,7 @@ impl OrderingRoom {
             pending: BTreeMap::new(),
             journal,
             storage_failed: false,
+            failed_at: None,
             finished_at: None,
             created_ms: now_ms,
         }
@@ -832,15 +842,23 @@ impl OrderingRoom {
         self.certificate.expires <= now
     }
 
-    fn cleanup_due(&self, now_ms: u64, now: u64) -> bool {
+    fn cleanup_due(&self, now_ms: u64, now: u64, peers: bool) -> bool {
+        if self.storage_failed {
+            // A storage failure freezes the match for good. Its room goes
+            // once no live ticket is left to tell, or once a silent player
+            // would have lost its place; its files stay.
+            return !peers
+                || self
+                    .failed_at
+                    .is_some_and(|at| now_ms.saturating_sub(at) >= ABSENT_MS);
+        }
         // The certificate bounds only a startup; once started, the final
         // frame, silence or the room's lifetime ends it.
-        !self.storage_failed
-            && ((self.starts_at.is_none() && self.expired(now))
-                || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
-                || self
-                    .finished_at
-                    .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000))
+        (self.starts_at.is_none() && self.expired(now))
+            || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
+            || self
+                .finished_at
+                .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000)
     }
     fn pop_oldest(&mut self) -> bool {
         if let Some(old) = self.history.pop_front() {
@@ -1082,9 +1100,9 @@ impl OrderingRoom {
         self.start_when_ready(now_ms);
     }
 
-    /// Ends a federated match whose other relays went silent. It seals and
-    /// merges no further entry, so its archive grows by at most the frame ends
-    /// of what it already sealed.
+    /// Ends a federated match of three or more relays whose others went
+    /// silent. It seals and merges no further entry, so its archive grows by
+    /// at most the frame ends of what it already sealed.
     fn abandon(&mut self, now_ms: u64) {
         self.active = 0;
         self.pending.clear();
@@ -1122,6 +1140,7 @@ impl OrderingRoom {
 
     fn advance(&mut self, now_ms: u64, federation: Option<&mut federation::Federation>) {
         if self.storage_failed {
+            self.failed_at.get_or_insert(now_ms);
             return;
         }
         self.retire_absent(now_ms);
@@ -1583,6 +1602,56 @@ mod tests {
             .control_ordering_pause(id, epoch, paused, &mut bytes)
             .unwrap();
         events(server, client, &bytes, now_ms).remove(0)
+    }
+
+    /// Released clients cannot be changed, so a newer relay may only append
+    /// to replies. A reply decodes by its known prefix; a newer error code or
+    /// record is reported as unrecognized, and a canonical entry decodes only
+    /// in full.
+    #[test]
+    fn newer_replies_decode_by_prefix_and_newer_records_are_unrecognized() {
+        let key = SecretKey::new([74; 32]);
+        let mut server = RelayServer::new(key.clone(), 1);
+        let mut reader = client(&key, 0);
+        connect(&mut server, &mut reader, 0);
+        reader
+            .configure_ordering(&certificate(&key, 3, 1400), [7; 32], &mut Vec::new())
+            .unwrap();
+        let mut status = vec![STATUS_EVENT; 33];
+        status[31] = 1;
+        assert!(matches!(
+            reader.receive_ordering(&status),
+            Ok(OrderEvent::Status(OrderStatus { started: true, .. }))
+        ));
+        let mut error = vec![ERROR_EVENT, OrderError::NotStarted as u8];
+        error.resize(11, 0);
+        assert!(matches!(
+            reader.receive_ordering(&error),
+            Ok(OrderEvent::Error {
+                code: OrderError::NotStarted,
+                ..
+            })
+        ));
+        error[1] = 200;
+        let departure = |reason: &[u8]| {
+            let mut payload = vec![DEPARTURE_EVENT];
+            payload.extend_from_slice(&[0; 12]);
+            payload.push(0);
+            payload.extend_from_slice(reason);
+            payload
+        };
+        let mut frame_end = vec![FRAME_END_EVENT];
+        frame_end.resize(14, 0);
+        for payload in [error, departure(&[2]), departure(&[1, 0]), frame_end] {
+            assert!(matches!(
+                reader.receive_ordering(&payload),
+                Ok(OrderEvent::Unrecognized)
+            ));
+        }
+        assert!(matches!(
+            reader.receive_ordering(&departure(&[1])),
+            Ok(OrderEvent::Entry(OrderEntry::Departure { lost: true, .. }))
+        ));
     }
 
     #[test]
@@ -2941,12 +3010,14 @@ mod tests {
     #[test]
     fn archive_quota_admits_rooms_by_reserved_bytes() {
         let directory = TestDirectory::new();
-        crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now()).unwrap();
         // A journal left by an earlier process holds only its size on disk.
         let leftover = directory.0.join("0b".repeat(16));
         std::fs::create_dir(&leftover).unwrap();
         std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
-        let mut journals = crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now())
+                .unwrap();
         assert_eq!(
             journals.create([11; 16], 45, 2).err().unwrap().kind(),
             std::io::ErrorKind::AlreadyExists
@@ -2959,12 +3030,77 @@ mod tests {
             }
         };
         assert_eq!(full.kind(), std::io::ErrorKind::StorageFull);
-        // Each two-player 45 FPS room reserves its 24-hour clock records and
-        // 32 MiB of commands per player, not a fixed eighth of the quota.
-        assert_eq!(admitted.len(), 52);
+        // Each two-player 45 FPS room reserves its first hour of clock
+        // records and 32 MiB of commands per player, and leaves its next
+        // hour free: not a whole day of clock or a fixed eighth of the quota.
+        assert_eq!(admitted.len(), 114);
         // A finished room keeps only the bytes it wrote.
         journals.settle(&mut admitted[0], 0);
-        assert!(journals.create([0xf0; 16], 45, 2).is_ok());
+        assert!(journals.create([0x70; 16], 45, 2).is_ok());
+    }
+
+    /// A journaled two-player 10 FPS match, started at 200 ms.
+    fn slow_match(directory: &TestDirectory) -> RelayServer {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let cert = OrderingCertificate {
+            room: [5; 16],
+            sources_mask: 3,
+            tick_hz: 10,
+            expires: 2000,
+        }
+        .sign(&key)
+        .unwrap();
+        for source in 0..2 {
+            let mut player = client(&key, source);
+            connect(&mut server, &mut player, 0);
+            configure(&mut server, &mut player, &cert, 0);
+        }
+        server
+    }
+
+    /// Runs the match five minutes at a time, both players in contact.
+    fn play(server: &mut RelayServer, from_ms: u64, until_ms: u64) {
+        for now_ms in (from_ms..=until_ms).step_by(300_000) {
+            let room = server.rooms.get_mut(&[5; 16]).unwrap();
+            for source in 0..2 {
+                let ordering = room.ordering.as_mut().unwrap();
+                ordering.heard(source, ([source + 1; 16], 1), now_ms);
+            }
+            server.advance_clock(now_ms, unix(now_ms));
+        }
+    }
+
+    #[test]
+    fn a_journal_reserves_the_next_hour_of_clock_as_the_match_runs() {
+        let directory = TestDirectory::new();
+        let mut server = slow_match(&directory);
+        play(&mut server, 0, 3_900_000);
+        assert!(!ordering(&server).storage_failed);
+        assert_eq!(ordering(&server).head, 38_998);
+    }
+
+    #[test]
+    fn a_full_relay_refuses_new_rooms_and_a_running_one_still_takes_its_next_hour() {
+        let directory = TestDirectory::new();
+        let mut server = slow_match(&directory);
+        // Other rooms fill the relay until it refuses the smallest one.
+        let journals = server.journal_directory.as_mut().unwrap();
+        let mut others = Vec::new();
+        for (tick_hz, sources) in [(45, 2), (10, 0)] {
+            let refused = loop {
+                let mut room = [0x80; 16];
+                room[..8].copy_from_slice(&(others.len() as u64).to_le_bytes());
+                match journals.create(room, tick_hz, sources) {
+                    Ok(journal) => others.push(journal),
+                    Err(error) => break error,
+                }
+            };
+            assert_eq!(refused.kind(), std::io::ErrorKind::StorageFull);
+        }
+        play(&mut server, 0, 3_900_000);
+        assert!(!ordering(&server).storage_failed);
+        assert_eq!(ordering(&server).head, 38_998);
     }
 
     #[test]
@@ -3337,8 +3473,56 @@ mod tests {
     }
 
     #[test]
-    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
+    fn a_late_returner_cannot_restart_a_cleaned_up_match_under_its_id() {
         let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let cert = certificate(&key, 3, 2000);
+        for source in 0..2 {
+            let mut player = client(&key, source);
+            connect(&mut server, &mut player, 0);
+            configure(&mut server, &mut player, &cert, 0);
+            let mut bytes = Vec::new();
+            player.leave_ordering(&mut bytes).unwrap();
+            events(&mut server, &mut player, &bytes, 1000);
+        }
+        server.advance_clock(1000, unix(1000));
+        let cleaned = 1000 + MAX_TICKET_LIFETIME * 1000;
+        server.advance_clock(cleaned, unix(cleaned));
+        assert!(!directory.0.join("05".repeat(16)).exists());
+        // The first player returns with a fresh ticket and its certificate.
+        let ticket = Ticket {
+            room: [5; 16],
+            source: 0,
+            expires: unix(cleaned) + 200,
+            nonce: [9; 16],
+            player: [1; 16],
+            generation: 1,
+        }
+        .sign(&key)
+        .unwrap();
+        let packet_key = *derive_packet_key(&key, &ticket).expose_for_https();
+        let mut returner = ClientSession::new(&ticket, packet_key, [89; 32]).unwrap();
+        connect(&mut server, &mut returner, cleaned);
+        assert!(matches!(
+            configure(&mut server, &mut returner, &cert, cleaned).as_slice(),
+            [OrderEvent::Error {
+                code: OrderError::Inactive,
+                ..
+            }]
+        ));
+        assert!(!directory.0.join("05".repeat(16)).exists());
+        // The marker outlasts any certificate verified before the cleanup.
+        let expiry = unix(cleaned) + MAX_MATCH_SECONDS;
+        server.advance_clock(1_000_000, expiry - 1);
+        assert!(!server.ended_orderings.is_empty());
+        server.advance_clock(1_000_000, expiry);
+        assert!(server.ended_orderings.is_empty());
+    }
+
+    /// A started journaled match whose archive fails at 112 seconds, when a
+    /// pull from the start, past the hot cache, reads a broken index.
+    fn failed_match(directory: &TestDirectory) -> (RelayServer, ClientSession) {
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
         let (mut first, mut second) = (client(&key, 0), client(&key, 1));
@@ -3347,12 +3531,10 @@ mod tests {
             connect(&mut server, participant, 0);
             configure(&mut server, participant, &cert, 0);
         }
-        // Past the hot cache, a pull from the start reads the broken index.
         server.advance_clock(112_000, unix(112_000));
-        let room = directory.0.join("05".repeat(16));
         std::fs::OpenOptions::new()
             .write(true)
-            .open(room.join("stream.index"))
+            .open(directory.0.join("05".repeat(16)).join("stream.index"))
             .unwrap()
             .set_len(0)
             .unwrap();
@@ -3363,6 +3545,15 @@ mod tests {
                 ..
             }
         ));
+        server.advance_clock(112_000, unix(112_000));
+        (server, first)
+    }
+
+    #[test]
+    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
         let before = std::fs::read(room.join("stream.data")).unwrap();
         // The client waits for this acknowledgement before it may join
         // another match.
@@ -3373,6 +3564,122 @@ mod tests {
             [OrderEvent::Left]
         ));
         assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_once_every_ticket_expired_and_keeps_its_files() {
+        let directory = TestDirectory::new();
+        let (mut server, _) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
+        let before = std::fs::read(room.join("stream.data")).unwrap();
+        // Both hop tickets expire at 1200, 200 seconds in.
+        server.advance_clock(199_000, unix(199_000));
+        assert!(server.rooms.contains_key(&[5; 16]));
+        server.advance_clock(200_000, unix(200_000));
+        assert!(!server.rooms.contains_key(&[5; 16]));
+        assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+        // Its match ID stays taken, holding only its bytes on disk.
+        let on_disk = [
+            room.clone(),
+            room.join("stream.data"),
+            room.join("stream.index"),
+        ]
+        .iter()
+        .map(|path| std::fs::metadata(path).unwrap().len())
+        .sum::<u64>();
+        let journals = server.journal_directory.as_ref().unwrap();
+        assert_eq!(journals.reserved(&[5; 16]), Some(on_disk));
+        assert_eq!(journals.total(), on_disk);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_ten_minutes_on_while_a_player_renews() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let freed = 112_000 + ABSENT_MS;
+        for now_ms in (150_000..freed).step_by(100_000) {
+            renew(&mut server, &mut first, now_ms);
+        }
+        server.advance_clock(freed - 1, unix(freed - 1));
+        assert!(server.rooms[&[5; 16]].ordering.is_some());
+        server.advance_clock(freed, unix(freed));
+        assert!(server.rooms[&[5; 16]].ordering.is_none());
+        // A renewed Ready cannot start a new timeline under its match ID: the
+        // ended-match marker answers while the certificate lasts, the files
+        // after it.
+        let cert = certificate(&server.key, 3, 2000);
+        assert!(matches!(
+            configure(&mut server, &mut first, &cert, freed)[0],
+            OrderEvent::Error {
+                code: OrderError::Inactive,
+                ..
+            }
+        ));
+    }
+
+    /// A burst merge, such as a healed federation link's backlog, draws later
+    /// hours instead of failing the room, and nothing stays counted after it.
+    #[test]
+    fn a_burst_of_frame_ends_draws_later_hours_and_releases_them() {
+        let directory = TestDirectory::new();
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now())
+                .unwrap();
+        // One frame a second makes an hour 3600 frame ends of 25 bytes.
+        let mut journal = journals.create([0x0d; 16], 1, 2).unwrap();
+        let (total, growth) = (journals.total(), journals.growth());
+        let mut frame_end = vec![0; 13];
+        frame_end[0] = FRAME_END_EVENT;
+        journal.commit(&vec![frame_end; 3700]).unwrap();
+        journals.reserve_frames(&mut journal);
+        assert_eq!(journals.total(), total + 3600 * 25);
+        assert_eq!(journals.growth(), growth);
+        journals.settle(&mut journal, 0);
+        assert_eq!(journals.growth(), 0);
+        journals.cleanup(journal, false);
+        assert_eq!(journals.total(), 0);
+    }
+
+    #[test]
+    fn startup_sets_aside_only_leftovers_of_ended_matches() {
+        let directory = TestDirectory::new();
+        let now = std::time::SystemTime::now();
+        crate::journal::JournalDirectory::open(&directory.0, now).unwrap();
+        for room in ["0b", "0c"] {
+            let leftover = directory.0.join(room.repeat(16));
+            std::fs::create_dir(&leftover).unwrap();
+            std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
+        }
+        // The second was written until an hour after the first.
+        let hour = std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(directory.0.join("0c".repeat(16)).join("stream.data"))
+            .unwrap()
+            .set_modified(now + hour)
+            .unwrap();
+        let ended = std::time::Duration::from_millis(ROOM_LIFETIME_MS + MAX_TICKET_LIFETIME * 1000);
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, now + ended + hour / 2).unwrap();
+        assert_eq!(
+            std::fs::read(
+                directory
+                    .0
+                    .join("archive")
+                    .join("0b".repeat(16))
+                    .join("stream.data")
+            )
+            .unwrap(),
+            [0; 64]
+        );
+        // Only the recent leftover still counts against the quota.
+        assert_eq!(journals.reserved(&[0x0b; 16]), None);
+        assert_eq!(Some(journals.total()), journals.reserved(&[0x0c; 16]));
+        assert!(journals.create([0x0b; 16], 45, 2).is_ok());
+        assert_eq!(
+            journals.create([0x0c; 16], 45, 2).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
     }
 
     #[test]
@@ -3585,10 +3892,13 @@ impl RelayServer {
             directory.retry(now_ms);
             for room in self.rooms.values_mut() {
                 if let Some(ordering) = room.ordering.as_mut()
-                    && ordering.finished_at.is_some()
                     && let Some(journal) = ordering.journal.as_mut()
                 {
-                    directory.settle(journal, ordering.sealed - ordering.head);
+                    if ordering.finished_at.is_some() {
+                        directory.settle(journal, ordering.sealed - ordering.head);
+                    } else if !ordering.storage_failed {
+                        directory.reserve_frames(journal);
+                    }
                 }
             }
         }
@@ -3599,7 +3909,7 @@ impl RelayServer {
                 room.ordering
                     .as_ref()
                     .filter(|ordering| {
-                        ordering.cleanup_due(now_ms, now)
+                        ordering.cleanup_due(now_ms, now, !room.peers.is_empty())
                             || (!ordering.storage_failed
                                 && ordering.starts_at.is_none()
                                 && ordering.finished_at.is_some()
@@ -3611,13 +3921,11 @@ impl RelayServer {
         for id in ended {
             let room = self.rooms.get_mut(&id).unwrap();
             let ordering = room.ordering.as_mut().unwrap();
-            let retire = ordering.cleanup_due(now_ms, now);
+            let retire = ordering.cleanup_due(now_ms, now, !room.peers.is_empty());
             if let Some(directory) = self.journal_directory.as_mut()
                 && let Some(journal) = ordering.journal.take()
-                && directory.cleanup(journal).is_err()
             {
-                ordering.storage_failed = true;
-                continue;
+                directory.cleanup(journal, ordering.storage_failed);
             }
             // No commands or frames can exist before the full Ready quorum.
             // Reclaim its empty archive immediately, retaining only the
@@ -3625,6 +3933,10 @@ impl RelayServer {
             if !retire {
                 continue;
             }
+            // Every certificate for this match, renewed ones included, was
+            // verified to expire within MAX_MATCH_SECONDS of now or earlier.
+            self.ended_orderings
+                .insert(id, now.saturating_add(MAX_MATCH_SECONDS));
             room.ordering = None;
             if room.peers.is_empty() {
                 self.rooms.remove(&id);
@@ -3731,6 +4043,7 @@ impl RelayServer {
                 .rooms
                 .get(&message.ticket.room)
                 .is_some_and(|room| room.ordering_cancelled)
+                || self.ended_orderings.contains_key(&message.ticket.room)
             {
                 return self.ordering_reply(message.ticket, error(OrderError::Inactive, 0), now);
             }

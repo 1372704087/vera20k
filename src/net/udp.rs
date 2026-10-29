@@ -1846,6 +1846,22 @@ fn record_io_error(
 }
 
 #[cfg(test)]
+impl LanUdpTransport {
+    /// Delivers an authenticated ordering event as the relay route would.
+    pub(super) fn push_ordering_received_for_test(
+        &mut self,
+        event: vera20k_relay_protocol::OrderEvent,
+    ) {
+        if let Some(route) = self.lock().relay.as_mut() {
+            route.ordering_inbox.push_back(ReceivedOrderEvent {
+                event,
+                received_at: Instant::now(),
+            });
+        }
+    }
+}
+
+#[cfg(test)]
 #[path = "udp_tests.rs"]
 mod tests;
 

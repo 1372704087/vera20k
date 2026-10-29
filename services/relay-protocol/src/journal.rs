@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
 // Commands one source may archive. Its checksum sample every 15 frames alone
@@ -14,14 +15,29 @@ const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
 const DEPARTURE_BYTES: u64 = 4 + 15 + 8;
 const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
+// A leftover last written longer ago than a room can live, plus its replay
+// grace, belongs to an ended match. Startup moves it into this subfolder,
+// where it counts against no quota and blocks no match. Nothing deletes it.
+const ARCHIVE: &str = "archive";
+const ENDED_AGE: Duration =
+    Duration::from_millis(super::sequenced::ROOM_LIFETIME_MS + super::MAX_TICKET_LIFETIME * 1000);
+// A live room reserves its frame ends an hour of play at a time, and the next
+// hour once less than half of one is left, so it holds only what it can write
+// soon rather than a whole day up front.
+const FRAME_END_CHUNK_SECONDS: u64 = 60 * 60;
 
 pub(super) struct JournalDirectory {
     root: PathBuf,
     // Bytes per room, logical and never a disk preallocation: a live room
-    // holds its whole quota, a finished one only what it wrote. Abandoned
-    // journals found after restart hold their size and are never overwritten.
+    // holds what it wrote plus its quota for what it can soon write, a
+    // finished one only what it wrote. Abandoned journals found after
+    // restart, and failed ones, hold their size and are never overwritten.
     reserved: BTreeMap<[u8; 16], u64>,
     total: u64,
+    // The next hour of frame ends of every live room. Admission keeps it free
+    // beside the reservations, so a full relay refuses new rooms rather than
+    // the next hour of one already running.
+    growth: u64,
     // Ended or partly created archives whose exact files are still on disk.
     // Each keeps its reservation until a retried removal succeeds.
     retiring: BTreeSet<[u8; 16]>,
@@ -29,7 +45,7 @@ pub(super) struct JournalDirectory {
 }
 
 impl JournalDirectory {
-    pub(super) fn open(root: &Path) -> io::Result<Self> {
+    pub(super) fn open(root: &Path, now: SystemTime) -> io::Result<Self> {
         if !root.is_absolute() {
             return Err(io::ErrorKind::InvalidInput.into());
         }
@@ -53,6 +69,7 @@ impl JournalDirectory {
             }
         }
         let mut reserved = BTreeMap::new();
+        let mut ended = Vec::new();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -66,19 +83,40 @@ impl JournalDirectory {
                 *byte = u8::from_str_radix(&name[index * 2..index * 2 + 2], 16)
                     .map_err(|_| io::ErrorKind::InvalidData)?;
             }
-            let mut bytes = entry.metadata()?.len();
-            if entry.file_type()?.is_dir() {
-                for file in fs::read_dir(entry.path())? {
-                    bytes += file?.metadata()?.len();
+            let (bytes, written) = disk_usage(&entry.path())?;
+            if now
+                .duration_since(written)
+                .is_ok_and(|age| age >= ENDED_AGE)
+            {
+                ended.push((room, name, bytes));
+            } else {
+                reserved.insert(room, bytes);
+            }
+        }
+        if !ended.is_empty() {
+            let archive = root.join(ARCHIVE);
+            let created = match builder.recursive(false).create(&archive) {
+                Err(error) if error.kind() != io::ErrorKind::AlreadyExists => false,
+                _ => fs::symlink_metadata(&archive).is_ok_and(|metadata| metadata.is_dir()),
+            };
+            for (room, name, bytes) in ended {
+                // Never replace an archived match; one that cannot move stays
+                // counted and blocked as before.
+                let target = archive.join(&name);
+                if !created
+                    || fs::symlink_metadata(&target).is_ok()
+                    || fs::rename(root.join(&name), &target).is_err()
+                {
+                    reserved.insert(room, bytes);
                 }
             }
-            reserved.insert(room, bytes);
         }
         let total = reserved.values().sum();
         Ok(Self {
             root: root.to_owned(),
             reserved,
             total,
+            growth: 0,
             retiring: BTreeSet::new(),
             retry_at: 0,
         })
@@ -89,9 +127,9 @@ impl JournalDirectory {
         self.root.join(name)
     }
 
-    /// Admits a room only while its whole quota fits beside every other
-    /// reservation: its clock records for the full match lifetime and each
-    /// source's command allowance.
+    /// Admits a room only while its quota (its departures, its first hour of
+    /// clock records and each source's command allowance) fits beside every
+    /// other reservation and every live room's next hour, its own included.
     pub(super) fn create(
         &mut self,
         room: [u8; 16],
@@ -101,10 +139,14 @@ impl JournalDirectory {
         if self.reserved.contains_key(&room) {
             return Err(io::ErrorKind::AlreadyExists.into());
         }
-        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
+        let frames = 24 * 60 * 60 * u64::from(tick_hz) + 2;
+        let chunk_frames = FRAME_END_CHUNK_SECONDS * u64::from(tick_hz);
+        let reserved_tail = chunk_frames.min(frames) * FRAME_END_BYTES
             + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
         let quota = reserved_tail + u64::from(sources) * SOURCE_COMMAND_QUOTA;
-        if self.total + quota > GLOBAL_QUOTA {
+        let unreserved_frames = frames.saturating_sub(chunk_frames);
+        let next_hour = chunk_frames.min(unreserved_frames) * FRAME_END_BYTES;
+        if self.total + quota + self.growth + next_hour > GLOBAL_QUOTA {
             return Err(io::ErrorKind::StorageFull.into());
         }
         let path = self.path(&room);
@@ -127,6 +169,7 @@ impl JournalDirectory {
                 return Err(error);
             }
         };
+        self.growth += next_hour;
         Ok(Journal {
             room,
             data,
@@ -137,36 +180,79 @@ impl JournalDirectory {
             reserved_tail,
             pending: 0,
             failed: false,
+            chunk_frames,
+            unreserved_frames,
+            drawn: 0,
+            counted_hour: next_hour,
         })
     }
 
-    pub(super) fn cleanup(&mut self, journal: Journal) -> io::Result<()> {
-        // Only a clean, legitimately ended match may retire its exact files.
-        // Never remove an I/O-failed archive or recursively delete a directory.
-        if journal.failed {
-            return Err(io::ErrorKind::Other.into());
+    /// Reserves a live room's next hour of frame ends once less than half an
+    /// hour is left. Admission kept that hour free, so it never waits on the
+    /// quota; a room's hours end with the 24 hours its certificate allows.
+    pub(super) fn reserve_frames(&mut self, journal: &mut Journal) {
+        self.sync(journal);
+        if journal.unreserved_frames == 0
+            || journal.reserved_tail >= journal.chunk_frames / 2 * FRAME_END_BYTES
+        {
+            return;
         }
+        journal.draw_hour();
+        self.sync(journal);
+    }
+
+    /// Counts the hours a live room drew since the last sync, and its next
+    /// hour as it now stands.
+    fn sync(&mut self, journal: &mut Journal) {
+        if let Some(reserved) = self.reserved.get_mut(&journal.room) {
+            *reserved += journal.drawn;
+            self.total += journal.drawn;
+        }
+        journal.drawn = 0;
+        self.growth = self.growth - journal.counted_hour + journal.next_hour();
+        journal.counted_hour = journal.next_hour();
+    }
+
+    /// Ends a released room's archive. Only a clean, legitimately ended match
+    /// retires its exact files. A failed one keeps them, never recursively
+    /// deleted, and keeps its match ID so no Ready can start a new timeline
+    /// in its place; like a leftover found at startup, it holds only its size
+    /// on disk.
+    pub(super) fn cleanup(&mut self, journal: Journal, failed: bool) {
+        let (room, used, failed) = (journal.room, journal.used, failed || journal.failed);
+        self.growth -= journal.counted_hour;
         // Windows can defer deletion until the last file handle closes. Close
         // both files before removing them and their containing directory.
-        let room = journal.room;
         drop(journal);
-        self.retire(room);
-        Ok(())
+        if !failed {
+            self.retire(room);
+            return;
+        }
+        let bytes = disk_usage(&self.path(&room)).map_or(used, |(bytes, _)| bytes);
+        if let Some(reserved) = self.reserved.get_mut(&room) {
+            self.total = self.total - *reserved + bytes;
+            *reserved = bytes;
+        }
     }
 
     /// A finished room takes no more commands; it keeps the bytes its
     /// terminal replay grace serves plus the frame ends of `unmerged` frames
     /// a federated relay sealed before every departure reached it.
     pub(super) fn settle(&mut self, journal: &mut Journal, unmerged: u32) {
-        let tail = journal
-            .reserved_tail
+        self.sync(journal);
+        self.growth -= journal.counted_hour;
+        journal.counted_hour = 0;
+        // Unmerged frames may outnumber the reserved hour; they come out of
+        // the room's later hours like a burst merge's.
+        let tail = (journal.reserved_tail + journal.unreserved_frames * FRAME_END_BYTES)
             .min(u64::from(unmerged) * FRAME_END_BYTES);
+        journal.unreserved_frames = 0;
         let keep = journal.used + tail;
         if journal.quota == keep {
             return;
         }
         if let Some(bytes) = self.reserved.get_mut(&journal.room) {
-            self.total -= *bytes - keep;
+            self.total = self.total - *bytes + keep;
             *bytes = keep;
         }
         journal.quota = keep;
@@ -206,11 +292,40 @@ impl JournalDirectory {
     }
 }
 
+/// A room archive's bytes on disk, and when it was last written.
+fn disk_usage(path: &Path) -> io::Result<(u64, SystemTime)> {
+    let metadata = fs::symlink_metadata(path)?;
+    let (mut bytes, mut written) = (metadata.len(), metadata.modified()?);
+    if metadata.is_dir() {
+        for file in fs::read_dir(path)? {
+            let metadata = file?.metadata()?;
+            bytes += metadata.len();
+            written = written.max(metadata.modified()?);
+        }
+    }
+    Ok((bytes, written))
+}
+
 /// A file or directory an earlier attempt already removed counts as removed.
 fn present(removal: io::Result<()>) -> io::Result<()> {
     match removal {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
+    }
+}
+
+#[cfg(test)]
+impl JournalDirectory {
+    pub(super) fn reserved(&self, room: &[u8; 16]) -> Option<u64> {
+        self.reserved.get(room).copied()
+    }
+
+    pub(super) fn total(&self) -> u64 {
+        self.total
+    }
+
+    pub(super) fn growth(&self) -> u64 {
+        self.growth
     }
 }
 
@@ -245,9 +360,31 @@ pub(super) struct Journal {
     reserved_tail: u64,
     pending: u64,
     failed: bool,
+    chunk_frames: u64,
+    // Frame ends of the full match lifetime not yet reserved.
+    unreserved_frames: u64,
+    // Bytes of hours drawn that the directory has not counted yet, and the
+    // next hour its growth holds for this room.
+    drawn: u64,
+    counted_hour: u64,
 }
 
 impl Journal {
+    /// The frame ends this live room reserves at its next top-up.
+    fn next_hour(&self) -> u64 {
+        self.chunk_frames.min(self.unreserved_frames) * FRAME_END_BYTES
+    }
+
+    /// Moves the next hour of frame ends into the reserved tail; the
+    /// directory counts it at its next sync.
+    fn draw_hour(&mut self) {
+        let bytes = self.next_hour();
+        self.unreserved_frames -= bytes / FRAME_END_BYTES;
+        self.reserved_tail += bytes;
+        self.quota += bytes;
+        self.drawn += bytes;
+    }
+
     pub(super) fn reserve_batch(&mut self, bytes: usize) -> bool {
         self.reserve_entries(&[bytes])
     }
@@ -301,7 +438,16 @@ impl Journal {
             data.extend_from_slice(record);
             offset += 4 + record.len() as u64;
         }
-        if optional > self.pending || mandatory > self.reserved_tail {
+        if optional > self.pending {
+            return Err(io::ErrorKind::StorageFull.into());
+        }
+        // A burst merge, such as a healed federation link's backlog, can seal
+        // more frames at once than the reserved hour holds. Like a top-up, it
+        // draws the room's later hours without waiting on the quota.
+        while mandatory > self.reserved_tail && self.unreserved_frames > 0 {
+            self.draw_hour();
+        }
+        if mandatory > self.reserved_tail {
             return Err(io::ErrorKind::StorageFull.into());
         }
         self.data.write_all(&data)?;

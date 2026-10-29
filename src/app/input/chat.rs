@@ -344,17 +344,20 @@ pub(crate) fn commit_text(state: &mut AppState, text: &str) {
 }
 
 /// A right press or release (key 2 or `0x802`) ends an open edit; the game
-/// still handles the click.
-pub(crate) fn right_button(state: &mut AppState) {
+/// still handles the click. True when the VeraX chat history consumed the
+/// click (copy selection / open link) and it must not reach the tactical
+/// cancel ladder.
+pub(crate) fn right_button(state: &mut AppState) -> bool {
     // VeraX chat box: over the history a right click copies the selection or
     // opens the link under the pointer; elsewhere it keeps gamemd's "ends the
     // edit" behaviour.
     if crate::app::input::messages::chat_right_mouse(state) {
-        return;
+        return true;
     }
     if state.match_state.match_presentation.message_list.editing() {
         apply_input(state, EditKey::RightClick);
     }
+    false
 }
 
 /// The chat branch `0x0055E519..0x0055E5B4`: the prompt is the TXT_FROM

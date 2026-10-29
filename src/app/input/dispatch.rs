@@ -192,9 +192,11 @@ fn handle_mouse_input_inner(state: &mut AppState, button: MouseButton, btn_state
         return;
     }
     // MessageList::Input 0x005D4510 ends an open chat edit on the right
-    // button, press or release, and leaves the click to the game.
-    if button == MouseButton::Right {
-        crate::app::input::chat::right_button(state);
+    // button, press or release, and leaves the click to the game. A VeraX
+    // chat-history right click (copy/open link) is consumed instead: the
+    // tactical cancel ladder must not clear the mode/selection behind it.
+    if button == MouseButton::Right && crate::app::input::chat::right_button(state) {
+        return;
     }
     #[cfg(feature = "phobos")]
     if crate::app::input::sw_sidebar::mouse(state, button, pressed) {

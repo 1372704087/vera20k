@@ -576,10 +576,18 @@ impl MessageList {
         self.y + self.view_height - MESSAGE_BOTTOM_INSET_PX - bar
     }
 
-    /// The retained row under a screen y, or None outside the history area.
-    /// Chat rows are 19 px apart and stack upward from the history bottom.
-    pub fn row_at_y(&self, y: i32) -> Option<usize> {
+    /// The retained row under a screen point, or None outside the history
+    /// strip. Chat rows are 19 px apart and stack upward from the history
+    /// bottom. Both axes are bounded: a sidebar click aligned with a chat row
+    /// must not start a history selection. The projection is
+    /// [`Self::display_rows`]: with a search open the matches compact
+    /// bottom-up, so hit-testing the unfiltered window would resolve a click
+    /// to a hidden row.
+    pub fn row_at(&self, x: i32, y: i32) -> Option<usize> {
         if self.layout != MessageLayout::ChatBox {
+            return None;
+        }
+        if x < self.x || x >= self.x + self.max_width_px {
             return None;
         }
         let bottom = self.history_bottom();
@@ -587,9 +595,10 @@ impl MessageList {
             return None;
         }
         let from_bottom = ((bottom - y) / MESSAGE_LINE_HEIGHT_PX) as usize;
-        let (start, end) = self.visible_message_range();
-        let row = end.checked_sub(from_bottom + 1)?;
-        (row >= start && row < end).then_some(row)
+        let rows = self.display_rows();
+        rows.len()
+            .checked_sub(from_bottom + 1)
+            .and_then(|slot| rows.get(slot).copied())
     }
 
     /// Start a chat-history selection at point (left button press).
@@ -1126,10 +1135,12 @@ impl MessageList {
             return false;
         };
         let typed = String::from_utf16_lossy(&edit.buffer[edit.start..]);
+        // rfind on bytes cannot split multibyte whitespace (NBSP and friends):
+        // step over the whole character the match starts at.
         let split = typed
-            .rfind(char::is_whitespace)
-            .map(|index| index + 1)
-            .unwrap_or(0);
+            .char_indices()
+            .rfind(|(_, c)| c.is_whitespace())
+            .map_or(0, |(index, c)| index + c.len_utf8());
         let token = &typed[split..];
         if token.is_empty() {
             return false;
@@ -2243,6 +2254,19 @@ mod tests {
         assert!(!l.complete(&names, &mono));
     }
     #[test]
+    fn tab_completion_survives_a_multibyte_whitespace_before_the_token() {
+        // A non-breaking space is two UTF-8 bytes; the token split used to
+        // slice one byte past `rfind` and panic inside the NBSP's encoding.
+        let mut l = list(100, 500);
+        assert!(l.add_edit(MESSAGE_INPUT_PREFIX, WHITE, true));
+        for unit in "hello\u{00a0}al".encode_utf16() {
+            l.input(EditKey::Unit(unit), &mono);
+        }
+        let names = vec!["alice".to_string()];
+        assert!(l.complete(&names, &mono));
+        assert_eq!(typed_text(&l), "hello\u{00a0}alice ");
+    }
+    #[test]
     fn row_hit_test_counts_19_px_rows_upward_from_the_history_bottom() {
         let mut l = list(100, 500);
         for i in 0..6 {
@@ -2250,10 +2274,47 @@ mod tests {
         }
         assert!(l.add_edit(MESSAGE_INPUT_PREFIX, WHITE, true));
         // History bottom = 100 - 2 inset - 20 input bar - 19 clearance = 59.
-        assert_eq!(l.row_at_y(58), Some(5), "bottom row");
-        assert_eq!(l.row_at_y(39), Some(4), "one 19 px row up");
-        assert_eq!(l.row_at_y(59), None, "the clearance row is not history");
-        assert_eq!(l.row_at_y(-1), None, "above the view");
+        assert_eq!(l.row_at(50, 58), Some(5), "bottom row");
+        assert_eq!(l.row_at(50, 39), Some(4), "one 19 px row up");
+        assert_eq!(l.row_at(50, 59), None, "the clearance row is not history");
+        assert_eq!(l.row_at(50, -1), None, "above the view");
+    }
+
+    #[test]
+    fn row_hit_test_rejects_x_outside_the_history_strip() {
+        let mut l = list(100, 500);
+        l.add_message(&post(None, "m0", None, true), 0, &mono);
+        assert!(l.add_edit(MESSAGE_INPUT_PREFIX, WHITE, true));
+        // A sidebar click aligned with a chat row must keep reaching the
+        // gadget dispatch, not start a history selection. Strip: [3, 503).
+        assert_eq!(l.row_at(2, 58), None, "left of the strip");
+        assert_eq!(l.row_at(503, 58), None, "right of the strip");
+        assert_eq!(l.row_at(3, 58), Some(0), "the strip's left edge hits");
+        assert_eq!(l.row_at(502, 58), Some(0), "the strip's right edge hits");
+    }
+
+    #[test]
+    fn row_hit_test_follows_the_rows_search_paints() {
+        // With a search open the matches compact bottom-up; the older hidden
+        // row must not answer a click aimed at the painted one.
+        let mut l = list(100, 500);
+        l.add_message(
+            &post(None, "alpha https://a.test/old", None, true),
+            0,
+            &mono,
+        );
+        l.add_message(&post(None, "beta https://b.test/new", None, true), 0, &mono);
+        assert!(l.add_edit(MESSAGE_INPUT_PREFIX, WHITE, true));
+        l.begin_search();
+        for unit in "alpha".encode_utf16() {
+            l.search_input(unit, false);
+        }
+        assert_eq!(l.display_rows(), vec![0], "only the alpha row is painted");
+        // The painted bottom row resolves to the alpha message's row, not to
+        // the unfiltered window's bottom (beta).
+        assert_eq!(l.row_at(50, 58), Some(0));
+        l.end_search();
+        assert_eq!(l.row_at(50, 58), Some(1), "unfiltered window restored");
     }
 
     #[test]

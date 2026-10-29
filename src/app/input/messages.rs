@@ -1012,6 +1012,7 @@ fn message_instances(
             x,
             camera_offset,
             alpha,
+            layout,
             chatbox_input_backing(list),
             &mut fills,
             &mut texts,
@@ -1114,6 +1115,7 @@ fn message_instances(
                     x,
                     camera_offset,
                     alpha,
+                    layout,
                     chatbox_history_backing(list),
                     &mut fills,
                     &mut texts,
@@ -1131,6 +1133,7 @@ fn message_instances(
                     x,
                     camera_offset,
                     1.0_f32,
+                    layout,
                     chatbox_history_backing(list),
                     &mut fills,
                     &mut texts,
@@ -1250,6 +1253,7 @@ fn message_instances(
                     x,
                     camera_offset,
                     1.0_f32,
+                    layout,
                     chatbox_history_backing(list),
                     &mut fills,
                     &mut texts,
@@ -1410,6 +1414,7 @@ fn build_row_instances(
     x: f32,
     camera_offset: [f32; 2],
     alpha: f32,
+    layout: crate::ui::messages::MessageLayout,
     backing: Option<RowBacking>,
     fills: &mut Vec<SpriteInstance>,
     texts: &mut Vec<SpriteInstance>,
@@ -1421,9 +1426,13 @@ fn build_row_instances(
     let reveal = m.reveal_count();
     // The chat box paints the sender tag in the sender's own colour and
     // the body in white, as the Minecraft reference does. The native
-    // layout keeps one label in one colour, and a type-on reveal keeps
+    // layout keeps one label in one colour — LAN/WOL rows would lose
+    // their sender-coloured bodies otherwise — and a type-on reveal keeps
     // the single label so its character count spans the whole row.
-    let split = (m.prefix_bytes > 0 && m.prefix_bytes < m.text.len() && reveal == 0)
+    let split = (layout == crate::ui::messages::MessageLayout::ChatBox
+        && m.prefix_bytes > 0
+        && m.prefix_bytes < m.text.len()
+        && reveal == 0)
         .then_some(m.prefix_bytes);
     let mut text_sprites = match split {
         Some(bytes) => {
@@ -1481,7 +1490,7 @@ pub(crate) fn chat_point_at(
     y: f32,
 ) -> Option<crate::ui::messages::ChatPoint> {
     let list = &state.match_state.match_presentation.message_list;
-    let row = list.row_at_y(y as i32)?;
+    let row = list.row_at(x as i32, y as i32)?;
     let message = list.messages().get(row)?;
     let font = &state.renderer.bit_font;
     Some(crate::ui::messages::ChatPoint {
@@ -1743,7 +1752,7 @@ pub(crate) fn copy_chat_selection(state: &mut AppState) -> bool {
     else {
         return false;
     };
-    if !crate::app::input::clipboard::set_text(&text) {
+    if !crate::app::input::clipboard::set_text(&state.platform.window, &text) {
         return false;
     }
     // Confirm the copy with a short grey row. The label goes through the
@@ -1810,7 +1819,8 @@ mod tests {
         let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 600);
         let result = list.add_message(&post, 1_000, &|s| s.len() as i32);
         assert!(result.play_sound, "native callback uses silent=0");
-        assert_eq!(list.messages()[0].deadline_ms, Some(3_880));
+        assert_eq!(list.messages()[0].visible_deadline_ms, Some(3_880));
+        assert_eq!(list.messages()[0].retain_deadline_ms, Some(3_880));
         list.manage(3_879);
         assert_eq!(list.messages().len(), 1);
         list.manage(3_880);
@@ -1888,7 +1898,7 @@ mod tests {
                 .play_sound
         );
         assert_eq!(list.messages()[0].text, "No eligible target");
-        assert_eq!(list.messages()[0].deadline_ms, Some(14_500));
+        assert_eq!(list.messages()[0].visible_deadline_ms, Some(14_500));
         assert!(
             add_localized_message(&mut list, Some(&csf), &post, 101, &|s| s.len() as i32)
                 .play_sound
@@ -2473,6 +2483,7 @@ mod tests {
             3.0,
             [0.0; 2],
             1.0,
+            crate::ui::messages::MessageLayout::ChatBox,
             chatbox_history_backing(&list),
             &mut fills,
             &mut texts,
@@ -2515,6 +2526,57 @@ mod tests {
             &mut mention,
         );
         assert_eq!(mention.len(), 2, "only the body occurrence counts");
+    }
+
+    #[test]
+    fn native_layout_keeps_a_prefixed_row_in_one_sender_colour() {
+        use crate::render::bit_font::tests::make_test_font;
+
+        let font = make_test_font(&[(b'x' as u16, 6)], 4);
+        let mut list = crate::ui::messages::MessageList::new(3, 0, 6, 300);
+        list.set_view(3, 0, 300, 100);
+        list.set_layout(crate::ui::messages::MessageLayout::Native);
+        list.add_message(
+            &crate::ui::messages::MessagePost {
+                prefix: Some("xx"),
+                text: "xx",
+                rgb: [1.0, 0.0, 0.0],
+                visible_timeout_ms: None,
+                retain_timeout_ms: None,
+                silent: true,
+            },
+            0,
+            &|text| font.text_width(text) as i32,
+        );
+        assert_eq!(list.messages()[0].text, "xx: xx");
+
+        let m = &list.messages()[0];
+        let mut fills = Vec::new();
+        let mut texts = Vec::new();
+        build_row_instances(
+            &font,
+            m,
+            3.0,
+            [0.0; 2],
+            1.0,
+            crate::ui::messages::MessageLayout::Native,
+            chatbox_history_backing(&list),
+            &mut fills,
+            &mut texts,
+        );
+        // The whole row is one sender-coloured label: no white body run may
+        // split it (ordinary native LAN/WOL rows keep their sender colour).
+        // Five sprites: two x's, the missing-glyph colon (whose XOR tint is
+        // deliberately not the sender colour), and two body x's.
+        assert_eq!(texts.len(), 5, "one label over the whole row");
+        assert!(
+            texts
+                .iter()
+                .filter(|t| t.uv_size[0] > 0.0)
+                .all(|t| t.tint[1] == 0.0 && t.tint[2] == 0.0),
+            "every real glyph keeps the sender colour"
+        );
+        assert_eq!(fills.len(), 1, "native rows keep the label-sized box");
     }
 
     #[test]

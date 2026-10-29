@@ -12,8 +12,15 @@
 //! selection, so the copy is a no-op rather than an error.
 
 /// Put `text` on the system clipboard. False when the platform refused.
+///
+/// The game window is the clipboard owner: `OpenClipboard(NULL)` makes
+/// `EmptyClipboard` set the owner to NULL and `SetClipboardData` then fails
+/// (WinUser's `OpenClipboard` remarks), wiping the player's previous
+/// clipboard without copying the selection. Without a usable window handle
+/// nothing is touched, so the failure keeps the old clipboard intact.
 #[cfg(target_os = "windows")]
-pub(crate) fn set_text(text: &str) -> bool {
+pub(crate) fn set_text(window: &winit::window::Window, text: &str) -> bool {
+    use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     use windows_sys::Win32::Foundation::GlobalFree;
     use windows_sys::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, OpenClipboard, SetClipboardData,
@@ -22,10 +29,17 @@ pub(crate) fn set_text(text: &str) -> bool {
         GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock,
     };
     use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
+    let hwnd = match window.window_handle() {
+        Ok(handle) => match handle.as_raw() {
+            RawWindowHandle::Win32(w) => w.hwnd.get() as windows_sys::Win32::Foundation::HWND,
+            _ => return false,
+        },
+        Err(_) => return false,
+    };
     // SAFETY: the clipboard is opened, written once, and closed on every path;
     // the handle is freed only when SetClipboardData did not take ownership.
     unsafe {
-        if OpenClipboard(std::ptr::null_mut()) == 0 {
+        if OpenClipboard(hwnd) == 0 {
             return false;
         }
         let written = if EmptyClipboard() == 0 {
@@ -59,19 +73,19 @@ pub(crate) fn set_text(text: &str) -> bool {
 
 /// Put `text` on the system clipboard. False when the platform refused.
 #[cfg(target_os = "macos")]
-pub(crate) fn set_text(text: &str) -> bool {
+pub(crate) fn set_text(_window: &winit::window::Window, text: &str) -> bool {
     pipe_to("pbcopy", &[], text)
 }
 
 /// Put `text` on the system clipboard. False when the platform refused.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub(crate) fn set_text(text: &str) -> bool {
+pub(crate) fn set_text(_window: &winit::window::Window, text: &str) -> bool {
     pipe_to("wl-copy", &[], text) || pipe_to("xclip", &["-selection", "clipboard"], text)
 }
 
 /// Put `text` on the system clipboard. False when the platform refused.
 #[cfg(not(any(target_os = "windows", target_os = "macos", unix)))]
-pub(crate) fn set_text(_text: &str) -> bool {
+pub(crate) fn set_text(_window: &winit::window::Window, _text: &str) -> bool {
     false
 }
 

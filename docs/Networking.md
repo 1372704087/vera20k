@@ -102,7 +102,9 @@ connectivity returns. The UI shows Reconnecting or Catching up while healthy
 clients continue. After ten minutes of silence the relay removes the player
 through the same stream. Like a native lost connection, a removal for silence
 destroys the player's House and shows "connection lost"; a player who quits still
-leaves through EXIT. Silence that long, explicit Leave, joining another online
+leaves through EXIT. While Reconnecting, the relay cannot sequence that EXIT, so
+a confirmed Abort Mission returns to the shell once the relay has been silent for
+three seconds; the client's relay Leave, or else that silence, removes the player. Silence that long, explicit Leave, joining another online
 match on the same relay, or the match's final frame after 24 hours of play ends
 membership. The relay
 remains required for progress.

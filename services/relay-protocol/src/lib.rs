@@ -815,6 +815,9 @@ pub struct RelayServer {
     last_pruned: u64,
     push_after: Option<([u8; 16], u8)>,
     journal_directory: Option<journal::JournalDirectory>,
+    // Ordering rooms cleaned up before their certificate expired, until that
+    // expiry: a late Ready gets Inactive instead of a new timeline.
+    ended_orderings: HashMap<[u8; 16], u64>,
 }
 
 impl RelayServer {
@@ -837,18 +840,23 @@ impl RelayServer {
             last_pruned: 0,
             push_after: None,
             journal_directory: None,
+            ended_orderings: HashMap::new(),
         }
     }
 
     /// Enable full-match encrypted replay on the existing relay's private
-    /// StateDirectory. Existing room files are never overwritten or resumed.
+    /// StateDirectory. Existing room files are never overwritten or resumed;
+    /// those of long-ended matches move to its `archive` subfolder.
     pub fn with_journal(
         key: SecretKey,
         max_rooms: usize,
         state_dir: &std::path::Path,
     ) -> std::io::Result<Self> {
         let mut server = Self::new(key, max_rooms);
-        server.journal_directory = Some(journal::JournalDirectory::open(state_dir)?);
+        server.journal_directory = Some(journal::JournalDirectory::open(
+            state_dir,
+            std::time::SystemTime::now(),
+        )?);
         Ok(server)
     }
 
@@ -1040,6 +1048,7 @@ impl RelayServer {
         });
         self.admissions
             .retain(|_, admission| admission.retain_until > now);
+        self.ended_orderings.retain(|_, expires| *expires > now);
         self.unadmitted_handshakes.clear();
         self.ingress.allocate(
             now,

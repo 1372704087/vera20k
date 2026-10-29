@@ -1,9 +1,9 @@
 name: Online services
 
-# Pull requests that touch the relay protocol, the lobby Worker or the browser
-# gateway run those packages' own tests, which take a minute or two. The
-# engine's library tests stay in the manual platform workflows; relay changes
-# also get relay-compat.yml.
+# Pull requests that touch the relay protocol or the browser gateway run those
+# packages' own tests, which take a minute or two. The engine's library tests
+# stay in the manual platform workflows; relay changes also get
+# relay-compat.yml. The lobby Worker and its tests live in a private repository.
 on:
   pull_request:
     paths:
@@ -29,20 +29,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test -p vera20k-relay-protocol --lib --no-fail-fast
-
-  lobby:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    defaults:
-      run:
-        working-directory: services/lobby
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
-      # The tests use only Node built-ins; the dev dependencies are deploy tools.
-      - run: npm test
 
   gateway:
     runs-on: ubuntu-24.04

@@ -3508,6 +3508,7 @@ mod tests {
             !crate::rules::PHOBOS_ENABLED,
             !crate::rules::NPATCH_ENABLED,
             !crate::rules::VERAX_ENABLED,
+            !crate::rules::NPBUG_ENABLED,
         );
         // A complete header with no body proves capability admission runs before
         // Simulation deserialization, even without bound scenario resources.

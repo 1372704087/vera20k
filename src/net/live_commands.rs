@@ -341,6 +341,13 @@ impl LiveCommandSession {
         }
     }
 
+    /// Whether a confirmed UI exit's EXIT waits for the relay to sequence it.
+    pub fn exit_requested(&self) -> bool {
+        self.sequenced
+            .as_ref()
+            .is_some_and(|session| session.exit_requested())
+    }
+
     pub fn recovery_status(
         &self,
         now_millis: u32,

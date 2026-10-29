@@ -8,7 +8,8 @@ use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
-// Commands one source may archive: about 18 hours of very heavy play.
+// Commands one source may archive. Its checksum sample every 15 frames alone
+// takes roughly a day at 60 FPS; past this its batches get Backpressure.
 const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
 const DEPARTURE_BYTES: u64 = 4 + 14 + 8;
@@ -148,18 +149,23 @@ impl JournalDirectory {
         Ok(())
     }
 
-    /// A finished room writes nothing more; it keeps only the bytes its
-    /// terminal replay grace still serves.
-    pub(super) fn settle(&mut self, journal: &mut Journal) {
-        if journal.quota == journal.used {
+    /// A finished room takes no more commands; it keeps the bytes its
+    /// terminal replay grace serves plus the frame ends of `unmerged` frames
+    /// a federated relay sealed before every departure reached it.
+    pub(super) fn settle(&mut self, journal: &mut Journal, unmerged: u32) {
+        let tail = journal
+            .reserved_tail
+            .min(u64::from(unmerged) * FRAME_END_BYTES);
+        let keep = journal.used + tail;
+        if journal.quota == keep {
             return;
         }
         if let Some(bytes) = self.reserved.get_mut(&journal.room) {
-            self.total -= *bytes - journal.used;
-            *bytes = journal.used;
+            self.total -= *bytes - keep;
+            *bytes = keep;
         }
-        journal.quota = journal.used;
-        journal.reserved_tail = 0;
+        journal.quota = keep;
+        journal.reserved_tail = tail;
         journal.pending = 0;
     }
 }

@@ -2784,7 +2784,7 @@ mod tests {
         // 32 MiB of commands per player, not a fixed eighth of the quota.
         assert_eq!(admitted.len(), 52);
         // A finished room keeps only the bytes it wrote.
-        journals.settle(&mut admitted[0]);
+        journals.settle(&mut admitted[0], 0);
         assert!(journals.create([0xf0; 16], 45, 2).is_ok());
     }
 
@@ -3140,7 +3140,7 @@ impl RelayServer {
                     && ordering.finished_at.is_some()
                     && let Some(journal) = ordering.journal.as_mut()
                 {
-                    directory.settle(journal);
+                    directory.settle(journal, ordering.sealed - ordering.head);
                 }
             }
         }

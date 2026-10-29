@@ -92,7 +92,7 @@ disk. Temporary connection loss keeps the player's identity, units, input cursor
 and world in the match; the client renews its ticket and reads missed frames when
 connectivity returns. Network silence never writes an exit. The UI shows
 Reconnecting or Catching up while healthy clients continue. Explicit Leave, joining
-another online match, or the 24-hour match lifetime ends membership. The relay remains required for progress.
+another online match on the same relay, or the 24-hour match lifetime ends membership. The relay remains required for progress.
 
 Authored Battle matches record reconstructible JSON replays in `replays/`.
 `vera20k --replay <replay.json> --ra2-dir <retail-directory>` opens read-only

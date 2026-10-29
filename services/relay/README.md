@@ -126,8 +126,8 @@ journals therefore advertise oldest sequence1 throughout the match.
 
 Poor or disconnected internet never removes a player. Healthy players continue;
 the returning player can replay from its old cursor even after every short hop
-ticket expired. Only explicit Leave, the player's admission with a newer lobby
-generation (recorded like Leave, started or not), or the first certificate's
+ticket expired. Only explicit Leave, the player's admission on this relay with a newer
+lobby generation (recorded like Leave, started or not), or the first certificate's
 24-hour lifetime ends participation; a renewed certificate never extends it.
 Explicit-all-left retains a 300-second terminal replay grace before
 exact-file cleanup. No reader acknowledgement gates advancement or retention.

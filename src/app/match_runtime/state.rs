@@ -21,6 +21,10 @@ pub(crate) struct MatchState {
     /// Input state for ExecuteDoList's blocking checksum-error message box.
     /// The suspended frame and mismatch remain owned by Simulation.
     pub(crate) network_failure: Option<super::network_failure::NetworkFailureModal>,
+    /// VERA-only: a network frame failed before commit (`FrameAdvanceError`).
+    /// The world keeps partial writes, so it never advances again; the same
+    /// checksum box ends the match instead of resuming a suspended frame.
+    pub(crate) frame_stopped: bool,
     /// Physical byte transport and packet progress for an installed match.
     /// Session owns the accepted participant roster and checksum history.
     pub(crate) live_network: Option<crate::net::live_commands::LiveCommandSession>,
@@ -78,10 +82,6 @@ pub(crate) struct MatchState {
     pub(crate) scenario_elapsed_clock: crate::app::match_runtime::frame_pacer::ScenarioElapsedClock,
     /// Config-sourced input delay — copied to each new Simulation instance at game start.
     pub(crate) configured_input_delay_ticks: u64,
-    /// Explicit development HUD/command preference. Only consulted when the
-    /// live scenario has no current House; ordinary matches derive their
-    /// identity from serialized `Simulation.session.current_house`.
-    pub(crate) local_owner_override: Option<String>,
     /// Seeded empty-map sandbox keeps full map visibility while still locking control.
     pub(crate) sandbox_full_visibility: bool,
     /// The debug pause (`J` hotkey): the simulation is frozen

@@ -1636,6 +1636,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"techno-object-group-v1".hash(hasher);
         entity.object_group().hash(hasher);
     }
+    if entity.unit_follower().is_some() || entity.is_unit_follower() {
+        // UnitClass::ComputeCRC744640 includes the +6C8 peer identity and
+        // independent +6D0 byte at744678..7446AB (gamemd.exe instructions).
+        b"unit-follower-v1".hash(hasher);
+        entity.unit_follower().hash(hasher);
+        entity.is_unit_follower().hash(hasher);
+    }
     if entity.techno_ctor_random_word() != 0 {
         b"techno-constructor-v1".hash(hasher);
         entity.techno_ctor_random_word().hash(hasher);
@@ -2059,20 +2066,6 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         cloak.step_timer().timer().duration().hash(hasher);
         cloak.recloak_delay().start_frame().hash(hasher);
         cloak.recloak_delay().duration().hash(hasher);
-    } else {
-        0u8.hash(hasher);
-    }
-    if let Some(deposit) = entity.sensor_deposit {
-        1u8.hash(hasher);
-        deposit.owner().hash(hasher);
-        deposit.center().hash(hasher);
-        deposit.add_radius().hash(hasher);
-        deposit.remove_radius().hash(hasher);
-        deposit.building_array().hash(hasher);
-        // The cached `DetectDisguiseRange=` circle. It is the
-        // radius Limbo will decrement, so it selects which
-        // cells leave the disguise-detect plane.
-        deposit.detect_disguise_radius().hash(hasher);
     } else {
         0u8.hash(hasher);
     }

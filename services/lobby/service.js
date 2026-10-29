@@ -22,10 +22,22 @@ const BOOTSTRAP_GRANT_SECONDS = 120;
 const GRANT_SECONDS = 300;
 const MAX_PLAYERS = 30;
 const MAX_SESSIONS = 256;
+// One network's share of lobby capacity; a full thirty-player game behind one
+// address still fits.
+const NETWORK_SHARE = MAX_SESSIONS / 4;
 const STATS_SECONDS = 10;
 const MAP_CHUNK_BYTES = 32768;
 const MAX_MAP_BYTES = 8 * 1024 * 1024;
 const MAX_PREVIEW_BYTES = 512 * 1024;
+// Each player's map bytes a minute, separately for those received, sent and
+// re-read to check a finished upload.
+const MAP_BYTES_PER_MINUTE = 32 * 1024 * 1024;
+// German Bunker chat a minute; one network may send a quarter of it, as with
+// NETWORK_SHARE.
+const PUBLIC_CHAT = 120;
+// A silent playing session lasts as long as its match while another unfinished
+// player of the match is online, and otherwise this long.
+const RECOVERY_SECONDS = 10 * 60;
 const TRANSLATION_SECONDS = 24 * 60 * 60;
 // About $0.30/day of model time at most; cached repeats are free.
 const DAILY_TRANSLATIONS = 10000;
@@ -35,6 +47,8 @@ const MAX_NOTICE_MINUTES = 7 * 24 * 60;
 const NOTICE_SENDER = { player_id: '00000000-0000-0000-0000-000000000000', name: 'VERA20k',
   flags: 1, squad: 0, clan_name: '', clan_tag: '' };
 const copy = (value) => structuredClone(value);
+// Sessions from before network keys count as their own network.
+const networkOf = (session) => session.network ?? session.player_id;
 const pendingMatch = (value) => value?.phase === 'connecting' || value?.phase === 'probing';
 const softEvent = (kind) => ['chat', 'locales', 'buddies', 'located'].includes(kind);
 const stateEvent = (kind) => ['options', 'ready', 'map_status', 'choices'].includes(kind);
@@ -147,6 +161,65 @@ function requestLocation(request) {
   if (!/^-?\d{1,3}(\.\d+)?,-?\d{1,3}(\.\d+)?$/.test(value)) return null;
   const [latitude, longitude] = value.split(',').map(Number);
   return Math.abs(latitude) <= 90 && Math.abs(longitude) <= 180 ? [Math.round(latitude), Math.round(longitude)] : null;
+}
+
+function ipv6Groups(text) {
+  const halves = text.split('::');
+  if (halves.length > 2) return null;
+  const parts = halves.map((half) => (half === '' ? [] : half.split(':')));
+  const tail = parts.at(-1);
+  const dotted = tail.at(-1)?.split('.');
+  if (dotted?.length === 4) {
+    const octets = dotted.map(Number);
+    if (!octets.every((octet, index) => Number.isInteger(octet) && octet <= 255 && String(octet) === dotted[index])) return null;
+    tail.splice(-1, 1, ((octets[0] << 8) | octets[1]).toString(16), ((octets[2] << 8) | octets[3]).toString(16));
+  }
+  const count = parts.reduce((sum, part) => sum + part.length, 0);
+  if (halves.length === 1 ? count !== 8 : count > 7) return null;
+  const groups = halves.length === 1 ? parts[0] : [...parts[0], ...Array(8 - count).fill('0'), ...parts[1]];
+  return groups.every((group) => /^[0-9a-f]{1,4}$/.test(group)) ? groups.map((group) => parseInt(group, 16)) : null;
+}
+
+// Per-address limits key on networks a client controls: an IPv4 address, or
+// an IPv6 /64 for host limits and the /48 around it for shares of lobby-wide
+// capacity. One IPv6 allocation holds at least 2^64 addresses, so keying on
+// the full address would give a single client unlimited budgets.
+function clientNetwork(address) {
+  const text = (address ?? 'local').trim().toLowerCase();
+  const groups = text.includes(':') ? ipv6Groups(text) : null;
+  if (!groups) return { host: text, range: text };
+  if (groups.slice(0, 5).every((group) => group === 0) && groups[5] === 0xffff)
+    return clientNetwork([groups[6] >> 8, groups[6] & 255, groups[7] >> 8, groups[7] & 255].join('.'));
+  const prefix = (length) => `${groups.slice(0, length).map((group) => group.toString(16)).join(':')}::/${length * 16}`;
+  return { host: prefix(4), range: prefix(3) };
+}
+
+// A browser gateway proxies its players' HTTPS requests from its own address.
+// With the GATEWAY_KEY deployment secret (at least 32 characters) shared with
+// that gateway, a request carrying the key names the player's own address;
+// without the secret, or with another key, the named address is ignored.
+export const GATEWAY_KEY_HEADER = 'vera-gateway-key';
+export const CLIENT_ADDRESS_HEADER = 'vera-client-address';
+
+function clientAddress(request, env) {
+  const key = env.GATEWAY_KEY;
+  const named = request.headers.get(CLIENT_ADDRESS_HEADER);
+  if (named && typeof key === 'string' && key.length >= 32
+    && sameSecret(request.headers.get(GATEWAY_KEY_HEADER) ?? '', key)) return named;
+  return request.headers.get('CF-Connecting-IP');
+}
+
+// Stored rate keys and session networks are HMACs of the client's network
+// under a key derived from RELAY_TICKET_KEY, which every deployment holds. A
+// plain hash of an IPv4 address falls to trying all 2^32 of them; these can be
+// tested against an address only with that secret. Keys made before them, or
+// under a replaced secret, simply age out.
+async function networkKeys(request, env) {
+  const { host, range } = clientNetwork(clientAddress(request, env));
+  const derived = await hmac(env.RELAY_TICKET_KEY, 'VERA20k lobby network key v1\0');
+  const key = await crypto.subtle.importKey('raw', derived, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const keyed = async (text) => base64url(new Uint8Array(await crypto.subtle.sign('HMAC', key, encoder.encode(text))));
+  return { host: await keyed(host), range: await keyed(range) };
 }
 
 // RELAYS lists every relay as JSON [{address, key, latitude, longitude, federation?}],
@@ -366,6 +439,7 @@ export class LobbyService {
     this.clock = clock;
     this.bodyTimeoutMs = bodyTimeoutMs;
     this.statsCache = null;
+    this.sweptAt = null;
     this.tail = Promise.resolve();
     this.pendingRequests = 0;
     this.pendingBytes = 0;
@@ -393,8 +467,8 @@ export class LobbyService {
       if (request.method === 'POST') {
         const path = new URL(request.url).pathname;
         if (['/v1/accounts', '/v1/sessions', '/v1/admin/notice'].includes(path)) {
-          const key = await sha256(request.headers.get('CF-Connecting-IP') ?? 'local');
-          this.store.transaction(() => this.rateLimit(`ingress-auth:${key}`, 120, 60));
+          const { host } = await networkKeys(request, this.env);
+          this.store.transaction(() => this.rateLimit(`ingress-auth:${host}`, 120, 60));
           if (path === '/v1/admin/notice') this.administrator(request);
         } else {
           const { session } = await this.authenticated(request);
@@ -513,8 +587,14 @@ export class LobbyService {
     if (cached && cached.until > this.clock()) return this.json({ text: cached.text });
     let pending = this.translations.get(key);
     if (!pending) {
-      try { this.store.transaction(() => this.rateLimit('translate:budget', DAILY_TRANSLATIONS, 24 * 60 * 60)); }
-      catch { throw unavailable(); }
+      // Fresh sign-ins get fresh player budgets, so one network may spend at
+      // most a quarter of the day's model calls.
+      try {
+        this.store.transaction(() => {
+          this.rateLimit(`translate:budget:${networkOf(session)}`, DAILY_TRANSLATIONS / 4, 24 * 60 * 60);
+          this.rateLimit('translate:budget', DAILY_TRANSLATIONS, 24 * 60 * 60);
+        });
+      } catch { throw unavailable(); }
       pending = Promise.resolve().then(() => this.env.TRANSLATOR.translate({ text: body.text, target: body.target }))
         .then((result) => {
           if (typeof result?.text === 'string') this.store.put(key, { text: result.text, until: this.clock() + TRANSLATION_SECONDS });
@@ -533,15 +613,14 @@ export class LobbyService {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: LOBBY_PROTOCOL });
     if (url.pathname === '/v1/stats' && request.method === 'GET') {
-      this.rateLimit(`stats:${await sha256(request.headers.get('CF-Connecting-IP') ?? 'local')}`, 30, 60);
+      this.rateLimit(`stats:${(await networkKeys(request, this.env)).host}`, 30, 60);
       return this.json(this.stats());
     }
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
-      const origin = request.headers.get('CF-Connecting-IP') ?? 'local';
-      const address = await sha256(origin);
-      this.rateLimit(`auth:${address}`, 60, 300);
+      const network = await networkKeys(request, this.env);
+      this.rateLimit(`auth:${network.host}`, 60, 300);
       this.reap();
-      return this.authenticate(body, url.pathname === '/v1/accounts', address, request.headers.get(FEDERATION_HEADER) === '1');
+      return this.authenticate(body, url.pathname === '/v1/accounts', network, request.headers.get(FEDERATION_HEADER) === '1');
     }
     if (url.pathname === '/v1/admin/notice' && request.method === 'POST') {
       this.administrator(request);
@@ -654,7 +733,7 @@ export class LobbyService {
     this.store.put('stats:games', games);
   }
 
-  async authenticate(body, create, address, federation) {
+  async authenticate(body, create, network, federation) {
     requireThat(!create && !Object.hasOwn(body, 'password') && body.protocol === LOBBY_PROTOCOL,
       'upgrade_required', 'Update VERA20k to enter a username without a password.', 426);
     requireThat(record(body, ['nickname', 'protocol']), 'invalid_request', 'Invalid sign-in request.');
@@ -662,7 +741,6 @@ export class LobbyService {
     requireThat(playerName(nickname), 'invalid_name', 'Use 1–24 letters, digits, underscores or hyphens.');
     requireThat(nickname.toLowerCase() !== NOTICE_SENDER.name.toLowerCase(),
       'name_unavailable', 'That player name is reserved. Choose another username.', 409);
-    this.rateLimit(`login:account:${nickname.toLowerCase()}`, 30, 300);
     const playerId = crypto.randomUUID();
     const profileKey = `guest:${playerId}`;
     const profile = { player_id: playerId, nickname, locale: 0, buddies: [], admission_generation: 0 };
@@ -672,13 +750,22 @@ export class LobbyService {
     // Keep the existing preference/admission key for old sessions. Guest
     // profiles live only as long as this session and never read account: data.
     const session = { id, player_id: playerId, nickname, account_key: profileKey, protocol: LOBBY_PROTOCOL,
-      ...(federation ? { federation: true } : {}), expires_at: now + SESSION_SECONDS, seen: now, channel_id: null, match_id: null, sequence: 0, ack: 0, critical_floor: 0, requests: [] };
+      ...(federation ? { federation: true } : {}), network: network.range, expires_at: now + SESSION_SECONDS, seen: now,
+      channel_id: null, match_id: null, sequence: 0, ack: 0, critical_floor: 0, requests: [] };
     this.store.transaction(() => {
-      requireThat(!this.store.list('session:').some((other) => other.nickname.toLowerCase() === nickname.toLowerCase()),
+      const sessions = this.store.list('session:');
+      requireThat(!sessions.some((other) => other.nickname.toLowerCase() === nickname.toLowerCase()),
         'name_unavailable', 'That player name is already in use. Choose another username.', 409);
-      this.rateLimit(`signup:${address}`, 40, 3600);
+      requireThat(sessions.length < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
+      // No one network may take more than its share of lobby-wide capacity.
+      requireThat(sessions.filter((other) => other.network === network.range).length < NETWORK_SHARE,
+        'network_full', 'Too many players from your network are online.', 503);
+      // Only entries that take the name count, so attempts at an active name
+      // cannot lock its player out after they leave.
+      this.rateLimit(`login:account:${nickname.toLowerCase()}`, 30, 300);
+      this.rateLimit(`signup:${network.host}`, 40, 3600);
+      this.rateLimit(`signup-range:${network.range}`, NETWORK_SHARE, 3600);
       this.rateLimit('signup:global', 256, 3600);
-      requireThat(this.store.count('session:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
       this.store.put(profileKey, profile);
       this.store.put(`session:${id}`, session);
     });
@@ -772,12 +859,20 @@ export class LobbyService {
     const [maximum, period] = ACTIONS[operation], bytes = byteLength(payload);
     this.rateLimit(`action:${session.player_id}:${operation}`, maximum, period);
     this.rateLimit(`bytes:${session.player_id}:${operation === 'map_upload' ? 'map' : 'control'}`,
-      operation === 'map_upload' ? 32 * 1024 * 1024 : 4 * 1024 * 1024, 60, bytes);
+      operation === 'map_upload' ? MAP_BYTES_PER_MINUTE : 4 * 1024 * 1024, 60, bytes);
     if (operation === 'chat') this.rateLimit(`chat-bytes:${session.player_id}`, 24 * 1024, 60, bytes);
     const room = session.channel_id && this.store.get(`room:${session.channel_id}`);
-    if (room && ['chat', 'options', 'choices', 'ready', 'map_status', 'advertise', 'start', 'kick'].includes(operation)) {
-      this.rateLimit(`room:${room.id}:${operation === 'chat' ? 'chat' : 'control'}`, operation === 'chat' ? 120 : 1800, 60);
-      this.rateLimit(`room-bytes:${room.id}`, 128 * 1024 * 1024, 60, bytes * room.members.length);
+    // Room budgets bound what guests fan out together. The host's commands
+    // answer only to their player budgets, so guests cannot lock the host out.
+    if (room && room.owner !== session.player_id &&
+      ['chat', 'options', 'choices', 'ready', 'map_status', 'advertise', 'start', 'kick'].includes(operation)) {
+      const chat = operation === 'chat';
+      // A refused command spends none of them.
+      this.store.transaction(() => {
+        if (chat && room.id === 'public') this.rateLimit(`room:public:chat:${networkOf(session)}`, PUBLIC_CHAT / 4, 60);
+        this.rateLimit(`room:${room.id}:${chat ? 'chat' : 'control'}`, chat ? PUBLIC_CHAT : 1800, 60);
+        this.rateLimit(`room-bytes:${room.id}`, 128 * 1024 * 1024, 60, bytes * room.members.length);
+      });
     }
     if (operation === 'choices') requireThat(validSlot(payload.slot), 'invalid_request', 'Invalid player settings.');
     if (operation === 'options') requireThat(validOptions(payload.options), 'invalid_options', 'Invalid game settings.');
@@ -817,7 +912,7 @@ export class LobbyService {
       'invalid_map_chunk', 'Invalid map offset.');
     const chunk = this.store.get(`${resource.chunkPrefix}${offset}`);
     requireThat(chunk, 'map_pending', 'The host is preparing the map.', 409);
-    this.rateLimit(`download-bytes:${session.player_id}`, 32 * 1024 * 1024, 60, chunk.data.length);
+    this.rateLimit(`download-bytes:${session.player_id}`, MAP_BYTES_PER_MINUTE, 60, chunk.data.length);
     return this.json({ digest: upload.digest, byte_length: upload.byte_length, offset, data: chunk.data,
       ...(resource.resource === 'preview' ? { resource: 'preview' } : {}),
       complete: offset + chunk.length === upload.byte_length });
@@ -943,6 +1038,9 @@ export class LobbyService {
       requireThat(payload.offset === received, 'map_offset', 'Map chunks must arrive in order.', 409);
       const complete = payload.offset + bytes.length === payload.byte_length;
       if (complete) {
+        // Checking the digest re-reads every earlier chunk, so retrying a
+        // failed final chunk is bounded by the bytes it re-reads.
+        this.rateLimit(`rehash:${session.player_id}`, MAP_BYTES_PER_MINUTE, 60, payload.offset);
         const all = new Uint8Array(payload.byte_length);
         for (let offset = 0; offset < payload.offset; offset += MAP_CHUNK_BYTES) {
           const previous = this.store.get(`${resource.chunkPrefix}${offset}`);
@@ -1055,7 +1153,7 @@ export class LobbyService {
           room.channel.name.toLowerCase() === channel.name.toLowerCase()), 'name_unavailable', 'That room name is already in use.', 409);
         requireThat(this.store.count('room:') < MAX_SESSIONS, 'service_full', 'The lobby service is full.', 503);
         room = { id: crypto.randomUUID(), kind: 41, owner: session.player_id,
-          capacity: Math.max(2, Math.min(MAX_PLAYERS, Number(channel.max_users) || 6)),
+          capacity: channel.max_users,
           channel: { kind: 41, name: channel.name, tournament: 0,
             game_flags: Number(channel.game_flags) || 0, ping: -1, ex_info: String(channel.ex_info ?? '').slice(0, 512) },
           key: prepared.key, members: [], revision: 0, options: null, ready: {}, maps: {}, agreements: {}, phase: 'lobby', created: this.clock() };
@@ -1067,10 +1165,13 @@ export class LobbyService {
         requireThat(room.kind === 0 || sameSecret(room.key ?? '', prepared.key), 'room_password', 'The room password is incorrect.', 403);
         requireThat(room.members.length < room.capacity || session.channel_id === room.id, 'room_full', 'This room is full.', 409);
       }
-      this.rateLimit(`room-joins:${room.id}`, 60, 60);
       if (session.channel_id === room.id) {
         this.emit(sessionId, 'joined', { channel: channelView(room), members: room.members.map((member) => memberView(member, room)) }); return;
       }
+      // Each join fans out to every member. German Bunker takes four
+      // thirty-player games of joins a minute, at most one from each network.
+      if (room.id === 'public') this.rateLimit(`room-joins:public:${networkOf(session)}`, MAX_PLAYERS, 60);
+      this.rateLimit(`room-joins:${room.id}`, room.id === 'public' ? 4 * MAX_PLAYERS : 60, 60);
       this.leave(session);
       session = this.store.get(`session:${sessionId}`);
       const member = { player_id: session.player_id, name: session.nickname, session_id: sessionId };
@@ -1209,6 +1310,9 @@ export class LobbyService {
     } else if (operation === 'advertise') {
       const channel = payload.channel;
       requireThat(validChannel(channel), 'invalid_request', 'Invalid advertisement.');
+      // The host's channel limit (0x0078F000's `mode +l`, 1 with only AI or
+      // closed rows) bounds later joins; members already present stay.
+      room.capacity = Math.max(room.members.length, channel.max_users);
       room.channel.ex_info = channel.ex_info;
       room.channel.game_flags = Number(channel.game_flags) || 0;
     } else if (operation === 'choices') {
@@ -1263,6 +1367,12 @@ export class LobbyService {
   reap() {
     const now = this.clock();
     this.store.transaction(() => {
+      this.store.expire(now);
+      // The sweep below parses every match and session. Every request may
+      // call reap, so requests share one sweep per clock second; each expiry
+      // it applies has whole-second precision.
+      if (this.sweptAt === now) return;
+      this.sweptAt = now;
       for (const match of this.store.list('match:')) if (match.expires <= now) {
         if (pendingMatch(match)) {
           this.abortPending(match, match.phase === 'connecting' ? 'A player could not connect to the gameplay relay.' :
@@ -1281,17 +1391,23 @@ export class LobbyService {
           room.phase = 'lobby'; delete room.match_id; this.invalidate(room); this.store.put(`room:${room.id}`, room);
         } else this.deleteRoom(match.room_id);
       }
-      this.store.expire(now);
-      for (const session of this.store.list('session:')) {
+      const sessions = this.store.list('session:');
+      const online = new Set(sessions.filter((session) => session.seen + 120 > now).map((session) => session.player_id));
+      for (const session of sessions) {
         const match = session.match_id ? this.store.get(`match:${session.match_id}`) : null;
+        const playing = (player) => !match.finished.includes(player);
         const recovering = session.protocol === LOBBY_PROTOCOL && match?.phase === 'playing' &&
-          match.ordering && !match.finished.includes(session.player_id);
+          match.ordering && playing(session.player_id) &&
+          (match.users.some((user) => user.player_id !== session.player_id && playing(user.player_id) && online.has(user.player_id)) ||
+            session.seen + RECOVERY_SECONDS > now);
         if (![LOBBY_PROTOCOL, 3].includes(session.protocol) || session.expires_at <= now ||
           (!recovering && session.seen + 120 <= now)) {
           // Polling continues in the HTTPS worker while the game loads/plays.
           // Idle lobby visits expire normally. An admitted modern player
-          // keeps their identity throughout a recoverable network outage;
-          // only explicit finish/leave or match/session lifetime ends it.
+          // keeps their identity through a network outage while another
+          // unfinished player of the match is online, and otherwise through
+          // ten minutes of silence. Clients that crashed together free their
+          // names then instead of holding each other's for the match lifetime.
           // Upgraded clients cannot finish an unsupported old session. Retire
           // only that session through the same membership/room cleanup owner.
           if (session.match_id) this.finish(session);

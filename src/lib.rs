@@ -73,3 +73,8 @@ use vera20k_core::test_fixture;
 
 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
 pub mod web;
+
+// Browser protocol tests run on the host without linking JavaScript APIs.
+#[cfg(all(feature = "wasm", any(test, all(target_arch = "wasm32", target_os = "unknown"))))]
+#[path = "web/lifecycle.rs"]
+mod browser_lifecycle;

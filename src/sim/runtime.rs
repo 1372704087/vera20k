@@ -501,6 +501,7 @@ mod tests {
             recruitable_a: true,
             recruitable_b: true,
             group: -1,
+            follows: None,
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
@@ -912,7 +913,7 @@ where
             &map_data.ini,
             descriptor.game_mode_nonzero,
         );
-        sim.initialize_trigger_definitions(map_data, &teams, None, None);
+        sim.initialize_trigger_definitions(map_data, &teams, None, None, None);
     }
     // Active YR `ScenarioClass__Full_Init @ 0x00686B20` calls
     // `ScenarioClass__Create_Houses @ 0x00687F10` before

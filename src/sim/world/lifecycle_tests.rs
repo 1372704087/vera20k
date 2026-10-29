@@ -1190,6 +1190,7 @@ fn zero_speed_foot_drive_ship_payloads_survive_all_world_spawn_paths() {
         recruitable_a: true,
         recruitable_b: true,
         group: -1,
+        follows: None,
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
@@ -3863,14 +3864,6 @@ fn detach_sensor_guard_applies_to_techno_but_not_constructed_terrain() {
         };
         let sensing_house = sim.substrate.entities.get(listener).unwrap().owner();
         assert!(sim.fog.has_sensor_for_house(sensing_house, cell.0, cell.1));
-        assert!(
-            sim.substrate
-                .entities
-                .get(listener)
-                .unwrap()
-                .sensor_deposit
-                .is_some()
-        );
         let sensor_counts = sim.fog.sensors_by_house().clone();
         let registered = sim.live_object_order_snapshot();
         sim.session.set_binary_frame_for_test(105);

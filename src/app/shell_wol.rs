@@ -27,6 +27,11 @@ mod test_service;
 pub(crate) mod translation;
 
 pub(crate) use live_service::OnlineCleanup;
+#[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+pub(crate) use live_service::discard_spawned_visit;
+pub(crate) use live_service::{
+    DecodedRelayGrant, begin_spawned_match, decode_external_relay_grant, end_spawned_match,
+};
 pub(crate) use live_service::{
     local_choices_agreed, online_cleanup_pending, online_exit_ready, online_match_id,
 };
@@ -103,6 +108,7 @@ fn send_wol_preferences(state: &mut AppState) {
 }
 
 use super::{App, AppState};
+use crate::app::frontend::shell_layout;
 use crate::app::frontend::shell_transition::ShellExitThen;
 use crate::app::shell_route::ShellRoute;
 use crate::ui::shell::descriptor::DialogId;
@@ -246,6 +252,9 @@ pub(crate) struct WolVisit {
     page_received: Option<Box<crate::ui::wol_page::WolPageReceived>>,
     /// The Quick Match runner's globals; the opponent outlives the runner.
     quick_match: quick_match::QuickMatchGlobals,
+    /// An external launch's relay match (docs/spawn.md) instead of a visit
+    /// the Internet button opened.
+    spawned: Option<live_service::SpawnedVisit>,
 }
 
 impl WolVisit {
@@ -286,6 +295,7 @@ impl WolVisit {
             page_dialog: None,
             page_received: None,
             quick_match: Default::default(),
+            spawned: None,
         }
     }
 
@@ -394,6 +404,16 @@ pub(crate) fn chat_sent(state: &mut AppState, line: &crate::ui::wol_chat::WolCha
     {
         visit.locate_name = Some(String::from_utf16_lossy(name));
     }
+}
+
+/// The online visit is an external launch's relay match: its shell takes no
+/// input, and its end reports the result instead of re-entering the lobby.
+pub(crate) fn spawned_visit(state: &AppState) -> bool {
+    state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.spawned.is_some())
 }
 
 /// `[0xB77DC1]`: a WOL match runs.
@@ -596,21 +616,22 @@ impl App {
         );
         let visit = state.frontend.wol.as_ref()?;
         if let Some(message) = visit.message() {
+            let scale = shell_layout::shell_scale_for_screen((width as u32, height as u32));
+            let layout = message.layout(width, height, scale);
             return Some(match message.buttons {
                 WolBoxButtons::Ok(_) => vec![LaidOutControl {
                     id: BOX_OK,
-                    rect: crate::ui::shell::modal::body_ok_layout(width, height).ok,
+                    rect: layout.ok,
                 }],
                 WolBoxButtons::YesNo { .. } => {
-                    let layout = crate::ui::shell::modal::yes_no_layout(width, height);
                     vec![
                         LaidOutControl {
                             id: BOX_NO,
-                            rect: layout.no,
+                            rect: layout.cancel.expect("Yes/No has No"),
                         },
                         LaidOutControl {
                             id: BOX_YES,
-                            rect: layout.yes,
+                            rect: layout.ok,
                         },
                     ]
                 }
@@ -620,7 +641,8 @@ impl App {
             // A hidden wait box takes no pointer.
             return Some(match visit.wait_box().filter(|wait| wait.shown) {
                 Some(_) => {
-                    let layout = crate::ui::shell::modal::wait_box_layout(width, height);
+                    let scale = shell_layout::shell_scale_for_screen((width as u32, height as u32));
+                    let layout = crate::ui::shell::modal::wait_box_layout_on(width, height, scale);
                     vec![
                         LaidOutControl {
                             id: WAIT_DISCONNECT,

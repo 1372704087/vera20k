@@ -104,6 +104,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         test=False,
     ),
     Capability(
+        "verax",
+        ("verax",),
+        "VERA20K's own first-party extension: the VeraX-gated autoload, "
+        "hotkey and skirmish chains.",
+        focus=("autoload",),
+    ),
+    Capability(
         "npbug",
         ("npbug",),
         "VERA20K's opt-in NPBUG bug-fix extension: gameplay corrections "
@@ -122,6 +129,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         ("telemetry-dashboard",),
         "The optional read-only browser dashboard on its own, without the "
         "trainer/event hooks debug-tools adds.",
+    ),
+    Capability(
+        "wasm",
+        ("wasm",),
+        "Browser host support; desktop feature-isolation compilation. The "
+        "separate WebAssembly workflow builds the browser target.",
+        test=False,
     ),
     Capability(
         "wasm-net",

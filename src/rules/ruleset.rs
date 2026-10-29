@@ -4671,6 +4671,36 @@ pub struct RuleSet {
 }
 
 impl RuleSet {
+    /// Ares1003DB30/1003DB50. Both group labels and ordinary type IDs share
+    /// one namespace; callers compare these keys case-insensitively.
+    pub fn type_selection_key<'a>(&'a self, category: ObjectCategory, type_id: &'a str) -> &'a str {
+        #[cfg(feature = "ares")]
+        if let Some(object) = self.object_in_category(category, type_id) {
+            return object.type_selection_key();
+        }
+        #[cfg(not(feature = "ares"))]
+        let _ = category;
+        type_id
+    }
+
+    /// CollectSelectedIDs732D47 -> Ares10041990/10041A3F gates the
+    /// DeploysInto/UndeploysInto seeds. Default builds keep retail behavior.
+    pub fn type_select_uses_deploy(&self) -> bool {
+        #[cfg(feature = "ares")]
+        {
+            self.ares_global_controls.type_select_use_deploy()
+        }
+        #[cfg(not(feature = "ares"))]
+        {
+            true
+        }
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn bounty_rules(&self) -> &crate::rules::ares_bounty::BountyGlobalRules {
+        self.ares_global_controls.bounty()
+    }
+
     /// Ares RulesExt+70, used by SW_HunterSeeker::Activate100728EB.
     #[cfg(feature = "ares")]
     pub(crate) fn hunter_seeker_buildings(&self) -> &[String] {
@@ -4770,8 +4800,9 @@ impl RuleSet {
             {
                 object.turret_count = slots.turret_count();
                 object.weapon_count = slots.weapon_count();
-                object.weapon_list = slots.base().to_vec();
-                object.elite_weapon_list = slots.elite().to_vec();
+                object.weapon_list = slots.base();
+                object.elite_weapon_list = slots.elite();
+                object.bind_weapon_offsets(slots.offsets());
             }
         }
         rules.crate_rules = processed.crate_rules().clone();
@@ -4847,6 +4878,7 @@ impl RuleSet {
         rules.general.weapon_nullify_anim = nullify_anim.to_owned();
         rules.combat_damage.splash_list = splash.to_vec();
         rules.combat_damage.ammo_crate_damage = processed.ammo_crate_damage();
+        rules.combat_damage.tiberium_explosion_damage = processed.tiberium_explosion_damage();
         rules.combat_damage.death_weapon =
             processed.combat_damage_death_weapon().map(str::to_owned);
         for (name, conventional, em_effect, anim_list, debris_types, verses, ares_verses) in
@@ -4925,6 +4957,16 @@ impl RuleSet {
             }
         }
         #[cfg(feature = "ares")]
+        for (category, name, group) in processed.selection_group_states() {
+            if let Some(handle) = rules
+                .object_category_index
+                .get(&(category, name.to_ascii_uppercase()))
+                .copied()
+            {
+                rules.object_list[handle.0 as usize].bind_selection_group(group);
+            }
+        }
+        #[cfg(feature = "ares")]
         for (category, name, driver) in processed.driver_states() {
             if let Some(handle) = rules
                 .object_category_index
@@ -4932,6 +4974,16 @@ impl RuleSet {
                 .copied()
             {
                 rules.object_list[handle.0 as usize].bind_driver_rules(driver);
+            }
+        }
+        #[cfg(feature = "ares")]
+        for (category, name, bounty) in processed.bounty_states() {
+            if let Some(handle) = rules
+                .object_category_index
+                .get(&(category, name.to_ascii_uppercase()))
+                .copied()
+            {
+                rules.object_list[handle.0 as usize].bind_bounty_rules(bounty);
             }
         }
         #[cfg(feature = "ares")]
@@ -5078,7 +5130,8 @@ impl RuleSet {
                 .iter_mut()
                 .find(|object| object.category == category && object.id == name)
             {
-                object.gunner_turrets = *gunner_turrets;
+                object.gunner = gunner_turrets.is_gunner();
+                object.gunner_turrets = gunner_turrets.clone();
             }
         }
         #[cfg(feature = "ares")]
@@ -5810,7 +5863,7 @@ impl RuleSet {
             .section_or_empty("SpecialFlags")
             .read_bool("InitialVeteran", false);
         let terrain_rules: TerrainRules = TerrainRules::from_ini(ini);
-        let tiberium_types = TiberiumTypeRegistry::from_ini(ini);
+        let tiberium_types = TiberiumTypeRegistry::from_processed_rules(processed);
         let bridge_rules: BridgeRules = BridgeRules::from_ini(ini);
         let crate_rules = CrateRules::default();
         // Overwritten from the processed layers by the two callers above; the
@@ -6379,7 +6432,7 @@ impl RuleSet {
         }
     }
 
-    /// TAction106's active6DF5D1 body compares stored IDs with exact case,
+    /// TAction106's active6DF5D1 and FlashCameo115's6E4150 compare IDs with exact case,
     /// scanning TechnoType::Array A8EB04/countA8EB10 backwards. This has
     /// different semantics from broad `object()` and subtype lookup.
     ///
@@ -7242,6 +7295,23 @@ impl RuleSet {
 
         #[cfg(feature = "ares")]
         {
+            // TypeExt bounty values and the attacker's enable bit are gameplay
+            // inputs; display-only overrides do not enter this map or its hash.
+            let bounty = self
+                .object_list
+                .iter()
+                .filter(|object| object.bounty_rules().has_gameplay_configuration())
+                .map(|object| {
+                    (
+                        (object.category, object.id.to_ascii_uppercase()),
+                        object.bounty_rules(),
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !bounty.is_empty() {
+                b"ares-bounty-rules-v1".hash(&mut hasher);
+                bounty.hash(&mut hasher);
+            }
             // Ares TypeExt driver fields retain earlier successful reads even
             // when the merged text contains later invalid/empty values.
             let drivers = self
@@ -7714,6 +7784,18 @@ impl RuleSet {
         }
         self.anim_type_references.hash(&mut hasher);
         self.combat_damage.ammo_crate_damage.hash(&mut hasher);
+        // Native retained defaults can differ with identical incoming INIs.
+        self.combat_damage
+            .tiberium_explosion_damage
+            .hash(&mut hasher);
+        for tiberium in self.tiberium_types.types() {
+            (
+                &tiberium.section,
+                tiberium.color_scheme(),
+                tiberium.debris(),
+            )
+                .hash(&mut hasher);
+        }
         self.general.barrel_explode.hash(&mut hasher);
         self.general.barrel_debris.hash(&mut hasher);
         for kind in &self.voxel_anim_types {
@@ -8064,14 +8146,14 @@ impl RuleSet {
                         object.gunner,
                         object.ifv_mode,
                         object.turret_count,
-                        object.gunner_turrets,
+                        &object.gunner_turrets,
                     ),
                 )
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
-        // Actual selected FLH records and turret pivot, in canonical type order.
-        b"art-weapon-flh-v1".hash(&mut hasher);
+        // GetFLH consumes the retained type records and the existing pivot.
+        b"art-weapon-flh-v2".hash(&mut hasher);
         self.object_list
             .iter()
             .map(|object| {
@@ -8079,33 +8161,24 @@ impl RuleSet {
                     .art_registry
                     .get(&object.image)
                     .or_else(|| self.art_registry.get(&object.id));
-                // FireAt uses zero FLH/pivot when metadata is absent. Hash
-                // that same effective value, not the presence of an ART section.
-                let slots = (0..crate::rules::object_type::WEAPON_SLOT_COUNT)
+                let slots = (0..object.weapon_record_count())
                     .map(|index| {
                         let elite = object
                             .elite_weapon_list
                             .get(index)
                             .is_some_and(Option::is_some);
-                        art.map_or_else(Default::default, |art| {
-                            (
-                                art.weapon_flh(
-                                    object.turret_count,
-                                    object.weapon_count,
-                                    index as i32,
-                                    false,
-                                ),
-                                art.weapon_flh(
-                                    object.turret_count,
-                                    object.weapon_count,
-                                    index as i32,
-                                    elite,
-                                ),
-                            )
-                        })
+                        (
+                            object.weapon_flh(index as i32, false),
+                            object.weapon_flh(index as i32, elite),
+                        )
                     })
                     .collect::<Vec<_>>();
-                let consumed = (art.map_or(0, |art| art.turret_offset), slots);
+                let ports = object.open_topped.then(|| {
+                    (0..5)
+                        .map(|port| object.alternate_fire_flh(port))
+                        .collect::<Vec<_>>()
+                });
+                let consumed = (art.map_or(0, |art| art.turret_offset), slots, ports);
                 (object.id.to_ascii_uppercase(), consumed)
             })
             .collect::<BTreeMap<_, _>>()
@@ -8502,6 +8575,13 @@ impl RuleSet {
                 .can_be_driven_override()
                 .unwrap_or(country.multiplay_passive)
         })
+    }
+
+    /// Victim CountryExt+1D1 gate in Ares bounty payout10043279..10043289.
+    #[cfg(feature = "ares")]
+    pub(crate) fn country_gives_bounty(&self, id: &str) -> bool {
+        self.country_rules(id)
+            .is_some_and(|country| country.veteran_types.gives_bounty())
     }
 
     /// HouseType511850 scalar fields used by SetDifficulty4F6EC0. Unknown

@@ -11,6 +11,8 @@
 //! departure: the silence departure, the batch, frame ends and that departure.
 //! A released game drops a datagram it cannot decode and pulls the same record
 //! again, so an unreadable record stalls it here as it would in a match.
+//! Every Pull reply starts with a Status, and a client that cannot read one
+//! never sees its match start, so an unreadable Status fails at once.
 //! The key below is public fixture data only.
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddrV4, UdpSocket};
@@ -23,6 +25,10 @@ use vera20k_relay_protocol::{
 type Result<T> = std::result::Result<T, String>;
 
 const SILENT: u8 = 2;
+// The server header is 48 bytes; its kind byte 4 is control (4), and a control
+// payload's first byte 1 is a Status. Released clients share this layout.
+const CONTROL_KIND: (usize, u8) = (4, 4);
+const PAYLOAD_KIND: (usize, u8) = (48, 1);
 const BATCH: &[u8] = b"relay-compat-v1";
 const DEADLINE: Duration = Duration::from_secs(150);
 
@@ -66,7 +72,13 @@ impl Peer {
     fn service(&mut self) -> Result<Option<u32>> {
         let mut ready = None;
         while let Some(packet) = self.packet()? {
-            match self.client.receive(&packet) {
+            let event = self.client.receive(&packet);
+            if is_status(&packet)
+                && !matches!(event, Ok(ServerEvent::Ordering(OrderEvent::Status(_))))
+            {
+                return Err("undecodable_status".into());
+            }
+            match event {
                 Ok(ServerEvent::Ordering(OrderEvent::Entry(entry))) => {
                     if let Some((sequence, record)) = record(&entry) {
                         if *self.records.entry(sequence).or_insert(record) != record {
@@ -98,6 +110,11 @@ impl Peer {
             .find(|sequence| !self.records.contains_key(sequence))
             .unwrap()
     }
+}
+
+fn is_status(packet: &[u8]) -> bool {
+    packet.get(CONTROL_KIND.0) == Some(&CONTROL_KIND.1)
+        && packet.get(PAYLOAD_KIND.0) == Some(&PAYLOAD_KIND.1)
 }
 
 fn record(entry: &OrderEntry) -> Option<(u64, Record)> {

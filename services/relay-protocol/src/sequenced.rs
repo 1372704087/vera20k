@@ -250,6 +250,11 @@ pub enum OrderEvent {
     },
     /// The exact terminal Leave was accepted, or its expired room is gone.
     Left,
+    /// An authenticated control payload this build cannot read: a newer
+    /// relay's record, reply or error code. Replies may grow and are read by
+    /// their known prefix; a canonical entry must match its layout exactly,
+    /// because members that read different bytes would simulate differently.
+    Unrecognized,
 }
 
 #[derive(Clone)]
@@ -515,7 +520,7 @@ impl ClientSession {
             return Err(RelayError::Unregistered);
         }
         Ok(match (payload[0], payload.len()) {
-            (PAUSE_STATUS_EVENT, 30) if payload[25] <= 1 => OrderEvent::PauseStatus {
+            (PAUSE_STATUS_EVENT, 30..) if payload[25] <= 1 => OrderEvent::PauseStatus {
                 supported_sources: read_u32(payload, 1),
                 active_sources: read_u32(payload, 5),
                 request_id: read_u64(payload, 9),
@@ -532,17 +537,17 @@ impl ClientSession {
                     source: payload[22],
                 })
             }
-            (PUSH_EVENT, 10) if payload[1] <= 1 && read_u64(payload, 2) != 0 => {
+            (PUSH_EVENT, 10..) if payload[1] <= 1 && read_u64(payload, 2) != 0 => {
                 OrderEvent::PushState {
                     enabled: payload[1] != 0,
                     next_sequence: read_u64(payload, 2),
                 }
             }
-            (READY_EVENT, 9) => OrderEvent::Ready {
+            (READY_EVENT, 9..) => OrderEvent::Ready {
                 ready_mask: read_u32(payload, 1),
                 sources_mask: read_u32(payload, 5),
             },
-            (STATUS_EVENT, 32) => OrderEvent::Status(OrderStatus {
+            (STATUS_EVENT, 32..) => OrderEvent::Status(OrderStatus {
                 head_frame: read_u32(payload, 1),
                 oldest_seq: read_u64(payload, 5),
                 next_seq: read_u64(payload, 13),
@@ -551,7 +556,7 @@ impl ClientSession {
                 start_delay_ms: read_u32(payload, 27),
                 started: payload[31] != 0,
             }),
-            (ACK_EVENT, 13) => {
+            (ACK_EVENT, 13..) => {
                 let batch_id = read_u64(payload, 1);
                 if batch_id == 0 {
                     return Err(RelayError::Malformed);
@@ -630,8 +635,10 @@ impl ClientSession {
                     bytes: readable.then_some(bytes),
                 })
             }
-            (ERROR_EVENT, 10) => {
-                let code = OrderError::parse(payload[1])?;
+            (ERROR_EVENT, 10..) => {
+                let Ok(code) = OrderError::parse(payload[1]) else {
+                    return Ok(OrderEvent::Unrecognized);
+                };
                 let expected = read_u64(payload, 2);
                 if code == OrderError::BatchGap {
                     let accepted = expected.checked_sub(1).ok_or(RelayError::Malformed)?;
@@ -641,7 +648,7 @@ impl ClientSession {
                 }
                 OrderEvent::Error { code, expected }
             }
-            _ => return Err(RelayError::Malformed),
+            _ => OrderEvent::Unrecognized,
         })
     }
 }
@@ -1093,9 +1100,9 @@ impl OrderingRoom {
         self.start_when_ready(now_ms);
     }
 
-    /// Ends a federated match whose other relays went silent. It seals and
-    /// merges no further entry, so its archive grows by at most the frame ends
-    /// of what it already sealed.
+    /// Ends a federated match of three or more relays whose others went
+    /// silent. It seals and merges no further entry, so its archive grows by
+    /// at most the frame ends of what it already sealed.
     fn abandon(&mut self, now_ms: u64) {
         self.active = 0;
         self.pending.clear();
@@ -1595,6 +1602,56 @@ mod tests {
             .control_ordering_pause(id, epoch, paused, &mut bytes)
             .unwrap();
         events(server, client, &bytes, now_ms).remove(0)
+    }
+
+    /// Released clients cannot be changed, so a newer relay may only append
+    /// to replies. A reply decodes by its known prefix; a newer error code or
+    /// record is reported as unrecognized, and a canonical entry decodes only
+    /// in full.
+    #[test]
+    fn newer_replies_decode_by_prefix_and_newer_records_are_unrecognized() {
+        let key = SecretKey::new([74; 32]);
+        let mut server = RelayServer::new(key.clone(), 1);
+        let mut reader = client(&key, 0);
+        connect(&mut server, &mut reader, 0);
+        reader
+            .configure_ordering(&certificate(&key, 3, 1400), [7; 32], &mut Vec::new())
+            .unwrap();
+        let mut status = vec![STATUS_EVENT; 33];
+        status[31] = 1;
+        assert!(matches!(
+            reader.receive_ordering(&status),
+            Ok(OrderEvent::Status(OrderStatus { started: true, .. }))
+        ));
+        let mut error = vec![ERROR_EVENT, OrderError::NotStarted as u8];
+        error.resize(11, 0);
+        assert!(matches!(
+            reader.receive_ordering(&error),
+            Ok(OrderEvent::Error {
+                code: OrderError::NotStarted,
+                ..
+            })
+        ));
+        error[1] = 200;
+        let departure = |reason: &[u8]| {
+            let mut payload = vec![DEPARTURE_EVENT];
+            payload.extend_from_slice(&[0; 12]);
+            payload.push(0);
+            payload.extend_from_slice(reason);
+            payload
+        };
+        let mut frame_end = vec![FRAME_END_EVENT];
+        frame_end.resize(14, 0);
+        for payload in [error, departure(&[2]), departure(&[1, 0]), frame_end] {
+            assert!(matches!(
+                reader.receive_ordering(&payload),
+                Ok(OrderEvent::Unrecognized)
+            ));
+        }
+        assert!(matches!(
+            reader.receive_ordering(&departure(&[1])),
+            Ok(OrderEvent::Entry(OrderEntry::Departure { lost: true, .. }))
+        ));
     }
 
     #[test]

@@ -55,6 +55,17 @@ the Relay compatibility workflow (`tools/relay_compat.py`) plays the latest
 stable release's and the newest dev build's client code against it, including a
 player the relay removes for silence.
 
+Clients from v0.2.4 read a Status, PushState, PauseStatus, Ready, Ack or Error
+longer than they know by its known prefix, and an unknown error code as an
+unknown reply. A canonical entry must keep its exact layout, because members
+that read it differently would desync. A client that cannot read the record at
+its cursor, or before the start any Status, for about 5 seconds ends the match
+and asks for a newer VERA20k; v0.2.3 and older stall instead. Extend replies
+only by appending fields, and add a record kind, departure reason or entry field
+only after clients that read it have shipped. A new error code counts as
+unreadable too, so one the relay repeats while a client's cursor waits ends that
+client's match the same way.
+
 Install the executable as `/usr/local/bin/vera20k-relay`, create the unprivileged
 `vera20k-relay` user, and install `vera20k-relay.service`. Allow UDP port 5000 in
 the cloud firewall. Limit administrative SSH access to the management network.
@@ -120,8 +131,10 @@ rides in every CONFIRM after the cookie; a relay admits only the sources its
 own roster entry homes and recovers the match link key with its ticket key. Each
 relay seals its own players' entries at the shared frame deadlines and sends
 them, authenticated with the link key, to every other relay as `VF1L` link
-packets at each new seal and otherwise every 50 ms. Entries are retained and
-resent until acknowledged, and a packet carrying entries goes out twice. A
+packets at each new seal and otherwise every 50 ms. Each entry is sent once, in a
+packet that goes out twice, and is retained until acknowledged; it is sent
+again only after going unacknowledged for the measured round trip plus 100 ms.
+A relay that misses a packet ignores later ones until then. A
 frame is emitted once every relay sealed it, in the same canonical order, so
 every relay delivers the same stream and sequence numbers. Player DATA to a remote source crosses one link to its relay. The
 first roster relay picks the start time from measured link round trips; the
@@ -151,9 +164,13 @@ minutes old, and the others start without it; a Ready source waits. A federated
 startup cannot drop a source alone: those limits, or any relay's room reaching 3
 minutes unstarted, ask the coordinator to cancel it, and a relay whose
 coordinator has then been silent for 10 seconds cancels on its own. A relay
-reports only its own players' departures, and a restarted relay never does, so a
-started federated room whose own players have all departed ends once every other
-relay has been silent for 10 minutes; it then seals and merges nothing more. A
+reports only its own players' departures, and a restarted relay never does. Once
+a started two-relay room has heard nothing from the other relay for 10 minutes,
+that relay's players depart as lost after the last frame it sealed there, and
+the room merges on without it: the match continues among the remaining players
+or ends. With three or more relays the survivors could disagree on that frame,
+so such a room ends instead once its own players have left and every other
+relay has been silent for 10 minutes. A
 departure's last byte is
 DestroyConnection's error code: 1, connection lost, when silence ended the place;
 otherwise the byte is absent. Otherwise only explicit Leave, the player's

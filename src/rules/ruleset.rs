@@ -1942,6 +1942,11 @@ pub struct GeneralRules {
     /// `Approach_Target` arm at `0x00522434`.
     #[cfg(feature = "phobos")]
     pub infantry_auto_deploy: bool,
+    /// Phobos `[General] AllowDamageOnSelf` (`RulesExt`, default false): the
+    /// fallback for a warhead's `Nullable<bool>` when the warhead section
+    /// leaves it unset.
+    #[cfg(feature = "phobos")]
+    pub allow_damage_on_self: bool,
     /// Phobos `[General] DecloakDamagedTargets` (`RulesExt`, default true):
     /// the fallback for a warhead's `Nullable<bool>` when the warhead section
     /// leaves it unset.
@@ -2851,6 +2856,7 @@ impl Default for GeneralRules {
             #[cfg(feature = "phobos")]
             infantry_auto_deploy: false,
             #[cfg(feature = "phobos")]
+            allow_damage_on_self: false,
             decloak_damaged_targets: true,
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
@@ -4167,6 +4173,7 @@ impl GeneralRules {
             #[cfg(feature = "phobos")]
             infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
             #[cfg(feature = "phobos")]
+            allow_damage_on_self: general.read_bool("AllowDamageOnSelf", false),
             decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")
@@ -8789,6 +8796,21 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `WarheadTypeExt::AllowDamageOnSelf.Get([General] ...)`: the
+    /// warhead's own nullable value, then the global, defaulting to false.
+    #[cfg(feature = "phobos")]
+    pub fn allow_damage_on_self_for(&self, warhead: &WarheadType) -> bool {
+        warhead
+            .allow_damage_on_self()
+            .unwrap_or(self.general.allow_damage_on_self)
+    }
+
+    /// Phobos is compiled out: the native `DamageSelf` gate stays final.
+    #[cfg(not(feature = "phobos"))]
+    pub fn allow_damage_on_self_for(&self, _warhead: &WarheadType) -> bool {
+        false
     }
 
     /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the

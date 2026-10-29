@@ -841,14 +841,18 @@ impl RelayServer {
     }
 
     /// Enable full-match encrypted replay on the existing relay's private
-    /// StateDirectory. Existing room files are never overwritten or resumed.
+    /// StateDirectory. Existing room files are never overwritten or resumed;
+    /// those of long-ended matches move to its `archive` subfolder.
     pub fn with_journal(
         key: SecretKey,
         max_rooms: usize,
         state_dir: &std::path::Path,
     ) -> std::io::Result<Self> {
         let mut server = Self::new(key, max_rooms);
-        server.journal_directory = Some(journal::JournalDirectory::open(state_dir)?);
+        server.journal_directory = Some(journal::JournalDirectory::open(
+            state_dir,
+            std::time::SystemTime::now(),
+        )?);
         Ok(server)
     }
 

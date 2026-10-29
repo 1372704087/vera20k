@@ -732,6 +732,8 @@ pub(super) struct OrderingRoom {
     pending: BTreeMap<u32, Vec<Pending>>,
     journal: Option<crate::journal::Journal>,
     storage_failed: bool,
+    // When `advance` first found the storage failure.
+    failed_at: Option<u64>,
     finished_at: Option<u64>,
     created_ms: u64,
 }
@@ -767,6 +769,7 @@ impl OrderingRoom {
             pending: BTreeMap::new(),
             journal,
             storage_failed: false,
+            failed_at: None,
             finished_at: None,
             created_ms: now_ms,
         }
@@ -832,15 +835,23 @@ impl OrderingRoom {
         self.certificate.expires <= now
     }
 
-    fn cleanup_due(&self, now_ms: u64, now: u64) -> bool {
+    fn cleanup_due(&self, now_ms: u64, now: u64, peers: bool) -> bool {
+        if self.storage_failed {
+            // A storage failure freezes the match for good. Its room goes
+            // once no live ticket is left to tell, or once a silent player
+            // would have lost its place; its files stay.
+            return !peers
+                || self
+                    .failed_at
+                    .is_some_and(|at| now_ms.saturating_sub(at) >= ABSENT_MS);
+        }
         // The certificate bounds only a startup; once started, the final
         // frame, silence or the room's lifetime ends it.
-        !self.storage_failed
-            && ((self.starts_at.is_none() && self.expired(now))
-                || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
-                || self
-                    .finished_at
-                    .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000))
+        (self.starts_at.is_none() && self.expired(now))
+            || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
+            || self
+                .finished_at
+                .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000)
     }
     fn pop_oldest(&mut self) -> bool {
         if let Some(old) = self.history.pop_front() {
@@ -1122,6 +1133,7 @@ impl OrderingRoom {
 
     fn advance(&mut self, now_ms: u64, federation: Option<&mut federation::Federation>) {
         if self.storage_failed {
+            self.failed_at.get_or_insert(now_ms);
             return;
         }
         self.retire_absent(now_ms);
@@ -2941,12 +2953,14 @@ mod tests {
     #[test]
     fn archive_quota_admits_rooms_by_reserved_bytes() {
         let directory = TestDirectory::new();
-        crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now()).unwrap();
         // A journal left by an earlier process holds only its size on disk.
         let leftover = directory.0.join("0b".repeat(16));
         std::fs::create_dir(&leftover).unwrap();
         std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
-        let mut journals = crate::journal::JournalDirectory::open(&directory.0).unwrap();
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now())
+                .unwrap();
         assert_eq!(
             journals.create([11; 16], 45, 2).err().unwrap().kind(),
             std::io::ErrorKind::AlreadyExists
@@ -3336,9 +3350,9 @@ mod tests {
         assert_eq!(departed, [1, 2]);
     }
 
-    #[test]
-    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
-        let directory = TestDirectory::new();
+    /// A started journaled match whose archive fails at 112 seconds, when a
+    /// pull from the start, past the hot cache, reads a broken index.
+    fn failed_match(directory: &TestDirectory) -> (RelayServer, ClientSession) {
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
         let (mut first, mut second) = (client(&key, 0), client(&key, 1));
@@ -3347,12 +3361,10 @@ mod tests {
             connect(&mut server, participant, 0);
             configure(&mut server, participant, &cert, 0);
         }
-        // Past the hot cache, a pull from the start reads the broken index.
         server.advance_clock(112_000, unix(112_000));
-        let room = directory.0.join("05".repeat(16));
         std::fs::OpenOptions::new()
             .write(true)
-            .open(room.join("stream.index"))
+            .open(directory.0.join("05".repeat(16)).join("stream.index"))
             .unwrap()
             .set_len(0)
             .unwrap();
@@ -3363,6 +3375,15 @@ mod tests {
                 ..
             }
         ));
+        server.advance_clock(112_000, unix(112_000));
+        (server, first)
+    }
+
+    #[test]
+    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
         let before = std::fs::read(room.join("stream.data")).unwrap();
         // The client waits for this acknowledgement before it may join
         // another match.
@@ -3373,6 +3394,97 @@ mod tests {
             [OrderEvent::Left]
         ));
         assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_once_every_ticket_expired_and_keeps_its_files() {
+        let directory = TestDirectory::new();
+        let (mut server, _) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
+        let before = std::fs::read(room.join("stream.data")).unwrap();
+        // Both hop tickets expire at 1200, 200 seconds in.
+        server.advance_clock(199_000, unix(199_000));
+        assert!(server.rooms.contains_key(&[5; 16]));
+        server.advance_clock(200_000, unix(200_000));
+        assert!(!server.rooms.contains_key(&[5; 16]));
+        assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+        // Its match ID stays taken, holding only its bytes on disk.
+        let on_disk = [
+            room.clone(),
+            room.join("stream.data"),
+            room.join("stream.index"),
+        ]
+        .iter()
+        .map(|path| std::fs::metadata(path).unwrap().len())
+        .sum::<u64>();
+        let journals = server.journal_directory.as_ref().unwrap();
+        assert_eq!(journals.reserved(&[5; 16]), Some(on_disk));
+        assert_eq!(journals.total(), on_disk);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_ten_minutes_on_while_a_player_renews() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let freed = 112_000 + ABSENT_MS;
+        for now_ms in (150_000..freed).step_by(100_000) {
+            renew(&mut server, &mut first, now_ms);
+        }
+        server.advance_clock(freed - 1, unix(freed - 1));
+        assert!(server.rooms[&[5; 16]].ordering.is_some());
+        server.advance_clock(freed, unix(freed));
+        assert!(server.rooms[&[5; 16]].ordering.is_none());
+        // A renewed Ready cannot start a new timeline under its match ID.
+        let cert = certificate(&server.key, 3, 2000);
+        assert!(matches!(
+            configure(&mut server, &mut first, &cert, freed)[0],
+            OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn startup_sets_aside_only_leftovers_of_ended_matches() {
+        let directory = TestDirectory::new();
+        let now = std::time::SystemTime::now();
+        crate::journal::JournalDirectory::open(&directory.0, now).unwrap();
+        for room in ["0b", "0c"] {
+            let leftover = directory.0.join(room.repeat(16));
+            std::fs::create_dir(&leftover).unwrap();
+            std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
+        }
+        // The second was written until an hour after the first.
+        let hour = std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(directory.0.join("0c".repeat(16)).join("stream.data"))
+            .unwrap()
+            .set_modified(now + hour)
+            .unwrap();
+        let ended = std::time::Duration::from_millis(ROOM_LIFETIME_MS + MAX_TICKET_LIFETIME * 1000);
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, now + ended + hour / 2).unwrap();
+        assert_eq!(
+            std::fs::read(
+                directory
+                    .0
+                    .join("archive")
+                    .join("0b".repeat(16))
+                    .join("stream.data")
+            )
+            .unwrap(),
+            [0; 64]
+        );
+        // Only the recent leftover still counts against the quota.
+        assert_eq!(journals.reserved(&[0x0b; 16]), None);
+        assert_eq!(Some(journals.total()), journals.reserved(&[0x0c; 16]));
+        assert!(journals.create([0x0b; 16], 45, 2).is_ok());
+        assert_eq!(
+            journals.create([0x0c; 16], 45, 2).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
     }
 
     #[test]
@@ -3599,7 +3711,7 @@ impl RelayServer {
                 room.ordering
                     .as_ref()
                     .filter(|ordering| {
-                        ordering.cleanup_due(now_ms, now)
+                        ordering.cleanup_due(now_ms, now, !room.peers.is_empty())
                             || (!ordering.storage_failed
                                 && ordering.starts_at.is_none()
                                 && ordering.finished_at.is_some()
@@ -3611,13 +3723,11 @@ impl RelayServer {
         for id in ended {
             let room = self.rooms.get_mut(&id).unwrap();
             let ordering = room.ordering.as_mut().unwrap();
-            let retire = ordering.cleanup_due(now_ms, now);
+            let retire = ordering.cleanup_due(now_ms, now, !room.peers.is_empty());
             if let Some(directory) = self.journal_directory.as_mut()
                 && let Some(journal) = ordering.journal.take()
-                && directory.cleanup(journal).is_err()
             {
-                ordering.storage_failed = true;
-                continue;
+                directory.cleanup(journal, ordering.storage_failed);
             }
             // No commands or frames can exist before the full Ready quorum.
             // Reclaim its empty archive immediately, retaining only the

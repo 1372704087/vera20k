@@ -608,7 +608,9 @@ fn a_temporal_warhead_still_applies_the_minimum_shield_damage() {
 
 /// Phobos `ShieldClass::ReceiveDamage` (`ShieldClass.cpp:249..255`) uncloaks
 /// a target whose shield absorbed a positive hit, gated by the warhead's
-/// `DecloakDamagedTargets`.
+/// `DecloakDamagedTargets`. Only `ares,phobos` isolates the shield call: there
+/// Ares skips the native-slot uncloak for the unaffected hull (`1004AB68`),
+/// while plain `phobos` also uncloaks in the native slot.
 #[cfg(feature = "phobos")]
 #[test]
 fn phobos_shield_damage_decloaks_only_when_the_warhead_allows_it() {

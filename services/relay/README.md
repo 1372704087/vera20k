@@ -192,13 +192,20 @@ through its replay grace. A room whose files could not all be created, or whose
 exact files could not all be removed, keeps its reservation while the relay
 retries the removal once a second.
 
-Unexpected journal I/O failure reports `StorageUnavailable` and preserves the
-files, rather than silently deleting history or blaming a disconnected player.
+Unexpected journal I/O failure, or a federated entry that no longer fits the
+journal, reports `StorageUnavailable` and preserves the files, rather than
+silently deleting history or blaming a disconnected player. The match stays
+frozen; its room is released once its players' tickets have all expired, or 10
+minutes after the failure. Its files stay, keep its match ID from starting a new
+timeline, and count only their size on disk.
 Leave still records the departure in memory and is acknowledged, so the client
 may join another match.
 Restart recovery is outside this implementation: a new process refuses an
 existing room's files instead of overwriting them or inventing a new timeline.
-Each leftover counts its size on disk, not a room's reservation. Preserve these
-files for diagnosis; retire them only after the corresponding match ended. The
+Each leftover counts its size on disk, not a room's reservation. At startup, a
+leftover last written longer ago than a room can live plus the 300-second grace
+moves into the state directory's `archive` subfolder, where it counts against no
+quota and blocks no match. The relay never deletes these files; preserve them
+for diagnosis and remove them by hand. The
 in-memory `RelayServer::new` constructor remains useful for short protocol
 fixtures; deployed ordering uses `RelayServer::with_journal`.

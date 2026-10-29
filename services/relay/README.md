@@ -25,14 +25,20 @@ reconstruction generates a new prefix; NAT rebinding retains the counter.
 
 Each player gets eight handshakes/second, admitted or not, enough for paired
 old/new routes during renewal; Leave acknowledgements, which need no admission,
-share that budget. Only permitted handshakes count toward the relay's
-512/second. Relay-wide input of 16,384 datagrams/second counts only datagrams
-that authenticate and pass their sender's own limits, including the replay
-window and the 2,048 packet/second principal cap, so forged, junk or replayed
-traffic cannot spend capacity other players need. Rejecting one costs at most
-three HMACs. These packet caps are joined by actual ciphertext output budgets:
-2 MiB/second per sender and 64 MiB/second per room and relay. Whole broadcasts
-reserve all recipient bytes
+share that budget. Leave for a room the relay no longer holds also has a
+relay-wide 512/second. Only permitted handshakes count toward the relay's
+512/second. Relay-wide input of 16,384 datagrams/second, and ordering output of
+as many packets, count only datagrams that authenticate and pass their sender's
+own limits, including the replay window and the 2,048 packet/second principal
+cap, so forged, junk or replayed traffic cannot spend capacity other players
+need. Rejecting one costs at most three HMACs. These packet caps are joined by
+actual ciphertext output budgets: 2 MiB/second per sender and 64 MiB/second per
+room and relay. Rooms share each relay-wide total max-min fairly: every second,
+each room reserves what it asked for the second before, the largest asks cut to
+one level so the reservations fit, and spends past its reservation only what no
+room reserved. A flooding match therefore cannot take what others steadily use.
+Handshakes, and Leave for a room no longer held, take part as one more room.
+Whole broadcasts reserve all recipient bytes
 before forwarding, preventing partial delivery when a budget is exhausted.
 Fixed one-second windows allow ordinary short bursts, including simultaneous
 NAT rebinding. Limits count ciphertext, framing and MAC bytes, not just input
@@ -98,7 +104,9 @@ That frame remains the barrier until an explicit resume appends its marker and
 displaces the paused wall time; buffered input retains its assigned frames.
 Pause and resume share the existing journal/cache writer, with both marker
 reservations made before accepting pause. Retries and stale epochs never toggle
-state. Lost markers replay through Pull. Ticket loss does not resume a game;
+state. After a resume nobody can pause for 30 seconds; a refused pause returns
+the unchanged status. Lost markers replay through Pull. Ticket loss does not
+resume a game;
 the last explicit Leave appends a resume marker so the departure tail can finish.
 
 A federated match spreads its sources over up to six relays, each serving the
@@ -137,20 +145,26 @@ counted from its last packet even before the room existed, or once the room is 3
 minutes old, and the others start without it; a Ready source waits. A federated
 startup cannot drop a source alone: those limits, or any relay's room reaching 3
 minutes unstarted, ask the coordinator to cancel it, and a relay whose
-coordinator has then been silent for 10 seconds cancels on its own. A
+coordinator has then been silent for 10 seconds cancels on its own. A relay
+reports only its own players' departures, and a restarted relay never does, so a
+started federated room whose own players have all departed ends once every other
+relay has been silent for 10 minutes; it then seals and merges nothing more. A
 departure's last byte is
 DestroyConnection's error code: 1, connection lost, when silence ended the place;
 otherwise the byte is absent. Otherwise only explicit Leave, the player's
 admission on this relay with a newer lobby generation (recorded like Leave,
-started or not), or the first certificate's 24-hour lifetime ends participation;
-a renewed certificate never extends it. Once every source has departed, a
+started or not), or the match's final frame ends participation. The certificate
+bounds only a startup; a started room ends at its final frame, which pauses
+postpone, and is retired regardless 48 hours and 3 minutes after it was created.
+Once every source has departed, a
 300-second terminal replay grace precedes exact-file cleanup. No reader
 acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
 
 Explicit Leave is retried on the original socket until a terminal acknowledgement
 echoes that exact signed request. This idempotent operation alone remains valid
-after ticket expiry: both MACs still verify, and an existing room checks its
+after ticket expiry, for as long past it as a room can live plus 300 seconds:
+both MACs still verify, and an existing room checks its
 certified source and retained principal/generation. An already expired, absent
 room can acknowledge without recreating membership or storage. Other expired
 operations remain rejected. Menu cleanup retains this transport until the

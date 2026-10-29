@@ -30,6 +30,14 @@ const LOADING_LIMIT_MS: u64 = 180_000;
 // A started source silent this long departs through the stream. A shorter
 // outage keeps its place for the returning player's replay.
 const ABSENT_MS: u64 = 600_000;
+// A started room ends at its final frame, which pauses postpone, and silence
+// ends an abandoned one. Past this age it is retired anyway: a day of play and
+// as long again paused.
+pub(super) const ROOM_LIFETIME_MS: u64 =
+    LOADING_LIMIT_MS + START_DELAY_MS + 2 * MAX_MATCH_SECONDS * 1000;
+// After a resume nobody may pause for this long, so no player can hold a
+// match paused by pausing again after every resume.
+const PAUSE_COOLDOWN_MS: u64 = 30_000;
 const OPAQUE_OVERHEAD: usize = 24 + 16;
 const ENTRY_OVERHEAD: usize = 128;
 const READY_REQUEST: u8 = 0;
@@ -708,6 +716,7 @@ pub(super) struct OrderingRoom {
     active: u32,
     starts_at: Option<u64>,
     paused_at: Option<u64>,
+    resumed_at: Option<u64>,
     pause_epoch: u64,
     // Merged stream head. A federated relay seals its own sources first, at
     // `sealed`, and merges a frame once every relay has sealed it.
@@ -746,6 +755,7 @@ impl OrderingRoom {
             active: certificate.sources_mask,
             starts_at: None,
             paused_at: None,
+            resumed_at: None,
             pause_epoch: 0,
             head: 0,
             sealed: 0,
@@ -823,8 +833,11 @@ impl OrderingRoom {
     }
 
     fn cleanup_due(&self, now_ms: u64, now: u64) -> bool {
+        // The certificate bounds only a startup; once started, the final
+        // frame, silence or the room's lifetime ends it.
         !self.storage_failed
-            && (self.expired(now)
+            && ((self.starts_at.is_none() && self.expired(now))
+                || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
                 || self
                     .finished_at
                     .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000))
@@ -883,6 +896,7 @@ impl OrderingRoom {
         if paused {
             self.paused_at = Some(now_ms);
         } else if let Some(paused_at) = self.paused_at.take() {
+            self.resumed_at = Some(now_ms);
             // Displace wall time instead of generating catch-up frames for the
             // paused interval. The next frame retains its fractional remainder.
             if let Some(start) = self.starts_at.as_mut() {
@@ -961,6 +975,10 @@ impl OrderingRoom {
             || self.starts_at.is_none_or(|start| start > now_ms)
             || request.expected_epoch != self.pause_epoch
             || request.paused == self.paused_at.is_some()
+            || (request.paused
+                && self
+                    .resumed_at
+                    .is_some_and(|at| now_ms.saturating_sub(at) < PAUSE_COOLDOWN_MS))
         {
             return Ok(self.pause_status(source));
         }
@@ -1062,6 +1080,15 @@ impl OrderingRoom {
             }
         }
         self.start_when_ready(now_ms);
+    }
+
+    /// Ends a federated match whose other relays went silent. It seals and
+    /// merges no further entry, so its archive grows by at most the frame ends
+    /// of what it already sealed.
+    fn abandon(&mut self, now_ms: u64) {
+        self.active = 0;
+        self.pending.clear();
+        self.finished_at = Some(now_ms);
     }
 
     /// The coordinator's cancel before the start ends this startup here too.
@@ -1556,6 +1583,39 @@ mod tests {
             .control_ordering_pause(id, epoch, paused, &mut bytes)
             .unwrap();
         events(server, client, &bytes, now_ms).remove(0)
+    }
+
+    #[test]
+    fn nobody_pauses_again_until_the_match_has_run_after_a_resume() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+            pause_control(&mut server, peer, 0, 0, false, 300);
+        }
+        pause_control(&mut server, &mut first, 1, 0, true, 300);
+        pause_control(&mut server, &mut second, 1, 1, false, 400);
+        let paused = |event| matches!(event, OrderEvent::PauseStatus { paused: true, .. });
+        let early = 400 + PAUSE_COOLDOWN_MS - 1;
+        assert!(!paused(pause_control(
+            &mut server,
+            &mut first,
+            2,
+            2,
+            true,
+            early
+        )));
+        assert!(paused(pause_control(
+            &mut server,
+            &mut first,
+            3,
+            2,
+            true,
+            early + 1
+        )));
     }
 
     #[test]
@@ -2892,7 +2952,7 @@ mod tests {
     }
 
     #[test]
-    fn renewed_certificate_does_not_extend_the_room_lifetime() {
+    fn a_started_match_outlives_its_certificate_until_its_players_go_silent() {
         let directory = TestDirectory::new();
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
@@ -2902,11 +2962,101 @@ mod tests {
             connect(&mut server, peer, 0);
             configure(&mut server, peer, &cert, 0);
         }
-        configure(&mut server, &mut first, &certificate(&key, 3, 1400), 300);
         server.advance_clock(301_000, unix(301_000));
+        let archive = directory.0.join("05".repeat(16));
+        assert!(archive.exists() && ordering(&server).head > 300 * 45);
+        // Silence still ends the abandoned match and frees its archive.
+        server.advance_clock(ABSENT_MS, unix(ABSENT_MS));
+        let freed = ABSENT_MS + MAX_TICKET_LIFETIME * 1000;
+        server.advance_clock(freed, unix(freed));
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn flooding_matches_cannot_take_the_ordering_output_another_match_steadily_uses() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 16);
+        // Room 1's one steady player waits for a second player, so each Pull
+        // returns one status. Rooms 2 and 3 hold four flooders each, and ten
+        // idle rooms leave the steady player more than an equal share.
+        let mut players = Vec::new();
+        let rooms = [(1, 1, 0b11), (2, 4, 0b1111), (3, 4, 0b1111)];
+        for (room, sources, sources_mask) in
+            rooms.into_iter().chain((4..14).map(|room| (room, 1, 1)))
+        {
+            let cert = OrderingCertificate {
+                room: [room; 16],
+                sources_mask,
+                tick_hz: 45,
+                expires: 1400,
+            }
+            .sign(&key)
+            .unwrap();
+            for source in 0..sources {
+                let ticket = Ticket {
+                    room: [room; 16],
+                    source,
+                    expires: 1200,
+                    nonce: [room; 16],
+                    player: [room * 16 + source; 16],
+                    generation: 1,
+                }
+                .sign(&key)
+                .unwrap();
+                let mut player = ClientSession::new(
+                    &ticket,
+                    *derive_packet_key(&key, &ticket).expose_for_https(),
+                    [89; 32],
+                )
+                .unwrap();
+                connect(&mut server, &mut player, 0);
+                if room < 4 {
+                    configure(&mut server, &mut player, &cert, 0);
+                    players.push(player);
+                }
+            }
+        }
+        let pull_at = |server: &mut RelayServer, player: &mut ClientSession, now_ms| {
+            let mut bytes = Vec::new();
+            player.pull_ordering(1, &mut bytes).unwrap();
+            server
+                .process_at(endpoint(player), &bytes, unix(now_ms), now_ms)
+                .is_ok()
+        };
+        let (steady, flooders) = players.split_first_mut().unwrap();
+        assert!((0..1500).all(|_| pull_at(&mut server, steady, 1000)));
+        // The next second, the flooders pull until the relay refuses them.
+        for flooder in flooders {
+            while pull_at(&mut server, flooder, 2000) {}
+        }
         assert!(
-            !directory.0.join("05".repeat(16)).exists(),
-            "the first certificate's expiry ends the match and frees its archive"
+            (0..1500).all(|_| pull_at(&mut server, steady, 2000)),
+            "the steady match keeps what it used the second before"
+        );
+    }
+
+    #[test]
+    fn leave_refuses_a_ticket_older_than_any_room_it_named() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut player = client(&key, 0);
+        connect(&mut server, &mut player, 0);
+        player
+            .configure_ordering(&certificate(&key, 1, 1400), [7; 32], &mut Vec::new())
+            .unwrap();
+        let mut leave = Vec::new();
+        player.leave_ordering(&mut leave).unwrap();
+        let last = player.ticket.expires + LEAVE_GRACE - 1;
+        assert!(
+            server
+                .process_at(endpoint(&player), &leave, last, last * 1000)
+                .is_ok()
+        );
+        assert_eq!(
+            server
+                .process_at(endpoint(&player), &leave, last + 1, (last + 1) * 1000)
+                .err(),
+            Some(RelayError::Expired)
         );
     }
 
@@ -3255,21 +3405,24 @@ impl RelayServer {
         now_ms: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
         let cost = (SERVER_HEADER + MAC_LEN) as u64;
-        // Leave needs no admission and accepts expired tickets. Like a
-        // handshake, the player's own budget comes before the relay's.
+        // Leave needs no admission and accepts recently expired tickets. Like
+        // a handshake, the player's own budget comes before the relay's. A
+        // room's Leave spends that room's part; Leave for a room no longer
+        // held, which only an expired ticket reaches, has its own budget and
+        // the handshakes' part, so old tickets cannot spend what matches use.
         if !self.player_handshakes(&message.ticket.player).permits(
             now,
             1,
             PLAYER_HANDSHAKES_PER_SECOND,
-        ) || !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
-            || !self.order_packets.permits(now, 1, INGRESS_PER_SECOND)
-        {
+        ) {
             return Err(RelayError::RateLimited);
         }
         self.advance_ordering_room(message.ticket.room, now_ms);
         if let Some(room) = self.rooms.get_mut(&message.ticket.room) {
             if !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
-                || !room.order_packets.permits(now, 1, 8192)
+                || !self
+                    .outgoing
+                    .admit_part(&mut room.outgoing, now, cost, TOTAL_BYTES_PER_SECOND)
             {
                 return Err(RelayError::RateLimited);
             }
@@ -3311,15 +3464,25 @@ impl RelayServer {
             {
                 peer.push = None;
             }
-            room.outgoing.charge(now, cost);
-            room.order_packets.charge(now, 1);
+            self.outgoing.charge_part(&mut room.outgoing, cost);
         } else if message.ticket.expires > now {
             // An unseen live lease may still have Ready in flight. Only an
             // expired absent room is safely acknowledged without a tombstone.
             return Err(RelayError::Unregistered);
+        } else if !self.leaves.permits(now, 1, LEAVES_PER_SECOND)
+            || !self.outgoing.admit_part(
+                &mut self.handshake_outgoing,
+                now,
+                cost,
+                TOTAL_BYTES_PER_SECOND,
+            )
+        {
+            return Err(RelayError::RateLimited);
+        } else {
+            self.leaves.charge(now, 1);
+            self.outgoing
+                .charge_part(&mut self.handshake_outgoing, cost);
         }
-        self.outgoing.charge(now, cost);
-        self.order_packets.charge(now, 1);
         self.charge_player_handshake(message.ticket.player, now);
         Ok(vec![ForwardDatagram {
             endpoint,
@@ -3626,7 +3789,8 @@ impl RelayServer {
                 }
                 state.principal = Some(principal);
                 // A renewed certificate never extends the room: the first
-                // one's expiry bounds how long it holds its archive quota.
+                // one's expiry bounds its startup, and its creation time
+                // its whole lifetime.
                 ordering.ready |= 1 << message.ticket.source;
                 let ready_mask = match room.federation.as_ref() {
                     Some(federation) => federation.ready(ordering.ready, &ordering.agreement),
@@ -3739,6 +3903,7 @@ impl RelayServer {
     /// advancement remains solely in `advance_clock`; a slow reader consumes
     /// only its own delivery credit and never stalls another participant.
     pub fn drain_ordering_push(&mut self, now_ms: u64, now: u64) -> Vec<ForwardDatagram> {
+        self.prune(now);
         let mut recipients = Vec::new();
         for (id, room) in &mut self.rooms {
             for peer in &mut room.peers {
@@ -3940,19 +4105,29 @@ impl RelayServer {
             .outgoing
             .permits(now, cost, PLAYER_BYTES_PER_SECOND)
             || !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
-            || !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
             || !admission.order_packets.permits(now, packets, 2048)
             || !room.order_packets.permits(now, packets, 8192)
-            || !self.order_packets.permits(now, packets, INGRESS_PER_SECOND)
+        {
+            return Err(RelayError::RateLimited);
+        }
+        // Ask both relay-wide totals, so each counts the room's demand.
+        let bytes = self
+            .outgoing
+            .admit_part(&mut room.outgoing, now, cost, TOTAL_BYTES_PER_SECOND);
+        if !(self.order_packets.admit_part(
+            &mut room.order_packets,
+            now,
+            packets,
+            INGRESS_PER_SECOND,
+        ) && bytes)
         {
             return Err(RelayError::RateLimited);
         }
         admission.outgoing.charge(now, cost);
-        room.outgoing.charge(now, cost);
-        self.outgoing.charge(now, cost);
+        self.outgoing.charge_part(&mut room.outgoing, cost);
         admission.order_packets.charge(now, packets);
-        room.order_packets.charge(now, packets);
-        self.order_packets.charge(now, packets);
+        self.order_packets
+            .charge_part(&mut room.order_packets, packets);
         let peer = room
             .peers
             .iter_mut()

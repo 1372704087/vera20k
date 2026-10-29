@@ -78,7 +78,8 @@ that same frame and stop. Resume uses a separate authenticated control, so it
 works while simulation ticks are stopped. Both markers use the normal ordered
 history and replay recovery. Connections, chat and ticket renewal keep running;
 accepted gameplay inputs wait for their assigned frames after resume. Opening
-Options alone remains local. Confirming Leave resumes as needed until the queued
+Options alone remains local. After a resume nobody can pause again for 30
+seconds. Confirming Leave resumes as needed until the queued
 EXIT executes. Shared paused time is excluded from the score-screen duration.
 This feature requires updated clients and relay;
 it is unavailable in a mixed-version room or a direct LAN match.
@@ -102,7 +103,8 @@ clients continue. After ten minutes of silence the relay removes the player
 through the same stream. Like a native lost connection, a removal for silence
 destroys the player's House and shows "connection lost"; a player who quits still
 leaves through EXIT. Silence that long, explicit Leave, joining another online
-match on the same relay, or the 24-hour match lifetime ends membership. The relay
+match on the same relay, or the match's final frame after 24 hours of play ends
+membership. The relay
 remains required for progress.
 
 Authored Battle matches record reconstructible JSON replays in `replays/`.

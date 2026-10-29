@@ -343,16 +343,12 @@ pub struct WarheadType {
     /// warhead may deal damage and damage-adjacent effects to the object that
     /// fired it even when that object's type keeps `DamageSelf=no`.
     /// `Explosion_Damage_DamageSelf @ 0x004896EC` skips the area-list source
-    /// exclusion and `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F`
-    /// skips the building wrapper's self return. An absent or `none` key falls
-    /// back to the Phobos `[General] AllowDamageOnSelf`, which is not ported
-    /// and stays false.
-    ///
-    /// RESIDUAL: Phobos also fixes `DamageSelf`/`AllowDamageOnSelf` for
-    /// airborne receivers (`MapClass_DamageArea_AirDamageSelfFix @
-    /// 0x00489416`). VERA's airborne phase keeps retail's unconditional
-    /// source admission, so an aircraft's own area damage already reaches it
-    /// whether or not this key is set.
+    /// exclusion, `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F` skips
+    /// the building wrapper's self return, and
+    /// `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416` applies the same
+    /// rule to the airborne phase. An absent or `none` key falls back to the
+    /// Phobos `[General] AllowDamageOnSelf`, which is not ported and stays
+    /// false.
     #[cfg(feature = "phobos")]
     allow_damage_on_self: bool,
     /// Phobos warhead shield overrides (`Shield.Penetrate`,

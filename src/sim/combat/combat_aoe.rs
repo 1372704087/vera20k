@@ -544,13 +544,21 @@ impl AoECollector {
         // source object unless its type opts into `DamageSelf`, the warhead is
         // Rules.CrushWarhead, or Phobos `AllowDamageOnSelf` admits the firer
         // (`Explosion_Damage_DamageSelf @ 0x004896EC`).
+        let source_damage_self = entities
+            .get(origin.source_id)
+            .and_then(|source| interner.object_type(source.type_ref(), rules))
+            .is_some_and(|source_type| source_type.damage_self);
         let ground_source_admitted = handles
             .is_some_and(|handles| handles.is_crush(origin.warhead_ref))
-            || entities
-                .get(origin.source_id)
-                .and_then(|source| interner.object_type(source.type_ref(), rules))
-                .is_some_and(|source_type| source_type.damage_self)
+            || source_damage_self
             || warhead.allow_damage_on_self();
+        // Retail's airborne phase admits the source unconditionally. Phobos
+        // `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416` applies the same
+        // DamageSelf/AllowDamageOnSelf rule there (CrushWarhead does not).
+        #[cfg(feature = "phobos")]
+        let air_source_admitted = source_damage_self || warhead.allow_damage_on_self();
+        #[cfg(not(feature = "phobos"))]
+        let air_source_admitted = true;
 
         let cell_spread = warhead.cell_spread_f64;
 
@@ -633,6 +641,7 @@ impl AoECollector {
                         origin.source_id,
                         origin.source_house,
                         origin.warhead_ref,
+                        air_source_admitted,
                         rules,
                         interner,
                     );
@@ -998,9 +1007,16 @@ fn push_airborne_aoe_damage(
     source_id: u64,
     source_house: Option<crate::sim::intern::InternedId>,
     warhead_ref: crate::sim::intern::InternedId,
+    source_self_admitted: bool,
     rules: &RuleSet,
     interner: &StringInterner,
 ) {
+    // Phobos `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416`: the airborne
+    // phase skips its own source unless DamageSelf or AllowDamageOnSelf admits
+    // it. A non-Phobos build keeps retail's unconditional admission.
+    if entity_id == source_id && !source_self_admitted {
+        return;
+    }
     let Some(entity) = entities.get(entity_id) else {
         return;
     };
@@ -2044,6 +2060,84 @@ mod tests {
             native_lists(&occupancy, &mut terrain, Some(1)),
         );
         assert_eq!(hit_id_distances(&result.hits), vec![(1, 1)]);
+    }
+
+    /// Phobos `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416`: retail's
+    /// airborne phase admits the source unconditionally; under Phobos it
+    /// keeps the source only for a `DamageSelf` type or an
+    /// `AllowDamageOnSelf` warhead.
+    #[test]
+    fn gsi_04_07_damage_air_source_admission_follows_damage_self() {
+        fn run(damage_self: bool, warhead_name: &str) -> Vec<u64> {
+            let ini = IniFile::from_str(&format!(
+                "[InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n0=AIR\n\
+                 [BuildingTypes]\n\
+                 [Warheads]\n0=BlastWH\n1=AllowWH\n\
+                 [AIR]\nStrength=1000\nArmor=none\nDamageSelf={}\n\
+                 [BlastWH]\nCellSpread=1\nPercentAtMax=.25\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+                 [AllowWH]\nCellSpread=1\nPercentAtMax=.25\nAllowDamageOnSelf=yes\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+                if damage_self { "yes" } else { "no" }
+            ));
+            let rules = RuleSet::from_ini(&ini).expect("air source admission rules");
+            let warhead = rules.warhead(warhead_name).unwrap().clone();
+            let mut interner = test_interner();
+            let air_type = interner.intern("AIR");
+            let warhead_ref = interner.intern(warhead_name);
+
+            let mut air = GameEntity::test_default(1, "AIR", "Soviet", 5, 5);
+            air.set_type_ref_for_test(air_type);
+            air.set_category_for_test(EntityCategory::Aircraft);
+            air.health.set_for_test(1000);
+            air.lifecycle.set_in_limbo_for_test(false);
+            air.lifecycle.set_cell_marked_for_test(true);
+            air.position.set_exact_z_leptons_for_test(Some(1));
+            let mut locomotor = crate::sim::movement::locomotor::LocomotorState::from_object_type(
+                rules.object("AIR").unwrap(),
+                0,
+            );
+            locomotor.set_layer_for_test(MovementLayer::Air);
+            air.locomotor = Some(locomotor);
+            let mut entities = EntityStore::new();
+            entities.insert(
+                air.with_air_spatial_membership_for_test(Some(5 + 5 * 20), 1)
+                    .with_air_tracker_cell_for_test((5, 5)),
+            );
+            let occupancy = OccupancyGrid::new();
+            let mut terrain = crate::map::resolved_terrain::test_grid(20, 20, test_terrain_cell);
+            let result = apply_aoe_damage(
+                &mut entities,
+                5,
+                5,
+                100,
+                &warhead,
+                &rules,
+                &mut interner,
+                (1, warhead_ref),
+                native_lists(&occupancy, &mut terrain, Some(1)),
+            );
+            hit_ids(&result.hits)
+        }
+
+        // Retail admits the airborne source unconditionally.
+        #[cfg(not(feature = "phobos"))]
+        {
+            assert_eq!(run(false, "BlastWH"), vec![1]);
+            assert_eq!(run(true, "BlastWH"), vec![1]);
+        }
+
+        #[cfg(feature = "phobos")]
+        {
+            assert!(
+                run(false, "BlastWH").is_empty(),
+                "DamageSelf=no source is skipped in the airborne phase"
+            );
+            assert_eq!(run(true, "BlastWH"), vec![1], "DamageSelf=yes admits it");
+            assert_eq!(
+                run(false, "AllowWH"),
+                vec![1],
+                "AllowDamageOnSelf admits it"
+            );
+        }
     }
 
     #[test]

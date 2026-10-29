@@ -43,7 +43,9 @@ pub(crate) mod campaign_defeat;
 pub(crate) mod campaign_victory;
 pub(crate) mod chrono_screen;
 mod cncnet;
-pub(crate) use cncnet::{BrowserSpawnGate, BrowserSpawnStart, SpawnAction};
+#[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+mod browser_lifecycle;
+pub(crate) use cncnet::SpawnAction;
 mod cooperative_round;
 #[cfg(feature = "debug-tools")]
 pub(crate) mod debug_tools;

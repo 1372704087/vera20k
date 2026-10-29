@@ -194,9 +194,24 @@ function clientNetwork(address) {
   return { host: prefix(4), range: prefix(3) };
 }
 
+// A browser gateway proxies its players' HTTPS requests from its own address.
+// With the GATEWAY_KEY deployment secret (at least 32 characters) shared with
+// that gateway, a request carrying the key names the player's own address;
+// without the secret, or with another key, the named address is ignored.
+export const GATEWAY_KEY_HEADER = 'vera-gateway-key';
+export const CLIENT_ADDRESS_HEADER = 'vera-client-address';
+
+function clientAddress(request, env) {
+  const key = env.GATEWAY_KEY;
+  const named = request.headers.get(CLIENT_ADDRESS_HEADER);
+  if (named && typeof key === 'string' && key.length >= 32
+    && sameSecret(request.headers.get(GATEWAY_KEY_HEADER) ?? '', key)) return named;
+  return request.headers.get('CF-Connecting-IP');
+}
+
 // Rate keys never hold a raw client address.
-async function networkKeys(request) {
-  const { host, range } = clientNetwork(request.headers.get('CF-Connecting-IP'));
+async function networkKeys(request, env) {
+  const { host, range } = clientNetwork(clientAddress(request, env));
   return { host: await sha256(host), range: await sha256(range) };
 }
 
@@ -445,7 +460,7 @@ export class LobbyService {
       if (request.method === 'POST') {
         const path = new URL(request.url).pathname;
         if (['/v1/accounts', '/v1/sessions', '/v1/admin/notice'].includes(path)) {
-          const { host } = await networkKeys(request);
+          const { host } = await networkKeys(request, this.env);
           this.store.transaction(() => this.rateLimit(`ingress-auth:${host}`, 120, 60));
           if (path === '/v1/admin/notice') this.administrator(request);
         } else {
@@ -591,11 +606,11 @@ export class LobbyService {
     const url = new URL(request.url);
     if (url.pathname === '/health' && request.method === 'GET') return this.json({ status: 'ok', protocol: LOBBY_PROTOCOL });
     if (url.pathname === '/v1/stats' && request.method === 'GET') {
-      this.rateLimit(`stats:${(await networkKeys(request)).host}`, 30, 60);
+      this.rateLimit(`stats:${(await networkKeys(request, this.env)).host}`, 30, 60);
       return this.json(this.stats());
     }
     if (request.method === 'POST' && ['/v1/accounts', '/v1/sessions'].includes(url.pathname)) {
-      const network = await networkKeys(request);
+      const network = await networkKeys(request, this.env);
       this.rateLimit(`auth:${network.host}`, 60, 300);
       this.reap();
       return this.authenticate(body, url.pathname === '/v1/accounts', network, request.headers.get(FEDERATION_HEADER) === '1');

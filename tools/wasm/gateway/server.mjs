@@ -5,7 +5,7 @@ import https from 'node:https';
 import dgram from 'node:dgram';
 import { fileURLToPath } from 'node:url';
 import { WebSocket, WebSocketServer } from 'ws';
-import { rateLimit } from './rate_limit.mjs';
+import { fairBudget, rateLimit } from './rate_limit.mjs';
 import { createSignaling, iceServersFromEnv } from './signal.mjs';
 
 export const LIMITS = Object.freeze({
@@ -34,7 +34,8 @@ export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp =
   }
   const exchanges = new Set();
   const closeSockets = new Map();
-  const totalTraffic = rateLimit(LIMITS.totalPacketsPerSecond);
+  // Combined incoming and outgoing datagrams of every game WebSocket.
+  const packets = fairBudget(LIMITS.totalPacketsPerSecond, LIMITS.packetsPerSecond);
   const handshakes = rateLimit(512);
   const signaling = lanSignal ? createSignaling({ origin: allowed, ...lanSignal }) : null;
   let closing = false;
@@ -154,7 +155,7 @@ export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp =
   });
   wss.on('connection', ws => {
     const udp = dgram.createSocket('udp4');
-    const traffic = rateLimit(LIMITS.packetsPerSecond);
+    const traffic = packets.join();
     const pending = [];
     let pendingBytes = 0;
     let ready = false;
@@ -165,6 +166,7 @@ export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp =
       if (closed) return;
       closed = true;
       closeSockets.delete(ws);
+      traffic.leave();
       clearInterval(heartbeat);
       pending.length = 0;
       pendingBytes = 0;
@@ -201,20 +203,21 @@ export function createGateway({ lobby, relayHost, relayPort, origin, allowHttp =
     udp.connect(relayPort, relayHost, () => { ready = true; flush(); });
     ws.on('message', (data, binary) => {
       if (closed) return;
-      if (!binary || !data.length || data.length > LIMITS.datagram || !traffic() || !totalTraffic()
-        || pending.length >= LIMITS.udpQueuePackets || pendingBytes + data.length > LIMITS.udpQueueBytes) {
-        finish(); return;
-      }
+      if (!binary || !data.length || data.length > LIMITS.datagram) { finish(); return; }
+      // Over budget or behind a full queue the datagram is lost, as UDP would
+      // lose it; the game protocol, not the transport, decides recovery.
+      if (!traffic.take() || pending.length >= LIMITS.udpQueuePackets
+        || pendingBytes + data.length > LIMITS.udpQueueBytes) return;
       pending.push(data);
       pendingBytes += data.length;
       flush();
     });
     udp.on('message', data => {
       if (closed) return;
-      if (!data.length || data.length > LIMITS.datagram || !traffic() || !totalTraffic()
-        || ws.readyState !== WebSocket.OPEN || ws.bufferedAmount + data.length > LIMITS.wsQueueBytes) {
+      if (!data.length || data.length > LIMITS.datagram || ws.readyState !== WebSocket.OPEN) {
         finish(); return;
       }
+      if (!traffic.take() || ws.bufferedAmount + data.length > LIMITS.wsQueueBytes) return;
       ws.send(data, { binary: true }, error => { if (error) finish(); });
     });
   });

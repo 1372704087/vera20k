@@ -59,10 +59,15 @@ they do not authenticate arbitrary non-browser clients.
 Transport limits are defined together in `server.mjs`: 256 WebSockets, 128 pending
 HTTP exchanges, 64 KiB request and 1 MiB response bodies, 2048-byte messages,
 256 queued UDP packets / 256 KiB, and 1 MiB pending WS output. Each connection
-permits 2048 combined incoming/outgoing datagrams per second, under a 16384/second
-aggregate limit. Messages also have bounded fragmentation and buffering. Overflow
-closes that transport; only the original game protocol decides recovery. HTTP
-responses use stream backpressure and a 12-second absolute request deadline.
+may pass up to 2048 combined incoming/outgoing datagrams per second from a
+16384/second aggregate shared max-min fairly: each one-second window reserves for
+every connection what it attempted in the previous window, up to an equal share,
+and traffic past a reservation uses only unreserved budget. A datagram over budget
+or behind a full queue is dropped, as UDP would lose it; the connection stays open
+and only the original game protocol decides recovery. Text, empty or oversized
+messages close the transport. Messages also have bounded fragmentation and
+buffering. HTTP responses use stream backpressure and a 12-second absolute request
+deadline.
 Socket shutdown releases queues and the UDP port. The 30-second WS Ping/Pong
 heartbeat never changes game readiness, tickets or Leave semantics.
 

@@ -97,6 +97,9 @@ pub(crate) struct FrontendState {
     pub(crate) quit_cascade: Option<crate::app::frontend::quit_cascade::QuitCascade>,
     /// Retail process-start splash, held until its post-present deadline.
     pub(crate) startup_splash: Option<startup_splash::StartupSplashPresentation>,
+    /// WinMain's `[Intro] Play=` bit (`[0xA8E960] & 4`), consumed at launch:
+    /// the first-run intro starts once the splash hold ends (`0x0052CA65`).
+    pub(crate) startup_intro_pending: bool,
     /// The two-button shell message box `0x120` over the empty backdrop:
     /// main-menu Exit Game (the app only exits on its OK, never on the first
     /// Exit click) or campaign defeat's retry prompt.

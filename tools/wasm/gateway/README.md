@@ -26,10 +26,21 @@ JSON conversion, following redirects or replaying requests. It preserves the
 upstream status and body. CORS permits only `VERA_WEB_ORIGIN`, GET/POST and the
 Authorization/Content-Type headers. Ambient cookies are not forwarded.
 
+The lobby keys its per-network limits on the requesting address, which for
+proxied requests is the gateway's. To give each browser player its own limits,
+set `VERA_GATEWAY_KEY` to the lobby Worker's `GATEWAY_KEY` secret, a random string
+of at least 32 characters (`openssl rand -hex 32`). The gateway then sends that key
+and the player's address (the socket peer, or `VERA_CLIENT_IP_HEADER`) with each
+`/v1/*` request; the lobby ignores an address named without the key. Unset, every
+browser player shares the gateway's address and limits.
+
 The browser's `WS_PROXY_URL` is compiled into its `wasm-net` build, defaulting to
 `wss://wss.vera20k.com`. This is a client setting, separate from the server's UDP
 target. Deploy a TLS reverse proxy at that origin and forward `/game/*` with
-WebSocket Upgrade and `/v1/*` to this process. Preserve the browser Origin header;
+WebSocket Upgrade and `/v1/*` to this process. Set `VERA_CLIENT_IP_HEADER` to the
+header that proxy writes with the browser's address (for example
+`cf-connecting-ip`, or `x-forwarded-for`, whose last entry is used); never set it
+when clients can reach the gateway directly. Preserve the browser Origin header;
 allow at least 70 seconds before an idle WebSocket timeout. The Node server binds
 `127.0.0.1:8788` by default (`HOST` and `PORT` can override it). It serves no static
 game files. The static site and gateway may be hosted separately.
@@ -37,10 +48,8 @@ game files. The static site and gateway may be hosted separately.
 LAN signaling is off by default. `VERA_LAN_SIGNAL=1` enables `/lan/signal` for
 `wasm-lan` builds: it groups browsers by public address, assigns virtual IPv4s
 and forwards WebRTC descriptions and candidates within the group; game datagrams
-never pass through it. Behind a reverse proxy, set `VERA_CLIENT_IP_HEADER` to the
-header that proxy writes (for example `cf-connecting-ip`, or `x-forwarded-for`,
-whose last entry is used) and route `/lan/*` WebSocket Upgrades here; never set it
-when clients can reach the gateway directly. `VERA_LAN_STUN` optionally lists
+never pass through it. Behind a reverse proxy, route `/lan/*` WebSocket Upgrades
+here; groups use the address from `VERA_CLIENT_IP_HEADER`. `VERA_LAN_STUN` optionally lists
 comma-separated `stun:` URLs for networks that hide host candidates; TURN is
 rejected. Limits are in `signal.mjs`: 256 connections, 16 members per group,
 16 KiB messages and 64 messages per second per connection.

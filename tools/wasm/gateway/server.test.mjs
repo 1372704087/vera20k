@@ -18,7 +18,7 @@ const until = (udp, done, ms) => new Promise(resolve => {
   check();
 });
 
-async function fixture(t) {
+async function fixture(t, extra = {}) {
   const udp = dgram.createSocket('udp4');
   udp.bind(0, '127.0.0.1');
   await once(udp, 'listening');
@@ -28,7 +28,8 @@ async function fixture(t) {
     req.on('data', bytes => chunks.push(bytes));
     req.on('end', () => {
       requests.push({ path: req.url, method: req.method, auth: req.headers.authorization,
-        cookie: req.headers.cookie, body: Buffer.concat(chunks) });
+        cookie: req.headers.cookie, address: req.headers['vera-client-address'],
+        key: req.headers['vera-gateway-key'], body: Buffer.concat(chunks) });
       if (req.url === '/v1/oversize') { res.end(Buffer.alloc(LIMITS.responseBytes + 1)); return; }
       res.writeHead(409, { 'content-type': 'application/json' });
       res.end(Buffer.from('{"error":{"code":"map_pending"}}'));
@@ -36,7 +37,7 @@ async function fixture(t) {
   });
   await listen(upstream);
   const options = { lobby: `http://127.0.0.1:${upstream.address().port}`, allowHttp: true,
-    relayHost: '127.0.0.1', relayPort: udp.address().port, origin };
+    relayHost: '127.0.0.1', relayPort: udp.address().port, origin, ...extra };
   const gateway = createGateway(options);
   await listen(gateway.server);
   t.after(async () => {
@@ -66,8 +67,9 @@ test('lobby HTTP remains byte-for-byte, bounded and restricted to its configured
   assert.equal(response.status, 409);
   assert.equal(response.headers.get('access-control-allow-origin'), origin);
   assert.equal(await response.text(), '{"error":{"code":"map_pending"}}');
+  // Without the lobby key the gateway names no client address.
   assert.deepEqual(requests[0], { path: '/v1/commands?after=2', method: 'POST', auth: 'Bearer test-token',
-    cookie: undefined, body: Buffer.from(body) });
+    cookie: undefined, address: undefined, key: undefined, body: Buffer.from(body) });
   const preflight = await fetch(`${base}/v1/commands`, { method: 'OPTIONS', headers: {
     origin, 'access-control-request-method': 'POST', 'access-control-request-headers': 'Authorization, Content-Type',
   } });
@@ -80,6 +82,17 @@ test('lobby HTTP remains byte-for-byte, bounded and restricted to its configured
   assert.equal((await fetch(`${base}/v1/commands`, { method: 'POST', body: Buffer.alloc(LIMITS.requestBytes + 1) })).status, 413);
   assert.equal(requests.length, 1);
   await assert.rejects(async () => { const oversized = await fetch(`${base}/v1/oversize`); await oversized.arrayBuffer(); });
+});
+
+test('with the lobby key, the lobby learns each player\'s own address, which requests cannot name', { timeout: 10000 }, async t => {
+  const lobbyKey = 'k'.repeat(32);
+  const { base, options, requests } = await fixture(t, { lobbyKey, clientIpHeader: 'x-forwarded-for' });
+  assert.throws(() => createGateway({ ...options, lobbyKey: 'short' }), /32 characters/);
+  assert.equal(gatewayOptionsFromEnv({ VERA_GATEWAY_KEY: lobbyKey }).lobbyKey, lobbyKey);
+  const response = await fetch(`${base}/v1/events`, { headers: { origin, 'x-forwarded-for': '10.0.0.1, 203.0.113.7',
+    'vera-client-address': '192.0.2.1', 'vera-gateway-key': 'x'.repeat(32) } });
+  assert.equal(response.status, 409);
+  assert.deepEqual([requests[0].address, requests[0].key], ['203.0.113.7', lobbyKey]);
 });
 
 test('each WS channel has a stable isolated UDP port, preserves binary boundaries and releases the port', { timeout: 10000 }, async t => {

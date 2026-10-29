@@ -15,9 +15,11 @@ VERA_RELAY_HOST=relay.example.com VERA_RELAY_PORT=5000 \
 
 `VERA_RELAY_HOST` 必填，`VERA_RELAY_PORT` 默认为 5000。请配置与大厅下发的 `RelayGrant.address` 对应的 relay；网关不能使用另一台 relay 的凭据进行替代。浏览器不能选择上游目标。`VERA_LOBBY_URL` 默认为 `https://lobby.vera20k.org`，必须是 HTTPS origin。`/v1/*` 转发原有的请求方法、路径、Authorization 和请求体，不转换 JSON、不跟随重定向，也不重放请求，并保留上游的状态码和响应体。CORS 仅允许 `VERA_WEB_ORIGIN`、GET/POST 方法以及 Authorization/Content-Type 请求头。不会转发浏览器自动携带的 cookie。
 
-浏览器的 `WS_PROXY_URL` 会编译进 `wasm-net` 构建，默认值为 `wss://wss.vera20k.com`。这是客户端配置，与服务端的 UDP 目标分别设置。请在该 origin 部署终止 TLS 的反向代理，将 `/game/*` 路由的 WebSocket Upgrade 连接以及 `/v1/*` HTTP 请求转发到本进程。保留浏览器的 Origin 请求头；WebSocket 空闲超时至少设为 70 秒。Node 服务默认绑定 `127.0.0.1:8788`（可通过 `HOST` 和 `PORT` 覆盖），不提供游戏静态文件。静态站点和网关可以分别托管。
+大厅按请求来源地址实施按网络的限制，而代理请求的来源地址是网关自身。若要让每个浏览器玩家使用各自的限制，请把 `VERA_GATEWAY_KEY` 设为大厅 Worker 的 `GATEWAY_KEY` 密钥：一个至少 32 个字符的随机字符串（`openssl rand -hex 32`）。网关随后会在每个 `/v1/*` 请求中附带该密钥和玩家地址（socket 对端地址，或 `VERA_CLIENT_IP_HEADER` 指定的请求头）；没有密钥时，大厅会忽略请求中指定的地址。未设置时，所有浏览器玩家共享网关的地址及其限制。
 
-局域网信令默认关闭。设置 `VERA_LAN_SIGNAL=1` 后会为 `wasm-lan` 构建启用 `/lan/signal`：按公网地址分组、分配虚拟 IPv4，并在组内转发 WebRTC 描述和候选地址；游戏数据报不经过网关。部署在反向代理后时，把 `VERA_CLIENT_IP_HEADER` 设为该代理写入的请求头（例如 `cf-connecting-ip`；`x-forwarded-for` 取最后一项），并把 `/lan/*` 的 WebSocket Upgrade 转发到本进程。客户端能直连网关时不要设置该项。`VERA_LAN_STUN` 可选，填写逗号分隔的 `stun:` 地址，用于隐藏 host candidate 的网络；TURN 会被拒绝。限制定义在 `signal.mjs`：256 个连接、每组 16 人、单条消息 16 KiB、每连接每秒 64 条。
+浏览器的 `WS_PROXY_URL` 会编译进 `wasm-net` 构建，默认值为 `wss://wss.vera20k.com`。这是客户端配置，与服务端的 UDP 目标分别设置。请在该 origin 部署终止 TLS 的反向代理，将 `/game/*` 路由的 WebSocket Upgrade 连接以及 `/v1/*` HTTP 请求转发到本进程。把 `VERA_CLIENT_IP_HEADER` 设为该代理写入浏览器地址的请求头（例如 `cf-connecting-ip`；`x-forwarded-for` 取最后一项）；客户端能直连网关时不要设置该项。保留浏览器的 Origin 请求头；WebSocket 空闲超时至少设为 70 秒。Node 服务默认绑定 `127.0.0.1:8788`（可通过 `HOST` 和 `PORT` 覆盖），不提供游戏静态文件。静态站点和网关可以分别托管。
+
+局域网信令默认关闭。设置 `VERA_LAN_SIGNAL=1` 后会为 `wasm-lan` 构建启用 `/lan/signal`：按公网地址分组、分配虚拟 IPv4，并在组内转发 WebRTC 描述和候选地址；游戏数据报不经过网关。部署在反向代理后时，把 `/lan/*` 的 WebSocket Upgrade 转发到本进程；分组使用 `VERA_CLIENT_IP_HEADER` 给出的地址。`VERA_LAN_STUN` 可选，填写逗号分隔的 `stun:` 地址，用于隐藏 host candidate 的网络；TURN 会被拒绝。限制定义在 `signal.mjs`：256 个连接、每组 16 人、单条消息 16 KiB、每连接每秒 64 条。
 
 本地开发可以使用 `VERA_WEB_ORIGIN=http://localhost:8000`。若大厅使用 HTTP，必须同时设置 `VERA_ALLOW_LOCAL_HTTP=1`，并使用回环地址的大厅 origin，例如 `VERA_LOBBY_URL=http://127.0.0.1:8790`。远程 HTTP 地址会被拒绝。此时浏览器也必须使用匹配的本地代理 origin `ws://localhost:8788` 进行编译。
 

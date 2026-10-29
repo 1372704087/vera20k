@@ -386,7 +386,12 @@ impl App {
                     crate::app::input::cursor::apply_cursor_confinement(state);
                 }
                 #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                crate::web::status(self.state.as_ref().and_then(|state| state.frontend.main_menu_shell_error.as_deref()).unwrap_or("Ready"));
+                crate::web::status(
+                    self.state
+                        .as_ref()
+                        .and_then(|state| state.frontend.main_menu_shell_error.as_deref())
+                        .unwrap_or("Ready"),
+                );
                 log::info!("Initialization complete");
             }
             Err(err) => {
@@ -722,6 +727,46 @@ impl ApplicationHandler for App {
                 .input
                 .tactical_mouse
                 .record_physical_button(*button, edge.is_pressed());
+        }
+
+        // Play_Movie's only input is a bare Escape release; every other key and
+        // mouse event stays consumed while a process-start movie owns the
+        // display. Redraw, resize, occlusion and close stay with their own
+        // owners: the movies need redraws to advance and present their frames.
+        // This gate sits above the splash's because the logo holds the display
+        // before the splash has even been presented.
+        if (state.frontend.startup_logo.is_some() || state.frontend.startup_intro.is_some())
+            && matches!(
+                &event,
+                WindowEvent::KeyboardInput { .. }
+                    | WindowEvent::ModifiersChanged(_)
+                    | WindowEvent::Ime(_)
+                    | WindowEvent::CursorMoved { .. }
+                    | WindowEvent::CursorEntered { .. }
+                    | WindowEvent::CursorLeft { .. }
+                    | WindowEvent::MouseWheel { .. }
+                    | WindowEvent::MouseInput { .. }
+                    | WindowEvent::PinchGesture { .. }
+                    | WindowEvent::PanGesture { .. }
+                    | WindowEvent::DoubleTapGesture { .. }
+                    | WindowEvent::RotationGesture { .. }
+                    | WindowEvent::TouchpadPressure { .. }
+                    | WindowEvent::AxisMotion { .. }
+                    | WindowEvent::Touch(_)
+            )
+        {
+            if let WindowEvent::KeyboardInput { event, .. } = &event
+                && event.physical_key == PhysicalKey::Code(KeyCode::Escape)
+                && !event.state.is_pressed()
+            {
+                let modifiers = state.platform.live_modifiers;
+                let bare =
+                    !(modifiers.shift_key() || modifiers.control_key() || modifiers.alt_key());
+                if bare {
+                    Self::startup_movie_key(state);
+                }
+            }
+            return;
         }
 
         // Native does not expose menu/game input while its process-start splash

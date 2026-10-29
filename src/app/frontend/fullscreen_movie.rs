@@ -85,6 +85,30 @@ pub(crate) fn movie_rect(screen_w: i32, screen_h: i32, movie_w: i32, movie_h: i3
     [(screen_w - w) / 2, (screen_h - h) / 2, w, h]
 }
 
+/// Where one movie surface is drawn, as a full-window sprite.
+pub(crate) fn surface_instance(
+    surface: &BinkMovieSurface,
+    screen_w: i32,
+    screen_h: i32,
+) -> SpriteInstance {
+    let [x, y, w, h] = movie_rect(
+        screen_w,
+        screen_h,
+        surface.width() as i32,
+        surface.height() as i32,
+    );
+    SpriteInstance {
+        position: [x as f32, y as f32],
+        size: [w as f32, h as f32],
+        uv_origin: [0.0, 0.0],
+        uv_size: [1.0, 1.0],
+        depth: MOVIE_DEPTH,
+        tint: [1.0, 1.0, 1.0],
+        alpha: 1.0,
+        ..Default::default()
+    }
+}
+
 pub(crate) struct FullscreenMovie {
     playback: crate::app::movie_playback::MoviePlayback,
     return_to: MovieReturn,
@@ -128,22 +152,7 @@ impl FullscreenMovie {
         self.playback.surface()
     }
     pub(crate) fn instance(&self, screen_w: i32, screen_h: i32) -> SpriteInstance {
-        let [x, y, w, h] = movie_rect(
-            screen_w,
-            screen_h,
-            self.surface().width() as i32,
-            self.surface().height() as i32,
-        );
-        SpriteInstance {
-            position: [x as f32, y as f32],
-            size: [w as f32, h as f32],
-            uv_origin: [0.0, 0.0],
-            uv_size: [1.0, 1.0],
-            depth: MOVIE_DEPTH,
-            tint: [1.0, 1.0, 1.0],
-            alpha: 1.0,
-            ..Default::default()
-        }
+        surface_instance(self.surface(), screen_w, screen_h)
     }
 }
 

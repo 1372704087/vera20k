@@ -91,6 +91,7 @@ mod shell_wol;
 pub(crate) mod sidebar_projection;
 #[cfg(test)]
 mod sidebar_projection_tests;
+pub(crate) mod startup_movies;
 mod state;
 #[cfg(feature = "telemetry-dashboard")]
 pub mod telemetry;

@@ -534,6 +534,15 @@ impl App {
                 assets,
             )
         });
+        // Native `Init_Game` plays its logo only when the bulk MIX mount
+        // returned success (`0x0052C5A1..A3`), and VERA plays nothing for a
+        // sealed capture or a client-selected launch.
+        let process_movies =
+            !external_launch && capture_dimensions.is_none() && main_menu_shell_error.is_none();
+        // `Init_Game` plays `EA_WWLOGO` through `Play_Movie` at `0x0052C5E2`
+        // and presents its splash at `0x0052C5F3`. Both are serviced by the
+        // frame loop (see `startup_movies`), so nothing here blocks the event
+        // loop: this only paints the black frame the logo starts from.
         // A client-selected game enters scenario loading directly. This splash
         // is presented synchronously below, before start_spawn_session runs;
         // clearing it in that later callback cannot hide the first frame.
@@ -561,7 +570,18 @@ impl App {
         } else {
             None
         };
-        if let Some(splash) = startup_splash.as_mut() {
+        if process_movies {
+            // `Init_Game` plays `EA_WWLOGO` at `0x0052C5E2` and presents its
+            // splash at `0x0052C5F3`, so the logo owns the window first. Until
+            // it ends, a black frame keeps the surface painted; the frame loop
+            // presents the splash as soon as the logo is done.
+            match crate::app::startup_movies::present_startup_black(&gpu, &shell_surface_presenter)
+            {
+                Ok(true) => {}
+                Ok(false) => log::warn!("Initial startup black present deferred: no surface frame"),
+                Err(err) => log::warn!("Initial startup black present deferred: {err:#}"),
+            }
+        } else if let Some(splash) = startup_splash.as_mut() {
             // Surface acquisition can be transient before the first event-loop
             // redraw. A splash that did not reach the screen stays unarmed for
             // the frame loop to retry.
@@ -791,6 +811,9 @@ impl App {
                     crate::web::take_music_output(),
                     crate::web::take_sfx_output(),
                 );
+                // Native's output device exists before the logo it plays, so
+                // this player was created above the splash and is handed on
+                // here instead of paying for a second device.
                 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
                 let music_player = startup_audio
                     .initialize_music_output
@@ -835,6 +858,19 @@ impl App {
                     }
                     _ => crate::app::persistence::phobos_settings::PhobosClientSettings::default(),
                 };
+                // WinMain reads the one-shot `[Intro] Play=` (`ReadBool`
+                // 0x005295F0: section `Intro` 0x8241C0, key `Play` 0x840BE8,
+                // default 1, `0x006BDF64..0x006BDF89`) and, while the bit it
+                // sets is on, stores `Play=no` and saves the INI
+                // (`0x006BDFED..0x006BE018`) before the game run function
+                // `0x48CCC0` starts; `Init_Game` then plays the intro from
+                // `0x0052CA65`. Sealed captures and client-selected launches
+                // keep the profile untouched, like the retail options snapshot,
+                // and play nothing.
+                let play_intro = process_movies
+                    && game_config.as_ref().is_some_and(|config| {
+                        crate::app::persistence::intro_play::consume(config.paths.settings_dir())
+                    });
                 let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -1033,6 +1069,8 @@ impl App {
                 shell_exit: None,
                 quit_cascade: None,
                 startup_splash,
+                startup_logo: None,
+                startup_intro: None,
                 shell_message_box: None,
                 options_dialog: None,
                 keyboard_dialog: None,
@@ -1120,6 +1158,20 @@ impl App {
                 // even without a music device. The profile keeps native negative values
                 // for round-trip; physical output owners provide the safe gain clamp.
                 apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
+                // The logo plays over the black frame above and the splash
+                // follows it; the intro follows the splash hold. Both are
+                // frame-loop plays, in native's order (`0x0052C5E2`,
+                // `0x0052C5F3`, `0x0052CA65`).
+                if process_movies && state.frontend.screen == GameScreen::MainMenu {
+                    state.frontend.startup_logo = crate::app::startup_movies::StartupMovie::armed(
+                        true,
+                        crate::app::startup_movies::StartupMovieSlot::Logo,
+                    );
+                    state.frontend.startup_intro = crate::app::startup_movies::StartupMovie::armed(
+                        play_intro,
+                        crate::app::startup_movies::StartupMovieSlot::Intro,
+                    );
+                }
                 Self::sync_zoom_pass(&mut state);
                 #[cfg(feature = "telemetry-dashboard")]
                 attach_dashboard(&mut state);

@@ -4447,7 +4447,12 @@ impl Simulation {
                 let (Some(index), Some(waypoint)) = (value, action.waypoint_index) else {
                     return false;
                 };
-                return self.trigger_play_anim_at_waypoint(rules, index, waypoint as i32);
+                return self.trigger_play_anim_at_waypoint(
+                    rules,
+                    index,
+                    waypoint as i32,
+                    frame_effects,
+                );
             }
             58 => {
                 let (Some(intensity), Some(waypoint)) = (value, action.waypoint_index) else {

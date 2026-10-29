@@ -7190,13 +7190,27 @@ impl Simulation {
     /// AssignOrphanedCellZone (`0x0056D460`) and the local graph update
     /// (`0x00584550`): the per-cell tail `TerrainClass::Limbo` and
     /// `BuildingClass::AfterDestruction` share. `blocked` is the structure
-    /// presence already scanned for the caller's cells.
-    fn publish_cell_and_assign_orphaned_zone(
+    /// presence already scanned for the caller's cells, or calculated here for
+    /// a single native caller such as Anim::Start424EE8/424EF3.
+    pub(crate) fn publish_cell_and_assign_orphaned_zone(
         &mut self,
         rules: &RuleSet,
         cell: (u16, u16),
-        blocked: &BTreeSet<(u16, u16)>,
+        blocked: Option<&BTreeSet<(u16, u16)>>,
     ) {
+        let owned_blocked;
+        let blocked = match blocked {
+            Some(blocked) => blocked,
+            None => {
+                owned_blocked = navigation::structure_blocked_among(
+                    &self.substrate.entities,
+                    &self.interner,
+                    rules,
+                    &[cell],
+                );
+                &owned_blocked
+            }
+        };
         self.publish_recalculated_cells_with_presence(rules, &[cell], blocked);
         if let (Some(terrain), Some(path)) =
             (self.resolved_terrain.as_ref(), self.path_grid.as_deref())

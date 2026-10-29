@@ -570,6 +570,7 @@ impl Simulation {
             blast.location,
             rules.combat_damage.ivan_damage,
             warhead,
+            true,
             origin,
             frame_effects,
         );
@@ -606,6 +607,7 @@ impl Simulation {
             blast.location,
             rules.combat_damage.ivan_damage,
             warhead,
+            true,
             origin,
         );
         effects.bridge_state_changed |=

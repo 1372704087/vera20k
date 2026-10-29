@@ -9097,6 +9097,7 @@ fn retail_area_damage_delivers_miner_warning_before_neighboring_base_warning() {
         crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z),
         weapon.damage,
         warhead,
+        true,
         (source, Some(source_owner), warhead_id),
         effects,
     );

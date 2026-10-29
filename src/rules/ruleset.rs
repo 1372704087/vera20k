@@ -4878,6 +4878,7 @@ impl RuleSet {
         rules.general.weapon_nullify_anim = nullify_anim.to_owned();
         rules.combat_damage.splash_list = splash.to_vec();
         rules.combat_damage.ammo_crate_damage = processed.ammo_crate_damage();
+        rules.combat_damage.tiberium_explosion_damage = processed.tiberium_explosion_damage();
         rules.combat_damage.death_weapon =
             processed.combat_damage_death_weapon().map(str::to_owned);
         for (name, conventional, em_effect, anim_list, debris_types, verses, ares_verses) in
@@ -5862,7 +5863,7 @@ impl RuleSet {
             .section_or_empty("SpecialFlags")
             .read_bool("InitialVeteran", false);
         let terrain_rules: TerrainRules = TerrainRules::from_ini(ini);
-        let tiberium_types = TiberiumTypeRegistry::from_ini(ini);
+        let tiberium_types = TiberiumTypeRegistry::from_processed_rules(processed);
         let bridge_rules: BridgeRules = BridgeRules::from_ini(ini);
         let crate_rules = CrateRules::default();
         // Overwritten from the processed layers by the two callers above; the
@@ -7783,6 +7784,18 @@ impl RuleSet {
         }
         self.anim_type_references.hash(&mut hasher);
         self.combat_damage.ammo_crate_damage.hash(&mut hasher);
+        // Native retained defaults can differ with identical incoming INIs.
+        self.combat_damage
+            .tiberium_explosion_damage
+            .hash(&mut hasher);
+        for tiberium in self.tiberium_types.types() {
+            (
+                &tiberium.section,
+                tiberium.color_scheme(),
+                tiberium.debris(),
+            )
+                .hash(&mut hasher);
+        }
         self.general.barrel_explode.hash(&mut hasher);
         self.general.barrel_debris.hash(&mut hasher);
         for kind in &self.voxel_anim_types {

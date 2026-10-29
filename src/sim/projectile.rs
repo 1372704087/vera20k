@@ -361,10 +361,13 @@ pub struct ProjectileCollisionPolicy {
     pub subject_to_cliffs: bool,
     pub flak_scatter: bool,
     pub anti_air: bool,
-    /// `BulletType+294 Airburst=` or, in a Phobos build, `Splits=`:
-    /// `BulletClass::Explodes` skips target snapping and the outer cluster
-    /// loop for either flag.
+    /// `BulletType+294 Airburst=`: the Bullet AI homing/closing/fuse arms.
     pub airburst: bool,
+    /// `BulletClass::Explodes`'s airburst gate: native `Airburst=`, or
+    /// `Airburst || Splits` in a Phobos build. A manually constructed policy
+    /// that leaves it `None` falls back to [`Self::airburst`].
+    #[serde(default)]
+    pub explodes_airburst: Option<bool>,
     pub inaccurate: bool,
     /// BulletType +295: 48ACF0 multiplies live Rules gravity by binary64 0.5.
     pub floater: bool,
@@ -391,6 +394,7 @@ impl ProjectileCollisionPolicy {
         flak_scatter: false,
         anti_air: false,
         airburst: false,
+        explodes_airburst: None,
         inaccurate: false,
         floater: false,
         #[cfg(feature = "phobos")]
@@ -398,6 +402,14 @@ impl ProjectileCollisionPolicy {
         elasticity_bits: 0x3fe8_0000_0000_0000,
         arcing: false,
     };
+
+    /// `0x468D80`'s airburst gate, with the pre-feature fallback.
+    pub const fn explodes_airburst(&self) -> bool {
+        match self.explodes_airburst {
+            Some(value) => value,
+            None => self.airburst,
+        }
+    }
 
     /// Phobos `[Projectile] Gravity=` bits, or `None` on the stock path.
     #[cfg(feature = "phobos")]
@@ -1239,12 +1251,6 @@ impl Projectile {
         self.target = value;
     }
 
-    /// A fired Bullet's retained target coordinate (`+0x140`).
-    #[cfg(any(test, feature = "test-support"))]
-    pub fn set_last_target_position_for_test(&mut self, value: ProjectileCoord) {
-        self.last_target_position = value;
-    }
-
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_velocity_for_test(&mut self, value: ProjectileVelocity) {
         self.velocity = value;
@@ -1443,13 +1449,13 @@ impl Projectile {
 
     /// The facts [`resolve_impact_coord`] reads, with the bullet at its
     /// committed Location.
-    fn impact_ladder_bullet(&self, impact_flag: bool) -> ImpactLadderBullet {
+    pub(crate) fn impact_ladder_bullet(&self, impact_flag: bool) -> ImpactLadderBullet {
         ImpactLadderBullet {
             location: self.position,
             reference: self.proximity_reference,
             impact_flag,
             inaccurate: self.collision.inaccurate,
-            airburst: self.collision.airburst,
+            airburst: self.collision.explodes_airburst(),
             arcing: self.collision.arcing,
             homing: self.tracks_target,
         }

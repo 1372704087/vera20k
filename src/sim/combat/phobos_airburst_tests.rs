@@ -156,22 +156,11 @@ fn build_scene(
         i32::from(parent_cell.1) * 256 + 128,
         parent_z,
     );
-    let target_position = match target {
-        ProjectileTarget::Entity(id) => {
-            let coords = crate::sim::movement::ground_pose::object_get_coords(
-                world.substrate.entities.get(id).unwrap(),
-                world.resolved_terrain.as_ref(),
-            );
-            ProjectileCoord::new(coords.x, coords.y, coords.z)
-        }
-        ProjectileTarget::Cell { rx, ry } => {
-            crate::sim::projectile::cell_target_coord(world.resolved_terrain.as_ref(), rx, ry)
-        }
-        _ => position,
-    };
-    let parent_projectile = world.projectiles.get_mut(parent).unwrap();
-    parent_projectile.set_position_for_test(position);
-    parent_projectile.set_last_target_position_for_test(target_position);
+    world
+        .projectiles
+        .get_mut(parent)
+        .unwrap()
+        .set_position_for_test(position);
     let request = ProjectileDetonation {
         projectile_id: parent,
         source_id: source,
@@ -368,6 +357,17 @@ fn airburst_use_cluster_selects_even_and_random_cells() {
         unique.sort_unstable();
         unique.dedup();
         assert_eq!(unique.len(), 3, "random={random}");
+        if !random {
+            let mut cells: Vec<(u16, u16)> = targets
+                .iter()
+                .map(|target| match target {
+                    ProjectileTarget::Cell { rx, ry } => (*rx, *ry),
+                    other => panic!("unexpected {other:?}"),
+                })
+                .collect();
+            cells.sort_unstable();
+            assert_eq!(cells, vec![(10, 18), (10, 20), (10, 22)]);
+        }
     }
 }
 
@@ -733,6 +733,19 @@ fn apply_firepower_mult_scales_the_child_damage() {
     );
     detonate(&mut scene);
     assert_eq!(child_damage(&scene), vec![20]);
+    assert_eq!(
+        child_ids(&scene)
+            .into_iter()
+            .map(|id| scene
+                .world
+                .projectiles
+                .get(id)
+                .unwrap()
+                .payload()
+                .firepower_multiplier())
+            .collect::<Vec<_>>(),
+        vec![NativeF64Bits::from_bits(2.0_f64.to_bits())]
+    );
 
     let ini = rules_ini(
         "Airburst=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
@@ -771,7 +784,7 @@ fn radial_fire_segments_fan_around_the_original_target() {
     let mut scene = build_scene(
         &ini,
         (6, 20),
-        (10, 20),
+        (6, 20),
         0,
         TargetChoice::Cell(10, 20),
         &[],
@@ -1007,21 +1020,205 @@ fn targeting_distance_cylindrical_ignores_aircraft_height() {
 }
 
 #[test]
+fn around_target_uses_the_live_target_position() {
+    let ini = rules_ini(
+        "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
+         Splits.TargetingDistance=2\nSplits.TargetCellRange=-1\nRetargetSelf=no\n",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
+    let mut scene = build_scene(
+        &ini,
+        (6, 20),
+        (6, 20),
+        0,
+        TargetChoice::Entity(0),
+        &[("VICTIM", 10, 20, 0)],
+        1.0,
+    );
+    let victim = scene.victims[0];
+    scene.world.remove_entity_occupancy(victim);
+    scene
+        .world
+        .substrate
+        .entities
+        .get_mut(victim)
+        .unwrap()
+        .position = crate::sim::components::Position::new(
+        10,
+        24,
+        0,
+        Some(0),
+        crate::util::fixed_math::SimFixed::from_num(128),
+        crate::util::fixed_math::SimFixed::from_num(128),
+    );
+    scene.world.add_entity_occupancy(victim);
+    detonate(&mut scene);
+    assert_eq!(
+        child_targets(&scene),
+        vec![ProjectileTarget::Entity(victim)],
+        "the search is centered on the target's current GetCoords"
+    );
+}
+
+#[test]
+fn split_cell_content_uses_the_bridge_deck_list() {
+    let ini = rules_ini(
+        "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
+         Splits.TargetingDistance=2\nSplits.TargetCellRange=-1\nRetargetSelf=no\n",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
+    let mut scene = build_scene(
+        &ini,
+        (6, 20),
+        (6, 20),
+        0,
+        TargetChoice::Cell(10, 20),
+        &[("VICTIM", 10, 20, 0)],
+        1.0,
+    );
+    let victim = scene.victims[0];
+    scene
+        .world
+        .substrate
+        .entities
+        .get_mut(victim)
+        .unwrap()
+        .set_on_bridge(true);
+    scene.world.remove_entity_occupancy(victim);
+    scene.world.add_entity_occupancy(victim);
+    scene
+        .world
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut_for_test(10, 20)
+        .unwrap()
+        .bridge_facts
+        .raw_flags |= crate::map::bridge_facts::BRIDGE_FLAG_STRUCTURAL;
+    detonate(&mut scene);
+    assert_eq!(
+        child_targets(&scene),
+        vec![ProjectileTarget::Entity(victim)],
+        "CellClass::GetContent reads the deck list on a bridge cell"
+    );
+}
+
+#[test]
+fn splits_parent_impact_ladder_uses_the_explodes_arm() {
+    let ini = rules_ini(
+        "Splits=yes
+AirburstWeapon=CHILD_GUN
+Cluster=1
+",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
+    let mut scene = build_scene(
+        &ini,
+        (6, 20),
+        (10, 20),
+        0,
+        TargetChoice::Cell(10, 20),
+        &[],
+        1.0,
+    );
+    let delivery = crate::sim::combat::projectile_delivery::classify_projectile_delivery(
+        scene.rules.weapon("PARENT_GUN").unwrap(),
+        &scene.rules,
+    );
+    let parent = scene.parent;
+    *scene
+        .world
+        .projectiles
+        .get_mut(parent)
+        .unwrap()
+        .collision_mut_for_test() = delivery.collision;
+    let bullet = scene
+        .world
+        .projectiles
+        .get(parent)
+        .unwrap()
+        .impact_ladder_bullet(true);
+    assert!(
+        bullet.airburst,
+        "Splits takes the Explodes airburst arm used by the impact ladder"
+    );
+    assert_eq!(
+        scene
+            .world
+            .projectiles
+            .get(parent)
+            .unwrap()
+            .collision()
+            .airburst,
+        false,
+        "the Bullet AI airburst flag stays native"
+    );
+}
+
+#[test]
+fn empty_repeat_target_list_still_consumes_the_initial_draw() {
+    let run = |repeat: &str| {
+        let ini = rules_ini(
+            &format!(
+                "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
+                 Splits.TargetingDistance=2\nSplits.TargetCellRange=-1\nRetargetSelf=no\n{repeat}"
+            ),
+            "",
+            "",
+            "",
+            "",
+            "",
+        );
+        let rules = RuleSet::from_ini(&ini).unwrap();
+        let repeat_key = rules
+            .projectile("PARENT_SHOT")
+            .unwrap()
+            .phobos_airburst
+            .splits_allow_repeat_targets;
+        if repeat.is_empty() {
+            assert_eq!(repeat_key, None, "{repeat}");
+        } else {
+            assert_eq!(repeat_key, Some(true), "{repeat}");
+        }
+        let mut scene = build_scene(
+            &ini,
+            (6, 20),
+            (10, 20),
+            0,
+            TargetChoice::Cell(10, 20),
+            &[],
+            1.0,
+        );
+        detonate(&mut scene);
+        assert!(child_ids(&scene).is_empty());
+        scene.world.scenario_rng.native_state_hex()
+    };
+    let without = run("");
+    let with = run("Splits.AllowRepeatTargets=yes\n");
+    assert_ne!(
+        without, with,
+        "Phobos draws RandomRanged(0, Count - 1) once even for an empty list"
+    );
+}
+
+#[test]
 fn splits_takes_the_airburst_impact_arms() {
     for (parent, expected) in [
-        (
-            "Splits=yes
-AirburstWeapon=CHILD_GUN
-",
-            true,
-        ),
-        (
-            "Airburst=yes
-AirburstWeapon=CHILD_GUN
-",
-            true,
-        ),
-        ("", false),
+        ("Splits=yes\nAirburstWeapon=CHILD_GUN\n", (false, true)),
+        ("Airburst=yes\nAirburstWeapon=CHILD_GUN\n", (true, true)),
+        ("", (false, false)),
     ] {
         let ini = rules_ini(parent, "", "", "", "", "");
         let rules = RuleSet::from_ini(&ini).unwrap();
@@ -1030,7 +1227,12 @@ AirburstWeapon=CHILD_GUN
             &rules,
         );
         assert_eq!(
-            delivery.collision.airburst, expected,
+            delivery.collision.airburst, expected.0,
+            "the Bullet AI airburst field stays native"
+        );
+        assert_eq!(
+            delivery.collision.explodes_airburst(),
+            expected.1,
             "Phobos Explodes makes Splits use the Airburst arm"
         );
     }
@@ -1038,19 +1240,21 @@ AirburstWeapon=CHILD_GUN
 
 #[test]
 fn cell_spread_enumerator_starts_at_the_center_and_covers_the_first_ring() {
-    let offsets = cell_spread_offsets(1);
-    assert_eq!(offsets[0], (0, 0));
-    assert_eq!(offsets.len(), 9);
-    let mut expected = Vec::new();
-    for y in -1..=1 {
-        for x in -1..=1 {
-            expected.push((x, y));
-        }
-    }
-    expected.sort_unstable();
-    let mut actual = offsets;
-    actual.sort_unstable();
-    assert_eq!(actual, expected);
+    let offsets = crate::sim::cell_rect::cell_spread_offsets(1);
+    assert_eq!(
+        offsets,
+        vec![
+            (0, 0),
+            (-1, -1),
+            (0, -1),
+            (1, -1),
+            (-1, 0),
+            (1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+        ]
+    );
 }
 
 #[test]

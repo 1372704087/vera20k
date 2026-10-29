@@ -942,6 +942,7 @@ impl Simulation {
             projectile.collision().flak_scatter.hash(hasher);
             projectile.collision().anti_air.hash(hasher);
             projectile.collision().airburst.hash(hasher);
+            projectile.collision().explodes_airburst().hash(hasher);
             projectile.collision().inaccurate.hash(hasher);
             projectile.collision().floater.hash(hasher);
             projectile.collision().elasticity_bits.hash(hasher);

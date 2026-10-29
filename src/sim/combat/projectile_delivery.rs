@@ -147,7 +147,8 @@ fn classify_projectile_type(
             subject_to_cliffs: projectile.subject_to_cliffs,
             flak_scatter: projectile.flak_scatter,
             anti_air: projectile.aa,
-            airburst: projectile.airburst_arm(),
+            airburst: projectile.airburst,
+            explodes_airburst: Some(projectile.airburst_arm()),
             inaccurate: projectile.inaccurate,
             floater: projectile.floater,
             #[cfg(feature = "phobos")]

@@ -15,12 +15,14 @@
 //! (`src/Utilities/Helpers.Alex.h`), whose set iteration is native UniqueID
 //! order (`AbstractClass::operator<`).
 //!
-//! Determinism: Phobos' RNG call order is preserved. Random-cluster selection
-//! uses `RandomRanged(0, Count - 1)`; Phobos' literal `0..Count` can read one
-//! past the vector and can never terminate when `Cluster > Count`, so this
-//! port keeps the intended unique-random selection without the out-of-range
-//! read. Trigonometry uses the retail table and x87 wrappers; Phobos' CRT
-//! `sin`/`cos`/`atan2` are not available bit-for-bit across platforms.
+//! Determinism: Phobos' RNG call order is preserved for defined selections.
+//! Random-cluster selection uses `RandomRanged(0, Count - 1)`; Phobos' literal
+//! `0..Count` can read one past the vector (the loop then terminates but may
+//! add a null or repeat a target), so this port keeps the intended
+//! unique-random selection without the out-of-range read and may consume a
+//! different number of draws when `Cluster > Count`. Trigonometry uses the
+//! retail table and x87 wrappers; Phobos' CRT `sin`/`cos`/`atan2` are not
+//! available bit-for-bit across platforms.
 //!
 //! RESIDUAL: `Splits.UseWeaponTargeting` checks Phobos WeaponTypeExt's
 //! `CanTarget`, `CanTarget.MinHealth/MaxHealth` and `CanTargetVeterancy`
@@ -28,15 +30,24 @@
 //! none of them yet; this chain reads `LegalTarget`, `Verses`,
 //! `CanTargetHouses`, the AttachEffect gates (through the shared
 //! `Simulation::weapon_attach_effects_allow`) and the split projectile's
-//! `AA`/`AAOnly`.
+//! `AA`/`AAOnly`. Phobos' `SkipWeaponPicking` early return is equivalent to
+//! the all-default case this code evaluates directly.
 //!
-//! RESIDUAL (visual): Phobos' `Laser_IsSingleColor`, `LaserThickness` and
-//! `Beam_IsHouseColor` live in WeaponTypeExt, which VERA does not model; the
-//! child laser/rad-beam keeps the stock WeaponType colors and geometry.
+//! RESIDUAL (visual): Phobos' `Laser_IsSingleColor`, `LaserThickness`,
+//! `Beam_IsHouseColor` and `LaserPositionUpdate` live in WeaponTypeExt, which
+//! VERA does not model; the child laser/rad-beam keeps the stock WeaponType
+//! colors and geometry. VERA's laser and electric-bolt owners also require a
+//! live source entity, while Phobos draws them after the firer expired, and
+//! `GetTargetCoordsForFiring`'s `Inviso && FlakScatter` arm is not applied to
+//! the rad-beam/particle targets.
 //!
 //! RESIDUAL (owner): VERA's projectile `firer_house` is the palette-only
 //! `Bullet+0x114`. A child whose Techno owner expired therefore loses damage
 //! attribution even though Phobos keeps `BulletExt::FirerHouse`.
+//!
+//! RESIDUAL (bounds): `AirburstSpread` is capped at a 256-cell radius. A
+//! larger authored value enumerates no cells instead of stalling the
+//! simulation; Phobos' `CellRangeIterator` has no such cap.
 //!
 //! RESIDUAL (non-FireAt parent): only FireAt captures
 //! `BulletExt::FirepowerMult` into the payload. A parent constructed by
@@ -74,7 +85,6 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
     };
     let parent_position = parent.position();
     let parent_firer_house = parent.firer_house();
-    let target_position = parent.last_target_position();
     let parent_payload = parent.payload();
     let Some(parent_type_id) = parent_payload.projectile_type() else {
         return;
@@ -131,10 +141,11 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
         return;
     };
 
-    // `AroundTarget.Get(Splits)`: the original target's coordinate or the
-    // bullet's current one.
+    // `BulletClass::GetTargetCoords`: the live target's `GetCoords`, or the
+    // Bullet's own coordinate once the target is gone. `AroundTarget.Get(Splits)`
+    // chooses between that and the detonation position.
     let coords_target = if ext.around_target() {
-        target_position
+        target_get_coords(world, current.target).unwrap_or(parent_position)
     } else {
         parent_position
     };
@@ -214,8 +225,9 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
         let range = ext.splits_target_cell_range;
         if range >= 0 && (!allow_repeat || targets.is_empty()) {
             while targets.len() < cluster_count.max(0) as usize {
-                let dx = world.scenario_rng.next_range_i32_inclusive(-range, range);
-                let dy = world.scenario_rng.next_range_i32_inclusive(-range, range);
+                let low = range.saturating_neg();
+                let dx = world.scenario_rng.next_range_i32_inclusive(low, range);
+                let dy = world.scenario_rng.next_range_i32_inclusive(low, range);
                 let rx = center.0.wrapping_add(dx as i16) as u16;
                 let ry = center.1.wrapping_add(dy as i16) as u16;
                 targets.push(ProjectileTarget::looked_up_cell(
@@ -257,11 +269,17 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
     let target_dir = target_direction(world, parent_position, coords_target);
 
     let mut cycled_target_index = 0usize;
-    if allow_repeat && !targets.is_empty() {
-        cycled_target_index = world
-            .scenario_rng
-            .next_range_i32_inclusive(0, targets.len() as i32 - 1)
-            as usize;
+    if allow_repeat {
+        // Phobos draws `RandomRanged(0, Count - 1)` once, even for an empty
+        // list (where the bounds become 0,-1); the index is unused then.
+        cycled_target_index = if targets.is_empty() {
+            let _ = world.scenario_rng.next_range_i32_inclusive(0, -1);
+            0
+        } else {
+            world
+                .scenario_rng
+                .next_range_i32_inclusive(0, targets.len() as i32 - 1) as usize
+        };
     }
     let mut radial_fire_counter = 0i32;
     for index in 0..cluster_count.max(0) as usize {
@@ -563,7 +581,13 @@ fn airburst_cells(
     center: (i16, i16),
     radius: f64,
 ) -> Vec<ProjectileTarget> {
-    let range = (radius + 0.99).floor() as i32 * 2 + 1;
+    let cells = (radius + 0.99).floor();
+    if !cells.is_finite() || !(0.0..=0x100 as f64).contains(&cells) {
+        // Phobos' CellRangeIterator is unbounded; VERA caps the authored
+        // radius at 256 cells so an outlier cannot stall the simulation.
+        return Vec::new();
+    }
+    let range = cells as i32 * 2 + 1;
     let half = range / 2;
     let radius_squared = radius * radius;
     let mut cells = Vec::new();
@@ -669,7 +693,7 @@ fn cell_spread_technos(
     let terrain = world.resolved_terrain.as_ref();
     let cells = terrain.map(NativeCellQuery::canonical);
 
-    for (dx, dy) in cell_spread_offsets(range) {
+    for (dx, dy) in crate::sim::cell_rect::cell_spread_offsets(range) {
         let rx = center_cell.0.wrapping_add(dx);
         let ry = center_cell.1.wrapping_add(dy);
         let cell = match &cells {
@@ -685,14 +709,7 @@ fn cell_spread_technos(
         let cell_center = crate::sim::projectile::cell_target_coord(terrain, rx as u16, ry as u16);
         let is_center = (rx, ry) == center_cell;
         let members: Vec<u64> = world
-            .substrate
-            .occupancy
-            .cell_objects(
-                rx as u16,
-                ry as u16,
-                crate::sim::movement::locomotor::MovementLayer::Ground,
-                world.terrain_objects.members_at((rx as u16, ry as u16)),
-            )
+            .native_cell_content((rx as u16, ry as u16))
             .filter_map(|member| match member {
                 crate::sim::occupancy::CellObjectMember::Entity(id) => Some(id),
                 crate::sim::occupancy::CellObjectMember::Terrain(_) => None,
@@ -807,113 +824,62 @@ fn distance_squared(left: ProjectileCoord, right: ProjectileCoord) -> f64 {
     dx * dx + dy * dy + dz * dz
 }
 
-/// `CellSpreadEnumerator` (`YRpp Helpers/Enumerators.h`): cell offsets by
-/// CellSpread ring, clamped at 0x100.
-fn cell_spread_offsets(spread: usize) -> Vec<(i16, i16)> {
-    struct Enumerator {
-        current: (i16, i16),
-        spread: usize,
-        current_spread: usize,
-        has_two: bool,
-        had_two: bool,
-    }
-    impl Enumerator {
-        fn new(spread: usize) -> Self {
-            let mut value = Self {
-                current: (0, 0),
-                spread: spread.min(0x100),
-                current_spread: 0,
-                has_two: false,
-                had_two: false,
-            };
-            value.reset(0);
-            value
+/// `Target->GetCoords()` for the target held by a Bullet: delegate the
+/// Entity/Terrain/Cell arms to the shared navcom owner; the shared Dummy and
+/// a null target are this caller's own cases.
+fn target_get_coords(world: &Simulation, target: ProjectileTarget) -> Option<ProjectileCoord> {
+    let terrain = world.resolved_terrain.as_ref();
+    let cells = terrain.map(NativeCellQuery::canonical);
+    let coord = match target {
+        ProjectileTarget::Entity(id) | ProjectileTarget::Terrain(id) => {
+            crate::sim::movement::ground_pose::target_get_coords(
+                crate::sim::combat::TargetKind::Entity(id),
+                world,
+                cells.as_ref(),
+            )?
         }
-        fn reset(&mut self, radius: usize) {
-            self.current_spread = radius;
-            self.current.0 = if radius != 0 { -1 } else { 0 };
-            self.current.1 = -(radius as i16);
-            self.has_two = true;
-            self.had_two = true;
+        ProjectileTarget::Cell { rx, ry } => crate::sim::movement::ground_pose::target_get_coords(
+            crate::sim::combat::TargetKind::Cell(rx, ry),
+            world,
+            cells.as_ref(),
+        )?,
+        ProjectileTarget::DummyCell => {
+            return Some(crate::sim::projectile::dummy_cell_ground_coord(
+                &world.effective_shared_cell_dummy(),
+            ));
         }
-        fn advance(&mut self) {
-            if self.current_spread > self.spread {
-                return;
-            }
-            if self.current == (0, 0)
-                || (self.current.0 == 1 && self.current.1 == self.current_spread as i16)
-            {
-                self.reset(self.current_spread + 1);
-                return;
-            }
-            if self.has_two {
-                self.current.0 = self.current.0.wrapping_add(1);
-                self.has_two = self.current.0 == 0;
-                return;
-            }
-            if self.current.0 < 0 {
-                self.current.0 = -self.current.0;
-                self.has_two = self.had_two;
-                return;
-            }
-            self.current.1 = self.current.1.wrapping_add(1);
-            let change_sign = self.current.1 > 0;
-            if change_sign {
-                self.current.1 = -self.current.1;
-            }
-            let spread = self.current_spread as i16;
-            self.current.0 = spread
-                .wrapping_add(self.current.1)
-                .wrapping_mul(-2)
-                .wrapping_sub(1);
-            let diff = self.current.0 - self.current.1;
-            self.has_two = diff >= 0;
-            self.had_two = self.has_two;
-            if diff == -1 {
-                self.current.0 += 1;
-            } else if diff < 0 {
-                self.current.0 = (-self.current.1) / 2 - spread;
-            }
-            if change_sign {
-                self.current.1 = -self.current.1;
-            }
-        }
-    }
-    let mut enumerator = Enumerator::new(spread);
-    let mut offsets = Vec::new();
-    while enumerator.current_spread <= enumerator.spread {
-        offsets.push(enumerator.current);
-        enumerator.advance();
-    }
-    offsets
+        ProjectileTarget::None => return None,
+    };
+    Some(ProjectileCoord::new(coord.x, coord.y, coord.z))
 }
 
-/// The current coordinate of a child target.
+/// The current coordinate of a child target, delegating the Cell/Entity/
+/// Terrain arms to the shared +0x58 owner.
 fn target_coord(world: &Simulation, target: ProjectileTarget) -> Option<ProjectileCoord> {
-    match target {
-        ProjectileTarget::Entity(id) => {
-            let entity = world.substrate.entities.get(id)?;
-            let coords = crate::sim::movement::ground_pose::object_get_coords(
-                entity,
-                world.resolved_terrain.as_ref(),
-            );
-            Some(ProjectileCoord::new(coords.x, coords.y, coords.z))
+    let terrain = world.resolved_terrain.as_ref();
+    let coord = match target {
+        ProjectileTarget::Entity(id) | ProjectileTarget::Terrain(id) => {
+            crate::sim::movement::ground_pose::target_get_target_coords(
+                crate::sim::combat::TargetKind::Entity(id),
+                world,
+                terrain,
+            )?
         }
-        ProjectileTarget::Terrain(id) => world
-            .terrain_objects
-            .objects()
-            .get(&id)
-            .map(|terrain| terrain.world_coord()),
-        ProjectileTarget::Cell { rx, ry } => Some(crate::sim::projectile::cell_target_coord(
-            world.resolved_terrain.as_ref(),
-            rx,
-            ry,
-        )),
-        ProjectileTarget::DummyCell => Some(crate::sim::projectile::dummy_cell_target_coord(
-            &world.effective_shared_cell_dummy(),
-        )),
-        ProjectileTarget::None => None,
-    }
+        ProjectileTarget::Cell { rx, ry } => {
+            crate::sim::movement::ground_pose::target_get_target_coords(
+                crate::sim::combat::TargetKind::Cell(rx, ry),
+                world,
+                terrain,
+            )?
+        }
+        ProjectileTarget::DummyCell => {
+            return Some(crate::sim::projectile::dummy_cell_target_coord(
+                &world.effective_shared_cell_dummy(),
+            ));
+        }
+        ProjectileTarget::None => return None,
+    };
+    Some(ProjectileCoord::new(coord.x, coord.y, coord.z))
 }
 
 /// `AbstractClass::GetTargetDirection @ 0x005F3DB0` from the bullet to the

@@ -45,9 +45,14 @@ const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
 /// issued for GRANT_SECONDS (services/lobby/service.js relayGrant). Their
 /// `expires` is lobby wall time; a local clock running slow would renew after
 /// the relay already rejects the ticket, so renewal is timed from receipt.
+/// It uses frame_pacer::wall_clock_ms, which keeps counting through sleep;
+/// an `Instant` deadline would wait out the slept time with a dead ticket.
 const RELAY_GRANT_LIFETIME: Duration = Duration::from_secs(300);
-/// protocol.md: renew before the remaining ticket lifetime falls below 30 s.
-const RELAY_RENEWAL_MARGIN: Duration = Duration::from_secs(30);
+/// protocol.md: renew at half-life. The relay refuses an expired ticket, so a
+/// lobby outage longer than this margin freezes the match. Retrying every 10 s
+/// spends 6 of renew_relay's 12 a minute (services/lobby/service.js ACTIONS).
+const RELAY_RENEWAL_MARGIN: Duration = Duration::from_secs(150);
+const RELAY_RENEWAL_RETRY_MS: u32 = 10_000;
 
 /// The departing visit's same HTTP/cleanup owner survives the menu teardown.
 /// Native WOL_Main77B532 releases WOLAPI786080 after logout785EA0. VERA's
@@ -254,9 +259,10 @@ pub(super) struct LiveService {
     finishing: Option<RetryingCommand>,
     leaving: Option<RetryingCommand>,
     logging_out: Option<RetryingCommand>,
-    next_renewal_attempt: Option<Instant>,
-    /// Monotonic renewal deadline of the newest gameplay grant received.
-    relay_renewal_due: Option<Instant>,
+    /// Renewal deadlines on the low 32 bits of frame_pacer::wall_clock_ms.
+    next_renewal_attempt: Option<u32>,
+    /// Renewal deadline of the newest gameplay grant received.
+    relay_renewal_due: Option<u32>,
     maps: maps::Transfers,
     translations: Translations,
     /// A match an external launcher formed (docs/spawn.md): adopted bearer,
@@ -691,12 +697,14 @@ impl LiveService {
         self.relay_renewal_due = None;
     }
 
-    /// A gameplay grant reached its UDP owner at `now`.
-    fn relay_granted(&mut self, now: Instant) {
-        self.relay_renewal_due = Some(now + RELAY_GRANT_LIFETIME - RELAY_RENEWAL_MARGIN);
+    /// A gameplay grant reached its UDP owner at `now_ms`.
+    fn relay_granted(&mut self, now_ms: u32) {
+        let renew_after = (RELAY_GRANT_LIFETIME - RELAY_RENEWAL_MARGIN).as_millis() as u32;
+        self.relay_renewal_due = Some(now_ms.wrapping_add(renew_after));
+        self.next_renewal_attempt = None;
     }
 
-    fn poll_renewal(&mut self, now: Instant) {
+    fn poll_renewal(&mut self, now_ms: u32) {
         if self.finishing.is_some() {
             return;
         }
@@ -705,11 +713,13 @@ impl LiveService {
         };
         // Short-lived grants renew before expiry. Retry a missing reply without
         // replacing the live route or resetting the event cursor.
-        if now < due || self.next_renewal_attempt.is_some_and(|next| now < next) {
+        // Windows' timeGetTime wraps this 32-bit word every 49.7 days.
+        let reached = |deadline: u32| now_ms.wrapping_sub(deadline) as i32 >= 0;
+        if !reached(due) || self.next_renewal_attempt.is_some_and(|next| !reached(next)) {
             return;
         }
         let match_id = match_id.clone();
-        self.next_renewal_attempt = Some(now + Duration::from_secs(10));
+        self.next_renewal_attempt = Some(now_ms.wrapping_add(RELAY_RENEWAL_RETRY_MS));
         self.command("renew_relay", json!({"match_id":match_id}));
     }
 
@@ -957,7 +967,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             maps::poll(state, &mut service);
         }
         if crate::app::lan_service::has_online_relay_route(state) {
-            service.poll_renewal(Instant::now());
+            service.poll_renewal(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
         }
         if service.spawned {
             poll_spawned_exit(state, &mut service);
@@ -1928,7 +1938,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
-            service.relay_granted(Instant::now());
+            service.relay_granted(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
         }
         "joined" | "created" => {
             let joined: wire::Joined = decode(payload)?;
@@ -2275,7 +2285,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
-            service.relay_granted(Instant::now());
+            service.relay_granted(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
             crate::app::lan_service::apply_online_timing(state, &timing.pings)?;
             let count = state
                 .match_state
@@ -2817,15 +2827,18 @@ mod completion_tests {
     }
 
     #[test]
-    fn relay_renewal_is_timed_from_grant_receipt_not_the_wall_clock() {
+    fn relay_renewal_is_timed_from_grant_receipt_at_half_life() {
         // A slow local clock made the ticket's lobby-time expiry look distant,
         // so renewal was requested only after the relay rejected the ticket.
+        // Half-life leaves a lobby outage 150 s before the ticket expires; the
+        // receipt clock's 32-bit word wraps in between.
         let (mut service, input, _output) = control_service(Some("renew-match"));
-        let received = Instant::now();
+        let received = u32::MAX - 100_000;
         service.relay_granted(received);
-        service.poll_renewal(received + Duration::from_secs(269));
+        service.poll_renewal(received + 1_000);
+        service.poll_renewal(received.wrapping_add(149_999));
         assert!(input.try_recv().is_err());
-        let due = received + Duration::from_secs(270);
+        let due = received.wrapping_add(150_000);
         service.poll_renewal(due);
         let http::Request::Command {
             operation, payload, ..
@@ -2837,9 +2850,9 @@ mod completion_tests {
             (operation, payload),
             ("renew_relay", json!({"match_id":"renew-match"}))
         );
-        // The reply's fresh grant moves the deadline a full lifetime on.
-        service.relay_granted(due + Duration::from_secs(1));
-        service.poll_renewal(due + Duration::from_secs(11));
+        // The reply's fresh grant moves the deadline half a lifetime on.
+        service.relay_granted(due + 1_000);
+        service.poll_renewal(due + 11_000);
         assert!(input.try_recv().is_err());
     }
 

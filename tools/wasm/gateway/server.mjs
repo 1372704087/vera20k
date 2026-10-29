@@ -198,28 +198,31 @@ export function createGateway({
       }
       ws.terminate();
     };
-    const canWriteControl = bytes => {
+    const canQueueControl = bytes => {
       if (closed) return false;
       // bufferedAmount includes framing; reserve the largest unmasked header.
-      // Control traffic has its own fair rate budget, separate from game datagrams.
-      if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount + bytes + 10 > LIMITS.wsQueueBytes
-        || !controlTraffic.take()) {
+      if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount + bytes + 10 > LIMITS.wsQueueBytes) {
         finish();
         return false;
       }
       return true;
     };
     const controlWritten = error => { if (error) finish(); };
+    // The gateway's own Ping, one per 30 seconds, is not charged to the shared
+    // control budget, so connections spending it cannot close a quiet player.
     const heartbeat = setInterval(() => {
-      if (!alive || !ready || !canWriteControl(0)) { finish(); return; }
+      if (!alive || !ready || !canQueueControl(0)) { finish(); return; }
       alive = false;
       ws.ping(undefined, false, controlWritten);
     }, 30000);
     heartbeat.unref();
     closeSockets.set(ws, finish);
     // Reply explicitly: ws automatic Pong otherwise runs before the ping listener.
+    // Pongs have their own fair rate budget, separate from game datagrams.
     ws.on('ping', data => {
-      if (canWriteControl(data.length)) ws.pong(data, false, controlWritten);
+      if (closed) return;
+      if (!controlTraffic.take()) { finish(); return; }
+      if (canQueueControl(data.length)) ws.pong(data, false, controlWritten);
     });
     ws.on('pong', () => { alive = true; });
     ws.on('close', finish);

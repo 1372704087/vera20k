@@ -315,7 +315,7 @@ test('control frame rates are bounded per connection and gateway without spendin
   assert.deepEqual((await echoed)[0], Buffer.from([9]));
 });
 
-test('heartbeat writes use the control rate and output budgets', { timeout: 10000 }, async t => {
+test('heartbeats obey the output cap but not the shared control allowance', { timeout: 10000 }, async t => {
   t.mock.method(performance, 'now', () => 0);
   const ticks = [];
   const interval = setInterval;
@@ -325,36 +325,37 @@ test('heartbeat writes use the control rate and output budgets', { timeout: 1000
   });
   const { socket, udp, serverSockets } = await fixture(t);
   udp.on('message', (data, address) => udp.send(data, address.port, address.address));
-  const client = await socket();
-  let echoed = once(client, 'message');
-  client.send(Buffer.from([1]));
+  const quiet = await socket();
+  let echoed = once(quiet, 'message');
+  quiet.send(Buffer.from([1]));
   await echoed;
   const peer = serverSockets[0];
+  // Other connections spend the whole shared control allowance, each within its own.
+  const count = LIMITS.controlFramesPerSecond;
+  for (let i = 0; i < LIMITS.totalControlFramesPerSecond / count; i++) {
+    const flood = await socket();
+    const server = serverSockets.at(-1);
+    let received = 0;
+    const done = new Promise(resolve => server.on('ping', () => { if (++received === count) resolve(); }));
+    for (let frame = 0; frame < count; frame++) flood.ping(Buffer.from([2]));
+    await done;
+  }
+  const pings = t.mock.method(peer, 'ping');
   const answered = once(peer, 'pong');
   ticks[0]();
+  assert.equal(pings.mock.callCount(), 1);
   await answered;
-  // The ordinary heartbeat used one frame; fill exactly the remaining allowance.
-  let received = 0;
-  const handled = new Promise(resolve => peer.on('ping', () => {
-    if (++received === LIMITS.controlFramesPerSecond - 1) resolve();
-  }));
-  for (let i = 1; i < LIMITS.controlFramesPerSecond; i++) client.ping(Buffer.from([2]));
-  await handled;
-  const pings = t.mock.method(peer, 'ping');
-  const closed = once(client, 'close');
-  ticks[0]();
-  assert.equal(pings.mock.callCount(), 0);
-  await closed;
+  assert.equal(quiet.readyState, WebSocket.OPEN);
 
   const slow = await socket();
   echoed = once(slow, 'message');
   slow.send(Buffer.from([3]));
   await echoed;
-  const slowServer = serverSockets[1];
+  const slowServer = serverSockets.at(-1);
   t.mock.getter(slowServer, 'bufferedAmount', () => LIMITS.wsQueueBytes);
   const slowPings = t.mock.method(slowServer, 'ping');
   const slowClosed = once(slow, 'close');
-  ticks[1]();
+  ticks.at(-1)();
   assert.equal(slowPings.mock.callCount(), 0);
   await slowClosed;
 });

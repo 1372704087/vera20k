@@ -229,11 +229,14 @@ fn brute_smash_emits_debris(elite: bool, expected: SmashDebrisExpectation) {
                     );
                     // The frame may already visit the newborn Bounce body.
                     // Check its live Inviso target region, not an invented
-                    // inverse trajectory or an exact constructor golden.
+                    // inverse trajectory or an exact constructor golden:
+                    // Object.Location (Unlimbo7494E9 keeps the input until
+                    // Flight74A949) stays in the target's cell, and the
+                    // Bounce body starts above it.
                     let coord = piece.world_coord();
                     assert_eq!(coord.x.div_euclid(256), target_coord.x.div_euclid(256));
                     assert_eq!(coord.y.div_euclid(256), target_coord.y.div_euclid(256));
-                    assert!(coord.z > target_coord.z);
+                    assert!(piece.bounce().position_leptons().z > target_coord.z);
                 }
             } else {
                 assert!(

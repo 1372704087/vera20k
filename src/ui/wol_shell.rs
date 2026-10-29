@@ -341,7 +341,7 @@ pub const WOL_TEXT_STATICS: [WolTextStatic; 20] = [
 ];
 
 /// VERA's ids for the online welcome's lobby counts (`GET /v1/stats`,
-/// `services/lobby/protocol.md`); no native control uses them.
+/// `docs/lobby-protocol.md`); no native control uses them.
 const LOBBY_STATS_HEADING: u16 = 0x7F00;
 const LOBBY_STATS_BODY: u16 = 0x7F01;
 pub const LOBBY_STATS_IDS: [u16; 2] = [LOBBY_STATS_HEADING, LOBBY_STATS_BODY];

@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
 const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
 // Commands one source may archive. Its checksum sample every 15 frames alone
@@ -14,12 +15,19 @@ const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
 const DEPARTURE_BYTES: u64 = 4 + 15 + 8;
 const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
+// A leftover last written longer ago than a room can live, plus its replay
+// grace, belongs to an ended match. Startup moves it into this subfolder,
+// where it counts against no quota and blocks no match. Nothing deletes it.
+const ARCHIVE: &str = "archive";
+const ENDED_AGE: Duration =
+    Duration::from_millis(super::sequenced::ROOM_LIFETIME_MS + super::MAX_TICKET_LIFETIME * 1000);
 
 pub(super) struct JournalDirectory {
     root: PathBuf,
     // Bytes per room, logical and never a disk preallocation: a live room
     // holds its whole quota, a finished one only what it wrote. Abandoned
-    // journals found after restart hold their size and are never overwritten.
+    // journals found after restart, and failed ones, hold their size and are
+    // never overwritten.
     reserved: BTreeMap<[u8; 16], u64>,
     total: u64,
     // Ended or partly created archives whose exact files are still on disk.
@@ -29,7 +37,7 @@ pub(super) struct JournalDirectory {
 }
 
 impl JournalDirectory {
-    pub(super) fn open(root: &Path) -> io::Result<Self> {
+    pub(super) fn open(root: &Path, now: SystemTime) -> io::Result<Self> {
         if !root.is_absolute() {
             return Err(io::ErrorKind::InvalidInput.into());
         }
@@ -53,6 +61,7 @@ impl JournalDirectory {
             }
         }
         let mut reserved = BTreeMap::new();
+        let mut ended = Vec::new();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -66,13 +75,33 @@ impl JournalDirectory {
                 *byte = u8::from_str_radix(&name[index * 2..index * 2 + 2], 16)
                     .map_err(|_| io::ErrorKind::InvalidData)?;
             }
-            let mut bytes = entry.metadata()?.len();
-            if entry.file_type()?.is_dir() {
-                for file in fs::read_dir(entry.path())? {
-                    bytes += file?.metadata()?.len();
+            let (bytes, written) = disk_usage(&entry.path())?;
+            if now
+                .duration_since(written)
+                .is_ok_and(|age| age >= ENDED_AGE)
+            {
+                ended.push((room, name, bytes));
+            } else {
+                reserved.insert(room, bytes);
+            }
+        }
+        if !ended.is_empty() {
+            let archive = root.join(ARCHIVE);
+            let created = match builder.recursive(false).create(&archive) {
+                Err(error) if error.kind() != io::ErrorKind::AlreadyExists => false,
+                _ => fs::symlink_metadata(&archive).is_ok_and(|metadata| metadata.is_dir()),
+            };
+            for (room, name, bytes) in ended {
+                // Never replace an archived match; one that cannot move stays
+                // counted and blocked as before.
+                let target = archive.join(&name);
+                if !created
+                    || fs::symlink_metadata(&target).is_ok()
+                    || fs::rename(root.join(&name), &target).is_err()
+                {
+                    reserved.insert(room, bytes);
                 }
             }
-            reserved.insert(room, bytes);
         }
         let total = reserved.values().sum();
         Ok(Self {
@@ -140,18 +169,25 @@ impl JournalDirectory {
         })
     }
 
-    pub(super) fn cleanup(&mut self, journal: Journal) -> io::Result<()> {
-        // Only a clean, legitimately ended match may retire its exact files.
-        // Never remove an I/O-failed archive or recursively delete a directory.
-        if journal.failed {
-            return Err(io::ErrorKind::Other.into());
-        }
+    /// Ends a released room's archive. Only a clean, legitimately ended match
+    /// retires its exact files. A failed one keeps them, never recursively
+    /// deleted, and keeps its match ID so no Ready can start a new timeline
+    /// in its place; like a leftover found at startup, it holds only its size
+    /// on disk.
+    pub(super) fn cleanup(&mut self, journal: Journal, failed: bool) {
+        let (room, used, failed) = (journal.room, journal.used, failed || journal.failed);
         // Windows can defer deletion until the last file handle closes. Close
         // both files before removing them and their containing directory.
-        let room = journal.room;
         drop(journal);
-        self.retire(room);
-        Ok(())
+        if !failed {
+            self.retire(room);
+            return;
+        }
+        let bytes = disk_usage(&self.path(&room)).map_or(used, |(bytes, _)| bytes);
+        if let Some(reserved) = self.reserved.get_mut(&room) {
+            self.total = self.total - *reserved + bytes;
+            *reserved = bytes;
+        }
     }
 
     /// A finished room takes no more commands; it keeps the bytes its
@@ -206,11 +242,36 @@ impl JournalDirectory {
     }
 }
 
+/// A room archive's bytes on disk, and when it was last written.
+fn disk_usage(path: &Path) -> io::Result<(u64, SystemTime)> {
+    let metadata = fs::symlink_metadata(path)?;
+    let (mut bytes, mut written) = (metadata.len(), metadata.modified()?);
+    if metadata.is_dir() {
+        for file in fs::read_dir(path)? {
+            let metadata = file?.metadata()?;
+            bytes += metadata.len();
+            written = written.max(metadata.modified()?);
+        }
+    }
+    Ok((bytes, written))
+}
+
 /// A file or directory an earlier attempt already removed counts as removed.
 fn present(removal: io::Result<()>) -> io::Result<()> {
     match removal {
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         result => result,
+    }
+}
+
+#[cfg(test)]
+impl JournalDirectory {
+    pub(super) fn reserved(&self, room: &[u8; 16]) -> Option<u64> {
+        self.reserved.get(room).copied()
+    }
+
+    pub(super) fn total(&self) -> u64 {
+        self.total
     }
 }
 

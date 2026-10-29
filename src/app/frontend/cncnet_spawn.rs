@@ -565,7 +565,7 @@ fn skirmish(
         "AIPlayers={ai_count} does not match {} active HouseHandicaps entries",
         opponents.len()
     );
-    // The lobby's start admission (services/lobby/protocol.md): spectators
+    // The lobby's start admission (docs/lobby-protocol.md): spectators
     // exclude AI, and at least two participants play.
     let spectators = humans.iter().filter(|human| human.is_observer()).count();
     ensure!(

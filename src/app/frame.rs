@@ -7,7 +7,7 @@ use super::input::precedence::{ModalPage, ScreenPage};
 use super::loading::transitions;
 use super::{
     ActiveEventLoop, App, AppState, GameScreen, Instant, Result, frontend::startup_splash, render,
-    sim_tick,
+    sim_tick, startup_movies::StartupMovieSlot,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -664,6 +664,14 @@ impl App {
             .begin_presentation_observation();
         crate::app::presentation::interpolation::prepare(state, tactical_capture.is_some());
         let tooltip_ms = crate::app::input::tooltips::update(state);
+        // `Init_Game` plays the logo before it presents the splash
+        // (`0x0052C5E2`, then `0x0052C5F3`), so the logo owns the surface here
+        // and the splash below only starts once the logo has ended.
+        if state.frontend.startup_logo.is_some()
+            && Self::service_startup_movie(state, StartupMovieSlot::Logo)?
+        {
+            return Ok(FrameRenderOutcome::Presented);
+        }
         if state
             .frontend
             .startup_splash
@@ -704,7 +712,16 @@ impl App {
                 FrameRenderOutcome::Unavailable
             });
         }
-        state.frontend.startup_splash = None;
+        if state.frontend.startup_splash.take().is_some() {
+            log::info!("Startup splash hold elapsed");
+        }
+        // The first-run YR intro follows the splash in native (`0x0052CA65`)
+        // and owns the surface until it ends; the shell's first paint is next.
+        if state.frontend.startup_intro.is_some()
+            && Self::service_startup_movie(state, StartupMovieSlot::Intro)?
+        {
+            return Ok(FrameRenderOutcome::Presented);
+        }
 
         // Outcome gates, exit cascades, the audio pump and the simulation
         // advance, shared with the hidden-window service loop.

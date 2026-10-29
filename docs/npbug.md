@@ -35,6 +35,13 @@ adds no behavior yet.
 
 ### Weapon, wave and projectile source, path and range
 
+- #2951 (NPExt changelog item 99): a missile whose target dies while
+  landing or docking loses the target instead of taking the pad's ground
+  cell. Native's PointerExpired repair (`LoseTarget468430` /
+  `PointerExpired468517` cell substitution) treats the low aircraft as
+  ordinary, so anti-air fire that downs a landing aircraft flew into the
+  airbase.
+
 ### Building placement, construction, economy and sensors
 
 ### Movement, crash, ejection, garrison and lifecycle

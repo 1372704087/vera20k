@@ -3,9 +3,12 @@
 HTTPS JSON only. Authentication is `Authorization: Bearer <token>`; tokens,
 relay tickets and packet keys must never be logged. Names are ASCII letters,
 digits, `_` or `-`, 1–24 bytes, unique without case among active sessions.
-Request bodies are at most 64 KiB and 64 nested containers; every JSON string and
-property name must be well-formed Unicode. Escaped unpaired surrogates are rejected,
-not replaced, before any event or persistent state is created.
+Request bodies are at most 64 KiB and 64 nested containers and arrive within 5
+seconds; one player may have 4 and one network 8 bodies arriving at once, and a
+further POST returns 429 `rate_limited`. Requests without a body never wait for
+arriving bodies. Every JSON string and property name must be well-formed Unicode.
+Escaped unpaired surrogates are rejected, not replaced, before any event or
+persistent state is created.
 
 `POST /v1/sessions` accepts exactly `{nickname,protocol:4}` and returns
 `{player_id,nickname,token,expires_at}`. Each entry receives a fresh random player
@@ -300,13 +303,17 @@ survives that idle interval while another unfinished player of the match is onli
 (polled in the last 120 seconds), and otherwise through 10 minutes of silence, until
 explicit finish/leave or the match/session lifetime; lost internet does not remove
 its gameplay source. Names held by crashed clients therefore free once nobody else
-in their match is online.
+in their match is online. A lobby outage or overload is not player silence: these
+intervals count from the later of the player's last request and the lobby's last
+restart, its first request after 30 seconds without any, or its latest 429 `busy`
+refusal.
 
 `POST /v1/translate` accepts exactly `{text,target}` from a v4 bearer and returns
 `{text}`: `text` translated into `target`, a language tag such as `en` or `zh-Hans`.
 `text` is non-blank and at most 2048 UTF-8 bytes, the chat limit. Clients translate
 received chat only after the player opts in, and always keep the original visible.
-A deployment without a translator, a failed model call, the service's daily budget
+A deployment without a translator, a failed model call or one taking over 10 seconds,
+a new message while 8 others wait on the model, the service's daily budget
 of 10,000 model calls or one network's daily 2,500 of them returns 503
 `translation_unavailable`; an unsupported target
 returns 400 `invalid_request`. Each player may ask 60 times a minute. Successful

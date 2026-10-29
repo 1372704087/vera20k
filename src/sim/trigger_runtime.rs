@@ -3699,7 +3699,7 @@ impl Simulation {
                 }
                 return found;
             }
-            81..=83 => {
+            81..=84 => {
                 use crate::map::entities::EntityCategory;
                 use crate::sim::mission::{MissionId, MissionType};
 
@@ -3710,8 +3710,11 @@ impl Simulation {
                 //81 walks Techno by live Trigger identity and deliberately
                 //does NOT test Health or Limbo. 82/83 walk Foot and compare
                 //the incoming House, not the scalar or retained House.
+                //84's active Execute6DDCEC..6DDD74 (WakeupGroup6E03B0)
+                //walks every Techno category and matches raw signed Group,
+                //without a House or Tag gate, before Queue(Guard,false).
                 let mut ordinal = 0;
-                while let Some(id) = if action.kind == 81 {
+                while let Some(id) = if matches!(action.kind, 81 | 84) {
                     self.substrate.entities.techno_registry_at(ordinal)
                 } else {
                     self.substrate.entities.foot_registry_at(ordinal)
@@ -3735,7 +3738,13 @@ impl Simulation {
                             } else {
                                 entity.health.current() > 0
                                     && !entity.lifecycle.in_limbo()
-                                    && if action.kind == 82 {
+                                    && if action.kind == 84 {
+                                        entity.object_group() == value.unwrap_or(0)
+                                            && matches!(
+                                                mission,
+                                                Some(MissionType::Sleep | MissionType::Harmless)
+                                            )
+                                    } else if action.kind == 82 {
                                         mission == Some(MissionType::Sleep)
                                             && Some(entity.owner()) != context.incoming_house
                                     } else {
@@ -5288,6 +5297,9 @@ mod house_notification_tests;
 #[path = "trigger_runtime_house_attacked_tests.rs"]
 mod house_attacked_tests;
 
+#[cfg(test)]
+#[path = "trigger_runtime_group_wakeup_tests.rs"]
+mod group_wakeup_tests;
 #[cfg(test)]
 #[path = "trigger_runtime_wakeup_tests.rs"]
 mod wakeup_tests;

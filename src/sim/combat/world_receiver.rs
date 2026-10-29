@@ -211,6 +211,7 @@ pub(crate) fn apply_foot_radiation(
                         impact,
                         damage,
                         warhead,
+                        true,
                         (attacker, source_house, warhead_id),
                         effects,
                     );
@@ -462,6 +463,7 @@ pub(crate) fn collect_area(
     cell: (u16, u16),
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     air_impact: Option<combat_aoe::AoEAirImpact>,
     impact_z: i32,
@@ -505,7 +507,7 @@ pub(crate) fn collect_area(
                 rules,
                 warhead,
                 damage,
-                true,
+                affects_tiberium,
                 world.session.no_damage(),
                 &mut world.ore_growth_state,
                 world.terrain_objects.spawning_cells(),
@@ -522,7 +524,7 @@ pub(crate) fn collect_area(
             let mut deferred_prelude = world.receiver_fixture.as_mut().map(|fixture| {
                 super::receiver_fixture::DeferredCellPrelude {
                     amount: (!world.session.no_damage())
-                        .then(|| tiberium_reduction_amount(damage, true, warhead))
+                        .then(|| tiberium_reduction_amount(damage, affects_tiberium, warhead))
                         .flatten(),
                     deferred: &mut fixture.deferred_tiberium,
                 }
@@ -597,6 +599,8 @@ pub(crate) fn collect_area(
 /// the area's receivers around `impact` committed in order, then area rocking
 /// (`0x00489B49`) and bridge damage (`0x00489E87`). `origin` is the source object, the source
 /// house and the warhead's id. Returns whether a bridge changed.
+/// `affects_tiberium` gates only the per-cell Reduce_Tiberium call at
+/// `0x00489648..0x00489665` (original gamemd.exe); all other area effects remain active.
 pub(crate) fn apply_area_damage(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -604,6 +608,7 @@ pub(crate) fn apply_area_damage(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     effects: FrameEffects<'_>,
 ) -> bool {
@@ -616,6 +621,7 @@ pub(crate) fn apply_area_damage(
         impact,
         damage,
         warhead,
+        affects_tiberium,
         origin,
     );
     let navigation = run.finish();
@@ -636,6 +642,7 @@ pub(crate) fn apply_area_damage_in_run(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
 ) -> (DeathEffects, Vec<UnderAttackEvent>) {
     let area = collect_area_at(
@@ -645,6 +652,7 @@ pub(crate) fn apply_area_damage_in_run(
         impact,
         damage,
         warhead,
+        affects_tiberium,
         origin,
         run.effects(),
     );
@@ -706,13 +714,21 @@ fn collect_area_at<'r>(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &'r WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     effects: FrameEffects<'_>,
 ) -> AreaAtImpact<'r> {
     // Observe the shared entry, including Bullet and nested receiver calls;
     // an external-only wrapper misses those paths and must not double-count.
     #[cfg(test)]
-    super::receiver_fixture::observe_area_visit(world, impact, damage, warhead, origin);
+    super::receiver_fixture::observe_area_visit(
+        world,
+        impact,
+        damage,
+        warhead,
+        affects_tiberium,
+        origin,
+    );
     let (rx, ry, sub_x, sub_y, z_leptons) = projectile_impact_cell(impact);
     let entered = damage != 0 && !world.session.no_damage();
     let routed_wall = entered && area_routes_to_wall(world, overlay_registry, (rx, ry), warhead);
@@ -723,6 +739,7 @@ fn collect_area_at<'r>(
         (rx, ry),
         damage,
         warhead,
+        affects_tiberium,
         origin,
         Some(combat_aoe::AoEAirImpact {
             sub_x,
@@ -1005,6 +1022,7 @@ pub(crate) fn commit_terrain(
             impact,
             100,
             c4_warhead,
+            true,
             (RAD_NO_ATTACKER, None, c4_id),
         );
         effects.append(nested);
@@ -2951,6 +2969,7 @@ fn continue_area_damage(
                 context.impact,
                 rules.combat_damage.ammo_crate_damage,
                 c4,
+                true,
                 (RAD_NO_ATTACKER, context.source_house, reference),
             );
             death.append(nested);
@@ -3191,6 +3210,7 @@ fn emit_detonation_receivers<'r>(
                 detonation.impact,
                 detonation.payload.area_damage(),
                 warhead,
+                true,
                 (
                     detonation.source_id,
                     source_house,

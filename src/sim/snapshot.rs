@@ -7422,6 +7422,7 @@ mod tests {
             coordinate,
             10,
             rules.warhead("WH").unwrap(),
+            true,
             (RAD_NO_ATTACKER, None, warhead_id),
             crate::sim::world::FrameEffects::default(),
         );

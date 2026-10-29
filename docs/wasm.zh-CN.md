@@ -82,7 +82,9 @@ python3 -m unittest tools.tests.test_wasm_build
 
 - `match-ended`：`event.match` 携带结果、退出码、连接模式、对局 ID、本地
   SourceIndex、帧数、时长、对手离开标志及错误原因，并附地图来源、地图名称、
-  本地 House、十进制字符串种子和结算快照。每个已开始并结束的对局只通知一次。
+  本地 House、十进制字符串种子和结算快照。每个已开始并结束的对局只通知一次；
+  战役重开按 `quit` 结束，局内读档直接替换对局、不发送该事件。原版多人地图通常
+  没有 `[Basic] Name`，此时 `map_name` 为 `null`。
   结算快照直接读取模拟已有结果，不额外消耗 RNG；没有快照时 `scores` 为 `null`。
 - `engine-exited`：引擎收尾后通知一次，`reason` 为 `quit`、`match-ended` 或
   `error`，`error` 携带错误文本或 `null`。资源加载失败后点击退出也携带原错误。

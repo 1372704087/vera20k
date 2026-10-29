@@ -46,7 +46,10 @@ fn emit_lifecycle(event: Option<serde_json::Value>) {
     // or attempt another launch synchronously.
     let callback = ON_LIFECYCLE.with(|slot| slot.borrow().clone());
     if let Some(callback) = callback {
-        let value = js_sys::JSON::parse(&event.to_string()).expect("lifecycle JSON");
+        // Also reached from the panic hook, where a second panic would abort.
+        let Ok(value) = js_sys::JSON::parse(&event.to_string()) else {
+            return;
+        };
         if let Err(error) = callback.call1(&JsValue::NULL, &value) {
             log::error!("Host lifecycle callback failed: {error:?}");
         }

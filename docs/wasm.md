@@ -155,12 +155,16 @@ set_lifecycle_callback(event => {
   `match` contains `result`, `exit_code`, `mode`, `match_id`, `source_index`,
   `frames`, `duration_seconds`, `opponents_left` and nullable `reason`, using
   the existing external-launch result vocabulary. It also includes `map`
-  (the consumed map source), `map_name`, `local_house`, decimal-string `seed`,
+  (the consumed map source), nullable `map_name` (the map's `[Basic] Name`;
+  retail multiplayer maps usually have none), `local_house` (the local
+  house's simulation name), decimal-string `seed`,
   and nullable `scores`. Score rows contain `house`, `country`, `survived`,
   `kills`, `losses`, `built`, `raw_score` and `score`; they read the simulation's
   finalized snapshot without new RNG draws. `scores: null` means no terminal
   score snapshot was produced, including abort and cooperative paths.
-  Ordinary menu launches keep their normal score/menu flow.
+  Ordinary menu launches keep their normal score/menu flow. A campaign
+  restart ends the match as `quit`; loading a saved game from inside a match
+  replaces it without a `match-ended`.
 - `engine-exited`: one terminal event after application teardown, with
   `reason: "quit" | "match-ended" | "error"` and nullable error text. Missing
   asset errors retain their error message when the player presses Quit.

@@ -39,8 +39,6 @@ impl App {
     }
 
     pub(super) fn return_to_main_menu(state: &mut AppState) {
-        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-        Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
         if let Some(runtime) = state.match_state.sim_runtime.as_mut() {
             // Main55D283 calls BattleControlTerminated686570 on shell return;
             // its retained Scenario mission counter resets to the ctor's 1.
@@ -60,6 +58,9 @@ impl App {
     /// stops the elapsed clock, theme, sounds and speech before
     /// Start_Scenario).
     fn retire_running_scenario(state: &mut AppState) {
+        // Shell return and campaign restart both end the installed match.
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
         state.match_state.input.planning.reset();
         let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         crate::app::radar_movie::retire(state, wall_ms);

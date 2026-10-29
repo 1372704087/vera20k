@@ -346,11 +346,11 @@ pub struct WarheadType {
     /// exclusion, `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F` skips
     /// the building wrapper's self return, and
     /// `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416` applies the same
-    /// rule to the airborne phase. An absent or `none` key falls back to the
-    /// Phobos `[General] AllowDamageOnSelf`, which is not ported and stays
-    /// false.
+    /// rule to the airborne phase. `None` falls back to
+    /// [`crate::rules::ruleset::RuleSet::allow_damage_on_self_for`]'s
+    /// `[General] AllowDamageOnSelf` value.
     #[cfg(feature = "phobos")]
-    allow_damage_on_self: bool,
+    allow_damage_on_self: Option<bool>,
     /// Phobos warhead shield overrides (`Shield.Penetrate`,
     /// `Shield.AffectTypes`, `Shield.Penetrate.Types`, absorb/pass and
     /// received-damage bounds). Phobos `WarheadTypeExt` reads them after the
@@ -412,17 +412,18 @@ impl WarheadType {
         self.ares_verses.as_ref()
     }
 
-    /// Phobos `AllowDamageOnSelf`: admit the firer to this warhead's damage
-    /// even when its type keeps `DamageSelf=no`.
+    /// Phobos `AllowDamageOnSelf`: `Some` is the authored per-warhead value;
+    /// `None` falls back to the `[General]` global.
     #[cfg(feature = "phobos")]
-    pub fn allow_damage_on_self(&self) -> bool {
+    pub fn allow_damage_on_self(&self) -> Option<bool> {
         self.allow_damage_on_self
     }
 
-    /// Phobos is compiled out: the native `DamageSelf` gate stays final.
+    /// Phobos is compiled out: this warhead never overrides the native
+    /// `DamageSelf` gate.
     #[cfg(not(feature = "phobos"))]
-    pub fn allow_damage_on_self(&self) -> bool {
-        false
+    pub fn allow_damage_on_self(&self) -> Option<bool> {
+        None
     }
 
     /// Parse a WarheadType from a rules.ini section.
@@ -535,9 +536,7 @@ impl WarheadType {
             min_debris,
             max_debris,
             #[cfg(feature = "phobos")]
-            allow_damage_on_self: section
-                .read_phobos_nullable_bool("AllowDamageOnSelf", None)
-                .unwrap_or(false),
+            allow_damage_on_self: section.read_phobos_nullable_bool("AllowDamageOnSelf", None),
             #[cfg(feature = "phobos")]
             shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
         }
@@ -760,9 +759,9 @@ MaxDebris=2
         assert_eq!((inv.min_debris, inv.max_debris), (7, 7));
     }
 
-    /// Phobos `Nullable<bool>`: `yes` sets it, `no` clears it, while `none`,
-    /// `<default>` and invalid tokens keep the unset global fallback (false
-    /// here, since the `[General]` key is not ported).
+    /// Phobos `Nullable<bool>`: `yes`/`no` set the override, while `none`,
+    /// `<default>` and invalid tokens leave it unset for the `[General]`
+    /// fallback.
     #[cfg(feature = "phobos")]
     #[test]
     fn allow_damage_on_self_is_a_nullable_bool() {
@@ -773,10 +772,38 @@ MaxDebris=2
         );
         let read =
             |id| WarheadType::from_ini_section(id, ini.section(id).unwrap()).allow_damage_on_self();
-        assert!(!read("Unset"));
-        assert!(read("On"));
-        assert!(!read("Off"));
-        assert!(!read("Cleared"));
-        assert!(!read("Invalid"));
+        assert_eq!(read("Unset"), None);
+        assert_eq!(read("On"), Some(true));
+        assert_eq!(read("Off"), Some(false));
+        assert_eq!(read("Cleared"), None);
+        assert_eq!(read("Invalid"), None);
+    }
+
+    /// The `[General] AllowDamageOnSelf` fallback and per-warhead override
+    /// that Phobos `WarheadTypeExt::AllowDamageOnSelf.Get(...)` applies.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn allow_damage_on_self_falls_back_to_general() {
+        let read = |text: &str, warhead: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(text)).unwrap();
+            rules.allow_damage_on_self_for(rules.warhead(warhead).unwrap())
+        };
+        let with_global = "[General]\nAllowDamageOnSelf=yes\n\
+             [Warheads]\n0=Unset\n1=Off\n2=On\n\
+             [Unset]\nFixtureOnly=1\n[Off]\nAllowDamageOnSelf=no\n[On]\nAllowDamageOnSelf=yes\n";
+        assert!(
+            read(with_global, "Unset"),
+            "global yes reaches an unset warhead"
+        );
+        assert!(
+            !read(with_global, "Off"),
+            "per-warhead no overrides global yes"
+        );
+        assert!(read(with_global, "On"), "per-warhead yes overrides global");
+
+        let no_global =
+            "[Warheads]\n0=Unset\n1=On\n[Unset]\nFixtureOnly=1\n[On]\nAllowDamageOnSelf=yes\n";
+        assert!(!read(no_global, "Unset"), "absent global defaults to no");
+        assert!(read(no_global, "On"));
     }
 }

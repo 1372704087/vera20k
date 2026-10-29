@@ -251,7 +251,7 @@ pub(super) fn apply_building_receive_prelude(
         && !target_type.damage_self
         && !rules
             .warhead(interner.resolve(event.warhead_ref))
-            .is_some_and(|warhead| warhead.allow_damage_on_self())
+            .is_some_and(|warhead| rules.allow_damage_on_self_for(warhead))
     {
         return BuildingReceivePrelude::ReturnZero;
     }

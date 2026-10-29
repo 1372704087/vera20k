@@ -551,12 +551,12 @@ impl AoECollector {
         let ground_source_admitted = handles
             .is_some_and(|handles| handles.is_crush(origin.warhead_ref))
             || source_damage_self
-            || warhead.allow_damage_on_self();
+            || rules.allow_damage_on_self_for(warhead);
         // Retail's airborne phase admits the source unconditionally. Phobos
         // `MapClass_DamageArea_AirDamageSelfFix @ 0x00489416` applies the same
         // DamageSelf/AllowDamageOnSelf rule there (CrushWarhead does not).
         #[cfg(feature = "phobos")]
-        let air_source_admitted = source_damage_self || warhead.allow_damage_on_self();
+        let air_source_admitted = source_damage_self || rules.allow_damage_on_self_for(warhead);
         #[cfg(not(feature = "phobos"))]
         let air_source_admitted = true;
 

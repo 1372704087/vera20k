@@ -18,6 +18,8 @@ const LINK_DOMAIN: &[u8] = b"VERA20k relay federation link v1\0";
 pub(crate) const LINK_MAGIC: &[u8; 4] = b"VF1L";
 const LINK_HEADER: usize = 32;
 const FRAME_KIND: u8 = 0;
+// Link packets go out at least every 50 ms; a coordinator this quiet is gone.
+const COORDINATOR_SILENCE_MS: u64 = 10_000;
 const DATA_KIND: u8 = 1;
 const FRAME_HEADER: usize = 86;
 const ENTRY_HEADER: usize = 15;
@@ -368,18 +370,33 @@ impl Federation {
     /// Startup: the coordinator starts once every relay reports the full
     /// roster ready, leaving its slowest link time to hear. The others place
     /// the same start on their own clocks and keep slewing toward it. Only
-    /// the coordinator cancels, on any relay's request before its start.
+    /// the coordinator cancels, on any relay's request before its start; each
+    /// relay requests it once its own startup reaches the loading limit.
     pub(super) fn coordinate(&self, ordering: &mut OrderingRoom, now_ms: u64) {
         if ordering.finished_at.is_some() {
             return;
+        }
+        let overdue = ordering.starts_at.is_none()
+            && now_ms.saturating_sub(ordering.created_ms) >= super::LOADING_LIMIT_MS;
+        if overdue {
+            // A relay whose players never sent Ready has no room to ask with,
+            // so every relay asks once its own startup reaches the limit.
+            ordering.cancel_requested = true;
         }
         if ordering.starts_at.is_none()
             && if self.own == 0 {
                 ordering.cancel_requested || self.links.iter().any(|link| link.cancelled)
             } else {
-                self.links
-                    .iter()
-                    .any(|link| link.index == 0 && link.cancelled)
+                // A coordinator that never got a room, or already dropped it,
+                // cannot answer; its silence past the limit cancels here.
+                self.links.iter().any(|link| {
+                    link.index == 0
+                        && (link.cancelled
+                            || overdue
+                                && link.echo.is_none_or(|(_, heard)| {
+                                    now_ms.saturating_sub(heard) >= COORDINATOR_SILENCE_MS
+                                }))
+                })
             }
         {
             ordering.cancel(now_ms);
@@ -527,10 +544,12 @@ impl Federation {
                 || sources & (1 << source) == 0
                 || payload.len() < end
                 || frame == 0
-                || (batch_id == 0) != (length == 0)
-                || (batch_id != 0
-                    && (length <= OPAQUE_OVERHEAD
-                        || length > OPAQUE_OVERHEAD + ORDERING_BATCH_CAPACITY))
+                || if batch_id == 0 {
+                    // A departure carries nothing, or 1 when silence ended it.
+                    length > 1 || (length == 1 && payload[offset + ENTRY_HEADER] != 1)
+                } else {
+                    length <= OPAQUE_OVERHEAD || length > OPAQUE_OVERHEAD + ORDERING_BATCH_CAPACITY
+                }
             {
                 return Err(RelayError::Malformed);
             }
@@ -736,6 +755,11 @@ mod tests {
 
     impl Match {
         fn new(drop_first_copies: bool) -> Self {
+            Self::build(drop_first_copies, [true; 2])
+        }
+
+        /// A match whose players on unready relays connect but never send Ready.
+        fn build(drop_first_copies: bool, ready: [bool; 2]) -> Self {
             let keys = [SecretKey::new([11; 32]), SecretKey::new([12; 32])];
             let addresses = [
                 SocketAddrV4::new(Ipv4Addr::new(192, 0, 2, 1), 5000),
@@ -766,12 +790,14 @@ mod tests {
                 let clock = game.clock(relay);
                 game.clients[relay].set_federation(&roster).unwrap();
                 connect(&mut game.relays[relay], &mut game.clients[relay], clock);
-                configure(
-                    &mut game.relays[relay],
-                    &mut game.clients[relay],
-                    &certificate(&keys[relay], 3, 1400),
-                    clock,
-                );
+                if ready[relay] {
+                    configure(
+                        &mut game.relays[relay],
+                        &mut game.clients[relay],
+                        &certificate(&keys[relay], 3, 2000),
+                        clock,
+                    );
+                }
             }
             game
         }
@@ -881,6 +907,7 @@ mod tests {
                         sequence,
                         frame,
                         source,
+                        ..
                     }) => Some((sequence, frame, Some((source, 0)))),
                     _ => None,
                 })
@@ -983,6 +1010,54 @@ mod tests {
             game.relays[relay].advance_clock(clock, unix(clock));
             assert!(!game.journals[relay].0.join("05".repeat(16)).exists());
         }
+    }
+
+    #[test]
+    fn silent_players_depart_as_lost_once_from_their_own_relay() {
+        let mut game = Match::new(false);
+        game.play();
+        // Neither player sends anything for ten minutes. Each relay ends only
+        // the place it homes, and both merge both departures.
+        game.now += ABSENT_MS;
+        for _ in 0..300 {
+            game.step();
+        }
+        for relay in 0..2 {
+            // The departures precede ten minutes of frames, past the RAM cache.
+            let ordering = game.relays[relay]
+                .rooms
+                .get_mut(&[5; 16])
+                .unwrap()
+                .ordering
+                .as_mut()
+                .unwrap();
+            let mut departures = Vec::new();
+            let mut cursor = 1;
+            while cursor < ordering.next_seq {
+                let page = ordering.history_page(cursor, 32).unwrap();
+                cursor += page.len() as u64;
+                departures.extend(
+                    page.into_iter()
+                        .filter(|entry| entry[0] == DEPARTURE_EVENT)
+                        .map(|entry| entry[13..].to_vec()),
+                );
+            }
+            assert_eq!(departures, [[0, 1], [1, 1]], "relay {relay}");
+        }
+    }
+
+    #[test]
+    fn a_start_whose_coordinator_never_answers_cancels_at_the_loading_limit() {
+        // The coordinator's only player never became ready, so it has no
+        // ordering room and, once that player's tickets lapse, no hop room.
+        let mut game = Match::build(false, [false, true]);
+        let limit = game.ordering(1).created_ms + LOADING_LIMIT_MS;
+        for now_ms in [limit - 1, limit] {
+            game.relays[1].advance_clock(now_ms, unix(now_ms));
+            game.relays[1].drain_federation(now_ms, unix(now_ms));
+        }
+        let ordering = game.ordering(1);
+        assert!(ordering.starts_at.is_none() && ordering.finished_at == Some(limit));
     }
 
     #[test]

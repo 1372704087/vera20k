@@ -59,7 +59,8 @@ Set the Worker's public `RELAY_ADDRESS` to the server's IPv4 address and port.
 Clients obtain individual signed tickets and packet keys over authenticated HTTPS;
 they never receive the server signing key. A reconnecting player renews the same
 match/player/source/generation, then replays its original cursor. Ticket expiry
-and endpoint loss never write a departure or reset the clock or batch counter.
+and endpoint loss never reset the clock or batch counter, and write a departure
+only once the silence limits below pass.
 
 The service journal reports aggregate traffic and rejection counts once a minute.
 These counts contain no player, endpoint, room identity, ticket or packet contents.
@@ -67,8 +68,9 @@ Use them to distinguish rate limits, expired grants and authentication failures
 from packet loss and client timeouts.
 
 Modern ordering uses authenticated control kind4 and a lobby-signed `VO1C`
-certificate (see `../lobby/protocol.md`). All sources certify the same initial
-world; fixed FPS deadlines then commit encrypted batches sorted by source and
+certificate (see `../lobby/protocol.md`). Every source that becomes ready
+certifies the same initial world; fixed FPS deadlines then commit encrypted
+batches sorted by source and
 batch ID, followed by an explicit frame end. An absent input contributes nothing.
 Input joins the open frame after the sealed head. New clients opt in
 to server-pushed updates through ordering request4 and its authenticated
@@ -114,7 +116,9 @@ others follow its clock offset. Only it cancels a startup: another relay's Leave
 before the start asks it to, and becomes a frame-1 departure if the start was
 already on its way. Federated rooms cannot pause. Link packets go to the roster
 address on the relay's existing UDP port and are authenticated by their MAC,
-whatever address they arrive from.
+whatever address they arrive from. Deploy every relay of a federation at
+once: a relay rejects link entries newer than its own code, and one rejected
+packet stalls the whole merged stream.
 
 The RAM hot cache retains4,096 entries/2 MiB per room under a64 MiB global
 budget. Eviction from this cache does not evict match history: every complete
@@ -124,13 +128,24 @@ disk; no full-match index grows in RAM. Push and Pull share one reader for the
 cache and journal, always from the recipient's independent sequence. Active
 journals therefore advertise oldest sequence1 throughout the match.
 
-Poor or disconnected internet never removes a player. Healthy players continue;
-the returning player can replay from its old cursor even after every short hop
-ticket expired. Only explicit Leave, the player's admission on this relay with a newer
-lobby generation (recorded like Leave, started or not), or the first certificate's
-24-hour lifetime ends participation; a renewed certificate never extends it.
-Explicit-all-left retains a 300-second terminal replay grace before
-exact-file cleanup. No reader acknowledgement gates advancement or retention.
+A short outage never removes a player. Healthy players continue; the returning
+player can replay from its old cursor even after every short hop ticket expired.
+Any authenticated packet, keepalives included, keeps a source's place. A started
+source silent for 10 minutes departs through the stream. Before the start, a
+source that never sent Ready departs in frame 1 after 60 seconds of silence,
+counted from its last packet even before the room existed, or once the room is 3
+minutes old, and the others start without it; a Ready source waits. A federated
+startup cannot drop a source alone: those limits, or any relay's room reaching 3
+minutes unstarted, ask the coordinator to cancel it, and a relay whose
+coordinator has then been silent for 10 seconds cancels on its own. A
+departure's last byte is
+DestroyConnection's error code: 1, connection lost, when silence ended the place;
+otherwise the byte is absent. Otherwise only explicit Leave, the player's
+admission on this relay with a newer lobby generation (recorded like Leave,
+started or not), or the first certificate's 24-hour lifetime ends participation;
+a renewed certificate never extends it. Once every source has departed, a
+300-second terminal replay grace precedes exact-file cleanup. No reader
+acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
 
 Explicit Leave is retried on the original socket until a terminal acknowledgement
@@ -152,10 +167,14 @@ reserves 24 hours of empty frame ends and all departures at its certified FPS
 or 23 eight-player matches at once at 45 FPS, 43 two-player at 60 FPS. Reaching
 the command allowance backpressures new batches while the clock and already
 accepted entries remain writable. A finished room keeps only the bytes it wrote
-through its replay grace.
+through its replay grace. A room whose files could not all be created, or whose
+exact files could not all be removed, keeps its reservation while the relay
+retries the removal once a second.
 
 Unexpected journal I/O failure reports `StorageUnavailable` and preserves the
 files, rather than silently deleting history or blaming a disconnected player.
+Leave still records the departure in memory and is acknowledged, so the client
+may join another match.
 Restart recovery is outside this implementation: a new process refuses an
 existing room's files instead of overwriting them or inventing a new timeline.
 Each leftover counts its size on disk, not a room's reservation. Preserve these

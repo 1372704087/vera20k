@@ -2,7 +2,7 @@
 //! disk; the in-memory deque is only a bounded cache of this same stream.
 
 use super::sequenced::{DEPARTURE_EVENT, FRAME_END_EVENT};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
 // takes roughly a day at 60 FPS; past this its batches get Backpressure.
 const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
-const DEPARTURE_BYTES: u64 = 4 + 14 + 8;
+const DEPARTURE_BYTES: u64 = 4 + 15 + 8;
 const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
 
 pub(super) struct JournalDirectory {
@@ -22,6 +22,10 @@ pub(super) struct JournalDirectory {
     // journals found after restart hold their size and are never overwritten.
     reserved: BTreeMap<[u8; 16], u64>,
     total: u64,
+    // Ended or partly created archives whose exact files are still on disk.
+    // Each keeps its reservation until a retried removal succeeds.
+    retiring: BTreeSet<[u8; 16]>,
+    retry_at: u64,
 }
 
 impl JournalDirectory {
@@ -75,7 +79,14 @@ impl JournalDirectory {
             root: root.to_owned(),
             reserved,
             total,
+            retiring: BTreeSet::new(),
+            retry_at: 0,
         })
+    }
+
+    fn path(&self, room: &[u8; 16]) -> PathBuf {
+        let name: String = room.iter().map(|byte| format!("{byte:02x}")).collect();
+        self.root.join(name)
     }
 
     /// Admits a room only while its whole quota fits beside every other
@@ -96,8 +107,7 @@ impl JournalDirectory {
         if self.total + quota > GLOBAL_QUOTA {
             return Err(io::ErrorKind::StorageFull.into());
         }
-        let name: String = room.iter().map(|byte| format!("{byte:02x}")).collect();
-        let path = self.root.join(name);
+        let path = self.path(&room);
         let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -107,11 +117,18 @@ impl JournalDirectory {
         builder.create(&path)?;
         self.reserved.insert(room, quota);
         self.total += quota;
-        let data = private_new(&path.join("stream.data"))?;
-        let index = private_new(&path.join("stream.index"))?;
+        let files = private_new(&path.join("stream.data"))
+            .and_then(|data| Ok((data, private_new(&path.join("stream.index"))?)));
+        let (data, index) = match files {
+            Ok(files) => files,
+            Err(error) => {
+                // Nothing was written yet: retire it like an ended archive.
+                self.retire(room);
+                return Err(error);
+            }
+        };
         Ok(Journal {
             room,
-            path,
             data,
             index,
             entries: 0,
@@ -129,23 +146,11 @@ impl JournalDirectory {
         if journal.failed {
             return Err(io::ErrorKind::Other.into());
         }
-        let Journal {
-            room,
-            path,
-            data,
-            index,
-            ..
-        } = journal;
         // Windows can defer deletion until the last file handle closes. Close
         // both files before removing them and their containing directory.
-        drop(data);
-        drop(index);
-        fs::remove_file(path.join("stream.data"))?;
-        fs::remove_file(path.join("stream.index"))?;
-        fs::remove_dir(&path)?;
-        if let Some(bytes) = self.reserved.remove(&room) {
-            self.total -= bytes;
-        }
+        let room = journal.room;
+        drop(journal);
+        self.retire(room);
         Ok(())
     }
 
@@ -168,9 +173,58 @@ impl JournalDirectory {
         journal.reserved_tail = tail;
         journal.pending = 0;
     }
+
+    fn retire(&mut self, room: [u8; 16]) {
+        self.retiring.insert(room);
+        self.remove_retiring();
+    }
+
+    /// Retries removals that failed, such as a transient disk error, at most
+    /// once a second.
+    pub(super) fn retry(&mut self, now_ms: u64) {
+        if self.retiring.is_empty() || now_ms < self.retry_at {
+            return;
+        }
+        self.retry_at = now_ms.saturating_add(1000);
+        self.remove_retiring();
+    }
+
+    fn remove_retiring(&mut self) {
+        for room in std::mem::take(&mut self.retiring) {
+            let path = self.path(&room);
+            let removed = present(fs::remove_file(path.join("stream.data")))
+                .and_then(|()| present(fs::remove_file(path.join("stream.index"))))
+                .and_then(|()| present(fs::remove_dir(&path)));
+            if removed.is_ok() {
+                if let Some(bytes) = self.reserved.remove(&room) {
+                    self.total -= bytes;
+                }
+            } else {
+                self.retiring.insert(room);
+            }
+        }
+    }
+}
+
+/// A file or directory an earlier attempt already removed counts as removed.
+fn present(removal: io::Result<()>) -> io::Result<()> {
+    match removal {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    // Fails this thread's next index creation, as a full disk would.
+    pub(super) static FAIL_NEXT_INDEX: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn private_new(path: &Path) -> io::Result<File> {
+    #[cfg(test)]
+    if path.ends_with("stream.index") && FAIL_NEXT_INDEX.replace(false) {
+        return Err(io::ErrorKind::StorageFull.into());
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(true);
     #[cfg(unix)]
@@ -183,7 +237,6 @@ fn private_new(path: &Path) -> io::Result<File> {
 
 pub(super) struct Journal {
     room: [u8; 16],
-    path: PathBuf,
     data: File,
     index: File,
     entries: u64,

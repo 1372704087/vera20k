@@ -22,6 +22,14 @@ const ROOM_HISTORY_BYTES: usize = 2 * 1024 * 1024;
 const GLOBAL_ORDERING_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SOURCE_PENDING: usize = 8;
 const MAX_FRAME_BATCHES: usize = 32;
+// A loading source that sends nothing this long departs in the first frame,
+// and the others start without it.
+const LOADING_SILENCE_MS: u64 = 60_000;
+// Even a loading source that still answers departs once the room is this old.
+const LOADING_LIMIT_MS: u64 = 180_000;
+// A started source silent this long departs through the stream. A shorter
+// outage keeps its place for the returning player's replay.
+const ABSENT_MS: u64 = 600_000;
 const OPAQUE_OVERHEAD: usize = 24 + 16;
 const ENTRY_OVERHEAD: usize = 128;
 const READY_REQUEST: u8 = 0;
@@ -192,6 +200,10 @@ pub enum OrderEntry {
         sequence: u64,
         frame: u32,
         source: u8,
+        /// The relay ended a silent source; otherwise it left by Leave or the
+        /// match lifetime. On the wire, a 15th byte 1 is DestroyConnection's
+        /// connection-lost error code.
+        lost: bool,
     },
 }
 
@@ -547,11 +559,14 @@ impl ClientSession {
                 sequence: read_u64(payload, 1),
                 frame: read_u32(payload, 9),
             }),
-            (DEPARTURE_EVENT, 14) if payload[13] < MAX_PEERS => {
+            (DEPARTURE_EVENT, length @ (14 | 15))
+                if payload[13] < MAX_PEERS && (length == 14 || payload[14] == 1) =>
+            {
                 OrderEvent::Entry(OrderEntry::Departure {
                     sequence: read_u64(payload, 1),
                     frame: read_u32(payload, 9),
                     source: payload[13],
+                    lost: length == 15,
                 })
             }
             (BATCH_EVENT, length)
@@ -665,6 +680,8 @@ struct Source {
     leave_packets: RateBudget,
     pause_supported: bool,
     pause_request: Option<PauseRequest>,
+    // Last authenticated packet from this source, keepalives included.
+    heard_ms: u64,
 }
 
 struct Pending {
@@ -701,6 +718,7 @@ pub(super) struct OrderingRoom {
     journal: Option<crate::journal::Journal>,
     storage_failed: bool,
     finished_at: Option<u64>,
+    created_ms: u64,
 }
 
 impl OrderingRoom {
@@ -709,11 +727,15 @@ impl OrderingRoom {
         agreement: [u8; 32],
         journal: Option<crate::journal::Journal>,
         local: u32,
+        now_ms: u64,
     ) -> Self {
         Self {
             certificate,
             agreement,
-            sources: std::array::from_fn(|_| Source::default()),
+            sources: std::array::from_fn(|_| Source {
+                heard_ms: now_ms,
+                ..Source::default()
+            }),
             ready: 0,
             active: certificate.sources_mask,
             starts_at: None,
@@ -730,6 +752,17 @@ impl OrderingRoom {
             journal,
             storage_failed: false,
             finished_at: None,
+            created_ms: now_ms,
+        }
+    }
+
+    /// Any authenticated packet keeps a source's place; a newer admission of
+    /// another principal for the same source does not.
+    pub(super) fn heard(&mut self, source: u8, principal: ([u8; 16], u64), now_ms: u64) {
+        if let Some(state) = self.sources.get_mut(usize::from(source))
+            && state.principal.is_none_or(|bound| bound == principal)
+        {
+            state.heard_ms = now_ms;
         }
     }
 
@@ -945,9 +978,9 @@ impl OrderingRoom {
         }
         if self.starts_at.is_none() {
             if self.local == self.certificate.sources_mask {
-                // The signed startup requires every source. An explicit Leave
-                // makes that immutable quorum impossible, including sources which
-                // never reached Ready. Keep an inactive short-ticket tombstone.
+                // An explicit Leave before the start cancels it for every
+                // source, including sources which never reached Ready. Keep an
+                // inactive short-ticket tombstone.
                 self.active = 0;
                 self.ready = 0;
                 self.finished_at = Some(now_ms);
@@ -957,7 +990,15 @@ impl OrderingRoom {
             // already be on the way; this Leave then departs at frame 1.
             self.cancel_requested = true;
         }
-        self.active &= !bit;
+        self.retire(source, false, now_ms);
+    }
+
+    /// Ends an active source's place through the stream at the first frame
+    /// this relay has not sealed: frame 1 before the start, where the others
+    /// start without it. A departure's opaque byte 1 marks a place silence
+    /// ended, DestroyConnection's connection-lost error code.
+    fn retire(&mut self, source: u8, lost: bool, now_ms: u64) {
+        self.active &= !(1 << source);
         let final_frame = (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32;
         self.pending
             .entry((self.sealed + 1).min(final_frame))
@@ -965,7 +1006,7 @@ impl OrderingRoom {
             .push(Pending {
                 source,
                 batch_id: 0,
-                opaque: Vec::new(),
+                opaque: if lost { vec![1] } else { Vec::new() },
             });
         if self.active == 0 && self.paused_at.is_some() {
             // Both markers were reserved before Pause was accepted. Explicit
@@ -974,6 +1015,47 @@ impl OrderingRoom {
                 self.storage_failed = true;
             }
         }
+    }
+
+    /// Starts once every remaining source is ready. A federated start belongs
+    /// to the coordinator relay.
+    fn start_when_ready(&mut self, now_ms: u64) {
+        if self.local == self.certificate.sources_mask
+            && self.starts_at.is_none()
+            && self.active != 0
+            && self.ready == self.active
+        {
+            self.starts_at = Some(now_ms.saturating_add(START_DELAY_MS));
+        }
+    }
+
+    /// Silence ends one of this relay's own places only past these limits:
+    /// before the start for a source that never became ready, after it for
+    /// any source. A federated startup cannot drop a source alone, so a
+    /// loading source past its limit asks the coordinator to cancel.
+    fn retire_absent(&mut self, now_ms: u64) {
+        for source in 0..MAX_PEERS {
+            let bit = 1 << source;
+            if self.active & self.local & bit == 0 {
+                continue;
+            }
+            let silent = now_ms.saturating_sub(self.sources[usize::from(source)].heard_ms);
+            if self.starts_at.is_some() {
+                if silent >= ABSENT_MS {
+                    self.retire(source, true, now_ms);
+                }
+            } else if self.ready & bit == 0
+                && (silent >= LOADING_SILENCE_MS
+                    || now_ms.saturating_sub(self.created_ms) >= LOADING_LIMIT_MS)
+            {
+                if self.local == self.certificate.sources_mask {
+                    self.retire(source, true, now_ms);
+                } else {
+                    self.cancel_requested = true;
+                }
+            }
+        }
+        self.start_when_ready(now_ms);
     }
 
     /// The coordinator's cancel before the start ends this startup here too.
@@ -1006,7 +1088,11 @@ impl OrderingRoom {
     }
 
     fn advance(&mut self, now_ms: u64, federation: Option<&mut federation::Federation>) {
-        if self.storage_failed || self.paused_at.is_some() {
+        if self.storage_failed {
+            return;
+        }
+        self.retire_absent(now_ms);
+        if self.paused_at.is_some() {
             return;
         }
         let Some(start) = self.starts_at else {
@@ -1095,11 +1181,13 @@ impl OrderingRoom {
                 });
                 for entry in entries.iter() {
                     if entry.batch_id == 0 {
+                        let mut tail = vec![entry.source];
+                        tail.extend_from_slice(&entry.opaque);
                         records.push(Self::encoded_entry(
                             self.next_seq + records.len() as u64,
                             frame,
                             DEPARTURE_EVENT,
-                            &[entry.source],
+                            &tail,
                         ));
                     } else {
                         let mut tail = vec![entry.source];
@@ -1132,8 +1220,8 @@ impl OrderingRoom {
             }
             self.head = frame;
         }
-        // A network outage never retires a source. Only explicit Leave or
-        // the agreed full-match lifetime ends its place in the stream.
+        // Every source has departed, by Leave, silence past its limit or the
+        // agreed full-match lifetime; the archive ends after its replay grace.
         if ((self.active == 0 && self.pending.is_empty())
             || self.head == (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32)
             && self.finished_at.is_none()
@@ -1414,6 +1502,10 @@ mod tests {
         let mut bytes = Vec::new();
         client.pull_ordering(cursor, &mut bytes).unwrap();
         events(server, client, &bytes, now_ms)
+    }
+
+    fn ordering(server: &RelayServer) -> &OrderingRoom {
+        server.rooms[&[5; 16]].ordering.as_ref().unwrap()
     }
 
     pub(super) fn certificate(
@@ -2152,7 +2244,7 @@ mod tests {
         let mut leave = Vec::new();
         first.leave_ordering(&mut leave).unwrap();
         // Lose the first Leave, then let both hop tickets and admissions
-        // expire. Silence alone must not remove either player.
+        // expire. Silence shorter than the absence limit removes neither player.
         server.advance_clock(350_000, unix(350_000));
         assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().active, 3);
         let mut forged = leave.clone();
@@ -2303,9 +2395,9 @@ mod tests {
             9,
             "inactive tombstones retain their grace"
         );
-        // An HTTP cancellation can lose its final UDP Leave. Its retained
-        // source binding must still authorize cleanup after the short hop
-        // admission and ticket have both expired.
+        // An HTTP cancellation can lose its final UDP Leave. A newer admission
+        // of the same player cancels the unstarted room until the loading
+        // timeout starts it without the peer that never arrived.
         let mut ticket = client(&key, 0).ticket;
         ticket.room = [10; 16];
         ticket.generation = 10;
@@ -2322,13 +2414,12 @@ mod tests {
         let abandoned_cert = cert.sign(&key).unwrap();
         configure(&mut server, &mut abandoned, &abandoned_cert, 10_000);
         let abandoned_path = directory.0.join("0a".repeat(16));
-        let after_grace = MAX_TICKET_LIFETIME * 1000 + 10_000;
-        server.advance_clock(after_grace, unix(after_grace));
-        assert_eq!(server.room_count(), 1, "only the unstarted archive remains");
+        let superseded = 10_000 + LOADING_SILENCE_MS - 1;
+        server.advance_clock(superseded, unix(superseded));
         assert!(abandoned_path.exists());
         ticket.room = [11; 16];
         ticket.generation = 11;
-        ticket.expires = unix(after_grace) + 200;
+        ticket.expires = unix(superseded) + 200;
         let signed = ticket.sign(&key).unwrap();
         let mut next = ClientSession::new(
             &signed,
@@ -2336,7 +2427,7 @@ mod tests {
             [89; 32],
         )
         .unwrap();
-        connect(&mut server, &mut next, after_grace);
+        connect(&mut server, &mut next, superseded);
         assert!(
             !abandoned_path.exists(),
             "new admission reclaims the lost Leave"
@@ -2346,8 +2437,8 @@ mod tests {
             .configure_ordering(&abandoned_cert, [7; 32], &mut bytes)
             .unwrap();
         assert!(matches!(
-            server.process_at(endpoint(&abandoned), &bytes, unix(after_grace), after_grace),
-            Err(RelayError::Expired)
+            server.process_at(endpoint(&abandoned), &bytes, unix(superseded), superseded),
+            Err(RelayError::Authentication)
         ));
         assert!(!abandoned_path.exists());
         cert.room = ticket.room;
@@ -2356,14 +2447,14 @@ mod tests {
                 &mut server,
                 &mut next,
                 &cert.sign(&key).unwrap(),
-                after_grace
+                superseded
             )
             .iter()
             .any(|event| matches!(event, OrderEvent::Status(_)))
         );
         next.leave_ordering(&mut bytes).unwrap();
-        events(&mut server, &mut next, &bytes, after_grace);
-        let finished = after_grace + MAX_TICKET_LIFETIME * 1000;
+        events(&mut server, &mut next, &bytes, superseded);
+        let finished = superseded + MAX_TICKET_LIFETIME * 1000;
         server.advance_clock(finished, unix(finished));
         assert_eq!(server.room_count(), 0);
     }
@@ -2976,6 +3067,168 @@ mod tests {
         assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().head, head);
         assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
     }
+
+    #[test]
+    fn a_player_silent_for_ten_minutes_departs_through_the_stream() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut present, mut absent) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 2000);
+        for participant in [&mut present, &mut absent] {
+            connect(&mut server, participant, 0);
+            configure(&mut server, participant, &cert, 0);
+        }
+        // Only one player keeps contact, renewing its short hop ticket.
+        let mut bytes = Vec::new();
+        for now_ms in (100_000..ABSENT_MS).step_by(100_000) {
+            renew(&mut server, &mut present, now_ms);
+            present.probe(&mut bytes).unwrap();
+            server
+                .process_at(endpoint(&present), &bytes, unix(now_ms), now_ms)
+                .unwrap();
+        }
+        server.advance_clock(ABSENT_MS - 1, unix(ABSENT_MS - 1));
+        assert_eq!(
+            ordering(&server).active,
+            3,
+            "a shorter outage keeps its place"
+        );
+        server.advance_clock(ABSENT_MS, unix(ABSENT_MS));
+        assert_eq!(ordering(&server).active, 1);
+        server.advance_clock(ABSENT_MS + 1000, unix(ABSENT_MS + 1000));
+        assert!(
+            ordering(&server)
+                .history
+                .iter()
+                .any(|entry| entry.bytes[0] == DEPARTURE_EVENT && entry.bytes[13..] == [1, 1]),
+            "source 1 departs with connection lost"
+        );
+    }
+
+    #[test]
+    fn players_who_never_finish_loading_depart_in_the_first_frame() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut players: Vec<_> = (0..3).map(|source| client(&key, source)).collect();
+        for player in &mut players {
+            connect(&mut server, player, 0);
+        }
+        let cert = certificate(&key, 0b111, 2000);
+        // The second player's game crashed while loading, before the first
+        // became ready: its silence counts from its last packet. The third
+        // still answers but never becomes ready.
+        let ready_at = 10_000;
+        let mut bytes = Vec::new();
+        for now_ms in (ready_at..ready_at + LOADING_LIMIT_MS).step_by(10_000) {
+            players[2].probe(&mut bytes).unwrap();
+            server
+                .process_at(endpoint(&players[2]), &bytes, unix(now_ms), now_ms)
+                .unwrap();
+            if now_ms == ready_at {
+                configure(&mut server, &mut players[0], &cert, now_ms);
+            }
+            server.advance_clock(now_ms, unix(now_ms));
+            let expected = if now_ms < LOADING_SILENCE_MS {
+                0b111
+            } else {
+                0b101
+            };
+            assert_eq!(ordering(&server).active, expected, "at {now_ms} ms");
+            assert!(ordering(&server).starts_at.is_none());
+        }
+        let limit = ready_at + LOADING_LIMIT_MS;
+        server.advance_clock(limit, unix(limit));
+        assert_eq!(ordering(&server).active, 1);
+        let first = pull(&mut server, &mut players[0], 1, limit + 1000);
+        let departed: Vec<_> = first
+            .iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Departure {
+                    frame: 1,
+                    source,
+                    lost: true,
+                    ..
+                }) => Some(*source),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(departed, [1, 2]);
+    }
+
+    #[test]
+    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 2000);
+        for participant in [&mut first, &mut second] {
+            connect(&mut server, participant, 0);
+            configure(&mut server, participant, &cert, 0);
+        }
+        // Past the hot cache, a pull from the start reads the broken index.
+        server.advance_clock(112_000, unix(112_000));
+        let room = directory.0.join("05".repeat(16));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(room.join("stream.index"))
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        assert!(matches!(
+            pull(&mut server, &mut second, 1, 112_000)[0],
+            OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }
+        ));
+        let before = std::fs::read(room.join("stream.data")).unwrap();
+        // The client waits for this acknowledgement before it may join
+        // another match.
+        let mut bytes = Vec::new();
+        first.leave_ordering(&mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut first, &bytes, 112_000).as_slice(),
+            [OrderEvent::Left]
+        ));
+        assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+    }
+
+    #[test]
+    fn failed_archive_creation_and_removal_release_their_slot() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let mut first = client(&key, 0);
+        connect(&mut server, &mut first, 0);
+        let cert = certificate(&key, 3, 2000);
+        let room = directory.0.join("05".repeat(16));
+        crate::journal::FAIL_NEXT_INDEX.set(true);
+        assert!(matches!(
+            configure(&mut server, &mut first, &cert, 0).as_slice(),
+            [OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }]
+        ));
+        assert!(!room.exists());
+        assert!(
+            configure(&mut server, &mut first, &cert, 0)
+                .iter()
+                .any(|event| matches!(event, OrderEvent::Status(_)))
+        );
+        // A cancelled start reclaims its empty archive at once. Another file
+        // in its directory makes that removal fail until the file is gone.
+        std::fs::write(room.join("stray"), b"").unwrap();
+        let mut bytes = Vec::new();
+        first.leave_ordering(&mut bytes).unwrap();
+        events(&mut server, &mut first, &bytes, 0);
+        server.advance_clock(0, unix(0));
+        assert!(room.exists());
+        std::fs::remove_file(room.join("stray")).unwrap();
+        server.advance_clock(1000, unix(1000));
+        assert!(!room.exists());
+    }
 }
 
 impl RelayServer {
@@ -3018,13 +3271,13 @@ impl RelayServer {
                     return Err(RelayError::RateLimited);
                 }
                 source.leave_packets.charge(now, 1);
-                if ordering.storage_failed {
-                    return Err(RelayError::Unregistered);
-                }
                 // Like Ready, a signed ticket binds a certificate-admitted
                 // source on first contact. Its initial Ready may have been
                 // lost while another source already created this room.
                 source.principal = Some(principal);
+                // A failed archive keeps its files for inspection, but still
+                // records the departure in memory and acknowledges it: the
+                // client may join no other match until it does.
                 ordering.depart(message.ticket.source, now_ms);
             } else {
                 if room.peers.iter().any(|peer| {
@@ -3135,6 +3388,7 @@ impl RelayServer {
 
     fn cleanup_ordering(&mut self, now_ms: u64, now: u64) {
         if let Some(directory) = self.journal_directory.as_mut() {
+            directory.retry(now_ms);
             for room in self.rooms.values_mut() {
                 if let Some(ordering) = room.ordering.as_mut()
                     && ordering.finished_at.is_some()
@@ -3324,9 +3578,21 @@ impl RelayServer {
                 .federation
                 .as_ref()
                 .map_or(certificate.sources_mask, federation::Federation::local);
-            let ordering = room
-                .ordering
-                .get_or_insert_with(|| OrderingRoom::new(certificate, agreement, journal, local));
+            let ordering = room.ordering.get_or_insert_with(|| {
+                let mut ordering =
+                    OrderingRoom::new(certificate, agreement, journal, local, now_ms);
+                // A peer silent before the first Ready has been silent since
+                // its last hop packet, not since this room appeared.
+                for peer in &room.peers {
+                    if let Some(source) = ordering.sources.get_mut(usize::from(peer.ticket.source))
+                    {
+                        source.heard_ms = now_ms.saturating_sub(
+                            now.saturating_sub(peer.last_seen).saturating_mul(1000),
+                        );
+                    }
+                }
+                ordering
+            });
             if ordering.storage_failed {
                 error(OrderError::StorageUnavailable, ordering.next_seq)
             } else if ordering.certificate.room != certificate.room
@@ -3347,15 +3613,10 @@ impl RelayServer {
                 // A renewed certificate never extends the room: the first
                 // one's expiry bounds how long it holds its archive quota.
                 ordering.ready |= 1 << message.ticket.source;
-                // A federated start belongs to the coordinator relay.
                 let ready_mask = match room.federation.as_ref() {
                     Some(federation) => federation.ready(ordering.ready, &ordering.agreement),
                     None => {
-                        if ordering.ready == ordering.certificate.sources_mask
-                            && ordering.starts_at.is_none()
-                        {
-                            ordering.starts_at = Some(now_ms.saturating_add(START_DELAY_MS));
-                        }
+                        ordering.start_when_ready(now_ms);
                         ordering.ready
                     }
                 };

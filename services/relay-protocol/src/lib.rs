@@ -835,6 +835,13 @@ impl RelayServer {
         admission.packets.charge(now, 1);
         self.ingress.charge(now, 1);
         room.peers[index].last_seen = now;
+        if let Some(ordering) = room.ordering.as_mut() {
+            ordering.heard(
+                message.ticket.source,
+                (message.ticket.player, message.ticket.generation),
+                now_millis,
+            );
+        }
         if message.kind == CONTROL {
             return self.ordering_request(&message, now, now_millis);
         }

@@ -362,14 +362,27 @@ impl AttachEffectInstance {
         active_count: i32,
         ignore_cumulative_count_check: bool,
     ) -> Option<AttachEffectWeaponShot> {
-        let weapon = effect.expire_weapon.as_ref()?;
-        if !effect.expire_weapon_trigger_on.contains(condition) {
-            return None;
-        }
         if effect.cumulative
             && effect.expire_weapon_cumulative_only_once
             && (ignore_cumulative_count_check || active_count >= 1)
         {
+            return None;
+        }
+        self.expire_weapon_shot_identity(effect, condition, owner, owner_house)
+    }
+
+    /// The weapon and identity `AddExpireWeaponParams` gives a shot under
+    /// `condition`, before any cumulative-count gate. The death trigger applies
+    /// its own once-per-type gate (`TechnoClass_ReceiveDamage_AttachEffectExpireWeapon`).
+    pub(crate) fn expire_weapon_shot_identity(
+        &self,
+        effect: &AttachEffectType,
+        condition: ExpireWeaponCondition,
+        owner: u64,
+        owner_house: crate::sim::intern::InternedId,
+    ) -> Option<AttachEffectWeaponShot> {
+        let weapon = effect.expire_weapon.as_ref()?;
+        if !effect.expire_weapon_trigger_on.contains(condition) {
             return None;
         }
         if effect.expire_weapon_use_invoker_as_owner {
@@ -2799,6 +2812,60 @@ impl Simulation {
         self.commit_attach_effect_detonations(&detonations, rules, overlay_registry, effects);
     }
 
+    /// Phobos `TechnoClass_ReceiveDamage_AttachEffectExpireWeapon`
+    /// (`0x702050`, `src/Ext/Techno/Hooks.ReceiveDamage.cpp:350`): when a techno
+    /// dies, every attached instance whose type has `ExpireWeapon` and
+    /// `TriggerOn=death` fires that weapon at the dying object's coordinates,
+    /// before the native death weapon. A cumulative type with
+    /// `CumulativeOnlyOnce` fires once; the scan follows attach order.
+    pub(crate) fn apply_attach_effect_death_weapons(
+        &mut self,
+        dead_id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        let Some(victim) = self.substrate.entities.get(dead_id) else {
+            return;
+        };
+        let owner_house = victim.owner();
+        let table = rules.attach_effect_types().types();
+        let mut once = std::collections::HashSet::new();
+        let mut shots = Vec::new();
+        // The native hook walks every instance, not just active ones.
+        for instance in victim.phobos_attach_effects().instances() {
+            let Some(effect) = table.get(instance.type_index) else {
+                continue;
+            };
+            if effect.expire_weapon.is_none()
+                || !effect
+                    .expire_weapon_trigger_on
+                    .contains(ExpireWeaponCondition::DEATH)
+            {
+                continue;
+            }
+            if effect.cumulative
+                && effect.expire_weapon_cumulative_only_once
+                && !once.insert(instance.type_index)
+            {
+                continue;
+            }
+            if let Some(shot) = instance.expire_weapon_shot_identity(
+                effect,
+                ExpireWeaponCondition::DEATH,
+                dead_id,
+                owner_house,
+            ) {
+                shots.push(shot);
+            }
+        }
+        let detonations: Vec<_> = shots
+            .iter()
+            .filter_map(|shot| self.attach_effect_weapon_detonation(shot, dead_id, rules))
+            .collect();
+        self.commit_attach_effect_detonations(&detonations, rules, overlay_registry, effects);
+    }
+
     /// `AttachEffectClass::RemoveAllOfType` (`AttachEffectClass.cpp:1131`): the
     /// list-position bounded removal pass. A cumulative type below
     /// `min_count` is kept entirely; at most `max_count` instances are
@@ -2904,11 +2971,24 @@ impl Simulation {
         if !crate::sim::shield::can_target_house(warhead, source_house, target_owner, self) {
             return;
         }
+        // `CreateAndAttach` gating reads the live target; snapshot the pair
+        // before the attach list mutably borrows the entity.
+        let target_category = target.category();
+        let target_invulnerability = target.invulnerability.clone();
+        let target_type_ref = target.type_ref();
+        let Some(target_type) = self.interner.object_type(target_type_ref, rules) else {
+            return;
+        };
         let catalog = rules.attach_effect_types();
         let table = catalog.types();
         let policy = AttachPolicy {
-            replace_longer_duration: rules.attach_effect_globals().replace_longer_duration,
-            ..AttachPolicy::default()
+            replace_longer_duration: info
+                .replace_longer_duration
+                .unwrap_or_else(|| rules.attach_effect_globals().replace_longer_duration),
+            cumulative_source_max_count: info.cumulative_source_max_count,
+            cumulative_refresh_all: info.cumulative_refresh_all,
+            cumulative_refresh_all_on_attach: info.cumulative_refresh_all_on_attach,
+            cumulative_refresh_same_source_only: info.cumulative_refresh_same_source_only,
         };
         let source = Some(AttachSource {
             invoker,
@@ -2919,17 +2999,28 @@ impl Simulation {
             return;
         };
         let mut list = std::mem::take(target.phobos_attach_effects_mut());
-        for name in &info.attach_types {
+        let frame = self.session.binary_frame();
+        for (index, name) in info.attach_types.iter().enumerate() {
             let Some(type_index) = catalog.index_of(name) else {
                 continue;
             };
             let effect = &table[type_index];
+            if !can_attach_effect(
+                target_category.into(),
+                target_invulnerability.as_ref(),
+                target_type,
+                effect,
+                frame,
+            ) {
+                continue;
+            }
             let params = AttachEffectParams {
-                // The warhead attach site carries no duration/delay list.
-                duration_override: 0,
+                // `GetAttachParams(index, false)`: the warhead carries the
+                // duration override but no delay lists, and its delay is -1.
+                duration_override: paired(&info.duration_overrides, index, 0),
                 delay: -1,
                 initial_delay: 0,
-                recreation_delay: 0,
+                recreation_delay: -1,
             };
             list.attach(type_index, params, effect, policy, source);
         }
@@ -5103,6 +5194,54 @@ AttachEffect.InitialDelays=3
             health(&sim, attacker),
             993,
             "the revenge weapon hit the killer for 7"
+        );
+    }
+
+    /// Phobos `TechnoClass_ReceiveDamage_AttachEffectExpireWeapon` (`0x702050`):
+    /// a dying effect owner fires `ExpireWeapon.TriggerOn=death` at itself
+    /// before the death weapon; two cumulative instances with
+    /// `CumulativeOnlyOnce` fire once, and a type without the death trigger
+    /// does not fire at all.
+    #[test]
+    fn a_dying_effect_owner_fires_its_death_expire_weapon_once() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n\
+                 [VehicleTypes]\n0=ATTACKER\n1=TARGET\n2=BYSTANDER\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=20\nSpeed=6\nArmor=none\n\
+                 AttachEffect.AttachTypes=DEATH,DEATH,OTHER\n\
+                 [BYSTANDER]\nStrength=1000\nSpeed=6\nArmor=none\n\
+                 [KHIT]\n{ALL_HIT}\
+                 [DHIT]\nCellSpread=1\nAffectsAllies=yes\n{ALL_HIT}\
+                 [KILLW]\nDamage=100\nRange=1\nWarhead=KHIT\n\
+                 [DEATHW]\nDamage=7\nRange=1\nWarhead=DHIT\n\
+                 [AttachEffectTypes]\n0=DEATH\n1=OTHER\n\
+                 [DEATH]\nDuration=-1\nExpireWeapon=DEATHW\nExpireWeapon.TriggerOn=death\n\
+                 Cumulative=yes\nExpireWeapon.CumulativeOnlyOnce=yes\n\
+                 [OTHER]\nDuration=-1\nExpireWeapon=DEATHW\n"
+            ),
+            31,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        let bystander = spawn(&mut sim, &rules, "BYSTANDER", "Americans", 21, 21);
+        sim.update_phobos_attach_effects(victim, &rules);
+        assert_eq!(attach_count(&sim, victim), 3);
+        assert_eq!(health(&sim, bystander), 1000);
+
+        let warhead = sim.interner.intern("KHIT");
+        let event = direct_hit(victim, 100, attacker, warhead);
+        let _ = sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(
+            health(&sim, bystander),
+            993,
+            "only the once-per-type death shot reached the bystander"
         );
     }
 

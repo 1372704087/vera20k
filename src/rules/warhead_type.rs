@@ -355,12 +355,23 @@ pub struct WarheadType {
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
-/// detonation applies to every target it reaches, and the reflect suppressor.
+/// detonation applies to every target it reaches, the attach parameters its
+/// `Attach` call passes (`hasDelay = false`, so the delay lists never apply),
+/// and the reflect suppressor.
 #[cfg(feature = "phobos")]
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WarheadAttachEffectRules {
     /// `AttachEffect.AttachTypes`.
     pub attach_types: Vec<String>,
+    /// `AttachEffect.DurationOverrides`, paired with `attach_types`.
+    pub duration_overrides: Vec<i32>,
+    /// `AttachEffect.CumulativeSourceMaxCount`; negative means no cap.
+    pub cumulative_source_max_count: i32,
+    pub cumulative_refresh_all: bool,
+    pub cumulative_refresh_all_on_attach: bool,
+    pub cumulative_refresh_same_source_only: bool,
+    /// `AttachEffect.ReplaceLongerDuration`; `None` inherits `[General]`.
+    pub replace_longer_duration: Option<bool>,
     /// `AttachEffect.RemoveTypes`.
     pub remove_types: Vec<String>,
     /// `AttachEffect.RemoveGroups`.
@@ -378,6 +389,29 @@ pub struct WarheadAttachEffectRules {
 }
 
 #[cfg(feature = "phobos")]
+impl Default for WarheadAttachEffectRules {
+    /// `AEAttachInfoTypeClass`'s constructor defaults.
+    fn default() -> Self {
+        Self {
+            attach_types: Vec::new(),
+            duration_overrides: Vec::new(),
+            cumulative_source_max_count: -1,
+            cumulative_refresh_all: false,
+            cumulative_refresh_all_on_attach: false,
+            cumulative_refresh_same_source_only: true,
+            replace_longer_duration: None,
+            remove_types: Vec::new(),
+            remove_groups: Vec::new(),
+            cumulative_remove_min_counts: Vec::new(),
+            cumulative_remove_max_counts: Vec::new(),
+            suppress_reflect_damage: false,
+            suppress_reflect_damage_types: Vec::new(),
+            suppress_reflect_damage_groups: Vec::new(),
+        }
+    }
+}
+
+#[cfg(feature = "phobos")]
 impl WarheadAttachEffectRules {
     fn from_section(section: &IniSection) -> Self {
         let list = |key: &str| {
@@ -388,6 +422,18 @@ impl WarheadAttachEffectRules {
         };
         Self {
             attach_types: list("AttachEffect.AttachTypes"),
+            duration_overrides: section
+                .read_int_list("AttachEffect.DurationOverrides")
+                .unwrap_or_default(),
+            cumulative_source_max_count: section
+                .read_int("AttachEffect.CumulativeSourceMaxCount", -1),
+            cumulative_refresh_all: section.read_bool("AttachEffect.CumulativeRefreshAll", false),
+            cumulative_refresh_all_on_attach: section
+                .read_bool("AttachEffect.CumulativeRefreshAll.OnAttach", false),
+            cumulative_refresh_same_source_only: section
+                .read_bool("AttachEffect.CumulativeRefreshSameSourceOnly", true),
+            replace_longer_duration: section
+                .read_phobos_nullable_bool("AttachEffect.ReplaceLongerDuration", None),
             remove_types: list("AttachEffect.RemoveTypes"),
             remove_groups: list("AttachEffect.RemoveGroups"),
             cumulative_remove_min_counts: section
@@ -684,6 +730,12 @@ mod tests {
              [HIT]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
              AttachEffect.AttachTypes=AE1,AE2\nAttachEffect.RemoveTypes=AE3\n\
              AttachEffect.RemoveGroups=tag\n\
+             AttachEffect.DurationOverrides=40,60\n\
+             AttachEffect.CumulativeSourceMaxCount=2\n\
+             AttachEffect.CumulativeRefreshAll=yes\n\
+             AttachEffect.CumulativeRefreshAll.OnAttach=yes\n\
+             AttachEffect.CumulativeRefreshSameSourceOnly=no\n\
+             AttachEffect.ReplaceLongerDuration=yes\n\
              AttachEffect.CumulativeRemoveMinCounts=2\n\
              AttachEffect.CumulativeRemoveMaxCounts=3,4\n\
              SuppressReflectDamage=yes\nSuppressReflectDamage.Types=AE1\n\
@@ -695,6 +747,12 @@ mod tests {
         .expect("rules");
         let warhead = rules.warhead("HIT").expect("warhead");
         assert_eq!(warhead.attach_effect.attach_types, vec!["AE1", "AE2"]);
+        assert_eq!(warhead.attach_effect.duration_overrides, vec![40, 60]);
+        assert_eq!(warhead.attach_effect.cumulative_source_max_count, 2);
+        assert!(warhead.attach_effect.cumulative_refresh_all);
+        assert!(warhead.attach_effect.cumulative_refresh_all_on_attach);
+        assert!(!warhead.attach_effect.cumulative_refresh_same_source_only);
+        assert_eq!(warhead.attach_effect.replace_longer_duration, Some(true));
         assert_eq!(warhead.attach_effect.remove_types, vec!["AE3"]);
         assert_eq!(warhead.attach_effect.remove_groups, vec!["tag"]);
         assert_eq!(warhead.attach_effect.cumulative_remove_min_counts, vec![2]);
@@ -715,6 +773,13 @@ mod tests {
 
         let plain = rules.warhead("PLAIN").expect("plain warhead");
         assert!(plain.attach_effect.is_empty());
+        // `AEAttachInfoTypeClass`'s constructor defaults.
+        assert_eq!(plain.attach_effect.cumulative_source_max_count, -1);
+        assert!(!plain.attach_effect.cumulative_refresh_all);
+        assert!(!plain.attach_effect.cumulative_refresh_all_on_attach);
+        assert!(plain.attach_effect.cumulative_refresh_same_source_only);
+        assert_eq!(plain.attach_effect.replace_longer_duration, None);
+        assert!(plain.attach_effect.duration_overrides.is_empty());
         assert!(!plain.attach_effect.suppress_reflect_damage);
         assert!(plain.attach_effect.suppress_reflect_damage_types.is_empty());
         assert!(

@@ -2118,6 +2118,19 @@ pub(crate) fn handle_death(
         });
 
         if let Some((type_id, location, owner, _category, veterancy)) = dead_info {
+            // Phobos `TechnoClass_ReceiveDamage_AttachEffectExpireWeapon`
+            // (`0x702050`): effects with `ExpireWeapon.TriggerOn=death` fire
+            // before the native death arm frees slaves and before the death
+            // weapon.
+            #[cfg(feature = "phobos")]
+            if callbacks_enabled(world) {
+                world.apply_attach_effect_death_weapons(
+                    dead_id,
+                    rules,
+                    overlay_registry,
+                    run.effects(),
+                );
+            }
             // `0x00702050..0x00702065`: the death arm first frees a master's
             // slaves to the killing hit's source (FreeSlaves, no house).
             if callbacks_enabled(world) {

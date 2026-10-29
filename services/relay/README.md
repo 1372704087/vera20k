@@ -50,6 +50,11 @@ Build from the repository root:
 python -m tools.cargo_run -- build --release -p vera20k-relay
 ```
 
+A deploy reaches players who have not updated. On a PR that touches the relay,
+the Relay compatibility workflow (`tools/relay_compat.py`) plays the latest
+stable release's and the newest dev build's client code against it, including a
+player the relay removes for silence.
+
 Install the executable as `/usr/local/bin/vera20k-relay`, create the unprivileged
 `vera20k-relay` user, and install `vera20k-relay.service`. Allow UDP port 5000 in
 the cloud firewall. Limit administrative SSH access to the management network.

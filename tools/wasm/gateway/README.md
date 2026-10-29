@@ -79,7 +79,12 @@ and only the original game protocol decides recovery. Text, empty or oversized
 messages close the transport. Messages also have bounded fragmentation and
 buffering. HTTP responses use stream backpressure and a 12-second absolute request
 deadline.
-Socket shutdown releases queues and the UDP port. The 30-second WS Ping/Pong
+Socket shutdown releases queues and the UDP port.
+Ping/Pong writes, including heartbeats, have a separate fair allowance of
+64 frames per second per connection and 1024 per second shared across game
+connections. They must also fit the 1 MiB WS output queue, including a frame-header
+allowance; exceeding a control limit closes that transport through normal cleanup.
+This allowance does not spend game-datagram credit. The 30-second WS Ping/Pong
 heartbeat never changes game readiness, tickets or Leave semantics.
 
 The pinned `ws` version includes the upstream fixes for

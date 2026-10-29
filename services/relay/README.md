@@ -154,11 +154,12 @@ startup cannot drop a source alone: those limits, or any relay's room reaching 3
 minutes unstarted, ask the coordinator to cancel it, and a relay whose
 coordinator has then been silent for 10 seconds cancels on its own. A relay
 reports only its own players' departures, and a restarted relay never does. Once
-a started federated room has heard nothing from another relay for 10 minutes,
+a started two-relay room has heard nothing from the other relay for 10 minutes,
 that relay's players depart as lost after the last frame it sealed there, and
 the room merges on without it: the match continues among the remaining players
-or ends. Relays that lose the same relay write the same departures while each
-holds everything it sealed. A
+or ends. With three or more relays the survivors could disagree on that frame,
+so such a room ends instead once its own players have left and every other
+relay has been silent for 10 minutes. A
 departure's last byte is
 DestroyConnection's error code: 1, connection lost, when silence ended the place;
 otherwise the byte is absent. Otherwise only explicit Leave, the player's

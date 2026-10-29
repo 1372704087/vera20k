@@ -401,11 +401,23 @@ impl Federation {
         }
         // Each relay ends only its own players' places, and one that restarts
         // can neither resume its link nor recreate the room. Once a started
-        // room has not heard a relay for as long as a player may be silent,
-        // that relay's players depart as lost after the last frame it sealed
-        // here, and the merge goes on without it. Relays that lose it alike
-        // write the same departures if they hold all it sealed.
-        if ordering.starts_at.is_some() {
+        // two-relay room has not heard the other relay for as long as a player
+        // may be silent, its players depart as lost after the last frame it
+        // sealed here, and the merge goes on without it. With more relays the
+        // survivors would have to agree on that frame, which the link format
+        // cannot carry, so such a room ends only once its own players have
+        // left and every other relay has been silent that long.
+        if ordering.starts_at.is_some() && self.links.len() > 1 {
+            if ordering.active & self.local == 0
+                && self.links.iter().all(|link| {
+                    link.echo
+                        .is_none_or(|(_, heard)| now_ms.saturating_sub(heard) >= super::ABSENT_MS)
+                })
+            {
+                ordering.abandon(now_ms);
+                return;
+            }
+        } else if ordering.starts_at.is_some() {
             for link in &mut self.links {
                 let heard = link.echo.map_or(ordering.created_ms, |(_, heard)| heard);
                 if link.lost || now_ms.saturating_sub(heard) < super::ABSENT_MS {

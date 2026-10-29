@@ -1093,6 +1093,15 @@ impl OrderingRoom {
         self.start_when_ready(now_ms);
     }
 
+    /// Ends a federated match of three or more relays whose others went
+    /// silent. It seals and merges no further entry, so its archive grows by
+    /// at most the frame ends of what it already sealed.
+    fn abandon(&mut self, now_ms: u64) {
+        self.active = 0;
+        self.pending.clear();
+        self.finished_at = Some(now_ms);
+    }
+
     /// The coordinator's cancel before the start ends this startup here too.
     fn cancel(&mut self, now_ms: u64) {
         self.active = 0;

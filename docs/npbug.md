@@ -37,6 +37,11 @@ adds no behavior yet.
 
 ### Building placement, construction, economy and sensors
 
+- #2953 (NPExt changelog item 17): a naval factory's rally click resolves
+  only against water. Native resolved the player rally through the
+  amphibious movement zone, so land tiles in that zone were accepted and
+  beached the ships.
+
 ### Movement, crash, ejection, garrison and lifecycle
 
 ### Capture, mind control, lift and retaliation

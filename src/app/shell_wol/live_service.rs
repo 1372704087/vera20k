@@ -1,6 +1,6 @@
 //! Production VERA lobby adapter. HTTPS results enter the existing WOL reducers;
 //! MatchSession remains the sole authority for accepted participants and options.
-//! The custom protocol is documented in services/lobby/protocol.md.
+//! The custom protocol is documented in docs/lobby-protocol.md.
 
 mod http;
 mod maps;
@@ -42,15 +42,15 @@ const STATS_INTERVAL: Duration = Duration::from_secs(30);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
 /// Gameplay grants (timing confirmation, `relay_renewed`, match resume) are
-/// issued for GRANT_SECONDS (services/lobby/service.js relayGrant). Their
+/// issued for 300 seconds (docs/lobby-protocol.md). Their
 /// `expires` is lobby wall time; a local clock running slow would renew after
 /// the relay already rejects the ticket, so renewal is timed from receipt.
 /// It uses frame_pacer::wall_clock_ms, which keeps counting through sleep;
 /// an `Instant` deadline would wait out the slept time with a dead ticket.
 const RELAY_GRANT_LIFETIME: Duration = Duration::from_secs(300);
-/// protocol.md: renew at half-life. The relay refuses an expired ticket, so a
+/// docs/lobby-protocol.md: renew at half-life. The relay refuses an expired ticket, so a
 /// lobby outage longer than this margin freezes the match. Retrying every 10 s
-/// spends 6 of renew_relay's 12 a minute (services/lobby/service.js ACTIONS).
+/// spends 6 of renew_relay's 12 a minute (docs/lobby-protocol.md).
 const RELAY_RENEWAL_MARGIN: Duration = Duration::from_secs(150);
 const RELAY_RENEWAL_RETRY_MS: u32 = 10_000;
 
@@ -2808,7 +2808,7 @@ mod completion_tests {
 
     #[test]
     fn only_a_spawned_match_adds_its_result_to_finish() {
-        // services/lobby/protocol.md: the lobby rejects unknown fields.
+        // docs/lobby-protocol.md: the lobby rejects unknown fields.
         let (mut lobby, input, _output) = control_service(Some("lobby-match"));
         lobby.finish_result = Some("won");
         assert_eq!(

@@ -41,7 +41,7 @@ pub(crate) fn is_roster_len(length: usize) -> bool {
     (2..=MAX_FEDERATED_RELAYS).any(|relays| roster_len(relays) == length)
 }
 
-/// Layout shared with services/lobby/service.js: `VO1F`, room UUID16, relay
+/// Layout shared with the lobby (docs/lobby-protocol.md): `VO1F`, room UUID16, relay
 /// count, then per relay IPv4, LE port and LE source mask. Per relay follow a
 /// 16-byte nonce, the 32-byte link key XORed with HMAC(relay key, wrap domain,
 /// room, nonce) and HMAC(relay key, roster domain, table, index, nonce,

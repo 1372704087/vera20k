@@ -379,3 +379,54 @@ pub(crate) struct LogicProjectileCommit {
     pub(crate) effects: DeathEffects,
     pub(crate) under_attack_events: Vec<UnderAttackEvent>,
 }
+
+/// `TechnoExt::IsHealthInThreshold` (`Ext/Techno/Body.cpp:752..759`): the
+/// interval `(above, below]`, `above` inclusive at zero health; a
+/// zero-health, zero-strength object matches unconditionally. A positive
+/// health over a zero strength is the native `inf` and misses every finite
+/// bound.
+#[cfg(feature = "phobos")]
+pub(crate) fn health_in_threshold(health: i32, strength: i32, above: f64, below: f64) -> bool {
+    if health == 0 && strength == 0 {
+        return true;
+    }
+    let ratio = f64::from(health) / f64::from(strength);
+    (if ratio > 0.0 { ratio > above } else { ratio >= above }) && ratio <= below
+}
+
+/// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): `All` always
+/// matches, the owner takes its bucket, a neutral target its Neutral flag, an
+/// ally's, otherwise the enemy's.
+#[cfg(feature = "phobos")]
+pub(crate) fn can_target_house(
+    flags: crate::rules::phobos_shields::AffectedHouse,
+    source: InternedId,
+    target: InternedId,
+    houses: &crate::sim::houses::Houses,
+    alliances: &crate::sim::house_diplomacy::HouseAlliances,
+    interner: &StringInterner,
+) -> bool {
+    use crate::rules::phobos_shields::AffectedHouse;
+    if flags == AffectedHouse::ALL {
+        return true;
+    }
+    if source == target {
+        return flags.contains(AffectedHouse::OWNER);
+    }
+    if houses
+        .get(&target)
+        .is_some_and(|house| house.multiplay_passive())
+        && flags.contains(AffectedHouse::NEUTRAL)
+    {
+        return true;
+    }
+    if crate::map::houses::is_allied_with(
+        alliances.as_map(),
+        interner.resolve(source),
+        interner.resolve(target),
+    ) {
+        flags.contains(AffectedHouse::ALLIES)
+    } else {
+        flags.contains(AffectedHouse::ENEMIES)
+    }
+}

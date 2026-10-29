@@ -18,8 +18,6 @@
 //!   AttachEffect weapons chain and is not in this build.
 //! - `Crit.Warhead`'s full detonation creates a projectile with no
 //!   `Projectile=` type, so the default bullet type's `Cluster` is not read.
-//! - The AttachEffect `Crit.Multiplier`/`Crit.ExtraChance` fold belongs to the
-//!   AttachEffect chain and is not present in this build.
 //! - `Crit.ExtraDamage.ApplyFirepowerMult` reads the owner's live multiplier;
 //!   native uses the bullet's firepower captured at launch.
 //! - Crit animations set the owner house but no invoker (VERA stores no anim
@@ -38,12 +36,11 @@ use super::world_receiver::{
 use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectType;
 use crate::rules::phobos_crit::{AffectedTarget, PhobosAbilityFlags};
-use crate::rules::phobos_shields::AffectedHouse;
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::warhead_type::WarheadType;
 use crate::sim::combat::veterancy::{VeterancyRank, has_weapon_ability};
-use crate::sim::intern::{InternedId, StringInterner};
+use crate::sim::intern::InternedId;
 use crate::sim::projectile::{
     ProjectileCoord, ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload,
     ProjectileTarget,
@@ -130,7 +127,37 @@ fn get_crit_chance(
             .unwrap_or(rules.crit_globals().veteran_crit_chance());
         chance *= veteran.max(0.0);
     }
-    chance
+    // Phobos `GetCritChance`'s AttachEffect fold: every active effect whose
+    // block is more than the identity multiplies the chance and adds its
+    // extra chance, gated by the Allow/Disallow warhead lists.
+    if !owner.phobos_stat_multipliers().has_crit_modifiers {
+        return chance;
+    }
+    let effects = rules.attach_effect_types().types();
+    let mut extra_chance = 0.0;
+    for (_, effect) in owner.phobos_attach_effects().active_effects(effects) {
+        if !effect.has_crit_modifiers() {
+            continue;
+        }
+        if !effect.crit_allow_warheads.is_empty()
+            && !effect
+                .crit_allow_warheads
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(&warhead.id))
+        {
+            continue;
+        }
+        if effect
+            .crit_disallow_warheads
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&warhead.id))
+        {
+            continue;
+        }
+        chance *= effect.crit_multiplier.max(0.0);
+        extra_chance += effect.crit_extra_chance;
+    }
+    chance + extra_chance
 }
 
 #[cfg(feature = "phobos")]
@@ -238,7 +265,7 @@ fn apply_one(
         return false;
     }
     let strength = target_object.map_or(0, |object| object.strength);
-    if !health_in_threshold(
+    if !super::health_in_threshold(
         target.health.current(),
         strength,
         crit.affects_above_percent(),
@@ -248,7 +275,7 @@ fn apply_one(
     }
     if let Some(source) = source_house {
         let target_owner = target.owner();
-        if !can_target_house(
+        if !super::can_target_house(
             crit.affects_house(),
             source,
             target_owner,
@@ -445,52 +472,6 @@ fn current_firepower_multiplier(
         }
     }
     multiplier
-}
-
-/// `TechnoExt::IsHealthInThreshold`: `(above, below]`, `above` inclusive at
-/// zero health; a zero-health, zero-strength object matches unconditionally.
-#[cfg(feature = "phobos")]
-fn health_in_threshold(health: i32, strength: i32, above: f64, below: f64) -> bool {
-    if health == 0 && strength == 0 {
-        return true;
-    }
-    let hp = f64::from(health) / f64::from(strength);
-    (if hp > 0.0 { hp > above } else { hp >= above }) && hp <= below
-}
-
-/// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): owner, then a
-/// neutral target's Neutral flag, then allies, otherwise enemies.
-#[cfg(feature = "phobos")]
-fn can_target_house(
-    flags: AffectedHouse,
-    source: InternedId,
-    target: InternedId,
-    houses: &crate::sim::houses::Houses,
-    alliances: &crate::sim::house_diplomacy::HouseAlliances,
-    interner: &StringInterner,
-) -> bool {
-    if flags == AffectedHouse::ALL {
-        return true;
-    }
-    if source == target {
-        return flags.contains(AffectedHouse::OWNER);
-    }
-    if houses
-        .get(&target)
-        .is_some_and(|house| house.multiplay_passive())
-        && flags.contains(AffectedHouse::NEUTRAL)
-    {
-        return true;
-    }
-    if crate::map::houses::is_allied_with(
-        alliances.as_map(),
-        interner.resolve(source),
-        interner.resolve(target),
-    ) {
-        flags.contains(AffectedHouse::ALLIES)
-    } else {
-        flags.contains(AffectedHouse::ENEMIES)
-    }
 }
 
 /// `EnumFunctions::IsCellEligible` with `explicitEmptyCells = false`: the

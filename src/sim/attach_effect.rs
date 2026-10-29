@@ -716,8 +716,7 @@ pub(crate) fn range_with_attach_effects(
 /// `FootClass+0x6CC IsAttackedByLocomotor` is set) and `0x006FC5C7`
 /// (open-topped `CheckTransportDisableWeapons` asks the transport's flag),
 /// plus the gattling AI arms, and VERA keeps no `IsAttackedByLocomotor`
-/// producer; `has_crit_modifiers` needs the Phobos warhead critical-hit
-/// mechanism; and the charge-turret half of
+/// producer; and the charge-turret half of
 /// `ROFMultiplier.ApplyOnCurrentTimer` needs the
 /// `LastRearmWasFullDelay`/charge-timer state VERA does not keep.
 #[cfg(feature = "phobos")]
@@ -857,8 +856,10 @@ pub(crate) struct DiscardFacts {
     pub undeploying: bool,
     pub draining: bool,
     pub ammo: i32,
-    pub health_ratio: f64,
-    pub health_and_strength_zero: bool,
+    /// The target's current and type-maximum health, read by
+    /// [`crate::sim::combat::health_in_threshold`].
+    pub health: i32,
+    pub strength: i32,
     pub land_type: Option<crate::rules::terrain_rules::LandType>,
     pub mission: Option<crate::rules::mission_data::MissionType>,
     pub sequence: Option<crate::rules::animation_sequence::SequenceKind>,
@@ -938,9 +939,9 @@ impl AttachEffectInstance {
             }
         }
         if flags.contains(DiscardOn::HEALTH)
-            && health_in_threshold(
-                facts.health_ratio,
-                facts.health_and_strength_zero,
+            && crate::sim::combat::health_in_threshold(
+                facts.health,
+                facts.strength,
                 effect.discard_health_above,
                 effect.discard_health_below,
             )
@@ -1015,21 +1016,6 @@ impl AttachEffectInstance {
         }
         false
     }
-}
-
-/// `TechnoExt::IsHealthInThreshold`: the interval `(above, below]`, with
-/// `above` inclusive at zero health; a zero-health, zero-strength object
-/// matches unconditionally.
-#[cfg(feature = "phobos")]
-fn health_in_threshold(health_ratio: f64, both_zero: bool, above: f64, below: f64) -> bool {
-    if both_zero {
-        return true;
-    }
-    (if health_ratio > 0.0 {
-        health_ratio > above
-    } else {
-        health_ratio >= above
-    }) && health_ratio <= below
 }
 
 /// Where an effect's animation lives: attached to `owner` at its world point,
@@ -1203,12 +1189,8 @@ impl Simulation {
             // owned by [`crate::sim::credit_income::Drain`].
             draining: entity.drain.draining_me().is_some(),
             ammo: entity.ammo().map_or(0, |ammo| ammo.current()),
-            health_ratio: if strength > 0 {
-                f64::from(health) / f64::from(strength)
-            } else {
-                0.0
-            },
-            health_and_strength_zero: health == 0 && strength == 0,
+            health,
+            strength,
             land_type,
             mission,
             sequence,
@@ -1301,7 +1283,8 @@ impl Simulation {
                     effect.discard_received_damage_affects_house,
                     Some(owner),
                     source,
-                    self.house_alliances.as_map(),
+                    &self.houses,
+                    &self.house_alliances,
                     &self.interner,
                 ),
                 None => effect
@@ -1852,7 +1835,8 @@ impl Simulation {
                 effect.armor_multiplier_affects_house,
                 source_house,
                 target_owner,
-                self.house_alliances.as_map(),
+                &self.houses,
+                &self.house_alliances,
                 &self.interner,
             ) {
                 continue;
@@ -1971,36 +1955,22 @@ impl Simulation {
     }
 }
 
-/// Phobos `EnumFunctions::CanTargetHouse`: `All` always matches, the owner
-/// takes its bucket, an ally's, otherwise the enemy's. VERA has no
-/// `IsNeutral` reader here, so a Neutral-only flag follows the allied/enemy
-/// relation.
+/// Phobos `EnumFunctions::CanTargetHouse` with a nullable source: the
+/// shared port handles a known source; a hit with none follows the enemy
+/// bucket, as the AttachEffect branch has always read it.
 #[cfg(feature = "phobos")]
 fn affects_house(
     flags: AffectedHouse,
     source: Option<crate::sim::intern::InternedId>,
     target: crate::sim::intern::InternedId,
-    alliances: &crate::map::houses::HouseAllianceMap,
+    houses: &crate::sim::houses::Houses,
+    alliances: &crate::sim::house_diplomacy::HouseAlliances,
     interner: &crate::sim::intern::StringInterner,
 ) -> bool {
-    if flags == AffectedHouse::ALL {
-        return true;
-    }
     let Some(source) = source else {
         return flags.contains(AffectedHouse::ENEMIES);
     };
-    if source == target {
-        return flags.contains(AffectedHouse::OWNER);
-    }
-    if crate::map::houses::is_allied_with(
-        alliances,
-        interner.resolve(source),
-        interner.resolve(target),
-    ) {
-        flags.contains(AffectedHouse::ALLIES)
-    } else {
-        flags.contains(AffectedHouse::ENEMIES)
-    }
+    crate::sim::combat::can_target_house(flags, source, target, houses, alliances, interner)
 }
 
 #[cfg(all(test, feature = "phobos"))]
@@ -2738,18 +2708,19 @@ mod tests {
         effect.discard_health_above = 0.2;
         effect.discard_health_below = 0.5;
         facts = DiscardFacts::default();
-        for (ratio, both_zero, expected) in [
-            (0.5, false, true),
-            (0.2, false, false),
-            (0.6, false, false),
-            (0.0, true, true),
+        for (health, strength, expected) in [
+            (50, 100, true),
+            (20, 100, false),
+            (60, 100, false),
+            (0, 0, true),
+            (0, 100, false),
         ] {
-            facts.health_ratio = ratio;
-            facts.health_and_strength_zero = both_zero;
+            facts.health = health;
+            facts.strength = strength;
             assert_eq!(
                 instance.should_be_discarded_now(&effect, &facts, &globals),
                 expected,
-                "health {ratio} zero {both_zero}"
+                "health {health}/{strength}"
             );
         }
 
@@ -3858,5 +3829,100 @@ AttachEffect.InitialDelays=3
         assert_eq!(instance.remaining(), 0);
         assert_eq!(instance.current_delay(), 3);
         assert!(instance.should_refresh(), "the queued refresh refills it");
+    }
+
+    /// `GetCritChance`'s AttachEffect fold: a multiplier scales the warhead's
+    /// chance, extra chances add after it, and the Allow/Disallow lists gate
+    /// the effect's contribution.
+    #[test]
+    fn attach_effect_crit_modifiers_fold_into_the_warhead_chance() {
+        use crate::rules::ini_parser::IniFile;
+        let crit_damage = |firer_ini: &str, effect_ini: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Countries]\n0=Americans\n1=Russians\n\
+                 [VehicleTypes]\n0=FIRER\n1=TARGET\n\
+                 [WeaponTypes]\n0=GUN\n[GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
+                 [Warheads]\n0=WH\n\
+                 [WH]\nCellSpread=0\nCrit.Chance=0.05\nCrit.ExtraDamage=50\n\
+                 [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n{firer_ini}\
+                 [TARGET]\nStrength=500\nArmor=none\nSpeed=6\n\
+                 [AttachEffectTypes]\n0=CRIT\n\
+                 [CRIT]\nDuration=100\n{effect_ini}"
+            )))
+            .expect("rules");
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5A_AA_1E);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let firer = sim
+                .spawn_object("FIRER", "Americans", 20, 20, 0, &rules)
+                .expect("firer");
+            let target = sim
+                .spawn_object("TARGET", "Russians", 22, 20, 0, &rules)
+                .expect("target");
+            sim.update_phobos_attach_effects(firer, &rules);
+            // The shot's shared dice must miss the bare 0.05 chance, so only a
+            // folded chance can crit.
+            let mut probe = sim.scenario_rng.clone();
+            let dice = probe.random_double();
+            assert!(dice > 0.05, "the seed's dice must miss the base chance");
+            let coords = {
+                let target = sim.entities().get(target).expect("target");
+                crate::sim::movement::ground_pose::object_get_coords(
+                    target,
+                    sim.resolved_terrain.as_ref(),
+                )
+            };
+            let detonation = crate::sim::projectile::ProjectileDetonation {
+                projectile_id: target,
+                source_id: firer,
+                target: crate::sim::projectile::ProjectileTarget::Entity(target),
+                impact: crate::sim::projectile::ProjectileCoord::new(coords.x, coords.y, coords.z),
+                payload: crate::sim::projectile::ProjectilePayload::new(
+                    0,
+                    sim.interner.intern("WH"),
+                    None,
+                    false,
+                ),
+                reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+            };
+            let mut run = crate::sim::combat::world_receiver::ReceiverRun::default();
+            crate::sim::combat::world_receiver::commit_projectiles(
+                &mut sim,
+                &mut run,
+                &[detonation],
+                &rules,
+                None,
+            );
+            run.finish();
+            500 - sim.entities().get(target).unwrap().health.current()
+        };
+
+        assert_eq!(crit_damage("", ""), 0, "no effect keeps the base chance");
+        assert_eq!(
+            crit_damage("AttachEffect.AttachTypes=CRIT\n", "Crit.ExtraChance=1.0\n"),
+            50,
+            "ExtraChance adds after the multiplier"
+        );
+        assert_eq!(
+            crit_damage("AttachEffect.AttachTypes=CRIT\n", "Crit.Multiplier=30\n"),
+            50,
+            "a multiplier scales the chance"
+        );
+        assert_eq!(
+            crit_damage(
+                "AttachEffect.AttachTypes=CRIT\n",
+                "Crit.ExtraChance=1.0\nCrit.AllowWarheads=OTHER\n",
+            ),
+            0,
+            "an unmatched AllowWarheads list skips the effect"
+        );
+        assert_eq!(
+            crit_damage(
+                "AttachEffect.AttachTypes=CRIT\n",
+                "Crit.ExtraChance=1.0\nCrit.DisallowWarheads=wh\n",
+            ),
+            0,
+            "a matching DisallowWarheads list skips the effect"
+        );
     }
 }

@@ -81,6 +81,14 @@ pub struct CountryRules {
     /// `WallOwner=` allows this house type's buildings to claim nearby map walls.
     pub wall_owner: bool,
     /// Phobos `AttachEffect.AttachTypes` on a country.
+    ///
+    /// RESIDUAL: read but not attached. Phobos `TechnoExt::InitializeAttachEffects`
+    /// (`Body.Internal.cpp:157`) attaches the owner country's list to every
+    /// created techno as an outside effect whose source is the techno itself,
+    /// and `HouseClass` owner change (`House/Hooks.cpp:353`) attaches the new
+    /// country's list under `AttachEffect.AttachOnOwnerChange`. VERA's
+    /// `AttachSource` holds only a warhead source, so a country that sets
+    /// the list gives its objects none of those effects.
     #[cfg(feature = "phobos")]
     pub attach_effect_attach_types: Vec<String>,
     /// `AttachEffect.DurationOverrides`, paired by index.

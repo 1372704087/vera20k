@@ -3291,6 +3291,13 @@ pub(crate) fn estimated_damage_on(
             unit_armor: attacker.crate_multipliers.armor(),
             // Phobos 0x006FDC87 divides by `CalculateArmorMultipliers(pTarget,
             // warhead, pThis->Owner)`: the target's effects, not the firer's.
+            // RESIDUAL: this read-only estimate uses the cached unrestricted
+            // product. Native also folds each active effect with a restricted
+            // `ArmorMultiplier` (chance, house and warhead gates) and draws one
+            // `RandomDouble` per such effect off its delay timer (`realHit`
+            // false: no timer or HitAnim). A target carrying one is estimated
+            // without it, and every target-scan estimate on it skips those
+            // Scenario draws, shifting the stream.
             ae_armor: target.phobos_armor_multiplier(),
             rank_armor,
         },

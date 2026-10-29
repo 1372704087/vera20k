@@ -189,10 +189,12 @@ impl AttachEffectInstance {
         true
     }
 
-    /// `RefreshDuration`: the override wins over the type's `Duration`. The
-    /// two duration multipliers are applied by their own owners (the firepower
-    /// and armor slices), which call [`Self::refresh_scaled`] with the value
-    /// they computed.
+    /// `RefreshDuration` (`AttachEffectClass.cpp:528..555`): the override wins
+    /// over the type's `Duration`. RESIDUAL: `Duration.ApplyFirepowerMult`
+    /// (the invoker's current firepower) and `Duration.ApplyArmorMultOnTarget`
+    /// (`GetCurrentArmorMultiplier` against the invoker house) are read but
+    /// not applied, because the instance has no world access here; an effect
+    /// that sets either keeps its unscaled duration.
     fn refresh(&mut self, effect: &AttachEffectType) {
         self.remaining = if self.duration_override != 0 {
             self.duration_override

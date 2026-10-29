@@ -205,7 +205,9 @@ is `pings:[]` and the confirmed per-source timings are `pings:[0]`. AI players d
 not receive source indices or relay credentials. Such a match runs its commands
 locally: its grant still carries an ordering certificate, which released clients
 require, but the relay refuses a one-source certificate.
-Only then does game loading start. Each barrier has a 30-second timeout.
+Only then does game loading start. Each barrier has a 30-second timeout. Within it,
+clients resend `relay_ready` and `latency_ready` under the same request ID after a
+429, a 5xx or no answer, and a UDP I/O error alone does not end admission.
 Initial tickets last 120 seconds; timing confirmation supplies a fresh 300-second
 ticket which the client must authenticate before loading. During play, clients
 renew once half of that lifetime has passed, so a lobby outage of up to 150 seconds

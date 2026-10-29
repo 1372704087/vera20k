@@ -2973,12 +2973,77 @@ mod tests {
             }
         };
         assert_eq!(full.kind(), std::io::ErrorKind::StorageFull);
-        // Each two-player 45 FPS room reserves its 24-hour clock records and
-        // 32 MiB of commands per player, not a fixed eighth of the quota.
-        assert_eq!(admitted.len(), 52);
+        // Each two-player 45 FPS room reserves its first hour of clock
+        // records and 32 MiB of commands per player, not a whole day of
+        // clock or a fixed eighth of the quota.
+        assert_eq!(admitted.len(), 120);
         // A finished room keeps only the bytes it wrote.
         journals.settle(&mut admitted[0], 0);
-        assert!(journals.create([0xf0; 16], 45, 2).is_ok());
+        assert!(journals.create([0x70; 16], 45, 2).is_ok());
+    }
+
+    /// A journaled two-player 10 FPS match, started at 200 ms.
+    fn slow_match(directory: &TestDirectory) -> RelayServer {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let cert = OrderingCertificate {
+            room: [5; 16],
+            sources_mask: 3,
+            tick_hz: 10,
+            expires: 2000,
+        }
+        .sign(&key)
+        .unwrap();
+        for source in 0..2 {
+            let mut player = client(&key, source);
+            connect(&mut server, &mut player, 0);
+            configure(&mut server, &mut player, &cert, 0);
+        }
+        server
+    }
+
+    /// Runs the match five minutes at a time, both players in contact.
+    fn play(server: &mut RelayServer, from_ms: u64, until_ms: u64) {
+        for now_ms in (from_ms..=until_ms).step_by(300_000) {
+            let room = server.rooms.get_mut(&[5; 16]).unwrap();
+            for source in 0..2 {
+                let ordering = room.ordering.as_mut().unwrap();
+                ordering.heard(source, ([source + 1; 16], 1), now_ms);
+            }
+            server.advance_clock(now_ms, unix(now_ms));
+        }
+    }
+
+    #[test]
+    fn a_journal_reserves_the_next_hour_of_clock_as_the_match_runs() {
+        let directory = TestDirectory::new();
+        let mut server = slow_match(&directory);
+        play(&mut server, 0, 3_900_000);
+        assert!(!ordering(&server).storage_failed);
+        assert_eq!(ordering(&server).head, 38_998);
+    }
+
+    #[test]
+    fn a_match_whose_next_hour_does_not_fit_fails_once_its_first_runs_out() {
+        let directory = TestDirectory::new();
+        let mut server = slow_match(&directory);
+        // Other rooms take all but less than an hour of 10 FPS clock.
+        let journals = server.journal_directory.as_mut().unwrap();
+        let mut others = Vec::new();
+        for (tick_hz, sources) in [(45, 2), (10, 0)] {
+            loop {
+                let mut room = [0x80; 16];
+                room[..8].copy_from_slice(&(others.len() as u64).to_le_bytes());
+                match journals.create(room, tick_hz, sources) {
+                    Ok(journal) => others.push(journal),
+                    Err(_) => break,
+                }
+            }
+        }
+        play(&mut server, 0, 3_600_000);
+        assert!(!ordering(&server).storage_failed);
+        play(&mut server, 3_900_000, 3_900_000);
+        assert!(ordering(&server).storage_failed);
     }
 
     #[test]
@@ -3350,6 +3415,51 @@ mod tests {
         assert_eq!(departed, [1, 2]);
     }
 
+    #[test]
+    fn a_late_returner_cannot_restart_a_cleaned_up_match_under_its_id() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let cert = certificate(&key, 3, 2000);
+        for source in 0..2 {
+            let mut player = client(&key, source);
+            connect(&mut server, &mut player, 0);
+            configure(&mut server, &mut player, &cert, 0);
+            let mut bytes = Vec::new();
+            player.leave_ordering(&mut bytes).unwrap();
+            events(&mut server, &mut player, &bytes, 1000);
+        }
+        server.advance_clock(1000, unix(1000));
+        let cleaned = 1000 + MAX_TICKET_LIFETIME * 1000;
+        server.advance_clock(cleaned, unix(cleaned));
+        assert!(!directory.0.join("05".repeat(16)).exists());
+        // The first player returns with a fresh ticket and its certificate.
+        let ticket = Ticket {
+            room: [5; 16],
+            source: 0,
+            expires: unix(cleaned) + 200,
+            nonce: [9; 16],
+            player: [1; 16],
+            generation: 1,
+        }
+        .sign(&key)
+        .unwrap();
+        let packet_key = *derive_packet_key(&key, &ticket).expose_for_https();
+        let mut returner = ClientSession::new(&ticket, packet_key, [89; 32]).unwrap();
+        connect(&mut server, &mut returner, cleaned);
+        assert!(matches!(
+            configure(&mut server, &mut returner, &cert, cleaned).as_slice(),
+            [OrderEvent::Error {
+                code: OrderError::Inactive,
+                ..
+            }]
+        ));
+        assert!(!directory.0.join("05".repeat(16)).exists());
+        // The marker lasts until the certificate expires.
+        server.advance_clock(1_000_000, 2000);
+        assert!(server.ended_orderings.is_empty());
+    }
+
     /// A started journaled match whose archive fails at 112 seconds, when a
     /// pull from the start, past the hot cache, reads a broken index.
     fn failed_match(directory: &TestDirectory) -> (RelayServer, ClientSession) {
@@ -3697,10 +3807,13 @@ impl RelayServer {
             directory.retry(now_ms);
             for room in self.rooms.values_mut() {
                 if let Some(ordering) = room.ordering.as_mut()
-                    && ordering.finished_at.is_some()
                     && let Some(journal) = ordering.journal.as_mut()
                 {
-                    directory.settle(journal, ordering.sealed - ordering.head);
+                    if ordering.finished_at.is_some() {
+                        directory.settle(journal, ordering.sealed - ordering.head);
+                    } else if !ordering.storage_failed {
+                        directory.reserve_frames(journal);
+                    }
                 }
             }
         }
@@ -3734,6 +3847,10 @@ impl RelayServer {
             // inactive tombstone until every old hop ticket has expired.
             if !retire {
                 continue;
+            }
+            if !ordering.expired(now) {
+                self.ended_orderings
+                    .insert(id, ordering.certificate.expires);
             }
             room.ordering = None;
             if room.peers.is_empty() {
@@ -3841,6 +3958,7 @@ impl RelayServer {
                 .rooms
                 .get(&message.ticket.room)
                 .is_some_and(|room| room.ordering_cancelled)
+                || self.ended_orderings.contains_key(&message.ticket.room)
             {
                 return self.ordering_reply(message.ticket, error(OrderError::Inactive, 0), now);
             }

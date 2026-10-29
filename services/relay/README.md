@@ -162,7 +162,9 @@ started or not), or the match's final frame ends participation. The certificate
 bounds only a startup; a started room ends at its final frame, which pauses
 postpone, and is retired regardless 48 hours and 3 minutes after it was created.
 Once every source has departed, a
-300-second terminal replay grace precedes exact-file cleanup. No reader
+300-second terminal replay grace precedes exact-file cleanup. Until its
+certificate expires, a cleaned-up match answers Ready with `Inactive`, so a
+player returning later cannot start a new timeline under its ID. No reader
 acknowledgement gates advancement or retention.
 The service checks deadlines every6ms even when no packets arrive.
 
@@ -183,9 +185,13 @@ explicit absolute `VERA_RELAY_STATE_DIR` for local development. Journal files
 are mode0600 in a mode0700 directory named only from the16-byte signed room ID.
 They contain encrypted batches and public ordering metadata, never payload keys.
 Journal reservations share 8 GiB and never preallocate disk space. Each room
-reserves 24 hours of empty frame ends and all departures at its certified FPS
-(21–124 MiB) plus 32 MiB of commands per certified source: about 52 two-player
-or 23 eight-player matches at once at 45 FPS, 43 two-player at 60 FPS. Reaching
+reserves all departures, an hour of empty frame ends at its certified FPS
+(0.9–5.2 MiB) and 32 MiB of commands per certified source, and keeps what it
+wrote: about 120 two-player or 31 eight-player new matches fit at once at 45
+FPS, 118 two-player at 60 FPS. Once less than half an hour of frame ends is
+left, a live room reserves the next hour. When that does not fit beside the
+other rooms, it keeps trying while its remaining frame ends last, then fails
+with `StorageUnavailable` like a journal out of space. Reaching
 the command allowance backpressures new batches while the clock and already
 accepted entries remain writable. A finished room keeps only the bytes it wrote
 through its replay grace. A room whose files could not all be created, or whose

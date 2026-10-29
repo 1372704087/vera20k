@@ -21,13 +21,17 @@ const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
 const ARCHIVE: &str = "archive";
 const ENDED_AGE: Duration =
     Duration::from_millis(super::sequenced::ROOM_LIFETIME_MS + super::MAX_TICKET_LIFETIME * 1000);
+// A live room reserves its frame ends an hour of play at a time, and the next
+// hour once less than half of one is left, so it holds only what it can write
+// soon rather than a whole day up front.
+const FRAME_END_CHUNK_SECONDS: u64 = 60 * 60;
 
 pub(super) struct JournalDirectory {
     root: PathBuf,
     // Bytes per room, logical and never a disk preallocation: a live room
-    // holds its whole quota, a finished one only what it wrote. Abandoned
-    // journals found after restart, and failed ones, hold their size and are
-    // never overwritten.
+    // holds what it wrote plus its quota for what it can soon write, a
+    // finished one only what it wrote. Abandoned journals found after
+    // restart, and failed ones, hold their size and are never overwritten.
     reserved: BTreeMap<[u8; 16], u64>,
     total: u64,
     // Ended or partly created archives whose exact files are still on disk.
@@ -118,8 +122,8 @@ impl JournalDirectory {
         self.root.join(name)
     }
 
-    /// Admits a room only while its whole quota fits beside every other
-    /// reservation: its clock records for the full match lifetime and each
+    /// Admits a room only while its quota fits beside every other
+    /// reservation: its departures, its first hour of clock records and each
     /// source's command allowance.
     pub(super) fn create(
         &mut self,
@@ -130,7 +134,9 @@ impl JournalDirectory {
         if self.reserved.contains_key(&room) {
             return Err(io::ErrorKind::AlreadyExists.into());
         }
-        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
+        let frames = 24 * 60 * 60 * u64::from(tick_hz) + 2;
+        let chunk_frames = FRAME_END_CHUNK_SECONDS * u64::from(tick_hz);
+        let reserved_tail = chunk_frames.min(frames) * FRAME_END_BYTES
             + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
         let quota = reserved_tail + u64::from(sources) * SOURCE_COMMAND_QUOTA;
         if self.total + quota > GLOBAL_QUOTA {
@@ -166,7 +172,33 @@ impl JournalDirectory {
             reserved_tail,
             pending: 0,
             failed: false,
+            chunk_frames,
+            unreserved_frames: frames.saturating_sub(chunk_frames),
         })
+    }
+
+    /// Reserves a live room's next hour of frame ends once less than half an
+    /// hour is left. When it does not fit beside every other reservation, the
+    /// room keeps trying while what it holds lasts, then fails like any
+    /// journal out of space.
+    pub(super) fn reserve_frames(&mut self, journal: &mut Journal) {
+        if journal.unreserved_frames == 0
+            || journal.reserved_tail >= journal.chunk_frames / 2 * FRAME_END_BYTES
+        {
+            return;
+        }
+        let frames = journal.chunk_frames.min(journal.unreserved_frames);
+        let bytes = frames * FRAME_END_BYTES;
+        if self.total + bytes > GLOBAL_QUOTA {
+            return;
+        }
+        if let Some(reserved) = self.reserved.get_mut(&journal.room) {
+            *reserved += bytes;
+            self.total += bytes;
+            journal.quota += bytes;
+            journal.reserved_tail += bytes;
+            journal.unreserved_frames -= frames;
+        }
     }
 
     /// Ends a released room's archive. Only a clean, legitimately ended match
@@ -306,6 +338,9 @@ pub(super) struct Journal {
     reserved_tail: u64,
     pending: u64,
     failed: bool,
+    chunk_frames: u64,
+    // Frame ends of the full match lifetime not yet reserved.
+    unreserved_frames: u64,
 }
 
 impl Journal {

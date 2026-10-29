@@ -38,6 +38,8 @@ mod distributed_fire;
 mod emp;
 mod foot_air;
 mod pip_fill;
+#[cfg(feature = "ares")]
+mod type_conversion;
 pub(crate) use distributed_fire::DistributedFireCandidate;
 pub use pip_fill::rounded_pip_quantity;
 
@@ -195,6 +197,16 @@ pub struct GameEntity {
     /// LimboLaunch has removed this Unit from Logic; Unlimbo preserves it.
     #[serde(default)]
     pub unit_firing_counter: crate::sim::animation::UnitFiringCounter,
+    /// UnitClass+6C8. The constructor clears this next-Unit reference at
+    /// 7353EC; the map reader74368C, ChangeOwner7463A0 and Find_Path4D3920
+    /// share it (original gamemd.exe instructions). Not yet ported: the
+    /// Accelerates speed hand-off in Process_Drive_Track 4B1218 / Ship 6A08F0
+    /// and the IsTrain-gated Stop_Moving/track consumers (no retail IsTrain).
+    unit_follower: Option<u64>,
+    /// UnitClass+6D0, constructed false at7353F8. This retained byte is
+    /// independent of incoming links: PointerExpired7446E0 clears only the
+    /// reference, and ChangeOwner7463A0 writes the byte separately (gamemd).
+    is_unit_follower: bool,
     /// The owning house (`TechnoClass+0x21C`), interned.
     /// `TechnoClass::ChangeOwner @ 0x007014A0` moves it; here only the store's
     /// owner-change path does ([`Self::set_owner_from_store`]).
@@ -330,8 +342,9 @@ pub struct GameEntity {
     distributed_fire: distributed_fire::DistributedFireState,
 
     // --- Optional subsystem components ---
-    /// Locomotor state — present on moving types and on zero-speed Foot
-    /// Drive/Ship types whose native class-local payload still exists.
+    /// Locomotor state — present on moving types, on every Infantry, and on
+    /// zero-speed Drive/Ship Units and Aircraft whose native class-local
+    /// payload still exists.
     pub locomotor: Option<LocomotorState>,
     /// FootClass-style owner navigation destination state.
     ///
@@ -516,6 +529,9 @@ pub struct GameEntity {
     /// Per-instance Deliver.BaseNormal override, not a mutation of its type.
     #[serde(default)]
     unit_delivery_no_base: bool,
+    /// Ares launch source; the entity owns its lifetime and save state.
+    #[serde(default)]
+    hunter_seeker_origin: Option<crate::sim::hunter_seeker::HunterSeekerOrigin>,
     /// Building+66C charger pointers and +661 weapon latch, owned by
     /// `sim::tesla_charging` independently of House power accounting.
     #[serde(default)]
@@ -595,12 +611,6 @@ pub struct GameEntity {
     /// Instance stealth grant; sim::cloak_disguise owns its mutations.
     #[serde(default)]
     pub(crate) stealth_ability: StealthAbility,
-    /// Last sensor coverage actually deposited into CellClass counters.
-    /// Removal must use these cached owner/location/radius values after the
-    /// entity's current facts have changed.
-    /// `sensor_lifecycle` owns it.
-    #[serde(default)]
-    pub(crate) sensor_deposit: Option<crate::sim::sensor_lifecycle::SensorDeposit>,
     /// Core disguise identity, timestamp, and reveal tuple, owned by
     /// `cloak_disguise`.
     #[serde(default)]
@@ -735,6 +745,13 @@ pub struct GameEntity {
     ///
     /// [`CapturedInfantryType`]: crate::sim::world::CapturedInfantryType
     pub(crate) capture_infantry_type_index: crate::sim::world::CapturedInfantryType,
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    pub(crate) vehicle_driver: crate::sim::vehicle_theft::VehicleDriverState,
+    /// Ares TechnoExt+A8/AC, owned by sim::bounty; presentation only.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    pub(crate) bounty_display: crate::sim::bounty::BountyDisplayState,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -921,12 +938,30 @@ impl GameEntity {
         self.unit_delivery_no_base = self.category() == EntityCategory::Structure && !base_normal;
     }
 
+    pub(crate) fn hunter_seeker_origin(
+        &self,
+    ) -> Option<crate::sim::hunter_seeker::HunterSeekerOrigin> {
+        self.hunter_seeker_origin
+    }
+
+    #[cfg(feature = "ares")]
+    pub(crate) fn set_hunter_seeker_origin(
+        &mut self,
+        origin: crate::sim::hunter_seeker::HunterSeekerOrigin,
+    ) {
+        self.hunter_seeker_origin = Some(origin);
+    }
+
     /// Saved extension effects must be admitted by the build that resumes them.
     /// Keep the raw delivery override private to its entity owner.
     pub(crate) fn validate_ares_build_compatibility(&self) -> Result<(), &'static str> {
         #[cfg(not(feature = "ares"))]
         if self.unit_delivery_no_base {
             return Err("delivery base overrides require a build with the ares feature");
+        }
+        #[cfg(not(feature = "ares"))]
+        if self.hunter_seeker_origin.is_some() {
+            return Err("hunter seeker launch sources require a build with the ares feature");
         }
         Ok(())
     }
@@ -1471,7 +1506,8 @@ impl GameEntity {
         self.building_loss_index = -1;
     }
 
-    /// Immutable indexed type identity, established by construction/decoding.
+    /// Indexed type identity, established by construction/decoding and changed
+    /// only by the same-object type-conversion owner.
     pub fn type_ref(&self) -> InternedId {
         self.type_ref
     }
@@ -1487,6 +1523,23 @@ impl GameEntity {
         production: (crate::rules::object_type::ObjectCategory, InternedId),
     ) {
         self.secret_lab_fallback = Some(production);
+    }
+
+    /// One rules-to-model binding for construction and live type changes.
+    pub(crate) fn object_uses_voxel(
+        type_id: &str,
+        object: &crate::rules::object_type::ObjectType,
+        rules: &crate::rules::ruleset::RuleSet,
+    ) -> bool {
+        rules
+            .art()
+            .resolve_metadata_entry(type_id, &object.image)
+            .map(|entry| entry.voxel)
+            .unwrap_or(matches!(
+                object.category,
+                crate::rules::object_type::ObjectCategory::Vehicle
+                    | crate::rules::object_type::ObjectCategory::Aircraft
+            ))
     }
 
     /// A VXL/HVA model (true) or an SHP sprite.
@@ -1525,6 +1578,28 @@ impl GameEntity {
     /// TeamType::Get_Group6F1870 supply raw signed values.
     pub(crate) fn assign_object_group(&mut self, group: i32) {
         self.object_group = group;
+    }
+
+    /// UnitClass+6C8, the next Unit in the authored FOLLOWS chain.
+    pub(crate) const fn unit_follower(&self) -> Option<u64> {
+        self.unit_follower
+    }
+
+    /// UnitClass+6D0; this is saved state, not a derived incoming-link count.
+    pub(crate) const fn is_unit_follower(&self) -> bool {
+        self.is_unit_follower
+    }
+
+    /// The map/owner/expiry callers own admission and ordering. In particular,
+    /// changing this reference does not change either Unit's follower byte.
+    pub(crate) fn set_unit_follower(&mut self, follower: Option<u64>) {
+        assert_eq!(self.category, EntityCategory::Unit);
+        self.unit_follower = follower;
+    }
+
+    pub(crate) fn set_is_unit_follower(&mut self, is_follower: bool) {
+        assert_eq!(self.category, EntityCategory::Unit);
+        self.is_unit_follower = is_follower;
     }
 
     pub(crate) const fn production_start_price(&self) -> i32 {
@@ -1703,14 +1778,23 @@ impl GameEntity {
     /// component only as an order marker (`sim::slave_manager`), so it is not
     /// one.
     pub fn is_harvester(&self) -> bool {
-        self.miner
-            .as_ref()
-            .is_some_and(|miner| miner.kind() != crate::sim::miner::MinerKind::Slave)
+        self.miner.as_ref().is_some_and(|miner| {
+            matches!(
+                miner.kind(),
+                crate::sim::miner::MinerKind::War | crate::sim::miner::MinerKind::Chrono
+            )
+        })
     }
 
     /// The native Techno+3D0 useless latch read by Repair depots.
     pub(crate) const fn is_useless(&self) -> bool {
         self.useless
+    }
+
+    /// Ares TechnoExt+9C. Gameplay and drawing read the same driver state.
+    #[cfg(feature = "ares")]
+    pub fn driver_killed(&self) -> bool {
+        self.vehicle_driver.killed()
     }
 
     /// `Mission_Harvest`'s two writes to Techno+3D0 (`0x0073E8FA`,
@@ -1789,6 +1873,8 @@ impl GameEntity {
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
             body_frame_counter: Default::default(),
             unit_firing_counter: Default::default(),
+            unit_follower: None,
+            is_unit_follower: false,
             owner,
             initial_owner: owner,
             #[cfg(feature = "ares")]
@@ -1857,6 +1943,7 @@ impl GameEntity {
             building_art: Default::default(),
             building_online: Default::default(),
             unit_delivery_no_base: false,
+            hunter_seeker_origin: None,
             tesla_charge: Default::default(),
             tesla_charger: Default::default(),
             building_last_operational: Default::default(),
@@ -1874,7 +1961,6 @@ impl GameEntity {
             mega_mission: Default::default(),
             cloak: None,
             stealth_ability: StealthAbility::default(),
-            sensor_deposit: None,
             disguise: Some(DisguiseRuntime::new(construction_frame)),
             low_bridge_tube_state: None,
             capture_manager: None,
@@ -1911,6 +1997,10 @@ impl GameEntity {
             passenger_role: PassengerRole::default(),
             display_type_override: Default::default(),
             capture_infantry_type_index: crate::sim::world::CapturedInfantryType::constructed(),
+            #[cfg(feature = "ares")]
+            vehicle_driver: Default::default(),
+            #[cfg(feature = "ares")]
+            bounty_display: Default::default(),
             pending_c4_detonation: Default::default(),
             has_been_captured: Default::default(),
             no_survivor: Default::default(),
@@ -2303,6 +2393,11 @@ impl GameEntity {
     pub(crate) fn hash_capture_infantry_type(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         self.capture_infantry_type_index.get().hash(hasher);
+        #[cfg(feature = "ares")]
+        if self.vehicle_driver != Default::default() {
+            b"ares-vehicle-driver-v1".hash(hasher);
+            self.vehicle_driver.hash(hasher);
+        }
     }
 }
 

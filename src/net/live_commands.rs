@@ -15,7 +15,9 @@ use std::num::NonZeroU32;
 mod sequenced;
 mod startup;
 mod timing;
-pub use sequenced::SequencedError;
+pub use sequenced::{
+    CommandDeliveryTrace, MultiplayerPauseStatus, SequencedError, SequencedTiming,
+};
 pub use startup::{StartupAgreement, StartupError};
 
 use crate::sim::world::{NetworkCommandQueues, NetworkQueueContext, NetworkQueuePass};
@@ -257,6 +259,21 @@ impl LiveCommandSession {
         self.sequenced.is_some()
     }
 
+    /// Remote Houses whose connection the relay ended in frames dispatched so
+    /// far; their shared EVENT_REMOVEPLAYER already ran in that frame.
+    pub fn take_lost_houses(&mut self) -> Vec<i8> {
+        self.sequenced
+            .as_mut()
+            .map_or_else(Vec::new, |session| session.take_lost())
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn mark_sequenced_started_for_test(&mut self) {
+        if let Some(session) = &mut self.sequenced {
+            session.mark_started_for_test();
+        }
+    }
+
     /// Replay records this immutable admission cadence once at startup. Solo
     /// online Local input and relay commits both dispatch each frame; ordinary
     /// LAN retains its configured native send cadence.
@@ -282,6 +299,53 @@ impl LiveCommandSession {
 
     pub fn fixed_frames_per_second(&self) -> Option<u16> {
         self.sequenced.as_ref().map(|session| session.fps)
+    }
+
+    /// App-only pacing observation. Availability and canonical dispatch remain
+    /// owned by this session, irrespective of presentation's chosen cadence.
+    pub fn sequenced_timing(&self) -> Option<SequencedTiming> {
+        self.sequenced.as_ref()?.timing()
+    }
+
+    /// App diagnostics: recent local command batches' send, relay frame
+    /// assignment and sealed-frame receipt times.
+    pub fn command_delivery_traces(&self) -> impl Iterator<Item = &CommandDeliveryTrace> {
+        self.sequenced
+            .iter()
+            .flat_map(|session| session.command_traces())
+    }
+
+    /// Shared pause is a relay timeline control, independent of local menus.
+    /// Unsupported or mixed-version matches leave it unavailable.
+    pub fn multiplayer_pause(&self) -> Option<MultiplayerPauseStatus> {
+        let mut status = self.sequenced.as_ref()?.pause_status();
+        status.available &= !self.sequenced_failed;
+        Some(status)
+    }
+
+    /// Request an explicit state. Network service retries the same request;
+    /// canonical receipt, never this button press, determines the boundary.
+    pub fn request_multiplayer_pause(&mut self, paused: bool) -> bool {
+        !self.sequenced_failed
+            && self
+                .sequenced
+                .as_mut()
+                .is_some_and(|session| session.request_pause(paused))
+    }
+
+    /// Called only after a confirmed UI exit has queued its native EXIT.
+    /// Keep that command dispatchable even if a shared pause is in flight.
+    pub fn keep_running_for_exit(&mut self) {
+        if let Some(session) = self.sequenced.as_mut() {
+            session.keep_running_for_exit();
+        }
+    }
+
+    /// Whether a confirmed UI exit's EXIT waits for the relay to sequence it.
+    pub fn exit_requested(&self) -> bool {
+        self.sequenced
+            .as_ref()
+            .is_some_and(|session| session.exit_requested())
     }
 
     pub fn recovery_status(
@@ -335,6 +399,27 @@ impl LiveCommandSession {
         );
         if let Some(session) = &mut self.sequenced {
             session.service(&mut self.transport, now_wall_bucket.wrapping_shl(4));
+        }
+    }
+
+    /// Service the same transport and send fresh sequenced input while the
+    /// canonical frontier is closed. Queue ownership stays in Simulation;
+    /// this does not advance Logic or dispatch received commands. Native LAN
+    /// keeps its existing post-Logic transfer boundary.
+    pub fn service_pending_commands(
+        &mut self,
+        queues: &mut NetworkCommandQueues<'_>,
+        now_wall_bucket: u32,
+    ) {
+        self.service_transport(now_wall_bucket);
+        if !self.sequenced_failed
+            && let Some(session) = &mut self.sequenced
+        {
+            session.service_pending_commands(
+                &mut self.transport,
+                queues,
+                now_wall_bucket.wrapping_shl(4),
+            );
         }
     }
 
@@ -595,7 +680,15 @@ impl LiveCommandSession {
                 &mut self.last_service,
                 self.transport.service(now_wall_bucket),
             );
-            let result = session.poll(&mut self.transport, queues, context, now_millis);
+            // Transport-only service receives the same wall bucket. Do not
+            // alternate raw milliseconds with its rounded value: a later
+            // rounded sample can otherwise underflow sequenced retry timers.
+            let result = session.poll(
+                &mut self.transport,
+                queues,
+                context,
+                now_wall_bucket.wrapping_shl(4),
+            );
             self.sequenced_failed = result.is_err();
             return result;
         }

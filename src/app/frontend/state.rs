@@ -18,6 +18,14 @@ pub(crate) struct FrontendState {
     /// External offline launch: returning from the session closes the process for its client.
     pub(crate) external_launch: bool,
     pub(crate) external_launch_error: Option<String>,
+    /// The external launch's local result, first decided wins
+    /// (docs/spawn.md); see `App::external_match_result`.
+    pub(crate) external_match_result: Option<crate::app::cncnet::ExternalMatchResult>,
+    /// Frames, duration and opponent departure for the launch report.
+    pub(crate) external_progress: crate::app::cncnet::ExternalLaunchProgress,
+    /// Browser launch is closing its network owners before engine exit.
+    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+    pub(crate) browser_exit_pending: bool,
     /// The Skirmish setup dialog's state.
     pub(crate) skirmish_shell_state: crate::ui::skirmish_shell::SkirmishShellState,
     /// Choose Map's last clicked game-type row `[0x008316FC]`: starts at -1,
@@ -30,6 +38,10 @@ pub(crate) struct FrontendState {
         crate::app::frontend::skirmish_session::MultiplayerShellRuntime,
     pub(crate) skirmish_shell_chrome:
         Option<crate::render::skirmish_shell_chrome::SkirmishShellChromeAtlas>,
+    /// The `DialogBackground.Image/.Palette` pair the shell chrome atlas was
+    /// built with. A game load that resolves a different pair drops the atlas
+    /// so it rebuilds with the side's three dialog slots.
+    pub(crate) shell_dialog_background: Option<(String, String)>,
     pub(crate) main_menu_shell_state: crate::ui::main_menu_shell::MainMenuShellState,
     pub(crate) single_player_shell_state: crate::ui::single_player_shell::SinglePlayerShellState,
     /// Shared descriptor-driven input authority for the front-end shell dialogs

@@ -177,17 +177,6 @@ impl GeneratedTechnoInitTable {
     }
 }
 
-fn object_uses_voxel(type_id: &str, object: &ObjectType, rules: &RuleSet) -> bool {
-    rules
-        .art()
-        .resolve_metadata_entry(type_id, &object.image)
-        .map(|entry| entry.voxel)
-        .unwrap_or(matches!(
-            object.category,
-            ObjectCategory::Vehicle | ObjectCategory::Aircraft
-        ))
-}
-
 impl Simulation {
     /// Build one deliberately lifecycle-free Techno for diagnostic tools.
     ///
@@ -397,8 +386,20 @@ impl Simulation {
         self.begin_phobos_map_objects();
         let result = self.with_object_placement_scope(|sim| {
             let mut count: u32 = 0;
+            let mut follows = Vec::new();
+            let mut unit_reader_finished = false;
 
             for (entity_index, map_ent) in entities.iter().enumerate() {
+                // Full_Init687AA7 completes UnitReadINI743664 before entering
+                // Aircraft41B110. Generated rows preconsume construction and
+                // do not run this authored Unit reader a second time.
+                if generated_inits.is_none()
+                    && !unit_reader_finished
+                    && map_ent.category != EntityCategory::Unit
+                {
+                    sim.link_authored_unit_followers(&follows);
+                    unit_reader_finished = true;
+                }
                 let Some(owner) = sim.map_entity_owner_before_constructor(
                     map_ent,
                     rules,
@@ -463,7 +464,7 @@ impl Simulation {
                 };
                 let uses_voxel: bool = {
                         authored_health::map_object_type(map_ent.category, &map_ent.type_id, rules)
-                            .map(|object| object_uses_voxel(&map_ent.type_id, object, rules))
+                            .map(|object| GameEntity::object_uses_voxel(&map_ent.type_id, object, rules))
                     }
                     .unwrap_or(uses_voxel_default);
 
@@ -550,6 +551,15 @@ impl Simulation {
                     .author_recruitable(map_ent.recruitable_a, map_ent.recruitable_b);
                 // gamemd.exe Unit7434CA/Aircraft41B33D/Infantry51FD89, before Unlimbo.
                 ge.assign_object_group(map_ent.group);
+                // UnitReadINI74351B..743575 appends before Unlimbo. A failed
+                // placement deletes its Unit but retains this vector entry,
+                // shifting later Unit-array pairings in the final pass.
+                if generated_inits.is_none()
+                    && map_ent.category == EntityCategory::Unit
+                    && let Some(index) = map_ent.follows
+                {
+                    follows.push(index);
+                }
 
                 Self::install_techno_components(&mut sim.interner, &sim.session, &sim.houses,
                     &mut ge,
@@ -591,7 +601,10 @@ impl Simulation {
                 if matches!(outcome, RevealOutcome::Revealed { .. }) {
                     Self::initialize_cloak_after_unlimbo(&sim.interner, &sim.session, &mut sim.substrate, stable_id, rules);
                     sim.add_unit_sensor_after_unlimbo(stable_id, rules, overlay_registry);
-                    sim.add_building_sensor_array_if_powered(stable_id, rules, overlay_registry);
+                    // ReadScenarioBuildings (0x0044F820) makes no sensor call:
+                    // a map building stamps only if the first opening its
+                    // Unlimbo already ran (0x00440D61 / 0x00440E76) passed
+                    // Is_Operational.
                 }
                 Self::commit_map_placement_mission(&sim.session, &mut sim.substrate, stable_id, map_ent.mission);
                 // ReadINI44FC1B..44FD23: the factory callback is inside
@@ -644,12 +657,49 @@ impl Simulation {
                 }
             }
 
+            if generated_inits.is_none() && !unit_reader_finished {
+                sim.link_authored_unit_followers(&follows);
+            }
             log::info!("Spawned {} entities", count);
             Ok(count)
         });
         #[cfg(feature = "phobos")]
         self.finish_phobos_map_objects();
         result
+    }
+
+    /// UnitClass::ReadINI743664..7436AA (original gamemd instructions): pair
+    /// initialized operands with the surviving Unit array, not with map keys
+    /// or successful rows. There are no callbacks inside this post-read pass.
+    fn link_authored_unit_followers(&mut self, follows: &[i32]) {
+        let units: Vec<_> = self.substrate.entities.unit_registry_ids().collect();
+        for (&id, &index) in units.iter().zip(follows) {
+            let peer = usize::try_from(index)
+                .ok()
+                .and_then(|index| units.get(index))
+                .copied();
+            self.substrate
+                .entities
+                .get_mut(id)
+                .unwrap()
+                .set_unit_follower(peer);
+            if let Some(peer) = peer {
+                self.substrate
+                    .entities
+                    .get_mut(peer)
+                    .unwrap()
+                    .set_is_unit_follower(true);
+            }
+        }
+        if follows.len() < units.len() {
+            // Native indexes uninitialized backing memory for a short line;
+            // keep the unmatched constructor state and report that boundary.
+            log::warn!(
+                "UnitReadINI743664 has {} Units but only {} initialized FOLLOWS operands; unmatched native reads are unsupported",
+                units.len(),
+                follows.len()
+            );
+        }
     }
 
     fn map_entity_owner_before_constructor(
@@ -2010,8 +2060,8 @@ impl Simulation {
     }
 
     /// Store a new object, then place it through active
-    /// `ObjectClass::Reveal @ 0x005F4EC0`: coordinates commit, the mode-one
-    /// playfield gate and Mark(PUT) own the result, and eligible logic
+    /// `ObjectClass::Reveal @ 0x005F4EC0`: coordinates commit, Mark(PUT)
+    /// owns the result, and eligible logic
     /// registration happens last. A failed attempt keeps the constructed
     /// identity in limbo for its caller to retain or discard.
     #[cfg(any(test, feature = "test-support"))]
@@ -2288,8 +2338,10 @@ impl Simulation {
             {
                 return PlacementEvidence::RejectedEarly;
             }
-            // Keep the Reveal playfield gate (see its residual) and Mark. The
-            // class decision does not make PlaceAnywhere bypass the gate.
+            // These admissions hold the building's only playfield refusal:
+            // CanPlaceAt asks Is_Clear_To_Build (`0x0047C620`) of each
+            // foundation cell unless the type is PlaceAnywhere. No later
+            // Unlimbo layer asks; Mark(PUT) owns the rest.
             return PlacementEvidence::EvaluateMark;
         }
         match self.foot_can_enter(

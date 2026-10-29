@@ -7,6 +7,8 @@ use sha2::Digest;
 
 use super::*;
 
+pub(crate) mod federation;
+
 pub const ORDERING_CERTIFICATE_LEN: usize = 66;
 pub const ORDERING_BATCH_CAPACITY: usize = 512;
 pub const ORDERING_PULL_LIMIT: usize = 32;
@@ -20,11 +22,48 @@ const ROOM_HISTORY_BYTES: usize = 2 * 1024 * 1024;
 const GLOBAL_ORDERING_BYTES: usize = 64 * 1024 * 1024;
 const MAX_SOURCE_PENDING: usize = 8;
 const MAX_FRAME_BATCHES: usize = 32;
+// A loading source that sends nothing this long departs in the first frame,
+// and the others start without it.
+const LOADING_SILENCE_MS: u64 = 60_000;
+// Even a loading source that still answers departs once the room is this old.
+const LOADING_LIMIT_MS: u64 = 180_000;
+// A started source silent this long departs through the stream. A shorter
+// outage keeps its place for the returning player's replay.
+const ABSENT_MS: u64 = 600_000;
+// A started room ends at its final frame, which pauses postpone, and silence
+// ends an abandoned one. Past this age it is retired anyway: a day of play and
+// as long again paused.
+pub(super) const ROOM_LIFETIME_MS: u64 =
+    LOADING_LIMIT_MS + START_DELAY_MS + 2 * MAX_MATCH_SECONDS * 1000;
+// After a resume nobody may pause for this long, so no player can hold a
+// match paused by pausing again after every resume.
+const PAUSE_COOLDOWN_MS: u64 = 30_000;
 const OPAQUE_OVERHEAD: usize = 24 + 16;
 const ENTRY_OVERHEAD: usize = 128;
 const READY_REQUEST: u8 = 0;
 const SUBMIT_REQUEST: u8 = 1;
 const PULL_REQUEST: u8 = 2;
+const PUSH_REQUEST: u8 = 4;
+const PAUSE_REQUEST: u8 = 5;
+const PAUSE_STATUS_EVENT: u8 = 8;
+const PAUSE_EVENT: u8 = 9;
+const PAUSE_ENTRY_BYTES: usize = 23;
+const PUSH_EVENT: u8 = 7;
+const PUSH_WINDOW: u64 = 64;
+const PUSH_LEASE_MS: u64 = 3_000;
+const PUSH_STATUS_MS: u64 = 250;
+const PUSH_PEER_PACKETS: usize = 8;
+const PUSH_ROOM_PACKETS: usize = 32;
+const PUSH_DRAIN_PACKETS: usize = 128;
+const PUSH_DRAIN_BYTES: usize = 96 * 1024;
+// A reader sees a lost push only at a later entry, then repairs it a round
+// trip later. Unacknowledged entries are pushed once more when the oldest one
+// still owed a copy is this old: past a back-to-back drop and inside the
+// reader's one-frame gap grace.
+const PUSH_REPEAT_MS: u64 = 8;
+// Repeats per second relay-wide. They spend no fresh budget, so they add at
+// most one room's packet budget to the relay's ordering output.
+const PUSH_REPEAT_PACKETS: u64 = 8192;
 pub(super) const LEAVE_REQUEST: u8 = 3;
 const READY_EVENT: u8 = 0;
 const STATUS_EVENT: u8 = 1;
@@ -146,12 +185,23 @@ pub struct OrderStatus {
 
 #[derive(Debug)]
 pub enum OrderEntry {
+    /// A barrier after `frame` is complete, not another simulation frame.
+    Pause {
+        sequence: u64,
+        frame: u32,
+        epoch: u64,
+        paused: bool,
+        source: u8,
+    },
     Batch {
         sequence: u64,
         frame: u32,
         source: u8,
         batch_id: u64,
-        bytes: DecryptedPayload,
+        /// `None` when the contents fail authentication under the match
+        /// payload key. Every member holding that key reads the same relayed
+        /// bytes, so all of them find the same batch unreadable.
+        bytes: Option<DecryptedPayload>,
     },
     FrameEnd {
         sequence: u64,
@@ -161,11 +211,29 @@ pub enum OrderEntry {
         sequence: u64,
         frame: u32,
         source: u8,
+        /// The relay ended a silent source; otherwise it left by Leave or the
+        /// match lifetime. On the wire, a 15th byte 1 is DestroyConnection's
+        /// connection-lost error code.
+        lost: bool,
     },
 }
 
 #[derive(Debug)]
 pub enum OrderEvent {
+    /// Control acknowledgement only. The canonical Pause entry owns admission.
+    PauseStatus {
+        supported_sources: u32,
+        active_sources: u32,
+        request_id: u64,
+        epoch: u64,
+        paused: bool,
+        frame: u32,
+    },
+    /// Acknowledges this hop's opt-in and its cumulative contiguous cursor.
+    PushState {
+        enabled: bool,
+        next_sequence: u64,
+    },
     Ready {
         ready_mask: u32,
         sources_mask: u32,
@@ -189,15 +257,29 @@ struct SealedBatch {
     id: u64,
     digest: [u8; 32],
     opaque: Vec<u8>,
-    acknowledged: bool,
 }
 
 #[derive(Clone)]
 pub(super) struct ClientOrdering {
     certificate: [u8; ORDERING_CERTIFICATE_LEN],
     agreement: [u8; 32],
-    last: Option<SealedBatch>,
+    // The four most recently sealed batches retain their exact ciphertext.
+    // Accepted entries stay cached until a new batch needs the slot, so a
+    // delayed app-side acceptance receipt can still retry immutable bytes.
+    sealed: VecDeque<SealedBatch>,
+    next_batch: u64,
+    accepted_through: u64,
     leave: Option<(u64, Vec<u8>)>,
+}
+
+impl ClientOrdering {
+    fn accept_through(&mut self, id: u64) -> Result<(), RelayError> {
+        if id >= self.next_batch {
+            return Err(RelayError::Authentication);
+        }
+        self.accepted_through = self.accepted_through.max(id);
+        Ok(())
+    }
 }
 
 fn order_cipher(key: &SecretKey, room: &[u8; 16], source: u8) -> XChaCha20Poly1305 {
@@ -219,6 +301,10 @@ fn order_aad(room: &[u8; 16], source: u8, batch_id: u64) -> [u8; 29] {
 }
 
 impl ClientSession {
+    /// Bounded client pipeline, below the existing relay's eight pending
+    /// batches per source. This changes neither its wire format nor admission.
+    pub const ORDERING_SUBMISSION_WINDOW: usize = 4;
+
     /// Move the current stream cache at hop-lease promotion, after the old
     /// route's last receive/submit. Candidate creation alone is only a snapshot.
     pub fn adopt_ordering_from(&mut self, previous: &mut Self) -> Result<(), RelayError> {
@@ -264,7 +350,9 @@ impl ClientSession {
             self.ordering = Some(ClientOrdering {
                 certificate,
                 agreement,
-                last: None,
+                sealed: VecDeque::new(),
+                next_batch: 1,
+                accepted_through: 0,
                 leave: None,
             });
         }
@@ -274,7 +362,8 @@ impl ClientSession {
         self.encode(CONTROL, BROADCAST, &payload, out)
     }
 
-    /// One in-flight batch, stable ciphertext across retries and hop renewals.
+    /// Consecutive bounded batches, with stable ciphertext across retries and
+    /// hop renewals. Retired IDs can never be sealed again with the same nonce.
     pub fn submit_ordering(
         &mut self,
         batch_id: u64,
@@ -289,25 +378,20 @@ impl ClientSession {
         }
         let ordering = self.ordering.as_mut().ok_or(RelayError::Unregistered)?;
         let digest: [u8; 32] = Sha256::digest(plaintext).into();
-        let same = ordering
-            .last
-            .as_ref()
-            .is_some_and(|last| last.id == batch_id);
-        if same {
-            if ordering.last.as_ref().unwrap().digest != digest {
+        if let Some(batch) = ordering.sealed.iter().find(|batch| batch.id == batch_id) {
+            if batch.digest != digest {
                 return Err(RelayError::Authentication);
             }
         } else {
-            let expected = match &ordering.last {
-                Some(last) if last.acknowledged => {
-                    last.id.checked_add(1).ok_or(RelayError::CounterExhausted)?
-                }
-                Some(_) => return Err(RelayError::Replay),
-                None => 1,
-            };
-            if batch_id != expected {
+            if batch_id != ordering.next_batch {
                 return Err(RelayError::Replay);
             }
+            if batch_id - ordering.accepted_through - 1 >= Self::ORDERING_SUBMISSION_WINDOW as u64 {
+                return Err(RelayError::Full);
+            }
+            let next_batch = batch_id
+                .checked_add(1)
+                .ok_or(RelayError::CounterExhausted)?;
             let mut nonce = [0; 24];
             nonce[..16].copy_from_slice(&self.payload_prefix);
             nonce[16..].copy_from_slice(&batch_id.to_le_bytes());
@@ -322,14 +406,26 @@ impl ClientSession {
                 )
                 .map_err(|_| RelayError::Authentication)?;
             opaque.extend_from_slice(&tag);
-            ordering.last = Some(SealedBatch {
+            if ordering.sealed.len() == Self::ORDERING_SUBMISSION_WINDOW {
+                let oldest = ordering.sealed.front().expect("full sealed batch cache");
+                if oldest.id > ordering.accepted_through {
+                    return Err(RelayError::Full);
+                }
+                ordering.sealed.pop_front();
+            }
+            ordering.sealed.push_back(SealedBatch {
                 id: batch_id,
                 digest,
                 opaque,
-                acknowledged: false,
             });
+            ordering.next_batch = next_batch;
         }
-        let opaque = &ordering.last.as_ref().unwrap().opaque;
+        let opaque = &ordering
+            .sealed
+            .iter()
+            .find(|batch| batch.id == batch_id)
+            .expect("sealed or retained batch")
+            .opaque;
         let mut payload = Vec::with_capacity(9 + opaque.len());
         payload.push(SUBMIT_REQUEST);
         payload.extend_from_slice(&batch_id.to_le_bytes());
@@ -343,6 +439,46 @@ impl ClientSession {
         }
         let mut payload = vec![PULL_REQUEST];
         payload.extend_from_slice(&next_seq.to_le_bytes());
+        self.encode(CONTROL, BROADCAST, &payload, out)
+    }
+
+    /// Opt in to pushed canonical history, or acknowledge the next contiguous
+    /// received sequence. This watermark never advances simulation. Rebinding
+    /// or renewing the authenticated hop requires a fresh opt-in.
+    pub fn set_ordering_push(
+        &mut self,
+        enabled: bool,
+        next_sequence: u64,
+        out: &mut Vec<u8>,
+    ) -> Result<(), RelayError> {
+        if !self.ready || self.ordering.is_none() {
+            return Err(RelayError::Unregistered);
+        }
+        if next_sequence == 0 {
+            return Err(RelayError::Malformed);
+        }
+        let mut payload = vec![PUSH_REQUEST, u8::from(enabled)];
+        payload.extend_from_slice(&next_sequence.to_le_bytes());
+        self.encode(CONTROL, BROADCAST, &payload, out)
+    }
+
+    /// Request zero advertises pause support and asks for current status.
+    /// Positive IDs are monotonic per source for this match, including across
+    /// hop renewal. A retry keeps the exact ID, expected epoch and desired state.
+    pub fn control_ordering_pause(
+        &mut self,
+        request_id: u64,
+        expected_epoch: u64,
+        paused: bool,
+        out: &mut Vec<u8>,
+    ) -> Result<(), RelayError> {
+        if !self.ready || self.ordering.is_none() {
+            return Err(RelayError::Unregistered);
+        }
+        let mut payload = vec![PAUSE_REQUEST];
+        payload.extend_from_slice(&request_id.to_le_bytes());
+        payload.extend_from_slice(&expected_epoch.to_le_bytes());
+        payload.push(u8::from(paused));
         self.encode(CONTROL, BROADCAST, &payload, out)
     }
 
@@ -379,6 +515,29 @@ impl ClientSession {
             return Err(RelayError::Unregistered);
         }
         Ok(match (payload[0], payload.len()) {
+            (PAUSE_STATUS_EVENT, 30) if payload[25] <= 1 => OrderEvent::PauseStatus {
+                supported_sources: read_u32(payload, 1),
+                active_sources: read_u32(payload, 5),
+                request_id: read_u64(payload, 9),
+                epoch: read_u64(payload, 17),
+                paused: payload[25] != 0,
+                frame: read_u32(payload, 26),
+            },
+            (PAUSE_EVENT, PAUSE_ENTRY_BYTES) if payload[21] <= 1 && payload[22] < MAX_PEERS => {
+                OrderEvent::Entry(OrderEntry::Pause {
+                    sequence: read_u64(payload, 1),
+                    frame: read_u32(payload, 9),
+                    epoch: read_u64(payload, 13),
+                    paused: payload[21] != 0,
+                    source: payload[22],
+                })
+            }
+            (PUSH_EVENT, 10) if payload[1] <= 1 && read_u64(payload, 2) != 0 => {
+                OrderEvent::PushState {
+                    enabled: payload[1] != 0,
+                    next_sequence: read_u64(payload, 2),
+                }
+            }
             (READY_EVENT, 9) => OrderEvent::Ready {
                 ready_mask: read_u32(payload, 1),
                 sources_mask: read_u32(payload, 5),
@@ -394,13 +553,13 @@ impl ClientSession {
             }),
             (ACK_EVENT, 13) => {
                 let batch_id = read_u64(payload, 1);
-                if let Some(last) = self
-                    .ordering
-                    .as_mut()
-                    .and_then(|ordering| ordering.last.as_mut())
-                    && last.id == batch_id
-                {
-                    last.acknowledged = true;
+                if batch_id == 0 {
+                    return Err(RelayError::Malformed);
+                }
+                if let Some(ordering) = self.ordering.as_mut() {
+                    // The unchanged relay only accepts consecutive IDs, so
+                    // acceptance of this batch also acknowledges its prefix.
+                    ordering.accept_through(batch_id)?;
                 }
                 OrderEvent::Ack {
                     batch_id,
@@ -411,11 +570,14 @@ impl ClientSession {
                 sequence: read_u64(payload, 1),
                 frame: read_u32(payload, 9),
             }),
-            (DEPARTURE_EVENT, 14) if payload[13] < MAX_PEERS => {
+            (DEPARTURE_EVENT, length @ (14 | 15))
+                if payload[13] < MAX_PEERS && (length == 14 || payload[14] == 1) =>
+            {
                 OrderEvent::Entry(OrderEntry::Departure {
                     sequence: read_u64(payload, 1),
                     frame: read_u32(payload, 9),
                     source: payload[13],
+                    lost: length == 15,
                 })
             }
             (BATCH_EVENT, length)
@@ -434,40 +596,51 @@ impl ClientSession {
                 };
                 bytes.bytes[..length].copy_from_slice(&opaque[24..24 + length]);
                 let tag: [u8; 16] = opaque[24 + length..].try_into().unwrap();
-                order_cipher(&self.payload_key, &self.ticket.room, source)
+                // The hop MAC authenticated this entry's place in the stream,
+                // so an unreadable batch is still delivered: dropping it would
+                // leave a sequence gap that every pull repeats.
+                let readable = order_cipher(&self.payload_key, &self.ticket.room, source)
                     .decrypt_inout_detached(
                         &XNonce::from(nonce),
                         &order_aad(&self.ticket.room, source, batch_id),
                         (&mut bytes.bytes[..length]).into(),
                         &Tag::from(tag),
                     )
-                    .map_err(|_| RelayError::Authentication)?;
+                    .is_ok();
                 // The canonical batch is also its acceptance receipt. A lost
                 // ACK must not block the next local submission after replay.
                 if source == self.ticket.source
-                    && let Some(last) = self
-                        .ordering
-                        .as_mut()
-                        .and_then(|ordering| ordering.last.as_mut())
-                    && last.id == batch_id
+                    && let Some(ordering) = self.ordering.as_mut()
                 {
-                    if last.opaque != opaque {
+                    if ordering
+                        .sealed
+                        .iter()
+                        .find(|batch| batch.id == batch_id)
+                        .is_some_and(|batch| batch.opaque != opaque)
+                    {
                         return Err(RelayError::Authentication);
                     }
-                    last.acknowledged = true;
+                    ordering.accept_through(batch_id)?;
                 }
                 OrderEvent::Entry(OrderEntry::Batch {
                     sequence: read_u64(payload, 1),
                     frame: read_u32(payload, 9),
                     source,
                     batch_id,
-                    bytes,
+                    bytes: readable.then_some(bytes),
                 })
             }
-            (ERROR_EVENT, 10) => OrderEvent::Error {
-                code: OrderError::parse(payload[1])?,
-                expected: read_u64(payload, 2),
-            },
+            (ERROR_EVENT, 10) => {
+                let code = OrderError::parse(payload[1])?;
+                let expected = read_u64(payload, 2);
+                if code == OrderError::BatchGap {
+                    let accepted = expected.checked_sub(1).ok_or(RelayError::Malformed)?;
+                    if let Some(ordering) = self.ordering.as_mut() {
+                        ordering.accept_through(accepted)?;
+                    }
+                }
+                OrderEvent::Error { code, expected }
+            }
             _ => return Err(RelayError::Malformed),
         })
     }
@@ -491,12 +664,38 @@ fn ack(batch_id: u64, frame: u32) -> Vec<Vec<u8>> {
     vec![payload]
 }
 
+/// Per authenticated hop delivery credit, derived from the immutable stream.
+/// No packet bodies or simulation progress are retained here.
+#[derive(Clone, Copy)]
+pub(super) struct PushSubscription {
+    acknowledged_next: u64,
+    sent_next: u64,
+    // Entries before this were pushed twice or acknowledged.
+    repeat_next: u64,
+    // When the oldest entry still owed a second push was first sent.
+    unrepeated_since: Option<u64>,
+    refreshed_at: u64,
+    status_at: u64,
+    status_state: (bool, u32),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct PauseRequest {
+    id: u64,
+    expected_epoch: u64,
+    paused: bool,
+}
+
 #[derive(Default)]
 struct Source {
     principal: Option<([u8; 16], u64)>,
     last_batch: Option<(u64, u32, Vec<u8>)>,
     pending: usize,
     leave_packets: RateBudget,
+    pause_supported: bool,
+    pause_request: Option<PauseRequest>,
+    // Last authenticated packet from this source, keepalives included.
+    heard_ms: u64,
 }
 
 struct Pending {
@@ -516,14 +715,27 @@ pub(super) struct OrderingRoom {
     ready: u32,
     active: u32,
     starts_at: Option<u64>,
+    paused_at: Option<u64>,
+    resumed_at: Option<u64>,
+    pause_epoch: u64,
+    // Merged stream head. A federated relay seals its own sources first, at
+    // `sealed`, and merges a frame once every relay has sealed it.
     head: u32,
+    sealed: u32,
+    // Sources homed on this relay: all of them unless federated.
+    local: u32,
+    // A federated Leave before the start asks the coordinator to cancel.
+    cancel_requested: bool,
     next_seq: u64,
     history: VecDeque<Stored>,
     history_bytes: usize,
     pending: BTreeMap<u32, Vec<Pending>>,
     journal: Option<crate::journal::Journal>,
     storage_failed: bool,
+    // When `advance` first found the storage failure.
+    failed_at: Option<u64>,
     finished_at: Option<u64>,
+    created_ms: u64,
 }
 
 impl OrderingRoom {
@@ -531,22 +743,45 @@ impl OrderingRoom {
         certificate: OrderingCertificate,
         agreement: [u8; 32],
         journal: Option<crate::journal::Journal>,
+        local: u32,
+        now_ms: u64,
     ) -> Self {
         Self {
             certificate,
             agreement,
-            sources: std::array::from_fn(|_| Source::default()),
+            sources: std::array::from_fn(|_| Source {
+                heard_ms: now_ms,
+                ..Source::default()
+            }),
             ready: 0,
             active: certificate.sources_mask,
             starts_at: None,
+            paused_at: None,
+            resumed_at: None,
+            pause_epoch: 0,
             head: 0,
+            sealed: 0,
+            local,
+            cancel_requested: false,
             next_seq: 1,
             history: VecDeque::new(),
             history_bytes: 0,
             pending: BTreeMap::new(),
             journal,
             storage_failed: false,
+            failed_at: None,
             finished_at: None,
+            created_ms: now_ms,
+        }
+    }
+
+    /// Any authenticated packet keeps a source's place; a newer admission of
+    /// another principal for the same source does not.
+    pub(super) fn heard(&mut self, source: u8, principal: ([u8; 16], u64), now_ms: u64) {
+        if let Some(state) = self.sources.get_mut(usize::from(source))
+            && state.principal.is_none_or(|bound| bound == principal)
+        {
+            state.heard_ms = now_ms;
         }
     }
 
@@ -600,12 +835,23 @@ impl OrderingRoom {
         self.certificate.expires <= now
     }
 
-    fn cleanup_due(&self, now_ms: u64, now: u64) -> bool {
-        !self.storage_failed
-            && (self.expired(now)
+    fn cleanup_due(&self, now_ms: u64, now: u64, peers: bool) -> bool {
+        if self.storage_failed {
+            // A storage failure freezes the match for good. Its room goes
+            // once no live ticket is left to tell, or once a silent player
+            // would have lost its place; its files stay.
+            return !peers
                 || self
-                    .finished_at
-                    .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000))
+                    .failed_at
+                    .is_some_and(|at| now_ms.saturating_sub(at) >= ABSENT_MS);
+        }
+        // The certificate bounds only a startup; once started, the final
+        // frame, silence or the room's lifetime ends it.
+        (self.starts_at.is_none() && self.expired(now))
+            || now_ms.saturating_sub(self.created_ms) >= ROOM_LIFETIME_MS
+            || self
+                .finished_at
+                .is_some_and(|at| now_ms.saturating_sub(at) >= MAX_TICKET_LIFETIME * 1000)
     }
     fn pop_oldest(&mut self) -> bool {
         if let Some(old) = self.history.pop_front() {
@@ -633,34 +879,265 @@ impl OrderingRoom {
         }
     }
 
+    fn append_records(&mut self, frame: u32, records: Vec<Vec<u8>>) -> bool {
+        if let Some(journal) = self.journal.as_mut()
+            && journal.commit(&records).is_err()
+        {
+            self.storage_failed = true;
+            return false;
+        }
+        for record in records {
+            self.cache_entry(frame, record);
+        }
+        true
+    }
+
+    fn append_pause(&mut self, paused: bool, source: u8, now_ms: u64) -> Result<(), RelayError> {
+        let epoch = self
+            .pause_epoch
+            .checked_add(1)
+            .ok_or(RelayError::CounterExhausted)?;
+        let mut tail = epoch.to_le_bytes().to_vec();
+        tail.extend([u8::from(paused), source]);
+        let record = Self::encoded_entry(self.next_seq, self.head, PAUSE_EVENT, &tail);
+        if !self.append_records(self.head, vec![record]) {
+            return Ok(());
+        }
+        self.pause_epoch = epoch;
+        if paused {
+            self.paused_at = Some(now_ms);
+        } else if let Some(paused_at) = self.paused_at.take() {
+            self.resumed_at = Some(now_ms);
+            // Displace wall time instead of generating catch-up frames for the
+            // paused interval. The next frame retains its fractional remainder.
+            if let Some(start) = self.starts_at.as_mut() {
+                *start = start.saturating_add(now_ms.saturating_sub(paused_at));
+            }
+        }
+        Ok(())
+    }
+
+    fn supported_pause_sources(&self) -> u32 {
+        if self.local != self.certificate.sources_mask {
+            return 0;
+        }
+        self.sources
+            .iter()
+            .enumerate()
+            .filter(|(_, source)| source.pause_supported)
+            .fold(0, |mask, (index, _)| mask | (1 << index))
+    }
+
+    fn pause_status(&self, source: u8) -> Vec<Vec<u8>> {
+        let mut payload = vec![PAUSE_STATUS_EVENT];
+        payload.extend_from_slice(&self.supported_pause_sources().to_le_bytes());
+        payload.extend_from_slice(&self.active.to_le_bytes());
+        payload.extend_from_slice(
+            &self.sources[usize::from(source)]
+                .pause_request
+                .map_or(0, |request| request.id)
+                .to_le_bytes(),
+        );
+        payload.extend_from_slice(&self.pause_epoch.to_le_bytes());
+        payload.push(u8::from(self.paused_at.is_some()));
+        payload.extend_from_slice(&self.head.to_le_bytes());
+        vec![payload]
+    }
+
+    fn control_pause(
+        &mut self,
+        ticket: Ticket,
+        payload: &[u8],
+        now_ms: u64,
+    ) -> Result<Vec<Vec<u8>>, RelayError> {
+        if payload.len() != 18 || payload[17] > 1 {
+            return Err(RelayError::Malformed);
+        }
+        self.authenticate_reader(ticket)?;
+        if self.storage_failed {
+            return Ok(error(OrderError::StorageUnavailable, self.next_seq));
+        }
+        let source = ticket.source;
+        if self.active & (1 << source) == 0 {
+            return Ok(error(OrderError::Inactive, 0));
+        }
+        let request = PauseRequest {
+            id: read_u64(payload, 1),
+            expected_epoch: read_u64(payload, 9),
+            paused: payload[17] != 0,
+        };
+        if request.id == 0 {
+            self.sources[usize::from(source)].pause_supported = true;
+            return Ok(self.pause_status(source));
+        }
+        let state = &mut self.sources[usize::from(source)];
+        if let Some(previous) = state.pause_request {
+            if request.id == previous.id && request != previous {
+                return Ok(error(OrderError::ModifiedRetry, previous.id));
+            }
+            if request.id <= previous.id {
+                return Ok(self.pause_status(source));
+            }
+        }
+        state.pause_request = Some(request);
+        // Capability agreement belongs to the admitted match principals, not
+        // short hop tickets. Legacy peers never advertise, so receive no marker.
+        if self.supported_pause_sources() & self.active != self.active
+            || self.starts_at.is_none_or(|start| start > now_ms)
+            || request.expected_epoch != self.pause_epoch
+            || request.paused == self.paused_at.is_some()
+            || (request.paused
+                && self
+                    .resumed_at
+                    .is_some_and(|at| now_ms.saturating_sub(at) < PAUSE_COOLDOWN_MS))
+        {
+            return Ok(self.pause_status(source));
+        }
+        if request.paused
+            && let Some(journal) = self.journal.as_mut()
+            && !journal.reserve_entries(&[PAUSE_ENTRY_BYTES, PAUSE_ENTRY_BYTES])
+        {
+            return Ok(error(OrderError::Backpressure, request.id));
+        }
+        self.append_pause(request.paused, source, now_ms)?;
+        if self.storage_failed {
+            return Ok(error(OrderError::StorageUnavailable, self.next_seq));
+        }
+        Ok(self.pause_status(source))
+    }
+
     fn depart(&mut self, source: u8, now_ms: u64) {
         let bit = 1 << source;
         if self.active & bit == 0 {
             return;
         }
         if self.starts_at.is_none() {
-            // The signed startup requires every source. An explicit Leave
-            // makes that immutable quorum impossible, including sources which
-            // never reached Ready. Keep an inactive short-ticket tombstone.
-            self.active = 0;
-            self.ready = 0;
-            self.finished_at = Some(now_ms);
-            return;
+            if self.local == self.certificate.sources_mask {
+                // An explicit Leave before the start cancels it for every
+                // source, including sources which never reached Ready. Keep an
+                // inactive short-ticket tombstone.
+                self.active = 0;
+                self.ready = 0;
+                self.finished_at = Some(now_ms);
+                return;
+            }
+            // Only the coordinator ends a federated startup. Its start may
+            // already be on the way; this Leave then departs at frame 1.
+            self.cancel_requested = true;
         }
-        self.active &= !bit;
+        self.retire(source, false, now_ms);
+    }
+
+    /// Ends an active source's place through the stream at the first frame
+    /// this relay has not sealed: frame 1 before the start, where the others
+    /// start without it. A departure's opaque byte 1 marks a place silence
+    /// ended, DestroyConnection's connection-lost error code.
+    fn retire(&mut self, source: u8, lost: bool, now_ms: u64) {
+        self.active &= !(1 << source);
         let final_frame = (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32;
         self.pending
-            .entry((self.head + 2).min(final_frame))
+            .entry((self.sealed + 1).min(final_frame))
             .or_default()
             .push(Pending {
                 source,
                 batch_id: 0,
-                opaque: Vec::new(),
+                opaque: if lost { vec![1] } else { Vec::new() },
             });
+        if self.active == 0 && self.paused_at.is_some() {
+            // Both markers were reserved before Pause was accepted. Explicit
+            // all-left closes the barrier so the existing departure tail ends.
+            if self.append_pause(false, source, now_ms).is_err() {
+                self.storage_failed = true;
+            }
+        }
     }
 
-    fn advance(&mut self, now_ms: u64) {
+    /// Starts once every remaining source is ready. A federated start belongs
+    /// to the coordinator relay.
+    fn start_when_ready(&mut self, now_ms: u64) {
+        if self.local == self.certificate.sources_mask
+            && self.starts_at.is_none()
+            && self.active != 0
+            && self.ready == self.active
+        {
+            self.starts_at = Some(now_ms.saturating_add(START_DELAY_MS));
+        }
+    }
+
+    /// Silence ends one of this relay's own places only past these limits:
+    /// before the start for a source that never became ready, after it for
+    /// any source. A federated startup cannot drop a source alone, so a
+    /// loading source past its limit asks the coordinator to cancel.
+    fn retire_absent(&mut self, now_ms: u64) {
+        for source in 0..MAX_PEERS {
+            let bit = 1 << source;
+            if self.active & self.local & bit == 0 {
+                continue;
+            }
+            let silent = now_ms.saturating_sub(self.sources[usize::from(source)].heard_ms);
+            if self.starts_at.is_some() {
+                if silent >= ABSENT_MS {
+                    self.retire(source, true, now_ms);
+                }
+            } else if self.ready & bit == 0
+                && (silent >= LOADING_SILENCE_MS
+                    || now_ms.saturating_sub(self.created_ms) >= LOADING_LIMIT_MS)
+            {
+                if self.local == self.certificate.sources_mask {
+                    self.retire(source, true, now_ms);
+                } else {
+                    self.cancel_requested = true;
+                }
+            }
+        }
+        self.start_when_ready(now_ms);
+    }
+
+    /// Ends a federated match whose other relays went silent. It seals and
+    /// merges no further entry, so its archive grows by at most the frame ends
+    /// of what it already sealed.
+    fn abandon(&mut self, now_ms: u64) {
+        self.active = 0;
+        self.pending.clear();
+        self.finished_at = Some(now_ms);
+    }
+
+    /// The coordinator's cancel before the start ends this startup here too.
+    fn cancel(&mut self, now_ms: u64) {
+        self.active = 0;
+        self.ready = 0;
+        self.finished_at = Some(now_ms);
+    }
+
+    /// Another relay's sealed entry, merged with this relay's own.
+    fn accept_remote(&mut self, frame: u32, source: u8, batch_id: u64, opaque: &[u8]) {
+        if batch_id == 0 {
+            self.active &= !(1 << source);
+        } else {
+            // Its home relay reserved it there; this journal stores the same
+            // merged stream. The batch is already sealed, so a full journal
+            // fails storage rather than dropping it.
+            if let Some(journal) = self.journal.as_mut()
+                && !journal.reserve_batch(22 + opaque.len())
+            {
+                self.storage_failed = true;
+            }
+            self.sources[usize::from(source)].pending += 1;
+        }
+        self.pending.entry(frame).or_default().push(Pending {
+            source,
+            batch_id,
+            opaque: opaque.to_vec(),
+        });
+    }
+
+    fn advance(&mut self, now_ms: u64, federation: Option<&mut federation::Federation>) {
         if self.storage_failed {
+            self.failed_at.get_or_insert(now_ms);
+            return;
+        }
+        self.retire_absent(now_ms);
+        if self.paused_at.is_some() {
             return;
         }
         let Some(start) = self.starts_at else {
@@ -673,9 +1150,9 @@ impl OrderingRoom {
             .min(MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz))
             as u32;
         let final_frame = (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32;
-        if target == final_frame && self.head < final_frame {
+        if target == final_frame && self.sealed < final_frame {
             for source in 0..MAX_PEERS {
-                if self.active & (1 << source) != 0 {
+                if self.active & self.local & (1 << source) != 0 {
                     self.pending.entry(final_frame).or_default().push(Pending {
                         source,
                         batch_id: 0,
@@ -683,16 +1160,37 @@ impl OrderingRoom {
                     });
                 }
             }
-            self.active = 0;
+            self.active &= !self.local;
         }
         let target = if self.active == 0 {
             target.min(
                 self.pending
                     .last_key_value()
-                    .map_or(self.head, |(&frame, _)| frame),
+                    .map_or(self.sealed, |(&frame, _)| frame),
             )
         } else {
             target
+        };
+        // A federated relay contributes its own sources' entries as it seals
+        // each frame, and merges only what every relay has sealed.
+        let target = if let Some(federation) = federation {
+            while self.sealed < target {
+                self.sealed += 1;
+                for entry in self.pending.get(&self.sealed).into_iter().flatten() {
+                    if self.local & (1 << entry.source) != 0 {
+                        federation.contribute(
+                            self.sealed,
+                            entry.source,
+                            entry.batch_id,
+                            &entry.opaque,
+                        );
+                    }
+                }
+            }
+            federation.merged_through(self.sealed)
+        } else {
+            self.sealed = self.sealed.max(target);
+            self.sealed
         };
         while self.head < target {
             // In-memory protocol fixtures may trim old empty prefixes. A real
@@ -728,11 +1226,13 @@ impl OrderingRoom {
                 });
                 for entry in entries.iter() {
                     if entry.batch_id == 0 {
+                        let mut tail = vec![entry.source];
+                        tail.extend_from_slice(&entry.opaque);
                         records.push(Self::encoded_entry(
                             self.next_seq + records.len() as u64,
                             frame,
                             DEPARTURE_EVENT,
-                            &[entry.source],
+                            &tail,
                         ));
                     } else {
                         let mut tail = vec![entry.source];
@@ -753,10 +1253,7 @@ impl OrderingRoom {
                 FRAME_END_EVENT,
                 &[],
             ));
-            if let Some(journal) = self.journal.as_mut()
-                && journal.commit(&records).is_err()
-            {
-                self.storage_failed = true;
+            if !self.append_records(frame, records) {
                 return;
             }
             if let Some(entries) = self.pending.remove(&frame) {
@@ -766,19 +1263,75 @@ impl OrderingRoom {
                     }
                 }
             }
-            for record in records {
-                self.cache_entry(frame, record);
-            }
             self.head = frame;
         }
-        // A network outage never retires a source. Only explicit Leave or
-        // the agreed full-match lifetime ends its place in the stream.
+        // Every source has departed, by Leave, silence past its limit or the
+        // agreed full-match lifetime; the archive ends after its replay grace.
         if ((self.active == 0 && self.pending.is_empty())
             || self.head == (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32)
             && self.finished_at.is_none()
         {
             self.finished_at = Some(now_ms);
         }
+    }
+
+    fn authenticate_reader(&self, ticket: Ticket) -> Result<(), RelayError> {
+        let principal = (ticket.player, ticket.generation);
+        if self.certificate.sources_mask & (1 << ticket.source) == 0
+            || self.sources[usize::from(ticket.source)].principal != Some(principal)
+        {
+            return Err(RelayError::Authentication);
+        }
+        Ok(())
+    }
+
+    fn cursor_error(&self, cursor: u64) -> Option<(OrderError, u64)> {
+        if self.storage_failed {
+            Some((OrderError::StorageUnavailable, self.next_seq))
+        } else if cursor < self.oldest_seq() {
+            Some((OrderError::HistoryGap, self.oldest_seq()))
+        } else if cursor > self.next_seq {
+            Some((OrderError::InvalidCursor, self.next_seq))
+        } else {
+            None
+        }
+    }
+
+    /// Pull and push read the same committed bytes; neither drives the clock.
+    fn history_page(
+        &mut self,
+        cursor: u64,
+        limit: usize,
+    ) -> Result<Vec<Vec<u8>>, (OrderError, u64)> {
+        if let Some(error) = self.cursor_error(cursor) {
+            return Err(error);
+        }
+        if cursor < self.hot_oldest_seq() {
+            let journal = self.journal.as_mut().expect("validated archive cursor");
+            journal.read(cursor, limit).map_err(|_| {
+                self.storage_failed = true;
+                (OrderError::StorageUnavailable, self.next_seq)
+            })
+        } else {
+            Ok(self.hot_page(cursor, limit))
+        }
+    }
+
+    /// Committed bytes from `cursor` on, which must still be in RAM.
+    fn hot_page(&self, cursor: u64, limit: usize) -> Vec<Vec<u8>> {
+        self.history
+            .iter()
+            .skip((cursor - self.hot_oldest_seq()) as usize)
+            .take(limit)
+            .map(|entry| entry.bytes.clone())
+            .collect()
+    }
+
+    fn push_status_state(&self, now_ms: u64) -> (bool, u32) {
+        (
+            self.starts_at.is_some_and(|start| start <= now_ms),
+            self.active,
+        )
     }
 
     fn request(
@@ -791,12 +1344,7 @@ impl OrderingRoom {
         if self.storage_failed {
             return Ok(error(OrderError::StorageUnavailable, self.next_seq));
         }
-        let principal = (ticket.player, ticket.generation);
-        if self.certificate.sources_mask & (1 << source) == 0
-            || self.sources[usize::from(source)].principal != Some(principal)
-        {
-            return Err(RelayError::Authentication);
-        }
+        self.authenticate_reader(ticket)?;
         let Some(&kind) = payload.first() else {
             return Err(RelayError::Malformed);
         };
@@ -831,7 +1379,9 @@ impl OrderingRoom {
                 if id != expected {
                     return Ok(error(OrderError::BatchGap, expected));
                 }
-                let frame = self.head + 2;
+                // The open frame: `advance` above already sealed every due
+                // frame, and no reader executes a frame before its FrameEnd.
+                let frame = self.sealed + 1;
                 if frame > (MAX_MATCH_SECONDS * u64::from(self.certificate.tick_hz)) as u32 {
                     return Ok(error(OrderError::Inactive, 0));
                 }
@@ -859,35 +1409,14 @@ impl OrderingRoom {
                 Ok(ack(id, frame))
             }
             (PULL_REQUEST, 9) => {
-                let cursor = read_u64(payload, 1);
-                if cursor < self.oldest_seq() {
-                    return Ok(error(OrderError::HistoryGap, self.oldest_seq()));
-                }
-                if cursor > self.next_seq {
-                    return Ok(error(OrderError::InvalidCursor, self.next_seq));
-                }
-                let mut output = vec![self.status(now_ms)];
-                if cursor < self.hot_oldest_seq() {
-                    let Some(journal) = self.journal.as_mut() else {
-                        return Ok(error(OrderError::HistoryGap, self.oldest_seq()));
-                    };
-                    match journal.read(cursor, ORDERING_PULL_LIMIT) {
-                        Ok(records) => output.extend(records),
-                        Err(_) => {
-                            self.storage_failed = true;
-                            return Ok(error(OrderError::StorageUnavailable, cursor));
-                        }
+                match self.history_page(read_u64(payload, 1), ORDERING_PULL_LIMIT) {
+                    Ok(records) => {
+                        let mut output = vec![self.status(now_ms)];
+                        output.extend(records);
+                        Ok(output)
                     }
-                } else {
-                    output.extend(
-                        self.history
-                            .iter()
-                            .skip((cursor - self.hot_oldest_seq()) as usize)
-                            .take(ORDERING_PULL_LIMIT)
-                            .map(|entry| entry.bytes.clone()),
-                    );
+                    Err((code, expected)) => Ok(error(code, expected)),
                 }
-                Ok(output)
             }
             _ => Err(RelayError::Malformed),
         }
@@ -898,7 +1427,7 @@ impl OrderingRoom {
 mod tests {
     use super::*;
 
-    fn client(key: &SecretKey, source: u8) -> ClientSession {
+    pub(super) fn client(key: &SecretKey, source: u8) -> ClientSession {
         let ticket = Ticket {
             room: [5; 16],
             source,
@@ -917,9 +1446,9 @@ mod tests {
         .unwrap()
     }
 
-    struct TestDirectory(std::path::PathBuf);
+    pub(super) struct TestDirectory(pub(super) std::path::PathBuf);
     impl TestDirectory {
-        fn new() -> Self {
+        pub(super) fn new() -> Self {
             let mut random = [0; 16];
             getrandom::fill(&mut random).unwrap();
             let name: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
@@ -931,7 +1460,7 @@ mod tests {
             let _ = std::fs::remove_dir_all(&self.0);
         }
     }
-    fn unix(now_ms: u64) -> u64 {
+    pub(super) fn unix(now_ms: u64) -> u64 {
         1000 + now_ms / 1000
     }
 
@@ -952,11 +1481,11 @@ mod tests {
         *client = candidate;
     }
 
-    fn endpoint(client: &ClientSession) -> SocketAddrV4 {
+    pub(super) fn endpoint(client: &ClientSession) -> SocketAddrV4 {
         SocketAddrV4::new(Ipv4Addr::LOCALHOST, 31000 + u16::from(client.source()))
     }
 
-    fn connect(server: &mut RelayServer, client: &mut ClientSession, now_ms: u64) {
+    pub(super) fn connect(server: &mut RelayServer, client: &mut ClientSession, now_ms: u64) {
         let mut bytes = Vec::new();
         client.probe(&mut bytes).unwrap();
         let challenge = server
@@ -977,7 +1506,7 @@ mod tests {
         ));
     }
 
-    fn events(
+    pub(super) fn events(
         server: &mut RelayServer,
         client: &mut ClientSession,
         bytes: &[u8],
@@ -996,7 +1525,7 @@ mod tests {
             .collect()
     }
 
-    fn configure(
+    pub(super) fn configure(
         server: &mut RelayServer,
         client: &mut ClientSession,
         cert: &[u8],
@@ -1009,7 +1538,7 @@ mod tests {
         events(server, client, &bytes, now_ms)
     }
 
-    fn pull(
+    pub(super) fn pull(
         server: &mut RelayServer,
         client: &mut ClientSession,
         cursor: u64,
@@ -1020,7 +1549,15 @@ mod tests {
         events(server, client, &bytes, now_ms)
     }
 
-    fn certificate(key: &SecretKey, mask: u32, expires: u64) -> [u8; ORDERING_CERTIFICATE_LEN] {
+    fn ordering(server: &RelayServer) -> &OrderingRoom {
+        server.rooms[&[5; 16]].ordering.as_ref().unwrap()
+    }
+
+    pub(super) fn certificate(
+        key: &SecretKey,
+        mask: u32,
+        expires: u64,
+    ) -> [u8; ORDERING_CERTIFICATE_LEN] {
         OrderingCertificate {
             room: [5; 16],
             sources_mask: mask,
@@ -1029,6 +1566,761 @@ mod tests {
         }
         .sign(key)
         .unwrap()
+    }
+
+    fn subscribe(
+        server: &mut RelayServer,
+        client: &mut ClientSession,
+        enabled: bool,
+        cursor: u64,
+        now_ms: u64,
+    ) -> Vec<OrderEvent> {
+        let mut bytes = Vec::new();
+        client
+            .set_ordering_push(enabled, cursor, &mut bytes)
+            .unwrap();
+        events(server, client, &bytes, now_ms)
+    }
+
+    fn pause_control(
+        server: &mut RelayServer,
+        client: &mut ClientSession,
+        id: u64,
+        epoch: u64,
+        paused: bool,
+        now_ms: u64,
+    ) -> OrderEvent {
+        let mut bytes = Vec::new();
+        client
+            .control_ordering_pause(id, epoch, paused, &mut bytes)
+            .unwrap();
+        events(server, client, &bytes, now_ms).remove(0)
+    }
+
+    #[test]
+    fn nobody_pauses_again_until_the_match_has_run_after_a_resume() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+            pause_control(&mut server, peer, 0, 0, false, 300);
+        }
+        pause_control(&mut server, &mut first, 1, 0, true, 300);
+        pause_control(&mut server, &mut second, 1, 1, false, 400);
+        let paused = |event| matches!(event, OrderEvent::PauseStatus { paused: true, .. });
+        let early = 400 + PAUSE_COOLDOWN_MS - 1;
+        assert!(!paused(pause_control(
+            &mut server,
+            &mut first,
+            2,
+            2,
+            true,
+            early
+        )));
+        assert!(paused(pause_control(
+            &mut server,
+            &mut first,
+            3,
+            2,
+            true,
+            early + 1
+        )));
+    }
+
+    #[test]
+    fn a_one_source_certificate_opens_no_ordering_room() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut solo = client(&key, 0);
+        connect(&mut server, &mut solo, 0);
+        let mut bytes = Vec::new();
+        solo.configure_ordering(&certificate(&key, 1, 1400), [7; 32], &mut bytes)
+            .unwrap();
+        assert!(matches!(
+            server.process_at(endpoint(&solo), &bytes, unix(0), 0),
+            Err(RelayError::Authentication)
+        ));
+        assert!(server.rooms[&[5; 16]].ordering.is_none());
+    }
+
+    #[test]
+    fn pause_requires_all_capabilities_and_rejects_stale_control_epochs() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 0, 0, false, 300),
+            OrderEvent::PauseStatus {
+                supported_sources: 1,
+                request_id: 0,
+                paused: false,
+                ..
+            }
+        ));
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 1, 0, true, 300),
+            OrderEvent::PauseStatus {
+                request_id: 1,
+                epoch: 0,
+                paused: false,
+                ..
+            }
+        ));
+        pause_control(&mut server, &mut second, 0, 0, false, 300);
+        assert!(
+            matches!(
+                pause_control(&mut server, &mut first, 1, 0, true, 310),
+                OrderEvent::PauseStatus {
+                    request_id: 1,
+                    epoch: 0,
+                    paused: false,
+                    ..
+                }
+            ),
+            "a previously rejected request cannot become an action after quorum"
+        );
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 2, 0, true, 310),
+            OrderEvent::PauseStatus {
+                supported_sources: 3,
+                request_id: 2,
+                epoch: 1,
+                paused: true,
+                frame: 4,
+                ..
+            }
+        ));
+        // Fresh envelopes carrying the same request cannot append twice.
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 2, 0, true, 1000),
+            OrderEvent::PauseStatus {
+                epoch: 1,
+                frame: 4,
+                paused: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 2, 0, false, 1000),
+            OrderEvent::Error {
+                code: OrderError::ModifiedRetry,
+                expected: 2
+            }
+        ));
+        assert!(matches!(
+            pause_control(&mut server, &mut second, 1, 0, false, 1000),
+            OrderEvent::PauseStatus {
+                request_id: 1,
+                epoch: 1,
+                paused: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            pause_control(&mut server, &mut second, 2, 1, false, 2000),
+            OrderEvent::PauseStatus {
+                epoch: 2,
+                paused: false,
+                frame: 4,
+                ..
+            }
+        ));
+        server.advance_clock(2001, unix(2001));
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().head, 4);
+        server.advance_clock(2020, unix(2020));
+        assert_eq!(
+            server.rooms[&[5; 16]].ordering.as_ref().unwrap().head,
+            5,
+            "resume preserves the next frame deadline instead of catching up paused time"
+        );
+        let markers: Vec<_> = pull(&mut server, &mut first, 1, 2020)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Pause {
+                    epoch,
+                    paused,
+                    frame,
+                    ..
+                }) => Some((epoch, paused, frame)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(markers, [(1, true, 4), (2, false, 4)]);
+    }
+
+    #[test]
+    fn lost_pause_marker_replays_after_renewal_and_preserves_pending_input() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+            pause_control(&mut server, peer, 0, 0, false, 0);
+        }
+        subscribe(&mut server, &mut first, true, 1, 300);
+        let mut bytes = Vec::new();
+        second
+            .submit_ordering(1, b"accepted before pause", &mut bytes)
+            .unwrap();
+        events(&mut server, &mut second, &bytes, 300);
+        pause_control(&mut server, &mut first, 1, 0, true, 300);
+        let mut lost = None;
+        for packet in server.drain_ordering_push(300, unix(300)) {
+            if packet.bytes[SERVER_HEADER] == PAUSE_EVENT {
+                lost = Some(packet.bytes[SERVER_HEADER..packet.bytes.len() - MAC_LEN].to_vec());
+            } else {
+                first.receive(&packet.bytes).unwrap();
+            }
+        }
+        let lost = lost.expect("the pause marker was the intentionally lost push");
+        server.advance_clock(1000, unix(1000));
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().head, 4);
+        renew(&mut server, &mut first, 1000);
+        configure(&mut server, &mut first, &cert, 1000);
+        assert!(matches!(
+            pause_control(&mut server, &mut first, 1, 0, true, 1000),
+            OrderEvent::PauseStatus {
+                request_id: 1,
+                epoch: 1,
+                paused: true,
+                ..
+            }
+        ));
+        assert!(matches!(
+            pause_control(&mut server, &mut second, 1, 1, false, 1000),
+            OrderEvent::PauseStatus {
+                epoch: 2,
+                paused: false,
+                frame: 4,
+                ..
+            }
+        ));
+        server.advance_clock(250_000, unix(250_000));
+        assert!(
+            server.rooms[&[5; 16]]
+                .ordering
+                .as_ref()
+                .unwrap()
+                .hot_oldest_seq()
+                > 1
+        );
+        renew(&mut server, &mut first, 250_000);
+        configure(&mut server, &mut first, &cert, 250_000);
+        first.pull_ordering(1, &mut bytes).unwrap();
+        let packets = server
+            .process_at(endpoint(&first), &bytes, unix(250_000), 250_000)
+            .unwrap();
+        assert!(
+            packets
+                .iter()
+                .any(|packet| packet.bytes[SERVER_HEADER..packet.bytes.len() - MAC_LEN] == lost),
+            "disk replay retains exactly the lost canonical marker bytes"
+        );
+        let mut markers = Vec::new();
+        let mut inputs = Vec::new();
+        for packet in packets {
+            match first.receive(&packet.bytes).unwrap() {
+                ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::Pause {
+                    epoch,
+                    paused,
+                    ..
+                })) => markers.push((epoch, paused)),
+                ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::Batch {
+                    frame,
+                    bytes,
+                    ..
+                })) => inputs.push((frame, bytes.unwrap().as_bytes().to_vec())),
+                _ => {}
+            }
+        }
+        assert_eq!(markers, [(1, true), (2, false)]);
+        assert_eq!(inputs, [(5, b"accepted before pause".to_vec())]);
+    }
+
+    #[test]
+    fn last_explicit_leave_resumes_the_paused_canonical_departure_tail() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+            pause_control(&mut server, peer, 0, 0, false, 0);
+        }
+        pause_control(&mut server, &mut first, 1, 0, true, 200);
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().head, 0);
+        let mut bytes = Vec::new();
+        first.leave_ordering(&mut bytes).unwrap();
+        events(&mut server, &mut first, &bytes, 500);
+        server.advance_clock(600, unix(600));
+        assert!(
+            server.rooms[&[5; 16]]
+                .ordering
+                .as_ref()
+                .unwrap()
+                .paused_at
+                .is_some()
+        );
+        second.leave_ordering(&mut bytes).unwrap();
+        events(&mut server, &mut second, &bytes, 600);
+        server.advance_clock(700, unix(700));
+        let events = pull(&mut server, &mut first, 1, 700);
+        let mut resumed = false;
+        let mut departed = Vec::new();
+        for event in events {
+            match event {
+                OrderEvent::Entry(OrderEntry::Pause {
+                    epoch: 2,
+                    paused: false,
+                    source: 1,
+                    frame: 0,
+                    ..
+                }) => resumed = true,
+                OrderEvent::Entry(OrderEntry::Departure {
+                    source, frame: 1, ..
+                }) => departed.push(source),
+                _ => {}
+            }
+        }
+        assert!(
+            resumed,
+            "the just-departing source remains a valid original roster identity"
+        );
+        assert_eq!(departed, [0, 1]);
+        let ordering = server.rooms[&[5; 16]].ordering.as_ref().unwrap();
+        assert_eq!(ordering.head, 1);
+        assert!(ordering.finished_at.is_some());
+    }
+
+    #[test]
+    fn opted_in_push_follows_the_clock_and_keeps_legacy_pull_unchanged() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut pushed, mut legacy) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut pushed, &mut legacy] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        assert!(matches!(
+            subscribe(&mut server, &mut pushed, true, 1, 0)[0],
+            OrderEvent::PushState {
+                enabled: true,
+                next_sequence: 1
+            }
+        ));
+        server.advance_clock(350, unix(350));
+        let packets = server.drain_ordering_push(350, unix(350));
+        assert!(!packets.is_empty());
+        assert!(
+            packets
+                .iter()
+                .all(|packet| packet.endpoint == endpoint(&pushed))
+        );
+        let mut pushed_ends = Vec::new();
+        let mut started = false;
+        for packet in packets {
+            match pushed.receive(&packet.bytes).unwrap() {
+                ServerEvent::Ordering(OrderEvent::Status(status)) => started |= status.started,
+                ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::FrameEnd {
+                    sequence,
+                    frame,
+                })) => pushed_ends.push((sequence, frame)),
+                _ => {}
+            }
+        }
+        assert!(
+            started,
+            "the startup transition does not wait for a client Pull"
+        );
+        let legacy_ends: Vec<_> = pull(&mut server, &mut legacy, 1, 350)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::FrameEnd { sequence, frame }) => {
+                    Some((sequence, frame))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pushed_ends, legacy_ends);
+        assert_eq!(pushed_ends.last(), Some(&(6, 6)));
+        // Status still describes a missing tail while delivery credit is idle.
+        let heartbeat = server.drain_ordering_push(600, unix(600));
+        assert!(heartbeat.into_iter().any(|packet| matches!(
+            pushed.receive(&packet.bytes),
+            Ok(ServerEvent::Ordering(OrderEvent::Status(_)))
+        )));
+        assert!(matches!(
+            subscribe(&mut server, &mut pushed, false, 7, 600)[0],
+            OrderEvent::PushState { enabled: false, .. }
+        ));
+        assert!(server.drain_ordering_push(601, unix(601)).is_empty());
+        let (mut older, mut newer) = (Vec::new(), Vec::new());
+        pushed.set_ordering_push(true, 7, &mut older).unwrap();
+        pushed.set_ordering_push(false, 7, &mut newer).unwrap();
+        events(&mut server, &mut pushed, &newer, 601);
+        assert!(matches!(
+            events(&mut server, &mut pushed, &older, 601)[0],
+            OrderEvent::PushState { enabled: false, .. }
+        ));
+        assert!(server.drain_ordering_push(601, unix(601)).is_empty());
+        pushed.set_ordering_push(false, 7, &mut older).unwrap();
+        pushed.set_ordering_push(true, 7, &mut newer).unwrap();
+        events(&mut server, &mut pushed, &newer, 601);
+        assert!(matches!(
+            events(&mut server, &mut pushed, &older, 601)[0],
+            OrderEvent::PushState { enabled: true, .. }
+        ));
+        assert!(!server.drain_ordering_push(601, unix(601)).is_empty());
+        server.advance_clock(3601, unix(3601));
+        assert!(
+            server.drain_ordering_push(3601, unix(3601)).is_empty(),
+            "a paused reader's subscription expires without retiring its source"
+        );
+        assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().active, 3);
+        server.advance_clock(120_000, unix(120_000));
+        let cursor = server.rooms[&[5; 16]].ordering.as_ref().unwrap().next_seq;
+        subscribe(&mut server, &mut pushed, true, cursor, 120_000);
+        assert!(
+            matches!(
+                subscribe(&mut server, &mut pushed, false, 1, 120_000)[0],
+                OrderEvent::PushState { enabled: false, .. }
+            ),
+            "opt-out does not depend on retaining the caller's old replay cursor"
+        );
+        assert!(
+            server
+                .drain_ordering_push(120_000, unix(120_000))
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn push_credit_rotates_readers_and_existing_pull_repairs_loss() {
+        use std::collections::{BTreeMap, BTreeSet};
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut clients: Vec<_> = (0..6).map(|source| client(&key, source)).collect();
+        let cert = certificate(&key, 63, 1400);
+        for peer in &mut clients {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+            subscribe(&mut server, peer, true, 1, 0);
+        }
+        server.advance_clock(2000, unix(2000));
+        let mut sent = [0; 6];
+        let mut seen = BTreeSet::new();
+        let mut lost = false;
+        for turn in 0..20 {
+            let packets = server.drain_ordering_push(2000, unix(2000));
+            assert!(packets.len() <= 32);
+            assert!(
+                packets
+                    .iter()
+                    .map(|packet| packet.bytes.len())
+                    .sum::<usize>()
+                    <= 96 * 1024
+            );
+            let mut per_peer = BTreeMap::new();
+            for packet in packets {
+                let index = clients
+                    .iter()
+                    .position(|peer| endpoint(peer) == packet.endpoint)
+                    .unwrap();
+                seen.insert(index);
+                *per_peer.entry(index).or_insert(0) += 1;
+                if packet.bytes[SERVER_HEADER] == FRAME_END_EVENT {
+                    sent[index] += 1;
+                    if index == 0 && !lost {
+                        lost = true;
+                        continue; // a real missing authenticated datagram
+                    }
+                }
+                clients[index].receive(&packet.bytes).unwrap();
+            }
+            assert!(per_peer.values().all(|count| *count <= 8));
+            if turn == 1 {
+                assert_eq!(
+                    seen.len(),
+                    clients.len(),
+                    "room budget rotates past the first readers"
+                );
+            }
+        }
+        assert!(lost);
+        assert_eq!(
+            sent, [64; 6],
+            "unacknowledged readers cannot exceed their individual credit"
+        );
+        assert!(server.drain_ordering_push(2000, unix(2000)).is_empty());
+        // A healthy reader continues without granting the stalled readers credit.
+        subscribe(&mut server, &mut clients[1], true, 65, 2001);
+        let next = server.drain_ordering_push(2001, unix(2001));
+        assert_eq!(next.len(), 8);
+        for packet in next {
+            assert_eq!(packet.endpoint, endpoint(&clients[1]));
+            assert!(matches!(
+                clients[1].receive(&packet.bytes),
+                Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                    OrderEntry::FrameEnd {
+                        sequence: 65..=72,
+                        ..
+                    }
+                )))
+            ));
+        }
+        assert!(matches!(
+            subscribe(&mut server, &mut clients[1], true, 1, 2002)[0],
+            OrderEvent::PushState {
+                next_sequence: 65,
+                ..
+            }
+        ));
+        for packet in server.drain_ordering_push(2002, unix(2002)) {
+            assert!(matches!(
+                clients[1].receive(&packet.bytes),
+                Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                    OrderEntry::FrameEnd {
+                        sequence: 73..=80,
+                        ..
+                    }
+                )))
+            ));
+        }
+        assert!(
+            pull(&mut server, &mut clients[0], 1, 2002)
+                .iter()
+                .any(|event| matches!(
+                    event,
+                    OrderEvent::Entry(OrderEntry::FrameEnd {
+                        sequence: 1,
+                        frame: 1
+                    })
+                )),
+            "the unchanged bounded Pull recovers the dropped entry"
+        );
+    }
+
+    #[test]
+    fn push_repeats_unacknowledged_entries_once_after_a_short_delay() {
+        fn frame_ends(reader: &mut ClientSession, packets: Vec<ForwardDatagram>) -> Vec<u64> {
+            packets
+                .into_iter()
+                .filter_map(|packet| match reader.receive(&packet.bytes).unwrap() {
+                    ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::FrameEnd {
+                        sequence,
+                        ..
+                    })) => Some(sequence),
+                    _ => None,
+                })
+                .collect()
+        }
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut reader, mut other) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut reader, &mut other] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        subscribe(&mut server, &mut reader, true, 1, 0);
+        server.advance_clock(350, unix(350));
+        let mut first = server.drain_ordering_push(350, unix(350));
+        let lost = first.pop().unwrap();
+        assert_eq!(lost.bytes[SERVER_HEADER], FRAME_END_EVENT);
+        assert_eq!(frame_ends(&mut reader, first), [1, 2, 3, 4, 5]);
+        // Requests advance the clock, and frame 7 is due only at 355.6 ms.
+        subscribe(&mut server, &mut reader, true, 5, 351);
+        assert!(server.drain_ordering_push(357, unix(357)).is_empty());
+        assert_eq!(
+            frame_ends(&mut reader, server.drain_ordering_push(358, unix(358))),
+            [5, 6],
+            "unacknowledged entries return without a reader request"
+        );
+        assert!(
+            server.drain_ordering_push(400, unix(400)).is_empty(),
+            "each entry is repeated once"
+        );
+    }
+
+    #[test]
+    fn repeats_take_only_what_fresh_pushes_leave() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut readers: Vec<_> = (0..5).map(|source| client(&key, source)).collect();
+        let cert = certificate(&key, 31, 1400);
+        for reader in &mut readers {
+            connect(&mut server, reader, 0);
+            configure(&mut server, reader, &cert, 0);
+            subscribe(&mut server, reader, true, 1, 0);
+        }
+        // Every reader holds frames 1-7, due for a repeat when frame 8 commits.
+        // A fresh entry plus seven repeats fill one reader's pass share, so
+        // four readers could otherwise take the room's whole pass.
+        server.advance_clock(360, unix(360));
+        while !server.drain_ordering_push(360, unix(360)).is_empty() {}
+        server.advance_clock(380, unix(380));
+        let spent = server.rooms[&[5; 16]].order_packets.spent;
+        let packets = server.drain_ordering_push(380, unix(380));
+        assert_eq!(packets.len(), PUSH_ROOM_PACKETS);
+        let fresh = packets
+            .iter()
+            .filter(|packet| {
+                let reader = readers
+                    .iter_mut()
+                    .find(|reader| endpoint(reader) == packet.endpoint)
+                    .unwrap();
+                matches!(
+                    reader.receive(&packet.bytes),
+                    Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                        OrderEntry::FrameEnd { sequence: 8, .. }
+                    )))
+                )
+            })
+            .count();
+        assert_eq!(
+            fresh,
+            readers.len(),
+            "repeats never take a fresh entry's place"
+        );
+        assert_eq!(
+            server.rooms[&[5; 16]].order_packets.spent - spent,
+            5,
+            "repeats spend no fresh budget"
+        );
+    }
+
+    #[test]
+    fn renewed_push_replays_journal_ciphertext_and_rebinds_only_after_opt_in() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut reader, mut sender) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1500);
+        for peer in [&mut reader, &mut sender] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        subscribe(&mut server, &mut reader, true, 1, 0);
+        let mut bytes = Vec::new();
+        sender
+            .submit_ordering(1, b"immutable pushed input", &mut bytes)
+            .unwrap();
+        events(&mut server, &mut sender, &bytes, 0);
+        server.advance_clock(350, unix(350));
+        let mut canonical = None;
+        for packet in server.drain_ordering_push(350, unix(350)) {
+            if let ServerEvent::Ordering(OrderEvent::Entry(OrderEntry::Batch { bytes, .. })) =
+                reader.receive(&packet.bytes).unwrap()
+            {
+                assert_eq!(bytes.unwrap().as_bytes(), b"immutable pushed input");
+                canonical =
+                    Some(packet.bytes[SERVER_HEADER..packet.bytes.len() - MAC_LEN].to_vec());
+            }
+        }
+        let canonical = canonical.expect("the original encrypted batch was pushed");
+        server.advance_clock(250_000, unix(250_000));
+        assert!(
+            server.rooms[&[5; 16]]
+                .ordering
+                .as_ref()
+                .unwrap()
+                .hot_oldest_seq()
+                > 1
+        );
+        renew(&mut server, &mut reader, 250_000);
+        configure(&mut server, &mut reader, &cert, 250_000);
+        assert!(
+            server
+                .drain_ordering_push(250_000, unix(250_000))
+                .is_empty(),
+            "new hop keys do not inherit an old subscription"
+        );
+        subscribe(&mut server, &mut reader, true, 1, 250_000);
+        let replay = server.drain_ordering_push(250_000, unix(250_000));
+        assert!(
+            replay.iter().any(
+                |packet| packet.bytes[SERVER_HEADER..packet.bytes.len() - MAC_LEN] == canonical
+            )
+        );
+        for packet in replay {
+            reader.receive(&packet.bytes).unwrap();
+        }
+
+        let rebound = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 32000);
+        reader.probe(&mut bytes).unwrap();
+        let challenge = server
+            .process_at(rebound, &bytes, unix(250_001), 250_001)
+            .unwrap()
+            .remove(0);
+        let ServerEvent::Challenge(cookie) = reader.receive(&challenge.bytes).unwrap() else {
+            panic!("challenge");
+        };
+        reader.confirm(cookie, &mut bytes).unwrap();
+        let ready = server
+            .process_at(rebound, &bytes, unix(250_001), 250_001)
+            .unwrap()
+            .remove(0);
+        reader.receive(&ready.bytes).unwrap();
+        assert!(
+            server
+                .drain_ordering_push(250_001, unix(250_001))
+                .is_empty()
+        );
+        reader.set_ordering_push(true, 9, &mut bytes).unwrap();
+        for packet in server
+            .process_at(rebound, &bytes, unix(250_001), 250_001)
+            .unwrap()
+        {
+            reader.receive(&packet.bytes).unwrap();
+        }
+        let rebound_packets = server.drain_ordering_push(250_001, unix(250_001));
+        assert!(!rebound_packets.is_empty());
+        assert!(
+            rebound_packets
+                .iter()
+                .all(|packet| packet.endpoint == rebound)
+        );
+        // Disk failure keeps the archive and becomes the existing terminal error.
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(directory.0.join("05".repeat(16)).join("stream.index"))
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        let failure = server.drain_ordering_push(250_002, unix(250_002));
+        assert!(failure.into_iter().any(|packet| matches!(
+            reader.receive(&packet.bytes),
+            Ok(ServerEvent::Ordering(OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }))
+        )));
+        assert!(
+            server
+                .drain_ordering_push(250_003, unix(250_003))
+                .is_empty()
+        );
+        assert!(
+            directory
+                .0
+                .join("05".repeat(16))
+                .join("stream.data")
+                .exists()
+        );
     }
 
     #[test]
@@ -1046,7 +2338,7 @@ mod tests {
         let mut leave = Vec::new();
         first.leave_ordering(&mut leave).unwrap();
         // Lose the first Leave, then let both hop tickets and admissions
-        // expire. Silence alone must not remove either player.
+        // expire. Silence shorter than the absence limit removes neither player.
         server.advance_clock(350_000, unix(350_000));
         assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().active, 3);
         let mut forged = leave.clone();
@@ -1095,6 +2387,21 @@ mod tests {
         ));
         assert_eq!(server.room_count(), 0, "terminal ACK never recreates state");
         assert!(!room.exists());
+        // An expired ticket's replays stop at the player's own budget instead
+        // of spending the relay-wide order budget everyone's input needs.
+        for _ in 1..PLAYER_HANDSHAKES_PER_SECOND {
+            assert!(
+                server
+                    .process_at(endpoint(&first), &leave, unix(652_000), 652_000)
+                    .is_ok()
+            );
+        }
+        assert_eq!(
+            server
+                .process_at(endpoint(&first), &leave, unix(652_000), 652_000)
+                .err(),
+            Some(RelayError::RateLimited)
+        );
     }
 
     #[test]
@@ -1102,8 +2409,8 @@ mod tests {
         let directory = TestDirectory::new();
         let key = SecretKey::new([73; 32]);
         let mut server = RelayServer::with_journal(key.clone(), 16, &directory.0).unwrap();
-        // Nine quick cancellations cross the eight-room archive quota without
-        // waiting for any tombstone's short-ticket grace to elapse.
+        // Nine quick cancellations each free their archive reservation
+        // without waiting for any tombstone's short-ticket grace to elapse.
         for attempt in 1..=9 {
             let now_ms = u64::from(attempt) * 1000;
             let mut ticket = client(&key, 0).ticket;
@@ -1182,9 +2489,9 @@ mod tests {
             9,
             "inactive tombstones retain their grace"
         );
-        // An HTTP cancellation can lose its final UDP Leave. Its retained
-        // source binding must still authorize cleanup after the short hop
-        // admission and ticket have both expired.
+        // An HTTP cancellation can lose its final UDP Leave. A newer admission
+        // of the same player cancels the unstarted room until the loading
+        // timeout starts it without the peer that never arrived.
         let mut ticket = client(&key, 0).ticket;
         ticket.room = [10; 16];
         ticket.generation = 10;
@@ -1201,13 +2508,12 @@ mod tests {
         let abandoned_cert = cert.sign(&key).unwrap();
         configure(&mut server, &mut abandoned, &abandoned_cert, 10_000);
         let abandoned_path = directory.0.join("0a".repeat(16));
-        let after_grace = MAX_TICKET_LIFETIME * 1000 + 10_000;
-        server.advance_clock(after_grace, unix(after_grace));
-        assert_eq!(server.room_count(), 1, "only the unstarted archive remains");
+        let superseded = 10_000 + LOADING_SILENCE_MS - 1;
+        server.advance_clock(superseded, unix(superseded));
         assert!(abandoned_path.exists());
         ticket.room = [11; 16];
         ticket.generation = 11;
-        ticket.expires = unix(after_grace) + 200;
+        ticket.expires = unix(superseded) + 200;
         let signed = ticket.sign(&key).unwrap();
         let mut next = ClientSession::new(
             &signed,
@@ -1215,7 +2521,7 @@ mod tests {
             [89; 32],
         )
         .unwrap();
-        connect(&mut server, &mut next, after_grace);
+        connect(&mut server, &mut next, superseded);
         assert!(
             !abandoned_path.exists(),
             "new admission reclaims the lost Leave"
@@ -1225,8 +2531,8 @@ mod tests {
             .configure_ordering(&abandoned_cert, [7; 32], &mut bytes)
             .unwrap();
         assert!(matches!(
-            server.process_at(endpoint(&abandoned), &bytes, unix(after_grace), after_grace),
-            Err(RelayError::Expired)
+            server.process_at(endpoint(&abandoned), &bytes, unix(superseded), superseded),
+            Err(RelayError::Authentication)
         ));
         assert!(!abandoned_path.exists());
         cert.room = ticket.room;
@@ -1235,14 +2541,14 @@ mod tests {
                 &mut server,
                 &mut next,
                 &cert.sign(&key).unwrap(),
-                after_grace
+                superseded
             )
             .iter()
             .any(|event| matches!(event, OrderEvent::Status(_)))
         );
         next.leave_ordering(&mut bytes).unwrap();
-        events(&mut server, &mut next, &bytes, after_grace);
-        let finished = after_grace + MAX_TICKET_LIFETIME * 1000;
+        events(&mut server, &mut next, &bytes, superseded);
+        let finished = superseded + MAX_TICKET_LIFETIME * 1000;
         server.advance_clock(finished, unix(finished));
         assert_eq!(server.room_count(), 0);
     }
@@ -1282,15 +2588,20 @@ mod tests {
                     source,
                     bytes,
                     ..
-                }) => Some((*sequence, *frame, *source, bytes.as_bytes())),
+                }) => Some((
+                    *sequence,
+                    *frame,
+                    *source,
+                    bytes.as_ref().unwrap().as_bytes(),
+                )),
                 _ => None,
             })
             .collect();
         assert_eq!(
             batch,
             [
-                (2, 2, 1, b"active input".as_slice()),
-                (3, 2, 2, b"third input".as_slice())
+                (1, 1, 1, b"active input".as_slice()),
+                (2, 1, 2, b"third input".as_slice())
             ]
         );
         let ends: Vec<_> = received
@@ -1302,7 +2613,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(ends, [(1, 1), (4, 2), (5, 3), (6, 4)]);
+        assert_eq!(ends, [(3, 1), (4, 2), (5, 3), (6, 4)]);
         active
             .submit_ordering(2, b"healthy input during outage", &mut bytes)
             .unwrap();
@@ -1363,8 +2674,9 @@ mod tests {
                     }) => {
                         assert_eq!(*sequence, cursor);
                         cursor += 1;
-                        saw_old_input |= bytes.as_bytes() == b"active input";
-                        saw_new_input |= bytes.as_bytes() == b"healthy input after lease renewal";
+                        let bytes = bytes.as_ref().unwrap().as_bytes();
+                        saw_old_input |= bytes == b"active input";
+                        saw_new_input |= bytes == b"healthy input after lease renewal";
                     }
                     OrderEvent::Entry(OrderEntry::FrameEnd { sequence, frame }) => {
                         assert_eq!(*sequence, cursor);
@@ -1495,26 +2807,26 @@ mod tests {
             events(&mut server, &mut first, &bytes, 300)[0],
             OrderEvent::Ack {
                 batch_id: 2,
-                frame: 6
+                frame: 5
             }
         ));
         first.leave_ordering(&mut bytes).unwrap();
         events(&mut server, &mut first, &bytes, 300);
         server.advance_clock(400, 1000);
-        let tail = pull(&mut server, &mut second, 7, 400);
-        let at_six: Vec<_> = tail
+        let tail = pull(&mut server, &mut second, 6, 400);
+        let at_five: Vec<_> = tail
             .iter()
             .filter_map(|event| match event {
-                OrderEvent::Entry(OrderEntry::Batch { frame: 6, .. }) => Some("batch"),
+                OrderEvent::Entry(OrderEntry::Batch { frame: 5, .. }) => Some("batch"),
                 OrderEvent::Entry(OrderEntry::Departure {
-                    frame: 6,
+                    frame: 5,
                     source: 0,
                     ..
                 }) => Some("departure"),
                 _ => None,
             })
             .collect();
-        assert_eq!(at_six, ["batch", "departure"]);
+        assert_eq!(at_five, ["batch", "departure"]);
         second.leave_ordering(&mut bytes).unwrap();
         events(&mut server, &mut second, &bytes, 400);
         server.advance_clock(600, unix(600));
@@ -1528,6 +2840,289 @@ mod tests {
             !room.exists(),
             "explicit-all-left retires only the completed journal"
         );
+    }
+
+    #[test]
+    fn pipelined_batches_recover_reordering_and_lost_ack_without_duplicate_entries() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut sender, mut peer) = (client(&key, 0), client(&key, 1));
+        for client in [&mut sender, &mut peer] {
+            connect(&mut server, client, 0);
+        }
+        let cert = certificate(&key, 3, 1300);
+        configure(&mut server, &mut sender, &cert, 0);
+        configure(&mut server, &mut peer, &cert, 0);
+        let mut bytes = Vec::new();
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        sender.submit_ordering(2, b"move", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Error {
+                code: OrderError::BatchGap,
+                expected: 1
+            }
+        ));
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        let lost_ack = server
+            .process_at(endpoint(&sender), &bytes, 1000, 0)
+            .unwrap();
+        sender.submit_ordering(2, b"move", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Ack { batch_id: 2, .. }
+        ));
+        // A delayed ACK cannot move the accepted prefix backwards.
+        sender.receive(&lost_ack[0].bytes).unwrap();
+        assert_eq!(sender.ordering.as_ref().unwrap().accepted_through, 2);
+        sender.submit_ordering(1, b"checksum", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 0)[0],
+            OrderEvent::Error {
+                code: OrderError::BatchGap,
+                expected: 3
+            }
+        ));
+        server.advance_clock(400, 1000);
+        let batches: Vec<_> = pull(&mut server, &mut peer, 1, 400)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Batch {
+                    batch_id, bytes, ..
+                }) => Some((batch_id, bytes.as_ref().unwrap().as_bytes().to_vec())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(batches, [(1, b"checksum".to_vec()), (2, b"move".to_vec())]);
+    }
+
+    #[test]
+    fn full_submission_window_survives_renewal_with_immutable_retry_ciphertext() {
+        let key = SecretKey::new([74; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut sender, mut peer) = (client(&key, 0), client(&key, 1));
+        for client in [&mut sender, &mut peer] {
+            connect(&mut server, client, 0);
+        }
+        let cert = certificate(&key, 3, 1300);
+        configure(&mut server, &mut sender, &cert, 0);
+        configure(&mut server, &mut peer, &cert, 0);
+        let mut bytes = Vec::new();
+        let mut sealed = Vec::new();
+        for id in 1..=4 {
+            sender.submit_ordering(id, &[id as u8], &mut bytes).unwrap();
+            sealed.push(bytes[CLIENT_HEADER..bytes.len() - MAC_LEN].to_vec());
+        }
+        assert_eq!(
+            sender.submit_ordering(5, b"fifth", &mut bytes),
+            Err(RelayError::Full)
+        );
+        assert_eq!(
+            sender.submit_ordering(2, b"changed", &mut bytes),
+            Err(RelayError::Authentication)
+        );
+        renew(&mut server, &mut sender, 1000);
+        let mut final_ack = None;
+        for id in 1..=4 {
+            sender.submit_ordering(id, &[id as u8], &mut bytes).unwrap();
+            assert_eq!(
+                bytes[CLIENT_HEADER..bytes.len() - MAC_LEN],
+                sealed[(id - 1) as usize]
+            );
+            final_ack = Some(
+                server
+                    .process_at(endpoint(&sender), &bytes, 1001, 1000)
+                    .unwrap(),
+            );
+        }
+        // Only the final receipt arrives; strict server admission proves all
+        // four predecessors, and one new slot becomes available immediately.
+        sender.receive(&final_ack.unwrap()[0].bytes).unwrap();
+        sender.submit_ordering(5, b"fifth", &mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut sender, &bytes, 1000)[0],
+            OrderEvent::Ack { batch_id: 5, .. }
+        ));
+        assert_eq!(
+            sender.submit_ordering(1, b"new old nonce", &mut bytes),
+            Err(RelayError::Replay)
+        );
+        assert_eq!(sender.ordering.as_ref().unwrap().sealed.len(), 4);
+    }
+
+    #[test]
+    fn archive_quota_admits_rooms_by_reserved_bytes() {
+        let directory = TestDirectory::new();
+        crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now()).unwrap();
+        // A journal left by an earlier process holds only its size on disk.
+        let leftover = directory.0.join("0b".repeat(16));
+        std::fs::create_dir(&leftover).unwrap();
+        std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, std::time::SystemTime::now())
+                .unwrap();
+        assert_eq!(
+            journals.create([11; 16], 45, 2).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+        let mut admitted = Vec::new();
+        let full = loop {
+            match journals.create([0x80 + admitted.len() as u8; 16], 45, 2) {
+                Ok(journal) => admitted.push(journal),
+                Err(error) => break error,
+            }
+        };
+        assert_eq!(full.kind(), std::io::ErrorKind::StorageFull);
+        // Each two-player 45 FPS room reserves its 24-hour clock records and
+        // 32 MiB of commands per player, not a fixed eighth of the quota.
+        assert_eq!(admitted.len(), 52);
+        // A finished room keeps only the bytes it wrote.
+        journals.settle(&mut admitted[0], 0);
+        assert!(journals.create([0xf0; 16], 45, 2).is_ok());
+    }
+
+    #[test]
+    fn a_started_match_outlives_its_certificate_until_its_players_go_silent() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1300);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        server.advance_clock(301_000, unix(301_000));
+        let archive = directory.0.join("05".repeat(16));
+        assert!(archive.exists() && ordering(&server).head > 300 * 45);
+        // Silence still ends the abandoned match and frees its archive.
+        server.advance_clock(ABSENT_MS, unix(ABSENT_MS));
+        let freed = ABSENT_MS + MAX_TICKET_LIFETIME * 1000;
+        server.advance_clock(freed, unix(freed));
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn flooding_matches_cannot_take_the_ordering_output_another_match_steadily_uses() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 16);
+        // Room 1's one steady player waits for a second player, so each Pull
+        // returns one status. Rooms 2 and 3 hold four flooders each, and ten
+        // idle rooms leave the steady player more than an equal share.
+        let mut players = Vec::new();
+        let rooms = [(1, 1, 0b11), (2, 4, 0b1111), (3, 4, 0b1111)];
+        for (room, sources, sources_mask) in
+            rooms.into_iter().chain((4..14).map(|room| (room, 1, 1)))
+        {
+            let cert = OrderingCertificate {
+                room: [room; 16],
+                sources_mask,
+                tick_hz: 45,
+                expires: 1400,
+            }
+            .sign(&key)
+            .unwrap();
+            for source in 0..sources {
+                let ticket = Ticket {
+                    room: [room; 16],
+                    source,
+                    expires: 1200,
+                    nonce: [room; 16],
+                    player: [room * 16 + source; 16],
+                    generation: 1,
+                }
+                .sign(&key)
+                .unwrap();
+                let mut player = ClientSession::new(
+                    &ticket,
+                    *derive_packet_key(&key, &ticket).expose_for_https(),
+                    [89; 32],
+                )
+                .unwrap();
+                connect(&mut server, &mut player, 0);
+                if room < 4 {
+                    configure(&mut server, &mut player, &cert, 0);
+                    players.push(player);
+                }
+            }
+        }
+        let pull_at = |server: &mut RelayServer, player: &mut ClientSession, now_ms| {
+            let mut bytes = Vec::new();
+            player.pull_ordering(1, &mut bytes).unwrap();
+            server
+                .process_at(endpoint(player), &bytes, unix(now_ms), now_ms)
+                .is_ok()
+        };
+        let (steady, flooders) = players.split_first_mut().unwrap();
+        assert!((0..1500).all(|_| pull_at(&mut server, steady, 1000)));
+        // The next second, the flooders pull until the relay refuses them.
+        for flooder in flooders {
+            while pull_at(&mut server, flooder, 2000) {}
+        }
+        assert!(
+            (0..1500).all(|_| pull_at(&mut server, steady, 2000)),
+            "the steady match keeps what it used the second before"
+        );
+    }
+
+    #[test]
+    fn leave_refuses_a_ticket_older_than_any_room_it_named() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut player = client(&key, 0);
+        connect(&mut server, &mut player, 0);
+        player
+            .configure_ordering(&certificate(&key, 1, 1400), [7; 32], &mut Vec::new())
+            .unwrap();
+        let mut leave = Vec::new();
+        player.leave_ordering(&mut leave).unwrap();
+        let last = player.ticket.expires + LEAVE_GRACE - 1;
+        assert!(
+            server
+                .process_at(endpoint(&player), &leave, last, last * 1000)
+                .is_ok()
+        );
+        assert_eq!(
+            server
+                .process_at(endpoint(&player), &leave, last + 1, (last + 1) * 1000)
+                .err(),
+            Some(RelayError::Expired)
+        );
+    }
+
+    #[test]
+    fn newer_admission_departs_the_player_from_an_older_started_match() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 1400);
+        for peer in [&mut first, &mut second] {
+            connect(&mut server, peer, 0);
+            configure(&mut server, peer, &cert, 0);
+        }
+        server.advance_clock(300, unix(300));
+        // The lobby admits the first player to its next match; the old
+        // generation can no longer send Leave for itself.
+        let mut ticket = first.ticket;
+        ticket.room = [6; 16];
+        ticket.generation = 2;
+        let signed = ticket.sign(&key).unwrap();
+        let mut next = ClientSession::new(
+            &signed,
+            *derive_packet_key(&key, &signed).expose_for_https(),
+            [89; 32],
+        )
+        .unwrap();
+        connect(&mut server, &mut next, 300);
+        server.advance_clock(400, unix(400));
+        let departed: Vec<_> = pull(&mut server, &mut second, 1, 400)
+            .into_iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Departure { source, .. }) => Some(source),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(departed, [0]);
     }
 
     #[test]
@@ -1583,7 +3178,8 @@ mod tests {
             .unwrap()
             .bytes;
         // Even a hop-authenticated ciphertext with altered associated batch id
-        // cannot be released as plaintext to the gameplay owner.
+        // cannot be released as plaintext to the gameplay owner; it arrives
+        // unreadable in its place.
         tampered[SERVER_HEADER + 14] ^= 1;
         let split = tampered.len() - MAC_LEN;
         let tag = second
@@ -1594,7 +3190,9 @@ mod tests {
         tampered[split..].copy_from_slice(&tag);
         assert!(matches!(
             second.receive(&tampered),
-            Err(RelayError::Authentication)
+            Ok(ServerEvent::Ordering(OrderEvent::Entry(
+                OrderEntry::Batch { bytes: None, .. }
+            )))
         ));
         server.advance_clock(112_000, unix(112_000));
         let replay = pull(&mut server, &mut second, 1, 112_000);
@@ -1604,9 +3202,10 @@ mod tests {
         ));
         assert!(matches!(
             replay[1],
-            OrderEvent::Entry(OrderEntry::FrameEnd {
+            OrderEvent::Entry(OrderEntry::Batch {
                 sequence: 1,
-                frame: 1
+                frame: 1,
+                ..
             })
         ));
         assert!(
@@ -1663,6 +3262,266 @@ mod tests {
         assert_eq!(server.rooms[&[5; 16]].ordering.as_ref().unwrap().head, head);
         assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
     }
+
+    #[test]
+    fn a_player_silent_for_ten_minutes_departs_through_the_stream() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let (mut present, mut absent) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 2000);
+        for participant in [&mut present, &mut absent] {
+            connect(&mut server, participant, 0);
+            configure(&mut server, participant, &cert, 0);
+        }
+        // Only one player keeps contact, renewing its short hop ticket.
+        let mut bytes = Vec::new();
+        for now_ms in (100_000..ABSENT_MS).step_by(100_000) {
+            renew(&mut server, &mut present, now_ms);
+            present.probe(&mut bytes).unwrap();
+            server
+                .process_at(endpoint(&present), &bytes, unix(now_ms), now_ms)
+                .unwrap();
+        }
+        server.advance_clock(ABSENT_MS - 1, unix(ABSENT_MS - 1));
+        assert_eq!(
+            ordering(&server).active,
+            3,
+            "a shorter outage keeps its place"
+        );
+        server.advance_clock(ABSENT_MS, unix(ABSENT_MS));
+        assert_eq!(ordering(&server).active, 1);
+        server.advance_clock(ABSENT_MS + 1000, unix(ABSENT_MS + 1000));
+        assert!(
+            ordering(&server)
+                .history
+                .iter()
+                .any(|entry| entry.bytes[0] == DEPARTURE_EVENT && entry.bytes[13..] == [1, 1]),
+            "source 1 departs with connection lost"
+        );
+    }
+
+    #[test]
+    fn players_who_never_finish_loading_depart_in_the_first_frame() {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::new(key.clone(), 2);
+        let mut players: Vec<_> = (0..3).map(|source| client(&key, source)).collect();
+        for player in &mut players {
+            connect(&mut server, player, 0);
+        }
+        let cert = certificate(&key, 0b111, 2000);
+        // The second player's game crashed while loading, before the first
+        // became ready: its silence counts from its last packet. The third
+        // still answers but never becomes ready.
+        let ready_at = 10_000;
+        let mut bytes = Vec::new();
+        for now_ms in (ready_at..ready_at + LOADING_LIMIT_MS).step_by(10_000) {
+            players[2].probe(&mut bytes).unwrap();
+            server
+                .process_at(endpoint(&players[2]), &bytes, unix(now_ms), now_ms)
+                .unwrap();
+            if now_ms == ready_at {
+                configure(&mut server, &mut players[0], &cert, now_ms);
+            }
+            server.advance_clock(now_ms, unix(now_ms));
+            let expected = if now_ms < LOADING_SILENCE_MS {
+                0b111
+            } else {
+                0b101
+            };
+            assert_eq!(ordering(&server).active, expected, "at {now_ms} ms");
+            assert!(ordering(&server).starts_at.is_none());
+        }
+        let limit = ready_at + LOADING_LIMIT_MS;
+        server.advance_clock(limit, unix(limit));
+        assert_eq!(ordering(&server).active, 1);
+        let first = pull(&mut server, &mut players[0], 1, limit + 1000);
+        let departed: Vec<_> = first
+            .iter()
+            .filter_map(|event| match event {
+                OrderEvent::Entry(OrderEntry::Departure {
+                    frame: 1,
+                    source,
+                    lost: true,
+                    ..
+                }) => Some(*source),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(departed, [1, 2]);
+    }
+
+    /// A started journaled match whose archive fails at 112 seconds, when a
+    /// pull from the start, past the hot cache, reads a broken index.
+    fn failed_match(directory: &TestDirectory) -> (RelayServer, ClientSession) {
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let (mut first, mut second) = (client(&key, 0), client(&key, 1));
+        let cert = certificate(&key, 3, 2000);
+        for participant in [&mut first, &mut second] {
+            connect(&mut server, participant, 0);
+            configure(&mut server, participant, &cert, 0);
+        }
+        server.advance_clock(112_000, unix(112_000));
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(directory.0.join("05".repeat(16)).join("stream.index"))
+            .unwrap()
+            .set_len(0)
+            .unwrap();
+        assert!(matches!(
+            pull(&mut server, &mut second, 1, 112_000)[0],
+            OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }
+        ));
+        server.advance_clock(112_000, unix(112_000));
+        (server, first)
+    }
+
+    #[test]
+    fn leave_after_a_journal_failure_is_acknowledged_and_keeps_the_archive() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
+        let before = std::fs::read(room.join("stream.data")).unwrap();
+        // The client waits for this acknowledgement before it may join
+        // another match.
+        let mut bytes = Vec::new();
+        first.leave_ordering(&mut bytes).unwrap();
+        assert!(matches!(
+            events(&mut server, &mut first, &bytes, 112_000).as_slice(),
+            [OrderEvent::Left]
+        ));
+        assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_once_every_ticket_expired_and_keeps_its_files() {
+        let directory = TestDirectory::new();
+        let (mut server, _) = failed_match(&directory);
+        let room = directory.0.join("05".repeat(16));
+        let before = std::fs::read(room.join("stream.data")).unwrap();
+        // Both hop tickets expire at 1200, 200 seconds in.
+        server.advance_clock(199_000, unix(199_000));
+        assert!(server.rooms.contains_key(&[5; 16]));
+        server.advance_clock(200_000, unix(200_000));
+        assert!(!server.rooms.contains_key(&[5; 16]));
+        assert_eq!(std::fs::read(room.join("stream.data")).unwrap(), before);
+        // Its match ID stays taken, holding only its bytes on disk.
+        let on_disk = [
+            room.clone(),
+            room.join("stream.data"),
+            room.join("stream.index"),
+        ]
+        .iter()
+        .map(|path| std::fs::metadata(path).unwrap().len())
+        .sum::<u64>();
+        let journals = server.journal_directory.as_ref().unwrap();
+        assert_eq!(journals.reserved(&[5; 16]), Some(on_disk));
+        assert_eq!(journals.total(), on_disk);
+    }
+
+    #[test]
+    fn a_failed_archive_frees_its_room_ten_minutes_on_while_a_player_renews() {
+        let directory = TestDirectory::new();
+        let (mut server, mut first) = failed_match(&directory);
+        let freed = 112_000 + ABSENT_MS;
+        for now_ms in (150_000..freed).step_by(100_000) {
+            renew(&mut server, &mut first, now_ms);
+        }
+        server.advance_clock(freed - 1, unix(freed - 1));
+        assert!(server.rooms[&[5; 16]].ordering.is_some());
+        server.advance_clock(freed, unix(freed));
+        assert!(server.rooms[&[5; 16]].ordering.is_none());
+        // A renewed Ready cannot start a new timeline under its match ID.
+        let cert = certificate(&server.key, 3, 2000);
+        assert!(matches!(
+            configure(&mut server, &mut first, &cert, freed)[0],
+            OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn startup_sets_aside_only_leftovers_of_ended_matches() {
+        let directory = TestDirectory::new();
+        let now = std::time::SystemTime::now();
+        crate::journal::JournalDirectory::open(&directory.0, now).unwrap();
+        for room in ["0b", "0c"] {
+            let leftover = directory.0.join(room.repeat(16));
+            std::fs::create_dir(&leftover).unwrap();
+            std::fs::write(leftover.join("stream.data"), [0; 64]).unwrap();
+        }
+        // The second was written until an hour after the first.
+        let hour = std::time::Duration::from_secs(3600);
+        std::fs::File::options()
+            .write(true)
+            .open(directory.0.join("0c".repeat(16)).join("stream.data"))
+            .unwrap()
+            .set_modified(now + hour)
+            .unwrap();
+        let ended = std::time::Duration::from_millis(ROOM_LIFETIME_MS + MAX_TICKET_LIFETIME * 1000);
+        let mut journals =
+            crate::journal::JournalDirectory::open(&directory.0, now + ended + hour / 2).unwrap();
+        assert_eq!(
+            std::fs::read(
+                directory
+                    .0
+                    .join("archive")
+                    .join("0b".repeat(16))
+                    .join("stream.data")
+            )
+            .unwrap(),
+            [0; 64]
+        );
+        // Only the recent leftover still counts against the quota.
+        assert_eq!(journals.reserved(&[0x0b; 16]), None);
+        assert_eq!(Some(journals.total()), journals.reserved(&[0x0c; 16]));
+        assert!(journals.create([0x0b; 16], 45, 2).is_ok());
+        assert_eq!(
+            journals.create([0x0c; 16], 45, 2).err().unwrap().kind(),
+            std::io::ErrorKind::AlreadyExists
+        );
+    }
+
+    #[test]
+    fn failed_archive_creation_and_removal_release_their_slot() {
+        let directory = TestDirectory::new();
+        let key = SecretKey::new([73; 32]);
+        let mut server = RelayServer::with_journal(key.clone(), 2, &directory.0).unwrap();
+        let mut first = client(&key, 0);
+        connect(&mut server, &mut first, 0);
+        let cert = certificate(&key, 3, 2000);
+        let room = directory.0.join("05".repeat(16));
+        crate::journal::FAIL_NEXT_INDEX.set(true);
+        assert!(matches!(
+            configure(&mut server, &mut first, &cert, 0).as_slice(),
+            [OrderEvent::Error {
+                code: OrderError::StorageUnavailable,
+                ..
+            }]
+        ));
+        assert!(!room.exists());
+        assert!(
+            configure(&mut server, &mut first, &cert, 0)
+                .iter()
+                .any(|event| matches!(event, OrderEvent::Status(_)))
+        );
+        // A cancelled start reclaims its empty archive at once. Another file
+        // in its directory makes that removal fail until the file is gone.
+        std::fs::write(room.join("stray"), b"").unwrap();
+        let mut bytes = Vec::new();
+        first.leave_ordering(&mut bytes).unwrap();
+        events(&mut server, &mut first, &bytes, 0);
+        server.advance_clock(0, unix(0));
+        assert!(room.exists());
+        std::fs::remove_file(room.join("stray")).unwrap();
+        server.advance_clock(1000, unix(1000));
+        assert!(!room.exists());
+    }
 }
 
 impl RelayServer {
@@ -1674,15 +3533,24 @@ impl RelayServer {
         now_ms: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
         let cost = (SERVER_HEADER + MAC_LEN) as u64;
-        if !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
-            || !self.order_packets.permits(now, 1, INGRESS_PER_SECOND)
-        {
+        // Leave needs no admission and accepts recently expired tickets. Like
+        // a handshake, the player's own budget comes before the relay's. A
+        // room's Leave spends that room's part; Leave for a room no longer
+        // held, which only an expired ticket reaches, has its own budget and
+        // the handshakes' part, so old tickets cannot spend what matches use.
+        if !self.player_handshakes(&message.ticket.player).permits(
+            now,
+            1,
+            PLAYER_HANDSHAKES_PER_SECOND,
+        ) {
             return Err(RelayError::RateLimited);
         }
         self.advance_ordering_room(message.ticket.room, now_ms);
         if let Some(room) = self.rooms.get_mut(&message.ticket.room) {
             if !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
-                || !room.order_packets.permits(now, 1, 8192)
+                || !self
+                    .outgoing
+                    .admit_part(&mut room.outgoing, now, cost, TOTAL_BYTES_PER_SECOND)
             {
                 return Err(RelayError::RateLimited);
             }
@@ -1699,13 +3567,13 @@ impl RelayServer {
                     return Err(RelayError::RateLimited);
                 }
                 source.leave_packets.charge(now, 1);
-                if ordering.storage_failed {
-                    return Err(RelayError::Unregistered);
-                }
                 // Like Ready, a signed ticket binds a certificate-admitted
                 // source on first contact. Its initial Ready may have been
                 // lost while another source already created this room.
                 source.principal = Some(principal);
+                // A failed archive keeps its files for inspection, but still
+                // records the departure in memory and acknowledges it: the
+                // client may join no other match until it does.
                 ordering.depart(message.ticket.source, now_ms);
             } else {
                 if room.peers.iter().any(|peer| {
@@ -1717,15 +3585,33 @@ impl RelayServer {
                 }
                 room.ordering_cancelled = true;
             }
-            room.outgoing.charge(now, cost);
-            room.order_packets.charge(now, 1);
+            if let Some(peer) = room
+                .peers
+                .iter_mut()
+                .find(|peer| peer.ticket == message.ticket)
+            {
+                peer.push = None;
+            }
+            self.outgoing.charge_part(&mut room.outgoing, cost);
         } else if message.ticket.expires > now {
             // An unseen live lease may still have Ready in flight. Only an
             // expired absent room is safely acknowledged without a tombstone.
             return Err(RelayError::Unregistered);
+        } else if !self.leaves.permits(now, 1, LEAVES_PER_SECOND)
+            || !self.outgoing.admit_part(
+                &mut self.handshake_outgoing,
+                now,
+                cost,
+                TOTAL_BYTES_PER_SECOND,
+            )
+        {
+            return Err(RelayError::RateLimited);
+        } else {
+            self.leaves.charge(now, 1);
+            self.outgoing
+                .charge_part(&mut self.handshake_outgoing, cost);
         }
-        self.outgoing.charge(now, cost);
-        self.order_packets.charge(now, 1);
+        self.charge_player_handshake(message.ticket.player, now);
         Ok(vec![ForwardDatagram {
             endpoint,
             bytes: encode_server(
@@ -1739,10 +3625,11 @@ impl RelayServer {
         }])
     }
 
-    pub(super) fn retire_superseded_startups(&mut self, ticket: Ticket, now_ms: u64, now: u64) {
+    pub(super) fn retire_superseded(&mut self, ticket: Ticket, now_ms: u64, now: u64) {
         // A higher lobby-signed generation for this principal proves its old
         // membership ended. Source bindings outlive short hop admissions, so
-        // this also closes a canceled load whose final Leave was lost.
+        // this also closes a canceled load or a match whose final Leave was
+        // lost; a started match records the departure like Leave.
         let superseded: Vec<_> = self
             .rooms
             .iter()
@@ -1751,7 +3638,7 @@ impl RelayServer {
                     return None;
                 }
                 let ordering = room.ordering.as_ref()?;
-                if ordering.starts_at.is_some() || ordering.active == 0 || ordering.storage_failed {
+                if ordering.active == 0 || ordering.storage_failed {
                     return None;
                 }
                 ordering
@@ -1787,13 +3674,11 @@ impl RelayServer {
         let mut rooms: Vec<_> = self.rooms.keys().copied().collect();
         rooms.sort_unstable();
         for id in rooms {
-            if let Some(ordering) = self
-                .rooms
-                .get_mut(&id)
-                .and_then(|room| room.ordering.as_mut())
+            if let Some(room) = self.rooms.get_mut(&id)
+                && let Some(ordering) = room.ordering.as_mut()
             {
                 let before = ordering.memory();
-                ordering.advance(now_ms);
+                ordering.advance(now_ms, room.federation.as_mut());
                 total = total
                     .saturating_sub(before)
                     .saturating_add(ordering.memory());
@@ -1808,6 +3693,17 @@ impl RelayServer {
     }
 
     fn cleanup_ordering(&mut self, now_ms: u64, now: u64) {
+        if let Some(directory) = self.journal_directory.as_mut() {
+            directory.retry(now_ms);
+            for room in self.rooms.values_mut() {
+                if let Some(ordering) = room.ordering.as_mut()
+                    && ordering.finished_at.is_some()
+                    && let Some(journal) = ordering.journal.as_mut()
+                {
+                    directory.settle(journal, ordering.sealed - ordering.head);
+                }
+            }
+        }
         let ended: Vec<_> = self
             .rooms
             .iter()
@@ -1815,7 +3711,7 @@ impl RelayServer {
                 room.ordering
                     .as_ref()
                     .filter(|ordering| {
-                        ordering.cleanup_due(now_ms, now)
+                        ordering.cleanup_due(now_ms, now, !room.peers.is_empty())
                             || (!ordering.storage_failed
                                 && ordering.starts_at.is_none()
                                 && ordering.finished_at.is_some()
@@ -1827,13 +3723,11 @@ impl RelayServer {
         for id in ended {
             let room = self.rooms.get_mut(&id).unwrap();
             let ordering = room.ordering.as_mut().unwrap();
-            let retire = ordering.cleanup_due(now_ms, now);
+            let retire = ordering.cleanup_due(now_ms, now, !room.peers.is_empty());
             if let Some(directory) = self.journal_directory.as_mut()
                 && let Some(journal) = ordering.journal.take()
-                && directory.cleanup(journal).is_err()
             {
-                ordering.storage_failed = true;
-                continue;
+                directory.cleanup(journal, ordering.storage_failed);
             }
             // No commands or frames can exist before the full Ready quorum.
             // Reclaim its empty archive immediately, retaining only the
@@ -1849,13 +3743,11 @@ impl RelayServer {
     }
 
     pub(super) fn advance_ordering_room(&mut self, id: [u8; 16], now_ms: u64) {
-        if let Some(ordering) = self
-            .rooms
-            .get_mut(&id)
-            .and_then(|room| room.ordering.as_mut())
+        if let Some(room) = self.rooms.get_mut(&id)
+            && let Some(ordering) = room.ordering.as_mut()
         {
             let before = ordering.memory();
-            ordering.advance(now_ms);
+            ordering.advance(now_ms, room.federation.as_mut());
             if ordering.memory() > before {
                 self.reserve_ordering(0);
             }
@@ -1905,6 +3797,27 @@ impl RelayServer {
         now_ms: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
         let payload = message.payload;
+        if payload.first() == Some(&PUSH_REQUEST) {
+            return self.ordering_push_request(message, now, now_ms);
+        }
+        if payload.first() == Some(&PAUSE_REQUEST) {
+            if !self.reserve_ordering(2 * (PAUSE_ENTRY_BYTES + ENTRY_OVERHEAD)) {
+                return self.ordering_reply(
+                    message.ticket,
+                    error(OrderError::Backpressure, 0),
+                    now,
+                );
+            }
+            let room = self
+                .rooms
+                .get_mut(&message.ticket.room)
+                .ok_or(RelayError::Unregistered)?;
+            let replies = match room.ordering.as_mut() {
+                Some(ordering) => ordering.control_pause(message.ticket, payload, now_ms)?,
+                None => error(OrderError::NotConfigured, 0),
+            };
+            return self.ordering_reply(message.ticket, replies, now);
+        }
         let replies = if payload.first() == Some(&READY_REQUEST) {
             if payload.len() != 1 + ORDERING_CERTIFICATE_LEN + 32 {
                 return Err(RelayError::Malformed);
@@ -1914,8 +3827,13 @@ impl RelayServer {
                 &self.key,
                 now,
             )?;
+            // A one-source match runs its commands locally (the client's
+            // original-singleton policy) and never orders through the relay.
+            // The lobby still signs its certificate for released clients, so
+            // refuse it here: a lone client cannot hold a room and journal.
             if certificate.room != message.ticket.room
                 || certificate.sources_mask & (1 << message.ticket.source) == 0
+                || certificate.sources_mask.count_ones() < 2
             {
                 return Err(RelayError::Authentication);
             }
@@ -1924,7 +3842,7 @@ impl RelayServer {
                 .get(&message.ticket.room)
                 .is_some_and(|room| room.ordering_cancelled)
             {
-                return self.ordering_reply(message, error(OrderError::Inactive, 0), now);
+                return self.ordering_reply(message.ticket, error(OrderError::Inactive, 0), now);
             }
             let agreement: [u8; 32] = payload[1 + ORDERING_CERTIFICATE_LEN..].try_into().unwrap();
             let allocation = self
@@ -1941,11 +3859,15 @@ impl RelayServer {
             let journal = if allocation {
                 match self.journal_directory.as_mut() {
                     Some(directory) => {
-                        match directory.create(certificate.room, certificate.tick_hz) {
+                        match directory.create(
+                            certificate.room,
+                            certificate.tick_hz,
+                            certificate.sources_mask.count_ones(),
+                        ) {
                             Ok(journal) => Some(journal),
                             Err(_) => {
                                 return self.ordering_reply(
-                                    message,
+                                    message.ticket,
                                     error(OrderError::StorageUnavailable, 0),
                                     now,
                                 );
@@ -1961,9 +3883,25 @@ impl RelayServer {
                 .rooms
                 .get_mut(&message.ticket.room)
                 .ok_or(RelayError::Unregistered)?;
-            let ordering = room
-                .ordering
-                .get_or_insert_with(|| OrderingRoom::new(certificate, agreement, journal));
+            let local = room
+                .federation
+                .as_ref()
+                .map_or(certificate.sources_mask, federation::Federation::local);
+            let ordering = room.ordering.get_or_insert_with(|| {
+                let mut ordering =
+                    OrderingRoom::new(certificate, agreement, journal, local, now_ms);
+                // A peer silent before the first Ready has been silent since
+                // its last hop packet, not since this room appeared.
+                for peer in &room.peers {
+                    if let Some(source) = ordering.sources.get_mut(usize::from(peer.ticket.source))
+                    {
+                        source.heard_ms = now_ms.saturating_sub(
+                            now.saturating_sub(peer.last_seen).saturating_mul(1000),
+                        );
+                    }
+                }
+                ordering
+            });
             if ordering.storage_failed {
                 error(OrderError::StorageUnavailable, ordering.next_seq)
             } else if ordering.certificate.room != certificate.room
@@ -1981,16 +3919,19 @@ impl RelayServer {
                     return Err(RelayError::Authentication);
                 }
                 state.principal = Some(principal);
-                ordering.certificate.expires =
-                    ordering.certificate.expires.max(certificate.expires);
+                // A renewed certificate never extends the room: the first
+                // one's expiry bounds its startup, and its creation time
+                // its whole lifetime.
                 ordering.ready |= 1 << message.ticket.source;
-                if ordering.ready == ordering.certificate.sources_mask
-                    && ordering.starts_at.is_none()
-                {
-                    ordering.starts_at = Some(now_ms.saturating_add(START_DELAY_MS));
-                }
+                let ready_mask = match room.federation.as_ref() {
+                    Some(federation) => federation.ready(ordering.ready, &ordering.agreement),
+                    None => {
+                        ordering.start_when_ready(now_ms);
+                        ordering.ready
+                    }
+                };
                 let mut ready = vec![READY_EVENT];
-                ready.extend_from_slice(&ordering.ready.to_le_bytes());
+                ready.extend_from_slice(&ready_mask.to_le_bytes());
                 ready.extend_from_slice(&ordering.certificate.sources_mask.to_le_bytes());
                 vec![ready, ordering.status(now_ms)]
             }
@@ -2011,12 +3952,270 @@ impl RelayServer {
                 error(OrderError::NotConfigured, 0)
             }
         };
-        self.ordering_reply(message, replies, now)
+        self.ordering_reply(message.ticket, replies, now)
+    }
+
+    fn ordering_push_request(
+        &mut self,
+        message: &Incoming<'_>,
+        now: u64,
+        now_ms: u64,
+    ) -> Result<Vec<ForwardDatagram>, RelayError> {
+        let payload = message.payload;
+        if payload.len() != 10 || payload[1] > 1 || read_u64(payload, 2) == 0 {
+            return Err(RelayError::Malformed);
+        }
+        let requested_enabled = payload[1] != 0;
+        let requested = read_u64(payload, 2);
+        let ticket = message.ticket;
+        let room = self
+            .rooms
+            .get_mut(&ticket.room)
+            .ok_or(RelayError::Unregistered)?;
+        let replies = if let Some(ordering) = room.ordering.as_ref() {
+            ordering.authenticate_reader(ticket)?;
+            let peer = room
+                .peers
+                .iter_mut()
+                .find(|peer| peer.ticket == ticket)
+                .ok_or(RelayError::Unregistered)?;
+            if peer
+                .push
+                .is_some_and(|push| now_ms.saturating_sub(push.refreshed_at) >= PUSH_LEASE_MS)
+            {
+                peer.push = None;
+            }
+            let cursor = peer
+                .push
+                .map_or(requested, |push| push.acknowledged_next.max(requested));
+            // The hop replay window permits fresh controls to arrive out of
+            // order. Their receipt watermark is cumulative, but an old mode
+            // request cannot undo a newer enable/disable decision.
+            let enabled = if message.sequence < peer.push_control_sequence {
+                peer.push.is_some()
+            } else {
+                requested_enabled
+            };
+            let cursor_error = enabled.then(|| ordering.cursor_error(cursor)).flatten();
+            if let Some((code, expected)) = cursor_error {
+                error(code, expected)
+            } else {
+                peer.push_control_sequence = peer.push_control_sequence.max(message.sequence);
+                let state = ordering.push_status_state(now_ms);
+                if enabled {
+                    let push = peer.push.get_or_insert(PushSubscription {
+                        acknowledged_next: cursor,
+                        sent_next: cursor,
+                        repeat_next: cursor,
+                        unrepeated_since: None,
+                        refreshed_at: now_ms,
+                        status_at: now_ms,
+                        status_state: state,
+                    });
+                    push.acknowledged_next = cursor;
+                    push.sent_next = push.sent_next.max(cursor);
+                    push.refreshed_at = now_ms;
+                    push.status_at = now_ms;
+                    push.status_state = state;
+                } else {
+                    peer.push = None;
+                }
+                let mut reply = vec![PUSH_EVENT, u8::from(enabled)];
+                reply.extend_from_slice(&cursor.to_le_bytes());
+                vec![reply, ordering.status(now_ms)]
+            }
+        } else {
+            error(OrderError::NotConfigured, 0)
+        };
+        self.ordering_reply(ticket, replies, now)
+    }
+
+    /// Drain a bounded fair share of already committed history. Canonical
+    /// advancement remains solely in `advance_clock`; a slow reader consumes
+    /// only its own delivery credit and never stalls another participant.
+    pub fn drain_ordering_push(&mut self, now_ms: u64, now: u64) -> Vec<ForwardDatagram> {
+        self.prune(now);
+        let mut recipients = Vec::new();
+        for (id, room) in &mut self.rooms {
+            for peer in &mut room.peers {
+                if room.ordering.is_none()
+                    || peer.ticket.expires <= now
+                    || peer.push.is_some_and(|push| {
+                        now_ms.saturating_sub(push.refreshed_at) >= PUSH_LEASE_MS
+                    })
+                {
+                    peer.push = None;
+                }
+                if peer.push.is_some() {
+                    recipients.push((*id, peer.ticket.source));
+                }
+            }
+        }
+        recipients.sort_unstable();
+        if recipients.is_empty() {
+            return Vec::new();
+        }
+        if let Some(after) = self.push_after {
+            let start = recipients.partition_point(|recipient| *recipient <= after);
+            let count = recipients.len();
+            recipients.rotate_left(start % count);
+        }
+        let mut output = Vec::new();
+        let mut output_bytes = 0;
+        let mut room_packets = HashMap::new();
+        // Each reader reached, with its stream end before this pass and the
+        // fresh packets it was sent.
+        let mut reached = Vec::new();
+        for (id, source) in recipients {
+            if output.len() == PUSH_DRAIN_PACKETS || output_bytes >= PUSH_DRAIN_BYTES {
+                break;
+            }
+            let room_used = *room_packets.get(&id).unwrap_or(&0);
+            let limit = PUSH_PEER_PACKETS
+                .min(PUSH_ROOM_PACKETS - room_used)
+                .min(PUSH_DRAIN_PACKETS - output.len());
+            if limit == 0 {
+                continue;
+            }
+            self.push_after = Some((id, source));
+            let room = self.rooms.get_mut(&id).expect("listed room");
+            let peer = room
+                .peers
+                .iter()
+                .find(|peer| peer.ticket.source == source)
+                .expect("listed peer");
+            let ticket = peer.ticket;
+            let push = peer.push.expect("listed subscription");
+            reached.push((id, ticket, push.sent_next, 0));
+            let ordering = room.ordering.as_mut().expect("subscribed ordering room");
+            let state = ordering.push_status_state(now_ms);
+            let status_due = state != push.status_state
+                || now_ms.saturating_sub(push.status_at) >= PUSH_STATUS_MS;
+            let credit =
+                PUSH_WINDOW.saturating_sub(push.sent_next - push.acknowledged_next) as usize;
+            let records =
+                ordering.history_page(push.sent_next, credit.min(limit - usize::from(status_due)));
+            let (replies, entries, terminal) = match records {
+                Ok(records) => {
+                    let entries = records.len();
+                    let mut replies = Vec::with_capacity(entries + usize::from(status_due));
+                    if status_due {
+                        replies.push(ordering.status(now_ms));
+                    }
+                    replies.extend(records);
+                    (replies, entries, false)
+                }
+                Err((code, expected)) => (error(code, expected), 0, true),
+            };
+            if replies.is_empty() {
+                continue;
+            }
+            let bytes = replies
+                .iter()
+                .map(|payload| SERVER_HEADER + MAC_LEN + payload.len())
+                .sum::<usize>();
+            if bytes > PUSH_DRAIN_BYTES - output_bytes {
+                continue;
+            }
+            // Reuse the request-reply authentication and all three rate-budget
+            // owners. Failed budget admission cannot move the stream cursor.
+            let Ok(datagrams) = self.ordering_reply(ticket, replies, now) else {
+                continue;
+            };
+            if let Some((.., fresh)) = reached.last_mut() {
+                *fresh = datagrams.len();
+            }
+            *room_packets.entry(id).or_insert(0) += datagrams.len();
+            output_bytes += bytes;
+            output.extend(datagrams);
+            let peer = self
+                .rooms
+                .get_mut(&id)
+                .unwrap()
+                .peers
+                .iter_mut()
+                .find(|peer| peer.ticket == ticket)
+                .unwrap();
+            if terminal {
+                peer.push = None;
+            } else if let Some(push) = peer.push.as_mut() {
+                // With no older entry owed a copy, this pass starts the delay.
+                if entries > 0 && push.repeat_next.max(push.acknowledged_next) >= push.sent_next {
+                    push.unrepeated_since = Some(now_ms);
+                }
+                push.sent_next += entries as u64;
+                if status_due {
+                    push.status_at = now_ms;
+                    push.status_state = state;
+                }
+            }
+        }
+        // Fresh delivery has priority. Repeats then use only what this pass
+        // has left and a budget of their own, checked before any history is
+        // copied, so they never delay or rate-limit a fresh entry or a request
+        // reply. They copy entries sent before this pass, which the reader
+        // holds or lost, so they take no credit; a reader replaying the
+        // journal repairs its own losses.
+        for (id, ticket, before, fresh) in reached {
+            if output.len() == PUSH_DRAIN_PACKETS || output_bytes >= PUSH_DRAIN_BYTES {
+                break;
+            }
+            let room_used = *room_packets.get(&id).unwrap_or(&0);
+            let room = self.rooms.get_mut(&id).expect("listed room");
+            let Some(peer) = room.peers.iter_mut().find(|peer| peer.ticket == ticket) else {
+                continue;
+            };
+            let (Some(push), Some(ordering)) = (peer.push, room.ordering.as_ref()) else {
+                continue;
+            };
+            if push
+                .unrepeated_since
+                .is_none_or(|at| now_ms.saturating_sub(at) < PUSH_REPEAT_MS)
+            {
+                continue;
+            }
+            let from = push
+                .repeat_next
+                .max(push.acknowledged_next)
+                .max(ordering.hot_oldest_seq());
+            let capacity = (PUSH_PEER_PACKETS - fresh)
+                .min(PUSH_ROOM_PACKETS - room_used)
+                .min(PUSH_DRAIN_PACKETS - output.len());
+            let count = before
+                .saturating_sub(from)
+                .min(capacity as u64)
+                .min(self.repeat_packets.remaining(now, PUSH_REPEAT_PACKETS));
+            let mut repeated = 0;
+            if count > 0 {
+                for payload in ordering.hot_page(from, count as usize) {
+                    let bytes = SERVER_HEADER + MAC_LEN + payload.len();
+                    if output_bytes + bytes > PUSH_DRAIN_BYTES {
+                        break;
+                    }
+                    let Ok(datagram) = server_packet(peer, CONTROL, ticket.source, &payload) else {
+                        break;
+                    };
+                    output_bytes += bytes;
+                    output.push(datagram);
+                    repeated += 1;
+                }
+            }
+            self.repeat_packets.charge(now, repeated);
+            *room_packets.entry(id).or_insert(0) += repeated as usize;
+            let push = peer.push.as_mut().expect("subscribed reader");
+            push.repeat_next = from + repeated;
+            // Once every entry sent before this pass went twice, this pass's
+            // entries start the next wait.
+            if push.repeat_next >= before {
+                push.unrepeated_since = (push.sent_next > before).then_some(now_ms);
+            }
+        }
+        output
     }
 
     fn ordering_reply(
         &mut self,
-        message: &Incoming<'_>,
+        ticket: Ticket,
         mut replies: Vec<Vec<u8>>,
         now: u64,
     ) -> Result<Vec<ForwardDatagram>, RelayError> {
@@ -2027,37 +4226,47 @@ impl RelayServer {
         let packets = replies.len() as u64;
         let room = self
             .rooms
-            .get_mut(&message.ticket.room)
+            .get_mut(&ticket.room)
             .ok_or(RelayError::Unregistered)?;
         let admission = self
             .admissions
-            .get_mut(&message.ticket.player)
+            .get_mut(&ticket.player)
             .ok_or(RelayError::Unregistered)?;
         if !admission
             .outgoing
             .permits(now, cost, PLAYER_BYTES_PER_SECOND)
             || !room.outgoing.permits(now, cost, ROOM_BYTES_PER_SECOND)
-            || !self.outgoing.permits(now, cost, TOTAL_BYTES_PER_SECOND)
             || !admission.order_packets.permits(now, packets, 2048)
             || !room.order_packets.permits(now, packets, 8192)
-            || !self.order_packets.permits(now, packets, INGRESS_PER_SECOND)
+        {
+            return Err(RelayError::RateLimited);
+        }
+        // Ask both relay-wide totals, so each counts the room's demand.
+        let bytes = self
+            .outgoing
+            .admit_part(&mut room.outgoing, now, cost, TOTAL_BYTES_PER_SECOND);
+        if !(self.order_packets.admit_part(
+            &mut room.order_packets,
+            now,
+            packets,
+            INGRESS_PER_SECOND,
+        ) && bytes)
         {
             return Err(RelayError::RateLimited);
         }
         admission.outgoing.charge(now, cost);
-        room.outgoing.charge(now, cost);
-        self.outgoing.charge(now, cost);
+        self.outgoing.charge_part(&mut room.outgoing, cost);
         admission.order_packets.charge(now, packets);
-        room.order_packets.charge(now, packets);
-        self.order_packets.charge(now, packets);
+        self.order_packets
+            .charge_part(&mut room.order_packets, packets);
         let peer = room
             .peers
             .iter_mut()
-            .find(|peer| peer.ticket == message.ticket)
+            .find(|peer| peer.ticket == ticket)
             .ok_or(RelayError::Unregistered)?;
         replies
             .drain(..)
-            .map(|payload| server_packet(peer, CONTROL, message.ticket.source, &payload))
+            .map(|payload| server_packet(peer, CONTROL, ticket.source, &payload))
             .collect()
     }
 }

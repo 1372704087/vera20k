@@ -211,6 +211,7 @@ pub(crate) fn apply_foot_radiation(
                         impact,
                         damage,
                         warhead,
+                        true,
                         (attacker, source_house, warhead_id),
                         effects,
                     );
@@ -462,6 +463,7 @@ pub(crate) fn collect_area(
     cell: (u16, u16),
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     air_impact: Option<combat_aoe::AoEAirImpact>,
     impact_z: i32,
@@ -505,7 +507,7 @@ pub(crate) fn collect_area(
                 rules,
                 warhead,
                 damage,
-                true,
+                affects_tiberium,
                 world.session.no_damage(),
                 &mut world.ore_growth_state,
                 world.terrain_objects.spawning_cells(),
@@ -522,7 +524,7 @@ pub(crate) fn collect_area(
             let mut deferred_prelude = world.receiver_fixture.as_mut().map(|fixture| {
                 super::receiver_fixture::DeferredCellPrelude {
                     amount: (!world.session.no_damage())
-                        .then(|| tiberium_reduction_amount(damage, true, warhead))
+                        .then(|| tiberium_reduction_amount(damage, affects_tiberium, warhead))
                         .flatten(),
                     deferred: &mut fixture.deferred_tiberium,
                 }
@@ -597,6 +599,8 @@ pub(crate) fn collect_area(
 /// the area's receivers around `impact` committed in order, then area rocking
 /// (`0x00489B49`) and bridge damage (`0x00489E87`). `origin` is the source object, the source
 /// house and the warhead's id. Returns whether a bridge changed.
+/// `affects_tiberium` gates only the per-cell Reduce_Tiberium call at
+/// `0x00489648..0x00489665` (original gamemd.exe); all other area effects remain active.
 pub(crate) fn apply_area_damage(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -604,6 +608,7 @@ pub(crate) fn apply_area_damage(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     effects: FrameEffects<'_>,
 ) -> bool {
@@ -616,6 +621,7 @@ pub(crate) fn apply_area_damage(
         impact,
         damage,
         warhead,
+        affects_tiberium,
         origin,
     );
     let navigation = run.finish();
@@ -636,6 +642,7 @@ pub(crate) fn apply_area_damage_in_run(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
 ) -> (DeathEffects, Vec<UnderAttackEvent>) {
     let area = collect_area_at(
@@ -645,6 +652,7 @@ pub(crate) fn apply_area_damage_in_run(
         impact,
         damage,
         warhead,
+        affects_tiberium,
         origin,
         run.effects(),
     );
@@ -706,13 +714,21 @@ fn collect_area_at<'r>(
     impact: ProjectileCoord,
     damage: i32,
     warhead: &'r WarheadType,
+    affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     effects: FrameEffects<'_>,
 ) -> AreaAtImpact<'r> {
     // Observe the shared entry, including Bullet and nested receiver calls;
     // an external-only wrapper misses those paths and must not double-count.
     #[cfg(test)]
-    super::receiver_fixture::observe_area_visit(world, impact, damage, warhead, origin);
+    super::receiver_fixture::observe_area_visit(
+        world,
+        impact,
+        damage,
+        warhead,
+        affects_tiberium,
+        origin,
+    );
     let (rx, ry, sub_x, sub_y, z_leptons) = projectile_impact_cell(impact);
     let entered = damage != 0 && !world.session.no_damage();
     let routed_wall = entered && area_routes_to_wall(world, overlay_registry, (rx, ry), warhead);
@@ -723,6 +739,7 @@ fn collect_area_at<'r>(
         (rx, ry),
         damage,
         warhead,
+        affects_tiberium,
         origin,
         Some(combat_aoe::AoEAirImpact {
             sub_x,
@@ -1005,6 +1022,7 @@ pub(crate) fn commit_terrain(
             impact,
             100,
             c4_warhead,
+            true,
             (RAD_NO_ATTACKER, None, c4_id),
         );
         effects.append(nested);
@@ -1186,6 +1204,13 @@ pub(crate) fn commit_entities(
                 _ => None,
             }
         };
+        #[cfg(feature = "phobos")]
+        #[cfg(feature = "ares")]
+        let ares_initially_positive = shield_receipt
+            .as_ref()
+            .map_or(event.damage > 0, |receipt| receipt.remaining > 0);
+        #[cfg(all(feature = "ares", not(feature = "phobos")))]
+        let ares_initially_positive = event.damage > 0;
         #[cfg(feature = "phobos")]
         let receiver_outcome = match shield_receipt {
             Some(receipt) => resolve_receive_damage_with_input(
@@ -1438,6 +1463,36 @@ pub(crate) fn commit_entities(
                 run.effects(),
             );
         }
+
+        // Installed Ares702819 ->1004AB50 is a receiver aftermath, after
+        // protected responses and before Uncloak. The early701914 hook
+        // records the sign before defenses; callbacks may alter a pointed
+        // damage field before the aftermath reads it again.
+        #[cfg(feature = "ares")]
+        {
+            let current_damage = event
+                .damage_writeback
+                .map(|writeback| writeback.read(world, rules))
+                .or_else(|| {
+                    receiver_outcome.and_then(|resolved| resolved.outcome.post_object_damage)
+                })
+                .unwrap_or(event.damage);
+            world.ares_driver_kill_aftermath(
+                event,
+                receive_state,
+                ares_initially_positive,
+                current_damage,
+                rules,
+                overlay_registry,
+                run.effects(),
+            );
+        }
+
+        //1004AB68..1004AB88 returns702823 for result0, skipping Uncloak
+        //even when no extension effect is configured or admitted.
+        #[cfg(feature = "ares")]
+        let uncloak_after_damage =
+            uncloak_after_damage && receive_state != damage::DamageState::Unaffected;
 
         // `0x0070281D`, in its native slot: after the `ToProtect` response
         // (`0x007027E9`); Object's Kill/Destroy have already returned. The
@@ -2249,11 +2304,14 @@ fn finish_concrete_death(
     // The killing call's concrete receiver booleans: IgnoreDefenses (arg5)
     // becomes the building's NoSurvivor and kills a unit's passengers, arg6
     // gates the vehicle crew.
-    let (ignore_defenses, prevent_crew_escape) = damage_events
+    let killing_flags = damage_events
         .iter()
         .rfind(|event| event.target_id == dead_id)
-        .map(|event| event.receiver_flags)
-        .map_or((false, false), |flags| (flags.ignore_defenses, flags.arg6));
+        .map(|event| event.receiver_flags);
+    let ignore_defenses = killing_flags.is_some_and(|flags| flags.ignore_defenses);
+    // Ares's survivor release (`0x100464C0`) reads only IgnoreDefenses.
+    #[cfg(not(feature = "ares"))]
+    let prevent_crew_escape = killing_flags.is_some_and(|flags| flags.arg6);
 
     // BuildingClass runs DestructionEffects/SpawnSurvivors only after
     // TechnoClass's synchronous death weapon has returned. Capture the
@@ -2301,15 +2359,32 @@ fn finish_concrete_death(
             ignore_defenses,
             selected_by_player,
         };
-        world.release_dying_unit_passengers(rules, overlay_registry, dead_id, dying, frame_effects);
-        world.spawn_vehicle_crew(
+        #[cfg(feature = "ares")]
+        world.release_ares_vehicle_survivors(
             rules,
             overlay_registry,
             dead_id,
-            prevent_crew_escape,
-            selected_by_player,
+            dying,
             frame_effects,
         );
+        #[cfg(not(feature = "ares"))]
+        {
+            world.release_dying_unit_passengers(
+                rules,
+                overlay_registry,
+                dead_id,
+                dying,
+                frame_effects,
+            );
+            world.spawn_vehicle_crew(
+                rules,
+                overlay_registry,
+                dead_id,
+                prevent_crew_escape,
+                selected_by_player,
+                frame_effects,
+            );
+        }
         world.drop_unit_cargo_crate(dead_id, rules, overlay_registry);
     }
 
@@ -2381,13 +2456,50 @@ fn finish_concrete_death(
         // released its dock slots.
         effects.despawned_ids.push(dead_id);
     } else if category == EntityCategory::Aircraft && callbacks_enabled(world) {
-        if !world.foot_crash(
-            dead_id,
-            killing_attacker(world, damage_events, dead_id),
-            rules,
-            overlay_registry,
-            frame_effects,
-        ) {
+        #[cfg(feature = "ares")]
+        {
+            //41668B ->10048C50 reads the live selected byte here (unlike
+            //Unit's entry snapshot), then calls shared survivors100464C0.
+            let selected = world
+                .substrate
+                .entities
+                .get(dead_id)
+                .is_some_and(|aircraft| {
+                    aircraft.selection.is_selected() && world.owner_is_human(aircraft.owner())
+                });
+            let dying = crate::sim::crew_survival::DyingTransport {
+                attacker: killing_attacker(world, damage_events, dead_id),
+                ignore_defenses,
+                selected_by_player: selected,
+            };
+            world.release_ares_vehicle_survivors(
+                rules,
+                overlay_registry,
+                dead_id,
+                dying,
+                frame_effects,
+            );
+        }
+        #[cfg(feature = "ares")]
+        let may_crash = world
+            .substrate
+            .entities
+            .get(dead_id)
+            .and_then(|aircraft| world.entity_object_type(aircraft, rules))
+            .is_none_or(|object| object.aircraft_crashable_override() != Some(false));
+        #[cfg(not(feature = "ares"))]
+        let may_crash = true;
+        //10048CB5..10048CDB skips the original Crash only for an explicit
+        //Crashable=no; absence still takes Aircraft416694's original call.
+        if !may_crash
+            || !world.foot_crash(
+                dead_id,
+                killing_attacker(world, damage_events, dead_id),
+                rules,
+                overlay_registry,
+                frame_effects,
+            )
+        {
             // AircraftClass::ReceiveDamage4166A3 UnInits a refused Crash
             // before returning. A later area receiver's passenger placement
             // must see its cell cleared, rather than wait for batch delivery.
@@ -2857,6 +2969,7 @@ fn continue_area_damage(
                 context.impact,
                 rules.combat_damage.ammo_crate_damage,
                 c4,
+                true,
                 (RAD_NO_ATTACKER, context.source_house, reference),
             );
             death.append(nested);
@@ -3097,6 +3210,7 @@ fn emit_detonation_receivers<'r>(
                 detonation.impact,
                 detonation.payload.area_damage(),
                 warhead,
+                true,
                 (
                     detonation.source_id,
                     source_house,

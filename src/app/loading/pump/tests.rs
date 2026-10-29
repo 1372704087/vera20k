@@ -7,6 +7,16 @@ use crate::skirmish_launch::{
     SkirmishLaunchMode, SkirmishLaunchOptions, SkirmishLocalSlot,
 };
 
+#[test]
+fn browser_peer_wait_starts_after_the_terminal_ack_drain() {
+    let mut wait = NetworkLoadWait::new(100, 0.5);
+    wait.start_pending = true;
+    assert_eq!(wait.poll(340, 0.75), NetworkLoadPoll::Pending);
+    assert_eq!(wait.poll(639, 0.75), NetworkLoadPoll::Pending);
+    assert_eq!(wait.poll(640, 0.75), NetworkLoadPoll::ReportProgress);
+    assert_eq!(wait.poll(3940, 0.75), NetworkLoadPoll::TimedOut);
+}
+
 pub(super) fn test_launch_session(country: LaunchCountry) -> SkirmishLaunchSession {
     SkirmishLaunchSession {
         mode: SkirmishLaunchMode {
@@ -64,6 +74,38 @@ fn recorded_network_mode_stays_in_shell_until_the_world_is_installed() {
         game_mode: SessionMode::Wol,
         native_id_prefix: 0,
     };
+    assert!(!crate::app::loading::init::should_read_tmcj4f(
+        startup.session_mode(),
+        true,
+    ));
+    let replay_with_mode = |game_mode| match &startup {
+        LoadingStartup::Replay {
+            session,
+            seed,
+            native_id_prefix,
+            ..
+        } => LoadingStartup::Replay {
+            session: session.clone(),
+            seed: *seed,
+            game_mode,
+            native_id_prefix: *native_id_prefix,
+        },
+        _ => unreachable!("test startup is a Replay"),
+    };
+    let lan_replay = replay_with_mode(SessionMode::Lan);
+    assert!(!crate::app::loading::init::should_read_tmcj4f(
+        lan_replay.session_mode(),
+        true,
+    ));
+    let skirmish_replay = replay_with_mode(SessionMode::Skirmish);
+    assert!(crate::app::loading::init::should_read_tmcj4f(
+        skirmish_replay.session_mode(),
+        true,
+    ));
+    assert!(!crate::app::loading::init::should_read_tmcj4f(
+        skirmish_replay.session_mode(),
+        false,
+    ));
     let mut session = MatchSession::default();
     prepare_session_for_loading(&mut session, &startup);
     assert_eq!(session.shell_mode(), Some(SessionMode::Wol));
@@ -832,6 +874,30 @@ fn loading_preparation_consumes_real_source_and_returns_lease_on_initial_and_adm
                 .bytes
         ));
     }
+}
+
+#[cfg(feature = "ares")]
+#[test]
+fn loading_rows_draw_their_own_country_insignia_file() {
+    let rules =
+        crate::rules::ruleset::RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(
+            "[Countries]\n0=Americans\n1=Custom\n[Custom]\nFile.Flag=MyFlag.PCX\n",
+        ))
+        .expect("insignia country rules parse");
+    assert_eq!(
+        super::loading_row_insignia(Some(&rules), None, 1).as_deref(),
+        Some("myflag.pcx")
+    );
+    assert_eq!(
+        super::loading_row_insignia(Some(&rules), Some(LoadingArtVariant::Americans), 0).as_deref(),
+        Some("usai.pcx")
+    );
+    // An observer row carries no Country selection, so the stock `-3` chain
+    // (obsi.pcx) still decides.
+    assert_eq!(
+        super::loading_row_insignia(Some(&rules), Some(LoadingArtVariant::Observer), 0),
+        None
+    );
 }
 
 #[test]
@@ -2121,9 +2187,16 @@ fn network_loading_wait_resends_rearms_on_regression_and_expires_before_completi
     assert_eq!(unchanged.poll(3600, 0.5), NetworkLoadPoll::TimedOut);
 }
 
-#[test]
-fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_install() {
-    use crate::app::match_runtime::session::{MatchSession, NetworkReturnContext};
+/// A two-human network start whose remote player is still loading; returns the
+/// local and remote House ids.
+fn network_load_with_remote_peer(
+    context: crate::app::match_runtime::session::NetworkReturnContext,
+) -> (
+    crate::app::match_runtime::session::MatchSession,
+    MapLoadResult,
+    crate::sim::intern::InternedId,
+    crate::sim::intern::InternedId,
+) {
     let mut launch = test_launch_session(LaunchCountry::America);
     launch.opponents.clear();
     launch.ai_player_count = 0;
@@ -2149,13 +2222,21 @@ fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_instal
     );
     let local = sim.interner().get("Player").unwrap();
     let peer = sim.interner().get("Remote").unwrap();
-    let mut session = MatchSession::default();
-    session.enter_network(NetworkReturnContext::LanLobby);
+    let mut session = crate::app::match_runtime::session::MatchSession::default();
+    session.enter_network(context);
     session.accept_network_setup(launch, true, Some(7)).unwrap();
     session.prepare_network_timing(2, || 0).unwrap();
     let mut result = super::super::transitions::fallback_map_load_result();
     result.scenario.startup = session.freeze_network_start(1).unwrap();
     result.scenario.simulation = Some(sim);
+    (session, result, local, peer)
+}
+
+#[test]
+fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_install() {
+    let (mut session, mut result, local, peer) = network_load_with_remote_peer(
+        crate::app::match_runtime::session::NetworkReturnContext::LanLobby,
+    );
     let notices = apply_network_loading_disconnects(&mut session, &mut result, &[1]);
     assert_eq!(
         notices,
@@ -2187,6 +2268,20 @@ fn loading_timeout_retires_only_live_peer_and_flags_existing_house_before_instal
     assert!(!sim.houses()[&local].is_to_die());
     assert_eq!(sim.session().current_house(), Some(local));
     assert!(apply_network_loading_disconnects(&mut session, &mut result, &[1]).is_empty());
+}
+
+/// Online play orders commands through the relay, which departs a player who
+/// never becomes ready in the first frame. Retiring it locally as well would
+/// leave this client's roster short of the relay certificate.
+#[test]
+fn online_loading_timeout_leaves_the_departure_to_the_relay() {
+    let (mut session, mut result, _, peer) = network_load_with_remote_peer(
+        crate::app::match_runtime::session::NetworkReturnContext::Wol,
+    );
+    assert!(apply_network_loading_disconnects(&mut session, &mut result, &[1]).is_empty());
+    assert_eq!(session.network_connected_source_indices(), &[0, 1]);
+    let sim = result.scenario.simulation.as_ref().unwrap();
+    assert!(!sim.houses()[&peer].is_to_die());
 }
 
 #[cfg(target_os = "linux")]

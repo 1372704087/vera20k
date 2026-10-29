@@ -573,7 +573,7 @@ fn gsi_04_05_attack_frame_rules() -> RuleSet {
     let ini = IniFile::from_str(
         "[VehicleTypes]\n0=SOURCE\n1=PROTECTED\n\
          [BuildingTypes]\n0=NORMAL\n1=MOD1X1\n2=STOCK2X2\n3=SELFNO\n4=SELFYES\n5=IMMUNE\n6=PROTECTEDBLDG\n\
-         [Warheads]\n0=HITWH\n\
+         [Warheads]\n0=HITWH\n1=SELFWH\n\
          [SOURCE]\nStrength=100\nArmor=heavy\n\
          [PROTECTED]\nStrength=100\nArmor=heavy\nToProtect=yes\n\
          [NORMAL]\nStrength=100\nArmor=wood\n\
@@ -583,7 +583,8 @@ fn gsi_04_05_attack_frame_rules() -> RuleSet {
          [SELFYES]\nStrength=100\nArmor=wood\nDamageSelf=yes\n\
          [IMMUNE]\nStrength=100\nArmor=wood\nImmune=yes\n\
          [PROTECTEDBLDG]\nStrength=100\nArmor=wood\nToProtect=yes\n\
-         [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+         [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+         [SELFWH]\nAllowDamageOnSelf=yes\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     );
     let art = IniFile::from_str(
         "[NORMAL]\nFoundation=2x2\n\
@@ -759,6 +760,26 @@ fn gsi_04_05_building_attack_frame_prelude_obeys_object_and_type_gates() {
     let unit = EntityDamageEvent::area(7, 10, 0, 1, Some(source_owner), wh);
     apply_building_receive_prelude(&unit, &entities, &rules, &interner, &mut houses, 47);
     assert_eq!(frame(&houses), i32::MIN + 1, "the wrapper is Building-only");
+
+    // Phobos `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F` skips the
+    // `0x00442262` self return when the warhead admits the firer.
+    #[cfg(feature = "phobos")]
+    {
+        let allow_wh = interner.intern("SELFWH");
+        let allow_self = EntityDamageEvent::area(5, 10, 0, 5, Some(victim_owner), allow_wh);
+        assert_eq!(
+            apply_building_receive_prelude(
+                &allow_self,
+                &entities,
+                &rules,
+                &interner,
+                &mut houses,
+                50,
+            ),
+            BuildingReceivePrelude::Respond,
+            "DamageSelf=no building admits its own AllowDamageOnSelf warhead"
+        );
+    }
 }
 
 #[test]
@@ -9097,6 +9118,7 @@ fn retail_area_damage_delivers_miner_warning_before_neighboring_base_warning() {
         crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z),
         weapon.damage,
         warhead,
+        true,
         (source, Some(source_owner), warhead_id),
         effects,
     );
@@ -10672,10 +10694,13 @@ fn gsi_08_12_a_base_defence_kill_pays_nobody() {
 /// X term down a lepton.
 #[test]
 fn gsi_08_04_projectile_spawns_at_the_muzzle_not_the_hull_centre() {
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n1=HTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nCost=700\nPrimary=105mm\nTurret=yes\n[HTNK]\nStrength=2000\nArmor=heavy\nSpeed=4\nCost=900\nPrimary=105mm\n[105mm]\nDamage=65\nROF=50\nRange=6\nSpeed=40\nProjectile=Cannon\nWarhead=AP\n[Cannon]\nArcing=true\n[AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("fire-origin fixture parses");
+    ),
+
+        &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
+).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
         &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
     ));
@@ -10716,10 +10741,13 @@ fn gsi_08_04_projectile_spawns_at_the_muzzle_not_the_hull_centre() {
 /// Same fixture as `gsi_08_04`, whose `Arcing=` shell keeps the muzzle.
 #[test]
 fn gsi_08_04_a_dropping_shell_leaves_the_hull_centre() {
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n1=HTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nCost=700\nPrimary=105mm\nTurret=yes\n[HTNK]\nStrength=2000\nArmor=heavy\nSpeed=4\nCost=900\nPrimary=105mm\n[105mm]\nDamage=65\nROF=50\nRange=6\nSpeed=40\nProjectile=Bomb\nWarhead=AP\n[Bomb]\nDropping=yes\n[AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("dropping fixture parses");
+    ),
+
+        &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
+).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
         &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
     ));

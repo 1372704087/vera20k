@@ -22,7 +22,7 @@ join, options, roster, readiness and GO, then transfers the same socket pair int
 the running match. For online play, choose Internet → Custom Match, enter a
 username and press OK. Names use 1–24 ASCII letters, digits, underscores or hyphens;
 each active player needs a different name. No password or account creation is
-required. Players enter German Bunker, then create or join a game. A host can
+required. Players then create or join a game. A host can
 select Easy, Normal or Hard AI from an open player slot in Battle or Free For All.
 The HTTPS service supplies match-specific relay credentials before the same loading
 and command handoff. Both paths transfer selected authored maps or generated
@@ -47,22 +47,67 @@ multiple human sources, including observers, retain synchronized scheduling even
 after other players leave. AI players never acquire network identities.
 
 Online matches with two or more human sources use a lobby-certified fixed clock
-and one immutable relay command stream. All originally admitted clients must agree
-to the initial world before it starts. At each deadline, missing input is empty;
-late commands are assigned a future frame. The sender also waits for that commit.
+and one immutable relay command stream. Every originally admitted client that
+finishes loading must agree to the initial world before it starts. A player who
+never finishes loading leaves in the first frame once silent for 60 seconds, or 3
+minutes after the first client was ready; the native loading timeout leaves that
+departure to the relay. A match spread over several relays is cancelled instead.
+At each deadline, missing input is empty; a command joins the next unsealed
+frame. The sender also waits for that commit. Each new command batch goes out
+twice, so one lost uplink datagram does not hold it and every later batch for
+the 100 ms retry.
 Frames use the existing Event codec and simulation queues, with a fresh compression
 cache per self-contained encrypted batch. The relay never receives payload keys.
+A batch that fails the payload key's authentication or does not decode makes its
+sender leave at that frame on every client, as if by Leave; the rest of its
+stream is ignored.
 
-Each client reads retained history independently. A paused or slow client catches
-up through at most eight ordinary simulation transactions or eight milliseconds
-per service wake, then yields to input/rendering. It never skips simulation ticks.
+Clients negotiate server-pushed updates from that same retained history. Healthy
+clients send cumulative receive watermarks instead of continually requesting new
+frames; gaps use the existing replay reader. The relay pushes each
+unacknowledged entry once more about 8 ms after the first copy, so one lost
+datagram costs about that delay rather than a repair round trip. Repeats use
+only capacity fresh entries leave, under their own relay budget, so heavy load
+drops repeats before it delays a fresh entry. Older relays fall back to
+polling, and older clients can still pull from an upgraded relay.
+
+When every active player and the relay support synchronized pause, any player
+can use the Pause key or Options' **Pause All Players** / **Resume All Players**
+button. A pause marker follows the relay's last committed frame; clients finish
+that same frame and stop. Resume uses a separate authenticated control, so it
+works while simulation ticks are stopped. Both markers use the normal ordered
+history and replay recovery. Connections, chat and ticket renewal keep running;
+accepted gameplay inputs wait for their assigned frames after resume. Opening
+Options alone remains local. After a resume nobody can pause again for 30
+seconds. Confirming Leave resumes as needed until the queued
+EXIT executes. Shared paused time is excluded from the score-screen duration.
+This feature requires updated clients and relay;
+it is unavailable in a mixed-version room or a direct LAN match.
+
+Pushed clients use a local adaptive playout schedule based on socket receipt
+timestamps. It starts with no added buffer and can reserve at most 20 ms or one
+frame, whichever is smaller, to absorb jitter. An early receipt moves the
+schedule earlier, so no hold exceeds that reserve. Stable delivery gradually
+reduces the reserve. The relay still owns the fixed clock; local pacing never changes
+commands, simulation order or another player's progress. A stalled or slow client
+catches up through at most eight ordinary simulation transactions or eight
+milliseconds per service wake, then yields to input/rendering. It never skips
+simulation ticks, and pacing never interrupts an already-started frame transaction.
+An agreed resume resets the local playout clock so paused time creates no catch-up debt.
 Peer lag, acknowledgements and CPU reports cannot slow the shared clock. The
 initial speed stays fixed for the match. The relay keeps a bounded RAM cache and the full encrypted match journal on
 disk. Temporary connection loss keeps the player's identity, units, input cursor
 and world in the match; the client renews its ticket and reads missed frames when
-connectivity returns. Network silence never writes an exit. The UI shows
-Reconnecting or Catching up while healthy clients continue. Explicit Leave or the
-24-hour match lifetime ends membership. The relay remains required for progress.
+connectivity returns. The UI shows Reconnecting or Catching up while healthy
+clients continue. After ten minutes of silence the relay removes the player
+through the same stream. Like a native lost connection, a removal for silence
+destroys the player's House and shows "connection lost"; a player who quits still
+leaves through EXIT. While Reconnecting, the relay cannot sequence that EXIT, so
+a confirmed Abort Mission returns to the shell once the relay has been silent for
+three seconds; the client's relay Leave, or else that silence, removes the player. Silence that long, explicit Leave, joining another online
+match on the same relay, or the match's final frame after 24 hours of play ends
+membership. The relay
+remains required for progress.
 
 Authored Battle matches record reconstructible JSON replays in `replays/`.
 `vera20k --replay <replay.json> --ra2-dir <retail-directory>` opens read-only
@@ -82,6 +127,8 @@ restored mid-match segments currently lack standalone replay startup.
 | Global application message admission, acknowledgements and retirement | `net::global` |
 | UDP sockets, datagram checksum and retained raw send attempts | `net::udp` |
 | Startup agreement, native send cadence and command wait | `net::live_commands` |
+| Certified online clock, immutable command history and bounded push/replay delivery | `vera20k-relay-protocol` |
+| Local adaptive playout and bounded catch-up presentation | `app::match_runtime::frame_pacer` |
 | LAN packet layouts and options parsing | `net::lan_messages` |
 | Participant membership, admitted endpoints, launch state and checksum history | `app::match_runtime::session::MatchSession` |
 | Discovery projection and physical LAN lobby/setup service | `app::lan_service` |

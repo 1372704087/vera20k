@@ -29,8 +29,6 @@ use crate::rules::ruleset::RuleSet;
 
 use crate::sim::world::Simulation;
 
-use crate::app::frontend::skirmish::deployable_building_types;
-
 pub(crate) fn build_sidebar_cameo_atlas(
     gpu: &GpuContext,
     batch: &BatchRenderer,
@@ -95,6 +93,17 @@ pub(crate) fn load_sidebar_cameo_palette(asset_manager: &AssetManager) -> Option
     }
     log::warn!("Sidebar cameo palette not found");
     None
+}
+
+/// `RA2_DEBUG_SPAWN_UNITS` owner: the scenario's current House (`A83D4C`), so
+/// every run spawns for the local player. A world without one has no player to
+/// own the spawn, and the spawn is skipped.
+pub(crate) fn debug_spawn_owner(sim: &Simulation) -> Option<String> {
+    let owner = crate::app::match_runtime::state::scenario_local_owner(sim).map(str::to_owned);
+    if owner.is_none() {
+        log::warn!("RA2_DEBUG_SPAWN_UNITS ignored: the scenario has no current House");
+    }
+    owner
 }
 
 /// `RA2_DEBUG_SPAWN_UNITS` stress spawn list: `TYPE` places one, `TYPE:COUNT`
@@ -401,9 +410,7 @@ pub(crate) fn startup_crate_anim_remap_keys(
         let tiberium = overlay_registry
             .tiberium_type_for_overlay(&rules.tiberium_types, overlay_id)
             .and_then(|type_id| rules.tiberium_types.get(type_id))?;
-        let color = tiberium.color.as_deref()?;
-        let entry = crate::rules::color_scheme::scheme_entry_by_name(&rules.color_schemes, color)?;
-        let color = u8::try_from(entry)
+        let color = u8::try_from(tiberium.color_scheme() / 2)
             .ok()
             .map(crate::rules::house_colors::HouseColorIndex)?;
         Some((
@@ -530,21 +537,14 @@ pub(crate) fn prepare_presentation_manifest(
             Some(sim.interner()),
         )
     });
-    // Pre-load building types that can be spawned at runtime (e.g., ConYards from MCV deploy).
-    let extra_buildings: Vec<&str> = deployable_building_types(rules);
-    let mut anim_remap_keys = sprite_atlas::collect_anim_remap_base_keys(sim, house_colors);
+    // Mid-match growth collects the same coverage; only the scenario-start
+    // crate remaps are load-only.
+    let mut coverage = sprite_atlas::EntityAtlasCoverage::collect(sim, rules, house_colors);
     if let Some(rules) = rules {
-        anim_remap_keys.extend(startup_crate_anim_remap_keys(rules, overlay_registry));
+        coverage
+            .anim_remap_keys
+            .extend(startup_crate_anim_remap_keys(rules, overlay_registry));
     }
-    let cell_drawer_type_ids: HashSet<String> = sim
-        .resolved_terrain()
-        .into_iter()
-        .flat_map(|terrain| terrain.tile_animations())
-        .map(|anim| anim.anim_name.to_ascii_uppercase())
-        .collect();
-    let frozen_keys = rules.map_or_else(HashSet::new, |rules| {
-        sprite_atlas::collect_fogged_sprite_keys(sim, rules, house_colors)
-    });
     let sprite_work = palette.map(|pal| {
         sprite_atlas::prepare_sprite_atlas(
             gpu.device.limits().max_texture_dimension_2d,
@@ -556,10 +556,10 @@ pub(crate) fn prepare_presentation_manifest(
             rules,
             art,
             house_colors,
-            &extra_buildings,
-            &anim_remap_keys,
-            &cell_drawer_type_ids,
-            &frozen_keys,
+            &coverage.extra_buildings,
+            &coverage.anim_remap_keys,
+            &coverage.cell_drawer_type_ids,
+            &coverage.frozen_keys,
             theater_iso_palette,
             None, // initial build — no existing cache
             Some(sim.interner()),
@@ -625,6 +625,32 @@ pub(crate) fn finish_presentation_assets(
         }
     }
     let sidebar_cameo_atlas = build_sidebar_cameo_atlas(gpu, batch, asset_manager, Some(rules));
+    #[cfg(feature = "phobos")]
+    let uimd_bytes = asset_manager.get_ref("UIMD.INI");
+    #[cfg(feature = "phobos")]
+    let sw_sidebar_ui = uimd_bytes
+        .map(crate::rules::phobos_sw_sidebar::SuperWeaponSidebarUi::from_uimd_bytes)
+        .unwrap_or_default();
+    // The same loaded `uimd.ini` carries the pause-menu switch; Phobos reads
+    // both from `[Sidebar]` at startup.
+    #[cfg(feature = "phobos")]
+    let center_pause_menu_background = uimd_bytes
+        .map(crate::rules::phobos_pause_menu::PauseMenuUi::from_uimd_bytes)
+        .unwrap_or_default()
+        .center_background;
+    #[cfg(feature = "phobos")]
+    let sw_sidebar_art = sw_sidebar_ui
+        .enabled
+        .then(|| {
+            crate::render::sw_sidebar_art::build_sw_sidebar_art(
+                gpu,
+                batch,
+                asset_manager,
+                rules,
+                simulation.session().scenario_side(),
+            )
+        })
+        .flatten();
     let sidebar_chrome = crate::render::sidebar_chrome::build_sidebar_chrome_set(
         gpu,
         batch,
@@ -632,6 +658,30 @@ pub(crate) fn finish_presentation_assets(
         rules,
         simulation.session().scenario_side(),
     )?;
+    // `Game_LoadUI_LoadSideData` (0x1002F4A0) hands the local side's
+    // `GraphicalText.Image=` / `.Palette=` to the overlay slot writer at
+    // 0x1002ECC0 on every game load, freeing the previous match's surfaces
+    // first. Only a side that names one of the two keys differs from the
+    // process InitGame art, so the override atlas belongs to this world.
+    #[cfg(feature = "ares")]
+    let outcome_banner_side_art = {
+        let (image, palette) = rules
+            .side_graphical_text(simulation.session().scenario_side())
+            .unwrap_or((None, None));
+        if image.is_some() || palette.is_some() {
+            crate::app::presentation::outcome_banner::OutcomeBannerArt::build_for_side(
+                gpu,
+                batch,
+                asset_manager,
+                image,
+                palette,
+            )
+        } else {
+            None
+        }
+    };
+    #[cfg(not(feature = "ares"))]
+    let outcome_banner_side_art = None;
     let fnt_file = asset_manager.get_ref("GAME.FNT").and_then(|data| {
         crate::assets::fnt_file::FntFile::from_bytes(data)
             .map_err(|error| log::warn!("Failed to parse GAME.FNT: {error}"))
@@ -665,6 +715,13 @@ pub(crate) fn finish_presentation_assets(
         bridge_atlas: overlays.bridge_atlas,
         sidebar_cameo_atlas,
         sidebar_chrome,
+        #[cfg(feature = "phobos")]
+        sw_sidebar_ui,
+        #[cfg(feature = "phobos")]
+        center_pause_menu_background,
+        #[cfg(feature = "phobos")]
+        sw_sidebar_art,
+        outcome_banner_side_art,
         software_cursor,
         overlay_names: overlays.overlay_names,
         overlay_radar_colors: overlays.overlay_radar_colors,
@@ -866,14 +923,7 @@ mod tests {
             .tiberium_type_for_overlay(&rules.tiberium_types, overlay_id)
             .and_then(|type_id| rules.tiberium_types.get(type_id))
             .expect("tiberium authority for startup crate CellAnim");
-        assert_eq!(tiberium.color.as_deref(), Some("NeonGreen"));
-        assert_eq!(
-            crate::rules::color_scheme::scheme_entry_by_name(
-                &rules.color_schemes,
-                tiberium.color.as_deref().unwrap(),
-            ),
-            Some(1)
-        );
+        assert_eq!(tiberium.color_scheme(), 3);
 
         assert_eq!(
             startup_crate_anim_remap_keys(&rules, &overlay_registry),

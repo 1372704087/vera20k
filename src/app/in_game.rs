@@ -52,12 +52,39 @@ impl App {
         log::info!("Returned to the shell");
     }
 
+    /// Wait_For_Players result 8 clears GameActive without an EXIT event, so
+    /// Main_Game returns past the router without 0x00686570's EVA and fades
+    /// (0x0064806C..0x006482A6, 0x0055D347).
+    pub(super) fn return_disconnected_to_main_menu(state: &mut AppState) {
+        Self::record_external_match_result(state, super::cncnet::ExternalMatchResult::Disconnected);
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Disconnected);
+        Self::return_to_main_menu(state);
+    }
+
+    /// Quit Game's leave: a frame suspended in Wait_For_Players finishes its
+    /// tail before the result-8 return.
+    pub(super) fn leave_network_wait_to_main_menu(state: &mut AppState) {
+        if state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .is_some_and(|rt| rt.simulation.pending_network_wait())
+        {
+            crate::app::match_runtime::sim_tick::leave_network_wait(state);
+        }
+        Self::return_disconnected_to_main_menu(state);
+    }
+
     /// Stop a running scenario without an outcome teardown: its world,
     /// modal, audio and diagnostic owners, leaving the runtime retained.
     /// Shared by the EXIT return and the campaign restart (`0x006863E0`
     /// stops the elapsed clock, theme, sounds and speech before
     /// Start_Scenario).
     fn retire_running_scenario(state: &mut AppState) {
+        // Shell return and campaign restart both end the installed match.
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
         state.match_state.input.planning.reset();
         let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         crate::app::radar_movie::retire(state, wall_ms);
@@ -87,6 +114,7 @@ impl App {
         state.match_state.match_presentation.saved_game_browser = None;
         state.match_state.network_wait = Default::default();
         state.match_state.network_failure = None;
+        state.match_state.frame_stopped = false;
         crate::app::lan_service::return_transport(state);
         // Persist the deterministic diagnostic log before leaving the scenario.
         // Runtime and presentation resources remain retained in the shell.
@@ -565,6 +593,11 @@ impl App {
             log::warn!("Abort Mission EXIT event could not be queued for '{owner}'");
             return;
         }
+        if let Some(live) = state.match_state.live_network.as_mut() {
+            // Keep the native EXIT in its queue. The network owner resumes
+            // through any pending pause request so this event can execute.
+            live.keep_running_for_exit();
+        }
         Self::enter_in_game_menu_state(state, crate::ui::pause_menu::InGameMenuState::Closed);
     }
 
@@ -619,6 +652,7 @@ impl App {
         // Abort is the independent EXIT-event route: it never inherits the
         // victory/defeat HouseClass SavourDelay or its outcome-voice wait.
         state.match_state.scenario_outcome = None;
+        Self::record_external_match_result(state, super::cncnet::ExternalMatchResult::Quit);
         //686570 clears the movie queue before its independent audio fade.
         crate::app::radar_movie::retire(state, wall_ms);
         crate::app::chrono_screen::retire(state, wall_ms);
@@ -697,7 +731,7 @@ impl App {
 
         state
             .audio
-            .apply_scenario_exit_tick(tick, state.process_assets.manager(), wall_ms);
+            .apply_scenario_exit_tick(&tick, state.process_assets.manager(), wall_ms);
         if !tick.finished {
             return;
         }
@@ -710,6 +744,16 @@ impl App {
             log::error!("Scenario exit finished without a destination");
             return;
         };
+        // Browser launchers own their result UI. Snapshot before teardown;
+        // external launches skip score/movie/next-mission presentation.
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Quit);
+            if state.frontend.external_launch {
+                Self::return_to_main_menu(state);
+                return;
+            }
+        }
         let movie = state.process_assets.native_rules().and_then(|rules| {
             crate::app::campaign_victory::win_movie(
                 &destination,
@@ -793,5 +837,45 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every in-scenario modal route, including BBB's Keyboard (state 4,
+    /// `0x004E1FE0` control 0x52C) and Sound (state 6, control 0x52D)
+    /// children that `State_Machine 0x0048C8B0` returns to state 5, commits
+    /// through `App::enter_in_game_menu_state`. A direct write skips the
+    /// Options-anchor, interaction and BBB-init effects that ride on it.
+    #[test]
+    fn only_the_transition_owner_writes_the_in_game_menu_state() {
+        fn direct_writers(dir: &std::path::Path, writers: &mut Vec<std::path::PathBuf>) {
+            for entry in std::fs::read_dir(dir).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    direct_writers(&path, writers);
+                    continue;
+                }
+                if path.extension().is_none_or(|ext| ext != "rs") || path.ends_with("in_game.rs") {
+                    continue;
+                }
+                let source: String = std::fs::read_to_string(&path)
+                    .unwrap()
+                    .split_whitespace()
+                    .collect();
+                if source
+                    .match_indices(".in_game_menu=")
+                    .any(|(at, write)| !source[at + write.len()..].starts_with('='))
+                {
+                    writers.push(path);
+                }
+            }
+        }
+        let mut writers = Vec::new();
+        direct_writers(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/app"),
+            &mut writers,
+        );
+        assert!(writers.is_empty(), "{writers:?}");
     }
 }

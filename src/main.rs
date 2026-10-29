@@ -26,6 +26,10 @@ fn main() -> Result<()> {
     {
         std::process::exit(result?);
     }
+    // docs/spawn.md: headless launch compatibility probe; JSON on stdout.
+    if let Some(result) = vera20k::app::frontend::launch::try_probe(std::env::args_os().skip(1)) {
+        std::process::exit(result?);
+    }
     // A launch from the macOS app bundle or the Linux AppImage works in the
     // app's data folder. Enter it before the logger opens logs/ there.
     let app_bundle = vera20k::app::app_bundle::enter_data_folder();
@@ -62,6 +66,10 @@ fn main() -> Result<()> {
         "VeraX support compiled in: {}",
         vera20k::rules::VERAX_ENABLED
     );
+    log::info!(
+        "NPBUG support compiled in: {}",
+        vera20k::rules::NPBUG_ENABLED
+    );
     if let Some(path) = &log_path {
         log::info!("Log file: {}", path.display());
     }
@@ -71,10 +79,15 @@ fn main() -> Result<()> {
         log::error!("VERA20k exited with an error: {error:#}");
     }
     log::logger().flush();
-    result
+    // docs/spawn.md: a `-SPAWN` launch exits with its result's status.
+    match result? {
+        0 => Ok(()),
+        status => std::process::exit(status),
+    }
 }
 
-fn run(app_bundle: bool) -> Result<()> {
+/// The process exit status: 0, or a `-SPAWN` launch's result status.
+fn run(app_bundle: bool) -> Result<i32> {
     let launch_mode =
         vera20k::app::frontend::launch::parse_launch_args(std::env::args_os().skip(1))?;
 
@@ -85,7 +98,7 @@ fn run(app_bundle: bool) -> Result<()> {
         vera20k::app::frontend::launch::AppLaunchMode::Usage
     ) {
         println!("{}", vera20k::app::frontend::startup_options::usage_text());
-        return Ok(());
+        return Ok(0);
     }
 
     // Native claims its single-instance gate before it creates a window: a
@@ -114,7 +127,7 @@ fn run(app_bundle: bool) -> Result<()> {
                     // code reads "already running" as a clean run. Anything
                     // asserting on a window must assert on the window.
                     log::info!("VERA20k is already running — raised the existing window");
-                    return Ok(());
+                    return Ok(0);
                 }
             }
         }
@@ -123,7 +136,19 @@ fn run(app_bundle: bool) -> Result<()> {
 
     // Create the OS event loop. This drives the entire application:
     // window events, input, redraws, lifecycle events.
-    let event_loop: EventLoop<()> = EventLoop::builder().build()?;
+    let mut builder = EventLoop::builder();
+    // A `-SPAWN` test run with its opt-in invisible window (tools/spawn/README.md)
+    // also stays out of the Dock and menu bar.
+    #[cfg(target_os = "macos")]
+    if matches!(
+        &launch_mode,
+        vera20k::app::frontend::launch::AppLaunchMode::Spawn(_)
+    ) && vera20k::app::App::spawn_hidden_window_requested()
+    {
+        use winit::platform::macos::{ActivationPolicy, EventLoopBuilderExtMacOS};
+        builder.with_activation_policy(ActivationPolicy::Prohibited);
+    }
+    let event_loop: EventLoop<()> = builder.build()?;
 
     // Create the app and hand control to the event loop.
     // This blocks until the window is closed.
@@ -157,8 +182,10 @@ fn run(app_bundle: bool) -> Result<()> {
         }
     };
     event_loop.run_app(&mut app)?;
+    // Written for failed launches too, before the failure returns below.
+    let spawn_status = app.finish_spawn_launch();
     app.finish_capture()?;
 
     log::info!("VERA20k shut down cleanly");
-    Ok(())
+    Ok(spawn_status.unwrap_or(0))
 }

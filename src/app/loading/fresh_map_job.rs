@@ -9,10 +9,12 @@ pub(crate) struct FreshMapLoadServices<'a> {
     pub(crate) batch: &'a BatchRenderer,
     pub(crate) asset_manager: &'a mut AssetManager,
     pub(crate) native_rules_owner: &'a mut crate::rules::process_owner::NativeRulesProcessOwner,
+    pub(crate) the_team_enabled: bool,
     #[cfg(feature = "ares")]
     pub(crate) prepared_noncampaign_prefix:
         &'a mut Option<crate::rules::process_owner::NativeNonCampaignPrefixPreparation>,
     pub(crate) audio: Option<&'a crate::app::process_assets::ProcessAudioCatalog>,
+    pub(crate) themes: Option<&'a crate::rules::theme_ini::ThemeCatalog>,
     pub(crate) shared_cell_dummy: crate::map::resolved_terrain::SharedCellDummy,
     pub(crate) tile_variant_selector_cache:
         &'a mut crate::map::tile_variant_selector::TileVariantSelectorCache,

@@ -70,6 +70,16 @@ pub(crate) struct PreparedSidebarOrder {
     strips: CameoStrips,
     factory_links: HashMap<InternedId, CameoFactoryLink>,
     prediction_categories: HashSet<ProductionCategory>,
+    #[cfg(feature = "phobos")]
+    sw_sidebar_expanded: bool,
+}
+
+#[cfg(feature = "phobos")]
+impl PreparedSidebarOrder {
+    /// Phobos `ScenarioExt::SWSidebar_Enable` carried with the local envelope.
+    pub(crate) fn sw_sidebar_expanded(&self) -> bool {
+        self.sw_sidebar_expanded
+    }
 }
 
 impl SidebarProjectionState {
@@ -402,7 +412,7 @@ impl SidebarProjectionState {
                         })
                     })
                 }) {
-                    item.enabled = sw.is_online && sw.can_afford;
+                    item.enabled = sw.sidebar_enabled();
                     item.progress = sw.progress;
                     item.is_ready = sw.is_ready;
                     item.is_on_hold = !sw.is_online;
@@ -626,6 +636,10 @@ impl SidebarProjectionState {
                     is_on_hold: !is_ready
                         && (factory.is_some() && !running
                             || request == Some(CameoRequestState::Held)),
+                    held_type: factory
+                        .as_ref()
+                        .and_then(|factory| factory.object)
+                        .map(|object| object.type_id),
                 })
             })
             .collect()
@@ -828,7 +842,8 @@ impl SidebarProjectionState {
     /// the flash deadline. TAction115 6E4150 / Sidebar6AC5F0.
     pub(crate) fn flash_cameo(
         &mut self,
-        type_id: InternedId,
+        category: ProductionCategory,
+        type_index: i32,
         duration: i32,
         frame: i32,
         interner: &crate::sim::intern::StringInterner,
@@ -851,19 +866,10 @@ impl SidebarProjectionState {
                 }
             }
         };
-        let Some(object) = interner
-            .try_resolve(type_id)
-            .and_then(|id| rules.object(id))
-        else {
-            return;
-        };
-        let Some(index) = index_of(CameoId::Object(type_id)) else {
-            return;
-        };
-        let tab = crate::ui::sidebar::SidebarTab::for_category(
-            crate::sim::production::category_for_object(object),
-        );
-        strips.flash_type_index(tab, index, duration, frame, index_of);
+        //6AC5F0 dispatches the selected native pointer's tab/index. Do not
+        //resolve its name again: broad object lookup can select another kind.
+        let tab = crate::ui::sidebar::SidebarTab::for_category(category);
+        strips.flash_type_index(tab, type_index, duration, frame, index_of);
     }
 
     pub(crate) fn set_scroll_row(&mut self, tab: crate::ui::sidebar::SidebarTab, row: usize) {
@@ -1063,11 +1069,20 @@ fn super_cameo(
         id: CameoId::SuperWeapon(id),
         tab: crate::ui::sidebar::SidebarTab::Defense,
         available: true,
-        key: CameoKey::SuperWeapon {
-            recharge_frames: kind.recharge_time_frames,
-            name: crate::assets::csf_file::type_ui_name(kind.ui_name.as_deref(), csf),
-        },
+        key: super_weapon_cameo_key(kind, csf),
     })
+}
+
+/// A superweapon's `BuildType::SortsBefore` (0x006A8420) inputs: RechargeTime,
+/// then its UI name.
+pub(crate) fn super_weapon_cameo_key(
+    kind: &crate::rules::superweapon_type::SuperWeaponType,
+    csf: Option<&crate::assets::csf_file::CsfFile>,
+) -> CameoKey {
+    CameoKey::SuperWeapon {
+        recharge_frames: kind.recharge_time_frames,
+        name: crate::assets::csf_file::type_ui_name(kind.ui_name.as_deref(), csf),
+    }
 }
 
 /// Validate the saved presentation against the loaded interner and rules before
@@ -1082,6 +1097,8 @@ pub(crate) fn prepare_saved_order(
     let Some(saved) = saved else {
         return Ok(None);
     };
+    #[cfg(feature = "phobos")]
+    let sw_sidebar_expanded = saved.sw_sidebar_expanded();
     let (flash_deadlines, redraw_until) = {
         let (deadlines, redraw_until) = saved.flash();
         (deadlines.clone(), redraw_until)
@@ -1204,6 +1221,8 @@ pub(crate) fn prepare_saved_order(
         strips,
         factory_links,
         prediction_categories,
+        #[cfg(feature = "phobos")]
+        sw_sidebar_expanded,
     }))
 }
 

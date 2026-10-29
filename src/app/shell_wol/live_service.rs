@@ -1,11 +1,12 @@
 //! Production VERA lobby adapter. HTTPS results enter the existing WOL reducers;
 //! MatchSession remains the sole authority for accepted participants and options.
-//! The custom protocol is documented in services/lobby/protocol.md.
+//! The custom protocol is documented in docs/lobby-protocol.md.
 
 mod http;
 mod maps;
 mod wire;
 
+use crate::util::time::{Duration, Instant};
 use std::collections::BTreeMap;
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -13,11 +14,10 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use crate::util::time::{Duration, Instant};
 
-use anyhow::{Result, anyhow, ensure};
 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
 use anyhow::Context;
+use anyhow::{Result, anyhow, ensure};
 use base64::Engine;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -41,6 +41,18 @@ const POLL_INTERVAL: Duration = Duration::from_millis(50);
 const STATS_INTERVAL: Duration = Duration::from_secs(30);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
+/// Gameplay grants (timing confirmation, `relay_renewed`, match resume) are
+/// issued for 300 seconds (docs/lobby-protocol.md). Their
+/// `expires` is lobby wall time; a local clock running slow would renew after
+/// the relay already rejects the ticket, so renewal is timed from receipt.
+/// It uses frame_pacer::wall_clock_ms, which keeps counting through sleep;
+/// an `Instant` deadline would wait out the slept time with a dead ticket.
+const RELAY_GRANT_LIFETIME: Duration = Duration::from_secs(300);
+/// docs/lobby-protocol.md: renew at half-life. The relay refuses an expired ticket, so a
+/// lobby outage longer than this margin freezes the match. Retrying every 10 s
+/// spends 6 of renew_relay's 12 a minute (docs/lobby-protocol.md).
+const RELAY_RENEWAL_MARGIN: Duration = Duration::from_secs(150);
+const RELAY_RENEWAL_RETRY_MS: u32 = 10_000;
 
 /// The departing visit's same HTTP/cleanup owner survives the menu teardown.
 /// Native WOL_Main77B532 releases WOLAPI786080 after logout785EA0. VERA's
@@ -226,6 +238,8 @@ impl OnlineCleanup {
 }
 
 pub(super) struct LiveService {
+    #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+    _browser_requests: http::RequestOwner,
     stopping: Arc<AtomicBool>,
     requests: Sender<http::Request>,
     responses: Receiver<http::Response>,
@@ -245,9 +259,43 @@ pub(super) struct LiveService {
     finishing: Option<RetryingCommand>,
     leaving: Option<RetryingCommand>,
     logging_out: Option<RetryingCommand>,
-    next_renewal_attempt: Option<Instant>,
+    /// Renewal deadlines on the low 32 bits of frame_pacer::wall_clock_ms.
+    next_renewal_attempt: Option<u32>,
+    /// Renewal deadline of the newest gameplay grant received.
+    relay_renewal_due: Option<u32>,
     maps: maps::Transfers,
     translations: Translations,
+    /// A match an external launcher formed (docs/spawn.md): adopted bearer,
+    /// no lobby pages, and `finish` carries the local result.
+    spawned: bool,
+    /// The spawned match's `finish` result (`ExternalMatchResult`).
+    finish_result: Option<&'static str>,
+    /// docs/spawn.md: every opponent left before the local player did.
+    finish_opponents_left: bool,
+    /// Each admission barrier's client deadline; `[Relay] AdmissionTimeout`
+    /// for a spawned match.
+    relay_timeout: Duration,
+    /// The sign-in (`auth_attempt`) that already showed its lobby-upgrade notice.
+    outdated_notice: Option<u64>,
+}
+
+/// Where players download a newer build (README "Download and play").
+const RELEASES_URL: &str = "https://github.com/YuriPlanet/vera20k/releases";
+
+/// The lobby's own 426 reason when it gave a plain one, then where to get a
+/// newer build.
+fn update_required_text(message: Option<&str>) -> String {
+    let reason = message.unwrap_or("Update VERA20k to use secure online multiplayer.");
+    format!("{reason} {RELEASES_URL}")
+}
+
+/// The external launch's online visit: once its match ends or admission
+/// fails, the result/leave cleanup runs and then the process quits.
+#[derive(Debug, Default)]
+pub(super) struct SpawnedVisit {
+    exit_deadline: Option<Instant>,
+    cleanup_begun: bool,
+    quit: bool,
 }
 
 impl Drop for LiveService {
@@ -412,27 +460,60 @@ struct PendingStart {
     relay_acknowledged: bool,
     probes_started: bool,
     latencies_reported: bool,
+    /// The unanswered `relay_ready` or `latency_ready`.
+    report: Option<PendingReport>,
+}
+
+/// One admission report, resent under its request ID within the start window
+/// when the lobby answers 429, 5xx or nothing; the lobby replays a committed
+/// request ID (docs/lobby-protocol.md `POST /v1/commands`).
+struct PendingReport {
+    command: RetryingCommand,
+    operation: &'static str,
+    payload: Value,
 }
 
 impl LiveService {
-    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
     fn new() -> Result<Self> {
+        Self::open(None)
+    }
+
+    #[cfg(all(
+        feature = "wasm",
+        not(feature = "wasm-net"),
+        target_arch = "wasm32",
+        target_os = "unknown"
+    ))]
+    fn open(_service_url: Option<&str>) -> Result<Self> {
         anyhow::bail!("Online play is unavailable in the single-player browser build")
     }
 
-    #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
-    fn new() -> Result<Self> {
-        let base =
-            std::env::var("VERA20K_LOBBY_URL").unwrap_or_else(|_| DEFAULT_LOBBY_URL.to_owned());
-        ensure!(
-            base.starts_with("https://")
-                && !base[8..].chars().any(|ch| matches!(ch, '@' | '?' | '#')),
-            "the online lobby needs its configured HTTPS service"
-        );
+    /// `service_url` replaces the configured lobby with an external launch's
+    /// already validated match API origin (HTTPS, or loopback HTTP).
+    #[cfg(any(
+        not(all(target_arch = "wasm32", target_os = "unknown")),
+        feature = "wasm-net"
+    ))]
+    fn open(service_url: Option<&str>) -> Result<Self> {
+        #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
+        let base = match service_url {
+            Some(url) => url.to_owned(),
+            None => {
+                let base = std::env::var("VERA20K_LOBBY_URL")
+                    .unwrap_or_else(|_| DEFAULT_LOBBY_URL.to_owned());
+                ensure!(
+                    base.starts_with("https://")
+                        && !base[8..].chars().any(|ch| matches!(ch, '@' | '?' | '#')),
+                    "the online lobby needs its configured HTTPS service"
+                );
+                base
+            }
+        };
         let (requests, input) = mpsc::channel();
         let (output, responses) = mpsc::channel();
         let stopping = Arc::new(AtomicBool::new(false));
         let worker_stopping = Arc::clone(&stopping);
+        #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
         std::thread::Builder::new()
             .name("vera-lobby".into())
             .spawn(move || {
@@ -444,7 +525,11 @@ impl LiveService {
                 )
             })
             .context("could not start online lobby worker")?;
+        #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+        let browser_requests = http::start_browser(input, output, worker_stopping, service_url)?;
         Ok(Self {
+            #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+            _browser_requests: browser_requests,
             stopping,
             requests,
             responses,
@@ -464,13 +549,39 @@ impl LiveService {
             leaving: None,
             logging_out: None,
             next_renewal_attempt: None,
+            relay_renewal_due: None,
             maps: Default::default(),
             translations: Translations::default(),
+            spawned: false,
+            finish_result: None,
+            finish_opponents_left: false,
+            relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
+        })
+    }
+
+    /// The first lobby-upgrade refusal of this sign-in, as one notice; the
+    /// sign-in's later refused requests add none.
+    fn outdated_notice(&mut self, message: Option<&str>) -> Option<String> {
+        (self.outdated_notice != Some(self.auth_attempt)).then(|| {
+            self.outdated_notice = Some(self.auth_attempt);
+            update_required_text(message)
         })
     }
 
     fn command(&mut self, operation: &'static str, payload: Value) {
         self.command_with_id(operation, payload);
+    }
+
+    fn publish_options_agreement(&mut self, mut agreement: Value, status: u8, host: bool) {
+        // Protocol v4 shares the agreement fields, but ready rejects status.
+        let mut map_status = agreement.clone();
+        map_status["status"] = json!(status);
+        self.command("map_status", map_status);
+        if host {
+            agreement["ready"] = json!(true);
+            self.command("ready", agreement);
+        }
     }
 
     fn command_with_id(&mut self, operation: &'static str, payload: Value) -> u64 {
@@ -496,8 +607,21 @@ impl LiveService {
             return;
         }
         self.next_renewal_attempt = None;
+        self.relay_renewal_due = None;
         self.finishing = Some(RetryingCommand::new(self.next_request, now));
-        self.command("finish", json!({"match_id":match_id}));
+        let payload = self.finish_payload(&match_id);
+        self.command("finish", payload);
+    }
+
+    /// The lobby's `finish` is exactly `{match_id}`; a spawned match adds
+    /// its local result for the launcher (docs/spawn.md).
+    fn finish_payload(&self, match_id: &str) -> Value {
+        let mut payload = json!({"match_id":match_id});
+        if self.spawned {
+            payload["result"] = json!(self.finish_result.unwrap_or("quit"));
+            payload["opponents_left"] = json!(self.finish_opponents_left);
+        }
+        payload
     }
 
     fn finish_completed(&mut self, id: u64) {
@@ -581,6 +705,93 @@ impl LiveService {
         self.logging_out = None;
         self.match_id = None;
         self.next_renewal_attempt = None;
+        self.relay_renewal_due = None;
+    }
+
+    /// A gameplay grant reached its UDP owner at `now_ms`.
+    fn relay_granted(&mut self, now_ms: u32) {
+        let renew_after = (RELAY_GRANT_LIFETIME - RELAY_RENEWAL_MARGIN).as_millis() as u32;
+        self.relay_renewal_due = Some(now_ms.wrapping_add(renew_after));
+        self.next_renewal_attempt = None;
+    }
+
+    fn poll_renewal(&mut self, now_ms: u32) {
+        if self.finishing.is_some() {
+            return;
+        }
+        let (Some(match_id), Some(due)) = (self.match_id.as_ref(), self.relay_renewal_due) else {
+            return;
+        };
+        // Short-lived grants renew before expiry. Retry a missing reply without
+        // replacing the live route or resetting the event cursor.
+        // Windows' timeGetTime wraps this 32-bit word every 49.7 days.
+        let reached = |deadline: u32| now_ms.wrapping_sub(deadline) as i32 >= 0;
+        if !reached(due) || self.next_renewal_attempt.is_some_and(|next| !reached(next)) {
+            return;
+        }
+        let match_id = match_id.clone();
+        self.next_renewal_attempt = Some(now_ms.wrapping_add(RELAY_RENEWAL_RETRY_MS));
+        self.command("renew_relay", json!({"match_id":match_id}));
+    }
+
+    fn send_report(&mut self, operation: &'static str, payload: Value, now: Instant) {
+        let id = self.command_with_id(operation, payload.clone());
+        if let Some(pending) = self.pending.as_mut() {
+            pending.report = Some(PendingReport {
+                command: RetryingCommand::new(id, now),
+                operation,
+                payload,
+            });
+        }
+    }
+
+    fn report_completed(&mut self, id: u64) {
+        if let Some(pending) = self.pending.as_mut()
+            && pending
+                .report
+                .as_ref()
+                .is_some_and(|report| report.command.request_id == id)
+        {
+            pending.report = None;
+        }
+    }
+
+    /// Whether the refused report will be resent: only a busy or unreachable
+    /// lobby is asked again, any other refusal stands.
+    fn report_failed(&mut self, id: u64, failure: http::CommandFailure, now: Instant) -> bool {
+        let Some(pending) = self.pending.as_mut() else {
+            return false;
+        };
+        let Some(report) = pending
+            .report
+            .as_mut()
+            .filter(|report| report.command.request_id == id)
+        else {
+            return false;
+        };
+        if failure == http::CommandFailure::Retryable {
+            report.command.failed(now);
+            return true;
+        }
+        pending.report = None;
+        false
+    }
+
+    fn poll_report(&mut self, now: Instant) {
+        if let Some((id, operation, payload)) = self
+            .pending
+            .as_mut()
+            .and_then(|pending| pending.report.as_mut())
+            .and_then(|report| {
+                Some((
+                    report.command.take_due(now)?,
+                    report.operation,
+                    report.payload.clone(),
+                ))
+            })
+        {
+            self.send_command(id, operation, payload);
+        }
     }
 
     fn admission_blocked(&self) -> bool {
@@ -594,7 +805,7 @@ impl LiveService {
             .and_then(|finish| finish.take_due(now))
             && let Some(match_id) = self.match_id.as_ref()
         {
-            self.send_command(id, "finish", json!({"match_id":match_id}));
+            self.send_command(id, "finish", self.finish_payload(match_id));
         }
         if let Some(id) = self.leaving.as_mut().and_then(|leave| leave.take_due(now)) {
             self.send_command(id, "leave", json!({}));
@@ -823,11 +1034,17 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             cancel_pending(state, &mut service);
             fail_start(state, "Could not establish the gameplay relay connection.");
         }
-        if service.pending.is_none() && service.match_id.is_none() {
+        if !service.spawned && service.pending.is_none() && service.match_id.is_none() {
             maps::poll(state, &mut service);
         }
-        poll_renewal(state, &mut service);
-        poll_stats(state, &mut service);
+        if crate::app::lan_service::has_online_relay_route(state) {
+            service.poll_renewal(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
+        }
+        if service.spawned {
+            poll_spawned_exit(state, &mut service);
+        } else {
+            poll_stats(state, &mut service);
+        }
     }
     put_service(state, service);
     Some(Instant::now() + POLL_INTERVAL)
@@ -860,6 +1077,11 @@ fn notice(state: &mut AppState, text: &str) {
 
 fn fail_start(state: &mut AppState, text: &str) {
     if crate::app::loading::pump::cancel_network_loading(state, text) {
+        return;
+    }
+    if super::spawned_visit(state) {
+        // No room or setup to return to: the launch itself failed.
+        crate::app::App::fail_external_launch(state, text);
         return;
     }
     notice(state, text);
@@ -1443,7 +1665,7 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
         | http::Response::MapPending { .. }) => {
             maps::response(state, service, response);
         }
-        http::Response::StartRejected { id } => {
+        http::Response::StartRejected { id, retryable } => {
             if !service
                 .start_preparation
                 .as_ref()
@@ -1454,7 +1676,11 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             cancel_pending(state, service);
             fail_start(
                 state,
-                "The match could not start. Check every player's map, rules, version and readiness.",
+                if retryable {
+                    "The online lobby is busy or not responding. Try Start again."
+                } else {
+                    "The match could not start. Check every player's map, rules, version and readiness."
+                },
             );
         }
         http::Response::Authenticated {
@@ -1481,14 +1707,19 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(code)));
         }
-        http::Response::UpgradeRequired { attempt } if attempt == service.auth_attempt => {
+        http::Response::UpgradeRequired { attempt, message } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();
             service_event(state, WolServiceEvent::Login(Err(0x8000_4005)));
             // The login has no lobby yet, so a chat line would be lost: the
             // failure's own box says why.
-            const UPDATE: &str = "Update VERA20k to use secure online multiplayer.";
-            if !super::service::replace_open_box_body(state, UPDATE) {
-                notice(state, UPDATE);
+            let text = update_required_text(message.as_deref());
+            if !super::service::replace_open_box_body(state, &text) {
+                notice(state, &text);
+            }
+        }
+        http::Response::Outdated { message } => {
+            if let Some(text) = service.outdated_notice(message.as_deref()) {
+                notice(state, &text);
             }
         }
         http::Response::Channels(list) => service_event(
@@ -1512,6 +1743,7 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             "finish" => service.finish_completed(id),
             "leave" => service.leave_completed(id),
             "logout" => service.logout_completed(id),
+            "relay_ready" | "latency_ready" => service.report_completed(id),
             _ => {}
         },
         http::Response::CommandFailed {
@@ -1589,6 +1821,13 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                     );
                 }
             }
+            // The host's 5 s ping; an outage is reported once by the poll.
+            "ping" => {}
+            "relay_ready" | "latency_ready" => {
+                if !service.report_failed(id, failure, Instant::now()) {
+                    notice(state, "The online request was not accepted.");
+                }
+            }
             _ => notice(state, "The online request was not accepted."),
         },
         http::Response::Translated { id, outcome } => {
@@ -1597,6 +1836,10 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             }
         }
         http::Response::Failure(message) => notice(state, message),
+        http::Response::LobbyUnreachable => {
+            notice(state, "The online lobby is not responding. Retrying.")
+        }
+        http::Response::LobbyReachable => notice(state, "The online lobby is responding again."),
         http::Response::Offline => {
             crate::app::loading::pump::cancel_network_loading(
                 state,
@@ -1607,6 +1850,18 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             // The bearer session is definitively gone; a new login has no
             // authority to retry cleanup for the old server session.
             service.clear_cleanup();
+            if let Some(spawned) = spawned_visit_mut(state) {
+                // Nothing is left to finish or leave with this bearer. A
+                // running match continues on its relay; an admission ends.
+                spawned.cleanup_begun = true;
+                if !super::in_match(state) {
+                    crate::app::App::fail_external_launch(
+                        state,
+                        "the match service ended this session",
+                    );
+                }
+                return;
+            }
             service_event(state, WolServiceEvent::NetStatus(super::NET_STATUS_LOST))
         }
         http::Response::Authenticated { .. }
@@ -1619,11 +1874,13 @@ fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T> {
     serde_json::from_value(value).map_err(|_| anyhow!("invalid lobby message"))
 }
 
-struct DecodedRelayGrant {
-    ticket: Vec<u8>,
-    key: [u8; 32],
-    payload_key: [u8; 32],
-    ordering_certificate: Vec<u8>,
+// Deliberately no Debug: the ticket and keys are relay credentials.
+pub(crate) struct DecodedRelayGrant {
+    pub(crate) ticket: Vec<u8>,
+    pub(crate) key: [u8; 32],
+    pub(crate) payload_key: [u8; 32],
+    pub(crate) ordering_certificate: Vec<u8>,
+    pub(crate) federation: Option<Vec<u8>>,
 }
 
 fn relay_uuid(value: &str) -> Result<[u8; 16]> {
@@ -1693,39 +1950,52 @@ fn decode_relay_grant(
             && certificate.sources_mask & (1 << parsed.source) != 0,
         "relay grant identity differs"
     );
+    let federation = grant
+        .federation
+        .as_ref()
+        .map(|roster| {
+            ensure!(roster.len() <= 1024, "invalid relay roster");
+            base64::engine::general_purpose::URL_SAFE_NO_PAD
+                .decode(roster)
+                .map_err(|_| anyhow!("invalid relay roster"))
+        })
+        .transpose()?;
     Ok(DecodedRelayGrant {
         ticket,
         key,
         payload_key,
         ordering_certificate,
+        federation,
     })
 }
 
-fn poll_renewal(state: &AppState, service: &mut LiveService) {
-    if service.finishing.is_some() {
-        return;
-    }
-    let Some(match_id) = service.match_id.as_ref() else {
-        return;
-    };
-    let Some(expires) = crate::app::lan_service::online_relay_expires(state) else {
-        return;
-    };
-    let unix_now = crate::util::time::SystemTime::now()
-        .duration_since(crate::util::time::UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    let now = Instant::now();
-    // Short-lived grants renew before expiry. Retry a missing reply without
-    // replacing the live route or resetting the event cursor.
-    if unix_now.saturating_add(30) < expires
-        || service.next_renewal_attempt.is_some_and(|next| now < next)
-    {
-        return;
-    }
-    let match_id = match_id.clone();
-    service.next_renewal_attempt = Some(now + Duration::from_secs(10));
-    service.command("renew_relay", json!({"match_id":match_id}));
+/// A spawn.ini `[Relay]` section carries the same `game_started` grant fields
+/// (docs/spawn.md); admit it through the lobby's own decoder.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn decode_external_relay_grant(
+    address: SocketAddrV4,
+    ticket: String,
+    packet_key: String,
+    payload_key: String,
+    ordering_certificate: String,
+    federation: Option<String>,
+    source_index: u8,
+    match_id: &str,
+    player_id: &str,
+) -> Result<DecodedRelayGrant> {
+    decode_relay_grant(
+        &wire::RelayGrant {
+            address,
+            ticket,
+            packet_key,
+            payload_key,
+            source_index,
+            ordering_certificate,
+            federation,
+        },
+        match_id,
+        player_id,
+    )
 }
 
 fn apply_event(
@@ -1755,6 +2025,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
+            service.relay_granted(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
         }
         "joined" | "created" => {
             let joined: wire::Joined = decode(payload)?;
@@ -1913,13 +2184,9 @@ fn apply_event(
             maps::received_options(state, service, generated)?;
             // The owner is ready without a guest Accept button, but still proves its
             // own local map and rules to the same server admission gate.
-            let mut agreement = local_agreement(state, service.revision)?;
-            agreement["status"] = json!(local_map_status(state, service));
-            service.command("map_status", agreement.clone());
-            if state.match_state.session.host() {
-                agreement["ready"] = json!(true);
-                service.command("ready", agreement);
-            }
+            let agreement = local_agreement(state, service.revision)?;
+            let status = local_map_status(state, service);
+            service.publish_options_agreement(agreement, status, state.match_state.session.host());
         }
         "choices" => {
             #[derive(Deserialize)]
@@ -2078,7 +2345,7 @@ fn apply_event(
             if !pending.probes_started {
                 crate::app::lan_service::begin_online_latency_probe(state)?;
                 pending.probes_started = true;
-                pending.deadline = Instant::now() + RELAY_TIMEOUT;
+                pending.deadline = Instant::now() + service.relay_timeout;
             }
         }
         "timing_confirmed" => {
@@ -2105,6 +2372,7 @@ fn apply_event(
                 grant.key,
                 grant.payload_key,
             )?;
+            service.relay_granted(crate::app::match_runtime::frame_pacer::wall_clock_ms() as u32);
             crate::app::lan_service::apply_online_timing(state, &timing.pings)?;
             let count = state
                 .match_state
@@ -2219,6 +2487,46 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         );
     }
     let grant = decode_relay_grant(&start.relay, &start.match_id, &service.player_id)?;
+    admit_relay_start(
+        state,
+        service,
+        RelayStart {
+            match_id: start.match_id,
+            host_name,
+            users: start
+                .users
+                .into_iter()
+                .map(|user| (user.name, user.flags))
+                .collect(),
+            seed: start.seed,
+            address: start.relay.address,
+            grant,
+        },
+    )
+}
+
+/// One admitted relay start, from the lobby's `game_started` or an external
+/// launch's `[Relay]` section: identity checks are the caller's.
+struct RelayStart {
+    match_id: String,
+    host_name: String,
+    /// Canonical source order: name and lobby flags (bit 0 room owner).
+    users: Vec<(String, u32)>,
+    seed: u32,
+    address: SocketAddrV4,
+    grant: DecodedRelayGrant,
+}
+
+/// The state right after `game_started`: the authenticated relay socket,
+/// the bound roster and seed, and the start handshake's verify. Relay
+/// admission, the latency barrier and `timing_confirmed` follow in
+/// [`poll_relay`] and [`apply_event`].
+fn admit_relay_start(
+    state: &mut AppState,
+    service: &mut LiveService,
+    start: RelayStart,
+) -> Result<()> {
+    let grant = start.grant;
     let connections = LanConnections::new(
         LanConnectionConfig {
             max_peers: 29,
@@ -2238,12 +2546,10 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
         },
         connections,
     )?;
-    transport.enable_relay(
-        start.relay.address,
-        &grant.ticket,
-        grant.key,
-        grant.payload_key,
-    )?;
+    transport.enable_relay(start.address, &grant.ticket, grant.key, grant.payload_key)?;
+    if let Some(roster) = &grant.federation {
+        transport.set_federation_roster(roster)?;
+    }
     let certificate = crate::net::udp::OrderingCertificate::parse(&grant.ordering_certificate)?;
     ensure!(
         certificate.sources_mask == (1u32 << start.users.len()) - 1,
@@ -2251,16 +2557,8 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
     );
     transport.set_ordering_certificate(grant.ordering_certificate)?;
     transport.start_io_pump(crate::app::match_runtime::frame_pacer::wall_clock_bucket)?;
-    for user in &start.users {
-        state.match_state.session.bind_network_endpoint(
-            &user.name,
-            crate::net::udp::relay_peer_endpoint(user.source_index)?,
-        )?;
-    }
-    state
-        .match_state
-        .session
-        .set_network_start_seed(start.seed)?;
+    let names: Vec<_> = start.users.iter().map(|(name, _)| name.clone()).collect();
+    bind_relay_roster(&mut state.match_state.session, &names, start.seed)?;
     // Unknown startup latency uses the native sentinel while the verify dialog
     // is open. Real peer ACK measurements replace it before Negotiated.
     let pings = vec![-1; start.users.len()];
@@ -2270,10 +2568,7 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
             users: start
                 .users
                 .into_iter()
-                .map(|user| crate::app::shell_network_setup::WolStartUser {
-                    name: user.name,
-                    flags: user.flags,
-                })
+                .map(|(name, flags)| crate::app::shell_network_setup::WolStartUser { name, flags })
                 .collect(),
             pings,
         },
@@ -2284,14 +2579,146 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
     )?;
     service.pending = Some(PendingStart {
         match_id: start.match_id,
-        host_name,
+        host_name: start.host_name,
         transport: Some(transport),
-        deadline: Instant::now() + RELAY_TIMEOUT,
+        deadline: Instant::now() + service.relay_timeout,
         relay_acknowledged: false,
         probes_started: false,
         latencies_reported: false,
+        report: None,
     });
     Ok(())
+}
+
+/// Every canonical source's relay peer identity and the agreed seed.
+fn bind_relay_roster(
+    session: &mut crate::app::match_runtime::session::MatchSession,
+    names: &[String],
+    seed: u32,
+) -> Result<()> {
+    for (source, name) in names.iter().enumerate() {
+        session.bind_network_endpoint(
+            name,
+            crate::net::udp::relay_peer_endpoint(u8::try_from(source)?)?,
+        )?;
+    }
+    session.set_network_start_seed(seed)
+}
+
+/// Enter the match an external launcher formed (docs/spawn.md): the online
+/// visit and setup the lobby path holds right after `game_started`, with the
+/// launcher's session, grant and seed. Everything after it is the lobby's.
+pub(crate) fn begin_spawned_match(
+    state: &mut AppState,
+    launch: crate::skirmish_launch::SkirmishLaunchSession,
+    relay: crate::app::frontend::cncnet_spawn::RelaySpawn,
+    seed: u32,
+) -> Result<()> {
+    let mut service = LiveService::open(Some(&relay.service_url))?;
+    service.spawned = true;
+    service.relay_timeout = relay.admission_timeout;
+    service.player_id = relay.player_id;
+    // The launcher's bearer replaces `/v1/sessions`; nothing else is opened.
+    service
+        .requests
+        .send(http::Request::AdoptSession { token: relay.token })
+        .map_err(|_| anyhow!("the match service worker stopped"))?;
+    let users: Vec<_> = launch
+        .humans
+        .iter()
+        .enumerate()
+        .map(|(source, human)| (human.name.clone(), u32::from(source == 0)))
+        .collect();
+    let host_name = users[0].0.clone();
+    crate::app::shell_network_setup::install_external_setup(
+        state,
+        launch,
+        crate::app::match_runtime::session::NetworkReturnContext::Wol,
+    )?;
+    let mut visit = super::WolVisit::open(false);
+    visit.provider = WolProvider::Online;
+    visit.page = super::WolPage::Backdrop { wait: None };
+    visit.spawned = Some(SpawnedVisit::default());
+    state.frontend.wol = Some(visit);
+    let admitted = admit_relay_start(
+        state,
+        &mut service,
+        RelayStart {
+            match_id: relay.match_id,
+            host_name,
+            users,
+            seed,
+            address: relay.address,
+            grant: relay.grant,
+        },
+    );
+    // Keep this visit's own worker even on failure: no lobby worker may
+    // take its place while the process exits.
+    put_service(state, service);
+    admitted
+}
+
+/// Browser engine exit: retire the external launch's online visit through
+/// the ordinary cleanup owner, so an unacknowledged `finish` still settles
+/// before notifying the host and stopping the event loop.
+#[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+pub(crate) fn discard_spawned_visit(state: &mut AppState) {
+    if !super::spawned_visit(state) {
+        return;
+    }
+    let Some(mut visit) = state.frontend.wol.take() else {
+        return;
+    };
+    if let Some(service) = visit.live_service.take() {
+        state
+            .frontend
+            .online_cleanup
+            .retire(service, Instant::now());
+    }
+}
+
+fn spawned_visit_mut(state: &mut AppState) -> Option<&mut SpawnedVisit> {
+    state.frontend.wol.as_mut()?.spawned.as_mut()
+}
+
+/// The external launch's match returned or failed: report it, then quit.
+/// False when this launch has no spawned online visit.
+pub(crate) fn end_spawned_match(state: &mut AppState) -> bool {
+    let Some(spawned) = spawned_visit_mut(state) else {
+        return false;
+    };
+    spawned
+        .exit_deadline
+        .get_or_insert_with(|| Instant::now() + EXIT_CLEANUP_TIMEOUT);
+    true
+}
+
+/// `finish` with the result after a match, else `leave` for a failed
+/// admission; the process quits on its acknowledgement or the deadline.
+fn poll_spawned_exit(state: &mut AppState, service: &mut LiveService) {
+    let result = crate::app::App::external_match_result(state)
+        .unwrap_or(crate::app::cncnet::ExternalMatchResult::Quit);
+    let opponents_left = state.frontend.external_progress.opponents_left;
+    let Some(spawned) = spawned_visit_mut(state) else {
+        return;
+    };
+    let Some(deadline) = spawned.exit_deadline.filter(|_| !spawned.quit) else {
+        return;
+    };
+    let now = Instant::now();
+    if !std::mem::replace(&mut spawned.cleanup_begun, true) {
+        if service.match_id.is_some() {
+            service.finish_result = Some(result.as_str());
+            service.finish_opponents_left = opponents_left;
+            service.begin_finish(now);
+        } else {
+            service.begin_leave(now);
+        }
+    }
+    if (service.finishing.is_none() && service.leaving.is_none()) || now >= deadline {
+        spawned.quit = true;
+        crate::app::App::start_quit_cascade(state);
+    }
 }
 
 fn poll_relay(state: &mut AppState, service: &mut LiveService) -> Result<()> {
@@ -2307,8 +2734,10 @@ fn poll_relay(state: &mut AppState, service: &mut LiveService) -> Result<()> {
         let now = crate::app::match_runtime::frame_pacer::frame_bucket(
             crate::app::match_runtime::frame_pacer::wall_clock_ms(),
         );
-        let report = transport.service(now);
-        ensure!(report.first_io_error.is_none(), "relay IO failed");
+        // Only the deadline fails admission. A receive error such as Windows'
+        // 10054 (ICMP port unreachable while the relay restarts) or a passing
+        // ENOBUFS/ENETUNREACH clears while the handshake keeps retrying.
+        transport.service(now);
         if transport.relay_ready() {
             let transport = pending.transport.take().expect("ready pending relay");
             crate::app::lan_service::install_online_transport(
@@ -2331,8 +2760,9 @@ fn poll_relay(state: &mut AppState, service: &mut LiveService) -> Result<()> {
         }
     }
     for (operation, payload) in commands {
-        service.command(operation, payload);
+        service.send_report(operation, payload, Instant::now());
     }
+    service.poll_report(Instant::now());
     Ok(())
 }
 
@@ -2376,6 +2806,7 @@ mod completion_tests {
                 .sign(&signing_key)
                 .unwrap(),
             ),
+            federation: None,
         };
         assert_eq!(
             decode_relay_grant(&grant, match_id, player_id)
@@ -2414,10 +2845,233 @@ mod completion_tests {
             leaving: None,
             logging_out: None,
             next_renewal_attempt: None,
+            relay_renewal_due: None,
             maps: Default::default(),
             translations: Translations::default(),
+            spawned: false,
+            finish_result: None,
+            finish_opponents_left: false,
+            relay_timeout: RELAY_TIMEOUT,
+            outdated_notice: None,
         };
         (service, input, output)
+    }
+
+    #[test]
+    fn lobby_upgrade_notice_names_the_download_once_per_sign_in() {
+        let (mut service, _input, _output) = control_service(None);
+        let reason = "Online play needs VERA20k 0.3.0 or newer.";
+        assert_eq!(
+            service.outdated_notice(Some(reason)).as_deref(),
+            Some(format!("{reason} {RELEASES_URL}").as_str())
+        );
+        assert_eq!(service.outdated_notice(Some(reason)), None);
+        service.auth_attempt += 1;
+        assert_eq!(
+            service.outdated_notice(None).as_deref(),
+            Some(
+                format!("Update VERA20k to use secure online multiplayer. {RELEASES_URL}").as_str()
+            )
+        );
+    }
+
+    fn finish_payload_sent(service: &mut LiveService, input: &Receiver<http::Request>) -> Value {
+        service.begin_finish(Instant::now());
+        let http::Request::Command {
+            operation, payload, ..
+        } = input.try_recv().unwrap()
+        else {
+            panic!("finish command");
+        };
+        assert_eq!(operation, "finish");
+        payload
+    }
+
+    #[test]
+    fn only_a_spawned_match_adds_its_result_to_finish() {
+        // docs/lobby-protocol.md: the lobby rejects unknown fields.
+        let (mut lobby, input, _output) = control_service(Some("lobby-match"));
+        lobby.finish_result = Some("won");
+        assert_eq!(
+            finish_payload_sent(&mut lobby, &input),
+            json!({"match_id":"lobby-match"})
+        );
+
+        let (mut spawned, input, _output) = control_service(Some("spawned-match"));
+        spawned.spawned = true;
+        spawned.finish_result = Some("lost");
+        let payload = finish_payload_sent(&mut spawned, &input);
+        assert_eq!(
+            payload,
+            json!({"match_id":"spawned-match","result":"lost","opponents_left":false})
+        );
+
+        // Retries resend the same decided result.
+        spawned.finish_failed(5, http::CommandFailure::Retryable, Instant::now());
+        spawned.poll_cleanup(Instant::now() + Duration::from_secs(3));
+        let http::Request::Command { payload: retry, .. } = input.try_recv().unwrap() else {
+            panic!("finish retry");
+        };
+        assert_eq!(retry, payload);
+        spawned.finish_opponents_left = true;
+        assert_eq!(spawned.finish_payload("m")["opponents_left"], json!(true));
+    }
+
+    #[test]
+    fn relay_renewal_is_timed_from_grant_receipt_at_half_life() {
+        // A slow local clock made the ticket's lobby-time expiry look distant,
+        // so renewal was requested only after the relay rejected the ticket.
+        // Half-life leaves a lobby outage 150 s before the ticket expires; the
+        // receipt clock's 32-bit word wraps in between.
+        let (mut service, input, _output) = control_service(Some("renew-match"));
+        let received = u32::MAX - 100_000;
+        service.relay_granted(received);
+        service.poll_renewal(received + 1_000);
+        service.poll_renewal(received.wrapping_add(149_999));
+        assert!(input.try_recv().is_err());
+        let due = received.wrapping_add(150_000);
+        service.poll_renewal(due);
+        let http::Request::Command {
+            operation, payload, ..
+        } = input.try_recv().unwrap()
+        else {
+            panic!("renewal command");
+        };
+        assert_eq!(
+            (operation, payload),
+            ("renew_relay", json!({"match_id":"renew-match"}))
+        );
+        // The reply's fresh grant moves the deadline half a lifetime on.
+        service.relay_granted(due + 1_000);
+        service.poll_renewal(due + 11_000);
+        assert!(input.try_recv().is_err());
+    }
+
+    #[test]
+    fn admission_reports_resend_within_the_start_window_after_a_busy_lobby() {
+        // One 429 or 503 to relay_ready used to fail the start at its deadline.
+        let (mut service, input, _output) = control_service(None);
+        let now = Instant::now();
+        service.pending = Some(PendingStart {
+            match_id: "m".into(),
+            host_name: "Host".into(),
+            transport: None,
+            deadline: now + RELAY_TIMEOUT,
+            relay_acknowledged: true,
+            probes_started: false,
+            latencies_reported: false,
+            report: None,
+        });
+        let sent = || match input.try_recv() {
+            Ok(http::Request::Command {
+                id,
+                operation,
+                payload,
+            }) => Some((id, operation, payload)),
+            _ => None,
+        };
+        service.send_report("relay_ready", json!({"match_id":"m"}), now);
+        let first = sent().unwrap();
+        assert!(service.report_failed(first.0, http::CommandFailure::Retryable, now));
+        service.poll_report(now + Duration::from_millis(1999));
+        assert_eq!(sent(), None);
+        service.poll_report(now + Duration::from_secs(2));
+        assert_eq!(sent(), Some(first.clone()), "same request ID and payload");
+        service.report_completed(first.0);
+        service.poll_report(now + RELAY_TIMEOUT);
+        assert_eq!(sent(), None);
+
+        // A refusal for any other reason stands.
+        service.send_report("latency_ready", json!({"match_id":"m","pings":[]}), now);
+        let latency = sent().unwrap();
+        let rejected = http::CommandFailure::Rejected(0x8000_4005);
+        assert!(!service.report_failed(latency.0, rejected, now));
+        service.poll_report(now + RELAY_TIMEOUT);
+        assert_eq!(sent(), None);
+    }
+
+    #[test]
+    fn spawned_session_binds_the_same_relay_roster_as_the_lobby_start() {
+        // A guest at source 1: the lobby admits its own node first, then
+        // canonicalizes the room roster before game_started binds it.
+        let text = "[Settings]\nName=P1\nSide=1\nColor=1\nPlayerCount=2\nSourceIndex=1\n\
+                    Seed=77\nSpecialHouseIsAlly=No\n[Other1]\nName=P0\nSide=0\nColor=0\n\
+                    SourceIndex=0\nIp=10.0.0.1\n";
+        let crate::app::frontend::cncnet_spawn::SpawnGame::Network(network) =
+            crate::app::frontend::cncnet_spawn::SpawnRequest::parse(text)
+                .unwrap()
+                .game
+        else {
+            panic!("network spawn");
+        };
+        let canonical = network.session;
+        let names = ["P0".to_owned(), "P1".to_owned()];
+
+        let mut lobby = crate::app::match_runtime::session::MatchSession::default();
+        lobby.enter_network(crate::app::match_runtime::session::NetworkReturnContext::Wol);
+        let mut local_first = canonical.clone();
+        local_first.humans.reverse();
+        local_first.local_player_index = 0;
+        lobby
+            .accept_network_setup(local_first, false, None)
+            .unwrap();
+        lobby.canonicalize_online_roster(&names).unwrap();
+        bind_relay_roster(&mut lobby, &names, 77).unwrap();
+
+        let mut spawned = crate::app::match_runtime::session::MatchSession::default();
+        crate::app::shell_network_setup::accept_external_session(
+            &mut spawned,
+            canonical,
+            crate::app::match_runtime::session::NetworkReturnContext::Wol,
+        )
+        .unwrap();
+        bind_relay_roster(&mut spawned, &names, 77).unwrap();
+
+        assert_eq!(spawned.network_setup(), lobby.network_setup());
+        assert_eq!(spawned.network_setup().unwrap().local_player_index, 1);
+        assert_eq!(spawned.host(), lobby.host());
+        assert_eq!(spawned.network_start_seed(), Some(77));
+        assert_eq!(spawned.network_start_seed(), lobby.network_start_seed());
+        for source in 0..2 {
+            assert_eq!(
+                spawned.network_endpoint(source),
+                Some(crate::net::udp::relay_peer_endpoint(source as u8).unwrap())
+            );
+            assert_eq!(
+                spawned.network_endpoint(source),
+                lobby.network_endpoint(source)
+            );
+        }
+    }
+
+    #[test]
+    fn options_agreement_keeps_map_status_out_of_host_ready() {
+        let (mut service, input, _output) = control_service(None);
+        let agreement = json!({
+            "revision": 7, "version": "0.2.2", "rules_digest": "rules",
+            "map_digest": "physical", "effective_map_digest": "effective",
+            "staging_digest": "staging"
+        });
+        service.publish_options_agreement(agreement.clone(), 1, true);
+        let next = || match input.try_recv().expect("queued agreement") {
+            http::Request::Command {
+                operation, payload, ..
+            } => (operation, payload),
+            _ => panic!("expected a protocol command"),
+        };
+        let mut expected_map = agreement.clone();
+        expected_map["status"] = json!(1);
+        let mut expected_ready = agreement.clone();
+        expected_ready["ready"] = json!(true);
+        assert_eq!(next(), ("map_status", expected_map));
+        assert_eq!(next(), ("ready", expected_ready));
+        assert!(input.try_recv().is_err());
+
+        service.publish_options_agreement(agreement.clone(), 0, false);
+        let mut expected_map = agreement;
+        expected_map["status"] = json!(0);
+        assert_eq!(next(), ("map_status", expected_map));
+        assert!(input.try_recv().is_err(), "guests must accept explicitly");
     }
 
     #[test]

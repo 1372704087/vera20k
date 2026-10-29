@@ -374,12 +374,6 @@ impl App {
             .refresh_multiplayer_country_catalog(&state.process_assets);
     }
 
-    /// A right-panel menu page (Single Player `0x100` or Movies & Credits
-    /// `0x101`) owns the `MainMenu` screen.
-    pub(super) fn menu_page_active(state: &AppState) -> bool {
-        crate::app::frontend::menu_page_render::ActiveMenuPage::from_state(state).is_some()
-    }
-
     /// The score page `0x108` owns the result screen once its model is set
     /// and its art and the shell chrome exist; otherwise the result screen
     /// uses the asset-independent status card when retail score art is absent.
@@ -429,6 +423,7 @@ impl App {
                 assets,
                 model.side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(model.side),
             )
         });
         state.frontend.campaign_score_page = None;
@@ -465,6 +460,7 @@ impl App {
                 assets,
                 side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(side),
             )
         });
         if state.frontend.campaign_score_art.is_none() {
@@ -481,6 +477,12 @@ impl App {
             enemies_destroyed_label: resolve_csf(state, "GUI:HeadsTaken").into_owned(),
         };
         let now = Instant::now();
+        // ScoreDialog_Handle_ScoreThemeA/B (0x1002F920/0x1002F9A0) replace the
+        // literal the dialog pushes with the side's par-branch theme.
+        let theme = model
+            .theme
+            .clone()
+            .unwrap_or_else(|| crate::app::match_runtime::scenario_exit::SCORE_THEME.to_owned());
         let page = CampaignScorePage::open(model, texts, now);
         state.frontend.campaign_score_page = Some(page);
         state.frontend.shell_first_paint_slide = None;
@@ -490,10 +492,10 @@ impl App {
             false,
         );
         // gamemd StandaloneScore dialog proc6C8FF0, WM_INIT6C9357..6C936C:
-        // SCORE starts here, after Victory685928's Win movie has returned.
+        // the theme starts here, after Victory685928's Win movie has returned.
         if let Some(assets) = state.process_assets.manager() {
             let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
-            let _ = state.audio.play_theme("SCORE", assets, wall_ms);
+            let _ = state.audio.play_theme(&theme, assets, wall_ms);
         }
     }
 
@@ -512,6 +514,7 @@ impl App {
                 assets,
                 model.side,
                 crate::app::frontend::shell_layout::art_key_screen_width(state),
+                state.process_assets.side_score_art(model.side),
             )
         });
         if state.frontend.campaign_score_art.is_none() {
@@ -776,7 +779,11 @@ impl App {
     /// admitted network return owner.
     pub(crate) fn resume_shell_after_match(state: &mut AppState) {
         if state.frontend.external_launch {
-            Self::start_quit_cascade(state);
+            // A relay launch first reports its result to the match service;
+            // its live service starts the same quit once that settles.
+            if !crate::app::shell_wol::end_spawned_match(state) {
+                Self::start_quit_cascade(state);
+            }
             return;
         }
         if state.match_state.session.network_return_context().is_some() {
@@ -1168,28 +1175,6 @@ Details: {details}"
             .collect()
     }
 
-    /// Mirror the controller's press/hover state into the per-shell struct the
-    /// render path reads. Slice-2/Slice-3 boundary: render is retired off these in
-    /// Slice 3, after which the controller is the sole authority.
-    fn mirror_shell_controller_to_main_menu(state: &mut AppState) {
-        state
-            .frontend
-            .main_menu_shell_state
-            .pressed_owner_draw_button = state
-            .frontend
-            .shell_controller
-            .pressed()
-            .and_then(crate::ui::main_menu_shell::MainMenuControlId::from_resource_id);
-        state
-            .frontend
-            .main_menu_shell_state
-            .hovered_owner_draw_button = state
-            .frontend
-            .shell_controller
-            .hovered()
-            .and_then(crate::ui::main_menu_shell::MainMenuControlId::from_resource_id);
-    }
-
     pub(super) fn handle_main_menu_shell_mouse_down(state: &mut AppState) {
         let layout = crate::app::frontend::shell_layout::main_menu_layout(state);
         let feed = Self::main_menu_shell_button_feed(&layout);
@@ -1200,7 +1185,6 @@ Details: {details}"
             .ensure_active(crate::ui::shell::descriptor::DialogId(0x00E2), false);
         state.frontend.shell_controller.on_pointer_down(x, y, &feed);
         let pressed = state.frontend.shell_controller.pressed().is_some();
-        Self::mirror_shell_controller_to_main_menu(state);
         // The original plays the button sound on mouse-DOWN over a button (not on
         // release); `pressed` is button-only by construction, so a static never
         // triggers it.
@@ -1218,7 +1202,6 @@ Details: {details}"
             .shell_controller
             .ensure_active(crate::ui::shell::descriptor::DialogId(0x00E2), false);
         state.frontend.shell_controller.on_pointer_move(x, y, &feed);
-        Self::mirror_shell_controller_to_main_menu(state);
         // Every hover message repaints the status line (0x00615EF7).
         state.frontend.shell_status_line.repaint();
     }
@@ -1232,7 +1215,6 @@ Details: {details}"
             .shell_controller
             .ensure_active(crate::ui::shell::descriptor::DialogId(0x00E2), false);
         let activated = state.frontend.shell_controller.on_pointer_up(x, y, &feed);
-        Self::mirror_shell_controller_to_main_menu(state);
         if let Some(action) = activated
             .and_then(crate::ui::main_menu_shell::MainMenuControlId::from_resource_id)
             .map(crate::ui::main_menu_shell::action_for_control)

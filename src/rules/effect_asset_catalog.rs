@@ -331,6 +331,13 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     for name in &rules.general.metallic_debris {
         insert(name);
     }
+    // AnimStart424DCC..424E5F constructs the retained mineral Debris type.
+    // Bind these roots even when no weapon or death effect names them.
+    for tiberium in rules.tiberium_types.types() {
+        for name in tiberium.debris() {
+            insert(name);
+        }
+    }
     // AreaDamage48A34D constructs the retained BarrelExplode; Voxel749F30
     // constructs its ExpireAnim74A1AF and BounceAnim74A87F. Bind these
     // producers explicitly rather than depending on another warhead's list.
@@ -367,6 +374,12 @@ pub fn anim_class_roots(rules: &RuleSet) -> Vec<String> {
     if crate::rules::NPATCH_ENABLED
         && let Some(name) = rules.general.vehicle_parachute.as_deref()
     {
+        insert(name);
+    }
+    // Ares `[Side] Parachute.Anim=`: an attached canopy type needs the same
+    // physical animation bounds before the simulator creates it.
+    #[cfg(feature = "ares")]
+    for name in rules.side_parachute_animations() {
         insert(name);
     }
     // Techno70F1D0 attaches [General] Behind= to an obscured object. Its

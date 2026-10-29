@@ -28,6 +28,11 @@ pub struct CombatDamageDefaults {
     /// RulesCtor665675=100; ReadCombatDamage66BBDE..66BBF5 reads signed
     /// AmmoCrateDamage with its current default, without clamping.
     pub ammo_crate_damage: i32,
+    /// RulesClass::Constructor @ 0x00665650 (665CE8/665D5C)=100;
+    /// ReadCombatDamage @ 0x0066BBB0 (66BC37..66BC51)
+    /// retains the signed Rules+568 value without a clamp. AnimStart424E9B
+    /// passes it to AreaDamage after removing the selected resource cell.
+    pub tiberium_explosion_damage: i32,
     /// Signed post-Verses cap used by ApplyWarheadDamage. The executable's
     /// constructor default is 1000; stock rulesmd.ini overrides it to 10000.
     pub max_damage: i32,
@@ -61,6 +66,12 @@ pub struct CombatDamageDefaults {
     /// neither an explicit death weapon nor a live current-weapon fallback,
     /// as the ordered Rules processor resolved it.
     pub death_weapon: Option<String>,
+    /// Rules+F84, constructor666B1C null; ReadCombatDamage66C2A1..66C2CF
+    /// retains the ordered Warhead factory result. Retail `FlameDamage=Fire`;
+    /// the crate Napalm arm's per-object `ReceiveDamage` and its
+    /// `Apply_area_damage` both take this warhead (the Rules+0xF84 loads at
+    /// `0x00482803` and `0x00482827`). Null keeps every arm's damage inert.
+    flame_damage: Option<String>,
     /// Rules+F88, constructor666B22 null; ReadCombatDamage66C2D4..66C2FE
     /// retains the ordered Warhead factory result for ordinary AnimAI424630.
     flame_damage2: Option<String>,
@@ -116,6 +127,14 @@ pub struct CombatDamageDefaults {
 }
 
 impl CombatDamageDefaults {
+    pub(crate) fn bind_flame_damage(&mut self, name: Option<String>) {
+        self.flame_damage = name;
+    }
+
+    pub(crate) fn flame_damage(&self) -> Option<&str> {
+        self.flame_damage.as_deref()
+    }
+
     pub(crate) fn bind_flame_damage2(&mut self, name: Option<String>) {
         self.flame_damage2 = name;
     }
@@ -130,6 +149,7 @@ impl CombatDamageDefaults {
     pub fn from_ini_section(section: &IniSection) -> Self {
         Self {
             ammo_crate_damage: section.read_int("AmmoCrateDamage", 100),
+            tiberium_explosion_damage: section.read_int("TiberiumExplosionDamage", 100),
             max_damage: section.read_int("MaxDamage", 1000),
             collapse_chance: section.read_int("CollapseChance", 100),
             ballistic_scatter: section.read_range("BallisticScatter", 0x100),
@@ -137,6 +157,7 @@ impl CombatDamageDefaults {
             incoming: section.read_speed("Incoming", 0),
             open_topped_warp_distance: section.read_int("OpenToppedWarpDistance", 5),
             death_weapon: None,
+            flame_damage: None,
             flame_damage2: None,
             drain_animation_type: None,
             falling_damage_multiplier: section.read_float("FallingDamageMultiplier", 1.0),
@@ -163,6 +184,7 @@ impl Default for CombatDamageDefaults {
     fn default() -> Self {
         Self {
             ammo_crate_damage: 100,
+            tiberium_explosion_damage: 100,
             max_damage: 1000,
             collapse_chance: 100,
             ballistic_scatter: 0x100,
@@ -170,6 +192,7 @@ impl Default for CombatDamageDefaults {
             incoming: 0,
             open_topped_warp_distance: 5,
             death_weapon: None,
+            flame_damage: None,
             flame_damage2: None,
             drain_animation_type: None,
             falling_damage_multiplier: 1.0,

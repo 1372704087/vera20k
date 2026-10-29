@@ -80,7 +80,7 @@ impl CombatLightRenderer {
         queue: &wgpu::Queue,
         surface_format: wgpu::TextureFormat,
     ) -> Self {
-        let encoded_format = surface_format.remove_srgb_suffix();
+        let encoded_format = super::webgl::encoded_format(device, surface_format);
         let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Combat Light Camera Layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -96,17 +96,20 @@ impl CombatLightRenderer {
         });
         let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Combat Light Camera"),
-            contents: bytemuck::bytes_of(&CameraUniform {
-                screen_size: [1.0, 1.0],
-                camera_pos: [0.0, 0.0],
-                zoom: 1.0,
-                world_origin_y: 0.0,
-                world_height: 1.0,
-                _pad: 0.0,
+            contents: &super::webgl::uniform_bytes(
+                device,
+                bytemuck::bytes_of(&CameraUniform {
+                    screen_size: [1.0, 1.0],
+                    camera_pos: [0.0, 0.0],
+                    zoom: 1.0,
+                    world_origin_y: 0.0,
+                    world_height: 1.0,
+                    _pad: 0.0,
 
-                native_z_origin_y: 0.0,
-                _native_z_pad: 0.0,
-            }),
+                    native_z_origin_y: 0.0,
+                    _native_z_pad: 0.0,
+                }),
+            ),
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
         });
         let camera_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
@@ -160,9 +163,11 @@ impl CombatLightRenderer {
             }],
         });
 
+        let source =
+            super::webgl::camera_source(device, shader_source(super::gpu::webgl_fallback(device)));
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("Combat Light Exact RGB565 Shader"),
-            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Combat Light Exact RGB565 Pipeline Layout"),
@@ -362,8 +367,8 @@ impl CombatLightRenderer {
         self.targets.render_view.clone()
     }
 
-    /// Texture behind [`Self::composition_view`]. Screenshot retention copies
-    /// it at the UI/cursor boundary before the cursor pass modifies it.
+    /// Live world composition behind [`Self::composition_view`]. Wheel zoom
+    /// resolves this into a separate frame before screen-fixed UI is added.
     pub(crate) fn composition_texture(&self) -> &wgpu::Texture {
         &self.targets.texture
     }
@@ -447,31 +452,6 @@ impl CombatLightRenderer {
         pass.draw(0..6, index..index + 1);
         true
     }
-
-    /// Copy the completed tactical frame into the swapchain or upscale input.
-    pub(crate) fn copy_to(&self, encoder: &mut wgpu::CommandEncoder, destination: &wgpu::Texture) {
-        debug_assert_eq!(destination.width(), self.targets.width);
-        debug_assert_eq!(destination.height(), self.targets.height);
-        encoder.copy_texture_to_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture: &self.targets.texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::TexelCopyTextureInfo {
-                texture: destination,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            wgpu::Extent3d {
-                width: self.targets.width,
-                height: self.targets.height,
-                depth_or_array_layers: 1,
-            },
-        );
-    }
 }
 
 /// Bounds of combat_light.wgsl's uploaded quad, after its existing integer
@@ -544,6 +524,28 @@ fn allocate_instance_buffer(device: &wgpu::Device, capacity: usize) -> wgpu::Buf
         usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
         mapped_at_creation: false,
     })
+}
+
+/// The WebGL2 fallback reads and writes encoded bytes through sRGB views
+/// (see `render::webgl`).
+pub(crate) fn shader_source(webgl: bool) -> String {
+    if webgl {
+        super::webgl::encoded_shader(
+            SHADER,
+            &[
+                (
+                    "textureLoad(scene, vec2i(input.position.xy), 0)",
+                    "fallback_load_encoded(textureLoad(scene, vec2i(input.position.xy), 0))",
+                ),
+                (
+                    "return vec4f(transformed) / 255.0;",
+                    "return fallback_store_encoded(vec4f(transformed) / 255.0);",
+                ),
+            ],
+        )
+    } else {
+        SHADER.to_owned()
+    }
 }
 
 fn create_composition_targets(

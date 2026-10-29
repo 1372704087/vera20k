@@ -2,26 +2,42 @@
 //! disk; the in-memory deque is only a bounded cache of this same stream.
 
 use super::sequenced::{DEPARTURE_EVENT, FRAME_END_EVENT};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime};
 
-const ROOM_QUOTA: u64 = 1024 * 1024 * 1024;
-const GLOBAL_QUOTA: u64 = 8 * ROOM_QUOTA;
+const GLOBAL_QUOTA: u64 = 8 * 1024 * 1024 * 1024;
+// Commands one source may archive. Its checksum sample every 15 frames alone
+// takes roughly a day at 60 FPS; past this its batches get Backpressure.
+const SOURCE_COMMAND_QUOTA: u64 = 32 * 1024 * 1024;
 const FRAME_END_BYTES: u64 = 4 + 13 + 8;
-const DEPARTURE_BYTES: u64 = 4 + 14 + 8;
+const DEPARTURE_BYTES: u64 = 4 + 15 + 8;
 const MAX_RECORD_BYTES: usize = 22 + 40 + super::ORDERING_BATCH_CAPACITY;
+// A leftover last written longer ago than a room can live, plus its replay
+// grace, belongs to an ended match. Startup moves it into this subfolder,
+// where it counts against no quota and blocks no match. Nothing deletes it.
+const ARCHIVE: &str = "archive";
+const ENDED_AGE: Duration =
+    Duration::from_millis(super::sequenced::ROOM_LIFETIME_MS + super::MAX_TICKET_LIFETIME * 1000);
 
 pub(super) struct JournalDirectory {
     root: PathBuf,
-    // Reservation is logical, never a disk preallocation. Abandoned journals
-    // found after restart retain their quota and are never overwritten.
-    reserved: BTreeSet<[u8; 16]>,
+    // Bytes per room, logical and never a disk preallocation: a live room
+    // holds its whole quota, a finished one only what it wrote. Abandoned
+    // journals found after restart, and failed ones, hold their size and are
+    // never overwritten.
+    reserved: BTreeMap<[u8; 16], u64>,
+    total: u64,
+    // Ended or partly created archives whose exact files are still on disk.
+    // Each keeps its reservation until a retried removal succeeds.
+    retiring: BTreeSet<[u8; 16]>,
+    retry_at: u64,
 }
 
 impl JournalDirectory {
-    pub(super) fn open(root: &Path) -> io::Result<Self> {
+    pub(super) fn open(root: &Path, now: SystemTime) -> io::Result<Self> {
         if !root.is_absolute() {
             return Err(io::ErrorKind::InvalidInput.into());
         }
@@ -44,7 +60,8 @@ impl JournalDirectory {
                 return Err(io::ErrorKind::PermissionDenied.into());
             }
         }
-        let mut reserved = BTreeSet::new();
+        let mut reserved = BTreeMap::new();
+        let mut ended = Vec::new();
         for entry in fs::read_dir(root)? {
             let entry = entry?;
             let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
@@ -58,23 +75,68 @@ impl JournalDirectory {
                 *byte = u8::from_str_radix(&name[index * 2..index * 2 + 2], 16)
                     .map_err(|_| io::ErrorKind::InvalidData)?;
             }
-            reserved.insert(room);
+            let (bytes, written) = disk_usage(&entry.path())?;
+            if now
+                .duration_since(written)
+                .is_ok_and(|age| age >= ENDED_AGE)
+            {
+                ended.push((room, name, bytes));
+            } else {
+                reserved.insert(room, bytes);
+            }
         }
+        if !ended.is_empty() {
+            let archive = root.join(ARCHIVE);
+            let created = match builder.recursive(false).create(&archive) {
+                Err(error) if error.kind() != io::ErrorKind::AlreadyExists => false,
+                _ => fs::symlink_metadata(&archive).is_ok_and(|metadata| metadata.is_dir()),
+            };
+            for (room, name, bytes) in ended {
+                // Never replace an archived match; one that cannot move stays
+                // counted and blocked as before.
+                let target = archive.join(&name);
+                if !created
+                    || fs::symlink_metadata(&target).is_ok()
+                    || fs::rename(root.join(&name), &target).is_err()
+                {
+                    reserved.insert(room, bytes);
+                }
+            }
+        }
+        let total = reserved.values().sum();
         Ok(Self {
             root: root.to_owned(),
             reserved,
+            total,
+            retiring: BTreeSet::new(),
+            retry_at: 0,
         })
     }
 
-    pub(super) fn create(&mut self, room: [u8; 16], tick_hz: u16) -> io::Result<Journal> {
-        if self.reserved.contains(&room) {
+    fn path(&self, room: &[u8; 16]) -> PathBuf {
+        let name: String = room.iter().map(|byte| format!("{byte:02x}")).collect();
+        self.root.join(name)
+    }
+
+    /// Admits a room only while its whole quota fits beside every other
+    /// reservation: its clock records for the full match lifetime and each
+    /// source's command allowance.
+    pub(super) fn create(
+        &mut self,
+        room: [u8; 16],
+        tick_hz: u16,
+        sources: u32,
+    ) -> io::Result<Journal> {
+        if self.reserved.contains_key(&room) {
             return Err(io::ErrorKind::AlreadyExists.into());
         }
-        if self.reserved.len() as u64 >= GLOBAL_QUOTA / ROOM_QUOTA {
+        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
+            + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
+        let quota = reserved_tail + u64::from(sources) * SOURCE_COMMAND_QUOTA;
+        if self.total + quota > GLOBAL_QUOTA {
             return Err(io::ErrorKind::StorageFull.into());
         }
-        let name: String = room.iter().map(|byte| format!("{byte:02x}")).collect();
-        let path = self.root.join(name);
+        let path = self.path(&room);
         let mut builder = fs::DirBuilder::new();
         #[cfg(unix)]
         {
@@ -82,50 +144,148 @@ impl JournalDirectory {
             builder.mode(0o700);
         }
         builder.create(&path)?;
-        self.reserved.insert(room);
-        let data = private_new(&path.join("stream.data"))?;
-        let index = private_new(&path.join("stream.index"))?;
-        let reserved_tail = (24 * 60 * 60 * u64::from(tick_hz) + 2) * FRAME_END_BYTES
-            + u64::from(super::MAX_PEERS) * DEPARTURE_BYTES;
+        self.reserved.insert(room, quota);
+        self.total += quota;
+        let files = private_new(&path.join("stream.data"))
+            .and_then(|data| Ok((data, private_new(&path.join("stream.index"))?)));
+        let (data, index) = match files {
+            Ok(files) => files,
+            Err(error) => {
+                // Nothing was written yet: retire it like an ended archive.
+                self.retire(room);
+                return Err(error);
+            }
+        };
         Ok(Journal {
             room,
-            path,
             data,
             index,
             entries: 0,
             used: 0,
+            quota,
             reserved_tail,
             pending: 0,
             failed: false,
         })
     }
 
-    pub(super) fn cleanup(&mut self, journal: Journal) -> io::Result<()> {
-        // Only a clean, legitimately ended match may retire its exact files.
-        // Never remove an I/O-failed archive or recursively delete a directory.
-        if journal.failed {
-            return Err(io::ErrorKind::Other.into());
-        }
-        let Journal {
-            room,
-            path,
-            data,
-            index,
-            ..
-        } = journal;
+    /// Ends a released room's archive. Only a clean, legitimately ended match
+    /// retires its exact files. A failed one keeps them, never recursively
+    /// deleted, and keeps its match ID so no Ready can start a new timeline
+    /// in its place; like a leftover found at startup, it holds only its size
+    /// on disk.
+    pub(super) fn cleanup(&mut self, journal: Journal, failed: bool) {
+        let (room, used, failed) = (journal.room, journal.used, failed || journal.failed);
         // Windows can defer deletion until the last file handle closes. Close
         // both files before removing them and their containing directory.
-        drop(data);
-        drop(index);
-        fs::remove_file(path.join("stream.data"))?;
-        fs::remove_file(path.join("stream.index"))?;
-        fs::remove_dir(&path)?;
-        self.reserved.remove(&room);
-        Ok(())
+        drop(journal);
+        if !failed {
+            self.retire(room);
+            return;
+        }
+        let bytes = disk_usage(&self.path(&room)).map_or(used, |(bytes, _)| bytes);
+        if let Some(reserved) = self.reserved.get_mut(&room) {
+            self.total = self.total - *reserved + bytes;
+            *reserved = bytes;
+        }
+    }
+
+    /// A finished room takes no more commands; it keeps the bytes its
+    /// terminal replay grace serves plus the frame ends of `unmerged` frames
+    /// a federated relay sealed before every departure reached it.
+    pub(super) fn settle(&mut self, journal: &mut Journal, unmerged: u32) {
+        let tail = journal
+            .reserved_tail
+            .min(u64::from(unmerged) * FRAME_END_BYTES);
+        let keep = journal.used + tail;
+        if journal.quota == keep {
+            return;
+        }
+        if let Some(bytes) = self.reserved.get_mut(&journal.room) {
+            self.total -= *bytes - keep;
+            *bytes = keep;
+        }
+        journal.quota = keep;
+        journal.reserved_tail = tail;
+        journal.pending = 0;
+    }
+
+    fn retire(&mut self, room: [u8; 16]) {
+        self.retiring.insert(room);
+        self.remove_retiring();
+    }
+
+    /// Retries removals that failed, such as a transient disk error, at most
+    /// once a second.
+    pub(super) fn retry(&mut self, now_ms: u64) {
+        if self.retiring.is_empty() || now_ms < self.retry_at {
+            return;
+        }
+        self.retry_at = now_ms.saturating_add(1000);
+        self.remove_retiring();
+    }
+
+    fn remove_retiring(&mut self) {
+        for room in std::mem::take(&mut self.retiring) {
+            let path = self.path(&room);
+            let removed = present(fs::remove_file(path.join("stream.data")))
+                .and_then(|()| present(fs::remove_file(path.join("stream.index"))))
+                .and_then(|()| present(fs::remove_dir(&path)));
+            if removed.is_ok() {
+                if let Some(bytes) = self.reserved.remove(&room) {
+                    self.total -= bytes;
+                }
+            } else {
+                self.retiring.insert(room);
+            }
+        }
     }
 }
 
+/// A room archive's bytes on disk, and when it was last written.
+fn disk_usage(path: &Path) -> io::Result<(u64, SystemTime)> {
+    let metadata = fs::symlink_metadata(path)?;
+    let (mut bytes, mut written) = (metadata.len(), metadata.modified()?);
+    if metadata.is_dir() {
+        for file in fs::read_dir(path)? {
+            let metadata = file?.metadata()?;
+            bytes += metadata.len();
+            written = written.max(metadata.modified()?);
+        }
+    }
+    Ok((bytes, written))
+}
+
+/// A file or directory an earlier attempt already removed counts as removed.
+fn present(removal: io::Result<()>) -> io::Result<()> {
+    match removal {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        result => result,
+    }
+}
+
+#[cfg(test)]
+impl JournalDirectory {
+    pub(super) fn reserved(&self, room: &[u8; 16]) -> Option<u64> {
+        self.reserved.get(room).copied()
+    }
+
+    pub(super) fn total(&self) -> u64 {
+        self.total
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    // Fails this thread's next index creation, as a full disk would.
+    pub(super) static FAIL_NEXT_INDEX: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn private_new(path: &Path) -> io::Result<File> {
+    #[cfg(test)]
+    if path.ends_with("stream.index") && FAIL_NEXT_INDEX.replace(false) {
+        return Err(io::ErrorKind::StorageFull.into());
+    }
     let mut options = OpenOptions::new();
     options.read(true).write(true).create_new(true);
     #[cfg(unix)]
@@ -138,11 +298,11 @@ fn private_new(path: &Path) -> io::Result<File> {
 
 pub(super) struct Journal {
     room: [u8; 16],
-    path: PathBuf,
     data: File,
     index: File,
     entries: u64,
     used: u64,
+    quota: u64,
     reserved_tail: u64,
     pending: u64,
     failed: bool,
@@ -150,15 +310,25 @@ pub(super) struct Journal {
 
 impl Journal {
     pub(super) fn reserve_batch(&mut self, bytes: usize) -> bool {
-        let bytes = bytes as u64 + 12;
-        if self.failed || self.used + self.reserved_tail + self.pending + bytes > ROOM_QUOTA {
+        self.reserve_entries(&[bytes])
+    }
+
+    /// Reserve a whole control transaction before accepting its first marker;
+    /// a pause cannot consume the space needed for its eventual resume.
+    pub(super) fn reserve_entries(&mut self, lengths: &[usize]) -> bool {
+        let Some(bytes) = lengths.iter().try_fold(0u64, |total, &length| {
+            total.checked_add(u64::try_from(length).ok()?.checked_add(12)?)
+        }) else {
+            return false;
+        };
+        if self.failed || self.used + self.reserved_tail + self.pending + bytes > self.quota {
             return false;
         }
         self.pending += bytes;
         true
     }
 
-    /// One checked append transaction per complete frame. A partial write is
+    /// One checked append transaction for a frame or canonical control barrier. A partial write is
     /// left intact for inspection, never truncated or treated as eviction.
     pub(super) fn commit(&mut self, records: &[Vec<u8>]) -> io::Result<()> {
         if self.failed {

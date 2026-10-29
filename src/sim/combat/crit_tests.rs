@@ -95,6 +95,48 @@ fn shoot(
     commit
 }
 
+/// One `WarheadTypeExt::Detonate` per-target pass of `WH` at `target`'s cell,
+/// with `intended` as the bullet target and no collected receivers.
+fn detonate_once(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    firer: u64,
+    target: u64,
+    intended: Option<u64>,
+) {
+    let warhead = rules.warhead("WH").expect("warhead");
+    let warhead_ref = sim.interner.intern("WH");
+    let source_house = sim.entities().get(firer).map(|entity| entity.owner());
+    let impact = detonation(sim, "WH", firer, target, 0).impact;
+    let mut run = ReceiverRun::default();
+    let mut effects = super::effects::DeathEffects::default();
+    super::crit::detonate(
+        sim,
+        &mut run,
+        rules,
+        None,
+        warhead,
+        warhead_ref,
+        firer,
+        source_house,
+        impact,
+        intended,
+        &[],
+        &mut effects,
+    );
+    run.finish();
+}
+
+/// The Scenario stream of a plain scene after `doubles` `RandomDouble` draws.
+fn after_doubles(doubles: usize) -> crate::sim::rng::SimRngLogicalState {
+    let (sim, _rules, _firer, _target) = scene("", "", "", "", "Russians");
+    let mut expected = sim.scenario_rng.clone();
+    for _ in 0..doubles {
+        expected.random_double();
+    }
+    expected.logical_state()
+}
+
 /// `ApplyCrit`'s plain arm calls the target's `ReceiveDamage` with
 /// `Crit.ExtraDamage` before the native area damage; the same rules without a
 /// crit chance leave the identical packet untouched.
@@ -261,69 +303,153 @@ AnimList=NORMAL
     );
 }
 
-/// `Crit.ApplyChancePerTarget`: the shared mode draws one `RandomDouble` per
-/// detonation, the per-target mode one per target.
+/// `Detonate`'s prefix (`Detonate.cpp:162..170`): a warhead that can crit or
+/// carries an AttachEffect list draws the crit buffer (unless
+/// `Crit.ApplyChancePerTarget`) and the `ReturnWarhead` buffer, even with no
+/// target; `Crit.Chance` alone is not `CanCrit` and draws nothing.
 #[test]
-fn crit_chance_buffering_follows_apply_chance_per_target() {
-    let draws = |per_target: bool| {
+fn detonate_prefix_draws_both_buffers_for_crit_or_attach_effect_warheads() {
+    let draws = |wh_ini: &str| {
         let (mut sim, rules, firer, target) = scene(
             "",
-            &format!(
-                "Crit.Chance=1.0\nCrit.ExtraDamage=0\nCrit.ApplyChancePerTarget={}\n",
-                if per_target { "yes" } else { "no" }
-            ),
+            wh_ini,
             "",
-            "",
+            "[AttachEffectTypes]\n0=MARK\n[MARK]\nDuration=100\n",
             "Russians",
         );
-        let warhead = rules.warhead("WH").expect("warhead");
-        let warhead_ref = sim.interner.intern("WH");
-        let source_house = sim.entities().get(firer).map(|entity| entity.owner());
-        let coords = {
-            let target = sim.entities().get(target).expect("target");
-            object_get_coords(target, sim.resolved_terrain.as_ref())
-        };
-        let impact = ProjectileCoord::new(coords.x, coords.y, coords.z);
-        let roll = super::crit::begin(&mut sim, &rules, warhead, firer, source_house, impact)
-            .expect("always-crit warhead");
-        let mut run = ReceiverRun::default();
-        let mut effects = super::effects::DeathEffects::default();
-        let targets = vec![target, target];
-        super::crit::apply_targets(
-            &mut sim,
-            &mut run,
-            &rules,
-            None,
-            warhead,
-            warhead_ref,
-            firer,
-            source_house,
-            &roll,
-            &targets,
-            &mut effects,
-        );
-        run.finish();
+        detonate_once(&mut sim, &rules, firer, target, None);
         sim.scenario_rng.logical_state()
     };
-
-    let (sim, _rules, _firer, _target) = scene("", "", "", "", "Russians");
-    let mut expected = sim.scenario_rng.clone();
-    expected.random_double();
-    let one_buffer = expected.logical_state();
-    let mut expected = sim.scenario_rng.clone();
-    expected.random_double();
-    expected.random_double();
-    let two_targets = expected.logical_state();
-
     assert_eq!(
-        draws(false),
-        one_buffer,
-        "one shared buffer covers every target"
+        draws("Crit.Chance=1.0\nCrit.AnimList=X\n"),
+        after_doubles(2),
+        "crit buffer, then the ReturnWarhead buffer"
     );
     assert_eq!(
-        draws(true),
-        two_targets,
-        "per-target mode draws once per target"
+        draws("Crit.Chance=1.0\nCrit.AnimList=X\nCrit.ApplyChancePerTarget=yes\n"),
+        after_doubles(1),
+        "per-target dice leave only the ReturnWarhead buffer"
+    );
+    assert_eq!(
+        draws("AttachEffect.AttachTypes=MARK\n"),
+        after_doubles(2),
+        "an AttachEffect list is PossibleCellSpreadDetonate"
+    );
+    assert_eq!(
+        draws("Crit.Chance=1.0\n"),
+        after_doubles(0),
+        "a chance without damage, warhead or animation cannot crit"
+    );
+}
+
+/// `CanCrit` does not read `Crit.Chance`: a firer's AttachEffect
+/// `Crit.ExtraChance` crits a warhead that leaves the chance unset.
+#[test]
+fn an_attach_effect_extra_chance_crits_a_zero_chance_warhead() {
+    let (mut sim, rules, firer, target) = scene_with_firer(
+        "",
+        "Crit.ExtraDamage=50\n",
+        "",
+        "[AttachEffectTypes]\n0=CRIT\n[CRIT]\nDuration=100\nCrit.ExtraChance=1.0\n",
+        "AttachEffect.AttachTypes=CRIT\n",
+        "Russians",
+    );
+    sim.update_phobos_attach_effects(firer, &rules);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(health(&sim, target), 450, "the folded chance crits");
+}
+
+/// `CanAffectTarget`: under `EffectsRequireVerses` (default) a target whose
+/// armor the warhead's Verses zero skips the whole per-target pass, so not
+/// even a crit warhead with its own Verses reaches it.
+#[test]
+fn zero_verses_targets_skip_the_per_target_pass() {
+    let crit_damage = |extra: &str| {
+        let (mut sim, rules, firer, target) = scene(
+            "1=CRITWH\n",
+            &format!(
+                "Verses=0%,0%,0%,0%,0%,0%,0%,0%,0%,0%,0%\nCrit.Chance=1.0\n\
+                 Crit.ExtraDamage=30\nCrit.Warhead=CRITWH\n{extra}"
+            ),
+            "",
+            "[CRITWH]\nCellSpread=1\n",
+            "Russians",
+        );
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        500 - health(&sim, target)
+    };
+    assert_eq!(crit_damage(""), 0, "0% Verses refuses the target");
+    assert_eq!(
+        crit_damage("EffectsRequireVerses=no\n"),
+        30,
+        "without the key the crit warhead lands"
+    );
+}
+
+/// `MapClass_DamageArea @ 0x489286`: a direct area damage runs the same
+/// per-target pass, so a spreading warhead's AttachEffect list reaches its
+/// receivers.
+#[test]
+fn direct_area_damage_applies_the_warhead_attach_effects() {
+    let (mut sim, rules, firer, target) = scene(
+        "1=AEWH\n",
+        "",
+        "",
+        "[AEWH]\nCellSpread=1\nAttachEffect.AttachTypes=MARK\n\
+         [AttachEffectTypes]\n0=MARK\n[MARK]\nDuration=100\n",
+        "Russians",
+    );
+    let warhead = rules.warhead("AEWH").expect("warhead");
+    let warhead_ref = sim.interner.intern("AEWH");
+    let impact = detonation(&mut sim, "AEWH", firer, target, 0).impact;
+    super::world_receiver::apply_area_damage(
+        &mut sim,
+        &rules,
+        None,
+        impact,
+        10,
+        warhead,
+        false,
+        (firer, None, warhead_ref),
+        crate::sim::world::FrameEffects::empty(),
+    );
+    let attached = sim
+        .entities()
+        .get(target)
+        .expect("target")
+        .phobos_attach_effects()
+        .instances()
+        .len();
+    assert_eq!(attached, 1, "the area's receiver got the effect");
+}
+
+/// `SelectDamageAnimation_CritAnim` (`0x48A5B3`) runs before the `AnimList`
+/// empty test, so a warhead with only `Crit.AnimList` still shows it; the
+/// `0x48A4F3` hook selects a negative packet by its magnitude.
+#[test]
+fn crit_anim_list_shows_without_an_anim_list() {
+    let (mut sim, rules, _firer, _target) = scene(
+        "",
+        "Crit.Chance=1.0\nCrit.AnimList=LOW,HIGH\n",
+        "",
+        "",
+        "Russians",
+    );
+    let warhead = rules.warhead("WH").expect("warhead");
+    let coordinate = ProjectileCoord::new(22 * 256 + 128, 20 * 256 + 128, 0);
+    let mut selected = |damage: i32| {
+        super::detonation_anim::select(&mut sim, &rules, warhead, damage, 0, coordinate, true)
+            .map(|id| sim.interner.resolve(id).to_owned())
+    };
+    assert_eq!(
+        selected(30),
+        Some("HIGH".to_owned()),
+        "30 is the second band"
+    );
+    assert_eq!(
+        selected(-10),
+        Some("LOW".to_owned()),
+        "-10 selects as 10, not as a huge unsigned value"
     );
 }
 
@@ -411,31 +537,28 @@ fn crit_immune_ability_and_target_filter_stop_the_crit() {
 }
 
 /// `Crit.ActiveChanceAnims` picks one entry with a `RandomRanged(0, len-1)`
-/// draw after the shared crit buffer.
+/// draw after the crit and `ReturnWarhead` buffers.
 #[test]
-fn crit_active_chance_anims_draw_after_the_buffer() {
-    let (mut sim, rules, firer, _target) = scene(
+fn crit_active_chance_anims_draw_after_the_buffers() {
+    let (mut sim, rules, firer, target) = scene(
         "",
         "Crit.Chance=1.0\nCrit.ExtraDamage=0\nCrit.ActiveChanceAnims=ONE,TWO\n",
         "",
         "",
         "Russians",
     );
-    let warhead = rules.warhead("WH").expect("warhead");
-    let source_house = sim.entities().get(firer).map(|entity| entity.owner());
-    let impact = ProjectileCoord::new(22 * 256 + 128, 20 * 256 + 128, 0);
-    super::crit::begin(&mut sim, &rules, warhead, firer, source_house, impact)
-        .expect("always-crit warhead");
+    detonate_once(&mut sim, &rules, firer, target, None);
     let mut expected = {
         let (sim, _rules, _firer, _target) = scene("", "", "", "", "Russians");
         sim.scenario_rng.clone()
     };
     expected.random_double();
+    expected.random_double();
     expected.next_range_i32_inclusive(0, 1);
     assert_eq!(
         sim.scenario_rng.logical_state(),
         expected.logical_state(),
-        "buffer, then one anim pick"
+        "two buffers, then one anim pick"
     );
 }
 

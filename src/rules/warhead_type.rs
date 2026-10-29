@@ -372,6 +372,20 @@ pub struct WarheadType {
     /// suppressor this warhead carries.
     #[cfg(feature = "phobos")]
     pub attach_effect: WarheadAttachEffectRules,
+    /// Phobos `WarheadTypeExt::AffectsGround`/`AffectsAir` (`Body.cpp:413..414`,
+    /// `Valueable<bool>` default true): `CanAffectTarget`'s air/ground split.
+    #[cfg(feature = "phobos")]
+    pub affects_ground: bool,
+    #[cfg(feature = "phobos")]
+    pub affects_air: bool,
+    /// Phobos `EffectsRequireVerses` (`Body.cpp:501`, default true): the
+    /// per-target pass skips a target whose armor this warhead's Verses zero.
+    #[cfg(feature = "phobos")]
+    pub effects_require_verses: bool,
+    /// Phobos `ApplyPerTargetEffectsOnDetonate` (`Body.cpp:442`,
+    /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
+    #[cfg(feature = "phobos")]
+    pub apply_per_target_effects_on_detonate: Option<bool>,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -663,6 +677,15 @@ impl WarheadType {
             crit: crate::rules::phobos_crit::CritRules::from_section(section),
             #[cfg(feature = "phobos")]
             attach_effect: WarheadAttachEffectRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            affects_ground: section.read_bool("AffectsGround", true),
+            #[cfg(feature = "phobos")]
+            affects_air: section.read_bool("AffectsAir", true),
+            #[cfg(feature = "phobos")]
+            effects_require_verses: section.read_bool("EffectsRequireVerses", true),
+            #[cfg(feature = "phobos")]
+            apply_per_target_effects_on_detonate: section
+                .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
         }
     }
 }

@@ -664,6 +664,37 @@ pub(crate) fn apply_area_damage_in_run(
     affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
 ) -> (DeathEffects, Vec<UnderAttackEvent>, bool) {
+    apply_area_damage_in_run_with_target(
+        world,
+        run,
+        rules,
+        overlay_registry,
+        impact,
+        damage,
+        warhead,
+        affects_tiberium,
+        origin,
+        None,
+    )
+}
+
+/// [`apply_area_damage_in_run`] with Phobos `WarheadTypeExt::DamageAreaWithTarget`'s
+/// `DamageAreaTarget` (`WarheadType/Body.cpp:137..146`): the target the
+/// per-target pass of a warhead without `CellSpread` visits. Stock never
+/// reads it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn apply_area_damage_in_run_with_target(
+    world: &mut Simulation,
+    run: &mut ReceiverRun,
+    rules: &RuleSet,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    impact: ProjectileCoord,
+    damage: i32,
+    warhead: &WarheadType,
+    affects_tiberium: bool,
+    origin: (u64, Option<InternedId>, InternedId),
+    area_target: Option<u64>,
+) -> (DeathEffects, Vec<UnderAttackEvent>, bool) {
     let area = collect_area_at(
         world,
         rules,
@@ -686,38 +717,24 @@ pub(crate) fn apply_area_damage_in_run(
         .extend(area.aoe.cell_target_detaches);
     // Phobos `MapClass_DamageArea @ 0x489286`: a direct `DamageArea` caller's
     // per-target pass runs before the native area damage, exactly like the
-    // bullet path. This path has no intended target pointer, so it cannot
-    // reach native's no-spread `DamageAreaTarget` arm; the cell-spread arm
-    // still runs.
+    // bullet path.
     #[cfg(feature = "phobos")]
-    let crit_active = {
-        let mut crit_active = false;
-        let targets: Vec<u64> = area
-            .aoe
-            .receivers
-            .iter()
-            .filter_map(|receiver| match receiver {
-                combat_aoe::AreaDamageReceiver::Entity(event) => Some(event.target_id),
-                combat_aoe::AreaDamageReceiver::Terrain(_) => None,
-            })
-            .collect();
-        if let Some(roll) = super::crit::begin(world, rules, warhead, origin.0, origin.1, impact) {
-            crit_active = super::crit::apply_targets(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                warhead,
-                origin.2,
-                origin.0,
-                origin.1,
-                &roll,
-                &targets,
-                &mut effects,
-            );
-        }
-        crit_active
-    };
+    let crit_active = super::crit::detonate(
+        world,
+        run,
+        rules,
+        overlay_registry,
+        warhead,
+        origin.2,
+        origin.0,
+        origin.1,
+        impact,
+        area_target,
+        &area.aoe.receivers,
+        &mut effects,
+    );
+    #[cfg(not(feature = "phobos"))]
+    let _ = area_target;
     #[cfg(not(feature = "phobos"))]
     let crit_active = false;
     let (nested, mut pings, area_result) =
@@ -1296,19 +1313,6 @@ pub(crate) fn commit_entities(
         #[cfg(feature = "phobos")]
         let unkillable_clamp =
             world.apply_unkillable_clamp(target_id, event, post_shield_input, rules);
-        // Phobos' ReceiveDamage wrapper counts a non-IgnoreDefenses hit whose
-        // source house passes DiscardOn.ReceivedDamage.AffectsHouse.
-        #[cfg(feature = "phobos")]
-        if !event.receiver_flags.ignore_defenses {
-            let source_house = event.source_house.or_else(|| {
-                world
-                    .substrate
-                    .entities
-                    .get(event.attacker_id)
-                    .map(|attacker| attacker.owner())
-            });
-            world.record_phobos_attach_damage(target_id, source_house, rules);
-        }
         // Phobos TechnoClass_ReceiveDamage_ArmorMultiplier (0x00701966): the
         // effects' armor chances belong to the positive, defended divide on
         // the post-shield damage. `None` keeps the cached unrestricted product.
@@ -1376,26 +1380,6 @@ pub(crate) fn commit_entities(
             world.resolved_terrain.as_ref(),
             None,
         );
-        // Phobos `TechnoClass_ReceiveDamage_ReflectDamage` (`0x701E18`) runs
-        // after the defense divides and before the Object body: the divided
-        // packet is what a reflecting effect sends back to its source.
-        #[cfg(feature = "phobos")]
-        if attacker_id != RAD_NO_ATTACKER
-            && let Some(damage) =
-                receiver_outcome.and_then(|resolved| resolved.outcome.readiness_damage)
-            && damage > 0
-        {
-            world.apply_attach_effect_reflect_damage(
-                target_id,
-                attacker_id,
-                event.source_house,
-                event.warhead_ref,
-                damage,
-                rules,
-                overlay_registry,
-                run.effects(),
-            );
-        }
         // Techno701ADB..701B62 precedes bunker/warhead/Object gates, even
         // when those gates suppress the HP write. It also runs for healing
         // and IgnoreDefenses; only the earlier receiver exits skip it.
@@ -1451,6 +1435,8 @@ pub(crate) fn commit_entities(
             uncloak_after_damage,
             house_threat_delta,
             psychedelic,
+            #[cfg(feature = "phobos")]
+            object_packet,
         }) = receiver_health::commit_receiver_health(
             event,
             world,
@@ -1471,6 +1457,38 @@ pub(crate) fn commit_entities(
             death
                 .receiver_stage_trace
                 .push(ReceiverStageTrace::HouseThreat { target_id, delta });
+        }
+        // Phobos `TechnoClass_ReceiveDamage_ReflectDamage` (`0x701E18`): after
+        // Object's body (`0x00701DF8`), only with an attacker
+        // (`0x00701DFF..0x00701E0C`) and a positive `*pDamage`, the hit is
+        // reflected to its source and counted for `DiscardOn=ReceivedDamage`
+        // against the call's source house, IgnoreDefenses included. It runs
+        // here after the additive anger update at `0x00701E68`. A null source
+        // house would fault in the count's `IsNeutral`; VERA reads the
+        // attacker's owner instead.
+        #[cfg(feature = "phobos")]
+        if attacker_id != RAD_NO_ATTACKER
+            && let Some(damage) = object_packet
+            && damage > 0
+        {
+            world.apply_attach_effect_reflect_damage(
+                target_id,
+                attacker_id,
+                event.source_house,
+                event.warhead_ref,
+                damage,
+                rules,
+                overlay_registry,
+                run.effects(),
+            );
+            let source_house = event.source_house.or_else(|| {
+                world
+                    .substrate
+                    .entities
+                    .get(attacker_id)
+                    .map(|attacker| attacker.owner())
+            });
+            world.record_phobos_attach_damage(target_id, source_house, rules);
         }
         if let Some(duration_frames) = postmortem_candidate {
             let current_frame = current_tick as u32 as i32;
@@ -3366,48 +3384,6 @@ fn emit_detonation_receivers<'r>(
                 ),
                 effects,
             );
-            // Phobos `BulletClass_Detonate @ 0x46920B`: the warhead's
-            // AttachEffect lists reach every target of this detonation before
-            // its damage. The no-spread arm follows the bullet target within
-            // the 64-lepton tolerance (`DetonateOnOneUnit`).
-            #[cfg(feature = "phobos")]
-            if !warhead.attach_effect.is_empty() {
-                use crate::sim::combat::combat_aoe::AreaDamageReceiver;
-                let mut targets: Vec<u64> = Vec::new();
-                if warhead.cell_spread_f64 > 0.0 {
-                    for receiver in &area.aoe.receivers {
-                        if let AreaDamageReceiver::Entity(event) = receiver {
-                            targets.push(event.target_id);
-                        }
-                    }
-                } else if let crate::sim::projectile::ProjectileTarget::Entity(id) =
-                    detonation.target
-                    && world.substrate.entities.get(id).is_some_and(|target| {
-                        let coords = crate::sim::movement::ground_pose::object_get_coords(
-                            target,
-                            world.resolved_terrain.as_ref(),
-                        );
-                        let dx = i64::from(detonation.impact.x) - i64::from(coords.x);
-                        let dy = i64::from(detonation.impact.y) - i64::from(coords.y);
-                        let dz = i64::from(detonation.impact.z) - i64::from(coords.z);
-                        dx * dx + dy * dy + dz * dz <= 4096
-                    })
-                {
-                    targets.push(id);
-                }
-                let invoker = (detonation.source_id != 0).then_some(detonation.source_id);
-                for target_id in targets {
-                    world.apply_warhead_attach_effects(
-                        target_id,
-                        detonation.payload.warhead,
-                        invoker,
-                        source_house,
-                        rules,
-                        effects,
-                        overlay_registry,
-                    );
-                }
-            }
             #[cfg(test)]
             append_fixture_tiberium(world, &mut out.effects.tiberium_reduction_requests);
             #[cfg(any(test, feature = "test-support"))]
@@ -3422,37 +3398,23 @@ fn emit_detonation_receivers<'r>(
             // native area damage, so a target it kills is skipped by the
             // dispatch gates below.
             #[cfg(feature = "phobos")]
-            let crit_active = {
-                let targets = super::crit::detonation_targets(
-                    world,
-                    warhead,
-                    detonation,
-                    &area.aoe.receivers,
-                );
-                match super::crit::begin(
-                    world,
-                    rules,
-                    warhead,
-                    detonation.source_id,
-                    source_house,
-                    detonation.impact,
-                ) {
-                    Some(roll) => super::crit::apply_targets(
-                        world,
-                        run,
-                        rules,
-                        overlay_registry,
-                        warhead,
-                        detonation.payload.warhead,
-                        detonation.source_id,
-                        source_house,
-                        &roll,
-                        &targets,
-                        &mut out.effects,
-                    ),
-                    None => false,
-                }
-            };
+            let crit_active = super::crit::detonate(
+                world,
+                run,
+                rules,
+                overlay_registry,
+                warhead,
+                detonation.payload.warhead,
+                detonation.source_id,
+                source_house,
+                detonation.impact,
+                match detonation.target {
+                    ProjectileTarget::Entity(id) => Some(id),
+                    _ => None,
+                },
+                &area.aoe.receivers,
+                &mut out.effects,
+            );
             #[cfg(not(feature = "phobos"))]
             let crit_active = false;
             out.damage_events.extend(area.aoe.receivers);

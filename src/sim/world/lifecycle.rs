@@ -4037,7 +4037,12 @@ impl Simulation {
         // relative position is unobserved and kept as the AttachEffect branch
         // had it.
         #[cfg(feature = "phobos")]
-        self.limbo_phobos_attach_effects(stable_id, context.rules());
+        self.limbo_phobos_attach_effects(
+            stable_id,
+            context.rules(),
+            context.registry(),
+            context.effects(),
+        );
         // Techno Remove6F6AC9 ->1004B140/1004B1A9 flushes even a repeated
         // Limbo, before the base's alive/InLimbo and sight-release branches.
         #[cfg(feature = "ares")]

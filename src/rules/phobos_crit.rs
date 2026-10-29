@@ -144,6 +144,10 @@ pub struct CritGlobals {
     /// false, native moves the per-target pass to ReceiveDamage and rolls a
     /// fresh chance for every target.
     pub(crate) apply_per_target_effects_on_detonate: bool,
+    /// `[CombatDamage] ReturnWarhead.ApplyChancePerTarget`, default false.
+    /// Only its effect on `Detonate`'s per-detonation buffer draw is ported;
+    /// `ReturnWarhead` itself has no VERA owner.
+    pub(crate) return_warhead_apply_chance_per_target: bool,
     /// `[General] VeteranCritChance`, default 1.0.
     pub(crate) veteran_crit_chance: f64,
 }
@@ -156,6 +160,7 @@ impl Default for CritGlobals {
             anim_on_affected_targets: false,
             suppress_when_intercepted: false,
             apply_per_target_effects_on_detonate: true,
+            return_warhead_apply_chance_per_target: false,
             veteran_crit_chance: 1.0,
         }
     }
@@ -187,6 +192,10 @@ impl CritGlobals {
             apply_per_target_effects_on_detonate: combat.read_bool(
                 "ApplyPerTargetEffectsOnDetonate",
                 defaults.apply_per_target_effects_on_detonate,
+            ),
+            return_warhead_apply_chance_per_target: combat.read_bool(
+                "ReturnWarhead.ApplyChancePerTarget",
+                defaults.return_warhead_apply_chance_per_target,
             ),
             veteran_crit_chance: general
                 .read_phobos_double("VeteranCritChance", defaults.veteran_crit_chance),
@@ -244,6 +253,9 @@ pub struct CritRules {
     pub(crate) affects_above_percent: f64,
     /// `Crit.SuppressWhenIntercepted`; `None` inherits.
     pub(crate) suppress_when_intercepted: Option<bool>,
+    /// `ReturnWarhead.ApplyChancePerTarget` (`Body.cpp:245`); `None` inherits
+    /// [`CritGlobals`]. Read for `Detonate`'s buffer draw only.
+    pub(crate) return_warhead_apply_chance_per_target: Option<bool>,
 }
 
 impl Default for CritRules {
@@ -265,6 +277,7 @@ impl Default for CritRules {
             affects_below_percent: 1.0,
             affects_above_percent: 0.0,
             suppress_when_intercepted: None,
+            return_warhead_apply_chance_per_target: None,
         }
     }
 }
@@ -326,6 +339,10 @@ impl CritRules {
             "Crit.SuppressWhenIntercepted",
             crit.suppress_when_intercepted,
         );
+        crit.return_warhead_apply_chance_per_target = section.read_phobos_nullable_bool(
+            "ReturnWarhead.ApplyChancePerTarget",
+            crit.return_warhead_apply_chance_per_target,
+        );
         crit
     }
 
@@ -333,8 +350,15 @@ impl CritRules {
         self.chance
     }
 
-    pub fn is_enabled(&self) -> bool {
-        self.chance > 0.0
+    /// `CanCrit`, set at the end of the crit reads (`Body.cpp:235..239`):
+    /// extra damage, an extra warhead or either animation list. `Crit.Chance`
+    /// is not part of it, so an AttachEffect `Crit.ExtraChance` can still
+    /// crit a warhead that leaves the chance at zero.
+    pub fn can_crit(&self) -> bool {
+        self.extra_damage > 0
+            || self.warhead.is_some()
+            || !self.active_chance_anims.is_empty()
+            || !self.anim_list.is_empty()
     }
 
     pub fn apply_chance_per_target(&self, globals: &CritGlobals) -> bool {
@@ -400,6 +424,11 @@ impl CritRules {
         self.suppress_when_intercepted
             .unwrap_or(globals.suppress_when_intercepted)
     }
+
+    pub fn return_warhead_apply_chance_per_target(&self, globals: &CritGlobals) -> bool {
+        self.return_warhead_apply_chance_per_target
+            .unwrap_or(globals.return_warhead_apply_chance_per_target)
+    }
 }
 
 #[cfg(test)]
@@ -413,7 +442,7 @@ mod tests {
     fn crit_defaults_match_the_constructor() {
         let rules = CritRules::default();
         assert_eq!(rules.chance(), 0.0);
-        assert!(!rules.is_enabled());
+        assert!(!rules.can_crit());
         assert_eq!(rules.extra_damage(), 0);
         assert!(rules.warhead().is_none());
         assert!(rules.warhead_full_detonation());

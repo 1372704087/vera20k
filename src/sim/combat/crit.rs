@@ -1,48 +1,61 @@
-//! Phobos warhead critical hits.
+//! Phobos warhead critical hits and the per-target warhead pass that carries
+//! them.
 //!
-//! Native identity: `WarheadTypeExt::GetCritChance`/`ApplyCrit`
-//! (`src/Ext/WarheadType/Detonate.cpp:525..608`, `735..778`), reached from
-//! `WarheadTypeExt::Detonate`'s per-target pass (`DetonateOnOneUnit`, called
+//! Native identity: `WarheadTypeExt::Detonate`'s per-target prefix and pass
+//! (`src/Ext/WarheadType/Detonate.cpp:156..199`), `DetonateOnOneUnit`
+//! (`201..275`), `GetCritChance`/`ApplyCrit` (`525..608`, `735..778`), called
 //! from the `BulletClass_Detonate @ 0x46920B` and `MapClass_DamageArea
-//! @ 0x489286` hooks). The pass runs before the native area damage, so a hit
-//! this module kills is already gone when the main warhead dispatches.
+//! @ 0x489286` hooks. The pass runs before the native area damage, so a hit
+//! it kills is already gone when the main warhead dispatches.
 //!
 //! RESIDUALS:
 //! - The pass runs only in the ordinary-damage arm of the bullet detonation
 //!   and in `MapClass::DamageArea`; Phobos runs it before the whole bullet arm
 //!   chain (`0x46920B`). A warhead with a special arm (IvanBomb, MindControl,
-//!   Temporal, Locomotor, ...) therefore skips its crit and the chance draws.
+//!   Temporal, Locomotor, ...) therefore skips its per-target effects and the
+//!   prefix draws.
+//! - Of `PossibleCellSpreadDetonate`'s members VERA reads only the
+//!   AttachEffect lists. A warhead that sets only an unread member
+//!   (`RemoveDisguise`, `Shield.*`, `Convert.*`, `ReturnWarhead`, `Taunt`, ...)
+//!   skips the two buffer draws native makes per detonation, shifting the
+//!   scenario stream; the members' own effects are not ported.
+//! - `Detonate`'s earlier per-house arms (`CreateGap`, `Reveal`,
+//!   `TransactMoney`, `SpawnsCrate.Types`' `RandomDouble`, `LaunchSW`) and
+//!   `InterceptBullets` are not ported; a warhead with `SpawnsCrate.Types`
+//!   misses one draw before this prefix.
 //! - The per-target list reuses the area receiver collection instead of
 //!   Phobos' own `getCellSpreadItemsExt` walk, which also reads the
 //!   `AircraftTracker` for airborne items; membership and order can differ
 //!   (no airborne phase, different cell-list filters). Because that collection
-//!   happens after SpawnShrapnel, the crit pass also runs after the shrapnel
+//!   happens after SpawnShrapnel, the pass also runs after the shrapnel
 //!   draws, where native runs it first.
+//! - `CanAffectTarget`'s `AffectsAbovePercent`/`AffectsBelowPercent`,
+//!   `AffectsVeterancy` and `AffectsInvokerOnly` gates are unread and pass.
 //! - `Crit.Warhead`'s full detonation creates a projectile with no
 //!   `Projectile=` type, so the default bullet type's `Cluster` is not read.
 //! - `Crit.ExtraDamage.ApplyFirepowerMult` reads the owner's live multiplier;
 //!   native uses the bullet's firepower captured at launch.
 //! - A bullet does not retain its firing house (VERA's `firer_house` only
-//!   serves `FirersPalette`), so a round whose firer expired loses the
-//!   `Crit.AffectsHouse` gate and the crit animations' house; native falls
-//!   back to `BulletExt::FirerHouse`.
+//!   serves `FirersPalette`), so a round whose firer expired loses the house
+//!   gates and the crit animations' house; native falls back to
+//!   `BulletExt::FirerHouse`.
 //! - Crit animations set the owner house but no invoker (VERA stores no anim
 //!   invoker on this branch).
 //! - `Crit.SuppressWhenIntercepted` is read but VERA tracks no intercepted
 //!   bullet, so the bullet's `false` value never suppresses.
 //! - `Crit.AffectsTarget` treats every building as a plain building; native's
 //!   `IsStrange` split has no VERA reader.
-//! - `ApplyPerTargetEffectsOnDetonate=no` selects the per-target dice here but
-//!   native moves the whole pass into ReceiveDamage and plays no chance
-//!   animations. The per-detonation `ReturnWarhead` buffer Phobos draws before
-//!   `Crit.ActiveChanceAnims` does not exist in VERA at all, so a warhead that
-//!   sets both keys shifts the scenario stream.
+//! - `ApplyPerTargetEffectsOnDetonate=no`: native skips this prefix and runs
+//!   `DetonateOnOneUnit` from `TechnoClass::ReceiveDamage` for every target
+//!   that receives non-zero damage, with the attacker's house. VERA keeps the
+//!   pass here on the same targets with per-target dice and no prefix draws,
+//!   so the targets and the order against the receivers differ.
 
 use super::combat_aoe::AreaDamageReceiver;
 use super::effects::DeathEffects;
 use super::receiver_call::EntityDamageEvent;
 use super::world_receiver::{
-    ReceiverRun, apply_area_damage_in_run, commit_entities, commit_projectiles,
+    ReceiverRun, apply_area_damage_in_run_with_target, commit_entities, commit_projectiles,
 };
 use crate::map::entities::EntityCategory;
 use crate::rules::object_type::ObjectType;
@@ -58,7 +71,7 @@ use crate::sim::projectile::{
 };
 use crate::sim::world::Simulation;
 
-/// The per-detonation state `WarheadTypeExt::Detonate` sets before its
+/// The per-detonation crit state `WarheadTypeExt::Detonate` sets before its
 /// per-target pass: the firer's chance once, and the dice buffer the whole
 /// detonation shares unless `Crit.ApplyChancePerTarget` is set.
 pub(crate) struct CritRoll {
@@ -67,58 +80,191 @@ pub(crate) struct CritRoll {
     per_target: bool,
 }
 
-/// `Detonate`'s crit prefix: `Crit_CurrentChance = GetCritChance(owner)`, the
-/// shared dice buffer and `Crit.ActiveChanceAnims`. `None` when the warhead
-/// cannot crit.
+/// `WarheadTypeExt::Detonate`'s per-target prefix and pass
+/// (`Detonate.cpp:156..199`): `Crit_CurrentChance = GetCritChance(owner)`;
+/// when the warhead has a per-target effect or a chance, the crit and
+/// `ReturnWarhead` buffers and `Crit.ActiveChanceAnims`; then
+/// `DetonateOnOneUnit` on every collected receiver of a cell-spread warhead,
+/// or on `intended_target` (the bullet's target, or `DamageAreaTarget`) within
+/// 64 leptons of `impact`. `source_house` is the hook's house; a direct
+/// `DamageArea` without one takes the owner's (`0x489286`). Returns
+/// `Crit_Active`, which the damage-animation selection reads.
 #[cfg(feature = "phobos")]
-pub(crate) fn begin(
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn detonate(
     world: &mut Simulation,
+    run: &mut ReceiverRun<'_>,
     rules: &RuleSet,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     warhead: &WarheadType,
+    warhead_ref: InternedId,
     source_id: u64,
     source_house: Option<InternedId>,
     impact: ProjectileCoord,
-) -> Option<CritRoll> {
+    intended_target: Option<u64>,
+    receivers: &[AreaDamageReceiver],
+    effects: &mut DeathEffects,
+) -> bool {
     let crit = &warhead.crit;
-    if !crit.is_enabled() {
-        return None;
-    }
-    let chance = get_crit_chance(world, rules, warhead, source_id);
-    if !(chance > 0.0) {
-        return None;
-    }
     let globals = rules.crit_globals();
-    // `Crit_ApplyChancePerTarget || !ApplyPerTargetEffectsOnDetonate`: the
-    // second term is native's per-target ReceiveDamage hook, which rolls a
-    // fresh chance for every target.
-    let per_target =
-        crit.apply_chance_per_target(globals) || !globals.apply_per_target_effects_on_detonate();
-    let buffer = if per_target {
-        0.0
-    } else {
-        world.scenario_rng.random_double()
-    };
-    // One random pick per detonation, even when every target later fails a
-    // gate: `CreateRandomAnim` draws before it constructs.
-    if !crit.active_chance_anims().is_empty() {
-        let index = world.scenario_rng.next_range_i32_inclusive(
-            0,
-            i32::try_from(crit.active_chance_anims().len() - 1)
-                .expect("native anim count fits i32"),
-        );
-        let name = crit.active_chance_anims()[index as usize].clone();
-        spawn_anim_at_world_coord(world, rules, &name, impact, source_house);
+    let house = source_house.or_else(|| {
+        world
+            .substrate
+            .entities
+            .get(source_id)
+            .map(|source| source.owner())
+    });
+    let chance = get_crit_chance(world, rules, warhead, source_id);
+    // `PossibleCellSpreadDetonate`, of which VERA reads the AttachEffect lists.
+    let attach = !warhead.attach_effect.is_empty();
+    if !(attach || chance > 0.0) {
+        return false;
     }
-    Some(CritRoll {
+    let on_detonate = warhead
+        .apply_per_target_effects_on_detonate
+        .unwrap_or(globals.apply_per_target_effects_on_detonate());
+    let mut roll = CritRoll {
         chance,
-        buffer,
-        per_target,
-    })
+        buffer: 0.0,
+        per_target: true,
+    };
+    if on_detonate {
+        roll.per_target = crit.apply_chance_per_target(globals);
+        if !roll.per_target {
+            roll.buffer = world.scenario_rng.random_double();
+        }
+        // `ReturnWarhead_RandomBuffer`: drawn for every such detonation, read
+        // only by the unported `ApplyReturnWarhead`.
+        if !crit.return_warhead_apply_chance_per_target(globals) {
+            world.scenario_rng.random_double();
+        }
+        // One random pick per detonation, even when every target later fails a
+        // gate: `CreateRandomAnim` draws before it constructs.
+        if !crit.active_chance_anims().is_empty() && chance > 0.0 {
+            let index = world.scenario_rng.next_range_i32_inclusive(
+                0,
+                i32::try_from(crit.active_chance_anims().len() - 1)
+                    .expect("native anim count fits i32"),
+            );
+            let name = crit.active_chance_anims()[index as usize].clone();
+            spawn_anim_at_world_coord(world, rules, &name, impact, house);
+        }
+    }
+    let invoker = (source_id != 0).then_some(source_id);
+    let mut active = false;
+    for target_id in detonation_targets(world, warhead, impact, intended_target, receivers) {
+        if !can_detonate_on(world, rules, warhead, house, target_id) {
+            continue;
+        }
+        if attach {
+            world.apply_warhead_attach_effects(
+                target_id,
+                warhead_ref,
+                invoker,
+                house,
+                rules,
+                run.effects(),
+                overlay_registry,
+            );
+        }
+        if chance > 0.0
+            && apply_one(
+                world,
+                run,
+                rules,
+                overlay_registry,
+                warhead,
+                warhead_ref,
+                source_id,
+                house,
+                &roll,
+                target_id,
+                effects,
+            )
+        {
+            active = true;
+        }
+    }
+    active
 }
 
-/// `WarheadTypeExt::GetCritChance`: the warhead's `Crit.Chance`, the
-/// `CRITCHANCE` rank ability's `VeteranCritChance` and (in the AttachEffect
-/// chain) the effect list fold.
+/// `DetonateOnOneUnit`'s target gate (`Detonate.cpp:203..207`): a live,
+/// placed, non-sinking target not being warped out, then
+/// `WarheadTypeExt::CanTargetHouse` and `CanAffectTarget`.
+#[cfg(feature = "phobos")]
+fn can_detonate_on(
+    world: &Simulation,
+    rules: &RuleSet,
+    warhead: &WarheadType,
+    house: Option<InternedId>,
+    target_id: u64,
+) -> bool {
+    let Some(target) = world.substrate.entities.get(target_id) else {
+        return false;
+    };
+    if target.lifecycle.in_limbo()
+        || !target.lifecycle.object_alive()
+        || target.health.current() <= 0
+        || target.sinking.is_active()
+        || target.is_warped_out()
+    {
+        return false;
+    }
+    if !crate::sim::shield::can_target_house(warhead, house, target.owner(), world) {
+        return false;
+    }
+    can_affect_target(world, rules, warhead, target)
+}
+
+/// `WarheadTypeExt::CanAffectTarget` (`WarheadType/Body.cpp:37..57`) past
+/// its unread threshold gates: with `EffectsRequireVerses`, the
+/// `AffectsAir`/`AffectsGround` split on `IsInAir` (`0x005F6B90`) and a
+/// non-zero `GetWarheadVersusArmor`. Under Ares that is the raw Verses;
+/// without it `GetTotalDamage(100, WH, armor, 0) / 100`.
+#[cfg(feature = "phobos")]
+fn can_affect_target(
+    world: &Simulation,
+    rules: &RuleSet,
+    warhead: &WarheadType,
+    target: &crate::sim::game_entity::GameEntity,
+) -> bool {
+    if !warhead.effects_require_verses {
+        return true;
+    }
+    let in_air = crate::sim::movement::air_movement::is_high_flying(
+        target,
+        world.resolved_terrain.as_ref(),
+        Some((rules, &world.interner)),
+    );
+    if (in_air && !warhead.affects_air) || (!in_air && !warhead.affects_ground) {
+        return false;
+    }
+    let Some(target_type) = world.interner.object_type(target.type_ref(), rules) else {
+        return false;
+    };
+    let armor = crate::sim::shield::warhead_versus_armor(target, rules, warhead, target_type);
+    let verses = warhead.interaction(armor).multiplier();
+    #[cfg(feature = "ares")]
+    {
+        f64::from_bits(verses.bits()) != 0.0
+    }
+    #[cfg(not(feature = "ares"))]
+    {
+        super::damage::kernel::apply_warhead_damage(
+            100,
+            warhead.cell_spread_f64,
+            warhead.percent_at_max_f64,
+            verses,
+            0,
+            world.session.no_damage(),
+            rules.combat_damage.max_damage,
+        ) != 0
+    }
+}
+
+/// `WarheadTypeExt::GetCritChance` (`Detonate.cpp:745..791`): zero for a
+/// warhead that cannot crit, else its `Crit.Chance`, the `CRITCHANCE` rank
+/// ability's `VeteranCritChance` and the AttachEffect fold.
 #[cfg(feature = "phobos")]
 fn get_crit_chance(
     world: &Simulation,
@@ -126,6 +272,9 @@ fn get_crit_chance(
     warhead: &WarheadType,
     owner_id: u64,
 ) -> f64 {
+    if !warhead.crit.can_crit() {
+        return 0.0;
+    }
     let mut chance = warhead.crit.chance();
     if owner_id == 0 {
         return chance;
@@ -183,44 +332,6 @@ fn has_phobos_ability(rank: VeterancyRank, object: &ObjectType, slot: usize) -> 
         VeterancyRank::Veteran => object.phobos_abilities().has(slot, false),
         VeterancyRank::Elite => object.phobos_abilities().has(slot, true),
     }
-}
-
-/// `Detonate`'s per-target pass: `ApplyCrit` on each target in order.
-/// Returns whether any target critted (`Crit_Active`), which the detonation's
-/// damage-animation selection reads.
-#[cfg(feature = "phobos")]
-pub(crate) fn apply_targets(
-    world: &mut Simulation,
-    run: &mut ReceiverRun<'_>,
-    rules: &RuleSet,
-    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
-    warhead: &WarheadType,
-    warhead_ref: InternedId,
-    source_id: u64,
-    source_house: Option<InternedId>,
-    roll: &CritRoll,
-    targets: &[u64],
-    effects: &mut DeathEffects,
-) -> bool {
-    let mut active = false;
-    for &target_id in targets {
-        if apply_one(
-            world,
-            run,
-            rules,
-            overlay_registry,
-            warhead,
-            warhead_ref,
-            source_id,
-            source_house,
-            roll,
-            target_id,
-            effects,
-        ) {
-            active = true;
-        }
-    }
-    active
 }
 
 /// One `ApplyCrit`: dice, immunity/health/house/cell/techno gates in native
@@ -296,7 +407,7 @@ fn apply_one(
             source,
             target_owner,
             &world.houses,
-            &world.house_alliances,
+            world.house_alliances.as_map(),
             &world.interner,
         ) {
             return false;
@@ -395,7 +506,7 @@ fn crit_effects(
         && let Some(owner) = world.substrate.entities.get(source_id)
     {
         let firepower = current_firepower_multiplier(world, rules, owner);
-        damage = cpp_i32(f64::from(damage) * firepower);
+        damage = crate::sim::attach_effect::scale_i32(damage, firepower);
     }
 
     match crit
@@ -426,12 +537,13 @@ fn crit_effects(
             let Some(crit_warhead) = rules.warhead(name) else {
                 return true;
             };
-            // `DamageAreaWithTarget`: `MapClass::DamageArea` with the crit
-            // warhead; the intended target only affects the nested per-target
-            // pass (no CellSpread arm), which this build leaves empty.
+            // `DamageAreaWithTarget(coords, damage, owner, Crit.Warhead, true,
+            // house, target)`: `MapClass::DamageArea` with the crit warhead and
+            // affectsTiberium set; the target is the nested pass's
+            // `DamageAreaTarget` when the crit warhead does not spread.
             let crit_ref = world.interner.intern(name);
             let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
-            let (nested, mut pings, _crit_active) = apply_area_damage_in_run(
+            let (nested, mut pings, _crit_active) = apply_area_damage_in_run_with_target(
                 world,
                 run,
                 rules,
@@ -439,7 +551,9 @@ fn crit_effects(
                 impact,
                 damage,
                 crit_warhead,
+                true,
                 (source_id, source_house, crit_ref),
+                Some(target_id),
             );
             effects.append(nested);
             effects.under_attack_events.append(&mut pings);
@@ -569,47 +683,39 @@ fn spawn_anim_at_coord(
     }
 }
 
-/// MSVC `static_cast<int>` (`cvttsd2si`): truncation toward zero, out-of-range
-/// and NaN to `i32::MIN`.
-#[cfg(feature = "phobos")]
-fn cpp_i32(value: f64) -> i32 {
-    if value.is_nan() || value < f64::from(i32::MIN) || value >= 2_147_483_648.0 {
-        i32::MIN
-    } else {
-        value.trunc() as i32
-    }
-}
-
 /// The targets `DetonateOnOneUnit` visits for this detonation: every collected
-/// entity receiver in order for a cell-spread warhead, or the bullet's own
-/// target within 64 leptons (Phobos' no-spread arm) when it does not spread.
+/// entity receiver in order for a cell-spread warhead, else the intended target
+/// within 64 leptons of the impact (Ares' quarter-cell tolerance).
 #[cfg(feature = "phobos")]
-pub(crate) fn detonation_targets(
+fn detonation_targets(
     world: &Simulation,
     warhead: &WarheadType,
-    detonation: &ProjectileDetonation,
+    impact: ProjectileCoord,
+    intended_target: Option<u64>,
     receivers: &[AreaDamageReceiver],
 ) -> Vec<u64> {
-    let mut targets = Vec::new();
     if warhead.cell_spread_f64 > 0.0 {
-        for receiver in receivers {
-            if let AreaDamageReceiver::Entity(event) = receiver {
-                targets.push(event.target_id);
-            }
-        }
-    } else if let ProjectileTarget::Entity(id) = detonation.target
-        && world.substrate.entities.get(id).is_some_and(|target| {
-            let coords = crate::sim::movement::ground_pose::object_get_coords(
-                target,
-                world.resolved_terrain.as_ref(),
-            );
-            let dx = i64::from(detonation.impact.x) - i64::from(coords.x);
-            let dy = i64::from(detonation.impact.y) - i64::from(coords.y);
-            let dz = i64::from(detonation.impact.z) - i64::from(coords.z);
-            dx * dx + dy * dy + dz * dz <= 4096
-        })
-    {
-        targets.push(id);
+        return receivers
+            .iter()
+            .filter_map(|receiver| match receiver {
+                AreaDamageReceiver::Entity(event) => Some(event.target_id),
+                AreaDamageReceiver::Terrain(_) => None,
+            })
+            .collect();
     }
-    targets
+    intended_target
+        .filter(|&id| {
+            world.substrate.entities.get(id).is_some_and(|target| {
+                let coords = crate::sim::movement::ground_pose::object_get_coords(
+                    target,
+                    world.resolved_terrain.as_ref(),
+                );
+                let dx = i64::from(impact.x) - i64::from(coords.x);
+                let dy = i64::from(impact.y) - i64::from(coords.y);
+                let dz = i64::from(impact.z) - i64::from(coords.z);
+                dx * dx + dy * dy + dz * dz <= 4096
+            })
+        })
+        .into_iter()
+        .collect()
 }

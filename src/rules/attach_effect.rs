@@ -275,7 +275,8 @@ pub struct AttachEffectType {
     pub affects_target: AttachEffectTargets,
     /// `Groups`: comma-separated group ids.
     pub groups: Vec<String>,
-    /// `AllowTransfer`; `None` defaults to whether the effect is self-owned.
+    /// `AllowTransfer`; `None` defaults to whether the effect came from
+    /// outside (not self-owned).
     pub allow_transfer: Option<bool>,
     /// `AllowTransfer.Convert`; `None` defaults to `allow_transfer`.
     pub allow_transfer_convert: Option<bool>,
@@ -555,11 +556,14 @@ impl AttachEffectType {
         self.crit_multiplier != 1.0 || self.crit_extra_chance != 0.0
     }
 
-    /// `AllowTransfer`: an effect a techno attaches to itself defaults to
-    /// carrying across a conversion, one attached from outside does not.
-    /// `AllowTransfer.Convert` splits the conversion case out.
+    /// `AllowTransfer.Get(!IsSelfOwned())` (`AttachEffectClass.cpp:1231`,
+    /// `Body.Update.cpp:1084`): an effect attached from outside defaults to
+    /// carrying across a transfer or conversion, one a techno attaches to
+    /// itself does not. `AllowTransfer.Convert` splits the conversion case
+    /// out. RESIDUAL: VERA has no AttachEffect transfer or conversion
+    /// consumer yet, so neither key changes play.
     pub fn allows_transfer(&self, self_owned: bool, converting: bool) -> bool {
-        let base = self.allow_transfer.unwrap_or(self_owned);
+        let base = self.allow_transfer.unwrap_or(!self_owned);
         if converting {
             self.allow_transfer_convert.unwrap_or(base)
         } else {
@@ -1327,14 +1331,14 @@ Unkillable=yes
         assert!(defaults.tint_cumulative);
     }
 
-    /// `AllowTransfer` defaults to whether the effect is self-owned, and
-    /// `.Convert` splits the conversion case out.
+    /// `AllowTransfer` defaults to `!IsSelfOwned()`, and `.Convert` splits
+    /// the conversion case out.
     #[test]
     fn allow_transfer_defaults_follow_ownership_and_convert() {
         let mut effect = AttachEffectType::default();
-        assert!(effect.allows_transfer(true, false), "self-owned carries");
-        assert!(!effect.allows_transfer(false, false), "attached does not");
-        assert!(effect.allows_transfer(true, true));
+        assert!(!effect.allows_transfer(true, false), "self-owned stays");
+        assert!(effect.allows_transfer(false, false), "attached carries");
+        assert!(effect.allows_transfer(false, true));
         effect.allow_transfer = Some(false);
         assert!(!effect.allows_transfer(true, false));
         assert!(

@@ -396,14 +396,15 @@ pub(crate) fn health_in_threshold(health: i32, strength: i32, above: f64, below:
 
 /// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): `All` always
 /// matches, the owner takes its bucket, a neutral target its Neutral flag, an
-/// ally's, otherwise the enemy's.
+/// ally's, otherwise the enemy's. Presentation's DigitalDisplay visibility
+/// asks it with the viewer as the target.
 #[cfg(feature = "phobos")]
-pub(crate) fn can_target_house(
+pub fn can_target_house(
     flags: crate::rules::phobos_shields::AffectedHouse,
     source: InternedId,
     target: InternedId,
     houses: &crate::sim::houses::Houses,
-    alliances: &crate::sim::house_diplomacy::HouseAlliances,
+    alliances: &crate::map::houses::HouseAllianceMap,
     interner: &StringInterner,
 ) -> bool {
     use crate::rules::phobos_shields::AffectedHouse;
@@ -421,7 +422,7 @@ pub(crate) fn can_target_house(
         return true;
     }
     if crate::map::houses::is_allied_with(
-        alliances.as_map(),
+        alliances,
         interner.resolve(source),
         interner.resolve(target),
     ) {

@@ -575,7 +575,10 @@ impl AttachEffectList {
                 }
                 return AttachOutcome::Refreshed;
             }
-            let same_source = instance.source == source;
+            // `IsFromSource(pInvoker, pSource)`: the retained house is no
+            // part of the match.
+            let same_source = instance.source.map(|held| (held.invoker, held.source))
+                == source.map(|incoming| (incoming.invoker, incoming.source));
             if same_source {
                 current_source_count += 1;
             }
@@ -778,6 +781,7 @@ fn cpp_i32(value: f64) -> i32 {
 
 /// Phobos `GeneralUtils::SafeMultiply(int, double)`: the product clamped to
 /// the `int` range, then MSVC's cast.
+#[cfg(feature = "phobos")]
 fn safe_multiply(value: i32, multiplier: f64) -> i32 {
     let product = f64::from(value) * multiplier;
     if product > f64::from(i32::MAX) {
@@ -883,7 +887,8 @@ pub(crate) fn range_with_attach_effects(
             range = safe_multiply(range, effect.weapon_range_multiplier.max(0.0));
             extra_range += effect.weapon_range_extra_range;
         }
-        range.wrapping_add(cpp_i32(extra_range * 256.0))
+        // `Math::max(range, 0)` (`WeaponType/Body.cpp:467`).
+        range.wrapping_add(cpp_i32(extra_range * 256.0)).max(0)
     }
     #[cfg(not(feature = "phobos"))]
     {
@@ -1720,14 +1725,20 @@ impl Simulation {
             .phobos_attach_effects_mut() = list;
     }
 
-    /// Phobos `TechnoClass_Limbo_Wrapper` (call/vtable replacements): every
-    /// effect with `DiscardOn=Entry` is reset or removed when the object
-    /// enters limbo, except an undeploying building (`UndeploysInto=` while
-    /// its mission is Selling at status 2).
+    /// Phobos `TechnoClass_Limbo_Wrapper` (`Ext/Techno/Hooks.cpp:400..472`,
+    /// call/vtable replacements): every effect with `DiscardOn=Entry` is reset
+    /// or removed when the object enters limbo, except on an undeploying
+    /// building (`UndeploysInto=` while its mission is Selling at status 2).
+    /// A removed effect queues its `Discard` expire weapon; the stat
+    /// multipliers are recalculated, then the weapons detonate at the
+    /// object's coordinates before the original Limbo body. A reset effect
+    /// keeps its `ShouldBeDiscarded` flag, as native does.
     pub(crate) fn limbo_phobos_attach_effects(
         &mut self,
         id: u64,
         rules: &crate::rules::ruleset::RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        frame_effects: crate::sim::world::FrameEffects<'_>,
     ) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
@@ -1747,6 +1758,7 @@ impl Simulation {
                 return;
             }
         }
+        let owner_house = entity.owner();
         let effects = rules.attach_effect_types().types();
         let mut list = std::mem::take(
             self.substrate
@@ -1755,16 +1767,17 @@ impl Simulation {
                 .expect("the gated entity still exists")
                 .phobos_attach_effects_mut(),
         );
+        let mut expire_shots = Vec::new();
         let mut index = 0;
         while index < list.instances.len() {
-            let entry = effects
-                .get(list.instances[index].type_index)
-                .is_some_and(|effect| effect.discard_on.contains(DiscardOn::ENTRY));
-            if !entry {
+            let type_index = list.instances[index].type_index;
+            let Some(effect) = effects
+                .get(type_index)
+                .filter(|effect| effect.discard_on.contains(DiscardOn::ENTRY))
+            else {
                 index += 1;
                 continue;
-            }
-            list.instances[index].clear_discarded();
+            };
             if let Some(anim) = list.instances[index].anim.take() {
                 self.destroy_anim_with_context(anim, rules);
             }
@@ -1772,14 +1785,39 @@ impl Simulation {
                 index += 1;
                 continue;
             }
+            let active_count = list.active_count(type_index);
+            if let Some(shot) = list.instances[index].expire_weapon_shot(
+                effect,
+                ExpireWeaponCondition::DISCARD,
+                id,
+                owner_house,
+                active_count,
+                false,
+            ) {
+                expire_shots.push(shot);
+            }
             list.instances.remove(index);
         }
-        *self
+        let stats = list.stat_multipliers(effects);
+        let entity = self
             .substrate
             .entities
             .get_mut(id)
-            .expect("the gated entity still exists")
-            .phobos_attach_effects_mut() = list;
+            .expect("the gated entity still exists");
+        *entity.phobos_attach_effects_mut() = list;
+        entity.set_phobos_stat_multipliers(stats);
+        if !expire_shots.is_empty() {
+            let detonations: Vec<_> = expire_shots
+                .iter()
+                .filter_map(|shot| self.attach_effect_weapon_detonation(shot, id, rules))
+                .collect();
+            self.commit_attach_effect_detonations(
+                &detonations,
+                rules,
+                overlay_registry,
+                frame_effects,
+            );
+        }
     }
 
     /// [`Self::update_phobos_attach_effects_with`] without a caller frame
@@ -2472,7 +2510,7 @@ impl Simulation {
                             source,
                             target,
                             &self.houses,
-                            &self.house_alliances,
+                            self.house_alliances.as_map(),
                             &self.interner,
                         ),
                         _ => false,
@@ -3050,7 +3088,8 @@ impl Simulation {
     /// reached per target before its damage: attach every `AttachTypes` entry,
     /// then remove `RemoveTypes` and every type carrying a `RemoveGroups`
     /// group. `invoker` and `source_house` are the detonation's attacker and
-    /// captured source house.
+    /// decided house; the caller, `crate::sim::combat::crit::detonate`, owns
+    /// `DetonateOnOneUnit`'s target gate.
     pub(crate) fn apply_warhead_attach_effects(
         &mut self,
         target_id: u64,
@@ -3071,18 +3110,7 @@ impl Simulation {
         let Some(target) = self.substrate.entities.get(target_id) else {
             return;
         };
-        // `DetonateOnOneUnit`'s target gate.
-        if target.lifecycle.in_limbo()
-            || !target.lifecycle.object_alive()
-            || target.health.current() <= 0
-            || target.chrono_warp_latch()
-        {
-            return;
-        }
         let target_owner = target.owner();
-        if !crate::sim::shield::can_target_house(warhead, source_house, target_owner, self) {
-            return;
-        }
         // `CreateAndAttach` gating reads the live target; snapshot the pair
         // before the attach list mutably borrows the entity.
         let target_category = target.category();
@@ -3198,7 +3226,14 @@ fn affects_house(
     let Some(source) = source else {
         return flags.contains(AffectedHouse::ENEMIES);
     };
-    crate::sim::combat::can_target_house(flags, source, target, houses, alliances, interner)
+    crate::sim::combat::can_target_house(
+        flags,
+        source,
+        target,
+        houses,
+        alliances.as_map(),
+        interner,
+    )
 }
 
 #[cfg(all(test, feature = "phobos"))]
@@ -3841,6 +3876,11 @@ mod tests {
             i32::MAX,
             "SafeMultiply clamps instead of overflowing"
         );
+        assert_eq!(
+            fold("GUN", -100),
+            0,
+            "-100 * 1.5 * 2 + 256 = -44 floors at zero"
+        );
     }
 
     /// `OpenTopped.UseTransportRangeModifiers`: inside an `OpenTopped`
@@ -4176,7 +4216,12 @@ mod tests {
         sim.update_phobos_attach_effects(target, &rules);
         assert_eq!(count(&sim), 1, "one hit discards RECEIVE");
 
-        sim.limbo_phobos_attach_effects(target, &rules);
+        sim.limbo_phobos_attach_effects(
+            target,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::empty(),
+        );
         assert_eq!(count(&sim), 0, "limbo entry discards ENTRY");
     }
 
@@ -5132,7 +5177,8 @@ AttachEffect.InitialDelays=3
         );
     }
 
-    /// A source cap refuses the new instance even when the type cap allows it.
+    /// A source cap refuses the new instance even when the type cap allows it;
+    /// a different retained house is still the same source.
     #[test]
     fn the_source_cap_refreshes_instead_of_appending() {
         let effect = cumulative_effect(4, -1);
@@ -5164,7 +5210,10 @@ AttachEffect.InitialDelays=3
             },
             &effect,
             policy,
-            source,
+            source.map(|source| AttachSource {
+                invoker_house: Some(crate::sim::intern::InternedId::from_index(3)),
+                ..source
+            }),
         );
         assert_eq!(outcome, AttachOutcome::Refreshed);
         assert_eq!(list.instances().len(), 1, "the source cap blocks the copy");
@@ -5512,6 +5561,129 @@ AttachEffect.InitialDelays=3
             990,
             "one reflected ECHO hit, and its own reflection was refused"
         );
+    }
+
+    /// Phobos `0x701E18` runs after Object's body (`0x00701DF8`): the packet
+    /// it reflects is the post-Verses `*pDamage`, not the divided input.
+    #[test]
+    fn reflect_damage_returns_the_post_verses_packet() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=REF\n\
+                 [HIT]\n{ALL_HIT}\
+                 [HALF]\nVerses=50%,50%,50%,50%,50%,50%,50%,50%,50%,50%,50%\n\
+                 [KILLW]\nDamage=1\nRange=1\nWarhead=HALF\n\
+                 [AttachEffectTypes]\n0=REF\n\
+                 [REF]\nDuration=-1\nReflectDamage=yes\nReflectDamage.Warhead=HIT\n\
+                 ReflectDamage.Multiplier=1.0\n"
+            ),
+            29,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+        let event = direct_hit(victim, 10, attacker, sim.interner.intern("HALF"));
+        let _ = sim.commit_direct_damage_receiver(
+            &rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(health(&sim, victim), 995, "50% of 10");
+        assert_eq!(
+            health(&sim, attacker),
+            995,
+            "the reflected 5, not the 10 sent"
+        );
+    }
+
+    /// The same hook counts `DiscardOn=ReceivedDamage`: a healing packet does
+    /// not count, an IgnoreDefenses hit does.
+    #[test]
+    fn received_damage_discard_counts_positive_hits_with_ignore_defenses() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n1=Russians\n[VehicleTypes]\n0=ATTACKER\n1=TARGET\n\
+                 [ATTACKER]\nStrength=1000\nSpeed=6\nArmor=none\nPrimary=KILLW\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nAttachEffect.AttachTypes=RECEIVE\n\
+                 [HIT]\n{ALL_HIT}\
+                 [KILLW]\nDamage=1\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=RECEIVE\n\
+                 [RECEIVE]\nDuration=-1\nDiscardOn=receiveddamage\n\
+                 DiscardOn.ReceivedDamage.Count=1\n"
+            ),
+            29,
+        );
+        let attacker = spawn(&mut sim, &rules, "ATTACKER", "Russians", 20, 20);
+        let victim = spawn(&mut sim, &rules, "TARGET", "Americans", 21, 20);
+        sim.update_phobos_attach_effects(victim, &rules);
+        let warhead = sim.interner.intern("HIT");
+        let hit = |sim: &mut Simulation, damage: i32, ignore_defenses: bool| {
+            let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                victim,
+                damage,
+                0,
+                attacker,
+                None,
+                warhead,
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses,
+                    arg6: false,
+                },
+            );
+            let _ = sim.commit_direct_damage_receiver(
+                &rules,
+                None,
+                event,
+                crate::sim::world::FrameEffects::empty(),
+            );
+            sim.update_phobos_attach_effects(victim, &rules);
+            attach_count(sim, victim)
+        };
+        assert_eq!(hit(&mut sim, -10, false), 1, "a heal is not damage");
+        assert_eq!(hit(&mut sim, 10, true), 0, "IgnoreDefenses still counts");
+    }
+
+    /// Phobos `TechnoClass_Limbo_Wrapper`: a removed `DiscardOn=Entry` effect
+    /// leaves the cached stats and fires its `Discard` expire weapon at the
+    /// object before the Limbo body.
+    #[test]
+    fn limbo_entry_discard_recalculates_and_fires_the_discard_weapon() {
+        let (mut sim, rules) = arena_scene(
+            &format!(
+                "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n\
+                 [TARGET]\nStrength=1000\nSpeed=6\nArmor=none\nDamageSelf=yes\n\
+                 AttachEffect.AttachTypes=ENTRY\n\
+                 [HIT]\n{ALL_HIT}\
+                 [EXPW]\nDamage=5\nRange=1\nWarhead=HIT\n\
+                 [AttachEffectTypes]\n0=ENTRY\n\
+                 [ENTRY]\nDuration=-1\nDiscardOn=entry\nFirepowerMultiplier=2\n\
+                 ExpireWeapon=EXPW\nExpireWeapon.TriggerOn=discard\n"
+            ),
+            17,
+        );
+        let target = spawn(&mut sim, &rules, "TARGET", "Americans", 20, 20);
+        sim.update_phobos_attach_effects(target, &rules);
+        let firepower = |sim: &Simulation| {
+            sim.substrate
+                .entities
+                .get(target)
+                .expect("live entity")
+                .phobos_stat_multipliers()
+                .firepower
+        };
+        assert_eq!(firepower(&sim), 2.0);
+        sim.limbo_phobos_attach_effects(
+            target,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::empty(),
+        );
+        assert_eq!(attach_count(&sim, target), 0);
+        assert_eq!(firepower(&sim), 1.0, "the effect's factor is gone");
+        assert_eq!(health(&sim, target), 995, "the discard weapon detonated");
     }
 
     /// Phobos `AttachEffect.RequiredTypes` on a weapon: without the effect on

@@ -538,6 +538,23 @@ fn can_be_penetrated(
     }
 }
 
+/// `GeneralUtils::GetWarheadVersusArmor(WH, Techno, Type)`'s armor for a live
+/// target: [`restart_armor`] when it carries a shield, else its type's armor.
+pub(crate) fn warhead_versus_armor(
+    target: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target_type: &crate::rules::object_type::ObjectType,
+) -> crate::rules::armor::ArmorId {
+    match target
+        .shield()
+        .and_then(|state| Some((state, rules.shield_type(state.type_name())?)))
+    {
+        Some((state, ty)) => restart_armor(state, ty, warhead, target_type),
+        None => target_type.armor_id(),
+    }
+}
+
 /// `GeneralUtils::GetWarheadVersusArmor(WH, Techno, Type)`: the shield's own
 /// armor while it is active and the warhead cannot penetrate it, else the
 /// techno's.

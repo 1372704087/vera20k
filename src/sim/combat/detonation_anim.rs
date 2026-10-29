@@ -110,6 +110,16 @@ pub(crate) fn select(
     if damage == 0 {
         return None;
     }
+    // Phobos `SelectDamageAnimation_NegativeZeroDamage` (`0x48A4F3`): a
+    // negative packet selects by its magnitude. RESIDUAL: its
+    // `CreateAnimsOnZeroDamage` key is unread, so a zero packet keeps
+    // stock's no-animation return (the key's default).
+    #[cfg(feature = "phobos")]
+    let damage = if damage < 0 {
+        damage.wrapping_neg()
+    } else {
+        damage
+    };
     // 48A50D..48A592: water's Conventional branch precedes the weather
     // override, and the cell's structural flag suppresses splash selection.
     if land == 2
@@ -138,30 +148,32 @@ pub(crate) fn select(
                 .intern(&rules.general.weather_con_bolt_explosion)
         });
     }
-    #[cfg(not(feature = "phobos"))]
-    let _ = crit_active;
-    if warhead.anim_list.is_empty() {
-        return None;
-    }
-    // Phobos `SelectDamageAnimation_CritAnim` (`0x48A5B3`): an active crit
+    // Phobos `SelectDamageAnimation_CritAnim` (`0x48A5B3`, ahead of the
+    // AnimList count load and empty test at `0x48A5BB`): an active crit
     // replaces the damage animation with a `Crit.AnimList` entry while that
-    // list stays off the affected targets.
+    // list stays off the affected targets, even when `AnimList=` is empty.
     #[cfg(feature = "phobos")]
     if crit_active
         && !warhead.crit.anim_list().is_empty()
         && !warhead.crit.anim_on_affected_targets(rules.crit_globals())
     {
         let list = warhead.crit.anim_list();
-        let name = if warhead.em_effect || warhead.crit.anim_list_pick_random() {
-            let index = world.scenario_rng.next_range_i32_inclusive(
+        let index = if warhead.em_effect || warhead.crit.anim_list_pick_random() {
+            world.scenario_rng.next_range_i32_inclusive(
                 0,
                 i32::try_from(list.len() - 1).expect("native AnimList count fits i32"),
-            );
-            &list[index as usize]
+            ) as usize
         } else {
-            damage_band(list, damage, 25)?
+            // `std::min(size * 25 - 1, (size_t)nDamage) / 25`: the unsigned
+            // cast sends a negative packet to the last entry.
+            (list.len() * 25 - 1).min(damage as u32 as usize) / 25
         };
-        return Some(world.interner.intern(name));
+        return Some(world.interner.intern(&list[index]));
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = crit_active;
+    if warhead.anim_list.is_empty() {
+        return None;
     }
     let name = if warhead.em_effect {
         let index = world.scenario_rng.next_range_i32_inclusive(

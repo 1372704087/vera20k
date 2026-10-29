@@ -1361,7 +1361,6 @@ mod tests {
         use crate::rules::art_data::ArtRegistry;
         use crate::rules::ini_parser::IniFile;
         use crate::rules::ruleset::RuleSet;
-        use crate::sim::world::Simulation;
 
         let ini = IniFile::from_str(
             "[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n[Animations]\n\

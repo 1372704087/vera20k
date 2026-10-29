@@ -338,11 +338,7 @@ pub(crate) fn service_event(state: &mut AppState, event: NetworkMatchEvent) -> a
                 .retain(|peer| peer.source_index != source_index);
         }
         NetworkMatchEvent::KickVote { voter, target } => {
-            state
-                .match_state
-                .network_wait
-                .received_votes
-                .push_back((voter, target));
+            state.match_state.network_wait.queue_vote(voter, target);
         }
         NetworkMatchEvent::PeerAlly {
             source_index,
@@ -476,6 +472,14 @@ enum WaitTimeout {
 }
 
 impl NetworkMatchWait {
+    /// One dialog pass consumes one queued vote, so a repeated proposal is
+    /// queued once: a peer resending its vote cannot push others' back.
+    fn queue_vote(&mut self, voter: usize, target: usize) {
+        if !self.received_votes.contains(&(voter, target)) {
+            self.received_votes.push_back((voter, target));
+        }
+    }
+
     fn observe_live_wait(&mut self, info: LiveWaitInfo) {
         if self
             .wait
@@ -701,15 +705,26 @@ pub(crate) fn encode_kick_proposal(
 pub(crate) fn decode_kick_proposal(
     session: &MatchSession,
     sim: &Simulation,
+    sender: std::net::SocketAddrV4,
     packet: &[u8],
 ) -> Option<NetworkMatchEvent> {
     if packet.len() != 455 || packet[..4] != 0x1c_u32.to_le_bytes() {
         return None;
     }
     let target = i32::from_le_bytes(packet[0x2f..0x33].try_into().ok()?);
-    let voter = i32::from_le_bytes(packet[0x33..0x37].try_into().ok()?);
+    let voter = house_source(
+        session,
+        sim,
+        i32::from_le_bytes(packet[0x33..0x37].try_into().ok()?),
+    )?;
+    // VERA transport security: 649120 trusts the voter field, so one peer
+    // could vote as every other node and reach the nodeCount - 1 kick
+    // tally alone. Only the sender's own authenticated endpoint votes.
+    if session.network_endpoint_source(sender) != Some(voter) {
+        return None;
+    }
     Some(NetworkMatchEvent::KickVote {
-        voter: house_source(session, sim, voter)?,
+        voter,
         target: house_source(session, sim, target)?,
     })
 }
@@ -1438,27 +1453,46 @@ mod tests {
     }
 
     #[test]
+    fn a_repeated_kick_proposal_is_queued_once() {
+        let mut wait = NetworkMatchWait::default();
+        for _ in 0..3 {
+            wait.queue_vote(1, 0);
+        }
+        wait.queue_vote(2, 0);
+        assert_eq!(wait.received_votes, [(1, 0), (2, 0)]);
+    }
+
+    #[test]
     fn global_kick_codec_uses_native_house_ids_and_existing_string_conversion() {
-        let (session, sim) = vote_fixture();
+        use std::net::{Ipv4Addr, SocketAddrV4};
+        let (mut session, sim) = vote_fixture();
+        let voter = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30121);
+        let other = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30122);
+        for (source, endpoint) in [(1, voter), (0, other)] {
+            let name = session.network_source_owner(source).unwrap();
+            session.bind_network_endpoint(&name, endpoint).unwrap();
+        }
         let packet = encode_kick_proposal(&session, &sim, 0).unwrap();
         assert_eq!(&packet[..4], &0x1c_u32.to_le_bytes());
         assert_eq!(&packet[4..7], b"G\0\0");
         assert_eq!(&packet[0x2f..0x33], &1_i32.to_le_bytes());
         assert_eq!(&packet[0x33..0x37], &0_i32.to_le_bytes());
         assert_eq!(
-            decode_kick_proposal(&session, &sim, &packet),
+            decode_kick_proposal(&session, &sim, voter, &packet),
             Some(NetworkMatchEvent::KickVote {
                 voter: 1,
                 target: 0
             })
         );
-        assert!(decode_kick_proposal(&session, &sim, &packet[..54]).is_none());
+        // Another node cannot cast source 1's vote.
+        assert!(decode_kick_proposal(&session, &sim, other, &packet).is_none());
+        assert!(decode_kick_proposal(&session, &sim, voter, &packet[..54]).is_none());
         let mut invalid = packet;
         invalid[0x2f..0x33].copy_from_slice(&(-1_i32).to_le_bytes());
-        assert!(decode_kick_proposal(&session, &sim, &invalid).is_none());
+        assert!(decode_kick_proposal(&session, &sim, voter, &invalid).is_none());
         invalid = packet;
         invalid[0] = 0x19;
-        assert!(decode_kick_proposal(&session, &sim, &invalid).is_none());
+        assert!(decode_kick_proposal(&session, &sim, voter, &invalid).is_none());
     }
 
     #[test]

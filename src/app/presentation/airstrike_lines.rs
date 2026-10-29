@@ -28,49 +28,43 @@ fn wobble(mut target: DriveCoord, wall_ms: u32) -> DriveCoord {
     target
 }
 
+/// Phobos `TechnoClass_DrawAirstrikeFlare_LineColor` (`0x007058F6`) inputs:
+/// the drawing techno type's resolved `AirstrikeLineColor` and
+/// `[AudioVisual] AirstrikeLineZAdjust`. Stock builds carry nothing.
+#[derive(Clone, Copy)]
+pub(crate) struct FlareStyle {
+    #[cfg(feature = "phobos")]
+    pub(crate) color: [u8; 3],
+    #[cfg(feature = "phobos")]
+    pub(crate) z_adjust: i32,
+}
+
 pub(super) fn build(
     from: DriveCoord,
     target: DriveCoord,
     wall_ms: u32,
     main: &MainRngDraws,
-    color: Option<[u8; 3]>,
+    style: FlareStyle,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
-    //705860 draws the stock 190..270 value before the Phobos color hook at
-    //7058F6, so it stays even when Phobos replaces the color.
-    let random = main.ranged(190, 270);
-    // `TechnoClass_DrawAirstrikeFlare_LineColor` then draws
-    // `Randomizer::Global.RandomRanged(745,1000)`, the process Main RNG VERA
-    // exposes as MainRngDraws. The dot skips this scale.
-    #[cfg(feature = "phobos")]
-    let percentage: Option<i32> = color.map(|_| main.ranged(745, 1000));
+    //705905 draws the stock 190..270 shade. Phobos's hook at 7058F6 resumes
+    //at 705976, past that call, and draws its 745..1000 scale from the same
+    //process Main stream instead.
     #[cfg(not(feature = "phobos"))]
-    let percentage: Option<i32> = {
-        let _ = color;
-        None
-    };
-    geometry(
-        from,
-        wobble(target, wall_ms),
-        random,
-        color,
-        percentage,
-        view,
-    )
+    let random = main.ranged(190, 270);
+    #[cfg(feature = "phobos")]
+    let random = main.ranged(745, 1000);
+    geometry(from, wobble(target, wall_ms), random, style, view)
 }
 
 ///705860 requests one Main ranged value, even if clipping/A/Z hides the beam.
 ///The stock color is red/orange independent of Flare.IsHouseColor and
-///LaserTargetColor. Phobos's `TechnoClass_DrawAirstrikeFlare_LineColor`
-///(`0x007058F6`) replaces it with the caller's resolved `AirstrikeLineColor`
-///and scales the lines by its `RandomRanged(745,1000)/1000` draw; the dot
-///keeps the unscaled `RGB_To_Int` word.
+///LaserTargetColor.
 fn geometry(
     from: DriveCoord,
     to: DriveCoord,
     random: i32,
-    color: Option<[u8; 3]>,
-    percentage: Option<i32>,
+    style: FlareStyle,
     view: SurfaceLineViewport,
 ) -> Vec<SurfaceDraw> {
     use crate::util::native_x87::adjust_for_z_standard;
@@ -80,28 +74,48 @@ fn geometry(
     };
     let start = project(from);
     let end = project(to);
-    let (rgb, dot_word) = match (color, percentage) {
-        #[cfg(feature = "phobos")]
-        (Some(color), Some(percentage)) => (
-            scaled_line_color(color, percentage),
-            crate::render::native_surface_format::RGB565.pack_rgb8(color),
-        ),
-        _ => {
-            let rgb = if random <= 255 {
-                [random as u8, 0, 0]
-            } else {
-                [
-                    255,
-                    (55 * (random - 256) / 7) as u8,
-                    (15 * (random - 256) / 7) as u8,
-                ]
-            };
-            (rgb, 0xF800)
-        }
+    let start_z = (-32i32).wrapping_sub(adjust_for_z_standard(from.z));
+    let end_z = (-32i32).wrapping_sub(adjust_for_z_standard(to.z));
+    //70597E draws the dot only when the target end is the higher one.
+    #[cfg(not(feature = "phobos"))]
+    let (rgb, dot_word, dot) = {
+        let _ = style;
+        let rgb = if random <= 255 {
+            [random as u8, 0, 0]
+        } else {
+            [
+                255,
+                (55 * (random - 256) / 7) as u8,
+                (15 * (random - 256) / 7) as u8,
+            ]
+        };
+        (rgb, 0xF800, end[1] < start[1])
+    };
+    // Phobos `TechnoClass_DrawAirstrikeFlare_LineColor` gives the whole beam
+    // one depth, `min(zSrc, zDest) + AirstrikeLineZAdjust`, scales each line
+    // channel to `(BYTE)(base * RandomRanged(745,1000) / 1000.0)` and leaves
+    // the dot the unscaled `RGB_To_Int(base)` word.
+    // `TechnoClass_DrawAirstrikeFlare_DotColor` (`0x0070597A`) then always
+    // draws the dot (`src/Ext/Techno/Hooks.Airstrike.cpp`).
+    #[cfg(feature = "phobos")]
+    let (start_z, end_z) = {
+        let z = start_z.min(end_z).wrapping_add(style.z_adjust);
+        (z, z)
+    };
+    #[cfg(feature = "phobos")]
+    let (rgb, dot_word, dot) = {
+        let percentage = f64::from(random) / 1000.0;
+        (
+            style
+                .color
+                .map(|channel| (f64::from(channel) * percentage) as u8),
+            crate::render::native_surface_format::RGB565.pack_rgb8(style.color),
+            true,
+        )
     };
     let mut draws = Vec::with_capacity(16);
     //70597E: ordinary XSurface lines clip against the whole surface, with no A/Z.
-    if end[1] < start[1] {
+    if dot {
         let [x, y] = end;
         for rect in [
             [x - 2, y + 1, 4, 1],
@@ -122,10 +136,8 @@ fn geometry(
         0
     };
     let mut previous = start;
-    let mut previous_z = (-32i32).wrapping_sub(adjust_for_z_standard(from.z));
-    let delta_z = (-32i32)
-        .wrapping_sub(adjust_for_z_standard(to.z))
-        .wrapping_sub(previous_z);
+    let mut previous_z = start_z;
+    let delta_z = end_z.wrapping_sub(start_z);
     for i in 1i32..=4 {
         let next: [i32; 2] =
             std::array::from_fn(|axis| start[axis].wrapping_add(delta[axis].wrapping_mul(i) / 4));
@@ -153,16 +165,6 @@ fn geometry(
     draws
 }
 
-/// Phobos `TechnoClass_DrawAirstrikeFlare_LineColor`: each line channel is
-/// `base * (RandomRanged(745,1000) / 1000.0)` truncated to a byte, while the
-/// dot keeps the base word. The hook writes `(BYTE)(baseColor.R * percentage)`
-/// using double math (`src/Ext/Techno/Hooks.Airstrike.cpp:309`).
-#[cfg(feature = "phobos")]
-fn scaled_line_color(color: [u8; 3], percentage: i32) -> [u8; 3] {
-    let percentage = f64::from(percentage) / 1000.0;
-    color.map(|channel| (f64::from(channel) * percentage) as u8)
-}
-
 /// Per-composite calls retain Tactical's object order before the Main RNG
 /// phase. They are discarded with the UI build, never saved simulation state.
 #[derive(Clone, Copy)]
@@ -171,11 +173,9 @@ pub(crate) enum TacticalLineCall {
         rect: [i32; 4],
         word: u16,
     },
-    /// `color` is `None` on the stock path; Phobos supplies the strike owner's
-    /// resolved `AirstrikeLineColor`.
     Designation {
         coords: [DriveCoord; 2],
-        color: Option<[u8; 3]>,
+        style: FlareStyle,
     },
 }
 
@@ -216,8 +216,8 @@ pub(crate) fn composite(
             }
             TacticalLineCall::Designation {
                 coords: [from, to],
-                color,
-            } => draws.extend(build(from, to, wall_ms, main, color, view)),
+                style,
+            } => draws.extend(build(from, to, wall_ms, main, style, view)),
         }
     }
     draws

@@ -643,14 +643,18 @@ pub(crate) fn shp_colour_word(
         0
     };
     let laser = if marked {
-        // Phobos `TechnoExt::GetTintColor` (`src/Ext/Techno/Body.Internal.cpp:178`)
-        // resolves the strike owner's type `LaserTargetColor`, defaulting to
-        // `[AudioVisual] LaserTargetColor`; the word conversion is unchanged.
+        // Phobos `BuildingClass_Draw_TintColor` (`0x0043D386`) ORs the strike
+        // owner type's `TintColorAirstrike`, Phobos's own conversion of its
+        // resolved `LaserTargetColor`.
         #[cfg(feature = "phobos")]
-        let index = sim.airstrike_laser_target_color(entity.stable_id(), rules);
+        let word = rules
+            .color_add
+            .phobos_word(sim.airstrike_laser_target_color(entity.stable_id(), rules));
         #[cfg(not(feature = "phobos"))]
-        let index = rules.general.laser_target_color;
-        rules.color_add.rgb565_word(index)
+        let word = rules
+            .color_add
+            .rgb565_word(rules.general.laser_target_color);
+        word
     } else {
         0
     };

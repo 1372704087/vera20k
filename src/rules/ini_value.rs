@@ -1949,24 +1949,6 @@ mod tests {
         }
     }
 
-    /// Phobos `Valueable<ColorStruct>`/`Nullable<ColorStruct>`: a source text
-    /// needs three comma-separated channels, and the clearing token unsets it.
-    #[cfg(feature = "phobos")]
-    #[test]
-    fn phobos_color_reader_needs_all_three_channels() {
-        let ini = IniFile::from_str("[X]\nA=0,64,0\nB=1, 2, 3\nC=1,2\nD=1,2,300\nE=<default>\n");
-        let section = ini.section("X").unwrap();
-        assert_eq!(section.read_phobos_color("A", [9; 3]), [0, 64, 0]);
-        assert_eq!(section.read_phobos_color("B", [9; 3]), [1, 2, 3]);
-        assert_eq!(section.read_phobos_color("C", [9; 3]), [9; 3]);
-        assert_eq!(section.read_phobos_color("D", [9; 3]), [9; 3]);
-        assert_eq!(
-            section.read_phobos_nullable_color("A", None),
-            Some([0, 64, 0])
-        );
-        assert_eq!(section.read_phobos_nullable_color("E", Some([1; 3])), None);
-    }
-
     fn sec(body: &str) -> IniFile {
         IniFile::from_str(body)
     }

@@ -601,13 +601,15 @@ pub struct ObjectType {
     /// retail rule; `rules::phobos_fly_wobble` owns the resolution.
     #[cfg(feature = "phobos")]
     pub(crate) fly_no_wobbles: Option<bool>,
-    /// Phobos `TechnoTypeExt::LaserTargetColor`: the `[ColorAdd]` index whose
-    /// word tints a building this type's Boris airstrike targets. Unset takes
-    /// `[AudioVisual] LaserTargetColor` (`rules::phobos_airstrike_color`).
+    /// Phobos `TechnoTypeExt::LaserTargetColor` (`Nullable<int>`): the
+    /// `[ColorAdd]` index whose word tints a building this type's airstrike
+    /// targets. Unset takes `[AudioVisual] LaserTargetColor`
+    /// (`Simulation::airstrike_laser_target_color`).
     #[cfg(feature = "phobos")]
     pub(crate) laser_target_color: Option<i32>,
-    /// Phobos `TechnoTypeExt::AirstrikeLineColor`: the RGB this type's airstrike
-    /// beam and target dot use. Unset takes `[AudioVisual] AirstrikeLineColor`.
+    /// Phobos `TechnoTypeExt::AirstrikeLineColor` (`Nullable<ColorStruct>`):
+    /// the RGB this type's airstrike beam and target dot use. Unset takes
+    /// `[AudioVisual] AirstrikeLineColor` (`Simulation::airstrike_line_color`).
     #[cfg(feature = "phobos")]
     pub(crate) airstrike_line_color: Option<[u8; 3]>,
     /// TechnoType+7FC, read from the current Image section of fixed ARTMD.

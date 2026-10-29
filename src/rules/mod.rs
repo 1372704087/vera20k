@@ -126,8 +126,6 @@ mod phobos_infantry_deploy_tests;
 #[path = "phobos_prone_speed_tests.rs"]
 mod phobos_prone_speed_tests;
 #[cfg(feature = "phobos")]
-pub mod phobos_airstrike_color;
-#[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
 pub mod phobos_pause_menu;

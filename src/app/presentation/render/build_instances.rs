@@ -889,11 +889,13 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
                         .coord;
                     *coord = crate::sim::components::DriveCoord { x, y, z };
                 }
-                #[cfg(feature = "phobos")]
-                let color = Some(sim.airstrike_line_color(id, &runtime.resources.rules));
-                #[cfg(not(feature = "phobos"))]
-                let color: Option<[u8; 3]> = None;
-                designations.insert(id, (coords, color));
+                let style = crate::app::presentation::airstrike_lines::FlareStyle {
+                    #[cfg(feature = "phobos")]
+                    color: sim.airstrike_line_color(id, &runtime.resources.rules),
+                    #[cfg(feature = "phobos")]
+                    z_adjust: runtime.resources.rules.general.airstrike_line_z_adjust,
+                };
+                designations.insert(id, (coords, style));
             }
         }
     }
@@ -922,8 +924,8 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
     let mut after_entity = |id, instances: &mut Vec<SpriteInstance>| {
         use crate::app::presentation::airstrike_lines::{TacticalLineCall, drain_opaque};
         drain_opaque(&mut tactical_line_calls, instances, camera);
-        if let Some((coords, color)) = designations.remove(&id) {
-            tactical_line_calls.push(TacticalLineCall::Designation { coords, color });
+        if let Some((coords, style)) = designations.remove(&id) {
+            tactical_line_calls.push(TacticalLineCall::Designation { coords, style });
         }
     };
     let (mut target_line, planning_highlights) = planning_lines::build(state, view);

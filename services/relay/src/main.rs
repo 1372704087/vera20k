@@ -75,23 +75,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut counts = TrafficCounts::default();
     let mut reported_at = Instant::now();
     let clock_origin = Instant::now();
+    // The millisecond of the last pass over every room, and whether the
+    // server has accepted a datagram since.
+    let mut passed_ms = None;
+    let mut accepted = false;
     eprintln!("VERA20k relay listening on {}", socket.local_addr()?);
     loop {
         let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
         let monotonic_ms = clock_origin.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        // Clock advancement is independent of datagram arrivals and readers.
-        server.advance_clock(monotonic_ms, now);
-        // Federated relays exchange what they just sealed before players read it.
-        send_datagrams(
-            &socket,
-            &mut counts,
-            server.drain_federation(monotonic_ms, now),
-        );
-        send_datagrams(
-            &socket,
-            &mut counts,
-            server.drain_ordering_push(monotonic_ms, now),
-        );
+        // A pass costs time in every room, so it runs once a millisecond and
+        // before the next receive after an accepted datagram, which may owe
+        // pushes or link packets. A rejected one, junk included, costs only
+        // its rejection.
+        if accepted || passed_ms != Some(monotonic_ms) {
+            passed_ms = Some(monotonic_ms);
+            accepted = false;
+            // Clock advancement is independent of datagram arrivals and readers.
+            server.advance_clock(monotonic_ms, now);
+            // Federated relays exchange what they just sealed before players read it.
+            send_datagrams(
+                &socket,
+                &mut counts,
+                server.drain_federation(monotonic_ms, now),
+            );
+            send_datagrams(
+                &socket,
+                &mut counts,
+                server.drain_ordering_push(monotonic_ms, now),
+            );
+        }
         let elapsed = reported_at.elapsed().as_secs();
         if elapsed >= 60 {
             counts.report(elapsed, server.room_count());
@@ -126,7 +138,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         // Rejections expose no packet, key, ticket, address or player data.
         // Ordinary UDP loss is handled by the existing client reliable owner.
         match server.process_at(source, &buffer[..length], now, monotonic_ms) {
-            Ok(forward) => send_datagrams(&socket, &mut counts, forward),
+            Ok(forward) => {
+                accepted = true;
+                send_datagrams(&socket, &mut counts, forward);
+            }
             Err(error) => counts.reject(error),
         }
     }

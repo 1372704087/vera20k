@@ -39,6 +39,12 @@ adds no behavior yet.
 
 ### Movement, crash, ejection, garrison and lifecycle
 
+- #2956 (NPExt changelog item 19, part 1 of 4): a unit the Magnetron lifts
+  is not self-propelled — held locomotion plays no move sounds. Native ran
+  the victim's own foot move-sound tail over the held jumpjet route. (The
+  lift speed, drop crash sounds and held-aircraft death parts of the chain
+  remain open.)
+
 ### Capture, mind control, lift and retaliation
 
 ### UI, presentation, audio and scenario lifetime

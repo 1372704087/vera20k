@@ -2986,6 +2986,22 @@ impl Simulation {
     /// so any member answers as `[0]` would; they differ only if a selected
     /// object changed owner and stayed selected.
     ///
+    /// VERA-only: a network game (LAN or online) raises no Selected event.
+    /// Selection is client-local: no EventClass event carries it (the input
+    /// Select is frame ingress, never sent), and the game's own Selects
+    /// follow the local selected byte (crew, parasite and planning
+    /// reselects). Native raises event 33 here with no session test, and
+    /// `TagClass::RaiseEvent @ 0x006E53A0`, `TriggerClass::RegisterEvent @
+    /// 0x007264C0` and `TEventClass::HasOccurred @ 0x0071E940` (event 33
+    /// needs only the raised kind and a clear map-editor byte) add none, so
+    /// in a native network game only the selecting client springs the
+    /// trigger. `0x006FBFE2` is the program's only immediate push of 33.
+    /// Residual: trigger, a tag with event 33 on an object in a network game;
+    /// effect, its trigger never springs online, where native springs it on
+    /// the selecting client alone (a desync unless its actions are local
+    /// text or sound); frequency, rare, a map authoring Selected-by-player
+    /// triggers for multiplayer; downstream risk, only that trigger's actions.
+    ///
     /// [`LifecycleOutput::ObjectSelected`]: super::LifecycleOutput::ObjectSelected
     /// [`LifecycleOutput::FollowReleased`]: super::LifecycleOutput::FollowReleased
     fn object_select(
@@ -3026,7 +3042,9 @@ impl Simulation {
         }
         // Selection has already changed when the synchronous Tag actions run.
         // They may change ownership, remove the Tag, or retire the object.
-        self.dispatch_object_tag_event(stable_id, 33, Some(stable_id), None, context);
+        if !self.session.game_mode().is_network() {
+            self.dispatch_object_tag_event(stable_id, 33, Some(stable_id), None, context);
+        }
         true
     }
 
@@ -3614,6 +3632,58 @@ mod tests {
         // Offline receivers stay native: MEGAMISSION has no sender gate.
         let mut sim = world(ScenarioGameMode::Skirmish);
         assert!(sim.apply_command("British", &move_order, Some(&rules)));
+    }
+
+    /// `TechnoClass::Select @ 0x006FBFA0` raises event 33 (`0x006FBFE4`) for
+    /// a client-local selection. A network game raises none, so the clients
+    /// keep one trigger state; offline Selects still spring the trigger.
+    #[test]
+    fn network_match_selection_raises_no_selected_tag_event() {
+        use crate::sim::house_state::HouseState;
+        use crate::sim::scenario_session::ScenarioGameMode;
+        let rules = amcv_move_rules();
+        let map = crate::map::map_file::MapFile::from_bytes(
+            b"[Map]\nSize=0,0,32,32\nLocalSize=0,0,32,32\n\
+              [IsoMapPack5]\n1=DwALABwBAAIA/////wAAABEAAA==\n\
+              [Triggers]\nSEL=Americans,<none>,Sel,0,1,1,1,0\n\
+              [Events]\nSEL=1,33,0,0\n\
+              [Actions]\nSEL=1,28,0,9,0,0,0,0,A\n\
+              [Tags]\nSEL_TAG=0,Sel,SEL\n",
+        )
+        .unwrap();
+        let global_after_select = |mode| {
+            let mut sim = Simulation::new();
+            let owner = sim.intern("Americans");
+            sim.houses
+                .register(HouseState::new(owner, 0, None, true, 0, 10));
+            sim.session.set_game_mode(mode);
+            spawn_rule_backed_unit(&mut sim, 42, "AMCV", &rules);
+            sim.initialize_trigger_definitions(
+                &map,
+                &crate::rules::team_ai_ini::TeamAiIniRegistry::default(),
+                None,
+                None,
+                None,
+            );
+            sim.classify_map_triggers(&rules);
+            sim.attach_object_trigger_tag(42, Some("SEL_TAG"));
+            let select = Command::Select {
+                entity_ids: vec![42],
+                additive: false,
+            };
+            assert!(sim.apply_command("Americans", &select, Some(&rules)));
+            assert!(
+                sim.substrate
+                    .entities
+                    .get(42)
+                    .unwrap()
+                    .selection
+                    .is_selected()
+            );
+            sim.global_variables()[9]
+        };
+        assert!(!global_after_select(ScenarioGameMode::Lan));
+        assert!(global_after_select(ScenarioGameMode::Skirmish));
     }
 
     #[test]

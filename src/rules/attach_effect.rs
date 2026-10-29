@@ -1203,5 +1203,17 @@ AttachEffect.Delays=5,7
         assert!(!globals.open_topped_check_transport_disable_weapons);
         assert!(!globals.replace_longer_duration);
         assert!(!globals.attach_on_owner_change);
+
+        // The `[General]` key is the plural `AttachEffects.AttachOnOwnerChange`
+        // (`RulesExt::Body.cpp:595`); the singular spelling is the HouseType
+        // key (`HouseTypeExt::Body.cpp:23`) and must not feed the global.
+        let plural = AttachEffectGlobals::from_ini(&IniFile::from_str(
+            "[General]\nAttachEffects.AttachOnOwnerChange=yes\n",
+        ));
+        assert!(plural.attach_on_owner_change);
+        let singular = AttachEffectGlobals::from_ini(&IniFile::from_str(
+            "[General]\nAttachEffect.AttachOnOwnerChange=yes\n",
+        ));
+        assert!(!singular.attach_on_owner_change);
     }
 }

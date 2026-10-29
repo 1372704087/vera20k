@@ -181,7 +181,10 @@ impl SavedTerrainTemplate {
     pub fn validate(&self) -> Result<(), SavedTerrainError> {
         // Resize565C10 owns the fixed512x512 cell table. A one-sided empty
         // rectangle is not a materialized grid produced by the map owner.
-        if self.width > 512 || self.height > 512 || (self.width == 0) != (self.height == 0) {
+        if i64::from(self.width) > crate::map::cell_index::CELL_ROW_STRIDE
+            || i64::from(self.height) > crate::map::cell_index::CELL_ROW_STRIDE
+            || (self.width == 0) != (self.height == 0)
+        {
             return Err(SavedTerrainError::Dimensions {
                 width: self.width,
                 height: self.height,

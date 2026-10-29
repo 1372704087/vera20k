@@ -34,6 +34,19 @@ class ScaleMapTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 build_map(size)
 
+    def test_extended_grid_keeps_high_coordinate_overlays_and_literal_map_size(self):
+        ini = parse_ini(build_map(500, 30, cell_array_width=1024))
+        self.assertEqual(ini['Map']['Size'], '0,0,500,500')
+        cells = decode_iso_cells(ini['IsoMapPack5'])
+        self.assertEqual(len(cells), 499500)
+        self.assertIn((749, 750), cells)
+        homes = start_cells(ini)
+        self.assertEqual(len(set(homes)), 30)
+        self.assertTrue(all(home in cells for home in homes))
+        overlay = decode_overlay_section(ini['OverlayPack'])
+        self.assertEqual(len(overlay), 1024 * 1024)
+        self.assertTrue(any(kind != 255 and index // 1024 > 512 for index, kind in enumerate(overlay)))
+
     def test_match_map_gives_each_start_its_own_ore_and_keeps_trees_off_the_bases(self):
         size, starts = 128, 9
         text = build_map(size, starts)

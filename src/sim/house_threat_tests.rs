@@ -380,3 +380,17 @@ fn real_garrison_append_and_complete_ejection_refresh_the_existing_building_cach
         "ejection tail refreshes after the complete occupant mutation"
     );
 }
+
+#[cfg(feature = "large-maps")]
+#[test]
+fn large_map_house_threat_keeps_high_coordinate_kernel_and_cleanup() {
+    let mut grid = HouseSpatialThreat::default();
+    grid.adjust((642, 559), 100).unwrap();
+    assert!(grid.at((642, 559)).unwrap() > 0);
+    assert_eq!(grid.at((130, 560)).unwrap(), 0, "no old-stride alias");
+    grid.adjust((642, 559), -100).unwrap();
+    assert!(grid.values().iter().all(|value| *value == 0));
+    grid.adjust((1023, 1023), 100).unwrap();
+    assert!(grid.at((1023, 1023)).unwrap() > 0);
+    assert!(grid.adjust((1024, 1024), 100).is_err());
+}

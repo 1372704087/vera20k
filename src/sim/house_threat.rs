@@ -48,10 +48,23 @@ impl SpatialThreat {
     }
 }
 
-const SIDE: i32 = 130;
-const LENGTH: usize = 130 * 130;
+// One coarse cell covers four map cells; retain the native one-cell border.
+// The opt-in extended map uses the same kernel with a larger owned plane.
+pub(crate) const THREAT_GRID_SIDE: i32 = crate::map::cell_index::CELL_ROW_STRIDE as i32 / 4 + 2;
+const SIDE: i32 = THREAT_GRID_SIDE;
+const LENGTH: usize = (SIDE * SIDE) as usize;
 // Original retail dwords8243C8/8243EC: row-major surrounding coarse cells.
-const OFFSETS: [i32; 9] = [-131, -130, -129, -1, 0, 1, 129, 130, 131];
+const OFFSETS: [i32; 9] = [
+    -SIDE - 1,
+    -SIDE,
+    -SIDE + 1,
+    -1,
+    0,
+    1,
+    SIDE - 1,
+    SIDE,
+    SIDE + 1,
+];
 const SHIFTS: [u32; 9] = [2, 1, 2, 1, 0, 1, 2, 1, 2];
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -71,9 +84,9 @@ impl<'de> serde::Deserialize<'de> for HouseSpatialThreat {
             return Ok(Self::default());
         }
         if values.len() != LENGTH {
-            return Err(serde::de::Error::custom(
-                "native House threat grid must contain 16900 dwords",
-            ));
+            return Err(serde::de::Error::custom(format!(
+                "native House threat grid must contain {LENGTH} dwords"
+            )));
         }
         Ok(Self(values.into_boxed_slice()))
     }
@@ -89,7 +102,7 @@ impl HouseSpatialThreat {
         // is exactly +57E4 +131*4. Hierarchy581F90/584550/585F40 uses the
         // same signed packed-cell mapping; all consumers share this owner.
         // Rust signed division truncates toward zero.
-        131 + i32::from(cell.0) / 4 + SIDE * (i32::from(cell.1) / 4)
+        SIDE + 1 + i32::from(cell.0) / 4 + SIDE * (i32::from(cell.1) / 4)
     }
 
     pub(super) fn at(&self, cell: (i16, i16)) -> Result<i32, String> {

@@ -616,10 +616,17 @@ pub(super) fn register_native_hierarchy_pair(
     //582FFD..583012 sign-extends both words before OR. Preserve exact packed
     //transcript, including the native high-bit zone-ID limitation.
     let bucket = (((a & 15) << 4) | (b & 15)) as usize;
-    let packed = (u32::from(a) << 16) | (i32::from(b as i16) as u32);
+    let (existing, current) = if cfg!(feature = "large-maps") {
+        // VERA extension: native word packing corrupts identifiers above 32767
+        // and cannot represent the >65535 records in a literal 500x500 map.
+        (a, b)
+    } else {
+        let packed = ((a as u32) << 16) | (i32::from(b as i16) as u32);
+        ((packed >> 16) as ZoneId, (packed as u16) as ZoneId)
+    };
     let edge = HierarchyTempEdge {
-        existing: (packed >> 16) as u16,
-        current: packed as u16,
+        existing,
+        current,
         flag,
     };
     // No zero/equality filter. First exact key retains its flag and place.

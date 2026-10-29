@@ -1835,7 +1835,8 @@ mod tests {
         assert_eq!(terrain.dummy_cell_requested_coord(), (1, 0));
         zone_grid
             .base_topology_mut_for_test()
-            .raw_zone_ids_by_row_mut_for_test()[row][3] = u16::MAX;
+            .raw_zone_ids_by_row_mut_for_test()[row][3] =
+            crate::sim::pathfinding::zone_map::ZoneId::MAX;
         assert!(!check(77, &zone_grid), "raw 0xffff stays distinct");
         assert_eq!(
             terrain.dummy_cell_requested_coord(),
@@ -1872,7 +1873,8 @@ mod tests {
         assert!(!check(&terrain, &zone_grid, 92, true));
         zone_grid
             .base_topology_mut_for_test()
-            .raw_zone_ids_by_row_mut_for_test()[row][cluster] = u16::MAX;
+            .raw_zone_ids_by_row_mut_for_test()[row][cluster] =
+            crate::sim::pathfinding::zone_map::ZoneId::MAX;
         assert!(check(&terrain, &zone_grid, 0xFFFF, true));
         terrain.cells_mut_for_test()[0].bridge_facts.raw_flags = BRIDGE_FLAG_STRUCTURAL;
         assert_eq!(

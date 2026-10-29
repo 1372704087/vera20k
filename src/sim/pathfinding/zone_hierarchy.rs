@@ -61,9 +61,9 @@ fn estimate_zone_threat(
         return lookup(target_index);
     }
     let decode = |index: i32| {
-        let remainder = index.wrapping_sub(1) % 130;
+        let remainder = index.wrapping_sub(1) % crate::sim::house_threat::THREAT_GRID_SIDE;
         let x = remainder.wrapping_mul(4);
-        let y = (index.wrapping_sub(remainder) / 130)
+        let y = (index.wrapping_sub(remainder) / crate::sim::house_threat::THREAT_GRID_SIDE)
             .wrapping_mul(4)
             .wrapping_sub(4);
         let raw = (x as i16, y as i16);
@@ -556,7 +556,7 @@ pub struct MarkedZones {
 
 impl MarkedZones {
     pub(crate) fn contains(&self, zone: &ZoneId) -> bool {
-        let zone = usize::from(*zone);
+        let zone = *zone as usize;
         self.bits
             .get(zone / 64)
             .is_some_and(|word| word & (1 << (zone % 64)) != 0)
@@ -567,7 +567,7 @@ impl FromIterator<ZoneId> for MarkedZones {
     fn from_iter<I: IntoIterator<Item = ZoneId>>(zones: I) -> Self {
         let mut bits = Vec::new();
         for zone in zones {
-            let zone = usize::from(zone);
+            let zone = zone as usize;
             if bits.len() <= zone / 64 {
                 bits.resize(zone / 64 + 1, 0);
             }
@@ -931,7 +931,7 @@ fn search_precheck_level_in(
         cost: NativeF32Bits::from_bits(0),
         depth: 0,
     });
-    best.set(usize::from(start), NativeF32Bits::from_bits(0));
+    best.set(start as usize, NativeF32Bits::from_bits(0));
     heap.push(0, by_cost(nodes));
     #[cfg(any(test, feature = "test-support"))]
     let mut pops = Vec::new();
@@ -976,7 +976,7 @@ fn search_precheck_level_in(
             };
             let new_cost = precheck_edge_cost(cost, base_cost, threat_cost, edge.flag);
             if best
-                .get(usize::from(neighbor))
+                .get(neighbor as usize)
                 .is_some_and(|best| !precheck_cost_less(new_cost, best))
             {
                 continue;
@@ -994,7 +994,7 @@ fn search_precheck_level_in(
                 continue;
             }
             {
-                best.set(usize::from(neighbor), new_cost);
+                best.set(neighbor as usize, new_cost);
                 let next = nodes.len();
                 nodes.push(PrecheckNode {
                     parent: Some(index),

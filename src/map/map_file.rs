@@ -40,7 +40,7 @@ const CELL_RECORD_SIZE: usize = 11;
 /// Size of the coordinate header that precedes each terrain cell payload.
 const CELL_HEADER_SIZE: usize = 4;
 /// Native IsoMapPack5 lookup dimensions.
-const ISO_MAP_ROW_WIDTH: i32 = 512;
+const ISO_MAP_ROW_WIDTH: i32 = crate::map::cell_index::CELL_ROW_STRIDE as i32;
 const ISO_MAP_CELL_COUNT: i32 = ISO_MAP_ROW_WIDTH * ISO_MAP_ROW_WIDTH;
 // One serialized record per fixed-grid cell, followed by the optional null
 // coordinate header. Untrusted maps must not expand beyond this before parsing.
@@ -860,6 +860,31 @@ mod tests {
 
     const ONE_CELL_ISO_MAP_PACK: &str = "DwALABwBAAIA/////wAAABEAAA==";
     const TWO_PIXEL_PREVIEW_PACK: &str = "CgAGABcBAgMEBQYRAAA=";
+
+    #[cfg(feature = "large-maps")]
+    #[test]
+    fn large_map_parser_admits_literal_500_size_and_keeps_high_cell_identity() {
+        let ini = IniFile::from_str(&format!(
+            "[Map]\nSize=0,0,500,500\n[IsoMapPack5]\n1={ONE_CELL_ISO_MAP_PACK}\n"
+        ));
+        let map = MapFile::from_ini(ini).unwrap();
+        assert_eq!((map.header.width, map.header.height), (500, 500));
+        let starts =
+            crate::sim::scenario_bootstrap::NativeStartBounds::from_map_header(&map.header)
+                .unwrap();
+        assert_eq!((starts.width, starts.height), (999, 999));
+        let mut record = Vec::new();
+        record.extend_from_slice(&700i16.to_le_bytes());
+        record.extend_from_slice(&600u16.to_le_bytes());
+        record.extend_from_slice(&0i32.to_le_bytes());
+        record.extend_from_slice(&[0, 0, 0]);
+        let parsed = parse_iso_map_pack_records(&record).unwrap();
+        assert_eq!((parsed.cells[0].rx, parsed.cells[0].ry), (700, 600));
+        assert_eq!(parsed.lookups[0].canonical, Some((700, 600)));
+        let mut bad = map.header.clone();
+        bad.width = 1024;
+        assert!(!bad.fits_cell_grid(), "the extension remains bounded");
+    }
 
     fn aliasing_wrapper(aliases: u16, junk_size: usize) -> Vec<u8> {
         let map = full_map_with_preview("");

@@ -76,7 +76,7 @@ fn native_tube_hierarchy_pairs_match_original_executable() {
             .as_array()
             .unwrap()
             .iter()
-            .map(|v| v.as_u64().unwrap() as u16)
+            .map(|v| v.as_u64().unwrap() as ZoneId)
             .collect();
         let record = BridgeEndpointRecord {
             endpoint_a: coord(&case["a"]),
@@ -88,8 +88,8 @@ fn native_tube_hierarchy_pairs_match_original_executable() {
         for seed in case["seed_pairs"].as_array().unwrap() {
             register_native_hierarchy_pair(
                 &mut buckets,
-                seed[0].as_u64().unwrap() as u16,
-                seed[1].as_u64().unwrap() as u16,
+                seed[0].as_u64().unwrap() as ZoneId,
+                seed[1].as_u64().unwrap() as ZoneId,
                 seed[2].as_u64().unwrap() as u8,
             );
         }

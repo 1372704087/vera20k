@@ -22,9 +22,15 @@ pub enum NativeCellIdentity {
 /// Fixed cell-array stride — the engine indexes cells `y*0x200 + x` regardless of
 /// the loaded map's playfield width. The valid linear range is `[0, MAX_CELL_INDEX]`.
 /// This is NOT the loaded-map width index (that is `PathGrid`'s `y*width+x` cache).
-pub const CELL_ROW_STRIDE: i64 = 0x200;
-/// Highest valid linear cell index under the fixed 512-wide stride.
-pub const MAX_CELL_INDEX: i64 = 0x3FFFF;
+// Intentional VERA extension, not gamemd parity. A separate build keeps
+// ordinary retail indexing and its packed-coordinate aliases unchanged.
+pub const CELL_ROW_STRIDE: i64 = if cfg!(feature = "large-maps") {
+    1024
+} else {
+    512
+};
+/// Highest valid linear cell index under the selected fixed stride.
+pub const MAX_CELL_INDEX: i64 = CELL_ROW_STRIDE * CELL_ROW_STRIDE - 1;
 
 /// Cell coordinates cross the native seam as packed 16-bit words. Normalize at
 /// that seam so the Rust-facing `i32` parameters cannot retain non-native high

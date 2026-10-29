@@ -13,7 +13,7 @@ use crate::util::native_x87::{NativeF32Bits, X87Chop53};
 
 #[cfg(any(test, feature = "test-support"))]
 const LEPTONS_PER_CELL: i32 = crate::util::lepton::LEPTONS_PER_CELL_I32;
-const MAP_CELL_LIMIT: u32 = 512;
+const MAP_CELL_LIMIT: u32 = crate::map::cell_index::CELL_ROW_STRIDE as u32;
 #[cfg(any(test, feature = "test-support"))]
 const INVISO_ANIM_RADIUS: i32 = 0x20;
 

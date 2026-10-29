@@ -126,6 +126,21 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
+### Experimental large maps
+
+Build with `cargo run --release --bin vera20k --features large-maps` to select a
+1024-wide cell grid instead of the normal 512-wide grid. This raises the map
+`Size` width-plus-height limit from 512 to 1024; it does not remove the limit.
+The feature is off by default and is a VERA extension rather than retail behavior.
+
+Generate a literal 500×500 map with 30 starting positions using
+`python -m tools.scale_map large500.map --size 500 --starts 30 --cell-array-width 1024`.
+Extended overlay packs use a full 1024×1024 plane. Use matching experimental builds
+and keep their saves separate from normal builds; multiplayer agreement distinguishes
+these builds. Basic Windows loading, movement and MCV deployment were exercised on
+this map with one human and one AI. Thirty-player matches, long games and large-unit
+performance have not been validated.
+
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original

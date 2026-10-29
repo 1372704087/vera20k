@@ -3347,7 +3347,7 @@ mod tests {
                 let graph_b = hierarchy_b.level(level).unwrap();
                 assert_eq!(graph_a.record_slot_count(), graph_b.record_slot_count());
                 for slot in 0..graph_a.record_slot_count() {
-                    let zone = u16::try_from(slot).unwrap();
+                    let zone = crate::sim::pathfinding::zone_map::ZoneId::try_from(slot).unwrap();
                     // Record equality includes the retained native+20 threat
                     // seed; equal connectivity alone does not prove its input.
                     assert_eq!(graph_a.record(zone), graph_b.record(zone));

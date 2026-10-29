@@ -201,10 +201,18 @@ impl NativeAllocatedCellCursor {
         terrain: &ResolvedTerrainGrid,
         size_width: i32,
     ) -> Option<NativeCellIdentity> {
-        let index = self.y.wrapping_mul(512).wrapping_add(self.x);
-        let selected = (0..0x40000)
+        let index = self
+            .y
+            .wrapping_mul(crate::map::cell_index::CELL_ROW_STRIDE as i32)
+            .wrapping_add(self.x);
+        let selected = (0..=(crate::map::cell_index::MAX_CELL_INDEX as i32))
             .contains(&index)
-            .then(|| terrain.native_fixed_cell_index((index % 512) as i16, (index / 512) as i16))
+            .then(|| {
+                terrain.native_fixed_cell_index(
+                    (index % crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
+                    (index / crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
+                )
+            })
             .flatten()
             .map(NativeCellIdentity::Real);
         self.advance(size_width);
@@ -276,11 +284,14 @@ impl<'a> NativeCellQuery<'a> {
 
     pub fn lookup_world(&self, x: i32, y: i32) -> NativeCellIdentity {
         let (x, y) = (x / 256, y / 256);
-        let index = y.wrapping_mul(512).wrapping_add(x);
-        if (0..0x40000).contains(&index)
-            && let Some(real) = self
-                .terrain
-                .native_fixed_cell_index((index % 512) as i16, (index / 512) as i16)
+        let index = y
+            .wrapping_mul(crate::map::cell_index::CELL_ROW_STRIDE as i32)
+            .wrapping_add(x);
+        if (0..=(crate::map::cell_index::MAX_CELL_INDEX as i32)).contains(&index)
+            && let Some(real) = self.terrain.native_fixed_cell_index(
+                (index % crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
+                (index / crate::map::cell_index::CELL_ROW_STRIDE as i32) as i16,
+            )
         {
             return NativeCellIdentity::Real(real);
         }

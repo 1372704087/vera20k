@@ -144,9 +144,11 @@ impl NativeOverlayMapShape {
     /// Exact real-cell anti-diagonal order used by `Full_Init @ 0x00686B20`
     /// through `CellIterator_Init @ 0x00578350` / `Next @ 0x00578290`:
     /// increasing `x`, decreasing `y` for each sum in
-    /// `W+1 ..= W+2H`. Valid fresh maps keep both dimensions in `1..=512`.
+    /// `W+1 ..= W+2H`. Dimensions must fit the selected cell grid.
     pub(crate) fn recalc_cells(self) -> Vec<(i16, i16)> {
-        if !(1..=512).contains(&self.width) || !(1..=512).contains(&self.height) {
+        if !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.width)
+            || !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.height)
+        {
             return Vec::new();
         }
         let mut cells =
@@ -514,7 +516,9 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
     ) -> Result<FinalizedOverlayPayload, AuthoredOverlayFinalizeError<H::Error>> {
         // gamemd-derived: ReadMapOverlayPacks @ 0x005FD2E0, followed by the
         // Full_Init first Recalc boundary @ 0x00687A3E..0x00687A6B.
-        if !(1..=512).contains(&self.shape.width) || !(1..=512).contains(&self.shape.height) {
+        if !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.shape.width)
+            || !(1..=crate::map::cell_index::CELL_ROW_STRIDE as i32).contains(&self.shape.height)
+        {
             return Err(AuthoredOverlayFinalizeError::InvalidMapShape {
                 width: self.shape.width,
                 height: self.shape.height,
@@ -522,8 +526,8 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
         }
         let (identity, data) = packs.into_parts();
         if self.signed_new_ini_format > 1 && identity.has_positive_length() {
-            for y in 0..512u16 {
-                for x in 0..512u16 {
+            for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+                for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
                     let Some(overlay_id) = identity.read_byte(x, y) else {
                         continue;
                     };
@@ -536,8 +540,8 @@ impl<'load, 'resources, H: AuthoredOverlayLoadHost> AuthoredOverlayFinalizer<'lo
         }
 
         if self.signed_new_ini_format > 1 && data.has_positive_length() {
-            for y in 0..512u16 {
-                for x in 0..512u16 {
+            for y in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
+                for x in 0..crate::map::cell_index::CELL_ROW_STRIDE as u16 {
                     let cell = (x as i16, y as i16);
                     if !self.shape.admits(cell.0, cell.1) {
                         continue;

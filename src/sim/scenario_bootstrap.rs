@@ -71,13 +71,11 @@ impl NativeStartBounds {
     /// Construct the post-Resize cell-array rectangle directly from parsed
     /// `[Map] Size`, before Fill has produced a resolved terrain grid.
     pub fn from_map_header(header: &MapHeader) -> Option<Self> {
-        if header.width == 0 || header.height == 0 {
+        // Keep pre-Fill admission with the map owner's selected grid capacity.
+        if !header.fits_cell_grid() {
             return None;
         }
         let extent = header.width.checked_add(header.height)?;
-        if extent > 512 {
-            return None;
-        }
         let extent = u16::try_from(extent).ok()?;
         (extent > 1).then_some(Self {
             min_rx: 1,

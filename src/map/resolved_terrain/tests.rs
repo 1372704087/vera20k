@@ -5074,3 +5074,30 @@ fn destroyable_cliff_origin_recovery_accepts_every_present_a_and_b_subtile() {
         }
     }
 }
+
+#[cfg(feature = "large-maps")]
+#[test]
+fn large_map_production_diamond_lookup_and_path_cross_512() {
+    let mut map = make_map(Vec::new(), Vec::new(), Vec::new());
+    map.header.width = 500;
+    map.header.height = 500;
+    map.header.local_left = 2;
+    map.header.local_top = 4;
+    map.header.local_width = 496;
+    map.header.local_height = 492;
+    let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
+    let (grid, stats) = build_production_grid_without_theater(&map, &mut cache);
+    assert_eq!((grid.width(), grid.height()), (1000, 1000));
+    assert_eq!(grid.iter().count(), 499_500);
+    assert_eq!(stats.fill_calls, 499_500);
+    let first = grid.native_fixed_cell_index(700, 600).unwrap();
+    let second = grid.native_fixed_cell_index(188, 601).unwrap();
+    assert_ne!(
+        first, second,
+        "a high coordinate must not alias the old 512 stride"
+    );
+    assert_eq!((grid.cells()[first].rx, grid.cells()[first].ry), (700, 600));
+    let path_grid = crate::sim::pathfinding::PathGrid::from_resolved_terrain(&grid);
+    let route = crate::sim::pathfinding::find_path(&path_grid, (700, 600), (740, 640)).unwrap();
+    assert_eq!(route.last(), Some(&(740, 640)));
+}

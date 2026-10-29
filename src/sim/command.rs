@@ -627,7 +627,8 @@ impl PaidSuperRecord {
             && if self.action == PaidSuperAction::Cancel {
                 self.cell == (0, 0)
             } else {
-                (0..512).contains(&self.cell.0) && (0..512).contains(&self.cell.1)
+                (0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&self.cell.0)
+                    && (0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&self.cell.1)
             }
     }
     pub fn encode(self) -> Option<CommandRecord> {

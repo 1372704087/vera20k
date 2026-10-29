@@ -344,7 +344,9 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                if target_rx >= 512 || target_ry >= 512 {
+                if i64::from(target_rx) >= crate::map::cell_index::CELL_ROW_STRIDE
+                    || i64::from(target_ry) >= crate::map::cell_index::CELL_ROW_STRIDE
+                {
                     return None;
                 }
                 return SpecialPlaceRecord {
@@ -403,7 +405,9 @@ impl Simulation {
                 .get(rules.super_weapon_order.get(usize::try_from(index).ok()?)?)
         };
         if let Some(event) = SpecialPlaceRecord::decode(record) {
-            if !(0..512).contains(&event.cell.0) || !(0..512).contains(&event.cell.1) {
+            if !(0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&event.cell.0)
+                || !(0..crate::map::cell_index::CELL_ROW_STRIDE as i16).contains(&event.cell.1)
+            {
                 return None;
             }
             return Some((

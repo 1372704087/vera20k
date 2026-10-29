@@ -231,7 +231,7 @@ impl ResolvedTerrainGrid {
     pub(super) fn is_regular(&self) -> bool {
         *self.allocation_caches.regular.get_or_init(|| {
             let width = usize::from(self.width);
-            width < 512
+            width < crate::map::cell_index::CELL_ROW_STRIDE as usize
                 && self.cells.iter().enumerate().all(|(index, cell)| {
                     usize::from(cell.rx) == index % width && usize::from(cell.ry) == index / width
                 })

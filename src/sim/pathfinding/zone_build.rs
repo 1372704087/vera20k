@@ -113,7 +113,7 @@ struct HierarchyEdgeBuckets {
     buckets: Vec<Vec<HierarchyTempEdge>>,
     /// Every pushed edge's bucket and pair, so a repeat is found without
     /// scanning its bucket (large maps hold hundreds per bucket).
-    pushed: LookupSet<u64>,
+    pushed: LookupSet<(usize, ZoneId, ZoneId)>,
 }
 
 impl HierarchyEdgeBuckets {
@@ -138,7 +138,8 @@ impl HierarchyEdgeBuckets {
 
     /// Push `edge` unless `bucket` already holds its exact pair.
     fn push_new(&mut self, bucket: usize, edge: HierarchyTempEdge) {
-        let key = (bucket as u64) << 32 | u64::from(edge.existing) << 16 | u64::from(edge.current);
+        // Tuple identity prevents the extended IDs from overlapping packed fields.
+        let key = (bucket, edge.existing, edge.current);
         if self.pushed.insert(key) {
             self.buckets[bucket].push(edge);
         }
@@ -287,7 +288,7 @@ pub(crate) fn build_zone_map_from_base_topology(
                 return ZONE_INVALID;
             }
             let derived = derived_by_base[base_id as usize];
-            if derived > 1 && derived != u16::MAX {
+            if derived > 1 && derived != ZoneId::MAX {
                 derived
             } else {
                 ZONE_INVALID
@@ -327,9 +328,9 @@ fn rebuild_node_indices(
     levels: &[u8],
     width: u16,
     height: u16,
-) -> (Vec<u16>, u16, BaseEdgeBuckets) {
-    let mut node_indices = vec![0u16; movement_classes.len()];
-    let mut next_node: u16 = 1;
+) -> (Vec<ZoneId>, ZoneId, BaseEdgeBuckets) {
+    let mut node_indices = vec![0 as ZoneId; movement_classes.len()];
+    let mut next_node: ZoneId = 1;
     let mut edge_buckets = BaseEdgeBuckets::new();
 
     for ry in 0..height {
@@ -368,9 +369,9 @@ fn rebuild_node_indices(
 fn flood_fill_node_index(
     start_x: u16,
     start_y: u16,
-    node_id: u16,
+    node_id: ZoneId,
     movement_classes: &[u8],
-    node_indices: &mut [u16],
+    node_indices: &mut [ZoneId],
     levels: &[u8],
     width: u16,
     height: u16,
@@ -547,7 +548,7 @@ fn register_scanline_edge(
     reference_y: i32,
     current_zone: ZoneId,
     captured_class: u8,
-    node_indices: &[u16],
+    node_indices: &[ZoneId],
     levels: &[u8],
     width: u16,
     height: u16,
@@ -575,11 +576,11 @@ fn register_scanline_edge(
 
 fn rebuild_zone_ids_for_movement_zone(
     movement_classes: &[u8],
-    node_indices: &[u16],
-    node_count: u16,
-    node_adj: &[Vec<u16>],
+    node_indices: &[ZoneId],
+    node_count: ZoneId,
+    node_adj: &[Vec<ZoneId>],
     movement_zone: MovementZone,
-) -> Vec<u16> {
+) -> Vec<ZoneId> {
     let mut node_movement_classes = vec![zone_class::OUTSIDE; node_count as usize + 1];
     for (&node, &movement_class) in node_indices.iter().zip(movement_classes.iter()) {
         if node != 0 && node_movement_classes[node as usize] == zone_class::OUTSIDE {
@@ -588,10 +589,10 @@ fn rebuild_zone_ids_for_movement_zone(
     }
 
     let Some(row_index) = movement_zone.matrix_row() else {
-        return vec![0u16; node_count as usize + 1];
+        return vec![0 as ZoneId; node_count as usize + 1];
     };
     let row = passability::MOVEMENT_ZONE_PASSABILITY[row_index];
-    let mut zone_id_by_node = vec![1u16; node_count as usize + 1];
+    let mut zone_id_by_node = vec![1 as ZoneId; node_count as usize + 1];
     for node in 1..=node_count {
         let movement_class = node_movement_classes[node as usize] as usize;
         if row[movement_class] == 1 {
@@ -599,7 +600,7 @@ fn rebuild_zone_ids_for_movement_zone(
         }
     }
 
-    let mut next_label: u16 = 2;
+    let mut next_label: ZoneId = 2;
     for start_node in 1..=node_count {
         if zone_id_by_node[start_node as usize] != 0 {
             continue;
@@ -621,7 +622,7 @@ fn rebuild_zone_ids_for_movement_zone(
         next_label += 1;
     }
 
-    zone_id_by_node[0] = u16::MAX;
+    zone_id_by_node[0] = ZoneId::MAX;
     zone_id_by_node
 }
 
@@ -645,7 +646,7 @@ fn register_bridge_base_edges(
             continue;
         }
         let pair = (a.min(b), a.max(b));
-        let bucket = usize::from(((pair.0 & 15) << 4) | (pair.1 & 15));
+        let bucket = (((pair.0 & 15) << 4) | (pair.1 & 15)) as usize;
         // Native includes node0; class7 prevents traversal, but the edge is
         // retained in native bucket/adjacency state. Generic register excludes0.
         if !edge_buckets.buckets[bucket].contains(&pair) {
@@ -1297,8 +1298,35 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "large-maps")]
+    #[test]
+    fn large_map_hierarchy_preserves_ids_and_edges_above_65535() {
+        let base = hierarchy_base(vec![zone_class::GROUND; 600 * 500], vec![1; 600 * 500]);
+        let hierarchy = build_zone_hierarchy(&base, None, &[], 600, 500);
+        let fine = hierarchy.level(0).unwrap();
+        assert!(fine.zone_count() > 65535);
+        let high = fine.zone_at(599, 499);
+        assert!(high > 65535);
+        assert!(fine.record(high).is_some());
+        let marked: crate::sim::pathfinding::zone_hierarchy::MarkedZones =
+            [high].into_iter().collect();
+        assert!(marked.contains(&high));
+        assert!(!marked.contains(&(high & 0xffff)));
+
+        // These two pairs collided in the old bucket/16-bit-field packed key.
+        let mut edges = HierarchyEdgeBuckets::new();
+        hierarchy::register_native_hierarchy_pair(&mut edges, 65538, 1, 0);
+        hierarchy::register_native_hierarchy_pair(&mut edges, 2, 1, 0);
+        let mut graph = ZoneLevelGraph::new(65538);
+        edges.drain_into(&mut graph);
+        let neighbors: Vec<_> = graph.edges(1).iter().map(|edge| edge.neighbor).collect();
+        assert_eq!(neighbors, vec![65538, 2]);
+    }
+
     fn unique_hierarchy_base(width: u16, height: u16) -> BaseZoneTopology {
-        let zone_ids: Vec<ZoneId> = (1..=width * height).collect();
+        let zone_ids: Vec<ZoneId> = (1..=u32::from(width) * u32::from(height))
+            .map(|id| id as ZoneId)
+            .collect();
         hierarchy_base(vec![zone_class::GROUND; zone_ids.len()], zone_ids)
     }
 
@@ -1469,7 +1497,9 @@ mod tests {
                 bridge_kind: BridgeRecordKind::High,
             },
         ];
-        let zone_ids: Vec<ZoneId> = (1..=width * height).collect();
+        let zone_ids: Vec<ZoneId> = (1..=u32::from(width) * u32::from(height))
+            .map(|id| id as ZoneId)
+            .collect();
         let mut buckets = HierarchyEdgeBuckets::new();
         register_high_bridge_hierarchy_edges(
             &mut buckets,
@@ -1480,7 +1510,7 @@ mod tests {
             height,
             Some((2, 2)),
         );
-        let mut graph = ZoneLevelGraph::new(width * height);
+        let mut graph = ZoneLevelGraph::new((u32::from(width) * u32::from(height)) as ZoneId);
         buckets.drain_into(&mut graph);
 
         assert!(

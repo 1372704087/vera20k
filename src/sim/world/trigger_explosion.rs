@@ -66,6 +66,7 @@ impl Simulation {
                 coordinate,
                 damage,
                 warhead,
+                true,
                 (RAD_NO_ATTACKER, None, warhead_ref),
                 frame_effects,
             )

@@ -1005,7 +1005,8 @@ impl App {
                 external_launch_error: None,
                 external_match_result: None,
                 external_progress: Default::default(),
-                external_idle: false,
+                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                browser_exit_pending: false,
                 screen: GameScreen::default(),
                 scenario_catalog,
                 skirmish_modes,

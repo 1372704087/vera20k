@@ -789,6 +789,10 @@ pub(crate) fn blocks_shell_input(state: &AppState) -> bool {
     // The graceful quit cascade also freezes shell input (the original processes
     // no input during its blocking teardown), so a stray click can't re-enter the
     // menu mid-fade.
+    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+    if state.frontend.browser_exit_pending {
+        return true;
+    }
     state.frontend.quit_cascade.is_some()
         || state.frontend.shell_exit.is_some()
         || transition_blocks_shell_input(state.frontend.shell_first_paint_slide.as_ref())
@@ -797,8 +801,6 @@ pub(crate) fn blocks_shell_input(state: &AppState) -> bool {
         || (state.frontend.screen == crate::ui::game_screen::GameScreen::MainMenu
             && (crate::app::shell_wol::spawned_visit(state)
                 || crate::app::shell_network_setup::external(state)))
-        // A browser external launch that ended waits for the next one.
-        || state.frontend.external_idle
 }
 
 pub(crate) fn transition_blocks_shell_input(transition: Option<&ShellFrameWave>) -> bool {

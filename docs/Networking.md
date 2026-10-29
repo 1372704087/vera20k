@@ -47,11 +47,15 @@ multiple human sources, including observers, retain synchronized scheduling even
 after other players leave. AI players never acquire network identities.
 
 Online matches with two or more human sources use a lobby-certified fixed clock
-and one immutable relay command stream. All originally admitted clients must agree
-to the initial world before it starts. At each deadline, missing input is empty;
-a command joins the next unsealed frame. The sender also waits for that commit.
-Each new command batch goes out twice, so one lost uplink datagram does not hold
-it and every later batch for the 100 ms retry.
+and one immutable relay command stream. Every originally admitted client that
+finishes loading must agree to the initial world before it starts. A player who
+never finishes loading leaves in the first frame once silent for 60 seconds, or 3
+minutes after the first client was ready; the native loading timeout leaves that
+departure to the relay. A match spread over several relays is cancelled instead.
+At each deadline, missing input is empty; a command joins the next unsealed
+frame. The sender also waits for that commit. Each new command batch goes out
+twice, so one lost uplink datagram does not hold it and every later batch for
+the 100 ms retry.
 Frames use the existing Event codec and simulation queues, with a fresh compression
 cache per self-contained encrypted batch. The relay never receives payload keys.
 
@@ -90,9 +94,13 @@ Peer lag, acknowledgements and CPU reports cannot slow the shared clock. The
 initial speed stays fixed for the match. The relay keeps a bounded RAM cache and the full encrypted match journal on
 disk. Temporary connection loss keeps the player's identity, units, input cursor
 and world in the match; the client renews its ticket and reads missed frames when
-connectivity returns. Network silence never writes an exit. The UI shows
-Reconnecting or Catching up while healthy clients continue. Explicit Leave, joining
-another online match on the same relay, or the 24-hour match lifetime ends membership. The relay remains required for progress.
+connectivity returns. The UI shows Reconnecting or Catching up while healthy
+clients continue. After ten minutes of silence the relay removes the player
+through the same stream. Like a native lost connection, a removal for silence
+destroys the player's House and shows "connection lost"; a player who quits still
+leaves through EXIT. Silence that long, explicit Leave, joining another online
+match on the same relay, or the 24-hour match lifetime ends membership. The relay
+remains required for progress.
 
 Authored Battle matches record reconstructible JSON replays in `replays/`.
 `vera20k --replay <replay.json> --ra2-dir <retail-directory>` opens read-only

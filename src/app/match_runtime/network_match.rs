@@ -137,6 +137,11 @@ pub(crate) fn destroy_connection(
     let startup_pending = live
         .as_ref()
         .is_some_and(|(live, _)| live.startup_pending());
+    // In relay-ordered play the committed departure already carried the shared
+    // EVENT_REMOVEPLAYER; only this client's connection and line remain.
+    let sequenced = live
+        .as_ref()
+        .is_some_and(|(live, _)| live.uses_sequenced_lockstep());
     if !session.disconnect_network_participant(source_index, error.code()) {
         return None;
     }
@@ -152,7 +157,7 @@ pub(crate) fn destroy_connection(
         //the reason-specific effects. Progress shares that connection's life.
         live.remove_peer(house);
     }
-    if error == ConnectionError::Lost && !startup_pending {
+    if error == ConnectionError::Lost && !startup_pending && !sequenced {
         let frame = sim.session().binary_frame();
         if frame == 0 && sim.session().network_command_timing().is_none() {
             sim.flag_house_to_die(owner);
@@ -223,7 +228,8 @@ pub(crate) fn post_connection_line(state: &mut AppState, destroyed: ConnectionDe
 }
 
 /// The executed EXIT events of remote senders this frame: each runs
-/// DestroyConnection(house, 0) (`0x0064C9B1`).
+/// DestroyConnection(house, 0) (`0x0064C9B1`). Remote sources the relay ended
+/// for silence run DestroyConnection(house, 1) after their EVENT_REMOVEPLAYER.
 pub(crate) fn drain_departures(state: &mut AppState) {
     let Some(runtime) = state.match_state.sim_runtime.as_mut() else {
         return;
@@ -239,6 +245,25 @@ pub(crate) fn drain_departures(state: &mut AppState) {
             continue;
         };
         kick(state, source, ConnectionError::Left);
+    }
+    let lost = state
+        .match_state
+        .live_network
+        .as_mut()
+        .map(|live| live.take_lost_houses())
+        .unwrap_or_default();
+    for house in lost {
+        let Some(runtime) = state.match_state.sim_runtime.as_ref() else {
+            return;
+        };
+        let Some(source) = house_source(
+            &state.match_state.session,
+            &runtime.simulation,
+            i32::from(house),
+        ) else {
+            continue;
+        };
+        kick(state, source, ConnectionError::Lost);
     }
 }
 
@@ -1654,6 +1679,124 @@ mod tests {
                 )
             ));
         }
+    }
+
+    /// Relay-ordered play: the committed departure already carried the shared
+    /// EVENT_REMOVEPLAYER, so DestroyConnection retires only this client's
+    /// connection and posts its line.
+    #[test]
+    fn relay_connection_loss_only_retires_the_local_connection() {
+        use crate::net::reliable::{LanConnectionConfig, LanConnections, RetryTiming};
+        use crate::net::udp::test_support::{SecretKey, derive_packet_key};
+        use crate::net::udp::{
+            LanUdpTransport, OrderingCertificate, RelayTicket, UdpBindConfig, relay_peer_endpoint,
+        };
+        use std::net::{Ipv4Addr, SocketAddrV4};
+        use std::num::{NonZeroU8, NonZeroU32};
+
+        let (mut session, mut sim) = vote_fixture();
+        let launch = session.network_setup().unwrap().clone();
+        session.enter_network(super::super::session::NetworkReturnContext::Wol);
+        session.accept_network_setup(launch, false, None).unwrap();
+        session.prepare_wol_timing([0; 2], false).unwrap();
+        let remote_name = session.network_setup().unwrap().humans[0].name.clone();
+        let endpoint = relay_peer_endpoint(0).unwrap();
+        session
+            .bind_network_endpoint(&remote_name, endpoint)
+            .unwrap();
+        session.freeze_network_start(19).unwrap();
+        let local = sim.houses().order()[0];
+        let remote = sim.houses().order()[1];
+        sim.session_mut_for_test().set_game_mode(SessionMode::Wol);
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(local));
+        sim.install_network_timing(session.network_max_ahead_frames().unwrap());
+        sim.network_command_queues()
+            .install_timing(1, NonZeroU8::new(1).unwrap(), [0, 1]);
+        let key = SecretKey::new([5; 32]);
+        let ticket = RelayTicket {
+            room: [3; 16],
+            source: 1,
+            expires: u64::MAX / 2,
+            nonce: [2; 16],
+            player: [2; 16],
+            generation: 1,
+        }
+        .sign(&key)
+        .unwrap();
+        let mut connections = LanConnections::new(
+            LanConnectionConfig::default(),
+            RetryTiming::LAN_GUEST_COMPLETED_GLOBAL,
+        );
+        connections.add_peer(1, endpoint).unwrap();
+        let bind = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0);
+        let mut transport = LanUdpTransport::bind(
+            UdpBindConfig {
+                primary: bind,
+                alternate: bind,
+            },
+            connections,
+        )
+        .unwrap();
+        transport
+            .enable_relay(
+                SocketAddrV4::new(Ipv4Addr::LOCALHOST, 9),
+                &ticket,
+                *derive_packet_key(&key, &ticket).expose_for_https(),
+                [6; 32],
+            )
+            .unwrap();
+        let certificate = OrderingCertificate {
+            room: [3; 16],
+            sources_mask: 0b11,
+            tick_hz: 30,
+            expires: u64::MAX / 2,
+        }
+        .sign(&key)
+        .unwrap();
+        transport
+            .set_ordering_certificate(certificate.to_vec())
+            .unwrap();
+        let mut live = crate::net::live_commands::LiveCommandSession::new(
+            crate::net::live_commands::StartupAgreement::new(
+                [(0, 1), (1, 0)],
+                [0, 1],
+                19,
+                10,
+                30,
+                NonZeroU32::new(1).unwrap(),
+                sim.state_hash(),
+            )
+            .unwrap(),
+            transport,
+            0,
+            19,
+            NonZeroU32::new(1).unwrap(),
+            LiveCommandMode::Wol,
+        )
+        .unwrap();
+        assert!(live.uses_sequenced_lockstep());
+        live.mark_sequenced_started_for_test();
+        let removed = destroy_connection(
+            &mut session,
+            &mut sim,
+            0,
+            ConnectionError::Lost,
+            Some(&mut live),
+        )
+        .unwrap();
+        assert_eq!(removed.owner, remote);
+        assert_eq!(removed.key, "TXT_CONNECTION_LOST");
+        assert_eq!(session.network_connected_source_indices(), &[1]);
+        assert!(live.connections().peers().next().is_none());
+        assert!(!sim.houses()[&remote].is_to_die());
+        assert!(
+            sim.network_command_queues()
+                .local_records()
+                .unwrap()
+                .is_empty(),
+            "a local EVENT_REMOVEPLAYER cannot enter the relay stream"
+        );
     }
 
     #[test]

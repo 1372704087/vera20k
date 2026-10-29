@@ -160,8 +160,11 @@ first34 bytes with domain `VERA20k relay ordering certificate v1\0`. The signed
 mask includes all human sources (including observers); AI has no source. FPS
 follows launch speed `[60,45,30,20,15,12,10]`. The certificate lasts24 hours;
 every UDP control still needs a live authenticated short-lived ticket. The relay
-binds the first matching startup agreement to this roster/clock and starts only
-when every signed source is ready. Renewals preserve the timeline and batch IDs.
+binds the first matching startup agreement to this roster/clock and starts once
+every remaining signed source is ready. A source that never becomes ready leaves
+in the first frame after 60 seconds of silence, or 3 minutes after the first
+Ready; a match federated over several relays is cancelled instead. Renewals
+preserve the timeline and batch IDs.
 `federation`, present only in a federated match, is the same base64url roster
 in every grant: `VO1F`, room UUID16, relay count (2–6), then per relay IPv4,
 LE port and LE source mask, then per relay nonce16, wrapped32 and tag32. The

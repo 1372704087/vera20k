@@ -1380,7 +1380,7 @@ mod tests {
                     [false, true].map(|host| SetupDialog {
                         host,
                         flavor,
-                        auto_accept: false,
+                        modern: false,
                     })
                 })
             {
@@ -1424,7 +1424,7 @@ mod tests {
                 [false, true].map(|host| SetupDialog {
                     host,
                     flavor,
-                    auto_accept: false,
+                    modern: false,
                 })
             })
         {

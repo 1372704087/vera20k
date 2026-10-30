@@ -607,9 +607,9 @@ pub(crate) fn dialog(state: &AppState) -> SetupDialog {
 }
 
 /// The setup dialog this process presents. Only native diagnostics keep the
-/// guest's Accept button (`SetupDialog::auto_accept`).
+/// guest's Accept and the WOL Page buttons (`SetupDialog::modern`).
 pub(crate) fn setup_dialog(state: &AppState, host: bool, flavor: SetupFlavor) -> SetupDialog {
-    let auto_accept = match flavor {
+    let modern = match flavor {
         SetupFlavor::Wol => state
             .frontend
             .wol
@@ -620,7 +620,7 @@ pub(crate) fn setup_dialog(state: &AppState, host: bool, flavor: SetupFlavor) ->
     SetupDialog {
         host,
         flavor,
-        auto_accept,
+        modern,
     }
 }
 
@@ -1140,7 +1140,7 @@ mod tests {
             SetupDialog {
                 host: true,
                 flavor: SetupFlavor::Wol,
-                auto_accept: false,
+                modern: false,
             },
             false,
         );
@@ -1162,7 +1162,7 @@ mod tests {
             SetupDialog {
                 host: false,
                 flavor: SetupFlavor::Wol,
-                auto_accept: false,
+                modern: false,
             },
             false,
         );

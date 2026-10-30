@@ -159,7 +159,7 @@ mod tests {
         let dialog = crate::ui::multiplayer_setup::SetupDialog {
             host: false,
             flavor: crate::ui::multiplayer_setup::SetupFlavor::Lan,
-            auto_accept: false,
+            modern: false,
         };
         let mut local = super::super::NetworkSetupProtocol::new(dialog, false);
         local.local_map_verified = true;
@@ -232,7 +232,7 @@ mod tests {
             crate::ui::multiplayer_setup::SetupDialog {
                 host: true,
                 flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
-                auto_accept: false,
+                modern: false,
             },
             false,
         );

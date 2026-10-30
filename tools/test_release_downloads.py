@@ -174,6 +174,13 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertEqual((self.root / "objects/latest.json").read_bytes(), old_pointer)
         self.assertEqual(self.puts(), [])
 
+    def test_a_locked_object_from_a_racing_publisher_is_verified(self):
+        self.config["raced_put"] = "releases/v0.2.2/" + self.names[0]
+        result = self.run_publisher()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = self.root / "objects/releases/v0.2.2/manifest.json"
+        self.assertEqual(manifest.read_bytes(), (self.root / "objects/latest.json").read_bytes())
+
     def test_partial_or_corrupt_upload_never_publishes_a_manifest_pointer(self):
         for failure in ("fail_put", "corrupt_put"):
             with self.subTest(failure=failure):

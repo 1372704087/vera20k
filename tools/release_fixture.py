@@ -86,6 +86,12 @@ elif tool == "aws":
     elif operation == "put-object":
         if config.get("fail_put") == key:
             fail("InternalError")
+        if config.get("raced_put") == key:
+            # Another publisher stores the same bytes first; R2's bucket lock
+            # then refuses this write before checking its precondition.
+            path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(flag("--body"), path)
+            fail("ObjectLockedByBucketPolicy")
         if "--if-none-match" in args and path.exists():
             fail("PreconditionFailed")
         if "--if-match" in args:

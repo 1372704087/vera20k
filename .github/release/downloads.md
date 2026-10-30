@@ -35,11 +35,20 @@ every older game reads.
 
 ## Setup and retry
 
-GitHub Actions secrets are `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID` and
-`R2_SECRET_ACCESS_KEY`. Use an R2 S3 token with object read/write permission
-restricted to the `vera20k-downloads` bucket; bucket administration is unnecessary.
+The publish job's secrets live only in the `downloads` environment:
+`R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` and
+`UPDATE_SIGNING_KEY`. Only `v*` tags and `main` may use it, and each run waits
+until the maintainer approves it, so a run nobody approved never sees them.
+Approve only a run you started, by publishing a release or dispatching a retry.
+Use an R2 S3 token with object read/write permission restricted to the
+`vera20k-downloads` bucket; bucket administration is unnecessary.
 The public custom domain is `downloads.vera20k.org`; r2.dev stays disabled.
 Credentials must not appear in code, command arguments or logs.
+
+The bucket lock rule `releases-permanent` keeps every object under `releases/`
+indefinitely: R2 refuses to overwrite or delete them, so the website's direct
+links serve exactly the files their signed manifest names. `latest.json` stays
+outside it. `wrangler r2 bucket lock list vera20k-downloads` shows the rule.
 
 The secret `UPDATE_SIGNING_KEY` holds the PEM Ed25519 private key whose public
 half is `update-key.pub` (base64 of the raw 32 bytes). The publisher refuses to
@@ -53,19 +62,20 @@ print its public half and set the secret:
 ```sh
 (umask 077; openssl genpkey -algorithm ed25519 -out "$KEY")
 openssl pkey -in "$KEY" -pubout -outform DER | tail -c 32 | openssl base64 -A
-gh secret set UPDATE_SIGNING_KEY --repo YuriPlanet/vera20k < "$KEY"
+gh secret set UPDATE_SIGNING_KEY --env downloads --repo YuriPlanet/vera20k < "$KEY"
 ```
 
 The Ubuntu 24.04 runner supplies `gh`, AWS CLI, `jq` and OpenSSL 3. To retry,
-dispatch `downloads.yml` with the published stable tag, for example `v0.2.2`.
+dispatch `downloads.yml` from `main` with the published stable tag, for example
+`v0.2.2`, and approve its run.
 A local run uses `bash .github/release/publish-r2.sh v0.2.2` with `R2_ACCOUNT_ID`,
 `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `UPDATE_SIGNING_KEY`, OpenSSL 3 or
 later, and GitHub authentication already in the environment. Never enable shell
 tracing.
 
-The initial v0.2.2 build predates this workflow, so dispatch its first mirror
-manually on `main`. Later releases whose tagged commit includes the workflow
-start it on publication.
+A release whose tagged commit predates this workflow or its environment, such
+as v0.2.2, is mirrored by a dispatch from `main`. Later releases start it on
+publication.
 
 Retries reuse existing objects only when their bytes match. A failed upload
 leaves the prior latest pointer intact. Workflow concurrency and a local

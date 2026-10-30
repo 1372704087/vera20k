@@ -217,8 +217,10 @@ publish_immutable() {
       --cache-control 'public,max-age=31536000,immutable' \
       --metadata "sha256=$(sha256 "$source")" --output json \
       > "$work/put.json" 2> "$work/put.error"; then
-    # Another authorized publisher may have completed the exact same object.
-    grep -Eq 'An error occurred \((412|PreconditionFailed)\)' "$work/put.error" \
+    # Another authorized publisher may have completed the exact same object. The
+    # bucket lock on releases/ (downloads.md) refuses that write before checking
+    # its precondition: 409 ObjectLockedByBucketPolicy instead of 412.
+    grep -Eq 'An error occurred \((412|PreconditionFailed|409|ObjectLockedByBucketPolicy)\)' "$work/put.error" \
       || die "immutable upload failed: $key"
   fi
   fetch_optional "$key" "$target" || die "uploaded object is absent: $key"

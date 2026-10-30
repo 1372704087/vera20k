@@ -76,6 +76,24 @@ impl GameEntity {
             quantity
         }
     }
+
+    /// The `PipScale=MindControl` arm over an explicit controlled count.
+    /// Phobos' `GetControlledCount` replacement makes that count the sum of
+    /// `MindControlSize=` when `MindControl.IgnoreSize=` is false.
+    pub fn mind_control_pip_fill_level(
+        &self,
+        object: &ObjectType,
+        rules: &RuleSet,
+        count: i32,
+    ) -> i32 {
+        let maximum = object.pip_max(rules);
+        let quantity = rounded_pip_quantity(count, maximum, maximum);
+        if quantity == 0 && count > 0 {
+            1
+        } else {
+            quantity
+        }
+    }
 }
 
 #[cfg(test)]

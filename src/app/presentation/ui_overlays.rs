@@ -1709,7 +1709,14 @@ pub(crate) fn scale_pip_draws(
         let maximum = object.pip_max(rules);
         let slots = usize::try_from(maximum).unwrap_or(0);
         let manager = entity.capture_manager.as_ref();
-        let count = entity.techno_pip_fill_level(object, rules);
+        // Phobos `GetControlledCount` may sum `MindControlSize=` instead of
+        // the node count; the pip fill reads that effective count.
+        let count = sim
+            .capture_effective_count(entity.stable_id(), rules)
+            .map_or_else(
+                || entity.techno_pip_fill_level(object, rules),
+                |count| entity.mind_control_pip_fill_level(object, rules, count),
+            );
         //Canonical708C30 owns count/max rounding, including signed numeric
         //boundaries. Draw70A0B5 uses frame1 below fill, frame0 afterward.
         pips.extend(
@@ -1717,8 +1724,13 @@ pub(crate) fn scale_pip_draws(
         );
         // IsOverloading4726C0 owns infinite/capacity/counter policy;
         //70A17F..1C2 adds exactly one frame3 (positive) or4 (idle).
-        if let Some(active) = manager.and_then(|manager| manager.overload_pip_state()) {
-            pips.push(pip(slots, if active { 3 } else { 4 }, row_y));
+        if let Some(manager) = manager {
+            let effective = sim
+                .capture_effective_count(entity.stable_id(), rules)
+                .unwrap_or_else(|| manager.count());
+            if let Some(active) = manager.overload_pip_state(effective) {
+                pips.push(pip(slots, if active { 3 } else { 4 }, row_y));
+            }
         }
         return pips;
     }

@@ -717,6 +717,10 @@ fn techno_ai_shell(
     if temporal_frozen {
         return;
     }
+    // Phobos `TechnoExt::OnEarlyUpdate -> ApplyMindControlRangeLimit`, after
+    // the shield visit and before the object's mission/AI body.
+    #[cfg(feature = "phobos")]
+    sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
     // Unit7363C9..7363DE precedes Hunt/Ready/Foot AI, after the existing
     // Tube, death and Temporal entry gates. Limboed Units have no Logic visit.
     if category == EntityCategory::Unit

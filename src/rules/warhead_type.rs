@@ -368,6 +368,11 @@ pub struct WarheadType {
     /// Phobos `WarheadTypeExt`'s `Crit.*` block, read in `LoadFromINI` order.
     #[cfg(feature = "phobos")]
     pub crit: crate::rules::phobos_crit::CritRules,
+    /// Phobos `WarheadTypeExt::MindControl_Anim` (`MindControl.Anim=`): the
+    /// ring animation this warhead gives a captured object; `None` uses
+    /// `[CombatDamage] ControlledAnimationType`.
+    #[cfg(feature = "phobos")]
+    pub mind_control_anim: Option<String>,
     /// Phobos AttachEffect attach/remove lists and the reflected-damage
     /// suppressor this warhead carries.
     #[cfg(feature = "phobos")]
@@ -686,6 +691,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            mind_control_anim: read_phobos_nullable_anim_name(section, "MindControl.Anim"),
         }
     }
 }
@@ -703,6 +710,18 @@ pub(crate) fn read_verses(section: &IniSection, current: [f64; 11]) -> [f64; 11]
     section
         .read_list("Verses", 0x80)
         .map_or(current, |tokens| verses_from_tokens(&tokens))
+}
+
+/// Phobos `Nullable<AnimTypeClass*>::Read` for `MindControl.Anim`:
+/// `<default>` clears it; the raw name is resolved against the animation
+/// registry at the capture site, so an unknown name falls back to the global.
+#[cfg(feature = "phobos")]
+fn read_phobos_nullable_anim_name(section: &IniSection, key: &str) -> Option<String> {
+    if !section.is_present(key) {
+        return None;
+    }
+    let raw = section.read_string(key, "", 2048);
+    (!raw.eq_ignore_ascii_case("<default>")).then_some(raw)
 }
 
 /// Original WarheadType ReadINI75DDCC..75DE5A, over the `strtok(",")`
@@ -1032,6 +1051,26 @@ MaxDebris=2
         assert!(
             read(with_global, "On"),
             "per-warhead yes overrides global no"
+        );
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn mind_control_anim_reads_nullable_name() {
+        let ini = IniFile::from_str(
+            "[WH]\nMindControl.Anim=ALTANIM\n\
+             [RESET]\nKeep=1\nMindControl.Anim=<default>\n\
+             [EMPTY]\nKeep=1\n",
+        );
+        let warhead = WarheadType::from_ini_section("WH", ini.section("WH").unwrap());
+        assert_eq!(warhead.mind_control_anim.as_deref(), Some("ALTANIM"));
+        assert_eq!(
+            WarheadType::from_ini_section("RESET", ini.section("RESET").unwrap()).mind_control_anim,
+            None
+        );
+        assert_eq!(
+            WarheadType::from_ini_section("EMPTY", ini.section("EMPTY").unwrap()).mind_control_anim,
+            None
         );
     }
 }

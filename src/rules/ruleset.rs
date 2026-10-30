@@ -8008,6 +8008,45 @@ impl RuleSet {
             &self.general.empulse_warhead,
         )
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            if !self.mind_control.mind_control_ignore_size
+                || self.mind_control.mind_control_link_visible_to_house
+                    != crate::rules::phobos_shields::AffectedHouse::ALL
+                || self.mind_control.multi_mind_control_release_victim
+            {
+                b"phobos-mind-control-globals-v1".hash(&mut hasher);
+                self.mind_control.mind_control_ignore_size.hash(&mut hasher);
+                self.mind_control
+                    .mind_control_link_visible_to_house
+                    .bits()
+                    .hash(&mut hasher);
+                self.mind_control
+                    .multi_mind_control_release_victim
+                    .hash(&mut hasher);
+            }
+            let control_sizes = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    let value = (
+                        object.mind_control_range_limit,
+                        object.mind_control_ignore_size,
+                        object.mind_control_size,
+                        object
+                            .mind_control_link_visible_to_house
+                            .map(|house| house.bits()),
+                        object.multi_mind_control_release_victim,
+                    );
+                    (value != (0, None, 1, None, None))
+                        .then(|| (object.id.to_ascii_uppercase(), value))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !control_sizes.is_empty() {
+                b"phobos-mind-control-size-v1".hash(&mut hasher);
+                control_sizes.hash(&mut hasher);
+            }
+        }
         let general = &self.general;
         if crate::rules::NPATCH_ENABLED {
             general.vehicle_parachute.hash(&mut hasher);
@@ -8132,6 +8171,22 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            let control_anims = self
+                .warheads
+                .iter()
+                .filter_map(|(name, wh)| {
+                    wh.mind_control_anim
+                        .as_ref()
+                        .map(|anim| (name.to_ascii_uppercase(), anim.to_ascii_uppercase()))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !control_anims.is_empty() {
+                b"phobos-warhead-mind-control-anim-v1".hash(&mut hasher);
+                control_anims.hash(&mut hasher);
+            }
+        }
         self.weapons
             .iter()
             .map(|(id, weapon)| {
@@ -9017,6 +9072,33 @@ impl RuleSet {
         } else {
             self.general.prone_speed_no_crawls
         })
+    }
+
+    /// Phobos `MindControl.IgnoreSize`: the type's own nullable, then
+    /// `[General]`, constructor default true.
+    #[cfg(feature = "phobos")]
+    pub fn mind_control_ignore_size_for(&self, ty: &ObjectType) -> bool {
+        ty.mind_control_ignore_size
+            .unwrap_or(self.mind_control.mind_control_ignore_size)
+    }
+
+    /// Phobos `MultiMindControl.ReleaseVictim`: the type's own nullable, then
+    /// `[General]`, constructor default false.
+    #[cfg(feature = "phobos")]
+    pub fn multi_mind_control_release_victim_for(&self, ty: &ObjectType) -> bool {
+        ty.multi_mind_control_release_victim
+            .unwrap_or(self.mind_control.multi_mind_control_release_victim)
+    }
+
+    /// Phobos `MindControlLink.VisibleToHouse`: the type's own nullable, then
+    /// `[General]`, constructor default All.
+    #[cfg(feature = "phobos")]
+    pub fn mind_control_link_visible_to_house_for(
+        &self,
+        ty: &ObjectType,
+    ) -> crate::rules::phobos_shields::AffectedHouse {
+        ty.mind_control_link_visible_to_house
+            .unwrap_or(self.mind_control.mind_control_link_visible_to_house)
     }
 
     /// Type-select admission for a structure.
@@ -15041,6 +15123,40 @@ Projectile=Invisible
                 Err(SnapshotError::RulesMismatch { .. })
             ));
         }
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn simulation_config_hash_covers_mind_control_enhancements() {
+        let make = |general: &str, unit: &str, warhead: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\n{general}\n[VehicleTypes]\n0=UNIT\n[UNIT]\n{unit}\n\
+                 [Warheads]\n0=WH\n[WH]\n{warhead}\n[Animations]\n0=MIND\n"
+            )))
+            .unwrap()
+        };
+        let base = make("", "", "");
+        let mut size = make("", "MindControlSize=2\n", "");
+        let mut globals = make("MindControl.IgnoreSize=no\n", "", "");
+        let mut anim = make("", "", "MindControl.Anim=MIND\n");
+        size.source_ini_hash = base.source_ini_hash;
+        globals.source_ini_hash = base.source_ini_hash;
+        anim.source_ini_hash = base.source_ini_hash;
+        assert_ne!(
+            base.simulation_config_hash(),
+            size.simulation_config_hash(),
+            "a per-type MindControlSize changes the simulation config"
+        );
+        assert_ne!(
+            base.simulation_config_hash(),
+            globals.simulation_config_hash(),
+            "a [General] IgnoreSize default changes the simulation config"
+        );
+        assert_ne!(
+            base.simulation_config_hash(),
+            anim.simulation_config_hash(),
+            "a warhead MindControl.Anim changes the simulation config"
+        );
     }
 
     #[test]

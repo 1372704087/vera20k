@@ -3839,10 +3839,13 @@ fn sequenced_pause_stops_at_one_boundary_and_recovers_a_lost_resume() {
             for _ in 0..4 {
                 // Use the production app's canonical admission rule. A
                 // retained post-Logic transaction must finish, not be replayed.
+                // Local EXIT4C7917 skips MainTick55DE7E's frame commit; like
+                // the app, never run an exited world's Logic on that frame again.
                 let frame = world.session().binary_frame();
-                if !world.pending_network_wait()
-                    && frame != 0
-                    && frame > boundary.live.borrow().committed_frontier()
+                if world.quit_requested()
+                    || (!world.pending_network_wait()
+                        && frame != 0
+                        && frame > boundary.live.borrow().committed_frontier())
                 {
                     break;
                 }
@@ -4049,6 +4052,29 @@ fn sequenced_pause_stops_at_one_boundary_and_recovers_a_lost_resume() {
         );
         assert!(!boundary.live.borrow().multiplayer_pause().unwrap().paused);
     }
+    // Neither world has a local House, so each runs Alpha's EXIT as its own,
+    // possibly a step apart. Later relay frames must leave both on their
+    // uncommitted EXIT frame.
+    let ended = worlds
+        .each_ref()
+        .map(|world| world.session().binary_frame());
+    for _ in 0..5 {
+        now_ms += 16;
+        step(
+            &mut worlds,
+            &mut relay,
+            &mut committed,
+            now_ms,
+            false,
+            false,
+        );
+    }
+    assert_eq!(
+        worlds
+            .each_ref()
+            .map(|world| world.session().binary_frame()),
+        ended
+    );
 }
 
 #[test]

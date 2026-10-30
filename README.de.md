@@ -49,6 +49,8 @@ Lade den Installer für Windows, macOS oder Linux von der
 [Release-Seite](https://github.com/YuriPlanet/vera20k/releases) herunter. Er findet dein
 Yuri's Revenge und richtet VERA20K in einem neuen Ordner ein.
 
+Nutze **Options** für Ton und Steuerung und **Vera Options** für VERA-spezifische Funktionen.
+
 Wie du Einzelspieler-Gefechte oder Kampagnen von YR über einen CnCNet-Client startest, steht in der
 [Offline-Client-Einrichtung](integrations/cncnet/README.md).
 
@@ -65,29 +67,6 @@ Die Maintainer helfen beim Review, bei der Integration und beim Mergen. Dein Bei
 dir vollständig zugeschrieben.
 
 Diskutiert wird auf [Discord](https://discord.gg/kmjRUn5m5F) und in der QQ-Gruppe (1097193563).
-
-## Einstellungen
-
-Nutze **Options** für Ton und Steuerung und **Vera Options** für VERA-spezifische Funktionen.
-Spielereinstellungen, Tastenkürzel und Lobby-Einstellungen werden in `VERA.INI` gespeichert:
-
-- **Windows-Installer:** neben `vera20k.exe`.
-- **macOS:** `~/Library/Application Support/VERA20k/VERA.INI`.
-- **Linux:** `~/.local/share/VERA20k/VERA.INI` oder in deinem XDG-Datenordner.
-
-`config.toml` legt den Spielordner fest und kann einen anderen Einstellungsordner vorgeben.
-
-Aktiviere **Mouse Wheel Zoom** unter **Vera Options** oder setze `[VERA] MouseWheelZoom=yes`
-in `VERA.INI` (Standard: `no`).
-
-Wenn `VERA.INI` fehlt, erstellt VERA die Datei und importiert vorhandene Einstellungen einmalig.
-Ohne alte Einstellungen bleibt die Datei zunächst leer; VERA verwendet die integrierten
-Standardwerte, bis Einstellungen gespeichert werden. Die Originaldateien `RA2MD.INI` und
-`KeyboardMD.ini` werden nur für den Import gelesen und nie überschrieben.
-
-`VERARULES.INI` im selben Ordner enthält optionale Änderungen am Spielverhalten. Die Datei
-enthält zunächst auskommentierte Beispiele; die Regeln der Mission oder Karte bleiben maßgeblich.
-Zum Bearbeiten und Überschreiben siehe [persönliche Regeln](docs/personal-rules.md).
 
 ## Architektur
 

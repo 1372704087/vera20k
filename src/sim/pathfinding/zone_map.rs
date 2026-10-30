@@ -370,7 +370,7 @@ impl ZoneGrid {
             }
         }
 
-        let mut hasher = crate::sim::state_hasher::StateHasher::new();
+        let mut hasher = crate::util::state_hasher::StateHasher::new();
         self.base_topology
             .native_bridge_source_size
             .hash(&mut hasher);

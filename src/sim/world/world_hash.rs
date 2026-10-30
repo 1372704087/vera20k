@@ -12,7 +12,8 @@ use super::Simulation;
 use crate::sim::game_entity::GameEntity;
 use crate::sim::overlay_grid::OverlayCell;
 use crate::sim::parallel;
-use crate::sim::state_hasher::{self, StateHasher};
+use crate::sim::state_hasher::digests;
+use crate::util::state_hasher::{self, StateHasher};
 
 #[cfg(test)]
 mod retained_cell_hash_tests {
@@ -1476,7 +1477,7 @@ impl Simulation {
     fn entity_digests(&self, entities: &[&GameEntity]) -> Vec<u64> {
         let frame = self.session.binary_frame();
         let network = self.session.game_mode().is_network();
-        state_hasher::digests(entities, entities.len() >= 4096, |entity, hasher| {
+        digests(entities, entities.len() >= 4096, |entity, hasher| {
             hash_entity(entity, frame, hasher);
             if network {
                 entity.discovery.hash_network(hasher);

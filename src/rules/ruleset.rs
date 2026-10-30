@@ -7142,9 +7142,9 @@ impl RuleSet {
     /// Other asset-derived simulation inputs are added by later ownership
     /// slices and are not claimed by this hash yet. Replays and saves compare
     /// it across platforms, so it folds with the portable
-    /// [`StateHasher`](crate::sim::state_hasher::StateHasher).
+    /// [`StateHasher`](crate::util::state_hasher::StateHasher).
     pub fn simulation_config_hash(&self) -> u64 {
-        let mut hasher = crate::sim::state_hasher::StateHasher::new();
+        let mut hasher = crate::util::state_hasher::StateHasher::new();
         // v34: Country starting-veterancy; optional extensions add domains below.
         b"rules-simulation-config-v34".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);

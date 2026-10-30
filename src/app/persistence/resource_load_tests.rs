@@ -90,6 +90,7 @@ fn bound_saved_world(
         &fixed_art,
         &overlay_registry,
         &roots,
+        &[],
         assets,
         theater.extension,
         &map.header.theater,

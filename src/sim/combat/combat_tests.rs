@@ -573,7 +573,7 @@ fn gsi_04_05_attack_frame_rules() -> RuleSet {
     let ini = IniFile::from_str(
         "[VehicleTypes]\n0=SOURCE\n1=PROTECTED\n\
          [BuildingTypes]\n0=NORMAL\n1=MOD1X1\n2=STOCK2X2\n3=SELFNO\n4=SELFYES\n5=IMMUNE\n6=PROTECTEDBLDG\n\
-         [Warheads]\n0=HITWH\n\
+         [Warheads]\n0=HITWH\n1=SELFWH\n\
          [SOURCE]\nStrength=100\nArmor=heavy\n\
          [PROTECTED]\nStrength=100\nArmor=heavy\nToProtect=yes\n\
          [NORMAL]\nStrength=100\nArmor=wood\n\
@@ -583,7 +583,8 @@ fn gsi_04_05_attack_frame_rules() -> RuleSet {
          [SELFYES]\nStrength=100\nArmor=wood\nDamageSelf=yes\n\
          [IMMUNE]\nStrength=100\nArmor=wood\nImmune=yes\n\
          [PROTECTEDBLDG]\nStrength=100\nArmor=wood\nToProtect=yes\n\
-         [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+         [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+         [SELFWH]\nAllowDamageOnSelf=yes\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
     );
     let art = IniFile::from_str(
         "[NORMAL]\nFoundation=2x2\n\
@@ -759,6 +760,26 @@ fn gsi_04_05_building_attack_frame_prelude_obeys_object_and_type_gates() {
     let unit = EntityDamageEvent::area(7, 10, 0, 1, Some(source_owner), wh);
     apply_building_receive_prelude(&unit, &entities, &rules, &interner, &mut houses, 47);
     assert_eq!(frame(&houses), i32::MIN + 1, "the wrapper is Building-only");
+
+    // Phobos `BuildingClass_ReceiveDamage_DamageSelf @ 0x0044224F` skips the
+    // `0x00442262` self return when the warhead admits the firer.
+    #[cfg(feature = "phobos")]
+    {
+        let allow_wh = interner.intern("SELFWH");
+        let allow_self = EntityDamageEvent::area(5, 10, 0, 5, Some(victim_owner), allow_wh);
+        assert_eq!(
+            apply_building_receive_prelude(
+                &allow_self,
+                &entities,
+                &rules,
+                &interner,
+                &mut houses,
+                50,
+            ),
+            BuildingReceivePrelude::Respond,
+            "DamageSelf=no building admits its own AllowDamageOnSelf warhead"
+        );
+    }
 }
 
 #[test]
@@ -907,6 +928,7 @@ fn retail_bridge_repair_hut_area_hit_returns_before_the_techno_receiver() {
                 sim.house_alliances.as_map(),
                 false,
                 0,
+                None,
                 None,
             )
             .is_none()
@@ -2389,6 +2411,9 @@ fn gsi_04_07_damage_wad_precedes_wall_and_wood_armor_routing() {
     assert_eq!(concrete_grid.cell(8, 5).overlay_id, Some(0));
 }
 
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn gsi_04_07_damage_wall_dies_in_the_tail_after_both_attackers_fire() {
     let ini = IniFile::from_str(
@@ -2492,6 +2517,9 @@ fn gsi_04_07_damage_wall_dies_in_the_tail_after_both_attackers_fire() {
     );
 }
 
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn gsi_04_07_damage_prior_projectile_fatal_death_weapon_is_inline() {
     fn run(victim_hp: i32, explodes: bool) -> (CombatTickResult, OverlayGrid, EntityStore, u64) {
@@ -5663,6 +5691,9 @@ fn a_techno_speaks_its_voice_feedback_only_on_the_half_strength_crossing() {
     assert_eq!(order, ["voice", "building"]);
 }
 
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn fatal_sound_selection_uses_human_voice_then_die_sound_main_draws() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -7138,6 +7169,9 @@ fn gsi_04_11_death_weapon_anim_precedes_outer_detonation_anim() {
 /// inside the dying object's ReceiveDamage: an Inviso death weapon scatters
 /// its anim by one raw Scenario draw, ahead of the outer shot's anim, and
 /// draws no cluster successor (`0x0070D782` calls DetonateAtCoord directly).
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn an_inviso_death_weapon_scatters_its_anim_inside_the_receiver() {
     let mut rules = RuleSet::from_ini(&IniFile::from_str(
@@ -7600,6 +7634,7 @@ fn inviso_detonation_draws(
     effect
 }
 
+#[cfg(not(feature = "phobos"))]
 fn constructed_anim_coord(
     anim: &super::receiver_fixture::ConstructedAnimObservation,
 ) -> (u16, u16, SimFixed, SimFixed) {
@@ -7612,6 +7647,9 @@ fn constructed_anim_coord(
     )
 }
 
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn inviso_scatter_uses_scenario_rng_only_for_effect_and_paired_smudge() {
     let mut rules = inviso_weapon_rules(true, true);
@@ -7665,6 +7703,9 @@ fn inviso_scatter_uses_scenario_rng_only_for_effect_and_paired_smudge() {
 /// from the placement. `BallisticScatter=` is raised so the burst can land
 /// more than `0x200` out, where a fuse measured from the target would not
 /// fire. The shooter fires from its centre.
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn a_flak_burst_goes_off_where_fire_moved_it() {
     let mut rules = shooter_rules(
@@ -7755,6 +7796,9 @@ fn inviso_empty_animlist_still_consumes_one_draw() {
     );
 }
 
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn gsi_08_05_non_inviso_projectile_advances_scenario_rng_by_the_reload_jitter() {
     let rules = inviso_weapon_rules(false, true);
@@ -7800,6 +7844,9 @@ fn gsi_08_05_non_inviso_projectile_advances_scenario_rng_by_the_reload_jitter() 
 /// detonation removes it from the Logic vector, which shifts the second into
 /// its slot, and the cursor moves past it (`0x0055B613`): the second bullet
 /// detonates next frame.
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn two_inviso_attackers_fire_in_live_order_and_the_second_bullet_waits_a_frame() {
     let mut rules = inviso_weapon_rules(true, true);
@@ -7869,6 +7916,9 @@ fn inviso_special_rules(special_key: &str) -> RuleSet {
 /// the Inviso re-scatter draw (`0x00469AD7`) and the `AnimList=` anim. Before,
 /// the immediate path took ordinary area damage for these arms: the
 /// Magnetron's `[MagneticBeam]` dealt 5000 to the vehicle it should lift.
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn inviso_special_arms_claim_the_impact_and_keep_the_shared_tail() {
     // DirectRocker is the chain's one conditional arm; TARGET is a UnitClass.
@@ -9107,6 +9157,7 @@ fn retail_area_damage_delivers_miner_warning_before_neighboring_base_warning() {
         crate::sim::projectile::ProjectileCoord::new(position.x, position.y, position.z),
         weapon.damage,
         warhead,
+        true,
         (source, Some(source_owner), warhead_id),
         effects,
     );
@@ -10682,10 +10733,13 @@ fn gsi_08_12_a_base_defence_kill_pays_nobody() {
 /// X term down a lepton.
 #[test]
 fn gsi_08_04_projectile_spawns_at_the_muzzle_not_the_hull_centre() {
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n1=HTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nCost=700\nPrimary=105mm\nTurret=yes\n[HTNK]\nStrength=2000\nArmor=heavy\nSpeed=4\nCost=900\nPrimary=105mm\n[105mm]\nDamage=65\nROF=50\nRange=6\nSpeed=40\nProjectile=Cannon\nWarhead=AP\n[Cannon]\nArcing=true\n[AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("fire-origin fixture parses");
+    ),
+
+        &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
+).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
         &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
     ));
@@ -10726,10 +10780,13 @@ fn gsi_08_04_projectile_spawns_at_the_muzzle_not_the_hull_centre() {
 /// Same fixture as `gsi_08_04`, whose `Arcing=` shell keeps the muzzle.
 #[test]
 fn gsi_08_04_a_dropping_shell_leaves_the_hull_centre() {
-    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+&IniFile::from_str(
         "[VehicleTypes]\n0=MTNK\n1=HTNK\n[MTNK]\nStrength=300\nArmor=heavy\nSpeed=6\nCost=700\nPrimary=105mm\nTurret=yes\n[HTNK]\nStrength=2000\nArmor=heavy\nSpeed=4\nCost=900\nPrimary=105mm\n[105mm]\nDamage=65\nROF=50\nRange=6\nSpeed=40\nProjectile=Bomb\nWarhead=AP\n[Bomb]\nDropping=yes\n[AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
-    .expect("dropping fixture parses");
+    ),
+
+        &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
+).unwrap();
     rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(
         &IniFile::from_str("[MTNK]\nPrimaryFireFLH=190,25,120\n"),
     ));
@@ -10942,6 +10999,7 @@ fn gsi_08_06_point_blank_shot_clamps_the_launch_speed_to_half_the_distance() {
         Some(crate::sim::projectile::launch::LaunchSpeedProjectile {
             rot: 0,
             floater: false,
+            gravity: None,
         }),
         200,
         crate::sim::projectile::launch::fireat_launch_distance(

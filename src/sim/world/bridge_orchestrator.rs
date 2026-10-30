@@ -136,9 +136,11 @@ pub(crate) fn damage_at_waypoint(
             ProjectileCoord::new(x.wrapping_add(dx), y.wrapping_add(dy), z),
             100,
             warhead,
+            true,
             (RAD_NO_ATTACKER, None, warhead_id),
             frame_effects,
-        );
+        )
+        .bridge_state_changed;
     }
     // IsWaypointValid68BD80 gates only the tail, after all five area visits.
     // The retained unset coordinate is zero; the shared session bounds the index.
@@ -513,7 +515,7 @@ fn family_rim_tiles(
 fn hut_tile_keys(terrain: &ResolvedTerrainGrid, family: HutBridgeFamily) -> HighBridgeRimTiles {
     let mut keys = terrain
         .high_bridge_rim_tiles()
-        .unwrap_or_else(|| HighBridgeRimTiles::from_ini(-1, &[]));
+        .unwrap_or(HighBridgeRimTiles::ABSENT);
     if family == HutBridgeFamily::Low {
         keys.base = terrain.wood_bridge_set_base();
     }

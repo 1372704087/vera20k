@@ -279,6 +279,9 @@ impl NetworkCommandBoundary for FrameClientBoundary<'_> {
                 LiveCommandError::Sequenced(
                     crate::net::live_commands::SequencedError::QueueFull,
                 ) => NetworkInterruption::QueueFull.into(),
+                LiveCommandError::Sequenced(
+                    crate::net::live_commands::SequencedError::NewerClientRequired,
+                ) => NetworkInterruption::NewerClientRequired.into(),
                 LiveCommandError::Sequenced(_) => NetworkInterruption::ConnectionFailed.into(),
                 LiveCommandError::Startup(crate::net::live_commands::StartupError::Aborted) => {
                     NetworkInterruption::ConnectionFailed.into()
@@ -440,7 +443,7 @@ mod tactical_radar_tests {
         )
         .unwrap();
         sim.install_waypoints(&map.waypoints);
-        sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+        sim.initialize_trigger_definitions(&map, &Default::default(), None, None, None);
         sim.classify_map_triggers(&rules);
         sim.advance_triggers(&rules, None, FrameEffects::empty());
         assert!(matches!(

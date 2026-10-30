@@ -874,6 +874,7 @@ fn fireat_launch_aim(
             .map(|projectile| LaunchSpeedProjectile {
                 rot: projectile.rot,
                 floater: projectile.floater,
+                gravity: projectile.gravity(),
             })
     };
     let speed = weapon_launch_speed(
@@ -935,6 +936,10 @@ fn fireat_damage(
         open_topped: firer
             .filter(|firer| firer.passenger_role.in_open_transport())
             .map(|_| f32_bits(multipliers.open_topped_damage_multiplier)),
+        #[cfg(feature = "phobos")]
+        ae_firepower: firer.map_or(1.0, |firer| firer.phobos_stat_multipliers().firepower),
+        #[cfg(not(feature = "phobos"))]
+        ae_firepower: 1.0,
     };
     damage::attacker::fire_damage(
         weapon.damage,
@@ -1158,11 +1163,18 @@ pub(crate) fn snapshot_get_rof(
                 .map_or(crate::util::native_x87::NativeF64Bits::ONE, |house| {
                     house.rof_bias()
                 }),
+            ae_rof: firer.map_or(1.0, |entity| entity.phobos_rof_multiplier()),
             #[cfg(feature = "ares")]
             attached_rof: Some(
                 firer.map_or(crate::util::native_x87::NativeF64Bits::ONE, |entity| {
                     entity.attached_rof_multiplier()
                 }),
+            ),
+            #[cfg(feature = "phobos")]
+            rof_random_delay: Some(
+                rof_weapon
+                    .and_then(|weapon| weapon.rof_random_delay)
+                    .unwrap_or(rules.general.rof_random_delay),
             ),
             rof_ability: self::veterancy::has_weapon_ability(
                 self::veterancy::rank_from_u16(snap.veterancy),
@@ -1238,6 +1250,11 @@ pub(super) fn emit_admitted_fire(
             return None;
         }
     }
+    // Phobos TechnoClass_FireAt_BeforeTruelyFire (0x6FDDC0): an admitted shot
+    // counts towards DiscardOn.Firing.Count, including the branches below
+    // that launch no bullet.
+    #[cfg(feature = "phobos")]
+    world.record_phobos_attach_firing(snap.stable_id, rules);
     if weapon.suicide {
         // Techno6FDDC0..6FDE0E: the local packet is type Strength, not
         // current Health or weapon Damage. The real self receiver completes
@@ -1684,6 +1701,7 @@ pub(super) fn emit_admitted_fire(
             arcing: ballistic,
             gravity: crate::sim::projectile::projectile_gravity(
                 rules.general.gravity,
+                collision.gravity(),
                 collision.floater,
             ),
             high_root: high_arc_root(weapon.lobber, raw_source, current_target_coord),
@@ -3208,7 +3226,8 @@ fn infantry_fire_frame(
 /// `TechnoClass::EstimateDamage @ 0x006FDB80` for `attacker_id` shooting
 /// `target_id` with `weapon` (see [`damage::estimate`]): the target house's
 /// category multiplier for the attacker's type, the attacker's
-/// `ArmorMultiplier`, the attacker's FIREPOWER and the target's STRONGER ranks.
+/// `ArmorMultiplier`, the attacker's FIREPOWER, the target's AttachEffect
+/// armor product and the target's STRONGER ranks.
 ///
 /// House+188 comes from the shared SetDifficulty owner, as in FireAt's
 /// damage build; Techno+160 is the attacker's live firepower_multiplier.
@@ -3262,10 +3281,24 @@ pub(crate) fn estimated_damage_on(
             occupied: None,
             bunkered: None,
             open_topped: None,
+            #[cfg(feature = "phobos")]
+            ae_firepower: attacker.phobos_stat_multipliers().firepower,
+            #[cfg(not(feature = "phobos"))]
+            ae_firepower: 1.0,
         },
         divisors: damage::DefenceDivisors {
             house_type_armor: NativeF32Bits::from_bits(house_type_armor.to_bits()),
             unit_armor: attacker.crate_multipliers.armor(),
+            // Phobos 0x006FDC87 divides by `CalculateArmorMultipliers(pTarget,
+            // warhead, pThis->Owner)`: the target's effects, not the firer's.
+            // RESIDUAL: this read-only estimate uses the cached unrestricted
+            // product. Native also folds each active effect with a restricted
+            // `ArmorMultiplier` (chance, house and warhead gates) and draws one
+            // `RandomDouble` per such effect off its delay timer (`realHit`
+            // false: no timer or HitAnim). A target carrying one is estimated
+            // without it, and every target-scan estimate on it skips those
+            // Scenario draws, shifting the stream.
+            ae_armor: target.phobos_armor_multiplier(),
             rank_armor,
         },
         warhead: warhead.map(|warhead| damage::estimate::EstimateWarhead {

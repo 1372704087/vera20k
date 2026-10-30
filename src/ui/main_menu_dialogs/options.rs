@@ -78,6 +78,9 @@ pub(crate) const DEVELOPER_OPTIONS_LABEL: &str = "Developer Options";
 pub(crate) const WOL_TEST_SERVICE_LABEL: &str = "Offline Internet Test Service";
 pub(crate) const WOL_TEST_SERVICE_HELP: &str =
     "Internet opens with stand-in servers, lobbies and players, for testing its screens.";
+pub(crate) const SKIP_STARTUP_LOGO_LABEL: &str = "Skip Startup Logo";
+pub(crate) const SKIP_STARTUP_LOGO_HELP: &str =
+    "Start without the logo movie; the loading screen still shows. Applies at the next start.";
 pub(crate) const FPS_COUNTER_LABEL: &str = "FPS Counter";
 pub(crate) const FPS_COUNTER_HELP: &str = "Show frames per second in the top-left corner. Off at every start; Ctrl+Alt+F also switches it.";
 pub(crate) const SHIFT_QUEUE_HELP: &str =
@@ -475,6 +478,9 @@ pub(crate) enum LauncherCheckboxId {
     /// shows and changes live state at once, and is never saved: the readout
     /// starts hidden at every launch.
     FpsCounter,
+    /// VERA's developer box: the next launch skips `Init_Game`'s logo movie
+    /// (`0x0052C5E2`); the splash and the first-run intro still play.
+    SkipStartupLogo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -484,6 +490,15 @@ pub(crate) enum LauncherCue {
     Checkbox,
     ComboOpen,
     ComboClose,
+}
+
+impl From<crate::ui::shell::combobox::ComboCue> for LauncherCue {
+    fn from(cue: crate::ui::shell::combobox::ComboCue) -> Self {
+        match cue {
+            crate::ui::shell::combobox::ComboCue::Open => Self::ComboOpen,
+            crate::ui::shell::combobox::ComboCue::Close => Self::ComboClose,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -504,6 +519,7 @@ pub(crate) enum LauncherOptionsEvent {
     RenderInterpolationChanged(bool),
     MouseWheelZoomChanged(bool),
     FpsCounterChanged(bool),
+    SkipStartupLogoChanged(bool),
     ScorePreview(f32),
     SoundPreview(f32),
     VoicePreview(f32),
@@ -546,6 +562,7 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) wol_test_service: bool,
     /// The FPS readout's live state when the page opened, then each toggle.
     pub(crate) fps_counter: bool,
+    pub(crate) skip_startup_logo: bool,
     /// The Sidebar list's choice; like Zoom, it applies at once.
     pub(crate) sidebar: SidebarSize,
     pub(crate) score_position: u8,
@@ -570,6 +587,7 @@ impl Default for LauncherOptionsValues {
             shift_queue: false,
             wol_test_service: false,
             fps_counter: false,
+            skip_startup_logo: false,
             sidebar: SidebarSize::Normal,
             score_position: 4,
             sound_position: 7,
@@ -736,8 +754,11 @@ impl OptionsDialogState {
         &self.displays
     }
 
-    pub(crate) const fn launcher_audio_available(&self) -> bool {
-        self.launcher_audio_available
+    /// Whether a trackbar window is enabled: `0x00560361..0x00560467` (as
+    /// `0x6B6300` does for its own three) enables the audio ones only with an
+    /// output device (`Audio__HasOutputDevice @ 0x00407000`).
+    pub(crate) const fn trackbar_enabled(&self, id: LauncherTrackbarId) -> bool {
+        !id.is_audio() || self.launcher_audio_available
     }
 
     /// gamemd-derived: the parent snapshot consumed by
@@ -776,7 +797,7 @@ impl OptionsDialogState {
     /// captions and queues preview/cue work only after the integer position
     /// actually changes; the accepted projection remains owned by `0x0055FAA0`.
     fn set_trackbar_position(&mut self, id: LauncherTrackbarId, position: u8) {
-        if position > id.maximum() || (id.is_audio() && !self.launcher_audio_available) {
+        if position > id.maximum() || !self.trackbar_enabled(id) {
             return;
         }
         let slot = match id {
@@ -825,7 +846,7 @@ impl OptionsDialogState {
         id: LauncherTrackbarId,
         frame: PhysicalControlFrame,
     ) {
-        if id.is_audio() && !self.launcher_audio_available {
+        if !self.trackbar_enabled(id) {
             return;
         }
         let press = trackbar_press(
@@ -889,6 +910,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::RenderInterpolation => &mut self.values.render_interpolation,
             LauncherCheckboxId::MouseWheelZoom => &mut self.values.mouse_wheel_zoom,
             LauncherCheckboxId::FpsCounter => &mut self.values.fps_counter,
+            LauncherCheckboxId::SkipStartupLogo => &mut self.values.skip_startup_logo,
         };
         *slot = !*slot;
         let checked = *slot;
@@ -919,6 +941,9 @@ impl OptionsDialogState {
             LauncherCheckboxId::FpsCounter => self
                 .pending_events
                 .push(LauncherOptionsEvent::FpsCounterChanged(checked)),
+            LauncherCheckboxId::SkipStartupLogo => self
+                .pending_events
+                .push(LauncherOptionsEvent::SkipStartupLogoChanged(checked)),
             LauncherCheckboxId::Tooltips
             | LauncherCheckboxId::TargetLines
             | LauncherCheckboxId::ShowHidden => {}

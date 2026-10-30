@@ -1,5 +1,5 @@
 //! VERA HTTPS lobby payloads. These project the existing shell/session owners;
-//! they do not create a second gameplay state. See services/lobby/protocol.md.
+//! they do not create a second gameplay state. See docs/lobby-protocol.md.
 
 use serde::{Deserialize, Serialize};
 
@@ -254,6 +254,9 @@ pub(super) struct RelayGrant {
     pub payload_key: String,
     pub source_index: u8,
     pub ordering_certificate: String,
+    // Present when the lobby homes the match on several regional relays.
+    #[serde(default)]
+    pub federation: Option<String>,
 }
 
 #[derive(Deserialize)]

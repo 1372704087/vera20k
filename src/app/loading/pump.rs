@@ -1903,6 +1903,7 @@ fn pump_loading_after_present(
                     #[cfg(feature = "ares")]
                     &mut prepared_rules_prefix,
                     audio,
+                    state.audio.theme.catalog(),
                     shared_cell_dummy,
                     tile_variant_selector_cache,
                     &mut progress.sink,
@@ -1925,6 +1926,7 @@ fn pump_loading_after_present(
                     #[cfg(feature = "ares")]
                     prepared_noncampaign_prefix: &mut prepared_rules_prefix,
                     audio,
+                    themes: state.audio.theme.catalog(),
                     shared_cell_dummy,
                     tile_variant_selector_cache,
                     progress: &mut progress.sink,
@@ -2087,6 +2089,7 @@ fn pump_map_construction(
             #[cfg(feature = "ares")]
             prepared_noncampaign_prefix: &mut constructing.rules_prefix,
             audio,
+            themes: state.audio.theme.catalog(),
             shared_cell_dummy,
             tile_variant_selector_cache,
             progress: &mut progress.sink,
@@ -2435,13 +2438,17 @@ fn prepare_loading_session(
     configured_ra2_dir: Option<PathBuf>,
     network: Option<crate::app::lan_service::LoadingNetworkService<'_>>,
 ) -> anyhow::Result<LoadingSession> {
-    #[cfg(not(feature = "ares"))]
-    let _ = audio;
     if let Err(err) =
         ensure_session_job_asset_manager(process_assets, &mut session, configured_ra2_dir)
     {
         session.retire(process_assets);
         return Err(err);
+    }
+    // A recovered assetless launch selects Theme before request preparation
+    // and scenario/theater archive changes. The process holder keeps an
+    // already selected catalog, including an empty one, across every attempt.
+    if let Some(assets) = loading_asset_manager(&session) {
+        audio.initialize_theme(assets);
     }
     let LoadingSession {
         stage,
@@ -3208,6 +3215,15 @@ fn apply_network_loading_disconnects(
     indices: &[usize],
 ) -> Vec<crate::app::match_runtime::network_match::ConnectionDestroyed> {
     use crate::app::match_runtime::network_match::{ConnectionError, destroy_connection};
+    // VERA online adaptation: the relay certificate fixes an online match's
+    // sources, and the relay departs a player who never becomes ready in the
+    // first frame for every client. A local disconnect would leave this
+    // client's roster short of that certificate.
+    if session.network_return_context()
+        == Some(crate::app::match_runtime::session::NetworkReturnContext::Wol)
+    {
+        return Vec::new();
+    }
     let Some(sim) = result.scenario.simulation.as_mut() else {
         // No House array to consult: the connections still drop.
         for &index in indices {

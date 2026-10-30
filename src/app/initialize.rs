@@ -278,6 +278,8 @@ impl App {
         startup_options: RetailStartupOptions,
         external_launch: bool,
         replay_retail_directory: Option<&Path>,
+        // A `-SPAWN` test run's opt-in invisible window (tools/spawn/README.md).
+        hidden_spawn_window: bool,
     ) -> Result<InitializationStep> {
         // One parsed retail profile snapshot yields two ordered products: the
         // independent frontend size selected after the early Video read, and the later
@@ -327,6 +329,7 @@ impl App {
             );
         let (window_width, window_height, window_visible) =
             startup_window_projection(profile_screen, capture_dimensions);
+        let window_visible = window_visible && !hidden_spawn_window;
         let startup_audio =
             StartupAudioDisposition::for_audio_enabled(startup_options.audio_enabled);
         // The player's window has a title bar and any size they drag it to; it
@@ -352,7 +355,7 @@ impl App {
             crate::app::display_target::current_displays_for(event_loop)
         };
         let wanted_display = super::display_target::screen_for(&displays, &options_profile.display);
-        let fullscreen = (!capture && options_profile.full_screen)
+        let fullscreen = (!capture && !hidden_spawn_window && options_profile.full_screen)
             .then(|| super::display_target::fullscreen_for(&displays, &options_profile.display));
         let mut window_attrs: WindowAttributes = WindowAttributes::default()
             .with_title(super::WINDOW_TITLE)
@@ -412,7 +415,13 @@ impl App {
             icon.set_dock_icon();
         }
         #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
-        let gpu = GpuContext::new(window.clone(), event_loop.owned_display_handle(), capture)?;
+        // An invisible spawn test window renders into the same offscreen
+        // target as a hidden capture: it has no presentable swapchain.
+        let gpu = GpuContext::new(
+            window.clone(),
+            event_loop.owned_display_handle(),
+            capture || hidden_spawn_window,
+        )?;
         let quickplay_allowed = replay_retail_directory.is_none();
         #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
         let pending = (
@@ -479,9 +488,6 @@ impl App {
             .as_ref()
             .map(|cfg| u64::from(cfg.gameplay.input_delay_ticks))
             .unwrap_or_else(|| u64::from(crate::util::config::default_input_delay_ticks()));
-        // Ordinary gamemd chrome is one physical render pixel per asset pixel.
-        // 6A5090/6A5130 change row capacity on resize, never artwork scale.
-        let ui_scale = 1.0;
         let sidebar_layout_spec = SidebarChromeLayoutSpec::stock();
         let mut startup_asset_manager = game_config.as_ref().and_then(|config| {
             startup_asset_or_error(
@@ -534,13 +540,16 @@ impl App {
                 assets,
             )
         });
-        // A client-selected game enters scenario loading directly. This splash
-        // is presented synchronously below, before start_spawn_session runs;
-        // clearing it in that later callback cannot hide the first frame.
-        let mut startup_splash = if !external_launch
-            && capture_dimensions.is_none()
-            && main_menu_shell_error.is_none()
-        {
+        // Native `Init_Game` plays its logo only when the bulk MIX mount
+        // returned success (`0x0052C5A1..A3`), and VERA plays nothing for a
+        // sealed capture or a client-selected launch. A client-selected game
+        // enters scenario loading directly, with no splash either.
+        let process_movies =
+            !external_launch && capture_dimensions.is_none() && main_menu_shell_error.is_none();
+        // `[VERA] SkipStartupLogo=` drops only the logo: the splash and the
+        // first-run intro still play.
+        let play_logo = process_movies && !options_profile.skip_startup_logo;
+        let mut startup_splash = if process_movies {
             startup_asset_manager
                 .as_ref()
                 .zip(startup_fnt.as_ref())
@@ -561,35 +570,39 @@ impl App {
         } else {
             None
         };
-        if let Some(splash) = startup_splash.as_mut() {
-            // Surface acquisition can be transient before the first event-loop
-            // redraw. A splash that did not reach the screen stays unarmed for
-            // the frame loop to retry.
+        if process_movies {
+            // `Init_Game` plays `EA_WWLOGO` (`0x0052C5E2`) before it presents
+            // the splash (`0x0052C5F3`), and the logo needs the frame loop, so
+            // with the logo the load below runs on black and the frame loop
+            // presents the splash and arms its hold once the logo has ended.
+            // Without it the splash goes up now and the load is spent inside
+            // its hold. A present that did not reach the screen stays unarmed
+            // for the frame loop to retry.
+            let splash = startup_splash.as_mut().filter(|_| !play_logo);
             match startup_splash::render_and_present(
                 &gpu,
                 &batch_renderer,
                 &shell_surface_presenter,
                 &depth_view,
                 &fps_overlay,
-                splash,
+                splash.as_deref(),
             ) {
-                Ok(true) => splash.mark_presented(Instant::now()),
-                Ok(false) => {
-                    log::warn!("Initial retail startup splash present deferred: no surface frame");
+                Ok(true) => {
+                    if let Some(splash) = splash {
+                        splash.mark_presented(Instant::now());
+                    }
                 }
-                Err(err) => {
-                    log::warn!("Initial retail startup splash present deferred: {err:#}");
-                }
+                Ok(false) => log::warn!("Initial startup present deferred: no surface frame"),
+                Err(err) => log::warn!("Initial startup present deferred: {err:#}"),
             }
         }
         if external_launch {
             log::info!("External launch: process-start splash skipped");
         }
         InitializationStep::pending(window.clone(), move || {
-            // Ordinary interactive startup runs with the splash already on screen: the
-            // presented swapchain frame stays composited while this thread blocks,
-            // and the hold armed above is measured from that present, so a slow
-            // load is spent inside the five seconds instead of before them.
+            // Ordinary interactive startup runs with the frame above on
+            // screen: the presented swapchain frame stays composited while this
+            // thread blocks.
             let mut process_assets =
                 crate::app::process_assets::ProcessAssets::new_with_ini_config(
                     startup_options.media_archive_mode,
@@ -835,6 +848,19 @@ impl App {
                     }
                     _ => crate::app::persistence::phobos_settings::PhobosClientSettings::default(),
                 };
+                // WinMain reads the one-shot `[Intro] Play=` (`ReadBool`
+                // 0x005295F0: section `Intro` 0x8241C0, key `Play` 0x840BE8,
+                // default 1, `0x006BDF64..0x006BDF89`) and, while the bit it
+                // sets is on, stores `Play=no` and saves the INI
+                // (`0x006BDFED..0x006BE018`) before the game run function
+                // `0x48CCC0` starts; `Init_Game` then plays the intro from
+                // `0x0052CA65`. Sealed captures and client-selected launches
+                // keep the profile untouched, like the retail options snapshot,
+                // and play nothing.
+                let play_intro = process_movies
+                    && game_config.as_ref().is_some_and(|config| {
+                        crate::app::persistence::intro_play::consume(config.paths.settings_dir())
+                    });
                 let mut state = AppState {
             platform: PlatformState::new(
                 window,
@@ -846,6 +872,7 @@ impl App {
                 session: Default::default(),
                 network_wait: Default::default(),
                 network_failure: None,
+                frame_stopped: false,
                 live_network: None,
                 lan_service: None,
                 startup: Default::default(),
@@ -866,7 +893,6 @@ impl App {
                     sidebar_projection: Default::default(),
                     active_sidebar_tab: SidebarTab::default_active_tab(),
                     sidebar_layout_spec,
-                    ui_scale,
                     tooltips: startup_tooltips,
                     tooltip_epoch: Instant::now(),
                     message_list: crate::ui::messages::MessageList::new(
@@ -897,6 +923,8 @@ impl App {
                     screen_shake: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
+                    #[cfg(feature = "ares")]
+                    flying_credits: Default::default(),
                     talk_bubble: Default::default(),
                     electric_bolts: Default::default(),
                     radiation_beams: Default::default(),
@@ -979,7 +1007,6 @@ impl App {
                 scenario_elapsed_clock:
                     crate::app::match_runtime::frame_pacer::ScenarioElapsedClock::new(),
                 configured_input_delay_ticks: input_delay_ticks,
-                local_owner_override: None,
                 sandbox_full_visibility: false,
                 debug_pause: false,
                 // KD-3: unify the two game-speed sources. `in_game_options.game_speed`
@@ -996,6 +1023,10 @@ impl App {
                 campaign_speed_control: startup_options.campaign_speed_control,
                 external_launch: false,
                 external_launch_error: None,
+                external_match_result: None,
+                external_progress: Default::default(),
+                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+                browser_exit_pending: false,
                 screen: GameScreen::default(),
                 scenario_catalog,
                 skirmish_modes,
@@ -1040,6 +1071,7 @@ impl App {
                 shell_exit: None,
                 quit_cascade: None,
                 startup_splash,
+                startup_intro_pending: false,
                 shell_message_box: None,
                 options_dialog: None,
                 keyboard_dialog: None,
@@ -1127,15 +1159,31 @@ impl App {
                 // even without a music device. The profile keeps native negative values
                 // for round-trip; physical output owners provide the safe gain clamp.
                 apply_startup_audio_profile(&state.persistence.options_profile, &mut state.audio);
+                // `Init_Game` plays the logo through Play_Movie (`0x0052C5E2`),
+                // then presents the splash (`0x0052C5F3`); the frame loop
+                // starts the first-run intro once the splash hold ends.
+                if process_movies && state.frontend.screen == GameScreen::MainMenu {
+                    state.frontend.startup_intro_pending = play_intro;
+                    if play_logo {
+                        Self::start_fullscreen_movie(
+                            &mut state,
+                            crate::app::frontend::fullscreen_movie::STARTUP_LOGO_MOVIE,
+                            crate::app::frontend::fullscreen_movie::MovieReturn::StartupLogo,
+                        );
+                    }
+                }
                 Self::sync_zoom_pass(&mut state);
                 #[cfg(feature = "telemetry-dashboard")]
                 attach_dashboard(&mut state);
 
-                if quickplay_allowed && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY") {
-                    // The developer shortcut carries an authored-map sandbox through
-                    // the unverified legacy Battle loader. It has no artificial AI
-                    // opponent or starting forces; this is not campaign admission.
-                    let session = quickplay_launch_session(quickplay);
+                // The developer shortcut carries an authored-map sandbox through
+                // the unverified legacy Battle loader. It has no artificial AI
+                // opponent or starting forces; this is not campaign admission.
+                if quickplay_allowed
+                    && let Ok(quickplay) = std::env::var("RA2_QUICKPLAY")
+                    && let Some(session) =
+                        quickplay_launch_session(quickplay, &state.frontend.skirmish_modes)
+                {
                     #[cfg(feature = "ares")]
                     crate::app::frontend::skirmish_session::prepare_external_skirmish_countries(
                         &mut state.process_assets,
@@ -1158,23 +1206,22 @@ impl App {
 
 /// `RA2_QUICKPLAY=<map>`: VERA-internal authored-map sandbox using the legacy
 /// Battle loader, with one local house and no generated opponents or forces.
-fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::SkirmishLaunchSession {
+/// The mode is the roster's Battle row, as the skirmish shell would select it;
+/// without one the shortcut does not launch.
+fn quickplay_launch_session(
+    selected_map: String,
+    modes: &[crate::skirmish_modes::SkirmishGameMode],
+) -> Option<crate::skirmish_launch::SkirmishLaunchSession> {
     use crate::skirmish_launch::{
-        LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode, SkirmishLaunchOptions,
-        SkirmishLaunchSession, SkirmishLocalSlot,
+        BATTLE_MODE_ID, LaunchCountry, LaunchStartPosition, LaunchTeam, SkirmishLaunchMode,
+        SkirmishLaunchOptions, SkirmishLaunchSession, SkirmishLocalSlot,
     };
-    SkirmishLaunchSession {
-        mode: SkirmishLaunchMode {
-            class: crate::skirmish_modes::MpModeClass::Battle,
-            id: 1,
-            ui_name_key: "GUI:Battle".to_string(),
-            tooltip_key: "STT:ModeBattle".to_string(),
-            override_file: "MPBattleMD.ini".to_string(),
-            map_filter: "standard".to_string(),
-            random_maps_allowed: true,
-            allies_allowed: true,
-            must_ally: false,
-        },
+    let Some(battle) = crate::skirmish_modes::mode_by_id(modes, BATTLE_MODE_ID) else {
+        log::warn!("RA2_QUICKPLAY needs the MPModesMD.ini Battle row; not launching");
+        return None;
+    };
+    Some(SkirmishLaunchSession {
+        mode: SkirmishLaunchMode::from_game_mode(battle),
         selected_map_file: Some(selected_map),
         // The local House takes the player name, so naming it after the
         // country lets a fixture map's `Americans`-owned objects spawn.
@@ -1207,7 +1254,7 @@ fn quickplay_launch_session(selected_map: String) -> crate::skirmish_launch::Ski
             unit_count: 0,
             ..SkirmishLaunchOptions::default()
         },
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1276,7 +1323,11 @@ mod tests {
 
     #[test]
     fn quickplay_authored_fixture_does_not_add_starting_forces() {
-        let session = quickplay_launch_session("rendering-fixture.map".into());
+        let session = quickplay_launch_session(
+            "rendering-fixture.map".into(),
+            &crate::skirmish_modes::stock_skirmish_modes(),
+        )
+        .unwrap();
         assert_eq!(
             session.selected_map_file.as_deref(),
             Some("rendering-fixture.map")
@@ -1313,8 +1364,14 @@ mod tests {
             .unwrap()
             .paths
             .ra2_dir;
+        let assets = crate::assets::asset_manager::AssetManager::new(
+            &root,
+            crate::assets::asset_manager::MediaArchiveMode::STOCK_DIGITAL,
+        )
+        .unwrap();
+        let modes = crate::skirmish_modes::skirmish_modes_from_assets(&assets).unwrap();
         for previous_empty_opponent in [false, true] {
-            let mut session = quickplay_launch_session(path.clone());
+            let mut session = quickplay_launch_session(path.clone(), &modes).unwrap();
             if previous_empty_opponent {
                 // Reproduce the v3 launch defect without adding any MCVs.
                 // Its empty second contender must still exercise ordinary

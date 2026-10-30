@@ -117,6 +117,7 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
+pub mod attach_effect;
 pub mod digital_display;
 pub mod phobos_parallel_ai_queues;
 #[cfg(all(test, feature = "phobos"))]
@@ -131,6 +132,8 @@ pub mod phobos_fly_wobble;
 pub mod phobos_pause_menu;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
+#[cfg(feature = "phobos")]
+pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_power_plant_enhancer;
 #[cfg(feature = "phobos")]
@@ -148,6 +151,9 @@ pub const NPATCH_ENABLED: bool = cfg!(feature = "npatch");
 /// Whether this binary includes VERA20K's own extension behaviors. INIs cannot
 /// change it; builds without the feature keep every stock path.
 pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
+/// Whether this binary includes the NPBUG bug-fix extension. INIs cannot
+/// change it; builds without the feature keep every native path.
+pub const NPBUG_ENABLED: bool = cfg!(feature = "npbug");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;
@@ -165,11 +171,15 @@ pub(crate) mod ares_spotlight;
 pub(crate) mod ares_driver;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_crew;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_bounty;
 pub mod armor;
 pub mod alpha_image_assets;
 pub mod country_loading;
 #[cfg(test)]
 mod ares_manual_control_tests;
+#[cfg(test)]
+mod ares_type_selection_tests;
 pub mod compatibility;
 pub mod animation_sequence;
 pub mod art_data;
@@ -200,6 +210,7 @@ pub mod gunner_turrets;
 pub mod house_colors;
 pub mod infantry_sequence;
 pub mod ini_parser;
+pub(crate) mod weapon_offsets;
 // The readers are a child of the raw store, so only they see raw value text.
 pub use ini_parser::ini_value;
 pub mod audio_sources;
@@ -233,6 +244,7 @@ pub mod shp_vehicle_sequence;
 pub mod skirmish_colors;
 pub mod smudge_type;
 pub mod sound_ini;
+pub mod theme_ini;
 #[cfg(feature = "ares")]
 pub(crate) mod superweapon_influence;
 pub mod superweapon_targeting;

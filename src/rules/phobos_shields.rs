@@ -112,6 +112,7 @@ pub struct ShieldType {
     self_healing_enabled_by: Vec<String>,
     absorb_over_damage: bool,
     immune_to_berserk: bool,
+    immune_to_crit: bool,
     bracket_delta: i32,
     break_anim: Vec<String>,
     hit_anim: Vec<String>,
@@ -248,6 +249,12 @@ impl ShieldType {
         self.immune_to_berserk
     }
 
+    /// Phobos `ShieldTypeClass::ImmuneToCrit`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn immune_to_crit(&self) -> bool {
+        self.immune_to_crit
+    }
+
     pub(crate) fn absorb_percent(&self) -> f64 {
         self.absorb_percent
     }
@@ -331,6 +338,7 @@ impl std::hash::Hash for ShieldType {
         self.self_healing_enabled_by.hash(state);
         self.absorb_over_damage.hash(state);
         self.immune_to_berserk.hash(state);
+        self.immune_to_crit.hash(state);
         self.bracket_delta.hash(state);
         self.break_anim.hash(state);
         self.hit_anim.hash(state);
@@ -462,6 +470,7 @@ impl ShieldTypeCatalog {
             entry.absorb_over_damage =
                 section.read_bool("AbsorbOverDamage", entry.absorb_over_damage);
             entry.immune_to_berserk = section.read_bool("ImmuneToBerserk", entry.immune_to_berserk);
+            entry.immune_to_crit = section.read_bool("ImmuneToCrit", entry.immune_to_crit);
             entry.bracket_delta = section.read_int("BracketDelta", entry.bracket_delta);
             entry.break_anim = section
                 .read_list("BreakAnim", 0x80)

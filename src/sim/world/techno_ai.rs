@@ -199,8 +199,8 @@ impl Simulation {
     /// either side of the object's own locomotion, and both checkpoints are the
     /// same pair of virtuals — the readiness predicate at self-vtable `+0x200`
     /// followed by `Commence` at `+0x1ec` when it returns true. Our object-AI
-    /// stage is the first checkpoint (it runs immediately before Phase-1 ground
-    /// movement); this is the second.
+    /// stage is the first checkpoint (it runs immediately before the object's
+    /// own ground movement); this is the second.
     ///
     /// Without it a unit that came to rest during its own movement step could
     /// not commence until the next tick, so every mission commencement that
@@ -1477,6 +1477,10 @@ fn techno_common_steps(
     // Ares1004B434 updates attachments before1004B528 EMP recovery.
     #[cfg(feature = "ares")]
     sim.update_ares_attach_effects(id, rules);
+    // Phobos `TechnoExt::UpdateAttachEffects` (Body.Update.cpp:895): one AI
+    // phase and the animation check for every AttachEffect on this object.
+    #[cfg(feature = "phobos")]
+    sim.update_phobos_attach_effects_with(id, rules, effects, overlay_registry);
     #[cfg(feature = "ares")]
     sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before
@@ -1485,6 +1489,10 @@ fn techno_common_steps(
     sim.update_ares_emp_operability(id, rules, effects);
     #[cfg(feature = "ares")]
     sim.update_ares_driver_killed_mission(id, rules, overlay_registry, effects);
+    // Ares1004B64B..1004B658 follows the extension updates and precedes
+    // the original common head, consuming a ready displayed bounty sum.
+    #[cfg(feature = "ares")]
+    sim.flush_bounty_display(id, rules, effects, false);
     // Techno6F9E70..6F9EA8 re-drives +4A4 at Location before mission
     // Stop/Release. A zero gain must stop a live loop before Guard can
     // release it to decay at the previous gain.
@@ -3282,6 +3290,7 @@ mod tests {
             recruitable_a: true,
             recruitable_b: true,
             group: -1,
+            follows: None,
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,

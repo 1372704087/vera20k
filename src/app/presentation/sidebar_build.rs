@@ -42,7 +42,6 @@ pub(crate) fn build_sidebar_chrome_instances(
             state.match_state.input.camera_x,
             state.match_state.input.camera_y,
         ],
-        state.match_state.match_presentation.ui_scale,
         state.match_state.match_presentation.radar_anim.is_none(),
     )
 }
@@ -65,41 +64,23 @@ pub fn build_sidebar_chrome_instances_for_layout(
     tabs: &[SidebarTabButton],
     power_bar_anim: &PowerBarAnimState,
     camera_offset: [f32; 2],
-    ui_scale: f32,
     static_radar_fallback: bool,
 ) -> Vec<SpriteInstance> {
     let mut inst = Vec::new();
     let d = 0.00048;
-    let s = ui_scale;
     let cx = layout.sidebar_x;
     // RadarClass::Draw 653100 and DrawCreditsSHPBackground 6D0E60.
     if let Some(top) = atlas.top_strip_sidebar {
-        push_chrome(&mut inst, top, cx, 16.0, d, camera_offset, s);
+        push_chrome(&mut inst, top, cx, 16.0, d, camera_offset);
     }
     if let Some(credits) = atlas.top_strip_thin {
-        push_chrome(&mut inst, credits, cx, 0.0, d, camera_offset, s);
+        push_chrome(&mut inst, credits, cx, 0.0, d, camera_offset);
     }
 
     if static_radar_fallback {
-        push_chrome(
-            &mut inst,
-            atlas.radar,
-            cx,
-            layout.radar_y,
-            d,
-            camera_offset,
-            s,
-        );
+        push_chrome(&mut inst, atlas.radar, cx, layout.radar_y, d, camera_offset);
     }
-    push_chrome(
-        &mut inst,
-        atlas.side1,
-        cx,
-        layout.side1_y,
-        d,
-        camera_offset,
-        s,
-    );
+    push_chrome(&mut inst, atlas.side1, cx, layout.side1_y, d, camera_offset);
     let td = d - 0.00001;
     for tab_btn in tabs {
         let idx = tab_btn.tab.tab_index();
@@ -114,7 +95,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
                 tab_btn.rect.y,
                 td,
                 camera_offset,
-                s,
             );
         }
     }
@@ -122,17 +102,9 @@ pub fn build_sidebar_chrome_instances_for_layout(
     // loaded canvas height. SIDE3 and ADDON follow the last actual tile.
     for row in 0..layout.side2_tile_count {
         let y = layout.cameo_grid_top + row as f32 * atlas.side2.pixel_size[1];
-        push_chrome(&mut inst, atlas.side2, cx, y, d, camera_offset, s);
+        push_chrome(&mut inst, atlas.side2, cx, y, d, camera_offset);
     }
-    push_chrome(
-        &mut inst,
-        atlas.side3,
-        cx,
-        layout.side3_y,
-        d,
-        camera_offset,
-        s,
-    );
+    push_chrome(&mut inst, atlas.side3, cx, layout.side3_y, d, camera_offset);
     if let Some(addon) = atlas.unknown_top_housing {
         push_chrome(
             &mut inst,
@@ -141,7 +113,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
             layout.side3_y + atlas.side3.pixel_size[1],
             d,
             camera_offset,
-            s,
         );
     }
 
@@ -158,7 +129,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
             view.sell_button.rect.y,
             btn_depth,
             camera_offset,
-            s,
         );
     }
     let repair_frame = view.repair_button.frame_index as usize;
@@ -170,7 +140,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
             view.repair_button.rect.y,
             btn_depth,
             camera_offset,
-            s,
         );
     }
 
@@ -185,7 +154,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
                 button.rect.y,
                 btn_depth,
                 camera_offset,
-                s,
             );
         }
     }
@@ -205,7 +173,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
             scroll_down_rect.y,
             btn_depth,
             camera_offset,
-            s,
         );
     }
     let up_frame = view.scroll_up_button.frame_index as usize;
@@ -217,7 +184,6 @@ pub fn build_sidebar_chrome_instances_for_layout(
             scroll_up_rect.y,
             btn_depth,
             camera_offset,
-            s,
         );
     }
 
@@ -279,6 +245,8 @@ fn render_power_bar(
     });
 }
 
+/// Ordinary gamemd chrome draws one render pixel per asset pixel;
+/// 6A5090/6A5130 change row capacity on resize, never artwork scale.
 fn push_chrome(
     instances: &mut Vec<SpriteInstance>,
     entry: crate::render::sidebar_chrome::SidebarChromeEntry,
@@ -286,11 +254,10 @@ fn push_chrome(
     y: f32,
     depth: f32,
     camera_offset: [f32; 2],
-    scale: f32,
 ) {
     instances.push(SpriteInstance {
         position: [x + camera_offset[0], y + camera_offset[1]],
-        size: [entry.pixel_size[0] * scale, entry.pixel_size[1] * scale],
+        size: entry.pixel_size,
         uv_origin: entry.uv_origin,
         uv_size: entry.uv_size,
         depth,
@@ -334,12 +301,6 @@ pub(crate) const READY_PAD_Y: f32 = 1.0;
 const QUEUE_COUNT_PAD_X: f32 = 2.0;
 /// Vertical padding for queue count badge (native pixels, matches ComputeTextRect y_pad=1).
 const QUEUE_COUNT_PAD_Y: f32 = 1.0;
-
-/// Compute the text scale for cameo overlay text (READY, queue count).
-/// Uses full ui_scale so text stays proportional to the scaled cameos.
-pub(crate) fn ready_text_scale(ui_scale: f32) -> f32 {
-    ui_scale
-}
 
 /// The CSF labels shared by the cameo's single status strip and its glyphs.
 #[derive(Clone, Copy)]
@@ -646,14 +607,12 @@ pub(crate) fn build_sidebar_cameo_instances(
         if let Some(status_text) = cameo_status_text(item, labels)
             && state.renderer.bit_font.darken_texture().is_some()
         {
-            let s = state.match_state.match_presentation.ui_scale;
-            let ts = ready_text_scale(s);
-            let text_w = state.renderer.bit_font.text_width(status_text) as f32 * ts;
-            let strip_w = text_w + READY_PAD_X * 2.0 * ts;
+            let text_w = state.renderer.bit_font.text_width(status_text) as f32;
+            let strip_w = text_w + READY_PAD_X * 2.0;
             // gamemd `ComputeTextRect` uses `cell_height + 2*y_pad` for the
             // strip height (cell_height includes the 1 px inter-line gap that
             // gamemd extends below the glyphs).
-            let strip_h = (state.renderer.bit_font.cell_height() + READY_PAD_Y * 2.0) * ts;
+            let strip_h = state.renderer.bit_font.cell_height() + READY_PAD_Y * 2.0;
             let strip_x = if status_text_shifts_left(item, has_queue_badge) {
                 slot.x + co[0]
             } else {
@@ -675,13 +634,12 @@ pub(crate) fn build_sidebar_cameo_instances(
         // Original: ComputeTextRect(cameo_x+60, cameo_y+1, 0x242, x_pad=2, y_pad=1)
         // The dark rect extends x_pad (2px) past the cameo right edge.
         if has_queue_badge && state.renderer.bit_font.darken_texture().is_some() {
-            let ts = ready_text_scale(state.match_state.match_presentation.ui_scale);
             let count_str = format!("{}", item.queued_count);
-            let text_w = state.renderer.bit_font.text_width(&count_str) as f32 * ts;
-            let strip_w = text_w + QUEUE_COUNT_PAD_X * 2.0 * ts;
-            let strip_h = (state.renderer.bit_font.cell_height() + QUEUE_COUNT_PAD_Y * 2.0) * ts;
+            let text_w = state.renderer.bit_font.text_width(&count_str) as f32;
+            let strip_w = text_w + QUEUE_COUNT_PAD_X * 2.0;
+            let strip_h = state.renderer.bit_font.cell_height() + QUEUE_COUNT_PAD_Y * 2.0;
             // Right-align anchor at cameo right edge; strip extends x_pad past it.
-            let strip_x = slot.x + slot.w - text_w - QUEUE_COUNT_PAD_X * ts;
+            let strip_x = slot.x + slot.w - text_w - QUEUE_COUNT_PAD_X;
             queue_overlay.push(SpriteInstance {
                 position: [strip_x + co[0], slot.y + co[1]],
                 size: [strip_w, strip_h.min(slot.h)],
@@ -724,8 +682,6 @@ pub(crate) fn build_sidebar_text_instances(
         // No retail FNT loaded; the native sidebar text path is unavailable.
         return SidebarTextInstances::default();
     }
-    let s = state.match_state.match_presentation.ui_scale;
-    let ts = ready_text_scale(s);
     let co = [
         state.match_state.input.camera_x,
         state.match_state.input.camera_y,
@@ -742,20 +698,20 @@ pub(crate) fn build_sidebar_text_instances(
         // Only the Hold label moves to the left edge, and only beside a queue
         // badge; see `status_text_shifts_left`.
         if let Some(status_text) = cameo_status_text(item, labels) {
-            let text_w = state.renderer.bit_font.text_width(status_text) as f32 * ts;
+            let text_w = state.renderer.bit_font.text_width(status_text) as f32;
             let text_x = if status_text_shifts_left(item, has_queue_badge) {
-                slot.x + READY_PAD_X * ts
+                slot.x + READY_PAD_X
             } else {
                 slot.x + (slot.w - text_w) * 0.5
             };
             // gamemd anchors text at `cameo_y + y_pad`; the strip extends
             // y_pad above and (cell_height - glyph_height + y_pad) below.
-            let text_y = slot.y + READY_PAD_Y * ts;
+            let text_y = slot.y + READY_PAD_Y;
             instances.extend(state.renderer.bit_font.build_text(
                 status_text,
                 text_x,
                 text_y,
-                ts,
+                1.0,
                 0.00042,
                 ready_tint,
                 co,
@@ -767,15 +723,15 @@ pub(crate) fn build_sidebar_text_instances(
         // 0x242 = right-align. Uses same side-dependent color as Ready text.
         if has_queue_badge {
             let count_str = format!("{}", item.queued_count);
-            let text_w = state.renderer.bit_font.text_width(&count_str) as f32 * ts;
+            let text_w = state.renderer.bit_font.text_width(&count_str) as f32;
             // Right-align: text right edge at cameo right edge (anchor = cameo_x + 60).
             let text_x = slot.x + slot.w - text_w;
-            let text_y = slot.y + QUEUE_COUNT_PAD_Y * ts;
+            let text_y = slot.y + QUEUE_COUNT_PAD_Y;
             queue.extend(
                 state
                     .renderer
                     .bit_font
-                    .build_text(&count_str, text_x, text_y, ts, 0.00042, ready_tint, co),
+                    .build_text(&count_str, text_x, text_y, 1.0, 0.00042, ready_tint, co),
             );
         }
     }
@@ -913,7 +869,6 @@ mod tests {
                 &[],
                 &[],
                 None,
-                &[],
                 Some(&interner),
                 &supers,
                 &SidebarGadgetState::default(),

@@ -371,6 +371,11 @@ pub enum SnapshotRestoreError {
         object_id: u64,
         reason: &'static str,
     },
+    #[error("entity {object_id} has invalid Unit follower state: {reason}")]
+    InvalidUnitFollowerState {
+        object_id: u64,
+        reason: &'static str,
+    },
     #[error("invalid saved planning graph: {reason}")]
     InvalidPlanningReferences { reason: &'static str },
     #[error("non-Building entity {owner_id} retains animation slot {slot}")]
@@ -1162,6 +1167,35 @@ fn restore_object_references(
     // complete modeled pointer graph before mutating even weak references or
     // derived caches, so a failed restore remains an atomic rejection.
     for (entity_id, entity) in sim.substrate.entities.iter_sorted() {
+        // UnitClass::Load744470 queues +6C8 for swizzling (gamemd.exe).
+        // Preserve the independent +6D0 byte, cycles and physically present
+        // dead/limbo Units; only class identity and reference resolution apply.
+        if (entity.unit_follower().is_some() || entity.is_unit_follower())
+            && entity.category() != crate::map::entities::EntityCategory::Unit
+        {
+            return Err(SnapshotRestoreError::InvalidUnitFollowerState {
+                object_id: entity_id,
+                reason: "the relationship and follower byte belong to a Unit",
+            });
+        }
+        if let Some(follower_id) = entity.unit_follower() {
+            require_resolved_reference(
+                entity_ids.contains(&follower_id),
+                "EntityStore",
+                entity_id,
+                "unit_follower",
+                "EntityStore",
+                follower_id,
+            )?;
+            if sim.substrate.entities.get(follower_id).unwrap().category()
+                != crate::map::entities::EntityCategory::Unit
+            {
+                return Err(SnapshotRestoreError::InvalidUnitFollowerState {
+                    object_id: entity_id,
+                    reason: "the follower reference must name a Unit",
+                });
+            }
+        }
         if let Some(anim_id) = entity
             .parasite
             .class()
@@ -2285,17 +2319,7 @@ impl Simulation {
             .overlay_grid
             .as_ref()
             .expect("validated overlay cache")
-            .iter_occupied()
-            .filter_map(|(rx, ry, cell)| {
-                cell.overlay_id
-                    .map(|overlay_id| crate::map::overlay::OverlayEntry {
-                        rx,
-                        ry,
-                        overlay_id,
-                        frame: cell.overlay_data,
-                    })
-            })
-            .collect();
+            .occupied_entries();
         let native_tiberium_stats =
             self.rebuild_native_tiberium_queues_after_snapshot_load(rules, overlay_registry)?;
         // CellTag identities are meaningful only after the canonical Cell
@@ -3487,6 +3511,7 @@ mod tests {
             !crate::rules::PHOBOS_ENABLED,
             !crate::rules::NPATCH_ENABLED,
             !crate::rules::VERAX_ENABLED,
+            !crate::rules::NPBUG_ENABLED,
         );
         // A complete header with no body proves capability admission runs before
         // Simulation deserialization, even without bound scenario resources.
@@ -4691,7 +4716,6 @@ mod tests {
         let team = restored.team_script_vm.team(team_id).unwrap();
         assert_eq!(team.member_count(), 0);
         assert_eq!(restored.team_script_vm.registry_counts(), (1, 1, 1, 1));
-        assert_eq!(restored.team_script_vm.team_type_order(), &[team_type_id]);
         let restored_team_type = restored
             .team_script_vm
             .team_type(team_type_id)
@@ -6465,7 +6489,6 @@ mod tests {
         use crate::sim::cloak_disguise::CloakRuntime;
         use crate::sim::combat::Health;
         use crate::sim::game_entity::GameEntity;
-        use crate::sim::sensor_lifecycle::SensorDeposit;
 
         let mut sim = Simulation::new();
         let viewer = sim.interner.intern("AMERICANS");
@@ -6499,7 +6522,6 @@ mod tests {
         let mut cloak = CloakRuntime::new(0);
         cloak.establish_unlimbo_fully_cloaked();
         entity.cloak = Some(cloak);
-        entity.sensor_deposit = Some(SensorDeposit::unit(viewer, (3, 3), 2));
         sim.substrate.entities.insert(entity);
         // Native in-scenario load restarts Scenario RNG from Seed0; isolate
         // fog/sensor/cloak persistence on that same post-load cursor.
@@ -6507,7 +6529,7 @@ mod tests {
         let expected_hash = sim.state_hash();
 
         let bytes = GameSnapshot::save(&sim, 0, 0, "cell_fog_sensor_cloak", 0);
-        let mut restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
+        let restored = GameSnapshot::load(&bytes).expect("current snapshot").sim;
 
         assert_eq!(restored.state_hash(), expected_hash);
         assert_eq!(restored.fog.fogged_objects().len(), 1);
@@ -6518,25 +6540,6 @@ mod tests {
             restored_entity.cloak,
             sim.substrate.entities.get(entity_id).unwrap().cloak
         );
-        assert_eq!(
-            restored_entity.sensor_deposit,
-            sim.substrate
-                .entities
-                .get(entity_id)
-                .unwrap()
-                .sensor_deposit
-        );
-        let same_hash = restored.state_hash();
-        restored
-            .substrate
-            .entities
-            .get_mut(entity_id)
-            .unwrap()
-            .sensor_deposit
-            .as_mut()
-            .unwrap()
-            .set_center_for_test((4, 3));
-        assert_ne!(restored.state_hash(), same_hash);
     }
 
     #[test]
@@ -7423,6 +7426,7 @@ mod tests {
             coordinate,
             10,
             rules.warhead("WH").unwrap(),
+            true,
             (RAD_NO_ATTACKER, None, warhead_id),
             crate::sim::world::FrameEffects::default(),
         );

@@ -437,11 +437,12 @@ impl IniSection {
     }
 
     /// CCINIClass::ReadEdge475980: ReadString into128 bytes with an empty
-    /// default. Empty retains the caller's value; case-insensitive cardinal
-    /// names map to0..3 and every other nonempty name returns literal-1.
+    /// default. Empty retains the caller's value; Edge_From_Name 0x0048DB80
+    /// matches the five names of table 0x007E1B60 case-insensitively (North,
+    /// East, South, West, Air → 0..4) and every other nonempty name returns -1.
     pub fn read_edge(&self, key: &str, default: i32) -> i32 {
         self.read_string_with(key, 128, default, |_, value| {
-            ["North", "East", "South", "West"]
+            ["North", "East", "South", "West", "Air"]
                 .iter()
                 .position(|name| name.eq_ignore_ascii_case(value))
                 .map_or(-1, |index| index as i32)
@@ -536,6 +537,32 @@ impl IniSection {
                 low: fields[0],
                 high: fields[1],
                 values,
+            }
+        })
+    }
+
+    /// Ares coordinate reader100406D0 -> MultiParser1000C7E0. Each comma
+    /// token uses the shared Parser<int> and a 128-byte scanf_s buffer.
+    /// A partial native parse copies uninitialized trailing locals; retain
+    /// the prior coordinate for that malformed-input boundary in Rust.
+    #[cfg(feature = "ares")]
+    pub(crate) fn read_ares_coord3(&self, key: &str, current: [i32; 3]) -> [i32; 3] {
+        self.read_string_with(key, 2048, current, |previous, value| {
+            if value.split(',').take(3).any(|token| {
+                token
+                    .as_bytes()
+                    .iter()
+                    .skip_while(|byte| is_crt_space(**byte))
+                    .count()
+                    >= 128
+            }) {
+                return previous;
+            }
+            let mut fields = previous;
+            if scan_partial_int_fields(value, &mut fields) == 3 {
+                fields
+            } else {
+                previous
             }
         })
     }
@@ -679,6 +706,28 @@ impl IniSection {
     /// Phobos shares Ares's `Parser<int>::TryParse`, including `$%d`.
     pub fn read_phobos_nullable_int(&self, key: &str, current: Option<i32>) -> Option<i32> {
         self.read_phobos_nullable_with(key, current, parse_ares_int)
+    }
+
+    /// Phobos `Valueable<ColorStruct>` (`INI_EX::Read3Bytes`, then
+    /// `Parser<BYTE,3>` at `src/Utilities/TemplateDef.h`): a comma-separated
+    /// `R,G,B` needs all three channels inside `0..=255`. Absent, empty and
+    /// rejected text keep the current color.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn read_phobos_color(&self, key: &str, current: [u8; 3]) -> [u8; 3] {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            parse_phobos_color(raw).unwrap_or(current)
+        })
+    }
+
+    /// Phobos `Nullable<ColorStruct>`: the clearing tokens of
+    /// [`Self::read_phobos_nullable_with`], then [`parse_phobos_color`].
+    #[cfg(feature = "phobos")]
+    pub(crate) fn read_phobos_nullable_color(
+        &self,
+        key: &str,
+        current: Option<[u8; 3]>,
+    ) -> Option<[u8; 3]> {
+        self.read_phobos_nullable_with(key, current, parse_phobos_color)
     }
 
     pub fn read_phobos_nullable_bool(&self, key: &str, current: Option<bool>) -> Option<bool> {
@@ -1777,6 +1826,17 @@ fn parse_ares_int(value: &str) -> Option<i32> {
     }
 }
 
+/// Phobos `Parser<BYTE,3>::Parse`: three comma-separated channels, each
+/// converted with the `BYTE` scan that rejects values above 255. All three
+/// must convert; otherwise no color is produced.
+#[cfg(feature = "phobos")]
+fn parse_phobos_color(value: &str) -> Option<[u8; 3]> {
+    let mut channels = [0i32; 3];
+    (scan_int_fields(value, &mut channels) == 3
+        && channels.iter().all(|channel| (0..=255).contains(channel)))
+    .then(|| channels.map(|channel| channel as u8))
+}
+
 /// `MultiParser<int>::Parse(pValue, outValue, count)`: for each slot skip the
 /// leading spaces, take everything up to the next comma (`%[^,]`, which needs
 /// at least one character), trim the token's trailing spaces and convert it
@@ -1973,6 +2033,13 @@ mod tests {
                 "{row}"
             );
         }
+    }
+
+    #[test]
+    fn read_edge_maps_air_to_the_fifth_table_name() {
+        let mut section = IniSection::new("Control".to_string());
+        section.set("Edge", "air");
+        assert_eq!(section.read_edge("Edge", -1), 4);
     }
 
     #[test]

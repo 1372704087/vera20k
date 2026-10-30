@@ -18,6 +18,14 @@ pub(crate) struct FrontendState {
     /// External offline launch: returning from the session closes the process for its client.
     pub(crate) external_launch: bool,
     pub(crate) external_launch_error: Option<String>,
+    /// The external launch's local result, first decided wins
+    /// (docs/spawn.md); see `App::external_match_result`.
+    pub(crate) external_match_result: Option<crate::app::cncnet::ExternalMatchResult>,
+    /// Frames, duration and opponent departure for the launch report.
+    pub(crate) external_progress: crate::app::cncnet::ExternalLaunchProgress,
+    /// Browser launch is closing its network owners before engine exit.
+    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+    pub(crate) browser_exit_pending: bool,
     /// The Skirmish setup dialog's state.
     pub(crate) skirmish_shell_state: crate::ui::skirmish_shell::SkirmishShellState,
     /// Choose Map's last clicked game-type row `[0x008316FC]`: starts at -1,
@@ -89,6 +97,9 @@ pub(crate) struct FrontendState {
     pub(crate) quit_cascade: Option<crate::app::frontend::quit_cascade::QuitCascade>,
     /// Retail process-start splash, held until its post-present deadline.
     pub(crate) startup_splash: Option<startup_splash::StartupSplashPresentation>,
+    /// WinMain's `[Intro] Play=` bit (`[0xA8E960] & 4`), consumed at launch:
+    /// the first-run intro starts once the splash hold ends (`0x0052CA65`).
+    pub(crate) startup_intro_pending: bool,
     /// The two-button shell message box `0x120` over the empty backdrop:
     /// main-menu Exit Game (the app only exits on its OK, never on the first
     /// Exit click) or campaign defeat's retry prompt.

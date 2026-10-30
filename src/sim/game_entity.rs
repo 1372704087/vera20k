@@ -128,6 +128,14 @@ pub struct GameEntity {
     #[cfg(feature = "ares")]
     #[serde(default)]
     attach_effects: attach_effect::AttachEffects,
+    /// Phobos AttachEffect instances, owned by `sim::attach_effect`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_attach_effects: crate::sim::attach_effect::AttachEffectList,
+    /// Derived from those instances each AI frame; never hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_stat_multipliers: crate::sim::attach_effect::PhobosStatMultipliers,
     /// Phobos ShieldClass state: shield points and their recovery timers.
     #[cfg(feature = "phobos")]
     #[serde(default)]
@@ -197,6 +205,16 @@ pub struct GameEntity {
     /// LimboLaunch has removed this Unit from Logic; Unlimbo preserves it.
     #[serde(default)]
     pub unit_firing_counter: crate::sim::animation::UnitFiringCounter,
+    /// UnitClass+6C8. The constructor clears this next-Unit reference at
+    /// 7353EC; the map reader74368C, ChangeOwner7463A0 and Find_Path4D3920
+    /// share it (original gamemd.exe instructions). Not yet ported: the
+    /// Accelerates speed hand-off in Process_Drive_Track 4B1218 / Ship 6A08F0
+    /// and the IsTrain-gated Stop_Moving/track consumers (no retail IsTrain).
+    unit_follower: Option<u64>,
+    /// UnitClass+6D0, constructed false at7353F8. This retained byte is
+    /// independent of incoming links: PointerExpired7446E0 clears only the
+    /// reference, and ChangeOwner7463A0 writes the byte separately (gamemd).
+    is_unit_follower: bool,
     /// The owning house (`TechnoClass+0x21C`), interned.
     /// `TechnoClass::ChangeOwner @ 0x007014A0` moves it; here only the store's
     /// owner-change path does ([`Self::set_owner_from_store`]).
@@ -601,12 +619,6 @@ pub struct GameEntity {
     /// Instance stealth grant; sim::cloak_disguise owns its mutations.
     #[serde(default)]
     pub(crate) stealth_ability: StealthAbility,
-    /// Last sensor coverage actually deposited into CellClass counters.
-    /// Removal must use these cached owner/location/radius values after the
-    /// entity's current facts have changed.
-    /// `sensor_lifecycle` owns it.
-    #[serde(default)]
-    pub(crate) sensor_deposit: Option<crate::sim::sensor_lifecycle::SensorDeposit>,
     /// Core disguise identity, timestamp, and reveal tuple, owned by
     /// `cloak_disguise`.
     #[serde(default)]
@@ -744,6 +756,10 @@ pub struct GameEntity {
     #[cfg(feature = "ares")]
     #[serde(default)]
     pub(crate) vehicle_driver: crate::sim::vehicle_theft::VehicleDriverState,
+    /// Ares TechnoExt+A8/AC, owned by sim::bounty; presentation only.
+    #[cfg(feature = "ares")]
+    #[serde(default)]
+    pub(crate) bounty_display: crate::sim::bounty::BountyDisplayState,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -1572,6 +1588,28 @@ impl GameEntity {
         self.object_group = group;
     }
 
+    /// UnitClass+6C8, the next Unit in the authored FOLLOWS chain.
+    pub(crate) const fn unit_follower(&self) -> Option<u64> {
+        self.unit_follower
+    }
+
+    /// UnitClass+6D0; this is saved state, not a derived incoming-link count.
+    pub(crate) const fn is_unit_follower(&self) -> bool {
+        self.is_unit_follower
+    }
+
+    /// The map/owner/expiry callers own admission and ordering. In particular,
+    /// changing this reference does not change either Unit's follower byte.
+    pub(crate) fn set_unit_follower(&mut self, follower: Option<u64>) {
+        assert_eq!(self.category, EntityCategory::Unit);
+        self.unit_follower = follower;
+    }
+
+    pub(crate) fn set_is_unit_follower(&mut self, is_follower: bool) {
+        assert_eq!(self.category, EntityCategory::Unit);
+        self.is_unit_follower = is_follower;
+    }
+
     pub(crate) const fn production_start_price(&self) -> i32 {
         self.production_start_price
     }
@@ -1828,6 +1866,10 @@ impl GameEntity {
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_attach_effects: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_stat_multipliers: Default::default(),
             techno_ctor_random_word,
             secret_lab_fallback: None,
             object_group: -1,
@@ -1843,6 +1885,8 @@ impl GameEntity {
             barrel_elevation: crate::sim::movement::FacingClass::new(0, BARREL_ELEVATION_ROT),
             body_frame_counter: Default::default(),
             unit_firing_counter: Default::default(),
+            unit_follower: None,
+            is_unit_follower: false,
             owner,
             initial_owner: owner,
             #[cfg(feature = "ares")]
@@ -1929,7 +1973,6 @@ impl GameEntity {
             mega_mission: Default::default(),
             cloak: None,
             stealth_ability: StealthAbility::default(),
-            sensor_deposit: None,
             disguise: Some(DisguiseRuntime::new(construction_frame)),
             low_bridge_tube_state: None,
             capture_manager: None,
@@ -1968,6 +2011,8 @@ impl GameEntity {
             capture_infantry_type_index: crate::sim::world::CapturedInfantryType::constructed(),
             #[cfg(feature = "ares")]
             vehicle_driver: Default::default(),
+            #[cfg(feature = "ares")]
+            bounty_display: Default::default(),
             pending_c4_detonation: Default::default(),
             has_been_captured: Default::default(),
             no_survivor: Default::default(),
@@ -2526,5 +2571,122 @@ mod mission_shadow_tests {
             MissionId::from_known(MissionType::Guard)
         );
         assert_eq!(restored.mission.ai_counter(), 99);
+    }
+}
+
+#[cfg(feature = "phobos")]
+impl GameEntity {
+    /// Phobos AttachEffect instances, in attach order. Presentation reads the
+    /// list for animation draw offsets and tint; only `sim::attach_effect`
+    /// writes it.
+    pub fn phobos_attach_effects(&self) -> &crate::sim::attach_effect::AttachEffectList {
+        &self.phobos_attach_effects
+    }
+
+    pub(crate) fn phobos_attach_effects_mut(
+        &mut self,
+    ) -> &mut crate::sim::attach_effect::AttachEffectList {
+        &mut self.phobos_attach_effects
+    }
+
+    /// The stat fold `sim::attach_effect` recomputes from the instance list
+    /// every AI frame.
+    pub(crate) fn phobos_stat_multipliers(
+        &self,
+    ) -> &crate::sim::attach_effect::PhobosStatMultipliers {
+        &self.phobos_stat_multipliers
+    }
+
+    pub(crate) fn set_phobos_stat_multipliers(
+        &mut self,
+        stats: crate::sim::attach_effect::PhobosStatMultipliers,
+    ) {
+        self.phobos_stat_multipliers = stats;
+    }
+
+    /// A live effect drives future frames, so it joins the state hash; an
+    /// entity with none contributes nothing.
+    pub(crate) fn hash_phobos_attach_effects<H: std::hash::Hasher>(&self, hasher: &mut H) {
+        use std::hash::Hash;
+        if !self.phobos_attach_effects.is_empty() {
+            b"phobos-attach-effects-v1".hash(hasher);
+            self.phobos_attach_effects.hash(hasher);
+        }
+    }
+}
+
+/// The derived AttachEffect stat factors, identity when the feature is off so
+/// shared code paths need no feature gates.
+impl GameEntity {
+    /// The cached AttachEffect speed factor; identity without the feature.
+    pub(crate) fn phobos_speed_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.speed
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
+        }
+    }
+
+    /// The cached AttachEffect armor factor for the unrestricted effects.
+    pub(crate) fn phobos_armor_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.armor
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
+        }
+    }
+
+    /// The cached AttachEffect ROF factor; identity without the feature.
+    pub(crate) fn phobos_rof_multiplier(&self) -> f64 {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.rof
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            1.0
+        }
+    }
+
+    /// `Cloakable` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_cloakable(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.cloakable
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    }
+
+    /// `ForceDecloak` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_force_decloak(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.force_decloak
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    }
+
+    /// `Unkillable` from the active AttachEffects; false without the feature.
+    pub(crate) fn phobos_unkillable(&self) -> bool {
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_stat_multipliers.unkillable
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
     }
 }

@@ -794,7 +794,7 @@ mod receiver {
                 .as_bytes(),
             )
             .unwrap();
-            sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+            sim.initialize_trigger_definitions(&map, &Default::default(), None, None, None);
         }
         fn tagged_emp_scene(
             source_house_delta: i32,
@@ -993,7 +993,7 @@ mod receiver {
                     .as_bytes(),
                 )
                 .unwrap();
-                sim.initialize_trigger_definitions(&map, &Default::default(), None, None);
+                sim.initialize_trigger_definitions(&map, &Default::default(), None, None, None);
                 sim.attach_object_trigger_tag(target, Some("EMP"));
                 sim.deliver_ares_emp(
                     target,

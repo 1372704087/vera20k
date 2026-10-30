@@ -104,6 +104,21 @@ CAPABILITIES: tuple[Capability, ...] = (
         test=False,
     ),
     Capability(
+        "verax",
+        ("verax",),
+        "VERA20K's own first-party extension: the VeraX-gated autoload, "
+        "hotkey and skirmish chains.",
+        focus=("autoload",),
+    ),
+    Capability(
+        "npbug",
+        ("npbug",),
+        "VERA20K's opt-in NPBUG bug-fix extension: gameplay corrections "
+        "adopted from the NPExt changelog, deliberately deviating from "
+        "native behaviour only when compiled in.",
+        focus=("npbug_",),
+    ),
+    Capability(
         "debug-tools",
         ("debug-tools",),
         "Diagnostic builds: the browser dashboard, offline trainer and "
@@ -114,6 +129,13 @@ CAPABILITIES: tuple[Capability, ...] = (
         ("telemetry-dashboard",),
         "The optional read-only browser dashboard on its own, without the "
         "trainer/event hooks debug-tools adds.",
+    ),
+    Capability(
+        "wasm",
+        ("wasm",),
+        "Browser host support; desktop feature-isolation compilation. The "
+        "separate WebAssembly workflow builds the browser target.",
+        test=False,
     ),
     Capability(
         "wasm-net",
@@ -133,7 +155,9 @@ CAPABILITIES: tuple[Capability, ...] = (
 
 # The capability mixes #2797 declares meaningful: the three extension flags are
 # orthogonal, so every pair and the triple are compiled, plus the diagnostic
-# build over the triple. Combinations are compile-covered; each capability is
+# build over the triple. NPBUG joins the same orthogonality contract: every
+# extension pair with it, the full extension quad, and the diagnostic build
+# over the quad. Combinations are compile-covered; each capability is
 # tested on its own so the matrix stays bounded.
 COMBINATIONS: tuple[tuple[str, ...], ...] = (
     ("ares", "phobos"),
@@ -141,6 +165,12 @@ COMBINATIONS: tuple[tuple[str, ...], ...] = (
     ("phobos", "npatch"),
     ("ares", "phobos", "npatch"),
     ("debug-tools", "ares", "phobos", "npatch"),
+    ("ares", "npbug"),
+    ("phobos", "npbug"),
+    ("npatch", "npbug"),
+    ("ares", "phobos", "npbug"),
+    ("ares", "phobos", "npatch", "npbug"),
+    ("debug-tools", "ares", "phobos", "npatch", "npbug"),
 )
 
 BY_NAME = {capability.name: capability for capability in CAPABILITIES}

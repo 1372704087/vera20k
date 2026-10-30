@@ -1001,7 +1001,7 @@ fn a_heavy_ship_dying_on_water_sinks_without_its_explosion() {
             assert!(played.is_empty(), "{kind}: {played:?}");
             // Original Unit ReceiveDamage737E33..737E5E restores the ship
             // after the fatal receiver and retains it for Unit AI's sinking
-            // suffix. Native executions: naval_occupants, water-neighbor rows.
+            // suffix.
             let retained = sim.substrate.entities.get(ship).expect("retained hull");
             assert_eq!(
                 retained.health.current(),

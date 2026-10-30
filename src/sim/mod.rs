@@ -26,11 +26,14 @@ pub(crate) mod ai_base_defense;
 pub(crate) mod ai_base_site;
 pub mod ammo;
 pub mod anim_class;
+pub mod attach_effect;
 pub(crate) mod object_fall;
 #[cfg(any(test, feature = "test-support"))]
 pub mod arena_fixture;
 pub(crate) mod build_site;
 pub mod building_art;
+#[cfg(feature = "ares")]
+pub mod bounty;
 pub(crate) mod building_upgrades;
 pub(crate) mod building_power;
 pub(crate) mod building_entry;

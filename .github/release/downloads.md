@@ -15,7 +15,8 @@ installers were built from (none before that file), and its `update_key` the
 public key that signs it. A retry keeps these fields as the version was first
 published, and none for a version mirrored before manifests had them.
 Finally it conditionally replaces `latest.json`, only if this is GitHub's
-latest stable release and the pointer would not move backward. `latest.json`
+latest stable release and the pointer would not move backward, unless it is
+stopping a bad release (below). `latest.json`
 holds the same bytes as the version's `manifest.json`, so the website's three
 `/download/<platform>` routes read it unchanged.
 
@@ -32,6 +33,32 @@ the change after which older games can no longer install a release themselves,
 such as a new installer format. Whatever else later manifests change, they
 keep `version`, `tag`, `updater`, `update_key` and `notes` in this form, which
 every older game reads.
+
+## Stop a bad release
+
+GitHub's Latest release decides which version `latest.json` may name. To stop a
+published release, say `v0.2.4`, from reaching more players, make the stable
+release before it Latest again, then dispatch `downloads.yml` for that release
+with `roll_back` and approve its run:
+
+```sh
+gh release edit v0.2.3 --latest --repo YuriPlanet/vera20k
+gh workflow run downloads.yml --ref main --repo YuriPlanet/vera20k -f tag=v0.2.3 -f roll_back=true
+```
+
+The publisher checks `v0.2.3` as on publication and refuses unless GitHub marks
+it Latest. Then it puts `releases/v0.2.3/manifest.json` back as `latest.json`,
+which that version's signature still verifies; the website's download links and
+the game's update offer follow it. Games that already installed `v0.2.4` keep
+it, since the updater never installs an older version, and a retry of
+`v0.2.4`'s run now leaves `latest.json` alone. If that run still waits for
+approval, reject it and skip the dispatch: `latest.json` never named `v0.2.4`.
+Fix forward with a new version, whose publication makes it Latest, and say on
+`v0.2.4`'s release page that it was withdrawn.
+
+Releases are immutable (a repository setting): once published, a release's tag
+and installers cannot change, and a deleted release's version number cannot be
+used again. A bad release is replaced by a new version, never by new files.
 
 ## Setup and retry
 

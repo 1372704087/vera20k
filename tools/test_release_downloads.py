@@ -35,8 +35,9 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.config = {"tag": "v0.2.2", "commit": "a" * 40, "updater_version": f"{UPDATER}\n",
                        "release": {"id": 10, "tag_name": "v0.2.2", "draft": False, "prerelease": False, "assets": assets}}
 
-    def run_publisher(self, tag="v0.2.2", signing_key=None):
-        return self.publisher.run(tag, self.config, self.signing_key if signing_key is None else signing_key)
+    def run_publisher(self, tag="v0.2.2", signing_key=None, roll_back=False):
+        return self.publisher.run(tag, self.config, self.signing_key if signing_key is None else signing_key,
+                                  *(["--roll-back"] if roll_back else []))
 
     def calls(self):
         path = self.root / "calls.jsonl"
@@ -203,6 +204,19 @@ class ReleaseDownloadsTests(unittest.TestCase):
                 self.assertEqual((self.root / "objects/latest.json").read_bytes(), old_pointer)
                 self.assertNotIn("latest.json", self.puts())
 
+    def test_roll_back_moves_the_pointer_back_only_to_githubs_latest_release(self):
+        newer = self.prior_pointer("0.2.3")
+        self.config["latest_tag"] = "v0.2.3"
+        result = self.run_publisher(roll_back=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("gh release edit v0.2.2 --latest", result.stderr)
+        self.assertEqual((self.root / "objects/latest.json").read_bytes(), newer)
+        self.config["latest_tag"] = "v0.2.2"
+        result = self.run_publisher(roll_back=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        manifest = self.root / "objects/releases/v0.2.2/manifest.json"
+        self.assertEqual((self.root / "objects/latest.json").read_bytes(), manifest.read_bytes())
+
     def test_failed_pointer_update_preserves_previous_pointer(self):
         old_pointer = self.prior_pointer()
         self.config["fail_put"] = "latest.json"
@@ -219,11 +233,13 @@ class ReleaseDownloadsTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(json.loads((self.root / "objects/latest.json").read_text()), competitor)
 
-    def test_untrusted_tag_and_existing_local_lock_stop_before_remote_calls(self):
+    def test_untrusted_arguments_and_existing_local_lock_stop_before_remote_calls(self):
         for tag in ("v0.2.2;echo nope", "v0.2.2-dev", "v00.2.2", "../latest"):
             with self.subTest(tag=tag):
                 self.assertNotEqual(self.run_publisher(tag).returncode, 0)
                 self.assertEqual(self.calls(), [])
+        self.assertNotEqual(self.publisher.run("v0.2.2", self.config, self.signing_key, "--rollback").returncode, 0)
+        self.assertEqual(self.calls(), [])
         (self.root / "publish.lock").mkdir()
         self.assertNotEqual(self.run_publisher().returncode, 0)
         self.assertEqual(self.calls(), [])

@@ -69,7 +69,13 @@ a branch: main plus one commit setting the version, dispatched with `--ref <bran
 `.github/workflows` must equal main's (`git diff origin/main <branch> -- .github/workflows`
 is empty) through the dev build and the promote.
 
+A published release cannot change: GitHub keeps its tag and installers, and a deleted
+release's version number cannot be used again. To stop a bad one reaching more players, make
+the release before it Latest and roll `latest.json` back to it (`.github/release/downloads.md`,
+Stop a bad release), then fix forward with a new version.
+
 ## Only with the maintainer's yes
 
-- Deleting a release or a tag, or replacing a published release's files.
+- Deleting a release or a tag.
+- Stopping a release by rolling `latest.json` back.
 - Deleting dev builds; the workflow prunes them past the newest ten.

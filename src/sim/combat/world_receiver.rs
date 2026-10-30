@@ -223,10 +223,22 @@ pub(crate) fn apply_foot_radiation(
                         // `BulletClass_Logics_DamageAnimSelected` (`0x469C46`)
                         // creation tail as a fired Bullet; its default bullet
                         // type is not Inviso and the RadInvoker is the owner.
-                        // RESIDUAL: this bespoke approximation keeps the
-                        // pre-existing raw land, so `Conventional.IgnoreUnits`
-                        // does not match a real Bullet detonation.
-                        let land = crate::sim::combat::detonation_anim::land_at(world, impact);
+                        // RESIDUAL: the fake Bullet's own damage-area result
+                        // is not retained here, so the water-unit gate is
+                        // evaluated as dispatched (the radiation target is a
+                        // receiver); an isolated non-receiver cell could
+                        // differ.
+                        let ignore_units = warhead
+                            .phobos_anim
+                            .conventional_ignore_units(&rules.phobos_warhead_anim);
+                        let land = crate::sim::combat::detonation_anim::bullet_land(
+                            world,
+                            rules,
+                            impact,
+                            false,
+                            true,
+                            ignore_units,
+                        );
                         if let Some(selection) =
                             crate::sim::combat::detonation_anim::select_with_context(
                                 world,

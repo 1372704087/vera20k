@@ -334,6 +334,13 @@ pub(crate) fn bullet_effects(
     let z_adjust = warhead
         .phobos_anim
         .anim_z_adjust(&rules.phobos_warhead_anim);
+    // Phobos' tail assigns `pInvoker = pOwner->Owner` to each constructed
+    // animation; an expired owner leaves the animation unowned here.
+    let invoker_house = world
+        .substrate
+        .entities
+        .get(source_id)
+        .map(|source| source.owner());
 
     let interval = if selection.splashed {
         warhead.phobos_anim.splash_list_creation_interval
@@ -434,7 +441,9 @@ pub(crate) fn bullet_effects(
         } else {
             placement
         };
-        effects.push(placed_effect_with_z_adjust(type_id, coordinate, z_adjust));
+        let mut effect = placed_effect_with_z_adjust(type_id, coordinate, z_adjust);
+        effect.owner_house = invoker_house;
+        effects.push(effect);
     }
     effects
 }
@@ -462,6 +471,7 @@ pub(crate) fn placed_effect_with_z_adjust(
         z: impact_z_byte(world_z.div_euclid(crate::util::lepton::LEPTONS_PER_LEVEL as i32)),
         world_z,
         z_adjust,
+        owner_house: None,
         death: None,
     }
 }
@@ -1183,6 +1193,38 @@ mod phobos_enhancement_tests {
             false,
         );
         assert_eq!(effects[0].z_adjust, -9);
+    }
+
+    #[test]
+    fn bullet_effects_assign_the_invoker_house() {
+        let rules = animation_rules("", "", "");
+        let mut world = Simulation::with_seed(7);
+        world
+            .substrate
+            .entities
+            .insert(GameEntity::test_default(1, "E1", "Americans", 5, 5));
+        let warhead = rules.warhead("WH").unwrap();
+        let placement = ProjectileCoord::new(2_560, 5_120, 0);
+        let selection =
+            select_with_context(&mut world, &rules, warhead, 50, 0, placement, false).unwrap();
+        let warhead_ref = world.interner.intern("WH");
+        let invoker = world.substrate.entities.get(1).unwrap().owner();
+        let effects = bullet_effects(
+            &mut world,
+            &rules,
+            warhead,
+            warhead_ref,
+            selection,
+            false,
+            placement,
+            1,
+            false,
+        );
+        assert_eq!(
+            effects[0].owner_house,
+            Some(invoker),
+            "pAnim->Owner = pInvoker"
+        );
     }
 
     #[test]

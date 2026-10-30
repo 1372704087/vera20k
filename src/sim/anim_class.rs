@@ -1291,11 +1291,13 @@ impl Simulation {
             z,
             world_z,
             COMBAT_EXPLOSION_Z_ADJUST,
+            None,
         )
     }
 
     /// [`Self::spawn_combat_explosion_anim`] with the Phobos warhead
-    /// `AnimZAdjust` substituted for the stock combat row's -15.
+    /// `AnimZAdjust` substituted for the stock combat row's -15 and the
+    /// tail's invoker House installed after construction.
     pub(crate) fn spawn_combat_explosion_anim_with_z_adjust(
         &mut self,
         rules: &RuleSet,
@@ -1307,6 +1309,7 @@ impl Simulation {
         z: u8,
         world_z: i32,
         z_adjust: i32,
+        owner_house: Option<InternedId>,
     ) -> Option<AnimId> {
         let descriptor = AnimClassSpawnDescriptor {
             delay: 0,
@@ -1321,7 +1324,12 @@ impl Simulation {
             ..AnimWorldCoord::from_cell_sub_z(rx, ry, sub_x, sub_y, z)
         };
         match self.spawn_anim_at_world(rules, descriptor, world_coord) {
-            Ok(id) => Some(id),
+            Ok(id) => {
+                if let Some(house) = owner_house {
+                    self.substrate.set_anim_owner_house(id, house);
+                }
+                Some(id)
+            }
             Err(error) => {
                 log::debug!(
                     "combat explosion [{}] did not construct: {error}",
@@ -5101,10 +5109,11 @@ mod tests {
     }
 
     #[test]
-    fn combat_explosion_z_adjust_override_reaches_the_anim() {
+    fn combat_explosion_z_adjust_and_owner_reach_the_anim() {
         let rules = runtime_rules("[TWLT036]\nEnd=8\n", &[("TWLT036", 8)]);
         let mut sim = Simulation::new();
         let type_id = sim.interner.intern("TWLT036");
+        let house = sim.interner.intern("Americans");
         let id = sim
             .spawn_combat_explosion_anim_with_z_adjust(
                 &rules,
@@ -5116,9 +5125,12 @@ mod tests {
                 0,
                 0,
                 7,
+                Some(house),
             )
             .unwrap();
-        assert_eq!(sim.anim(id).unwrap().z_adjust, 7);
+        let anim = sim.anim(id).unwrap();
+        assert_eq!(anim.z_adjust, 7);
+        assert_eq!(anim.owner_house(), Some(house));
     }
 
     #[test]

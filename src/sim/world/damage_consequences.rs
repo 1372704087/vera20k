@@ -254,6 +254,7 @@ pub(crate) fn admit_explosion_effect(
                 fx.z,
                 fx.world_z,
                 fx.z_adjust,
+                fx.owner_house,
             );
         }
     }

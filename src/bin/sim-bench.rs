@@ -17,18 +17,20 @@
 //!
 //! `--scenario match` plays the middle of a multiplayer match instead (see
 //! `sim_bench_match`): the map loads as a Battle against `--computers`
-//! computer houses (by default the lobby's most, 7), the other start waypoints
-//! get human players' houses, and every house has a finished base, harvesters,
-//! factories that keep building and a mixed army. Their own AI plays the
-//! computer houses; a script plays the human ones, sending their armies at
-//! the nearest bases in squads until those fall. Objects fight, die, are
-//! rebuilt and harvest, so it measures a battle. `--houses` counts both kinds
-//! and defaults to every start but the local house's; `--ticks` defaults to
-//! 1800, and `after_orders_mean_ms` skips the first 150. Every
-//! `PROGRESS_EVERY` ticks it prints what the houses have and have done.
+//! computer houses (by default the most the lobby admits on the map, at most
+//! 7), the other start waypoints get human players' houses, and every house
+//! has a finished base, harvesters, factories that keep building and a mixed
+//! army. Their own AI plays the computer houses; a script plays the human
+//! ones, sending their armies at the nearest bases in squads until those
+//! fall. Objects fight, die, are rebuilt and harvest, so it measures a
+//! battle. `--houses` counts both kinds and defaults to every start but the
+//! local house's; `--ticks` defaults to 1800, and `after_orders_mean_ms`
+//! skips the first 150. Every `PROGRESS_EVERY` ticks it prints what the
+//! houses have and have done.
 //!
 //! `--scenario skirmish` plays a whole skirmish from its start: the map loads
-//! as a Battle against `--computers` computer houses with the lobby's default
+//! as a Battle against `--computers` computer houses (by default, as in a
+//! match, the most the lobby admits on the map) with the lobby's default
 //! options, and their own AI plays each from its starting units: it deploys
 //! its MCV, builds and harvests, produces, forms teams and attacks. The
 //! launch's local house sits the match out, as in the match scenario, and no
@@ -84,7 +86,10 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+use vera20k_core::assets::asset_manager::{AssetManager, MediaArchiveMode};
 use vera20k_core::headless_scenario::{self, HeadlessScenario, SIM_TICK_MS, battle_session};
+use vera20k_core::map::source::load_map_ini_by_name_or_path_with_assets;
+use vera20k_core::map::waypoints::skirmish_player_capacity;
 use vera20k_core::sim::command::{Command, CommandEnvelope};
 use vera20k_core::sim::intern::InternedId;
 use vera20k_core::sim::runtime::SimRuntime;
@@ -223,16 +228,33 @@ fn parse_args() -> Result<Args, String> {
     if !marched && let Some(flag) = march_flag {
         return Err(format!("{flag} is a march option"));
     }
-    if args
-        .computers
-        .is_some_and(|computers| computers > sim_bench_match::COMPUTERS)
-    {
-        return Err(format!(
-            "a Battle has at most {} computer houses",
-            sim_bench_match::COMPUTERS
-        ));
-    }
     Ok(args)
+}
+
+/// `--computers`, by default the most the skirmish lobby admits on the map:
+/// it refuses more players than the map's capacity (`MapCapacityExceeded`,
+/// `TXT_SCENARIO_TOO_SMALL`), and a Battle has at most seven computer houses.
+/// More would seat houses the map has no start for.
+fn seated_computers(args: &Args) -> Result<usize, String> {
+    let assets =
+        AssetManager::new(&args.ra2_dir, MediaArchiveMode::STOCK_DIGITAL).map_err(|error| {
+            format!(
+                "open retail MIX archives in {}: {error}",
+                args.ra2_dir.display()
+            )
+        })?;
+    let map = load_map_ini_by_name_or_path_with_assets(&args.ra2_dir, &args.map, &assets)
+        .map_err(|error| format!("read map {}: {error}", args.map))?;
+    let most = usize::try_from(skirmish_player_capacity(&map.ini) - 1)
+        .unwrap_or(0)
+        .min(sim_bench_match::COMPUTERS);
+    match args.computers {
+        Some(computers) if computers > most => Err(format!(
+            "{} admits at most {most} computer houses beside the local one",
+            args.map
+        )),
+        computers => Ok(computers.unwrap_or(most)),
+    }
 }
 
 /// Every map cell of the live terrain, in (rx, ry) order.
@@ -610,7 +632,8 @@ fn main() -> Result<(), String> {
             eprintln!(
                 "usage: sim-bench [--ra2-dir <retail path>] [--map Death.mmx] \
                  [--scenario march|match|skirmish] [--seed S] [--units 20000] [--houses N] \
-                 [--computers 7 (match, skirmish)] [--ticks 300 (match: 1800, skirmish: 9000)] \
+                 [--computers N (match, skirmish; default the map's most, at most 7)] \
+                 [--ticks 300 (match: 1800, skirmish: 9000)] \
                  [--types E1,E2,MTNK,HTNK] [--order-spread 30] [--return-at T] (march) \
                  [--hash-every N] [--frame-hash-every 15] [--csv <path>] [--serial-paths] [--serial-scans] \
                  [--frame-profile] [--lan] [--frame-hashes <path>]"
@@ -618,14 +641,15 @@ fn main() -> Result<(), String> {
             std::process::exit(2);
         }
     };
+    let computers = match args.scenario {
+        ScenarioKind::March => 0,
+        ScenarioKind::Match | ScenarioKind::Skirmish => seated_computers(&args)?,
+    };
     let load_started = Instant::now();
     let mut scenario = match args.scenario {
         ScenarioKind::March => headless_scenario::load(&args.ra2_dir, &args.map, args.seed)?,
         ScenarioKind::Match => {
-            let computers = args
-                .computers
-                .unwrap_or(sim_bench_match::COMPUTERS)
-                .min(args.houses.unwrap_or(usize::MAX));
+            let computers = computers.min(args.houses.unwrap_or(usize::MAX));
             headless_scenario::load_session(
                 &args.ra2_dir,
                 &args.map,
@@ -633,15 +657,12 @@ fn main() -> Result<(), String> {
                 sim_bench_match::session(&args.map, computers),
             )?
         }
-        ScenarioKind::Skirmish => {
-            let computers = args.computers.unwrap_or(sim_bench_match::COMPUTERS);
-            headless_scenario::load_session(
-                &args.ra2_dir,
-                &args.map,
-                args.seed,
-                battle_session(&args.map, &sim_bench_match::COMPUTER_ROSTER[..computers]),
-            )?
-        }
+        ScenarioKind::Skirmish => headless_scenario::load_session(
+            &args.ra2_dir,
+            &args.map,
+            args.seed,
+            battle_session(&args.map, &sim_bench_match::COMPUTER_ROSTER[..computers]),
+        )?,
     };
     if !args.serial_paths {
         scenario.runtime.simulation.batch_path_searches();
@@ -689,7 +710,7 @@ fn main() -> Result<(), String> {
     let computers = match &plan {
         Plan::March(_) => 0,
         Plan::Match(script) => script.computers(),
-        Plan::Skirmish => args.computers.unwrap_or(sim_bench_match::COMPUTERS),
+        Plan::Skirmish => computers,
     };
     let runtime = &mut scenario.runtime;
     let live_at_start = runtime.simulation.entities().len();

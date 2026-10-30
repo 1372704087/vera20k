@@ -1,9 +1,10 @@
 //! sim-bench's match scenario: the middle of a multiplayer match.
 //!
-//! The map loads as a Battle against [`COMPUTERS`] computer houses (the most
-//! the skirmish lobby allows; `--computers` takes fewer), and every other
-//! start waypoint gets a human player's house, as in a network game. The
-//! loader's own local house sits the match out (see [`MatchScenario::setup`]).
+//! The map loads as a Battle against the most computer houses the skirmish
+//! lobby admits on it, at most [`COMPUTERS`] (`--computers` takes fewer), and
+//! every other start waypoint gets a human player's house, as in a network
+//! game. The loader's own local house sits the match out (see
+//! [`MatchScenario::setup`]).
 //! Every playing house stands at its start with a finished base for its
 //! country, whose refineries' harvesters work the nearest ore, and a mixed army
 //! of its country's infantry, vehicles and aircraft on the way to its nearest

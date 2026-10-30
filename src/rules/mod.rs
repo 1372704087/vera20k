@@ -117,6 +117,7 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
+pub mod attach_effect;
 pub mod digital_display;
 pub mod phobos_parallel_ai_queues;
 #[cfg(all(test, feature = "phobos"))]
@@ -131,6 +132,8 @@ pub mod phobos_fly_wobble;
 pub mod phobos_pause_menu;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
+#[cfg(feature = "phobos")]
+pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_power_plant_enhancer;
 #[cfg(feature = "phobos")]
@@ -148,6 +151,9 @@ pub const NPATCH_ENABLED: bool = cfg!(feature = "npatch");
 /// Whether this binary includes VERA20K's own extension behaviors. INIs cannot
 /// change it; builds without the feature keep every stock path.
 pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
+/// Whether this binary includes the NPBUG bug-fix extension. INIs cannot
+/// change it; builds without the feature keep every native path.
+pub const NPBUG_ENABLED: bool = cfg!(feature = "npbug");
 pub(crate) mod ares_prerequisites;
 pub(crate) mod ares_armor;
 pub(crate) mod ares_emp;

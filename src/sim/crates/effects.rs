@@ -406,8 +406,8 @@ pub(super) fn apply_gas_crate(
             crate::map::resolved_terrain::NativeCellQuery::canonical(terrain).lookup(target)
         });
         let centre = super::pickup::crate_center(sim, target, receiver);
-        // RESIDUAL: native passes affectsTiberium=0 (0x00481E17, 0x00481E71);
-        // apply_area_damage hard-codes 1. Dormant: retail [Gas] sets no Tiberium=.
+        // CellClass::PickupCrate481A00 passes affectsTiberium=false at
+        // 481E19/481E71 (original gamemd.exe); ordinary receivers still run.
         crate::sim::combat::world_receiver::apply_area_damage(
             sim,
             rules,
@@ -415,6 +415,7 @@ pub(super) fn apply_gas_crate(
             crate::sim::projectile::ProjectileCoord::new(centre.x, centre.y, centre.z),
             amount,
             warhead,
+            false,
             (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
             frame_effects,
         );
@@ -605,13 +606,14 @@ pub(super) fn apply_explosion_crate(
             continue;
         };
         let scattered = crate::sim::projectile::ProjectileCoord::new(x, y, center.z);
-        crate::sim::combat::world_receiver::apply_area_damage(
+        let receipt = crate::sim::combat::world_receiver::apply_area_damage(
             sim,
             rules,
             registry,
             scattered,
             amount,
             warhead,
+            true,
             (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
             frame_effects,
         );
@@ -621,7 +623,14 @@ pub(super) fn apply_explosion_crate(
         // `0x0048267D` passes the constant LandType 0 (Clear), so the
         // water-splash branch never fires here.
         if let Some(effect) = crate::sim::combat::detonation_anim::effect(
-            sim, rules, warhead, amount, 0, scattered, scattered,
+            sim,
+            rules,
+            warhead,
+            amount,
+            0,
+            scattered,
+            scattered,
+            receipt.crit_active,
         ) {
             crate::sim::world::damage_consequences::admit_explosion_effect(sim, rules, effect);
         }
@@ -714,6 +723,7 @@ pub(super) fn apply_napalm_crate(
         crate::sim::projectile::ProjectileCoord::new(mid.x, mid.y, mid.z),
         amount,
         warhead,
+        true,
         (crate::sim::combat::RAD_NO_ATTACKER, None, warhead_ref),
         frame_effects,
     );

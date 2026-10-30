@@ -299,17 +299,7 @@ pub(crate) fn shield_tint(
         if !shield_type.has_tint() {
             return (0, 0);
         }
-        let owner = entity.owner();
-        let bucket = tint_bucket(owner, simulation.session().current_house(), || {
-            let Some(viewer) = simulation.session().current_house() else {
-                return false;
-            };
-            crate::map::houses::is_allied_with(
-                simulation.house_alliances(),
-                simulation.interner().resolve(owner),
-                simulation.interner().resolve(viewer),
-            )
-        });
+        let bucket = viewer_bucket(entity, simulation);
         if !shield_type.tint_visible_to_houses().contains(bucket) {
             return (0, 0);
         }
@@ -323,6 +313,130 @@ pub(crate) fn shield_tint(
     {
         let _ = (entity, simulation, rules);
         (0, 0)
+    }
+}
+
+/// `ApplyCustomTintValues`'s viewer bucket: the current player sees its own
+/// objects as Owner, an ally's as Allies and anyone else's as Enemies.
+#[cfg(feature = "phobos")]
+fn viewer_bucket(
+    entity: &crate::sim::game_entity::GameEntity,
+    simulation: &Simulation,
+) -> crate::rules::phobos_shields::AffectedHouse {
+    let owner = entity.owner();
+    tint_bucket(owner, simulation.session().current_house(), || {
+        let Some(viewer) = simulation.session().current_house() else {
+            return false;
+        };
+        crate::map::houses::is_allied_with(
+            simulation.house_alliances(),
+            simulation.interner().resolve(owner),
+            simulation.interner().resolve(viewer),
+        )
+    })
+}
+
+/// Phobos `TechnoExt::UpdateTintValues`'s AttachEffect arm
+/// (`src/Ext/Techno/Body.Update.cpp:1332..1399`): every active effect whose
+/// type has a tint and whose `Tint.VisibleToHouses` admits the viewer adds its
+/// colour and intensity, in attach order.
+///
+/// A non-cumulative type tints once per instance. A cumulative type tints once
+/// per type unless `Tint.Cumulative` is set; with a black colour it still
+/// tints once per instance, and with a real colour the instances of one type
+/// sum their colour channels and intensities before one tint.
+///
+/// Read only: no simulation state, timer, RNG or detach is written.
+///
+/// RESIDUAL: the `AnimClass_Draw_TintColor` hook (`0x00423420`) also applies
+/// the owner's custom tint to an owner-attached animation; building slot anims
+/// already take it, ordinary attached anims (AttachEffect and parachutes) do
+/// not yet.
+#[cfg(feature = "phobos")]
+pub(crate) fn attach_effect_tint(
+    entity: &crate::sim::game_entity::GameEntity,
+    simulation: &Simulation,
+    rules: &RuleSet,
+) -> (u16, i32) {
+    let mut word = 0;
+    let mut intensity = 0;
+    let list = entity.phobos_attach_effects();
+    if list.is_empty() {
+        return (word, intensity);
+    }
+    let bucket = viewer_bucket(entity, simulation);
+    let effects = rules.attach_effect_types().types();
+    // The native pass applies the per-instance tints inline and folds each
+    // cumulative tint type's colours into one entry applied afterwards.
+    let mut seen_types: Vec<usize> = Vec::new();
+    let mut cumulative_tints: Vec<(usize, [u8; 3], f64)> = Vec::new();
+    for instance in list.instances() {
+        let Some(effect) = effects.get(instance.type_index) else {
+            continue;
+        };
+        if !instance.is_active(instance.is_self_owned()) || !effect.has_tint() {
+            continue;
+        }
+        if !effect.tint_visible_to_houses.contains(bucket) {
+            continue;
+        }
+        let instance_intensity = (effect.tint_intensity * 1000.0) as i32;
+        if !effect.cumulative {
+            word |= effect.tint_color.map_or(0, rgb565_word);
+            intensity += instance_intensity;
+            continue;
+        }
+        if !effect.tint_cumulative {
+            if seen_types.contains(&instance.type_index) {
+                continue;
+            }
+            seen_types.push(instance.type_index);
+            word |= effect.tint_color.map_or(0, rgb565_word);
+            intensity += instance_intensity;
+            continue;
+        }
+        let Some(color) = effect.tint_color.filter(|color| *color != [0, 0, 0]) else {
+            // A black colour cannot be summed; the type tints per instance.
+            intensity += instance_intensity;
+            continue;
+        };
+        if let Some(entry) = cumulative_tints
+            .iter_mut()
+            .find(|entry| entry.0 == instance.type_index)
+        {
+            entry.1 = [
+                entry.1[0].saturating_add(color[0]),
+                entry.1[1].saturating_add(color[1]),
+                entry.1[2].saturating_add(color[2]),
+            ];
+            entry.2 += effect.tint_intensity;
+        } else {
+            cumulative_tints.push((instance.type_index, color, effect.tint_intensity));
+        }
+    }
+    for (_, color, intensity_sum) in cumulative_tints {
+        word |= rgb565_word(color);
+        intensity += (intensity_sum * 1000.0) as i32;
+    }
+    (word, intensity)
+}
+
+/// The custom tint `TechnoExt::UpdateTintValues` aggregates from every owner:
+/// Phobos shields and AttachEffects today.
+pub(crate) fn custom_tint(
+    entity: &crate::sim::game_entity::GameEntity,
+    simulation: &Simulation,
+    rules: &RuleSet,
+) -> (u16, i32) {
+    let base = shield_tint(entity, simulation, rules);
+    #[cfg(feature = "phobos")]
+    {
+        let (effect_word, effect_intensity) = attach_effect_tint(entity, simulation, rules);
+        (base.0 | effect_word, base.1 + effect_intensity)
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        base
     }
 }
 
@@ -363,7 +477,7 @@ pub(crate) fn techno_effect_light(
     rules: Option<&RuleSet>,
     draw: TechnoDraw,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    let custom = rules.map_or(0, |rules| shield_tint(entity, sim, rules).1);
+    let custom = rules.map_or(0, |rules| custom_tint(entity, sim, rules).1);
     techno_effect_light_at(
         entity,
         tint,
@@ -392,7 +506,7 @@ pub(crate) fn building_anim_light(
     sim: &Simulation,
     rules: Option<&RuleSet>,
 ) -> ([f32; 3], crate::render::palette_light::PaletteLight) {
-    let custom = rules.map_or(0, |rules| shield_tint(building, sim, rules).1);
+    let custom = rules.map_or(0, |rules| custom_tint(building, sim, rules).1);
     let (tint, light) = if let Some(sample) = building.building_art.tint_sample() {
         effect_light(
             tint,
@@ -554,7 +668,7 @@ pub(crate) fn unit_voxel_effect_light(
             } else {
                 0
             };
-            class | shield_tint(entity, sim, rules).0
+            class | custom_tint(entity, sim, rules).0
         });
         light = light.with_colour_word(light.colour_word() | word);
     }
@@ -609,9 +723,10 @@ pub(crate) fn shp_colour_word(
     rules: &RuleSet,
     shrouded: impl FnOnce() -> bool,
 ) -> u16 {
-    // Shield tint is the custom tint those hooks OR in after their class word,
-    // including for a shrouded draw (the hooks replace the native shroud clear).
-    let shield_word = shield_tint(entity, sim, rules).0;
+    // Shield and AttachEffect tint are the custom tint those hooks OR in after
+    // their class word, including for a shrouded draw (the hooks replace the
+    // native shroud clear).
+    let custom_word = custom_tint(entity, sim, rules).0;
     match entity.category() {
         crate::map::entities::EntityCategory::Infantry => {
             let berserk = if entity.berserk.is_active() && !shrouded() {
@@ -619,10 +734,10 @@ pub(crate) fn shp_colour_word(
             } else {
                 0
             };
-            return berserk | shield_word;
+            return berserk | custom_word;
         }
         crate::map::entities::EntityCategory::Structure => {}
-        _ => return shield_word,
+        _ => return custom_word,
     }
     let shielded = entity.invulnerability.as_ref().is_some_and(|curtain| {
         curtain.kind() == crate::sim::superweapon::invulnerability::InvulnKind::ForceShield
@@ -633,7 +748,7 @@ pub(crate) fn shp_colour_word(
     });
     let marked = entity.has_airstrike_marker();
     if !(shielded || marked) || shrouded() {
-        return shield_word;
+        return custom_word;
     }
     let shield = if shielded {
         rules
@@ -643,13 +758,22 @@ pub(crate) fn shp_colour_word(
         0
     };
     let laser = if marked {
-        rules
+        // Phobos `BuildingClass_Draw_TintColor` (`0x0043D386`) ORs the strike
+        // owner type's `TintColorAirstrike`, Phobos's own conversion of its
+        // resolved `LaserTargetColor`.
+        #[cfg(feature = "phobos")]
+        let word = rules
             .color_add
-            .rgb565_word(rules.general.laser_target_color)
+            .phobos_word(sim.airstrike_laser_target_color(entity.stable_id(), rules));
+        #[cfg(not(feature = "phobos"))]
+        let word = rules
+            .color_add
+            .rgb565_word(rules.general.laser_target_color);
+        word
     } else {
         0
     };
-    shield | laser | shield_word
+    shield | laser | custom_word
 }
 
 use crate::sim::light_sources::{LightingEvent, PaletteUpdate};

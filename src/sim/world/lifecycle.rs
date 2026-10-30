@@ -4030,6 +4030,19 @@ impl Simulation {
             .release_foot_air_tracker_before_limbo(stable_id);
         #[cfg(feature = "ares")]
         self.limbo_ares_attach_effects(stable_id, context.rules());
+        // Phobos `TechnoClass_Limbo_Wrapper` replaces the Limbo entry
+        // (vtable + the Foot/Building call sites) and runs its
+        // DiscardOn=Entry pass before calling the original body. Its work
+        // therefore precedes the hooks inside that body; the Ares extension's
+        // relative position is unobserved and kept as the AttachEffect branch
+        // had it.
+        #[cfg(feature = "phobos")]
+        self.limbo_phobos_attach_effects(
+            stable_id,
+            context.rules(),
+            context.registry(),
+            context.effects(),
+        );
         // Techno Remove6F6AC9 ->1004B140/1004B1A9 flushes even a repeated
         // Limbo, before the base's alive/InLimbo and sight-release branches.
         #[cfg(feature = "ares")]
@@ -4703,6 +4716,7 @@ impl Simulation {
             .filter_map(|target| target.object_id())
             .for_each(&mut name);
         [
+            listener.unit_follower(),
             listener.passenger_role.inside_transport_id(),
             listener.pending_entry(),
             listener.spawn_owner_id.owner(),
@@ -6047,6 +6061,15 @@ impl Simulation {
                     context.rules(),
                     context.effects(),
                 );
+                // UnitClass::PointerExpired7446E0 runs the full Foot forward
+                // first, then clears matching +6C8 at7446FF for either control
+                // value. It leaves the independent +6D0 byte alone (gamemd).
+                if let Some(entity) = self.substrate.entities.get_mut_if(listener_id, |entity| {
+                    entity.category() == EntityCategory::Unit
+                        && entity.unit_follower() == Some(expired_id)
+                }) {
+                    entity.set_unit_follower(None);
+                }
                 #[cfg(any(test, feature = "test-support"))]
                 if let Some(before) = passed_over {
                     assert_eq!(

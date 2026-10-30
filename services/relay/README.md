@@ -55,6 +55,17 @@ the Relay compatibility workflow (`tools/relay_compat.py`) plays the latest
 stable release's and the newest dev build's client code against it, including a
 player the relay removes for silence.
 
+Clients from v0.2.4 read a Status, PushState, PauseStatus, Ready, Ack or Error
+longer than they know by its known prefix, and an unknown error code as an
+unknown reply. A canonical entry must keep its exact layout, because members
+that read it differently would desync. A client that cannot read the record at
+its cursor, or before the start any Status, for about 5 seconds ends the match
+and asks for a newer VERA20k; v0.2.3 and older stall instead. Extend replies
+only by appending fields, and add a record kind, departure reason or entry field
+only after clients that read it have shipped. A new error code counts as
+unreadable too, so one the relay repeats while a client's cursor waits ends that
+client's match the same way.
+
 Install the executable as `/usr/local/bin/vera20k-relay`, create the unprivileged
 `vera20k-relay` user, and install `vera20k-relay.service`. Allow UDP port 5000 in
 the cloud firewall. Limit administrative SSH access to the management network.
@@ -79,7 +90,7 @@ Use them to distinguish rate limits, expired grants and authentication failures
 from packet loss and client timeouts.
 
 Modern ordering uses authenticated control kind4 and a lobby-signed `VO1C`
-certificate (see `../lobby/protocol.md`). Every source that becomes ready
+certificate (see `../../docs/lobby-protocol.md`). Every source that becomes ready
 certifies the same initial world; fixed FPS deadlines then commit encrypted
 batches sorted by source and
 batch ID, followed by an explicit frame end. An absent input contributes nothing.
@@ -115,13 +126,15 @@ resume a game;
 the last explicit Leave appends a resume marker so the departure tail can finish.
 
 A federated match spreads its sources over up to six relays, each serving the
-players nearest it. The lobby-signed `VO1F` roster (see `../lobby/protocol.md`)
+players nearest it. The lobby-signed `VO1F` roster (see `../../docs/lobby-protocol.md`)
 rides in every CONFIRM after the cookie; a relay admits only the sources its
 own roster entry homes and recovers the match link key with its ticket key. Each
 relay seals its own players' entries at the shared frame deadlines and sends
 them, authenticated with the link key, to every other relay as `VF1L` link
-packets at each new seal and otherwise every 50 ms. Entries are retained and
-resent until acknowledged, and a packet carrying entries goes out twice. A
+packets at each new seal and otherwise every 50 ms. Each entry is sent once, in a
+packet that goes out twice, and is retained until acknowledged; it is sent
+again only after going unacknowledged for the measured round trip plus 100 ms.
+A relay that misses a packet ignores later ones until then. A
 frame is emitted once every relay sealed it, in the same canonical order, so
 every relay delivers the same stream and sequence numbers. Player DATA to a remote source crosses one link to its relay. The
 first roster relay picks the start time from measured link round trips; the
@@ -151,9 +164,13 @@ minutes old, and the others start without it; a Ready source waits. A federated
 startup cannot drop a source alone: those limits, or any relay's room reaching 3
 minutes unstarted, ask the coordinator to cancel it, and a relay whose
 coordinator has then been silent for 10 seconds cancels on its own. A relay
-reports only its own players' departures, and a restarted relay never does, so a
-started federated room whose own players have all departed ends once every other
-relay has been silent for 10 minutes; it then seals and merges nothing more. A
+reports only its own players' departures, and a restarted relay never does. Once
+a started two-relay room has heard nothing from the other relay for 10 minutes,
+that relay's players depart as lost after the last frame it sealed there, and
+the room merges on without it: the match continues among the remaining players
+or ends. With three or more relays the survivors could disagree on that frame,
+so such a room ends instead once its own players have left and every other
+relay has been silent for 10 minutes. A
 departure's last byte is
 DestroyConnection's error code: 1, connection lost, when silence ended the place;
 otherwise the byte is absent. Otherwise only explicit Leave, the player's
@@ -162,9 +179,14 @@ started or not), or the match's final frame ends participation. The certificate
 bounds only a startup; a started room ends at its final frame, which pauses
 postpone, and is retired regardless 48 hours and 3 minutes after it was created.
 Once every source has departed, a
-300-second terminal replay grace precedes exact-file cleanup. No reader
+300-second terminal replay grace precedes exact-file cleanup. For 24 hours after
+that cleanup, longer than any of its certificates lasts, a cleaned-up match
+answers Ready with `Inactive`, so a player returning later cannot start a new
+timeline under its ID; the marker lives in memory and a relay restart drops it. No reader
 acknowledgement gates advancement or retention.
-The service checks deadlines every6ms even when no packets arrive.
+The service checks deadlines every6ms even when no packets arrive. Its pass over
+every room starts a millisecond after the previous one ended, plus once after
+each datagram it accepts, so rejected traffic, junk included, adds no pass.
 
 Explicit Leave is retried on the original socket until a terminal acknowledgement
 echoes that exact signed request. This idempotent operation alone remains valid
@@ -183,22 +205,37 @@ explicit absolute `VERA_RELAY_STATE_DIR` for local development. Journal files
 are mode0600 in a mode0700 directory named only from the16-byte signed room ID.
 They contain encrypted batches and public ordering metadata, never payload keys.
 Journal reservations share 8 GiB and never preallocate disk space. Each room
-reserves 24 hours of empty frame ends and all departures at its certified FPS
-(21–124 MiB) plus 32 MiB of commands per certified source: about 52 two-player
-or 23 eight-player matches at once at 45 FPS, 43 two-player at 60 FPS. Reaching
+reserves all departures, an hour of empty frame ends at its certified FPS
+(0.9–5.2 MiB) and 32 MiB of commands per certified source, and keeps what it
+wrote. A new room is admitted only while the next hour of every live room, its
+own included, still fits beside the reservations: about 114 two-player or 31
+eight-player new matches at once at 45 FPS, 110 two-player at 60 FPS. A full
+relay therefore refuses new matches rather than running ones: once less than
+half an hour of frame ends is left, a live room reserves its next hour without
+waiting on the quota, up to the 24 hours its certificate allows, as does a burst
+of frames that outgrows the reserved hour; running rooms' later hours can take
+the total past 8 GiB, to about 22 GB if 110 two-player 60 FPS matches all ran
+for 24 hours. Reaching
 the command allowance backpressures new batches while the clock and already
 accepted entries remain writable. A finished room keeps only the bytes it wrote
 through its replay grace. A room whose files could not all be created, or whose
 exact files could not all be removed, keeps its reservation while the relay
 retries the removal once a second.
 
-Unexpected journal I/O failure reports `StorageUnavailable` and preserves the
-files, rather than silently deleting history or blaming a disconnected player.
+Unexpected journal I/O failure, or a federated entry that no longer fits the
+journal, reports `StorageUnavailable` and preserves the files, rather than
+silently deleting history or blaming a disconnected player. The match stays
+frozen; its room is released once its players' tickets have all expired, or 10
+minutes after the failure. Its files stay, keep its match ID from starting a new
+timeline, and count only their size on disk.
 Leave still records the departure in memory and is acknowledged, so the client
 may join another match.
 Restart recovery is outside this implementation: a new process refuses an
 existing room's files instead of overwriting them or inventing a new timeline.
-Each leftover counts its size on disk, not a room's reservation. Preserve these
-files for diagnosis; retire them only after the corresponding match ended. The
+Each leftover counts its size on disk, not a room's reservation. At startup, a
+leftover last written longer ago than a room can live plus the 300-second grace
+moves into the state directory's `archive` subfolder, where it counts against no
+quota and blocks no match. The relay never deletes these files; preserve them
+for diagnosis and remove them by hand. The
 in-memory `RelayServer::new` constructor remains useful for short protocol
 fixtures; deployed ordering uses `RelayServer::with_journal`.

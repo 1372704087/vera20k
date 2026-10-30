@@ -179,6 +179,7 @@ fn custom_armor_positive_receive_and_estimate_share_the_effective_record() {
         false,
         0,
         sim.resolved_terrain.as_ref(),
+        None,
     )
     .unwrap();
     assert_eq!(resolved.outcome.hp_delta, 25);

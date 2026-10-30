@@ -80,6 +80,32 @@ pub struct CountryRules {
     pub multiplay_passive: bool,
     /// `WallOwner=` allows this house type's buildings to claim nearby map walls.
     pub wall_owner: bool,
+    /// Phobos `AttachEffect.AttachTypes` on a country.
+    ///
+    /// RESIDUAL: read but not attached. Phobos `TechnoExt::InitializeAttachEffects`
+    /// (`Body.Internal.cpp:157`) attaches the owner country's list to every
+    /// created techno as an outside effect whose source is the techno itself,
+    /// and `HouseClass` owner change (`House/Hooks.cpp:353`) attaches the new
+    /// country's list under `AttachEffect.AttachOnOwnerChange`. VERA's
+    /// `AttachSource` holds only a warhead source, so a country that sets
+    /// the list gives its objects none of those effects.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_attach_types: Vec<String>,
+    /// `AttachEffect.DurationOverrides`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_duration_overrides: Vec<i32>,
+    /// `AttachEffect.Delays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_delays: Vec<i32>,
+    /// `AttachEffect.InitialDelays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_initial_delays: Vec<i32>,
+    /// `AttachEffect.RecreationDelays`, paired by index.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_recreation_delays: Vec<i32>,
+    /// `AttachEffect.AttachOnOwnerChange`; `None` inherits `[General]`.
+    #[cfg(feature = "phobos")]
+    pub attach_effect_attach_on_owner_change: Option<bool>,
     /// HouseType+148: ReadDouble511D0B -> FSTP float511D10, default1.0.
     /// Both base and purifier deposits read these exact retained float bits.
     pub income_mult: NativeF32Bits,
@@ -182,6 +208,18 @@ impl Default for CountryRules {
             multiplay: false,
             multiplay_passive: false,
             wall_owner: true,
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_types: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_duration_overrides: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_initial_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_recreation_delays: Vec::new(),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_on_owner_change: None,
             income_mult: NativeF32Bits::ONE,
             armor_infantry_mult: 1.0,
             armor_units_mult: 1.0,
@@ -222,6 +260,37 @@ impl CountryRules {
             multiplay: section.read_bool("Multiplay", Self::default().multiplay),
             multiplay_passive: section.read_bool("MultiplayPassive", false),
             wall_owner: section.read_bool("WallOwner", true),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_types: section
+                .read_list("AttachEffect.AttachTypes", 0x800)
+                .map(|tokens| {
+                    tokens
+                        .into_iter()
+                        .map(|token| token.trim().to_owned())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_duration_overrides: section
+                .read_int_list("AttachEffect.DurationOverrides")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_delays: section
+                .read_int_list("AttachEffect.Delays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_initial_delays: section
+                .read_int_list("AttachEffect.InitialDelays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_recreation_delays: section
+                .read_int_list("AttachEffect.RecreationDelays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            attach_effect_attach_on_owner_change: section.read_phobos_nullable_bool(
+                "AttachEffect.AttachOnOwnerChange",
+                Self::default().attach_effect_attach_on_owner_change,
+            ),
             // IncomeMult is a raw multiplier (NOT a percent). Round in f64 to avoid f32
             // drift; absent -> the neutral 1.0 (stock).
             // HouseTypeClass::ReadINI stores these as floats (`FSTP dword` at
@@ -1059,6 +1128,18 @@ pub struct GeneralRules {
     /// AudioVisual LaserTargetColor (Rules+18A4), constructor6678AA=0;
     /// ReadInt66B818..66B832 retains the current ColorAdd table index.
     pub laser_target_color: i32,
+    /// Phobos `[AudioVisual] AirstrikeLineColor=`, `RulesExt`'s
+    /// `Valueable<ColorStruct>` (constructor `255,0,0`, `src/Ext/Rules/Body.h`):
+    /// the RGB an airstrike beam and its target dot draw. A TechnoType's own
+    /// `AirstrikeLineColor` overrides it (`Simulation::airstrike_line_color`).
+    #[cfg(feature = "phobos")]
+    pub airstrike_line_color: [u8; 3],
+    /// Phobos `[AudioVisual] AirstrikeLineZAdjust=`, `RulesExt`'s
+    /// `Valueable<int>` (constructor 0): added to the smaller of the beam's two
+    /// end depths, which `TechnoClass_DrawAirstrikeFlare_LineColor`
+    /// (`0x007058F6`) then gives the whole beam.
+    #[cfg(feature = "phobos")]
+    pub airstrike_line_z_adjust: i32,
     /// AudioVisual66B832..66B857, Rules+18A8; constructor6678B0=0.
     pub iron_curtain_color: i32,
     /// AudioVisual66B857..66B877, Rules+18AC; constructor6678B6=0.
@@ -1942,6 +2023,21 @@ pub struct GeneralRules {
     /// `Approach_Target` arm at `0x00522434`.
     #[cfg(feature = "phobos")]
     pub infantry_auto_deploy: bool,
+    /// Phobos `[General] AllowDamageOnSelf` (`RulesExt`, default false): the
+    /// fallback for a warhead's `Nullable<bool>` when the warhead section
+    /// leaves it unset.
+    #[cfg(feature = "phobos")]
+    pub allow_damage_on_self: bool,
+    /// Phobos `[General] DecloakDamagedTargets` (`RulesExt`, default true):
+    /// the fallback for a warhead's `Nullable<bool>` when the warhead section
+    /// leaves it unset.
+    #[cfg(feature = "phobos")]
+    pub decloak_damaged_targets: bool,
+    /// Phobos `[CombatDamage] ROF.RandomDelay` (`RulesExt`,
+    /// `PartialVector2D<int>`, default `{0, 2}`): the full rearm's jitter
+    /// range for a weapon that leaves its own key unset.
+    #[cfg(feature = "phobos")]
+    pub rof_random_delay: crate::rules::ini_value::PartialIntPair,
     /// `[AI] AIForcePredictionFudge=`, the signed DynamicVector at `Rules+0x9A8`
     /// (items `+0x9AC`) indexed Hard/Normal/Easy by the House difficulty:
     /// the percent by which the computer's estimate of its enemy's forces
@@ -2636,6 +2732,10 @@ impl Default for GeneralRules {
             idle_action_frequency: f64::from_bits(0x3fb5_3f7c_ed91_6873),
             force_shield_color: 0,
             laser_target_color: 0,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color: [255, 0, 0],
+            #[cfg(feature = "phobos")]
+            airstrike_line_z_adjust: 0,
             iron_curtain_color: 0,
             berserk_color: 0,
             airstrike_abort_sound: None,
@@ -2845,6 +2945,16 @@ impl Default for GeneralRules {
             ai_auto_deploy_frame_delay: Vec::new(),
             #[cfg(feature = "phobos")]
             infantry_auto_deploy: false,
+            #[cfg(feature = "phobos")]
+            allow_damage_on_self: false,
+            #[cfg(feature = "phobos")]
+            decloak_damaged_targets: true,
+            #[cfg(feature = "phobos")]
+            rof_random_delay: crate::rules::ini_value::PartialIntPair {
+                low: 0,
+                high: 2,
+                values: 2,
+            },
             ai_force_prediction_fudge: Vec::new(),
             ai_pick_wall_defense_percent: Vec::new(),
             // RulesClass constructor clears PlayerScatter and stores 3 into
@@ -3529,6 +3639,14 @@ impl GeneralRules {
             "ExtraAircraftLight",
             defaults.extra_aircraft_light as f64 / 1000.0,
         ) * 1000.0) as i32;
+        // Phobos `RulesExt` reads these `[AudioVisual]` keys independently of
+        // RulesClass's `[General]` gate.
+        #[cfg(feature = "phobos")]
+        let airstrike_line_color =
+            audio_visual.read_phobos_color("AirstrikeLineColor", defaults.airstrike_line_color);
+        #[cfg(feature = "phobos")]
+        let airstrike_line_z_adjust =
+            audio_visual.read_ares_int("AirstrikeLineZAdjust", defaults.airstrike_line_z_adjust);
         let Some(general) = ini.section("General") else {
             return Self {
                 message_delay_minutes,
@@ -3555,6 +3673,10 @@ impl GeneralRules {
                 extra_unit_light,
                 extra_infantry_light,
                 extra_aircraft_light,
+                #[cfg(feature = "phobos")]
+                airstrike_line_color,
+                #[cfg(feature = "phobos")]
+                airstrike_line_z_adjust,
                 ..defaults
             };
         };
@@ -4159,6 +4281,19 @@ impl GeneralRules {
                 .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             infantry_auto_deploy: general.read_bool("InfantryAutoDeploy", false),
+            #[cfg(feature = "phobos")]
+            allow_damage_on_self: general.read_bool("AllowDamageOnSelf", false),
+            #[cfg(feature = "phobos")]
+            decloak_damaged_targets: general.read_bool("DecloakDamagedTargets", true),
+            #[cfg(feature = "phobos")]
+            rof_random_delay: combat_damage.read_ares_partial_int_pair(
+                "ROF.RandomDelay",
+                crate::rules::ini_value::PartialIntPair {
+                    low: 0,
+                    high: 2,
+                    values: 2,
+                },
+            ),
             ai_force_prediction_fudge: ai
                 .read_int_list("AIForcePredictionFudge")
                 .unwrap_or_default(),
@@ -4247,6 +4382,10 @@ impl GeneralRules {
             chrono_beam_color: defaults.chrono_beam_color,
             force_shield_color: defaults.force_shield_color,
             laser_target_color: defaults.laser_target_color,
+            #[cfg(feature = "phobos")]
+            airstrike_line_color,
+            #[cfg(feature = "phobos")]
+            airstrike_line_z_adjust,
             iron_curtain_color: defaults.iron_curtain_color,
             berserk_color: defaults.berserk_color,
             parachute_max_fall_rate: defaults.parachute_max_fall_rate,
@@ -4560,6 +4699,10 @@ pub struct RuleSet {
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
     pub(crate) shield_globals: crate::rules::phobos_shields::ShieldGlobals,
+    /// Phobos crit defaults: `[CombatDamage] Crit.*` and `[General]
+    /// VeteranCritChance`.
+    #[cfg(feature = "phobos")]
+    pub(crate) crit_globals: crate::rules::phobos_crit::CritGlobals,
     /// Phobos `[DigitalDisplayTypes]` catalog, read per Rules pass by the
     /// ordered Process owner. Empty in builds without the capability.
     #[cfg(feature = "phobos")]
@@ -4568,6 +4711,12 @@ pub struct RuleSet {
     /// default lists and `DigitalDisplay.Health.FakeAtDisguise`.
     #[cfg(feature = "phobos")]
     pub(crate) digital_display_globals: crate::rules::digital_display::DigitalDisplayGlobals,
+    /// Phobos `[AttachEffectTypes]` catalog, retained across Rules passes.
+    #[cfg(feature = "phobos")]
+    pub(crate) attach_effect_types: crate::rules::attach_effect::AttachEffectTypeCatalog,
+    /// Phobos AttachEffect globals (`[General]`).
+    #[cfg(feature = "phobos")]
+    pub(crate) attach_effect_globals: crate::rules::attach_effect::AttachEffectGlobals,
     /// Phobos placement preview globals (`[AudioVisual] PlacementPreview*`).
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_globals:
@@ -4878,6 +5027,7 @@ impl RuleSet {
         rules.general.weapon_nullify_anim = nullify_anim.to_owned();
         rules.combat_damage.splash_list = splash.to_vec();
         rules.combat_damage.ammo_crate_damage = processed.ammo_crate_damage();
+        rules.combat_damage.tiberium_explosion_damage = processed.tiberium_explosion_damage();
         rules.combat_damage.death_weapon =
             processed.combat_damage_death_weapon().map(str::to_owned);
         for (name, conventional, em_effect, anim_list, debris_types, verses, ares_verses) in
@@ -5862,7 +6012,7 @@ impl RuleSet {
             .section_or_empty("SpecialFlags")
             .read_bool("InitialVeteran", false);
         let terrain_rules: TerrainRules = TerrainRules::from_ini(ini);
-        let tiberium_types = TiberiumTypeRegistry::from_ini(ini);
+        let tiberium_types = TiberiumTypeRegistry::from_processed_rules(processed);
         let bridge_rules: BridgeRules = BridgeRules::from_ini(ini);
         let crate_rules = CrateRules::default();
         // Overwritten from the processed layers by the two callers above; the
@@ -5903,6 +6053,18 @@ impl RuleSet {
             (
                 digital_display_types,
                 crate::rules::digital_display::DigitalDisplayGlobals::from_ini(ini),
+            )
+        };
+        #[cfg(feature = "phobos")]
+        let (attach_effect_types, attach_effect_globals) = {
+            let attach_effect_types = processed.attach_effect_types().cloned().unwrap_or_default();
+            log::info!(
+                "Phobos attach effect types: [{}]",
+                attach_effect_types.names().collect::<Vec<_>>().join(", ")
+            );
+            (
+                attach_effect_types,
+                crate::rules::attach_effect::AttachEffectGlobals::from_ini(ini),
             )
         };
         #[cfg(feature = "phobos")]
@@ -6066,7 +6228,6 @@ impl RuleSet {
             weapon.attached_particle_system = state.attached_particle_system.map(str::to_owned);
             weapons.insert(section.name.clone(), weapon);
         }
-
         // Step 3: Parse warhead sections. The projected [Warheads] registry is
         // the processor's whole Warhead family: the [Warheads] values and
         // every reference-driven allocation, weapons' warheads and the
@@ -6330,9 +6491,15 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             shield_globals,
             #[cfg(feature = "phobos")]
+            crit_globals: crate::rules::phobos_crit::CritGlobals::from_ini(ini),
+            #[cfg(feature = "phobos")]
             digital_display_types,
             #[cfg(feature = "phobos")]
             digital_display_globals,
+            #[cfg(feature = "phobos")]
+            attach_effect_types,
+            #[cfg(feature = "phobos")]
+            attach_effect_globals,
             #[cfg(feature = "phobos")]
             placement_preview_globals,
             #[cfg(feature = "phobos")]
@@ -6431,7 +6598,7 @@ impl RuleSet {
         }
     }
 
-    /// TAction106's active6DF5D1 body compares stored IDs with exact case,
+    /// TAction106's active6DF5D1 and FlashCameo115's6E4150 compare IDs with exact case,
     /// scanning TechnoType::Array A8EB04/countA8EB10 backwards. This has
     /// different semantics from broad `object()` and subtype lookup.
     ///
@@ -6778,12 +6945,37 @@ impl RuleSet {
         &self.shield_globals
     }
 
+    /// Phobos crit defaults (`[CombatDamage]`/`[General]`).
+    #[cfg(feature = "phobos")]
+    pub fn crit_globals(&self) -> &crate::rules::phobos_crit::CritGlobals {
+        &self.crit_globals
+    }
+
     /// Phobos `[DigitalDisplayTypes]` catalog.
     #[cfg(feature = "phobos")]
     pub fn digital_display_types(
         &self,
     ) -> &crate::rules::digital_display::DigitalDisplayTypeCatalog {
         &self.digital_display_types
+    }
+
+    /// Phobos `[AttachEffectTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_types(&self) -> &crate::rules::attach_effect::AttachEffectTypeCatalog {
+        &self.attach_effect_types
+    }
+
+    /// Phobos AttachEffect `[General]` switches.
+    #[cfg(feature = "phobos")]
+    pub fn attach_effect_globals(&self) -> &crate::rules::attach_effect::AttachEffectGlobals {
+        &self.attach_effect_globals
+    }
+
+    /// Phobos `AttachEffect.AttachTypes` authored on a country/house type.
+    #[cfg(feature = "phobos")]
+    pub fn country_attach_effect_types(&self, id: &str) -> &[String] {
+        self.country_rules(id)
+            .map_or(&[], |country| country.attach_effect_attach_types.as_slice())
     }
 
     /// Phobos DigitalDisplay globals (`[AudioVisual]`).
@@ -7783,6 +7975,18 @@ impl RuleSet {
         }
         self.anim_type_references.hash(&mut hasher);
         self.combat_damage.ammo_crate_damage.hash(&mut hasher);
+        // Native retained defaults can differ with identical incoming INIs.
+        self.combat_damage
+            .tiberium_explosion_damage
+            .hash(&mut hasher);
+        for tiberium in self.tiberium_types.types() {
+            (
+                &tiberium.section,
+                tiberium.color_scheme(),
+                tiberium.debris(),
+            )
+                .hash(&mut hasher);
+        }
         self.general.barrel_explode.hash(&mut hasher);
         self.general.barrel_debris.hash(&mut hasher);
         for kind in &self.voxel_anim_types {
@@ -8767,6 +8971,30 @@ impl RuleSet {
     /// Resolve a side name to its stable `[Sides]` registration index.
     pub fn side_index(&self, id: &str) -> Option<SideIdx> {
         self.side_indices.get(&id.to_ascii_uppercase()).copied()
+    }
+
+    /// Phobos `WarheadTypeExt::AllowDamageOnSelf.Get([General] ...)`: the
+    /// warhead's own nullable value, then the global, defaulting to false.
+    #[cfg(feature = "phobos")]
+    pub fn allow_damage_on_self_for(&self, warhead: &WarheadType) -> bool {
+        warhead
+            .allow_damage_on_self()
+            .unwrap_or(self.general.allow_damage_on_self)
+    }
+
+    /// Phobos is compiled out: the native `DamageSelf` gate stays final.
+    #[cfg(not(feature = "phobos"))]
+    pub fn allow_damage_on_self_for(&self, _warhead: &WarheadType) -> bool {
+        false
+    }
+
+    /// Phobos `WarheadTypeExt::DecloakDamagedTargets.Get([General] ...)`: the
+    /// warhead's own nullable value, then the global, defaulting to true.
+    #[cfg(feature = "phobos")]
+    pub fn decloak_damaged_targets_for(&self, warhead: &WarheadType) -> bool {
+        warhead
+            .decloak_damaged_targets()
+            .unwrap_or(self.general.decloak_damaged_targets)
     }
 
     /// Phobos `InfantryAutoDeploy`, resolved the way `InfantryClass::

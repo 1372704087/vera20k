@@ -50,6 +50,7 @@ fn make_test_entity(type_id: &str, category: EntityCategory) -> MapEntity {
         recruitable_a: true,
         recruitable_b: true,
         group: -1,
+        follows: None,
         structure_upgrades: [None, None, None],
         structure_ai_sellable: false,
         structure_ai_repairable: false,
@@ -3552,6 +3553,9 @@ fn sonic_cell_target_uses_persistent_dummy_gettargetcoords_on_create_and_refresh
 /// (`0x006FA65A`) scans the enemy infantryman into range, and it fires Inviso
 /// bullets that land in each frame's Logic tail until the target dies, then
 /// holds no target.
+// Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
+// this stock golden only holds without the capability.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn guard_infantry_acquire_return_fire_and_finish_a_duel() {
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -5872,6 +5876,7 @@ fn move_event_issuer_does_not_replace_actor_owner() {
             recruitable_a: true,
             recruitable_b: true,
             group: -1,
+            follows: None,
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,
@@ -6063,6 +6068,7 @@ fn attack_move_fight(rules: &RuleSet) -> Simulation {
                 recruitable_a: true,
                 recruitable_b: true,
                 group: -1,
+                follows: None,
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,
@@ -6084,6 +6090,7 @@ fn attack_move_fight(rules: &RuleSet) -> Simulation {
                 recruitable_a: true,
                 recruitable_b: true,
                 group: -1,
+                follows: None,
                 structure_upgrades: [None, None, None],
                 structure_ai_sellable: false,
                 structure_ai_repairable: false,

@@ -309,16 +309,7 @@ impl App {
                     // Main_Game55D347 returns directly to shell cleanup.
                     // This is the same route as WaitPass::Leave, without an
                     // EXIT command or BattleControlTerminated686570.
-                    Self::record_external_match_result(
-                        state,
-                        super::cncnet::ExternalMatchResult::Disconnected,
-                    );
-                    #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                    Self::browser_match_ended(
-                        state,
-                        super::cncnet::ExternalMatchResult::Disconnected,
-                    );
-                    Self::return_to_main_menu(state);
+                    Self::return_disconnected_to_main_menu(state);
                 }
             }
             return RuntimeServiceResult {
@@ -461,24 +452,7 @@ impl App {
             if crate::app::match_runtime::network_match::service_wait(state, now_ms)
                 == crate::app::match_runtime::network_match::WaitPass::Leave
             {
-                if state
-                    .match_state
-                    .sim_runtime
-                    .as_ref()
-                    .is_some_and(|rt| rt.simulation.pending_network_wait())
-                {
-                    sim_tick::leave_network_wait(state);
-                }
-                // Result 8 clears GameActive without an EXIT event, so
-                // Main_Game returns past the router without 0x00686570's
-                // EVA and fades (0x0064806C..0x006482A6, 0x0055D347).
-                Self::record_external_match_result(
-                    state,
-                    super::cncnet::ExternalMatchResult::Disconnected,
-                );
-                #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
-                Self::browser_match_ended(state, super::cncnet::ExternalMatchResult::Disconnected);
-                Self::return_to_main_menu(state);
+                Self::leave_network_wait_to_main_menu(state);
                 return RuntimeServiceResult {
                     main_tick_admitted,
                     screen_shake_offset,
@@ -664,11 +638,16 @@ impl App {
             .begin_presentation_observation();
         crate::app::presentation::interpolation::prepare(state, tactical_capture.is_some());
         let tooltip_ms = crate::app::input::tooltips::update(state);
-        if state
-            .frontend
-            .startup_splash
-            .as_ref()
-            .is_some_and(|splash| splash.is_active(Instant::now()))
+        // `Init_Game` plays the startup logo (`0x0052C5E2`) before it presents
+        // the splash (`0x0052C5F3`): the splash waits while a movie owns the
+        // screen through the ordinary FullscreenMovie page below.
+        let startup_movie_playing = state.frontend.fullscreen_movie.is_some();
+        if !startup_movie_playing
+            && state
+                .frontend
+                .startup_splash
+                .as_ref()
+                .is_some_and(|splash| splash.is_active(Instant::now()))
         {
             state.diag.frame_timer.sample(Instant::now());
             let splash = state
@@ -682,7 +661,7 @@ impl App {
                 &state.renderer.shell_surface_presenter,
                 &state.renderer.depth_view,
                 &state.renderer.fps_overlay,
-                splash,
+                Some(splash),
             )?;
             if presented {
                 state
@@ -704,7 +683,18 @@ impl App {
                 FrameRenderOutcome::Unavailable
             });
         }
-        state.frontend.startup_splash = None;
+        if !startup_movie_playing {
+            state.frontend.startup_splash = None;
+            // `0x0052CB50` (from `0x0052CA65`) plays the first-run intro after
+            // the splash and before the shell's first paint.
+            if std::mem::take(&mut state.frontend.startup_intro_pending) {
+                Self::start_fullscreen_movie(
+                    state,
+                    crate::app::frontend::fullscreen_movie::STARTUP_INTRO_MOVIE,
+                    crate::app::frontend::fullscreen_movie::MovieReturn::StartupIntro,
+                );
+            }
+        }
 
         // Outcome gates, exit cascades, the audio pump and the simulation
         // advance, shared with the hidden-window service loop.

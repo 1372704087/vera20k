@@ -1477,6 +1477,10 @@ fn techno_common_steps(
     // Ares1004B434 updates attachments before1004B528 EMP recovery.
     #[cfg(feature = "ares")]
     sim.update_ares_attach_effects(id, rules);
+    // Phobos `TechnoExt::UpdateAttachEffects` (Body.Update.cpp:895): one AI
+    // phase and the animation check for every AttachEffect on this object.
+    #[cfg(feature = "phobos")]
+    sim.update_phobos_attach_effects_with(id, rules, effects, overlay_registry);
     #[cfg(feature = "ares")]
     sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before
@@ -3286,6 +3290,7 @@ mod tests {
             recruitable_a: true,
             recruitable_b: true,
             group: -1,
+            follows: None,
             structure_upgrades: [None, None, None],
             structure_ai_sellable: false,
             structure_ai_repairable: false,

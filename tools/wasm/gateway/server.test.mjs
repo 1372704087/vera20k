@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import http from 'node:http';
 import dgram from 'node:dgram';
 import { once } from 'node:events';
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import { createGateway, gatewayOptionsFromEnv, LIMITS } from './server.mjs';
 
 const origin = 'https://game.example';
@@ -38,6 +38,12 @@ async function fixture(t, extra = {}) {
   await listen(upstream);
   const options = { lobby: `http://127.0.0.1:${upstream.address().port}`, allowHttp: true,
     relayHost: '127.0.0.1', relayPort: udp.address().port, origin, ...extra };
+  const serverSockets = [];
+  const emit = WebSocketServer.prototype.emit;
+  t.mock.method(WebSocketServer.prototype, 'emit', function (event, ...args) {
+    if (event === 'connection') serverSockets.push(args[0]);
+    return emit.call(this, event, ...args);
+  });
   const gateway = createGateway(options);
   await listen(gateway.server);
   t.after(async () => {
@@ -52,7 +58,7 @@ async function fixture(t, extra = {}) {
     await once(ws, 'open');
     return ws;
   };
-  return { udp, options, gateway, requests, base, socket };
+  return { udp, options, gateway, requests, base, socket, serverSockets };
 }
 
 test('lobby HTTP remains byte-for-byte, bounded and restricted to its configured upstream', { timeout: 10000 }, async t => {
@@ -130,12 +136,22 @@ test('each WS channel has a stable isolated UDP port, preserves binary boundarie
     await closed;
   }
   // A fresh socket can bind each exact old source port after channel cleanup.
+  // The gateway's side of a WebSocket can close just after the client's, so
+  // each port gets up to a second.
   for (const port of ports) {
-    const rebound = dgram.createSocket('udp4');
-    t.after(() => { try { rebound.close(); } catch {} });
-    rebound.bind(port, '127.0.0.1');
-    await once(rebound, 'listening');
-    rebound.close();
+    for (let attempt = 1; ; attempt++) {
+      const rebound = dgram.createSocket('udp4');
+      try {
+        rebound.bind(port, '127.0.0.1');
+        await once(rebound, 'listening');
+        rebound.close();
+        break;
+      } catch (error) {
+        try { rebound.close(); } catch {}
+        if (error.code !== 'EADDRINUSE' || attempt === 50) throw error;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+    }
   }
 });
 
@@ -156,6 +172,43 @@ test('WS rejects arbitrary routes, foreign origins, text and oversized messages'
   const [code] = await closed;
   assert.equal(code, 1009);
 });
+
+for (const lanSignal of [undefined, { iceServers: [] }]) {
+  test(`malformed upgrade URLs are rejected with LAN signaling ${lanSignal ? 'on' : 'off'}`, { timeout: 10000 }, async t => {
+    const { base, udp, socket, gateway } = await fixture(t, { lanSignal });
+    // Fail synchronously if the callback throws, before opening an upgraded socket
+    // that the failed callback would leave outside the gateway's cleanup registry.
+    assert.doesNotThrow(() => gateway.server.emit('upgrade',
+      { url: 'http://[', headers: {} }, { end() {} }, Buffer.alloc(0)));
+    const response = await new Promise((resolve, reject) => {
+      // Node accepts this HTTP request target, but the WHATWG URL parser rejects it.
+      const request = http.get(base, {
+        path: 'http://[', headers: { connection: 'Upgrade', upgrade: 'websocket' },
+      }, resolve);
+      request.on('error', reject);
+      request.setTimeout(2000, () => request.destroy(new Error('Upgrade rejection timed out')));
+    });
+    const chunks = [];
+    for await (const chunk of response) chunks.push(chunk);
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.headers.connection, 'close');
+    assert.equal(Buffer.concat(chunks).length, 0);
+
+    // The same gateway must still carry real game datagrams after the rejection.
+    udp.on('message', (data, peer) => udp.send(data, peer.port, peer.address));
+    const game = await socket();
+    const echoed = once(game, 'message');
+    const payload = Buffer.from([1, 2, 3]);
+    game.send(payload);
+    assert.deepEqual((await echoed)[0], payload);
+    if (lanSignal) {
+      const signaling = new WebSocket(`${base.replace('http:', 'ws:')}/lan/signal`, { origin });
+      t.after(() => signaling.terminate());
+      const [welcome] = await once(signaling, 'message');
+      assert.equal(JSON.parse(welcome.toString()).type, 'welcome');
+    }
+  });
+}
 
 test('datagrams past a connection budget or full queue are lost while the connection stays open', { timeout: 10000 }, async t => {
   const { udp, socket } = await fixture(t);
@@ -205,4 +258,114 @@ test('connections spending the aggregate budget cannot take a steady connection\
   // The flooders spent all the rest, and every connection stays open.
   assert.equal(flooded, spare);
   for (const ws of [steady, ...flooders]) assert.equal(ws.readyState, WebSocket.OPEN);
+});
+
+
+test('Pong replies obey the output cap before any game datagram', { timeout: 10000 }, async t => {
+  const { socket, udp, serverSockets } = await fixture(t);
+  const client = await socket();
+  const payload = Buffer.alloc(125, 42);
+  const normal = once(client, 'pong');
+  client.ping(payload);
+  assert.deepEqual((await normal)[0], payload);
+  const peer = serverSockets[0];
+  t.mock.getter(peer, 'bufferedAmount', () => LIMITS.wsQueueBytes);
+  const pongs = t.mock.method(peer, 'pong');
+  const handled = once(peer, 'ping');
+  const closed = once(client, 'close');
+  client.ping(payload);
+  await handled;
+  assert.equal(pongs.mock.callCount(), 0);
+  await closed;
+  udp.on('message', (data, address) => udp.send(data, address.port, address.address));
+  const healthy = await socket('alternate');
+  const echoed = once(healthy, 'message');
+  healthy.send(Buffer.from([7]));
+  assert.deepEqual((await echoed)[0], Buffer.from([7]));
+});
+
+test('control frame rates are bounded per connection and gateway without spending datagram credit', { timeout: 10000 }, async t => {
+  t.mock.method(performance, 'now', () => 0);
+  const { socket, udp, serverSockets } = await fixture(t);
+  const flood = await socket();
+  const peer = serverSockets[0];
+  const pongs = t.mock.method(peer, 'pong');
+  const closed = once(flood, 'close');
+  const count = LIMITS.controlFramesPerSecond;
+  let seen = 0;
+  const handled = new Promise(resolve => peer.on('ping', () => { if (++seen === count + 1) resolve(); }));
+  for (let i = 0; i <= count; i++) flood.ping(Buffer.from([1]));
+  await handled;
+  assert.equal(pongs.mock.callCount(), count);
+  await closed;
+
+  // Spend the rest of the shared control allowance without overrunning any peer.
+  const peers = (LIMITS.totalControlFramesPerSecond - count) / count;
+  let steady;
+  for (let i = 0; i < peers; i++) {
+    steady = await socket();
+    const server = serverSockets.at(-1);
+    let received = 0;
+    const done = new Promise(resolve => server.on('ping', () => { if (++received === count) resolve(); }));
+    for (let frame = 0; frame < count; frame++) steady.ping(Buffer.from([2]));
+    await done;
+  }
+  const extra = await socket('alternate');
+  const extraServer = serverSockets.at(-1);
+  const extraPongs = t.mock.method(extraServer, 'pong');
+  const extraHandled = once(extraServer, 'ping');
+  const extraClosed = once(extra, 'close');
+  extra.ping(Buffer.from([3]));
+  await extraHandled;
+  assert.equal(extraPongs.mock.callCount(), 0);
+  await extraClosed;
+  udp.on('message', (data, address) => udp.send(data, address.port, address.address));
+  const echoed = once(steady, 'message');
+  steady.send(Buffer.from([9]));
+  assert.deepEqual((await echoed)[0], Buffer.from([9]));
+});
+
+test('heartbeats obey the output cap but not the shared control allowance', { timeout: 10000 }, async t => {
+  t.mock.method(performance, 'now', () => 0);
+  const ticks = [];
+  const interval = setInterval;
+  t.mock.method(globalThis, 'setInterval', (callback, delay, ...args) => {
+    if (delay === 30000) ticks.push(callback);
+    return interval(callback, delay, ...args);
+  });
+  const { socket, udp, serverSockets } = await fixture(t);
+  udp.on('message', (data, address) => udp.send(data, address.port, address.address));
+  const quiet = await socket();
+  let echoed = once(quiet, 'message');
+  quiet.send(Buffer.from([1]));
+  await echoed;
+  const peer = serverSockets[0];
+  // Other connections spend the whole shared control allowance, each within its own.
+  const count = LIMITS.controlFramesPerSecond;
+  for (let i = 0; i < LIMITS.totalControlFramesPerSecond / count; i++) {
+    const flood = await socket();
+    const server = serverSockets.at(-1);
+    let received = 0;
+    const done = new Promise(resolve => server.on('ping', () => { if (++received === count) resolve(); }));
+    for (let frame = 0; frame < count; frame++) flood.ping(Buffer.from([2]));
+    await done;
+  }
+  const pings = t.mock.method(peer, 'ping');
+  const answered = once(peer, 'pong');
+  ticks[0]();
+  assert.equal(pings.mock.callCount(), 1);
+  await answered;
+  assert.equal(quiet.readyState, WebSocket.OPEN);
+
+  const slow = await socket();
+  echoed = once(slow, 'message');
+  slow.send(Buffer.from([3]));
+  await echoed;
+  const slowServer = serverSockets.at(-1);
+  t.mock.getter(slowServer, 'bufferedAmount', () => LIMITS.wsQueueBytes);
+  const slowPings = t.mock.method(slowServer, 'ping');
+  const slowClosed = once(slow, 'close');
+  ticks.at(-1)();
+  assert.equal(slowPings.mock.callCount(), 0);
+  await slowClosed;
 });

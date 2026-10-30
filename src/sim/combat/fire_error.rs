@@ -574,6 +574,12 @@ pub(crate) trait FireQuery {
     /// `0x005F3DB0` DirectionToTarget and Building vt+0x4E8.
     fn direction_to_target(&mut self) -> u16;
     fn turret_direction(&mut self) -> u16;
+    /// Phobos `WeaponTypeExt::HasRequiredAttachedEffects` for this slot
+    /// (`src/Ext/Techno/Hooks.Firing.cpp:355..383`). The default allows, for
+    /// query owners that keep no AttachEffect state.
+    fn attach_effect_gate(&mut self, _weapon_index: i32) -> bool {
+        true
+    }
     /// Building vt+0x408, the occupant count (B1).
     fn occupants(&mut self) -> i32;
     /// Building vt+0x350 Is_Operational_For_Output (B5).
@@ -905,6 +911,12 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
     let Some(weapon) = query.weapon(facts.weapon_index) else {
         return Cant;
     };
+    // Phobos `TechnoClass_CanFire` (`0x6FC339`): the weapon's AttachEffect
+    // lists gate the shot against the target (or, with `CheckOnFirer`, the
+    // firer) right after the weapon exists and before the per-target arms.
+    if !query.attach_effect_gate(facts.weapon_index) {
+        return Cant;
+    }
     // T22 (IonSensitive) asks `0x0053A130`, which is `XOR AL,AL; RET`.
     let warhead = weapon.warhead.unwrap_or_default();
 

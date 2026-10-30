@@ -13,6 +13,7 @@ export const LIMITS = Object.freeze({
   requestBytes: 64 * 1024, responseBytes: 1024 * 1024,
   udpQueuePackets: 256, udpQueueBytes: 256 * 1024, wsQueueBytes: 1024 * 1024,
   packetsPerSecond: 2048, totalPacketsPerSecond: 16384,
+  controlFramesPerSecond: 64, totalControlFramesPerSecond: 1024,
 });
 
 function originUrl(value, allowLocalHttp = false) {
@@ -41,6 +42,7 @@ export function createGateway({
   const closeSockets = new Map();
   // Combined incoming and outgoing datagrams of every game WebSocket.
   const packets = fairBudget(LIMITS.totalPacketsPerSecond, LIMITS.packetsPerSecond);
+  const controls = fairBudget(LIMITS.totalControlFramesPerSecond, LIMITS.controlFramesPerSecond);
   const handshakes = rateLimit(512);
   const signaling = lanSignal
     ? createSignaling({ origin: allowed, clientIpHeader, iceServers: lanSignal.iceServers }) : null;
@@ -149,11 +151,16 @@ export function createGateway({
   server.requestTimeout = 15000;
   server.maxConnections = LIMITS.connections + LIMITS.httpRequests;
   const wss = new WebSocketServer({
-    noServer: true, maxPayload: LIMITS.datagram, perMessageDeflate: false,
+    noServer: true, maxPayload: LIMITS.datagram, perMessageDeflate: false, autoPong: false,
     maxFragments: 128, maxBufferedChunks: 128, closeTimeout: 1000,
   });
   server.on('upgrade', (req, socket, head) => {
-    const url = new URL(req.url ?? '/', 'http://gateway');
+    let url;
+    try { url = new URL(req.url ?? '/', 'http://gateway'); }
+    catch {
+      socket.end('HTTP/1.1 400 Bad Request\r\nConnection: close\r\n\r\n');
+      return;
+    }
     if (signaling && !closing && url.pathname === '/lan/signal') {
       signaling.upgrade(req, socket, head, url);
       return;
@@ -169,6 +176,7 @@ export function createGateway({
   wss.on('connection', ws => {
     const udp = dgram.createSocket('udp4');
     const traffic = packets.join();
+    const controlTraffic = controls.join();
     const pending = [];
     let pendingBytes = 0;
     let ready = false;
@@ -180,6 +188,7 @@ export function createGateway({
       closed = true;
       closeSockets.delete(ws);
       traffic.leave();
+      controlTraffic.leave();
       clearInterval(heartbeat);
       pending.length = 0;
       pendingBytes = 0;
@@ -189,13 +198,32 @@ export function createGateway({
       }
       ws.terminate();
     };
+    const canQueueControl = bytes => {
+      if (closed) return false;
+      // bufferedAmount includes framing; reserve the largest unmasked header.
+      if (ws.readyState !== WebSocket.OPEN || ws.bufferedAmount + bytes + 10 > LIMITS.wsQueueBytes) {
+        finish();
+        return false;
+      }
+      return true;
+    };
+    const controlWritten = error => { if (error) finish(); };
+    // The gateway's own Ping, one per 30 seconds, is not charged to the shared
+    // control budget, so connections spending it cannot close a quiet player.
     const heartbeat = setInterval(() => {
-      if (!alive || !ready) { finish(); return; }
+      if (!alive || !ready || !canQueueControl(0)) { finish(); return; }
       alive = false;
-      ws.ping();
+      ws.ping(undefined, false, controlWritten);
     }, 30000);
     heartbeat.unref();
     closeSockets.set(ws, finish);
+    // Reply explicitly: ws automatic Pong otherwise runs before the ping listener.
+    // Pongs have their own fair rate budget, separate from game datagrams.
+    ws.on('ping', data => {
+      if (closed) return;
+      if (!controlTraffic.take()) { finish(); return; }
+      if (canQueueControl(data.length)) ws.pong(data, false, controlWritten);
+    });
     ws.on('pong', () => { alive = true; });
     ws.on('close', finish);
     ws.on('error', finish);

@@ -597,6 +597,27 @@ impl LiveLanCapture {
         })
     }
 
+    /// A guest's game accepts by itself, so readiness no longer says the guest
+    /// has made its choices. The host's Start also waits for the choices this
+    /// run makes: battle runs pick Americans for every player, and a run that
+    /// fixes starts gives every process its own `--online-start`.
+    fn choices_made(&self, state: &AppState, fixed_starts: bool) -> bool {
+        state
+            .match_state
+            .session
+            .network_setup()
+            .is_some_and(|launch| {
+                launch.humans.iter().all(|human| {
+                    (self.battle.is_none() || !human.slot.country_random)
+                        && (!fixed_starts
+                            || matches!(
+                                human.slot.start_position,
+                                crate::skirmish_launch::LaunchStartPosition::Position(_)
+                            ))
+                })
+            })
+    }
+
     /// Select an authored waypoint through the local human's visible Start
     /// combo. The configured waypoint is never used as a source/raw-row index.
     /// Read the real choice each time: later map selection can reset it to Auto.
@@ -954,6 +975,7 @@ impl LiveLanCapture {
                         session.network_player_ready(index)
                             && session.network_map_status(index) == Some(1)
                     })
+                    && self.choices_made(state, false)
                 {
                     setup_button(state, crate::ui::multiplayer_setup::START)?;
                     self.event(frame, "all real acknowledgements present; Start clicked");
@@ -980,26 +1002,10 @@ impl LiveLanCapture {
             Phase::GuestSetup
                 if rendered == PresentedShell::NetworkSetup && setup_settled(state, false) =>
             {
+                // The guest's game accepts the received options and map by
+                // itself, and again after each host change, so the run stays
+                // in editable setup until the host starts.
                 self.select_country(state)?;
-                let session = &state.match_state.session;
-                if session.network_setup().is_some_and(|launch| {
-                    launch.humans.len() == 2
-                        && launch
-                            .humans
-                            .iter()
-                            .all(|human| human.raw_slot_index.is_some())
-                }) && session.network_start_seed().is_some()
-                    && session.network_setup().is_some_and(|launch| {
-                        !session.network_player_ready(launch.local_player_index)
-                    })
-                    && setup::view(state).is_some_and(|view| view.accept_enabled)
-                {
-                    setup_button(state, crate::ui::multiplayer_setup::ACCEPT)?;
-                    self.event(frame, "received real options/map status; Accept clicked");
-                    // A host may still commit a generated/custom map. Remain
-                    // in editable setup so its ordinary Ready invalidation can
-                    // be acknowledged again before actual loading begins.
-                }
             }
             Phase::Loading | Phase::GuestSetup if state.frontend.screen == GameScreen::InGame => {
                 ensure!(

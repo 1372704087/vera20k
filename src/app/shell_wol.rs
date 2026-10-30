@@ -544,7 +544,7 @@ impl App {
             state.persistence.options_profile.wol_test_service,
             state.platform.capture_client_size,
         );
-        visit.set_legacy_ui(state.frontend.wol_native_ui);
+        visit.set_legacy_ui(state.frontend.native_shell_ui);
         state.frontend.wol = Some(visit);
         // Persona I/O is selected by the new visit's provider, never a
         // previous visit (or the absence of one).

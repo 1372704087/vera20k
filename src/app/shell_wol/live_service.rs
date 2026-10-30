@@ -1024,7 +1024,7 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
             service.start_preparation = None;
             fail_start(
                 state,
-                "The final game settings could not be agreed. Accept the settings and try Start again.",
+                "The final game settings could not be agreed. Try Start again.",
             );
         }
         if poll_relay(state, &mut service).is_err() {
@@ -1474,7 +1474,7 @@ fn poll_start_preparation(state: &mut AppState, service: &mut LiveService) -> Re
     if Instant::now() >= start.deadline {
         fail_start(
             state,
-            "Not every player accepted the final settings in time. Try Start again.",
+            "Not every player's game was ready in time. Try Start again.",
         );
         return Ok(());
     }
@@ -1542,9 +1542,13 @@ fn request_setup(
                 deadline: Instant::now() + RELAY_TIMEOUT,
             });
         }
-        NetworkSetupRequest::Ready(ready) => {
-            let ready = ready && local_map_status(state, service) == 1;
-            if !ready {
+        NetworkSetupRequest::Ready(requested) => {
+            let ready = requested && local_map_status(state, service) == 1;
+            if requested && !ready {
+                // The guest's automatic Accept waits for the verified map
+                // instead of repeating this request every frame.
+                crate::app::shell_network_setup::refuse_local_acceptance(state)?;
+            } else if !ready {
                 let index = state
                     .match_state
                     .session
@@ -1593,7 +1597,7 @@ fn request_setup(
                 }
                 notice(
                     state,
-                    "Waiting for every player to accept the final game settings.",
+                    "Waiting for every player's game to confirm the final settings.",
                 );
             }
         }
@@ -1769,12 +1773,18 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                 );
             }
             "ready" if service.last_ready_request == Some((id, service.revision)) => {
-                if let Some(index) = state
+                if failure != http::CommandFailure::Retryable {
+                    // The lobby refused these settings, usually because the
+                    // room has already moved on: the guest's automatic
+                    // Accept waits for the next ones.
+                    let _ = crate::app::shell_network_setup::refuse_local_acceptance(state);
+                } else if let Some(index) = state
                     .match_state
                     .session
                     .network_setup()
                     .map(|launch| launch.local_player_index)
                 {
+                    // A lost request: the automatic Accept sends it again.
                     let _ = crate::app::shell_network_setup::service_event(
                         state,
                         NetworkSetupEvent::PlayerReady {
@@ -1783,10 +1793,6 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                         },
                     );
                 }
-                notice(
-                    state,
-                    "The room changed before acceptance. Review the settings and accept again.",
-                );
             }
             "finish" => {
                 let first_failure = service
@@ -2118,7 +2124,7 @@ fn apply_event(
                 service.start_preparation = None;
                 fail_start(
                     state,
-                    "The game settings changed while preparing Start. Accept the settings and try again.",
+                    "The game settings changed while starting. Try Start again.",
                 );
             }
             service.revision = p.revision;
@@ -3050,7 +3056,10 @@ mod completion_tests {
         let mut expected_map = agreement;
         expected_map["status"] = json!(0);
         assert_eq!(next(), ("map_status", expected_map));
-        assert!(input.try_recv().is_err(), "guests must accept explicitly");
+        assert!(
+            input.try_recv().is_err(),
+            "a guest's readiness comes from its setup's Accept"
+        );
     }
 
     #[test]

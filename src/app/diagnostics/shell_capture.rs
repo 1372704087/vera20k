@@ -1264,8 +1264,9 @@ pub(crate) struct LiveLanConfig {
 }
 
 impl ShellCaptureRequest {
-    /// Only explicit native WOL diagnostics retain the original UI surface.
-    pub(crate) fn legacy_wol_ui(&self) -> bool {
+    /// Only explicit native diagnostics retain the original WOL surface and
+    /// BD's Accept; the live LAN and online runs play as players do.
+    pub(crate) fn native_shell_ui(&self) -> bool {
         match self.checkpoint.movies_target() {
             Some(movies::MoviesTarget::Wol(target)) => !matches!(
                 target,
@@ -1277,6 +1278,7 @@ impl ShellCaptureRequest {
                 provider: crate::app::shell_wol::WolProvider::Unavailable,
                 ..
             }) => true,
+            Some(movies::MoviesTarget::Lan(target)) => !target.live(),
             _ => false,
         }
     }
@@ -2461,7 +2463,7 @@ impl ShellCaptureSession {
     pub(crate) fn prepare_state(&mut self, state: &mut AppState) {
         state.match_state.input.cursor_x = self.request.cursor_x as f32;
         state.match_state.input.cursor_y = self.request.cursor_y as f32;
-        state.frontend.wol_native_ui = self.request.legacy_wol_ui();
+        state.frontend.native_shell_ui = self.request.native_shell_ui();
         self.started_at = Some(Instant::now());
     }
 
@@ -4097,7 +4099,7 @@ mod tests {
         ] {
             let checkpoint = ShellCaptureCheckpoint::parse(name).expect("WOL checkpoint");
             request.checkpoint = checkpoint;
-            assert!(request.legacy_wol_ui());
+            assert!(request.native_shell_ui());
             assert_eq!(
                 request.wol_welcome_provider(),
                 Some(crate::app::shell_wol::WolProvider::Unavailable)
@@ -4121,7 +4123,7 @@ mod tests {
             ),
         ] {
             request.checkpoint = ShellCaptureCheckpoint::parse(name).unwrap();
-            assert!(request.legacy_wol_ui());
+            assert!(request.native_shell_ui());
             assert_eq!(request.wol_welcome_provider(), Some(provider));
         }
         assert_eq!(
@@ -4142,17 +4144,19 @@ mod tests {
         };
         assert!(request.live_online.is_none());
         request.checkpoint = ShellCaptureCheckpoint::Lan(movies::LanTarget::OnlineHost);
-        assert!(!request.legacy_wol_ui());
+        assert!(!request.native_shell_ui());
         assert_eq!(request.wol_welcome_provider(), None);
+        request.checkpoint = ShellCaptureCheckpoint::Lan(movies::LanTarget::Accepted);
+        assert!(request.native_shell_ui(), "BD diagnostics keep Accept");
         request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-lobby").unwrap();
-        assert!(!request.legacy_wol_ui());
+        assert!(!request.native_shell_ui());
         assert!(request.live_online.is_none());
         assert_eq!(
             request.wol_welcome_provider(),
             Some(crate::app::shell_wol::WolProvider::TestService)
         );
         request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-username").unwrap();
-        assert!(!request.legacy_wol_ui());
+        assert!(!request.native_shell_ui());
         assert_eq!(
             request.wol_welcome_provider(),
             Some(crate::app::shell_wol::WolProvider::Online)

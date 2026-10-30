@@ -938,7 +938,12 @@ impl LiveRoundFlow {
                     .network_setup_protocol
                     .as_ref()
                     .is_some_and(|protocol| protocol.start_in_progress());
-                if ready && !starting && core.start_matches(state, self.online_config().start) {
+                let start = self.online_config().start;
+                if ready
+                    && !starting
+                    && core.start_matches(state, start)
+                    && core.choices_made(state, start.is_some())
+                {
                     setup_button(state, crate::ui::multiplayer_setup::START)?;
                     self.record(
                         frame,
@@ -950,11 +955,13 @@ impl LiveRoundFlow {
                 if self.online_config().start.is_some() && !core.start_selection_admitted(state) {
                     return Ok(());
                 }
+                // The guest's game accepts the received map and options by
+                // itself, and again after each echoed choice, so the run only
+                // makes its choices and stays in editable setup until Start.
                 let country_was_selected = core.country_selected;
                 core.select_country(state)?;
                 if !country_was_selected && core.country_selected {
-                    // Let the real host options echo this normal control edit
-                    // before any Accept can acknowledge it.
+                    // One normal control edit per frame.
                     return Ok(());
                 }
                 if core.select_start(state, self.online_config().start)? {
@@ -962,25 +969,6 @@ impl LiveRoundFlow {
                         frame,
                         "Configured authored start selected through the local Start combo",
                     );
-                    return Ok(());
-                }
-                if state
-                    .match_state
-                    .session
-                    .network_setup()
-                    .is_some_and(|launch| {
-                        launch.humans.len() == self.round_players()
-                            && launch
-                                .humans
-                                .iter()
-                                .all(|human| human.raw_slot_index.is_some())
-                    })
-                    && state.match_state.session.network_start_seed().is_some()
-                    && core.start_matches(state, self.online_config().start)
-                    && setup::view(state).is_some_and(|view| view.accept_enabled)
-                {
-                    setup_button(state, crate::ui::multiplayer_setup::ACCEPT)?;
-                    self.record(frame, "Received map and options; Accept clicked");
                 }
             }
             RoundPhase::Loading | RoundPhase::HostReady | RoundPhase::GuestSetup
@@ -1565,10 +1553,11 @@ pub(super) fn online_lobby_settled(state: &AppState) -> bool {
 pub(super) fn online_setup_settled(state: &AppState, host: bool) -> bool {
     MoviesCapture::slide_settled(
         state,
-        ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {
+        ShellSlideKind::NetworkSetup(crate::app::shell_network_setup::setup_dialog(
+            state,
             host,
-            flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
-        }),
+            crate::ui::multiplayer_setup::SetupFlavor::Wol,
+        )),
     ) && state
         .frontend
         .multiplayer_setup

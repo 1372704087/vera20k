@@ -313,7 +313,7 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
     Ok(())
 }
 
-fn accept(state: &mut AppState) -> anyhow::Result<()> {
+pub(super) fn accept(state: &mut AppState) -> anyhow::Result<()> {
     let current = super::view(state).ok_or_else(|| anyhow::anyhow!("no setup"))?;
     anyhow::ensure!(current.enabled(ACCEPT), "Accept is not eligible");
     let index = state

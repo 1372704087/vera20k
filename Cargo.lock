@@ -2979,6 +2979,7 @@ version = "0.2.4"
 dependencies = [
  "anyhow",
  "bytemuck",
+ "chacha20",
  "fixed",
  "getrandom 0.3.4",
  "glam",

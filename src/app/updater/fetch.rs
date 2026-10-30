@@ -8,6 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 
 use anyhow::{Context, Result, ensure};
+use ureq::tls::{RootCerts, TlsConfig};
 
 use super::manifest::{self, Offer, Release, Version};
 
@@ -47,8 +48,29 @@ fn public_key() -> Result<[u8; 32]> {
     manifest::decode_key(PUBLIC_KEY).context("the update key is not a base64 Ed25519 public key")
 }
 
-fn agent() -> ureq::Agent {
+/// The updater's connections: through the operating system's certificates,
+/// which it keeps current, then through the Mozilla roots built into this
+/// program (webpki-roots) when the system's refuse the server or are missing.
+/// TLS only keeps the server reachable and the files private; the manifest's
+/// signature and the installer's SHA-256 decide what is installed, so
+/// whichever roots verify will do.
+struct Agents {
+    system: ureq::Agent,
+    built_in: ureq::Agent,
+}
+
+impl Agents {
+    fn new() -> Self {
+        Self {
+            system: agent(RootCerts::PlatformVerifier),
+            built_in: agent(RootCerts::WebPki),
+        }
+    }
+}
+
+fn agent(roots: RootCerts) -> ureq::Agent {
     ureq::Agent::config_builder()
+        .tls_config(TlsConfig::builder().root_certs(roots).build())
         .https_only(BASE_URL.starts_with("https://"))
         .max_redirects(0)
         .http_status_as_error(false)
@@ -60,12 +82,17 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
-    let response = agent
-        .get(url)
-        .header("User-Agent", USER_AGENT)
-        .call()
-        .with_context(|| format!("cannot reach {url}"))?;
+fn get(agents: &Agents, url: &str) -> Result<ureq::http::Response<ureq::Body>> {
+    let call = |agent: &ureq::Agent| agent.get(url).header("User-Agent", USER_AGENT).call();
+    let response = match call(&agents.system) {
+        // Only after a TLS failure: the network or the server would fail both.
+        Err(error) if is_tls(&error) => {
+            log::info!("Updater: trying the built-in roots for {url}: {error}");
+            call(&agents.built_in)
+        }
+        response => response,
+    }
+    .with_context(|| format!("cannot reach {url}"))?;
     ensure!(
         response.status() == 200,
         "{url} answered {}",
@@ -74,9 +101,20 @@ fn get(agent: &ureq::Agent, url: &str) -> Result<ureq::http::Response<ureq::Body
     Ok(response)
 }
 
-fn get_small(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>> {
+/// A failed TLS handshake, or a verifier that could not be built.
+fn is_tls(error: &ureq::Error) -> bool {
+    match error {
+        ureq::Error::Tls(_) | ureq::Error::Rustls(_) => true,
+        ureq::Error::Io(error) => error
+            .get_ref()
+            .is_some_and(|inner| inner.is::<rustls::Error>()),
+        _ => false,
+    }
+}
+
+fn get_small(agents: &Agents, url: &str, limit: u64) -> Result<Vec<u8>> {
     let mut bytes = Vec::new();
-    get(agent, url)?
+    get(agents, url)?
         .body_mut()
         .as_reader()
         .take(limit + 1)
@@ -93,14 +131,18 @@ fn get_small(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>> {
 /// ([`manifest::offer`]), when it is newer than `current`. A skipped version
 /// is still found: Check for Updates offers it.
 pub(super) fn check(current: Version, platform: &str) -> Result<Option<Offer>> {
-    let agent = agent();
-    let latest = get_small(&agent, &format!("{BASE_URL}latest.json"), MAX_POINTER_BYTES)?;
+    let agents = Agents::new();
+    let latest = get_small(
+        &agents,
+        &format!("{BASE_URL}latest.json"),
+        MAX_POINTER_BYTES,
+    )?;
     let (version, _) = manifest::pointer(&latest)?;
     if version <= current {
         return Ok(None);
     }
     let signature = get_small(
-        &agent,
+        &agents,
         &format!(
             "{BASE_URL}{}/manifest.json.sig",
             manifest::release_folder(version)
@@ -115,7 +157,7 @@ pub(super) fn check(current: Version, platform: &str) -> Result<Option<Offer>> {
 /// failure or [`Cancelled`].
 pub(super) fn download(release: &Release, folder: &Path, progress: &Progress) -> Result<PathBuf> {
     let url = format!("{BASE_URL}{}", release.key);
-    let mut response = get(&agent(), &url)?;
+    let mut response = get(&Agents::new(), &url)?;
     save(response.body_mut().as_reader(), release, folder, progress)
         .with_context(|| format!("cannot download {url}"))
 }
@@ -180,7 +222,86 @@ fn save_to(
 
 #[cfg(test)]
 mod tests {
+    use std::net::TcpListener;
+    use std::sync::Arc;
+
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+
     use super::*;
+
+    /// A test-only certificate for 127.0.0.1 and its key: `openssl req -x509`
+    /// with a P-256 key for 100 years, `CA:FALSE`, `serverAuth` and
+    /// `subjectAltName = IP:127.0.0.1`.
+    const CERTIFICATE: &str = "-----BEGIN CERTIFICATE-----
+MIIBcjCCARigAwIBAgIUKwKTU03ua+rm3s5HPh5a9EifBD4wCgYIKoZIzj0EAwIw
+FDESMBAGA1UEAwwJMTI3LjAuMC4xMCAXDTI2MTAzMDE3MTUyMVoYDzIxMjYxMDA2
+MTcxNTIxWjAUMRIwEAYDVQQDDAkxMjcuMC4wLjEwWTATBgcqhkjOPQIBBggqhkjO
+PQMBBwNCAAQrd6oeADA0C2Ku3g4Le1QMHu/nluSwUfvWNHIPedtHqL1okYOx6aPt
+sftpmcRpBJgMK4txTACVw669msIaMMm4o0YwRDAMBgNVHRMBAf8EAjAAMA4GA1Ud
+DwEB/wQEAwIHgDATBgNVHSUEDDAKBggrBgEFBQcDATAPBgNVHREECDAGhwR/AAAB
+MAoGCCqGSM49BAMCA0gAMEUCIDULpAq2XGzq8Y4XsO0nakVtn6I1qgdiWZbvMKsR
+zWJOAiEAjHNTfXDBXquAdVpSXRAxvq3HLcBLeeULM+1wiNul1+k=
+-----END CERTIFICATE-----
+";
+    const KEY: &str = "-----BEGIN PRIVATE KEY-----
+MIGHAgEAMBMGByqGSM49AgEGCCqGSM49AwEHBG0wawIBAQQgxPfPZXeKohEZ6BvH
+vyENqvu/KQlaa7oIXDCLZGL6fbuhRANCAAQrd6oeADA0C2Ku3g4Le1QMHu/nluSw
+UfvWNHIPedtHqL1okYOx6aPtsftpmcRpBJgMK4txTACVw669msIaMMm4
+-----END PRIVATE KEY-----
+";
+
+    /// Answers every request with `{}` over TLS with [`CERTIFICATE`], one
+    /// connection at a time, and returns the port.
+    fn serve() -> u16 {
+        let provider = Arc::new(rustls::crypto::ring::default_provider());
+        let config = rustls::ServerConfig::builder_with_provider(provider)
+            .with_safe_default_protocol_versions()
+            .unwrap()
+            .with_no_client_auth()
+            .with_single_cert(
+                vec![CertificateDer::from_pem_slice(CERTIFICATE.as_bytes()).unwrap()],
+                PrivateKeyDer::from_pem_slice(KEY.as_bytes()).unwrap(),
+            )
+            .unwrap();
+        let config = Arc::new(config);
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut socket in listener.incoming().flatten() {
+                let mut tls = rustls::ServerConnection::new(config.clone()).unwrap();
+                let mut stream = rustls::Stream::new(&mut tls, &mut socket);
+                let mut request = Vec::new();
+                let mut byte = [0];
+                // A client that refuses the certificate ends the reading here.
+                while !request.ends_with(b"\r\n\r\n")
+                    && stream.read(&mut byte).is_ok_and(|n| n == 1)
+                {
+                    request.push(byte[0]);
+                }
+                let _ = stream.write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}",
+                );
+                let _ = stream.flush();
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn a_server_is_reached_when_either_set_of_roots_trusts_it() {
+        let url = format!("https://127.0.0.1:{}/latest.json", serve());
+        let trusting = || {
+            let certificate = ureq::tls::Certificate::from_pem(CERTIFICATE.as_bytes()).unwrap();
+            agent(RootCerts::new_with_certs(&[certificate]))
+        };
+        // Mozilla's roots don't include the test certificate.
+        let refusing = || agent(RootCerts::WebPki);
+        let reach = |system, built_in| get_small(&Agents { system, built_in }, &url, 16).ok();
+        assert_eq!(reach(trusting(), refusing()).as_deref(), Some(&b"{}"[..]));
+        assert_eq!(reach(refusing(), trusting()).as_deref(), Some(&b"{}"[..]));
+        assert_eq!(reach(refusing(), refusing()), None);
+    }
 
     #[test]
     fn only_an_installer_matching_its_signed_sha256_is_kept() {

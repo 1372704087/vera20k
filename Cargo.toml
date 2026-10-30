@@ -125,9 +125,11 @@ image = { version = "0.25", default-features = false, features = ["png", "ico"] 
 rodio = { version = "0.22", default-features = false, features = ["playback"] }
 
 [target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dependencies]
-ureq = { version = "3.5", default-features = false, features = ["rustls", "json"] }
+# platform-verifier: the updater trusts the system's certificates first
+# (src/app/updater/fetch.rs); the lobby's agents keep ureq's webpki roots.
+ureq = { version = "3.5", default-features = false, features = ["rustls", "json", "platform-verifier"] }
 # The lobby's event stream (src/app/shell_wol/live_service/http/stream.rs), over
-# the same rustls, ring provider and webpki roots as ureq.
+# the same rustls, ring provider and webpki roots as the lobby's ureq agents.
 tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring"] }
 webpki-roots = "1.0"

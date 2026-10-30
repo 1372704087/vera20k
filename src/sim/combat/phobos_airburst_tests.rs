@@ -666,6 +666,89 @@ fn weapon_targeting_overrides_warhead_affects_and_reads_can_target_houses() {
 }
 
 #[test]
+fn weapon_targeting_reads_can_target_health_and_veterancy() {
+    let base = "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
+                Splits.TargetingDistance=5\nSplits.TargetCellRange=-1\n\
+                RetargetSelf=no\nSplits.UseWeaponTargeting=yes\n";
+    let run = |weapon_keys: &str| {
+        let mut scene = build_scene(
+            &rules_ini(base, weapon_keys, "", "", "", ""),
+            (6, 20),
+            (10, 20),
+            0,
+            TargetChoice::Cell(10, 20),
+            &[("VICTIM", 10, 20, 0)],
+            1.0,
+        );
+        detonate(&mut scene);
+        child_ids(&scene).len()
+    };
+    let build = |weapon_keys: &str| {
+        build_scene(
+            &rules_ini(base, weapon_keys, "", "", "", ""),
+            (6, 20),
+            (10, 20),
+            0,
+            TargetChoice::Cell(10, 20),
+            &[("VICTIM", 10, 20, 0)],
+            1.0,
+        )
+    };
+    assert_eq!(run("CanTarget=units\n"), 1);
+    assert_eq!(run("CanTarget=infantry\n"), 0);
+    assert_eq!(run("CanTarget=land\n"), 1);
+    assert_eq!(run("CanTarget=water\n"), 0);
+    assert_eq!(run("CanTarget.MinHealth=0.5\n"), 1);
+    assert_eq!(run("CanTarget.MinHealth=1\n"), 0, "hp > min is strict");
+    assert_eq!(run("CanTarget.MaxHealth=1\n"), 1);
+    assert_eq!(run("CanTarget.MaxHealth=0.5\n"), 0);
+    assert_eq!(run("CanTargetVeterancy=veteran\n"), 0);
+
+    let mut scene = build("CanTargetVeterancy=veteran\n");
+    scene
+        .world
+        .substrate
+        .entities
+        .get_mut(scene.victims[0])
+        .unwrap()
+        .veterancy
+        .set_rank_for_test(crate::sim::combat::veterancy::RANK_VETERAN_U16);
+    detonate(&mut scene);
+    assert_eq!(child_ids(&scene).len(), 1, "a veteran target passes");
+
+    let mut scene = build("CanTarget.MinHealth=0.5\n");
+    scene
+        .world
+        .substrate
+        .entities
+        .get_mut(scene.victims[0])
+        .unwrap()
+        .health
+        .set_for_test(100);
+    detonate(&mut scene);
+    assert!(
+        child_ids(&scene).is_empty(),
+        "100/1000 health is below MinHealth"
+    );
+
+    let mut scene = build("CanTarget.MaxHealth=0.5\n");
+    scene
+        .world
+        .substrate
+        .entities
+        .get_mut(scene.victims[0])
+        .unwrap()
+        .health
+        .set_for_test(100);
+    detonate(&mut scene);
+    assert_eq!(
+        child_ids(&scene).len(),
+        1,
+        "100/1000 health is within MaxHealth"
+    );
+}
+
+#[test]
 fn split_projectile_aa_and_aa_only_filter_air_and_ground_targets() {
     let base = "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
                 Splits.TargetingDistance=5\nSplits.TargetCellRange=-1\n\

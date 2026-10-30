@@ -7914,6 +7914,23 @@ impl RuleSet {
                 b"phobos-weapon-can-target-houses-v1".hash(&mut hasher);
                 can_target_houses.hash(&mut hasher);
             }
+            let weapon_targeting = self
+                .weapons
+                .iter()
+                .filter(|(_, weapon)| {
+                    weapon.weapon_targeting()
+                        != crate::rules::phobos_airburst::PhobosWeaponTargeting::default()
+                })
+                .map(|(id, weapon)| (id.to_ascii_uppercase(), weapon.weapon_targeting()))
+                .collect::<BTreeMap<_, _>>();
+            if !weapon_targeting.is_empty() {
+                b"phobos-weapon-targeting-v1".hash(&mut hasher);
+                weapon_targeting.len().hash(&mut hasher);
+                for (id, targeting) in &weapon_targeting {
+                    id.hash(&mut hasher);
+                    targeting.hash_state(&mut hasher);
+                }
+            }
         }
         self.super_weapons
             .iter()

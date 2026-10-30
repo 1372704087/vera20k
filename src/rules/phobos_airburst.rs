@@ -12,6 +12,7 @@
 
 use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::phobos_shields::AffectedHouse;
+use std::hash::Hash;
 
 /// `BulletTypeExt` fields consumed by the airburst/splits emitter.
 #[derive(Debug, Clone, PartialEq)]
@@ -257,9 +258,136 @@ pub(crate) fn read_can_target_houses(section: &IniSection) -> AffectedHouse {
     }
 }
 
+/// Phobos `AffectedVeterancy` flags (`Utilities/Enum.h:115..123`), the target
+/// of `read<AffectedVeterancy>`: one token per comma-separated flag; an
+/// unknown token fails the whole read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct AffectedVeterancy(u8);
+
+impl AffectedVeterancy {
+    pub const NONE: Self = Self(0x0);
+    pub const ROOKIE: Self = Self(0x1);
+    pub const VETERAN: Self = Self(0x2);
+    pub const ELITE: Self = Self(0x4);
+    pub const ALL: Self = Self(Self::ROOKIE.0 | Self::VETERAN.0 | Self::ELITE.0);
+
+    pub const fn bits(self) -> u8 {
+        self.0
+    }
+
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    /// `read<AffectedVeterancy>`: `None` keeps the caller's current value.
+    pub(crate) fn parse(raw: &str) -> Option<Self> {
+        let mut parsed = Self::NONE;
+        for part in raw.split(',') {
+            let token = part.trim_matches(|c| matches!(c, ' ' | '\t' | '\r'));
+            let flag = match token.to_ascii_lowercase().as_str() {
+                "rookie" => Self::ROOKIE,
+                "veteran" => Self::VETERAN,
+                "elite" => Self::ELITE,
+                "all" => Self::ALL,
+                "none" => Self::NONE,
+                _ => return None,
+            };
+            parsed = Self(parsed.0 | flag.0);
+        }
+        Some(parsed)
+    }
+}
+
+impl Default for AffectedVeterancy {
+    fn default() -> Self {
+        Self::ALL
+    }
+}
+
+/// Phobos `WeaponTypeExt`'s target filters (`CanTarget`, its health range
+/// and `CanTargetVeterancy`), read for `Splits.UseWeaponTargeting`.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PhobosWeaponTargeting {
+    pub can_target: crate::rules::phobos_crit::AffectedTarget,
+    pub min_health: f64,
+    pub max_health: f64,
+    pub veterancy: AffectedVeterancy,
+}
+
+impl Default for PhobosWeaponTargeting {
+    fn default() -> Self {
+        Self {
+            can_target: crate::rules::phobos_crit::AffectedTarget::ALL,
+            min_health: 0.0,
+            max_health: 1.0,
+            veterancy: AffectedVeterancy::ALL,
+        }
+    }
+}
+
+impl PhobosWeaponTargeting {
+    pub fn hash_state(&self, hasher: &mut impl std::hash::Hasher) {
+        self.can_target.bits().hash(hasher);
+        self.min_health.to_bits().hash(hasher);
+        self.max_health.to_bits().hash(hasher);
+        self.veterancy.bits().hash(hasher);
+    }
+}
+
+/// Phobos `WeaponTypeExt::LoadFromINIFile`'s target-filter block
+/// (`src/Ext/WeaponType/Body.cpp:113..117`), in native read order.
+pub(crate) fn read_weapon_targeting(section: &IniSection) -> PhobosWeaponTargeting {
+    let mut value = PhobosWeaponTargeting::default();
+    if let Some(raw) = section.read_name("CanTarget", 2048)
+        && let Some(parsed) = crate::rules::phobos_crit::AffectedTarget::parse(raw)
+    {
+        value.can_target = parsed;
+    }
+    value.max_health = section.read_phobos_double("CanTarget.MaxHealth", value.max_health);
+    value.min_health = section.read_phobos_double("CanTarget.MinHealth", value.min_health);
+    if let Some(raw) = section.read_name("CanTargetVeterancy", 2048)
+        && let Some(parsed) = AffectedVeterancy::parse(raw)
+    {
+        value.veterancy = parsed;
+    }
+    value
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn weapon_targeting_reads_and_unknown_tokens_keep_defaults() {
+        use crate::rules::phobos_crit::AffectedTarget;
+
+        let ini = IniFile::from_str(
+            "[W]\nCanTarget=units,buildings\nCanTarget.MinHealth=.25\n\
+             CanTarget.MaxHealth=.75\nCanTargetVeterancy=veteran,elite\n\
+             [D]\nKeep=1\n\
+             [BAD]\nCanTarget=units,typo\nCanTargetVeterancy=rookie,typo\n",
+        );
+        let value = read_weapon_targeting(ini.section("W").unwrap());
+        assert_eq!(
+            value.can_target.bits(),
+            AffectedTarget::UNIT.bits() | AffectedTarget::BUILDING.bits()
+        );
+        assert_eq!(value.min_health, 0.25);
+        assert_eq!(value.max_health, 0.75);
+        assert_eq!(
+            value.veterancy.bits(),
+            AffectedVeterancy::VETERAN.bits() | AffectedVeterancy::ELITE.bits()
+        );
+        assert_eq!(
+            read_weapon_targeting(ini.section("D").unwrap()),
+            PhobosWeaponTargeting::default()
+        );
+        assert_eq!(
+            read_weapon_targeting(ini.section("BAD").unwrap()),
+            PhobosWeaponTargeting::default(),
+            "one unknown token abandons the whole read"
+        );
+    }
 
     #[test]
     fn defaults_match_phobos_constructors() {

@@ -254,6 +254,10 @@ pub struct WeaponType {
     /// read for `Splits.UseWeaponTargeting`.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_can_target_houses: crate::rules::phobos_shields::AffectedHouse,
+    /// Phobos `CanTarget`, `CanTarget.MinHealth`/`MaxHealth` and
+    /// `CanTargetVeterancy`, read for `Splits.UseWeaponTargeting`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_weapon_targeting: crate::rules::phobos_airburst::PhobosWeaponTargeting,
 }
 
 impl WeaponType {
@@ -270,6 +274,15 @@ impl WeaponType {
     #[cfg(feature = "phobos")]
     pub(crate) const fn can_target_houses(&self) -> crate::rules::phobos_shields::AffectedHouse {
         self.phobos_can_target_houses
+    }
+
+    /// Phobos `CanTarget`, health range and `CanTargetVeterancy`, defaults
+    /// `All`/`0.0`/`1.0`/`All`.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn weapon_targeting(
+        &self,
+    ) -> crate::rules::phobos_airburst::PhobosWeaponTargeting {
+        self.phobos_weapon_targeting
     }
 
     pub(crate) fn ammo_cost(&self) -> i32 {
@@ -442,6 +455,8 @@ impl WeaponType {
             phobos_can_target_houses: crate::rules::phobos_airburst::read_can_target_houses(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_weapon_targeting: crate::rules::phobos_airburst::read_weapon_targeting(section),
 
             // The constructor's nulls and empty list (`0x00771C70`); the
             // ordered Process owner reads the Animation references.

@@ -3306,11 +3306,7 @@ fn emit_detonation_receivers<'r>(
     {
         let coordinate = ares_warhead_effect_coordinate(world, detonation);
         // Parent100536E0 captures OwnerHouse before EMP/tag callbacks.
-        let source_house = world
-            .substrate
-            .entities
-            .get(detonation.source_id)
-            .map(|source| source.owner());
+        let source_house = detonation_source_house(world, detonation);
         world.apply_ares_emp_detonation(
             coordinate,
             Some(detonation.source_id),
@@ -3362,13 +3358,9 @@ fn emit_detonation_receivers<'r>(
             let current = world.projectiles.current_detonation(*detonation);
             let detonation = &current;
 
-            // `0x00469A69..0x00469A75`: the bullet's live Owner's house, or
-            // none once the owner is gone (`BulletClass+0xB0` is detached).
-            let source_house = world
-                .substrate
-                .entities
-                .get(detonation.source_id)
-                .map(|source| source.owner());
+            // `0x00469A69..0x00469A75`: the bullet's live Owner's house;
+            // Phobos keeps `BulletExt::FirerHouse` once the owner is gone.
+            let source_house = detonation_source_house(world, detonation);
             let area = collect_area_at(
                 world,
                 rules,
@@ -3959,6 +3951,34 @@ pub(super) fn radiation_enabled(_world: &Simulation) -> bool {
     true
 }
 
+/// Phobos `BulletExt::FirerHouse` fallback: the House a bullet retained at
+/// construction stands in for an Owner Techno that expired before this round
+/// detonated (`WarheadType/Hooks.cpp:17`).
+fn detonation_source_house(
+    world: &Simulation,
+    detonation: &ProjectileDetonation,
+) -> Option<InternedId> {
+    world
+        .substrate
+        .entities
+        .get(detonation.source_id)
+        .map(|source| source.owner())
+        .or_else(|| {
+            #[cfg(feature = "phobos")]
+            {
+                world
+                    .projectiles
+                    .get(detonation.projectile_id)
+                    .filter(|projectile| projectile.source_id() == detonation.source_id)
+                    .and_then(|projectile| projectile.phobos_firer_house())
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                None
+            }
+        })
+}
+
 #[cfg(test)]
 fn append_fixture_tiberium(world: &mut Simulation, out: &mut Vec<TiberiumReductionRequest>) {
     if let Some(fixture) = world.receiver_fixture.as_mut() {
@@ -3973,6 +3993,10 @@ mod ifv_area_receipt_tests;
 #[cfg(test)]
 #[path = "nuke_maker_tests.rs"]
 mod nuke_maker_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_firer_house_tests.rs"]
+mod phobos_firer_house_tests;
 
 fn warhead_damages_wall(
     warhead: &WarheadType,

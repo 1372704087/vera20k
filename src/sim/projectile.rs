@@ -1186,6 +1186,15 @@ pub struct Projectile {
     /// [`Simulation::construct_bullet_scheme`]: crate::sim::world::Simulation::construct_bullet_scheme
     #[serde(default)]
     firer_house: Option<InternedId>,
+    /// Phobos `BulletExt::FirerHouse`, set by `BulletExt::InitializeState`
+    /// (`0x466556`): the Owner Techno's House at construction, kept after the
+    /// owner expires. Independent of the palette-only `firer_house` above.
+    /// Written by [`Simulation::construct_bullet_scheme`].
+    ///
+    /// [`Simulation::construct_bullet_scheme`]: crate::sim::world::Simulation::construct_bullet_scheme
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_firer_house: Option<InternedId>,
     /// Bullet `+0x158`: set at a `NUKE` impact (`0x00467F3C`), cleared when
     /// the wait ends (`0x0046676A`).
     #[serde(default)]
@@ -1400,6 +1409,13 @@ impl Projectile {
     /// (`+0x114`); `None` is native's -1.
     pub fn firer_house(&self) -> Option<InternedId> {
         self.firer_house
+    }
+
+    /// Phobos `BulletExt::FirerHouse`: the owner's House retained at
+    /// construction, independent of the palette-only `firer_house`.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_firer_house(&self) -> Option<InternedId> {
+        self.phobos_firer_house
     }
 
     /// Waiting on its anim after a `NUKE` impact (`+0x158`); the draw skips
@@ -1916,6 +1932,8 @@ impl ProjectileStore {
                 collision: ProjectileCollisionPolicy::NONE,
                 on_bridge: false,
                 firer_house: None,
+                #[cfg(feature = "phobos")]
+                phobos_firer_house: None,
                 awaiting_anim: false,
                 awaited_anim: None,
             },
@@ -1977,6 +1995,14 @@ impl ProjectileStore {
     pub(crate) fn set_firer_house(&mut self, id: u64, house: Option<InternedId>) {
         if let Some(projectile) = self.get_mut(id) {
             projectile.firer_house = house;
+        }
+    }
+
+    /// Phobos `BulletExt::FirerHouse` at bullet initialization.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_firer_house(&mut self, id: u64, house: Option<InternedId>) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.phobos_firer_house = house;
         }
     }
 

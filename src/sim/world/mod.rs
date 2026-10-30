@@ -5280,16 +5280,28 @@ impl Simulation {
         let Some(projectile) = projectiles.get(bullet) else {
             return;
         };
+        let source_id = projectile.source_id();
         let firers_palette = projectile
             .payload()
             .projectile_type()
             .and_then(|id| rules.projectile(interner.resolve(id)))
             .is_some_and(|kind| kind.firers_palette);
         let house = firers_palette
-            .then(|| substrate.entities.get(projectile.source_id()))
+            .then(|| substrate.entities.get(source_id))
             .flatten()
             .map(|owner| owner.owner());
         projectiles.set_firer_house(bullet, house);
+        #[cfg(feature = "phobos")]
+        {
+            // `BulletExt::InitializeState` retains the Owner's House for
+            // every bullet, not only a `FirersPalette=` one. A re-Construct
+            // with no live owner keeps the saved value (native only writes
+            // inside `if (pThis->Owner)`).
+            let retained = substrate.entities.get(source_id).map(|owner| owner.owner());
+            if retained.is_some() {
+                projectiles.set_phobos_firer_house(bullet, retained);
+            }
+        }
     }
 
     /// Admit the bullets a detonation spawned (`BulletClass::SpawnShrapnel

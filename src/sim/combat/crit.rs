@@ -35,10 +35,6 @@
 //!   `Projectile=` type, so the default bullet type's `Cluster` is not read.
 //! - `Crit.ExtraDamage.ApplyFirepowerMult` reads the owner's live multiplier;
 //!   native uses the bullet's firepower captured at launch.
-//! - A bullet does not retain its firing house (VERA's `firer_house` only
-//!   serves `FirersPalette`), so a round whose firer expired loses the house
-//!   gates and the crit animations' house; native falls back to
-//!   `BulletExt::FirerHouse`.
 //! - Crit animations set the owner house but no invoker (VERA stores no anim
 //!   invoker on this branch).
 //! - `Crit.SuppressWhenIntercepted` is read but VERA tracks no intercepted
@@ -608,7 +604,7 @@ fn current_firepower_multiplier(
 /// AllCells pair follows the target cell's water flag; any other flag passes
 /// as long as it is not empty. A fixture without terrain reads as land.
 #[cfg(feature = "phobos")]
-fn cell_eligible(land: Option<LandType>, allowed: AffectedTarget) -> bool {
+pub(crate) fn cell_eligible(land: Option<LandType>, allowed: AffectedTarget) -> bool {
     if allowed == AffectedTarget::ALL {
         return true;
     }
@@ -627,7 +623,7 @@ fn cell_eligible(land: Option<LandType>, allowed: AffectedTarget) -> bool {
 /// false`: the content flags split by class, aircraft under the Unit bit and
 /// buildings under the Building bit.
 #[cfg(feature = "phobos")]
-fn techno_eligible(category: EntityCategory, allowed: AffectedTarget) -> bool {
+pub(crate) fn techno_eligible(category: EntityCategory, allowed: AffectedTarget) -> bool {
     if allowed == AffectedTarget::ALL {
         return true;
     }

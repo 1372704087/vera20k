@@ -41,10 +41,6 @@
 //! `GetTargetCoordsForFiring`'s `Inviso && FlakScatter` arm is not applied to
 //! the rad-beam/particle targets.
 //!
-//! RESIDUAL (owner): VERA's projectile `firer_house` is the palette-only
-//! `Bullet+0x114`. A child whose Techno owner expired therefore loses damage
-//! attribution even though Phobos keeps `BulletExt::FirerHouse`.
-//!
 //! RESIDUAL (bounds): `AirburstSpread` is capped at a 256-cell radius. A
 //! larger authored value enumerates no cells instead of stalling the
 //! simulation; Phobos' `CellRangeIterator` has no such cap.
@@ -57,10 +53,11 @@
 use std::collections::BTreeMap;
 
 use crate::map::resolved_terrain::NativeCellQuery;
-use crate::rules::phobos_airburst::PhobosAirburstGlobals;
+use crate::rules::phobos_airburst::{AffectedVeterancy, PhobosAirburstGlobals};
 use crate::rules::ruleset::RuleSet;
 use crate::rules::weapon_type::WeaponType;
 use crate::sim::combat::inviso_scatter::{RandomDirectionSnap, random_direction_coord};
+use crate::sim::combat::veterancy::VeterancyRank;
 use crate::sim::intern::InternedId;
 use crate::sim::projectile::{
     ProjectileCoord, ProjectileDetonation, ProjectilePayload, ProjectileTarget, ProjectileVelocity,
@@ -978,12 +975,59 @@ fn allowed_splits_target(
     ) {
         return false;
     }
+    // Phobos' remaining weapon-picking gates, in native order:
+    // `CanTarget` cell/techno bits, then the health range, then veterancy.
+    let targeting = weapon.weapon_targeting();
+    let land = world.resolved_terrain.as_ref().and_then(|terrain| {
+        terrain
+            .cell(entity.position.rx(), entity.position.ry())
+            .and_then(|cell| crate::rules::terrain_rules::LandType::from_index(cell.land_type))
+    });
+    if !super::crit::cell_eligible(land, targeting.can_target)
+        || !super::crit::techno_eligible(entity.category(), targeting.can_target)
+        || !health_in_threshold(entity, object, targeting.min_health, targeting.max_health)
+        || !veterancy_allowed(targeting.veterancy, entity.veterancy.rank_kind())
+    {
+        return false;
+    }
     world.weapon_attach_effects_allow(
         weapon,
         Some(entity),
         world.substrate.entities.get(source_id),
         rules,
     )
+}
+
+/// `TechnoExt::IsHealthInThreshold` (`src/Ext/Techno/Body.cpp:752`):
+/// `GetHealthPercentage` (`Health / type Strength`), strict `>` for a
+/// positive fraction and `>= 0`, then `<= max`; a target with neither health
+/// nor Strength passes.
+fn health_in_threshold(
+    entity: &crate::sim::game_entity::GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+    min: f64,
+    max: f64,
+) -> bool {
+    let health = entity.health.current();
+    let strength = object.strength;
+    if health == 0 && strength == 0 {
+        return true;
+    }
+    let hp = f64::from(health) / f64::from(strength);
+    (if hp > 0.0 { hp > min } else { hp >= min }) && hp <= max
+}
+
+/// `EnumFunctions::CanTargetVeterancy` (`src/Utilities/EnumFunctions.cpp:18`).
+fn veterancy_allowed(flags: AffectedVeterancy, rank: VeterancyRank) -> bool {
+    if flags == AffectedVeterancy::ALL {
+        return true;
+    }
+    let bit = match rank {
+        VeterancyRank::Elite => AffectedVeterancy::ELITE,
+        VeterancyRank::Veteran => AffectedVeterancy::VETERAN,
+        VeterancyRank::Rookie => AffectedVeterancy::ROOKIE,
+    };
+    flags.contains(bit)
 }
 
 /// `SimulatedFiringEffects`: firing Anim/Report when requested, then the

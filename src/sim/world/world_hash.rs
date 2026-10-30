@@ -952,6 +952,11 @@ impl Simulation {
                 b"bullet-firer-scheme-v1".hash(hasher);
                 house.index().hash(hasher);
             }
+            #[cfg(feature = "phobos")]
+            if let Some(house) = projectile.phobos_firer_house() {
+                b"phobos-bullet-firer-house-v1".hash(hasher);
+                house.index().hash(hasher);
+            }
             if projectile.awaiting_anim() {
                 b"bullet-awaited-anim-v1".hash(hasher);
                 projectile.awaited_anim().hash(hasher);

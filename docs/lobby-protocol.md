@@ -69,7 +69,8 @@ it fails with `room_full`. The other fields are presentation metadata, not autho
 existing shell. Member: `{player_id,name,flags,squad,clan_name,clan_tag}`. Flags bit 0
 is the channel owner, bit 1 voice; the client adds its own local bit 32768. Servers
 set identity and flags from the authenticated membership, never from user payloads.
-The only public chat channel is German Bunker (`name:"Lob_41_2"`, `id:"public"`).
+The only public chat channel is `name:"Lob_41_2"` (`id:"public"`), which games from
+0.2.4 show as VERA20K Online and older games by its retail name, German Bunker.
 The service updates that stored room's name without replacing its membership or
 accounts. Other chat channels are neither listed nor joinable; game rooms remain
 available through `kind:41`.
@@ -271,7 +272,7 @@ ordinary commands and events share 600/minute/player. Action limits additionally
 bound starts to 12 per 10 minutes, relay renewals to 12/minute, chat to 30/minute and
 24 KiB/minute, and room chat to 120/minute. Control payloads are bounded to
 4 MiB/minute/player and room fanout to 128 MiB/minute. Room chat, control and fanout limits bind guests, never the room's
-host. German Bunker takes 120 joins/minute and each network 30 of them and 30 of its
+host. The public channel takes 120 joins/minute and each network 30 of them and 30 of its
 chats/minute; a game room takes 60 joins/minute. Re-joining the current room is free.
 Map upload/download bytes each have a 32 MiB/minute player budget, and so do the
 earlier chunks the service re-reads to check a finished upload.
@@ -339,8 +340,8 @@ sets the one current notice, replacing any earlier one: non-blank text of at mos
 return `{notice,delivered}`: the notice `{id,text,expires_at}` or `null`, and how
 many sessions received it at once. A notice is an ordinary public `chat` event from
 `{player_id:"00000000-0000-0000-0000-000000000000",name:"VERA20k",flags:1,squad:0,clan_name:"",clan_tag:""}`.
-Sessions in German Bunker or a game room that has not started receive it when it is
-set; others receive it on their next German Bunker join until it expires. Each
+Sessions in the public channel or a game room that has not started receive it when it is
+set; others receive it on their next public-channel join until it expires. Each
 session receives a notice once. Sign-in refuses `VERA20k` without case with 409
 `name_unavailable`.
 
@@ -349,5 +350,5 @@ A session whose version is older than `version` in
 `https://downloads.vera20k.org/latest.json`, which the lobby reads at most every
 10 minutes, receives one such chat line per newer release, naming both versions,
 since a match starts only between equal versions (`ready`, `start`). It arrives
-as a notice does: at once in German Bunker or a game room that has not started,
-otherwise on the next German Bunker join.
+as a notice does: at once in the public channel or a game room that has not started,
+otherwise on the next public-channel join.

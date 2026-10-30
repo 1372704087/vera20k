@@ -7105,6 +7105,19 @@ impl RuleSet {
             .loaded_extra_building_palette_name(object.custom_palette_name()?)
     }
 
+    /// One field per Country keyed by its upper-case ID, in registration
+    /// order: a walk of the `HashMap` would let case-variant IDs pick their
+    /// winner at random, and these maps feed the cross-platform config hash.
+    fn country_fields_by_upper_id<'a, T>(
+        &'a self,
+        field: impl Fn(&'a CountryRules) -> T,
+    ) -> BTreeMap<String, T> {
+        self.country_ids
+            .iter()
+            .map(|id| (id.to_ascii_uppercase(), field(&self.countries[id])))
+            .collect()
+    }
+
     /// Compatibility identity for processed rules plus the resolved animation,
     /// effect-frame, terrain-spawner frame, smudge-selection, projectile
     /// launch and TechnoType `CanBeHidden=` and `Palette=` ART inputs bound to
@@ -7196,19 +7209,13 @@ impl RuleSet {
             .collect::<Vec<_>>()
             .hash(&mut hasher);
         b"country-starting-veterancy-v1".hash(&mut hasher);
-        self.countries
-            .iter()
-            .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
-            .collect::<BTreeMap<_, _>>()
+        self.country_fields_by_upper_id(|country| &country.veteran_types)
             .hash(&mut hasher);
         // Which plant a computer house splices is simulation state.
         #[cfg(feature = "ares")]
         {
             b"ares-country-powerplants-v1".hash(&mut hasher);
-            self.countries
-                .iter()
-                .map(|(id, country)| (id.to_ascii_uppercase(), &country.power_plants))
-                .collect::<BTreeMap<_, _>>()
+            self.country_fields_by_upper_id(|country| &country.power_plants)
                 .hash(&mut hasher);
         }
         // Which units a country's paradrop sends is simulation state, so the
@@ -7216,10 +7223,7 @@ impl RuleSet {
         #[cfg(feature = "ares")]
         {
             b"ares-country-paradrop-v1".hash(&mut hasher);
-            self.countries
-                .iter()
-                .map(|(id, country)| (id.to_ascii_uppercase(), &country.paradrop))
-                .collect::<BTreeMap<_, _>>()
+            self.country_fields_by_upper_id(|country| &country.paradrop)
                 .hash(&mut hasher);
         }
         #[cfg(feature = "phobos")]

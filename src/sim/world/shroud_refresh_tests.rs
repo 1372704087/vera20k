@@ -1430,6 +1430,25 @@ fn a_selected_enemy_jumpjet_is_deselected_over_the_players_shroud() {
     );
 }
 
+/// The deselect probe serves one client's selection: a Location whose
+/// height-shifted Cell is off the map stamps nothing on the shared Dummy.
+#[test]
+fn the_shroud_deselect_probe_leaves_the_shared_dummy_alone() {
+    let (mut sim, rules, registry, _, _) = shroud_selection_fixture(true);
+    let enemy = sim
+        .spawn_object_with_overlay_registry("ENGINEER", "Russians", 2, 2, 0, &rules, &registry)
+        .unwrap();
+    let entity = sim.substrate.entities.get_mut(enemy).unwrap();
+    entity.selection.set_selected_for_test(true);
+    // Level 6 moves IsShrouded's Cell three west and north, to (-1, -1).
+    entity
+        .position
+        .set_exact_z_leptons_for_test(Some(6 * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS));
+    let dummy = sim.effective_shared_cell_dummy().snapshot();
+    sim.deselect_over_player_shroud(enemy, |_, _| false);
+    assert_eq!(sim.effective_shared_cell_dummy().snapshot(), dummy);
+}
+
 /// Jumpjet Process's discovery (`0x0054B112..0x0054B166`), in a campaign,
 /// where a Cell put discovers an object only off the player's shroud
 /// (`0x0047E953..0x0047E9DC`): an enemy jumpjet put down in the shroud stays

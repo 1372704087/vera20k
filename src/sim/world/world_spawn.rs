@@ -714,9 +714,14 @@ impl Simulation {
             // Only BuildingReadINI44F8CB..44F8DB compares the current House
             // in nonzero modes, before resolving Type or entering its ctor.
             // Native controls: input_oracle/campaign_house_names.
+            // VERA network adaptation, as HasOccurred53's: PlayerPtr differs
+            // per client, so a map owner naming a human ("<human player>" in
+            // LAN, a WOL handle) dropped the structure on that human's peer
+            // alone. A network game keeps it on every peer.
             let owner = Self::scenario_house_named(&self.houses, &map_ent.owner)?;
             if map_ent.category == EntityCategory::Structure
                 && self.session.game_mode_nonzero()
+                && !self.session.game_mode().is_network()
                 && self.session.current_house() == Some(owner)
             {
                 return None;

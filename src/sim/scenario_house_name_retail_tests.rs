@@ -195,6 +195,40 @@ fn mobile_readers_admit_current_house_and_resolve_first_computer() {
     }
 }
 
+/// BuildingReadINI (`0x0044F8CB..0x0044F8DB`) drops the current House's
+/// structure in skirmish. PlayerPtr differs per network peer, so a LAN game
+/// keeps it on every peer.
+#[test]
+fn a_network_game_keeps_the_current_houses_map_structure() {
+    use crate::sim::scenario_session::ScenarioGameMode;
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    for (mode, spawned) in [
+        (ScenarioGameMode::from_legacy_nonzero(true), 0),
+        (ScenarioGameMode::Lan, 1),
+    ] {
+        let mut sim = generated_houses(&retail.rules, &corpus());
+        let human = sim.houses.order()[0];
+        sim.session.set_current_house_for_test(Some(human));
+        sim.session.set_game_mode(mode);
+        sim.intern_rule_type_ids(&retail.rules);
+        sim.resolve_type_handles(&retail.rules);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &retail.rules);
+        let ini = IniFile::from_str(
+            "[Basic]\nNewINIFormat=4\n[Structures]\n0=<human player>,NAHAND,256,20,20,0,None,0,0,1,0\n",
+        );
+        let entities = crate::map::entities::parse_map_entities(&ini);
+        assert_eq!(
+            sim.spawn_from_map(&entities, Some(&retail.rules)),
+            spawned,
+            "{mode:?}"
+        );
+        assert!(sim.entities().values().all(|actor| actor.owner() == human));
+    }
+}
+
 #[test]
 fn native_names_survive_load_and_hash_independently_of_runtime_keys() {
     let native = corpus();

@@ -569,9 +569,11 @@ jobs:
   # older (0.0.1), trusting a throwaway key and that server. Also refused: a
   # manifest and an installer changed after signing. The same release signed by
   # a new key that its manifest names is only offered as a download by hand.
-  # Without retail game data there is no main menu to ask on, so that build
-  # updates without asking. It uploads nothing: `publish` takes every artifact
-  # as an installer.
+  # The game is installed where players keep it: a Windows folder with a space
+  # in its path, /Applications, and an AppImage in ~/Applications that FUSE
+  # mounts. Without retail game data there is no main menu to ask on, so that
+  # build updates without asking. It uploads nothing: `publish` takes every
+  # artifact as an installer.
   update-test:
     name: update test (${{ matrix.target }})
     needs: [prepare, build]
@@ -601,15 +603,17 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
-      # The game's ALSA headers, the AppImage step's desktop-file-validate, and
-      # a virtual screen with a software Vulkan device and the X keyboard
-      # library (README.txt.in) to run the game on.
+      # The game's ALSA headers, the AppImage step's desktop-file-validate, a
+      # virtual screen with a software Vulkan device and the X keyboard library
+      # (README.txt.in) to run the game on, and fusermount for the AppImage
+      # runtime to mount it with, unless the image has one.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev pkg-config desktop-file-utils xvfb mesa-vulkan-drivers \
             libxkbcommon-x11-0
+          command -v fusermount3 || command -v fusermount || sudo apt-get install -y fuse3
       - uses: actions/download-artifact@v8
         with:
           name: ${{ matrix.target }}

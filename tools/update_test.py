@@ -14,9 +14,18 @@ its own, and starts it. Each scenario passes when the game's log shows:
 - rekey: the release published after a key change, signed by the new key its
   manifest names, offered as a download from GitHub, the program unchanged.
 
+It installs where players keep the game, under names of its own so a player's
+copy is never touched: on Windows in a folder with a space in its path, as
+under a user name with one; on macOS in /Applications, whose app bundles macOS
+guards (App Management); on Linux in ~/Applications, mounted with FUSE as
+players start it. A run removes what it put in those two folders. With
+--quarantine, an attended Mac run marks its copy as a browser download that
+Finder dragged into place, so macOS asks the person to allow the first start,
+as it asks players.
+
     python -m tools.update_test key DIR
     python -m tools.update_test run --key DIR/signing-key.pem --release INSTALLER \\
-        --version X.Y.Z --program OLD_PROGRAM [--game FOLDER] [--attended] \\
+        --version X.Y.Z --program OLD_PROGRAM [--game FOLDER] [--attended [--quarantine]] \\
         [--rate BYTES_PER_SECOND] [--scenario manifest installer rekey update]
     python -m tools.update_test fixture DIR
 
@@ -59,6 +68,12 @@ SUFFIXES = {"windows": "-windows-x64-setup.exe", "macos": "-macos-arm64.dmg", "l
 # The installer's stand-in game folder: tiny MIX and CSF files that pass its
 # game-data check and hold both master archives the first launch looks for.
 TEST_GAME = ROOT / ".github/release/windows/test-game"
+# The installed game in the players' folders, beside what an unfinished update
+# leaves there (src/app/updater/install.rs).
+MAC_APP = Path("/Applications/VERA20K Update Test.app")
+LINUX_IMAGE = Path.home() / "Applications/VERA20K Update Test.AppImage"
+INSTALLED = {"macos": [MAC_APP, MAC_APP.with_name(".VERA20K-update")],
+             "linux": [LINUX_IMAGE, LINUX_IMAGE.with_name(f".{LINUX_IMAGE.name}.update")]}
 # The release page, as .github/release/notes.sh writes it: the offer lists its
 # changes, more than its list shows at once.
 BODY = """### Changes since v0.0.1
@@ -169,11 +184,23 @@ class Game:
         return kept
 
 
-def install(work: Path, release: Path, program: Path, game_folder: Path) -> Game:
+def remove_installed() -> None:
+    """What a run put in the players' folders."""
+    for path in INSTALLED.get(platform(), []):
+        try:
+            if path.is_dir() and not path.is_symlink():
+                shutil.rmtree(path)
+            else:
+                path.unlink(missing_ok=True)
+        except OSError as error:
+            print(f"cannot remove {path}: {error}", flush=True)
+
+
+def install(work: Path, release: Path, program: Path, game_folder: Path, quarantine: bool) -> Game:
     """The release's package installed as a player would, with `program` in
     place of the release's own."""
     if platform() == "windows":
-        folder = work / "VERA"
+        folder = work / "Test Player/VERA"
         run(release, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/DIR={folder}",
             f"/GAMEDIR={game_folder}", f"/LOG={work / 'setup.log'}")
         shutil.copyfile(program, folder / "vera20k.exe")
@@ -193,15 +220,23 @@ def install(work: Path, release: Path, program: Path, game_folder: Path) -> Game
         mount.mkdir()
         run("hdiutil", "attach", "-nobrowse", "-readonly", "-mountpoint", mount, release)
         try:
-            app = work / "Applications/VERA20K.app"
+            app = work / "VERA20K.app"
             run("ditto", mount / "VERA20K.app", app)
         finally:
             run("hdiutil", "detach", mount)
         shutil.copyfile(program, app / "Contents/MacOS/VERA20K")
         run("codesign", "--force", "--sign", "-", app)
-        binary = app / "Contents/MacOS/VERA20K"
-        return Game(binary, data, ["open", str(app)], ["pkill", "-f", str(app)],
-                    staging=app.parent / ".VERA20K-update")
+        # Dragged into place, finished.
+        run("ditto", app, MAC_APP)
+        if quarantine:
+            # What a browser marks its download with (0x0081), plus the
+            # QTN_FLAG_DO_NOT_TRANSLOCATE (0x0100) that Finder's drag adds
+            # (copyfile(3) COPYFILE_RUN_IN_PLACE). Without that bit macOS runs
+            # even an approved copy from a read-only one (App Translocation),
+            # which the game asks to be moved to Applications instead.
+            run("xattr", "-r", "-w", "com.apple.quarantine", f"0181;{int(time.time()):x};Safari;", MAC_APP)
+        return Game(MAC_APP / "Contents/MacOS/VERA20K", data, ["open", str(MAC_APP)],
+                    ["pkill", "-f", str(MAC_APP)], staging=INSTALLED["macos"][1])
     # The release's own files around the test program, packed by the
     # release's own script.
     release.chmod(0o755)
@@ -214,11 +249,9 @@ def install(work: Path, release: Path, program: Path, game_folder: Path) -> Game
     shutil.copy(program, package / "vera20k")
     for name in ("README.txt", "LICENSE-GPL", "LGPL-2.1-or-later.txt", "THIRD_PARTY_LICENSES.html"):
         shutil.copyfile(extracted / "squashfs-root/usr/share/doc/vera20k" / name, package / name)
-    image = work / "VERA20K.AppImage"
-    run("bash", ROOT / ".github/release/linux/appimage.sh", package, image)
-    # Unpacked rather than mounted, so the test needs no FUSE.
-    return Game(image, data, [str(image)], ["pkill", "-x", "vera20k"],
-                env={"APPIMAGE_EXTRACT_AND_RUN": "1"})
+    LINUX_IMAGE.parent.mkdir(parents=True, exist_ok=True)
+    run("bash", ROOT / ".github/release/linux/appimage.sh", package, LINUX_IMAGE)
+    return Game(LINUX_IMAGE, data, [str(LINUX_IMAGE)], ["pkill", "-x", "vera20k"])
 
 
 def wait_for(game: Game, offset: int, outcomes: dict[str, str], timeout: float) -> tuple[str, str]:
@@ -318,8 +351,14 @@ def command_run(args) -> None:
         rekeyed = publish(work / "rekey", new_key / "signing-key.pem", args.version, args.release)
     print(f"published {sorted(p.relative_to(objects).as_posix() for p in objects.rglob('*') if p.is_file())}", flush=True)
     server = serve(objects, args.rate)
+    # A run stopped early leaves its copy.
+    remove_installed()
+    game = None
     try:
-        game = install(work, args.release, args.program, game_folder)
+        game = install(work, args.release, args.program, game_folder, args.quarantine)
+        if args.quarantine:
+            print("macOS asks before the first start: allow it in System Settings, Privacy & Security.",
+                  flush=True)
         for scenario in args.scenario:
             shutil.rmtree(objects)
             shutil.copytree(rekeyed if scenario == "rekey" else pristine, objects)
@@ -327,6 +366,11 @@ def command_run(args) -> None:
             play(game, scenario, args.version, args.attended)
     finally:
         server.shutdown()
+        if game:
+            # A scenario that failed leaves the game running.
+            subprocess.run(game.stop, capture_output=True)
+            time.sleep(2)
+        remove_installed()
     print(f"update test passed: {', '.join(args.scenario)}")
 
 
@@ -361,12 +405,16 @@ def main(argv: list[str] | None = None) -> None:
     test.add_argument("--program", type=absolute, required=True, help="the older test build's program")
     test.add_argument("--game", type=absolute, help="a game folder; default: the installer's stand-in")
     test.add_argument("--attended", action="store_true", help="a person answers the offer")
+    test.add_argument("--quarantine", action="store_true",
+                      help="with --attended on macOS: mark the copy as a browser download")
     test.add_argument("--rate", type=float, help="serve at most this many bytes a second")
     test.add_argument("--scenario", nargs="+", choices=["manifest", "installer", "rekey", "update"],
                       default=["manifest", "installer", "rekey", "update"])
     fixture = commands.add_parser("fixture", help="write the Rust updater tests' signed manifest")
     fixture.add_argument("directory", type=Path)
     args = parser.parse_args(argv)
+    if args.command == "run" and args.quarantine and not (args.attended and platform() == "macos"):
+        parser.error("--quarantine needs --attended on macOS: a person allows the first start")
     if args.command == "key":
         args.directory.mkdir(parents=True, exist_ok=True)
         print(signing_key(args.directory)[1])

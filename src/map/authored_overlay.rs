@@ -1149,8 +1149,14 @@ mod tests {
             data[usize::from(y) * 512 + usize::from(x)] = value;
         }
         AuthoredOverlayPackReceipt::from_parts_for_test(
-            crate::map::overlay::OverlayIdentityPack::from_decoded(identity),
-            crate::map::overlay::OverlayDataPack::from_decoded(data),
+            crate::map::overlay::OverlayIdentityPack::from_decoded(
+                identity,
+                crate::map::cell_index::CellGrid::Retail,
+            ),
+            crate::map::overlay::OverlayDataPack::from_decoded(
+                data,
+                crate::map::cell_index::CellGrid::Retail,
+            ),
         )
     }
 

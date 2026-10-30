@@ -9,7 +9,8 @@ Usage:
 `--size N` writes `Size=0,0,N,N`. Its diamond spans 2N cells on each of the
 rx and ry axes, so the default N=250 is a 500x500-cell map. gamemd's cell
 array is 512 wide, which bounds N at 256. Every cell is clear level ground.
-Larger maps automatically select the extended 1024-cell array (maximum N=512).
+Larger maps automatically select the extended 1024-cell array (maximum N=500,
+whose cells the y*1000+x [Terrain] and [Waypoints] keys can still name).
 For example --size 500 writes a literal Size=0,0,500,500 map.
 
 Without `--starts`, the eight start waypoints sit on a ring and the map has no
@@ -121,8 +122,10 @@ def match_layout(size: int, starts: list[tuple[int, int]], pitch: float):
 def build_map(size: int, starts: int | None = None, *, cell_array_width: int | None = None) -> str:
     if cell_array_width is None:
         cell_array_width = 512 if size <= 256 else 1024
-    if cell_array_width not in (512, 1024) or not 16 <= size <= cell_array_width // 2:
-        raise ValueError('size must fit inside half the selected 512 or 1024 cell array')
+    # [Terrain] and [Waypoints] keys are y*1000+x, so x must stay below 1000.
+    if cell_array_width not in (512, 1024) or not 16 <= size <= min(cell_array_width // 2, 500):
+        raise ValueError('size must fit inside half the selected 512 or 1024 cell array, '
+                         'and at most 500 for y*1000+x cell keys')
     if starts is not None and starts < 2:
         raise ValueError('a match needs at least two starts')
     cells = bytearray()

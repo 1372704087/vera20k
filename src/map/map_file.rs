@@ -45,8 +45,6 @@ const fn iso_map_max_bytes(grid: crate::map::cell_index::CellGrid) -> usize {
     let side = grid.side() as usize;
     side * side * CELL_RECORD_SIZE + CELL_HEADER_SIZE
 }
-#[cfg(test)]
-const ISO_MAP_MAX_BYTES: usize = iso_map_max_bytes(crate::map::cell_index::CellGrid::Retail);
 const DEFAULT_SIZE_RECT: [i32; 4] = [1, 1, 50, 50];
 // Untrusted wrappers must not multiply a small physical file into unbounded
 // INI parsing work through many entries or repeated/overlapping ranges.
@@ -413,7 +411,7 @@ impl MapFile {
             identity: overlay_identity,
             entries: overlays,
             data: overlay_data,
-        } = overlay::parse_overlay_packs(&ini);
+        } = overlay::parse_overlay_packs(&ini, header.cell_grid());
         let terrain_objects: Vec<TerrainObject> =
             overlay::parse_terrain_objects(&ini, basic.new_ini_format.unwrap_or(0));
         let smudges: Vec<MapSmudgeEntry> = parse_map_smudges(&ini);

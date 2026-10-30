@@ -324,7 +324,7 @@ pub(crate) struct MatchScenario {
 
 /// Cell claims over the engine capacity; coordinates are already canonical.
 struct CellSet(Vec<bool>);
-const CLAIM_SIDE: usize = vera20k::map::cell_index::MAX_CELL_SIDE as usize;
+const CLAIM_SIDE: usize = vera20k_core::map::cell_index::MAX_CELL_SIDE as usize;
 
 impl CellSet {
     fn new() -> Self {

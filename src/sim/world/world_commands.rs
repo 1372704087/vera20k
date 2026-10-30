@@ -373,6 +373,11 @@ impl Simulation {
             }
             _ => return None,
         };
+        // As for SpecialPlace above, a target lies in this map's cell array.
+        let side = self.cell_grid().side();
+        if action != PaidSuperAction::Cancel && (cell.0 >= side || cell.1 >= side) {
+            return None;
+        }
         PaidSuperRecord {
             house_id: header.house_id(),
             frame: header.frame_stamp(),
@@ -417,6 +422,12 @@ impl Simulation {
             ));
         }
         let event = PaidSuperRecord::decode(record)?;
+        let side = self.cell_grid().side() as i16;
+        if event.action != PaidSuperAction::Cancel
+            && (!(0..side).contains(&event.cell.0) || !(0..side).contains(&event.cell.1))
+        {
+            return None;
+        }
         let selection = crate::sim::superweapon::PaidSuperWeaponSelection {
             source: type_id(event.source)?,
             destination: type_id(event.destination)?,

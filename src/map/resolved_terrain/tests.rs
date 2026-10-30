@@ -464,8 +464,9 @@ fn gsi_04_01_production_size_diamond_closes_exact_capacity_edge() {
     assert!(grid.cell(2, 511).is_some());
     assert!(grid.cell(3, 511).is_none());
 
+    // Sum 513 now selects the extended array; past its capacity is rejected.
     let mut oversized = make_map(Vec::new(), Vec::new(), Vec::new());
-    oversized.header.width = N + 1;
+    oversized.header.width = 1024;
     oversized.header.height = M;
     let (rejected, rejected_stats) = build_production_grid_without_theater(&oversized, &mut cache);
     assert_eq!((rejected.width(), rejected.height()), (0, 0));

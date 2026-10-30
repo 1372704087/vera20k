@@ -570,7 +570,7 @@ fn tube_hierarchy_gate_uses_raw_invalid_labels_and_goal_bridge_flag() {
     );
     assert_eq!(
         zones.get_zone_id_native(&terrain, (1, 0), MovementZone::Normal, false),
-        Some(u32::from((u16::MAX as ZoneId)))
+        Some(u32::from(u16::MAX as ZoneId))
     );
     assert_eq!(
         zones

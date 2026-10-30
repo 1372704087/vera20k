@@ -5017,8 +5017,8 @@ impl Simulation {
         })
     }
 
-    /// `MapClass+0xF4/+0xF8`, the `In_Bounds` diamond's width and height.
-    /// The loaded terrain owns cell addressing; before Fill use the scenario's Size.
+    /// The cell addressing of this map. The loaded terrain owns it; before
+    /// Fill the scenario's Size selects it.
     pub(crate) fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
         self.resolved_terrain
             .as_ref()
@@ -5030,6 +5030,7 @@ impl Simulation {
             .unwrap_or_default()
     }
 
+    /// `MapClass+0xF4/+0xF8`, the `In_Bounds` diamond's width and height.
     pub fn map_size_diamond(&self) -> Option<(i32, i32)> {
         self.playfield_bounds
             .zip(self.playfield_size_height)

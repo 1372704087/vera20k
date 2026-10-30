@@ -395,11 +395,20 @@ fn build_hierarchy_level(
                 continue;
             }
             let next_zone = graph.record_slot_count();
-            let zone = ZoneId::try_from(next_zone).unwrap_or_else(|_| {
-                panic!(
-                    "zone hierarchy level {level} exceeds ZoneId capacity at real zone {next_zone}"
-                )
-            });
+            // Retail maps keep the native 16-bit zone capacity; extended maps
+            // use the full ZoneId.
+            let zone = ZoneId::try_from(next_zone)
+                .ok()
+                .filter(|&zone| {
+                    crate::map::cell_index::CellGrid::for_extent(cells.width, cells.height)
+                        .is_extended()
+                        || zone <= ZoneId::from(u16::MAX)
+                })
+                .unwrap_or_else(|| {
+                    panic!(
+                        "zone hierarchy level {level} exceeds ZoneId capacity at real zone {next_zone}"
+                    )
+                });
             let parent_id = parent.map_or(0, |parent| cells.zone(parent, x, y));
             assert!(graph.append_record(ZoneRecord::from_seed(
                 zone,
@@ -747,7 +756,15 @@ fn register_hierarchy_horizontal_edge(
     last_neighbor: &mut Option<ZoneId>,
 ) {
     let existing = cells.zone(graph, candidate.0, candidate.1);
-    if existing as i16 > 0
+    // Native tests the signed zone word. VERA extension: extended maps keep
+    // their wide identifiers, as in `register_native_hierarchy_pair`.
+    let positive =
+        if crate::map::cell_index::CellGrid::for_extent(cells.width, cells.height).is_extended() {
+            existing > 0
+        } else {
+            existing as i16 > 0
+        };
+    if positive
         && *last_neighbor != Some(existing)
         && cells
             .level(candidate.0, candidate.1)

@@ -12,25 +12,10 @@
 //! ## Dependency rules
 //! - Part of map/ — depends on util/ (base64, lcw), rules/ (ini_parser).
 
+use crate::map::cell_index::CellGrid;
 use crate::rules::ini_parser::IniFile;
 use crate::util::base64;
 use crate::util::lcw;
-
-/// Maximum overlay plane side supported by the engine.
-pub(crate) const OVERLAY_GRID_SIZE: usize = crate::map::cell_index::MAX_CELL_SIDE as usize;
-
-// Retail packs retain their 512 stride. Bodies larger than the retail plane
-// use the extended 1024 stride; short bodies retain failed-read semantics.
-fn pack_stride(bytes: &[u8]) -> usize {
-    if bytes.len() > 512 * 512 {
-        OVERLAY_GRID_SIZE
-    } else {
-        512
-    }
-}
-
-/// Maximum decoded cells in an extended overlay plane.
-pub(crate) const OVERLAY_TOTAL_CELLS: usize = OVERLAY_GRID_SIZE * OVERLAY_GRID_SIZE;
 
 /// Sentinel value meaning "no overlay at this cell".
 const NO_OVERLAY: u8 = 0xFF;
@@ -40,15 +25,17 @@ const NO_OVERLAY: u8 = 0xFF;
 /// The vector keeps its actual decoded length: `ReadMapOverlayPacks` attempts
 /// one byte at every 512x512 coordinate and a short body's failed reads keep
 /// the initialized `0xFF` sentinel. A zero-length body is inactive under the
-/// reader's signed-positive length gate.
+/// reader's signed-positive length gate. The map's cell grid, not the body's
+/// length, sets the row stride: 512 on retail-size maps, 1024 on extended ones.
 #[derive(Debug, Default)]
 pub struct OverlayIdentityPack {
     bytes: Vec<u8>,
+    grid: CellGrid,
 }
 
 impl OverlayIdentityPack {
-    pub fn from_decoded(bytes: Vec<u8>) -> Self {
-        Self { bytes }
+    pub fn from_decoded(bytes: Vec<u8>, grid: CellGrid) -> Self {
+        Self { bytes, grid }
     }
 
     pub fn has_positive_length(&self) -> bool {
@@ -62,14 +49,19 @@ impl OverlayIdentityPack {
     /// Return the decoded byte for one fixed-grid reader coordinate. `None`
     /// represents native's failed byte read and is not the `0xFF` sentinel.
     pub fn read_byte(&self, rx: u16, ry: u16) -> Option<u8> {
-        let stride = pack_stride(&self.bytes);
-        if usize::from(rx) >= stride || usize::from(ry) >= stride {
-            return None;
-        }
-        self.bytes
-            .get(usize::from(ry) * stride + usize::from(rx))
-            .copied()
+        read_pack_byte(&self.bytes, self.grid, rx, ry)
     }
+}
+
+/// One byte of a decoded pack at `(rx, ry)` under the grid's row stride.
+fn read_pack_byte(bytes: &[u8], grid: CellGrid, rx: u16, ry: u16) -> Option<u8> {
+    let stride = usize::from(grid.side());
+    if usize::from(rx) >= stride || usize::from(ry) >= stride {
+        return None;
+    }
+    bytes
+        .get(usize::from(ry) * stride + usize::from(rx))
+        .copied()
 }
 
 /// An overlay placed on a specific map cell.
@@ -96,18 +88,24 @@ pub struct OverlayEntry {
 pub struct OverlayDataPack {
     bytes: Vec<u8>,
     present: bool,
+    grid: CellGrid,
 }
 
 impl OverlayDataPack {
-    pub fn from_decoded(bytes: Vec<u8>) -> Self {
+    pub fn from_decoded(bytes: Vec<u8>, grid: CellGrid) -> Self {
         let present = !bytes.is_empty();
-        Self { bytes, present }
+        Self {
+            bytes,
+            present,
+            grid,
+        }
     }
 
     pub fn missing() -> Self {
         Self {
             bytes: Vec::new(),
             present: false,
+            grid: CellGrid::Retail,
         }
     }
 
@@ -128,13 +126,7 @@ impl OverlayDataPack {
     /// body produces `None`, matching the native failed-read path rather than
     /// fabricating a decoded zero byte.
     pub fn read_byte(&self, rx: u16, ry: u16) -> Option<u8> {
-        let stride = pack_stride(&self.bytes);
-        if usize::from(rx) >= stride || usize::from(ry) >= stride {
-            return None;
-        }
-        self.bytes
-            .get(usize::from(ry) * stride + usize::from(rx))
-            .copied()
+        read_pack_byte(&self.bytes, self.grid, rx, ry)
     }
 
     pub fn byte_at(&self, rx: u16, ry: u16) -> u8 {
@@ -147,11 +139,12 @@ impl OverlayDataPack {
     /// overlay list; out-of-grid coordinates are ignored.
     pub fn from_cells(cells: impl IntoIterator<Item = (u16, u16, u8)>) -> Self {
         let cells: Vec<_> = cells.into_iter().collect();
-        let side = if cells.iter().any(|&(x, y, _)| x >= 512 || y >= 512) {
-            OVERLAY_GRID_SIZE
+        let grid = if cells.iter().any(|&(x, y, _)| x >= 512 || y >= 512) {
+            CellGrid::Extended
         } else {
-            512
+            CellGrid::Retail
         };
+        let side = usize::from(grid.side());
         let mut bytes = vec![0u8; side * side];
         for (rx, ry, frame) in cells {
             if usize::from(rx) < side && usize::from(ry) < side {
@@ -161,6 +154,7 @@ impl OverlayDataPack {
         Self {
             bytes,
             present: true,
+            grid,
         }
     }
 }
@@ -192,17 +186,18 @@ pub struct TerrainObject {
     pub name: String,
 }
 
-/// Parse overlay entries and preserve the full overlay-data byte grid.
-pub fn parse_overlay_packs(ini: &IniFile) -> ParsedOverlayPacks {
-    let identity = decode_pack_section(ini, "OverlayPack")
-        .map(OverlayIdentityPack::from_decoded)
+/// Parse overlay entries and preserve the full overlay-data byte grid, laid
+/// out at the map's cell-grid stride.
+pub fn parse_overlay_packs(ini: &IniFile, grid: CellGrid) -> ParsedOverlayPacks {
+    let identity = decode_pack_section(ini, "OverlayPack", grid)
+        .map(|bytes| OverlayIdentityPack::from_decoded(bytes, grid))
         .unwrap_or_default();
-    let data: OverlayDataPack = decode_pack_section(ini, "OverlayDataPack")
-        .map(OverlayDataPack::from_decoded)
+    let data: OverlayDataPack = decode_pack_section(ini, "OverlayDataPack", grid)
+        .map(|bytes| OverlayDataPack::from_decoded(bytes, grid))
         .unwrap_or_else(OverlayDataPack::missing);
 
     let mut entries: Vec<OverlayEntry> = Vec::new();
-    let stride = pack_stride(&identity.bytes);
+    let stride = usize::from(grid.side());
     let max_idx: usize = identity.decoded_len().min(stride * stride);
 
     for idx in 0..max_idx {
@@ -274,7 +269,7 @@ pub fn parse_terrain_objects(ini: &IniFile, signed_new_ini_format: i32) -> Vec<T
 /// Decode a base64-encoded, LCW-compressed pack section (OverlayPack or OverlayDataPack).
 ///
 /// Concatenates all numbered key values, base64 decodes, then LCW decompresses.
-fn decode_pack_section(ini: &IniFile, section_name: &str) -> Option<Vec<u8>> {
+fn decode_pack_section(ini: &IniFile, section_name: &str, grid: CellGrid) -> Option<Vec<u8>> {
     let section = ini.section(section_name)?;
 
     let b64_data = section.read_packed_text();
@@ -294,7 +289,8 @@ fn decode_pack_section(ini: &IniFile, section_name: &str) -> Option<Vec<u8>> {
     // ReadMapOverlayPacks 0x005FD2E0 consumes one byte per fixed-grid cell.
     // Reject excess decoded data before allocating it; short packs retain the
     // existing failed-read semantics in OverlayIdentityPack/OverlayDataPack.
-    match lcw::decompress_chunks(&compressed, OVERLAY_TOTAL_CELLS) {
+    let side = usize::from(grid.side());
+    match lcw::decompress_chunks(&compressed, side * side) {
         Ok(data) => {
             log::info!(
                 "{}: {} compressed → {} decompressed bytes",
@@ -322,11 +318,19 @@ mod tests {
         let ini = IniFile::from_str(&format!(
             "[OverlayPack]\n1={packed}\n[OverlayDataPack]\n1={packed}\n"
         ));
-        let rejected = parse_overlay_packs(&ini);
+        let rejected = parse_overlay_packs(&ini, CellGrid::Extended);
         assert!(!rejected.identity.has_positive_length());
         assert!(!rejected.data.has_positive_length());
+        // Five exceed the retail 512-square plane a retail-size map reads.
+        let retail_over =
+            IniFile::from_str(&format!("[OverlayPack]\n1={}\n", "BQD///7///+A".repeat(5)));
+        let rejected = parse_overlay_packs(&retail_over, CellGrid::Retail);
+        assert!(!rejected.identity.has_positive_length());
 
-        let short = parse_overlay_packs(&IniFile::from_str("[OverlayPack]\n1=BQD///7///+A\n"));
+        let short = parse_overlay_packs(
+            &IniFile::from_str("[OverlayPack]\n1=BQD///7///+A\n"),
+            CellGrid::Retail,
+        );
         assert_eq!(short.identity.decoded_len(), 65535);
         assert_eq!(short.identity.read_byte(0, 0), Some(NO_OVERLAY));
         assert_eq!(short.identity.read_byte(511, 127), None);
@@ -337,7 +341,7 @@ mod tests {
         // A short retail body still has its native 512-byte row stride.
         let mut bytes = vec![NO_OVERLAY; 512 + 1];
         bytes[512] = 7;
-        let pack = OverlayIdentityPack::from_decoded(bytes);
+        let pack = OverlayIdentityPack::from_decoded(bytes, CellGrid::Retail);
 
         assert!(pack.has_positive_length());
         assert_eq!(pack.read_byte(0, 0), Some(NO_OVERLAY));
@@ -348,8 +352,8 @@ mod tests {
 
     #[test]
     fn zero_length_pack_does_not_enter_signed_positive_body_gate() {
-        let identity = OverlayIdentityPack::from_decoded(Vec::new());
-        let data = OverlayDataPack::from_decoded(Vec::new());
+        let identity = OverlayIdentityPack::from_decoded(Vec::new(), CellGrid::Retail);
+        let data = OverlayDataPack::from_decoded(Vec::new(), CellGrid::Retail);
 
         assert!(!identity.has_positive_length());
         assert_eq!(identity.read_byte(0, 0), None);
@@ -359,7 +363,7 @@ mod tests {
 
     #[test]
     fn raw_overlay_data_pack_preserves_failed_short_reads() {
-        let data = OverlayDataPack::from_decoded(vec![7, 8]);
+        let data = OverlayDataPack::from_decoded(vec![7, 8], CellGrid::Retail);
 
         assert!(data.has_positive_length());
         assert_eq!(data.decoded_len(), 2);
@@ -405,12 +409,12 @@ mod large_map_tests {
         let mut retail = vec![255; 512 * 512];
         retail[400 * 512 + 300] = 102;
         assert_eq!(
-            OverlayIdentityPack::from_decoded(retail).read_byte(300, 400),
+            OverlayIdentityPack::from_decoded(retail, CellGrid::Retail).read_byte(300, 400),
             Some(102)
         );
         let mut large = vec![255; 1024 * 1024];
         large[600 * 1024 + 700] = 103;
-        let pack = OverlayIdentityPack::from_decoded(large);
+        let pack = OverlayIdentityPack::from_decoded(large, CellGrid::Extended);
         assert_eq!(pack.read_byte(700, 600), Some(103));
         assert_eq!(pack.read_byte(188, 601), Some(255));
         let data = OverlayDataPack::from_cells([(700, 600, 11)]);

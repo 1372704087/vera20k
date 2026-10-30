@@ -1324,6 +1324,13 @@ mod tests {
         let rebuilt = build_zone_hierarchy(&restored, None, &[], 600, 500);
         assert_eq!(rebuilt.level(0).unwrap().zone_at(599, 499), high);
         assert_eq!(rebuilt.level(0).unwrap().edges(high), fine.edges(high));
+        // A left neighbour whose ID sets the retail word's sign bit keeps its
+        // same-row edge, not only the diagonal scan's flag-1 copy.
+        let (left, right) = (0..500u16)
+            .flat_map(|y| (0..599u16).map(move |x| (fine.zone_at(x, y), fine.zone_at(x + 1, y))))
+            .find(|&(left, right)| (0x8000..=0xffff).contains(&left) && right > left)
+            .unwrap();
+        assert!(fine.edges(right).contains(&ZoneEdgeRecord::new(left, 0)));
 
         let marked: crate::sim::pathfinding::zone_hierarchy::MarkedZones =
             [high].into_iter().collect();

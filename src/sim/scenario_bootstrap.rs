@@ -5605,7 +5605,7 @@ mod tests {
     #[test]
     fn scenario_prefix_rejects_invalid_map_cell_extents() {
         let launch = one_player_battle_launch("invalid-size.mmx");
-        for (width, height) in [(0, 64), (64, 0), (400, 200), (u32::MAX, 1)] {
+        for (width, height) in [(0, 64), (64, 0), (513, 512), (u32::MAX, 1)] {
             let mut map = one_start_prefix_map(Waypoint {
                 index: 0,
                 rx: 30,

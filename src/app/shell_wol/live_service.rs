@@ -1681,12 +1681,8 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             service.player_id = player_id;
             state.frontend.wol_account.nickname = nickname;
             state.frontend.wol_account.password.clear();
-            service_event(
-                state,
-                WolServiceEvent::Login(Ok(WolLoginAccepted {
-                    motd: "VERA20k Online".into(),
-                })),
-            );
+            let motd = super::service::vera_motd(state);
+            service_event(state, WolServiceEvent::Login(Ok(WolLoginAccepted { motd })));
         }
         http::Response::LoginFailed { attempt, code } if attempt == service.auth_attempt => {
             state.frontend.wol_account.password.clear();

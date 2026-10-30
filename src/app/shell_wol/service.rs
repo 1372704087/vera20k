@@ -82,6 +82,18 @@ pub(crate) struct WolLoginAccepted {
     pub(crate) motd: String,
 }
 
+/// The message of the day VERA's services send with an accepted login (the
+/// lobby itself sends none): a welcome, and how to page with the chat's
+/// `TXT_PAGE_COMMAND`, since the online screens have no Page button.
+pub(super) fn vera_motd(state: &AppState) -> String {
+    let page = App::csf_label(state, "TXT_PAGE_COMMAND", "TXT_PAGE_COMMAND");
+    format!(
+        "Welcome to VERA20K Online!\n\
+         Create a game or join one, and chat with everyone here.\n\
+         To send a private message, type {page} <name> <message>."
+    )
+}
+
 #[derive(Clone, PartialEq, Eq)]
 pub(crate) enum WolServiceRequest {
     /// `WOL__EnsureWolapiObject` `0x00786390`.

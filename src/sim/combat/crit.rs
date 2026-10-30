@@ -543,18 +543,19 @@ fn crit_effects(
             // `DamageAreaTarget` when the crit warhead does not spread.
             let crit_ref = world.interner.intern(name);
             let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
-            let (nested, mut pings, _crit_active) = apply_area_damage_in_run_with_target(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                impact,
-                damage,
-                crit_warhead,
-                true,
-                (source_id, source_house, crit_ref),
-                Some(target_id),
-            );
+            let (nested, mut pings, _crit_active, _area_result) =
+                apply_area_damage_in_run_with_target(
+                    world,
+                    run,
+                    rules,
+                    overlay_registry,
+                    impact,
+                    damage,
+                    crit_warhead,
+                    true,
+                    (source_id, source_house, crit_ref),
+                    Some(target_id),
+                );
             effects.append(nested);
             effects.under_attack_events.append(&mut pings);
         }

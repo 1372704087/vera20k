@@ -223,11 +223,9 @@ pub(crate) fn apply_foot_radiation(
                         // `BulletClass_Logics_DamageAnimSelected` (`0x469C46`)
                         // creation tail as a fired Bullet; its default bullet
                         // type is not Inviso and the RadInvoker is the owner.
-                        // RESIDUAL: the fake Bullet's own damage-area result
-                        // is not retained here, so the water-unit gate is
-                        // evaluated as dispatched (the radiation target is a
-                        // receiver); an isolated non-receiver cell could
-                        // differ.
+                        // The fake Bullet's DamageArea is the call just made,
+                        // so its receipt gates the land check and the Iron
+                        // Curtain substitution exactly as the Bullet path.
                         let ignore_units = warhead
                             .phobos_anim
                             .conventional_ignore_units(&rules.phobos_warhead_anim);
@@ -236,20 +234,30 @@ pub(crate) fn apply_foot_radiation(
                             rules,
                             impact,
                             false,
-                            true,
+                            receipt.area_result == AreaDamageResult::ReceiverDispatched,
                             ignore_units,
                         );
-                        if let Some(selection) =
-                            crate::sim::combat::detonation_anim::select_with_context(
-                                world,
-                                rules,
-                                warhead,
-                                damage,
-                                land,
-                                impact,
-                                receipt.crit_active,
-                            )
-                        {
+                        let selection = crate::sim::combat::detonation_anim::select_with_context(
+                            world,
+                            rules,
+                            warhead,
+                            damage,
+                            land,
+                            impact,
+                            receipt.crit_active,
+                        );
+                        if receipt.area_result == AreaDamageResult::IronCurtain {
+                            if !rules.general.weapon_nullify_anim.is_empty() {
+                                let type_id =
+                                    world.interner.intern(&rules.general.weapon_nullify_anim);
+                                let effect = crate::sim::combat::detonation_anim::placed_effect(
+                                    type_id, impact,
+                                );
+                                crate::sim::world::damage_consequences::admit_explosion_effect(
+                                    world, rules, effect,
+                                );
+                            }
+                        } else if let Some(selection) = selection {
                             for effect in crate::sim::combat::detonation_anim::bullet_effects(
                                 world,
                                 rules,
@@ -654,7 +662,7 @@ pub(crate) fn apply_area_damage(
     effects: FrameEffects<'_>,
 ) -> AreaDamageApply {
     let mut run = ReceiverRun::default().with_effects(effects);
-    let (death, pings, crit_active) = apply_area_damage_in_run(
+    let (death, pings, crit_active, area_result) = apply_area_damage_in_run(
         world,
         &mut run,
         rules,
@@ -677,6 +685,7 @@ pub(crate) fn apply_area_damage(
     AreaDamageApply {
         bridge_state_changed: receipt.bridge_state_changed,
         crit_active,
+        area_result,
     }
 }
 
@@ -688,6 +697,9 @@ pub(crate) struct AreaDamageApply {
     /// Phobos `WarheadTypeExt::Crit_Active`: a damage-animation selection that
     /// follows the area damage reads it for the `Crit.AnimList` swap.
     pub(crate) crit_active: bool,
+    /// The native `AreaDamage` receipt: the water-unit gate and the Iron
+    /// Curtain animation substitution read it.
+    pub(crate) area_result: AreaDamageResult,
 }
 
 /// [`apply_area_damage`] inside a damage transaction (a TerrainClass death's
@@ -704,7 +716,7 @@ pub(crate) fn apply_area_damage_in_run(
     warhead: &WarheadType,
     affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
-) -> (DeathEffects, Vec<UnderAttackEvent>, bool) {
+) -> (DeathEffects, Vec<UnderAttackEvent>, bool, AreaDamageResult) {
     apply_area_damage_in_run_with_target(
         world,
         run,
@@ -735,7 +747,7 @@ pub(crate) fn apply_area_damage_in_run_with_target(
     affects_tiberium: bool,
     origin: (u64, Option<InternedId>, InternedId),
     area_target: Option<u64>,
-) -> (DeathEffects, Vec<UnderAttackEvent>, bool) {
+) -> (DeathEffects, Vec<UnderAttackEvent>, bool, AreaDamageResult) {
     let area = collect_area_at(
         world,
         rules,
@@ -791,7 +803,7 @@ pub(crate) fn apply_area_damage_in_run_with_target(
     );
     effects.append(tail);
     pings.append(&mut tail_pings);
-    (effects, pings, crit_active)
+    (effects, pings, crit_active, area_result)
 }
 
 /// Original AreaDamage call arguments and the layer selected at489357..48958D,
@@ -948,9 +960,10 @@ pub(crate) fn commit_area(
 /// after each dispatched virtual ReceiveDamage489ABC (including ReturnZero),
 /// and returns its inverse at48A47E. Keep this receipt transaction-local;
 /// nested areas must not overwrite their parent's dispatched status.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum AreaDamageResult {
     ReceiverDispatched = 0,
+    #[default]
     NoReceiver = 1,
     IronCurtain = 2,
 }
@@ -1132,7 +1145,7 @@ pub(crate) fn commit_terrain(
         {
             crate::sim::world::damage_consequences::admit_explosion_effect(world, rules, effect);
         }
-        let (nested, mut pings, _crit_active) = apply_area_damage_in_run(
+        let (nested, mut pings, _crit_active, _area_result) = apply_area_damage_in_run(
             world,
             run,
             rules,
@@ -3167,7 +3180,7 @@ fn continue_area_damage(
         //Keep the same receiver run across this recursive gameplay chain.
         if let Some(c4) = rules.warhead(&rules.bridge_warheads.c4_name) {
             let reference = world.interner.intern(&c4.id);
-            let (nested, mut nested_pings, _crit_active) = apply_area_damage_in_run(
+            let (nested, mut nested_pings, _crit_active, _area_result) = apply_area_damage_in_run(
                 world,
                 run,
                 rules,

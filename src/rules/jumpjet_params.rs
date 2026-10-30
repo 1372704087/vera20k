@@ -88,8 +88,8 @@ pub struct JumpjetParams {
     pub crash: f32,
     /// Target hover altitude in leptons (`JumpjetHeight=`, `+0xD80`).
     ///
-    /// RESIDUAL — DRIFT, not implemented in VERA. gamemd never hovers at this
-    /// value raw: the `JumpjetLocomotionClass` parameter copy at `0x0054AD30`
+    /// The stored type value is raw. gamemd never hovers at a value below the
+    /// `JumpjetLocomotionClass` floor: the parameter copy at `0x0054AD30`
     /// clamps it **up** on the way into the locomotor (`0x0054AD9B`:
     /// `ECX = 2 * [0x00ABC5E8]`, `CMP EAX,ECX`, `JG` keeps the type's value,
     /// else `EAX = ECX`), giving an effective floor of **208 leptons**.
@@ -102,14 +102,11 @@ pub struct JumpjetParams {
     /// `ftol(tan_table(pi/2 - pi/3) * 362.0387 * 0.5)`, the 0.5 being
     /// `[0x007E1738]`. The table entry the index lands on, `0x0085D5F8`, holds
     /// `0x3F13A08F = 0.5766687`, so `104.3878 -> 104` and the floor is
-    /// `2 * 104`. Every constant in that chain was read out of the binary.
+    /// `2 * 104`.
     ///
-    /// Trigger: a section authoring `JumpjetHeight` below 208. Player effect:
-    /// that unit hovers lower in VERA than in gamemd, permanently. Frequency:
-    /// **zero on stock data** — the lowest authored height in retail
-    /// `rulesmd.ini` is 500, and `[ZEP]`/`[DISK]` author 750, so every stock
-    /// jumpjet clears the floor. Only a mod or map INI can reach it.
-    /// Downstream risk: none — nothing else reads the clamped value.
+    /// [`JumpjetFlightParams::link`](crate::sim::movement::jumpjet_flight::JumpjetFlightParams::link)
+    /// applies the same floor (`height.max(2 * GROUND_LEVEL_HEIGHT_LEPTONS)`),
+    /// including for a Phobos warhead override.
     pub height: i32,
     /// Acceleration rate (`JumpjetAccel=`, `+0xD84`). Deceleration = accel *
     /// 1.5.

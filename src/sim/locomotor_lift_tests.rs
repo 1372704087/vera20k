@@ -1539,12 +1539,13 @@ fn warhead_jumpjet_overrides_apply_to_the_installed_locomotor() {
          [TANK]\nStrength=300\nSpeed=7\nSize=1\n\
          JumpjetSpeed=30\nJumpjetClimb=5\nJumpjetCrash=5\nJumpjetHeight=500\n\
          JumpjetAccel=2\nJumpjetWobbles=0.15\nJumpjetDeviation=40\n\
-         [Warheads]\n0=LIFT\n1=PLAIN\n\
+         [Warheads]\n0=LIFT\n1=PLAIN\n2=HOVER\n\
          [LIFT]\nIsLocomotor=yes\nLocomotor={92612C46-F71F-11D1-AC9F-006008055BB5}\n\
          JumpjetTurnRate=9\nJumpjetSpeed=33\nJumpjetClimb=7.5\nJumpjetCrash=11\n\
          JumpjetHeight=100\nJumpjetAccel=3.5\nJumpjetWobbles=.5\n\
          JumpjetNoWobbles=yes\nJumpjetDeviation=77\n\
-         [PLAIN]\nIsLocomotor=yes\nLocomotor=Jumpjet\n",
+         [PLAIN]\nIsLocomotor=yes\nLocomotor=Jumpjet\n\
+         [HOVER]\nIsLocomotor=yes\nLocomotor=Hover\nJumpjetSpeed=33\n",
     ))
     .unwrap();
     let lift = |warhead_name: &str| {
@@ -1574,6 +1575,11 @@ fn warhead_jumpjet_overrides_apply_to_the_installed_locomotor() {
 
     let overridden = lift("LIFT");
     assert_eq!(overridden.turn_rate(), 9);
+    assert_eq!(
+        overridden.linked_facing(),
+        crate::sim::movement::facing_class::FacingClass::new(0x4000, 9),
+        "the linked facing is rebuilt at the overridden turn rate"
+    );
     assert_eq!(overridden.speed(), 33);
     assert_eq!(f32::from_bits(overridden.climb_bits()), 7.5);
     assert_eq!(f32::from_bits(overridden.crash_bits()), 11.0);
@@ -1593,4 +1599,28 @@ fn warhead_jumpjet_overrides_apply_to_the_installed_locomotor() {
     assert_eq!(inherited.height(), 500);
     assert_eq!(inherited.deviation(), 40);
     assert!(!inherited.no_wobbles());
+
+    // A non-Jumpjet `Locomotor=` warhead never links the Jumpjet locomotor,
+    // so its Jumpjet* keys stay inert.
+    let (mut sim, _) = arena(&rules);
+    let magnetron = spawn(&mut sim, &rules, "TANK", "Americans", 10, 16);
+    let tank = spawn(&mut sim, &rules, "TANK", "Russians", 16, 16);
+    let hover = rules.warhead("HOVER").unwrap();
+    sim.locomotor_detonation(
+        magnetron,
+        LocomotorShotTarget::Object(tank),
+        5000,
+        LocomotorKind::Hover,
+        &hover.jumpjet_override,
+        &rules,
+        None,
+        FrameEffects::default(),
+    );
+    assert!(!entity(&sim, tank).lift.swap_active());
+    assert!(
+        entity(&sim, tank)
+            .locomotor
+            .as_ref()
+            .is_none_or(|locomotor| locomotor.jumpjet_runtime().is_none())
+    );
 }

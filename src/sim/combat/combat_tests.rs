@@ -7205,6 +7205,7 @@ fn an_inviso_death_weapon_scatters_its_anim_inside_the_receiver() {
     expected_rng.next_range_u32_inclusive(0, 2);
     let demo = (8, 5, SimFixed::from_num(128), SimFixed::from_num(128));
     let death_anim = inviso_scatter::scatter_inviso_effect_coord(
+        crate::map::cell_index::CellGrid::Retail,
         &mut expected_rng,
         demo.0,
         demo.1,
@@ -7617,10 +7618,19 @@ fn inviso_detonation_draws(
     rng: &mut SimRng,
     coord: (u16, u16, SimFixed, SimFixed),
 ) -> (u16, u16, SimFixed, SimFixed) {
-    let effect =
-        inviso_scatter::scatter_inviso_effect_coord(rng, coord.0, coord.1, coord.2, coord.3);
-    let _ =
-        crate::sim::projectile::projectile_next_cluster_coord(ProjectileCoord::new(0, 0, 0), rng);
+    let effect = inviso_scatter::scatter_inviso_effect_coord(
+        crate::map::cell_index::CellGrid::Retail,
+        rng,
+        coord.0,
+        coord.1,
+        coord.2,
+        coord.3,
+    );
+    let _ = crate::sim::projectile::projectile_next_cluster_coord(
+        crate::map::cell_index::CellGrid::Retail,
+        ProjectileCoord::new(0, 0, 0),
+        rng,
+    );
     effect
 }
 

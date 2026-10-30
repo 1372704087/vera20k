@@ -519,6 +519,7 @@ impl Simulation {
                 crate::sim::crew_survival::foundation_cells(rx, ry, &object.foundation)
             {
                 let (x, y) = super::inviso_scatter::random_direction_coord(
+                    self.cell_grid(),
                     &mut self.scenario_rng,
                     i32::from(cell_rx) * 256 + 0x80,
                     i32::from(cell_ry) * 256 + 0x80,

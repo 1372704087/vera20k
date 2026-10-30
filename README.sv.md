@@ -132,7 +132,9 @@ portar sedan dess beteende till Rust och kontrollerar det med
 
 ## Anpassning
 
-VERA20K fungerar som standard precis som originalspelet. Varje ny funktion, även tillägg från
+Kartkapaciteten väljs automatiskt utan byggflagga: summan av bredd och höjd i `Size` får vara högst 1024. Upp till 512 behålls den ursprungliga adresseringen; större kartor använder det utökade rutnätet. Generator, sparversioner och valideringsgränser: [stora kartor](README.md#large-maps).
+
+VERA20K fungerar som standard precis som originalspelet. Varje annan ny funktion, även tillägg från
 moddar som Ares, måste vara avstängd tills den slås på med något av följande:
 
 - **En spelarinställning i VERA**, under **Options → Vera Options**, som sparas i avsnittet `[VERA]` i `VERA.INI`.

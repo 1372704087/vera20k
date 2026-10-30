@@ -627,7 +627,8 @@ impl PaidSuperRecord {
             && if self.action == PaidSuperAction::Cancel {
                 self.cell == (0, 0)
             } else {
-                (0..512).contains(&self.cell.0) && (0..512).contains(&self.cell.1)
+                (0..crate::map::cell_index::MAX_CELL_SIDE as i16).contains(&self.cell.0)
+                    && (0..crate::map::cell_index::MAX_CELL_SIDE as i16).contains(&self.cell.1)
             }
     }
     pub fn encode(self) -> Option<CommandRecord> {
@@ -1854,7 +1855,7 @@ mod tests {
             source: 3,
             destination: 4,
             sequence: u64::MAX,
-            cell: (511, 0),
+            cell: (1023, 0),
         };
         let record = paid.encode().unwrap();
         assert_eq!(PaidSuperRecord::decode(&record), Some(paid));
@@ -1877,7 +1878,7 @@ mod tests {
         assert!(PaidSuperRecord { source: -1, ..paid }.encode().is_none());
         assert!(
             PaidSuperRecord {
-                cell: (512, 0),
+                cell: (1024, 0),
                 ..paid
             }
             .encode()

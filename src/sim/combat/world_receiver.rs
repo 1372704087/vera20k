@@ -3604,6 +3604,7 @@ fn emit_detonation_anim(
     // change negative edges and coordinates beyond the signed cell word.
     let (x, y) = if inviso {
         inviso_scatter::random_direction_coord(
+            world.cell_grid(),
             &mut world.scenario_rng,
             detonation.impact.x,
             detonation.impact.y,
@@ -3837,8 +3838,11 @@ pub(crate) fn commit_projectile_detonations_inline(
                 super::airburst::emit(world, rules, &live_tail);
             }
             if cluster_draws {
-                coordinate =
-                    projectile_next_cluster_coord(detonation.impact, &mut world.scenario_rng);
+                coordinate = projectile_next_cluster_coord(
+                    world.cell_grid(),
+                    detonation.impact,
+                    &mut world.scenario_rng,
+                );
             }
         }
     }

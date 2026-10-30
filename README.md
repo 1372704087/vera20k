@@ -126,6 +126,20 @@ cp config.toml.example config.toml
 cargo run --release --bin vera20k
 ```
 
+### Large maps
+
+Desktop builds support map `Size` width + height up to 1024 without a feature flag.
+A map whose sum is at most 512 keeps retail 512-stride cell addressing; larger
+maps automatically select 1024-stride addressing. This is a bounded VERA extension.
+Generate a literal 500×500 map with 30 starts using
+`python -m tools.scale_map large500.map --size 500 --starts 30`.
+Retail overlay packs keep their 512×512 layout; extended packs use 1024×1024.
+Both map sizes use the same executable and versioned save machinery. Stored-layout
+changes are checked by the existing snapshot version guard; this change does not
+provide a migration for saves from the earlier 16-bit navigation layout.
+Basic loading, movement and MCV deployment are checked separately from 30-player,
+long-game and large-unit-count performance, which remain unvalidated.
+
 ## How we work
 
 Most of the code is written by AI coding agents. They use Ghidra to study the original
@@ -134,8 +148,9 @@ and playtesting. Agents follow [AGENTS.md](AGENTS.md).
 
 ## Customization
 
-VERA20K plays like the original game by default. Every new feature, including extensions from
-mods such as Ares, must stay off until it is turned on with one of:
+VERA20K plays like the original game by default. Map capacity is selected automatically as
+described above. Other new features, including extensions from mods such as Ares, stay off
+until they are turned on with one of:
 
 - **A VERA player option**, in **Options → Vera Options**, saved under `[VERA]` in `VERA.INI`.
 - **A build option**, such as `--features ares` for the supported [Ares extensions](docs/ares.md).

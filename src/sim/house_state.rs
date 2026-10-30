@@ -2145,6 +2145,10 @@ impl HouseState {
         }
     }
 
+    pub(crate) fn configure_spatial_threat_grid(&mut self, grid: crate::map::cell_index::CellGrid) {
+        self.spatial_threat.configure(grid);
+    }
+
     pub(crate) fn spatial_threat_values(&self) -> &[i32] {
         self.spatial_threat.values()
     }

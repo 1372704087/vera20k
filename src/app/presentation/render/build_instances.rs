@@ -854,7 +854,7 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
 
     let input = &state.match_state.input;
     let (x, y, width, height) = crate::app::input::camera::tactical_viewport_px(state);
-    let view = tactical_line_viewport(
+    let view = tactical_world_viewport(
         [input.camera_x, input.camera_y],
         [x, y, width, height],
         state.renderer.world_zoom_pass.as_ref(),
@@ -996,9 +996,9 @@ pub(super) fn build_ui_instances(state: &AppState, wall_ms: u32) -> UiInstances 
     }
 }
 
-/// The one world-surface viewport for planning, action and rally producers.
+/// The one world-surface viewport for object admission, planning, action and rally producers.
 /// Wheel zoom changes its clip, while the native raster keeps one-pixel spans.
-fn tactical_line_viewport(
+pub(crate) fn tactical_world_viewport(
     camera: [f32; 2],
     tactical: [u32; 4],
     zoom: Option<&crate::render::upscale_pass::WorldZoomPass>,

@@ -5,8 +5,9 @@ The Release workflow's update test runs this on Windows, macOS and Linux
 where a person answers the game's offer on the main menu. It publishes the
 release with the real `.github/release/publish-r2.sh` (tools/release_fixture.py
 stands in for GitHub and R2), serves that R2 layout on 127.0.0.1, installs the
-release's own package with an older test build of the program in place of
-its own, and starts it. Each scenario passes when the game's log shows:
+release's own package, or with --installed an older release's, with an older
+test build of the program in place of its own, and starts it. Each scenario
+passes when the game's log shows:
 
 - update: the release starting, with config.toml, saves and replays unchanged;
 - manifest: a latest.json changed after signing refused, the program unchanged;
@@ -25,14 +26,15 @@ as it asks players.
 
     python -m tools.update_test key DIR
     python -m tools.update_test run --key DIR/signing-key.pem --release INSTALLER \\
-        --version X.Y.Z --program OLD_PROGRAM [--game FOLDER] [--attended [--quarantine]] \\
-        [--rate BYTES_PER_SECOND] [--scenario manifest installer rekey update]
+        --version X.Y.Z --program OLD_PROGRAM [--installed OLD_INSTALLER] [--game FOLDER] \\
+        [--attended [--quarantine]] [--rate BYTES_PER_SECOND] [--scenario manifest installer rekey update]
     python -m tools.update_test fixture DIR
 
 `key` makes the signing key and prints its public half. The test build of the
 program embeds this server and that key, and has a Cargo version below the
-release's; without retail game data there is no main menu to ask on, so a CI
-build also updates without asking:
+release's: the release's own commit built as 0.0.1, or the older release's
+from its tag. Without retail game data there is no main menu to ask on, so a
+CI build also updates without asking:
 
     VERA20K_COMMIT=<any> VERA20K_UPDATE_URL=http://127.0.0.1:47311/
     VERA20K_UPDATE_KEY=<public key> [VERA20K_UPDATE_UNATTENDED=1]
@@ -197,8 +199,8 @@ def remove_installed() -> None:
 
 
 def install(work: Path, release: Path, program: Path, game_folder: Path, quarantine: bool) -> Game:
-    """The release's package installed as a player would, with `program` in
-    place of the release's own."""
+    """`release`'s package installed as a player would, with `program` in
+    place of its own."""
     if platform() == "windows":
         folder = work / "Test Player/VERA"
         run(release, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", f"/DIR={folder}",
@@ -237,8 +239,8 @@ def install(work: Path, release: Path, program: Path, game_folder: Path, quarant
             run("xattr", "-r", "-w", "com.apple.quarantine", f"0181;{int(time.time()):x};Safari;", MAC_APP)
         return Game(MAC_APP / "Contents/MacOS/VERA20K", data, ["open", str(MAC_APP)],
                     ["pkill", "-f", str(MAC_APP)], staging=INSTALLED["macos"][1])
-    # The release's own files around the test program, packed by the
-    # release's own script.
+    # `release`'s own files around the test program, packed by this
+    # checkout's script, which may differ from an older release's.
     release.chmod(0o755)
     extracted = work / "release-extract"
     extracted.mkdir()
@@ -357,7 +359,7 @@ def command_run(args) -> None:
         remove_installed()
         game = None
         try:
-            game = install(work, args.release, args.program, game_folder, args.quarantine)
+            game = install(work, args.installed or args.release, args.program, game_folder, args.quarantine)
             if args.quarantine:
                 print("macOS asks before the first start: allow it in System Settings, Privacy & Security.",
                       flush=True)
@@ -405,6 +407,8 @@ def main(argv: list[str] | None = None) -> None:
     test.add_argument("--release", type=absolute, required=True, help="this platform's release installer")
     test.add_argument("--version", required=True, help="the release's version")
     test.add_argument("--program", type=absolute, required=True, help="the older test build's program")
+    test.add_argument("--installed", type=absolute,
+                      help="the installer the older build came with; default: --release")
     test.add_argument("--game", type=absolute, help="a game folder; default: the installer's stand-in")
     test.add_argument("--attended", action="store_true", help="a person answers the offer")
     test.add_argument("--quarantine", action="store_true",

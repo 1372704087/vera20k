@@ -3263,11 +3263,14 @@ fn load_map_first_step(
                                 &rules,
                                 &map_data.actions,
                             ));
+                            let script_anim_roots =
+                                team_ai_registry.script_anim_class_roots(&rules);
                             crate::app::loading::init_helpers::bind_rules_asset_closure(
                                 &mut rules,
                                 &fixed_art_ini,
                                 &overlay_registry,
                                 &roots,
+                                &script_anim_roots,
                                 services.asset_manager,
                                 theater_ext,
                                 &map_data.header.theater,

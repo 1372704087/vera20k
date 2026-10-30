@@ -430,6 +430,12 @@ fn load_with_assets(
         &map.header.theater,
     );
     crate::rules::effect_asset_catalog::log_unbound_combat_explosion_roots(unbound_explosion_roots);
+    rules.bind_anim_class_assets(
+        &team_ai_registry.script_anim_class_roots(&rules),
+        &assets,
+        theater.extension,
+        &map.header.theater,
+    );
     let (populated_smudge_dims, fallback_smudge_dims) =
         rules.populate_anim_frame_dims(&assets, theater.extension, &map.header.theater);
     log::info!(

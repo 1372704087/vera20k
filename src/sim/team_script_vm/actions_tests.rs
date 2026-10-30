@@ -1927,9 +1927,12 @@ fn script_action_51_plays_an_animation_and_finishes_the_step() {
     else {
         return;
     };
-    let index = (0..)
-        .find(|&index| retail.rules.anim_type_name_by_index(index) == Some("ELECTRO"))
-        .unwrap();
+    let index = retail
+        .rules
+        .anim_type_art_read_states()
+        .iter()
+        .position(|(name, _)| name == "ELECTRO")
+        .unwrap() as i32;
     let script = format!("0=51,{}\n1=51,{index}\n2=5,300", (3 << 16) | index);
     let Some((mut scene, team, member)) =
         crate::sim::team_script_vm::packed_cell_tests::scene(&script, "E2", false, |_| {})
@@ -1948,8 +1951,7 @@ fn script_action_51_plays_an_animation_and_finishes_the_step() {
     let mut loops: Vec<_> = sim
         .anims()
         .filter(|(_, anim)| {
-            anim.owner_entity() == Some(member)
-                && sim.interner.resolve(anim.type_id()) == "ELECTRO"
+            anim.owner_entity() == Some(member) && sim.interner.resolve(anim.type_id()) == "ELECTRO"
         })
         .map(|(_, anim)| (anim.native_unique_id(), anim.runtime().loop_remaining))
         .collect();
@@ -1958,4 +1960,62 @@ fn script_action_51_plays_an_animation_and_finishes_the_step() {
     assert_eq!(loops.len(), 2, "one Anim per visit, attached to the member");
     assert!(loops[1] > 1);
     assert_eq!(u16::from(loops[0]), u16::from(loops[1]) * 3);
+}
+
+#[test]
+fn script_action_51_binds_the_art_of_an_anim_only_a_script_names() {
+    // Loading roots the AnimType action 51 (`0x006EF610`) indexes with its
+    // argument's low 16 bits. No other root reaches PARABOMB: unbound, it
+    // never constructed.
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let index = retail
+        .rules
+        .anim_type_art_read_states()
+        .iter()
+        .position(|(name, _)| name == "PARABOMB")
+        .unwrap() as i32;
+    let script = format!("0=51,{}\n1=5,300", (2 << 16) | index);
+    let Some((mut scene, _, member)) =
+        crate::sim::team_script_vm::packed_cell_tests::scene(&script, "E2", false, |_| {})
+    else {
+        return;
+    };
+    crate::sim::team_script_vm::packed_cell_tests::frame(&mut scene);
+    let sim = scene.sim();
+    assert!(sim.anims().any(|(_, anim)| {
+        anim.owner_entity() == Some(member) && sim.interner.resolve(anim.type_id()) == "PARABOMB"
+    }));
+}
+
+#[test]
+fn script_action_51_naming_unbindable_art_still_loads_the_map() {
+    // Retail GAWEAP_3's LoopEnd passes its frames, so VERA cannot bind it;
+    // natively the scenario still loads. The step completes without an Anim.
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_for_map("XMP03T4.MAP")
+    else {
+        return;
+    };
+    let index = retail
+        .rules
+        .anim_type_art_read_states()
+        .iter()
+        .position(|(name, _)| name == "GAWEAP_3")
+        .unwrap();
+    let script = format!("0=51,{index}\n1=5,300");
+    let Some((mut scene, team, member)) =
+        crate::sim::team_script_vm::packed_cell_tests::scene(&script, "E2", false, |_| {})
+    else {
+        return;
+    };
+    crate::sim::team_script_vm::packed_cell_tests::frame(&mut scene);
+    let sim = scene.sim();
+    assert!(sim.team_script_vm.team(team).unwrap().cursor() >= 1);
+    assert!(
+        !sim.anims()
+            .any(|(_, anim)| anim.owner_entity() == Some(member)
+                && sim.interner.resolve(anim.type_id()) == "GAWEAP_3")
+    );
 }

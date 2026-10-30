@@ -5565,7 +5565,20 @@ impl WolCapture {
                         },
                     );
                 }
-                setup_requests(state);
+                // Each opened row is advertised to the game list (0x78F000).
+                let opened = setup_requests(state);
+                ensure!(
+                    opened.len() == 6
+                        && opened.chunks(3).all(|requests| {
+                            requests
+                                == [
+                                    NetworkSetupRequest::Advertise,
+                                    NetworkSetupRequest::PublishOptions,
+                                    NetworkSetupRequest::PublishRoster,
+                                ]
+                        }),
+                    "opening two spectator rows: {opened:?}"
+                );
                 let first = state.match_state.session.network_free_row(true);
                 let requests = choices(state, human.slot.clone(), true);
                 let (_, observer) = guest(state).context("guest")?;

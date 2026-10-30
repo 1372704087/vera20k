@@ -117,32 +117,39 @@ fn sim_with_houses(sides: &[u8]) -> (Simulation, Vec<InternedId>) {
 fn observer_defeat_waits_for_hostile_players_then_finishes_without_loss_voice() {
     use crate::sim::scenario_session::ScenarioGameMode;
     use crate::sim::world::SimSoundEvent;
-    let (mut sim, owners) = sim_with_houses(&[0, 1, 2]);
+    // A VERA room's two spectators; this client watches as the first, which
+    // [0xAC1198] (the last observer) would not name.
+    let (mut sim, owners) = sim_with_houses(&[0, 1, 2, 3]);
     sim.session.set_game_mode(ScenarioGameMode::Lan);
     sim.session.install_network_timing(10);
     sim.session.set_current_house_for_test(Some(owners[0]));
     sim.session.install_multiplayer_house_identity(
         crate::skirmish_modes::MpModeClass::Battle,
-        vec![owners[0]],
+        vec![owners[0], owners[1]],
     );
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
         house.set_is_human_for_test(true);
         house
             .tracking_mut()
-            .set_for_test(i32::from(index != 0), &[], (0, 0, 0), &[]);
+            .set_for_test(i32::from(index >= 2), &[], (0, 0, 0), &[]);
     }
     sim.check_defeat(None, None);
-    assert!(sim.houses[&owners[0]].is_defeated());
+    for observer in &owners[..2] {
+        assert!(sim.houses[observer].is_defeated());
+        assert!(
+            !sim.houses[observer].has_lost(),
+            "observers watch the two hostile human players"
+        );
+        assert!(sim.houses[observer].map_is_clear());
+    }
     assert!(
-        !sim.houses[&owners[0]].has_lost(),
-        "observer watches the two hostile human players"
+        !sim.sound_events
+            .iter()
+            .any(|event| matches!(event, SimSoundEvent::PlayerDefeated { .. }))
     );
-    assert!(sim.houses[&owners[0]].map_is_clear());
-    assert!(!sim.sound_events.iter().any(|event| matches!(event,
-        SimSoundEvent::PlayerDefeated { house } if *house == owners[0])));
     sim.houses
-        .get_mut(&owners[1])
+        .get_mut(&owners[2])
         .unwrap()
         .tracking_mut()
         .set_for_test(0, &[], (0, 0, 0), &[]);
@@ -153,8 +160,9 @@ fn observer_defeat_waits_for_hostile_players_then_finishes_without_loss_voice() 
         crate::sim::timer::CdTimer::started(100, 30)
     );
     assert!(sim.houses[&owners[1]].has_lost());
+    assert!(sim.houses[&owners[2]].has_lost());
     assert!(
-        sim.houses[&owners[2]].has_won(),
+        sim.houses[&owners[3]].has_won(),
         "VERA retains each network human's result identically on all clients"
     );
     assert!(

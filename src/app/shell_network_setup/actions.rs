@@ -230,7 +230,8 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
         SetupColumn::decode(control).ok_or_else(|| anyhow::anyhow!("unknown setup combo"))?;
     let row = usize::from(combo.row);
     if column == SetupColumn::Player {
-        if value == 0 {
+        // 0x5EC9F0 returns at once when the row keeps its item.
+        if value == 0 || combo.selected.map(|index| combo.choices[index].value) == Some(value) {
             return Ok(());
         }
         let kind = match value {
@@ -248,6 +249,11 @@ fn select(state: &mut AppState, control: u16, value: i32) -> anyhow::Result<()> 
             .set_network_row_kind(row as u8, kind)?
         {
             queue(state, NetworkSetupRequest::Kick { name: peer.name });
+        }
+        // Then online ([0xAC116C]) the advertisement 0x78F000: the game
+        // record and user limit count Open Observer rows.
+        if super::dialog(state).wol() {
+            queue(state, NetworkSetupRequest::Advertise);
         }
     } else {
         let mut slot = state

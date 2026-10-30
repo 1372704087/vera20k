@@ -601,17 +601,21 @@ impl MatchSession {
             several_observers,
             launch,
             admission,
-            vacancies: std::array::from_fn(|row| {
-                if several_observers && row >= 8 {
-                    NetworkVacancy::Closed
-                } else {
-                    NetworkVacancy::Open
-                }
-            }),
+            vacancies: [NetworkVacancy::Open; NETWORK_PLAYER_SLOT_COUNT],
             inactive_choices,
             inactive_ai_options: [NetworkAiOptions::INITIAL_INACTIVE; NETWORK_PLAYER_SLOT_COUNT],
         };
         self.host = host;
+        // A VERA room's rows past its players are Closed spectator rows.
+        let players = usize::from(self.network_player_row_limit());
+        if let Some(NetworkPhase::Setup {
+            vacancies,
+            several_observers: true,
+            ..
+        }) = self.network.as_mut().map(|network| &mut network.phase)
+        {
+            vacancies[players..].fill(NetworkVacancy::Closed);
+        }
         Ok(())
     }
 
@@ -1741,6 +1745,23 @@ impl MatchSession {
             })
     }
 
+    /// The rows the host's profile keeps (`0x005ED400`). A VERA room's
+    /// Closed spectator rows are kept as the Open rows a native room hides
+    /// past its players, so a later map's players find them open.
+    pub(crate) fn network_remembered_vacancies(
+        &self,
+    ) -> [Option<NetworkVacancy>; NETWORK_PLAYER_SLOT_COUNT] {
+        let spectators = if self.network_several_observers() {
+            self.network_player_row_limit()
+        } else {
+            NETWORK_PLAYER_SLOT_COUNT as u8
+        };
+        std::array::from_fn(|row| match self.network_vacancy(row as u8) {
+            Some(NetworkVacancy::Closed) if row as u8 >= spectators => Some(NetworkVacancy::Open),
+            vacancy => vacancy,
+        })
+    }
+
     /// `MPGameOptions__SelectScenario` (`0x005E7BF0`): the map file and the
     /// row count `[0xA8BB0C]` (the map's players, capped by the mode and
     /// the WOL room) only. Unlike ChooseMap it re-cuts no rows and keeps
@@ -1831,8 +1852,21 @@ impl MatchSession {
             .unwrap()
             .local_player()
             .raw_slot_index;
-        if new_capacity < old_capacity {
-            for row in new_capacity.saturating_add(host_extra)..NETWORK_PLAYER_SLOT_COUNT as i32 {
+        // A VERA room's players end at its player row limit, which the host's
+        // own observer row extends at every capacity.
+        let (old_rows, new_rows) = if several {
+            (
+                i32::from(self.network_player_row_limit()),
+                i32::from(candidate.network_player_row_limit()),
+            )
+        } else {
+            (
+                old_capacity.saturating_add(host_extra),
+                new_capacity.saturating_add(host_extra),
+            )
+        };
+        if new_rows < old_rows {
+            for row in new_rows..NETWORK_PLAYER_SLOT_COUNT as i32 {
                 let row = row as u8;
                 // VERA's rooms keep every observer row.
                 let retained_observer = (several || Some(row) == observer_row)
@@ -1850,12 +1884,8 @@ impl MatchSession {
                     removed.extend(candidate.set_network_row_kind(row, kind)?);
                 }
             }
-        } else if new_capacity > old_capacity {
-            for row in old_capacity.saturating_add(host_extra)
-                ..new_capacity
-                    .saturating_add(host_extra)
-                    .min(NETWORK_PLAYER_SLOT_COUNT as i32)
-            {
+        } else if new_rows > old_rows {
+            for row in old_rows..new_rows.min(NETWORK_PLAYER_SLOT_COUNT as i32) {
                 let row = row as u8;
                 // A VERA room's reserved row is no different from the others,
                 // but its observers stay.
@@ -1899,7 +1929,7 @@ impl MatchSession {
                 .collect();
             for row in observer_rows {
                 // A VERA room's rows past its players stay Closed.
-                let kind = if several && i32::from(row) >= new_capacity {
+                let kind = if several && i32::from(row) >= new_rows {
                     NetworkRowKind::Closed
                 } else {
                     NetworkRowKind::Open
@@ -2155,12 +2185,13 @@ impl MatchSession {
 
     /// Rows admitting players are bounded by the active mode/map capacity.
     /// The native host-observer row0 exception adds one physical row without
-    /// adding a player, up to the active eight/30-slot allocation.
+    /// adding a player, up to the active eight/30-slot allocation (all 30 in
+    /// VERA's rooms, whose spectator rows follow the players).
     pub(crate) fn network_player_row_limit(&self) -> u8 {
         let Some(capacity) = self.network_setup_capacity() else {
             return 0;
         };
-        let allocation = if capacity > 8 {
+        let allocation = if capacity > 8 || self.network_several_observers() {
             NETWORK_PLAYER_SLOT_COUNT as i32
         } else {
             8
@@ -3172,6 +3203,60 @@ mod tests {
             Some(NetworkVacancy::OpenObserver)
         );
         assert_eq!(session.network_vacancy(7), Some(NetworkVacancy::Closed));
+    }
+
+    #[test]
+    fn a_vera_room_host_who_observes_leaves_every_player_row() {
+        use super::NetworkVacancy;
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        launch.humans[0].set_observer(true);
+        let mode = launch.mode.clone();
+        let mut session = MatchSession::default();
+        session.enter_network(super::NetworkReturnContext::LanLobby);
+        session
+            .accept_network_setup(launch, true, Some(0), true)
+            .unwrap();
+        // The host watches from row 0; rows 1..=8 seat eight players.
+        assert_eq!(session.network_player_row_limit(), 9);
+        assert_eq!(session.network_vacancy(8), Some(NetworkVacancy::Open));
+        assert_eq!(session.network_vacancy(9), Some(NetworkVacancy::Closed));
+        session
+            .select_network_map(mode.clone(), "FOUR.MAP".into(), 4)
+            .unwrap();
+        assert!((5..30).all(|row| session.network_vacancy(row) == Some(NetworkVacancy::Closed)));
+        session
+            .select_network_map(mode, "TWELVE.MAP".into(), 12)
+            .unwrap();
+        assert!((5..13).all(|row| session.network_vacancy(row) == Some(NetworkVacancy::Open)));
+        assert_eq!(session.network_vacancy(13), Some(NetworkVacancy::Closed));
+    }
+
+    #[test]
+    fn a_vera_room_profile_keeps_spectator_rows_open() {
+        use super::{NetworkRowKind, NetworkVacancy};
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        let mode = launch.mode.clone();
+        let mut session = MatchSession::default();
+        session.enter_network(super::NetworkReturnContext::LanLobby);
+        session
+            .accept_network_setup(launch, true, Some(7), true)
+            .unwrap();
+        session
+            .select_network_map(mode, "FOUR.MAP".into(), 4)
+            .unwrap();
+        session
+            .set_network_row_kind(3, NetworkRowKind::Closed)
+            .unwrap();
+        // The host closed seat 3; rows 4.. are the room's spectator rows.
+        let remembered = session.network_remembered_vacancies();
+        assert_eq!(remembered[3], Some(NetworkVacancy::Closed));
+        assert!(
+            remembered[4..]
+                .iter()
+                .all(|row| *row == Some(NetworkVacancy::Open))
+        );
     }
 
     #[test]

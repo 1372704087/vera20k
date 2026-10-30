@@ -968,7 +968,7 @@ pub(crate) fn remember_setup(state: &mut AppState) {
     if session.host()
         && let Some(launch) = session.network_setup()
     {
-        let vacancies = std::array::from_fn(|row| session.network_vacancy(row as u8));
+        let vacancies = session.network_remembered_vacancies();
         let choices = std::array::from_fn(|row| session.network_row_choices(row as u8));
         state
             .frontend

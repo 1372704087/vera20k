@@ -298,15 +298,9 @@ pub(crate) fn effect(
 }
 
 /// Phobos' `BulletClass_Logics_DamageAnimSelected` (`0x469C46`) late tail:
-/// expand CreateAll lists, gate on the shared creation interval, and scatter
-/// each constructed animation independently.
-///
-/// RESIDUAL: the same hook also reads `PlayAnimAboveSurface`,
-/// `PlayAnimUnderground` and `AnimZAdjust`. Its default
-/// `PlayAnimUnderground=no` drops an animation whose impact Z is below the
-/// cell floor (rare, e.g. scatter onto a higher slope); this port keeps
-/// stock's unconditional creation. The `AnimZAdjust` default (-15) already
-/// matches the combat constructor row; only an explicit key is unported.
+/// place the animation against the cell floor, expand CreateAll lists, gate
+/// on the shared creation interval, and scatter each constructed animation
+/// independently.
 #[cfg(feature = "phobos")]
 pub(crate) fn bullet_effects(
     world: &mut Simulation,
@@ -319,6 +313,28 @@ pub(crate) fn bullet_effects(
     source_id: u64,
     crit_active: bool,
 ) -> Vec<ExplosionEffect> {
+    // `MapClass::GetCellFloorHeight 0x00578080` runs before the interval
+    // queue. `PlayAnimAboveSurface` lifts the animation to the floor;
+    // `PlayAnimUnderground=no` then drops it when the floor is still above
+    // the result. Each constructed animation keeps `AnimZAdjust`.
+    let cell_height = crate::sim::projectile::projectile_ground_z(
+        world.resolved_terrain.as_ref(),
+        &world.effective_shared_cell_dummy(),
+        placement,
+    );
+    let base_z = if warhead.phobos_anim.play_anim_above_surface {
+        placement.z.max(cell_height)
+    } else {
+        placement.z
+    };
+    if cell_height > base_z && !warhead.phobos_anim.play_anim_underground {
+        return Vec::new();
+    }
+    let placement = ProjectileCoord::new(placement.x, placement.y, base_z);
+    let z_adjust = warhead
+        .phobos_anim
+        .anim_z_adjust(&rules.phobos_warhead_anim);
+
     let interval = if selection.splashed {
         warhead.phobos_anim.splash_list_creation_interval
     } else {
@@ -418,12 +434,24 @@ pub(crate) fn bullet_effects(
         } else {
             placement
         };
-        effects.push(placed_effect(type_id, coordinate));
+        effects.push(placed_effect_with_z_adjust(type_id, coordinate, z_adjust));
     }
     effects
 }
 
 pub(crate) fn placed_effect(shp_name: InternedId, placement: ProjectileCoord) -> ExplosionEffect {
+    placed_effect_with_z_adjust(
+        shp_name,
+        placement,
+        crate::sim::anim_class::COMBAT_EXPLOSION_Z_ADJUST,
+    )
+}
+
+pub(crate) fn placed_effect_with_z_adjust(
+    shp_name: InternedId,
+    placement: ProjectileCoord,
+    z_adjust: i32,
+) -> ExplosionEffect {
     let (rx, ry, sub_x, sub_y, world_z) = projectile_impact_cell(placement);
     ExplosionEffect {
         shp_name,
@@ -433,6 +461,7 @@ pub(crate) fn placed_effect(shp_name: InternedId, placement: ProjectileCoord) ->
         sub_y,
         z: impact_z_byte(world_z.div_euclid(crate::util::lepton::LEPTONS_PER_LEVEL as i32)),
         world_z,
+        z_adjust,
         death: None,
     }
 }
@@ -1075,6 +1104,85 @@ mod phobos_enhancement_tests {
             .is_empty(),
             "the shared counter suppresses the next splash detonation"
         );
+    }
+
+    #[test]
+    fn play_anim_floor_gate_and_z_adjust_follow_the_warhead() {
+        let below_floor = ProjectileCoord::new(2_560, 5_120, -100);
+        let run = |keys: &str, general: &str| {
+            let rules = animation_rules(keys, "", general);
+            let mut world = Simulation::with_seed(7);
+            let warhead = rules.warhead("WH").unwrap();
+            let selection =
+                select_with_context(&mut world, &rules, warhead, 50, 0, below_floor, false)
+                    .unwrap();
+            let warhead_ref = world.interner.intern("WH");
+            let effects = bullet_effects(
+                &mut world,
+                &rules,
+                warhead,
+                warhead_ref,
+                selection,
+                false,
+                below_floor,
+                0,
+                false,
+            );
+            (world, effects)
+        };
+
+        let (_, effects) = run("", "");
+        assert_eq!(effects.len(), 1, "PlayAnimUnderground defaults to yes");
+        assert_eq!(effects[0].world_z, -100);
+        assert_eq!(
+            effects[0].z_adjust,
+            crate::sim::anim_class::COMBAT_EXPLOSION_Z_ADJUST
+        );
+
+        let (_, effects) = run("PlayAnimUnderground=no\n", "");
+        assert!(
+            effects.is_empty(),
+            "PlayAnimUnderground=no drops a below-floor animation"
+        );
+
+        let (_, effects) = run("PlayAnimAboveSurface=yes\n", "");
+        assert_eq!(effects.len(), 1);
+        assert_eq!(
+            effects[0].world_z, 0,
+            "PlayAnimAboveSurface lifts the animation to the cell floor"
+        );
+
+        let (world, effects) = run("AnimZAdjust=7\n", "");
+        assert_eq!(effects[0].z_adjust, 7);
+        assert_eq!(world.interner.resolve(effects[0].shp_name), "B");
+    }
+
+    #[test]
+    fn anim_z_adjust_inherits_the_audio_visual_global() {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[AudioVisual]\nWarheadAnimZAdjust=-9\n\
+             [Warheads]\n0=WH\n[WH]\nAnimList=A\n\
+             [Animations]\n0=A\n",
+        ))
+        .unwrap();
+        let mut world = Simulation::with_seed(7);
+        let warhead = rules.warhead("WH").unwrap();
+        let placement = ProjectileCoord::new(2_560, 5_120, 0);
+        let selection =
+            select_with_context(&mut world, &rules, warhead, 50, 0, placement, false).unwrap();
+        let warhead_ref = world.interner.intern("WH");
+        let effects = bullet_effects(
+            &mut world,
+            &rules,
+            warhead,
+            warhead_ref,
+            selection,
+            false,
+            placement,
+            0,
+            false,
+        );
+        assert_eq!(effects[0].z_adjust, -9);
     }
 
     #[test]

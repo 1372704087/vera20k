@@ -204,7 +204,7 @@ pub(crate) fn apply_foot_radiation(
                         continue;
                     };
                     let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
-                    apply_area_damage(
+                    let receipt = apply_area_damage(
                         world,
                         rules,
                         overlay_registry,
@@ -215,6 +215,8 @@ pub(crate) fn apply_foot_radiation(
                         (attacker, source_house, warhead_id),
                         effects,
                     );
+                    #[cfg(not(feature = "phobos"))]
+                    let _ = receipt;
                     #[cfg(feature = "phobos")]
                     if effective.site_warhead_detonate_full {
                         // `BulletExt::Detonate` reaches the same
@@ -222,18 +224,30 @@ pub(crate) fn apply_foot_radiation(
                         // creation tail as a fired Bullet; its default bullet
                         // type is not Inviso and the RadInvoker is the owner.
                         // RESIDUAL: this bespoke approximation keeps the
-                        // pre-existing raw land and `crit_active=false`, so
-                        // `Conventional.IgnoreUnits` and a crit-driven
-                        // CreateAll do not match a real Bullet detonation.
+                        // pre-existing raw land, so `Conventional.IgnoreUnits`
+                        // does not match a real Bullet detonation.
                         let land = crate::sim::combat::detonation_anim::land_at(world, impact);
                         if let Some(selection) =
                             crate::sim::combat::detonation_anim::select_with_context(
-                                world, rules, warhead, damage, land, impact, false,
+                                world,
+                                rules,
+                                warhead,
+                                damage,
+                                land,
+                                impact,
+                                receipt.crit_active,
                             )
                         {
                             for effect in crate::sim::combat::detonation_anim::bullet_effects(
-                                world, rules, warhead, warhead_id, selection, false, impact,
-                                attacker, false,
+                                world,
+                                rules,
+                                warhead,
+                                warhead_id,
+                                selection,
+                                false,
+                                impact,
+                                attacker,
+                                receipt.crit_active,
                             ) {
                                 crate::sim::world::damage_consequences::admit_explosion_effect(
                                     world, rules, effect,

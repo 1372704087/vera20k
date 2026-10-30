@@ -47,6 +47,15 @@ pub struct PhobosWarheadAnimRules {
     /// `Conventional.IgnoreUnits=`, `Nullable<bool>`; `None` inherits
     /// `[General] Conventional.IgnoreUnits`.
     pub conventional_ignore_units: Option<bool>,
+    /// `PlayAnimAboveSurface=`, `Valueable<bool>`, default false. Raises the
+    /// animation Z to the cell floor when the impact is below it.
+    pub play_anim_above_surface: bool,
+    /// `PlayAnimUnderground=`, `Valueable<bool>`, default true. A `no` value
+    /// suppresses the animation when the impact Z is below the cell floor.
+    pub play_anim_underground: bool,
+    /// `AnimZAdjust=`, `Nullable<int>`; `None` inherits
+    /// `[AudioVisual] WarheadAnimZAdjust`.
+    pub anim_z_adjust: Option<i32>,
 }
 
 impl Default for PhobosWarheadAnimRules {
@@ -65,6 +74,9 @@ impl Default for PhobosWarheadAnimRules {
             anim_list_scatter_max: -1,
             create_anims_on_zero_damage: None,
             conventional_ignore_units: None,
+            play_anim_above_surface: false,
+            play_anim_underground: true,
+            anim_z_adjust: None,
         }
     }
 }
@@ -103,6 +115,11 @@ impl PhobosWarheadAnimRules {
         );
         value.conventional_ignore_units = section
             .read_phobos_nullable_bool("Conventional.IgnoreUnits", value.conventional_ignore_units);
+        value.play_anim_above_surface =
+            section.read_ares_bool("PlayAnimAboveSurface", value.play_anim_above_surface);
+        value.play_anim_underground =
+            section.read_ares_bool("PlayAnimUnderground", value.play_anim_underground);
+        value.anim_z_adjust = section.read_phobos_nullable_int("AnimZAdjust", value.anim_z_adjust);
         value
     }
 
@@ -114,6 +131,10 @@ impl PhobosWarheadAnimRules {
     pub fn conventional_ignore_units(&self, globals: &PhobosWarheadAnimGlobals) -> bool {
         self.conventional_ignore_units
             .unwrap_or(globals.conventional_ignore_units)
+    }
+
+    pub fn anim_z_adjust(&self, globals: &PhobosWarheadAnimGlobals) -> i32 {
+        self.anim_z_adjust.unwrap_or(globals.warhead_anim_z_adjust)
     }
 
     /// The `SplashList` entries the native pointer lookup actually accepts.
@@ -145,22 +166,40 @@ impl PhobosWarheadAnimRules {
     }
 }
 
-/// `[General]` defaults for the two nullable warhead keys.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+/// `[General]` defaults for the two nullable warhead keys and the
+/// `[AudioVisual]` animation Z adjust.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PhobosWarheadAnimGlobals {
     pub create_anims_on_zero_damage: bool,
     pub conventional_ignore_units: bool,
+    /// `[AudioVisual] WarheadAnimZAdjust`, `Valueable<int>`, default -15.
+    pub warhead_anim_z_adjust: i32,
+}
+
+impl Default for PhobosWarheadAnimGlobals {
+    fn default() -> Self {
+        Self {
+            create_anims_on_zero_damage: false,
+            conventional_ignore_units: false,
+            warhead_anim_z_adjust: -15,
+        }
+    }
 }
 
 impl PhobosWarheadAnimGlobals {
     pub fn from_ini(ini: &IniFile) -> Self {
-        let Some(section) = ini.section("General") else {
-            return Self::default();
-        };
-        Self {
-            create_anims_on_zero_damage: section.read_ares_bool("CreateAnimsOnZeroDamage", false),
-            conventional_ignore_units: section.read_ares_bool("Conventional.IgnoreUnits", false),
+        let mut value = Self::default();
+        if let Some(section) = ini.section("General") {
+            value.create_anims_on_zero_damage =
+                section.read_ares_bool("CreateAnimsOnZeroDamage", false);
+            value.conventional_ignore_units =
+                section.read_ares_bool("Conventional.IgnoreUnits", false);
         }
+        if let Some(section) = ini.section("AudioVisual") {
+            value.warhead_anim_z_adjust =
+                section.read_ares_int("WarheadAnimZAdjust", value.warhead_anim_z_adjust);
+        }
+        value
     }
 }
 
@@ -208,21 +247,27 @@ mod tests {
         assert_eq!(value.anim_list_scatter_max, -1);
         assert_eq!(value.create_anims_on_zero_damage, None);
         assert_eq!(value.conventional_ignore_units, None);
+        assert!(!value.play_anim_above_surface);
+        assert!(value.play_anim_underground);
+        assert_eq!(value.anim_z_adjust, None);
     }
 
     #[test]
     fn keys_read_and_splash_list_absent_default_and_none() {
         let ini = IniFile::from_str(
             "[General]\nCreateAnimsOnZeroDamage=yes\nConventional.IgnoreUnits=yes\n\
+             [AudioVisual]\nWarheadAnimZAdjust=-7\n\
              [WH]\nSplashList=A,B\nSplashList.PickRandom=yes\n\
              SplashList.CreateAll=yes\nSplashList.CreationInterval=3\n\
              SplashList.ScatterMin=1.5\nSplashList.ScatterMax=2\n\
              AnimList.PickRandom=yes\nAnimList.CreateAll=yes\n\
              AnimList.CreationInterval=4\nAnimList.ScatterMin=0.5\n\
              AnimList.ScatterMax=1\n\
+             PlayAnimAboveSurface=yes\nPlayAnimUnderground=no\nAnimZAdjust=4\n\
              [EMPTY]\nKeep=1\nSplashList=\n\
              [DEFAULT]\nKeep=1\nSplashList=<default>\n\
-             [NONE]\nKeep=1\nSplashList=none\n",
+             [NONE]\nKeep=1\nSplashList=none\n\
+             [NOZ]\nKeep=1\nAnimZAdjust=<default>\n",
         );
         let value = PhobosWarheadAnimRules::from_section(ini.section("WH").unwrap());
         assert_eq!(value.splash_list, Some(vec!["A".into(), "B".into()]));
@@ -236,9 +281,14 @@ mod tests {
         assert_eq!(value.anim_list_creation_interval, 4);
         assert_eq!(value.anim_list_scatter_min, 128);
         assert_eq!(value.anim_list_scatter_max, 256);
+        assert!(value.play_anim_above_surface);
+        assert!(!value.play_anim_underground);
+        assert_eq!(value.anim_z_adjust, Some(4));
         let globals = PhobosWarheadAnimGlobals::from_ini(&ini);
         assert!(globals.create_anims_on_zero_damage);
         assert!(globals.conventional_ignore_units);
+        assert_eq!(globals.warhead_anim_z_adjust, -7);
+        assert_eq!(value.anim_z_adjust(&globals), 4);
         assert!(value.create_anims_on_zero_damage(&globals));
         assert!(value.conventional_ignore_units(&globals));
         assert_eq!(
@@ -253,5 +303,18 @@ mod tests {
             PhobosWarheadAnimRules::from_section(ini.section("NONE").unwrap()).splash_list,
             Some(vec!["none".into()])
         );
+        assert_eq!(
+            PhobosWarheadAnimRules::from_section(ini.section("NOZ").unwrap()).anim_z_adjust,
+            None
+        );
+    }
+
+    #[test]
+    fn animation_z_adjust_defaults_to_the_audio_visual_fallback() {
+        let ini = IniFile::from_str("[General]\n[Warheads]\n0=WH\n[WH]\nAnimList=A\n");
+        let globals = PhobosWarheadAnimGlobals::from_ini(&ini);
+        assert_eq!(globals.warhead_anim_z_adjust, -15);
+        let value = PhobosWarheadAnimRules::from_section(ini.section("WH").unwrap());
+        assert_eq!(value.anim_z_adjust(&globals), -15);
     }
 }

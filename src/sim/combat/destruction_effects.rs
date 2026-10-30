@@ -192,6 +192,7 @@ impl Simulation {
             sub_y,
             z,
             world_z: spawn.coord.z,
+            z_adjust: crate::sim::anim_class::COMBAT_EXPLOSION_Z_ADJUST,
             death: Some(spawn),
         };
         if super::world_receiver::callbacks_enabled(self) {

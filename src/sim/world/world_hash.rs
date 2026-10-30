@@ -1632,7 +1632,8 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     if entity.object_group() != -1 {
         // gamemd.exe TechnoClass::ComputeCRC70C270 reads +214 at70C280.
         // Replay state includes it; native MP checksum64DAB0 is separate and
-        // omits local control groups, as in the original executable.
+        // omits local control groups, as in the original executable. A
+        // network game's local group slot is deliberately absent: peers differ.
         b"techno-object-group-v1".hash(hasher);
         entity.object_group().hash(hasher);
     }

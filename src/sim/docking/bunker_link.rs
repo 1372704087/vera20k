@@ -705,6 +705,30 @@ mod tests {
         sim.substrate.entities.insert(ge);
     }
 
+    /// The install's +214 clear (`0x00459315`) also drops a network game's
+    /// local group slot, as it overwrites the key's value natively.
+    #[test]
+    fn install_clears_a_network_group_slot() {
+        let mut sim = Simulation::new();
+        let rules = rules();
+        spawn_bunker(&mut sim, 2, "Americans");
+        spawn_tank(&mut sim, 1, "Americans", "TANK");
+        sim.session
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+        let owner = sim.interner.get("Americans");
+        sim.session.set_current_house_for_test(owner);
+        let assign = crate::sim::command::Command::AssignControlGroup {
+            group: 4,
+            entity_ids: vec![1],
+        };
+        assert!(sim.apply_command("Americans", &assign, Some(&rules)));
+        assert_eq!(sim.projected_control_groups()[5], [1]);
+
+        install_bunker_link(&mut sim, 2, 1, &rules);
+        assert!(sim.projected_control_groups()[5].is_empty());
+        assert_eq!(sim.substrate.entities.get(1).unwrap().control_group(), -1);
+    }
+
     /// Native `0x0070FB50` (`tools/team_recruit_oracle.py`'s `tank_bunker`
     /// rows, under Unicorn): `Bunkerable=` (a vehicle's default), `Turret=`,
     /// a current weapon, a SpeedType other than Hover and no parasite, each

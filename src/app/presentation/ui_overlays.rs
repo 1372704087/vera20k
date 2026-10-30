@@ -288,7 +288,8 @@ pub(crate) fn control_group_status_labels(
     for (slot, members) in control_groups.iter().take(10).enumerate() {
         for &stable_id in members {
             // Simulation derives this unique membership from each entity's
-            // native group field and pending local assignment commands.
+            // control group (+214, or a network game's local slot) and
+            // pending local assignment commands.
             slot_by_id.insert(stable_id, slot);
         }
     }

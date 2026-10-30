@@ -81,6 +81,14 @@ pub(crate) enum TechnoConstructorInit {
     PreconsumedGenerated(GeneratedTechnoInit),
 }
 
+/// One object's +214 and network-game local group slot, read together when a
+/// conversion copies them to its new object.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ObjectGroupCopy {
+    object_group: i32,
+    local_control_group: Option<i32>,
+}
+
 /// Every game object (unit, infantry, building, aircraft) is one `GameEntity`.
 /// Core fields are always present; optional subsystems use `Option<T>`. A
 /// mechanism's own state is a record its module defines and alone writes
@@ -149,10 +157,18 @@ pub struct GameEntity {
     /// pointer and Load453FB0 swizzles it. Capture never rerolls the reward.
     secret_lab_fallback: Option<(crate::rules::object_type::ObjectCategory, InternedId)>,
     /// gamemd.exe TechnoClass::Constructor @0x006F2B40 stores -1 at6F2D0F.
-    /// One signed +214 owner for scenario recruitment and local control groups.
-    /// Team removal, Limbo and ChangeOwner preserve it; raw Save70C250 and
+    /// One signed +214 owner for scenario recruitment and, outside network
+    /// games, local control groups (`local_control_group` holds a network
+    /// game's). Team removal, Limbo and ChangeOwner preserve it; raw Save70C250 and
     /// Load70BF50 retain it with the rest of the concrete object body.
     object_group: i32,
+    /// VERA network adaptation: a network game's group key (TeamAssign731060)
+    /// writes the local player's slot here, not +214. Natively that store is
+    /// local to one client, so +214 would split Recruit6EAA90,
+    /// WakeupGroup6E03B0 and the state hash between peers. Every +214 write
+    /// replaces it. Not saved: a network match refuses saved-game loads.
+    #[serde(skip)]
+    local_control_group: Option<i32>,
     /// One native Techno stage clock. Class receivers mutate through this
     /// owner; animation, miner and buildup components carry no competing copy.
     stage: crate::sim::stage::StageClass,
@@ -1582,10 +1598,40 @@ impl GameEntity {
         self.object_group
     }
 
+    /// The group the local player's keys see: +214, or the network game slot
+    /// a key wrote since the last +214 write.
+    pub const fn control_group(&self) -> i32 {
+        match self.local_control_group {
+            Some(group) => group,
+            None => self.object_group,
+        }
+    }
+
     /// Callers own admission/order; scenario readers and
-    /// TeamType::Get_Group6F1870 supply raw signed values.
+    /// TeamType::Get_Group6F1870 supply raw signed values. Replaces a network
+    /// game's local slot, as the native store overwrites the key's value.
     pub(crate) fn assign_object_group(&mut self, group: i32) {
         self.object_group = group;
+        self.local_control_group = None;
+    }
+
+    /// A network game's TeamAssign731060 store (`local_control_group`).
+    pub(crate) fn assign_local_control_group(&mut self, group: i32) {
+        self.local_control_group = Some(group);
+    }
+
+    /// Techno+214 as Deploy7397CC and Mission_Selling44A052 copy it to the
+    /// new object, carrying a network game's local slot along.
+    pub(crate) const fn object_group_copy(&self) -> ObjectGroupCopy {
+        ObjectGroupCopy {
+            object_group: self.object_group,
+            local_control_group: self.local_control_group,
+        }
+    }
+
+    pub(crate) fn assign_object_group_copy(&mut self, copy: ObjectGroupCopy) {
+        self.object_group = copy.object_group;
+        self.local_control_group = copy.local_control_group;
     }
 
     /// UnitClass+6C8, the next Unit in the authored FOLLOWS chain.
@@ -1873,6 +1919,7 @@ impl GameEntity {
             techno_ctor_random_word,
             secret_lab_fallback: None,
             object_group: -1,
+            local_control_group: None,
             stage: crate::sim::stage::StageClass::constructed(construction_frame as i32),
             discovery: Default::default(),
             building_upgrades: crate::sim::building_upgrades::BuildingUpgrades::default(),

@@ -3902,7 +3902,8 @@ fn control_group_action_for_input(
 
 /// CreateTeamCommand535CC0 passes its one-based parameter to TeamAssign731060;
 /// TeamClear7310D0 (command bar6D0990) performs its clear without setting any
-/// selected fields. The simulation owns both effects on Techno+214. Registered
+/// selected fields. The simulation owns both effects on Techno+214, or in a
+/// network game on the local player's slot (`GameEntity::control_group`). Registered
 /// digit0 is parameter10, hence raw group9; digits1..9 map to raw0..8.
 fn schedule_control_group_assignment(
     sim: &mut crate::sim::world::Simulation,

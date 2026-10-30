@@ -528,7 +528,7 @@ impl OwnerVisibility {
     pub(crate) fn hash_cells(&self, hasher: &mut impl std::hash::Hasher) {
         use std::hash::Hash;
         self.cells.hash(hasher);
-        crate::sim::state_hasher::hash_records(
+        crate::util::state_hasher::hash_records(
             &self.shroud_knowledge,
             hasher,
             ShroudKnowledge::hash_record,

@@ -98,7 +98,7 @@ pub mod sensor_lifecycle;
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;
-pub(crate) mod state_hasher;
+pub(crate) mod state_hasher; // parallel digests over util::state_hasher
 pub mod temporal;
 pub(crate) mod tesla_charging;
 pub mod timer; // signed frame-anchored countdown primitive

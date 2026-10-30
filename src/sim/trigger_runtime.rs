@@ -18,7 +18,7 @@ use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::rng::SimRng;
 use crate::sim::scenario_session::ScenarioSession;
-use crate::sim::state_hasher::hash_indices;
+use crate::util::state_hasher::hash_indices;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};

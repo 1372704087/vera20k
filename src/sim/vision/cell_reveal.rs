@@ -560,7 +560,7 @@ impl OwnerVisibility {
     pub(crate) fn hash_map_cell_edge_cache(&self, hasher: &mut impl Hasher) {
         // Every cell's fields, initialized or not: the reveal and edge-frame
         // readers consult `frames` and `fog_open` of uninitialized cells too.
-        crate::sim::state_hasher::hash_records(
+        crate::util::state_hasher::hash_records(
             &self.map_cell_edge_cache,
             hasher,
             MapCellEdgeCache::hash_record,

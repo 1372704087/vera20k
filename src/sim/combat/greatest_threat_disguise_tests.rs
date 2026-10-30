@@ -240,3 +240,89 @@ fn a_side_by_side_hunt_walk_rolls_like_the_one_by_one_walk() {
     once.next_range_i32_inclusive(0, 99);
     assert_eq!(one_by_one.1, once.logical_state(), "exactly one roll");
 }
+
+/// A side-by-side Hunt walk rolls each candidate on its worker's copy of the
+/// stream, whose draws depend on how the list was split, so only the
+/// candidates' rolls on the shared stream may count. Two blinking Mirages
+/// roll: the first fails, the second passes on the second draw and stamps the
+/// Dummy from its missing Cell, so the walk is scored again one by one from
+/// the stream it found; a later rifleman's missing Cell stamps the Dummy back.
+/// One worker or four, the pick, the stream (two draws) and the Dummy equal
+/// the one-by-one walk's.
+#[test]
+fn a_side_by_side_hunt_walk_does_not_depend_on_the_worker_count() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let rules = &retail.rules;
+    // The Normal roll (at most 5) fails on the first draw, passes on the second.
+    let stream = (0..)
+        .map(SimRng::new)
+        .find(|rng| {
+            let mut rng = rng.clone();
+            rng.next_range_i32_inclusive(0, 99) > 5 && rng.next_range_i32_inclusive(0, 99) <= 5
+        })
+        .unwrap();
+    let (missing_mirage, missing_rifleman) = ((60, 60), (62, 60));
+    let run = |workers: usize, serial: bool| {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            let mut sim = crate::sim::arena_fixture::rival_arena_with_size(rules, 1, 64);
+            sim.intern_rule_type_ids(rules);
+            sim.resolve_type_handles(rules);
+            let rhino = sim
+                .spawn_object("HTNK", "Russians", 18, 16, 64, rules)
+                .expect("rhino");
+            // In list order: a Mirage, 99 riflemen, the Mirage and a
+            // rifleman on missing Cells, then 200 riflemen.
+            let mut mirages = Vec::new();
+            for index in 0..302u16 {
+                let (kind, (x, y)) = match index {
+                    0 => ("MGTK", (16, 16)),
+                    100 => ("MGTK", missing_mirage),
+                    101 => ("E1", missing_rifleman),
+                    _ => ("E1", (20 + index % 30, 30 + index / 30)),
+                };
+                let id = sim
+                    .spawn_object(kind, "Americans", x, y, 64, rules)
+                    .expect(kind);
+                if kind == "MGTK" {
+                    mirages.push(id);
+                }
+            }
+            sim.session.set_binary_frame_for_test(100);
+            for mirage in mirages {
+                sim.update_unit_disguise(mirage, rules).unwrap();
+                blink(&mut sim, mirage, 15);
+            }
+            let terrain = sim.resolved_terrain.as_mut().unwrap();
+            let allocated: Vec<_> = (0..64)
+                .flat_map(|y| (0..64).map(move |x| (x, y)))
+                .filter(|&cell| cell != missing_mirage && cell != missing_rifleman)
+                .collect();
+            terrain.test_set_native_allocated_cells(&allocated);
+            let dummy = terrain.shared_cell_dummy();
+            dummy.stamp_coord(missing_rifleman.0.into(), missing_rifleman.1.into());
+            sim.scenario_rng = stream.clone();
+            SERIAL_FLAT_SCORES.set(serial);
+            let pick = sim.greatest_threat_represented(rules, None, rhino, ScanMission::Hunt, None);
+            SERIAL_FLAT_SCORES.set(false);
+            (
+                pick,
+                sim.scenario_rng.logical_state(),
+                dummy.snapshot().coord,
+            )
+        })
+    };
+    let one_by_one = run(1, true);
+    let mut twice = stream.clone();
+    twice.next_range_i32_inclusive(0, 99);
+    twice.next_range_i32_inclusive(0, 99);
+    assert_eq!(one_by_one.1, twice.logical_state(), "both Mirages rolled");
+    assert_eq!(one_by_one.2, (62, 60), "the rifleman stamped last");
+    assert_eq!(run(1, false), one_by_one, "one worker");
+    assert_eq!(run(4, false), one_by_one, "four workers");
+}

@@ -7110,9 +7110,11 @@ impl RuleSet {
     /// launch and TechnoType `CanBeHidden=` and `Palette=` ART inputs bound to
     /// this ruleset.
     /// Other asset-derived simulation inputs are added by later ownership
-    /// slices and are not claimed by this hash yet.
+    /// slices and are not claimed by this hash yet. Replays and saves compare
+    /// it across platforms, so it folds with the portable
+    /// [`StateHasher`](crate::sim::state_hasher::StateHasher).
     pub fn simulation_config_hash(&self) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crate::sim::state_hasher::StateHasher::new();
         // v34: Country starting-veterancy; optional extensions add domains below.
         b"rules-simulation-config-v34".hash(&mut hasher);
         self.source_ini_hash.hash(&mut hasher);
@@ -7255,12 +7257,15 @@ impl RuleSet {
         {
             b"phobos-radiation-types-v1".hash(&mut hasher);
             self.radiation.radiation_types.hash(&mut hasher);
-            // Bound weapon `RadType=` names, in registry order.
-            self.weapons
+            // Bound weapon `RadType=` names, by weapon ID: the map's
+            // iteration order differs between targets.
+            let mut rad_types: Vec<_> = self
+                .weapons
                 .iter()
                 .map(|(id, weapon)| (id, &weapon.rad_type))
-                .collect::<Vec<_>>()
-                .hash(&mut hasher);
+                .collect();
+            rad_types.sort_unstable_by_key(|&(id, _)| id);
+            rad_types.hash(&mut hasher);
             b"phobos-shield-types-v1".hash(&mut hasher);
             self.shield_types.hash(&mut hasher);
             self.shield_globals.apply_armor_mult.hash(&mut hasher);

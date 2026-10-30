@@ -959,6 +959,8 @@ impl Simulation {
     /// Unit UpdateDisguise's attached-ring tail746A9C..746B19. Read the
     /// capture owner's existing +2C8 link and the shared House50B6F0 predicate;
     /// neither allocation nor controller/owner identity changes here.
+    /// In a network game House50B6F0 is each client's own PlayerPtr test, so
+    /// a disguised unit's ring is hidden per viewer: only its owner sees it.
     pub(crate) fn update_disguise_ring_visibility(&mut self, id: u64) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
@@ -966,8 +968,14 @@ impl Simulation {
         let Some(ring) = entity.mind_control.ring_anim else {
             return;
         };
-        let hidden = entity.disguise.as_ref().is_some_and(|d| d.is_disguised())
-            && !self.house_is_human_player(entity.owner());
+        let owner = entity.owner();
+        let disguised = entity.disguise.as_ref().is_some_and(|d| d.is_disguised());
+        if disguised && self.session.game_mode().is_network() {
+            self.substrate
+                .set_anim_viewer_hidden(ring, vec![(owner, false)], true);
+            return;
+        }
+        let hidden = disguised && !self.house_is_human_player(owner);
         self.substrate.set_anim_hidden(ring, hidden);
     }
 

@@ -412,7 +412,11 @@ fn unit(owner: &str, type_id: &str, cx: u16, cy: u16, cat: EntityCategory) -> Ma
 // returns to the value above. Hash composition only: a temporary control
 // restoring the byte gave the previous value, with every tripwire above green.
 // Control removed. Previous: 0x00C5_304C_C361_38CE.
-const SLICE6_BASELINE_HASH: u64 = 0x5725_6E95_8F9E_04F8;
+// The dynamic terrain cells now fold without their presentation-only tile
+// variant, render offset and radar colours (tag v2): hash composition only.
+// A temporary control restoring the v1 fold gave the previous value, with
+// every tripwire above green. Control removed. Previous: 0x5725_6E95_8F9E_04F8.
+const SLICE6_BASELINE_HASH: u64 = 0xD3E2_D02E_809A_1CCD;
 
 #[test]
 fn replay_hash_stable_through_slice6() {

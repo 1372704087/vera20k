@@ -367,9 +367,9 @@ pub struct AnimObject {
     effective_loop_end: i32,
     runtime: AnimRuntime,
     draw_runtime: AnimDrawRuntime,
-    /// Per-viewer snapshots of native Anim+19D for a presentation producer.
-    /// Every ordinary hidden-byte writer replaces this with a uniform value.
-    #[cfg(feature = "ares")]
+    /// Per-viewer snapshots of native Anim+19D, for a producer whose byte
+    /// depends on the native client's PlayerPtr. Every ordinary hidden-byte
+    /// writer replaces this with a uniform value.
     #[serde(default)]
     viewer_hidden: Option<AnimViewerHidden>,
     /// AnimClass `+0x196`: use the containing CellClass draw/palette authority.
@@ -437,7 +437,6 @@ pub struct AnimObject {
     attached_bullet: Option<u64>,
 }
 
-#[cfg(feature = "ares")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 struct AnimViewerHidden {
     viewers: Vec<(InternedId, bool)>,
@@ -447,10 +446,9 @@ struct AnimViewerHidden {
 impl AnimObject {
     /// Read the same hidden byte for a particular client without making
     /// simulation state depend on which house this process is displaying.
-    pub fn hidden_for(&self, _viewer: Option<InternedId>) -> bool {
-        #[cfg(feature = "ares")]
+    pub fn hidden_for(&self, viewer: Option<InternedId>) -> bool {
         if let Some(snapshot) = &self.viewer_hidden {
-            return _viewer
+            return viewer
                 .and_then(|viewer| snapshot.viewers.iter().find(|(id, _)| *id == viewer))
                 .map_or(snapshot.other_hidden, |(_, hidden)| *hidden);
         }
@@ -722,7 +720,6 @@ impl AnimObject {
             effective_loop_end: 1,
             runtime,
             draw_runtime: AnimDrawRuntime::default(),
-            #[cfg(feature = "ares")]
             viewer_hidden: None,
             use_cell_drawer: false,
             terrain_attached: false,
@@ -779,9 +776,8 @@ impl AnimObject {
         self.effective_loop_end.hash(hasher);
         self.runtime.hash(hasher);
         self.draw_runtime.hash(hasher);
-        #[cfg(feature = "ares")]
         if let Some(snapshot) = &self.viewer_hidden {
-            "Ares.AnimViewerHidden".hash(hasher);
+            "AnimViewerHidden".hash(hasher);
             snapshot.hash(hasher);
         }
         self.use_cell_drawer.hash(hasher);
@@ -1500,10 +1496,10 @@ impl Simulation {
     /// Anim ctor42264D..4226BF: the bound DropZone type reveals twice for
     ///the current House. Rules+14BC is converted from leptons by signed /256;
     ///the existing Map5678E0 owner handles height, allies and notifications.
+    /// Every native client reveals for its own PlayerPtr, so a network game
+    /// reveals for each human House ([`Self::represented_player_maps`]).
     fn reveal_drop_zone_from_anim(&mut self, rules: &RuleSet, world: AnimWorldCoord) {
-        let Some(owner) = self.session.current_house() else {
-            return;
-        };
+        let owners = self.represented_player_maps();
         // Preserve large positive inputs through the narrower Rust parameter;
         // Map567A3E/the shared reveal owner still applies the native cap10.
         let radius = (rules.general.drop_zone_radius / 256).min(i32::from(u16::MAX));
@@ -1518,26 +1514,28 @@ impl Simulation {
             z: world.z,
         });
         let config = self.sight_reveal_config(rules);
-        let viewers = self.reveal_viewers.direct(
-            &self.fog,
-            self.house_alliances.as_map(),
-            owner,
-            &config,
-            &self.interner,
-        );
-        for final_pass in [false, true] {
-            let _ = self.reveal_area(
-                &viewers,
-                (x as u16, y as u16),
-                world.z,
-                radius,
-                None,
-                final_pass,
+        for owner in owners {
+            let viewers = self.reveal_viewers.direct(
+                &self.fog,
+                self.house_alliances.as_map(),
+                owner,
                 &config,
-                crate::sim::world::UninitContext::with_rules(rules),
-                crate::sim::vision::MapRevealProjection::Transient,
-                self.session.current_house(),
+                &self.interner,
             );
+            for final_pass in [false, true] {
+                let _ = self.reveal_area(
+                    &viewers,
+                    (x as u16, y as u16),
+                    world.z,
+                    radius,
+                    None,
+                    final_pass,
+                    &config,
+                    crate::sim::world::UninitContext::with_rules(rules),
+                    crate::sim::vision::MapRevealProjection::Transient,
+                    self.session.current_house(),
+                );
+            }
         }
     }
 
@@ -1616,7 +1614,6 @@ impl Simulation {
                 temporal_paused: false,
             },
             draw_runtime: descriptor.draw_runtime,
-            #[cfg(feature = "ares")]
             viewer_hidden: None,
             use_cell_drawer: descriptor.use_cell_drawer,
             terrain_attached: descriptor.terrain_attached,
@@ -3659,16 +3656,14 @@ impl crate::sim::world::ObjectSubstrate {
             return false;
         };
         anim.draw_runtime.hidden = hidden;
-        #[cfg(feature = "ares")]
-        {
-            anim.viewer_hidden = None;
-        }
+        anim.viewer_hidden = None;
         true
     }
 
-    /// Ares common Launch100330DC writes Anim+19D once, using the alliance
-    /// relation at construction, not a live visibility query on later frames.
-    #[cfg(feature = "ares")]
+    /// Anim+19D per viewer: `viewers` holds named houses' bytes and
+    /// `other_hidden` every other viewer's. Ares common Launch100330DC writes
+    /// it once, from the alliance relation at construction rather than a live
+    /// visibility query; the disguised ring tail writes it every frame.
     pub(crate) fn set_anim_viewer_hidden(
         &mut self,
         id: AnimId,

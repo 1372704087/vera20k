@@ -18,6 +18,7 @@ use crate::rules::ini_parser::is_native_none_type_name;
 use crate::rules::ini_value::{crt_atoi, truncate_native_bytes};
 use crate::sim::rng::SimRng;
 use crate::sim::scenario_session::ScenarioSession;
+use crate::sim::state_hasher::hash_indices;
 use crate::sim::timer::CdTimer;
 use crate::sim::world::ObjectSubstrate;
 use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
@@ -644,7 +645,7 @@ struct LiveTrigger {
     enabled: bool,
     pending: bool,
 }
-#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 struct LiveTag {
     type_index: usize,
     ///6E4F44 prepends instances, reversing definition-construction order.
@@ -656,6 +657,18 @@ struct LiveTag {
     attached_cell: (i16, i16),
     pending: bool,
     dispatch_guard: bool,
+}
+// The derived fold, but with the trigger list as 64-bit words on every
+// target ([`hash_indices`]).
+impl Hash for LiveTag {
+    fn hash<H: Hasher>(&self, hasher: &mut H) {
+        self.type_index.hash(hasher);
+        hash_indices(&self.triggers, hasher);
+        self.refs.hash(hasher);
+        self.attached_cell.hash(hasher);
+        self.pending.hash(hasher);
+        self.dispatch_guard.hash(hasher);
+    }
 }
 /// Team IDs and Techno stable IDs belong to separate identity domains.
 #[derive(
@@ -811,17 +824,22 @@ impl TriggerRuntime {
     pub(crate) fn hash_state(&self, hasher: &mut impl Hasher) {
         // Definition ordinals, timers, active registration order, attachments
         // and the deferred queue affect later actions and are all retained.
-        // Observers never participate in this fold.
+        // Observers never participate in this fold. Index lists fold as
+        // 64-bit words on every target ([`hash_indices`]).
         self.globals_set.hash(hasher);
         self.locals_set.hash(hasher);
         self.definitions.hash(hasher);
         self.tags.hash(hasher);
         self.triggers.hash(hasher);
-        self.tag_order.hash(hasher);
-        self.trigger_order.hash(hasher);
-        self.logic_tags.hash(hasher);
-        self.map_tags.hash(hasher);
-        self.house_tags.hash(hasher);
+        hash_indices(&self.tag_order, hasher);
+        hash_indices(&self.trigger_order, hasher);
+        hash_indices(&self.logic_tags, hasher);
+        hash_indices(&self.map_tags, hasher);
+        self.house_tags.len().hash(hasher);
+        for (house, tags) in &self.house_tags {
+            house.hash(hasher);
+            hash_indices(tags, hasher);
+        }
         self.attachments.hash(hasher);
         self.cell_tags.hash(hasher);
         self.dirty.hash(hasher);

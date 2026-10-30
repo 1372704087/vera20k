@@ -80,7 +80,7 @@ pub(crate) const TICKS: u64 = 1800;
 pub(crate) const WARMUP: u64 = 150;
 
 /// The computer houses in launch order: their countries and difficulties.
-const COMPUTER_ROSTER: [(LaunchCountry, AiDifficulty); COMPUTERS] = [
+pub(crate) const COMPUTER_ROSTER: [(LaunchCountry, AiDifficulty); COMPUTERS] = [
     (LaunchCountry::Russia, AiDifficulty::Hard),
     (LaunchCountry::France, AiDifficulty::Normal),
     (LaunchCountry::Yuri, AiDifficulty::Easy),

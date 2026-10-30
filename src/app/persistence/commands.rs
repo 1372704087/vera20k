@@ -407,6 +407,11 @@ pub(crate) fn try_load_save_file(
     state: &mut AppState,
     path: &Path,
 ) -> Result<(), crate::app::persistence::PreparedLoadError> {
+    // A network game offers no load; one peer swapping its world mid-match
+    // would leave the others' lockstep.
+    if state.match_state.live_network.is_some() {
+        return Err(crate::app::persistence::PreparedLoadError::NetworkMatch);
+    }
     // UI559DBC->69BB40->5BF450 precedes the lower load, including failure.
     let wall_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
     crate::app::radar_movie::retire(state, wall_ms);
@@ -488,7 +493,9 @@ fn log_prepared_load_error(
         PreparedLoadError::ReadFile(source) => {
             log::warn!("Load: could not read {}: {source}", path.display())
         }
-        PreparedLoadError::MissingRules => log::warn!("Load: {error}"),
+        PreparedLoadError::MissingRules | PreparedLoadError::NetworkMatch => {
+            log::warn!("Load: {error}")
+        }
         #[cfg(test)]
         PreparedLoadError::MissingCurrentSimulation
         | PreparedLoadError::MissingMapHash

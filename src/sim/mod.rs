@@ -82,10 +82,8 @@ pub(crate) mod powered_unit; // Robot Tanks offline without a PowersUnit= buildi
 pub mod light_sources;
 pub mod multiplayer_checksum;
 pub mod native_identity;
-#[cfg_attr(
-    all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"),
-    path = "parallel_web.rs"
-)]
+// A wasm build has no threads (the browser package, the headless WASI run).
+#[cfg_attr(target_arch = "wasm32", path = "parallel_web.rs")]
 pub(crate) mod parallel; // order-preserving work over scoped threads
 #[cfg(all(test, feature = "wasm", not(target_arch = "wasm32")))]
 #[path = "parallel_web.rs"]

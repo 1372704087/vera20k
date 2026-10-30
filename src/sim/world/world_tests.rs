@@ -487,6 +487,31 @@ fn game_speed_ingress_uses_house_order_and_survives_same_frame_exit() {
     assert_eq!(result.state_hash, Some(sim.state_hash()));
 }
 
+/// A WOL tournament player's EXIT runs DestroyConnection(house, 0) on every
+/// remaining peer (`0x0064C9B1`), whose tail kills the leaver's House
+/// (`0x005DA8F7..0x005DA90F`). A replay runs only the shared EXIT.
+#[test]
+fn a_tournament_players_exit_flags_their_house_on_the_remaining_peers() {
+    let (mut sim, local) = game_speed_command_sim();
+    let leaver = sim.interner.intern("Leaver");
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            leaver, 1, None, true, 0, 10,
+        ));
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Wol);
+    sim.install_wol_start(1, Default::default());
+    sim.session.set_current_house_for_test(Some(local));
+
+    let exit = CommandEnvelope::new(leaver, 1, Command::ExitMatch);
+    let result = sim.advance_tick(&[exit], None, None, None, 67);
+
+    assert_eq!(result.executed_commands, 1);
+    let house = sim.houses.get(&leaver).unwrap();
+    assert!(house.is_to_die() || house.has_lost());
+    assert_eq!(sim.take_departed_owners(), [leaver]);
+}
+
 #[test]
 fn network_modal_does_not_execute_game_speed_ingress() {
     let (mut sim, owner) = game_speed_command_sim();

@@ -184,9 +184,16 @@ pub(crate) fn destroy_connection(
         }
     }
     // 0x005DA8F7..0x005DA90F: a WOL tournament game kills the House of a
-    // player who left (error 0). RESIDUAL: mode 4's ladder-stats call
-    // (0x005DA921..) is backend.
-    if !startup_pending && error == ConnectionError::Left && sim.session().wol_tournament_game() {
+    // player who left (error 0). An executed EXIT ran this in the sim's EXIT
+    // block. RESIDUAL: mode 4's ladder-stats call (0x005DA921..) is backend.
+    if !startup_pending
+        && error == ConnectionError::Left
+        && sim.session().wol_tournament_game()
+        && !sim
+            .houses()
+            .get(&owner)
+            .is_some_and(|house| house.left_game())
+    {
         sim.flag_house_to_die(owner);
     }
     Some(ConnectionDestroyed {

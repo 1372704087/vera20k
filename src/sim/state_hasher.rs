@@ -1,4 +1,5 @@
-//! The hasher behind `Simulation::state_hash`, and the helpers that keep
+//! The hasher behind `Simulation::state_hash` and the rules, layer-stack and
+//! map identities that replays and saves compare, and the helpers that keep
 //! hashing a 20,000-unit world cheap.
 
 use std::hash::{Hash, Hasher};
@@ -8,8 +9,9 @@ use std::hash::{Hash, Hasher};
 /// The hash names a simulation state for replay checks and A/B comparisons,
 /// so it must not depend on the host: an integer written alone mixes as its
 /// value whatever the word size, std passes integer slices as native-endian
-/// bytes (little-endian on every supported target), and the algorithm is
-/// fixed here, where std's `DefaultHasher` promises none. A write costs one
+/// bytes (little-endian on every supported target) at their own width, so a
+/// `[usize]` goes through [`hash_indices`], and the algorithm is fixed here,
+/// where std's `DefaultHasher` promises none. A write costs one
 /// folded multiply, and long byte runs (the per-House fog grids) mix in four
 /// independent lanes. Not for adversarial input.
 pub(crate) struct StateHasher {
@@ -63,6 +65,18 @@ pub(crate) fn hash_records<T, const N: usize>(
         }
         hasher.write(bytes);
     }
+}
+
+/// Feed `indices` to `hasher` as a 64-bit target feeds a `[usize]`: the
+/// count, then every index as eight little-endian bytes in one write. std
+/// writes a `[usize]` at the native width, four bytes an index on wasm32.
+pub(crate) fn hash_indices(indices: &[usize], hasher: &mut impl Hasher) {
+    indices.len().hash(hasher);
+    let bytes: Vec<u8> = indices
+        .iter()
+        .flat_map(|&index| (index as u64).to_le_bytes())
+        .collect();
+    hasher.write(&bytes);
 }
 
 /// One [`StateHasher`] digest per item, each fed by `fold`. With `parallel`
@@ -172,7 +186,7 @@ impl Hasher for StateHasher {
 
 #[cfg(test)]
 mod tests {
-    use super::{StateHasher, digests, hash_records};
+    use super::{StateHasher, digests, hash_indices, hash_records};
     use std::hash::{Hash, Hasher};
 
     fn hash(value: impl Hash) -> u64 {
@@ -185,6 +199,14 @@ mod tests {
     /// hosts of every supported OS and CPU compare against these values.
     const PINNED_MIXED: u64 = 0x8d9b_cd19_8c88_70c7;
     const PINNED_EMPTY: u64 = 0x668d_3463_22a1_5e23;
+
+    /// A wasm32 build hashes an index list as the 64-bit builds do.
+    #[test]
+    fn an_index_list_hashes_as_64_bit_words() {
+        let mut indices = StateHasher::new();
+        hash_indices(&[3, 70_000], &mut indices);
+        assert_eq!(indices.finish(), hash([3u64, 70_000].as_slice()));
+    }
 
     #[test]
     fn the_hash_of_fixed_values_is_pinned() {

@@ -1601,7 +1601,12 @@ impl AssetManager {
                 continue;
             };
             let key = file_name.to_ascii_lowercase();
-            if files.contains_key(&key) {
+            // Two spellings of one name exist only on a case-sensitive file
+            // system: keep the first in byte order, not in directory order.
+            if files
+                .get(&key)
+                .is_some_and(|kept: &LooseAsset| kept.path.file_name() <= path.file_name())
+            {
                 continue;
             }
 
@@ -2064,6 +2069,21 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+    }
+
+    /// A case-sensitive file system can hold two spellings of one loose file;
+    /// the catalog keeps the first in byte order whatever the directory order.
+    #[test]
+    fn two_spellings_of_a_loose_file_keep_the_first_in_byte_order() {
+        let dir = TestDirectory::new("loose-spellings");
+        for name in ["rulesmd.ini", "RulesMD.ini", "RULESMD.INI"] {
+            std::fs::write(dir.path().join(name), name).expect("loose spelling");
+        }
+        if std::fs::read_dir(dir.path()).unwrap().count() < 3 {
+            return; // A case-insensitive file system holds one spelling.
+        }
+        let manager = empty_manager(dir.path());
+        assert_eq!(manager.get_ref("rulesmd.ini"), Some(&b"RULESMD.INI"[..]));
     }
 
     #[test]

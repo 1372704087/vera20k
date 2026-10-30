@@ -64,6 +64,11 @@ glam = { workspace = true }
 # Fixed-point arithmetic for simulation positions and other fixed-width mechanisms.
 # Native floating-point mechanisms document their numeric contract at their owner.
 fixed = { version = "1", features = ["serde"] }
+# musl's libm in plain Rust: the same transcendental results on every target, for
+# the few native atan/ln calls whose results reach shared state (the random map
+# generator). Host C libraries differ in the last bit between platforms, and
+# glibc picks its variant by CPU.
+libm = "0.2.16"
 
 # --- Serialization ---
 serde = { workspace = true }

@@ -200,12 +200,14 @@ impl RulesLayerStack {
 
     /// Hash both source contents and pass boundaries. Two stacks that flatten
     /// to the same key/value view can still produce different live type state.
+    /// Portable ([`StateHasher`](crate::sim::state_hasher::StateHasher)):
+    /// the rules identity replays and saves compare folds it.
     pub fn content_hash(&self) -> u64 {
         self.content_hash_for_layers(self.layers.len())
     }
 
     fn content_hash_for_layers(&self, layer_count: usize) -> u64 {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut hasher = crate::sim::state_hasher::StateHasher::new();
         "VERA20K_RULES_LAYER_STACK_V1".hash(&mut hasher);
         layer_count.hash(&mut hasher);
         for layer in &self.layers[..layer_count] {

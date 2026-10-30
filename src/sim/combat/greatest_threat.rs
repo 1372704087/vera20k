@@ -1744,10 +1744,13 @@ thread_local! {
 /// reads nothing the walk changes except the shared Dummy, which a
 /// candidate's cell lookups can stamp and a later candidate's read, and the
 /// Scenario stream a computer's disguise detection draws from. Each
-/// candidate is therefore scored on a private copy of both. When any of them
-/// stamped the Dummy the list is scored again one by one on the shared
-/// Dummy, as natively; otherwise only the candidates that drew are, in list
-/// order on the shared stream.
+/// candidate is therefore scored on a private copy of both. Whether a
+/// candidate draws does not depend on the stream, but a side-by-side roll
+/// came from wherever its worker's copy had got to, so the candidates that
+/// drew are scored again, in list order on the shared stream, and only
+/// their second scores count. When any candidate stamped the Dummy (the ones
+/// that drew, in their second scoring) the list is scored again one by one
+/// on the shared Dummy and the stream as the walk found them, as natively.
 fn flat_scores(
     ctx: &ScanContext<'_>,
     walk: WalkArgs,
@@ -1768,23 +1771,28 @@ fn flat_scores(
             let drew = ctx.scenario_draws.get() != draws;
             (score, stamped, drew)
         });
-        if scored.iter().all(|&(_, stamped, _)| !stamped) {
-            #[cfg(any(test, feature = "test-support"))]
-            FLAT_WALKS_SIDE_BY_SIDE.set(FLAT_WALKS_SIDE_BY_SIDE.get() + 1);
-            // Whether a candidate draws does not depend on the stream: the
-            // ones that drew are scored again, in list order, on the shared
-            // stream.
-            return scored
+        if scored.iter().all(|&(_, stamped, drew)| drew || !stamped) {
+            let stream = ctx.scenario_rng.borrow().clone();
+            let draws = ctx.scenario_draws.get();
+            let scores: Option<Vec<_>> = scored
                 .into_iter()
                 .zip(candidates)
                 .map(|((score, _, drew), candidate)| {
-                    if drew {
-                        flat_score(ctx, walk, candidate)
-                    } else {
-                        score
+                    if !drew {
+                        return Some(score);
                     }
+                    let (score, stamped) =
+                        dummy.detached_stamps(|| flat_score(ctx, walk, candidate));
+                    (!stamped).then_some(score)
                 })
                 .collect();
+            if let Some(scores) = scores {
+                #[cfg(any(test, feature = "test-support"))]
+                FLAT_WALKS_SIDE_BY_SIDE.set(FLAT_WALKS_SIDE_BY_SIDE.get() + 1);
+                return scores;
+            }
+            *ctx.scenario_rng.borrow_mut() = stream;
+            ctx.scenario_draws.set(draws);
         }
     }
     candidates

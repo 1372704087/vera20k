@@ -656,7 +656,11 @@ impl IniSection {
     /// `<none>` clear the value; absent, empty and rejected reads retain it.
     /// Source: Phobos b90ab4bc, Utilities/TemplateDef.h:1878..1892,
     /// Utilities/Template.h (`allowNone=false`) and Phobos.h (`readLength`).
-    /// `read_string_with` retains the ordered passes in a projected section.
+    /// `none`/`<none>` are exactly what `INIClass::IsBlank` accepts (YRpp
+    /// `CCINIClass.h`: case-insensitive equality with those two literals, the
+    /// tokens the type factories also answer null for); empty text never
+    /// reaches it because `ReadString` returns zero. `read_string_with`
+    /// retains the ordered passes in a projected section.
     pub(crate) fn read_phobos_nullable_with<T>(
         &self,
         key: &str,
@@ -1943,6 +1947,41 @@ mod tests {
             let rules = crate::rules::ruleset::RuleSet::from_processed_rules(&processed).unwrap();
             assert_eq!(
                 rules.super_weapon("Paid").unwrap().money_amount,
+                expected,
+                "{value}"
+            );
+        }
+    }
+
+    /// The shared Phobos nullable readers clear on `INIClass::IsBlank`'s only
+    /// two tokens (`none`/`<none>`) and `<default>`, wherever a later rules
+    /// pass authors them after an earlier pass set the field; any other
+    /// rejected text keeps the earlier pass.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_nullable_scalar_clears_only_on_is_blank_tokens() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        for (value, expected) in [
+            ("none", None),
+            ("<NONE>", None),
+            ("<default>", None),
+            ("yes", Some(true)),
+            ("garbage", Some(false)),
+            ("", Some(false)),
+        ] {
+            let mut layers = RulesLayerStack::new(IniFile::from_str(
+                "[Warheads]\n0=WH\n[WH]\nDecloakDamagedTargets=no\n",
+            ));
+            layers.push(
+                RulesLayerKind::Scenario,
+                IniFile::from_str(&format!("[WH]\nDecloakDamagedTargets={value}\n")),
+            );
+            let processed = layers.process_with_fixed_art(&IniFile::empty()).unwrap();
+            let rules = RuleSet::from_processed_rules(&processed).unwrap();
+            assert_eq!(
+                rules.warhead("WH").unwrap().decloak_damaged_targets(),
                 expected,
                 "{value}"
             );

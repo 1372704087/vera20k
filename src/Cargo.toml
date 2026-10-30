@@ -130,6 +130,15 @@ hashbrown = { version = "0.16", default-features = false, features = ["default-h
 num-traits = { version = "0.2", features = ["libm"] }
 unicode-ident = "1"
 
+# The native client's tungstenite -> rand enables chacha20's RNG support.
+[target.'cfg(not(all(target_arch = "wasm32", target_os = "unknown")))'.dev-dependencies]
+chacha20 = { version = "0.10", default-features = false, features = ["rng"] }
+
+# wgpu's Vulkan/DX12 platform package enables gpu-allocator's hashbrown defaults.
+# Match that package's target gate, keeping Metal and browser tests unchanged.
+[target.'cfg(any(windows, target_os = "linux", target_os = "android", target_os = "freebsd"))'.dev-dependencies]
+hashbrown = { version = "0.16", default-features = false, features = ["default"] }
+
 # winit's Wayland decorations (this is winit's cfg) enable tiny-skia's SIMD,
 # which adds bytemuck's aarch64_simd feature to the client build.
 [target.'cfg(all(unix, not(any(target_os = "redox", target_family = "wasm", target_os = "android", target_os = "ios", target_os = "macos"))))'.dev-dependencies]

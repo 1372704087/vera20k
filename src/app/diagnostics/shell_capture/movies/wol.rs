@@ -125,6 +125,8 @@ pub enum WolTarget {
     TestServiceLobby,
     /// Modern lobby presentation with sealed local fixture data, no credentials.
     ModernLobby,
+    /// The same, then Create Game: `0xC3` on Red Alert 2's box art.
+    ModernCreate,
     /// The same, then Create Game: C2 settled.
     TestServiceCreate,
     /// The same, then Join on the first game: C9 settled.
@@ -480,6 +482,7 @@ impl WolTarget {
                 self,
                 Self::TestServiceLobby
                     | Self::ModernLobby
+                    | Self::ModernCreate
                     | Self::ModernOptions
                     | Self::TestServiceCreate
                     | Self::TestServiceJoin
@@ -653,6 +656,7 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-game-controls", WolTarget::GameControls),
     ("wol-test-service-lobby", WolTarget::TestServiceLobby),
     ("wol-modern-lobby", WolTarget::ModernLobby),
+    ("wol-modern-create", WolTarget::ModernCreate),
     ("wol-test-service-create", WolTarget::TestServiceCreate),
     ("wol-test-service-join", WolTarget::TestServiceJoin),
     ("wol-c2-guest-choices", WolTarget::GuestChoices),
@@ -956,7 +960,9 @@ impl WolCapture {
                 // The normal online visit has no welcome: Internet signs in.
                 self.phase = match self.target {
                     WolTarget::ModernUsername => WolPhase::Login,
-                    WolTarget::ModernLobby | WolTarget::ModernOptions => WolPhase::ServiceLogin,
+                    WolTarget::ModernLobby | WolTarget::ModernCreate | WolTarget::ModernOptions => {
+                        WolPhase::ServiceLogin
+                    }
                     _ => WolPhase::Welcome,
                 };
             }
@@ -1976,7 +1982,9 @@ impl WolCapture {
                         && lobby.ui.lobby_rows.len()
                             == if matches!(
                                 self.target,
-                                WolTarget::ModernLobby | WolTarget::ModernOptions
+                                WolTarget::ModernLobby
+                                    | WolTarget::ModernCreate
+                                    | WolTarget::ModernOptions
                             ) {
                                 1
                             } else {
@@ -2002,6 +2010,41 @@ impl WolCapture {
                             }),
                         "the modern 0x113 names its chat lobby"
                     );
+                }
+                if self.target == WolTarget::ModernCreate {
+                    let layout = crate::app::shell_wol::lobby::layout(state);
+                    lobby_button(state, &layout, lobby_ui::CREATE)?;
+                    ensure!(
+                        Self::lobby(state)?
+                            .ui
+                            .popup
+                            .as_ref()
+                            .map(|popup| popup.dialog())
+                            == Some(lobby_ui::CREATE_DIALOG),
+                        "Create did not open 0xC3"
+                    );
+                    self.event(frame, "0xC3 opened (modern)");
+                    // The help under Limit Screen Resolution, moved to the
+                    // clan row.
+                    let (width, height) = (
+                        state.renderer.gpu.config.width as i32,
+                        state.renderer.gpu.config.height as i32,
+                    );
+                    let create =
+                        crate::ui::shell::modal::wol_create_game_layout(width, height, true);
+                    set_window_pointer_to_rect_center(state, create.limit);
+                    App::handle_wol_mouse_move(state);
+                    ensure!(
+                        Self::lobby(state)?
+                            .ui
+                            .popup
+                            .as_ref()
+                            .and_then(|popup| popup.buttons.hovered)
+                            == Some(lobby_ui::CREATE_LIMIT),
+                        "Limit Screen Resolution has no help"
+                    );
+                    self.settle();
+                    return Ok(());
                 }
                 if self.target == WolTarget::ModernOptions {
                     let layout = crate::app::shell_wol::lobby::layout(state);
@@ -2040,7 +2083,8 @@ impl WolCapture {
                         state.renderer.gpu.config.width as i32,
                         state.renderer.gpu.config.height as i32,
                     );
-                    let create = crate::ui::shell::modal::wol_create_game_layout(width, height);
+                    let create =
+                        crate::ui::shell::modal::wol_create_game_layout(width, height, false);
                     if self.target.clan() {
                         // 0x78DF35: the clan box is enabled by the squad id.
                         ensure!(
@@ -2050,7 +2094,7 @@ impl WolCapture {
                         welcome_click(
                             state,
                             crate::ui::skirmish_shell::checkbox_icon_rect(
-                                create.clan,
+                                create.clan.context("0xC3 clan box")?,
                                 crate::ui::shell::geom::ShellScale::RETAIL,
                             ),
                         );
@@ -2353,7 +2397,7 @@ impl WolCapture {
                     state.renderer.gpu.config.width as i32,
                     state.renderer.gpu.config.height as i32,
                 );
-                let ok = crate::ui::shell::modal::wol_create_game_layout(width, height).ok;
+                let ok = crate::ui::shell::modal::wol_create_game_layout(width, height, false).ok;
                 welcome_click(state, ok);
                 self.event(frame, "0xC3 OK over the backdrop");
                 self.phase = WolPhase::BuddySetup;
@@ -3673,12 +3717,13 @@ impl WolCapture {
                 );
                 self.event(frame, "0xC3 opened");
                 if self.target != WolTarget::CreatePopup {
-                    let create = crate::ui::shell::modal::wol_create_game_layout(width, height);
+                    let create =
+                        crate::ui::shell::modal::wol_create_game_layout(width, height, false);
                     if self.target.clan_match() {
                         welcome_click(
                             state,
                             crate::ui::skirmish_shell::checkbox_icon_rect(
-                                create.clan,
+                                create.clan.context("0xC3 clan box")?,
                                 crate::ui::shell::geom::ShellScale::RETAIL,
                             ),
                         );

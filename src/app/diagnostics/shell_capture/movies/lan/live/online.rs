@@ -759,6 +759,7 @@ impl LiveRoundFlow {
                     let layout = crate::ui::shell::modal::wol_create_game_layout(
                         size.width as i32,
                         size.height as i32,
+                        true,
                     );
                     click(state, layout.ok);
                     self.record(frame, "Create Game confirmed");

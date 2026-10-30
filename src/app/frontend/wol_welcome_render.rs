@@ -627,6 +627,7 @@ pub(crate) fn render_wol_page(
             crate::app::frontend::skirmish_shell_render::paint_wol_lobby_popup(
                 state,
                 popup,
+                lobby.ui.is_modern(),
                 screen_w,
                 screen_h,
                 &status,

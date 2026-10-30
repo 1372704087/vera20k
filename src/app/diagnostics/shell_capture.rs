@@ -1271,6 +1271,7 @@ impl ShellCaptureRequest {
             Some(movies::MoviesTarget::Wol(target)) => !matches!(
                 target,
                 movies::WolTarget::ModernLobby
+                    | movies::WolTarget::ModernCreate
                     | movies::WolTarget::ModernOptions
                     | movies::WolTarget::ModernUsername
             ),
@@ -4155,6 +4156,8 @@ mod tests {
             request.wol_welcome_provider(),
             Some(crate::app::shell_wol::WolProvider::TestService)
         );
+        request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-create").unwrap();
+        assert!(!request.native_shell_ui());
         request.checkpoint = ShellCaptureCheckpoint::parse("wol-modern-username").unwrap();
         assert!(!request.native_shell_ui());
         assert_eq!(

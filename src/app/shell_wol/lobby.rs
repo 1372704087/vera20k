@@ -3293,6 +3293,7 @@ pub(crate) fn update_geometry(state: &mut AppState) {
         .scroll_to_caret((scale.base_rect(layout.chat).w - 3).max(0) as u32, |text| {
             font.text_width(text)
         });
+    let modern = ui.is_modern();
     if let Some(popup) = ui.popup.as_mut() {
         let (width, height) = (
             state.renderer.gpu.config.width as i32,
@@ -3300,7 +3301,7 @@ pub(crate) fn update_geometry(state: &mut AppState) {
         );
         let rect = match popup.kind {
             WolPopupKind::Create(_) => {
-                crate::ui::shell::modal::wol_create_game_layout(width, height).password
+                crate::ui::shell::modal::wol_create_game_layout(width, height, modern).password
             }
             WolPopupKind::Password(_) => {
                 crate::ui::shell::modal::wol_channel_password_layout(width, height).password
@@ -3375,15 +3376,19 @@ fn popup_control(state: &AppState, popup: &WolLobbyPopup) -> Option<u16> {
     );
     let controls = match popup.kind {
         WolPopupKind::Create(_) => {
-            let layout = crate::ui::shell::modal::wol_create_game_layout(width, height);
-            vec![
-                (POPUP_OK, layout.ok),
-                (POPUP_CANCEL, layout.cancel),
-                (CREATE_CLAN, layout.clan),
-                (CREATE_LIMIT, layout.limit),
-                (CREATE_OBSERVE, layout.observe),
-                (POPUP_PASSWORD, layout.password),
+            let layout =
+                crate::ui::shell::modal::wol_create_game_layout(width, height, modern_lobby(state));
+            [
+                Some((POPUP_OK, layout.ok)),
+                Some((POPUP_CANCEL, layout.cancel)),
+                layout.clan.map(|rect| (CREATE_CLAN, rect)),
+                Some((CREATE_LIMIT, layout.limit)),
+                layout.observe.map(|rect| (CREATE_OBSERVE, rect)),
+                Some((POPUP_PASSWORD, layout.password)),
             ]
+            .into_iter()
+            .flatten()
+            .collect()
         }
         WolPopupKind::Password(_) => {
             let layout = crate::ui::shell::modal::wol_channel_password_layout(width, height);
@@ -3455,6 +3460,7 @@ pub(super) fn mouse(state: &mut AppState, pressed: bool) {
             state.renderer.gpu.config.height as i32,
         );
         let lobby = lobby_mut(state).expect("checked");
+        let modern = lobby.ui.is_modern();
         let popup = lobby.ui.popup.as_mut().expect("checked");
         if !pressed {
             let action = popup
@@ -3469,18 +3475,19 @@ pub(super) fn mouse(state: &mut AppState, pressed: bool) {
         }
         let press = match over {
             Some(control @ (CREATE_CLAN | CREATE_LIMIT | CREATE_OBSERVE)) => {
-                let rect = crate::ui::shell::modal::wol_create_game_layout(width, height);
+                let rect = crate::ui::shell::modal::wol_create_game_layout(width, height, modern);
                 let window = match control {
                     CREATE_CLAN => rect.clan,
-                    CREATE_LIMIT => rect.limit,
+                    CREATE_LIMIT => Some(rect.limit),
                     _ => rect.observe,
                 };
-                if crate::ui::skirmish_shell::checkbox_icon_rect(
-                    window,
-                    crate::ui::shell::geom::ShellScale::RETAIL,
-                )
-                .contains(x, y)
-                    && popup.toggle(control)
+                if window.is_some_and(|window| {
+                    crate::ui::skirmish_shell::checkbox_icon_rect(
+                        window,
+                        crate::ui::shell::geom::ShellScale::RETAIL,
+                    )
+                    .contains(x, y)
+                }) && popup.toggle(control)
                 {
                     Press::Cue(LauncherCue::Checkbox)
                 } else {

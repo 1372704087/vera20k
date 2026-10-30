@@ -336,41 +336,43 @@ def tamper(objects: Path, scenario: str, version: str) -> None:
 
 
 def command_run(args) -> None:
-    work = Path(tempfile.mkdtemp(prefix="vera20k-update-test-"))
-    game_folder = args.game
-    if game_folder is None:
-        game_folder = work / "game"
-        shutil.copytree(TEST_GAME, game_folder, ignore=shutil.ignore_patterns("README.md"))
-    objects = publish(work, args.key, args.version, args.release)
-    pristine = work / "published"
-    shutil.copytree(objects, pristine)
-    if "rekey" in args.scenario:
-        new_key = work / "new-key"
-        new_key.mkdir()
-        signing_key(new_key)
-        rekeyed = publish(work / "rekey", new_key / "signing-key.pem", args.version, args.release)
-    print(f"published {sorted(p.relative_to(objects).as_posix() for p in objects.rglob('*') if p.is_file())}", flush=True)
-    server = serve(objects, args.rate)
-    # A run stopped early leaves its copy.
-    remove_installed()
-    game = None
-    try:
-        game = install(work, args.release, args.program, game_folder, args.quarantine)
-        if args.quarantine:
-            print("macOS asks before the first start: allow it in System Settings, Privacy & Security.",
-                  flush=True)
-        for scenario in args.scenario:
-            shutil.rmtree(objects)
-            shutil.copytree(rekeyed if scenario == "rekey" else pristine, objects)
-            tamper(objects, scenario, args.version)
-            play(game, scenario, args.version, args.attended)
-    finally:
-        server.shutdown()
-        if game:
-            # A scenario that failed leaves the game running.
-            subprocess.run(game.stop, capture_output=True)
-            time.sleep(2)
+    with tempfile.TemporaryDirectory(prefix="vera20k-update-test-", ignore_cleanup_errors=True) as temp:
+        work = Path(temp)
+        game_folder = args.game
+        if game_folder is None:
+            game_folder = work / "game"
+            shutil.copytree(TEST_GAME, game_folder, ignore=shutil.ignore_patterns("README.md"))
+        objects = publish(work, args.key, args.version, args.release)
+        pristine = work / "published"
+        shutil.copytree(objects, pristine)
+        if "rekey" in args.scenario:
+            new_key = work / "new-key"
+            new_key.mkdir()
+            signing_key(new_key)
+            rekeyed = publish(work / "rekey", new_key / "signing-key.pem", args.version, args.release)
+        print(f"published {sorted(p.relative_to(objects).as_posix() for p in objects.rglob('*') if p.is_file())}",
+              flush=True)
+        server = serve(objects, args.rate)
+        # A run stopped early leaves its copy.
         remove_installed()
+        game = None
+        try:
+            game = install(work, args.release, args.program, game_folder, args.quarantine)
+            if args.quarantine:
+                print("macOS asks before the first start: allow it in System Settings, Privacy & Security.",
+                      flush=True)
+            for scenario in args.scenario:
+                shutil.rmtree(objects)
+                shutil.copytree(rekeyed if scenario == "rekey" else pristine, objects)
+                tamper(objects, scenario, args.version)
+                play(game, scenario, args.version, args.attended)
+        finally:
+            server.shutdown()
+            if game:
+                # A scenario that failed leaves the game running.
+                subprocess.run(game.stop, capture_output=True)
+                time.sleep(2)
+            remove_installed()
     print(f"update test passed: {', '.join(args.scenario)}")
 
 

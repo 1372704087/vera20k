@@ -32,13 +32,11 @@
 //! the split projectile's `AA`/`AAOnly`. Phobos' `SkipWeaponPicking` early
 //! return is equivalent to the all-default case this code evaluates directly.
 //!
-//! RESIDUAL (visual): Phobos' `Laser_IsSingleColor`, `LaserThickness`,
-//! `Beam_IsHouseColor` and `LaserPositionUpdate` live in WeaponTypeExt, which
-//! VERA does not model; the child laser/rad-beam keeps the stock WeaponType
-//! colors and geometry. VERA's laser and electric-bolt owners also require a
-//! live source entity, while Phobos draws them after the firer expired, and
-//! `GetTargetCoordsForFiring`'s `Inviso && FlakScatter` arm is not applied to
-//! the rad-beam/particle targets.
+//! RESIDUAL (visual): `LaserPositionUpdate` tracking is not modeled. Phobos
+//! updates a tracked laser's endpoints every frame through LaserRT (FLH,
+//! burst index, building occupancy and the stop-on-convert latch); VERA's
+//! lasers are copied births with fixed endpoints, so a child laser follows
+//! neither its firer nor its target.
 //!
 //! `CellRangeIterator`'s square is clipped to the loaded map's real cells
 //! before it is walked, so an arbitrarily large `AirburstSpread` costs the
@@ -1067,27 +1065,25 @@ fn admit_firing_effects(
         );
         firing_report(world, context.weapon, context.source_id, origin);
     }
+    // `BulletExt::GetTargetCoordsForFiring`: an Inviso + FlakScatter child
+    // reports its own (scattered) unlimbo location rather than the target's,
+    // and a surviving target reports its live coordinates.
+    let effect_to = if context.child_type.inviso && context.child_type.flak_scatter {
+        origin
+    } else {
+        target_coords
+    };
     if context.weapon.is_laser {
-        let _ = super::laser::create(
+        let _ = super::laser::create_effect(
             world,
-            rules,
-            context.source_id,
-            target,
-            0,
+            Some(context.owner_house),
+            origin,
+            effect_to,
             context.weapon,
-            Some(origin),
         );
     }
     if context.weapon.is_electric_bolt {
-        super::electric_bolt::create(
-            world,
-            rules,
-            context.source_id,
-            target,
-            context.weapon,
-            origin,
-            None,
-        );
+        super::electric_bolt::create_effect(world, rules, origin, effect_to, context.weapon, None);
     }
     if context.weapon.is_rad_beam {
         let mode = if context
@@ -1101,7 +1097,11 @@ fn admit_firing_effects(
         } else {
             super::radiation_beam::CopiedBeamMode::Radiation
         };
-        super::radiation_beam::create_endpoints(world, rules, origin, target_coords, 0, mode);
+        let house = context
+            .weapon
+            .phobos_beam_is_house_color
+            .then_some(context.owner_house);
+        super::radiation_beam::create_endpoints(world, rules, origin, effect_to, 0, mode, house);
     }
     if let Some(type_name) = context.weapon.attached_particle_system.as_deref()
         && let Some(type_id) = rules.ps_type_id_by_name(type_name)
@@ -1118,7 +1118,7 @@ fn admit_firing_effects(
             glam::IVec3::new(origin.x, origin.y, origin.z),
             target_kind,
             (context.source_id != 0).then_some(context.source_id),
-            glam::IVec3::new(target_coords.x, target_coords.y, target_coords.z),
+            glam::IVec3::new(effect_to.x, effect_to.y, effect_to.z),
             Some(context.owner_house),
             rules,
         );

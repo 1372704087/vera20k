@@ -3313,6 +3313,10 @@ mod tests {
         );
     }
 
+    // Stock house admission only. Ares replaces the ally gate with
+    // WarheadExt 10051B70 on the live attacker's owner (receiver_call.rs, with
+    // its own tests), where a same-owner target follows AffectsAllies.
+    #[cfg(not(feature = "ares"))]
     #[test]
     fn gsi_04_07_damage_receiver_pipeline_source_admission_and_house_snapshot() {
         fn run(

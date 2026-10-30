@@ -2431,8 +2431,7 @@ impl Simulation {
     /// type can stand at its origin turns to the type's `DeployFacing=` or,
     /// already facing it, becomes that building. False when it refuses.
     ///
-    /// Not carried over to the building: the unit's Group (`+0x214`,
-    /// `0x007397C6`; VERA's control groups live in the app), its AttachedTag
+    /// Not carried over to the building: the unit's AttachedTag
     /// (`+0x34`, `0x007399EE`), its looping sound handles (`+0x4DC..+0x4F4`,
     /// `0x00739971`), `DiscoveredBy(owner)` (vt+0x198, `0x00739848`) and the
     /// turret facing a `+0x16CA`/`+0x16C4` type starts at (`0x007397FB`).
@@ -2486,7 +2485,7 @@ impl Simulation {
                 (
                     entity.selection.is_selected(),
                     entity.veterancy.clone(),
-                    entity.object_group(),
+                    entity.object_group_copy(),
                     entity.attack_target.target(),
                 ),
                 // Native rounds FacingClass::Current, including wrap at 0xff80.
@@ -2777,7 +2776,7 @@ impl Simulation {
         }
         // gamemd.exe UnitClass::Deploy7393C0 copies Techno+214 at7397CC.
         if let Some(building) = self.substrate.entities.get_mut(new_sid) {
-            building.assign_object_group(source_group);
+            building.assign_object_group_copy(source_group);
         }
         // 0x007397D2..0x007397DE: the unit's veterancy (`+0x150`); the rank
         // cache (`+0x13C`) stays the building's own.
@@ -2932,8 +2931,7 @@ impl Simulation {
     /// class setter `vt+0x480(archive, 1)` and `Queue_Mission(Move, 0)`
     /// (`0x0044A091..0x0044A0AE`), and the listed attackers target the unit
     /// (`0x0044A146..0x0044A167`). The building's UnInit comes last. Not
-    /// carried over: its Group (`+0x214`, `0x0044A04C`; VERA's control groups
-    /// live in the app), AttachedTag (`+0x34`, `0x0044A0B4`) and looping sound
+    /// carried over: its AttachedTag (`+0x34`, `0x0044A0B4`) and looping sound
     /// handles (`+0x4DC..+0x4F4`). A refused Unit Unlimbo refunds the cached
     /// building value to its current owner and retains the limbo constructor
     /// (`0x0044A16B..0x0044A176`).
@@ -2981,7 +2979,7 @@ impl Simulation {
                     health,
                     building.archive_target(),
                     building.veterancy.clone(),
-                    building.object_group(),
+                    building.object_group_copy(),
                 ))
             })
         else {
@@ -3079,7 +3077,7 @@ impl Simulation {
                 unit.selection.select();
             }
             // gamemd.exe BuildingClass::Mission_Selling copies +214 at44A052.
-            unit.assign_object_group(source_group);
+            unit.assign_object_group_copy(source_group);
             // The VeterancyClass (`+0x150`); the rank cache (`+0x13C`) stays
             // the unit's own.
             unit.veterancy.inherit(&veterancy);

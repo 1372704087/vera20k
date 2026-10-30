@@ -1342,7 +1342,10 @@ fn retail_bridge_shadow_workload_timing() {
                 let final_submit_to_completion_ms =
                     final_submit_begin.elapsed().as_secs_f64() * 1000.0;
                 let wall_prepare_to_completion_ms = begin.elapsed().as_secs_f64() * 1000.0;
-                let data = mapped.slice(..).get_mapped_range();
+                let data = mapped
+                    .slice(..)
+                    .get_mapped_range()
+                    .expect("map the GPU timestamp buffer");
                 let first = u64::from_le_bytes(data[0..8].try_into().unwrap());
                 let last = u64::from_le_bytes(data[8..16].try_into().unwrap());
                 // wgpu27 encoder timestamps can be reordered. The Metal HAL

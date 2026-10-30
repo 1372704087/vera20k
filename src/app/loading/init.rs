@@ -1915,8 +1915,8 @@ impl MapLoadInitial {
     ///
     /// It is a second sequencing of the generated arm of `load_map_from_initial`,
     /// which cannot run here because it takes the GPU context, and it leaves
-    /// out more than rendering: the Team AI registry, the shared cell dummy's
-    /// Resize reconstruction and the theater registry publication. `final_rng` and `post_map_output` are what this sequence
+    /// out more than rendering: the Team AI registry and the shared cell dummy's
+    /// Resize reconstruction. `final_rng` and `post_map_output` are what this sequence
     /// yields, which the tests compare between two launch routes; they are not
     /// certified equal to a match load's.
     pub(crate) fn into_random_map_launch_snapshot(
@@ -3308,17 +3308,6 @@ fn load_map_first_step(
                                             .replay_staged_generated_construction_trace(trace)
                                     })
                                     .transpose()?;
-                                    // Native Fill snapshots prior process-global ClearTile/WaterSet values
-                                    // before the current theater registry reload. Rust loads assets earlier,
-                                    // so defer publishing current results until materialization is complete.
-                                    if let Some(theater) = theater_result.as_ref() {
-                                        services
-                                            .tile_variant_selector_cache
-                                            .complete_theater_registry_load(
-                                                theater.rmg_tiles.clear_tile,
-                                                theater.rmg_tiles.water_set,
-                                            );
-                                    }
                                     log::info!(
                                         "Map terrain load: {} Scenario Fill cursor advances; TMP variant table {} this load, {} raw Main draws",
                                         map_fill_scenario_advances,

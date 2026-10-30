@@ -1560,6 +1560,10 @@ pub enum Command {
     /// with no selected IDs. Appended to preserve existing variant indices.
     /// Native hotkey535CC0/Tab6D07FE write directly, without an EventClass
     /// record or RNG; retain through local frame ingress for saves/replay.
+    /// RESIDUAL (network): as natively, no peer sees the write. Recruit6EAA90
+    /// (a team owned by the player's House) and WakeupGroup6E03B0 (trigger
+    /// action 84, Sleep/Harmless objects) read +214, so a map that scripts
+    /// either for a human House desyncs once that player regroups the objects.
     AssignControlGroup { group: i32, entity_ids: Vec<u64> },
 }
 

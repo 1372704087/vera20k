@@ -387,6 +387,29 @@ fn retail_spy_house_entry_survives_restore_and_reaches_the_message_consumer() {
     assert_eq!(sim.trigger_runtime, loaded.trigger_runtime);
 }
 
+/// The forced type's PlayerPtr-side fallback (event 54, MakeupKit copies)
+/// would answer each client's own side; a network game answers the worn type
+/// alone, whichever House is local.
+#[test]
+fn network_forced_disguise_type_has_no_current_player_fallback() {
+    let (mut sim, rules, _, houses) = fixture();
+    let actor = sim
+        .spawn_object("SPY", "House0", 15, 15, 0, &rules)
+        .unwrap();
+    without_stored_disguise(&mut sim, actor);
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+    let answers = [(houses[1], 0), (houses[2], 1)].map(|(local, side)| {
+        sim.houses
+            .get_mut(&local)
+            .unwrap()
+            .set_side_index_for_test(side);
+        sim.session.set_current_house_for_test(Some(local));
+        sim.forced_disguise_type(actor, &rules)
+    });
+    assert_eq!(answers, [None, None]);
+}
+
 #[test]
 fn forced_defaults_and_makeup_kit_copy_use_the_same_retained_type_owner() {
     let (mut sim, rules, _, houses) = fixture();

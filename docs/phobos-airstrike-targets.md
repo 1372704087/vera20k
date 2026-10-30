@@ -44,6 +44,10 @@ Phobos.
   the target to its cell only for a building
   (`src/Ext/Techno/Hooks.Airstrike.cpp`). Every other target stays the object,
   so the sortie's aircraft chase a moving unit.
+- `TechnoClass::DrawAirstrikeFlare` draws its line only when the manager's
+  target is a building. Phobos `DEFINE_JUMP(LJMP, 0x6D481D, 0x6D482D)`
+  ("Allow airstrike flare draw to foot") skips that gate, so the line reaches
+  a foot target as well.
 
 ## Where VERA20K owns it
 
@@ -55,7 +59,9 @@ Phobos.
 - `sim/combat/combat_weapon.rs` — arm I of the weapon choice.
 - `sim/combat/fire_error.rs` — the `CanFire` gate.
 - `sim/world/airstrike_aircraft.rs` — the object-versus-cell target.
+- `sim/airstrike.rs` — the designation line's building gate.
 - `app/input/context_order.rs` — the cursor answer.
 
 The strike itself already addressed a target id; only the aircraft's own
-attack target had to stop being a cell.
+attack target had to stop being a cell, and the designation line had to stop
+requiring a building.

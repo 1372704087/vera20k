@@ -7,6 +7,7 @@ thread_local! {
     static STATUS: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
     static WRITE: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
     static REMOVE: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
+    static REPLAY: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
     static LIFECYCLE: RefCell<crate::browser_lifecycle::Lifecycle> = RefCell::new(Default::default());
     static ON_LIFECYCLE: RefCell<Option<js_sys::Function>> = const { RefCell::new(None) };
     static WAKE: RefCell<Option<winit::event_loop::EventLoopProxy<()>>> = const { RefCell::new(None) };
@@ -228,10 +229,41 @@ pub fn set_persistence_callbacks(write: js_sys::Function, remove: js_sys::Functi
     REMOVE.with(|slot| *slot.borrow_mut() = Some(remove));
 }
 
+/// Install before starting to receive each closed replay segment as `(name, bytes)`.
+/// Persistence is separate: whatever its callbacks report must be restorable.
+#[wasm_bindgen]
+pub fn set_replay_callback(callback: js_sys::Function) {
+    REPLAY.with(|slot| *slot.borrow_mut() = Some(callback));
+}
+
+pub(crate) fn has_replay_callback() -> bool {
+    REPLAY.with(|slot| slot.borrow().is_some())
+}
+
+pub(crate) fn hand_over_replay(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
+    // Release the slot before calling user JS, which may register a callback.
+    let Some(callback) = REPLAY.with(|slot| slot.borrow().clone()) else {
+        return Ok(());
+    };
+    callback
+        .call2(
+            &JsValue::NULL,
+            &name.into(),
+            &js_sys::Uint8Array::from(bytes),
+        )
+        .map_err(|error| anyhow::anyhow!("Host replay callback failed: {error:?}"))?;
+    Ok(())
+}
+
 #[wasm_bindgen]
 pub fn restore_user_file(path: &str, bytes: Vec<u8>, modified_ms: f64) -> Result<(), JsValue> {
     if LIFECYCLE.with(|slot| slot.borrow().started()) {
         return Err(JsValue::from_str("Restore user data before starting"));
+    }
+    // Builds that sent replays through the persistence callback left them in
+    // hosts' storage. Refusing one would abort that host's whole restore.
+    if path.starts_with("/replays/") {
+        return Ok(());
     }
     if !path.starts_with("/saves/") {
         return Err(JsValue::from_str("User data must be below /saves/"));

@@ -907,25 +907,49 @@ fn fire_damage_stages(
     obj: &ObjectType,
     is_garrison: bool,
 ) -> damage::attacker::FireDamageStages {
+    firepower_stages(
+        world.substrate.entities.get(snap.stable_id),
+        &world.houses,
+        rules,
+        Some(obj),
+        self::veterancy::rank_from_u16(snap.veterancy),
+        is_garrison,
+    )
+}
+
+/// The firepower stages shared by FireAt's damage build and Phobos'
+/// Bullet-init capture. `obj` is absent only when the bullet-init caller
+/// cannot resolve the owner's type, which skips the rank stage.
+fn firepower_stages(
+    firer: Option<&crate::sim::game_entity::GameEntity>,
+    houses: &crate::sim::houses::Houses,
+    rules: &RuleSet,
+    obj: Option<&ObjectType>,
+    rank: self::veterancy::VeterancyRank,
+    is_garrison: bool,
+) -> damage::attacker::FireDamageStages {
     use crate::util::native_x87::{NativeF32Bits, NativeF64Bits};
-    let firer = world.substrate.entities.get(snap.stable_id);
     let f32_bits = |value: f32| NativeF32Bits::from_bits(value.to_bits());
     let multipliers = &rules.garrison_rules;
     damage::attacker::FireDamageStages {
         house_firepower: firer
-            .and_then(|firer| world.houses.get(&firer.owner()))
+            .and_then(|firer| houses.get(&firer.owner()))
             .map_or(NativeF64Bits::ONE, |house| house.firepower_bias()),
         unit_firepower: firer.map_or(NativeF64Bits::ONE, |firer| {
             firer.crate_multipliers.firepower()
         }),
-        rank_firepower: self::veterancy::has_weapon_ability(
-            self::veterancy::rank_from_u16(snap.veterancy),
-            obj,
-            crate::rules::object_type::Ability::Firepower,
-        )
-        .then(|| NativeF64Bits::from_bits(rules.general.veteran_combat.to_bits())),
+        rank_firepower: obj
+            .filter(|obj| {
+                self::veterancy::has_weapon_ability(
+                    rank,
+                    obj,
+                    crate::rules::object_type::Ability::Firepower,
+                )
+            })
+            .map(|_| NativeF64Bits::from_bits(rules.general.veteran_combat.to_bits())),
         // `vt+0x400`: BuildingClass `0x00458DD0`, CanBeOccupied &&
-        // CanOccupyFire && an occupant; false for every other class.
+        // CanOccupyFire && an occupant for FireAt; Phobos' Bullet-init
+        // helper applies the same type flags without requiring an occupant.
         occupied: is_garrison.then(|| f32_bits(multipliers.occupy_damage_multiplier)),
         // `+0x2E4` on a non-building: a unit installed in a Tank Bunker.
         bunkered: firer
@@ -963,7 +987,7 @@ fn fireat_damage(
 /// unit (Techno+160, including Ares attachment), House, veteran FIREPOWER,
 /// then the occupied/bunker/open-topped stages, in the hook's order.
 #[cfg(feature = "phobos")]
-fn phobos_firepower_multiplier(
+pub(crate) fn phobos_firepower_multiplier(
     stages: &damage::attacker::FireDamageStages,
 ) -> crate::util::native_x87::NativeF64Bits {
     use crate::util::native_x87::MaskedX87Chop53 as X;
@@ -985,6 +1009,37 @@ fn phobos_firepower_multiplier(
         value = X::mul(value, X::load_f32(multiplier));
     }
     X::store_f64_masked_chop(value)
+}
+
+/// Phobos `BulletExt::InitializeState` (`0x466556`) through
+/// `TechnoExt::GetCurrentFirepowerMultiplier`: the multiplier a newly
+/// constructed Bullet captures from its Owner Techno. FireAt overwrites the
+/// payload at launch, so its already-set value wins.
+#[cfg(feature = "phobos")]
+pub(crate) fn bullet_init_firepower_multiplier(
+    interner: &crate::sim::intern::StringInterner,
+    substrate: &crate::sim::world::ObjectSubstrate,
+    houses: &crate::sim::houses::Houses,
+    rules: &RuleSet,
+    source_id: u64,
+) -> Option<crate::util::native_x87::NativeF64Bits> {
+    let firer = substrate.entities.get(source_id)?;
+    let object = interner.object_type(firer.type_ref(), rules);
+    // Phobos' helper applies the occupancy multiplier from the building
+    // type's flags, not from whether an occupant is present.
+    let occupied = firer.category() == EntityCategory::Structure
+        && object.is_some_and(|object| {
+            object.can_be_occupied && object.can_occupy_fire && object.max_number_occupants > 0
+        });
+    let stages = firepower_stages(
+        Some(firer),
+        houses,
+        rules,
+        object,
+        firer.veterancy.rank_kind(),
+        occupied,
+    );
+    Some(phobos_firepower_multiplier(&stages))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

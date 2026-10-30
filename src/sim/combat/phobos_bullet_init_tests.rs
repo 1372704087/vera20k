@@ -1,4 +1,5 @@
-//! Phobos `BulletExt::FirerHouse` retention regressions.
+//! Phobos `BulletExt` init-state regressions: retained FirerHouse and the
+//! owner's firepower multiplier.
 
 use super::*;
 use crate::rules::ini_parser::IniFile;
@@ -6,6 +7,7 @@ use crate::sim::projectile::{
     ProjectileCoord, ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload,
     ProjectileTarget,
 };
+use crate::util::native_x87::NativeF64Bits;
 
 fn scene() -> (Simulation, RuleSet, u64, u64, InternedId) {
     let rules = RuleSet::from_ini(&IniFile::from_str(
@@ -63,6 +65,7 @@ fn reconstruct_without_a_live_owner_keeps_the_saved_house() {
     Simulation::construct_bullet_scheme(
         &world.interner,
         &world.substrate,
+        &world.houses,
         &mut world.projectiles,
         bullet,
         &rules,
@@ -71,5 +74,52 @@ fn reconstruct_without_a_live_owner_keeps_the_saved_house() {
         world.projectiles.get(bullet).unwrap().phobos_firer_house(),
         Some(americans),
         "InitializeState writes only when the Owner exists"
+    );
+}
+
+#[test]
+fn bullet_init_captures_the_owner_firepower_multiplier() {
+    let (mut world, rules, source, _, warhead) = scene();
+    let two = NativeF64Bits::from_bits(2.0_f64.to_bits());
+    world
+        .substrate
+        .entities
+        .get_mut(source)
+        .unwrap()
+        .crate_multipliers
+        .set_firepower_multiplier_for_test(two);
+    let bullet = world.construct_projectile(
+        source,
+        ProjectileTarget::None,
+        ProjectilePayload::new(10, warhead, None, false),
+        &rules,
+    );
+    assert_eq!(
+        world
+            .projectiles
+            .get(bullet)
+            .unwrap()
+            .payload()
+            .firepower_multiplier(),
+        two,
+        "BulletClass_Init captures TechnoExt::GetCurrentFirepowerMultiplier"
+    );
+
+    // FireAt's launch capture writes the payload first and is retained.
+    let launch = NativeF64Bits::from_bits(1.5_f64.to_bits());
+    let bullet = world.construct_projectile(
+        source,
+        ProjectileTarget::None,
+        ProjectilePayload::new(10, warhead, None, false).with_firepower_multiplier(launch),
+        &rules,
+    );
+    assert_eq!(
+        world
+            .projectiles
+            .get(bullet)
+            .unwrap()
+            .payload()
+            .firepower_multiplier(),
+        launch
     );
 }

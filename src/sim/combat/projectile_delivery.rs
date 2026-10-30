@@ -468,6 +468,7 @@ fn admit_fired_bullet_inner(
     Simulation::construct_bullet_scheme(
         &world.interner,
         &world.substrate,
+        &world.houses,
         &mut world.projectiles,
         bullet_id,
         rules,

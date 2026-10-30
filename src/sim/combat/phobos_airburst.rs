@@ -44,11 +44,6 @@
 //! RESIDUAL (bounds): `AirburstSpread` is capped at a 256-cell radius. A
 //! larger authored value enumerates no cells instead of stalling the
 //! simulation; Phobos' `CellRangeIterator` has no such cap.
-//!
-//! RESIDUAL (non-FireAt parent): only FireAt captures
-//! `BulletExt::FirepowerMult` into the payload. A parent constructed by
-//! another producer (shrapnel, silo, NukeMaker) starts at 1.0, so
-//! `AirburstWeapon.ApplyFirepowerMult` does not scale from it.
 
 use std::collections::BTreeMap;
 
@@ -81,7 +76,7 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
         return;
     };
     let parent_position = parent.position();
-    let parent_firer_house = parent.firer_house();
+    let parent_retained_house = parent.phobos_firer_house();
     let parent_payload = parent.payload();
     let Some(parent_type_id) = parent_payload.projectile_type() else {
         return;
@@ -125,7 +120,7 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
         .entities
         .get(source_id)
         .map(|source| source.owner())
-        .or(parent_firer_house);
+        .or(parent_retained_house);
     let owner_house = source_owner
         .filter(|house| {
             !world
@@ -429,8 +424,13 @@ fn spawn_child(
         return;
     };
     admit_simulated_bullet(world, rules, context.weapon, bullet_id, bullet);
-    // `SimulatedFiringUnlimbo`: a FirersPalette child inherits the fire
-    // house even when the original Techno is already gone.
+    // `SimulatedFiringUnlimbo` sets `BulletExt::FirerHouse = pHouse` for
+    // every child, so a later split keeps the house after the source dies.
+    world
+        .projectiles
+        .set_phobos_firer_house(bullet_id, Some(context.owner_house));
+    // A `FirersPalette` child inherits the fire house for its palette even
+    // when the original Techno is already gone.
     if context.child_type.firers_palette {
         world
             .projectiles

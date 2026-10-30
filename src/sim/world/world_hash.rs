@@ -957,6 +957,17 @@ impl Simulation {
                 b"phobos-bullet-firer-house-v1".hash(hasher);
                 house.index().hash(hasher);
             }
+            #[cfg(feature = "phobos")]
+            if projectile.payload().firepower_multiplier()
+                != crate::util::native_x87::NativeF64Bits::ONE
+            {
+                b"phobos-bullet-firepower-mult-v1".hash(hasher);
+                projectile
+                    .payload()
+                    .firepower_multiplier()
+                    .bits()
+                    .hash(hasher);
+            }
             if projectile.awaiting_anim() {
                 b"bullet-awaited-anim-v1".hash(hasher);
                 projectile.awaited_anim().hash(hasher);

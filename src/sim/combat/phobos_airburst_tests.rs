@@ -666,6 +666,36 @@ fn weapon_targeting_overrides_warhead_affects_and_reads_can_target_houses() {
 }
 
 #[test]
+fn split_child_retains_the_house_after_the_source_expires() {
+    let base = "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
+                Splits.TargetingDistance=5\nSplits.TargetCellRange=-1\nRetargetSelf=no\n";
+    let mut scene = build_scene(
+        &rules_ini(base, "", "", "", "", ""),
+        (6, 20),
+        (10, 20),
+        0,
+        TargetChoice::Cell(10, 20),
+        &[("VICTIM", 10, 20, 0)],
+        1.0,
+    );
+    let americans = scene.world.interner.intern("Americans");
+    scene.world.substrate.entities.remove(scene.source);
+    detonate(&mut scene);
+    let children = child_ids(&scene);
+    assert_eq!(children.len(), 1);
+    assert_eq!(
+        scene
+            .world
+            .projectiles
+            .get(children[0])
+            .unwrap()
+            .phobos_firer_house(),
+        Some(americans),
+        "SimulatedFiringUnlimbo keeps the parent's retained house"
+    );
+}
+
+#[test]
 fn weapon_targeting_reads_can_target_health_and_veterancy() {
     let base = "Splits=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\
                 Splits.TargetingDistance=5\nSplits.TargetCellRange=-1\n\

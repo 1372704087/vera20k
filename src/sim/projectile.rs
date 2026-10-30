@@ -2006,6 +2006,22 @@ impl ProjectileStore {
         }
     }
 
+    /// Phobos `BulletExt::InitializeState`'s `FirepowerMult`. A payload value
+    /// other than 1.0 came from FireAt's launch capture and is kept.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_firepower_multiplier_if_default(
+        &mut self,
+        id: u64,
+        value: crate::util::native_x87::NativeF64Bits,
+    ) {
+        if let Some(projectile) = self.get_mut(id)
+            && projectile.payload.firepower_multiplier
+                == crate::util::native_x87::NativeF64Bits::ONE
+        {
+            projectile.payload.firepower_multiplier = value;
+        }
+    }
+
     /// `BulletClass::Construct @ 0x004664C0`'s Owner (`+0xB0`) on a re-fired
     /// bullet.
     pub(crate) fn set_owner(&mut self, id: u64, owner: u64) {

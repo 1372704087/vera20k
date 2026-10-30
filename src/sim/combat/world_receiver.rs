@@ -3995,8 +3995,8 @@ mod ifv_area_receipt_tests;
 mod nuke_maker_tests;
 
 #[cfg(all(test, feature = "phobos"))]
-#[path = "phobos_firer_house_tests.rs"]
-mod phobos_firer_house_tests;
+#[path = "phobos_bullet_init_tests.rs"]
+mod phobos_bullet_init_tests;
 
 fn warhead_damages_wall(
     warhead: &WarheadType,

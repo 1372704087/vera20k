@@ -5219,6 +5219,7 @@ impl Simulation {
         Self::construct_bullet_scheme(
             &self.interner,
             &self.substrate,
+            &self.houses,
             &mut self.projectiles,
             id,
             rules,
@@ -5273,6 +5274,7 @@ impl Simulation {
     pub(crate) fn construct_bullet_scheme(
         interner: &StringInterner,
         substrate: &ObjectSubstrate,
+        houses: &crate::sim::houses::Houses,
         projectiles: &mut ProjectileStore,
         bullet: u64,
         rules: &RuleSet,
@@ -5280,6 +5282,8 @@ impl Simulation {
         let Some(projectile) = projectiles.get(bullet) else {
             return;
         };
+        #[cfg(not(feature = "phobos"))]
+        let _ = houses;
         let source_id = projectile.source_id();
         let firers_palette = projectile
             .payload()
@@ -5300,6 +5304,13 @@ impl Simulation {
             let retained = substrate.entities.get(source_id).map(|owner| owner.owner());
             if retained.is_some() {
                 projectiles.set_phobos_firer_house(bullet, retained);
+            }
+            if let Some(multiplier) =
+                crate::sim::combat::world_fire::bullet_init_firepower_multiplier(
+                    interner, substrate, houses, rules, source_id,
+                )
+            {
+                projectiles.set_phobos_firepower_multiplier_if_default(bullet, multiplier);
             }
         }
     }
@@ -5339,6 +5350,7 @@ impl Simulation {
             Self::construct_bullet_scheme(
                 &self.interner,
                 &self.substrate,
+                &self.houses,
                 &mut self.projectiles,
                 stable_id,
                 rules,

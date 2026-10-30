@@ -216,7 +216,7 @@ fn stock_cloak_tick_facts(
         rules.general.cloaking_stages,
         object.invisible
             || (entity.category() == EntityCategory::Structure && object.invisible_in_game),
-        entity.discovery.owned_by_current_house(),
+        sim.shared_owned_by_current_house(entity),
         entity.category() == EntityCategory::Structure,
     ))
 }

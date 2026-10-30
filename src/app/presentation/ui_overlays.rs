@@ -1241,6 +1241,7 @@ pub(crate) fn techno_extras_for_parent(
     let character = entity.visual_character(
         observer.cloaking_stages,
         observer.invisible,
+        entity.discovery.owned_by_current_house(),
         crate::sim::cloak_disguise::VisualCharacterQuery::screen(
             true,
             observer.observer_present,

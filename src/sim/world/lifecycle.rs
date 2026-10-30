@@ -1802,6 +1802,22 @@ impl Simulation {
         )
     }
 
+    /// `+0x41A` as a decision every peer shares reads it: VisualCharacter's
+    /// (`0x00703860`) answer for an `Invisible=` object in the cloak tick,
+    /// GetFireError and the Behind indicator. VERA network adaptation, as
+    /// HasOccurred53's: PlayerPtr differs per client, so in a network game no
+    /// shared decision sees the current house own the object. Drawing reads
+    /// the actual byte.
+    /// RESIDUAL: online, an invisible object's owner gets what other players
+    /// natively got. A player's hidden `InvisibleInGame=` lamp post takes no
+    /// BEHIND anim, and the owner's force-fire on it, unsensed, is Cant; only
+    /// maps that give a player a lamp post reach these. An owned `Invisible=`
+    /// cloaker (no retail type) finishes cloaking at once and never finishes
+    /// uncloaking.
+    pub(crate) fn shared_owned_by_current_house(&self, entity: &GameEntity) -> bool {
+        !self.session.game_mode().is_network() && entity.discovery.owned_by_current_house()
+    }
+
     /// Retained discovery for a specified logical map, rather than this
     /// process's presentation cache. All shared sight/arrival consumers use it.
     pub(crate) fn techno_discovered_by_viewer(&self, id: u64, viewer: InternedId) -> bool {

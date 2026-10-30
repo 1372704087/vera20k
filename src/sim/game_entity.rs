@@ -1170,12 +1170,16 @@ impl GameEntity {
 impl GameEntity {
     /// Native703860 base decision through the shared cloak owner. Accepted
     /// Technos have one real owner; retained +41A belongs to discovery, not cloak.
+    /// `owned_by_current_house` is that +41A as the caller reads it: drawing
+    /// the actual byte, shared decisions
+    /// [`Simulation::shared_owned_by_current_house`](crate::sim::world::Simulation::shared_owned_by_current_house).
     /// Building4544A0 delegates here only with its +6ED override stage zero.
     /// The nonzero building override has no Rust producer and remains separate.
     pub fn visual_character(
         &self,
         cloaking_stages: i32,
         invisible: bool,
+        owned_by_current_house: bool,
         query: crate::sim::cloak_disguise::VisualCharacterQuery,
     ) -> u8 {
         let (state, progress) = self
@@ -1188,7 +1192,7 @@ impl GameEntity {
             cloaking_stages,
             invisible,
             self.category == EntityCategory::Structure,
-            self.discovery.owned_by_current_house(),
+            owned_by_current_house,
             true,
             query,
         )
@@ -2479,9 +2483,7 @@ mod tests {
             cloak.set_state_for_test(row["state"].as_i64().unwrap() as i32);
             cloak.set_depth_for_test(row["depth"].as_i64().unwrap() as u32);
             entity.cloak = Some(cloak);
-            entity
-                .discovery
-                .set_owned_by_current_house_for_test(row["owned"].as_bool().unwrap());
+            let owned = row["owned"].as_bool().unwrap();
             let query = if row["force"].as_bool().unwrap() {
                 crate::sim::cloak_disguise::VisualCharacterQuery::sensor(false, false, false)
             } else {
@@ -2490,7 +2492,7 @@ mod tests {
                 )
             };
             assert_eq!(
-                entity.visual_character(row["stage"].as_i64().unwrap() as i32, false, query),
+                entity.visual_character(row["stage"].as_i64().unwrap() as i32, false, owned, query),
                 row["character"].as_u64().unwrap() as u8,
                 "native control {row}"
             );

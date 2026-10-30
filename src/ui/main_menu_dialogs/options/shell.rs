@@ -7,15 +7,16 @@
 //! VERA's page lays its controls out on the main page's bands and rows.
 
 use super::{
-    DEVELOPER_OPTIONS_LABEL, DISPLAY_AUTO_LABEL, DISPLAY_HELP, DISPLAY_LABEL, DisplayChoice,
-    DisplayTarget, FPS_COUNTER_HELP, FPS_COUNTER_LABEL, FULL_SCREEN_HELP, FULL_SCREEN_LABEL,
-    LauncherButton, LauncherCheckboxId, LauncherComboId, LauncherCue, LauncherOptionsEvent,
-    LauncherParentResult, LauncherTrackbarId, MOUSE_WHEEL_ZOOM_HELP, MOUSE_WHEEL_ZOOM_LABEL,
-    ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL, OptionsDialogState, OptionsPage,
-    PhysicalControlFrame, RENDER_INTERPOLATION_HELP, RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP,
-    SHIFT_QUEUE_LABEL, SIDEBAR_HELP, SIDEBAR_LABEL, SidebarSize, VERA_OPTIONS_HELP,
-    VERA_OPTIONS_LABEL, WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP,
-    YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL, Zoom,
+    CHECK_FOR_UPDATES_HELP, CHECK_FOR_UPDATES_LABEL, DEVELOPER_OPTIONS_LABEL, DISPLAY_AUTO_LABEL,
+    DISPLAY_HELP, DISPLAY_LABEL, DisplayChoice, DisplayTarget, FPS_COUNTER_HELP, FPS_COUNTER_LABEL,
+    FULL_SCREEN_HELP, FULL_SCREEN_LABEL, HAS_CHECK_FOR_UPDATES, LauncherButton, LauncherCheckboxId,
+    LauncherComboId, LauncherCue, LauncherOptionsEvent, LauncherParentResult, LauncherTrackbarId,
+    MOUSE_WHEEL_ZOOM_HELP, MOUSE_WHEEL_ZOOM_LABEL, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL,
+    OptionsDialogState, OptionsPage, PhysicalControlFrame, RENDER_INTERPOLATION_HELP,
+    RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL, SIDEBAR_HELP, SIDEBAR_LABEL,
+    SidebarSize, VERA_OPTIONS_HELP, VERA_OPTIONS_LABEL, WOL_TEST_SERVICE_HELP,
+    WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP, YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL,
+    Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -90,13 +91,29 @@ pub(crate) const OPTIONS_PAGE: MenuPageSpec = MenuPageSpec {
     },
 };
 
-/// VERA's page of `0xD5`: only Back in the column, in Main Menu's place, as
-/// on the Keyboard page `0xA3`, with the Keyboard page's Back help.
+/// VERA's Check for Updates on its page, in the column's first slot. Not a
+/// retail control: the id only names its rect in the page layout.
+pub(crate) const CHECK_FOR_UPDATES_BUTTON: u16 = 0x7FFE;
+
+/// VERA's page of `0xD5`: Check for Updates at the top of the column (not in
+/// the browser build), and Back in Main Menu's place, as on the Keyboard page
+/// `0xA3`, with the Keyboard page's Back help.
 pub(crate) const VERA_OPTIONS_PAGE: MenuPageSpec = MenuPageSpec {
     dialog: DialogId(0x00D5),
     // The heading is VERA's own text, VERA_OPTIONS_LABEL.
     title_key: "",
-    stacked: &[],
+    // Its caption and help are CHECK_FOR_UPDATES_LABEL and _HELP.
+    stacked: if HAS_CHECK_FOR_UPDATES {
+        &[MenuPageButtonSpec {
+            id: CHECK_FOR_UPDATES_BUTTON,
+            dlu_top: 122,
+            csf_key: "",
+            tooltip_key: "",
+            result: None,
+        }]
+    } else {
+        &[]
+    },
     back: MenuPageButtonSpec {
         id: MAIN_MENU_BUTTON,
         dlu_top: 346,
@@ -242,10 +259,19 @@ impl LauncherOptionsLayout {
                     // Developer Options, in the main page's UI Options band.
                     (LauncherCheckboxId::FpsCounter, dlu(93, 188, 130, 10)),
                 ],
-                vec![(
-                    LauncherButton::Page(OptionsPage::Main),
-                    button(MAIN_MENU_BUTTON),
-                )],
+                HAS_CHECK_FOR_UPDATES
+                    .then(|| {
+                        (
+                            LauncherButton::CheckForUpdates,
+                            button(CHECK_FOR_UPDATES_BUTTON),
+                        )
+                    })
+                    .into_iter()
+                    .chain([(
+                        LauncherButton::Page(OptionsPage::Main),
+                        button(MAIN_MENU_BUTTON),
+                    )])
+                    .collect(),
             ),
         };
         Self {
@@ -450,6 +476,7 @@ impl OptionsDialogState {
             LauncherButton::Exit(LauncherParentResult::Terminal) => "",
             LauncherButton::Page(OptionsPage::Vera) => VERA_OPTIONS_LABEL,
             LauncherButton::Page(OptionsPage::Main) => &self.labels.back,
+            LauncherButton::CheckForUpdates => CHECK_FOR_UPDATES_LABEL,
         }
     }
 
@@ -625,6 +652,9 @@ impl OptionsDialogState {
                 LauncherButton::Page(OptionsPage::Vera) => {
                     return Some(LauncherStatusHelp::Text(VERA_OPTIONS_HELP));
                 }
+                LauncherButton::CheckForUpdates => {
+                    return Some(LauncherStatusHelp::Text(CHECK_FOR_UPDATES_HELP));
+                }
                 LauncherButton::Page(OptionsPage::Main) => (&VERA_OPTIONS_PAGE, MAIN_MENU_BUTTON),
                 LauncherButton::Exit(LauncherParentResult::Keyboard) => {
                     (&OPTIONS_PAGE, KEYBOARD_BUTTON)
@@ -796,6 +826,7 @@ impl OptionsDialogState {
             match id {
                 LauncherButton::Exit(result) => self.request_result(result),
                 LauncherButton::Page(page) => self.request_page(page),
+                LauncherButton::CheckForUpdates => self.request_update_check(),
             }
         }
     }
@@ -1093,6 +1124,35 @@ mod tests {
         );
         state.show_page(OptionsPage::Main);
         assert_eq!(state.shell_title_text(), "Options");
+        assert_eq!(state.pack(), before);
+    }
+
+    #[test]
+    fn check_for_updates_tops_veras_column_and_only_asks() {
+        let mut state = state();
+        state.show_page(OptionsPage::Vera);
+        let layout = vera_layout();
+        let check = button(&layout, LauncherButton::CheckForUpdates);
+        // Keyboard's slot on the main page.
+        assert_eq!(
+            check,
+            button(
+                &main_layout(),
+                LauncherButton::Exit(LauncherParentResult::Keyboard)
+            )
+        );
+        assert_eq!(
+            state.shell_button_label(LauncherButton::CheckForUpdates),
+            "Check for Updates"
+        );
+        let before = state.pack();
+        state.shell_mouse_down(check.x + 5, check.y + 5, &layout);
+        state.shell_mouse_up(check.x + 5, check.y + 5, &layout);
+        let output = state.drain_output();
+        assert_eq!(
+            (output.result, output.page, output.check_for_updates),
+            (None, None, true)
+        );
         assert_eq!(state.pack(), before);
     }
 

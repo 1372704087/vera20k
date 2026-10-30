@@ -90,20 +90,13 @@ fn get_small(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>> {
 }
 
 /// What this program can do about the newest release on `platform`
-/// ([`manifest::offer`]), when it is newer than `current` and not the
-/// version the player skipped.
-pub(super) fn check(
-    current: Version,
-    skipped: Option<Version>,
-    platform: &str,
-) -> Result<Option<Offer>> {
+/// ([`manifest::offer`]), when it is newer than `current`. A skipped version
+/// is still checked: the online welcome warns about it.
+pub(super) fn check(current: Version, platform: &str) -> Result<Option<Offer>> {
     let agent = agent();
     let latest = get_small(&agent, &format!("{BASE_URL}latest.json"), MAX_POINTER_BYTES)?;
     let (version, _) = manifest::pointer(&latest)?;
-    if skipped == Some(version) {
-        log::info!("Updater: VERA20k {version} was skipped");
-    }
-    if version <= current || skipped == Some(version) {
+    if version <= current {
         return Ok(None);
     }
     let signature = get_small(

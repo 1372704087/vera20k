@@ -378,6 +378,22 @@ impl WolLobbyStats {
     }
 }
 
+/// VERA's id for the online welcome's subtitle. A copy older than the newest
+/// release (`app::updater`) says so there instead: only players on the same
+/// version start a match together (`docs/lobby-protocol.md`).
+const ONLINE_SUBTITLE: u16 = 0x7F02;
+
+/// The online welcome's subtitle in a copy at `current` once `newer` is out.
+pub fn out_of_date_text(newer: &str, current: &str) -> (u16, String) {
+    (
+        ONLINE_SUBTITLE,
+        format!(
+            "VERA20k {newer} is out, and you have {current}. Players need\n\
+             the same version: use Check for Updates in Vera Options."
+        ),
+    )
+}
+
 const ONLINE_WELCOME_TEXT: [WolTextStatic; 8] = [
     text(
         None,
@@ -386,7 +402,7 @@ const ONLINE_WELCOME_TEXT: [WolTextStatic; 8] = [
         StaticAlign::Left,
     ),
     text(
-        None,
+        Some(ONLINE_SUBTITLE),
         Literal("Custom games for VERA20k players."),
         (42, 80, 330, 34),
         StaticAlign::Left,
@@ -830,7 +846,9 @@ mod tests {
         assert!(layout.icons.is_empty() && layout.group_boxes.is_empty());
         assert!(layout.texts.iter().all(|(text, _)| {
             matches!(text.caption, Literal(_))
-                && text.id.is_none_or(|id| LOBBY_STATS_IDS.contains(&id))
+                && text
+                    .id
+                    .is_none_or(|id| LOBBY_STATS_IDS.contains(&id) || id == ONLINE_SUBTITLE)
         }));
         let first = layout.page.button_rect(CUSTOM_MATCH).unwrap();
         assert_eq!(first, RectPx::new(644, 199, 156, 42));
@@ -882,6 +900,29 @@ mod tests {
             stats.texts()[1].1,
             "1 player online, 0 in games, 2 open games.\n1 game in the last 24 hours, 40 in all."
         );
+    }
+
+    #[test]
+    fn out_of_date_subtitle_keeps_its_two_lines_in_game_fnt() {
+        let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+            return;
+        };
+        let font = crate::assets::fnt_file::FntFile::from_bytes(
+            assets.get_ref("GAME.FNT").expect("retail GAME.FNT"),
+        )
+        .expect("parse retail GAME.FNT");
+        let layout = compute_layout(800, 600, &WOL_ONLINE_WELCOME_PAGE);
+        let (subtitle, rect) = layout
+            .texts
+            .iter()
+            .find(|(text, _)| text.id == Some(ONLINE_SUBTITLE))
+            .expect("the online welcome's subtitle");
+        let (id, text) = out_of_date_text("10.10.10", "10.10.9");
+        assert_eq!(Some(id), subtitle.id);
+        for line in text.lines() {
+            let width = font.text_width(line);
+            assert!(width <= rect.w as u32, "{line:?} wraps at {width} px");
+        }
     }
 
     #[test]

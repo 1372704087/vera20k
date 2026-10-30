@@ -265,7 +265,11 @@ pub(crate) enum ShellMessageBoxPurpose {
     /// The updater's download progress (`0xCE`); its button cancels.
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
     UpdateProgress,
-    /// The updater's failure notice (`0xCE`).
+    /// Vera Options' Check for Updates waiting for its check (`0xCE`); its
+    /// button stops waiting.
     #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-    UpdateFailed,
+    UpdateCheck,
+    /// The updater's notice (`0xCE`): a failure, or what a check found.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    UpdateNotice,
 }

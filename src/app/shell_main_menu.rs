@@ -1073,6 +1073,13 @@ Details: {details}"
                         crate::app::frontend::shell_transition::ShellExitThen::OptionsPage(page),
                     );
                 }
+                #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+                if output.check_for_updates {
+                    Self::leave_shell_dialog(
+                        state,
+                        crate::app::frontend::shell_transition::ShellExitThen::UpdateCheck,
+                    );
+                }
             }
         }
     }
@@ -1355,7 +1362,12 @@ Details: {details}"
                 crate::app::updater::cancel_download(state);
             }
             #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
-            ShellMessageBoxPurpose::UpdateFailed => {
+            ShellMessageBoxPurpose::UpdateCheck => {
+                Self::close_shell_message_box_from_controller(state);
+                crate::app::updater::cancel_check(state);
+            }
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            ShellMessageBoxPurpose::UpdateNotice => {
                 Self::close_shell_message_box_from_controller(state);
                 state.platform.window.request_redraw();
             }
@@ -1538,6 +1550,16 @@ Details: {details}"
             ShellExitThen::MainMenu(action) => Self::handle_main_menu_shell_action(state, action),
             #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
             ShellExitThen::UpdateOffer => crate::app::updater::open_offer(state),
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            ShellExitThen::UpdateCheck => {
+                // Options closes as through Back, keeping and saving its
+                // values; the main menu returns after the updater's last box.
+                Self::commit_launcher_options_result(
+                    state,
+                    crate::ui::main_menu_dialogs::options::LauncherParentResult::Back,
+                );
+                crate::app::updater::open_check(state);
+            }
             ShellExitThen::SinglePlayer(action) => {
                 Self::handle_single_player_shell_action(state, action)
             }

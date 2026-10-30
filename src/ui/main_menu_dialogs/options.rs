@@ -90,6 +90,13 @@ pub(crate) const DISPLAY_AUTO_LABEL: &str = "Auto";
 pub(crate) const VERA_OPTIONS_LABEL: &str = "Vera Options";
 pub(crate) const VERA_OPTIONS_HELP: &str =
     "Settings VERA20K adds: full screen, sidebar size, smooth motion and more.";
+/// VERA's page's Check for Updates: the desktop updater (`app::updater`)
+/// checks once the page has slid out. The browser build has no updater.
+pub(crate) const HAS_CHECK_FOR_UPDATES: bool =
+    !cfg!(all(target_arch = "wasm32", target_os = "unknown"));
+pub(crate) const CHECK_FOR_UPDATES_LABEL: &str = "Check for Updates";
+pub(crate) const CHECK_FOR_UPDATES_HELP: &str =
+    "Check for a newer VERA20K now, even one you skipped.";
 /// The VERA page's Back reuses retail's caption; its status help is the
 /// Keyboard page's Back help, "Return to the Options Menu."
 /// (`STT:KeyboardButtonBack`).
@@ -113,6 +120,8 @@ pub(crate) enum LauncherButton {
     Exit(LauncherParentResult),
     /// Vera Options on the main page, Back on VERA's: shows that page.
     Page(OptionsPage),
+    /// Check for Updates on VERA's page.
+    CheckForUpdates,
 }
 
 /// VERA's battle zoom: the Options combo that took the place of gamemd's
@@ -535,6 +544,8 @@ pub(crate) struct LauncherOptionsFrameOutput {
     pub(crate) result: Option<LauncherParentResult>,
     /// The page a button asked for: the showing page slides out first.
     pub(crate) page: Option<OptionsPage>,
+    /// Check for Updates: VERA's page slides out, then the updater checks.
+    pub(crate) check_for_updates: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -672,6 +683,7 @@ pub(crate) struct OptionsDialogState {
     pending_result: Option<LauncherParentResult>,
     page: OptionsPage,
     pending_page: Option<OptionsPage>,
+    pending_update_check: bool,
     shell_interaction: shell::ShellInteraction,
 }
 
@@ -734,6 +746,7 @@ impl OptionsDialogState {
             pending_result: None,
             page: OptionsPage::Main,
             pending_page: None,
+            pending_update_check: false,
             shell_interaction: shell::ShellInteraction::default(),
         }
     }
@@ -1012,7 +1025,7 @@ impl OptionsDialogState {
     /// Back, Network, Keyboard, and terminal completion distinct parent
     /// results; the first admitted result owns the frame's teardown path.
     pub(crate) fn request_result(&mut self, result: LauncherParentResult) {
-        if self.pending_result.is_none() && self.pending_page.is_none() {
+        if !self.requested() {
             self.pending_result = Some(result);
         }
     }
@@ -1023,9 +1036,20 @@ impl OptionsDialogState {
 
     /// Ask for `page`; like a parent result, the first request wins.
     pub(crate) fn request_page(&mut self, page: OptionsPage) {
-        if self.pending_result.is_none() && self.pending_page.is_none() {
+        if !self.requested() {
             self.pending_page = Some(page);
         }
+    }
+
+    /// Ask for Check for Updates; the first request wins here too.
+    pub(crate) fn request_update_check(&mut self) {
+        if !self.requested() {
+            self.pending_update_check = true;
+        }
+    }
+
+    fn requested(&self) -> bool {
+        self.pending_result.is_some() || self.pending_page.is_some() || self.pending_update_check
     }
 
     /// Show `page` once the other has slid out. Nothing is applied or saved;
@@ -1045,6 +1069,7 @@ impl OptionsDialogState {
             events: std::mem::take(&mut self.pending_events),
             result: self.pending_result.take(),
             page: self.pending_page.take(),
+            check_for_updates: std::mem::take(&mut self.pending_update_check),
         }
     }
 }
@@ -1468,6 +1493,14 @@ mod tests {
         assert_eq!(
             (output.result, output.page),
             (Some(LauncherParentResult::Keyboard), None)
+        );
+        state.request_update_check();
+        state.request_page(OptionsPage::Main);
+        state.request_result(LauncherParentResult::Back);
+        let output = state.drain_output();
+        assert_eq!(
+            (output.result, output.page, output.check_for_updates),
+            (None, None, true)
         );
     }
 

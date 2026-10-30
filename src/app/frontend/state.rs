@@ -133,6 +133,9 @@ pub(crate) struct FrontendState {
     /// The offline WOL test service's credential store, standing in for the
     /// WOLAPI one for the process.
     pub(crate) wol_test_credentials: Vec<crate::ui::wol_login::WolCredential>,
+    /// Explicit native WOL diagnostics only: visits keep the retail welcome
+    /// `0x10E` and full controls instead of opening at the online sign-in.
+    pub(crate) wol_native_ui: bool,
     /// LAN lobby interaction/discovery; admitted participants belong to MatchSession.
     pub(crate) lan: Option<crate::app::shell_lan::LanShellRuntime>,
     pub(crate) network_setup_protocol:

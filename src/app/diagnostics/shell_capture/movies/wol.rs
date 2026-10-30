@@ -1,8 +1,8 @@
 //! Production WOL Custom Match checkpoints: Main Menu -> Internet -> Custom
-//! Match through the real `0x10E`/`0x10F`/`0xC4`/box handlers, with a
-//! controlled WOL service that answers the visit's own requests. Nothing
-//! here builds a page; the service events are decoded results, not a
-//! transport or backend. The accepted login WRITES the MultiPlayer handle:
+//! Match through the real `0x10E`/`0x10F`/`0xC4`/box handlers (a modern
+//! visit opens at `0x10F`), with a controlled WOL service that answers the
+//! visit's own requests. Nothing here builds a page; the service events are
+//! decoded results, not a transport or backend. The accepted login WRITES the MultiPlayer handle:
 //! use an isolated RA2_DIR.
 
 use super::*;
@@ -953,7 +953,12 @@ impl WolCapture {
                     ),
                 );
                 self.event(frame, "0xE2 Internet");
-                self.phase = WolPhase::Welcome;
+                // The normal online visit has no welcome: Internet signs in.
+                self.phase = match self.target {
+                    WolTarget::ModernUsername => WolPhase::Login,
+                    WolTarget::ModernLobby | WolTarget::ModernOptions => WolPhase::ServiceLogin,
+                    _ => WolPhase::Welcome,
+                };
             }
             WolPhase::Welcome
                 if rendered == PresentedShell::WolWelcome
@@ -1033,16 +1038,6 @@ impl WolCapture {
                     welcome_click(state, rect);
                     self.event(frame, format!("0x10E {mode_name} (Options test service)"));
                     self.phase = WolPhase::ServiceLogin;
-                    return Ok(());
-                }
-                if self.target == WolTarget::ModernUsername {
-                    let rect = App::wol_welcome_layout(state)
-                        .page
-                        .button_rect(crate::ui::wol_shell::CUSTOM_MATCH)
-                        .context("Custom Match")?;
-                    welcome_click(state, rect);
-                    self.event(frame, "Normal online username page requested");
-                    self.phase = WolPhase::Login;
                     return Ok(());
                 }
                 state
@@ -1241,7 +1236,7 @@ impl WolCapture {
                                 && !login.remember_enabled,
                             "modern username form retained password controls"
                         );
-                        self.event(frame, "Username typed; OK enabled without a password");
+                        self.event(frame, "Username typed; Login enabled without a password");
                         MoviesCapture::restore_neutral_pointer(state);
                         self.settle();
                         return Ok(());

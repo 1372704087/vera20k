@@ -15,7 +15,6 @@ use exit_reentry::ExitReentry;
 enum RoundPhase {
     LanEntry,
     Main,
-    Welcome,
     Login,
     Lobby,
     Create,
@@ -31,7 +30,7 @@ enum RoundPhase {
     Results,
     Returning,
     ExitFault,
-    ExitWelcome,
+    ExitSignIn,
     MainReturn,
     Finished,
 }
@@ -626,7 +625,7 @@ impl LiveRoundFlow {
                                     .button_rect(wol_lobby::BACK)
                                     .context("profile lobby Back")?,
                             );
-                            self.phase = RoundPhase::ExitWelcome;
+                            self.phase = RoundPhase::ExitSignIn;
                         } else {
                             lobby_button(state, crate::ui::lan_shell::BACK)?;
                             MoviesCapture::restore_neutral_pointer(state);
@@ -687,18 +686,6 @@ impl LiveRoundFlow {
                     crate::ui::main_menu_shell::MainMenuControlId::WwOnline0x684,
                 )?;
                 self.record(frame, "Multiplayer Internet selected");
-                self.phase = RoundPhase::Welcome;
-            }
-            RoundPhase::Welcome
-                if rendered == PresentedShell::WolWelcome
-                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolWelcome) =>
-            {
-                let rect = App::wol_welcome_layout(state)
-                    .page
-                    .button_rect(crate::ui::wol_shell::CUSTOM_MATCH)
-                    .context("Custom Match button")?;
-                click(state, rect);
-                self.record(frame, "Custom Match selected");
                 self.phase = RoundPhase::Login;
             }
             RoundPhase::Login
@@ -1353,7 +1340,7 @@ impl LiveRoundFlow {
                         .context("WOL lobby Back button")?;
                     click(state, rect);
                     self.record(frame, "Presented authenticated lobby reached after startup failure; normal Back clicked");
-                    self.phase = RoundPhase::ExitWelcome;
+                    self.phase = RoundPhase::ExitSignIn;
                 } else if core.failure.is_some() {
                     self.phase = RoundPhase::Finished;
                 } else if self.rounds.len() == 2 {
@@ -1372,7 +1359,7 @@ impl LiveRoundFlow {
                             .button_rect(wol_lobby::BACK)
                             .context("WOL lobby Back button")?;
                         click(state, rect);
-                        self.phase = RoundPhase::ExitWelcome;
+                        self.phase = RoundPhase::ExitSignIn;
                     } else {
                         lobby_button(state, crate::ui::lan_shell::BACK)?;
                         MoviesCapture::restore_neutral_pointer(state);
@@ -1404,22 +1391,19 @@ impl LiveRoundFlow {
                         frame,
                         "Scoped HTTPS block acknowledged; actual lobby Back clicked",
                     );
-                    self.phase = RoundPhase::ExitWelcome;
+                    self.phase = RoundPhase::ExitSignIn;
                 }
             }
-            RoundPhase::ExitWelcome
-                if rendered == PresentedShell::WolWelcome
-                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolWelcome) =>
+            RoundPhase::ExitSignIn
+                if rendered == PresentedShell::WolLogin
+                    && MoviesCapture::slide_settled(state, ShellSlideKind::WolLogin) =>
             {
-                let rect = App::wol_welcome_layout(state)
+                let rect = crate::app::shell_wol::login_layout(state)
                     .page
-                    .button_rect(crate::ui::wol_shell::MAIN_MENU)
-                    .context("WOL welcome Main Menu button")?;
+                    .button_rect(crate::ui::wol_login::BACK)
+                    .context("WOL sign-in Back button")?;
                 click(state, rect);
-                self.record(
-                    frame,
-                    "WOL welcome Main Menu clicked through ordinary input",
-                );
+                self.record(frame, "WOL sign-in Back clicked through ordinary input");
                 self.phase = RoundPhase::MainReturn;
             }
             RoundPhase::MainReturn

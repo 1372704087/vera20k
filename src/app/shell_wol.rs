@@ -6,6 +6,10 @@
 //! Quick Match runs the same login and then its own runner
 //! (`0x0079FC40`, [`quick_match`]).
 //!
+//! The normal online visit has no welcome: Custom Match is its only mode, so
+//! Internet and every return to mode 0 go straight to its sign-in `0x10F`,
+//! whose Back leaves WOL. Native diagnostics keep the retail welcome.
+//!
 //! The WOLAPI COM object, its servers and its credential store are outside
 //! the shell: they meet it only through [`WolServiceRequest`] /
 //! [`WolServiceEvent`]. Production uses VERA's authenticated HTTPS lobby and
@@ -305,14 +309,6 @@ impl WolVisit {
         self.provider = provider;
     }
 
-    pub(crate) fn welcome_page_spec(&self) -> &'static crate::ui::shell::menu_page::MenuPageSpec {
-        if self.legacy_ui {
-            &crate::ui::wol_shell::WOL_WELCOME_PAGE
-        } else {
-            &crate::ui::wol_shell::WOL_ONLINE_WELCOME_PAGE
-        }
-    }
-
     pub(crate) fn modern_ui(&self) -> bool {
         !self.legacy_ui
     }
@@ -532,14 +528,13 @@ fn provider_for_visit(
 impl App {
     /// State 2 (`0x0052DD57`) then `WOL_Main`: the lobby music takes over
     /// (`0x0077B2D7..0x0077B31D`) and `0x10E` is created after the empty
-    /// backdrop (`0x00798DE0`).
+    /// backdrop (`0x00798DE0`); the normal online visit signs in instead.
     pub(super) fn open_wol_welcome_page(state: &mut AppState) {
         crate::app::shell_main_menu::clear_typed_codes_for_network_session(state);
         crate::app::frontend::main_menu_shell_render::clear_ra2ts_movie_session(state);
         crate::app::frontend::shell_transition::invalidate_main_menu_dialog_instance(state);
         // The message boxes paint from the skirmish chrome atlas.
         let _ = Self::ensure_skirmish_shell_chrome(state);
-        Self::ensure_wol_welcome_art(state);
         read_wol_settings(state);
         let now_ms = crate::app::match_runtime::frame_pacer::wall_clock_ms();
         let lobby_music = state.frontend.wol_preferences.lobby_music != 0;
@@ -549,14 +544,31 @@ impl App {
             state.persistence.options_profile.wol_test_service,
             state.platform.capture_client_size,
         );
+        visit.set_legacy_ui(state.frontend.wol_native_ui);
         state.frontend.wol = Some(visit);
         // Persona I/O is selected by the new visit's provider, never a
         // previous visit (or the absence of one).
         persona::enter_wol_main(state);
-        persona::fill_welcome(state);
         // The first mode-loop pass (0x0077B402) applies again.
         apply_wol_preferences(state);
         state.frontend.shell_route = ShellRoute::Wol;
+        Self::open_wol_home(state);
+    }
+
+    /// Mode 0's page: the welcome `0x10E` (`0x00798DE0`), or for the normal
+    /// online visit, which has no welcome, its Custom Match sign-in. The
+    /// flow starts over the empty backdrop, as after the welcome's button.
+    fn open_wol_home(state: &mut AppState) {
+        let Some(visit) = state.frontend.wol.as_mut() else {
+            return;
+        };
+        if visit.modern_ui() {
+            Self::commit_wol_action(state, WolMode::CustomMatch);
+            return;
+        }
+        visit.page = WolPage::Welcome;
+        persona::fill_welcome(state);
+        Self::ensure_wol_welcome_art(state);
         state
             .frontend
             .shell_controller
@@ -912,7 +924,7 @@ impl App {
 
     /// The login flow returned 0 (Back, or a failed connect after its box):
     /// mode 0 (`0x0077B3F6`), and the loop runs a fresh `0x10E` with its
-    /// entry slide.
+    /// entry slide, or the online sign-in again.
     pub(crate) fn reopen_wol_welcome(state: &mut AppState) {
         let Some(visit) = state.frontend.wol.as_mut() else {
             return;
@@ -928,17 +940,11 @@ impl App {
             logout(visit);
             visit.authenticated = false;
         }
-        visit.page = WolPage::Welcome;
-        persona::fill_welcome(state);
         // The mode-loop pass (0x0077B402) before the welcome runs.
         apply_wol_preferences(state);
         state.frontend.wol_login_art = None;
         state.frontend.shell_route = ShellRoute::Wol;
-        Self::ensure_wol_welcome_art(state);
-        state
-            .frontend
-            .shell_controller
-            .reset_to(WOL_WELCOME_DIALOG, false);
+        Self::open_wol_home(state);
         state.platform.window.request_redraw();
     }
 

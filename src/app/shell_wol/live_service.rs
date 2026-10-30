@@ -38,7 +38,6 @@ const DEFAULT_LOBBY_URL: &str = match option_env!("VERA20K_LOBBY_URL") {
     None => "https://lobby.vera20k.org",
 };
 const POLL_INTERVAL: Duration = Duration::from_millis(50);
-const STATS_INTERVAL: Duration = Duration::from_secs(30);
 const RELAY_TIMEOUT: Duration = Duration::from_secs(30);
 const EXIT_CLEANUP_TIMEOUT: Duration = Duration::from_secs(90);
 /// Gameplay grants (timing confirmation, `relay_renewed`, match resume) are
@@ -250,7 +249,6 @@ pub(super) struct LiveService {
     accepted_options: Option<Value>,
     start_preparation: Option<StartPreparation>,
     last_ready_request: Option<(u64, u64)>,
-    next_stats: Option<Instant>,
     pending_choices: Option<PendingChoices>,
     player_id: String,
     member_ids: BTreeMap<String, String>,
@@ -539,7 +537,6 @@ impl LiveService {
             accepted_options: None,
             start_preparation: None,
             last_ready_request: None,
-            next_stats: None,
             pending_choices: None,
             player_id: String::new(),
             member_ids: BTreeMap::new(),
@@ -1042,26 +1039,10 @@ pub(super) fn poll(state: &mut AppState) -> Option<Instant> {
         }
         if service.spawned {
             poll_spawned_exit(state, &mut service);
-        } else {
-            poll_stats(state, &mut service);
         }
     }
     put_service(state, service);
     Some(Instant::now() + POLL_INTERVAL)
-}
-
-/// The online welcome shows the lobby's public counts, refreshed while open.
-fn poll_stats(state: &AppState, service: &mut LiveService) {
-    let now = Instant::now();
-    let welcome = state
-        .frontend
-        .wol
-        .as_ref()
-        .is_some_and(|visit| matches!(visit.page, super::WolPage::Welcome));
-    if welcome && service.next_stats.is_none_or(|due| now >= due) {
-        let _ = service.requests.send(http::Request::Stats);
-        service.next_stats = Some(now + STATS_INTERVAL);
-    }
 }
 
 fn notice(state: &mut AppState, text: &str) {
@@ -1729,7 +1710,6 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
                 channels: list.channels.into_iter().map(Into::into).collect(),
             },
         ),
-        http::Response::Stats(stats) => super::persona::lobby_stats(state, stats),
         http::Response::Event(event) => {
             if apply_event(state, service, &event.kind, event.payload).is_err() {
                 log::warn!(
@@ -2835,7 +2815,6 @@ mod completion_tests {
             accepted_options: None,
             start_preparation: None,
             last_ready_request: None,
-            next_stats: None,
             pending_choices: None,
             player_id: String::new(),
             member_ids: BTreeMap::new(),

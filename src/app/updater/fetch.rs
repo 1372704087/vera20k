@@ -91,7 +91,7 @@ fn get_small(agent: &ureq::Agent, url: &str, limit: u64) -> Result<Vec<u8>> {
 
 /// What this program can do about the newest release on `platform`
 /// ([`manifest::offer`]), when it is newer than `current`. A skipped version
-/// is still checked: the online welcome warns about it.
+/// is still found: Check for Updates offers it.
 pub(super) fn check(current: Version, platform: &str) -> Result<Option<Offer>> {
     let agent = agent();
     let latest = get_small(&agent, &format!("{BASE_URL}latest.json"), MAX_POINTER_BYTES)?;

@@ -199,7 +199,7 @@ fn column_page_spec(
 ) -> Option<&'static MenuPageSpec> {
     let visit = visit?;
     match kind? {
-        ShellSlideKind::WolWelcome => Some(visit.welcome_page_spec()),
+        ShellSlideKind::WolWelcome => Some(&crate::ui::wol_shell::WOL_WELCOME_PAGE),
         ShellSlideKind::WolLogin => Some(visit.login()?.policy.page_spec()),
         ShellSlideKind::WolLobby => Some(visit.lobby()?.ui.page_spec()),
         _ => None,
@@ -1542,9 +1542,6 @@ mod tests {
 
     #[test]
     fn modern_wol_slides_only_animate_the_visible_button_faces() {
-        let welcome = ShellSlideKind::WolWelcome
-            .column(9, Some(&crate::ui::wol_shell::WOL_ONLINE_WELCOME_PAGE));
-        assert_eq!((welcome.top_buttons, welcome.bottom_button), (1, true));
         let lobby = crate::ui::wol_lobby::WolLobbyState::new(false, true);
         let column = ShellSlideKind::WolLobby.column(9, Some(lobby.page_spec()));
         assert_eq!(

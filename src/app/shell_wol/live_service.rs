@@ -2994,7 +2994,7 @@ mod completion_tests {
         local_first.humans.reverse();
         local_first.local_player_index = 0;
         lobby
-            .accept_network_setup(local_first, false, None)
+            .accept_network_setup(local_first, false, None, false)
             .unwrap();
         lobby.canonicalize_online_roster(&names).unwrap();
         bind_relay_roster(&mut lobby, &names, 77).unwrap();
@@ -3130,7 +3130,9 @@ mod completion_tests {
         launch.rebuild_house_roster();
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::Wol);
-        session.accept_network_setup(launch, true, None).unwrap();
+        session
+            .accept_network_setup(launch, true, None, false)
+            .unwrap();
         session
     }
 
@@ -3174,7 +3176,9 @@ mod completion_tests {
         let random = !launch.local_slot().color_random;
         launch.local_slot_mut().color_random = random;
         launch.rebuild_house_roster();
-        session.accept_network_setup(launch, true, None).unwrap();
+        session
+            .accept_network_setup(launch, true, None, false)
+            .unwrap();
         assert!(!local_choices_match(&session, &accepted));
         let expected =
             serde_json::to_value(session.network_setup().unwrap().local_player()).unwrap();

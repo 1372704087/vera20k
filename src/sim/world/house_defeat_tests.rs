@@ -123,7 +123,7 @@ fn observer_defeat_waits_for_hostile_players_then_finishes_without_loss_voice() 
     sim.session.set_current_house_for_test(Some(owners[0]));
     sim.session.install_multiplayer_house_identity(
         crate::skirmish_modes::MpModeClass::Battle,
-        Some(owners[0]),
+        vec![owners[0]],
     );
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
@@ -171,8 +171,10 @@ fn cooperative_defeated_local_waits_for_partner_and_shares_completed_victory() {
     sim.session.set_game_mode(ScenarioGameMode::Lan);
     sim.session.install_network_timing(10);
     sim.session.set_current_house_for_test(Some(owners[0]));
-    sim.session
-        .install_multiplayer_house_identity(crate::skirmish_modes::MpModeClass::Cooperative, None);
+    sim.session.install_multiplayer_house_identity(
+        crate::skirmish_modes::MpModeClass::Cooperative,
+        Vec::new(),
+    );
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
         house.set_is_human_for_test(index < 2);
@@ -200,7 +202,7 @@ fn network_result_world(local: usize) -> (Simulation, Vec<InternedId>) {
     sim.session.install_network_timing(10);
     sim.session.set_current_house_for_test(Some(owners[local]));
     sim.session
-        .install_multiplayer_house_identity(crate::skirmish_modes::MpModeClass::Battle, None);
+        .install_multiplayer_house_identity(crate::skirmish_modes::MpModeClass::Battle, Vec::new());
     for (index, owner) in owners.iter().enumerate() {
         let house = sim.houses.get_mut(owner).unwrap();
         house.set_is_human_for_test(index < 2);
@@ -458,7 +460,7 @@ fn native_flag_result_and_savour_controls() {
         if input["observer"].as_bool().unwrap_or(false) {
             sim.session.install_multiplayer_house_identity(
                 crate::skirmish_modes::MpModeClass::Battle,
-                Some(owner),
+                vec![owner],
             );
         }
         let skip = input["skip_timer"].as_bool().unwrap_or(false);

@@ -529,7 +529,7 @@ pub(crate) fn accept_external_session(
 ) -> anyhow::Result<()> {
     let host = launch.local_player_index == 0;
     session.enter_network(context);
-    session.accept_network_setup(launch, host, None)
+    session.accept_network_setup(launch, host, None, false)
 }
 
 /// Install an external launch's setup without a dialog, its online start
@@ -796,7 +796,7 @@ fn install_setup(
     state
         .match_state
         .session
-        .accept_network_setup(launch, host, observer_row)?;
+        .accept_network_setup(launch, host, observer_row, dialog.modern)?;
     let quick_match = dialog.wol() && crate::app::shell_wol::quick_match::mode_active(state);
     if dialog.wol() {
         let room = crate::app::shell_wol::lobby::room(state);

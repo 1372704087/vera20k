@@ -1704,7 +1704,8 @@ fn ex_info(state: &AppState) -> String {
 
 /// The slot words of [`ex_info`]: the AI rows (`0x005E94D0`), a human
 /// observer on the observer row `[0x8316A4]` (`0x005E9580`) and an open
-/// observer row (`!0x005E9560`).
+/// observer row (`!0x005E9560`). A VERA room with several observers counts
+/// its observers and its open observer rows instead.
 fn slot_ex_info(session: &crate::app::match_runtime::session::MatchSession) -> (i32, i32, i32) {
     use crate::app::match_runtime::session::NetworkVacancy;
     let Some(launch) = session.network_setup() else {
@@ -1715,16 +1716,20 @@ fn slot_ex_info(session: &crate::app::match_runtime::session::MatchSession) -> (
         .clone()
         .filter(|row| session.network_display_ai(*row).is_some())
         .count();
-    let observer_row = session.network_observer_row();
-    let taken = observer_row.is_some()
-        && launch
-            .humans
-            .iter()
-            .any(|human| human.is_observer() && human.raw_slot_index == observer_row);
     let open = rows
         .clone()
-        .any(|row| session.network_vacancy(row) == Some(NetworkVacancy::OpenObserver));
-    (ai as i32, i32::from(taken), i32::from(open))
+        .filter(|row| session.network_vacancy(*row) == Some(NetworkVacancy::OpenObserver))
+        .count();
+    let observers = launch.humans.iter().filter(|human| human.is_observer());
+    if session.network_several_observers() {
+        return (ai as i32, observers.count() as i32, open as i32);
+    }
+    let observer_row = session.network_observer_row();
+    let taken = observer_row.is_some()
+        && observers
+            .clone()
+            .any(|human| human.raw_slot_index == observer_row);
+    (ai as i32, i32::from(taken), i32::from(open != 0))
 }
 
 /// `0x0078F000`'s channel limit (`"mode #%s +l %d"`, API+0x9C): the host,
@@ -3934,7 +3939,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::Wol);
         session
-            .accept_network_setup(launch.clone(), false, None)
+            .accept_network_setup(launch.clone(), false, None, false)
             .unwrap();
         session
             .accept_network_host_setup(launch, vacancies, 3, None, false)

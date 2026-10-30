@@ -113,9 +113,41 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             .multiplayer_shell_runtime
             .cooperative_setup_view()
     });
-    let row_count = visible_limit
-        .max(observer_row.map_or(0, |row| row + 1))
-        .min(crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT);
+    // VERA's rooms list the rows admitting players, then every row open for
+    // or held by an observer, and for the host the next row to open for one.
+    let several = session.network_several_observers() && observer_row.is_some();
+    let visible_limit = if several {
+        usize::from(session.network_player_row_limit())
+    } else {
+        visible_limit
+    };
+    let mut spectator_rows = Vec::new();
+    if several {
+        spectator_rows.extend(
+            (visible_limit as u8..crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as u8)
+                .filter(|row| session.network_row_for_observer(*row)),
+        );
+        let next = spectator_rows
+            .last()
+            .map_or(visible_limit, |row| usize::from(*row) + 1);
+        if host && next < crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT {
+            spectator_rows.push(next as u8);
+        }
+    }
+    let row_count = if several {
+        visible_limit + spectator_rows.len()
+    } else {
+        visible_limit
+            .max(observer_row.map_or(0, |row| row + 1))
+            .min(crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT)
+    };
+    let row_at = |position: usize| {
+        if several && position >= visible_limit {
+            spectator_rows.get(position - visible_limit).copied()
+        } else {
+            (position < crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT).then_some(position as u8)
+        }
+    };
     let dialog = super::dialog(state);
     let rows = dialog.rows_per_page();
     let first_row = state
@@ -126,10 +158,9 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let mut combos = Vec::with_capacity(5 * rows);
     let mut row_icons = std::array::from_fn(|_| None);
     for visible_row in 0..rows {
-        let row = (first_row + visible_row) as u8;
-        if usize::from(row) >= crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT {
+        let Some(row) = row_at(first_row + visible_row) else {
             break;
-        }
+        };
         let human = launch
             .humans
             .iter()
@@ -140,7 +171,10 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         let is_local = local.raw_slot_index == Some(row);
         let observer = human.is_some_and(|(_, human)| human.is_observer())
             || vacancy == Some(NetworkVacancy::OpenObserver);
-        let visible = usize::from(row) < visible_limit || observer_row == Some(usize::from(row));
+        let visible =
+            several || usize::from(row) < visible_limit || observer_row == Some(usize::from(row));
+        // A VERA room's Closed spectator row shows only its Player combo.
+        let closed_spectator_row = several && usize::from(row) >= visible_limit && !observer;
         let editable = ((is_local
             && (host || !session.network_player_ready(launch.local_player_index)))
             || host && ai.is_some())
@@ -201,10 +235,16 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             });
         }
         if host && !is_local {
-            let observer_only = observer_row == Some(usize::from(row))
-                && usize::from(row) > capacity
-                && ai.is_none()
-                && vacancy != Some(NetworkVacancy::Open);
+            // VERA's rooms open any row for an observer, and a row past the
+            // players only for one.
+            let observer_only = if several {
+                usize::from(row) >= visible_limit
+            } else {
+                observer_row == Some(usize::from(row))
+                    && usize::from(row) > capacity
+                    && ai.is_none()
+                    && vacancy != Some(NetworkVacancy::Open)
+            };
             if !observer_only {
                 players.push(SetupChoice {
                     value: 2,
@@ -212,7 +252,7 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
                     swatch: None,
                 });
             }
-            if observer_row == Some(usize::from(row)) {
+            if several || observer_row == Some(usize::from(row)) {
                 players.push(SetupChoice {
                     value: 7,
                     text: label(state, "GUI:OpenObserver"),
@@ -350,13 +390,14 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
                 row,
                 enabled: editable && (column != SetupColumn::Team || mode.allies_allowed),
                 visible: visible
+                    && !closed_spectator_row
                     && (column == SetupColumn::Country || !observer)
                     && !(column == SetupColumn::Team && clan_room),
                 selected,
                 choices,
             });
         }
-        if visible {
+        if visible && !closed_spectator_row {
             let flag = match u16::try_from(country)
                 .ok()
                 .and_then(|index| state.process_assets.country_flag_surface(index))
@@ -411,12 +452,13 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         },
     ];
     // 7A0E50 from 5EA3E0: rows without a node show no ping image.
-    let ping_icons = std::array::from_fn(|row| {
-        (dialog.wol() && row < rows).then_some(())?;
+    let ping_icons = std::array::from_fn(|position| {
+        (dialog.wol() && position < rows).then_some(())?;
+        let row = row_at(first_row + position)?;
         let human = launch
             .humans
             .iter()
-            .find(|human| human.raw_slot_index == Some((first_row + row) as u8))?;
+            .find(|human| human.raw_slot_index == Some(row))?;
         ping_icon(protocol.ping(&human.name)?)
     });
     Some(SetupView {

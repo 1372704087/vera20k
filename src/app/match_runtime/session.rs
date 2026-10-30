@@ -230,6 +230,11 @@ enum NetworkPhase {
         /// Native831700/8316A4: prior capacity and independent reserved observer row.
         capacity: i32,
         observer_row: Option<u8>,
+        /// VERA's own rooms (`SetupDialog::modern`): any row may be open for
+        /// an observer, and the rows past the players are spectator rows,
+        /// Closed unless open for or held by an observer. Native diagnostics
+        /// keep the one reserved row above.
+        several_observers: bool,
     },
     Frozen {
         startup: Arc<crate::app::match_bootstrap::PreparedNetworkStartup>,
@@ -543,11 +548,13 @@ impl MatchSession {
 
     /// Adopt a service-admitted setup. Native LAN own-node creation precedes
     /// remote-node events (5E00B0); UI requests alone do not create participants.
+    /// With `several_observers` the rows past the native eight start Closed.
     pub(crate) fn accept_network_setup(
         &mut self,
         mut launch: SkirmishLaunchSession,
         host: bool,
         observer_row: Option<u8>,
+        several_observers: bool,
     ) -> anyhow::Result<()> {
         anyhow::ensure!(self.network.is_some(), "no network visit is active");
         anyhow::ensure!(
@@ -591,9 +598,16 @@ impl MatchSession {
             display_ai,
             capacity: 8,
             observer_row,
+            several_observers,
             launch,
             admission,
-            vacancies: [NetworkVacancy::Open; NETWORK_PLAYER_SLOT_COUNT],
+            vacancies: std::array::from_fn(|row| {
+                if several_observers && row >= 8 {
+                    NetworkVacancy::Closed
+                } else {
+                    NetworkVacancy::Open
+                }
+            }),
             inactive_choices,
             inactive_ai_options: [NetworkAiOptions::INITIAL_INACTIVE; NETWORK_PLAYER_SLOT_COUNT],
         };
@@ -839,8 +853,14 @@ impl MatchSession {
             // 0x7A8838..0x7A88A4: country Random and a player role, the
             // observer row opened for observers, then 0x5E9240's row. The
             // country check still compares against the -3 read at 0x7A865F,
-            // so the options always go out (0x7A8905..0x7A8915).
-            self.set_network_row_kind(observer_row.unwrap_or(row), NetworkRowKind::OpenObserver)?;
+            // so the options always go out (0x7A8905..0x7A8915). In VERA's
+            // rooms the observer's own row is the one it leaves.
+            let left = if self.network_several_observers() {
+                row
+            } else {
+                observer_row.unwrap_or(row)
+            };
+            self.set_network_row_kind(left, NetworkRowKind::OpenObserver)?;
             let free = self
                 .network_free_row(false)
                 .ok_or_else(|| anyhow::anyhow!("no Open row after 0x5E9510"))?;
@@ -852,12 +872,18 @@ impl MatchSession {
             change.roster = true;
             change.options = true;
             let target = self.network_free_row(true);
+            let several = self.network_several_observers();
             self.set_network_row_kind(row, NetworkRowKind::Open)?;
             if let Some(target) = target {
-                // 0x7A89F4..0x7A8A6F: the node goes to [0x8316A4].
+                // 0x7A89F4..0x7A8A6F: the node goes to [0x8316A4]; in VERA's
+                // rooms, to the open observer row 0x5E9240 found.
                 let human = &mut self.editable_network_setup()?.humans[index];
                 human.set_observer(true);
-                human.raw_slot_index = Some(observer_row.unwrap_or(target));
+                human.raw_slot_index = Some(if several {
+                    target
+                } else {
+                    observer_row.unwrap_or(target)
+                });
             }
             self.editable_network_setup()?.rebuild_house_roster();
             return Ok(change);
@@ -1690,6 +1716,31 @@ impl MatchSession {
         }
     }
 
+    /// Whether this is one of VERA's own rooms, where observers may take
+    /// any number of rows (the Setup phase's `several_observers`).
+    pub(crate) fn network_several_observers(&self) -> bool {
+        self.network.as_ref().is_some_and(|network| {
+            matches!(
+                network.phase,
+                NetworkPhase::Setup {
+                    several_observers: true,
+                    ..
+                }
+            )
+        })
+    }
+
+    /// The row is open for an observer or holds one.
+    pub(crate) fn network_row_for_observer(&self, row: u8) -> bool {
+        self.network_vacancy(row) == Some(NetworkVacancy::OpenObserver)
+            || self.network_setup().is_some_and(|launch| {
+                launch
+                    .humans
+                    .iter()
+                    .any(|human| human.raw_slot_index == Some(row) && human.is_observer())
+            })
+    }
+
     /// `MPGameOptions__SelectScenario` (`0x005E7BF0`): the map file and the
     /// row count `[0xA8BB0C]` (the map's players, capped by the mode and
     /// the WOL room) only. Unlike ChooseMap it re-cuts no rows and keeps
@@ -1726,6 +1777,8 @@ impl MatchSession {
     /// capacity5EC3A0, starts5EE6A0 and all-row team defaults5EE510(-1).
     /// Unbound human nodes are returned for service Kick intents. Their source
     /// membership survives until the separate type10 departure response.
+    /// A VERA room keeps every observer row and closes the other rows past
+    /// its players.
     pub(crate) fn select_network_map(
         &mut self,
         mode: crate::skirmish_launch::SkirmishLaunchMode,
@@ -1738,6 +1791,7 @@ impl MatchSession {
             "map requires a valid participant capacity"
         );
         let mut candidate = self.clone();
+        let several = self.network_several_observers();
         let (old_capacity, observer_row, host_extra, new_capacity) = {
             let Some(NetworkSession {
                 phase:
@@ -1780,19 +1834,15 @@ impl MatchSession {
         if new_capacity < old_capacity {
             for row in new_capacity.saturating_add(host_extra)..NETWORK_PLAYER_SLOT_COUNT as i32 {
                 let row = row as u8;
-                let retained_observer = Some(row) == observer_row
-                    && (candidate.network_vacancy(row) == Some(NetworkVacancy::OpenObserver)
-                        || candidate
-                            .network_setup()
-                            .unwrap()
-                            .humans
-                            .iter()
-                            .any(|human| human.raw_slot_index == Some(row) && human.is_observer()));
+                // VERA's rooms keep every observer row.
+                let retained_observer = (several || Some(row) == observer_row)
+                    && candidate.network_row_for_observer(row);
                 if Some(row) != local_row && !retained_observer {
                     // Native's hidden eight-row suffix stays Open. Extended
                     // rows have no native slot and must remain closed until a
-                    // later map explicitly makes them usable again.
-                    let kind = if row >= 8 || new_capacity > 8 {
+                    // later map explicitly makes them usable again, as must
+                    // a VERA room's spectator rows.
+                    let kind = if several || row >= 8 || new_capacity > 8 {
                         NetworkRowKind::Closed
                     } else {
                         NetworkRowKind::Open
@@ -1807,7 +1857,14 @@ impl MatchSession {
                     .min(NETWORK_PLAYER_SLOT_COUNT as i32)
             {
                 let row = row as u8;
-                if Some(row) == local_row || Some(row) == observer_row {
+                // A VERA room's reserved row is no different from the others,
+                // but its observers stay.
+                let kept = if several {
+                    candidate.network_row_for_observer(row)
+                } else {
+                    Some(row) == observer_row
+                };
+                if Some(row) == local_row || kept {
                     continue;
                 }
                 let setup = candidate.network_setup().unwrap();
@@ -1841,7 +1898,13 @@ impl MatchSession {
                 }))
                 .collect();
             for row in observer_rows {
-                removed.extend(candidate.set_network_row_kind(row, NetworkRowKind::Open)?);
+                // A VERA room's rows past its players stay Closed.
+                let kind = if several && i32::from(row) >= new_capacity {
+                    NetworkRowKind::Closed
+                } else {
+                    NetworkRowKind::Open
+                };
+                removed.extend(candidate.set_network_row_kind(row, kind)?);
             }
         }
         let ordinary = candidate
@@ -1863,14 +1926,7 @@ impl MatchSession {
         if let Some(row) =
             reserved.filter(|row| Some(*row) != local_row && i32::from(*row) > new_capacity)
         {
-            let is_observer = candidate
-                .network_setup()
-                .unwrap()
-                .humans
-                .iter()
-                .any(|human| human.raw_slot_index == Some(row) && human.is_observer())
-                || candidate.network_vacancy(row) == Some(NetworkVacancy::OpenObserver);
-            if !is_observer {
+            if !candidate.network_row_for_observer(row) {
                 removed.extend(candidate.set_network_row_kind(row, NetworkRowKind::Closed)?);
             }
         }
@@ -2100,7 +2156,7 @@ impl MatchSession {
     /// Rows admitting players are bounded by the active mode/map capacity.
     /// The native host-observer row0 exception adds one physical row without
     /// adding a player, up to the active eight/30-slot allocation.
-    fn network_player_row_limit(&self) -> u8 {
+    pub(crate) fn network_player_row_limit(&self) -> u8 {
         let Some(capacity) = self.network_setup_capacity() else {
             return 0;
         };
@@ -2124,14 +2180,17 @@ impl MatchSession {
     }
 
     /// `0x005E9240`'s row for a new node: the first Open row for a player,
-    /// the first open observer row for an observer, over all eight rows.
+    /// the first open observer row for an observer, over all eight rows
+    /// (all thirty in VERA's rooms, whose spectator rows follow the players).
     pub(crate) fn network_free_row(&self, observer: bool) -> Option<u8> {
         let wanted = if observer {
             NetworkVacancy::OpenObserver
         } else {
             NetworkVacancy::Open
         };
-        let rows = if observer {
+        let rows = if observer && self.network_several_observers() {
+            NETWORK_PLAYER_SLOT_COUNT as u8
+        } else if observer {
             self.network_setup_capacity()
                 .unwrap_or(0)
                 .max(8)
@@ -2146,19 +2205,24 @@ impl MatchSession {
         (0..rows).find(|row| self.network_vacancy(*row) == Some(wanted))
     }
 
-    /// `0x005E95E0`: the nodes, less an observer on the observer row, are
-    /// more than [`Self::network_slot_test_rows`].
+    /// `0x005E95E0`: the nodes, less an observer on the observer row (every
+    /// observer in VERA's rooms), are more than
+    /// [`Self::network_slot_test_rows`].
     pub(crate) fn network_over_capacity(&self) -> bool {
         let Some(launch) = self.network_setup() else {
             return false;
         };
         let limit = self.network_slot_test_rows();
         let observer_row = self.network_observer_row();
-        let observer_present = launch
+        let several = self.network_several_observers();
+        let observers = launch
             .humans
             .iter()
-            .any(|human| human.is_observer() && human.raw_slot_index == observer_row);
-        launch.humans.len() as i32 - i32::from(observer_present) > limit
+            .filter(|human| {
+                human.is_observer() && (several || human.raw_slot_index == observer_row)
+            })
+            .count();
+        launch.humans.len() as i32 - observers as i32 > limit
     }
 
     pub(crate) fn network_player_ready(&self, index: usize) -> bool {
@@ -2929,7 +2993,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::Wol);
         session
-            .accept_network_setup(launch.clone(), false, None)
+            .accept_network_setup(launch.clone(), false, None, false)
             .unwrap();
         session
             .accept_network_host_setup(
@@ -2975,7 +3039,9 @@ mod tests {
         let mode = launch.mode.clone();
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::Wol);
-        session.accept_network_setup(launch, true, None).unwrap();
+        session
+            .accept_network_setup(launch, true, None, false)
+            .unwrap();
         session
             .select_network_map(mode.clone(), "NINE.MAP".into(), 9)
             .unwrap();
@@ -3036,7 +3102,9 @@ mod tests {
         let mode = launch.mode.clone();
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::LanLobby);
-        session.accept_network_setup(launch, true, Some(0)).unwrap();
+        session
+            .accept_network_setup(launch, true, Some(0), false)
+            .unwrap();
         session
             .select_network_map(mode, "NINE.MAP".into(), 9)
             .unwrap();
@@ -3053,6 +3121,59 @@ mod tests {
         assert!(!session.network_over_capacity());
     }
 
+    /// VERA's rooms (`several_observers`): the rows past the players are
+    /// closed spectator rows the host may open, and each observer keeps its
+    /// own row through a map change and back to play; the reserved row 7 is
+    /// not used.
+    #[test]
+    fn vera_room_seats_each_observer_on_its_own_row() {
+        use super::{NetworkRowKind, NetworkVacancy};
+        let mut launch = network_fixture();
+        launch.local_player_index = 0;
+        let mode = launch.mode.clone();
+        let mut session = MatchSession::default();
+        session.enter_network(super::NetworkReturnContext::Wol);
+        session
+            .accept_network_setup(launch, true, Some(7), true)
+            .unwrap();
+        session
+            .select_network_map(mode.clone(), "FOUR.MAP".into(), 4)
+            .unwrap();
+        assert!((4..30).all(|row| session.network_vacancy(row) == Some(NetworkVacancy::Closed)));
+        for row in [4, 9] {
+            session
+                .set_network_row_kind(row, NetworkRowKind::OpenObserver)
+                .unwrap();
+        }
+        let slot = session.network_setup().unwrap().humans[1].slot.clone();
+        session
+            .accept_network_peer_choices(1, slot.clone(), true, None)
+            .unwrap();
+        assert_eq!(
+            session.network_setup().unwrap().humans[1].raw_slot_index,
+            Some(4)
+        );
+        assert_eq!(session.network_free_row(true), Some(9));
+        let removed = session
+            .select_network_map(mode, "TWO.MAP".into(), 2)
+            .unwrap();
+        assert!(removed.is_empty());
+        assert_eq!(
+            session.network_vacancy(9),
+            Some(NetworkVacancy::OpenObserver)
+        );
+        session
+            .accept_network_peer_choices(1, slot, false, None)
+            .unwrap();
+        let guest = &session.network_setup().unwrap().humans[1];
+        assert!(!guest.is_observer() && guest.raw_slot_index == Some(1));
+        assert_eq!(
+            session.network_vacancy(4),
+            Some(NetworkVacancy::OpenObserver)
+        );
+        assert_eq!(session.network_vacancy(7), Some(NetworkVacancy::Closed));
+    }
+
     #[test]
     fn online_canonical_roster_preserves_admission_and_local_identity() {
         let mut session = MatchSession::default();
@@ -3060,7 +3181,9 @@ mod tests {
         let fixture = network_fixture();
         let host_name = fixture.humans[0].name.clone();
         let guest_name = fixture.humans[1].name.clone();
-        session.accept_network_setup(fixture, false, None).unwrap();
+        session
+            .accept_network_setup(fixture, false, None, false)
+            .unwrap();
         session.set_network_player_ready(0, true).unwrap();
         session.set_network_map_status(0, 2).unwrap();
         session
@@ -3093,7 +3216,9 @@ mod tests {
         assert!(session.bind_network_endpoint("absent", endpoint).is_err());
         let launch = network_fixture();
         let host = launch.humans[0].name.clone();
-        session.accept_network_setup(launch, false, None).unwrap();
+        session
+            .accept_network_setup(launch, false, None, false)
+            .unwrap();
         session.bind_network_endpoint(&host, endpoint).unwrap();
         assert!(session.bind_network_endpoint("Guest", endpoint).is_err());
         assert_eq!(session.network_endpoint_source(endpoint), Some(0));
@@ -3116,7 +3241,7 @@ mod tests {
             let mut session = MatchSession::default();
             session.enter_network(context);
             session
-                .accept_network_setup(network_fixture(), false, Some(7))
+                .accept_network_setup(network_fixture(), false, Some(7), false)
                 .unwrap();
             session.set_network_player_ready(0, true).unwrap();
             session.set_network_map_status(0, 2).unwrap();
@@ -3166,7 +3291,7 @@ mod tests {
             assert!(session.set_network_player_ready(0, false).is_err());
             assert!(
                 session
-                    .accept_network_setup(network_fixture(), true, Some(7))
+                    .accept_network_setup(network_fixture(), true, Some(7), false)
                     .is_err()
             );
             assert_eq!(session.return_to_network_lobby(), Some(context));
@@ -3183,7 +3308,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::LanLobby);
         session
-            .accept_network_setup(network_fixture(), true, Some(7))
+            .accept_network_setup(network_fixture(), true, Some(7), false)
             .unwrap();
         session.set_network_player_ready(0, true).unwrap();
         session.set_network_map_status(0, 2).unwrap();
@@ -3212,7 +3337,9 @@ mod tests {
             session.enter_network(super::NetworkReturnContext::Wol);
             let mut launch = network_fixture();
             launch.local_player_index = 0;
-            session.accept_network_setup(launch, true, Some(7)).unwrap();
+            session
+                .accept_network_setup(launch, true, Some(7), false)
+                .unwrap();
             session
         };
         let mut session = wol_host();
@@ -3297,7 +3424,9 @@ mod tests {
         guest.enter_network(super::NetworkReturnContext::Wol);
         let mut launch = network_fixture();
         launch.local_player_index = 0;
-        guest.accept_network_setup(launch, false, Some(7)).unwrap();
+        guest
+            .accept_network_setup(launch, false, Some(7), false)
+            .unwrap();
         guest.set_network_player_ready(0, true).unwrap();
         guest.set_network_player_ready(1, true).unwrap();
         guest.clear_guest_readiness().unwrap();
@@ -3319,7 +3448,7 @@ mod tests {
         lan.enter_network(super::NetworkReturnContext::LanLobby);
         let mut launch = network_fixture();
         launch.local_player_index = 0;
-        lan.accept_network_setup(launch.clone(), true, Some(7))
+        lan.accept_network_setup(launch.clone(), true, Some(7), false)
             .unwrap();
         lan.select_network_map(launch.mode.clone(), file, 8)
             .unwrap();
@@ -3339,7 +3468,9 @@ mod tests {
             session.enter_network(super::NetworkReturnContext::Wol);
             let launch = network_fixture();
             let local = launch.local_player_index;
-            session.accept_network_setup(launch, host, None).unwrap();
+            session
+                .accept_network_setup(launch, host, None, false)
+                .unwrap();
             for index in 0..2 {
                 session.set_network_player_ready(index, true).unwrap();
                 session.set_network_map_status(index, 1).unwrap();
@@ -3358,7 +3489,9 @@ mod tests {
         guest.enter_network(super::NetworkReturnContext::LanLobby);
         let launch = network_fixture();
         let local = launch.local_player_index;
-        guest.accept_network_setup(launch, false, None).unwrap();
+        guest
+            .accept_network_setup(launch, false, None, false)
+            .unwrap();
         guest.set_network_player_ready(local, true).unwrap();
         guest.set_network_map_status(local, 1).unwrap();
         guest.set_network_map_status(1 - local, 1).unwrap();
@@ -3373,7 +3506,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::LanLobby);
         session
-            .accept_network_setup(network_fixture(), true, Some(7))
+            .accept_network_setup(network_fixture(), true, Some(7), false)
             .unwrap();
         session.set_network_player_ready(0, true).unwrap();
         session.set_network_map_status(0, 2).unwrap();
@@ -3425,7 +3558,9 @@ mod tests {
             });
         launch.ai_player_count = 1;
         launch.rebuild_house_roster();
-        session.accept_network_setup(launch, false, None).unwrap();
+        session
+            .accept_network_setup(launch, false, None, false)
+            .unwrap();
         let ai_country = |session: &MatchSession| {
             let ai = &session.network_setup().unwrap().opponents[0];
             (ai.country, ai.country_random)
@@ -3458,7 +3593,7 @@ mod tests {
         launch.humans[0].slot.start_position = LaunchStartPosition::Position(3);
         launch.humans[1].slot.team = LaunchTeam::Team(2);
         session
-            .accept_network_setup(launch.clone(), true, None)
+            .accept_network_setup(launch.clone(), true, None, false)
             .unwrap();
         let before = session.network_setup().unwrap().clone();
         assert_eq!(
@@ -3483,7 +3618,7 @@ mod tests {
         session.enter_network(super::NetworkReturnContext::Wol);
         let launch = network_fixture();
         session
-            .accept_network_setup(launch.clone(), false, Some(7))
+            .accept_network_setup(launch.clone(), false, Some(7), false)
             .unwrap();
         // Before any options the raw capacity is 8: rows 2..7 are Open.
         assert!(!session.network_no_open_player_row());
@@ -3542,7 +3677,9 @@ mod tests {
         launch.humans[0].slot.color_random = false;
         launch.humans[0].slot.start_position = LaunchStartPosition::Auto;
         let must_ally = launch.mode.must_ally;
-        session.accept_network_setup(launch, true, Some(7)).unwrap();
+        session
+            .accept_network_setup(launch, true, Some(7), false)
+            .unwrap();
         session
             .set_network_row_kind(7, NetworkRowKind::OpenObserver)
             .unwrap();
@@ -3631,7 +3768,7 @@ mod tests {
         session.enter_network(super::NetworkReturnContext::LanLobby);
         let launch = network_fixture();
         session
-            .accept_network_setup(launch.clone(), false, Some(7))
+            .accept_network_setup(launch.clone(), false, Some(7), false)
             .unwrap();
         let mut metadata = super::NetworkMapMetadata {
             display_name: "Advertised title".into(),
@@ -3773,7 +3910,7 @@ mod tests {
         let mut launch = network_fixture();
         launch.rebuild_house_roster();
         session
-            .accept_network_setup(launch.clone(), false, None)
+            .accept_network_setup(launch.clone(), false, None, false)
             .unwrap();
         let mut metadata = super::NetworkMapMetadata {
             display_name: "Shared map".into(),
@@ -3852,7 +3989,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::LanLobby);
         session
-            .accept_network_setup(network_fixture(), false, Some(7))
+            .accept_network_setup(network_fixture(), false, Some(7), false)
             .unwrap();
         session.set_network_player_ready(0, true).unwrap();
         session.set_network_player_ready(1, true).unwrap();
@@ -3893,7 +4030,7 @@ mod tests {
         let mut session = MatchSession::default();
         session.enter_network(super::NetworkReturnContext::LanLobby);
         session
-            .accept_network_setup(network_fixture(), true, Some(7))
+            .accept_network_setup(network_fixture(), true, Some(7), false)
             .unwrap();
         let team = session.network_setup().unwrap().humans[0].slot.team;
         session

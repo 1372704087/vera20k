@@ -2231,6 +2231,13 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
             service.admission_nonce = Some(proof.admission_nonce);
         }
         LanMessageKind::JoinConfirmed => {
+            // A VERA room's observer may sit on any row.
+            let several_observers = super::shell_network_setup::setup_dialog(
+                state,
+                false,
+                crate::ui::multiplayer_setup::SetupFlavor::Lan,
+            )
+            .modern;
             let service = state.match_state.lan_service.as_mut().expect("visit");
             let proof = message
                 .session_proof()?
@@ -2261,7 +2268,8 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
             local.raw_slot_index = Some(u8::try_from(fields.assigned_row)?);
             local.slot = received_choices(fields.country, fields.color, &local.slot)?;
             local.role = crate::skirmish_launch::LaunchHumanRole::from_observer(
-                fields.assigned_row == fields.observer_row && fields.country == -3,
+                (several_observers || fields.assigned_row == fields.observer_row)
+                    && fields.country == -3,
             );
             let mut host = local.clone();
             host.name = message.name();
@@ -4388,7 +4396,9 @@ mod tests {
         session.enter_network(NetworkReturnContext::LanLobby);
         let mut launch = launch();
         launch.local_player_index = usize::from(!host);
-        session.accept_network_setup(launch, host, None).unwrap();
+        session
+            .accept_network_setup(launch, host, None, false)
+            .unwrap();
         session
             .bind_network_endpoint(if host { "Guest" } else { "Host" }, remote)
             .unwrap();
@@ -5364,7 +5374,9 @@ mod tests {
         );
         let mut accepted = launch();
         accepted.local_player_index = 1;
-        session.accept_network_setup(accepted, false, None).unwrap();
+        session
+            .accept_network_setup(accepted, false, None, false)
+            .unwrap();
         session.bind_network_endpoint("Host", host).unwrap();
         for expected in messages {
             assert_eq!(
@@ -5603,7 +5615,9 @@ mod tests {
         let host_name = launch.humans[0].name.clone();
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::LanLobby);
-        session.accept_network_setup(launch, false, None).unwrap();
+        session
+            .accept_network_setup(launch, false, None, false)
+            .unwrap();
         session.set_network_start_seed(19).unwrap();
         let mut sim = Simulation::new();
         for (house, source) in [1, 0].into_iter().enumerate() {
@@ -5647,7 +5661,9 @@ mod tests {
         launch.local_player_index = 1;
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::Wol);
-        session.accept_network_setup(launch, false, None).unwrap();
+        session
+            .accept_network_setup(launch, false, None, false)
+            .unwrap();
         let host = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30123);
         let third = SocketAddrV4::new(Ipv4Addr::LOCALHOST, 30124);
         session.bind_network_endpoint("Host", host).unwrap();

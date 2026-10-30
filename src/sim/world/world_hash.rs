@@ -1709,10 +1709,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             b"phobos-shield-v1".hash(hasher);
             shield.hash(hasher);
         }
-        if entity.wh_anim_remaining_creation_interval != 0 {
-            b"phobos-warhead-anim-techno-interval-v1".hash(hasher);
-            entity.wh_anim_remaining_creation_interval.hash(hasher);
-        }
+        entity
+            .wh_anim_remaining_creation_interval
+            .hash_state(hasher);
     }
     if entity.tracking_facts.naval_combatant() {
         // Retained across reload: later Remove_Tracking must use the same

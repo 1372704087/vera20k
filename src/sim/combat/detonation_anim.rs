@@ -349,10 +349,9 @@ pub(crate) fn bullet_effects(
     let allowed = if interval > 0
         && let Some(source) = world.substrate.entities.get_mut(source_id)
     {
-        crate::sim::warhead_anim::interval_allows(
-            &mut source.wh_anim_remaining_creation_interval,
-            interval,
-        )
+        source
+            .wh_anim_remaining_creation_interval
+            .interval_allows(interval)
     } else {
         world
             .warhead_anim_runtime
@@ -1393,7 +1392,8 @@ mod phobos_enhancement_tests {
                 .entities
                 .get(1)
                 .unwrap()
-                .wh_anim_remaining_creation_interval,
+                .wh_anim_remaining_creation_interval
+                .remaining(),
             2
         );
     }

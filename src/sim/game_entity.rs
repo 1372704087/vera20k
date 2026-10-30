@@ -293,7 +293,8 @@ pub struct GameEntity {
     /// interval-bearing warhead this Techno fires.
     #[cfg(feature = "phobos")]
     #[serde(default)]
-    pub(crate) wh_anim_remaining_creation_interval: i32,
+    pub(crate) wh_anim_remaining_creation_interval:
+        crate::sim::warhead_anim::TechnoWarheadAnimInterval,
     /// The raw signed type `Sight=`, a [`SightFacts`] that
     /// `sim::vision` owns.
     ///
@@ -1912,7 +1913,7 @@ impl GameEntity {
             #[cfg(feature = "phobos")]
             phobos_placement: Default::default(),
             #[cfg(feature = "phobos")]
-            wh_anim_remaining_creation_interval: 0,
+            wh_anim_remaining_creation_interval: Default::default(),
             #[cfg(feature = "debug-tools")]
             debug_log: None,
             stable_id,

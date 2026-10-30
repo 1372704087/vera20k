@@ -217,13 +217,28 @@ pub(crate) fn apply_foot_radiation(
                     );
                     #[cfg(feature = "phobos")]
                     if effective.site_warhead_detonate_full {
+                        // `BulletExt::Detonate` reaches the same
+                        // `BulletClass_Logics_DamageAnimSelected` (`0x469C46`)
+                        // creation tail as a fired Bullet; its default bullet
+                        // type is not Inviso and the RadInvoker is the owner.
+                        // RESIDUAL: this bespoke approximation keeps the
+                        // pre-existing raw land and `crit_active=false`, so
+                        // `Conventional.IgnoreUnits` and a crit-driven
+                        // CreateAll do not match a real Bullet detonation.
                         let land = crate::sim::combat::detonation_anim::land_at(world, impact);
-                        if let Some(effect) = crate::sim::combat::detonation_anim::effect(
-                            world, rules, warhead, damage, land, impact, impact, false,
-                        ) {
-                            crate::sim::world::damage_consequences::admit_explosion_effect(
-                                world, rules, effect,
-                            );
+                        if let Some(selection) =
+                            crate::sim::combat::detonation_anim::select_with_context(
+                                world, rules, warhead, damage, land, impact, false,
+                            )
+                        {
+                            for effect in crate::sim::combat::detonation_anim::bullet_effects(
+                                world, rules, warhead, warhead_id, selection, false, impact,
+                                attacker, false,
+                            ) {
+                                crate::sim::world::damage_consequences::admit_explosion_effect(
+                                    world, rules, effect,
+                                );
+                            }
                         }
                     }
                 } else {
@@ -3618,15 +3633,33 @@ fn emit_detonation_anim(
     // coordinate copied at469AA4. The terrain here includes the synchronous
     // bridge continuation, so a collapsed deck can now select SplashList.
     let (selection_coordinate, on_bridge) = bullet_location(world, detonation);
+    #[cfg(feature = "phobos")]
+    let ignore_water_units = warhead
+        .phobos_anim
+        .conventional_ignore_units(&rules.phobos_warhead_anim);
+    #[cfg(not(feature = "phobos"))]
+    let ignore_water_units = false;
     let land = detonation_anim::bullet_land(
         world,
         rules,
         selection_coordinate,
         on_bridge,
         area_result == Some(AreaDamageResult::ReceiverDispatched),
+        ignore_water_units,
     );
     // Selection still runs for an isolated Iron Curtain impact, including
     // EMEffect RNG. Only afterward469BEA replaces its constructor type.
+    #[cfg(feature = "phobos")]
+    let selection = detonation_anim::select_with_context(
+        world,
+        rules,
+        warhead,
+        detonation.payload.base_damage,
+        land,
+        selection_coordinate,
+        crit_active,
+    );
+    #[cfg(not(feature = "phobos"))]
     let selected = detonation_anim::effect(
         world,
         rules,
@@ -3656,18 +3689,51 @@ fn emit_detonation_anim(
                 flags,
             });
     }
-    let effect = if area_result == Some(AreaDamageResult::IronCurtain) {
-        (!rules.general.weapon_nullify_anim.is_empty()).then(|| {
-            let type_id = world.interner.intern(&rules.general.weapon_nullify_anim);
-            // 46A2A1..46A301 uses the same placement and constructor row as
-            // the ordinary impact, then returns before the ordinary tail.
-            detonation_anim::placed_effect(type_id, placement)
-        })
-    } else {
-        selected
-    };
-    if let Some(effect) = effect {
-        crate::sim::world::damage_consequences::admit_explosion_effect(world, rules, effect);
+    #[cfg(feature = "phobos")]
+    {
+        if area_result == Some(AreaDamageResult::IronCurtain) {
+            if !rules.general.weapon_nullify_anim.is_empty() {
+                let type_id = world.interner.intern(&rules.general.weapon_nullify_anim);
+                // 46A2A1..46A301 uses the same placement and constructor row
+                // as the ordinary impact, then returns before the ordinary tail.
+                let effect = detonation_anim::placed_effect(type_id, placement);
+                crate::sim::world::damage_consequences::admit_explosion_effect(
+                    world, rules, effect,
+                );
+            }
+        } else if let Some(selection) = selection {
+            for effect in detonation_anim::bullet_effects(
+                world,
+                rules,
+                warhead,
+                detonation.payload.warhead,
+                selection,
+                inviso,
+                placement,
+                detonation.source_id,
+                crit_active,
+            ) {
+                crate::sim::world::damage_consequences::admit_explosion_effect(
+                    world, rules, effect,
+                );
+            }
+        }
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let effect = if area_result == Some(AreaDamageResult::IronCurtain) {
+            (!rules.general.weapon_nullify_anim.is_empty()).then(|| {
+                let type_id = world.interner.intern(&rules.general.weapon_nullify_anim);
+                // 46A2A1..46A301 uses the same placement and constructor row as
+                // the ordinary impact, then returns before the ordinary tail.
+                detonation_anim::placed_effect(type_id, placement)
+            })
+        } else {
+            selected
+        };
+        if let Some(effect) = effect {
+            crate::sim::world::damage_consequences::admit_explosion_effect(world, rules, effect);
+        }
     }
 }
 

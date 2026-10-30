@@ -386,6 +386,10 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos animation-list enhancement settings (`AnimList.*`,
+    /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
+    #[cfg(feature = "phobos")]
+    pub phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -686,6 +690,10 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
+                section,
+            ),
         }
     }
 }

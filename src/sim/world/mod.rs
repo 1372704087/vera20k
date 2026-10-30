@@ -1441,6 +1441,10 @@ pub struct Simulation {
     /// the render-side fire-event approximation.
     #[serde(default)]
     pub(crate) projectiles: crate::sim::projectile::ProjectileStore,
+    /// Phobos per-warhead-type animation creation counters.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) warhead_anim_runtime: crate::sim::warhead_anim::WarheadAnimRuntime,
     /// Persistent WaveClass registrations. They have their own logic lifetime;
     /// this is not a one-frame weapon-fire presentation list.
     pub(crate) waves: crate::sim::wave::WaveStore,
@@ -4445,6 +4449,8 @@ impl Simulation {
             combat_light_requests: FrameChannel::default(),
             screen_shake_updates: FrameChannel::default(),
             projectiles: crate::sim::projectile::ProjectileStore::new(),
+            #[cfg(feature = "phobos")]
+            warhead_anim_runtime: Default::default(),
             waves: crate::sim::wave::WaveStore::new(),
             active_wave_links: BTreeMap::new(),
             object_custom_sounds: BTreeMap::new(),

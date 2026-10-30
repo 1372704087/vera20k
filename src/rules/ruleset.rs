@@ -4703,6 +4703,9 @@ pub struct RuleSet {
     /// VeteranCritChance`.
     #[cfg(feature = "phobos")]
     pub(crate) crit_globals: crate::rules::phobos_crit::CritGlobals,
+    /// Phobos `[General]` warhead animation defaults.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_warhead_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimGlobals,
     /// Phobos `[DigitalDisplayTypes]` catalog, read per Rules pass by the
     /// ordered Process owner. Empty in builds without the capability.
     #[cfg(feature = "phobos")]
@@ -6493,6 +6496,9 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             crit_globals: crate::rules::phobos_crit::CritGlobals::from_ini(ini),
             #[cfg(feature = "phobos")]
+            phobos_warhead_anim:
+                crate::rules::phobos_warhead_anim::PhobosWarheadAnimGlobals::from_ini(ini),
+            #[cfg(feature = "phobos")]
             digital_display_types,
             #[cfg(feature = "phobos")]
             digital_display_globals,
@@ -8132,6 +8138,26 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            let warhead_anims = self
+                .warheads
+                .iter()
+                .filter_map(|(name, warhead)| {
+                    (warhead.phobos_anim
+                        != crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::default())
+                    .then(|| (name.to_ascii_uppercase(), warhead.phobos_anim.clone()))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !warhead_anims.is_empty() {
+                b"phobos-warhead-anim-v1".hash(&mut hasher);
+                warhead_anims.hash(&mut hasher);
+            }
+            if self.phobos_warhead_anim != Default::default() {
+                b"phobos-warhead-anim-globals-v1".hash(&mut hasher);
+                self.phobos_warhead_anim.hash(&mut hasher);
+            }
+        }
         self.weapons
             .iter()
             .map(|(id, weapon)| {
@@ -15041,6 +15067,33 @@ Projectile=Invisible
                 Err(SnapshotError::RulesMismatch { .. })
             ));
         }
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn simulation_config_hash_covers_phobos_warhead_animation_rules() {
+        let make = |keys: &str, general: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\n{general}\n[Warheads]\n0=WH\n[WH]\nAnimList=A\n{keys}\n\
+                 [Animations]\n0=A\n"
+            )))
+            .unwrap()
+        };
+        let base = make("", "");
+        let mut per_warhead = make("AnimList.CreateAll=yes\n", "");
+        let mut global = make("", "Conventional.IgnoreUnits=yes\n");
+        per_warhead.source_ini_hash = base.source_ini_hash;
+        global.source_ini_hash = base.source_ini_hash;
+        assert_ne!(
+            base.simulation_config_hash(),
+            per_warhead.simulation_config_hash(),
+            "a per-warhead animation key changes the simulation config"
+        );
+        assert_ne!(
+            base.simulation_config_hash(),
+            global.simulation_config_hash(),
+            "a [General] animation default changes the simulation config"
+        );
     }
 
     #[test]

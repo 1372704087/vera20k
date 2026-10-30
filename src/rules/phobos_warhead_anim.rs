@@ -1,0 +1,257 @@
+//! Phobos `WarheadTypeExt` animation-list settings and their `[General]`
+//! defaults.
+//!
+//! Source: Phobos b90ab4bc `src/Ext/WarheadType/Body.{h,cpp}` (reads and
+//! constructor defaults), `src/Ext/Rules/Body.{h,cpp}` (global keys) and
+//! `src/Ext/Bullet/Hooks.DetonateLogics.cpp` / `src/Ext/WarheadType/Hooks.cpp`
+//! (consumers). `SplashList` is a `NullableVector<AnimTypeClass*>`: absent or
+//! `<default>` inherits `[CombatDamage] SplashList`; a present value replaces
+//! it. A value that resolves to no existing animation (`none`, unknown names)
+//! is a present, empty list and does not fall back.
+//!
+//! ## Dependency rules
+//! - Part of rules/ — no dependencies on sim/, render/, ui/, audio/, etc.
+
+use crate::rules::ini_parser::{IniFile, IniSection};
+
+/// Phobos `WarheadTypeExt` fields consumed by the animation selection and
+/// Bullet detonation animation tail.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct PhobosWarheadAnimRules {
+    /// `SplashList=`, `NullableVector<AnimTypeClass*>`; `None` inherits the
+    /// global list.
+    pub splash_list: Option<Vec<String>>,
+    /// `SplashList.PickRandom=`, `Valueable<bool>`, default false.
+    pub splash_list_pick_random: bool,
+    /// `SplashList.CreateAll=`, `Valueable<bool>`, default false.
+    pub splash_list_create_all: bool,
+    /// `SplashList.CreationInterval=`, `Valueable<int>`, default 0.
+    pub splash_list_creation_interval: i32,
+    /// `SplashList.ScatterMin=`, `Valueable<Leptons>` as cells, default -1.
+    pub splash_list_scatter_min: i32,
+    /// `SplashList.ScatterMax=`, `Valueable<Leptons>` as cells, default -1.
+    pub splash_list_scatter_max: i32,
+    /// `AnimList.PickRandom=`, `Valueable<bool>`, default false.
+    pub anim_list_pick_random: bool,
+    /// `AnimList.CreateAll=`, `Valueable<bool>`, default false.
+    pub anim_list_create_all: bool,
+    /// `AnimList.CreationInterval=`, `Valueable<int>`, default 0.
+    pub anim_list_creation_interval: i32,
+    /// `AnimList.ScatterMin=`, `Valueable<Leptons>` as cells, default -1.
+    pub anim_list_scatter_min: i32,
+    /// `AnimList.ScatterMax=`, `Valueable<Leptons>` as cells, default -1.
+    pub anim_list_scatter_max: i32,
+    /// `CreateAnimsOnZeroDamage=`, `Nullable<bool>`; `None` inherits
+    /// `[General] CreateAnimsOnZeroDamage`.
+    pub create_anims_on_zero_damage: Option<bool>,
+    /// `Conventional.IgnoreUnits=`, `Nullable<bool>`; `None` inherits
+    /// `[General] Conventional.IgnoreUnits`.
+    pub conventional_ignore_units: Option<bool>,
+}
+
+impl Default for PhobosWarheadAnimRules {
+    fn default() -> Self {
+        Self {
+            splash_list: None,
+            splash_list_pick_random: false,
+            splash_list_create_all: false,
+            splash_list_creation_interval: 0,
+            splash_list_scatter_min: -1,
+            splash_list_scatter_max: -1,
+            anim_list_pick_random: false,
+            anim_list_create_all: false,
+            anim_list_creation_interval: 0,
+            anim_list_scatter_min: -1,
+            anim_list_scatter_max: -1,
+            create_anims_on_zero_damage: None,
+            conventional_ignore_units: None,
+        }
+    }
+}
+
+impl PhobosWarheadAnimRules {
+    pub fn from_section(section: &IniSection) -> Self {
+        let mut value = Self::default();
+        value.splash_list = read_phobos_anim_list(section, "SplashList", value.splash_list);
+        value.splash_list_pick_random =
+            section.read_ares_bool("SplashList.PickRandom", value.splash_list_pick_random);
+        value.splash_list_create_all =
+            section.read_ares_bool("SplashList.CreateAll", value.splash_list_create_all);
+        value.splash_list_creation_interval = section.read_ares_int(
+            "SplashList.CreationInterval",
+            value.splash_list_creation_interval,
+        );
+        value.splash_list_scatter_min =
+            section.read_phobos_leptons("SplashList.ScatterMin", value.splash_list_scatter_min);
+        value.splash_list_scatter_max =
+            section.read_phobos_leptons("SplashList.ScatterMax", value.splash_list_scatter_max);
+        value.anim_list_pick_random =
+            section.read_ares_bool("AnimList.PickRandom", value.anim_list_pick_random);
+        value.anim_list_create_all =
+            section.read_ares_bool("AnimList.CreateAll", value.anim_list_create_all);
+        value.anim_list_creation_interval = section.read_ares_int(
+            "AnimList.CreationInterval",
+            value.anim_list_creation_interval,
+        );
+        value.anim_list_scatter_min =
+            section.read_phobos_leptons("AnimList.ScatterMin", value.anim_list_scatter_min);
+        value.anim_list_scatter_max =
+            section.read_phobos_leptons("AnimList.ScatterMax", value.anim_list_scatter_max);
+        value.create_anims_on_zero_damage = section.read_phobos_nullable_bool(
+            "CreateAnimsOnZeroDamage",
+            value.create_anims_on_zero_damage,
+        );
+        value.conventional_ignore_units = section
+            .read_phobos_nullable_bool("Conventional.IgnoreUnits", value.conventional_ignore_units);
+        value
+    }
+
+    pub fn create_anims_on_zero_damage(&self, globals: &PhobosWarheadAnimGlobals) -> bool {
+        self.create_anims_on_zero_damage
+            .unwrap_or(globals.create_anims_on_zero_damage)
+    }
+
+    pub fn conventional_ignore_units(&self, globals: &PhobosWarheadAnimGlobals) -> bool {
+        self.conventional_ignore_units
+            .unwrap_or(globals.conventional_ignore_units)
+    }
+
+    /// The `SplashList` entries the native pointer lookup actually accepts.
+    /// Phobos resolves each token with `AnimTypeClass::Find`; invalid names are
+    /// skipped. A present empty list stays empty and does not fall back.
+    pub fn splash_list_names<'r>(
+        &'r self,
+        rules: &'r crate::rules::ruleset::RuleSet,
+    ) -> Vec<&'r str> {
+        let Some(list) = self.splash_list.as_deref() else {
+            // The global list is already resolved against the animation
+            // registry by `native_processing`.
+            return rules
+                .combat_damage
+                .splash_list
+                .iter()
+                .map(String::as_str)
+                .collect();
+        };
+        list.iter()
+            .filter(|name| {
+                rules
+                    .anim_type_names
+                    .iter()
+                    .any(|valid| valid.eq_ignore_ascii_case(name))
+            })
+            .map(String::as_str)
+            .collect()
+    }
+}
+
+/// `[General]` defaults for the two nullable warhead keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct PhobosWarheadAnimGlobals {
+    pub create_anims_on_zero_damage: bool,
+    pub conventional_ignore_units: bool,
+}
+
+impl PhobosWarheadAnimGlobals {
+    pub fn from_ini(ini: &IniFile) -> Self {
+        let Some(section) = ini.section("General") else {
+            return Self::default();
+        };
+        Self {
+            create_anims_on_zero_damage: section.read_ares_bool("CreateAnimsOnZeroDamage", false),
+            conventional_ignore_units: section.read_ares_bool("Conventional.IgnoreUnits", false),
+        }
+    }
+}
+
+/// `NullableVector<AnimTypeClass*>::Read`: absent keeps the current value;
+/// a present `<default>` clears it (global inheritance); anything else
+/// replaces the list, with comma tokens retained in source order.
+fn read_phobos_anim_list(
+    section: &IniSection,
+    key: &str,
+    current: Option<Vec<String>>,
+) -> Option<Vec<String>> {
+    if !section.is_present(key) {
+        return current;
+    }
+    let raw = section.read_string(key, "", 2048);
+    if raw.eq_ignore_ascii_case("<default>") {
+        return None;
+    }
+    Some(
+        raw.split(',')
+            .map(|token| token.trim_ascii())
+            .filter(|token| !token.is_empty())
+            .map(str::to_owned)
+            .collect(),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_match_phobos_constructors() {
+        let value = PhobosWarheadAnimRules::default();
+        assert_eq!(value.splash_list, None);
+        assert!(!value.splash_list_pick_random);
+        assert!(!value.splash_list_create_all);
+        assert_eq!(value.splash_list_creation_interval, 0);
+        assert_eq!(value.splash_list_scatter_min, -1);
+        assert_eq!(value.splash_list_scatter_max, -1);
+        assert!(!value.anim_list_pick_random);
+        assert!(!value.anim_list_create_all);
+        assert_eq!(value.anim_list_creation_interval, 0);
+        assert_eq!(value.anim_list_scatter_min, -1);
+        assert_eq!(value.anim_list_scatter_max, -1);
+        assert_eq!(value.create_anims_on_zero_damage, None);
+        assert_eq!(value.conventional_ignore_units, None);
+    }
+
+    #[test]
+    fn keys_read_and_splash_list_absent_default_and_none() {
+        let ini = IniFile::from_str(
+            "[General]\nCreateAnimsOnZeroDamage=yes\nConventional.IgnoreUnits=yes\n\
+             [WH]\nSplashList=A,B\nSplashList.PickRandom=yes\n\
+             SplashList.CreateAll=yes\nSplashList.CreationInterval=3\n\
+             SplashList.ScatterMin=1.5\nSplashList.ScatterMax=2\n\
+             AnimList.PickRandom=yes\nAnimList.CreateAll=yes\n\
+             AnimList.CreationInterval=4\nAnimList.ScatterMin=0.5\n\
+             AnimList.ScatterMax=1\n\
+             [EMPTY]\nKeep=1\nSplashList=\n\
+             [DEFAULT]\nKeep=1\nSplashList=<default>\n\
+             [NONE]\nKeep=1\nSplashList=none\n",
+        );
+        let value = PhobosWarheadAnimRules::from_section(ini.section("WH").unwrap());
+        assert_eq!(value.splash_list, Some(vec!["A".into(), "B".into()]));
+        assert!(value.splash_list_pick_random);
+        assert!(value.splash_list_create_all);
+        assert_eq!(value.splash_list_creation_interval, 3);
+        assert_eq!(value.splash_list_scatter_min, 384);
+        assert_eq!(value.splash_list_scatter_max, 512);
+        assert!(value.anim_list_pick_random);
+        assert!(value.anim_list_create_all);
+        assert_eq!(value.anim_list_creation_interval, 4);
+        assert_eq!(value.anim_list_scatter_min, 128);
+        assert_eq!(value.anim_list_scatter_max, 256);
+        let globals = PhobosWarheadAnimGlobals::from_ini(&ini);
+        assert!(globals.create_anims_on_zero_damage);
+        assert!(globals.conventional_ignore_units);
+        assert!(value.create_anims_on_zero_damage(&globals));
+        assert!(value.conventional_ignore_units(&globals));
+        assert_eq!(
+            PhobosWarheadAnimRules::from_section(ini.section("EMPTY").unwrap()).splash_list,
+            None
+        );
+        assert_eq!(
+            PhobosWarheadAnimRules::from_section(ini.section("DEFAULT").unwrap()).splash_list,
+            None
+        );
+        assert_eq!(
+            PhobosWarheadAnimRules::from_section(ini.section("NONE").unwrap()).splash_list,
+            Some(vec!["none".into()])
+        );
+    }
+}

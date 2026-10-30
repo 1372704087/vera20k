@@ -750,6 +750,19 @@ impl IniSection {
         })
     }
 
+    /// Phobos `read<Leptons>` (`Utilities/TemplateDef.h`): `ReadDouble` in
+    /// cells, then `Game::F2I(cells * Unsorted::LeptonsPerCell)`. The
+    /// `Valueable<Leptons>` field keeps its current leptons on a failed read.
+    pub fn read_phobos_leptons(&self, key: &str, current: i32) -> i32 {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            parse_phobos_double(raw).map_or(current, |cells| {
+                crate::util::native_x87::X87Chop53::ftol_f64_low_masked(
+                    cells * f64::from(crate::util::lepton::LEPTONS_PER_CELL_I32),
+                )
+            })
+        })
+    }
+
     /// [`Self::read_bool`] where the caller supplies the default later: `None`
     /// wherever ReadBool would return its default argument (an absent key,
     /// or a first character outside `1TY0FN`).

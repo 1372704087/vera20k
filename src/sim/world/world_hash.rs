@@ -620,6 +620,8 @@ impl Simulation {
         self.session.binary_frame().hash(hasher);
         self.planning.hash_state(hasher);
         self.hash_ion_blasts(hasher);
+        #[cfg(feature = "phobos")]
+        self.warhead_anim_runtime.hash_state(hasher);
         // ScenarioClass owns the sole saved/synchronized RNG. Main and MapGen
         // are process globals and are deliberately absent from this hash.
         self.scenario_rng.hash_state(hasher);
@@ -1683,6 +1685,10 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         if let Some(shield) = &entity.shield {
             b"phobos-shield-v1".hash(hasher);
             shield.hash(hasher);
+        }
+        if entity.wh_anim_remaining_creation_interval != 0 {
+            b"phobos-warhead-anim-techno-interval-v1".hash(hasher);
+            entity.wh_anim_remaining_creation_interval.hash(hasher);
         }
     }
     if entity.tracking_facts.naval_combatant() {

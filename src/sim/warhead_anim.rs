@@ -48,9 +48,38 @@ impl WarheadAnimRuntime {
     }
 }
 
+/// One Techno's `TechnoExt::WHAnimRemainingCreationInterval`, shared by every
+/// interval-bearing warhead it fires. The owning GameEntity saves it as a bare
+/// `i32` and hashes it.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+pub struct TechnoWarheadAnimInterval {
+    remaining: i32,
+}
+
+impl TechnoWarheadAnimInterval {
+    /// Gate one detonation of a positive `interval` against this counter.
+    pub(crate) fn interval_allows(&mut self, interval: i32) -> bool {
+        interval_allows(&mut self.remaining, interval)
+    }
+
+    /// Hash a live counter only, so an untouched Techno contributes no bytes.
+    pub(crate) fn hash_state(&self, hasher: &mut impl Hasher) {
+        if self.remaining != 0 {
+            b"phobos-warhead-anim-techno-interval-v1".hash(hasher);
+            self.remaining.hash(hasher);
+        }
+    }
+
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn remaining(&self) -> i32 {
+        self.remaining
+    }
+}
+
 /// Shared gate used by both counter owners. A nonpositive counter creates and
 /// resets; a positive one skips and decrements.
-pub(crate) fn interval_allows(counter: &mut i32, interval: i32) -> bool {
+fn interval_allows(counter: &mut i32, interval: i32) -> bool {
     if interval < 1 {
         *counter = interval;
         true

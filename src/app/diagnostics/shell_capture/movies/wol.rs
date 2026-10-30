@@ -127,6 +127,8 @@ pub enum WolTarget {
     ModernLobby,
     /// The same, then Create Game: `0xC3` on Red Alert 2's box art.
     ModernCreate,
+    /// The same, then OK: VERA's C2, whose Game Options toggles Crates.
+    ModernRoomOptions,
     /// The same, then Create Game: C2 settled.
     TestServiceCreate,
     /// The same, then Join on the first game: C9 settled.
@@ -483,6 +485,7 @@ impl WolTarget {
                 Self::TestServiceLobby
                     | Self::ModernLobby
                     | Self::ModernCreate
+                    | Self::ModernRoomOptions
                     | Self::ModernOptions
                     | Self::TestServiceCreate
                     | Self::TestServiceJoin
@@ -657,6 +660,7 @@ pub(crate) const WOL_CHECKPOINTS: &[(&str, WolTarget)] = &[
     ("wol-test-service-lobby", WolTarget::TestServiceLobby),
     ("wol-modern-lobby", WolTarget::ModernLobby),
     ("wol-modern-create", WolTarget::ModernCreate),
+    ("wol-modern-room-options", WolTarget::ModernRoomOptions),
     ("wol-test-service-create", WolTarget::TestServiceCreate),
     ("wol-test-service-join", WolTarget::TestServiceJoin),
     ("wol-c2-guest-choices", WolTarget::GuestChoices),
@@ -960,9 +964,10 @@ impl WolCapture {
                 // The normal online visit has no welcome: Internet signs in.
                 self.phase = match self.target {
                     WolTarget::ModernUsername => WolPhase::Login,
-                    WolTarget::ModernLobby | WolTarget::ModernCreate | WolTarget::ModernOptions => {
-                        WolPhase::ServiceLogin
-                    }
+                    WolTarget::ModernLobby
+                    | WolTarget::ModernCreate
+                    | WolTarget::ModernRoomOptions
+                    | WolTarget::ModernOptions => WolPhase::ServiceLogin,
                     _ => WolPhase::Welcome,
                 };
             }
@@ -1984,6 +1989,7 @@ impl WolCapture {
                                 self.target,
                                 WolTarget::ModernLobby
                                     | WolTarget::ModernCreate
+                                    | WolTarget::ModernRoomOptions
                                     | WolTarget::ModernOptions
                             ) {
                                 1
@@ -2067,6 +2073,7 @@ impl WolCapture {
                 if matches!(
                     self.target,
                     WolTarget::TestServiceCreate
+                        | WolTarget::ModernRoomOptions
                         | WolTarget::SetupPage
                         | WolTarget::GuestChoices
                         | WolTarget::GuestObserver
@@ -2204,6 +2211,25 @@ impl WolCapture {
                         | WolTarget::ClanChooseMap
                 ) {
                     return self.service_host(state, frame);
+                }
+                if self.target == WolTarget::ModernRoomOptions {
+                    use crate::ui::multiplayer_setup::GAME_OPTIONS;
+                    setup_button(state, GAME_OPTIONS)?;
+                    let crates = setup_view(state)?.checks[2];
+                    ensure!(setup_view(state)?.options_open, "Game Options did not open");
+                    let layout = crate::app::input::multiplayer_setup::layout(state);
+                    setup_click(
+                        state,
+                        crate::ui::skirmish_shell::checkbox_icon_rect(
+                            layout.checkboxes[2],
+                            layout.page.scale,
+                        ),
+                    );
+                    ensure!(
+                        setup_view(state)?.checks[2] != crates,
+                        "Crates did not toggle in Game Options"
+                    );
+                    self.event(frame, "C2 Game Options: Crates toggled");
                 }
                 MoviesCapture::restore_neutral_pointer(state);
                 crate::app::input::multiplayer_setup::cursor_moved(state);

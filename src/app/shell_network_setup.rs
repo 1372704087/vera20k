@@ -897,7 +897,7 @@ fn install_setup(
         .network_setup()
         .and_then(|launch| launch.local_player().raw_slot_index)
     {
-        setup_ui.show_row(usize::from(row));
+        setup_ui.show_row(usize::from(row), dialog.rows_per_page());
     }
     state.frontend.multiplayer_setup = Some(setup_ui);
     state.frontend.network_setup_protocol = Some(NetworkSetupProtocol::new(dialog, quick_match));

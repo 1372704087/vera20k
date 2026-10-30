@@ -1272,6 +1272,7 @@ impl ShellCaptureRequest {
                 target,
                 movies::WolTarget::ModernLobby
                     | movies::WolTarget::ModernCreate
+                    | movies::WolTarget::ModernRoomOptions
                     | movies::WolTarget::ModernOptions
                     | movies::WolTarget::ModernUsername
             ),

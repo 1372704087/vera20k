@@ -116,14 +116,16 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let row_count = visible_limit
         .max(observer_row.map_or(0, |row| row + 1))
         .min(crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT);
+    let dialog = super::dialog(state);
+    let rows = dialog.rows_per_page();
     let first_row = state
         .frontend
         .multiplayer_setup
         .as_ref()
-        .map_or(0, |ui| ui.first_row(row_count));
-    let mut combos = Vec::with_capacity(40);
+        .map_or(0, |ui| ui.first_row(row_count, rows));
+    let mut combos = Vec::with_capacity(5 * rows);
     let mut row_icons = std::array::from_fn(|_| None);
-    for visible_row in 0..VISIBLE_SETUP_ROWS {
+    for visible_row in 0..rows {
         let row = (first_row + visible_row) as u8;
         if usize::from(row) >= crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT {
             break;
@@ -408,10 +410,9 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             visible: cooperative,
         },
     ];
-    let dialog = super::dialog(state);
     // 7A0E50 from 5EA3E0: rows without a node show no ping image.
     let ping_icons = std::array::from_fn(|row| {
-        dialog.wol().then_some(())?;
+        (dialog.wol() && row < rows).then_some(())?;
         let human = launch
             .humans
             .iter()
@@ -442,6 +443,12 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             options.build_off_ally,
         ],
         row_icons,
+        options_open: dialog.modern
+            && state
+                .frontend
+                .multiplayer_setup
+                .as_ref()
+                .is_some_and(|ui| ui.options_open),
         mode_label: label(
             state,
             if launch.selected_map_file.is_none() {

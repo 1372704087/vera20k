@@ -93,7 +93,13 @@ pub(crate) fn apply_action(state: &mut AppState, action: SetupAction) {
                 && !view.locked
                 && let Some(ui) = state.frontend.multiplayer_setup.as_mut()
             {
-                ui.page_rows(view.row_count, forward);
+                ui.page_rows(view.row_count, view.dialog.rows_per_page(), forward);
+            }
+            Ok(())
+        }
+        SetupAction::GameOptions { open } => {
+            if let Some(ui) = state.frontend.multiplayer_setup.as_mut() {
+                ui.show_options(open);
             }
             Ok(())
         }

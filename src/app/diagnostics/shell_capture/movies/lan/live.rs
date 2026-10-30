@@ -19,7 +19,7 @@ fn setup_control_at_row(
         }
         if row < view.first_row {
             setup_button(state, PREVIOUS_ROWS)?;
-        } else if row >= view.first_row + VISIBLE_SETUP_ROWS {
+        } else if row >= view.first_row + view.dialog.rows_per_page() {
             setup_button(state, NEXT_ROWS)?;
         } else {
             return Ok(view

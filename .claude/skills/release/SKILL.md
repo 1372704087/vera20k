@@ -45,9 +45,18 @@ builds and releases. This skill is the maintainer's order of steps and the page 
    `gh release edit vX.Y.Z --draft=false --latest`.
 3. Check that it is Latest, holds the three installers, and that
    `gh attestation verify <download> --repo YuriPlanet/vera20k` passes for each.
-4. Check that the `downloads.yml` run it started passed and that
-   `https://downloads.vera20k.org/latest.json` names the new version: installed games
-   offer their update from that file.
+4. The `downloads.yml` run it started waits for approval in the `downloads` environment.
+   Check that it is this release's run (event `release`, the new tag), then approve it on
+   the run's page (Review deployments) or with:
+
+   ```bash
+   gh api -X POST repos/YuriPlanet/vera20k/actions/runs/<run>/pending_deployments \
+     -F "environment_ids[]=$(gh api repos/YuriPlanet/vera20k/environments/downloads --jq .id)" \
+     -f state=approved -f comment=vX.Y.Z
+   ```
+
+   Check that it passed and that `https://downloads.vera20k.org/latest.json` names the new
+   version: installed games offer their update from that file.
 5. In a PR, raise the version in `Cargo.toml`, `src/Cargo.toml` and their two `Cargo.lock`
    entries above the release and check all four versions agree. This allows the development
    build workflow to start again.

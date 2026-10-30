@@ -50,6 +50,8 @@ Download the installer for Windows, macOS or Linux from the
 [releases page](https://github.com/YuriPlanet/vera20k/releases). It finds your copy of
 Yuri's Revenge and sets up VERA20K in a new folder.
 
+Use **Options** for sound and controls, and **Vera Options** for VERA-specific features.
+
 To launch single-player YR skirmishes or campaigns from a CnCNet client, see the
 [offline client setup](integrations/cncnet/README.md).
 
@@ -65,28 +67,6 @@ Maintainers will help with review, integration and merging. You'll keep full cre
 contribution.
 
 Discussion is on [Discord](https://discord.gg/kmjRUn5m5F) and in the QQ group (1097193563).
-
-## Settings
-
-Use **Options** for sound and controls, and **Vera Options** for VERA-specific features.
-Player preferences, keyboard shortcuts and lobby choices are saved in `VERA.INI`:
-
-- **Windows installer:** beside `vera20k.exe`.
-- **macOS:** `~/Library/Application Support/VERA20k/VERA.INI`.
-- **Linux:** `~/.local/share/VERA20k/VERA.INI`, or your XDG data folder.
-
-`config.toml` sets the game folder and can select another settings folder.
-
-Enable **Mouse Wheel Zoom** in **Vera Options**, or set `[VERA] MouseWheelZoom=yes`
-in `VERA.INI` (default `no`).
-
-If `VERA.INI` is missing, VERA creates it and imports existing preferences once. With no
-old settings, it starts empty and VERA uses built-in defaults until settings are saved.
-The original `RA2MD.INI` and `KeyboardMD.ini` are only read for import, never overwritten.
-
-`VERARULES.INI`, in the same folder, contains optional gameplay changes. It starts with
-commented examples and leaves mission/map rules in control. See [personal rules](docs/personal-rules.md)
-for editing and overriding them.
 
 ## Architecture
 

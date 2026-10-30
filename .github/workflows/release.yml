@@ -35,6 +35,14 @@ name: Release
 # start until v<version> names the dev build's commit
 # (.agents/skills/release/SKILL.md).
 #
+# Every action, here and in the other workflows, names a full commit with its
+# version in a comment, so a moved tag cannot change what builds the
+# installers; the repository setting "Require actions to be pinned to a
+# full-length commit SHA" rejects any that does not. rust-toolchain takes a
+# commit on its master branch (commits outside it get garbage-collected) and
+# `toolchain: stable` in place of its @stable branch. Refresh the pins about
+# once a year, to releases that have been out for a few weeks.
+#
 # Each installer holds the game program, its licenses (LICENSE-GPL, and
 # LGPL-2.1-or-later.txt for the Bink decoder), the third-party notices
 # (THIRD_PARTY_LICENSES.html) and a README.txt made from
@@ -89,7 +97,7 @@ jobs:
       tag: ${{ steps.names.outputs.tag }}
       publish: ${{ steps.names.outputs.publish }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The short build sha comes from the checkout, so it is the commit the
           # installers were actually built from.
@@ -171,9 +179,11 @@ jobs:
       - name: Check out with LF line endings
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@v2
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2.88.0
         with:
           tool: cargo-about@0.9.2
       # Before the build, so a crate with an unrecognized or GPL-incompatible
@@ -185,7 +195,7 @@ jobs:
           mkdir -p dist
           cargo about generate --locked --fail -c .github/release/about.toml \
             -o dist/THIRD_PARTY_LICENSES.html .github/release/about.hbs
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       # The AppImage step also needs desktop-file-validate.
       - name: Install Linux dependencies
         if: runner.os == 'Linux'
@@ -558,7 +568,7 @@ jobs:
           (cd / && APPIMAGE_EXTRACT_AND_RUN=1 "$image" -h > /dev/null)
           grep -q 'VERA20k .* starting' "$data/logs/ra2.log"
           echo 'Linux AppImage: complete, and starting in its data folder.'
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: ${{ matrix.target }}
           path: |
@@ -602,10 +612,12 @@ jobs:
       - name: Check out with LF line endings
         if: runner.os == 'Windows'
         run: git config --global core.autocrlf false
-      - uses: actions/checkout@v7
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version: '3.12'
       # The game's ALSA headers, the AppImage step's desktop-file-validate, a
@@ -619,7 +631,7 @@ jobs:
           sudo apt-get install -y libasound2-dev pkg-config desktop-file-utils xvfb mesa-vulkan-drivers \
             libxkbcommon-x11-0
           command -v fusermount3 || command -v fusermount || sudo apt-get install -y fuse3
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ matrix.target }}
           path: release
@@ -704,10 +716,10 @@ jobs:
     steps:
       # The notes list the changes since the previous release, which needs
       # history.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: dist
           merge-multiple: true
@@ -726,7 +738,7 @@ jobs:
           done
           test "$(find . -mindepth 1 | wc -l)" -eq 3 \
             || { echo '!! dist/ holds more than the three installers' >&2; exit 1; }
-      - uses: actions/attest@v4
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-path: dist/vera20k-*
       - name: Write release notes
@@ -797,7 +809,7 @@ jobs:
     steps:
       # The notes list the changes since the previous release, which needs
       # history.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Check the dev build and download its installers

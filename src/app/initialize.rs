@@ -1088,6 +1088,7 @@ impl App {
                 online_cleanup: Default::default(),
                 wol_account: Default::default(),
                 wol_test_credentials: Vec::new(),
+                wol_native_ui: false,
                 network_options: None,
                 lan: None,
                 multiplayer_setup: None,

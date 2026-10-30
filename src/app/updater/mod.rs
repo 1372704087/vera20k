@@ -12,8 +12,7 @@
 //! Nothing is asked during a match, and a check that fails, offline
 //! included, stays silent. Vera Options' Check for Updates checks when the
 //! player asks, offers a skipped version too, and says what it found, a
-//! failure included. The online welcome says when a newer release is out,
-//! since only players on the same version start a match together.
+//! failure included.
 //! Publication: `.github/release/downloads.md`.
 
 mod fetch;
@@ -52,9 +51,6 @@ const UNATTENDED: bool = option_env!("VERA20K_UPDATE_UNATTENDED").is_some();
 #[derive(Default)]
 pub(crate) struct Updater {
     phase: Phase,
-    /// The newest release a check found above this copy, whatever the player
-    /// answered: the online welcome says that it is out.
-    newer: Option<Version>,
 }
 
 #[derive(Default)]
@@ -109,7 +105,6 @@ pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
                     Offer::NewKey { .. } => "is signed by another key",
                 };
                 log::info!("Updater: VERA20k {} {what}", offer.version());
-                state.frontend.updater.newer = Some(offer.version());
                 if asked {
                     state.frontend.updater.phase = Phase::Offered { package, offer };
                     // The checking box gives way to the offer.
@@ -330,15 +325,6 @@ pub(crate) fn cancel_check(state: &mut AppState) {
         *asked = false;
     }
     state.platform.window.request_redraw();
-}
-
-/// The newest release a check found above this copy, skipped or not.
-pub(crate) fn newer_version(state: &AppState) -> Option<String> {
-    state
-        .frontend
-        .updater
-        .newer
-        .map(|version| version.to_string())
 }
 
 /// The offer waits for the main menu at rest: its page takes input (not

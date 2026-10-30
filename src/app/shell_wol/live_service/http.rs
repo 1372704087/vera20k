@@ -68,8 +68,6 @@ pub(super) enum Request {
         token: String,
     },
     Channels(u32),
-    /// `GET /v1/stats`; a failure is dropped and the next poll asks again.
-    Stats,
     Command {
         id: u64,
         operation: &'static str,
@@ -85,10 +83,9 @@ pub(super) enum Request {
 
 impl Request {
     /// The periodic requests a waiting copy already covers: the host's 5 s
-    /// `ping`, the 10 s relay renewal retry and the welcome page's stats.
+    /// `ping` and the 10 s relay renewal retry.
     fn repeats(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::Stats, Self::Stats) => true,
             (
                 Self::Command {
                     operation, payload, ..
@@ -181,7 +178,6 @@ pub(super) enum Response {
         message: Option<String>,
     },
     Channels(ChannelList),
-    Stats(crate::ui::wol_shell::WolLobbyStats),
     Event(Envelope),
     CommandCompleted {
         id: u64,
@@ -903,13 +899,6 @@ macro_rules! serial_driver {
                     }
                 }
             }
-            Some(Request::Stats) => {
-                if let Ok(stats) = platform_await!(client.request("/v1/stats", None)).and_then(|value| {
-                    serde_json::from_value(value).map_err(|_| RequestFailure::Status(0))
-                }) {
-                    let _ = output.send(Response::Stats(stats));
-                }
-            }
             Some(Request::Command {
                 id,
                 operation,
@@ -918,7 +907,7 @@ macro_rules! serial_driver {
                 if operation == "logout" && client.token.is_none() {
                     // This serial worker has either already acknowledged
                     // logout or never obtained a bearer. No old authority is
-                    // left to clean up, including Back from the welcome page.
+                    // left to clean up, including Back from the sign-in page.
                     let _ = output.send(Response::CommandCompleted { id, operation });
                     continue;
                 }
@@ -1194,10 +1183,8 @@ mod tests {
             command(2, "ready", json!({"ready":true})),
             command(3, "ping", json!({})),
             renew(4, "a"),
-            Request::Stats,
             renew(5, "a"),
             renew(6, "b"),
-            Request::Stats,
             command(7, "chat", json!({"text":"gg"})),
             command(8, "chat", json!({"text":"gg"})),
         ] {
@@ -1212,7 +1199,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(ids, [Some(2), Some(4), None, Some(6), Some(7), Some(8)]);
+        assert_eq!(ids, [Some(2), Some(4), Some(6), Some(7), Some(8)]);
     }
 
     #[test]

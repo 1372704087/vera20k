@@ -218,6 +218,7 @@ pub(super) enum TranslateFailure {
 }
 
 const MAX_BODY_BYTES: u64 = 1024 * 1024;
+const USER_AGENT: &str = concat!("VERA20k/", env!("CARGO_PKG_VERSION"), " multiplayer-client");
 // The server retains1024 events and returns at most256 at a time. Permit
 // concurrent arrivals too, but never release cleanup on a partial history.
 const MAX_CLEANUP_DRAIN_BATCHES: usize = 8;
@@ -406,16 +407,26 @@ impl Client {
 
 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
 impl Client {
+    /// A stream frame starts at the stream's own cursor, which command
+    /// replies and polls may have passed: a stale frame is dropped, and
+    /// `batch` drops the events this worker already delivered.
+    fn streamed(&mut self, frame: Value, output: &Sender<Response>) -> Result<(), RequestFailure> {
+        if frame["cursor"]
+            .as_u64()
+            .is_some_and(|cursor| cursor < self.cursor)
+        {
+            return Ok(());
+        }
+        self.batch(frame, output)
+    }
+
     fn request(&self, path: &str, body: Option<&Value>) -> Result<Value, RequestFailure> {
         if self.stopping.load(Ordering::Acquire) {
             return Err(RequestFailure::Status(0));
         }
         let url = format!("{}{path}", self.base);
         let response = if let Some(body) = body {
-            let mut request = self.agent.post(&url).header(
-                "User-Agent",
-                concat!("VERA20k/", env!("CARGO_PKG_VERSION"), " multiplayer-client"),
-            );
+            let mut request = self.agent.post(&url).header("User-Agent", USER_AGENT);
             if path == "/v1/sessions" {
                 // Its relay CONFIRM carries a federation roster; see docs/lobby-protocol.md.
                 request = request.header("Vera-Relay-Federation", "1");
@@ -425,10 +436,7 @@ impl Client {
             }
             request.send_json(body)
         } else {
-            let mut request = self.agent.get(&url).header(
-                "User-Agent",
-                concat!("VERA20k/", env!("CARGO_PKG_VERSION"), " multiplayer-client"),
-            );
+            let mut request = self.agent.get(&url).header("User-Agent", USER_AGENT);
             if let Some(token) = &self.token {
                 request = request.header("Authorization", format!("Bearer {token}"));
             }
@@ -646,6 +654,8 @@ macro_rules! serial_driver {
             translator: Option<Sender<(u64, String, String, &'static str)>>,
         ) {
     let stopping = Arc::clone(&client.stopping);
+    #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
+    let mut streams = stream::Streams::new(&client.base);
     let mut failed_polls = 0_u8;
     let mut next_poll = Instant::now();
     let mut queued = VecDeque::new();
@@ -986,7 +996,24 @@ macro_rules! serial_driver {
             }
             None => {}
         }
-        if client.token.is_some() && Instant::now() >= next_poll {
+        #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
+        let streaming = {
+            while let Some(frame) = streams.next(client.token.as_deref()) {
+                // A bad frame ends the stream; the next poll asks again.
+                if client.streamed(frame, &output).is_err() {
+                    streams.close();
+                }
+            }
+            streams.open(client.token.as_deref(), client.cursor, &stopping);
+            // A stream that is up is a lobby that answers.
+            if streams.live() && failed_polls > 0 {
+                client.poll_finished(Ok(()), &mut failed_polls, &output);
+            }
+            streams.live()
+        };
+        #[cfg(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown"))]
+        let streaming = false;
+        if client.token.is_some() && !streaming && Instant::now() >= next_poll {
             let result = platform_await!(client
                 .request(&format!("/v1/events?after={}", client.cursor), None))
                 .and_then(|value| client.batch(value, &output));
@@ -1001,9 +1028,11 @@ serial_driver!();
 #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
 serial_driver!(async);
 
+// Stream frames arrive on their own channel, so the worker looks for them
+// every 50 ms, as the browser worker does for requests.
 #[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
 fn next_request(input: &Receiver<Request>) -> Result<Option<Request>, ()> {
-    match input.recv_timeout(Duration::from_secs(1)) {
+    match input.recv_timeout(Duration::from_millis(50)) {
         Ok(request) => Ok(Some(request)),
         Err(RecvTimeoutError::Timeout) => Ok(None),
         Err(RecvTimeoutError::Disconnected) => Err(()),
@@ -1023,6 +1052,8 @@ async fn next_request(input: &Receiver<Request>) -> Result<Option<Request>, ()> 
 
 #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
 mod browser;
+#[cfg(not(all(feature = "wasm", target_arch = "wasm32", target_os = "unknown")))]
+mod stream;
 #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
 pub(super) use browser::{RequestOwner, start as start_browser};
 
@@ -1291,6 +1322,38 @@ mod tests {
             "replayed batches must not enqueue duplicates"
         );
         assert_eq!(client.cursor, 2);
+    }
+
+    #[test]
+    fn stream_frames_behind_a_command_reply_deliver_only_newer_events() {
+        let (output, input) = std::sync::mpsc::channel();
+        let mut client = Client {
+            stopping: Arc::new(AtomicBool::new(false)),
+            agent: ureq::Agent::new_with_defaults(),
+            base: String::new(),
+            token: None,
+            cursor: 5,
+            active_match: None,
+        };
+        let event = |sequence| json!({"sequence":sequence,"kind":"chat","payload":{}});
+        client
+            .streamed(json!({"cursor":4,"events":[event(4)]}), &output)
+            .unwrap();
+        assert_eq!(client.cursor, 5);
+        client
+            .streamed(
+                json!({"cursor":6,"events":[event(4), event(5), event(6)]}),
+                &output,
+            )
+            .unwrap();
+        let delivered: Vec<_> = input
+            .try_iter()
+            .map(|response| match response {
+                Response::Event(event) => event.sequence,
+                _ => panic!("only events"),
+            })
+            .collect();
+        assert_eq!((delivered, client.cursor), (vec![6], 6));
     }
 
     #[test]

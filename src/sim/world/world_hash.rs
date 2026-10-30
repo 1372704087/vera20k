@@ -704,8 +704,8 @@ impl Simulation {
         // CellClass `0x1180` values once through their serialized authority.
         b"real-cell-bridge-flags-v2".hash(hasher);
         self.real_cell_bridge_flags_0x1180.hash(hasher);
-        b"dynamic-terrain-cells-v1".hash(hasher);
-        self.dynamic_terrain_cells.hash(hasher);
+        b"dynamic-terrain-cells-v2".hash(hasher);
+        self.dynamic_terrain_cells.hash_simulation(hasher);
         self.hash_overlay_grid(hasher);
         self.hash_crate_authority(hasher);
         self.hash_smudge_grid(hasher);
@@ -2348,11 +2348,9 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     if !entity.turret_rotate_latch.is_armed() {
         b"turret-rotate-latch-v1".hash(hasher);
     }
-    // Techno+4F8 retains a future ordinary voice suppression which
-    // neither the mission nor the audio pending line reconstructs.
-    if entity.deploy_voice_suppressed() {
-        b"deploy-voice-suppression-v1".hash(hasher);
-    }
+    // Techno+4F8, the deploy-voice suppression, is left out: only voice
+    // playback reads it, and a deploy click clears it on the clicking
+    // client alone (ClickedMission -> VoiceDeploy708E00).
     // Retired slot: the entity homing model had no production creator
     // and is gone; its constant absent tag keeps pinned hashes stable.
     0u8.hash(hasher);
@@ -4696,6 +4694,43 @@ mod bridge161_hash_projection_tests {
 
 #[cfg(test)]
 mod prism_support_hash_tests {}
+
+#[cfg(test)]
+mod dynamic_terrain_hash_tests {
+    use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
+    use crate::sim::world::Simulation;
+
+    /// Each process builds its TMP variant table from its own first map's
+    /// draws, so two clients can draw a replaced cell with different
+    /// variants; the state hash must not see it, but does see its level.
+    #[test]
+    fn a_replaced_cells_variant_does_not_reach_the_state_hash() {
+        let hash = |edit: fn(&mut crate::map::resolved_terrain::ResolvedTerrainCell)| {
+            let mut sim = Simulation::new();
+            sim.install_resolved_terrain_for_new_map(ResolvedTerrainGrid::from_cells(
+                4,
+                4,
+                (0..4)
+                    .flat_map(|y| (0..4).map(move |x| test_flat_cell(x, y)))
+                    .collect(),
+            ));
+            let mut cell = test_flat_cell(1, 2);
+            edit(&mut cell);
+            sim.dynamic_terrain_cells_mut_for_test().record(&cell);
+            sim.state_hash()
+        };
+        let drawn = hash(|_| {});
+        assert_eq!(
+            hash(|cell| {
+                cell.variant = 3;
+                cell.render_offset_x = 30;
+                cell.radar_left = [1, 2, 3];
+            }),
+            drawn
+        );
+        assert_ne!(hash(|cell| cell.level = 4), drawn);
+    }
+}
 
 #[cfg(test)]
 #[path = "navigation_history_hash_tests.rs"]

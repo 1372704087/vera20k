@@ -353,3 +353,54 @@ fn constructor_zero_z_adjust_uses_type_and_nonzero_overrides_match_original() {
         sim.process_pending_delete();
     }
 }
+
+/// Each native client reveals a DropZone flare (Anim ctor
+/// `0x0042264D..0x004226BF`) on its own PlayerPtr map; a network game keeps
+/// every human's map, so which human is local must not change the world.
+#[test]
+fn a_network_drop_zone_flare_reveals_for_every_human_whoever_is_local() {
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let mut rules = retail.rules;
+    rules
+        .bind_scheduler_anim_assets(&["BEACON".to_owned()], &assets, "TEM", "TEMPERATE")
+        .unwrap();
+    let flare = |local: &str| {
+        let mut sim = Simulation::with_seed(31);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        sim.fog = crate::sim::vision::FogState::new(32, 32);
+        for name in ["Russians", "Americans"] {
+            let id = sim.interner.intern(name);
+            sim.houses
+                .register(crate::sim::house_state::HouseState::new(
+                    id, 0, None, true, 0, 10,
+                ));
+            sim.fog.ensure_viewer(id);
+        }
+        sim.session
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+        sim.session.install_waypoints(&HashMap::from([(
+            1,
+            Waypoint {
+                index: 1,
+                rx: 16,
+                ry: 16,
+            },
+        )]));
+        sim.session
+            .set_current_house_for_test(sim.interner.get(local));
+        assert!(sim.trigger_drop_zone_flare(&rules, 1));
+        sim
+    };
+    let russian_client = flare("Russians");
+    let american_client = flare("Americans");
+    for name in ["Russians", "Americans"] {
+        let house = russian_client.interner.get(name).unwrap();
+        assert!(russian_client.fog.is_cell_revealed(house, 16, 16), "{name}");
+    }
+    assert_eq!(russian_client.state_hash(), american_client.state_hash());
+}

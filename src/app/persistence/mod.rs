@@ -94,6 +94,8 @@ impl PersistenceState {
 pub(crate) enum PreparedLoadError {
     #[error("could not read save file: {0}")]
     ReadFile(#[source] std::io::Error),
+    #[error("a network match cannot load a saved game")]
+    NetworkMatch,
     // The four `#[cfg(test)]` variants belong to the headless same-content
     // fixture route; saved-resource preparation rebuilds those inputs.
     #[cfg(test)]

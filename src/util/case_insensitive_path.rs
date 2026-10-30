@@ -7,17 +7,20 @@
 use std::path::{Path, PathBuf};
 
 /// The entry in `directory` whose name equals `name`, ignoring ASCII case.
+/// A case-sensitive file system can hold several spellings: the first in byte
+/// order wins, whatever order the directory lists them in.
 pub fn find(directory: &Path, name: &str) -> Option<PathBuf> {
     crate::util::file_system::read_dir(directory)
         .ok()?
         .filter_map(Result::ok)
-        .find(|entry| {
+        .filter(|entry| {
             entry
                 .file_name()
                 .to_string_lossy()
                 .eq_ignore_ascii_case(name)
         })
         .map(|entry| entry.path())
+        .min()
 }
 
 #[cfg(test)]
@@ -34,6 +37,21 @@ mod tests {
         assert_eq!(find(&dir, "RA2MD.ICO"), None);
         assert_eq!(find(&dir.join("missing"), "RA2.ICO"), None);
 
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn several_spellings_resolve_to_the_first_in_byte_order() {
+        let dir =
+            std::env::temp_dir().join(format!("vera20k-case-spellings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["ra2.ico", "Ra2.Ico", "RA2.ICO"] {
+            std::fs::write(dir.join(name), b"icon").unwrap();
+        }
+        // A case-insensitive file system holds one spelling.
+        if std::fs::read_dir(&dir).unwrap().count() == 3 {
+            assert_eq!(find(&dir, "ra2.ico"), Some(dir.join("RA2.ICO")));
+        }
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -311,6 +311,41 @@ fn native_mirage_ring_tail_uses_current_house_or_campaign_control_flags() {
     assert_eq!(rows.len(), 7);
 }
 
+/// A network game's clients each test their own PlayerPtr in the ring tail
+/// (Unit746A9C..746B19): the owner's client shows a disguised unit's ring and
+/// every other client hides it, whichever client this is.
+#[test]
+fn a_network_disguised_ring_is_hidden_per_viewer_whoever_is_local() {
+    let rules = rules();
+    let ring_for = |local: &str| {
+        let mut sim = sim(7);
+        let target = spawn(&mut sim, &rules, "HTNK", "Americans", 12, 10);
+        sim.attach_control_ring(target, "MINDANIM", &rules);
+        sim.session
+            .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Lan);
+        sim.session
+            .set_current_house_for_test(sim.interner.get(local));
+        let tree = sim.interner.intern("TREE01");
+        let entity = sim.substrate.entities.get_mut(target).unwrap();
+        entity
+            .disguise
+            .as_mut()
+            .unwrap()
+            .acquire(1, Some(tree), None);
+        let ring = entity.mind_control.ring_anim.unwrap();
+        sim.update_disguise_ring_visibility(target);
+        (sim, ring)
+    };
+    let (owner_client, ring) = ring_for("Americans");
+    let (other_client, _) = ring_for("Russians");
+    let americans = owner_client.interner.get("Americans");
+    let russians = owner_client.interner.get("Russians");
+    let anim = owner_client.anim(ring).unwrap();
+    assert!(!anim.hidden_for(americans));
+    assert!(anim.hidden_for(russians));
+    assert_eq!(owner_client.state_hash(), other_client.state_hash());
+}
+
 /// CaptureUnit: the target changes house, records the house it had, wears
 /// the ring, and a computer-owned result takes one fate draw that sends it
 /// hunting.

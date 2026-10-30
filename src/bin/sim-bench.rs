@@ -1,7 +1,7 @@
 //! Release-build simulation tick benchmark at scale.
 //!
 //! Loads a retail map headlessly (the same GPU-free funnel as `parity-digest`),
-//! sets up one of two scenarios, then times each `SimRuntime` frame and prints
+//! sets up one of three scenarios, then times each `SimRuntime` frame and prints
 //! the distribution.
 //!
 //! `--scenario march` (the default) adds `--houses` hostile houses on a ring
@@ -26,6 +26,13 @@
 //! and defaults to every start but the local house's; `--ticks` defaults to
 //! 1800, and `after_orders_mean_ms` skips the first 150. Every
 //! `PROGRESS_EVERY` ticks it prints what the houses have and have done.
+//!
+//! `--scenario skirmish` plays a whole skirmish from its start: the map loads
+//! as a Battle against `--computers` computer houses with the lobby's default
+//! options, and their own AI plays each from its starting units: it deploys
+//! its MCV, builds and harvests, produces, forms teams and attacks. The
+//! launch's local house sits the match out, as in the match scenario, and no
+//! command is issued. `--ticks` defaults to 9000, ten minutes of game time.
 //!
 //! The run is deterministic for a given map, seed and arguments: the final
 //! `Simulation::state_hash` (and the optional periodic hashes, taken outside
@@ -60,6 +67,13 @@
 //! cell arrivals, inside the objects bucket. It needs a build with
 //! `--features telemetry`.
 //!
+//! `--lan` plays the frames as a LAN game: they take the multiplayer route,
+//! which stores a multiplayer sync checksum every frame. `--frame-hashes
+//! <path>` writes every frame's state hash and that checksum (`-` off the
+//! multiplayer route), one `tick hash checksum` line per frame, untimed: two
+//! hosts' files are equal exactly when their simulations stayed identical, so
+//! comparing them checks cross-platform determinism frame by frame.
+//!
 //! Build with `cargo build --release -p vera20k-core --bin sim-bench`; timings from a debug
 //! build are not meaningful.
 
@@ -70,20 +84,27 @@ use std::num::NonZeroU64;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use vera20k_core::headless_scenario::{self, HeadlessScenario, SIM_TICK_MS};
+use vera20k_core::headless_scenario::{self, HeadlessScenario, SIM_TICK_MS, battle_session};
 use vera20k_core::sim::command::{Command, CommandEnvelope};
 use vera20k_core::sim::intern::InternedId;
 use vera20k_core::sim::runtime::SimRuntime;
+use vera20k_core::sim::scenario_session::ScenarioGameMode;
 
 use sim_bench_match::MatchScenario;
 
 /// The match scenario's progress line cadence, in ticks.
 const PROGRESS_EVERY: u64 = 100;
+/// The skirmish scenario's default run, ten minutes of game time.
+const SKIRMISH_TICKS: u64 = 9000;
+/// `--lan`'s MaxAhead: a LAN host's protocol-2 floor
+/// (`net::lockstep::initial_multiplayer_max_ahead`).
+const LAN_MAX_AHEAD: i32 = 10;
 
 #[derive(Clone, Copy, PartialEq)]
 enum ScenarioKind {
     March,
     Match,
+    Skirmish,
 }
 
 struct Args {
@@ -103,6 +124,8 @@ struct Args {
     csv: Option<PathBuf>,
     serial_paths: bool,
     frame_profile: bool,
+    lan: bool,
+    frame_hashes: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -125,6 +148,8 @@ fn parse_args() -> Result<Args, String> {
         csv: None,
         serial_paths: false,
         frame_profile: false,
+        lan: false,
+        frame_hashes: None,
     };
     let mut march_flag = None;
     let mut argv = std::env::args().skip(1);
@@ -146,7 +171,12 @@ fn parse_args() -> Result<Args, String> {
                 args.scenario = match value()?.as_str() {
                     "march" => ScenarioKind::March,
                     "match" => ScenarioKind::Match,
-                    other => return Err(format!("unknown scenario {other}: march or match")),
+                    "skirmish" => ScenarioKind::Skirmish,
+                    other => {
+                        return Err(format!(
+                            "unknown scenario {other}: march, match or skirmish"
+                        ));
+                    }
                 }
             }
             "--seed" => {
@@ -171,6 +201,8 @@ fn parse_args() -> Result<Args, String> {
             "--csv" => args.csv = Some(PathBuf::from(value()?)),
             "--serial-paths" => args.serial_paths = true,
             "--frame-profile" => args.frame_profile = true,
+            "--lan" => args.lan = true,
+            "--frame-hashes" => args.frame_hashes = Some(PathBuf::from(value()?)),
             "--serial-scans" => {} // All target scans already run at their object turn.
             other => return Err(format!("unrecognised argument {other}")),
         }
@@ -184,11 +216,11 @@ fn parse_args() -> Result<Args, String> {
     if args.houses.is_some_and(|houses| houses < 2) || args.types.is_empty() {
         return Err("need at least two houses and one unit type".to_string());
     }
-    let matched = args.scenario == ScenarioKind::Match;
-    if !matched && args.computers.is_some() {
-        return Err("--computers is a match option".to_string());
+    let marched = args.scenario == ScenarioKind::March;
+    if marched && args.computers.is_some() {
+        return Err("--computers is a match and skirmish option".to_string());
     }
-    if matched && let Some(flag) = march_flag {
+    if !marched && let Some(flag) = march_flag {
         return Err(format!("{flag} is a march option"));
     }
     if args
@@ -236,9 +268,10 @@ fn home_cells(cells: &[(u16, u16)], houses: usize) -> Vec<(u16, u16)> {
     );
     (0..houses)
         .map(|index| {
+            // libm's trigonometry, so every platform rounds to the same homes.
             let angle = std::f64::consts::TAU * index as f64 / houses as f64;
-            let u = u_mid + u_radius * angle.cos();
-            let v = v_mid + v_radius * angle.sin();
+            let u = u_mid + u_radius * libm::cos(angle);
+            let v = v_mid + v_radius * libm::sin(angle);
             let rx = ((v + u) / 2.0).round().max(0.0) as u16;
             let ry = ((v - u) / 2.0).round().max(0.0) as u16;
             (rx, ry)
@@ -365,6 +398,7 @@ fn march(
 enum Plan {
     March(Vec<Vec<CommandEnvelope>>),
     Match(MatchScenario),
+    Skirmish,
 }
 
 /// Zero for no frames, as when the first frame failed.
@@ -382,13 +416,17 @@ struct Measured {
     cpu_times: Vec<Option<Duration>>,
     hashes: Vec<(u64, u64)>,
     hash_times: Vec<Duration>,
+    /// With `--frame-hashes`: every frame's tick, state hash and multiplayer
+    /// sync checksum.
+    frame_records: Vec<(u64, u64, Option<u32>)>,
 }
 
 /// The benchmark's frames: each frame's commands and progress are untimed,
 /// its advance is timed.
 trait Frames {
     fn commands(&mut self, tick: u64) -> Vec<CommandEnvelope>;
-    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<(), String>;
+    /// The frame's multiplayer sync checksum, on the multiplayer route.
+    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<Option<u32>, String>;
     fn state_hash(&self) -> u64;
     /// After each completed frame, with every completed frame's time.
     fn completed(&mut self, tick: u64, times: &[Duration]);
@@ -404,10 +442,11 @@ impl Frames for Bench<'_> {
         match &mut *self.plan {
             Plan::March(orders) => orders.get(tick as usize).cloned().unwrap_or_default(),
             Plan::Match(script) => script.orders(self.runtime, tick),
+            Plan::Skirmish => Vec::new(),
         }
     }
 
-    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<(), String> {
+    fn advance(&mut self, commands: &[CommandEnvelope]) -> Result<Option<u32>, String> {
         self.runtime
             .advance_frame_for_tooling(commands, SIM_TICK_MS)
             .map_err(|error| error.to_string())
@@ -418,27 +457,31 @@ impl Frames for Bench<'_> {
     }
 
     fn completed(&mut self, tick: u64, times: &[Duration]) {
-        if let Plan::Match(script) = &*self.plan
-            && (tick + 1) % PROGRESS_EVERY == 0
-        {
-            let recent = &times[times.len().saturating_sub(PROGRESS_EVERY as usize)..];
-            let mean: Duration = recent.iter().sum::<Duration>() / recent.len() as u32;
-            println!(
-                "progress tick={} mean_ms={:.1} {}",
-                tick + 1,
-                mean.as_secs_f64() * 1000.0,
-                script.progress(self.runtime)
-            );
+        if matches!(self.plan, Plan::March(_)) || (tick + 1) % PROGRESS_EVERY != 0 {
+            return;
         }
+        let recent = &times[times.len().saturating_sub(PROGRESS_EVERY as usize)..];
+        let mean: Duration = recent.iter().sum::<Duration>() / recent.len() as u32;
+        let progress = match &*self.plan {
+            Plan::Match(script) => script.progress(self.runtime),
+            _ => format!("live_objects={}", self.runtime.simulation.entities().len()),
+        };
+        println!(
+            "progress tick={} mean_ms={:.1} {progress}",
+            tick + 1,
+            mean.as_secs_f64() * 1000.0,
+        );
     }
 }
 
 /// Run `ticks` frames, stopping at the first that fails. The frames before it
-/// keep their times and hashes, so the report still covers them.
+/// keep their times and hashes, so the report still covers them. With
+/// `every_frame`, each frame's record is kept as well.
 fn run_frames(
     frames: &mut impl Frames,
     ticks: u64,
     hash_every: u64,
+    every_frame: bool,
 ) -> (Measured, Result<(), String>) {
     let mut measured = Measured {
         times: Vec::with_capacity(ticks as usize),
@@ -449,9 +492,10 @@ fn run_frames(
         let commands = frames.commands(tick);
         let cpu_started = thread_cpu_time();
         let started = Instant::now();
-        if let Err(error) = frames.advance(&commands) {
-            return (measured, Err(format!("tick {tick}: {error}")));
-        }
+        let checksum = match frames.advance(&commands) {
+            Ok(checksum) => checksum,
+            Err(error) => return (measured, Err(format!("tick {tick}: {error}"))),
+        };
         measured.times.push(started.elapsed());
         measured.cpu_times.push(
             cpu_started
@@ -464,9 +508,24 @@ fn run_frames(
             measured.hash_times.push(started.elapsed());
             measured.hashes.push((tick + 1, hash));
         }
+        if every_frame {
+            let hash = frames.state_hash();
+            measured.frame_records.push((tick + 1, hash, checksum));
+        }
         frames.completed(tick, &measured.times);
     }
     (measured, Ok(()))
+}
+
+/// The `--frame-hashes` file: one `tick hash checksum` line per completed
+/// frame, `-` for a frame off the multiplayer route.
+fn frame_hashes(measured: &Measured) -> String {
+    let mut text = String::new();
+    for (tick, hash, checksum) in &measured.frame_records {
+        let checksum = checksum.map_or("-".to_string(), |checksum| format!("{checksum:08x}"));
+        text.push_str(&format!("{tick} {hash:016x} {checksum}\n"));
+    }
+    text
 }
 
 /// The `--csv` file: one row per completed frame.
@@ -550,11 +609,11 @@ fn main() -> Result<(), String> {
             eprintln!("{error}");
             eprintln!(
                 "usage: sim-bench [--ra2-dir <retail path>] [--map Death.mmx] \
-                 [--scenario march|match] [--seed S] [--units 20000] [--houses N] \
-                 [--computers 7 (match)] [--ticks 300 (match: 1800)] \
+                 [--scenario march|match|skirmish] [--seed S] [--units 20000] [--houses N] \
+                 [--computers 7 (match, skirmish)] [--ticks 300 (match: 1800, skirmish: 9000)] \
                  [--types E1,E2,MTNK,HTNK] [--order-spread 30] [--return-at T] (march) \
                  [--hash-every N] [--frame-hash-every 15] [--csv <path>] [--serial-paths] [--serial-scans] \
-                 [--frame-profile]"
+                 [--frame-profile] [--lan] [--frame-hashes <path>]"
             );
             std::process::exit(2);
         }
@@ -572,6 +631,15 @@ fn main() -> Result<(), String> {
                 &args.map,
                 args.seed,
                 sim_bench_match::session(&args.map, computers),
+            )?
+        }
+        ScenarioKind::Skirmish => {
+            let computers = args.computers.unwrap_or(sim_bench_match::COMPUTERS);
+            headless_scenario::load_session(
+                &args.ra2_dir,
+                &args.map,
+                args.seed,
+                battle_session(&args.map, &sim_bench_match::COMPUTER_ROSTER[..computers]),
             )?
         }
     };
@@ -595,16 +663,33 @@ fn main() -> Result<(), String> {
             let ticks = args.ticks.map_or(sim_bench_match::TICKS, NonZeroU64::get);
             (script.houses(), script.spawned, Plan::Match(script), ticks)
         }
+        ScenarioKind::Skirmish => {
+            let simulation = &mut scenario.runtime.simulation;
+            if let Some(local) = simulation.session().current_house() {
+                simulation.make_house_multiplay_passive(local);
+            }
+            let ticks = args.ticks.map_or(SKIRMISH_TICKS, NonZeroU64::get);
+            (simulation.houses().order().len(), 0, Plan::Skirmish, ticks)
+        }
     };
+    if args.lan {
+        // A LAN GameMode selects `Queue_AI_Multiplayer @ 0x006475F0`, whose
+        // frames store the sync checksum; the admitted session has timing.
+        let simulation = &mut scenario.runtime.simulation;
+        simulation.install_session_mode(ScenarioGameMode::Lan);
+        simulation.install_network_timing(LAN_MAX_AHEAD);
+    }
     // The steady window leaves out the march's spread first orders and the
     // match's launch and first contacts.
     let warmup = match plan {
         Plan::March(_) => args.order_spread,
         Plan::Match(_) => sim_bench_match::WARMUP,
+        Plan::Skirmish => 0,
     };
     let computers = match &plan {
         Plan::March(_) => 0,
         Plan::Match(script) => script.computers(),
+        Plan::Skirmish => args.computers.unwrap_or(sim_bench_match::COMPUTERS),
     };
     let runtime = &mut scenario.runtime;
     let live_at_start = runtime.simulation.entities().len();
@@ -632,10 +717,15 @@ fn main() -> Result<(), String> {
         },
         ticks,
         args.hash_every,
+        args.frame_hashes.is_some(),
     );
     let live_at_end = runtime.simulation.entities().len();
     let csv_written = args.csv.as_ref().map_or(Ok(()), |path| {
         std::fs::write(path, csv(&measured)).map_err(|error| format!("{}: {error}", path.display()))
+    });
+    let frame_hashes_written = args.frame_hashes.as_ref().map_or(Ok(()), |path| {
+        std::fs::write(path, frame_hashes(&measured))
+            .map_err(|error| format!("{}: {error}", path.display()))
     });
     report(&mut std::io::stdout().lock(), &measured, warmup).map_err(|error| error.to_string())?;
     #[cfg(feature = "telemetry")]
@@ -645,6 +735,7 @@ fn main() -> Result<(), String> {
     println!("live_objects start={live_at_start} end={live_at_end}");
     frames?;
     csv_written?;
+    frame_hashes_written?;
     let final_hash = runtime.simulation.state_hash();
     println!("final_hash={final_hash:016x}");
     Ok(())
@@ -709,12 +800,12 @@ mod partial_report_tests {
             Vec::new()
         }
 
-        fn advance(&mut self, _commands: &[CommandEnvelope]) -> Result<(), String> {
+        fn advance(&mut self, _commands: &[CommandEnvelope]) -> Result<Option<u32>, String> {
             if self.done == self.fail_at {
                 return Err("boom".to_string());
             }
             self.done += 1;
-            Ok(())
+            Ok((self.done % 2 == 0).then_some(self.done as u32))
         }
 
         fn state_hash(&self) -> u64 {
@@ -726,7 +817,7 @@ mod partial_report_tests {
 
     fn run(fail_at: u64) -> (Measured, Result<(), String>, String) {
         let mut frames = Scripted { fail_at, done: 0 };
-        let (measured, result) = run_frames(&mut frames, 5, 1);
+        let (measured, result) = run_frames(&mut frames, 5, 1, true);
         let mut out = Vec::new();
         report(&mut out, &measured, 1).unwrap();
         (measured, result, String::from_utf8(out).unwrap())
@@ -738,6 +829,10 @@ mod partial_report_tests {
         assert_eq!(result, Err("tick 2: boom".to_string()));
         assert_eq!(measured.hashes, [(1, 1), (2, 2)]);
         assert_eq!(csv(&measured).lines().count(), 3);
+        assert_eq!(
+            frame_hashes(&measured),
+            "1 0000000000000001 -\n2 0000000000000002 00000002\n"
+        );
         assert!(out.starts_with("ticks=2 "), "{out}");
         assert!(out.contains("hash tick=2 0000000000000002\n"), "{out}");
     }

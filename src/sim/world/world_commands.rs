@@ -2327,8 +2327,13 @@ impl Simulation {
                     self.quit_requested = true;
                 } else {
                     // A remote sender never reaches Execute (0x0064C91B):
-                    // the app runs DestroyConnection(house, 0) for it
-                    // (0x0064C9B1).
+                    // DestroyConnection(house, 0) runs for it (0x0064C9B1).
+                    // Its WOL tournament tail (0x005DA8F7..0x005DA90F) kills
+                    // the leaver's House here, where replays run it too; the
+                    // app runs the connection and message work.
+                    if self.session.wol_tournament_game() {
+                        self.flag_house_to_die(owner);
+                    }
                     self.departed_owners.push(owner);
                 }
                 true

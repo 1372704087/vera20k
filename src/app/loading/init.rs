@@ -2136,15 +2136,11 @@ impl MapLoadInitial {
             || theater_ext_for(&map_data.header.theater),
             |td| td.extension,
         );
-        let mut scheduler_roots = scheduler_anim_roots(
+        let scheduler_roots = scheduler_anim_roots(
             &rules,
             &overlay_registry,
             resolved_terrain.tile_animations(),
         );
-        scheduler_roots.extend(crate::map::actions::trigger_anim_class_roots(
-            &rules,
-            &map_data.actions,
-        ));
         rules
             .bind_scheduler_anim_assets(
                 &scheduler_roots,
@@ -2165,6 +2161,12 @@ impl MapLoadInitial {
         );
         crate::rules::effect_asset_catalog::log_unbound_combat_explosion_roots(
             unbound_explosion_roots,
+        );
+        rules.bind_anim_class_assets(
+            &crate::map::actions::trigger_anim_class_roots(&rules, &map_data.actions),
+            asset_manager,
+            theater_ext,
+            &map_data.header.theater,
         );
         rules.bind_effect_assets(asset_manager, theater_ext, &map_data.header.theater);
         rules.bind_building_buildup_assets(asset_manager, &map_data.header.theater);
@@ -3252,25 +3254,26 @@ fn load_map_first_step(
                             // Bind the complete scheduler closure only after theater Tile##Anim rows
                             // have resolved, but before any atlas or AnimClass construction. Missing
                             // tile art is a load error rather than a silently invisible map feature.
-                            let mut roots = scheduler_anim_roots(
+                            let roots = scheduler_anim_roots(
                                 &rules,
                                 &overlay_registry,
                                 resolved_terrain
                                     .as_ref()
                                     .map_or(&[], |terrain| terrain.tile_animations()),
                             );
-                            roots.extend(crate::map::actions::trigger_anim_class_roots(
-                                &rules,
-                                &map_data.actions,
-                            ));
-                            let script_anim_roots =
-                                team_ai_registry.script_anim_class_roots(&rules);
+                            let mut authored_anim_roots =
+                                crate::map::actions::trigger_anim_class_roots(
+                                    &rules,
+                                    &map_data.actions,
+                                );
+                            authored_anim_roots
+                                .extend(team_ai_registry.script_anim_class_roots(&rules));
                             crate::app::loading::init_helpers::bind_rules_asset_closure(
                                 &mut rules,
                                 &fixed_art_ini,
                                 &overlay_registry,
                                 &roots,
-                                &script_anim_roots,
+                                &authored_anim_roots,
                                 services.asset_manager,
                                 theater_ext,
                                 &map_data.header.theater,

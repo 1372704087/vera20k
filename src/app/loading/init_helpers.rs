@@ -363,13 +363,14 @@ pub(crate) fn bind_rules_art_metadata(
 /// complete retained scheduler closure, including authored animations that
 /// have since expired, rather than constructing their objects again. The
 /// Terrain phase preserves the distinct fresh/saved shape residency.
-/// `script_anim_roots` bind tolerantly; the ones that bind join that closure.
+/// Map-authored trigger and script animations bind tolerantly; the ones that
+/// bind join that closure.
 pub(crate) fn bind_rules_asset_closure(
     rules: &mut RuleSet,
     fixed_art: &IniFile,
     overlay_registry: &crate::rules::overlay_types::OverlayTypeRegistry,
     roots: &[String],
-    script_anim_roots: &[String],
+    authored_anim_roots: &[String],
     assets: &AssetManager,
     theater_ext: &str,
     theater_name: &str,
@@ -380,7 +381,7 @@ pub(crate) fn bind_rules_asset_closure(
     let tolerant_roots = tolerant_anim_class_roots(rules);
     let unbound = rules.bind_anim_class_assets(&tolerant_roots, assets, theater_ext, theater_name);
     crate::rules::effect_asset_catalog::log_unbound_combat_explosion_roots(unbound);
-    rules.bind_anim_class_assets(script_anim_roots, assets, theater_ext, theater_name);
+    rules.bind_anim_class_assets(authored_anim_roots, assets, theater_ext, theater_name);
     rules.bind_effect_assets(assets, theater_ext, theater_name);
     rules.bind_building_buildup_assets(assets, theater_name);
     rules.bind_building_rubble_assets(assets, theater_ext, theater_name);

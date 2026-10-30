@@ -406,12 +406,8 @@ fn load_with_assets(
     // Pending authored Fill has no eager Tile##Anim list. Bind damage-fire
     // roots now and let the authored host bind each actually reached map Anim
     // synchronously before its native constructor spends an ID.
-    let mut scheduler_roots =
+    let scheduler_roots =
         crate::map::resolved_terrain::scheduler_anim_roots(&rules, &overlay_registry, &[]);
-    scheduler_roots.extend(crate::map::actions::trigger_anim_class_roots(
-        &rules,
-        &map.actions,
-    ));
     rules
         .bind_scheduler_anim_assets(
             &scheduler_roots,
@@ -430,8 +426,11 @@ fn load_with_assets(
         &map.header.theater,
     );
     crate::rules::effect_asset_catalog::log_unbound_combat_explosion_roots(unbound_explosion_roots);
+    let mut authored_anim_roots =
+        crate::map::actions::trigger_anim_class_roots(&rules, &map.actions);
+    authored_anim_roots.extend(team_ai_registry.script_anim_class_roots(&rules));
     rules.bind_anim_class_assets(
-        &team_ai_registry.script_anim_class_roots(&rules),
+        &authored_anim_roots,
         &assets,
         theater.extension,
         &map.header.theater,

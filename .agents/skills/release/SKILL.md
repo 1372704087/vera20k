@@ -27,7 +27,8 @@ builds and releases. This skill is the maintainer's order of steps and the page 
 
 ## Dev build
 
-`nightly.yml` starts one from main at 18:00 UTC each day that main has changed. By hand:
+`nightly.yml` starts one from main at 18:00 UTC each day that main has changed, unless it is
+disabled (`gh workflow list --all` shows its state). By hand:
 
 1. `gh workflow run release.yml --ref main -f publish=prerelease`; `draft` to look before
    publishing, `none` to only build and test.
@@ -62,7 +63,17 @@ builds and releases. This skill is the maintainer's order of steps and the page 
    ```
 
    Check that it passed and that `https://downloads.vera20k.org/latest.json` names the new
-   version: installed games offer their update from that file.
+   version: installed games offer their update from that file. The website's download links
+   lead to R2 only when that version's signature verifies, and otherwise send players to
+   GitHub without an error, so check that each line this prints starts with
+   `https://downloads.vera20k.org/releases/vX.Y.Z/`:
+
+   ```bash
+   for p in windows macos linux; do
+     curl -s -o /dev/null -w '%{redirect_url}\n' "https://vera20k.org/download/$p"
+   done
+   ```
+
 5. In a PR, raise the version in `Cargo.toml`, `src/Cargo.toml` and their two `Cargo.lock`
    entries above the release and check all four versions agree. This allows the development
    build workflow to start again.

@@ -2125,6 +2125,12 @@ pub struct ObjectType {
     /// AMMOCRAT (Ammo Crate).
     pub can_c4: bool,
 
+    /// Phobos `AllowAirstrike=`: whether an `Airstrike=` warhead may designate
+    /// this type. Unset keeps the vanilla rule at each call site — buildings
+    /// follow `CanC4`, every other kind is targetable.
+    #[cfg(feature = "phobos")]
+    pub allow_airstrike: Option<bool>,
+
     /// BuildingTypeClass `EligibleForDelayKill` (`+0x1551`). Native default
     /// false; only eligible buildings can convert a fatal result to PostMortem.
     pub eligible_for_delay_kill: bool,
@@ -2478,6 +2484,27 @@ fn native_minutes_to_ticks(value: f64) -> u32 {
 }
 
 impl ObjectType {
+    /// Phobos `AllowAirstrike` as the cursor and `CanFire` tests read it: an
+    /// explicit value wins, a building otherwise follows `CanC4`, and every
+    /// other kind is targetable by default.
+    #[cfg(feature = "phobos")]
+    pub fn allows_airstrike(&self, is_building: bool) -> bool {
+        self.allow_airstrike
+            .unwrap_or(if is_building { self.can_c4 } else { true })
+    }
+
+    /// The weapon-choice reading of `AllowAirstrike`. Its vanilla default also
+    /// refuses a building that is both a resource destination and a resource
+    /// gatherer (`0x6F3477`), which the cursor test above does not apply.
+    #[cfg(feature = "phobos")]
+    pub fn allows_airstrike_weapon(&self, is_building: bool) -> bool {
+        self.allow_airstrike.unwrap_or(if is_building {
+            self.can_c4 && (!self.resource_destination || !self.resource_gatherer)
+        } else {
+            true
+        })
+    }
+
     pub(crate) fn bind_weapon_offsets(
         &mut self,
         offsets: &crate::rules::weapon_offsets::WeaponOffsets,
@@ -4634,6 +4661,8 @@ impl ObjectType {
             sabotage_cursor: section.read_bool("SabotageCursor", false),
             c4: category != ObjectCategory::Infantry && section.read_bool("C4", false),
             can_c4: section.read_bool("CanC4", category == ObjectCategory::Building),
+            #[cfg(feature = "phobos")]
+            allow_airstrike: section.read_bool_value("AllowAirstrike"),
             eligible_for_delay_kill: section.read_bool("EligibleForDelayKill", false),
             invisible: section.read_bool("Invisible", false),
             legal_target: section.read_bool("LegalTarget", true),

@@ -117,6 +117,8 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
+#[cfg(feature = "phobos")]
+pub mod airstrike_targets;
 pub mod attach_effect;
 pub mod digital_display;
 pub mod phobos_parallel_ai_queues;

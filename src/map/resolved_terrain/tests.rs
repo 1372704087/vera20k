@@ -464,8 +464,9 @@ fn gsi_04_01_production_size_diamond_closes_exact_capacity_edge() {
     assert!(grid.cell(2, 511).is_some());
     assert!(grid.cell(3, 511).is_none());
 
+    // Sum 513 now selects the extended array; past its capacity is rejected.
     let mut oversized = make_map(Vec::new(), Vec::new(), Vec::new());
-    oversized.header.width = N + 1;
+    oversized.header.width = 1024;
     oversized.header.height = M;
     let (rejected, rejected_stats) = build_production_grid_without_theater(&oversized, &mut cache);
     assert_eq!((rejected.width(), rejected.height()), (0, 0));
@@ -5073,4 +5074,44 @@ fn destroyable_cliff_origin_recovery_accepts_every_present_a_and_b_subtile() {
             }
         }
     }
+}
+
+#[test]
+fn large_map_production_diamond_lookup_and_path_cross_512() {
+    let mut map = make_map(Vec::new(), Vec::new(), Vec::new());
+    map.header.width = 500;
+    map.header.height = 500;
+    map.header.local_left = 2;
+    map.header.local_top = 4;
+    map.header.local_width = 496;
+    map.header.local_height = 492;
+    let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
+    let (grid, stats) = build_production_grid_without_theater(&map, &mut cache);
+    assert_eq!((grid.width(), grid.height()), (1000, 1000));
+    assert_eq!(grid.iter().count(), 499_500);
+    assert_eq!(stats.fill_calls, 499_500);
+    let first = grid.native_fixed_cell_index(700, 600).unwrap();
+    let second = grid.native_fixed_cell_index(188, 601).unwrap();
+    assert_ne!(
+        crate::sim::wave::WaveRecordedCell::real(700, 600).identity,
+        crate::sim::wave::WaveRecordedCell::real(188, 601).identity
+    );
+    assert_ne!(
+        first, second,
+        "a high coordinate must not alias the old 512 stride"
+    );
+    assert_eq!((grid.cells()[first].rx, grid.cells()[first].ry), (700, 600));
+    let path_grid = crate::sim::pathfinding::PathGrid::from_resolved_terrain(&grid);
+    let route = crate::sim::pathfinding::find_path(&path_grid, (700, 600), (740, 640)).unwrap();
+    assert_eq!(route.last(), Some(&(740, 640)));
+    map.header.width = 128;
+    map.header.height = 128;
+    let (retail, _) = build_production_grid_without_theater(&map, &mut cache);
+    assert_eq!(retail.cell_grid(), crate::map::cell_index::CellGrid::Retail);
+    assert_eq!(
+        retail.native_fixed_cell_index(712, 99),
+        retail.native_fixed_cell_index(200, 100)
+    );
+    assert!(retail.native_fixed_cell_index(200, 100).is_some());
+    assert_eq!((grid.cells()[first].rx, grid.cells()[first].ry), (700, 600));
 }

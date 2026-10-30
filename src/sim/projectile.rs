@@ -655,11 +655,13 @@ pub(crate) fn projectile_slope_reflect_double(
 /// leaves the 512-cell map). So every cluster after the first lands around
 /// the impact, never around the previous cluster.
 pub fn projectile_next_cluster_coord(
+    grid: crate::map::cell_index::CellGrid,
     impact: ProjectileCoord,
     scenario_rng: &mut SimRng,
 ) -> ProjectileCoord {
     let distance = scenario_rng.next_range_i32_inclusive(0x100, 0x200);
     let (x, y) = crate::sim::combat::inviso_scatter::random_direction_coord(
+        grid,
         scenario_rng,
         impact.x,
         impact.y,
@@ -1428,8 +1430,17 @@ pub enum ProjectileDetonationReason {
     /// straight to `DetonateAtCoord` (`0x0070D782`): one detonation, without
     /// the BulletClass cluster loop and its draws.
     DeathWeapon,
+    /// Phobos `BulletExt::Detonate` (an AttachEffect `ExpireWeapon`,
+    /// `RevengeWeapon` or `ReflectDamage` shot): the bullet is created at the
+    /// shot's coordinates and exploded at once, so it takes no cluster loop
+    /// but keeps its real impact coordinate.
+    AttachEffectShot,
     /// A `NUKE` impact's wait ended: its anim is gone (`0x00466771`).
     AnimEnded,
+    /// Phobos `ApplyCrit`'s `Crit.Warhead_FullDetonation` arm:
+    /// `WarheadTypeExt::DetonateAt` builds a bullet with no weapon type and
+    /// explodes it at the target (`Ext/WarheadType/Body.cpp:102..110`).
+    CritWarhead,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.
@@ -3715,6 +3726,7 @@ mod tests {
                 .chain(draws.map(|(distance, raw)| {
                     let (x, y) =
                         crate::sim::combat::inviso_scatter::random_direction_coord_for_byte(
+                            crate::map::cell_index::CellGrid::Retail,
                             (raw.as_u64().unwrap() & 0xff) as u8,
                             impact.x,
                             impact.y,
@@ -3742,6 +3754,7 @@ mod tests {
         let _ = cluster_reference.next_range_u32_inclusive(256, 512);
         let _ = cluster_reference.next_u32();
         let coordinate = projectile_next_cluster_coord(
+            crate::map::cell_index::CellGrid::Retail,
             ProjectileCoord::new(20 * 256 + 128, 20 * 256 + 128, 77),
             &mut cluster_rng,
         );

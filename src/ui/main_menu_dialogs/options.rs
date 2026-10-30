@@ -66,9 +66,9 @@ pub(crate) const FULL_SCREEN_HELP: &str = "Fill the whole screen. Untick it to p
 pub(crate) const ORIGINAL_SHAPE_LABEL: &str = "Original 4:3 Shape";
 pub(crate) const ORIGINAL_SHAPE_HELP: &str =
     "Battles keep the original 4:3 shape, with bars on wide screens.";
-pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "YR Loading & Menu Movie";
+pub(crate) const YR_ORIGINAL_STYLE_LABEL: &str = "Original YR Style";
 pub(crate) const YR_ORIGINAL_STYLE_HELP: &str =
-    "Show the Yuri's Revenge loading screen and menu movie.";
+    "Use Yuri's Revenge's loading screen and menu movie, plus the Skirmish and multiplayer lobby backgrounds.";
 pub(crate) const RENDER_INTERPOLATION_LABEL: &str = "Render Interpolation";
 pub(crate) const RENDER_INTERPOLATION_HELP: &str = "Smooth motion between simulation frames. Adds one frame of visual latency; does not increase simulation speed.";
 pub(crate) const MOUSE_WHEEL_ZOOM_LABEL: &str = "Mouse Wheel Zoom";
@@ -78,6 +78,9 @@ pub(crate) const DEVELOPER_OPTIONS_LABEL: &str = "Developer Options";
 pub(crate) const WOL_TEST_SERVICE_LABEL: &str = "Offline Internet Test Service";
 pub(crate) const WOL_TEST_SERVICE_HELP: &str =
     "Internet opens with stand-in servers, lobbies and players, for testing its screens.";
+pub(crate) const SKIP_STARTUP_LOGO_LABEL: &str = "Skip Startup Logo";
+pub(crate) const SKIP_STARTUP_LOGO_HELP: &str =
+    "Start without the logo movie; the loading screen still shows. Applies at the next start.";
 pub(crate) const FPS_COUNTER_LABEL: &str = "FPS Counter";
 pub(crate) const FPS_COUNTER_HELP: &str = "Show frames per second in the top-left corner. Off at every start; Ctrl+Alt+F also switches it.";
 pub(crate) const SHIFT_QUEUE_HELP: &str =
@@ -459,13 +462,13 @@ pub(crate) enum LauncherCheckboxId {
     /// VERA's own box: battles keep gamemd's 4:3 screen shape instead of the
     /// window's. Like Full Screen, it applies at once.
     OriginalShape,
-    /// VERA's own box: the startup splash and the menu movie use Yuri's
-    /// Revenge's art instead of Red Alert 2's. The movie changes at once; the
-    /// splash, drawn before any menu, at the next launch.
+    /// VERA's own box: the startup splash, the menu movie, the offline
+    /// Skirmish background and the LAN/WOL lobby backgrounds use Yuri's
+    /// Revenge's art instead of Red Alert 2's. The movie and the shell atlas
+    /// change at once; the splash, drawn before any menu, at the next launch.
     ///
-    /// User-set scope: this box switches only those two. Every other shell
-    /// screen follows gamemd's ordinary asset lookup, and the Skirmish, LAN and
-    /// WOL setup backgrounds keep their fixed RA2 art (see
+    /// User-set scope: this box switches only those surfaces. Every other
+    /// shell screen follows gamemd's ordinary asset lookup (see
     /// `render::skirmish_shell_chrome`), whatever the box says. Widening it
     /// needs the user's explicit request.
     YrOriginalStyle,
@@ -484,6 +487,9 @@ pub(crate) enum LauncherCheckboxId {
     /// shows and changes live state at once, and is never saved: the readout
     /// starts hidden at every launch.
     FpsCounter,
+    /// VERA's developer box: the next launch skips `Init_Game`'s logo movie
+    /// (`0x0052C5E2`); the splash and the first-run intro still play.
+    SkipStartupLogo,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -522,6 +528,7 @@ pub(crate) enum LauncherOptionsEvent {
     RenderInterpolationChanged(bool),
     MouseWheelZoomChanged(bool),
     FpsCounterChanged(bool),
+    SkipStartupLogoChanged(bool),
     ScorePreview(f32),
     SoundPreview(f32),
     VoicePreview(f32),
@@ -566,6 +573,7 @@ pub(crate) struct LauncherOptionsValues {
     pub(crate) wol_test_service: bool,
     /// The FPS readout's live state when the page opened, then each toggle.
     pub(crate) fps_counter: bool,
+    pub(crate) skip_startup_logo: bool,
     /// The Sidebar list's choice; like Zoom, it applies at once.
     pub(crate) sidebar: SidebarSize,
     pub(crate) score_position: u8,
@@ -590,6 +598,7 @@ impl Default for LauncherOptionsValues {
             shift_queue: false,
             wol_test_service: false,
             fps_counter: false,
+            skip_startup_logo: false,
             sidebar: SidebarSize::Normal,
             score_position: 4,
             sound_position: 7,
@@ -914,6 +923,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::RenderInterpolation => &mut self.values.render_interpolation,
             LauncherCheckboxId::MouseWheelZoom => &mut self.values.mouse_wheel_zoom,
             LauncherCheckboxId::FpsCounter => &mut self.values.fps_counter,
+            LauncherCheckboxId::SkipStartupLogo => &mut self.values.skip_startup_logo,
         };
         *slot = !*slot;
         let checked = *slot;
@@ -944,6 +954,9 @@ impl OptionsDialogState {
             LauncherCheckboxId::FpsCounter => self
                 .pending_events
                 .push(LauncherOptionsEvent::FpsCounterChanged(checked)),
+            LauncherCheckboxId::SkipStartupLogo => self
+                .pending_events
+                .push(LauncherOptionsEvent::SkipStartupLogoChanged(checked)),
             LauncherCheckboxId::Tooltips
             | LauncherCheckboxId::TargetLines
             | LauncherCheckboxId::ShowHidden => {}

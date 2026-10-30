@@ -1302,6 +1302,12 @@ pub struct Simulation {
     /// bypass API; balanced at frame boundaries; not saved/hash state.
     #[serde(skip, default)]
     buildup_bypass: bool,
+    /// Phobos `WarheadTypeExt::Reflected`: the warhead whose own damage is
+    /// being reflected right now, so a reflected hit never reflects again.
+    /// Synchronous, never saved or hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(skip, default)]
+    pub(crate) reflected_warhead: Option<crate::sim::intern::InternedId>,
     /// Scenario RNG — gamemd `Scenario->Random` (Scen+0x218). Drives in-object-tick
     /// sim draws: scatter, sub-cell placement, smudge/destruction, particles,
     /// wall/overlay damage, bridge collapse/destruction presentation, ore growth/spread, TIBTRE,
@@ -4118,6 +4124,9 @@ impl Simulation {
     /// Install a newly constructed map grid and capture the real CellClass
     /// `0x1180` value authority after row-major OverlayPack marking.
     pub fn install_resolved_terrain_for_new_map(&mut self, resolved_terrain: ResolvedTerrainGrid) {
+        let grid = resolved_terrain.cell_grid();
+        self.houses.configure_cell_grid(grid);
+        self.terrain_objects.configure_cell_grid(grid);
         self.bind_shared_cell_dummy(resolved_terrain.shared_cell_dummy());
         self.real_cell_bridge_flags_0x1180 =
             resolved_terrain.capture_real_cell_bridge_flags_0x1180();
@@ -4404,6 +4413,8 @@ impl Simulation {
             frame_profile: Default::default(),
             object_placement_scope_depth: 0,
             buildup_bypass: false,
+            #[cfg(feature = "phobos")]
+            reflected_warhead: None,
             scenario_rng: SimRng::new(seed),
             main_rng: MainRng::new(seed),
             mapgen_rng: SimRng::new(0),
@@ -5004,6 +5015,19 @@ impl Simulation {
         self.map_size_diamond().is_some_and(|(width, height)| {
             crate::map::playfield::size_diamond_contains(width, height, cell)
         })
+    }
+
+    /// The cell addressing of this map. The loaded terrain owns it; before
+    /// Fill the scenario's Size selects it.
+    pub(crate) fn cell_grid(&self) -> crate::map::cell_index::CellGrid {
+        self.resolved_terrain
+            .as_ref()
+            .map(|terrain| terrain.cell_grid())
+            .or_else(|| {
+                self.map_size_diamond()
+                    .map(|(w, h)| crate::map::cell_index::CellGrid::for_map_size(w, h))
+            })
+            .unwrap_or_default()
     }
 
     /// `MapClass+0xF4/+0xF8`, the `In_Bounds` diamond's width and height.
@@ -6419,6 +6443,8 @@ impl Simulation {
             UninitContext::new(rules, registry).with_effects(effects),
         );
         self.substrate.entities.change_owner(stable_id, new_owner);
+        #[cfg(feature = "phobos")]
+        self.phobos_attach_effects_on_owner_change(stable_id, old_owner, new_owner, rules);
         self.ownership_changed_since_output = true;
         self.spatial_threat_after_owner_change(stable_id, spatial_threat_cell, rules);
         if category == EntityCategory::Structure {

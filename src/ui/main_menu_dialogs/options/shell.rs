@@ -14,9 +14,9 @@ use super::{
     MOUSE_WHEEL_ZOOM_HELP, MOUSE_WHEEL_ZOOM_LABEL, ORIGINAL_SHAPE_HELP, ORIGINAL_SHAPE_LABEL,
     OptionsDialogState, OptionsPage, PhysicalControlFrame, RENDER_INTERPOLATION_HELP,
     RENDER_INTERPOLATION_LABEL, SHIFT_QUEUE_HELP, SHIFT_QUEUE_LABEL, SIDEBAR_HELP, SIDEBAR_LABEL,
-    SidebarSize, VERA_OPTIONS_HELP, VERA_OPTIONS_LABEL, WOL_TEST_SERVICE_HELP,
-    WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP, YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL,
-    Zoom,
+    SKIP_STARTUP_LOGO_HELP, SKIP_STARTUP_LOGO_LABEL, SidebarSize, VERA_OPTIONS_HELP,
+    VERA_OPTIONS_LABEL, WOL_TEST_SERVICE_HELP, WOL_TEST_SERVICE_LABEL, YR_ORIGINAL_STYLE_HELP,
+    YR_ORIGINAL_STYLE_LABEL, ZOOM_HELP, ZOOM_LABEL, Zoom,
 };
 use crate::ui::shell::descriptor::DialogId;
 use crate::ui::shell::geom::{RectPx, ShellScale, center_offset, child_window, dlu_rect};
@@ -258,6 +258,7 @@ impl LauncherOptionsLayout {
                     (LauncherCheckboxId::MouseWheelZoom, dlu(93, 143, 130, 10)),
                     // Developer Options, in the main page's UI Options band.
                     (LauncherCheckboxId::FpsCounter, dlu(93, 188, 130, 10)),
+                    (LauncherCheckboxId::SkipStartupLogo, dlu(93, 203, 130, 10)),
                 ],
                 HAS_CHECK_FOR_UPDATES
                     .then(|| {
@@ -465,6 +466,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::ShiftQueue => SHIFT_QUEUE_LABEL,
             LauncherCheckboxId::WolTestService => WOL_TEST_SERVICE_LABEL,
             LauncherCheckboxId::FpsCounter => FPS_COUNTER_LABEL,
+            LauncherCheckboxId::SkipStartupLogo => SKIP_STARTUP_LOGO_LABEL,
         }
     }
 
@@ -516,6 +518,7 @@ impl OptionsDialogState {
             LauncherCheckboxId::ShiftQueue => self.values.shift_queue,
             LauncherCheckboxId::WolTestService => self.values.wol_test_service,
             LauncherCheckboxId::FpsCounter => self.values.fps_counter,
+            LauncherCheckboxId::SkipStartupLogo => self.values.skip_startup_logo,
         }
     }
 
@@ -711,6 +714,9 @@ impl OptionsDialogState {
                     LauncherStatusHelp::Text(WOL_TEST_SERVICE_HELP)
                 }
                 LauncherCheckboxId::FpsCounter => LauncherStatusHelp::Text(FPS_COUNTER_HELP),
+                LauncherCheckboxId::SkipStartupLogo => {
+                    LauncherStatusHelp::Text(SKIP_STARTUP_LOGO_HELP)
+                }
             });
         }
         layout
@@ -1034,7 +1040,7 @@ mod tests {
             .chain(&layout.checkboxes)
             .map(|(id, _)| *id)
             .collect();
-        assert_eq!(all.len(), 10);
+        assert_eq!(all.len(), 11);
         for id in &all {
             assert_eq!(all.iter().filter(|other| *other == id).count(), 1, "{id:?}");
         }
@@ -1072,6 +1078,7 @@ mod tests {
             (ShiftQueue, ui, developer),
             (MouseWheelZoom, ui, developer),
             (FpsCounter, developer, layout.status_help),
+            (SkipStartupLogo, developer, layout.status_help),
         ] {
             let rect = checkbox(&layout, id);
             assert!(
@@ -1219,6 +1226,7 @@ mod tests {
             (ShiftQueue, SHIFT_QUEUE_HELP),
             (MouseWheelZoom, MOUSE_WHEEL_ZOOM_HELP),
             (FpsCounter, FPS_COUNTER_HELP),
+            (SkipStartupLogo, SKIP_STARTUP_LOGO_HELP),
         ] {
             assert_eq!(at(checkbox(&layout, id)), text(help), "{id:?}");
         }
@@ -1565,6 +1573,11 @@ mod tests {
                 FPS_COUNTER_LABEL,
                 LauncherOptionsEvent::FpsCounterChanged,
             ),
+            (
+                SkipStartupLogo,
+                SKIP_STARTUP_LOGO_LABEL,
+                LauncherOptionsEvent::SkipStartupLogoChanged,
+            ),
         ] {
             let mut state = vera_state();
             let rect = checkbox(&layout, id);
@@ -1595,19 +1608,24 @@ mod tests {
                 .iter()
                 .all(|(id, _)| *id != LauncherCheckboxId::WolTestService)
         );
-        // FPS takes the first developer row; the former second row is inert.
-        let fps = checkbox(&layout, LauncherCheckboxId::FpsCounter);
-        state.shell_mouse_down(fps.x + 5, fps.y + 5, &layout);
-        assert_eq!(
-            state.drain_output().events,
-            [
-                LauncherOptionsEvent::Cue(LauncherCue::Checkbox),
-                LauncherOptionsEvent::FpsCounterChanged(true)
-            ]
-        );
-        let old_fps = dlu_rect(93, 203, 130, 10);
-        state.shell_mouse_down(old_fps.x + 5, old_fps.y + 5, &layout);
-        assert!(state.drain_output().events.is_empty());
+        // The developer rows hold FPS and Skip Startup Logo only.
+        for (id, event) in [
+            (
+                LauncherCheckboxId::FpsCounter,
+                LauncherOptionsEvent::FpsCounterChanged(true),
+            ),
+            (
+                LauncherCheckboxId::SkipStartupLogo,
+                LauncherOptionsEvent::SkipStartupLogoChanged(true),
+            ),
+        ] {
+            let rect = checkbox(&layout, id);
+            state.shell_mouse_down(rect.x + 5, rect.y + 5, &layout);
+            assert_eq!(
+                state.drain_output().events,
+                [LauncherOptionsEvent::Cue(LauncherCue::Checkbox), event]
+            );
+        }
         assert!(state.shell_checkbox_checked(LauncherCheckboxId::WolTestService));
     }
 

@@ -73,10 +73,14 @@ impl crate::app::persistence::options::launcher::LauncherPreviewOperations for A
     fn store_yr_original_style(&mut self, yr_original_style: bool) {
         // The menu movie's session identity carries the choice, so its next
         // paint loads the selected game copy; the splash follows next launch.
-        // The Skirmish atlas carries the same profile value; it is rebuilt
-        // (or built) now, before another shell screen can paint.
+        // The shell atlas carries the same profile value; it is rebuilt (or
+        // built) now, before another shell screen can paint.
         self.persistence.options_profile.yr_original_style = yr_original_style;
         let _ = App::ensure_skirmish_shell_chrome(self);
+    }
+    fn store_skip_startup_logo(&mut self, skip: bool) {
+        // Read once at the next launch; Options' accept writes it out.
+        self.persistence.options_profile.skip_startup_logo = skip;
     }
     fn store_shift_queue(&mut self, shift_queue: bool) {
         // The next cameo press reads it; Options' accept writes it out.

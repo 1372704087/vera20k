@@ -765,12 +765,14 @@ impl ApplicationHandler for App {
 
         // Native does not expose menu/game input while its process-start splash
         // owns the display. Keep close/resize/redraw operational, but discard
-        // player input until the post-present deadline has elapsed.
-        if state
-            .frontend
-            .startup_splash
-            .as_ref()
-            .is_some_and(|splash| splash.is_active(Instant::now()))
+        // player input until the post-present deadline has elapsed. The startup
+        // logo plays before the splash and takes Play_Movie's own input.
+        if state.frontend.fullscreen_movie.is_none()
+            && state
+                .frontend
+                .startup_splash
+                .as_ref()
+                .is_some_and(|splash| splash.is_active(Instant::now()))
             && matches!(
                 &event,
                 WindowEvent::KeyboardInput { .. }

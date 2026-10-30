@@ -871,7 +871,14 @@ pub(crate) fn resolved_unit_in_range(
             None => return false,
         },
     };
-    crate::sim::combat::mapless_in_range(actor, target, weapon, rules, sim.interner())
+    crate::sim::combat::mapless_in_range(
+        actor,
+        target,
+        weapon,
+        rules,
+        sim.interner(),
+        Some(sim.entities()),
+    )
 }
 
 /// Resolved attack receiver batch. These are ephemeral input decisions;

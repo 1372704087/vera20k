@@ -100,8 +100,16 @@ fn reach_leptons(
     weapon: &WeaponType,
     rules: &RuleSet,
     interner: &StringInterner,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> i64 {
-    let mut range_lep: i64 = i64::from(weapon.range_leptons);
+    let source =
+        crate::sim::attach_effect::range_modifier_source(attacker, entities, rules, interner);
+    let mut range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
+        source,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    ));
     if target_flies_high
         && let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules)
         && let Some(air_bonus) = attacker_obj.air_range_bonus
@@ -393,6 +401,7 @@ pub(crate) fn compute_in_range_in_query(
         interner,
         cells,
         los,
+        Some(&world.substrate.entities),
     )
 }
 
@@ -442,12 +451,13 @@ pub(crate) fn cell_target_in_range(
     interner: &StringInterner,
     terrain: &ResolvedTerrainGrid,
     los: &LineOfFireInputs<'_>,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> Option<bool> {
     let cells = NativeCellQuery::canonical(terrain);
     let target = RangeTarget::Cell(target);
     let source = fire_source_for_target(attacker, target, weapon, &cells, (rules, interner))?;
     Some(compute_range_target(
-        attacker, source, target, weapon, rules, interner, &cells, los,
+        attacker, source, target, weapon, rules, interner, &cells, los, entities,
     ))
 }
 
@@ -460,8 +470,16 @@ pub(crate) fn compute_range_target(
     interner: &StringInterner,
     cells: &NativeCellQuery<'_>,
     los: &LineOfFireInputs<'_>,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> bool {
-    let weapon_range_lep: i64 = i64::from(weapon.range_leptons);
+    let source =
+        crate::sim::attach_effect::range_modifier_source(attacker, entities, rules, interner);
+    let weapon_range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
+        source,
+        &weapon.id,
+        weapon.range_leptons,
+        rules,
+    ));
 
     // Sentinel — always-in-range short-circuit (`CMP EDI,0xFFFFFE00` at
     // 0x006F724E, before every other read).
@@ -476,7 +494,14 @@ pub(crate) fn compute_range_target(
         RangeTarget::Terrain(target) => target.is_high_flying_in_query(Some(cells)),
         RangeTarget::Cell(_) | RangeTarget::Missing => false,
     };
-    let initial_range_lep = reach_leptons(attacker, target_flies_high, weapon, rules, interner);
+    let initial_range_lep = reach_leptons(
+        attacker,
+        target_flies_high,
+        weapon,
+        rules,
+        interner,
+        entities,
+    );
 
     let projectile = weapon
         .projectile
@@ -965,7 +990,15 @@ pub fn can_fire_at_target_in_query(
         return false;
     };
     compute_range_target(
-        attacker, source, target, weapon, rules, interner, cells, los,
+        attacker,
+        source,
+        target,
+        weapon,
+        rules,
+        interner,
+        cells,
+        los,
+        Some(&world.substrate.entities),
     )
 }
 
@@ -1000,6 +1033,7 @@ pub fn mapless_in_range(
     weapon: &WeaponType,
     rules: &RuleSet,
     interner: &StringInterner,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
 ) -> bool {
     if i64::from(weapon.range_leptons) == WEAPON_RANGE_ALWAYS_IN_RANGE_LEPTONS {
         return true;
@@ -1010,7 +1044,7 @@ pub fn mapless_in_range(
     };
     let flies_high =
         techno.is_some_and(|entity| is_high_flying(entity, None, Some((rules, interner))));
-    let range = reach_leptons(attacker, flies_high, weapon, rules, interner);
+    let range = reach_leptons(attacker, flies_high, weapon, rules, interner, entities);
     let source = object_get_coords(attacker, None);
     let src = (
         i64::from(source.x),
@@ -1473,6 +1507,7 @@ mod tests {
                 &interner,
                 &terrain,
                 &LineOfFireInputs::terrain_only(),
+                None,
             );
             assert_eq!(actual, row["result"].as_bool(), "row {index}: full range");
             let dummy = terrain.dummy_cell_requested_coord();
@@ -2582,7 +2617,7 @@ mod tests {
         let reaches = |weapon_ini: &str, target: MaplessTarget<'_>| {
             let rules = rules_with_weapon(weapon_ini, "", "");
             let weapon = rules.weapon("GUN").expect("weapon");
-            mapless_in_range(&attacker, target, weapon, &rules, &interner)
+            mapless_in_range(&attacker, target, weapon, &rules, &interner, None)
         };
         assert!(reaches("Damage=1\nRange=-2\nWarhead=WH", east(50 * 256)));
         let fractional = "Damage=1\nRange=5.5\nWarhead=WH";

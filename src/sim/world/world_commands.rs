@@ -13,7 +13,6 @@ use super::{SimSoundEvent, Simulation, SimulationWallRuntimeHost};
 use crate::map::entities::EntityCategory;
 use crate::map::resolved_terrain::ResolvedTerrainGrid;
 use crate::rules::ruleset::RuleSet;
-use crate::sim::cell_rect::canonical_cell_coord;
 use crate::sim::combat;
 use crate::sim::command::{
     ArchiveRecord, BUILDING_OFF_LINE_OPCODE, BUILDING_ON_LINE_OPCODE, BuildingOnLineRecord,
@@ -344,7 +343,7 @@ impl Simulation {
                 target_rx,
                 target_ry,
             } => {
-                if target_rx >= 512 || target_ry >= 512 {
+                if target_rx >= self.cell_grid().side() || target_ry >= self.cell_grid().side() {
                     return None;
                 }
                 return SpecialPlaceRecord {
@@ -374,6 +373,11 @@ impl Simulation {
             }
             _ => return None,
         };
+        // As for SpecialPlace above, a target lies in this map's cell array.
+        let side = self.cell_grid().side();
+        if action != PaidSuperAction::Cancel && (cell.0 >= side || cell.1 >= side) {
+            return None;
+        }
         PaidSuperRecord {
             house_id: header.house_id(),
             frame: header.frame_stamp(),
@@ -403,7 +407,9 @@ impl Simulation {
                 .get(rules.super_weapon_order.get(usize::try_from(index).ok()?)?)
         };
         if let Some(event) = SpecialPlaceRecord::decode(record) {
-            if !(0..512).contains(&event.cell.0) || !(0..512).contains(&event.cell.1) {
+            if !(0..self.cell_grid().side() as i16).contains(&event.cell.0)
+                || !(0..self.cell_grid().side() as i16).contains(&event.cell.1)
+            {
                 return None;
             }
             return Some((
@@ -416,6 +422,12 @@ impl Simulation {
             ));
         }
         let event = PaidSuperRecord::decode(record)?;
+        let side = self.cell_grid().side() as i16;
+        if event.action != PaidSuperAction::Cancel
+            && (!(0..side).contains(&event.cell.0) || !(0..side).contains(&event.cell.1))
+        {
+            return None;
+        }
         let selection = crate::sim::superweapon::PaidSuperWeaponSelection {
             source: type_id(event.source)?,
             destination: type_id(event.destination)?,
@@ -1317,12 +1329,15 @@ impl Simulation {
         y: i16,
     ) -> Option<(u16, u16, crate::sim::overlay_grid::OverlayCell)> {
         // EventClass rejects only the exact packed null CellStruct. Every
-        // other signed pair is resolved by MapClass' fixed 512-wide linear
-        // cell array, so out-of-range components may alias a canonical slot.
+        // other signed pair is resolved by the map's linear cell array (512
+        // wide on retail-size maps), so out-of-range components may alias a
+        // canonical slot.
         if (x, y) == (0, 0) {
             return None;
         }
-        let (rx, ry) = canonical_cell_coord(i32::from(x), i32::from(y))?;
+        let (rx, ry) = self
+            .cell_grid()
+            .canonical_coord(i32::from(x), i32::from(y))?;
         let grid = self.overlay_grid.as_ref()?;
         if rx >= grid.width() || ry >= grid.height() {
             return None;

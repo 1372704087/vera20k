@@ -207,7 +207,7 @@ fn shield_armor(
 /// neutral, owner and ally/enemy gates in that native order. A null source
 /// house passes, as native does. `HouseClass::IsNeutral` reads the house's
 /// passive flag, which VERA stamps from `MultiplayPassive=`.
-fn can_target_house(
+pub(crate) fn can_target_house(
     warhead: &crate::rules::warhead_type::WarheadType,
     source_house: Option<crate::sim::intern::InternedId>,
     target_owner: crate::sim::intern::InternedId,
@@ -286,6 +286,7 @@ pub(crate) fn preview_receive_damage(
         rules,
         &sim.interner,
         &sim.houses,
+        target.phobos_armor_multiplier(),
     );
     shield_stage(sim, rules, event, receiver_input, &divisors).map(|result| result.remaining)
 }
@@ -534,6 +535,23 @@ fn can_be_penetrated(
         !ty.immune_to_berserk()
     } else {
         warhead.shield.penetrate
+    }
+}
+
+/// `GeneralUtils::GetWarheadVersusArmor(WH, Techno, Type)`'s armor for a live
+/// target: [`restart_armor`] when it carries a shield, else its type's armor.
+pub(crate) fn warhead_versus_armor(
+    target: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target_type: &crate::rules::object_type::ObjectType,
+) -> crate::rules::armor::ArmorId {
+    match target
+        .shield()
+        .and_then(|state| Some((state, rules.shield_type(state.type_name())?)))
+    {
+        Some((state, ty)) => restart_armor(state, ty, warhead, target_type),
+        None => target_type.armor_id(),
     }
 }
 

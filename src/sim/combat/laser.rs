@@ -170,6 +170,56 @@ pub(crate) fn create<'w>(
     ))
 }
 
+/// Phobos `BulletExt::SimulatedFiringLaser`: the same copied birth from
+/// explicit endpoints and the child's firing House, so a shot whose Techno
+/// already expired still draws. `IsSingleColor`/`LaserThickness` replace the
+/// stock color pair and width; `IsHouseColor` takes the House laser color.
+#[cfg(feature = "phobos")]
+pub(crate) fn create_effect<'w>(
+    world: &'w mut Simulation,
+    house: Option<InternedId>,
+    from: ProjectileCoord,
+    to: ProjectileCoord,
+    weapon: &WeaponType,
+) -> &'w mut LaserBirth {
+    let (color, width, supported) = if weapon.is_house_color || weapon.phobos_laser_is_single_color
+    {
+        let color = match (weapon.is_house_color, house) {
+            (true, Some(house)) => LaserColor::House(house),
+            _ => LaserColor::Explicit {
+                inner: weapon.laser_inner_color,
+                outer: [0; 3],
+                spread: [0; 3],
+            },
+        };
+        let width = weapon.phobos_laser_thickness;
+        (color, width, width > 3)
+    } else {
+        (
+            LaserColor::Explicit {
+                inner: weapon.laser_inner_color,
+                outer: weapon.laser_outer_color,
+                spread: weapon.laser_outer_spread,
+            },
+            3,
+            false,
+        )
+    };
+    let birth = construct(
+        &world.session,
+        &mut world.lifecycle_outputs,
+        from,
+        to,
+        0,
+        weapon.laser_duration,
+        color,
+        NativeF32Bits::POSITIVE_ZERO,
+    );
+    birth.width = width;
+    birth.supported = supported;
+    birth
+}
+
 /// LaserDraw54FE60 initializes every caller's width1/unsupported object;
 /// caller-specific postprocessing mutates that one returned birth.
 pub(crate) fn construct<'a>(

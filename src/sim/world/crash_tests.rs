@@ -383,7 +383,8 @@ fn aircraft_drop_landing_uses_original_wheel_controls() {
         assert!(locomotor.begin_piggyback_linked(
             LocomotorKind::Jumpjet,
             rules.object("DROP_AIR").unwrap(),
-            frame
+            frame,
+            None
         ));
         let runtime = locomotor.jumpjet_runtime_mut().unwrap();
         *runtime = runtime

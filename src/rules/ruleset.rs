@@ -7958,6 +7958,23 @@ impl RuleSet {
             .map(|(id, warhead)| (id.to_ascii_uppercase(), &warhead.debris_types))
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            let jumpjet_overrides = self
+                .warheads
+                .iter()
+                .filter(|(_, warhead)| !warhead.jumpjet_override.is_empty())
+                .map(|(id, warhead)| (id.to_ascii_uppercase(), warhead.jumpjet_override))
+                .collect::<BTreeMap<_, _>>();
+            if !jumpjet_overrides.is_empty() {
+                b"phobos-warhead-jumpjet-override-v1".hash(&mut hasher);
+                jumpjet_overrides.len().hash(&mut hasher);
+                for (id, overrides) in &jumpjet_overrides {
+                    id.hash(&mut hasher);
+                    overrides.hash_state(&mut hasher);
+                }
+            }
+        }
         for particle in &self.particle_types {
             (&particle.name, &particle.warhead).hash(&mut hasher);
         }
@@ -15041,6 +15058,25 @@ Projectile=Invisible
                 Err(SnapshotError::RulesMismatch { .. })
             ));
         }
+    }
+
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn simulation_config_hash_covers_warhead_jumpjet_overrides() {
+        let make = |keys: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[Warheads]\n0=LIFT\n[LIFT]\nIsLocomotor=yes\nLocomotor=Jumpjet\n{keys}\n"
+            )))
+            .unwrap()
+        };
+        let base = make("");
+        let mut changed = make("JumpjetSpeed=33\n");
+        changed.source_ini_hash = base.source_ini_hash;
+        assert_ne!(
+            base.simulation_config_hash(),
+            changed.simulation_config_hash(),
+            "a warhead Jumpjet override changes the simulation config"
+        );
     }
 
     #[test]

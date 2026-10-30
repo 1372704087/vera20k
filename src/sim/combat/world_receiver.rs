@@ -2910,11 +2910,16 @@ fn run_special_detonation_arm(
                 SpecialArmTarget::Cell => crate::sim::locomotor_lift::LocomotorShotTarget::Cell,
                 SpecialArmTarget::None => crate::sim::locomotor_lift::LocomotorShotTarget::None,
             };
+            #[cfg(feature = "phobos")]
+            let jumpjet_override = warhead.jumpjet_override;
+            #[cfg(not(feature = "phobos"))]
+            let jumpjet_override = crate::rules::jumpjet_params::JumpjetOverride::default();
             world.locomotor_detonation(
                 owner,
                 target,
                 detonation.payload.base_damage,
                 warhead.locomotor,
+                &jumpjet_override,
                 rules,
                 overlay_registry,
                 effects,

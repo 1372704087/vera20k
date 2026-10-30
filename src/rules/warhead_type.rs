@@ -368,6 +368,10 @@ pub struct WarheadType {
     /// Phobos `WarheadTypeExt`'s `Crit.*` block, read in `LoadFromINI` order.
     #[cfg(feature = "phobos")]
     pub crit: crate::rules::phobos_crit::CritRules,
+    /// Phobos `WarheadTypeExt::Jumpjet*`: overrides for an `IsLocomotor=`
+    /// warhead whose installed locomotor is Jumpjet.
+    #[cfg(feature = "phobos")]
+    pub jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride,
     /// Phobos AttachEffect attach/remove lists and the reflected-damage
     /// suppressor this warhead carries.
     #[cfg(feature = "phobos")]
@@ -686,6 +690,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
         }
     }
 }

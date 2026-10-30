@@ -209,9 +209,10 @@ mod tests {
         let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
             "[General]\nMindControl.IgnoreSize=no\n\
              MindControlLink.VisibleToHouse=team\nMultiMindControl.ReleaseVictim=yes\n\
-             [VehicleTypes]\n0=UNIT\n[UNIT]\nMindControlRangeLimit=1.5\n\
+             [VehicleTypes]\n0=UNIT\n1=HEX\n2=BAD\n[UNIT]\nMindControlRangeLimit=1.5\n\
              MindControl.IgnoreSize=yes\nMindControlSize=3\n\
-             MindControlLink.VisibleToHouse=enemies\nMultiMindControl.ReleaseVictim=no\n",
+             MindControlLink.VisibleToHouse=enemies\nMultiMindControl.ReleaseVictim=no\n\
+             [HEX]\nMindControlSize=$10\n[BAD]\nMindControlSize=oops\n",
         ))
         .unwrap();
         assert!(!rules.mind_control.mind_control_ignore_size);
@@ -235,6 +236,12 @@ mod tests {
         assert_eq!(
             rules.mind_control_link_visible_to_house_for(unit),
             crate::rules::phobos_shields::AffectedHouse::ENEMIES
+        );
+        assert_eq!(rules.object("HEX").unwrap().mind_control_size, 10);
+        assert_eq!(
+            rules.object("BAD").unwrap().mind_control_size,
+            1,
+            "Parser<int> keeps the constructor default on rejected text"
         );
 
         let defaults = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(

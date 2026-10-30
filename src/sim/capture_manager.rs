@@ -158,7 +158,9 @@ impl CaptureManagerState {
         !self.nodes.is_empty()
     }
 
-    /// `GetControlledCount @ 0x004722D0`.
+    /// The raw `ControlNodes` count. Phobos' `GetControlledCount` (`0x004722D0`)
+    /// replacement lives in [`Simulation::capture_effective_count`], which
+    /// sums `MindControlSize=` when `MindControl.IgnoreSize=` is false.
     pub fn count(&self) -> i32 {
         i32::try_from(self.nodes.len()).unwrap_or(i32::MAX)
     }

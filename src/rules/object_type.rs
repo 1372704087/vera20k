@@ -4438,7 +4438,7 @@ impl ObjectType {
             mind_control_ignore_size: section
                 .read_phobos_nullable_bool("MindControl.IgnoreSize", None),
             #[cfg(feature = "phobos")]
-            mind_control_size: section.read_int("MindControlSize", 1),
+            mind_control_size: section.read_ares_int("MindControlSize", 1),
             #[cfg(feature = "phobos")]
             mind_control_link_visible_to_house:
                 crate::rules::phobos_shields::read_nullable_affected_house(

@@ -38,6 +38,27 @@ impl GameEntity {
     /// no derived status state. The result is signed and is not capped at
     /// Type.GetPipMax716290.
     pub fn techno_pip_fill_level(&self, object: &ObjectType, rules: &RuleSet) -> i32 {
+        self.techno_pip_fill_level_with_mind_control_count(object, rules, None)
+    }
+
+    /// The `PipScale=MindControl` arm over an explicit controlled count.
+    /// Phobos' `GetControlledCount` replacement makes that count the sum of
+    /// `MindControlSize=` when `MindControl.IgnoreSize=` is false.
+    pub fn mind_control_pip_fill_level(
+        &self,
+        object: &ObjectType,
+        rules: &RuleSet,
+        count: i32,
+    ) -> i32 {
+        self.techno_pip_fill_level_with_mind_control_count(object, rules, Some(count))
+    }
+
+    fn techno_pip_fill_level_with_mind_control_count(
+        &self,
+        object: &ObjectType,
+        rules: &RuleSet,
+        mind_control_count: Option<i32>,
+    ) -> i32 {
         let maximum = object.pip_max(rules);
         let (amount, denominator) = match object.pip_scale {
             PipScale::Ammo => (self.ammo().map_or(0, |ammo| ammo.current()), maximum),
@@ -51,7 +72,10 @@ impl GameEntity {
                 let Some(manager) = self.capture_manager.as_ref() else {
                     return 0;
                 };
-                (manager.count(), maximum)
+                (
+                    mind_control_count.unwrap_or_else(|| manager.count()),
+                    maximum,
+                )
             }
             PipScale::Tiberium => {
                 // Storage6C9650 repeatedly truncates its four float slots to
@@ -71,24 +95,6 @@ impl GameEntity {
         // Positive/zero-denominator controls also take this minimum, after
         // ftol's invalid signed64 result has supplied a zero low dword.
         if quantity == 0 && amount > 0 {
-            1
-        } else {
-            quantity
-        }
-    }
-
-    /// The `PipScale=MindControl` arm over an explicit controlled count.
-    /// Phobos' `GetControlledCount` replacement makes that count the sum of
-    /// `MindControlSize=` when `MindControl.IgnoreSize=` is false.
-    pub fn mind_control_pip_fill_level(
-        &self,
-        object: &ObjectType,
-        rules: &RuleSet,
-        count: i32,
-    ) -> i32 {
-        let maximum = object.pip_max(rules);
-        let quantity = rounded_pip_quantity(count, maximum, maximum);
-        if quantity == 0 && count > 0 {
             1
         } else {
             quantity

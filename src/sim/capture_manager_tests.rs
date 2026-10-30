@@ -2682,10 +2682,48 @@ fn warhead_mind_control_anim_overrides_the_global_ring() {
             "[Controller]\nMindControl=yes\nMindControl.Anim=MINDANIM\n",
         ),
     ]);
-    let mut sim = sim(7);
-    let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
-    let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 11, 10);
-    let warhead = sim.interner.intern("Controller");
+    {
+        let mut sim = sim(7);
+        let yuri = spawn(&mut sim, &rules, "YURI", "YuriCountry", 10, 10);
+        let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 11, 10);
+        let warhead = sim.interner.intern("Controller");
+        let detonation = crate::sim::projectile::ProjectileDetonation {
+            projectile_id: 0,
+            source_id: yuri,
+            target: crate::sim::projectile::ProjectileTarget::Entity(tank),
+            impact: crate::sim::projectile::ProjectileCoord::new(0, 0, 0),
+            payload: crate::sim::projectile::ProjectilePayload::new(1, warhead, None, false),
+            reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+        };
+        sim.mind_control_detonation(detonation, &rules, None, FrameEffects::default());
+        let ring = sim
+            .substrate
+            .entities
+            .get(tank)
+            .unwrap()
+            .mind_control
+            .ring_anim
+            .expect("the warhead override constructs its ring");
+        assert_eq!(
+            sim.interner.resolve(sim.anim(ring).unwrap().type_id()),
+            "MINDANIM"
+        );
+    }
+
+    let fallback = enhanced_rules(&[
+        (
+            "[InfantryTypes]",
+            "[Animations]\n0=MINDANIM\n[InfantryTypes]",
+        ),
+        (
+            "[Controller]\nMindControl=yes\n",
+            "[Controller]\nMindControl=yes\nMindControl.Anim=UNKNOWN\n",
+        ),
+    ]);
+    let mut fallback_sim = sim(7);
+    let yuri = spawn(&mut fallback_sim, &fallback, "YURI", "YuriCountry", 10, 10);
+    let tank = spawn(&mut fallback_sim, &fallback, "HTNK", "Americans", 11, 10);
+    let warhead = fallback_sim.interner.intern("Controller");
     let detonation = crate::sim::projectile::ProjectileDetonation {
         projectile_id: 0,
         source_id: yuri,
@@ -2694,17 +2732,19 @@ fn warhead_mind_control_anim_overrides_the_global_ring() {
         payload: crate::sim::projectile::ProjectilePayload::new(1, warhead, None, false),
         reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
     };
-    sim.mind_control_detonation(detonation, &rules, None, FrameEffects::default());
-    let ring = sim
+    fallback_sim.mind_control_detonation(detonation, &fallback, None, FrameEffects::default());
+    let ring = fallback_sim
         .substrate
         .entities
         .get(tank)
         .unwrap()
         .mind_control
         .ring_anim
-        .expect("the warhead override constructs its ring");
+        .expect("an unknown override falls back to the global ring");
     assert_eq!(
-        sim.interner.resolve(sim.anim(ring).unwrap().type_id()),
+        fallback_sim
+            .interner
+            .resolve(fallback_sim.anim(ring).unwrap().type_id()),
         "MINDANIM"
     );
 }

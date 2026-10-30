@@ -717,10 +717,6 @@ fn techno_ai_shell(
     if temporal_frozen {
         return;
     }
-    // Phobos `TechnoExt::OnEarlyUpdate -> ApplyMindControlRangeLimit`, after
-    // the shield visit and before the object's mission/AI body.
-    #[cfg(feature = "phobos")]
-    sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
     // Unit7363C9..7363DE precedes Hunt/Ready/Foot AI, after the existing
     // Tube, death and Temporal entry gates. Limboed Units have no Logic visit.
     if category == EntityCategory::Unit
@@ -746,6 +742,11 @@ fn techno_ai_shell(
     if category == EntityCategory::Infantry {
         sim.substrate.infantry_health_reset(id);
     }
+    // `TechnoClass_AI @ 0x6F9E50+0x5 -> TechnoExt::OnEarlyUpdate ->
+    // ApplyMindControlRangeLimit`, after the leaf's own steps and before the
+    // common Techno body's estimated-health recover.
+    #[cfg(feature = "phobos")]
+    sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
     // Techno6F9F6E..9F precedes veterancy promotion, missions and acquisition for every
     // Techno category. object_ai_visit_one excludes the entry-active Tube leaf
     // before this common owner. Actual health and this retained estimate differ.

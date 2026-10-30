@@ -23,6 +23,24 @@ pub fn find(directory: &Path, name: &str) -> Option<PathBuf> {
         .min()
 }
 
+/// The entries of `directory` in the order retail's FindFirstFileA and
+/// FindNextFileA list them on NTFS: by name ignoring ASCII case, then in byte
+/// order between spellings only a case-sensitive file system holds. Hosts list
+/// in their own orders (APFS and ext4 by name hashes, the browser's memory
+/// store by bytes), and the archive registered first wins the names it shares
+/// with later ones, so every enumeration that registers files takes this one.
+pub fn native_listing(directory: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut entries: Vec<PathBuf> = crate::util::file_system::read_dir(directory)?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .collect();
+    entries.sort_by_cached_key(|path| {
+        let name = path.file_name().unwrap_or_default().as_encoded_bytes();
+        (name.to_ascii_uppercase(), name.to_vec())
+    });
+    Ok(entries)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

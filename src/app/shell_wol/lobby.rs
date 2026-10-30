@@ -54,7 +54,9 @@ const GAMES_PERIOD: Duration = Duration::from_millis(30_000);
 const LOBBIES_PERIOD: Duration = Duration::from_millis(53_000);
 /// Refresh `0x55D` disables itself for `SetTimer(0x55D, 3000)`.
 const REFRESH_HOLD: Duration = Duration::from_millis(3000);
-/// `0x00789B60`: `[0xB77DC4] = 7` players.
+/// RESIDUAL: a custom game's channel takes 7 users natively (`0xC3`'s proc
+/// `0x0078DB70` sets `[0xB77DC4] = 7` at `0x0078DC57`, which `0x00789B60`
+/// copies into the record); VERA's takes every network slot, for 30 players.
 const CREATE_MAX_USERS: i32 = crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT as i32;
 /// The create result `0x800401F8` shows `TXT_BAD_CHANKEY`.
 const BAD_CHANNEL_KEY: u32 = 0x8004_01F8;
@@ -1637,10 +1639,11 @@ fn send_create(state: &mut AppState, channel: WolChannel, key: String, observe: 
 }
 
 /// `0x00789B60`'s record (`0x10C` bytes): type `0x29`, `"%s's_game"` of the
-/// nickname, 7 users, the 0x629 byte (absent, 0) as tournament, the clan
-/// and resolution bits plus the chat-lobby number `[0xB77DD4]` as game
-/// flags. `width` is Options' ScreenWidth `[0xA8EB84]`; `ex_info` is
-/// `0x0077E7A0`'s text (`0x00789D05`). `+0x04 = 1` has no field here.
+/// nickname, [`CREATE_MAX_USERS`] users, the 0x629 byte (absent, 0) as
+/// tournament, the clan and resolution bits plus the chat-lobby number
+/// `[0xB77DD4]` as game flags. `width` is Options' ScreenWidth
+/// `[0xA8EB84]`; `ex_info` is `0x0077E7A0`'s text (`0x00789D05`).
+/// `+0x04 = 1` has no field here.
 fn created_channel(
     nickname: &str,
     clan: bool,

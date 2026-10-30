@@ -606,9 +606,7 @@ pub(crate) fn render_wol_page(
     let lobby = state.frontend.wol.as_ref().and_then(|visit| visit.lobby());
     let lobby_children = match (&painted, children, lobby) {
         (Painted::Lobby(layout), true, Some(lobby)) => {
-            let base_names: [String; 8] = std::array::from_fn(|index| {
-                resolve_csf(state, &format!("TXT_LOB_{}", index + 1)).into_owned()
-            });
+            let base_names = crate::app::shell_wol::lobby::base_names(state);
             Some(
                 crate::app::frontend::skirmish_shell_render::paint_wol_lobby_children(
                     state,

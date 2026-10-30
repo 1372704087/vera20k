@@ -42,6 +42,11 @@ use winit::keyboard::KeyCode;
 const LIST_WAIT: Duration = Duration::from_millis(30_000);
 // The initial VERA public lobby; native diagnostic catalogs keep their rooms.
 const PUBLIC_LOBBY_NAME: &str = "Lob_41_2";
+/// The modern UI's name for `PUBLIC_LOBBY_NAME` in place of its base name
+/// `TXT_LOB_3` (index `2 % 8`, retail "German Bunker"); the legacy UI keeps
+/// the retail names.
+const PUBLIC_LOBBY_TITLE: &str = "VERA20K Online";
+const PUBLIC_LOBBY_BASE: usize = 2;
 /// `0x00788800`/`0x00789B60`: at most 150 x 100 ms for the leave.
 const LEAVE_WAIT: Duration = Duration::from_millis(15_000);
 /// `SetTimer(0, 30000)`: the game list; `SetTimer(1, 53000)`: the lobbies.
@@ -794,8 +799,21 @@ pub(super) fn options_screen(state: &AppState) -> (i32, i32) {
     }
 }
 
-pub(super) fn base_names(state: &AppState) -> [String; 8] {
-    std::array::from_fn(|index| csf(state, &format!("TXT_LOB_{}", index + 1)))
+/// The `Lob_41_<n>` base names `TXT_LOB_1..8` as this visit shows them.
+pub(crate) fn base_names(state: &AppState) -> [String; 8] {
+    let modern = state
+        .frontend
+        .wol
+        .as_ref()
+        .is_some_and(|visit| visit.modern_ui());
+    lobby_base_names(modern, |key| csf(state, key))
+}
+
+fn lobby_base_names(modern: bool, text: impl Fn(&str) -> String) -> [String; 8] {
+    std::array::from_fn(|index| match index {
+        PUBLIC_LOBBY_BASE if modern => PUBLIC_LOBBY_TITLE.into(),
+        _ => text(&format!("TXT_LOB_{}", index + 1)),
+    })
 }
 
 /// `0x00780110`'s view of the runner's wait box `0x792BE0(0)`; an open one
@@ -3935,7 +3953,7 @@ mod tests {
     }
 
     #[test]
-    fn normal_test_service_keeps_the_simplified_ui_and_only_german_bunker() {
+    fn normal_test_service_keeps_the_simplified_ui_and_only_vera20k_online() {
         let mut visit = crate::app::shell_wol::WolVisit::open(false);
         visit.set_provider(service::WolProvider::TestService);
         assert_eq!(visit.welcome_page_spec().stacked.len(), 1);
@@ -3957,6 +3975,8 @@ mod tests {
         assert_eq!(lobby.lobbies.len(), 1);
         assert_eq!(lobby.lobbies[0].name, "Lob_41_2");
         assert_eq!(lobby.ui.page_spec().stacked.len(), 3);
+        let names = lobby_base_names(visit.modern_ui(), str::to_owned);
+        assert_eq!(WolLobbyRow::joined_name(2, &names), "VERA20K Online");
         visit.set_legacy_ui(true);
         let mut legacy = new_runner(
             Runner::Lobby,
@@ -3967,6 +3987,8 @@ mod tests {
         );
         legacy.set_lobbies(channels);
         assert_eq!(legacy.lobbies.len(), 3);
+        let names = lobby_base_names(visit.modern_ui(), str::to_owned);
+        assert_eq!(WolLobbyRow::joined_name(2, &names), "TXT_LOB_3");
         assert_eq!(legacy.ui.page_spec().stacked.len(), 8);
     }
 

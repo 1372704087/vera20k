@@ -201,8 +201,9 @@ rules digest and map metadata and are ready. The client still performs authentic
 UDP admission and validates its local map/rules/version before it admits the start.
 The client stages a Start click while it publishes the final assignments from
 its existing assignment owner. It does not send `start` with an earlier revision.
-A changed publication clears every prior ready/map acknowledgement, and guests
-explicitly accept the final displayed settings. Only after the matching options
+A changed publication clears every prior ready/map acknowledgement, and each
+guest's client accepts the final displayed settings by itself once it has the
+verified map; players never ready up by hand. Only after the matching options
 revision and every fresh acknowledgement arrive does the retained Start request
 reach the server. A local optimistic choice cannot be accepted before its host
 options echo. Later edits cancel the staged request; rejected or timed-out starts

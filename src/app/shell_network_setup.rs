@@ -12,8 +12,8 @@ pub(crate) mod maps;
 mod service;
 pub(crate) use service::{
     HostOptions, NetworkSetupEvent, accept_network_map_source, accept_network_random_map_preview,
-    fail_go_handoff, invalidate_network_agreement, poll, prepare_lan_guest_handoff, service_event,
-    set_network_map_progress,
+    fail_go_handoff, invalidate_network_agreement, poll, prepare_lan_guest_handoff,
+    refuse_local_acceptance, service_event, set_network_map_progress,
 };
 pub(crate) mod view;
 mod wol;
@@ -598,14 +598,29 @@ fn chat_notice(state: &mut AppState, key: &str, args: &[crate::assets::csf_file:
 }
 
 pub(crate) fn dialog(state: &AppState) -> SetupDialog {
-    let session = &state.match_state.session;
+    let flavor = if state.match_state.session_mode() == SessionMode::Wol {
+        SetupFlavor::Wol
+    } else {
+        SetupFlavor::Lan
+    };
+    setup_dialog(state, state.match_state.session.host(), flavor)
+}
+
+/// The setup dialog this process presents. Only native diagnostics keep the
+/// guest's Accept button (`SetupDialog::auto_accept`).
+pub(crate) fn setup_dialog(state: &AppState, host: bool, flavor: SetupFlavor) -> SetupDialog {
+    let auto_accept = match flavor {
+        SetupFlavor::Wol => state
+            .frontend
+            .wol
+            .as_ref()
+            .is_some_and(|visit| visit.modern_ui()),
+        SetupFlavor::Lan => !state.frontend.native_shell_ui,
+    };
     SetupDialog {
-        host: session.host(),
-        flavor: if state.match_state.session_mode() == SessionMode::Wol {
-            SetupFlavor::Wol
-        } else {
-            SetupFlavor::Lan
-        },
+        host,
+        flavor,
+        auto_accept,
     }
 }
 
@@ -738,13 +753,11 @@ impl App {
         launch.rebuild_house_roster();
         // The packet7 peer's identity belongs to the service envelope until
         // the original type3 roster admission; it is not a fabricated node.
+        let dialog = setup_dialog(state, false, SetupFlavor::Lan);
         if let Err(error) = install_setup(
             state,
             launch,
-            SetupDialog {
-                host: false,
-                flavor: SetupFlavor::Lan,
-            },
+            dialog,
             [NetworkVacancy::Open; crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT],
             acceptance.observer_row,
         ) {
@@ -1127,6 +1140,7 @@ mod tests {
             SetupDialog {
                 host: true,
                 flavor: SetupFlavor::Wol,
+                auto_accept: false,
             },
             false,
         );
@@ -1148,6 +1162,7 @@ mod tests {
             SetupDialog {
                 host: false,
                 flavor: SetupFlavor::Wol,
+                auto_accept: false,
             },
             false,
         );

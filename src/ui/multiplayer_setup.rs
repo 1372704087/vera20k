@@ -55,13 +55,19 @@ pub(crate) enum SetupFlavor {
 pub(crate) struct SetupDialog {
     pub(crate) host: bool,
     pub(crate) flavor: SetupFlavor,
+    /// VERA's game room: a guest's game accepts the host's settings by
+    /// itself, so BD and C9 have no Accept button. Native diagnostics keep
+    /// the original dialogs.
+    pub(crate) auto_accept: bool,
 }
 impl SetupDialog {
     pub(crate) const fn page(self) -> &'static MenuPageSpec {
         match (self.flavor, self.host) {
             (SetupFlavor::Lan, true) => &HOST_PAGE,
+            (SetupFlavor::Lan, false) if self.auto_accept => &AUTO_GUEST_PAGE,
             (SetupFlavor::Lan, false) => &GUEST_PAGE,
             (SetupFlavor::Wol, true) => &WOL_HOST_PAGE,
+            (SetupFlavor::Wol, false) if self.auto_accept => &AUTO_WOL_GUEST_PAGE,
             (SetupFlavor::Wol, false) => &WOL_GUEST_PAGE,
         }
     }
@@ -185,6 +191,19 @@ pub(crate) const WOL_GUEST_PAGE: MenuPageSpec = MenuPageSpec {
         },
     ],
     back: WOL_BACK,
+};
+/// BD and C9 when the guest's game accepts by itself: Back, and C9's Page
+/// moved up into Accept's place.
+const AUTO_GUEST_PAGE: MenuPageSpec = MenuPageSpec {
+    stacked: &[],
+    ..GUEST_PAGE
+};
+const AUTO_WOL_GUEST_PAGE: MenuPageSpec = MenuPageSpec {
+    stacked: &[MenuPageButtonSpec {
+        dlu_top: WOL_GUEST_PAGE.stacked[0].dlu_top,
+        ..WOL_GUEST_PAGE.stacked[1]
+    }],
+    ..WOL_GUEST_PAGE
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -824,6 +843,7 @@ mod tests {
             SetupDialog {
                 host: true,
                 flavor: SetupFlavor::Lan,
+                auto_accept: false,
             },
             800,
             600,
@@ -844,6 +864,34 @@ mod tests {
         assert!(ui.accept_highlight(true, now + std::time::Duration::from_millis(2600)));
     }
 
+    /// VERA's game room drops BD's and C9's Accept, and C9's Page takes its
+    /// place; host pages and native diagnostics keep their buttons.
+    #[test]
+    fn game_room_guests_accept_without_a_button() {
+        let buttons = |host, flavor, auto_accept| {
+            let dialog = SetupDialog {
+                host,
+                flavor,
+                auto_accept,
+            };
+            MultiplayerSetupLayout::new(dialog, 800, 600, false)
+                .page
+                .buttons
+                .into_iter()
+                .map(|button| (button.id, button.rect))
+                .collect::<std::collections::HashMap<_, _>>()
+        };
+        for flavor in [SetupFlavor::Lan, SetupFlavor::Wol] {
+            assert!(buttons(false, flavor, false).contains_key(&ACCEPT));
+            assert!(!buttons(false, flavor, true).contains_key(&ACCEPT));
+            assert_eq!(buttons(true, flavor, true), buttons(true, flavor, false));
+        }
+        assert_eq!(
+            buttons(false, SetupFlavor::Wol, true)[&PAGE],
+            buttons(false, SetupFlavor::Wol, false)[&ACCEPT]
+        );
+    }
+
     #[test]
     fn setup_controls_follow_original_resources_and_executed_relayout() {
         let corpus: serde_json::Value = serde_json::from_str(crate::test_fixture::text(
@@ -858,6 +906,7 @@ mod tests {
             let dialog = SetupDialog {
                 host: case["dialog"] == 0xBC,
                 flavor: SetupFlavor::Lan,
+                auto_accept: false,
             };
             let layout = MultiplayerSetupLayout::new(
                 dialog,
@@ -908,6 +957,7 @@ mod tests {
                     SetupDialog {
                         host: case["dialog"] == 0xBC,
                         flavor: SetupFlavor::Lan,
+                        auto_accept: false,
                     },
                     case["control"].as_u64().unwrap() as u16
                 )
@@ -931,6 +981,7 @@ mod tests {
             let dialog = SetupDialog {
                 host,
                 flavor: SetupFlavor::Wol,
+                auto_accept: false,
             };
             let mut checked = 0;
             for (size, case) in corpus["layouts"][key]["sizes"].as_object().unwrap() {

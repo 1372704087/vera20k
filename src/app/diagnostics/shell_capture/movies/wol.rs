@@ -4581,10 +4581,11 @@ fn join_lobby(state: &mut AppState) {
 fn wol_setup_settled(state: &AppState, host: bool) -> bool {
     MoviesCapture::slide_settled(
         state,
-        ShellSlideKind::NetworkSetup(crate::ui::multiplayer_setup::SetupDialog {
+        ShellSlideKind::NetworkSetup(crate::app::shell_network_setup::setup_dialog(
+            state,
             host,
-            flavor: crate::ui::multiplayer_setup::SetupFlavor::Wol,
-        }),
+            crate::ui::multiplayer_setup::SetupFlavor::Wol,
+        )),
     ) && state
         .frontend
         .multiplayer_setup

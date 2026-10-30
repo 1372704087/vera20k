@@ -53,6 +53,20 @@ fn team_value(team: LaunchTeam) -> i32 {
     }
 }
 
+/// Whether the local player could press Accept (`SetupView::accept_enabled`).
+pub(super) fn accept_enabled(state: &AppState) -> bool {
+    let session = &state.match_state.session;
+    state
+        .frontend
+        .network_setup_protocol
+        .as_ref()
+        .is_some_and(|protocol| protocol.accept_eligible)
+        && session
+            .network_setup()
+            .is_some_and(|launch| !session.network_player_ready(launch.local_player_index))
+        && crate::app::shell_wol::local_choices_agreed(state)
+}
+
 pub(crate) fn view(state: &AppState) -> Option<SetupView> {
     let session = &state.match_state.session;
     let launch = session.network_setup()?;
@@ -415,9 +429,7 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         // checked and disabled in a tournament or clan room.
         short_game_locked: host && profile_is_wol(state) && room.tournament_or_clan(),
         team_header: !clan_room,
-        accept_enabled: protocol.accept_eligible
-            && !session.network_player_ready(launch.local_player_index)
-            && crate::app::shell_wol::local_choices_agreed(state),
+        accept_enabled: accept_enabled(state),
         start_requested: protocol.start_requested
             && !session.network_player_ready(launch.local_player_index),
         combos,

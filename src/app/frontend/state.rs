@@ -135,7 +135,7 @@ pub(crate) struct FrontendState {
     pub(crate) wol_test_credentials: Vec<crate::ui::wol_login::WolCredential>,
     /// Explicit native diagnostics only: WOL visits keep the retail welcome
     /// `0x10E` and full controls instead of opening at the online sign-in,
-    /// and a LAN guest's BD keeps Accept (`SetupDialog::auto_accept`).
+    /// and a LAN guest's BD keeps Accept (`SetupDialog::modern`).
     pub(crate) native_shell_ui: bool,
     /// LAN lobby interaction/discovery; admitted participants belong to MatchSession.
     pub(crate) lan: Option<crate::app::shell_lan::LanShellRuntime>,

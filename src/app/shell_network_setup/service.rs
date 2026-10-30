@@ -1483,13 +1483,13 @@ pub(crate) fn poll(state: &mut AppState) -> Option<Instant> {
     pings.into_iter().chain(go).chain(offer).chain(direct).min()
 }
 
-/// VERA's game room (`SetupDialog::auto_accept`) presses Accept for a guest
+/// VERA's game room (`SetupDialog::modern`) presses Accept for a guest
 /// whenever the player could, so nobody readies up by hand: after joining,
 /// after every host change, and for the final settings Start publishes.
 /// Quick Match and external launches have no setup dialog.
 fn auto_accept(state: &mut AppState) {
     let dialog = super::dialog(state);
-    if !dialog.auto_accept
+    if !dialog.modern
         || dialog.host
         || super::quick_match(state)
         || super::external(state)

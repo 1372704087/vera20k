@@ -5,8 +5,10 @@ name: Determinism
 # sync checksum match across them (`sim-bench --scenario skirmish --lan
 # --frame-hashes`). The runners hold no retail game data, so each job fetches
 # a zip of the retail install from the URL in the RETAIL_GAME_DATA_URL secret
-# (movies and music can be left out) and fails without it. Manual only: run it
-# from the Actions tab or with `gh workflow run determinism.yml --ref <branch>`.
+# and fails without it. The zip needs the install folder's .mix, .mmx and .yro
+# files; MOVIES01.MIX, MOVIES02.MIX, THEME.MIX and THEMEMD.MIX can be left out,
+# but the stock digital start requires MOVMD03.MIX. Manual only: run it from
+# the Actions tab or with `gh workflow run determinism.yml --ref <branch>`.
 on:
   workflow_dispatch:
     inputs:

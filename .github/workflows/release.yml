@@ -15,10 +15,11 @@ name: Release
 #                the previous release of either kind. Publishes a draft
 #                pre-release by default, so a bad build is discarded instead of
 #                shipped. Only the newest published dev builds are kept.
-#   release   -- dispatch with `promote` set to the tag of a published dev build
-#                that testers played. Publishes the same installers as release
-#                v<version>, checked against their build provenance and never
-#                rebuilt: the stable toolchain can change between runs. Only
+#   release   -- tag the commit of a published dev build that testers played
+#                v<version>, then dispatch with `promote` set to the dev build's
+#                tag. Publishes the same installers as release v<version>,
+#                checked against their build provenance and never rebuilt: the
+#                stable toolchain can change between runs. Only
 #                their names change, to plain vera20k-<version>-<platform> ones.
 #                Its notes list the changes since the previous release. It is a
 #                draft, for notes written for players; once published, it is the
@@ -26,9 +27,13 @@ name: Release
 #                so later dev builds carry the next one; a dev build refuses to
 #                start until it is above every release.
 #
-# The job that creates a tag also publishes its release: GitHub suppresses
-# `on: push` for refs written with GITHUB_TOKEN, so a tag created by a job can
-# never start another workflow.
+# A dev build's job creates its tag and publishes its release: GitHub
+# suppresses `on: push` for refs written with GITHUB_TOKEN, so a tag created by
+# a job can never start another workflow. A release's tag is the maintainer's:
+# the repository ruleset "Release tags" lets only repository admins create,
+# move or delete a tag other than a dev build's (v*-*), so `promote` refuses to
+# start until v<version> names the dev build's commit
+# (.agents/skills/release/SKILL.md).
 #
 # Each installer holds the game program, its licenses (LICENSE-GPL, and
 # LGPL-2.1-or-later.txt for the Bink decoder), the third-party notices
@@ -819,6 +824,13 @@ jobs:
           fi
           git fetch --quiet --no-tags origin "+refs/tags/$FROM:refs/tags/$FROM"
           commit="$(git rev-parse --verify "refs/tags/$FROM^{commit}")"
+          # Only the maintainer creates release tags (the header), so the
+          # release's tag must already name the commit the dev build came from.
+          if ! git fetch --quiet --no-tags origin "+refs/tags/v$version:refs/tags/v$version" \
+            || [ "$(git rev-parse --verify --quiet "refs/tags/v$version^{commit}")" != "$commit" ]; then
+            echo "v$version must be a tag on $commit, the commit of $FROM; the maintainer creates it first." >&2
+            exit 1
+          fi
 
           mkdir dist
           gh release download "$FROM" --repo "$GITHUB_REPOSITORY" --dir dist
@@ -856,16 +868,14 @@ jobs:
           COMMIT: ${{ steps.source.outputs.commit }}
           PROMOTED_FROM: ${{ inputs.promote }}
         run: bash .github/release/notes.sh notes.md
-      - name: Create the tag and the draft release
+      - name: Create the draft release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.source.outputs.tag }}
-          COMMIT: ${{ steps.source.outputs.commit }}
           FROM: ${{ inputs.promote }}
         run: |
           set -euo pipefail
-          bash .github/release/tag.sh "$TAG" "$COMMIT"
           # A draft, so the maintainer adds notes for players before publishing.
           gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
             --title "VERA20K $TAG" --notes-file notes.md dist/*

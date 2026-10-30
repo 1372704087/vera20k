@@ -35,11 +35,17 @@ builds and releases. This skill is the maintainer's order of steps and the page 
 
 ## Release
 
-1. Promote the published dev build that was tested. The workflow uses that build's commit
-   and copies its three installers under plain release filenames:
-   `gh workflow run release.yml --ref main -f promote=<dev build tag>`. Merge no workflow
-   change between the dev build and this step: creating a tag on a commit whose
-   `.github/workflows` differ from main's fails with HTTP 403.
+1. Tag the commit of the published dev build that was tested with its version, using the
+   maintainer's login, then promote the build. The workflow checks that the tag names that
+   commit and copies the build's three installers under plain release filenames:
+
+   ```bash
+   git fetch origin tag <dev build tag>
+   git tag -a vX.Y.Z -m "VERA20K vX.Y.Z" "<dev build tag>^{commit}"
+   git push origin refs/tags/vX.Y.Z
+   gh workflow run release.yml --ref main -f promote=<dev build tag>
+   ```
+
 2. Replace the draft's change list with the plain-words list, keeping the install and license
    lines (`gh release edit vX.Y.Z --notes-file <file>`), read the rendered draft, then publish it:
    `gh release edit vX.Y.Z --draft=false --latest`.
@@ -67,7 +73,13 @@ builds while `v0.2.0` remains Latest.
 A release that main's version cannot carry, such as a patch while main is ahead, comes from
 a branch: main plus one commit setting the version, dispatched with `--ref <branch>`. Its
 `.github/workflows` must equal main's (`git diff origin/main <branch> -- .github/workflows`
-is empty) through the dev build and the promote.
+is empty) when the dev build runs: the workflow's token cannot create a tag on a commit whose
+`.github/workflows` differ from main's (HTTP 403).
+
+The repository ruleset `Release tags` lets only repository admins create, move or delete a tag
+other than a dev build's (`v*-*`), so nobody else can publish a release under a version
+number. The workflow's token is not an admin and makes only dev build tags.
+`gh api repos/YuriPlanet/vera20k/rulesets` lists it.
 
 A published release cannot change: GitHub keeps its tag and installers, and a deleted
 release's version number cannot be used again. To stop a bad one reaching more players, make
@@ -77,5 +89,6 @@ Stop a bad release), then fix forward with a new version.
 ## Only with the maintainer's yes
 
 - Deleting a release or a tag.
+- Changing the `Release tags` ruleset.
 - Stopping a release by rolling `latest.json` back.
 - Deleting dev builds; the workflow prunes them past the newest ten.

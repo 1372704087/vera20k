@@ -374,9 +374,10 @@ fn answer(state: &mut AppState, request: WolServiceRequest) {
             service_event(state, WolServiceEvent::NetStatus(SERVER_STATUS_READY));
             WolServiceEvent::ServerList(Ok(servers()))
         }
-        WolServiceRequest::Connect { .. } => {
-            WolServiceEvent::Login(Ok(WolLoginAccepted { motd: MOTD.into() }))
-        }
+        // VERA's own message of the day, then this service's.
+        WolServiceRequest::Connect { .. } => WolServiceEvent::Login(Ok(WolLoginAccepted {
+            motd: format!("{}\n{MOTD}", super::service::vera_motd(state)),
+        })),
         WolServiceRequest::ListChannels { kind, .. } => WolServiceEvent::Channels {
             kind,
             channels: if kind == GAME_CHANNEL {

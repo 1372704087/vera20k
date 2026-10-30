@@ -19,8 +19,9 @@ copy is never touched: on Windows in a folder with a space in its path, as
 under a user name with one; on macOS in /Applications, whose app bundles macOS
 guards (App Management); on Linux in ~/Applications, mounted with FUSE as
 players start it. A run removes what it put in those two folders. With
---quarantine, an attended Mac run marks its copy as a browser download, so
-macOS asks the person to allow the first start, as it asks players.
+--quarantine, an attended Mac run marks its copy as a browser download that
+Finder dragged into place, so macOS asks the person to allow the first start,
+as it asks players.
 
     python -m tools.update_test key DIR
     python -m tools.update_test run --key DIR/signing-key.pem --release INSTALLER \\
@@ -228,9 +229,12 @@ def install(work: Path, release: Path, program: Path, game_folder: Path, quarant
         # Dragged into place, finished.
         run("ditto", app, MAC_APP)
         if quarantine:
-            # What a browser marks its download with and Finder carries into
-            # the copy.
-            run("xattr", "-r", "-w", "com.apple.quarantine", f"0081;{int(time.time()):x};Safari;", MAC_APP)
+            # What a browser marks its download with (0x0081), plus the
+            # QTN_FLAG_DO_NOT_TRANSLOCATE (0x0100) that Finder's drag adds
+            # (copyfile(3) COPYFILE_RUN_IN_PLACE). Without that bit macOS runs
+            # even an approved copy from a read-only one (App Translocation),
+            # which the game asks to be moved to Applications instead.
+            run("xattr", "-r", "-w", "com.apple.quarantine", f"0181;{int(time.time()):x};Safari;", MAC_APP)
         return Game(MAC_APP / "Contents/MacOS/VERA20K", data, ["open", str(MAC_APP)],
                     ["pkill", "-f", str(MAC_APP)], staging=INSTALLED["macos"][1])
     # The release's own files around the test program, packed by the

@@ -184,12 +184,12 @@ class Publisher:
         shutil.copyfile(SCRIPT, self.root / "publisher" / SCRIPT.name)
         (self.root / "publisher/update-key.pub").write_text(public_key + "\n")
 
-    def run(self, tag: str, config: dict, signing_key: str) -> subprocess.CompletedProcess:
+    def run(self, tag: str, config: dict, signing_key: str, *arguments: str) -> subprocess.CompletedProcess:
         (self.root / "config.json").write_text(json.dumps(config))
         path = os.pathsep.join([str(self.root / "bin"), str(Path(openssl()).parent), os.environ["PATH"]])
         env = dict(os.environ, PATH=path, PUBLISH_FIXTURE=str(self.root), R2_ACCOUNT_ID="b" * 32,
                    AWS_ACCESS_KEY_ID="fixture-key", AWS_SECRET_ACCESS_KEY="fixture-secret",
                    R2_PUBLISH_LOCK_DIR=(self.root / "publish.lock").as_posix(), GH_TOKEN="fixture-token",
                    UPDATE_SIGNING_KEY=signing_key)
-        return subprocess.run([bash(), (self.root / "publisher" / SCRIPT.name).as_posix(), tag],
+        return subprocess.run([bash(), (self.root / "publisher" / SCRIPT.name).as_posix(), tag, *arguments],
                               env=env, capture_output=True, text=True, timeout=120)

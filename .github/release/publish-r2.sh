@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Copy the three attested stable-release installers to immutable R2 keys, with
 # a manifest signed for the game's updater (src/app/updater).
+# --roll-back lets latest.json move back to this release, which GitHub must
+# already mark Latest: how a bad release is stopped (downloads.md).
 # Credentials and the signing key come only from the environment; never enable
 # shell tracing here.
 set +x
@@ -8,8 +10,9 @@ set -euo pipefail
 umask 077
 
 die() { printf '%s\n' "Download publication failed: $*" >&2; exit 1; }
-[[ $# == 1 ]] || die 'usage: publish-r2.sh vMAJOR.MINOR.PATCH'
-tag=$1
+[[ $# == 1 || ($# == 2 && $2 == --roll-back) ]] \
+  || die 'usage: publish-r2.sh vMAJOR.MINOR.PATCH [--roll-back]'
+tag=$1 roll_back=${2:-}
 [[ $tag =~ ^v(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})$ ]] \
   || die 'only canonical stable version tags are accepted'
 version=${tag#v}
@@ -236,6 +239,7 @@ publish_immutable "releases/$tag/manifest.json.sig" "$work/manifest.json.sig" te
 gh api "repos/$repo/releases/latest" > "$work/latest-release.json"
 if ! jq -e --arg tag "$tag" '.tag_name == $tag and .draft == false and .prerelease == false' \
     "$work/latest-release.json" >/dev/null; then
+  [[ -z $roll_back ]] || die "GitHub's latest release is not $tag; first run: gh release edit $tag --latest"
   printf '%s\n' "Mirrored $tag; GitHub has a different latest release, so latest.json stays unchanged."
   exit 0
 fi
@@ -251,8 +255,11 @@ if fetch_optional latest.json "$work/prior-latest.json"; then
   if jq -e --arg version "$version" \
       '(.version | split(".") | map(tonumber)) > ($version | split(".") | map(tonumber))' \
       "$work/prior-latest.json" >/dev/null; then
-    printf '%s\n' "Mirrored $tag; latest.json already names a newer version and will not roll back."
-    exit 0
+    if [[ -z $roll_back ]]; then
+      printf '%s\n' "Mirrored $tag; latest.json already names a newer version and will not roll back."
+      exit 0
+    fi
+    printf '%s\n' "Rolling latest.json back from $(jq -r .tag "$work/prior-latest.json") to $tag."
   fi
   if [[ $(jq -r .tag "$work/prior-latest.json") == "$tag" ]]; then
     verify_copy "$work/manifest.json" "$work/prior-latest.json" latest.json
@@ -271,6 +278,7 @@ fi
 # the prior pointer intact; a conflicting publisher is never overwritten.
 latest_tag=$(gh api "repos/$repo/releases/latest" --jq '.tag_name')
 if [[ $latest_tag != "$tag" ]]; then
+  [[ -z $roll_back ]] || die 'GitHub marked another release Latest during the roll-back; latest.json stays unchanged'
   printf '%s\n' "Mirrored $tag; latest changed during publication, so latest.json stays unchanged."
   exit 0
 fi

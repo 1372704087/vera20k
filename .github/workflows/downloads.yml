@@ -9,6 +9,10 @@ on:
         description: 'Published stable release tag (vMAJOR.MINOR.PATCH)'
         type: string
         required: true
+      roll_back:
+        description: 'Stop a bad release: move latest.json back to this older tag, once GitHub marks it Latest'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -42,4 +46,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
-        run: bash .github/release/publish-r2.sh "$RELEASE_TAG"
+          ROLL_BACK: ${{ inputs.roll_back }}
+        run: |
+          if [[ $ROLL_BACK == true ]]; then
+            bash .github/release/publish-r2.sh "$RELEASE_TAG" --roll-back
+          else
+            bash .github/release/publish-r2.sh "$RELEASE_TAG"
+          fi

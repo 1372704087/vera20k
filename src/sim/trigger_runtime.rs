@@ -4725,10 +4725,12 @@ impl Simulation {
                 // of the incoming House/value. Resolve coordinates before
                 // the frame hash, including House50DF30's Dummy effects.
                 let coord = {
-                    let cells = self
-                        .resolved_terrain
-                        .as_ref()
-                        .map(crate::map::resolved_terrain::NativeCellQuery::canonical);
+                    let network = self.session.game_mode().is_network();
+                    let cells = self.resolved_terrain.as_ref().map(|terrain| {
+                        crate::map::resolved_terrain::NativeCellQuery::for_local_input(
+                            terrain, network,
+                        )
+                    });
                     self.home_camera_coordinate(rules, cells.as_ref())
                 };
                 effects.push(TriggerEffect::HomeCamera { coord });

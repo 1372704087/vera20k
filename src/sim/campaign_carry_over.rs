@@ -162,7 +162,8 @@ impl Simulation {
     /// VERA network adaptation, as HasOccurred53's: each LAN Cooperative peer
     /// saved its own House's record and would restore it onto that House
     /// alone, so a network game restores neither.
-    /// RESIDUAL: online, a map's `CarryOverMoney=` carries no money.
+    /// RESIDUAL: online, a map's nonzero `CarryOverMoney=` carries no money.
+    /// No retail map reaches it: the 50 that set the key set it to 0.
     fn restore_player_carry_over(&mut self, record: &CampaignCarryOver, rules: &RuleSet) {
         if self.session.game_mode().is_network() {
             return;

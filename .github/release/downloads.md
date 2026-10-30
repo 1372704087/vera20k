@@ -115,8 +115,10 @@ latest release immediately before updating the pointer.
 Tests: `python -m unittest tools.test_release_downloads`; the repository's
 `python -m tools.run_tests` includes these local CLI fixtures. Each dev build's
 `update-test` job publishes it with this script and a throwaway key
-(`tools/update_test.py`), then updates an installed older build to it on every
-platform.
+(`tools/update_test.py`), then updates installed older builds to it on every
+platform: its own commit built as 0.0.1, and the newest release built from its
+tag and installed from its own installer, as players have it, when that release
+can install it itself.
 
 References: [R2 tokens](https://developers.cloudflare.com/r2/api/tokens/),
 [AWS CLI access](https://developers.cloudflare.com/r2/examples/aws/aws-cli/),

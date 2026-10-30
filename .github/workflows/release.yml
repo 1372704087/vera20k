@@ -584,6 +584,11 @@ jobs:
   # older (0.0.1), trusting a throwaway key and that server. Also refused: a
   # manifest and an installer changed after signing. The same release signed by
   # a new key that its manifest names is only offered as a download by hand.
+  # Then the update players make: the newest release, built from its tag with
+  # that server and key and installed from its own installer, updates to this
+  # dev build.
+  # That is skipped while the newest release has no updater, and when this dev
+  # build raises updater-version, which that release offers as a download by hand.
   # The game is installed where players keep it: a Windows folder with a space
   # in its path, /Applications, and an AppImage in ~/Applications that FUSE
   # mounts. Without retail game data there is no main menu to ask on, so that
@@ -644,6 +649,7 @@ jobs:
         run: |
           set -euo pipefail
           key="$(python -m tools.update_test key "$RUNNER_TEMP/update-key")"
+          echo "TEST_UPDATE_KEY=$key" >> "$GITHUB_ENV"
           python - <<'PY'
           import pathlib, re
           path = pathlib.Path("Cargo.toml")
@@ -661,6 +667,69 @@ jobs:
           test "${#release[@]}" -eq 1
           test=(python -m tools.update_test run --key "$RUNNER_TEMP/update-key/signing-key.pem"
             --release "${release[0]}" --version "$VERSION" --program "target/fast/${{ matrix.program }}")
+          if [ "$RUNNER_OS" = Linux ]; then
+            xvfb-run -a -s '-screen 0 1280x1024x24' "${test[@]}"
+          else
+            "${test[@]}"
+          fi
+      - name: Fetch the newest release to update from
+        id: previous
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # Published, as players have it: a release's tag comes before its
+          # draft is published.
+          tag="$(gh release list --repo "$GITHUB_REPOSITORY" --exclude-drafts --exclude-pre-releases \
+            --limit 1000 --json tagName --jq '[.[].tagName | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]
+              | max_by(ltrimstr("v") | split(".") | map(tonumber)) // empty')"
+          if [ -z "$tag" ]; then
+            echo "::notice::No release yet to update from."
+            exit 0
+          fi
+          git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$tag:refs/tags/$tag"
+          if ! theirs="$(git show "$tag:.github/release/updater-version" 2>/dev/null)"; then
+            echo "::notice::$tag has no updater, so no player updates from it."
+            exit 0
+          fi
+          ours="$(cat .github/release/updater-version)"
+          if [ "$ours" -gt "$theirs" ]; then
+            echo "::notice::This build raises updater-version from $theirs to $ours; $tag offers it as a download by hand."
+            exit 0
+          fi
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "vera20k-${tag#v}-${{ matrix.target }}*" \
+            --dir previous-release
+          # Outside this checkout, so nothing of this one applies to its build.
+          git worktree add --quiet --detach "$RUNNER_TEMP/previous" "$tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      # Into this target folder, to reuse the dependencies compiled above.
+      - name: Build the newest release's test program
+        if: steps.previous.outputs.tag != ''
+        shell: bash
+        working-directory: ${{ runner.temp }}/previous
+        env:
+          VERA20K_UPDATE_URL: http://127.0.0.1:47311/
+          VERA20K_UPDATE_UNATTENDED: '1'
+        run: |
+          set -euo pipefail
+          VERA20K_COMMIT="$(git rev-parse --short=7 HEAD)" VERA20K_UPDATE_KEY="$TEST_UPDATE_KEY" \
+            cargo build --profile fast -p vera20k --no-default-features --bin vera20k \
+            --target-dir "$GITHUB_WORKSPACE/target"
+      - name: Update the newest release to this dev build
+        if: steps.previous.outputs.tag != ''
+        shell: bash
+        timeout-minutes: 20
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          set -euo pipefail
+          release=(release/*)
+          installed=(previous-release/*)
+          test "${#installed[@]}" -eq 1
+          test=(python -m tools.update_test run --key "$RUNNER_TEMP/update-key/signing-key.pem"
+            --release "${release[0]}" --installed "${installed[0]}" --version "$VERSION"
+            --program "target/fast/${{ matrix.program }}" --scenario update)
           if [ "$RUNNER_OS" = Linux ]; then
             xvfb-run -a -s '-screen 0 1280x1024x24' "${test[@]}"
           else

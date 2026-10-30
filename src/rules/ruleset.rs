@@ -7105,6 +7105,22 @@ impl RuleSet {
             .loaded_extra_building_palette_name(object.custom_palette_name()?)
     }
 
+    /// Sorted (upper-case ID, value) pairs for the config hash. They hash as
+    /// the `BTreeMap` these walks once collected, without letting a map's
+    /// iteration order (per process for `HashMap`, per target for
+    /// `LookupMap`) pick which case variant survives: IDs longer than the
+    /// registry's 0x18 stored bytes can differ only by case, and all are kept.
+    fn by_upper_id<'a, T>(entries: impl Iterator<Item = (&'a String, T)>) -> Vec<(String, T)> {
+        let mut entries: Vec<_> = entries
+            .map(|(id, value)| (id.to_ascii_uppercase(), id, value))
+            .collect();
+        entries.sort_unstable_by(|a, b| (&a.0, a.1).cmp(&(&b.0, b.1)));
+        entries
+            .into_iter()
+            .map(|(upper, _, value)| (upper, value))
+            .collect()
+    }
+
     /// Compatibility identity for processed rules plus the resolved animation,
     /// effect-frame, terrain-spawner frame, smudge-selection, projectile
     /// launch and TechnoType `CanBeHidden=` and `Palette=` ART inputs bound to
@@ -7196,31 +7212,34 @@ impl RuleSet {
             .collect::<Vec<_>>()
             .hash(&mut hasher);
         b"country-starting-veterancy-v1".hash(&mut hasher);
-        self.countries
-            .iter()
-            .map(|(id, country)| (id.to_ascii_uppercase(), &country.veteran_types))
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+        Self::by_upper_id(
+            self.countries
+                .iter()
+                .map(|(id, country)| (id, &country.veteran_types)),
+        )
+        .hash(&mut hasher);
         // Which plant a computer house splices is simulation state.
         #[cfg(feature = "ares")]
         {
             b"ares-country-powerplants-v1".hash(&mut hasher);
-            self.countries
-                .iter()
-                .map(|(id, country)| (id.to_ascii_uppercase(), &country.power_plants))
-                .collect::<BTreeMap<_, _>>()
-                .hash(&mut hasher);
+            Self::by_upper_id(
+                self.countries
+                    .iter()
+                    .map(|(id, country)| (id, &country.power_plants)),
+            )
+            .hash(&mut hasher);
         }
         // Which units a country's paradrop sends is simulation state, so the
         // Ares country overrides enter the state hash alongside it.
         #[cfg(feature = "ares")]
         {
             b"ares-country-paradrop-v1".hash(&mut hasher);
-            self.countries
-                .iter()
-                .map(|(id, country)| (id.to_ascii_uppercase(), &country.paradrop))
-                .collect::<BTreeMap<_, _>>()
-                .hash(&mut hasher);
+            Self::by_upper_id(
+                self.countries
+                    .iter()
+                    .map(|(id, country)| (id, &country.paradrop)),
+            )
+            .hash(&mut hasher);
         }
         #[cfg(feature = "phobos")]
         {
@@ -7234,11 +7253,12 @@ impl RuleSet {
             b"ares-super-availability-v1".hash(&mut hasher);
             self.ares_super_weapon_metadata.hash(&mut hasher);
             b"ares-weapon-ammo-v1".hash(&mut hasher);
-            self.weapons
-                .iter()
-                .map(|(id, weapon)| (id.to_ascii_uppercase(), weapon.ammo_cost()))
-                .collect::<BTreeMap<_, _>>()
-                .hash(&mut hasher);
+            Self::by_upper_id(
+                self.weapons
+                    .iter()
+                    .map(|(id, weapon)| (id, weapon.ammo_cost())),
+            )
+            .hash(&mut hasher);
             self.object_list
                 .iter()
                 .filter(|object| !object.additional_super_weapons().is_empty())
@@ -7444,50 +7464,50 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
-        self.terrain_object_types
-            .iter()
-            .map(|(name, terrain)| (name.to_ascii_uppercase(), terrain.armor_id()))
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+        Self::by_upper_id(
+            self.terrain_object_types
+                .iter()
+                .map(|(name, terrain)| (name, terrain.armor_id())),
+        )
+        .hash(&mut hasher);
         #[cfg(feature = "phobos")]
         {
             // TerrainTypeExt::LoadFromINI retains these across Process calls.
             // They change spawner placement, particle births and RNG draws.
             b"phobos-retained-ore-spawners-v1".hash(&mut hasher);
-            self.terrain_object_types
-                .iter()
-                .map(|(name, terrain)| (name.to_ascii_uppercase(), &terrain.spawns_tiberium_ext))
-                .collect::<BTreeMap<_, _>>()
-                .hash(&mut hasher);
+            Self::by_upper_id(
+                self.terrain_object_types
+                    .iter()
+                    .map(|(name, terrain)| (name, &terrain.spawns_tiberium_ext)),
+            )
+            .hash(&mut hasher);
         }
         // TerrainTypeReadINI71DEA0 retains post-read writes and ReadInt
         // defaults across Process calls. Equal current text can admit
         // different Strength, Logic members, targets or occupation, so identify
         // the effective fields as well as the current source layers.
         b"terrain-strength-logic-targeting-occupation-and-foundation-v6".hash(&mut hasher);
-        self.terrain_object_types
-            .iter()
-            .map(|(name, terrain)| {
+        Self::by_upper_id(self.terrain_object_types.iter().map(|(name, terrain)| {
+            (
+                name,
                 (
-                    name.to_ascii_uppercase(),
-                    (
-                        terrain.strength,
-                        terrain.is_logic(),
-                        terrain.legal_target,
-                        terrain.raw_occupation_bits(false),
-                        terrain.raw_occupation_bits(true),
-                        terrain.foundation.as_str(),
-                        terrain.has_occupy_list(),
-                    ),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
-        self.warheads
-            .iter()
-            .map(|(name, warhead)| (name.to_ascii_uppercase(), warhead.ares_verses_hash_state()))
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+                    terrain.strength,
+                    terrain.is_logic(),
+                    terrain.legal_target,
+                    terrain.raw_occupation_bits(false),
+                    terrain.raw_occupation_bits(true),
+                    terrain.foundation.as_str(),
+                    terrain.has_occupy_list(),
+                ),
+            )
+        }))
+        .hash(&mut hasher);
+        Self::by_upper_id(
+            self.warheads
+                .iter()
+                .map(|(name, warhead)| (name, warhead.ares_verses_hash_state())),
+        )
+        .hash(&mut hasher);
 
         #[cfg(feature = "ares")]
         {
@@ -7580,11 +7600,12 @@ impl RuleSet {
                 })
                 .collect::<BTreeMap<_, _>>()
                 .hash(&mut hasher);
-            self.warheads
-                .iter()
-                .map(|(name, wh)| (name.to_ascii_uppercase(), wh.ares_rules()))
-                .collect::<BTreeMap<_, _>>()
-                .hash(&mut hasher);
+            Self::by_upper_id(
+                self.warheads
+                    .iter()
+                    .map(|(name, wh)| (name, wh.ares_rules())),
+            )
+            .hash(&mut hasher);
         }
 
         // UnitType747734 retains CarriesCrate across later absent/invalid
@@ -7815,21 +7836,19 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
-        self.projectiles
-            .iter()
-            .map(|(id, projectile)| (id.to_ascii_uppercase(), &projectile.shrapnel_weapon))
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
-        let airburst_weapons = self
-            .projectiles
-            .iter()
-            .filter_map(|(id, projectile)| {
+        Self::by_upper_id(
+            self.projectiles
+                .iter()
+                .map(|(id, projectile)| (id, &projectile.shrapnel_weapon)),
+        )
+        .hash(&mut hasher);
+        let airburst_weapons =
+            Self::by_upper_id(self.projectiles.iter().filter_map(|(id, projectile)| {
                 projectile
                     .airburst_weapon
                     .as_ref()
-                    .map(|weapon| (id.to_ascii_uppercase(), weapon))
-            })
-            .collect::<BTreeMap<_, _>>();
+                    .map(|weapon| (id, weapon))
+            }));
         if !airburst_weapons.is_empty() {
             b"airburst-weapons-v1".hash(&mut hasher);
             airburst_weapons.hash(&mut hasher);
@@ -7846,39 +7865,25 @@ impl RuleSet {
             b"airburst-retained-flag-v1".hash(&mut hasher);
             airburst_flags.hash(&mut hasher);
         }
-        self.super_weapons
-            .iter()
-            .map(|(id, super_weapon)| {
-                (
-                    id.to_ascii_uppercase(),
-                    (&super_weapon.weapon_type, &super_weapon.aux_building),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+        Self::by_upper_id(self.super_weapons.iter().map(|(id, super_weapon)| {
+            (id, (&super_weapon.weapon_type, &super_weapon.aux_building))
+        }))
+        .hash(&mut hasher);
         // Keep stock rules hashes unchanged. Extension payload references are
         // resolved state too: a layered clear/rebind must invalidate a save.
-        let generic_warheads = self
-            .super_weapons
-            .iter()
-            .filter_map(|(id, sw)| {
-                sw.generic_warhead
-                    .as_ref()
-                    .map(|settings| (id.to_ascii_uppercase(), settings))
-            })
-            .collect::<BTreeMap<_, _>>();
+        let generic_warheads = Self::by_upper_id(
+            self.super_weapons
+                .iter()
+                .filter_map(|(id, sw)| sw.generic_warhead.as_ref().map(|settings| (id, settings))),
+        );
         if !generic_warheads.is_empty() {
             generic_warheads.hash(&mut hasher);
         }
-        let hunters = self
-            .super_weapons
-            .iter()
-            .filter_map(|(id, sw)| {
-                sw.hunter_seeker
-                    .as_ref()
-                    .map(|settings| (id.to_ascii_uppercase(), settings))
-            })
-            .collect::<BTreeMap<_, _>>();
+        let hunters = Self::by_upper_id(
+            self.super_weapons
+                .iter()
+                .filter_map(|(id, sw)| sw.hunter_seeker.as_ref().map(|settings| (id, settings))),
+        );
         if !hunters.is_empty() {
             b"ares-hunter-seeker-v1".hash(&mut hasher);
             hunters.hash(&mut hasher);
@@ -7888,30 +7893,22 @@ impl RuleSet {
                 .hash(&mut hasher);
         }
         // No extension tags means no extra hash input: preserve stock hashes.
-        let building_requirements = self
-            .super_weapons
-            .iter()
-            .filter_map(|(id, sw)| {
+        let building_requirements =
+            Self::by_upper_id(self.super_weapons.iter().filter_map(|(id, sw)| {
                 sw.building_requirements
                     .as_ref()
-                    .map(|requirements| (id.to_ascii_uppercase(), requirements))
-            })
-            .collect::<BTreeMap<_, _>>();
+                    .map(|requirements| (id, requirements))
+            }));
         if !building_requirements.is_empty() {
             "Ares.SuperWeaponBuildingRequirements".hash(&mut hasher);
             building_requirements.hash(&mut hasher);
         }
-        let superweapon_money = self
-            .super_weapons
-            .iter()
-            .filter(|(_, sw)| sw.money_amount != 0)
-            .map(|(id, sw)| {
-                (
-                    id.to_ascii_uppercase(),
-                    (sw.money_amount, &sw.insufficient_funds_eva),
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
+        let superweapon_money = Self::by_upper_id(
+            self.super_weapons
+                .iter()
+                .filter(|(_, sw)| sw.money_amount != 0)
+                .map(|(id, sw)| (id, (sw.money_amount, &sw.insufficient_funds_eva))),
+        );
         if !superweapon_money.is_empty() {
             "Ares.SuperWeaponMoney".hash(&mut hasher);
             superweapon_money.hash(&mut hasher);
@@ -7919,50 +7916,44 @@ impl RuleSet {
         #[cfg(feature = "ares")]
         {
             let default = crate::rules::superweapon_type::AresSuperWeaponPresentation::default();
-            let presentation: BTreeMap<_, _> = self
-                .super_weapons
-                .iter()
-                .filter(|(_, sw)| sw.presentation != default)
-                .map(|(id, sw)| (id.to_ascii_uppercase(), &sw.presentation))
-                .collect();
+            let presentation = Self::by_upper_id(
+                self.super_weapons
+                    .iter()
+                    .filter(|(_, sw)| sw.presentation != default)
+                    .map(|(id, sw)| (id, &sw.presentation)),
+            );
             if !presentation.is_empty() {
                 "Ares.SuperWeaponPresentation".hash(&mut hasher);
                 presentation.hash(&mut hasher);
             }
         }
-        let deliveries = self
-            .super_weapons
-            .iter()
-            .filter_map(|(id, sw)| {
-                sw.unit_delivery
-                    .as_ref()
-                    .map(|delivery| (id.to_ascii_uppercase(), delivery))
-            })
-            .collect::<BTreeMap<_, _>>();
+        let deliveries = Self::by_upper_id(
+            self.super_weapons
+                .iter()
+                .filter_map(|(id, sw)| sw.unit_delivery.as_ref().map(|delivery| (id, delivery))),
+        );
         if !deliveries.is_empty() {
             "Ares.UnitDelivery".hash(&mut hasher);
             deliveries.hash(&mut hasher);
         }
-        self.weapons
-            .iter()
-            .map(|(id, weapon)| {
+        Self::by_upper_id(self.weapons.iter().map(|(id, weapon)| {
+            (
+                id,
                 (
-                    id.to_ascii_uppercase(),
-                    (
-                        &weapon.anim,
-                        &weapon.occupant_anim,
-                        &weapon.open_topped_anim,
-                        &weapon.attached_particle_system,
-                    ),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
-        self.warheads
-            .iter()
-            .map(|(id, warhead)| (id.to_ascii_uppercase(), &warhead.debris_types))
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+                    &weapon.anim,
+                    &weapon.occupant_anim,
+                    &weapon.open_topped_anim,
+                    &weapon.attached_particle_system,
+                ),
+            )
+        }))
+        .hash(&mut hasher);
+        Self::by_upper_id(
+            self.warheads
+                .iter()
+                .map(|(id, warhead)| (id, &warhead.debris_types)),
+        )
+        .hash(&mut hasher);
         for particle in &self.particle_types {
             (&particle.name, &particle.warhead).hash(&mut hasher);
         }
@@ -8122,48 +8113,42 @@ impl RuleSet {
         // The live family order is independent of HashMap iteration and may
         // survive earlier passes absent from the current source stack.
         self.weapon_array.hash(&mut hasher);
-        self.warheads
-            .iter()
-            .map(|(name, wh)| {
+        Self::by_upper_id(self.warheads.iter().map(|(name, wh)| {
+            (
+                name,
                 (
-                    name.to_ascii_uppercase(),
-                    (
-                        wh.conventional,
-                        wh.em_effect,
-                        &wh.anim_list,
-                        wh.verses_f64.map(f64::to_bits),
-                    ),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
-        self.weapons
-            .iter()
-            .map(|(id, weapon)| {
+                    wh.conventional,
+                    wh.em_effect,
+                    &wh.anim_list,
+                    wh.verses_f64.map(f64::to_bits),
+                ),
+            )
+        }))
+        .hash(&mut hasher);
+        Self::by_upper_id(self.weapons.iter().map(|(id, weapon)| {
+            (
+                id,
                 (
-                    id.to_ascii_uppercase(),
                     (
-                        (
-                            weapon.speed,
-                            &weapon.projectile,
-                            weapon.damage,
-                            &weapon.warhead,
-                            weapon.range_leptons,
-                        ),
-                        (
-                            weapon.is_laser,
-                            weapon.is_house_color,
-                            weapon.is_big_laser,
-                            weapon.laser_duration,
-                            weapon.laser_inner_color,
-                            weapon.laser_outer_color,
-                            weapon.laser_outer_spread,
-                        ),
+                        weapon.speed,
+                        &weapon.projectile,
+                        weapon.damage,
+                        &weapon.warhead,
+                        weapon.range_leptons,
                     ),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+                    (
+                        weapon.is_laser,
+                        weapon.is_house_color,
+                        weapon.is_big_laser,
+                        weapon.laser_duration,
+                        weapon.laser_inner_color,
+                        weapon.laser_outer_color,
+                        weapon.laser_outer_spread,
+                    ),
+                ),
+            )
+        }))
+        .hash(&mut hasher);
         // Selection order and duplicate references affect the scenario RNG's
         // consumers, including the truncated retail pool's unread AnimType D.
         self.general.metallic_debris.hash(&mut hasher);
@@ -8200,39 +8185,36 @@ impl RuleSet {
         // consumed values in canonical type order, not ART insertion order,
         // authored-key presence, or unrelated presentation metadata.
         b"art-projectile-config-v4".hash(&mut hasher);
-        self.projectiles
-            .iter()
-            .map(|(id, p)| {
+        Self::by_upper_id(self.projectiles.iter().map(|(id, p)| {
+            (
+                id,
                 (
-                    id.to_ascii_uppercase(),
                     (
-                        (
-                            &p.image,
-                            &p.image_loads,
-                            p.voxel_image_load(),
-                            p.voxel,
-                            p.theater,
-                            p.new_theater,
-                            p.inviso,
-                        ),
-                        (p.rotates, p.flat, p.anim_palette, p.color_scheme()),
-                        (
-                            p.use_line_trail,
-                            p.line_trail_color,
-                            p.line_trail_color_decrement,
-                        ),
-                        (
-                            p.anim_low,
-                            p.anim_high,
-                            p.anim_rate,
-                            p.spawn_delay,
-                            &p.trailer,
-                        ),
+                        &p.image,
+                        &p.image_loads,
+                        p.voxel_image_load(),
+                        p.voxel,
+                        p.theater,
+                        p.new_theater,
+                        p.inviso,
                     ),
-                )
-            })
-            .collect::<BTreeMap<_, _>>()
-            .hash(&mut hasher);
+                    (p.rotates, p.flat, p.anim_palette, p.color_scheme()),
+                    (
+                        p.use_line_trail,
+                        p.line_trail_color,
+                        p.line_trail_color_decrement,
+                    ),
+                    (
+                        p.anim_low,
+                        p.anim_high,
+                        p.anim_rate,
+                        p.spawn_delay,
+                        &p.trailer,
+                    ),
+                ),
+            )
+        }))
+        .hash(&mut hasher);
         // The fixed SOUNDMD registry changes which names resolve even when
         // Rules text is identical. Empty versus nonempty vectors gates Main
         // draws; list order/duplicates select the sound. Hash effective lists

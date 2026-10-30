@@ -254,6 +254,19 @@ impl<'a> NativeCellQuery<'a> {
         }
     }
 
+    /// A simulation lookup driven by one client's input (PlayerPtr, the
+    /// selection). Offline games and their replays share that input, so a
+    /// miss stamps the shared Dummy (`0x00ABDC50`) as native does. VERA
+    /// network adaptation: peers differ in it, so a network game stamps a
+    /// fork, whose coordinate no retained target reads.
+    pub fn for_local_input(terrain: &'a ResolvedTerrainGrid, network: bool) -> Self {
+        if network {
+            Self::isolated(terrain)
+        } else {
+            Self::canonical(terrain)
+        }
+    }
+
     pub fn terrain(&self) -> &'a ResolvedTerrainGrid {
         self.terrain
     }

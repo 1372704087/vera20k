@@ -2597,11 +2597,14 @@ impl GameEntity {
         &self.phobos_stat_multipliers
     }
 
-    pub(crate) fn set_phobos_stat_multipliers(
+    /// `TechnoExt::RecalculateStatMultipliers` (Body.Update.cpp:1124): refolds
+    /// the stat cache from this entity's own instance list, which each
+    /// `sim::attach_effect` pass calls once it puts the list back.
+    pub(crate) fn recalculate_phobos_stat_multipliers(
         &mut self,
-        stats: crate::sim::attach_effect::PhobosStatMultipliers,
+        effects: &[crate::rules::attach_effect::AttachEffectType],
     ) {
-        self.phobos_stat_multipliers = stats;
+        self.phobos_stat_multipliers = self.phobos_attach_effects.stat_multipliers(effects);
     }
 
     /// A live effect drives future frames, so it joins the state hash; an

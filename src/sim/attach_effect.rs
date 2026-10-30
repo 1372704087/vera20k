@@ -165,11 +165,6 @@ impl AttachEffectInstance {
         self.anim
     }
 
-    #[cfg(feature = "phobos")]
-    pub(crate) fn set_anim(&mut self, anim: Option<u64>) {
-        self.anim = anim;
-    }
-
     /// `HasExpired()`: a re-creating effect (`Delay >= 0`) never expires; a
     /// terminal one expires once its duration runs out.
     pub fn has_expired(&self) -> bool {
@@ -1800,14 +1795,13 @@ impl Simulation {
             }
             list.instances.remove(index);
         }
-        let stats = list.stat_multipliers(effects);
         let entity = self
             .substrate
             .entities
             .get_mut(id)
             .expect("the gated entity still exists");
         *entity.phobos_attach_effects_mut() = list;
-        entity.set_phobos_stat_multipliers(stats);
+        entity.recalculate_phobos_stat_multipliers(effects);
         if !expire_shots.is_empty() {
             let detonations: Vec<_> = expire_shots
                 .iter()
@@ -2115,14 +2109,13 @@ impl Simulation {
                 rules,
             );
         }
-        let stats = list.stat_multipliers(effects);
         let entity = self
             .substrate
             .entities
             .get_mut(id)
             .expect("the gated entity still exists");
         *entity.phobos_attach_effects_mut() = list;
-        entity.set_phobos_stat_multipliers(stats);
+        entity.recalculate_phobos_stat_multipliers(effects);
         // `UpdateAttachEffects` fires one weapon per expired/discarded effect
         // at the object's own coordinates, after stats and animations.
         if !expire_shots.is_empty() {
@@ -3200,10 +3193,9 @@ impl Simulation {
                 rules,
             ));
         }
-        let stats = list.stat_multipliers(table);
         if let Some(target) = self.substrate.entities.get_mut(target_id) {
             *target.phobos_attach_effects_mut() = list;
-            target.set_phobos_stat_multipliers(stats);
+            target.recalculate_phobos_stat_multipliers(table);
         }
         let detonations: Vec<_> = shots
             .iter()
@@ -4654,14 +4646,14 @@ mod tests {
             "the unconditional rule adds on its own; a type that declares an \
              animation does not match without one"
         );
-        list.instances[1].set_anim(Some(9));
+        list.instances[1].anim = Some(9);
         assert_eq!(
             list.draw_offset(0, &effects),
             [7, 4],
             "the animated instance satisfies the rule"
         );
         // `RequiredTypes` is any-of, and a second match must not add twice.
-        list.instances[1].set_anim(None);
+        list.instances[1].anim = None;
         attach(&mut list, 2);
         list.tick_all(&effects, |_, _, _| false);
         assert_eq!(
@@ -4669,7 +4661,7 @@ mod tests {
             [7, 4],
             "OTHER declares no animation, so it matches on its own"
         );
-        list.instances[1].set_anim(Some(9));
+        list.instances[1].anim = Some(9);
         assert_eq!(
             list.draw_offset(0, &effects),
             [7, 4],

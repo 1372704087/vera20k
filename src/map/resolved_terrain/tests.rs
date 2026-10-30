@@ -923,9 +923,10 @@ fn gsi_04_02_last_tiles_pack_materialization_precedes_tmp_lat_and_final_state() 
     }];
 
     let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-    cache.complete_theater_registry_load(Some(5), None);
     let mut deterministic_main = || 0;
-    let mut fill = |_low, _high| 0;
+    // Fill's whole tile index is the draw; 5 is the fixture's LastTiles
+    // boundary, which only Pack5 cells translate (to 8).
+    let mut fill = |_low, _high| 5;
     let without_lat = {
         let mut selector = cache.begin_load(&mut deterministic_main);
         ResolvedTerrainGrid::build_with_variant_selector(
@@ -1033,7 +1034,6 @@ fn gsi_04_02_last_tiles_provenance_gates_both_materialization_paths() {
     );
 
     let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-    cache.complete_theater_registry_load(Some(5), None);
     let mut forbidden_main = || panic!("compatibility fixture has no variants");
     let mut fill = |_low, _high| 0;
     let production_manual = {
@@ -1105,10 +1105,11 @@ fn gsi_04_02_last_tiles_does_not_translate_fill_or_dummy_only_pack_misses() {
     }];
     let dummy = SharedCellDummy::fresh();
     let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-    cache.complete_theater_registry_load(Some(5), None);
     let mut forbidden_main = || panic!("Fill and misses do not draw Main");
     let mut selector = cache.begin_load(&mut forbidden_main);
-    let mut fill = |_low, _high| 0;
+    // Fill's whole tile index is the draw; 5 is the fixture's LastTiles
+    // boundary, which only Pack5 cells translate (to 8).
+    let mut fill = |_low, _high| 5;
 
     let cells = materialize_map_load_cells(
         &map,
@@ -1850,21 +1851,10 @@ fn gsi_04_03a_level_prefill_wraps_before_absolute_last_isomap_overwrite() {
     map.header.level = 260;
 
     let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-    assert_eq!(cache.cached_clear_tile_base(), 0);
-    assert_eq!(cache.cached_water_set_base(), 0);
-
-    // Stock RMG preview A publishes both resolved bases for the following
-    // ordinary load B. Repeating preview A preserves the same values.
-    cache.complete_theater_registry_load(Some(37), Some(50));
-    assert_eq!(cache.cached_clear_tile_base(), 37);
-    assert_eq!(cache.cached_water_set_base(), 50);
-    cache.complete_theater_registry_load(Some(37), Some(50));
-    assert_eq!(cache.cached_water_set_base(), 50);
-
     let seed = 0xA55A_1234;
     let mut expected_scenario = SimRng::new(seed);
     let expected_tiles: Vec<_> = (0..10)
-        .map(|_| 50 + expected_scenario.next_range_u32_inclusive(0, 3) as i32)
+        .map(|_| expected_scenario.next_range_u32_inclusive(0, 3) as i32)
         .collect();
     let mut scenario_rng = SimRng::new(seed);
     let mut scenario_calls = 0usize;
@@ -1922,16 +1912,10 @@ fn gsi_04_03a_level_prefill_wraps_before_absolute_last_isomap_overwrite() {
         expected_scenario.logical_state()
     );
     assert_eq!(main_rng.logical_state(), main_before);
-
-    // A registry with neither role publishes native reset sentinels only
-    // after its own Fill, for use by the following load.
-    cache.complete_theater_registry_load(None, None);
-    assert_eq!(cache.cached_clear_tile_base(), -1);
-    assert_eq!(cache.cached_water_set_base(), -1);
 }
 
 #[test]
-fn gsi_04_02_clear_and_unknown_use_prior_cached_clear_and_equal_scenario_bounds() {
+fn gsi_04_02_clear_and_unknown_fill_zero_with_equal_scenario_bounds() {
     for fill in ["Clear", "unknown"] {
         let mut map = make_map(Vec::new(), Vec::new(), Vec::new());
         map.header.width = 3;
@@ -1939,9 +1923,6 @@ fn gsi_04_02_clear_and_unknown_use_prior_cached_clear_and_equal_scenario_bounds(
         map.header.fill = fill.to_string();
 
         let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-        // The already parsed current theater may resolve ClearTile=0, but
-        // Fill snapshots the prior process-global value (37).
-        cache.complete_theater_registry_load(Some(37), Some(50));
         let mut forbidden_main = || panic!("Fill must not draw Main");
         let mut selector = cache.begin_load(&mut forbidden_main);
         let mut scenario_rng = SimRng::new(0x1234_5678);
@@ -1964,7 +1945,7 @@ fn gsi_04_02_clear_and_unknown_use_prior_cached_clear_and_equal_scenario_bounds(
         assert!(
             cells
                 .iter()
-                .all(|cell| { cell.tile_index == 37 && cell.sub_tile == 0 && cell.z == 0 })
+                .all(|cell| { cell.tile_index == 0 && cell.sub_tile == 0 && cell.z == 0 })
         );
         assert_eq!(scenario_calls, 10);
         assert_eq!(scenario_rng.logical_state(), scenario_before);
@@ -1993,16 +1974,14 @@ fn gsi_04_02_production_build_prefills_before_selector_and_skips_outside_slots()
         b"[TileSet0000]\nTilesInSet=64\nFileName=ground\nSetName=Ground\n",
     );
     theater.rmg_tiles.clear_tile = Some(0);
-    // Preview A published 50, while this already-parsed ordinary theater B
-    // resolves 1. B's Fill must retain A until B publishes afterward.
+    // This theater resolves WaterSet 1; Fill reads no theater base.
     theater.rmg_tiles.water_set = Some(1);
 
     let mut cache = crate::map::tile_variant_selector::TileVariantSelectorCache::default();
-    cache.complete_theater_registry_load(Some(37), Some(50));
     let seed = 0xCAFE_BABE;
     let mut scenario_rng = SimRng::new(seed);
     let mut expected_scenario = scenario_rng.clone();
-    let expected_first = 50 + expected_scenario.next_range_u32_inclusive(0, 3) as i32;
+    let expected_first = expected_scenario.next_range_u32_inclusive(0, 3) as i32;
     for _ in 1..10 {
         let _ = expected_scenario.next_range_u32_inclusive(0, 3);
     }
@@ -2065,12 +2044,6 @@ fn gsi_04_02_production_build_prefills_before_selector_and_skips_outside_slots()
     }
     assert_eq!(main_rng.logical_state(), expected_main.logical_state());
     assert_ne!(main_rng.logical_state(), main_before);
-
-    // The production orchestrator publishes the current theater only
-    // after Fill and variant resolution have released their snapshots.
-    cache.complete_theater_registry_load(theater.rmg_tiles.clear_tile, theater.rmg_tiles.water_set);
-    assert_eq!(cache.cached_clear_tile_base(), 0);
-    assert_eq!(cache.cached_water_set_base(), 1);
 }
 
 #[test]

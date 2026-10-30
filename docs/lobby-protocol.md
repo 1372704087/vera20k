@@ -16,7 +16,7 @@ UUID and bearer token. `expires_at` is a Unix timestamp in seconds. An active na
 returns 409 `name_unavailable`; entering its name never replaces that session.
 Guest locale, buddies and relay admission counters belong to this player identity
 and are removed with its session on logout or expiry. Idle lobby visits expire
-after 120 seconds without polling; admitted v4 players retain their session during
+after 120 seconds without a request or stream ack; admitted v4 players retain their session during
 a network outage while another unfinished player of their match is online, and
 otherwise through 10 minutes of silence, until explicit finish/leave or the
 match/session lifetime.
@@ -47,7 +47,18 @@ within a session and retries are idempotent. Responses and
 Sequences increase within a session. An event appears once logically even when
 responses are repeated. `GET /v1/channels?kind=0|41` returns `{kind,channels}`.
 Clients poll at most once per second. Responses contain at most 256 events and
-256 KiB of UTF-8 JSON. Critical history is bounded to 1,024 events/2 MiB per session;
+256 KiB of UTF-8 JSON.
+`GET /v1/events/stream?after=<cursor>` with a WebSocket upgrade and the bearer (protocol 4
+only; 400 without an upgrade) pushes the same replies as text frames, from `after` on,
+as soon as a request, ack or expiry adds events. Frames continue from the stream's last
+frame, so one can repeat events a command reply already delivered or arrive behind it;
+the game keeps the newer cursor and drops events it has. Its only message is
+`{"ack":<cursor>}`, every 15 seconds (at most 60 a minute): it counts as a request for
+idle expiry and is answered with a frame, empty when nothing is new. A newer stream of
+the session closes the older with 4000 `replaced`; a stream whose request would now fail
+closes with 4000 plus that status (4401, 4409, ...) and the error code as its reason.
+Games from 0.2.4 stream on native builds, poll whenever no stream is up and reconnect
+after 5 seconds, doubling to 5 minutes; older games and the browser build poll. Critical history is bounded to 1,024 events/2 MiB per session;
 expired cursors fail explicitly rather than silently dropping state.
 Chat, locale and buddy observations have a separate best-effort 64-event/128 KiB
 retention budget and cannot evict critical events. Options and per-player
@@ -303,13 +314,12 @@ start closes the room and emits a failure/leave event to the guests. Membership,
 authorization, readiness, sequence history and idle expiration are server-owned.
 Idle lobby visits expire after 120 seconds. An unfinished v4 playing membership
 survives that idle interval while another unfinished player of the match is online
-(polled in the last 120 seconds), and otherwise through 10 minutes of silence, until
+(a request or stream ack in the last 120 seconds), and otherwise through 10 minutes of silence, until
 explicit finish/leave or the match/session lifetime; lost internet does not remove
 its gameplay source. Names held by crashed clients therefore free once nobody else
 in their match is online. A lobby outage or overload is not player silence: these
-intervals count from the later of the player's last request and the lobby's last
-restart, its first request after 30 seconds without any, or its latest 429 `busy`
-refusal.
+intervals count from the later of the player's last request and the lobby's first
+request after 30 seconds without any or its latest 429 `busy` refusal.
 
 `POST /v1/translate` accepts exactly `{text,target}` from a v4 bearer and returns
 `{text}`: `text` translated into `target`, a language tag such as `en` or `zh-Hans`.

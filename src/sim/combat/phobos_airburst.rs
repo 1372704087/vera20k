@@ -41,9 +41,10 @@
 //! `GetTargetCoordsForFiring`'s `Inviso && FlakScatter` arm is not applied to
 //! the rad-beam/particle targets.
 //!
-//! RESIDUAL (bounds): `AirburstSpread` is capped at a 256-cell radius. A
-//! larger authored value enumerates no cells instead of stalling the
-//! simulation; Phobos' `CellRangeIterator` has no such cap.
+//! `CellRangeIterator`'s square is clipped to the loaded map's real cells
+//! before it is walked, so an arbitrarily large `AirburstSpread` costs the
+//! playfield area instead of its own radius squared and still yields the
+//! same cells in the same order.
 
 use std::collections::BTreeMap;
 
@@ -579,25 +580,37 @@ fn airburst_cells(
     radius: f64,
 ) -> Vec<ProjectileTarget> {
     let cells = (radius + 0.99).floor();
-    if !cells.is_finite() || !(0.0..=0x100 as f64).contains(&cells) {
-        // Phobos' CellRangeIterator is unbounded; VERA caps the authored
-        // radius at 256 cells so an outlier cannot stall the simulation.
+    if !cells.is_finite() || cells < 0.0 {
         return Vec::new();
     }
-    let range = cells as i32 * 2 + 1;
+    // CellRangeIterator walks the whole square and lets `TryGetCellAt` drop
+    // every cell outside the map. Clipping the square to the same real-cell
+    // rectangle first yields that stream unchanged: the fixed 512 stride
+    // bounds the grid (`CellRectEnumerator` starts at the short-cast top
+    // left), and a loaded map narrows it to its own width/height.
+    let cells = cells.min(0x200 as f64) as i64;
+    let range = cells * 2 + 1;
     let half = range / 2;
+    let (width, height) = terrain.map_or((0x200, 0x200), |terrain| {
+        (i64::from(terrain.width()), i64::from(terrain.height()))
+    });
+    let left = (i64::from(center.0) - half).max(0);
+    let top = (i64::from(center.1) - half).max(0);
+    let right = (i64::from(center.0) - half + range).min(width - 1);
+    let bottom = (i64::from(center.1) - half + range).min(height - 1);
+    if right < left || bottom < top {
+        return Vec::new();
+    }
     let radius_squared = radius * radius;
     let mut cells = Vec::new();
-    for y in 0..=range {
-        for x in 0..=range {
-            let dx = (x - half) as f64;
-            let dy = (y - half) as f64;
+    for y in top..=bottom {
+        for x in left..=right {
+            let dx = (x - i64::from(center.0)) as f64;
+            let dy = (y - i64::from(center.1)) as f64;
             if dx * dx + dy * dy > radius_squared {
                 continue;
             }
-            let rx = center.0.wrapping_add((x - half) as i16);
-            let ry = center.1.wrapping_add((y - half) as i16);
-            if let Some(target) = real_cell_target(terrain, rx, ry) {
+            if let Some(target) = real_cell_target(terrain, x as i16, y as i16) {
                 cells.push(target);
             }
         }
@@ -625,9 +638,14 @@ fn real_cell_target(
     }
 }
 
-/// Phobos' `Airburst.RandomClusters` selection. Safe port of the literal
-/// `RandomRanged(0, targetCount)` loop: unique while cells remain, repeats
-/// only when `Cluster` exceeds the area.
+/// Phobos' `Airburst.RandomClusters` selection. Phobos draws
+/// `RandomRanged(0, targetCount)` — one past the last cell — and accepts a
+/// repeat only once `count > targetCount`. That out-of-range draw reads the
+/// dynamic vector's one-past slot, which is zero-initialised, i.e. a null
+/// target the fire loop skips; it is what lets the loop leave the
+/// unique-only phase after every cell is selected when `Cluster` exceeds the
+/// area. [`ProjectileTarget::None`] stands in for that null without reading
+/// past the list.
 fn select_random_clusters(
     rng: &mut crate::sim::rng::SimRng,
     cells: &[ProjectileTarget],
@@ -635,13 +653,10 @@ fn select_random_clusters(
 ) -> Vec<ProjectileTarget> {
     let count = cluster_count.max(0) as usize;
     let mut selected = Vec::with_capacity(count);
-    if cells.is_empty() {
-        return selected;
-    }
     while selected.len() < count {
-        let index = rng.next_range_i32_inclusive(0, cells.len() as i32 - 1) as usize;
-        let target = cells[index];
-        if selected.len() >= cells.len() || !selected.contains(&target) {
+        let index = rng.next_range_i32_inclusive(0, cells.len() as i32) as usize;
+        let target = cells.get(index).copied().unwrap_or(ProjectileTarget::None);
+        if selected.len() > cells.len() || !selected.contains(&target) {
             selected.push(target);
         }
     }

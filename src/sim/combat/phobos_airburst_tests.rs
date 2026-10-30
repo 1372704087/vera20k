@@ -372,6 +372,61 @@ fn airburst_use_cluster_selects_even_and_random_cells() {
 }
 
 #[test]
+fn airburst_spread_beyond_the_old_cap_covers_the_map() {
+    let ini = rules_ini(
+        "Airburst=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\nAirburstSpread=300\n",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
+    let mut scene = build_scene(
+        &ini,
+        (6, 20),
+        (10, 20),
+        0,
+        TargetChoice::Cell(10, 20),
+        &[],
+        1.0,
+    );
+    detonate(&mut scene);
+    assert_eq!(
+        child_targets(&scene).len(),
+        32 * 32,
+        "a spread above 256 cells still enumerates every real map cell"
+    );
+}
+
+#[test]
+fn random_clusters_skips_the_one_past_draw_like_the_null_vector_slot() {
+    let ini = rules_ini(
+        "Airburst=yes\nAirburstWeapon=CHILD_GUN\nCluster=4\nAirburstSpread=0\n\
+         Airburst.UseCluster=yes\nAirburst.RandomClusters=yes\n",
+        "",
+        "",
+        "",
+        "",
+        "",
+    );
+    let mut scene = build_scene(
+        &ini,
+        (6, 20),
+        (10, 20),
+        0,
+        TargetChoice::Cell(10, 20),
+        &[],
+        1.0,
+    );
+    detonate(&mut scene);
+    let children = child_ids(&scene).len();
+    assert!(
+        (1..=3).contains(&children),
+        "one draw lands on the null one-past slot and fires nothing: {children}"
+    );
+}
+
+#[test]
 fn target_as_source_moves_the_origin_and_skip_height_keeps_the_bullet_z() {
     let ini = rules_ini(
         "Airburst=yes\nAirburstWeapon=CHILD_GUN\nCluster=1\n\

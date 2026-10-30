@@ -19,6 +19,9 @@ builds and releases. This skill is the maintainer's order of steps and the page 
   words: about 5 to 9 bullets, the most visible first, small fixes grouped, internal work
   (tests, refactors, version bumps, rules plumbing with no effect yet) left out, then an
   "All changes" compare link. Check each bullet against its pull request's description.
+- Installed games list these bullets in their update offer: publishing signs the bullets
+  under the first "Changes" heading into the download manifest, so later edits to the page
+  do not reach the game.
 - One line per paragraph or bullet: GitHub shows every line break in release notes.
 - Name contributors by GitHub login without `@`, which would notify them.
 
@@ -42,7 +45,10 @@ builds and releases. This skill is the maintainer's order of steps and the page 
    `gh release edit vX.Y.Z --draft=false --latest`.
 3. Check that it is Latest, holds the three installers, and that
    `gh attestation verify <download> --repo YuriPlanet/vera20k` passes for each.
-4. In a PR, raise the version in `Cargo.toml`, `src/Cargo.toml` and their two `Cargo.lock`
+4. Check that the `downloads.yml` run it started passed and that
+   `https://downloads.vera20k.org/latest.json` names the new version: installed games
+   offer their update from that file.
+5. In a PR, raise the version in `Cargo.toml`, `src/Cargo.toml` and their two `Cargo.lock`
    entries above the release and check all four versions agree. This allows the development
    build workflow to start again.
 

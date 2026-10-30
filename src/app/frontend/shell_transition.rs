@@ -157,7 +157,7 @@ impl ShellSlideKind {
     /// rendered shell has a `slide` table entry, so a miss is a programming
     /// error. Options' two pages adjust `0xD5`'s retail column to VERA's
     /// buttons: the main page slides Vera Options under Network too, and
-    /// VERA's page has only Back, as on the Keyboard page `0xA3`.
+    /// VERA's page slides Check for Updates above Back.
     pub(crate) fn column(self, rows: u32, page: Option<&MenuPageSpec>) -> SlideColumn {
         let spec = crate::ui::shell::slide::slide_spec_for(self.dialog_id())
             .expect("rendered shell dialog must have a slide column");
@@ -166,7 +166,11 @@ impl ShellSlideKind {
         let top_buttons = page.map_or_else(
             || match self {
                 ShellSlideKind::Options => spec.top_buttons + 1,
-                ShellSlideKind::VeraOptions => 0,
+                ShellSlideKind::VeraOptions => {
+                    crate::ui::main_menu_dialogs::options::shell::VERA_OPTIONS_PAGE
+                        .stacked
+                        .len() as u32
+                }
                 _ => spec.top_buttons,
             },
             |page| page.stacked.len() as u32,
@@ -227,6 +231,14 @@ fn panel_rows(state: &AppState) -> u32 {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ShellExitThen {
     MainMenu(crate::ui::main_menu_shell::MainMenuShellAction),
+    /// The updater's offer: `0xE2` slides out as for Exit Game, then the
+    /// message box asks over the empty shell backdrop.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    UpdateOffer,
+    /// Vera Options' Check for Updates: VERA's page slides out, then the
+    /// updater's boxes show over the empty shell backdrop.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    UpdateCheck,
     SinglePlayer(crate::ui::single_player_shell::SinglePlayerShellAction),
     MoviesCredits(crate::ui::movies_credits_shell::MoviesCreditsAction),
     /// Movie list Play Movie with a selected row.
@@ -339,6 +351,10 @@ impl ShellExitThen {
     pub(crate) fn dialog(&self) -> ShellSlideKind {
         match self {
             Self::MainMenu(_) => ShellSlideKind::MainMenu,
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            Self::UpdateOffer => ShellSlideKind::MainMenu,
+            #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+            Self::UpdateCheck => ShellSlideKind::VeraOptions,
             Self::SinglePlayer(_) => ShellSlideKind::SinglePlayer,
             Self::MoviesCredits(_) => ShellSlideKind::MoviesAndCredits,
             Self::PlayMovie | Self::MovieListBack => ShellSlideKind::MovieList,
@@ -1452,6 +1468,10 @@ mod tests {
             ShellExitThen::MovieListBack.dialog(),
             ShellSlideKind::MovieList
         );
+        assert_eq!(
+            ShellExitThen::UpdateCheck.dialog(),
+            ShellSlideKind::VeraOptions
+        );
     }
 
     /// Last presented tick of a `0xE2` entry at 800x600 (9 tile rows).
@@ -1505,7 +1525,8 @@ mod tests {
         assert_eq!(top_and_bottom(ShellSlideKind::MovieList), (1, true, false));
         assert_eq!(top_and_bottom(ShellSlideKind::Skirmish), (2, true, true));
         // Retail `0xD5` slides Keyboard and Network; VERA's main page adds
-        // Vera Options under them, and VERA's page slides only Back.
+        // Vera Options under them, and VERA's page slides Check for Updates
+        // above Back.
         assert_eq!(
             crate::ui::shell::slide::slide_spec_for(DialogId(0x00D5))
                 .unwrap()
@@ -1515,7 +1536,7 @@ mod tests {
         assert_eq!(top_and_bottom(ShellSlideKind::Options), (3, true, false));
         assert_eq!(
             top_and_bottom(ShellSlideKind::VeraOptions),
-            (0, true, false)
+            (1, true, false)
         );
     }
 

@@ -343,3 +343,11 @@ Sessions in German Bunker or a game room that has not started receive it when it
 set; others receive it on their next German Bunker join until it expires. Each
 session receives a notice once. Sign-in refuses `VERA20k` without case with 409
 `name_unavailable`.
+
+Released clients sign in with `User-Agent: VERA20k/<MAJOR.MINOR.PATCH> multiplayer-client`.
+A session whose version is older than `version` in
+`https://downloads.vera20k.org/latest.json`, which the lobby reads at most every
+10 minutes, receives one such chat line per newer release, naming both versions,
+since a match starts only between equal versions (`ready`, `start`). It arrives
+as a notice does: at once in German Bunker or a game room that has not started,
+otherwise on the next German Bunker join.

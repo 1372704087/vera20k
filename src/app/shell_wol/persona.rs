@@ -104,6 +104,14 @@ pub(super) fn fill_welcome(state: &mut AppState) {
             .retain(|(id, _)| crate::ui::wol_shell::LOBBY_STATS_IDS.contains(id));
         visit.welcome_texts.extend(texts);
     }
+    // An older copy's online welcome says that a newer release is out.
+    #[cfg(not(all(target_arch = "wasm32", target_os = "unknown")))]
+    if let Some(newer) = crate::app::updater::newer_version(state)
+        && let Some(visit) = state.frontend.wol.as_mut()
+    {
+        let text = crate::ui::wol_shell::out_of_date_text(&newer, env!("CARGO_PKG_VERSION"));
+        visit.welcome_texts.push(text);
+    }
 }
 
 /// `GET /v1/stats` answered: the online welcome's counts.

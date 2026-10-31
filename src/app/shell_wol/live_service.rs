@@ -2245,6 +2245,8 @@ fn apply_event(
                 private: bool,
                 #[serde(default)]
                 action: bool,
+                #[serde(default)]
+                sent_at: Option<u64>,
             }
             let p: Payload = decode(payload)?;
             service_event(
@@ -2256,6 +2258,7 @@ fn apply_event(
                     action: p.action,
                     ansi: false,
                     options: None,
+                    sent_at: p.sent_at,
                 },
             );
         }

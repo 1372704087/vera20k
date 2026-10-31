@@ -2881,6 +2881,7 @@ pub(super) struct ReceivedMessage {
     pub(super) action: bool,
     pub(super) ansi: bool,
     pub(super) options: Option<Box<setup::HostOptions>>,
+    pub(super) sent_at: Option<u64>,
 }
 
 /// The chat sinks (`0x007A8DA0`, `0x007A8FC0`, `0x007AB170`, `0x007AAFB0`
@@ -2899,6 +2900,7 @@ pub(super) fn message_received(state: &mut AppState, message: ReceivedMessage) {
         action,
         ansi,
         options,
+        sent_at,
     } = message;
     let in_game = state
         .frontend
@@ -2921,7 +2923,7 @@ pub(super) fn message_received(state: &mut AppState, message: ReceivedMessage) {
         return;
     }
     let (line, color) = wol_chat::received_line(&sender(&from), &text, private, action);
-    echo(state, line, color);
+    crate::app::shell_lan::append_chat_sent_at(state, LanChatLine { text: line, color }, sent_at);
     let (prefix, _) = wol_chat::received_line(&sender(&from), &[], private, action);
     super::translation::received(
         state,

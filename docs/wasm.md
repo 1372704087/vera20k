@@ -34,6 +34,9 @@ WS_PROXY_URL=wss://gateway.example.com python3 tools/wasm/build.py --network
 
 `--network` selects `--features wasm-net`. `WS_PROXY_URL` is compiled into that
 build and defaults to `wss://wss.vera20k.com`; changing it requires rebuilding.
+A `-SPAWN` launch can name its own gateway with `[Relay] GatewayUrl`, which takes
+precedence for that match's relay traffic. The built-in lobby and LAN signaling
+always use the compiled origin.
 Supply a complete origin without a path, query, fragment or credentials. Only
 loopback development addresses may use `ws://`, for example
 `WS_PROXY_URL=ws://localhost:8788`. Desktop and single-player browser builds do

@@ -35,8 +35,10 @@ and the player's address (the socket peer, or `VERA_CLIENT_IP_HEADER`) with each
 browser player shares the gateway's address and limits.
 
 The browser's `WS_PROXY_URL` is compiled into its `wasm-net` build, defaulting to
-`wss://wss.vera20k.com`. This is a client setting, separate from the server's UDP
-target. Deploy a TLS reverse proxy at that origin and forward `/game/*` with
+`wss://wss.vera20k.com`. An external launch overrides it for its match with
+`[Relay] GatewayUrl` in `spawn.ini`. This is a client setting, separate from the
+server's UDP target, so a gateway must forward to the relay of the grants its
+clients hold. Deploy a TLS reverse proxy at that origin and forward `/game/*` with
 WebSocket Upgrade and `/v1/*` to this process. Set `VERA_CLIENT_IP_HEADER` to the
 header that proxy writes with the browser's address (for example
 `cf-connecting-ip`, or `x-forwarded-for`, whose last entry is used); never set it

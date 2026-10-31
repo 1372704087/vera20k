@@ -17,7 +17,7 @@ VERA_RELAY_HOST=relay.example.com VERA_RELAY_PORT=5000 \
 
 大厅按请求来源地址实施按网络的限制，而代理请求的来源地址是网关自身。若要让每个浏览器玩家使用各自的限制，请把 `VERA_GATEWAY_KEY` 设为大厅 Worker 的 `GATEWAY_KEY` 密钥：一个至少 32 个字符的随机字符串（`openssl rand -hex 32`）。网关随后会在每个 `/v1/*` 请求中附带该密钥和玩家地址（socket 对端地址，或 `VERA_CLIENT_IP_HEADER` 指定的请求头）；没有密钥时，大厅会忽略请求中指定的地址。未设置时，所有浏览器玩家共享网关的地址及其限制。
 
-浏览器的 `WS_PROXY_URL` 会编译进 `wasm-net` 构建，默认值为 `wss://wss.vera20k.com`。这是客户端配置，与服务端的 UDP 目标分别设置。请在该 origin 部署终止 TLS 的反向代理，将 `/game/*` 路由的 WebSocket Upgrade 连接以及 `/v1/*` HTTP 请求转发到本进程。把 `VERA_CLIENT_IP_HEADER` 设为该代理写入浏览器地址的请求头（例如 `cf-connecting-ip`；`x-forwarded-for` 取最后一项）；客户端能直连网关时不要设置该项。保留浏览器的 Origin 请求头；WebSocket 空闲超时至少设为 70 秒。Node 服务默认绑定 `127.0.0.1:8788`（可通过 `HOST` 和 `PORT` 覆盖），不提供游戏静态文件。静态站点和网关可以分别托管。
+浏览器的 `WS_PROXY_URL` 会编译进 `wasm-net` 构建，默认值为 `wss://wss.vera20k.com`。外部启动可以用 `spawn.ini` 的 `[Relay] GatewayUrl` 为这一局单独指定网关；网关必须转发到客户端票据对应的 relay。这是客户端配置，与服务端的 UDP 目标分别设置。请在该 origin 部署终止 TLS 的反向代理，将 `/game/*` 路由的 WebSocket Upgrade 连接以及 `/v1/*` HTTP 请求转发到本进程。把 `VERA_CLIENT_IP_HEADER` 设为该代理写入浏览器地址的请求头（例如 `cf-connecting-ip`；`x-forwarded-for` 取最后一项）；客户端能直连网关时不要设置该项。保留浏览器的 Origin 请求头；WebSocket 空闲超时至少设为 70 秒。Node 服务默认绑定 `127.0.0.1:8788`（可通过 `HOST` 和 `PORT` 覆盖），不提供游戏静态文件。静态站点和网关可以分别托管。
 
 局域网信令默认关闭。设置 `VERA_LAN_SIGNAL=1` 后会为 `wasm-lan` 构建启用 `/lan/signal`：按公网地址分组、分配虚拟 IPv4，并在组内转发 WebRTC 描述和候选地址；游戏数据报不经过网关。部署在反向代理后时，把 `/lan/*` 的 WebSocket Upgrade 转发到本进程；分组使用 `VERA_CLIENT_IP_HEADER` 给出的地址。`VERA_LAN_STUN` 可选，填写逗号分隔的 `stun:` 地址，用于隐藏 host candidate 的网络；TURN 会被拒绝。限制定义在 `signal.mjs`：256 个连接、每组 16 人、单条消息 16 KiB、每连接每秒最多接收 64 条消息或 Ping。JSON、Ping 和 Pong 写入都会检查待发送队列（含帧头预留）：每接收端最多 256 KiB，所有信令连接合计最多 1 MiB。写入会超过任一上限时，按正常成员清理流程移除对应接收端；欢迎消息被拒绝的连接不会发布加入通知。离开的浏览器的虚拟地址会保留两分钟，直到其他成员已不再使用它；只有请求取回该地址的信令重连才能获得它。
 

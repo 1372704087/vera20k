@@ -1028,10 +1028,7 @@ impl UdpIo {
             ClientSession::new(ticket, packet_key, payload_key).map_err(relay_io_error)?;
         #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
         {
-            let gateway = self
-                .relay_gateway
-                .as_deref()
-                .unwrap_or(browser_proxy_url());
+            let gateway = self.relay_gateway.as_deref().unwrap_or(browser_proxy_url());
             self.primary.set_relay(address, gateway)?;
             self.alternate.set_relay(address, gateway)?;
         }

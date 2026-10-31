@@ -1739,6 +1739,7 @@ impl WolCapture {
                         action: false,
                         ansi: false,
                         options: None,
+                        sent_at: None,
                     },
                 );
                 ensure!(
@@ -2009,7 +2010,8 @@ impl WolCapture {
                 );
                 self.event(frame, "0x113 settled from the test service");
                 if lobby.ui.is_modern() {
-                    // The one chat lobby is named nowhere: no list, no join line.
+                    // The one chat lobby is named nowhere: no list, no join line
+                    // (rows start with their time).
                     let joined = crate::assets::csf_file::format_csf(
                         &App::csf_label(state, "TXT_JOINED_S", "TXT_JOINED_S"),
                         &[crate::assets::csf_file::CsfArg::Str("")],
@@ -2019,7 +2021,7 @@ impl WolCapture {
                         layout.control_rect(lobby_ui::LOBBIES).is_none()
                             && !lobby.ui.enabled(lobby_ui::LOBBIES)
                             && !lobby.ui.chat.lines.iter().any(|line| {
-                                String::from_utf16_lossy(&line.text).starts_with(&joined)
+                                String::from_utf16_lossy(&line.text).contains(&joined)
                             }),
                         "the modern 0x113 names its chat lobby"
                     );
@@ -2823,6 +2825,7 @@ impl WolCapture {
                 action: false,
                 ansi: false,
                 options: None,
+                sent_at: None,
             },
         );
         ensure!(
@@ -3266,6 +3269,7 @@ impl WolCapture {
                             action,
                             ansi: false,
                             options: None,
+                            sent_at: None,
                         },
                     );
                 }
@@ -3301,6 +3305,7 @@ impl WolCapture {
                             action: false,
                             ansi: false,
                             options: None,
+                            sent_at: None,
                         },
                     );
                 };

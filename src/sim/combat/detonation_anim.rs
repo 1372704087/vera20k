@@ -1355,6 +1355,7 @@ CreateUnit.Owner=special
         let selection =
             select_with_context(&mut world, &rules, warhead, 50, 0, placement, false).unwrap();
         let warhead_ref = world.interner.intern("WH");
+        let invoker_house = world.interner.intern("Americans");
         let effects = bullet_effects(
             &mut world,
             &rules,
@@ -1365,6 +1366,7 @@ CreateUnit.Owner=special
             placement,
             1,
             false,
+            Some(invoker_house),
         );
         assert_eq!(effects.len(), 2, "CreateAll expands both list entries");
         assert_eq!(

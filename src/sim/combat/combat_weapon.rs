@@ -404,6 +404,22 @@ pub(crate) fn primary_for_tier(obj: &ObjectType, veterancy: u16) -> Option<&str>
     weapon_for_index(obj, veterancy, 0).and_then(|record| record.weapon_id)
 }
 
+/// TechnoType query `0x00712130`: normal primary is required; either the
+/// two records share a WeaponType or one has signed `Burst > 1`.
+/// Building Mission_Attack44B2D0 asks the first installed upgrade's type,
+/// independently of the host's rank, selected index and actual GetWeapon.
+pub(crate) fn has_shared_or_bursting_weapons(obj: &ObjectType, rules: &RuleSet) -> bool {
+    let Some(primary) = obj.primary() else {
+        return false;
+    };
+    let secondary = obj.secondary();
+    secondary == Some(primary)
+        || rules.weapon(primary).is_some_and(|weapon| weapon.burst > 1)
+        || secondary
+            .and_then(|id| rules.weapon(id))
+            .is_some_and(|weapon| weapon.burst > 1)
+}
+
 /// `GetWeapon(1)` weapon id at the given veterancy.
 pub(crate) fn secondary_for_tier(obj: &ObjectType, veterancy: u16) -> Option<&str> {
     weapon_for_index(obj, veterancy, 1).and_then(|record| record.weapon_id)

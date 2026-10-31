@@ -91,11 +91,13 @@
 //!   barrel-only arm); a separate barrel uses frame0. Native component
 //!   comparisons live in tools/voxel_oracle/building_barrel.json. This does
 //!   not close the other building Attack residuals in #757.
-//! - Dormant with retail data: the SAM arm (`0x0044AD07`, `SAM=` unset), the
-//!   upgrade arm (`0x0044B2BC`, no `PowersUpBuilding=`), Mission_Guard's
+//! - Dormant with retail data: the SAM arm (`0x0044AD07`, `SAM=` unset), Mission_Guard's
 //!   SuperWeapon gate (`0x00449716..0x00449753`, no armed type sets
 //!   `SuperWeapon=`) and BuildingClass::SetTarget's TickTank/Artillary
 //!   undeploy (`0x00443C07..0x00443C54`, neither key set).
+//! Installed-upgrade Attack44B2BC is handled in fire_arm: its first stored
+//! type's normal records decide suppression or fixed slots0/1, ahead of
+//! Prism and delayed-fire handling. Legal authored maps can reach it.
 //!
 //! ## Dependency rules
 //! - Part of sim/; sim/ never depends on render/, ui/, audio/, net/.
@@ -1174,7 +1176,8 @@ pub(super) fn gattling_idle(
     }
 }
 
-/// The OK arm (`0x0044B2BC`): a Prism tower forwards ([`prism_arm`]); an
+/// The OK arm (`0x0044B2BC`): an installed slot-0 upgrade first decides
+/// whether to fire both slots; otherwise a Prism tower forwards ([`prism_arm`]); an
 /// `IsAnimDelayedFire=` building arms its delayed shot (`0x0044B630..
 /// 0x0044B666`: `+0x714` = DelayedFireDelay, `+0x708` = the weapon, `+0x704`
 /// = 1) for [`process_delayed_fire`]; any other calls the existing live
@@ -1188,6 +1191,45 @@ fn fire_arm(
     ctx: ObjectAiCtx<'_>,
     bridge_state_changed: &mut bool,
 ) {
+    //44B2BC..44B2F7: any nonzero count admits slot0 only. A hole falls
+    //through; a present type suppresses all other shot arms, even when its
+    //712130 predicate refuses to fire. The common OK tail still runs.
+    let first_upgrade = sim.substrate.entities.get(id).and_then(|entity| {
+        let upgrades = entity.building_upgrades();
+        (upgrades.count() != 0)
+            .then(|| upgrades.types()[0])
+            .flatten()
+            .and_then(|type_ref| sim.interner.object_type(type_ref, rules))
+    });
+    if let Some(upgrade) = first_upgrade {
+        if combat_weapon::has_shared_or_bursting_weapons(upgrade, rules) {
+            for weapon in [0, 1] {
+                //44B2DD/44B6C7 reload TarCom for EACH FireAt. The previous
+                //transaction may clear/retask it or remove the actor; no
+                //extra rearm, health or selection gate belongs here. A null
+                //target returns before FireAt6FDDAE has any side effect.
+                if let Some(target) = sim
+                    .substrate
+                    .entities
+                    .get(id)
+                    .and_then(|entity| entity.attack_target.target())
+                {
+                    *bridge_state_changed |= sim
+                        .commit_fire_visit(
+                            crate::sim::combat::world_fire::FireVisit::Building {
+                                id,
+                                shot: BuildingShot::Mission { weapon, target },
+                            },
+                            rules,
+                            ctx.overlay_registry,
+                            ctx.effects,
+                        )
+                        .bridge_state_changed;
+                }
+            }
+        }
+        return;
+    }
     let Some(obj) = sim
         .substrate
         .entities

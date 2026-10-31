@@ -1440,11 +1440,12 @@ pub struct GeneralRules {
     /// only when played. The slide engine `0x006071E0` plays it as each
     /// slide-in ends (`0x00607F59`). Stock rules leave it empty.
     pub shell_button_slide_sound: Option<String>,
-    /// Generic shell click sound from [AudioVisual] GenericClick
-    /// (`Rules+0x70C`, read at `0x0066AD30` through `VocClass::FindByName`;
-    /// retail `MenuClick`). A human player's sale order plays it too
+    /// Generic click from [AudioVisual] GenericClick (`Rules+0x70C`,
+    /// constructor `0x00666039` = -1). AudioVisual `0x0066AD24..0x0066AD56`
+    /// uses ReadString128/Voc FindIndex7514D0; failed reads keep the prior ID.
+    /// The fixed SOUNDMD binder resolves it. A human player's sale order plays it too
     /// (`Sell_Back @ 0x00447110`), and so does switching a repair off, or on
-    /// below Strength (`BuildingClass::ToggleRepair @ 0x00446FF0`).
+    /// at health unequal to Strength (`BuildingClass::ToggleRepair @ 0x00446FF0`).
     pub generic_click_sound: Option<String>,
     /// Guard command acknowledgement, Rules+724. Constructor665650 starts
     /// at -1; AudioVisual66AE1C..66AE67 reads GuardSound with ReadString128
@@ -4058,9 +4059,8 @@ impl GeneralRules {
             shell_button_slide_sound: audio_visual
                 .read_name("ShellButtonSlideSound", 0x80)
                 .map(str::to_owned),
-            generic_click_sound: audio_visual
-                .read_name("GenericClick", 0x80)
-                .map(str::to_owned),
+            // Native constructor -1; resolved by the fixed SOUNDMD binder.
+            generic_click_sound: None,
             // Native constructor -1; resolved by the fixed SOUNDMD binder.
             guard_sound: None,
             stop_sound: None,
@@ -5766,6 +5766,11 @@ impl RuleSet {
         self.general.scold_sound = ini
             .section("AudioVisual")
             .and_then(|section| sounds.read_rules_reference(section, "ScoldSound"));
+        // RulesClass::ReadAudioVisual66AD24..66AD56: ReadString128 then
+        // VocFind7514D0; unknown later passes retain the previous resolved ID.
+        self.general.generic_click_sound = ini
+            .section("AudioVisual")
+            .and_then(|section| sounds.read_rules_reference(section, "GenericClick"));
         // Original RulesClass::ReadAudioVisual669CE2..669D68 resolves
         // +228/+22C through ReadString128/VocFind7514D0, independently of
         // ReadGeneral. Reuse the fixed-catalog/pass-history owner, including
@@ -13298,7 +13303,7 @@ ShellButtonSlideSound=SlideDone
             general.shell_button_slide_sound.as_deref(),
             Some("SlideDone")
         );
-        assert_eq!(general.generic_click_sound.as_deref(), Some("GenericPress"));
+        assert_eq!(general.generic_click_sound, None, "awaits SOUNDMD binding");
         assert_eq!(general.generic_beep_sound.as_deref(), Some("GenericBeep"));
         assert_eq!(general.gui_checkbox_sound.as_deref(), Some("CheckboxTick"));
         assert_eq!(general.gui_combo_open_sound.as_deref(), Some("ComboOpen"));
@@ -13320,7 +13325,7 @@ ShellButtonSlideSound=SlideDone
         let ini = IniFile::from_str(ini_str);
         let general = GeneralRules::from_ini(&ini);
         assert_eq!(general.chute_sound.as_deref(), Some("ParachuteDrop"));
-        assert_eq!(general.generic_click_sound.as_deref(), Some("MenuClick"));
+        assert_eq!(general.generic_click_sound, None, "awaits SOUNDMD binding");
         assert!(general.generic_beep_sound.is_none());
         assert!(general.gui_checkbox_sound.is_none());
         assert!(general.gui_combo_open_sound.is_none());

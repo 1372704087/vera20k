@@ -83,9 +83,7 @@
 //! through `combat::laser` and share the app LaserDraw/DSurface owner. The
 //! remaining non-house randomized spread path belongs to DrawBeam550260.
 //! - Guard's status-1 contact arm: foundation waiters and the full arrival
-//!   position producer are bounded by the depot corpus. WeaponsFactory
-//!   ClearBibArea449540 is dormant with retail data because every stock
-//!   WeaponsFactory retains HasStupidGuardMode.
+//!   position producer are bounded by the depot corpus.
 //! - Voxel HVA frames now reach `emit_building_turret_vxl`: original43DA80
 //!   selects +148 modulo the turret's frames (or the barrel's frames on the
 //!   barrel-only arm); a separate barrel uses frame0. Native component
@@ -825,6 +823,18 @@ fn mission_guard(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: ObjectAiCt
                 return 1;
             }
         }
+    }
+    //449929..449940: after status1's contact scan, re-read the factory type
+    //and clear its bib through the same449540 owner as Unload. Ignore its
+    //answer: Guard remains in status1 even when the head is already clear.
+    if status == 1
+        && let Some(entity) = sim.substrate.entities.get(id)
+        && let Some(object) = sim.object_type(entity.type_ref(), rules)
+        && object.weapons_factory
+    {
+        let location = crate::sim::movement::ground_pose::position_world_coord(&entity.position);
+        let track = crate::sim::movement::factory_exit_track_coordinate(location, object);
+        clear_factory_exit_bib(sim, id, track, rules, ctx);
     }
     // `0x00449970..0x004499B5`, reached from every status: a UnitReload
     // type in radio contact (`0x0065AE30`, any slot filled) asks its first

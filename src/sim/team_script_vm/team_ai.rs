@@ -448,6 +448,7 @@ impl Simulation {
                     entity.veterancy.rank(),
                     0,
                 )
+                .and_then(|record| record.weapon_id)
                 .is_none()
                     || self.object_tech_level(object) == -1
                     || object.deploys_into.is_some()
@@ -709,6 +710,7 @@ impl Simulation {
                         head.veterancy.rank(),
                         0,
                     )
+                    .and_then(|record| record.weapon_id)
                 })
                 .is_some();
             if head.category() == EntityCategory::Aircraft

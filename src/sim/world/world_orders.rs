@@ -919,7 +919,15 @@ impl Simulation {
             && self.house_is_human_player(actor.owner())
             && self
                 .object_type(actor.type_ref(), rules)
-                .is_some_and(|object| combat::combat_weapon::is_armed(actor, object))
+                .is_some_and(|object| {
+                    combat::combat_weapon::is_armed(
+                        actor,
+                        object,
+                        &self.substrate.entities,
+                        rules,
+                        &self.interner,
+                    )
+                })
     }
 
     /// Object-route Engineer action in Infantry51E49E..51E637. Ordinary

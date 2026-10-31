@@ -548,7 +548,7 @@ pub(super) fn can_acquire_target(sim: &Simulation, id: u64, rules: &RuleSet) -> 
     {
         return false;
     }
-    combat_weapon::is_armed(entity, obj)
+    combat_weapon::is_armed(entity, obj, &sim.substrate.entities, rules, &sim.interner)
 }
 
 fn fire_subject<'a>(

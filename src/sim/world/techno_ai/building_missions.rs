@@ -738,7 +738,7 @@ fn mission_guard(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: ObjectAiCt
         .known()
         .unwrap_or(MissionType::Guard);
     // vt+0x2AC, `BuildingClass::Is_Armed 0x00458DB0`.
-    if combat_weapon::is_armed(entity, obj) {
+    if combat_weapon::is_armed(entity, obj, &sim.substrate.entities, rules, &sim.interner) {
         let empty_garrison = obj.can_be_occupied && entity.passenger_role.occupants().is_empty();
         let has_target = entity.attack_target.target().is_some();
         if let Some(entity) = sim.substrate.entities.get_mut(id) {

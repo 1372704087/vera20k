@@ -139,7 +139,13 @@ pub fn values_for_display(
             )
         }
         DigitalInfoType::Rof => {
-            if !crate::sim::combat::combat_weapon::is_armed(entity, object) {
+            if !crate::sim::combat::combat_weapon::is_armed(
+                entity,
+                object,
+                sim.entities(),
+                rules,
+                sim.interner(),
+            ) {
                 return None;
             }
             (

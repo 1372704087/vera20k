@@ -4987,7 +4987,8 @@ fn death_arm_payload(
 ) -> Option<(i32, InternedId, InternedId)> {
     let numbered_weapon =
         super::combat_weapon::weapon_for_index(obj, veterancy, current_weapon_number)
-            .and_then(|(weapon_id, _)| rules.weapon(weapon_id));
+            .and_then(|record| record.weapon_id)
+            .and_then(|weapon_id| rules.weapon(weapon_id));
     let current_weapon = current_weapon.and_then(|weapon_id| rules.weapon(weapon_id));
     super::death_arm_explodes(obj, veterancy, numbered_weapon)
         .then(|| super::fire_death_weapon_payload(rules, obj, current_weapon, interner))

@@ -612,7 +612,8 @@ pub(crate) fn init_capture_manager(
     object_type: &ObjectType,
     rules: &RuleSet,
 ) -> Option<CaptureManagerState> {
-    let (weapon_name, _) = crate::sim::combat::combat_weapon::weapon_for_index(object_type, 0, 0)?;
+    let weapon_name =
+        crate::sim::combat::combat_weapon::weapon_for_index(object_type, 0, 0)?.weapon_id?;
     let weapon = rules.weapon(weapon_name)?;
     let warhead = rules.warhead(weapon.warhead.as_deref()?)?;
     warhead

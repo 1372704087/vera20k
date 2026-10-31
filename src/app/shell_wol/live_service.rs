@@ -2482,6 +2482,7 @@ fn begin_start(state: &mut AppState, service: &mut LiveService, start: wire::Sta
                 .collect(),
             seed: start.seed,
             address: start.relay.address,
+            gateway: None,
             grant,
         },
     )
@@ -2496,6 +2497,8 @@ struct RelayStart {
     users: Vec<(String, u32)>,
     seed: u32,
     address: SocketAddrV4,
+    /// A spawn launch's `[Relay] GatewayUrl`; the built-in lobby uses the compiled one.
+    gateway: Option<String>,
     grant: DecodedRelayGrant,
 }
 
@@ -2528,6 +2531,7 @@ fn admit_relay_start(
         },
         connections,
     )?;
+    transport.set_relay_gateway(start.gateway);
     transport.enable_relay(start.address, &grant.ticket, grant.key, grant.payload_key)?;
     if let Some(roster) = &grant.federation {
         transport.set_federation_roster(roster)?;
@@ -2631,6 +2635,7 @@ pub(crate) fn begin_spawned_match(
             users,
             seed,
             address: relay.address,
+            gateway: relay.gateway_url,
             grant: relay.grant,
         },
     );

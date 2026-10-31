@@ -24,7 +24,8 @@ mod web_socket;
 #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
 use web_socket::UdpSocket;
 
-/// One compile-time proxy origin for both the browser datagram and HTTPS adapters.
+/// The compiled proxy origin: the built-in lobby's datagram and HTTPS adapters,
+/// and a spawn launch that names no `[Relay] GatewayUrl`.
 #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
 pub fn browser_proxy_url() -> &'static str {
     match option_env!("WS_PROXY_URL") {
@@ -335,6 +336,8 @@ struct UdpIo {
     global: GlobalChannel,
     broadcast_targets: Vec<SocketAddrV4>,
     relay: Option<RelayRoute>,
+    #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+    relay_gateway: Option<String>,
     lan_scope: Option<LanScopeState>,
     pending_report: UdpServiceReport,
 }
@@ -564,6 +567,17 @@ impl LanUdpTransport {
             .enable_relay(address, ticket, packet_key, payload_key);
         self.wake();
         result
+    }
+
+    /// The WebSocket gateway of a browser relay session, from `[Relay] GatewayUrl`;
+    /// set before `enable_relay`. Desktop relay traffic is direct UDP and has none.
+    pub fn set_relay_gateway(&mut self, origin: Option<String>) {
+        #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+        {
+            self.lock().relay_gateway = origin;
+        }
+        #[cfg(not(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown")))]
+        let _ = origin;
     }
 
     pub fn relay_ready(&self) -> bool {
@@ -913,6 +927,8 @@ impl UdpIo {
             global,
             broadcast_targets: Vec::new(),
             relay: None,
+            #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
+            relay_gateway: None,
             lan_scope: None,
             pending_report: UdpServiceReport::default(),
         })
@@ -1012,8 +1028,9 @@ impl UdpIo {
             ClientSession::new(ticket, packet_key, payload_key).map_err(relay_io_error)?;
         #[cfg(all(feature = "wasm-net", target_arch = "wasm32", target_os = "unknown"))]
         {
-            self.primary.set_relay(address)?;
-            self.alternate.set_relay(address)?;
+            let gateway = self.relay_gateway.as_deref().unwrap_or(browser_proxy_url());
+            self.primary.set_relay(address, gateway)?;
+            self.alternate.set_relay(address, gateway)?;
         }
         self.relay = Some(RelayRoute {
             address,

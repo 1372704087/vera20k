@@ -5458,7 +5458,9 @@ mod tests {
         assert_eq!(serde_json::to_value(observed).unwrap(), empty);
 
         assert!(input.begin_building_placement("GAPOWR", 20, issuer));
-        input.submit_building_placement();
+        input.submit_building_placement(
+            &mut crate::app::sidebar_projection::SidebarProjectionState::default(),
+        );
         assert!(input.begin_building_placement("GAPILL", 40, issuer));
         let observed = MapBuildingPlacementObservation::capture(&input, &interner);
         assert_eq!(observed.sample_count(), 3);

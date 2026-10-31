@@ -1736,25 +1736,17 @@ fn place_ready_building_for_tab(state: &mut AppState, tab: SidebarTab) {
         let Some(owner_id) = sim.interner().get(&owner_name) else {
             return;
         };
-        crate::sim::production::ready_buildings_for_owner(sim, rules, &owner_name)
-            .into_iter()
-            .find(|ready| SidebarTab::for_category(ready.queue_category) == tab)
-            .and_then(|ready| {
-                let held = crate::sim::production::ready_building_entity_for_owner(
-                    sim,
-                    rules,
-                    owner_id,
-                    ready.type_id,
-                )?;
+        state
+            .match_state
+            .match_presentation
+            .sidebar_projection
+            .ready_building_for_tab(sim, owner_id, tab)
+            .and_then(|(type_id, held)| {
                 // Native hands Manual_Place4FB840 the object's Factory
                 // 5F5C20(0,0), and 4FB840 refuses a null one. VERA's placement
                 // owner takes no factory, so this lookup is admission only.
                 crate::sim::production::object_find_factory(sim, rules, held, false, false)?;
-                Some((
-                    owner_id,
-                    held,
-                    sim.interner().resolve(ready.type_id).to_string(),
-                ))
+                Some((owner_id, held, sim.interner().resolve(type_id).to_string()))
             })
     };
     let Some((owner_id, held, held_type)) = ready_target else {

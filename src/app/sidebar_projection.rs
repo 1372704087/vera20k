@@ -14,11 +14,11 @@ use std::collections::{HashMap, HashSet};
 use crate::sim::intern::InternedId;
 use crate::sim::production::{FactoryView, ProductionCategory, ProductionFactoryVisit};
 use crate::sim::world::{LifecycleOutput, TickLane};
-use crate::ui::sidebar::SidebarView;
 use crate::ui::sidebar::cameo_order::{
     Cameo, CameoId, CameoKey, CameoRequestState, CameoStrips, pending_production_affordability,
     pending_production_prediction_rate, pending_production_smoothed_stage,
 };
+use crate::ui::sidebar::{SidebarTab, SidebarView};
 
 /// One changed `CreditsClass::AI` step: the `animating(+0xA)` latch plus the
 /// `counting_up(+0x9)` direction that `CreditsClass::Draw @ 0x004A2370` reads
@@ -54,6 +54,10 @@ pub(crate) struct SidebarProjectionState {
     /// of each entry's retained request. Begin clears this before FindFactory,
     /// including refusal. These are presentation gates, never Factory state.
     prediction_categories: HashSet<ProductionCategory>,
+    /// Local734250/734270 history, read by7342A0/B0 for tab commands.
+    /// These references are independent of Factory completion and the one
+    /// current/saved placement transaction. They are not serialized.
+    ready_buildings: [Option<u64>; 2],
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +95,7 @@ impl SidebarProjectionState {
 
     pub(crate) fn replace_view(&mut self, view: Option<SidebarView>) {
         if view.is_none() {
+            self.clear_ready_building(None);
             self.cameos = None;
             self.pending_tab_initialization = false;
             self.pending_cameo_recheck = None;
@@ -106,6 +111,7 @@ impl SidebarProjectionState {
     /// new scenario is installed, so a
     /// different pre-placed base never reads as freshly inserted cameos.
     pub(crate) fn reset_cameo_seed(&mut self) {
+        self.clear_ready_building(None);
         self.cameos = None;
         self.pending_tab_initialization = false;
         self.pending_cameo_recheck = None;
@@ -134,6 +140,7 @@ impl SidebarProjectionState {
             .as_ref()
             .is_some_and(|(previous, _)| *previous == owner);
         if !initialized {
+            self.clear_ready_building(None);
             if self.cameos.is_some() {
                 self.factory_links.clear();
                 self.prediction_categories.clear();
@@ -214,6 +221,9 @@ impl SidebarProjectionState {
     }
 
     pub(crate) fn restore_order(&mut self, saved: Option<PreparedSidebarOrder>) {
+        // Post_Load_Game6851D9 clears both references. Saved Factory.changed
+        // and links remain intact; only a new admitted publication re-arms.
+        self.clear_ready_building(None);
         self.pending_tab_initialization = saved.is_some();
         match saved {
             Some(saved) => {
@@ -291,16 +301,41 @@ impl SidebarProjectionState {
                 );
                 None
             }
+            LifecycleOutput::ProductionBuildingReady {
+                owner,
+                category,
+                stable_id,
+            } if local_house == Some(owner) => {
+                // StripAI6A8E48 ->734250 uses the actual Building's
+                // BuildCat: Combat5 is Defense; all other Buildings use0.
+                let slot = match category {
+                    ProductionCategory::Building => 0,
+                    ProductionCategory::Defense => 1,
+                    _ => return None,
+                };
+                self.ready_buildings[slot] = Some(stable_id);
+                None
+            }
             LifecycleOutput::ProductionFactoryAbandoning {
                 owner,
                 category,
                 construction_order,
+                ..
             }
             | LifecycleOutput::ProductionFactoryUnlinked {
                 owner,
                 category,
                 construction_order,
             } if local_house == Some(owner) => {
+                if let LifecycleOutput::ProductionFactoryAbandoning {
+                    held_building: Some(stable_id),
+                    ..
+                } = *output
+                {
+                    // StripAbandon6ABBB6 clears the actual held Building
+                    // before settlement, independently of cursor clearing.
+                    self.clear_ready_building(Some(stable_id));
+                }
                 let target = CameoFactoryLink {
                     owner,
                     category,
@@ -545,6 +580,45 @@ impl SidebarProjectionState {
             .filter(|link| link.owner == owner)?;
         let factory = sim.production().factories().view(owner, link.category)?;
         (factory.construction_order() == link.construction_order).then_some(factory)
+    }
+
+    /// Building734270: NULL resets both references; a product clears the
+    /// first matching slot. Factory state and the placement cursor stay owned
+    /// by their respective owners.
+    pub(crate) fn clear_ready_building(&mut self, building: Option<u64>) {
+        let Some(building) = building else {
+            self.ready_buildings = [None; 2];
+            return;
+        };
+        if self.ready_buildings[0] == Some(building) {
+            self.ready_buildings[0] = None;
+        } else if self.ready_buildings[1] == Some(building) {
+            self.ready_buildings[1] = None;
+        }
+    }
+
+    /// Building7342A0/B0 returns the tab's published reference, not a poll of
+    /// complete Factories. Resolve its foreign identity through the world.
+    pub(crate) fn ready_building_for_tab(
+        &self,
+        sim: &crate::sim::world::Simulation,
+        owner: InternedId,
+        tab: SidebarTab,
+    ) -> Option<(InternedId, u64)> {
+        if !self
+            .cameos
+            .as_ref()
+            .is_some_and(|(local, _)| *local == owner)
+        {
+            return None;
+        }
+        let slot = match tab {
+            SidebarTab::Building => 0,
+            SidebarTab::Defense => 1,
+            _ => return None,
+        };
+        let held = self.ready_buildings[slot]?;
+        Some((sim.entities().get(held)?.type_ref(), held))
     }
 
     /// StripAI6A8D07..6A8D7A polls every retained Building/Defense entry,

@@ -1765,6 +1765,7 @@ fn advance_one_simulation_frame(
                 | LifecycleOutput::SidebarRecalculated { .. }
                 | LifecycleOutput::ProductionBeginAttempted { .. }
                 | LifecycleOutput::ProductionFactoryLinked { .. }
+                | LifecycleOutput::ProductionBuildingReady { .. }
                 | LifecycleOutput::ProductionFactoryAbandoning { .. }
                 | LifecycleOutput::ProductionFactoryUnlinked { .. }
                 | LifecycleOutput::BuildingPlacementRetry { .. }

@@ -735,6 +735,14 @@ pub enum LifecycleOutput {
         category: crate::sim::production::ProductionCategory,
         construction_order: u64,
     },
+    /// StripAI6A8E48 -> SetSidebarTabObject734250 publishes the actual held
+    /// Building on each consumed changed+complete edge. The local sidebar
+    /// owns this reference's history; Factory owns the object's readiness.
+    ProductionBuildingReady {
+        owner: InternedId,
+        category: crate::sim::production::ProductionCategory,
+        stable_id: u64,
+    },
     /// Local HouseAbandon4FAB74 enters Sidebar6ABAD0. Its private strip
     /// owner determines whether the cursor prefix precedes settlement (no
     /// link) or follows the first linked FactoryAbandon/destructor.
@@ -742,6 +750,9 @@ pub enum LifecycleOutput {
         owner: InternedId,
         category: crate::sim::production::ProductionCategory,
         construction_order: u64,
+        /// StripAbandon6ABBB6 clears only an actual held Building reference.
+        /// None means the nonnull/Building gate skipped the helper entirely.
+        held_building: Option<u64>,
     },
     /// Strip6ABBDF clears every matching link after the linked destructor,
     /// before the House cursor prefix and successor Begin. Queued-only

@@ -202,7 +202,8 @@ fn admit_attacker_fire<'r>(
     // Weapon selection, none of which asks legality (GetFireError below, or
     // the building's own visit, does): a delayed building shot resolves the
     // slot it saved while arming, a building's Mission_Attack shot the weapon
-    // its visit selected ([`super::BuildingShot::Mission`]), and everything
+    // its visit requested (the selected index, or an upgrade's fixed 0/1;
+    // [`super::BuildingShot::Mission`]), and everything
     // else runs the native selection ladder (`What_Weapon_Should_I_Use`
     // `0x006F3330`). Each index resolves through GetWeapon
     // ([`combat_weapon::resolve_weapon_index`]), so an occupied building fires

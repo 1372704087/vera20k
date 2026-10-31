@@ -35,7 +35,7 @@ use crate::map::houses::{HouseAllianceMap, is_allied_with};
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::armor::ArmorId;
 use crate::rules::locomotor_type::SpeedType;
-use crate::rules::object_type::ObjectType;
+use crate::rules::object_type::{ObjectType, WEAPON_SLOT_SECONDARY};
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::warhead_type::WarheadType;
@@ -402,6 +402,22 @@ pub(crate) fn uses_elite_weapon(obj: &ObjectType, veterancy: u16, index: usize) 
 /// `GetWeapon(0)` weapon id at the given veterancy.
 pub(crate) fn primary_for_tier(obj: &ObjectType, veterancy: u16) -> Option<&str> {
     weapon_for_index(obj, veterancy, 0).and_then(|record| record.weapon_id)
+}
+
+/// TechnoType query `0x00712130`: normal primary is required; either the
+/// two records share a WeaponType or one has signed `Burst > 1`.
+/// Building Mission_Attack44B2D0 asks the first installed upgrade's type,
+/// independently of the host's rank, selected index and actual GetWeapon.
+pub(crate) fn has_shared_or_bursting_weapons(obj: &ObjectType, rules: &RuleSet) -> bool {
+    let Some(primary) = obj.primary() else {
+        return false;
+    };
+    let secondary = obj.weapon_at(WEAPON_SLOT_SECONDARY);
+    secondary == Some(primary)
+        || rules.weapon(primary).is_some_and(|weapon| weapon.burst > 1)
+        || secondary
+            .and_then(|id| rules.weapon(id))
+            .is_some_and(|weapon| weapon.burst > 1)
 }
 
 /// `GetWeapon(1)` weapon id at the given veterancy.

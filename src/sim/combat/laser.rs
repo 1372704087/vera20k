@@ -123,8 +123,21 @@ pub(crate) fn create<'w>(
     from: Option<ProjectileCoord>,
 ) -> Option<&'w mut LaserBirth> {
     let source = world.substrate.entities.get(source_id)?;
+    #[cfg(feature = "phobos")]
+    let single_color = weapon.phobos_laser_is_single_color;
+    #[cfg(not(feature = "phobos"))]
+    let single_color = false;
     let color = if weapon.is_house_color {
         LaserColor::House(source.owner())
+    } else if single_color {
+        // Phobos `TechnoClass_LaserZap_IsSingleColor` (`0x6FD446`) flips
+        // `IsHouseColor` after the constructor; the special draw keeps the
+        // stored inner colour and drops the outer pair.
+        LaserColor::Explicit {
+            inner: weapon.laser_inner_color,
+            outer: [0; 3],
+            spread: [0; 3],
+        }
     } else {
         LaserColor::Explicit {
             inner: weapon.laser_inner_color,

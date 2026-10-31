@@ -28,11 +28,10 @@ pub(crate) const RANKS: [&str; 3] = ["Rookie", "Veteran", "Elite"];
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct InsigniaType {
     pub name: String,
-    /// The common `Insignia=` name, kept so a failed per-rank load can fall
-    /// back to it the way Phobos' retained SHP pointer does.
-    pub common_image: Option<String>,
-    /// `Promotable<SHPStruct*> Insignia`: per-rank file names, `.shp` applied.
-    pub images: [Option<String>; 3],
+    /// `Promotable<SHPStruct*> Insignia`: every applied file name per rank,
+    /// oldest first. Phobos keeps the last SHP that loaded, so presentation
+    /// tries these newest first and a missing file falls through.
+    pub images: [Vec<String>; 3],
     /// `Promotable<int> InsigniaFrame`: per-rank frame index, -1 = default.
     pub frames: [i32; 3],
 }
@@ -42,8 +41,7 @@ impl InsigniaType {
     fn named(name: &str) -> Self {
         Self {
             name: name.to_owned(),
-            common_image: None,
-            images: [None, None, None],
+            images: Default::default(),
             frames: [-1, -1, -1],
         }
     }
@@ -91,10 +89,7 @@ impl InsigniaTypeCatalog {
                 continue;
             };
             let entry = &mut self.types[index];
-            entry.common_image = section
-                .read_name("Insignia", 2048)
-                .map(normalize_insignia_image);
-            entry.images = read_insignia_images(section, entry.images.clone(), "Insignia");
+            read_insignia_images(section, &mut entry.images, "Insignia");
             entry.frames = read_insignia_frames(section, entry.frames, "InsigniaFrame");
         }
     }
@@ -102,8 +97,7 @@ impl InsigniaTypeCatalog {
 
 /// Phobos `RulesExt` drawing settings: `[General] EnemyInsignia` /
 /// `DisguiseBlinkingVisibility` and the `[AudioVisual] DrawInsignia.*`
-/// defaults. The insignia draw consumes all of them; the disguise blink
-/// draw still uses its own stock query (#3504).
+/// defaults. `TechnoExt::DrawInsignia` consumes all of them.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct PhobosDrawGlobals {
     pub enemy_insignia: bool,
@@ -175,13 +169,14 @@ impl PhobosDrawGlobals {
     }
 }
 
-/// One `Promotable<SHPStruct*>/Promotable<int>/Vector3D<int>` slot set: the
-/// common-image fallback, the per-rank files, the per-rank single frames and
-/// the `InsigniaFrames` vector.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One `Promotable<SHPStruct*>/Promotable<int>/Vector3D<int>` slot set. The
+/// image slot keeps every applied file name oldest-first: a load tries newest
+/// first, so a file that fails keeps the earlier pass's loaded art, as
+/// Phobos' retained `SHPStruct*` does. A resolved `InsigniaType` replaces the
+/// whole slot (a null pointer falls back to stock PIPS, not to older names).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct InsigniaVariant {
-    pub common_image: Option<String>,
-    pub images: [Option<String>; 3],
+    pub images: [Vec<String>; 3],
     pub frames: [i32; 3],
     pub frame_lists: [i32; 3],
 }
@@ -189,47 +184,135 @@ pub struct InsigniaVariant {
 impl Default for InsigniaVariant {
     fn default() -> Self {
         Self {
-            common_image: None,
-            images: [None, None, None],
+            images: [Vec::new(), Vec::new(), Vec::new()],
             frames: [-1, -1, -1],
             frame_lists: [-1, -1, -1],
         }
     }
 }
 
-/// Phobos `TechnoTypeExt`'s insignia block: the base slot set, the
-/// `InsigniaType=`-selected overrides, and the per-weapon/per-passenger
-/// variants read from `Insignia.WeaponN`/`Insignia.PassengersN`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
+impl InsigniaVariant {
+    /// One Rules pass of the directly authored keys, in Phobos'
+    /// `Promotable::Read` order: the common key appends to all three ranks,
+    /// then each rank key appends to one.
+    fn apply_direct_pass(
+        &mut self,
+        raw: &IniSection,
+        image_base: &str,
+        frame_base: &str,
+        list_base: &str,
+    ) {
+        read_insignia_images(raw, &mut self.images, image_base);
+        self.frames = read_insignia_frames(raw, self.frames, frame_base);
+        self.frame_lists = raw.read_int_fields::<3>(list_base, 2048, self.frame_lists);
+    }
+
+    /// A resolved `InsigniaType` assigns the entry's Promotable verbatim and
+    /// clears `InsigniaFrames`; a missing rank image is a null pointer.
+    fn apply_type(&mut self, entry: &InsigniaType) {
+        self.images = entry.images.clone();
+        self.frames = entry.frames;
+        self.frame_lists = [-1, -1, -1];
+    }
+}
+
+/// Phobos `TechnoTypeExt`'s insignia block, accumulated pass by pass like
+/// `TechnoTypeExt::LoadFromINIFile`: a later layer resolves `InsigniaType`
+/// first and skips the direct keys, and each direct key read retains what the
+/// earlier layers set.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct PhobosInsignia {
     pub base: InsigniaVariant,
     pub weapons: Vec<InsigniaVariant>,
     pub passengers: Vec<InsigniaVariant>,
     /// `Insignia.ShowEnemy=`; `None` inherits `[General] EnemyInsignia`.
     pub show_enemy: Option<bool>,
-    /// Names kept so the catalog can be consulted after Rules construction.
-    pub base_type: Option<String>,
-    pub weapon_types: Vec<Option<String>>,
-    pub passenger_types: Vec<Option<String>>,
+    /// The type's `Passengers=` at the last pass, sizing the vector.
+    #[serde(default)]
+    pub passengers_capacity: i32,
 }
 
-/// The merged slot set one draw reads: [`PhobosInsignia::select`] applies the
-/// passenger variants, then the weapon variants, over the base.
+/// One draw's image candidates: the base, the passenger variant and the
+/// weapon variant, in DrawInsignia's override order. The frame fields are
+/// already merged, since they do not depend on an asset load.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct InsigniaSelection {
-    pub images: [Option<String>; 3],
-    pub commons: [Option<String>; 3],
+    pub layers: Vec<[Vec<String>; 3]>,
     pub frames: [i32; 3],
     pub frame_lists: [i32; 3],
 }
 
 impl PhobosInsignia {
-    /// Merge the passenger and weapon variants exactly as `DrawInsignia`
-    /// does: a variant overrides an image only when it names one for that
-    /// rank, a single frame only when it is not -1, and the frame vector only
-    /// when it is not the all -1 default.
+    /// Apply one reached Rules pass. `catalog` is the cumulative
+    /// `[InsigniaTypes]` state after this pass's list read, as Phobos'
+    /// `TechnoTypeExt::LoadFromINIFile` sees it; `weapon_count` and `gunner`
+    /// are the type's `WeaponCount=` and `Gunner=` after the native reads on
+    /// this pass.
+    pub(crate) fn apply_pass(
+        &mut self,
+        raw: &IniSection,
+        catalog: Option<&InsigniaTypeCatalog>,
+        weapon_count: i32,
+        gunner: bool,
+    ) {
+        self.show_enemy = raw.read_phobos_nullable_bool("Insignia.ShowEnemy", self.show_enemy);
+        // Nullable<InsigniaTypeClass*>::Read: a blank value resets, and any
+        // other value is an `Enumerable::Find` (plain case-insensitive name
+        // match, so an entry actually named `none` still resolves). Anything
+        // unresolved falls back to the direct keys this pass.
+        let type_name = |key: &str| {
+            raw.read_name(key, 2048)
+                .and_then(|name| catalog.and_then(|catalog| catalog.entry(name)))
+        };
+        match type_name("InsigniaType") {
+            Some(entry) => self.base.apply_type(entry),
+            None => self
+                .base
+                .apply_direct_pass(raw, "Insignia", "InsigniaFrame", "InsigniaFrames"),
+        }
+        if gunner {
+            let count = weapon_count.max(0) as usize;
+            self.weapons.resize(count, InsigniaVariant::default());
+            for index in 0..count {
+                let number = index + 1;
+                match type_name(&format!("InsigniaType.Weapon{number}")) {
+                    Some(entry) => self.weapons[index].apply_type(entry),
+                    None => self.weapons[index].apply_direct_pass(
+                        raw,
+                        &format!("Insignia.Weapon{number}"),
+                        &format!("InsigniaFrame.Weapon{number}"),
+                        &format!("InsigniaFrames.Weapon{number}"),
+                    ),
+                }
+            }
+        }
+        self.passengers_capacity = raw.read_int("Passengers", self.passengers_capacity);
+        if self.passengers_capacity > 0 {
+            let count = self.passengers_capacity as usize + 1;
+            self.passengers.resize(count, InsigniaVariant::default());
+            for slot in 0..count {
+                match type_name(&format!("InsigniaType.Passengers{slot}")) {
+                    Some(entry) => self.passengers[slot].apply_type(entry),
+                    None => self.passengers[slot].apply_direct_pass(
+                        raw,
+                        &format!("Insignia.Passengers{slot}"),
+                        &format!("InsigniaFrame.Passengers{slot}"),
+                        &format!("InsigniaFrames.Passengers{slot}"),
+                    ),
+                }
+            }
+        }
+    }
+
+    /// The draw's variants in override order. A null shape on a later variant
+    /// leaves the previous shape in place, so the caller resolves each
+    /// layer's images against the loaded strips in this order.
     pub fn select(&self, weapon: Option<usize>, passengers: Option<usize>) -> InsigniaSelection {
-        let mut selection = InsigniaSelection::of(&self.base);
+        let mut selection = InsigniaSelection {
+            layers: vec![self.base.images.clone()],
+            frames: self.base.frames,
+            frame_lists: self.base.frame_lists,
+        };
         if let Some(variant) = passengers.and_then(|index| self.passengers.get(index)) {
             selection.merge(variant);
         }
@@ -238,47 +321,12 @@ impl PhobosInsignia {
         }
         selection
     }
-
-    /// Copy every resolved `InsigniaType`'s slots into the variants that name
-    /// it. An unresolved name keeps the directly authored keys, as Phobos'
-    /// nullable type pointer falls back to them.
-    pub(crate) fn bind_types(&mut self, catalog: &InsigniaTypeCatalog) {
-        if let Some(entry) = self
-            .base_type
-            .as_deref()
-            .and_then(|name| catalog.entry(name))
-        {
-            apply_type(&mut self.base, entry);
-        }
-        for (slot, name) in self.weapon_types.iter().enumerate() {
-            if let Some(entry) = name.as_deref().and_then(|name| catalog.entry(name)) {
-                apply_type(&mut self.weapons[slot], entry);
-            }
-        }
-        for (slot, name) in self.passenger_types.iter().enumerate() {
-            if let Some(entry) = name.as_deref().and_then(|name| catalog.entry(name)) {
-                apply_type(&mut self.passengers[slot], entry);
-            }
-        }
-    }
 }
 
 impl InsigniaSelection {
-    fn of(variant: &InsigniaVariant) -> Self {
-        Self {
-            images: variant.images.clone(),
-            commons: std::array::from_fn(|_| variant.common_image.clone()),
-            frames: variant.frames,
-            frame_lists: variant.frame_lists,
-        }
-    }
-
     fn merge(&mut self, variant: &InsigniaVariant) {
+        self.layers.push(variant.images.clone());
         for rank in 0..3 {
-            if variant.images[rank].is_some() {
-                self.images[rank] = variant.images[rank].clone();
-                self.commons[rank] = variant.common_image.clone();
-            }
             if variant.frames[rank] != -1 {
                 self.frames[rank] = variant.frames[rank];
             }
@@ -325,100 +373,29 @@ impl InsigniaSelection {
     }
 }
 
-fn apply_type(variant: &mut InsigniaVariant, entry: &InsigniaType) {
-    variant.images = entry.images.clone();
-    variant.frames = entry.frames;
-    variant.frame_lists = [-1, -1, -1];
-    variant.common_image = entry.common_image.clone();
-}
-
-/// Read a TechnoType's whole insignia block. `weapon_count` and
-/// `passengers` are the type's own `WeaponCount=`/`Passengers=`, which size
-/// the variant vectors at load time.
-pub(crate) fn parse_insignia(
-    section: &IniSection,
-    weapon_count: i32,
-    passengers: i32,
-) -> PhobosInsignia {
-    let type_name = |key: &str| {
-        section
-            .read_name(key, 0x80)
-            .filter(|name| !crate::rules::ini_parser::is_native_none_type_name(name))
-            .map(str::to_owned)
-    };
-    let mut insignia = PhobosInsignia::default();
-    insignia.base_type = type_name("InsigniaType");
-    // Both sources are read. Phobos skips the direct keys only when the
-    // nullable type pointer resolved; an unknown name falls back to them, so
-    // [`PhobosInsignia::bind_types`] picks the resolved type and keeps these
-    // values otherwise.
-    insignia.base = read_variant(section, "Insignia", "InsigniaFrame", "InsigniaFrames");
-    insignia.show_enemy = section.read_phobos_nullable_bool("Insignia.ShowEnemy", None);
-    if weapon_count > 0 {
-        for index in 0..weapon_count {
-            let number = index + 1;
-            insignia
-                .weapon_types
-                .push(type_name(&format!("InsigniaType.Weapon{number}")));
-            insignia.weapons.push(read_variant(
-                section,
-                &format!("Insignia.Weapon{number}"),
-                &format!("InsigniaFrame.Weapon{number}"),
-                &format!("InsigniaFrames.Weapon{number}"),
-            ));
-        }
-    }
-    if passengers > 0 {
-        for count in 0..=passengers {
-            insignia
-                .passenger_types
-                .push(type_name(&format!("InsigniaType.Passengers{count}")));
-            insignia.passengers.push(read_variant(
-                section,
-                &format!("Insignia.Passengers{count}"),
-                &format!("InsigniaFrame.Passengers{count}"),
-                &format!("InsigniaFrames.Passengers{count}"),
-            ));
-        }
-    }
-    insignia
-}
-
-fn read_variant(
-    section: &IniSection,
-    image_base: &str,
-    frame_base: &str,
-    list_base: &str,
-) -> InsigniaVariant {
-    InsigniaVariant {
-        common_image: section
-            .read_name(image_base, 2048)
-            .map(normalize_insignia_image),
-        images: read_insignia_images(section, [None, None, None], image_base),
-        frames: read_insignia_frames(section, [-1, -1, -1], frame_base),
-        frame_lists: section.read_int_fields::<3>(list_base, 2048, [-1, -1, -1]),
-    }
-}
-
 /// Phobos `Promotable<SHPStruct*>::Read` with the base flag `base` (`%s` is
-/// the rank): the common key sets all three, then each `.Rookie`/`.Veteran`/
-/// `.Elite` key replaces one. A name without a `.shp` suffix gains one, as the
-/// Phobos SHP reader does. Asset load failures are presentation's concern.
+/// the rank): the common key applies to all three ranks, then each
+/// `.Rookie`/`.Veteran`/`.Elite` key to one. The rank reader assigns its
+/// pointed SHP only when the file loads, so each applied name is appended and
+/// presentation falls back newest-to-oldest. A name without a `.shp` suffix
+/// gains one, as the Phobos SHP reader does; a literal `none` is an ordinary
+/// file name (`none.shp`) there.
 pub(crate) fn read_insignia_images(
     section: &IniSection,
-    mut current: [Option<String>; 3],
+    current: &mut [Vec<String>; 3],
     base: &str,
-) -> [Option<String>; 3] {
+) {
     if let Some(all) = section.read_name(base, 2048) {
-        let name = Some(normalize_insignia_image(all));
-        current = [name.clone(), name.clone(), name];
+        let name = normalize_insignia_image(all);
+        for history in current.iter_mut() {
+            history.push(name.clone());
+        }
     }
     for (slot, rank) in RANKS.iter().enumerate() {
         if let Some(value) = section.read_name(&format!("{base}.{rank}"), 2048) {
-            current[slot] = Some(normalize_insignia_image(value));
+            current[slot].push(normalize_insignia_image(value));
         }
     }
-    current
 }
 
 /// Phobos `Promotable<int>::Read`: the common key's successful parse sets all

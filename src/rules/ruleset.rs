@@ -4960,9 +4960,18 @@ impl RuleSet {
                 object.bind_weapon_offsets(slots.offsets());
             }
         }
+        // Phobos TechnoTypeExt reads insignia keys on every reached pass, so
+        // the processor's accumulated state is the owner, not a projection of
+        // the final merged section.
         #[cfg(feature = "phobos")]
-        for object in &mut rules.object_list {
-            object.phobos_insignia.bind_types(&rules.insignia_types);
+        for (category, name, insignia) in processed.techno_insignia_states() {
+            if let Some(object) = rules
+                .object_list
+                .iter_mut()
+                .find(|object| object.category == category && object.id == name)
+            {
+                object.phobos_insignia = insignia.clone();
+            }
         }
         rules.crate_rules = processed.crate_rules().clone();
         rules.powerups = processed.powerups().clone();

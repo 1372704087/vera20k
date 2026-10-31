@@ -1205,15 +1205,20 @@ fn phobos_insignia_draw<'a>(
         })
         .and_then(|index| usize::try_from(index).ok());
     let insignia = object.phobos_insignia.select(weapon, passengers);
-    let custom = insignia.images[rank].as_deref().and_then(|name| {
-        overlay.insignia_shape(name).or_else(|| {
-            let common = insignia.commons[rank].as_deref()?;
-            (Some(common) != insignia.images[rank].as_deref())
-                .then(|| overlay.insignia_shape(common))
-                .flatten()
-        })
-    });
-    let (shape, custom) = match custom {
+    // Each variant assigns its retained SHP pointer in base, passenger, weapon
+    // order; a null pointer leaves the previous shape. The retained pointer is
+    // the newest applied file that loaded, so walk each history backwards.
+    let mut shape = None;
+    for layer in &insignia.layers {
+        if let Some(found) = layer[rank]
+            .iter()
+            .rev()
+            .find_map(|name| overlay.insignia_shape(name))
+        {
+            shape = Some(found);
+        }
+    }
+    let (shape, custom) = match shape {
         Some(shape) => (shape, true),
         None => (overlay.pips()?, false),
     };

@@ -1517,6 +1517,35 @@ impl ProcessedRulesLayers {
             })
     }
 
+    /// Phobos insignia state after every reached TechnoType ReadINI pass.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn techno_insignia_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            ObjectCategory,
+            &str,
+            &crate::rules::insignia_type::PhobosInsignia,
+        ),
+    > {
+        self.native_type_construction_trace
+            .registry_state()
+            .families
+            .iter()
+            .filter_map(|(family, members)| {
+                family.object_category().map(|category| (category, members))
+            })
+            .flat_map(|(category, members)| {
+                members.iter().map(move |member| {
+                    (
+                        category,
+                        member.native_stored_id.as_str(),
+                        &member.phobos_insignia,
+                    )
+                })
+            })
+    }
+
     /// ParticleSystemType+294 after every reached ReadINI: the bound
     /// ParticleType's stored ID, or `None` for `<none>` and unread types.
     pub(crate) fn particle_system_holds_what_states(
@@ -4385,6 +4414,13 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     ore_gathering: crate::rules::object_type::PhobosOreGathering,
+    /// Phobos `TechnoTypeExt::LoadFromINIFile`'s insignia block. Its
+    /// `InsigniaType=` resolution and direct keys are read per reached pass on
+    /// the same live TechnoType, so this accumulates instead of projecting a
+    /// final merged section.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_insignia: crate::rules::insignia_type::PhobosInsignia,
     /// Ares `SW.Warhead=`, read only for Type=GenericWarhead.
     generic_super_weapon_warhead: Option<String>,
     unit_delivery: Option<UnitDeliveryRules>,
@@ -4884,6 +4920,8 @@ impl ProcessedType {
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
             ore_gathering: crate::rules::object_type::PhobosOreGathering::default(),
+            #[cfg(feature = "phobos")]
+            phobos_insignia: Default::default(),
             generic_super_weapon_warhead: None,
             particle_warhead: None,
             voxel_anim_references: VoxelAnimTypeReferences::default(),
@@ -5184,6 +5222,11 @@ impl RulesPassProcessor {
         // WarheadType only an AttachEffect key names is read in this pass.
         #[cfg(feature = "phobos")]
         self.allocate_attach_effect_references(pass);
+        // Phobos `RulesExt::LoadBeforeTypeData` runs
+        // `InsigniaTypeClass::LoadFromINIList` before this pass's type bodies,
+        // so a same-pass `InsigniaType=` resolves against it.
+        #[cfg(feature = "phobos")]
+        self.allocate_insignia_types(pass);
         self.process_type_data(pass, fixed_art, fixed_eva, primary_rules);
         // RulesExt LoadAfterTypeData: installed679CAF ->1002C9B0 ->1002AAF0
         // ->1002A800 reads HSBuilding at1002A8DD with the BuildingType
@@ -5243,8 +5286,6 @@ impl RulesPassProcessor {
         self.allocate_radiation_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_shield_types(pass);
-        #[cfg(feature = "phobos")]
-        self.allocate_insignia_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_digital_display_types(pass);
         #[cfg(feature = "phobos")]
@@ -6862,6 +6903,22 @@ impl RulesPassProcessor {
                         family.object_category().expect("TechnoType family"),
                         weapon_count,
                     );
+                // Phobos `TechnoTypeExt::LoadFromINIFile`'s insignia block
+                // runs later in the same type read: `InsigniaType=` resolves
+                // against the `[InsigniaTypes]` state this pass allocated, and
+                // its weapon loop uses this pass's native `WeaponCount` and
+                // `Gunner` values.
+                #[cfg(feature = "phobos")]
+                if self.phobos_insignia_types.is_some() {
+                    let catalog = self.phobos_insignia_types.take();
+                    let member = &self.families[&family][index];
+                    let weapon_count = member.weapon_slots.weapon_count;
+                    let gunner = member.gunner_turrets.is_gunner();
+                    self.families.get_mut(&family).unwrap()[index]
+                        .phobos_insignia
+                        .apply_pass(&raw, catalog.as_ref(), weapon_count, gunner);
+                    self.phobos_insignia_types = catalog;
+                }
                 if family == RulesTypeFamily::Infantry {
                     let member = &mut self.families.get_mut(&family).unwrap()[index];
                     member.infantry_pips.apply_pass(&raw);

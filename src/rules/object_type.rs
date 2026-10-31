@@ -4051,12 +4051,10 @@ impl ObjectType {
             // Pass processing projects the shared reader; ART binding does not.
             foundation: crate::rules::foundation::Foundation::default(),
             pixel_selection_bracket_delta: section.read_int("PixelSelectionBracketDelta", 0),
+            // Constructor default; the ordered retained TechnoType reader
+            // accumulates these keys over every reached pass.
             #[cfg(feature = "phobos")]
-            phobos_insignia: crate::rules::insignia_type::parse_insignia(
-                section,
-                section.read_int("WeaponCount", 0),
-                section.read_int("Passengers", 0),
-            ),
+            phobos_insignia: crate::rules::insignia_type::PhobosInsignia::default(),
             #[cfg(feature = "phobos")]
             phobos_passengers_by_size: section.read_ares_bool("Passengers.BySize", true),
             // Replaced by the ordered retained Type reader in RuleSet.

@@ -1497,7 +1497,9 @@ pub(crate) fn select_best_for_action(
         let obj = rules.and_then(|r| sim.interner().object_type(entity.type_ref(), r));
         let priority = if entity.berserk.is_active() {
             0
-        } else if !obj.is_some_and(|obj| is_armed(entity, obj)) {
+        } else if !obj.zip(rules).is_some_and(|(obj, rules)| {
+            is_armed(entity, obj, sim.entities(), rules, sim.interner())
+        }) {
             2
         } else if entity.category() == EntityCategory::Structure {
             3

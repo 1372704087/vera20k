@@ -304,7 +304,8 @@ fn weapon_zero<'r>(
     veterancy: u16,
 ) -> Option<&'r crate::rules::weapon_type::WeaponType> {
     super::combat_weapon::weapon_for_index(object, veterancy, 0)
-        .and_then(|(name, _)| rules.weapon(name))
+        .and_then(|record| record.weapon_id)
+        .and_then(|name| rules.weapon(name))
 }
 
 impl Simulation {

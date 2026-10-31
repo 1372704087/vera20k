@@ -2378,6 +2378,156 @@ fn generated_projection_validates_the_whole_table_before_any_mutation() {
 }
 
 #[test]
+fn authored_retail_upgrade_lends_its_weapon_and_fire_offset() {
+    // ReadScenarioBuildings44FD50 -> Unlimbo440871 -> GetWeapon4526F0.
+    // The map must admit a real upgrade; its selector alone cannot install one.
+    let map = IniFile::from_str(
+        "[GAPILL]\nPowersUpBuilding=GAPOWR\n[Structures]\n\
+         0=Americans,GAPOWR,256,10,12,0,None,1,0,1,1,0,GAPILL,None,None,0,1\n",
+    );
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&map)
+    else {
+        return;
+    };
+    let rules = retail.rules;
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x4526_F0);
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
+    sim.session
+        .set_current_house_for_test(sim.interner.get("Americans"));
+    // This bounded arena gives the opponent a tank, without a starting base.
+    sim.session.game_options_mut_for_test().short_game = false;
+    let placements = crate::map::entities::parse_map_entities(&map);
+    assert_eq!(sim.spawn_from_map(&placements, Some(&rules)), 2);
+    let host = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(host.building_upgrades().count(), 1);
+    assert_eq!(
+        host.building_upgrades().types()[0],
+        sim.interner.get("GAPILL")
+    );
+    assert!(!sim.substrate.entities.get(2).unwrap().is_object_alive());
+
+    let object = rules
+        .object_in_category(
+            crate::rules::object_type::ObjectCategory::Building,
+            "GAPOWR",
+        )
+        .unwrap();
+    let weapon = crate::sim::combat::combat_weapon::get_weapon(
+        host,
+        object,
+        0,
+        &sim.substrate.entities,
+        &rules,
+        &sim.interner,
+    );
+    assert_eq!(weapon.map(|weapon| weapon.id.as_str()), Some("Vulcan2"));
+    assert!(crate::sim::combat::combat_weapon::is_armed(
+        host,
+        object,
+        &sim.substrate.entities,
+        &rules,
+        &sim.interner,
+    ));
+    // GetFLH6F3B28 reads the selected record's coordinates, not the host ART.
+    let source = crate::sim::combat::fire_coord::FireSource::of_entity(host);
+    let fire = crate::sim::combat::fire_coord::fire_coordinate(
+        &sim,
+        &rules,
+        &source,
+        object,
+        0,
+        0,
+        crate::rules::flh::Flh::default(),
+    );
+    assert_eq!(fire.coord.z - fire.source_z, 40);
+    let target = sim
+        .spawn_object("HTNK", "Russians", 14, 12, 0, &rules)
+        .unwrap();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let mut shots = 0;
+    for frame in 1..=360 {
+        sim.session.set_binary_frame_for_test(frame);
+        let output = sim
+            .advance_app_frame(
+                &[],
+                &rules,
+                None,
+                33,
+                crate::sim::world::TickLane::Ordinary,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        assert!(output.tick.frame_committed);
+        for event in output
+            .fire_events
+            .iter()
+            .filter(|event| event.attacker_id == 1)
+        {
+            assert_eq!(sim.interner.resolve(event.weapon_id), "Vulcan2");
+            assert_eq!(event.target, crate::sim::combat::TargetKind::Entity(target));
+            assert_eq!(event.fire_coord.z, 40);
+            let host = sim.substrate.entities.get(1).unwrap();
+            assert_eq!(
+                host.mission.current().known(),
+                Some(crate::sim::mission::MissionType::Attack)
+            );
+            assert!(host.rearm_timer.remaining(frame as i32) > 0);
+            shots += 1;
+        }
+        if shots >= 2 {
+            break;
+        }
+    }
+    assert_eq!(
+        shots,
+        2,
+        "the upgraded host acquires, fires, rearms and fires again; host {:?}, target {:?}",
+        sim.substrate
+            .entities
+            .get(1)
+            .map(|host| (host.mission.current(), host.attack_target.target())),
+        sim.substrate
+            .entities
+            .get(target)
+            .map(|target| (target.is_object_alive(), target.health.current())),
+    );
+    // The upgrade loop always uses the normal record, including on an elite host.
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .veterancy
+        .set_elite();
+    let host = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        crate::sim::combat::combat_weapon::current_weapon(
+            host,
+            object,
+            &sim.substrate.entities,
+            &rules,
+            &sim.interner,
+        )
+        .map(|weapon| weapon.id.as_str()),
+        Some("Vulcan2"),
+    );
+    let record = crate::sim::combat::combat_weapon::get_weapon_record(
+        host,
+        object,
+        0,
+        &sim.substrate.entities,
+        &rules,
+        &sim.interner,
+    )
+    .unwrap();
+    assert_eq!(
+        [record.flh.forward, record.flh.lateral, record.flh.height],
+        [90, 0, 40]
+    );
+}
+
+#[test]
 fn techno_constructor_authored_upgrades_consume_temporaries_with_native_ids() {
     let seed = 0xC701_0005;
     let rules = RuleSet::from_ini(&IniFile::from_str(

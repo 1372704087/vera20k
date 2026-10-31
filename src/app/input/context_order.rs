@@ -301,7 +301,13 @@ pub(crate) fn attack_action(
         return action;
     };
     let human = sim.house_is_human_player(actor.owner());
-    let armed = crate::sim::combat::combat_weapon::is_armed(actor, kind);
+    let armed = crate::sim::combat::combat_weapon::is_armed(
+        actor,
+        kind,
+        sim.entities(),
+        rules,
+        sim.interner(),
+    );
     let infiltrator = actor.category() == EntityCategory::Infantry && kind.infiltrate;
     let healing_unit = actor.category() == EntityCategory::Unit
         && human
@@ -520,7 +526,13 @@ pub(super) fn base_action(
         return AttackAction::None;
     };
     let human = sim.house_is_human_player(actor.owner());
-    let armed = crate::sim::combat::combat_weapon::is_armed(actor, kind);
+    let armed = crate::sim::combat::combat_weapon::is_armed(
+        actor,
+        kind,
+        sim.entities(),
+        rules,
+        sim.interner(),
+    );
     let infiltrator = actor.category() == EntityCategory::Infantry && kind.infiltrate;
     let admitted = match target {
         TargetKind::Entity(target_id) => {
@@ -790,7 +802,13 @@ pub(crate) fn armed_action(
             sim.interner(),
         )
         .is_some(),
-        TargetKind::Entity(_) => crate::sim::combat::combat_weapon::is_armed(actor, object),
+        TargetKind::Entity(_) => crate::sim::combat::combat_weapon::is_armed(
+            actor,
+            object,
+            sim.entities(),
+            rules,
+            sim.interner(),
+        ),
     };
     armed.then(|| attack_action(sim, rules, actor_id, target, forced, overlay_registry))
 }

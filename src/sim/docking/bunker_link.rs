@@ -101,7 +101,13 @@ pub fn can_auto_deploy_here(sim: &Simulation, unit_id: u64, rules: &RuleSet) -> 
     };
     obj.bunkerable
         && obj.has_turret
-        && crate::sim::combat::combat_weapon::is_armed(unit, obj)
+        && crate::sim::combat::combat_weapon::is_armed(
+            unit,
+            obj,
+            &sim.substrate.entities,
+            rules,
+            &sim.interner,
+        )
         && obj.speed_type != crate::rules::locomotor_type::SpeedType::Hover
         && unit.parasite.eater().is_none()
 }

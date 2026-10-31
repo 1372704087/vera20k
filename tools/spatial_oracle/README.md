@@ -15,7 +15,7 @@ setup.
 | Module | Provides | Importers |
 | --- | --- | ---: |
 | `map_queries` | Sparse cell-table state for the original map lookup, normalization and playfield bodies; `dwords`, `packed`, `TABLE`/`EMPTY_TABLE`/`GLOBAL_TABLE` | ~220 |
-| `building_body_rules` | BuildingType body readers over supplied INI lookups; `SP`, `INI`, `RULES`, `TYPE`, `Fixture` | ~170 |
+| `building_body_rules` | BuildingType body readers over supplied INI lookups; `--render-bounds` replays the four consumed ordered image-bound controls; `SP`, `INI`, `RULES`, `TYPE`, `Fixture` | ~170 |
 | `unit_source_scatter` | Source-aware Unit Scatter map and actor; `SCENARIO`, `CELLS`, `make_source_fixture` | ~40 |
 | `refinery_dock` | Refinery/depot dock fixture; `make_dock_fixture`, `cell`, `HOUSE`, `BLD` | ~35 |
 | `building_construction` | `JoinedFixture` and `joined_inputs`, the joined building world reused by building death, sale, repair, capture and factory output | ~30 |

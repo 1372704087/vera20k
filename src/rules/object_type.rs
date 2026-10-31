@@ -770,6 +770,12 @@ pub struct ObjectType {
     /// construction.
     #[cfg(feature = "phobos")]
     pub phobos_insignia: crate::rules::insignia_type::PhobosInsignia,
+    /// Phobos `Passengers.BySize` (`Valueable<bool>`, default yes): the
+    /// passenger-count key `DrawInsignia` indexes `Insignia.PassengersN`
+    /// with. Its other consumer, the NoQueueUpToEnter admission rewrite, is
+    /// not ported.
+    #[cfg(feature = "phobos")]
+    pub phobos_passengers_by_size: bool,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4051,6 +4057,8 @@ impl ObjectType {
                 section.read_int("WeaponCount", 0),
                 section.read_int("Passengers", 0),
             ),
+            #[cfg(feature = "phobos")]
+            phobos_passengers_by_size: section.read_ares_bool("Passengers.BySize", true),
             // Replaced by the ordered retained Type reader in RuleSet.
             lepton_mind_control_offset: DEFAULT_LEPTON_MIND_CONTROL_OFFSET,
             build_cat: section

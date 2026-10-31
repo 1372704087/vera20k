@@ -4700,7 +4700,7 @@ pub struct RuleSet {
     pub(crate) insignia_types: crate::rules::insignia_type::InsigniaTypeCatalog,
     /// Phobos `[General]`/`[AudioVisual]` insignia settings.
     #[cfg(feature = "phobos")]
-    pub(crate) insignia_globals: crate::rules::insignia_type::InsigniaGlobals,
+    pub(crate) phobos_draw_globals: crate::rules::insignia_type::PhobosDrawGlobals,
     /// Phobos shield globals: `[CombatDamage] ShieldApplyArmorMult` and
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
@@ -6041,7 +6041,7 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let insignia_types = processed.insignia_types().cloned().unwrap_or_default();
         #[cfg(feature = "phobos")]
-        let insignia_globals = crate::rules::insignia_type::InsigniaGlobals::from_ini(ini);
+        let phobos_draw_globals = crate::rules::insignia_type::PhobosDrawGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
         let (shield_types, shield_globals) = {
             let shield_types = processed.shield_types().cloned().unwrap_or_default();
@@ -6505,7 +6505,7 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             insignia_types,
             #[cfg(feature = "phobos")]
-            insignia_globals,
+            phobos_draw_globals,
             #[cfg(feature = "phobos")]
             shield_globals,
             #[cfg(feature = "phobos")]
@@ -6958,8 +6958,8 @@ impl RuleSet {
 
     /// Phobos `[General]`/`[AudioVisual]` insignia settings.
     #[cfg(feature = "phobos")]
-    pub fn insignia_globals(&self) -> &crate::rules::insignia_type::InsigniaGlobals {
-        &self.insignia_globals
+    pub fn phobos_draw_globals(&self) -> &crate::rules::insignia_type::PhobosDrawGlobals {
+        &self.phobos_draw_globals
     }
 
     /// Phobos `[ShieldTypes]` entry by name (case-insensitive, first spelling

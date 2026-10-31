@@ -63,17 +63,21 @@ fn section(text: &str) -> IniFile {
 }
 
 #[test]
-fn insignia_globals_read_general_and_audio_visual_defaults() {
-    let plain = super::InsigniaGlobals::from_ini(&IniFile::from_str("[General]\n"));
-    assert_eq!(plain, super::InsigniaGlobals::default());
+fn phobos_draw_globals_read_general_and_audio_visual_defaults() {
+    let plain = super::PhobosDrawGlobals::from_ini(&IniFile::from_str("[General]\n"));
+    assert_eq!(plain, super::PhobosDrawGlobals::default());
     assert!(plain.enemy_insignia);
     assert_eq!(plain.adjust_infantry, [5, 2]);
     assert_eq!(plain.adjust_units, [10, 6]);
     assert_eq!(plain.adjust_buildings, [10, 6]);
     assert_eq!(plain.buildings_anchor, None);
+    assert_eq!(
+        plain.disguise_blinking_visibility,
+        crate::rules::phobos_shields::AffectedHouse::OWNER
+    );
 
     let ini = IniFile::from_str(
-        "[General]\nEnemyInsignia=no\n\
+        "[General]\nEnemyInsignia=no\nDisguiseBlinkingVisibility=enemies\n\
          [AudioVisual]\nDrawInsignia.OnlyOnSelected=yes\n\
          DrawInsignia.UsePixelSelectionBracketDelta=yes\n\
          DrawInsignia.AdjustPos.Infantry=7,3\n\
@@ -81,7 +85,7 @@ fn insignia_globals_read_general_and_audio_visual_defaults() {
          DrawInsignia.AdjustPos.Buildings=14,9\n\
          DrawInsignia.AdjustPos.BuildingsAnchor=leftbottom\n",
     );
-    let globals = super::InsigniaGlobals::from_ini(&ini);
+    let globals = super::PhobosDrawGlobals::from_ini(&ini);
     assert!(!globals.enemy_insignia);
     assert!(globals.only_on_selected);
     assert!(globals.use_pixel_selection_bracket_delta);
@@ -92,11 +96,33 @@ fn insignia_globals_read_general_and_audio_visual_defaults() {
         globals.buildings_anchor,
         Some(BuildingSelectBracketPosition::LeftBottom)
     );
+    assert_eq!(
+        globals.disguise_blinking_visibility,
+        crate::rules::phobos_shields::AffectedHouse::ENEMIES
+    );
 
-    let cleared = super::InsigniaGlobals::from_ini(&IniFile::from_str(
+    let cleared = super::PhobosDrawGlobals::from_ini(&IniFile::from_str(
         "[AudioVisual]\nDrawInsignia.AdjustPos.BuildingsAnchor=<none>\n",
     ));
     assert_eq!(cleared.buildings_anchor, None, "IsBlank clears a nullable");
+}
+
+#[test]
+fn passengers_by_size_defaults_to_yes_and_reads_the_key() {
+    let on = section("[ON]\nPassengers=2\n");
+    let on = crate::rules::object_type::ObjectType::from_ini_section(
+        "ON",
+        on.section("ON").unwrap(),
+        crate::rules::object_type::ObjectCategory::Vehicle,
+    );
+    assert!(on.phobos_passengers_by_size);
+    let off = section("[OFF]\nPassengers=2\nPassengers.BySize=no\n");
+    let off = crate::rules::object_type::ObjectType::from_ini_section(
+        "OFF",
+        off.section("OFF").unwrap(),
+        crate::rules::object_type::ObjectCategory::Vehicle,
+    );
+    assert!(!off.phobos_passengers_by_size);
 }
 
 #[test]

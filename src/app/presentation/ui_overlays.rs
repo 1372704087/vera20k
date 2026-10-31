@@ -1122,7 +1122,7 @@ fn phobos_insignia_draw<'a>(
     usize,
     (f32, f32),
 )> {
-    let globals = rules.insignia_globals();
+    let globals = rules.phobos_draw_globals();
     if globals.only_on_selected
         && !entity.selection.is_selected()
         && hovered_id != Some(entity.stable_id())
@@ -1141,7 +1141,24 @@ fn phobos_insignia_draw<'a>(
     };
     let mut object = sim.interner().object_type(entity.type_ref(), rules)?;
     let mut house = Some(entity.owner());
-    if disguised && let Some(disguise) = entity.disguise.as_ref() {
+    // Phobos `DrawInsignia` enters the worn-type branch only while neither an
+    // observer nor the `DisguiseBlinkingVisibility` audience sees through the
+    // blink. The predicate is asked with the viewer as source.
+    let blinking_visible = observer_present
+        || observer_id.is_some_and(|viewer| {
+            crate::sim::combat::can_target_house(
+                globals.disguise_blinking_visibility,
+                viewer,
+                entity.owner(),
+                sim.houses(),
+                sim.house_alliances(),
+                sim.interner(),
+            )
+        });
+    if disguised
+        && !blinking_visible
+        && let Some(disguise) = entity.disguise.as_ref()
+    {
         let mut worn_object = false;
         if let Some(type_id) = disguise.type_id() {
             let name = sim.interner().resolve(type_id);
@@ -1178,11 +1195,13 @@ fn phobos_insignia_draw<'a>(
         .and_then(|index| usize::try_from(index).ok());
     let passengers = (object.passengers > 0)
         .then(|| {
-            entity
-                .passenger_role
-                .cargo()
-                .map_or(0, crate::sim::passenger::PassengerCargo::total_size)
-                .min(object.passengers)
+            let cargo = entity.passenger_role.cargo();
+            let index = if object.phobos_passengers_by_size {
+                cargo.map_or(0, crate::sim::passenger::PassengerCargo::total_size)
+            } else {
+                cargo.map_or(0, |cargo| cargo.count() as i32)
+            };
+            index.min(object.passengers)
         })
         .and_then(|index| usize::try_from(index).ok());
     let insignia = object.phobos_insignia.select(weapon, passengers);

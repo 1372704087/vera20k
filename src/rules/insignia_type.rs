@@ -100,11 +100,18 @@ impl InsigniaTypeCatalog {
     }
 }
 
-/// Phobos `RulesExt` insignia settings: `[General] EnemyInsignia` and the
-/// `[AudioVisual] DrawInsignia.*` defaults.
+/// Phobos `RulesExt` drawing settings: `[General] EnemyInsignia` /
+/// `DisguiseBlinkingVisibility` and the `[AudioVisual] DrawInsignia.*`
+/// defaults. The insignia draw consumes all of them; the disguise blink
+/// draw still uses its own stock query (#3504).
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct InsigniaGlobals {
+pub struct PhobosDrawGlobals {
     pub enemy_insignia: bool,
+    /// `[General] DisguiseBlinkingVisibility` (`AffectedHouse`, default
+    /// `Owner`): who can see through a blinking disguise. DrawInsignia asks
+    /// it with the viewer as source and the disguised Techno's owner as
+    /// target.
+    pub disguise_blinking_visibility: crate::rules::phobos_shields::AffectedHouse,
     pub only_on_selected: bool,
     pub use_pixel_selection_bracket_delta: bool,
     pub adjust_infantry: [i32; 2],
@@ -117,11 +124,12 @@ pub struct InsigniaGlobals {
         Option<crate::rules::building_select_bracket::BuildingSelectBracketPosition>,
 }
 
-impl Default for InsigniaGlobals {
+impl Default for PhobosDrawGlobals {
     /// The `RulesExt` constructor values.
     fn default() -> Self {
         Self {
             enemy_insignia: true,
+            disguise_blinking_visibility: crate::rules::phobos_shields::AffectedHouse::OWNER,
             only_on_selected: false,
             use_pixel_selection_bracket_delta: false,
             adjust_infantry: [5, 2],
@@ -132,11 +140,19 @@ impl Default for InsigniaGlobals {
     }
 }
 
-impl InsigniaGlobals {
+impl PhobosDrawGlobals {
     pub fn from_ini(ini: &IniFile) -> Self {
         let mut globals = Self::default();
         let general = ini.section_or_empty("General");
         globals.enemy_insignia = general.read_ares_bool("EnemyInsignia", globals.enemy_insignia);
+        globals.disguise_blinking_visibility = general.read_string_with(
+            "DisguiseBlinkingVisibility",
+            0x40,
+            globals.disguise_blinking_visibility,
+            |current, raw| {
+                crate::rules::phobos_shields::AffectedHouse::parse(raw).unwrap_or(current)
+            },
+        );
         let audio_visual = ini.section_or_empty("AudioVisual");
         globals.only_on_selected =
             audio_visual.read_ares_bool("DrawInsignia.OnlyOnSelected", globals.only_on_selected);

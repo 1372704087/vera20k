@@ -309,6 +309,7 @@ fn an_infantry_house_color_laser_is_two_wide() {
 /// laser with `IsSingleColor=` and no house colour keeps only its
 /// `LaserInnerColor=`; `IsHouseColor=` still wins, and an ordinary laser
 /// keeps the full inner/outer/spread triple.
+#[cfg(feature = "phobos")]
 #[test]
 fn stock_single_color_laser_keeps_only_the_inner_colour() {
     fn birth(

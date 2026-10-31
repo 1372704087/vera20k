@@ -1672,6 +1672,7 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             attempt,
             player_id,
             nickname,
+            motd,
         } if attempt == service.auth_attempt => {
             if validate_online_identity(&player_id, &nickname).is_err() {
                 state.frontend.wol_account.password.clear();
@@ -1681,7 +1682,9 @@ fn apply_response(state: &mut AppState, service: &mut LiveService, response: htt
             service.player_id = player_id;
             state.frontend.wol_account.nickname = nickname;
             state.frontend.wol_account.password.clear();
-            let motd = super::service::vera_motd(state);
+            let motd = motd
+                .filter(|motd| !motd.trim().is_empty())
+                .unwrap_or_else(|| super::service::vera_motd(state));
             service_event(state, WolServiceEvent::Login(Ok(WolLoginAccepted { motd })));
         }
         http::Response::LoginFailed { attempt, code } if attempt == service.auth_attempt => {
@@ -3389,7 +3392,8 @@ mod completion_tests {
                 .send(http::Response::Authenticated {
                     attempt: 0,
                     player_id: "old-player".into(),
-                    nickname: "OldVisit".into()
+                    nickname: "OldVisit".into(),
+                    motd: None
                 })
                 .is_ok()
         );

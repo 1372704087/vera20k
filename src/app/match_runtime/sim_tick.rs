@@ -409,7 +409,7 @@ fn build_score_screen_model(
     // 0x0082FEBC "SCORE". It keeps that literal when the local player is the
     // Observer house (`Player [0xA83D4C] == Observer [0xAC1198]`,
     // 0x1002F4B8..0x1002F4C7).
-    let observing = local_owner.is_some() && local_owner == sim.session().observer_house();
+    let observing = local_owner.is_some_and(|owner| sim.session().is_observer_house(owner));
     let theme = (!observing)
         .then(|| {
             state.process_assets.side_score_theme(

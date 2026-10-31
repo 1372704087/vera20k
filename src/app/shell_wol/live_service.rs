@@ -1524,6 +1524,9 @@ fn request_setup(
                 .clone();
             // Earlier full options can arrive before this queue drains. The
             // outgoing request, not that intervening UI echo, defines its ack.
+            // A guest who starts or stops watching changed nothing here: the
+            // host picks its row, or keeps it.
+            let switch = human.is_observer() != observer;
             human.raw_slot_index = Some(row);
             human.slot = slot.clone();
             human.set_observer(observer);
@@ -1532,10 +1535,11 @@ fn request_setup(
                 "choices",
                 json!({"row":row,"slot":slot,"observer":observer}),
             );
-            service.pending_choices = (!service
-                .accepted_options
-                .as_ref()
-                .is_some_and(|accepted| accepted_human_matches(accepted, &expected_human)))
+            service.pending_choices = (!switch
+                && !service
+                    .accepted_options
+                    .as_ref()
+                    .is_some_and(|accepted| accepted_human_matches(accepted, &expected_human)))
             .then_some(PendingChoices {
                 request_id,
                 expected_human,
@@ -3002,7 +3006,7 @@ mod completion_tests {
         local_first.humans.reverse();
         local_first.local_player_index = 0;
         lobby
-            .accept_network_setup(local_first, false, None)
+            .accept_network_setup(local_first, false, None, false)
             .unwrap();
         lobby.canonicalize_online_roster(&names).unwrap();
         bind_relay_roster(&mut lobby, &names, 77).unwrap();
@@ -3138,7 +3142,9 @@ mod completion_tests {
         launch.rebuild_house_roster();
         let mut session = MatchSession::default();
         session.enter_network(NetworkReturnContext::Wol);
-        session.accept_network_setup(launch, true, None).unwrap();
+        session
+            .accept_network_setup(launch, true, None, false)
+            .unwrap();
         session
     }
 
@@ -3182,7 +3188,9 @@ mod completion_tests {
         let random = !launch.local_slot().color_random;
         launch.local_slot_mut().color_random = random;
         launch.rebuild_house_roster();
-        session.accept_network_setup(launch, true, None).unwrap();
+        session
+            .accept_network_setup(launch, true, None, false)
+            .unwrap();
         assert!(!local_choices_match(&session, &accepted));
         let expected =
             serde_json::to_value(session.network_setup().unwrap().local_player()).unwrap();

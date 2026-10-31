@@ -529,7 +529,7 @@ pub(crate) fn accept_external_session(
 ) -> anyhow::Result<()> {
     let host = launch.local_player_index == 0;
     session.enter_network(context);
-    session.accept_network_setup(launch, host, None)
+    session.accept_network_setup(launch, host, None, false)
 }
 
 /// Install an external launch's setup without a dialog, its online start
@@ -796,7 +796,7 @@ fn install_setup(
     state
         .match_state
         .session
-        .accept_network_setup(launch, host, observer_row)?;
+        .accept_network_setup(launch, host, observer_row, dialog.modern)?;
     let quick_match = dialog.wol() && crate::app::shell_wol::quick_match::mode_active(state);
     if dialog.wol() {
         let room = crate::app::shell_wol::lobby::room(state);
@@ -875,6 +875,11 @@ fn install_setup(
                     .session
                     .set_network_vacancy(row as u8, vacancy)?;
             }
+        }
+        // A VERA room opens its spectator row, but for Quick Match's
+        // matchbot game.
+        if dialog.modern && !quick_match {
+            state.match_state.session.set_network_spectators(true)?;
         }
         if let Some(file) = state
             .match_state
@@ -968,7 +973,7 @@ pub(crate) fn remember_setup(state: &mut AppState) {
     if session.host()
         && let Some(launch) = session.network_setup()
     {
-        let vacancies = std::array::from_fn(|row| session.network_vacancy(row as u8));
+        let vacancies = session.network_remembered_vacancies();
         let choices = std::array::from_fn(|row| session.network_row_choices(row as u8));
         state
             .frontend

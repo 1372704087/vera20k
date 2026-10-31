@@ -502,7 +502,7 @@ impl Simulation {
         } else if let Some(house) = self.houses.get_mut(&owner) {
             house.mark_map_clear();
         }
-        if self.session.observer_house() != Some(owner) {
+        if !self.session.is_observer_house(owner) {
             self.sound_events
                 .emit(SimSoundEvent::PlayerDefeated { house: owner });
         }
@@ -677,7 +677,7 @@ impl Simulation {
             ]);
         }
         if kind == crate::sim::house_state::HouseOutcomeKind::Defeat
-            && self.session.observer_house() == Some(owner)
+            && self.session.is_observer_house(owner)
         {
             return;
         }

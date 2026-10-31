@@ -35,7 +35,7 @@ use crate::map::houses::{HouseAllianceMap, is_allied_with};
 use crate::map::resolved_terrain::{NativeCellQuery, ResolvedTerrainGrid};
 use crate::rules::armor::ArmorId;
 use crate::rules::locomotor_type::SpeedType;
-use crate::rules::object_type::ObjectType;
+use crate::rules::object_type::{ObjectType, WEAPON_SLOT_SECONDARY};
 use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::warhead_type::WarheadType;
@@ -412,7 +412,7 @@ pub(crate) fn has_shared_or_bursting_weapons(obj: &ObjectType, rules: &RuleSet) 
     let Some(primary) = obj.primary() else {
         return false;
     };
-    let secondary = obj.secondary();
+    let secondary = obj.weapon_at(WEAPON_SLOT_SECONDARY);
     secondary == Some(primary)
         || rules.weapon(primary).is_some_and(|weapon| weapon.burst > 1)
         || secondary

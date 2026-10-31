@@ -2564,6 +2564,7 @@ fn authored_upgrade_attack_uses_fixed_slots_and_live_target() {
             &["Vulcan2"][..],
             false,
         ),
+        ("", "[Vulcan2]\nBurst=2\n", &["Vulcan2"][..], false),
     ] {
         let Some((mut sim, rules, target)) =
             authored_retail_upgrade_scene(upgrade_keys, weapon_sections)
@@ -2615,6 +2616,19 @@ fn authored_upgrade_attack_uses_fixed_slots_and_live_target() {
                     .all(|event| event.target == crate::sim::combat::TargetKind::Entity(target))
             );
             assert_eq!(shots[0].fire_coord.z, 40);
+            if rules.object("GAPILL").unwrap().secondary().is_none() {
+                //712130's Primary.Burst arm still calls the empty second
+                //weapon; FireAt's null-weapon return must keep TarCom.
+                assert_eq!(
+                    sim.substrate
+                        .entities
+                        .get(1)
+                        .unwrap()
+                        .attack_target
+                        .target(),
+                    Some(crate::sim::combat::TargetKind::Entity(target)),
+                );
+            }
             assert!(
                 sim.substrate
                     .entities

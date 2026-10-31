@@ -765,6 +765,11 @@ pub struct ObjectType {
     /// Negative values shift the bar UP (above taller sprites). Default 0.
     /// Parsed from `PixelSelectionBracketDelta` in rules.ini.
     pub pixel_selection_bracket_delta: i32,
+    /// Phobos `TechnoTypeExt` insignia block (`Insignia*`, `InsigniaType*`,
+    /// `Insignia.ShowEnemy`). `[InsigniaTypes]` names bind after Rules
+    /// construction.
+    #[cfg(feature = "phobos")]
+    pub phobos_insignia: crate::rules::insignia_type::PhobosInsignia,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4040,6 +4045,12 @@ impl ObjectType {
             // Pass processing projects the shared reader; ART binding does not.
             foundation: crate::rules::foundation::Foundation::default(),
             pixel_selection_bracket_delta: section.read_int("PixelSelectionBracketDelta", 0),
+            #[cfg(feature = "phobos")]
+            phobos_insignia: crate::rules::insignia_type::parse_insignia(
+                section,
+                section.read_int("WeaponCount", 0),
+                section.read_int("Passengers", 0),
+            ),
             // Replaced by the ordered retained Type reader in RuleSet.
             lepton_mind_control_offset: DEFAULT_LEPTON_MIND_CONTROL_OFFSET,
             build_cat: section

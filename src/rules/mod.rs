@@ -118,7 +118,9 @@
 
 pub mod airstrike;
 pub mod attach_effect;
+pub mod building_select_bracket;
 pub mod digital_display;
+pub mod insignia_type;
 pub mod phobos_parallel_ai_queues;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_infantry_deploy_tests.rs"]

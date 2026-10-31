@@ -4695,6 +4695,12 @@ pub struct RuleSet {
     /// Process owner. Empty in builds without the capability.
     #[cfg(feature = "phobos")]
     pub(crate) shield_types: crate::rules::phobos_shields::ShieldTypeCatalog,
+    /// Phobos `[InsigniaTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub(crate) insignia_types: crate::rules::insignia_type::InsigniaTypeCatalog,
+    /// Phobos `[General]`/`[AudioVisual]` insignia settings.
+    #[cfg(feature = "phobos")]
+    pub(crate) insignia_globals: crate::rules::insignia_type::InsigniaGlobals,
     /// Phobos shield globals: `[CombatDamage] ShieldApplyArmorMult` and
     /// `[AudioVisual] Shield.ConditionYellow/ConditionRed`.
     #[cfg(feature = "phobos")]
@@ -4953,6 +4959,10 @@ impl RuleSet {
                 object.elite_weapon_list = slots.elite();
                 object.bind_weapon_offsets(slots.offsets());
             }
+        }
+        #[cfg(feature = "phobos")]
+        for object in &mut rules.object_list {
+            object.phobos_insignia.bind_types(&rules.insignia_types);
         }
         rules.crate_rules = processed.crate_rules().clone();
         rules.powerups = processed.powerups().clone();
@@ -6029,6 +6039,10 @@ impl RuleSet {
         let elevation_model = ElevationModel::from_ini(ini);
         let radiation: RadiationRules = RadiationRules::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let insignia_types = processed.insignia_types().cloned().unwrap_or_default();
+        #[cfg(feature = "phobos")]
+        let insignia_globals = crate::rules::insignia_type::InsigniaGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let (shield_types, shield_globals) = {
             let shield_types = processed.shield_types().cloned().unwrap_or_default();
             log::info!(
@@ -6489,6 +6503,10 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             shield_types,
             #[cfg(feature = "phobos")]
+            insignia_types,
+            #[cfg(feature = "phobos")]
+            insignia_globals,
+            #[cfg(feature = "phobos")]
             shield_globals,
             #[cfg(feature = "phobos")]
             crit_globals: crate::rules::phobos_crit::CritGlobals::from_ini(ini),
@@ -6930,6 +6948,18 @@ impl RuleSet {
     /// Look up a warhead by ID (case-insensitive, gamemd parity).
     pub fn warhead(&self, id: &str) -> Option<&WarheadType> {
         Self::lookup_ci(&self.warheads, id)
+    }
+
+    /// Phobos `[InsigniaTypes]` catalog.
+    #[cfg(feature = "phobos")]
+    pub fn insignia_types(&self) -> &crate::rules::insignia_type::InsigniaTypeCatalog {
+        &self.insignia_types
+    }
+
+    /// Phobos `[General]`/`[AudioVisual]` insignia settings.
+    #[cfg(feature = "phobos")]
+    pub fn insignia_globals(&self) -> &crate::rules::insignia_type::InsigniaGlobals {
+        &self.insignia_globals
     }
 
     /// Phobos `[ShieldTypes]` entry by name (case-insensitive, first spelling

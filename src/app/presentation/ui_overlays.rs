@@ -1100,6 +1100,131 @@ fn shield_bar_instances(
     }
 }
 
+/// Phobos `TechnoExt::DrawInsignia`: the custom/stock rank shape, frame and
+/// screen position for one Techno, or `None` when the draw is refused. The
+/// hook replaces the native rank block whenever the Phobos capability is
+/// compiled in, so the stock negative-rank frame19 arm is not reached.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn phobos_insignia_draw<'a>(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+    overlay: &'a crate::render::selection_overlay::SelectionOverlay,
+    observer_id: Option<crate::sim::intern::InternedId>,
+    observer_present: bool,
+    disguised: bool,
+    hovered_id: Option<u64>,
+    sx: f32,
+    sy: f32,
+) -> Option<(
+    &'a crate::render::selection_overlay::CenteredShapeStrip,
+    usize,
+    (f32, f32),
+)> {
+    let globals = rules.insignia_globals();
+    if globals.only_on_selected
+        && !entity.selection.is_selected()
+        && hovered_id != Some(entity.stable_id())
+    {
+        return None;
+    }
+    let viewer_allied = |house: crate::sim::intern::InternedId| {
+        observer_id.is_some_and(|viewer| {
+            crate::sim::combat::combat_weapon::is_ally_by_object(
+                Some(sim.house_alliances()),
+                sim.interner(),
+                viewer,
+                house,
+            )
+        })
+    };
+    let mut object = sim.interner().object_type(entity.type_ref(), rules)?;
+    let mut house = Some(entity.owner());
+    if disguised && let Some(disguise) = entity.disguise.as_ref() {
+        let mut worn_object = false;
+        if let Some(type_id) = disguise.type_id() {
+            let name = sim.interner().resolve(type_id);
+            if let Some(worn) = rules.object(name) {
+                object = worn;
+                house = disguise.house();
+                worn_object = true;
+            }
+        }
+        if !worn_object && !(observer_present || viewer_allied(entity.owner())) {
+            return None;
+        }
+    }
+    let show_enemy = object
+        .phobos_insignia
+        .show_enemy
+        .unwrap_or(globals.enemy_insignia);
+    if !(house.is_some_and(viewer_allied) || observer_present || show_enemy) {
+        return None;
+    }
+    use crate::sim::combat::veterancy::{raw_is_elite, raw_is_veteran};
+    let raw = entity.veterancy.raw();
+    let rank = if raw_is_elite(raw) {
+        2
+    } else if raw_is_veteran(raw) {
+        1
+    } else {
+        0
+    };
+    let weapon = object
+        .gunner_turrets
+        .is_gunner()
+        .then(|| entity.current_weapon_number())
+        .and_then(|index| usize::try_from(index).ok());
+    let passengers = (object.passengers > 0)
+        .then(|| {
+            entity
+                .passenger_role
+                .cargo()
+                .map_or(0, crate::sim::passenger::PassengerCargo::total_size)
+                .min(object.passengers)
+        })
+        .and_then(|index| usize::try_from(index).ok());
+    let insignia = object.phobos_insignia.select(weapon, passengers);
+    let custom = insignia.images[rank].as_deref().and_then(|name| {
+        overlay.insignia_shape(name).or_else(|| {
+            let common = insignia.commons[rank].as_deref()?;
+            (Some(common) != insignia.images[rank].as_deref())
+                .then(|| overlay.insignia_shape(common))
+                .flatten()
+        })
+    });
+    let (shape, custom) = match custom {
+        Some(shape) => (shape, true),
+        None => (overlay.pips()?, false),
+    };
+    let frame = usize::try_from(insignia.frame(rank, custom)?).ok()?;
+    let (mut x, mut y) = (sx, sy);
+    match entity.category() {
+        EntityCategory::Infantry => {
+            x += globals.adjust_infantry[0] as f32;
+            y += globals.adjust_infantry[1] as f32;
+        }
+        EntityCategory::Structure => {
+            if let Some(anchor) = globals.buildings_anchor {
+                (x, y) = crate::app::presentation::digital_display::building_bracket(
+                    sim, entity, object, rules, anchor,
+                );
+            }
+            x += globals.adjust_buildings[0] as f32;
+            y += globals.adjust_buildings[1] as f32;
+        }
+        _ => {
+            x += globals.adjust_units[0] as f32;
+            y += globals.adjust_units[1] as f32;
+        }
+    }
+    if globals.use_pixel_selection_bracket_delta {
+        y += object.pixel_selection_bracket_delta as f32;
+    }
+    Some((shape, frame, (x, y)))
+}
+
 /// One Techno DrawExtras6F5190 parent: clock, wrench, rank, then health6F64A0.
 /// Rank70A990 precedes the selected/hovered health gate at6F5388. It uses
 /// the shared cloak/disguise and raw Veterancy owners, with opaque status art.
@@ -1251,6 +1376,7 @@ pub(crate) fn techno_extras_for_parent(
             false,
         ),
     );
+    #[cfg(not(feature = "phobos"))]
     if !disguised && character != 5 {
         use crate::sim::combat::veterancy::{raw_is_elite, raw_is_negative, raw_is_veteran};
         //70A999's +88 getter is discarded (Unit741490, Building459EE0);
@@ -1281,6 +1407,29 @@ pub(crate) fn techno_extras_for_parent(
                     rank
                 });
         }
+    }
+    #[cfg(feature = "phobos")]
+    if character != 5
+        && let Some(rules) = rules
+        && let Some((shape, frame, point)) = phobos_insignia_draw(
+            sim,
+            entity,
+            rules,
+            overlay,
+            observer_id,
+            observer.observer_present,
+            disguised,
+            hovered_id,
+            sx,
+            sy,
+        )
+    {
+        strip.rank = instance(shape, frame, point, 0.0006)
+            .filter(|rank| viewport.contains(rank))
+            .map(|mut rank| {
+                rank.z_adjust = -2.0;
+                rank
+            });
     }
     let (draw_background, draw_health) =
         health_strip_visibility(sim, entity, hovered_id, observer_id);

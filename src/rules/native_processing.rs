@@ -18,6 +18,7 @@ use crate::rules::digital_display::DigitalDisplayTypeCatalog;
 use crate::rules::error::RulesError;
 use crate::rules::gunner_turrets::GunnerTurrets;
 use crate::rules::ini_parser::{IniFile, IniSection, is_native_none_type_name};
+use crate::rules::insignia_type::InsigniaTypeCatalog;
 use crate::rules::locomotor_type::SpeedType;
 use crate::rules::phobos_radiation::RadiationTypeCatalog;
 use crate::rules::phobos_shields::ShieldTypeCatalog;
@@ -703,6 +704,16 @@ impl ProcessedRulesLayers {
         self.native_type_construction_trace
             .registry_state
             .phobos_radiation_types
+            .as_ref()
+    }
+
+    /// Phobos `[InsigniaTypes]` catalog with the same retained process
+    /// lifetime as Types.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn insignia_types(&self) -> Option<&InsigniaTypeCatalog> {
+        self.native_type_construction_trace
+            .registry_state
+            .phobos_insignia_types
             .as_ref()
     }
 
@@ -3357,6 +3368,8 @@ pub(crate) struct NativeRulesRegistryState {
     phobos_radiation_types: Option<RadiationTypeCatalog>,
     /// Phobos `[ShieldTypes]` catalog; Process retains it per pass.
     phobos_shield_types: Option<ShieldTypeCatalog>,
+    /// Phobos `[InsigniaTypes]` catalog; Process retains it per pass.
+    phobos_insignia_types: Option<InsigniaTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
     /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
@@ -3460,6 +3473,7 @@ impl Default for NativeRulesRegistryState {
             phobos_radiation_types: crate::rules::PHOBOS_ENABLED
                 .then(RadiationTypeCatalog::with_default),
             phobos_shield_types: crate::rules::PHOBOS_ENABLED.then(ShieldTypeCatalog::default),
+            phobos_insignia_types: crate::rules::PHOBOS_ENABLED.then(InsigniaTypeCatalog::default),
             phobos_digital_display_types: crate::rules::PHOBOS_ENABLED
                 .then(DigitalDisplayTypeCatalog::default),
             phobos_attach_effect_types: crate::rules::PHOBOS_ENABLED
@@ -4972,6 +4986,8 @@ struct RulesPassProcessor {
     phobos_radiation_types: Option<RadiationTypeCatalog>,
     /// Phobos `[ShieldTypes]` catalog; Process retains it per pass.
     phobos_shield_types: Option<ShieldTypeCatalog>,
+    /// Phobos `[InsigniaTypes]` catalog; Process retains it per pass.
+    phobos_insignia_types: Option<InsigniaTypeCatalog>,
     /// Phobos `[DigitalDisplayTypes]` catalog; Process retains it per pass.
     phobos_digital_display_types: Option<DigitalDisplayTypeCatalog>,
     /// Phobos `[AttachEffectTypes]` catalog; Process retains it per pass.
@@ -5059,6 +5075,7 @@ impl RulesPassProcessor {
             ares_armors: registry_state.ares_armors,
             phobos_radiation_types: registry_state.phobos_radiation_types,
             phobos_shield_types: registry_state.phobos_shield_types,
+            phobos_insignia_types: registry_state.phobos_insignia_types,
             phobos_digital_display_types: registry_state.phobos_digital_display_types,
             phobos_attach_effect_types: registry_state.phobos_attach_effect_types,
             #[cfg(feature = "ares")]
@@ -5226,6 +5243,8 @@ impl RulesPassProcessor {
         self.allocate_radiation_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_shield_types(pass);
+        #[cfg(feature = "phobos")]
+        self.allocate_insignia_types(pass);
         #[cfg(feature = "phobos")]
         self.allocate_digital_display_types(pass);
         #[cfg(feature = "phobos")]
@@ -8109,6 +8128,15 @@ impl RulesPassProcessor {
         }
     }
 
+    /// Phobos `InsigniaTypeClass::LoadFromINIList` + each type's
+    /// `LoadFromINI`, reached on every Rules pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_insignia_types(&mut self, pass: &IniFile) {
+        if let Some(catalog) = self.phobos_insignia_types.as_mut() {
+            catalog.apply_pass(pass);
+        }
+    }
+
     /// Phobos `DigitalDisplayTypeClass::LoadFromINIList` + each type's
     /// `LoadFromINI`, reached on every Rules pass.
     #[cfg(feature = "phobos")]
@@ -8374,6 +8402,7 @@ impl RulesPassProcessor {
                     ares_armors: self.ares_armors,
                     phobos_radiation_types: self.phobos_radiation_types,
                     phobos_shield_types: self.phobos_shield_types,
+                    phobos_insignia_types: self.phobos_insignia_types,
                     phobos_digital_display_types: self.phobos_digital_display_types,
                     phobos_attach_effect_types: self.phobos_attach_effect_types,
                     #[cfg(feature = "ares")]

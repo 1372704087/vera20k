@@ -1344,8 +1344,8 @@ mod tests {
         let ini = IniFile::from_str(
             "[BuildingTypes]\n0=BASE\n1=UP1\n2=UP2\n\
              [BASE]\nStrength=500\nUpgrades=3\nPrimary=HOST\nElitePrimary=ELITE\nLandTargeting=2\n\
-             [UP1]\nStrength=100\nPowersUpBuilding=BASE\nPrimary=FIRST\nElitePrimary=WRONG\n\
-             [UP2]\nStrength=100\nPowersUpBuilding=BASE\nSecondary=SECOND\n\
+             [UP1]\nStrength=100\nPowersUpBuilding=BASE\nPowersUpToLevel=2\nPrimary=FIRST\nElitePrimary=WRONG\n\
+             [UP2]\nStrength=100\nPowersUpBuilding=BASE\nPrimary=SECOND\nSecondary=SECOND\n\
              [HOST]\nWarhead=WH\n[ELITE]\nWarhead=WH\n[FIRST]\nWarhead=WH\n\
              [WRONG]\nWarhead=WH\n[SECOND]\nWarhead=WH\n[WH]\n\
              [Structures]\n0=Americans,BASE,256,10,12,0,None,1,0,1,2,0,UP1,UP2,None,0,1\n",
@@ -1368,7 +1368,8 @@ mod tests {
             .set_elite();
         let obj = rules.object("BASE").unwrap();
         let host = world.substrate.entities.get(1).unwrap();
-        assert_eq!(host.building_upgrades().count(), 2);
+        assert_eq!(host.building_upgrades().count(), 3);
+        assert_eq!(host.building_upgrades().types()[0], None);
         assert_eq!(
             get_weapon(
                 host,

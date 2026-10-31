@@ -2390,8 +2390,13 @@ fn authored_retail_upgrade_lends_its_weapon_and_fire_offset() {
         return;
     };
     let rules = retail.rules;
-    let mut sim = Simulation::new();
-    install_american_house(&mut sim);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x4526_F0);
+    sim.session
+        .set_game_mode(crate::sim::scenario_session::ScenarioGameMode::Skirmish);
+    sim.session
+        .set_current_house_for_test(sim.interner.get("Americans"));
+    // This bounded arena gives the opponent a tank, without a starting base.
+    sim.session.game_options_mut_for_test().short_game = false;
     let placements = crate::map::entities::parse_map_entities(&map);
     assert_eq!(sim.spawn_from_map(&placements, Some(&rules)), 2);
     let host = sim.substrate.entities.get(1).unwrap();
@@ -2436,6 +2441,58 @@ fn authored_retail_upgrade_lends_its_weapon_and_fire_offset() {
         crate::rules::flh::Flh::default(),
     );
     assert_eq!(fire.coord.z - fire.source_z, 40);
+    let target = sim
+        .spawn_object("HTNK", "Russians", 14, 12, 0, &rules)
+        .unwrap();
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let mut shots = 0;
+    for frame in 1..=360 {
+        sim.session.set_binary_frame_for_test(frame);
+        let output = sim
+            .advance_app_frame(
+                &[],
+                &rules,
+                None,
+                33,
+                crate::sim::world::TickLane::Ordinary,
+                FrameEffects::default(),
+            )
+            .unwrap();
+        assert!(output.tick.frame_committed);
+        for event in output
+            .fire_events
+            .iter()
+            .filter(|event| event.attacker_id == 1)
+        {
+            assert_eq!(sim.interner.resolve(event.weapon_id), "Vulcan2");
+            assert_eq!(event.target, crate::sim::combat::TargetKind::Entity(target));
+            assert_eq!(event.fire_coord.z, 40);
+            let host = sim.substrate.entities.get(1).unwrap();
+            assert_eq!(
+                host.mission.current().known(),
+                Some(crate::sim::mission::MissionType::Attack)
+            );
+            assert!(host.rearm_timer.remaining(frame as i32) > 0);
+            shots += 1;
+        }
+        if shots >= 2 {
+            break;
+        }
+    }
+    assert_eq!(
+        shots,
+        2,
+        "the upgraded host acquires, fires, rearms and fires again; host {:?}, target {:?}",
+        sim.substrate
+            .entities
+            .get(1)
+            .map(|host| (host.mission.current(), host.attack_target.target())),
+        sim.substrate
+            .entities
+            .get(target)
+            .map(|target| (target.is_object_alive(), target.health.current())),
+    );
     // The upgrade loop always uses the normal record, including on an elite host.
     sim.substrate
         .entities

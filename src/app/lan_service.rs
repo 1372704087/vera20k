@@ -2042,19 +2042,27 @@ fn receive(state: &mut AppState, incoming: GlobalMessage, now: u32) -> anyhow::R
                     crate::skirmish_launch::LaunchStartPosition::Position(u8::try_from(values[2])?)
                 };
                 choices.team = crate::skirmish_launch::LaunchTeam::from_shell_value(values[3]);
-                let change = state
-                    .match_state
-                    .session
-                    .accept_lan_peer_choices(source, choices)?;
-                if change.options && !options::publish_options(state)? {
-                    state
-                        .match_state
-                        .lan_service
-                        .as_mut()
-                        .expect("visit")
-                        .deferred_setup
-                        .push_back(super::shell_network_setup::NetworkSetupRequest::PublishOptions);
+                let change = state.match_state.session.accept_lan_peer_choices(
+                    source,
+                    choices,
+                    values[0] == -3,
+                )?;
+                // A VERA room's guest who starts or stops watching changes
+                // rows: the roster, then the options, as WOL's R arm.
+                let mut deferred = Vec::new();
+                if change.roster && !options::publish_roster(state)? {
+                    deferred.push(super::shell_network_setup::NetworkSetupRequest::PublishRoster);
                 }
+                if change.options && !options::publish_options(state)? {
+                    deferred.push(super::shell_network_setup::NetworkSetupRequest::PublishOptions);
+                }
+                state
+                    .match_state
+                    .lan_service
+                    .as_mut()
+                    .expect("visit")
+                    .deferred_setup
+                    .extend(deferred);
             }
         }
         LanMessageKind::Unknown(0x10) => {

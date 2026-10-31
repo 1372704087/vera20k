@@ -230,11 +230,14 @@ enum NetworkPhase {
         /// Native831700/8316A4: prior capacity and independent reserved observer row.
         capacity: i32,
         observer_row: Option<u8>,
-        /// VERA's own rooms (`SetupDialog::modern`): any row may be open for
-        /// an observer, and the rows past the players are spectator rows,
-        /// Closed unless open for or held by an observer. Native diagnostics
-        /// keep the one reserved row above.
+        /// VERA's own rooms (`SetupDialog::modern`): the rows past the
+        /// players are spectator rows, Closed unless open for or held by an
+        /// observer. Native diagnostics keep the one reserved row above.
         several_observers: bool,
+        /// The host of a VERA room keeps one spectator row open after its
+        /// spectators while no AI plays: a game with observers has no AI
+        /// (`0x5EC9F0`'s TXT_NO_AI_WITH_OBSERVER).
+        open_spectators: bool,
     },
     Frozen {
         startup: Arc<crate::app::match_bootstrap::PreparedNetworkStartup>,
@@ -599,6 +602,7 @@ impl MatchSession {
             capacity: 8,
             observer_row,
             several_observers,
+            open_spectators: false,
             launch,
             admission,
             vacancies: [NetworkVacancy::Open; NETWORK_PLAYER_SLOT_COUNT],
@@ -786,6 +790,7 @@ impl MatchSession {
             map_status: 0,
         });
         launch.rebuild_house_roster();
+        self.keep_spectator_row()?;
         Ok(index)
     }
 
@@ -811,7 +816,7 @@ impl MatchSession {
             launch.local_player_index -= 1;
         }
         launch.rebuild_house_roster();
-        Ok(())
+        self.keep_spectator_row()
     }
 
     /// The WOL host's private-options `R` arm (`0x007A8260`, `0x7A83CC..
@@ -844,14 +849,66 @@ impl MatchSession {
         let Some(row) = human.raw_slot_index else {
             return Ok(PeerChoicesChange::default());
         };
-        let was_observer = human.is_observer();
+        self.accept_peer_choices(
+            index,
+            row,
+            choices,
+            observer,
+            PeerChoicePolicy::Wol { countries },
+        )
+    }
+
+    /// LAN Type18 receiver5E0D1C..5E0F20: writes country and team directly,
+    /// with the same color/start collision checks as WOL. It does not perform
+    /// WOL's observer row moves or mode country/team validation; VERA's rooms
+    /// move a guest asking to observe (country -3) or to play as WOL does.
+    pub(crate) fn accept_lan_peer_choices(
+        &mut self,
+        index: usize,
+        choices: SkirmishLocalSlot,
+        observer: bool,
+    ) -> anyhow::Result<PeerChoicesChange> {
+        anyhow::ensure!(self.host, "only the host checks LAN peer choices");
+        let several = self.network_several_observers();
+        let launch = self.editable_network_setup()?;
+        anyhow::ensure!(
+            index != launch.local_player_index,
+            "the host's own row is not a peer's"
+        );
+        let human = launch
+            .humans
+            .get(index)
+            .ok_or_else(|| anyhow::anyhow!("unknown participant"))?;
+        let Some(row) = human.raw_slot_index else {
+            return Ok(PeerChoicesChange::default());
+        };
+        let observer = if several {
+            observer
+        } else {
+            human.is_observer()
+        };
+        self.accept_peer_choices(index, row, choices, observer, PeerChoicePolicy::Lan)
+    }
+
+    fn accept_peer_choices(
+        &mut self,
+        index: usize,
+        row: u8,
+        choices: SkirmishLocalSlot,
+        observer: bool,
+        policy: PeerChoicePolicy<'_>,
+    ) -> anyhow::Result<PeerChoicesChange> {
+        let was_observer = self.network_setup().expect("checked").humans[index].is_observer();
         let observer_row = self.network_observer_row();
         let mut change = PeerChoicesChange::default();
         if was_observer && !observer {
             change.roster = true;
             change.options = true;
             if self.network_no_open_player_row() {
-                self.set_network_row_kind(row, NetworkRowKind::OpenObserver)?;
+                // VERA's rooms keep the spectator watching.
+                if !self.network_several_observers() {
+                    self.set_network_row_kind(row, NetworkRowKind::OpenObserver)?;
+                }
                 return Ok(change);
             }
             // 0x7A8838..0x7A88A4: country Random and a player role, the
@@ -872,11 +929,17 @@ impl MatchSession {
             human.set_observer(false);
             human.slot.country_random = true;
             human.raw_slot_index = Some(free);
+            self.keep_spectator_row()?;
         } else if !was_observer && observer {
             change.roster = true;
             change.options = true;
             let target = self.network_free_row(true);
             let several = self.network_several_observers();
+            // VERA's rooms keep the player seated without an open
+            // spectator row.
+            if several && target.is_none() {
+                return Ok(change);
+            }
             self.set_network_row_kind(row, NetworkRowKind::Open)?;
             if let Some(target) = target {
                 // 0x7A89F4..0x7A8A6F: the node goes to [0x8316A4]; in VERA's
@@ -890,41 +953,12 @@ impl MatchSession {
                 });
             }
             self.editable_network_setup()?.rebuild_house_roster();
+            self.keep_spectator_row()?;
             return Ok(change);
         }
-        let applied = self.apply_peer_choice_fields(
-            index,
-            choices,
-            observer,
-            PeerChoicePolicy::Wol { countries },
-        )?;
+        let applied = self.apply_peer_choice_fields(index, choices, observer, policy)?;
         change.options |= applied.options;
         Ok(change)
-    }
-
-    /// LAN Type18 receiver5E0D1C..5E0F20: writes country and team directly,
-    /// with the same color/start collision checks as WOL. It does not perform
-    /// WOL's observer row moves or mode country/team validation.
-    pub(crate) fn accept_lan_peer_choices(
-        &mut self,
-        index: usize,
-        choices: SkirmishLocalSlot,
-    ) -> anyhow::Result<PeerChoicesChange> {
-        anyhow::ensure!(self.host, "only the host checks LAN peer choices");
-        let launch = self.editable_network_setup()?;
-        anyhow::ensure!(
-            index != launch.local_player_index,
-            "the host's own row is not a peer's"
-        );
-        let human = launch
-            .humans
-            .get(index)
-            .ok_or_else(|| anyhow::anyhow!("unknown participant"))?;
-        if human.raw_slot_index.is_none() {
-            return Ok(PeerChoicesChange::default());
-        }
-        let observer = human.is_observer();
-        self.apply_peer_choice_fields(index, choices, observer, PeerChoicePolicy::Lan)
     }
 
     fn apply_peer_choice_fields(
@@ -1745,9 +1779,92 @@ impl MatchSession {
             })
     }
 
+    /// Whether the host of a VERA room keeps a spectator row open.
+    pub(crate) fn set_network_spectators(&mut self, open: bool) -> anyhow::Result<()> {
+        anyhow::ensure!(self.host, "only the host opens spectator rows");
+        if let Some(NetworkSession {
+            phase: NetworkPhase::Setup {
+                open_spectators, ..
+            },
+            ..
+        }) = self.network.as_mut()
+        {
+            *open_spectators = open;
+        }
+        self.keep_spectator_row()
+    }
+
+    /// The host's own Player choice for a row (`0x005EC9F0`). In a VERA room
+    /// opening a free spectator row keeps one open for spectators, and
+    /// closing the open one stops them.
+    pub(crate) fn choose_network_row_kind(
+        &mut self,
+        row: u8,
+        kind: NetworkRowKind,
+    ) -> anyhow::Result<Option<crate::skirmish_launch::SkirmishHumanSlot>> {
+        if self.network_several_observers()
+            && row >= self.network_player_row_limit()
+            && self.network_vacancy(row).is_some()
+        {
+            self.set_network_spectators(kind == NetworkRowKind::OpenObserver)?;
+        }
+        let removed = self.set_network_row_kind(row, kind)?;
+        self.keep_spectator_row()?;
+        Ok(removed)
+    }
+
+    /// A VERA room's rows after a change on its host: an Open Observer row
+    /// among the players opens for a player, and past them only the first
+    /// free row after the last spectator stays open, while the host keeps
+    /// spectators and no AI plays.
+    fn keep_spectator_row(&mut self) -> anyhow::Result<()> {
+        let Some(NetworkSession {
+            phase:
+                NetworkPhase::Setup {
+                    launch,
+                    observer_row,
+                    several_observers: true,
+                    open_spectators,
+                    ..
+                },
+            ..
+        }) = self.network.as_ref()
+        else {
+            return Ok(());
+        };
+        if !self.host {
+            return Ok(());
+        }
+        let open = *open_spectators && observer_row.is_some() && launch.opponents.is_empty();
+        let seated = |row: u8| {
+            launch
+                .humans
+                .iter()
+                .any(|human| human.raw_slot_index == Some(row))
+        };
+        let players = self.network_player_row_limit();
+        let rows = NETWORK_PLAYER_SLOT_COUNT as u8;
+        let after = (players..rows)
+            .filter(|row| seated(*row))
+            .last()
+            .map_or(players, |row| row + 1);
+        let spare = (open && after < rows).then_some(after);
+        for row in 0..rows {
+            let kind = match self.network_vacancy(row) {
+                Some(NetworkVacancy::OpenObserver) if row < players => NetworkRowKind::Open,
+                Some(NetworkVacancy::Waiting) | None => continue,
+                Some(_) if row < players => continue,
+                Some(_) if Some(row) == spare => NetworkRowKind::OpenObserver,
+                Some(_) => NetworkRowKind::Closed,
+            };
+            self.set_network_row_kind(row, kind)?;
+        }
+        Ok(())
+    }
+
     /// The rows the host's profile keeps (`0x005ED400`). A VERA room's
-    /// Closed spectator rows are kept as the Open rows a native room hides
-    /// past its players, so a later map's players find them open.
+    /// spectator rows are kept as the Open rows a native room hides past its
+    /// players, so a later map's players find them open.
     pub(crate) fn network_remembered_vacancies(
         &self,
     ) -> [Option<NetworkVacancy>; NETWORK_PLAYER_SLOT_COUNT] {
@@ -1757,7 +1874,11 @@ impl MatchSession {
             NETWORK_PLAYER_SLOT_COUNT as u8
         };
         std::array::from_fn(|row| match self.network_vacancy(row as u8) {
-            Some(NetworkVacancy::Closed) if row as u8 >= spectators => Some(NetworkVacancy::Open),
+            Some(NetworkVacancy::Closed | NetworkVacancy::OpenObserver)
+                if row as u8 >= spectators =>
+            {
+                Some(NetworkVacancy::Open)
+            }
             vacancy => vacancy,
         })
     }
@@ -1887,24 +2008,28 @@ impl MatchSession {
         } else if new_rows > old_rows {
             for row in old_rows..new_rows.min(NETWORK_PLAYER_SLOT_COUNT as i32) {
                 let row = row as u8;
-                // A VERA room's reserved row is no different from the others,
-                // but its observers stay.
-                let kept = if several {
-                    candidate.network_row_for_observer(row)
-                } else {
-                    Some(row) == observer_row
-                };
-                if Some(row) == local_row || kept {
+                // A VERA room's reserved row is no different from the others.
+                if Some(row) == local_row || (!several && Some(row) == observer_row) {
                     continue;
                 }
                 let setup = candidate.network_setup().unwrap();
-                if setup
-                    .humans
-                    .iter()
-                    .any(|human| human.raw_slot_index == Some(row))
-                {
-                    continue;
+                let seated = |row: u8| {
+                    setup
+                        .humans
+                        .iter()
+                        .position(|human| human.raw_slot_index == Some(row))
+                };
+                if let Some(index) = seated(row) {
+                    // Its spectators move on past the new players.
+                    let free = (new_rows as u8..NETWORK_PLAYER_SLOT_COUNT as u8)
+                        .find(|row| seated(*row).is_none())
+                        .filter(|_| several && setup.humans[index].is_observer());
+                    let Some(free) = free else {
+                        continue;
+                    };
+                    candidate.editable_network_setup()?.humans[index].raw_slot_index = Some(free);
                 }
+                let setup = candidate.network_setup().unwrap();
                 let kind = setup
                     .opponents
                     .iter()
@@ -1998,6 +2123,7 @@ impl MatchSession {
             };
         }
         launch.rebuild_house_roster();
+        candidate.keep_spectator_row()?;
         *self = candidate;
         Ok(removed)
     }
@@ -3152,13 +3278,9 @@ mod tests {
         assert!(!session.network_over_capacity());
     }
 
-    /// VERA's rooms (`several_observers`): the rows past the players are
-    /// closed spectator rows the host may open, and each observer keeps its
-    /// own row through a map change and back to play; the reserved row 7 is
-    /// not used.
-    #[test]
-    fn vera_room_seats_each_observer_on_its_own_row() {
-        use super::{NetworkRowKind, NetworkVacancy};
+    /// A VERA room (`several_observers`) on FOUR.MAP whose host keeps a
+    /// spectator row open; the guest plays from row 1.
+    fn vera_room() -> MatchSession {
         let mut launch = network_fixture();
         launch.local_player_index = 0;
         let mode = launch.mode.clone();
@@ -3168,41 +3290,133 @@ mod tests {
             .accept_network_setup(launch, true, Some(7), true)
             .unwrap();
         session
-            .select_network_map(mode.clone(), "FOUR.MAP".into(), 4)
+            .select_network_map(mode, "FOUR.MAP".into(), 4)
             .unwrap();
-        assert!((4..30).all(|row| session.network_vacancy(row) == Some(NetworkVacancy::Closed)));
-        for row in [4, 9] {
-            session
-                .set_network_row_kind(row, NetworkRowKind::OpenObserver)
-                .unwrap();
-        }
+        session.set_network_spectators(true).unwrap();
+        session
+    }
+
+    /// The rows open for an observer.
+    fn observer_rows(session: &MatchSession) -> Vec<u8> {
+        (0..30)
+            .filter(|row| {
+                session.network_vacancy(*row) == Some(super::NetworkVacancy::OpenObserver)
+            })
+            .collect()
+    }
+
+    /// Whether the guest watches, and its row.
+    fn guest(session: &MatchSession) -> (bool, Option<u8>) {
+        let guest = &session.network_setup().unwrap().humans[1];
+        (guest.is_observer(), guest.raw_slot_index)
+    }
+
+    /// The spectator row a VERA room keeps open: a guest who watches takes
+    /// it and the next opens. With no seat open it keeps watching, and a
+    /// LAN guest plays again from the first open seat.
+    #[test]
+    fn a_vera_room_guest_watches_and_plays_again() {
+        use super::NetworkRowKind;
+        let mut session = vera_room();
+        assert_eq!(observer_rows(&session), [4]);
         let slot = session.network_setup().unwrap().humans[1].slot.clone();
         session
             .accept_network_peer_choices(1, slot.clone(), true, None)
             .unwrap();
-        assert_eq!(
-            session.network_setup().unwrap().humans[1].raw_slot_index,
-            Some(4)
-        );
-        assert_eq!(session.network_free_row(true), Some(9));
+        assert_eq!(guest(&session), (true, Some(4)));
+        assert_eq!(observer_rows(&session), [5]);
+        for row in 1..4 {
+            session
+                .choose_network_row_kind(row, NetworkRowKind::Closed)
+                .unwrap();
+        }
+        session
+            .accept_lan_peer_choices(1, slot.clone(), false)
+            .unwrap();
+        assert_eq!(guest(&session), (true, Some(4)));
+        session
+            .choose_network_row_kind(2, NetworkRowKind::Open)
+            .unwrap();
+        session.accept_lan_peer_choices(1, slot, false).unwrap();
+        assert_eq!(guest(&session), (false, Some(2)));
+        assert_eq!(observer_rows(&session), [4]);
+    }
+
+    /// No AI plays while anyone watches (`0x5EC9F0`'s
+    /// TXT_NO_AI_WITH_OBSERVER): an AI closes the spectator row, and a
+    /// guest asking to watch keeps its seat. The host closes the row and
+    /// opens it again; it follows a spectator who joins and leaves.
+    #[test]
+    fn a_vera_room_closes_its_spectator_row_for_ai_and_the_host() {
+        use super::NetworkRowKind;
+        let mut session = vera_room();
+        session
+            .choose_network_row_kind(
+                2,
+                NetworkRowKind::Ai(crate::skirmish_launch::AiDifficulty::Easy),
+            )
+            .unwrap();
+        assert!(observer_rows(&session).is_empty());
+        let slot = session.network_setup().unwrap().humans[1].slot.clone();
+        session
+            .accept_network_peer_choices(1, slot, true, None)
+            .unwrap();
+        assert_eq!(guest(&session), (false, Some(1)));
+        session
+            .choose_network_row_kind(2, NetworkRowKind::Open)
+            .unwrap();
+        assert_eq!(observer_rows(&session), [4]);
+        session
+            .choose_network_row_kind(4, NetworkRowKind::Closed)
+            .unwrap();
+        assert!(observer_rows(&session).is_empty());
+        session
+            .choose_network_row_kind(4, NetworkRowKind::OpenObserver)
+            .unwrap();
+        assert_eq!(observer_rows(&session), [4]);
+        let mut spectator = session.network_setup().unwrap().humans[1].clone();
+        spectator.name = "Spectator".into();
+        spectator.raw_slot_index = Some(4);
+        spectator.set_observer(true);
+        let index = session.add_network_participant(spectator).unwrap();
+        assert_eq!(observer_rows(&session), [5]);
+        session.remove_network_participant(index).unwrap();
+        assert_eq!(observer_rows(&session), [4]);
+    }
+
+    /// A larger map's players take the spectators' rows: they move on past
+    /// the new players, and stay there for a smaller map.
+    #[test]
+    fn a_vera_room_moves_its_spectators_past_new_players() {
+        use super::NetworkVacancy;
+        let mut session = vera_room();
+        let mode = session.network_setup().unwrap().mode.clone();
+        let slot = session.network_setup().unwrap().humans[1].slot.clone();
+        session
+            .accept_network_peer_choices(1, slot, true, None)
+            .unwrap();
+        let mut spectator = session.network_setup().unwrap().humans[1].clone();
+        spectator.name = "Spectator".into();
+        spectator.raw_slot_index = Some(5);
+        session.add_network_participant(spectator).unwrap();
+        let rows = |session: &MatchSession| {
+            session.network_setup().unwrap().humans[1..]
+                .iter()
+                .map(|human| human.raw_slot_index)
+                .collect::<Vec<_>>()
+        };
+        session
+            .select_network_map(mode.clone(), "TWELVE.MAP".into(), 12)
+            .unwrap();
+        assert_eq!(rows(&session), [Some(12), Some(13)]);
+        assert!((1..12).all(|row| session.network_vacancy(row) == Some(NetworkVacancy::Open)));
+        assert_eq!(observer_rows(&session), [14]);
         let removed = session
-            .select_network_map(mode, "TWO.MAP".into(), 2)
+            .select_network_map(mode, "FOUR.MAP".into(), 4)
             .unwrap();
         assert!(removed.is_empty());
-        assert_eq!(
-            session.network_vacancy(9),
-            Some(NetworkVacancy::OpenObserver)
-        );
-        session
-            .accept_network_peer_choices(1, slot, false, None)
-            .unwrap();
-        let guest = &session.network_setup().unwrap().humans[1];
-        assert!(!guest.is_observer() && guest.raw_slot_index == Some(1));
-        assert_eq!(
-            session.network_vacancy(4),
-            Some(NetworkVacancy::OpenObserver)
-        );
-        assert_eq!(session.network_vacancy(7), Some(NetworkVacancy::Closed));
+        assert_eq!(rows(&session), [Some(12), Some(13)]);
+        assert_eq!(observer_rows(&session), [14]);
     }
 
     #[test]
@@ -3235,21 +3449,13 @@ mod tests {
     #[test]
     fn a_vera_room_profile_keeps_spectator_rows_open() {
         use super::{NetworkRowKind, NetworkVacancy};
-        let mut launch = network_fixture();
-        launch.local_player_index = 0;
-        let mode = launch.mode.clone();
-        let mut session = MatchSession::default();
-        session.enter_network(super::NetworkReturnContext::LanLobby);
-        session
-            .accept_network_setup(launch, true, Some(7), true)
-            .unwrap();
-        session
-            .select_network_map(mode, "FOUR.MAP".into(), 4)
-            .unwrap();
+        let mut session = vera_room();
         session
             .set_network_row_kind(3, NetworkRowKind::Closed)
             .unwrap();
-        // The host closed seat 3; rows 4.. are the room's spectator rows.
+        // The host closed seat 3; rows 4.., the open one among them, are the
+        // room's spectator rows.
+        assert_eq!(observer_rows(&session), [4]);
         let remembered = session.network_remembered_vacancies();
         assert_eq!(remembered[3], Some(NetworkVacancy::Closed));
         assert!(

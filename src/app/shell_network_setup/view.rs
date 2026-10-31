@@ -114,7 +114,8 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             .cooperative_setup_view()
     });
     // VERA's rooms list the rows admitting players, then every row open for
-    // or held by an observer, and for the host the next row to open for one.
+    // or held by an observer. A host who closed the open one, with no AI
+    // playing, gets the next row to open again.
     let several = session.network_several_observers() && observer_row.is_some();
     let visible_limit = if several {
         usize::from(session.network_player_row_limit())
@@ -130,10 +131,17 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
         let next = spectator_rows
             .last()
             .map_or(visible_limit, |row| usize::from(*row) + 1);
-        if host && next < crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT {
+        if host
+            && session.network_free_row(true).is_none()
+            && launch.opponents.is_empty()
+            && next < crate::skirmish_launch::NETWORK_PLAYER_SLOT_COUNT
+        {
             spectator_rows.push(next as u8);
         }
     }
+    // No AI plays in a VERA room while anyone watches (`0x5EC9F0`'s
+    // TXT_NO_AI_WITH_OBSERVER).
+    let watched = several && launch.humans.iter().any(|human| human.is_observer());
     let row_count = if several {
         visible_limit + spectator_rows.len()
     } else {
@@ -175,10 +183,13 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             several || usize::from(row) < visible_limit || observer_row == Some(usize::from(row));
         // A VERA room's Closed spectator row shows only its Player combo.
         let closed_spectator_row = several && usize::from(row) >= visible_limit && !observer;
-        let editable = ((is_local
-            && (host || !session.network_player_ready(launch.local_player_index)))
-            || host && ai.is_some())
-            && !observer;
+        // VERA's room accepts for its guest (`service::auto_accept`), so the
+        // guest's row stays open: the host's next options take it back.
+        let accepted = !dialog.modern && session.network_player_ready(launch.local_player_index);
+        let editable = ((is_local && (host || !accepted)) || host && ai.is_some()) && !observer;
+        // A VERA room's guest picks Observer in its Side list to watch while
+        // a spectator row is open, and a side to play while a player row is.
+        let switching = several && is_local && !host && !accepted;
         let choices = session.network_row_choices(row)?;
         let country = if observer {
             -3
@@ -235,8 +246,8 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             });
         }
         if host && !is_local {
-            // VERA's rooms open any row for an observer, and a row past the
-            // players only for one.
+            // VERA's rooms open only the rows past the players for observers,
+            // and those only for one.
             let observer_only = if several {
                 usize::from(row) >= visible_limit
             } else {
@@ -252,7 +263,12 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
                     swatch: None,
                 });
             }
-            if several || observer_row == Some(usize::from(row)) {
+            let opens_for_observer = if several {
+                observer_only
+            } else {
+                observer_row == Some(usize::from(row))
+            };
+            if opens_for_observer {
                 players.push(SetupChoice {
                     value: 7,
                     text: label(state, "GUI:OpenObserver"),
@@ -265,7 +281,7 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
                 swatch: None,
             });
             //5EB060 asks the same vtable+40 used by the Skirmish mode list.
-            if mode.class.lists_in_skirmish() && !observer_only {
+            if mode.class.lists_in_skirmish() && !observer_only && !watched {
                 for (value, key) in [(4, "GUI:AIEasy"), (5, "GUI:AINormal"), (6, "GUI:AIHard")] {
                     players.push(SetupChoice {
                         value,
@@ -314,12 +330,20 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             }
             countries = allowed;
         }
-        if observer {
-            countries = vec![SetupChoice {
+        let sides = if switching && observer {
+            !session.network_no_open_player_row()
+        } else {
+            !observer
+        };
+        if !sides {
+            countries.clear();
+        }
+        if observer || switching && session.network_free_row(true).is_some() {
+            countries.push(SetupChoice {
                 value: -3,
                 text: label(state, "GUI:Observer"),
                 swatch: None,
-            }];
+            });
         }
         let color_claims = launch
             .humans
@@ -388,7 +412,8 @@ pub(crate) fn view(state: &AppState) -> Option<SetupView> {
             combos.push(SetupCombo {
                 id: column.control(visible_row),
                 row,
-                enabled: editable && (column != SetupColumn::Team || mode.allies_allowed),
+                enabled: (editable || switching && column == SetupColumn::Country)
+                    && (column != SetupColumn::Team || mode.allies_allowed),
                 visible: visible
                     && !closed_spectator_row
                     && (column == SetupColumn::Country || !observer)

@@ -1524,6 +1524,9 @@ fn request_setup(
                 .clone();
             // Earlier full options can arrive before this queue drains. The
             // outgoing request, not that intervening UI echo, defines its ack.
+            // A guest who starts or stops watching changed nothing here: the
+            // host picks its row, or keeps it.
+            let switch = human.is_observer() != observer;
             human.raw_slot_index = Some(row);
             human.slot = slot.clone();
             human.set_observer(observer);
@@ -1532,10 +1535,11 @@ fn request_setup(
                 "choices",
                 json!({"row":row,"slot":slot,"observer":observer}),
             );
-            service.pending_choices = (!service
-                .accepted_options
-                .as_ref()
-                .is_some_and(|accepted| accepted_human_matches(accepted, &expected_human)))
+            service.pending_choices = (!switch
+                && !service
+                    .accepted_options
+                    .as_ref()
+                    .is_some_and(|accepted| accepted_human_matches(accepted, &expected_human)))
             .then_some(PendingChoices {
                 request_id,
                 expected_human,

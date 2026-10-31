@@ -5543,11 +5543,26 @@ impl WolCapture {
                 }
             }
             WolTarget::ModernSpectators => {
-                // The last row VERA's room lists is a Closed one past its
-                // players; opening it for an observer lists the next.
+                // VERA's room keeps one spectator row open past its players:
+                // the guest who watches takes it and the next opens.
                 use crate::ui::multiplayer_setup::{SetupAction, SetupColumn};
-                for _ in 0..2 {
-                    let open = setup_view(state)?
+                setup_requests(state);
+                let first = state.match_state.session.network_free_row(true);
+                let requests = choices(state, human.slot.clone(), true);
+                let (_, observer) = guest(state).context("guest")?;
+                let second = state.match_state.session.network_free_row(true);
+                ensure!(
+                    first.is_some()
+                        && observer.is_observer()
+                        && observer.raw_slot_index == first
+                        && second == first.map(|row| row + 1),
+                    "the guest takes the open spectator row {first:?}: \
+                     {observer:?}, then {second:?} {requests:?}"
+                );
+                // The host closes the open row, the last it lists, and opens
+                // it again from the row it then lists after the spectators.
+                for value in [3, 7] {
+                    let last = setup_view(state)?
                         .combos
                         .iter()
                         .filter(|combo| {
@@ -5560,36 +5575,25 @@ impl WolCapture {
                     crate::app::shell_network_setup::apply_action(
                         state,
                         SetupAction::Select {
-                            control: open,
-                            value: 7,
+                            control: last,
+                            value,
                         },
                     );
                 }
-                // Each opened row is advertised to the game list (0x78F000).
-                let opened = setup_requests(state);
+                // Each change is advertised to the game list (0x78F000).
+                let changed = setup_requests(state);
                 ensure!(
-                    opened.len() == 6
-                        && opened.chunks(3).all(|requests| {
+                    changed.len() == 6
+                        && changed.chunks(3).all(|requests| {
                             requests
                                 == [
                                     NetworkSetupRequest::Advertise,
                                     NetworkSetupRequest::PublishOptions,
                                     NetworkSetupRequest::PublishRoster,
                                 ]
-                        }),
-                    "opening two spectator rows: {opened:?}"
-                );
-                let first = state.match_state.session.network_free_row(true);
-                let requests = choices(state, human.slot.clone(), true);
-                let (_, observer) = guest(state).context("guest")?;
-                let second = state.match_state.session.network_free_row(true);
-                ensure!(
-                    first.is_some()
-                        && observer.is_observer()
-                        && observer.raw_slot_index == first
-                        && second > first,
-                    "the guest takes the first of two spectator rows {first:?}: \
-                     {observer:?}, then {second:?} {requests:?}"
+                        })
+                        && state.match_state.session.network_free_row(true) == second,
+                    "closing and opening the spectator row: {changed:?}"
                 );
                 self.event(
                     frame,

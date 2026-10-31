@@ -1298,7 +1298,9 @@ mod tests {
         request.country = LaunchCountry::Yuri;
         request.country_random = false;
         let mut wol = lan.clone();
-        let result = lan.accept_lan_peer_choices(1, request.clone()).unwrap();
+        let result = lan
+            .accept_lan_peer_choices(1, request.clone(), false)
+            .unwrap();
         assert!(result.options);
         assert!(!result.roster);
         let slot = &lan.network_setup().unwrap().humans[1].slot;

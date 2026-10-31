@@ -876,6 +876,11 @@ fn install_setup(
                     .set_network_vacancy(row as u8, vacancy)?;
             }
         }
+        // A VERA room opens its spectator row, but for Quick Match's
+        // matchbot game.
+        if dialog.modern && !quick_match {
+            state.match_state.session.set_network_spectators(true)?;
+        }
         if let Some(file) = state
             .match_state
             .session

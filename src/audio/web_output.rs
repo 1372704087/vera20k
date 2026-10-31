@@ -38,11 +38,28 @@ thread_local! {
     static OUTPUT: RefCell<Option<WebOutput>> = const { RefCell::new(None) };
 }
 
-/// Stop the page-owned output when the application exits, including queued blocks.
-/// Also reached from the panic hook, which may interrupt a borrow of the output.
+/// Silence the page-owned output when the application exits, keeping it for
+/// the next launch: a closed context cannot run again, and a later one could
+/// start without a user gesture only because this page already had one.
+pub(crate) fn pause() {
+    OUTPUT.with(|slot| {
+        if let Some(output) = slot.borrow_mut().as_mut() {
+            output.stopped = true;
+            let _ = output.ctx.suspend();
+        }
+    });
+}
+
+/// Stop the page-owned output for good, including queued blocks.
+/// Reached from the panic hook, which may interrupt a borrow of the output.
 pub(crate) fn shutdown() {
     OUTPUT.with(|slot| {
-        if let Some(output) = slot.try_borrow_mut().ok().as_deref_mut().and_then(Option::as_mut) {
+        if let Some(output) = slot
+            .try_borrow_mut()
+            .ok()
+            .as_deref_mut()
+            .and_then(Option::as_mut)
+        {
             output.stopped = true;
             let _ = output.ctx.close();
         }
@@ -66,7 +83,13 @@ impl WebAudioSink {
                 output.top_up();
                 *slot = Some(output);
             }
-            let mixer = slot.as_ref().expect("output opened above").mixer.clone();
+            let output = slot.as_mut().expect("output opened above");
+            if output.stopped {
+                output.stopped = false;
+                let _ = output.ctx.resume();
+                output.top_up();
+            }
+            let mixer = output.mixer.clone();
             Ok(Self { mixer })
         })
     }

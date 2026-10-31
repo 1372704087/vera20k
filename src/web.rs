@@ -88,7 +88,8 @@ pub(crate) fn spawn_finished(report: &str) {
 }
 
 pub(crate) fn engine_exited() {
-    crate::audio::web_output::shutdown();
+    crate::audio::web_output::pause();
+    remove_spawn_files();
     MUSIC.with(|slot| slot.borrow_mut().take());
     SFX.with(|slot| slot.borrow_mut().take());
     WAKE.with(|slot| slot.borrow_mut().take());
@@ -212,13 +213,23 @@ const SPAWN_DIRECTORY: &str = "/spawn";
 #[wasm_bindgen]
 pub fn import_spawn_file(name: &str, bytes: Vec<u8>) -> Result<(), JsValue> {
     relative_path(name)?;
-    if LIFECYCLE.with(|slot| slot.borrow().started()) {
+    if !LIFECYCLE.with(|slot| slot.borrow().idle()) {
         return Err(JsValue::from_str(
-            "Import launch files before starting; reload for another launch",
+            "Import launch files before starting or after the engine exited",
         ));
     }
     crate::util::file_system::import_file(format!("{SPAWN_DIRECTORY}/{name}"), bytes);
     Ok(())
+}
+
+/// One launch's map and spawn.ini, which holds its tokens, end with it.
+fn remove_spawn_files() {
+    let Ok(entries) = crate::util::file_system::read_dir(SPAWN_DIRECTORY) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let _ = crate::util::file_system::remove_file(entry.path());
+    }
 }
 
 /// Install durability callbacks before starting. A callback queues asynchronous host storage;
@@ -257,8 +268,10 @@ pub(crate) fn hand_over_replay(name: &str, bytes: &[u8]) -> anyhow::Result<()> {
 
 #[wasm_bindgen]
 pub fn restore_user_file(path: &str, bytes: Vec<u8>, modified_ms: f64) -> Result<(), JsValue> {
-    if LIFECYCLE.with(|slot| slot.borrow().started()) {
-        return Err(JsValue::from_str("Restore user data before starting"));
+    if !LIFECYCLE.with(|slot| slot.borrow().idle()) {
+        return Err(JsValue::from_str(
+            "Restore user data before starting or after the engine exited",
+        ));
     }
     // Builds that sent replays through the persistence callback left them in
     // hosts' storage. Refusing one would abort that host's whole restore.
@@ -319,14 +332,15 @@ pub fn start_game(
 }
 
 /// Start directly into spawn.ini's match. Its match-ended callback is
-/// followed by engine-exited; starting another game requires a new instance.
+/// followed by engine-exited; once that has returned, another launch may
+/// import its files and call this again. A panic requires a new instance.
 #[wasm_bindgen]
 pub fn start_spawn(
     canvas: web_sys::HtmlCanvasElement,
     on_status: js_sys::Function,
     spawn_ini: String,
 ) -> Result<(), JsValue> {
-    if LIFECYCLE.with(|slot| slot.borrow().started()) {
+    if !LIFECYCLE.with(|slot| slot.borrow().may_start(true)) {
         return Err(JsValue::from_str("Game already started; reload to restart"));
     }
     let request = read_spawn(spawn_ini)?;
@@ -335,6 +349,13 @@ pub fn start_spawn(
     );
     app.set_spawn_request(request);
     run(canvas, on_status, app, true)
+}
+
+/// Whether `start_spawn` may run now: before the first launch and after a
+/// clean exit, not while a game runs, after `start_game` or after a panic.
+#[wasm_bindgen]
+pub fn can_start_spawn() -> bool {
+    LIFECYCLE.with(|slot| slot.borrow().may_start(true))
 }
 
 fn read_spawn(
@@ -394,7 +415,7 @@ fn run(
     external: bool,
 ) -> Result<(), JsValue> {
     use winit::platform::web::EventLoopExtWebSys;
-    if LIFECYCLE.with(|slot| slot.borrow().started()) {
+    if !LIFECYCLE.with(|slot| slot.borrow().may_start(external)) {
         return Err(JsValue::from_str("Game already started; reload to restart"));
     }
     let event_loop =

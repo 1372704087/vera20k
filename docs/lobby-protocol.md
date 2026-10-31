@@ -11,7 +11,9 @@ Escaped unpaired surrogates are rejected, not replaced, before any event or
 persistent state is created.
 
 `POST /v1/sessions` accepts exactly `{nickname,protocol:4}` and returns
-`{player_id,nickname,token,expires_at}`. Each entry receives a fresh random player
+`{player_id,nickname,token,expires_at}`, plus `motd` while an operator welcome is set:
+text the game prints in the chat lobby in place of its own welcome, one line per `\n`.
+Each entry receives a fresh random player
 UUID and bearer token. `expires_at` is a Unix timestamp in seconds. An active name
 returns 409 `name_unavailable`; entering its name never replaces that session.
 Guest locale, buddies and relay admission counters belong to this player identity
@@ -358,6 +360,10 @@ Sessions in the public channel or a game room that has not started receive it wh
 set; others receive it on their next public-channel join until it expires. Each
 session receives a notice once. Sign-in refuses `VERA20k` without case with 409
 `name_unavailable`.
+
+`POST /v1/admin/welcome` takes the same bearer, answers and ingress limit. `{text}`
+sets the welcome that sign-in responses carry as `motd`: non-blank text of at most
+2048 UTF-8 bytes. `{text:null}` clears it. Both return `{welcome}`, the text or `null`.
 
 Released clients sign in with `User-Agent: VERA20k/<MAJOR.MINOR.PATCH> multiplayer-client`.
 A session whose version is older than `version` in

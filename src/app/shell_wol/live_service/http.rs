@@ -161,6 +161,7 @@ pub(super) enum Response {
         attempt: u64,
         player_id: String,
         nickname: String,
+        motd: Option<String>,
     },
     LoginFailed {
         attempt: u64,
@@ -869,6 +870,7 @@ macro_rules! serial_driver {
                                 attempt,
                                 player_id: session.player_id,
                                 nickname: session.nickname,
+                                motd: session.motd,
                             })
                             .is_err()
                         {
@@ -1095,6 +1097,23 @@ mod tests {
         let mut substituted = response;
         substituted["nickname"] = json!("AnotherAccount");
         assert!(decode_session(substituted, &nickname).is_err());
+    }
+
+    #[test]
+    fn authentication_response_carries_the_operators_welcome() {
+        let response = session_response();
+        let nickname = response["nickname"].as_str().unwrap().to_owned();
+        assert_eq!(
+            decode_session(response.clone(), &nickname).unwrap().motd,
+            None
+        );
+        let mut welcomed = response;
+        welcomed["motd"] = json!("Welcome to VERA20K Online!\nHave fun.");
+        let accepted = decode_session(welcomed, &nickname).unwrap();
+        assert_eq!(
+            accepted.motd.as_deref(),
+            Some("Welcome to VERA20K Online!\nHave fun.")
+        );
     }
 
     #[test]

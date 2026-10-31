@@ -189,8 +189,20 @@ A `start_spawn` launch skips the result-screen Continue button and campaign
 continuation. It freezes its result, completes the existing network finish/leave
 cleanup, delivers `match-ended`, and immediately requests engine shutdown;
 `engine-exited` follows. The old `spawn:finished:<json>` status notification is
-retained once for existing result consumers, but does **not** admit another
-launch. Both entry points now require a new page/instance for another engine.
+retained once for existing result consumers.
+
+Once `engine-exited` has returned, the same page may call `start_spawn` again:
+import the next launch's files with `import_spawn_file`, call `prepare_audio` and
+pass a new canvas. The imported retail files stay, so `import_file` is refused
+and changing the game folder needs a new page; `restore_user_file` and `probe`
+work between launches, and each launch rereads the settings. The output
+`AudioContext` also stays, so a later launch needs no new user gesture. A launch's
+files under `/spawn` are removed when it exits. `can_start_spawn()` says whether
+another launch can start. It stays false while a game runs, after `start_game`
+and after a panic, which all need a new page/instance. Linear memory never
+shrinks, so a host may also want a new page once `memory.buffer.byteLength`
+nears the 4 GiB limit.
+
 Calling Start from a lifecycle callback is rejected. Callback exceptions do
 not prevent shutdown; returned Promises are not awaited by Rust.
 
@@ -199,5 +211,5 @@ After `engine-exited`, an engine that had started also sends the status
 pending IndexedDB writes and then tries to close the tab, keeping a warning
 visible if storage failed. A hosting website may instead return to its own
 lobby once storage completes. Reloading discards imported retail bytes. Browser audio
-pumping stops on engine exit; stopping winit alone would leave WebAudio alive.
+pumping pauses on engine exit; stopping winit alone would leave WebAudio alive.
 Desktop startup, scores, process exit codes and result-file writes are unchanged.

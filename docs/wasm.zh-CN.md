@@ -97,13 +97,22 @@ finish/leave 收尾完成后发送 `match-ended`，随即请求退出引擎，�
 `engine-exited`。普通菜单启动仍保留结算和返回菜单流程。未开始对局的启动
 失败不生成虚假的对局结束事件。
 
-旧的 `spawn:finished:<json>` 状态通知保留一次，但不再允许同一引擎连续启动。
-下一次启动需要新页面/实例；回调内再次启动会被拒绝。JS 回调抛错不阻止退出，
-Rust 不等待回调返回的 Promise。
+旧的 `spawn:finished:<json>` 状态通知保留一次。
+
+`engine-exited` 回调返回后，同一页面可以再次调用 `start_spawn`：先用
+`import_spawn_file` 导入下一局的文件，调用 `prepare_audio`，并传入新的画布。
+已导入的游戏资源会保留，所以 `import_file` 仍被拒绝，更换游戏目录需要新页面；
+`restore_user_file` 和 `probe` 在两局之间可用，每局都会重新读取设置。输出用的
+`AudioContext` 也会保留，所以后续启动不需要新的用户手势。一局在 `/spawn` 下的
+文件在退出时删除。`can_start_spawn()` 表示能否再次启动；对局运行中、`start_game`
+之后和 panic 之后都为 false，这些情况需要新页面/实例。线性内存不会缩小，宿主可在
+`memory.buffer.byteLength` 接近 4 GiB 上限时改用新页面。
+
+回调内再次启动会被拒绝。JS 回调抛错不阻止退出，Rust 不等待回调返回的 Promise。
 
 已启动的引擎在 `engine-exited` 之后还会发送状态 `Exited`。示例宿主据此隐藏
 游戏、等待 IndexedDB 写入完成后尝试关闭标签页，保存失败时保留警告；网站宿主
 可在保存完成后返回自己的大厅。重新加载后需重新选择游戏资源。引擎退出也
-会停止 WebAudio。桌面原生启动、结算、退出码和结果文件逻辑保持不变。
+会暂停 WebAudio。桌面原生启动、结算、退出码和结果文件逻辑保持不变。
 
 完整字段和接入示例见 [英文说明](wasm.md#lifecycle-callbacks)。

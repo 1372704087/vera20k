@@ -1406,7 +1406,7 @@ fn retail_factory_guard_clears_its_exit_after_idle_entry() {
         sim.intern_rule_type_ids(&rules);
         sim.resolve_type_handles(&rules);
         let factory = sim
-            .spawn_object("GAWEAP", "Russians", 15, 15, 0, &rules)
+            .spawn_object("GAWEAP", "Americans", 15, 15, 0, &rules)
             .unwrap();
         // Finished Unlimbo queues Guard; the Update's existing ready-byte
         // owner commences it before the first mission dispatch.
@@ -1423,10 +1423,10 @@ fn retail_factory_guard_clears_its_exit_after_idle_entry() {
         assert_eq!(actor.mission.handler_state(), 0);
         let cell = ((head.x / 256) as u16, (head.y / 256) as u16);
         let blocker = sim
-            .spawn_object("HTNK", "Russians", cell.0, cell.1, 0, &rules)
+            .spawn_object("HTNK", "Americans", cell.0, cell.1, 0, &rules)
             .unwrap();
         let east = sim
-            .spawn_object("HTNK", "Russians", cell.0 + 1, cell.1, 0, &rules)
+            .spawn_object("HTNK", "Americans", cell.0 + 1, cell.1, 0, &rules)
             .unwrap();
         let before_rng = sim.scenario_rng.native_state_hex();
         let mut bridge_changed = false;
@@ -1499,6 +1499,69 @@ fn retail_factory_guard_clears_its_exit_after_idle_entry() {
                 .handler_state(),
             u32::from(authored)
         );
+        if authored {
+            // Consume the real Scatter destinations through ordinary frames,
+            // including the null-head receiver that queues no Move itself.
+            // Human ownership keeps automatic AI Hunt orders from replacing
+            // these destinations while the clearance is being observed.
+            sim.session.set_game_mode(
+                crate::sim::scenario_session::ScenarioGameMode::from_legacy_nonzero(true),
+            );
+            sim.session
+                .set_current_house_for_test(sim.interner.get("Americans"));
+            sim.session.game_options_mut_for_test().short_game = false;
+            sim.spawn_object("NAPOWR", "Russians", 3, 3, 0, &rules)
+                .unwrap();
+            let starts = [(blocker, cell), (east, (cell.0 + 1, cell.1))];
+            let finished = |sim: &Simulation| {
+                starts.iter().all(|&(id, old_cell)| {
+                    let unit = sim.substrate.entities.get(id).unwrap();
+                    (unit.position.rx(), unit.position.ry()) != old_cell
+                        && unit.navigation.nav_com().is_none()
+                })
+            };
+            for _ in 0..180 {
+                let output = sim
+                    .advance_app_frame(
+                        &[],
+                        &rules,
+                        Some(rules.overlay_registry()),
+                        33,
+                        crate::sim::world::TickLane::Ordinary,
+                        crate::sim::world::FrameEffects::empty(),
+                    )
+                    .unwrap();
+                assert!(
+                    output.tick.frame_committed,
+                    "the clearance scene must advance an ordinary simulation frame"
+                );
+                if finished(&sim) {
+                    break;
+                }
+            }
+            assert!(
+                finished(&sim),
+                "the guarding factory's real Scatter must move both tanks clear and finish their navigation: frame={} tick={} units={:?}",
+                sim.session.binary_frame(),
+                sim.session.tick(),
+                starts
+                    .iter()
+                    .map(|&(id, old_cell)| {
+                        let unit = sim.substrate.entities.get(id).unwrap();
+                        (
+                            id,
+                            old_cell,
+                            (unit.position.rx(), unit.position.ry()),
+                            unit.navigation.nav_com(),
+                            unit.mission.current(),
+                            unit.mission.queued(),
+                            unit.radio_contacts.slot(0),
+                            unit.locomotor.as_ref().map(|loco| loco.active_kind()),
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            );
+        }
     }
 }
 

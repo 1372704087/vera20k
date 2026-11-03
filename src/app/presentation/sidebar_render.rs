@@ -468,8 +468,10 @@ pub(crate) fn refresh_sidebar_cameo_draw_state(state: &mut AppState) {
 /// Ares1003D800 additionally admits the current Country's retained lists.
 /// An undeploying Building uses the Unit-list branch, comparing its own
 /// BuildingType pointer, not UndeploysInto; that cannot match an INI-produced
-/// UnitType list. New Ares SpyEffect.Custom House gains are a separate chain;
-/// this selector reads the stock spy flags currently represented by HouseState.
+/// UnitType list. Phobos fixes that arm (see
+/// [`undeploying_building_is_veteran`]). New Ares SpyEffect.Custom House gains
+/// are a separate chain; this selector reads the stock spy flags currently
+/// represented by HouseState.
 ///
 /// [`SidebarCameoAtlas::cameo`]: crate::render::sidebar_cameo_atlas::SidebarCameoAtlas::cameo
 fn shows_alt_cameo(
@@ -485,6 +487,9 @@ fn shows_alt_cameo(
     }
     if crate::rules::ARES_ENABLED {
         if obj.category == ObjectCategory::Building && obj.undeploys_into.is_some() {
+            #[cfg(feature = "phobos")]
+            return undeploying_building_is_veteran(house, obj, rules, country);
+            #[cfg(not(feature = "phobos"))]
             return false;
         }
         if rules.country_starts_veteran(country, obj) {
@@ -505,6 +510,31 @@ fn shows_alt_cameo(
             ObjectCategory::Building => house.veteran_units() && obj.undeploys_into.is_some(),
             ObjectCategory::Aircraft => false,
         }
+}
+
+/// Phobos' fixed building arm of `TechnoTypeExt::CameoIsVeteran`: a building
+/// that undeploys answers with its unit, so a `Factory=UnitType` infiltration
+/// and the unit's `VeteranUnits` entry promote the building too. Ares instead
+/// compared the BuildingType pointer against the unit list, which an INI list
+/// can never match. VERA keeps one ground veteran flag, so the naval variant
+/// Phobos reads separately cannot differ here.
+#[cfg(feature = "phobos")]
+fn undeploying_building_is_veteran(
+    house: &crate::sim::house_state::HouseState,
+    obj: &crate::rules::object_type::ObjectType,
+    rules: &crate::rules::ruleset::RuleSet,
+    country: &str,
+) -> bool {
+    if !obj.trainable {
+        return false;
+    }
+    if house.veteran_units() {
+        return true;
+    }
+    obj.undeploys_into
+        .as_deref()
+        .and_then(|unit| rules.object(unit))
+        .is_some_and(|unit| rules.country_starts_veteran(country, unit))
 }
 
 pub(crate) fn is_cursor_over_minimap(state: &AppState) -> bool {
@@ -683,9 +713,234 @@ pub(crate) fn active_minimap_screen_rect(state: &AppState) -> crate::ui::sidebar
     }
 }
 
+/// Resolve every Phobos sidebar indicator for this frame and hand the list to
+/// the sidebar text lane. gamemd's hook runs inside the credits tick, so the
+/// caller is the per-frame pass that also ticks the power bar
+/// (`match_runtime::sim_tick`), not the cameo-driven projection refresh.
+#[cfg(feature = "phobos")]
+pub(crate) fn refresh_sidebar_indicators(state: &mut AppState) {
+    let resolved = (|| {
+        let sim = state
+            .match_state
+            .sim_runtime
+            .as_ref()
+            .map(|rt| &rt.simulation)?;
+        let rules = state.rules()?;
+        let owner_name = preferred_local_owner_name(state)?;
+        let owner = sim.interner().get(&owner_name).unwrap_or_default();
+        let (produced, drained) = production::power_balance_for_owner(sim, rules, &owner_name);
+        let presentation = &state.match_state.match_presentation;
+        let side = current_sidebar_side(state);
+        // HouseExt's two counts, walked over the store once per frame.
+        let (harvesters_active, harvesters_total) = sim.harvester_counts(rules, owner);
+        // Native draws the harvester counter before the power delta, and this is
+        // also the lane's append order.
+        Some(
+            [
+                harvester_counter_indicator(
+                    sim,
+                    rules,
+                    side,
+                    owner,
+                    &presentation.sidebar_indicators,
+                    presentation.show_harvester_counter,
+                    crate::app::presentation::sidebar_text::credits_tint(current_sidebar_theme(
+                        state,
+                    )),
+                    harvesters_active,
+                    harvesters_total,
+                ),
+                power_delta_indicator(
+                    sim,
+                    rules,
+                    side,
+                    owner,
+                    &presentation.sidebar_indicators,
+                    presentation.show_power_delta,
+                    produced,
+                    drained,
+                ),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>(),
+        )
+    })();
+    let presentation = &mut state.match_state.match_presentation;
+    match resolved {
+        Some(resolved) => presentation.sidebar_indicator_text = resolved,
+        // No local house: the hook never runs for this player.
+        None => presentation.sidebar_indicator_text.clear(),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Chrome / theme helpers
 // ---------------------------------------------------------------------------
+
+/// `Sidebar.*` colours are `ColorStruct` triples; the sidebar text lane takes a
+/// linear tint, which is also what the nullable harvester green falls back to.
+#[cfg(feature = "phobos")]
+fn sidebar_colour(rgb: [u8; 3]) -> [f32; 3] {
+    rgb.map(|value| f32::from(value) / 255.0)
+}
+
+/// The hook's own base column for the harvester and weeds branches: `+50`.
+#[cfg(feature = "phobos")]
+const HARVESTER_ANCHOR_X: i32 = 50;
+/// The hook's own base column for the power delta: `0x4A25E0` passes
+/// `DSurface::Sidebar->GetWidth() / 2 - 70`, while the harvester and weeds
+/// branches use `+ 50` and overlap each other by design.
+#[cfg(feature = "phobos")]
+const POWER_DELTA_ANCHOR_X: i32 = -70;
+/// The literal `y = 2` row every indicator branch passes, the same anchor row
+/// as the credits counter.
+#[cfg(feature = "phobos")]
+const INDICATOR_SURFACE_Y: i32 = 2;
+
+/// The harvester-counter branch of the same hook (`Hooks.UI.cpp:111-135`),
+/// reading `HouseExt::ActiveHarvesterCount` and `TotalHarvesterCount`
+/// (`Ext/House/Body.cpp:278-303`).
+///
+/// The colour compares the *working-to-total* ratio with strict greater-than —
+/// the reverse of the power delta's less-than — so a house with no counted
+/// harvester at all reads `1.0` and stays green. `[label][working]/[total]`,
+/// unless the side hides the total (`HideMaxValue`, which wins) or shows only
+/// it (`OnlyMaxValue`). The branch opens on `HarvesterCounter.Show`, the
+/// `[Phobos] ShowHarvesterCounter` client switch and a player who has not been
+/// defeated; unlike the power delta it asks nothing about owned buildings.
+#[cfg(feature = "phobos")]
+fn harvester_counter_indicator(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    side: i32,
+    owner: crate::sim::intern::InternedId,
+    ui: &crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    client_enabled: bool,
+    tooltip_tint: [f32; 3],
+    active: i32,
+    total: i32,
+) -> Option<crate::ui::sidebar::SidebarIndicator> {
+    let counter = &ui.harvester;
+    if !(counter.show && client_enabled) {
+        return None;
+    }
+    if sim
+        .houses()
+        .get(&owner)
+        .is_some_and(crate::sim::house_state::HouseState::is_defeated)
+    {
+        return None;
+    }
+    let percent = if total == 0 {
+        1.0
+    } else {
+        f64::from(active) / f64::from(total)
+    };
+    let side_settings = rules.side_harvester_counter(side);
+    let tint = if percent > counter.condition_yellow {
+        // `ColorGreen` is a `Nullable`, whose source fallback is
+        // `Drawing::TooltipColor` (`Hooks.UI.cpp:117`).
+        side_settings
+            .color_green
+            .map(sidebar_colour)
+            .unwrap_or(tooltip_tint)
+    } else if percent > counter.condition_red {
+        sidebar_colour(side_settings.color_yellow)
+    } else {
+        sidebar_colour(side_settings.color_red)
+    };
+    let text = if side_settings.hide_max_value {
+        format!("{}{active}", counter.label)
+    } else if side_settings.only_max_value {
+        format!("{}{total}", counter.label)
+    } else {
+        format!("{}{active}/{total}", counter.label)
+    };
+    Some(crate::ui::sidebar::SidebarIndicator {
+        text,
+        tint,
+        anchor_x: HARVESTER_ANCHOR_X + side_settings.offset[0],
+        anchor_y: INDICATOR_SURFACE_Y + side_settings.offset[1],
+        // The harvester and weeds branches hardcode TextPrintType::Center.
+        align: crate::rules::phobos_sidebar_indicators::SidebarTextAlign::Center,
+    })
+}
+
+/// The power-delta branch of Phobos's shared sidebar indicator hook
+/// (`CreditsClass_GraphicLogic_HarvesterCounter @ 0x4A25E0`,
+/// `src/Misc/Hooks.UI.cpp:137-173`).
+///
+/// Three conjuncts open it: `uimd.ini [Sidebar] PowerDelta.Show`, the
+/// `[Phobos] ShowPowerDelta` client switch and a non-empty House+68; a defeated
+/// player returns before the whole hook. The colour tracks the *drain-to-output
+/// ratio*, never the displayed delta: `percent < ConditionYellow` is green,
+/// Phobos' epsilon-tolerant `LESS_EQUAL(percent, ConditionRed)` — `(x - y) <=
+/// 0.001` — is yellow, and zero output with any drain doubles the red threshold
+/// so that branch lands on red. Zero output with zero drain keeps the yellow
+/// fallback. A blackout (`HouseClass::PowerBlackoutTimer`, started by spy
+/// infiltration at `House50BC90` and by the force shield) drops the number
+/// entirely and draws `PowerBlackoutLabel` in `ColorGrey`.
+#[cfg(feature = "phobos")]
+fn power_delta_indicator(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    side: i32,
+    owner: crate::sim::intern::InternedId,
+    ui: &crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    client_enabled: bool,
+    power_produced: i32,
+    power_drained: i32,
+) -> Option<crate::ui::sidebar::SidebarIndicator> {
+    let thresholds = ui.power_delta;
+    let house = sim.houses().get(&owner)?;
+    if !(thresholds.show && client_enabled)
+        || house.is_defeated()
+        || house.tracking().buildings() <= 0
+    {
+        return None;
+    }
+    let side_settings = rules.side_power_delta(side);
+    let frame = sim.session().binary_frame();
+    let blacked_out = sim
+        .power_states()
+        .get(&owner)
+        .is_some_and(|power| power.blackout_remaining(frame) > 0);
+    let (text, color) = if blacked_out {
+        (ui.power_blackout_label.clone(), side_settings.color_grey)
+    } else {
+        let percent = if power_produced != 0 {
+            f64::from(power_drained) / f64::from(power_produced)
+        } else if power_drained != 0 {
+            thresholds.condition_red * 2.0
+        } else {
+            thresholds.condition_yellow
+        };
+        let rgb = if percent < thresholds.condition_yellow {
+            side_settings.color_green
+        } else if percent - thresholds.condition_red <= 0.001 {
+            side_settings.color_yellow
+        } else {
+            side_settings.color_red
+        };
+        // `%ls%+d`: the label then the signed net power, always with a sign.
+        (
+            format!(
+                "{}{:+}",
+                ui.power_label,
+                power_produced.wrapping_sub(power_drained)
+            ),
+            rgb,
+        )
+    };
+    Some(crate::ui::sidebar::SidebarIndicator {
+        text,
+        tint: sidebar_colour(color),
+        anchor_x: POWER_DELTA_ANCHOR_X + side_settings.offset[0],
+        anchor_y: INDICATOR_SURFACE_Y + side_settings.offset[1],
+        align: side_settings.align,
+    })
+}
 
 pub(crate) fn current_sidebar_theme(
     state: &AppState,
@@ -878,6 +1133,10 @@ pub(crate) fn begin_main_load_pass<'a>(
         multiview_mask: None,
     })
 }
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "sidebar_indicator_tests.rs"]
+mod sidebar_indicator_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1166,5 +1425,71 @@ mod tests {
                 row["name"]
             );
         }
+    }
+
+    /// Rules for the two undeploying-building tests: a trainable building that
+    /// undeploys into a unit the American country lists as veteran.
+    #[cfg(feature = "ares")]
+    fn undeploying_building_rules() -> crate::rules::ruleset::RuleSet {
+        use crate::rules::ini_parser::IniFile;
+        use crate::rules::ruleset::RuleSet;
+        RuleSet::from_ini(&IniFile::from_str(
+            "[Countries]\n0=Americans\n1=Russians\n\
+             [Americans]\nVeteranUnits=AMCV\n[Russians]\n\
+             [VehicleTypes]\n0=AMCV\n\
+             [BuildingTypes]\n0=GACNST\n1=PLANT\n\
+             [AMCV]\nStrength=200\nTrainable=yes\n\
+             [GACNST]\nStrength=1000\nTrainable=yes\nUndeploysInto=AMCV\n\
+             [PLANT]\nStrength=1000\nTrainable=yes\n",
+        ))
+        .unwrap()
+    }
+
+    /// Phobos `TechnoTypeExt::CameoIsVeteran`'s fixed building arm: a building
+    /// that undeploys answers with its unit, so the war factory infiltration
+    /// and the unit's own `VeteranUnits` entry both promote it.
+    #[cfg(all(feature = "ares", feature = "phobos"))]
+    #[test]
+    fn a_deployable_building_reads_its_unit_for_the_alternate_cameo() {
+        let rules = undeploying_building_rules();
+        let owner = crate::sim::intern::InternedId::default();
+        let building = rules.object("GACNST").expect("the deployable building");
+        let mut house = HouseState::new(owner, 0, None, true, 0, 10);
+        assert!(
+            !shows_alt_cameo(&house, building, &rules, "Russians", true),
+            "no infiltration and no list entry yet"
+        );
+        house.grant_veteran_units();
+        assert!(
+            shows_alt_cameo(&house, building, &rules, "Russians", true),
+            "the war factory arm promotes the undeploying building"
+        );
+
+        let fresh = HouseState::new(owner, 0, None, true, 0, 10);
+        assert!(
+            shows_alt_cameo(&fresh, building, &rules, "Americans", true),
+            "the unit's VeteranUnits entry reaches it through UndeploysInto"
+        );
+        let plant = rules.object("PLANT").expect("a plain building");
+        assert!(
+            !shows_alt_cameo(&fresh, plant, &rules, "Americans", true),
+            "a building that does not undeploy keeps the Ares answer"
+        );
+    }
+
+    /// Without Phobos the Ares arm stands: the building compares its own
+    /// pointer against a unit-only list, which an INI list can never hold.
+    #[cfg(all(feature = "ares", not(feature = "phobos")))]
+    #[test]
+    fn ares_alone_still_refuses_the_undeploying_buildings_alternate_cameo() {
+        let rules = undeploying_building_rules();
+        let owner = crate::sim::intern::InternedId::default();
+        let building = rules.object("GACNST").expect("the deployable building");
+        let mut house = HouseState::new(owner, 0, None, true, 0, 10);
+        house.grant_veteran_units();
+        assert!(
+            !shows_alt_cameo(&house, building, &rules, "Americans", true),
+            "Ares never reaches the unit list for an undeploying building"
+        );
     }
 }

@@ -1241,6 +1241,12 @@ pub struct ObjectType {
     /// Whether this unit is a resource harvester (Harvester=yes in rules.ini).
     /// Data-driven replacement for hardcoded type ID string checks.
     pub harvester: bool,
+    /// Phobos `[TechnoType] Harvester.Counted=` (`Ext/TechnoType/Body.cpp:796`),
+    /// unset until a read sets it. [`Self::harvester_counted`] applies the
+    /// source's two fallbacks, which run in read order: the TechnoType pass
+    /// takes `Enslaves=`, then the UnitType pass takes `Harvester=yes`.
+    #[cfg(feature = "phobos")]
+    pub(crate) harvester_counted: Option<bool>,
     /// `CrateGoodie=` (`UnitTypeClass+0xE0D`): a vehicle the Unit crate may
     /// draw at random. `UnitTypeClass::ReadFromINI` reads it with `ReadBool`
     /// defaulting to the live byte (`0x0074764C..0x00747665`); the constructor
@@ -2574,6 +2580,37 @@ impl ObjectType {
         self.weapon_offsets.weapon(index, use_elite)
     }
 
+    /// Phobos `GetBurstFLH`: a burst-index-specific ART offset for this slot,
+    /// selected by live veterancy and the infantry state. `None` leaves the
+    /// slot's FLH in force.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn burst_flh(
+        &self,
+        index: i32,
+        elite: bool,
+        state: crate::rules::weapon_offsets::InfantryFlhState,
+        burst_index: u8,
+    ) -> Option<crate::rules::flh::Flh> {
+        self.weapon_offsets.burst(index, elite, state, burst_index)
+    }
+
+    /// Phobos `InfantryExt::GetSimpleFLH`: the deployed or prone override of
+    /// the primary/secondary firing offset.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn infantry_state_flh(
+        &self,
+        index: i32,
+        deployed: bool,
+        crawling: bool,
+    ) -> Option<crate::rules::flh::Flh> {
+        self.weapon_offsets.state_flh(index, deployed, crawling)
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn burst_flh_rows(&self) -> [&crate::rules::weapon_offsets::BurstFlhRows; 3] {
+        self.weapon_offsets.burst_row_sets()
+    }
+
     /// GetFLH6F3AF5: an open transport lends its zero-based cargo port.
     pub fn alternate_fire_flh(&self, port: usize) -> crate::rules::flh::Flh {
         self.weapon_offsets.alternate(port)
@@ -3785,6 +3822,20 @@ impl ObjectType {
             && !self.is_1x1_with_undeploy()
     }
 
+    /// Phobos `[TechnoType] Harvester.Counted=`: whether this type joins its
+    /// owner's harvester count. An explicit value wins; unset falls back to
+    /// `Enslaves=` for any TechnoType (`Ext/TechnoType/Body.cpp:797-798`) and
+    /// then to `Harvester=yes` for a UnitType (`Ext/UnitType/Body.cpp:96-97`),
+    /// because `UnitTypeExt::LoadFromINIFile` runs the TechnoType pass first.
+    /// An oil derrick sets this to earn credits while powered
+    /// (`docs/User-Interface.md:742`).
+    #[cfg(feature = "phobos")]
+    pub fn harvester_counted(&self) -> bool {
+        self.harvester_counted.unwrap_or(
+            self.enslaves.is_some() || (self.category == ObjectCategory::Vehicle && self.harvester),
+        )
+    }
+
     /// gamemd's TechnoTypeClass `+0xC8F` — whether `AI_Update` runs the per-tick
     /// damage-Spark prob-roll for this type. Only `InfantryTypeClass::ReadINI`
     /// sets `+0xC8F` (from `Cyborg=`); all other leaves keep the ctor default 0,
@@ -4379,6 +4430,8 @@ impl ObjectType {
             insignificant: section.read_bool("Insignificant", false),
             to_protect: section.read_bool("ToProtect", false),
             harvester: section.read_bool("Harvester", false),
+            #[cfg(feature = "phobos")]
+            harvester_counted: section.read_phobos_nullable_bool("Harvester.Counted", None),
             crate_goodie: section.read_bool("CrateGoodie", false),
             carries_crate: category == ObjectCategory::Vehicle
                 && section.read_bool("CarriesCrate", false),

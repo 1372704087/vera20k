@@ -11,6 +11,8 @@ gate; the per-target filters are residual.
 |---|---|---|---|
 | `Shrapnel.AffectsGround` | BulletType | `no` | `Ext/BulletType/Body.cpp:41` |
 | `Shrapnel.AffectsBuildings` | BulletType | `no` | `Ext/BulletType/Body.cpp:42` |
+| `Shrapnel.IgnoreHitBuildings` | BulletType | `no` | `Ext/BulletType/Body.cpp:44` |
+| `Shrapnel.UseWeaponTargeting` | BulletType | `no` | `Ext/BulletType/Body.cpp:43` |
 
 Both type-level keys are `Nullable<bool>` and fall back to the same-named
 `[CombatDamage]` global. That global is a `Valueable<bool>` with constructor
@@ -28,20 +30,23 @@ first ground object is a building; it admits a terrain object or any other
 entity. Phobos keeps that and adds:
 
 - `Shrapnel.AffectsGround=yes` admits an empty impact cell.
-- `Shrapnel.AffectsBuildings=yes` admits a building head.
+- `Shrapnel.AffectsBuildings=yes` admits a building head. That building becomes
+  the emission's `InitialTargetBuilding`, which the ring skips **by identity**,
+  so it is never a child's target.
+- `Shrapnel.IgnoreHitBuildings=yes` keeps every other building to one child per
+  emission: a building that passed the ring's tests is recorded, and later cells
+  headed by it are skipped. The record is per emission (`Hooks.cpp:260`).
 
 The firing loop, the child construction and the RNG draws are unchanged; only
 the early refusal differs.
 
 ## Residuals
 
-- `Shrapnel.AffectsBuildings` is read but not consumed yet: admitting the impact
-  building also needs native's `InitialTargetBuilding` skip in the ring
-  (`Ext/Bullet/Hooks.cpp:300-301`), which this ring owner does not track.
-- `Shrapnel.IgnoreHitBuildings` (`:295,303`) needs the same `TargetsToIgnore`
-  bookkeeping.
-- `Shrapnel.UseWeaponTargeting` (`:309-330`) replaces the candidate test with the
-  child weapon's target eligibility.
+- `Shrapnel.UseWeaponTargeting` is parsed but not consumed
+  (`Ext/Bullet/Hooks.cpp:309-342`): it replaces the ally test with the child
+  weapon's target eligibility — legal target, cell eligibility, house/techno
+  eligibility, health and veterancy thresholds, required attached effects,
+  shield armor, and the warhead's zero-versus-armor skip. Its own chain.
 - `Shrapnel.ObeyWarheadTriggerConditions`
   (`Ext/Bullet/Hooks.DetonateLogics.cpp:22`) gates the detonation logic list.
 - The `[CombatDamage]` globals are read once from the merged layer state

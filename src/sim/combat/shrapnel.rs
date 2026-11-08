@@ -130,18 +130,53 @@ pub(super) fn emit_projectile_shrapnel(
             false
         }
     };
+    let affects_buildings = {
+        #[cfg(feature = "phobos")]
+        {
+            parent_projectile
+                .shrapnel_affects_buildings
+                .unwrap_or(rules.phobos_globals.shrapnel_affects_buildings)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    };
+    // `Hooks.cpp:262-279`: a building head is admitted only under
+    // `Shrapnel.AffectsBuildings` and becomes the emission's
+    // `InitialTargetBuilding`, which the ring never targets again.
+    let mut initial_target_building = None;
     let admitted = match ground_head(world, bullet_cell) {
-        Some(crate::sim::occupancy::CellObjectMember::Entity(id)) => world
-            .substrate
-            .entities
-            .get(id)
-            .is_some_and(|object| object.category() != EntityCategory::Structure),
+        Some(crate::sim::occupancy::CellObjectMember::Entity(id)) => {
+            match world.substrate.entities.get(id) {
+                Some(object) if object.category() == EntityCategory::Structure => {
+                    initial_target_building = affects_buildings.then_some(id);
+                    affects_buildings
+                }
+                Some(_) => true,
+                None => false,
+            }
+        }
         Some(crate::sim::occupancy::CellObjectMember::Terrain(_)) => true,
         None => affects_ground,
     };
     if !admitted {
         return;
     }
+    let ignore_hit_buildings = {
+        #[cfg(feature = "phobos")]
+        {
+            parent_projectile
+                .shrapnel_ignore_hit_buildings
+                .unwrap_or(rules.phobos_globals.shrapnel_ignore_hit_buildings)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    };
+    // `Hooks.cpp:260,348-349`: one emission's previously hit buildings.
+    let mut targets_to_ignore: Vec<u64> = Vec::new();
 
     let construct = |world: &mut Simulation,
                      target: ProjectileTarget,
@@ -329,12 +364,28 @@ pub(super) fn emit_projectile_shrapnel(
                 let Some(target) = world.substrate.entities.get(id) else {
                     continue;
                 };
+                let is_building = target.category() == EntityCategory::Structure;
+                if is_building {
+                    // `Hooks.cpp:297-305`: never the emission's own building
+                    // head, and not a building another child already hit when
+                    // `Shrapnel.IgnoreHitBuildings` is on.
+                    if Some(id) == initial_target_building {
+                        continue;
+                    }
+                    if ignore_hit_buildings && targets_to_ignore.contains(&id) {
+                        continue;
+                    }
+                }
                 if source_owner.is_some_and(|owner| {
                     world
                         .house_alliances
                         .is_allied(&world.interner, owner, target.owner())
                 }) {
                     continue;
+                }
+                // `Hooks.cpp:348-349`: record after every other test passed.
+                if is_building && ignore_hit_buildings {
+                    targets_to_ignore.push(id);
                 }
                 ProjectileTarget::Entity(id)
             }

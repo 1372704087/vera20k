@@ -152,6 +152,14 @@ pub struct ProjectileType {
     /// Phobos `Shrapnel.AffectsBuildings=` (`:42`), same fallback.
     #[cfg(feature = "phobos")]
     pub shrapnel_affects_buildings: Option<bool>,
+    /// Phobos `Shrapnel.IgnoreHitBuildings=` (`Ext/BulletType/Body.cpp:44`),
+    /// same fallback.
+    #[cfg(feature = "phobos")]
+    pub shrapnel_ignore_hit_buildings: Option<bool>,
+    /// Phobos `Shrapnel.UseWeaponTargeting=` (`:43`), same fallback. Parsed
+    /// here only; the consumer is its own chain.
+    #[cfg(feature = "phobos")]
+    pub shrapnel_use_weapon_targeting: Option<bool>,
     /// `ShrapnelWeapon=` (+2B4), the WeaponType fired for each shrapnel
     /// fragment, as the ordered Rules processor resolved it.
     pub shrapnel_weapon: Option<String>,
@@ -468,6 +476,12 @@ impl ProjectileType {
             #[cfg(feature = "phobos")]
             shrapnel_affects_buildings: section
                 .read_phobos_nullable_bool("Shrapnel.AffectsBuildings", None),
+            #[cfg(feature = "phobos")]
+            shrapnel_ignore_hit_buildings: section
+                .read_phobos_nullable_bool("Shrapnel.IgnoreHitBuildings", None),
+            #[cfg(feature = "phobos")]
+            shrapnel_use_weapon_targeting: section
+                .read_phobos_nullable_bool("Shrapnel.UseWeaponTargeting", None),
             detonation_altitude: section.read_int("DetonationAltitude", 0),
             acceleration: section.read_int("Acceleration", 3),
             course_lock_duration: section.read_int("CourseLockDuration", 0),

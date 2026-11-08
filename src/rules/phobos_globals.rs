@@ -37,6 +37,14 @@ pub struct PhobosGlobals {
     /// `AutoDeath.TechnosDontExist.AllowLimboed=`, default `no` (`:631`,
     /// consumed at `:239`).
     pub auto_death_technos_dont_exist_allow_limboed: bool,
+    /// `Shrapnel.IgnoreHitBuildings=`, default `no`: a building already hit by
+    /// one of this emission's children is skipped for the rest
+    /// (`Ext/Bullet/Hooks.cpp:295,303,348`).
+    pub shrapnel_ignore_hit_buildings: bool,
+    /// `Shrapnel.UseWeaponTargeting=`, default `no`: replace the ally test with
+    /// the child weapon's own target eligibility (`:309-342`). Parsed here so
+    /// the key has one owner; the consumer is its own chain.
+    pub shrapnel_use_weapon_targeting: bool,
 }
 
 impl PhobosGlobals {
@@ -61,6 +69,14 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         auto_death_technos_dont_exist_allow_limboed: section.read_bool(
             "AutoDeath.TechnosDontExist.AllowLimboed",
             defaults.auto_death_technos_dont_exist_allow_limboed,
+        ),
+        shrapnel_ignore_hit_buildings: section.read_bool(
+            "Shrapnel.IgnoreHitBuildings",
+            defaults.shrapnel_ignore_hit_buildings,
+        ),
+        shrapnel_use_weapon_targeting: section.read_bool(
+            "Shrapnel.UseWeaponTargeting",
+            defaults.shrapnel_use_weapon_targeting,
         ),
     }
 }

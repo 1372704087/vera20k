@@ -9571,6 +9571,123 @@ fn ground_shrapnel_needs_the_phobos_affects_ground_key() {
     );
 }
 
+/// Phobos `BulletClass_Shrapnel_Forced`/`_Targeting`
+/// (`Ext/Bullet/Hooks.cpp:262-305,348-349`). A building head is admitted only
+/// under `Shrapnel.AffectsBuildings`; that building becomes the emission's
+/// `InitialTargetBuilding`, which the ring skips by identity, so it is never a
+/// child's target. `Shrapnel.IgnoreHitBuildings` then keeps every other
+/// building to one child per emission.
+#[cfg(feature = "phobos")]
+#[test]
+fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
+    const BODY: &str = "[VehicleTypes]\n0=MTNK\n\n[BuildingTypes]\n0=HQ\n\n[HQ]\nStrength=100\n\n[MTNK]\nStrength=100\nArmor=heavy\nPrimary=PARENT\nSecondary=CHILD\n\n[PARENT]\nDamage=20\nROF=10\nRange=6\nSpeed=30\nProjectile=PARENTPROJ\nWarhead=WH\n\n[PARENTPROJ]\nAirburst=yes\nShrapnelWeapon=CHILD\nShrapnelCount=12\n{AFFECTS}\n{IGNORE}\n\n[CHILD]\nDamage=5\nROF=10\nRange=3\nSpeed=40\nProjectile=CHILDPROJ\nWarhead=WH\n\n[CHILDPROJ]\nSubjectToWalls=yes\n\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
+    // Returns (children, times the second building is targeted).
+    let run = |affects: &str, ignore: &str, with_second: bool| {
+        let ini = IniFile::from_str(
+            &BODY
+                .replace("{AFFECTS}", affects)
+                .replace("{IGNORE}", ignore),
+        );
+        let art = IniFile::from_str("[HQ]\nFoundation=3x3\n");
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("shrapnel rules");
+        let mut entities = EntityStore::new();
+        let mut source = make_entity_owned(1, "MTNK", 2, 2, 100, "Soviet");
+        source.lifecycle.set_cell_marked_for_test(true);
+        entities.insert(source);
+        // The impact building: a 3x3 at (6,6) covering the impact cell.
+        let mut head = make_entity_owned(2, "HQ", 6, 6, 100, "Americans");
+        head.set_category_for_test(EntityCategory::Structure);
+        head.type_facts
+            .set_foundation_for_test("3x3".to_string().into());
+        head.lifecycle.set_cell_marked_for_test(true);
+        entities.insert(head);
+        if with_second {
+            // A second building on the first ring, three cells away.
+            let mut second = make_entity_owned(3, "HQ", 3, 5, 100, "Americans");
+            second.set_category_for_test(EntityCategory::Structure);
+            second
+                .type_facts
+                .set_foundation_for_test("3x3".to_string().into());
+            second.lifecycle.set_cell_marked_for_test(true);
+            entities.insert(second);
+        }
+        let mut occupancy = OccupancyGrid::rebuild(&entities);
+        let mut interner = test_interner();
+        let detonation = crate::sim::projectile::ProjectileDetonation {
+            projectile_id: 7,
+            source_id: 1,
+            target: crate::sim::projectile::ProjectileTarget::Cell { rx: 7, ry: 7 },
+            impact: crate::sim::projectile::ProjectileCoord::new(7 * 256 + 128, 7 * 256 + 128, 0),
+            payload: payload_from_weapon(
+                20,
+                interner.intern("WH"),
+                interner.intern("PARENT"),
+                &rules,
+                &mut interner,
+            ),
+            reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+        };
+        align_attackers_to_targets(&mut entities);
+        let result = tick_detonations(
+            &mut entities,
+            &mut occupancy,
+            &rules,
+            &mut interner,
+            &mut crate::sim::houses::Houses::default(),
+            &HouseAllianceMap::new(),
+            1,
+            &[1, 2, 3],
+            &[detonation],
+            &mut SimRng::new(0x46_a310),
+            &mut SimRng::new(1),
+        );
+        let hits = |id: u64| {
+            result
+                .projectile_spawns
+                .iter()
+                .filter(|spawn| {
+                    spawn.target == crate::sim::projectile::ProjectileTarget::Entity(id)
+                })
+                .count()
+        };
+        (result.projectile_spawns.len(), hits(2), hits(3))
+    };
+
+    assert_eq!(
+        run("", "", false).0,
+        0,
+        "a building head refuses shrapnel without Shrapnel.AffectsBuildings"
+    );
+    assert!(
+        run("Shrapnel.AffectsBuildings=yes", "", false).0 > 0,
+        "the admitted building head still spawns its children"
+    );
+    assert_eq!(
+        run("Shrapnel.AffectsBuildings=yes", "", false).1,
+        0,
+        "the initial target building is never a child's target"
+    );
+    assert!(
+        run(
+            "Shrapnel.AffectsBuildings=yes",
+            "Shrapnel.IgnoreHitBuildings=no",
+            true
+        )
+        .2 >= 2,
+        "without the key the ring can target one building repeatedly"
+    );
+    assert_eq!(
+        run(
+            "Shrapnel.AffectsBuildings=yes",
+            "Shrapnel.IgnoreHitBuildings=yes",
+            true
+        )
+        .2,
+        1,
+        "with the key a building is hit at most once per emission"
+    );
+}
+
 /// SpawnShrapnel lessens a negative ShrapnelCount by the cells from the
 /// bullet to its firer's GetCoords (`[bullet+0xB0]`, vt+0x48 at
 /// `0x0046A370`): for a building firer its foundation centre (`0x00447AC0`),

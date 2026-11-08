@@ -158,7 +158,10 @@ impl AttachEffectInstance {
 
     /// A copy for `TransferAttachedEffects` (`AttachEffectClass.cpp:1294..1332`):
     /// the delays, source pair, duration and counters travel, while the target
-    /// creates its own animation and starts a fresh `CurrentDelay`.
+    /// creates its own animation and starts a fresh `CurrentDelay`. The trail
+    /// starts unset too: `CreateAndAttach` builds a new `LaserTrailClass`
+    /// (`AttachEffectClass.cpp:89`) whose `LastLocation` the first `Update`
+    /// seeds, and the transfer's sync list (`:1297..1315`) never names it.
     #[cfg(feature = "phobos")]
     fn transfer_copy(&self) -> Self {
         Self {
@@ -180,6 +183,7 @@ impl AttachEffectInstance {
             last_sequence_check: self.last_sequence_check,
             armor_multiplier_timer: self.armor_multiplier_timer,
             reflect_damage_timer: self.reflect_damage_timer,
+            trail_last_location: None,
         }
     }
 
@@ -3722,6 +3726,73 @@ mod tests {
                 "undeploy transfer ({allow})"
             );
         }
+    }
+
+    /// A transferred effect starts its trail at the target: `CreateAndAttach`
+    /// builds a fresh `LaserTrailClass` (`AttachEffectClass.cpp:89`) and the
+    /// transfer's sync list (`:1297..1315`) never names `LastLocation`, so the
+    /// source's stored endpoint must not draw a segment across the deploy.
+    #[test]
+    fn a_transferred_effect_seeds_its_trail_at_the_target() {
+        let art = crate::rules::ini_parser::IniFile::from_str(
+            "[YAREFN]\nFoundation=1x1\n[LaserTrailTypes]\n0=TRAIL\n[TRAIL]\n\
+             SegmentLength=64\nFadeDuration=5\nThickness=2\nColor=1,2,3\n",
+        );
+        let mut rules = crate::rules::ruleset::RuleSet::from_ini_with_fixed_art_for_test(
+            &crate::rules::ini_parser::IniFile::from_str(
+                "[VehicleTypes]\n0=SMIN\n[BuildingTypes]\n0=YAREFN\n[InfantryTypes]\n0=SLAV\n\
+                 [SMIN]\nStrength=100\nSpeed=3\nDeploysInto=YAREFN\nEnslaves=SLAV\n\
+                 SlavesNumber=1\n\
+                 [YAREFN]\nStrength=1000\nDeployFacing=0\nUndeploysInto=SMIN\n\
+                 [SLAV]\nStrength=125\nSpeed=3\nStorage=4\n\
+                 [AttachEffectTypes]\n0=AE\n[AE]\nDuration=100\nAllowTransfer=yes\n\
+                 LaserTrail.Type=TRAIL\n\
+                 [Clear]\nBuildable=yes\n",
+            ),
+            &art,
+        )
+        .unwrap();
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        rules.set_buildup_control_for_test("YAREFN", [0, 17, 3]);
+        let mut sim = Simulation::with_seed(7);
+        crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+        let mcv = sim
+            .spawn_object_at_height("SMIN", "Neutral", 10, 10, 0, 0, &rules)
+            .expect("SMIN spawns");
+        attach_external(&mut sim, &rules, mcv);
+        sim.update_phobos_laser_trails(mcv, &rules);
+        assert!(
+            lasers(&sim).is_empty(),
+            "the first update only seeds LastLocation"
+        );
+        // Move without a trail update, so the stored endpoint stays two cells
+        // behind the cell the building deploys on.
+        sim.substrate
+            .entities
+            .get_mut(mcv)
+            .unwrap()
+            .position
+            .set_rx_for_test(12);
+        assert!(sim.deploy_mcv(
+            mcv,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default()
+        ));
+        let yard = only_entity(&sim, "YAREFN");
+        assert_eq!(instances(&sim, yard), 1, "the effect followed the deploy");
+        sim.substrate
+            .entities
+            .get_mut(yard)
+            .unwrap()
+            .finish_building_construction_for_test();
+        let before = lasers(&sim).len();
+        sim.update_phobos_laser_trails(yard, &rules);
+        assert_eq!(
+            lasers(&sim).len(),
+            before,
+            "a fresh trail seeds at the building instead of drawing from the unit's old endpoint"
+        );
     }
 
     /// The initial delay gates everything, then the duration counts down and a

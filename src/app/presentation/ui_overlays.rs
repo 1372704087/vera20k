@@ -132,8 +132,36 @@ pub(crate) fn health_bar_drawable(
     rules: Option<&RuleSet>,
 ) -> bool {
     let player = local_owner.and_then(|owner| sim.interner().get(owner));
-    let (_, draw_pips) = health_strip_visibility(sim, entity, hovered_id, player, false);
+    let (hide, permanent) = health_bar_switches(sim, entity, rules);
+    let (_, draw_pips) =
+        health_strip_visibility(sim, entity, hovered_id, player, false, hide, permanent);
     draw_pips && admitted_techno_observer(sim, entity, local_owner, rules).is_some()
+}
+
+/// Phobos `HealthBar.Hide=` (`0x6F64A9`) and `HealthBar.Permanent=`
+/// (`0x6F5E37`), both `Valueable<bool>` defaulting to `no`.
+fn health_bar_switches(
+    sim: &crate::sim::world::Simulation,
+    entity: &crate::sim::game_entity::GameEntity,
+    rules: Option<&RuleSet>,
+) -> (bool, bool) {
+    #[cfg(feature = "phobos")]
+    {
+        rules
+            .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
+            .map(|object| {
+                (
+                    object.phobos_health_bar.hide,
+                    object.phobos_health_bar.permanent,
+                )
+            })
+            .unwrap_or((false, false))
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (sim, entity, rules);
+        (false, false)
+    }
 }
 
 /// DrawExtras' health dispatch: [`status_visibility`], except that a hovered,
@@ -147,7 +175,13 @@ fn health_strip_visibility(
     hovered_id: Option<u64>,
     player: Option<crate::sim::intern::InternedId>,
     widened: bool,
+    hide: bool,
+    permanent: bool,
 ) -> (bool, bool) {
+    // `0x6F64A9` refuses the whole tail, background included.
+    if hide {
+        return (false, false);
+    }
     let selected = entity.selection.is_selected();
     // Ares TechnoClass_DrawExtras_Submerged10048350 (hook6F5388) also
     // treats an object below the surface (IsSurfaced5F6C10: GetHeight >
@@ -165,7 +199,7 @@ fn health_strip_visibility(
                 sim.fog()
                     .has_sensor_for_house(player, entity.position.rx(), entity.position.ry())
             }));
-    let hovered = (widened || hovered_id == Some(entity.stable_id()))
+    let hovered = (widened || permanent || hovered_id == Some(entity.stable_id()))
         && (selected
             || !player.is_some_and(|player| {
                 entity.disguise_hides_house_from(
@@ -298,6 +332,29 @@ fn entity_status_pips_drawable(
         rules,
     ) {
         return false;
+    }
+    // Phobos `HealthBar.HidePips=` (`0x6F6637`, `0x6F683C`) skips the class
+    // pip call, and `HealthBar.Permanent.PipScale=` (`0x6F67E8`, `0x6F6A58`)
+    // only lifts that call's hover/selection test. Scale pips, the self-heal
+    // icon and the control-group digit all live inside it.
+    #[cfg(feature = "phobos")]
+    {
+        let (hide_pips, permanent_pip_scale) = rules
+            .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules))
+            .map(|object| {
+                (
+                    object.phobos_health_bar.hide_pips,
+                    object.phobos_health_bar.permanent_pip_scale,
+                )
+            })
+            .unwrap_or((false, false));
+        if hide_pips
+            || !(permanent_pip_scale
+                || hovered_entity_id == Some(entity.stable_id())
+                || entity.selection.is_selected())
+        {
+            return false;
+        }
     }
     let building_type = (entity.category() == EntityCategory::Structure)
         .then(|| rules.and_then(|rules| sim.interner().object_type(entity.type_ref(), rules)))
@@ -1612,8 +1669,18 @@ pub(crate) fn techno_extras_for_parent(
         observer_id,
         viewport.ignore_visibility,
     );
-    let (draw_background, draw_health) =
-        health_strip_visibility(sim, entity, hovered_id, observer_id, widened);
+    // `HealthBar.Hide=` refuses the whole tail and `HealthBar.Permanent=`
+    // feeds the same hovered arm as an actual hover.
+    let (hide, permanent) = health_bar_switches(sim, entity, rules);
+    let (draw_background, draw_health) = health_strip_visibility(
+        sim,
+        entity,
+        hovered_id,
+        observer_id,
+        widened,
+        hide,
+        permanent,
+    );
     if !draw_health {
         return strip;
     }
@@ -1802,6 +1869,8 @@ pub(crate) fn techno_extras_for_parent(
     //origin independently, cargo and native relationship admission.
     // `0x006F6A8E..0x006F6AB0` passes the draw point itself, without the
     // Type+3E0 PixelSelectionBracketDelta that moves the health bar.
+    // `scale_pip_draws` owns the Phobos pip admission (`HealthBar.HidePips`
+    // and `HealthBar.Permanent.PipScale`).
     if let Some(art) = overlay.scale_pips() {
         for pip in scale_pip_draws(sim, entity, hovered_id, local_owner, rules) {
             let x = sx - 15.0 + if infantry { 11.0 } else { 0.0 } + pip.offset_pixels[0] as f32;
@@ -2606,6 +2675,103 @@ mod tests {
         assert!(drawable(EntityCategory::Infantry, false, false));
     }
 
+    /// Phobos `HealthBar.Hide=` (`0x6F64A9`) refuses the draw,
+    /// `HealthBar.HidePips=` (`0x6F6637`, `0x6F683C`) skips the pip call,
+    /// `HealthBar.Permanent=` (`0x6F5E37`) takes the hovered arm while
+    /// unhovered, and `HealthBar.Permanent.PipScale=` (`0x6F67E8`,
+    /// `0x6F6A58`) lifts the pip call's hover/selection test. All are
+    /// `Valueable<bool>` defaulting to `no`.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_health_bar_hide_and_permanent_reach_the_admission() {
+        use crate::sim::{combat::Health, game_entity::GameEntity, world::Simulation};
+        let admit = |body: &str, hovered: bool, selected: bool| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(
+                &crate::rules::ini_parser::IniFile::from_str(&format!(
+                    "[VehicleTypes]\n0=TANK\n[TANK]\nStrength=100\nSight=0\nSpeed=5\n{body}"
+                )),
+            )
+            .expect("health-bar rules");
+            let mut sim = Simulation::new();
+            let viewer = sim.intern("Player");
+            sim.houses_mut_for_test()
+                .register(crate::sim::house_state::HouseState::new(
+                    viewer, 0, None, true, 0, 0,
+                ));
+            let mut entity = GameEntity::new_at_frame_zero_for_test(
+                1,
+                20,
+                20,
+                0,
+                0,
+                viewer,
+                Health::new(100),
+                sim.intern("TANK"),
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            );
+            entity.selection.set_selected_for_test(selected);
+            sim.entities_mut_for_test().insert(entity);
+            sim.entities_mut_for_test()
+                .get_mut(1)
+                .unwrap()
+                .lifecycle
+                .set_in_limbo_for_test(false);
+            sim.resubmit_entity_display_for_test(1);
+            let entity = sim.entities().get(1).unwrap();
+            let hovered = hovered.then_some(1);
+            (
+                health_bar_drawable(&sim, entity, hovered, Some("Player"), Some(&rules)),
+                entity_status_pips_drawable(&sim, entity, hovered, Some(viewer), Some(&rules)),
+            )
+        };
+
+        assert_eq!(
+            admit("", true, false),
+            (true, true),
+            "a hovered object draws"
+        );
+        assert_eq!(
+            admit("", false, false),
+            (false, false),
+            "an unhovered one does not"
+        );
+        assert_eq!(
+            admit("HealthBar.Hide=yes\n", true, false),
+            (false, false),
+            "HealthBar.Hide refuses even a hovered object"
+        );
+        assert!(
+            admit("HealthBar.Permanent=yes\n", false, false).0,
+            "HealthBar.Permanent draws the bar while unhovered"
+        );
+        assert!(
+            !admit("HealthBar.Permanent=yes\n", false, false).1,
+            "the permanent bar alone keeps no pip strip"
+        );
+        assert!(
+            admit(
+                "HealthBar.Permanent=yes\nHealthBar.Permanent.PipScale=yes\n",
+                false,
+                false
+            )
+            .1,
+            "Permanent.PipScale keeps the strip unhovered"
+        );
+        assert_eq!(
+            admit("HealthBar.HidePips=yes\n", true, false),
+            (true, false),
+            "HidePips keeps the bar but drops the pip strip"
+        );
+        assert!(
+            !admit("HealthBar.HidePips=yes\n", false, true).1,
+            "a selection does not restore hidden pips"
+        );
+        assert!(admit("", false, true).1, "a selected object draws its pips");
+    }
+
     /// Ares TechnoClass_DrawExtras_Submerged10048350 (hook6F5388): a
     /// subterranean enemy the player senses shows its strip unselected.
     #[cfg(feature = "ares")]
@@ -2637,7 +2803,7 @@ mod tests {
             entity.position.set_exact_z_leptons_for_test(Some(depth));
             sim.entities_mut_for_test().insert(entity);
             let entity = sim.entities().get(1).unwrap();
-            health_strip_visibility(&sim, entity, None, Some(player), false).1
+            health_strip_visibility(&sim, entity, None, Some(player), false, false, false).1
         };
         assert!(draws(-20, true));
         assert!(!draws(-19, true), "IsSurfaced holds above -20");
@@ -2686,7 +2852,7 @@ mod tests {
         sim.entities_mut_for_test().insert(entity);
         let entity = sim.entities().get(1).unwrap();
         let widened = health_strip_widened(&sim, entity, Always, true, Some(viewer), false);
-        health_strip_visibility(&sim, entity, None, Some(viewer), widened).1
+        health_strip_visibility(&sim, entity, None, Some(viewer), widened, false, false).1
     }
 
     #[test]
@@ -2748,7 +2914,16 @@ mod tests {
             let entity = sim.entities().get(1).unwrap();
             let full = entity.health.is_full(100);
             let widened = health_strip_widened(&sim, entity, mode, full, Some(player), false);
-            health_strip_visibility(&sim, entity, hovered.then_some(1), Some(player), widened).1
+            health_strip_visibility(
+                &sim,
+                entity,
+                hovered.then_some(1),
+                Some(player),
+                widened,
+                false,
+                false,
+            )
+            .1
         };
         // (mode, disguised, explored, hovered); every tank is at full health.
         assert!(draws(Always, false, true, false));

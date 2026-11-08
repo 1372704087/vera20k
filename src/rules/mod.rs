@@ -145,6 +145,8 @@ pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
 pub mod phobos_globals;
 #[cfg(feature = "phobos")]
+pub mod phobos_health_bar;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

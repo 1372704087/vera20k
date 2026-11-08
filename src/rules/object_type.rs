@@ -862,6 +862,9 @@ pub struct ObjectType {
     /// stay unported; see [`crate::rules::phobos_auto_death`].
     #[cfg(feature = "phobos")]
     pub phobos_auto_death: crate::rules::phobos_auto_death::AutoDeathTypeSettings,
+    /// Phobos `HealthBar.*` (`Ext/TechnoType/Body.cpp:761-764`).
+    #[cfg(feature = "phobos")]
+    pub phobos_health_bar: crate::rules::phobos_health_bar::HealthBarSettings,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4657,6 +4660,10 @@ impl ObjectType {
                 .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             phobos_auto_death: crate::rules::phobos_auto_death::AutoDeathTypeSettings::from_section(
+                section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_health_bar: crate::rules::phobos_health_bar::HealthBarSettings::from_section(
                 section,
             ),
             #[cfg(feature = "phobos")]

@@ -38,6 +38,7 @@ Supported extensions:
 - [Ore-stage animation hiding](phobos-hide-if-no-ore-threshold.md)
 - [Superweapon techno gates](phobos-superweapon-technos.md)
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
+- [Health-bar switches](health-bars.md#phobos-type-switches) (`HealthBar.Hide=`, `.HidePips=`, `.Permanent=` and `.Permanent.PipScale=`)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

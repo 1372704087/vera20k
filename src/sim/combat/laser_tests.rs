@@ -372,6 +372,7 @@ fn ares_laser_thickness_sets_the_fire_at_and_spawn_laser_widths() {
         0,
         rules.weapon("LaserProbe").unwrap(),
         Some(ProjectileCoord::new(1280, 1280, 0)),
+        false,
     )
     .unwrap();
     assert_eq!((birth.width, birth.supported), (5, false));

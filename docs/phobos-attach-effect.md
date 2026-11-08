@@ -137,7 +137,10 @@ AttachEffect.SameSourceOnly=no            ; match only same-source instances
   TechnoType-side `AttachEffect.*` lists above.
 - `sim/attach_effect.rs`: one instance's timing state and the per-frame AI
   walk — initial delay, re-creation delay, duration refresh, duration tick,
-  and the animation each effect shows (`AttachEffectClass::AI`).
+  and the animation each effect shows (`AttachEffectClass::AI`). It also owns
+  `TransferAttachedEffects` (`AttachEffectClass.cpp:1222..1333`), called by
+  `sim/world/world_spawn.rs` at Phobos' deploy (`0x739956`) and undeploy
+  (`0x44A03C`) hooks.
 - `sim/game_entity/attach_effect.rs`: the carrier-side attach sites
   (`CreateAndAttach` gate, stacking counts, source House).
 - `rules/phobos_laser_trail.rs` and the ART layer in `rules/art_data.rs`:
@@ -167,8 +170,11 @@ AttachEffect.SameSourceOnly=no            ; match only same-source instances
   the shared techno AI phase rather than after the foot locomotor process.
   Native forces `IsHouseColor` on the trail LaserDraw, so `Color` and
   `IsHouseColor` parse but the segment draws in the owner's house color.
-- `AllowTransfer` is retained (`Nullable<bool>`, `AllowTransfer.Convert`
-  alongside) but no transfer site consumes it yet.
+- `AllowTransfer` is consumed by the deploy (`(Un)DeploysInto`) conversions;
+  `AllowTransfer.Convert` stays unused because VERA ports no Ares type
+  conversion (`TechnoClass_ChangeType`). A transferred instance copies its
+  source state without native's constructor RNG draw
+  (`Duration.ApplyArmorMultOnTarget`).
 - `Duration.ApplyFirepowerMult` folds a firepower multiplier into the
   duration the way the reader stores it; `ArmorMultiplier` folds onto the
   target's armor the shared combat-stats owner already folds Ares

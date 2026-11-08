@@ -560,8 +560,8 @@ impl AttachEffectType {
     /// `Body.Update.cpp:1084`): an effect attached from outside defaults to
     /// carrying across a transfer or conversion, one a techno attaches to
     /// itself does not. `AllowTransfer.Convert` splits the conversion case
-    /// out. RESIDUAL: VERA has no AttachEffect transfer or conversion
-    /// consumer yet, so neither key changes play.
+    /// out; only the deploy/undeploy transfer consumes the base key today,
+    /// because no Ares type conversion is ported.
     pub fn allows_transfer(&self, self_owned: bool, converting: bool) -> bool {
         let base = self.allow_transfer.unwrap_or(!self_owned);
         if converting {

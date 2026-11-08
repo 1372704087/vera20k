@@ -2965,6 +2965,11 @@ impl Simulation {
         // 0x00739956: a Slave Miner's manager moves to its refinery (the
         // hand-off 0x006B0D10, then SetOwner 0x006AF580) before the unit
         // leaves; the refinery's own fresh slaves are freed.
+        // Phobos `UnitClass_Deploy_Transfer @ 0x739956`: the unit's
+        // AttachEffects move to the building before the slave hand-off and
+        // the unit's UnInit.
+        #[cfg(feature = "phobos")]
+        self.transfer_phobos_attach_effects(stable_id, new_sid, rules);
         // Ares UnitClass_Deploy_Transfer (10048E90 -> 10045A80): the bomb,
         // then the original owner.
         #[cfg(feature = "ares")]
@@ -3201,6 +3206,11 @@ impl Simulation {
             // the unit's own.
             unit.veterancy.inherit(&veterancy);
         }
+        // Phobos `BuildingClass_Mi_Selling_Transfer @ 0x44A03C`: after the
+        // building's health/state hand-off and before the slave move and the
+        // building's UnInit, its AttachEffects move to the new unit.
+        #[cfg(feature = "phobos")]
+        self.transfer_phobos_attach_effects(sid, new_sid, rules);
         // Ares BuildingClass_Mi_Selling_Transfer (10048E90 -> 10045A80).
         #[cfg(feature = "ares")]
         {

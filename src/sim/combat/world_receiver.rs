@@ -1595,10 +1595,25 @@ pub(crate) fn commit_entities(
         // and IgnoreDefenses; only the earlier receiver exits skip it.
         if let Some(damage) =
             receiver_outcome.and_then(|resolved| resolved.outcome.readiness_damage)
-            && let Some(target) = world.substrate.entities.get_mut(target_id)
-            && let Some(object) = world.interner.object_type(target.type_ref(), rules)
         {
-            target.reduce_ammo_for_damage(object, damage, world.session.binary_frame() as i32);
+            let reduced = if let Some(target) = world.substrate.entities.get_mut(target_id)
+                && let Some(object) = world.interner.object_type(target.type_ref(), rules)
+            {
+                target.reduce_ammo_for_damage(object, damage)
+            } else {
+                false
+            };
+            // Techno701B62 calls StartReloading unconditionally after the
+            // count write; the Phobos shared-ammo pass runs at its entry.
+            if reduced {
+                crate::sim::shared_ammo::start_reloading(
+                    &mut world.substrate.entities,
+                    &world.interner,
+                    rules,
+                    target_id,
+                    world.session.binary_frame() as i32,
+                );
+            }
         }
         // Techno70196C..701D69 writes its defended/gated/kernel value before
         // team removal and Object's synchronous Tag/Kill/Destroy callbacks.

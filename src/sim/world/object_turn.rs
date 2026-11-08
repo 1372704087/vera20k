@@ -1178,12 +1178,24 @@ impl Simulation {
             // The shared Techno owner supplies count/clock semantics; the
             // Unit-only MobileFire pause is deliberately not used here.
             #[cfg(feature = "ares")]
-            if let Some(entity) = sim.substrate.entities.get_mut(stable_id)
+            let reloaded = if let Some(entity) = sim.substrate.entities.get_mut(stable_id)
                 && entity.is_object_alive()
                 && !entity.lifecycle.in_limbo()
                 && let Some(obj) = sim.interner.object_type(entity.type_ref(), rules)
             {
-                entity.reload_techno_ammo(obj, sim.session.binary_frame() as i32);
+                entity.reload_techno_ammo(obj, sim.session.binary_frame() as i32)
+            } else {
+                false
+            };
+            #[cfg(feature = "ares")]
+            if reloaded {
+                crate::sim::shared_ammo::start_reloading(
+                    &mut sim.substrate.entities,
+                    &sim.interner,
+                    rules,
+                    stable_id,
+                    sim.session.binary_frame() as i32,
+                );
             }
             //51BCA4..51BDCF follows the entire FootAI, including Process and
             // its tails. A successful Scatter invokes Process a second time
@@ -1244,7 +1256,7 @@ impl Simulation {
             // precedes the second Ready/Commence. Aircraft/Infantry have
             // no corresponding ordinary Reload dispatch here. The native
             // post-Foot alive gate precedes firing; no second gate is added.
-            if let Some(entity) = sim.substrate.entities.get_mut(stable_id)
+            let unit_reloaded = if let Some(entity) = sim.substrate.entities.get_mut(stable_id)
                 && entity.category() == EntityCategory::Unit
                 && let Some(obj) = sim.interner.object_type(entity.type_ref(), rules)
             {
@@ -1255,7 +1267,18 @@ impl Simulation {
                         binary_frame: sim.session.binary_frame(),
                         entity_id: stable_id,
                         cause,
-                    })?;
+                    })?
+            } else {
+                false
+            };
+            if unit_reloaded {
+                crate::sim::shared_ammo::start_reloading(
+                    &mut sim.substrate.entities,
+                    &sim.interner,
+                    rules,
+                    stable_id,
+                    sim.session.binary_frame() as i32,
+                );
             }
             sim.object_ai_post_movement_promote_one(stable_id, rules);
             // Unit73671F..736817 follows that Commence (the CTF flag block

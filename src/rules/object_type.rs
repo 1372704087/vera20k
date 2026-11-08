@@ -1998,6 +1998,15 @@ pub struct ObjectType {
     /// Parsed from `OpenTopped=yes` in rules.ini.
     pub open_topped: bool,
 
+    /// Phobos `Ammo.Shared=` (`Ext/TechnoType/Body.cpp:955`), default `no`.
+    #[cfg(feature = "phobos")]
+    pub ammo_shared: bool,
+
+    /// Phobos `Ammo.Shared.Group=` (`Ext/TechnoType/Body.cpp:956`), default
+    /// `-1`: a negative transport group hands to every shared passenger.
+    #[cfg(feature = "phobos")]
+    pub ammo_shared_group: i32,
+
     /// Whether this transport uses the Gunner system (IFV weapon swap).
     /// Parsed from `Gunner=yes` in rules.ini. When a passenger enters, the
     /// transport's active weapon changes based on the passenger's IFVMode.
@@ -4666,6 +4675,10 @@ impl ObjectType {
             phobos_health_bar: crate::rules::phobos_health_bar::HealthBarSettings::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            ammo_shared: section.read_bool("Ammo.Shared", false),
+            #[cfg(feature = "phobos")]
+            ammo_shared_group: section.read_int("Ammo.Shared.Group", -1),
             #[cfg(feature = "phobos")]
             digital_display_disable: section.read_bool("DigitalDisplay.Disable", false),
             #[cfg(feature = "phobos")]

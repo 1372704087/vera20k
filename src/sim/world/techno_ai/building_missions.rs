@@ -1198,8 +1198,8 @@ pub(super) fn gattling_idle(
     // TechnoClass::Reload (vt+0x424) there instead, with its clock and
     // `ReloadAmount`.
     #[cfg(feature = "ares")]
-    if !obj.hospital && !obj.armory() {
-        entity.reload_techno_ammo(obj, now);
+    if !obj.hospital && !obj.armory() && entity.reload_techno_ammo(obj, now) {
+        crate::sim::shared_ammo::start_reloading(&mut substrate.entities, interner, rules, id, now);
     }
     #[cfg(not(feature = "ares"))]
     if !obj.hospital
@@ -1208,6 +1208,9 @@ pub(super) fn gattling_idle(
     {
         ammo.refill_empty_from_type(obj.ammo);
     }
+    let Some(entity) = substrate.entities.get_mut(id) else {
+        return;
+    };
     if !obj.is_gattling {
         return;
     }

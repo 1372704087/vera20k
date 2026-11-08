@@ -39,6 +39,7 @@ Supported extensions:
 - [Superweapon techno gates](phobos-superweapon-technos.md)
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Health-bar switches](health-bars.md#phobos-type-switches) (`HealthBar.Hide=`, `.HidePips=`, `.Permanent=` and `.Permanent.PipScale=`)
+- [Shared transport ammo](phobos-shared-ammo.md) (`Ammo.Shared=` and `Ammo.Shared.Group=` feed a reloading open-topped transport's rounds to its passengers)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

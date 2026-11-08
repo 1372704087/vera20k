@@ -2410,20 +2410,32 @@ pub(super) fn emit_admitted_fire(
     // LimboLaunch. Ares reload / Infantry panic and Unit's firing counter /
     // Scalable work stay here for ordinary and direct mission FireAt callers.
     #[cfg(feature = "ares")]
-    if snap.category == EntityCategory::Infantry
-        && weapon.ammo_cost() > 0
-        && let Some(entity) = world.substrate.entities.get_mut(snap.stable_id)
-        && !entity.lifecycle.in_limbo()
-        && let Some(live_type) = world.interner.object_type(entity.type_ref(), rules)
-        && live_type.ammo > 0
-        && entity
-            .ammo()
-            .is_some_and(|ammo| ammo.current() < live_type.ammo)
-    {
-        // Installed Ares InfantryClass_Fire_Ammo10047910, gamemd51DF8C:
-        // after a returned Bullet, start the shared reload clock. The
-        // Weapon Ammo<=0 arm consumes nothing and does not restart it.
-        entity.start_reloading_ammo(live_type, binary_frame as i32);
+    if snap.category == EntityCategory::Infantry && weapon.ammo_cost() > 0 {
+        let restart = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .and_then(|entity| {
+                let live_type = world.interner.object_type(entity.type_ref(), rules)?;
+                (!entity.lifecycle.in_limbo()
+                    && live_type.ammo > 0
+                    && entity
+                        .ammo()
+                        .is_some_and(|ammo| ammo.current() < live_type.ammo))
+                .then_some(())
+            });
+        if restart.is_some() {
+            // Installed Ares InfantryClass_Fire_Ammo10047910, gamemd51DF8C:
+            // after a returned Bullet, start the shared reload clock. The
+            // Weapon Ammo<=0 arm consumes nothing and does not restart it.
+            crate::sim::shared_ammo::start_reloading(
+                &mut world.substrate.entities,
+                &world.interner,
+                rules,
+                snap.stable_id,
+                binary_frame as i32,
+            );
+        }
     }
     // Installed Ares 51DF8C returns 0, so this panic follows its reload.
     if snap.category == EntityCategory::Infantry
@@ -2447,21 +2459,33 @@ pub(super) fn emit_admitted_fire(
         // UnitFireAt7413D3..741401: only a nonnull base Bullet return
         // restarts a finite, non-full automatic magazine. Re-read the live
         // type after the common tail, before the firing counter/scalable.
-        if let Some(entity) = world.substrate.entities.get_mut(snap.stable_id)
-            && let Some(live_type) = world.interner.object_type(entity.type_ref(), rules)
-            && if cfg!(feature = "ares") {
-                // Ares UnitClass_Fire_Ammo10047B30 replaces7413D3:
-                // positive Weapon Ammo invokes StartReloading directly.
-                weapon.ammo_cost() > 0
-            } else {
-                live_type.ammo > 0
-                    && entity
-                        .ammo()
-                        .is_some_and(|ammo| ammo.current() < live_type.ammo)
-                    && !live_type.manual_reload
-            }
-        {
-            entity.start_reloading_ammo(live_type, binary_frame as i32);
+        let restart = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .and_then(|entity| {
+                let live_type = world.interner.object_type(entity.type_ref(), rules)?;
+                if cfg!(feature = "ares") {
+                    // Ares UnitClass_Fire_Ammo10047B30 replaces7413D3:
+                    // positive Weapon Ammo invokes StartReloading directly.
+                    weapon.ammo_cost() > 0
+                } else {
+                    live_type.ammo > 0
+                        && entity
+                            .ammo()
+                            .is_some_and(|ammo| ammo.current() < live_type.ammo)
+                        && !live_type.manual_reload
+                }
+                .then_some(())
+            });
+        if restart.is_some() {
+            crate::sim::shared_ammo::start_reloading(
+                &mut world.substrate.entities,
+                &world.interner,
+                rules,
+                snap.stable_id,
+                binary_frame as i32,
+            );
         }
         let frames = rules
             .unit_shp_read_state(world.interner.resolve(snap.type_id))

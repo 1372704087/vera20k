@@ -130,6 +130,7 @@ pub mod scenario_session; // app->sim launch descriptor (per-match seed pipeline
 pub mod score;
 pub(crate) mod secret_lab;
 pub mod sensor_lifecycle;
+pub(crate) mod shared_ammo; // Phobos Ammo.Shared hand-out at StartReloading (0x6FB080)
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;

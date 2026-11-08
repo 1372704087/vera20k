@@ -90,6 +90,18 @@ pub struct AutoDeathTypeSettings {
     pub technos_exist_allow_limboed: Option<bool>,
     /// `AutoDeath.TechnosExist.Houses=`, default `owner`.
     pub technos_exist_houses: crate::rules::phobos_shields::AffectedHouse,
+    /// `AutoDeath.OnOwnerChange=`, `Nullable<bool>` (`Ext/TechnoType/Body.cpp:821`),
+    /// the master switch the two directions fall back to.
+    pub on_owner_change: Option<bool>,
+    /// `AutoDeath.OnOwnerChange.HumanToComputer=` (`:823`).
+    pub on_owner_change_human_to_computer: Option<bool>,
+    /// `AutoDeath.OnOwnerChange.ComputerToHuman=` (`:824`).
+    pub on_owner_change_computer_to_human: Option<bool>,
+    /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=` (`:822`), falling back to
+    /// the `[CombatDamage]` global.
+    pub on_owner_change_ignore_revert_on_exit: Option<bool>,
+    /// `AutoDeath.AllowLimboed=` (`:818`), falling back to the global.
+    pub allow_limboed: Option<bool>,
 }
 
 /// `PowerStatus` (`Utilities/Enum.h:203-208`). Its parser
@@ -151,6 +163,14 @@ impl AutoDeathTypeSettings {
                 "AutoDeath.TechnosExist.Houses",
                 crate::rules::phobos_shields::AffectedHouse::OWNER,
             ),
+            on_owner_change: section.read_phobos_nullable_bool("AutoDeath.OnOwnerChange", None),
+            on_owner_change_human_to_computer: section
+                .read_phobos_nullable_bool("AutoDeath.OnOwnerChange.HumanToComputer", None),
+            on_owner_change_computer_to_human: section
+                .read_phobos_nullable_bool("AutoDeath.OnOwnerChange.ComputerToHuman", None),
+            on_owner_change_ignore_revert_on_exit: section
+                .read_phobos_nullable_bool("AutoDeath.OnOwnerChange.IgnoreRevertOnExit", None),
+            allow_limboed: section.read_phobos_nullable_bool("AutoDeath.AllowLimboed", None),
         }
     }
 }

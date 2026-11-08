@@ -45,6 +45,11 @@ pub struct PhobosGlobals {
     /// the child weapon's own target eligibility (`:309-342`). Parsed here so
     /// the key has one owner; the consumer is its own chain.
     pub shrapnel_use_weapon_targeting: bool,
+    /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
+    /// (`Ext/Rules/Body.cpp:630`).
+    pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
+    /// `AutoDeath.AllowLimboed=`, default `no` (`Ext/Rules/Body.cpp:629`).
+    pub auto_death_allow_limboed: bool,
 }
 
 impl PhobosGlobals {
@@ -78,6 +83,12 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "Shrapnel.UseWeaponTargeting",
             defaults.shrapnel_use_weapon_targeting,
         ),
+        auto_death_on_owner_change_ignore_revert_on_exit: section.read_bool(
+            "AutoDeath.OnOwnerChange.IgnoreRevertOnExit",
+            defaults.auto_death_on_owner_change_ignore_revert_on_exit,
+        ),
+        auto_death_allow_limboed: section
+            .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
     }
 }
 

@@ -6,7 +6,7 @@ use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n1=E2\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n\
 [E1]\nStrength=125\nSight=0\n\
 [E2]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
@@ -31,6 +31,12 @@ AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=NOTATYPE\nAutoDeath.TechnosExist
 AutoDeath.Behavior=kill\nAutoDeath.TechnosDontExist=E1,E2\nAutoDeath.TechnosDontExist.Any=yes\n\
 [TANKENEMY]\nStrength=100\nSight=0\nSpeed=5\n\
 AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1\nAutoDeath.TechnosExist.Houses=enemies\n\
+[TANKOWNER]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\n\
+[TANKNOOC]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=no\n\
+[TANKOTOH]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.OnOwnerChange.HumanToComputer=no\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -217,6 +223,76 @@ fn an_unknown_name_and_an_enemy_house_select_the_scan() {
     assert!(
         !alive_after_presence("TANKENEMY", &["E1"], "Russians"),
         "Houses=enemies finds an enemy house's type"
+    );
+}
+
+/// Two houses, one human and one computer, with the object moving from the
+/// human one to the computer one (or the reverse when `from_human` is false).
+fn owner_change_spares(kind: &str, from_human: bool) -> bool {
+    let (mut sim, rules) = arena();
+    let americans = sim.intern("Americans");
+    let russians = sim.intern("Russians");
+    sim.houses_mut_for_test()
+        .register(crate::sim::house_state::HouseState::new(
+            americans, 0, None, from_human, 0, 0,
+        ));
+    sim.houses_mut_for_test()
+        .register(crate::sim::house_state::HouseState::new(
+            russians,
+            0,
+            None,
+            !from_human,
+            0,
+            0,
+        ));
+    let tank = sim
+        .spawn_object(kind, "Americans", 10, 10, 0, &rules)
+        .expect("the auto-death type spawns");
+    sim.house_added_to_game(tank, &rules);
+    sim.change_owner_with_rules(
+        tank,
+        russians,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    sim.session.set_binary_frame_for_test(5);
+    sim.object_ai_stage(Some(&rules));
+    alive(&sim, tank)
+}
+
+/// `TechnoClass_Captured_UpdateTracking @ 0x7015C9`
+/// (`Ext/House/Hooks.cpp:231-259`): the master `OnOwnerChange` switch arms both
+/// directions, and `ShouldBeDead` then kills on the next
+/// `CheckDeathConditions` visit (`Ext/Techno/Body.Update.cpp:159-163`).
+#[cfg(feature = "phobos")]
+#[test]
+fn an_owner_change_sets_should_be_dead_by_direction() {
+    assert!(
+        !owner_change_spares("TANKOWNER", true),
+        "the master key on kills a human-to-computer change"
+    );
+    assert!(
+        !owner_change_spares("TANKOWNER", false),
+        "the master key on kills a computer-to-human change"
+    );
+    assert!(
+        owner_change_spares("TANKNOOC", true),
+        "the master key off spares the human-to-computer change"
+    );
+}
+
+/// The direction keys default to the master and override it one way at a time.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_direction_keys_override_the_master() {
+    assert!(
+        owner_change_spares("TANKOTOH", true),
+        "HumanToComputer=no spares that direction while the master is on"
+    );
+    assert!(
+        !owner_change_spares("TANKOTOH", false),
+        "ComputerToHuman still takes the master's yes"
     );
 }
 

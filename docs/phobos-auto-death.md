@@ -23,6 +23,11 @@ A Techno type that destroys itself when a condition holds. The ported arms are
 | `AutoDeath.TechnosExist.Any` | TechnoType | `yes` | `Ext/TechnoType/Body.cpp:831` |
 | `AutoDeath.TechnosExist.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:832` |
 | `AutoDeath.TechnosExist.Houses` | TechnoType | `owner` | `Ext/TechnoType/Body.cpp:833` |
+| `AutoDeath.OnOwnerChange` | TechnoType | unset | `Ext/TechnoType/Body.cpp:821` |
+| `AutoDeath.OnOwnerChange.HumanToComputer` | TechnoType | master | `Ext/TechnoType/Body.cpp:823` |
+| `AutoDeath.OnOwnerChange.ComputerToHuman` | TechnoType | master | `Ext/TechnoType/Body.cpp:824` |
+| `AutoDeath.OnOwnerChange.IgnoreRevertOnExit` | TechnoType | global | `Ext/TechnoType/Body.cpp:822` |
+| `AutoDeath.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:818` |
 
 The two `AllowLimboed` keys fall back to `[CombatDamage]
 AutoDeath.TechnosDontExist.AllowLimboed` / `AutoDeath.TechnosExist.AllowLimboed`
@@ -82,6 +87,14 @@ list is resolved (`Utilities/TemplateDef.h:1727-1742`). An all-unknown list
 therefore leaves the arm's emptiness guard in charge instead of flipping the
 decision — a typo keeps the object alive rather than killing it.
 
+An owner change sets `ShouldBeDead` at
+`TechnoClass_Captured_UpdateTracking @ 0x7015C9`
+(`Ext/House/Hooks.cpp:231-259`), and the next `CheckDeathConditions` visit kills
+on it (`Ext/Techno/Body.Update.cpp:159-163`). The master `OnOwnerChange=` arms
+both directions unless each names its own; a change between a human and a
+computer house takes the matching one. A transported object is spared unless
+`AllowLimboed`.
+
 A type change through `TechnoClass::ChangeType` calls
 `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`), which stops a running
 countdown when the new type has no `AfterDelay`. Without that reset a round trip
@@ -99,15 +112,14 @@ clock has a zero maximum, which the renderer skips.
 
 ## Residuals
 
-- The remaining triggers are unported: `ShouldBeDead` and
-  `AutoDeath.OnOwnerChange` with its `IgnoreRevertOnExit`,
-  `HumanToComputer` and `ComputerToHuman` sub-keys. A type that authors only
-  those never dies.
+- `FootExt::IsOwnerChangeFromRevertOnExit` is unported — the AttachEffect
+  discard chain also reads it as `false` — so `IgnoreRevertOnExit` cannot fire
+  and the owner-change transporter gate has no revert term.
 - `AutoDeath.Behavior=vanish` and `=sell` are unported, so their timer never
   arms; `AutoDeath.VanishAnimation` is unread.
-- `AutoDeath.AllowLimboed` (the type key and the `[CombatDamage]` global at
-  `Ext/Rules/Body.cpp:629-632`) and `KillSelf`'s limbo arm (`:721-766`) are
-  unported, so a limboed object never dies here.
+- `AutoDeath.AllowLimboed` is read for the owner-change transporter gate, but
+  `KillSelf`'s limbo arm (`:721-766`) is unported, so a limboed object still
+  never dies here and the object-level limbo gate refuses regardless of the key.
 - Ares `SpawnSurvivors` before the fatal hit (`Ext/Techno/Body.Update.cpp:810-816`)
   is not ported. The hit ignores defenses, and VERA's death path then refuses its
   own survivor release and marks the transport handled, so an `AutoDeath`-killed

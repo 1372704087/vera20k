@@ -6702,6 +6702,9 @@ impl Simulation {
         if let Some(house) = self.houses.get_mut(&new_owner) {
             house.economy_mut().add_score(cost);
         }
+        // `0x7015C9` runs its AutoDeath block before the tracking work.
+        #[cfg(feature = "phobos")]
+        self.check_auto_death_owner_change(stable_id, new_owner, rules);
         #[cfg(feature = "phobos")]
         self.phobos_tracking_change_owner(stable_id, new_owner);
         Self::update_house_tracking(

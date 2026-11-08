@@ -874,6 +874,13 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) auto_death_timer: crate::sim::timer::CdTimer,
+    /// Phobos `TechnoExt::ShouldBeDead` (`Ext/Techno/Body.h`): set by the
+    /// owner-change hook (`0x7015C9`) and consumed by
+    /// `CheckDeathConditions`, which kills on it first
+    /// (`Ext/Techno/Body.Update.cpp:159-163`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) should_be_dead: bool,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -1258,6 +1265,16 @@ impl GameEntity {
     #[cfg(feature = "phobos")]
     pub(crate) fn auto_death_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
         &mut self.auto_death_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn should_be_dead(&self) -> bool {
+        self.should_be_dead
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_should_be_dead(&mut self, value: bool) {
+        self.should_be_dead = value;
     }
 
     /// Ares BuildingClass_FireLaser (10016490) starts this clock (YRpp's
@@ -2375,6 +2392,8 @@ impl GameEntity {
             ares_self_heal_combat: Default::default(),
             #[cfg(feature = "phobos")]
             auto_death_timer: Default::default(),
+            #[cfg(feature = "phobos")]
+            should_be_dead: false,
             pending_c4_detonation: Default::default(),
             #[cfg(feature = "ares")]
             display_production_to: Default::default(),

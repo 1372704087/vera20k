@@ -43,7 +43,15 @@ impl Simulation {
     ) -> bool {
         // Only the scalar keys are copied: the type's presence lists are read
         // later, under a borrow that ends before any mutation.
-        let (behavior, after_delay, on_ammo_depletion, power_state, money_max, money_min) = {
+        let (
+            behavior,
+            after_delay,
+            on_ammo_depletion,
+            power_state,
+            money_max,
+            money_min,
+            should_be_dead,
+        ) = {
             let Some(entity) = self.substrate.entities.get(id) else {
                 return false;
             };
@@ -63,12 +71,17 @@ impl Simulation {
                 settings.player_power_state,
                 settings.player_money_max,
                 settings.player_money_min,
+                entity.should_be_dead(),
             )
         };
         // `Vanish` and `Sell` (`:771-807`) are unported; refusing them up front
         // keeps a timer from running that could never fire.
         if behavior != Some(AutoDeathBehavior::Kill) {
             return false;
+        }
+        // `:159-163`: a flag another hook set kills the object on this visit.
+        if should_be_dead {
+            return self.kill_self(id, rules, registry, effects);
         }
         // `:165-170`: a type with an `Ammo=` capacity dies at zero or below.
         if on_ammo_depletion {
@@ -219,6 +232,72 @@ impl Simulation {
             resolved.push((self.interner.get(name), category));
         }
         resolved
+    }
+
+    /// `TechnoClass_Captured_UpdateTracking @ 0x7015C9`'s AutoDeath block
+    /// (`Ext/House/Hooks.cpp:231-259`), run before that hook's tracking work.
+    /// Sets `ShouldBeDead` from the owner-change direction keys.
+    ///
+    /// RESIDUAL: `FootExt::IsOwnerChangeFromRevertOnExit` is unported — the
+    /// AttachEffect discard chain also reads it as `false` — so the
+    /// `IgnoreRevertOnExit` arm and the transporter gate's revert term cannot
+    /// fire; the key is read, the guard it needs is not.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn check_auto_death_owner_change(
+        &mut self,
+        id: u64,
+        new_owner: crate::sim::intern::InternedId,
+        rules: &RuleSet,
+    ) {
+        let (master, to_computer, to_human, allow_limboed, old_owner, has_transporter) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return;
+            };
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return;
+            };
+            let settings = &object.phobos_auto_death;
+            if settings.behavior.is_none() {
+                return;
+            }
+            (
+                settings.on_owner_change,
+                settings.on_owner_change_human_to_computer,
+                settings.on_owner_change_computer_to_human,
+                settings.allow_limboed,
+                entity.owner(),
+                entity.passenger_role.transporter().is_some(),
+            )
+        };
+        let old_human = self
+            .houses()
+            .get(&old_owner)
+            .is_some_and(crate::sim::house_state::HouseState::is_human);
+        let new_human = self
+            .houses()
+            .get(&new_owner)
+            .is_some_and(crate::sim::house_state::HouseState::is_human);
+        let master = master.unwrap_or(false);
+        let to_computer = to_computer.unwrap_or(master);
+        let to_human = to_human.unwrap_or(master);
+        let mut should = false;
+        if to_computer && to_human {
+            should = true;
+        } else if to_computer || to_human {
+            if old_human != new_human && ((old_human && to_computer) || (!old_human && to_human)) {
+                should = true;
+            }
+        }
+        // `:253-258`: a transported object is spared unless `AllowLimboed`.
+        if should
+            && has_transporter
+            && !allow_limboed.unwrap_or(rules.phobos_globals.auto_death_allow_limboed)
+        {
+            should = false;
+        }
+        if should && let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.set_should_be_dead(true);
+        }
     }
 
     /// `Ext/Techno/Body.Update.cpp:188-208`: whether the listed types exist for

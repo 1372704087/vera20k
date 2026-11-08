@@ -256,6 +256,7 @@ pub(super) fn emit_projectile_shrapnel(
                 0,
                 child_weapon,
                 Some(location),
+                true,
             );
         }
         if child_weapon.is_electric_bolt {

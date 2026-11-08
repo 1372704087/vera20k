@@ -1830,10 +1830,11 @@ pub struct GeneralRules {
     /// building starts only after the held one is placed.
     #[cfg(feature = "phobos")]
     pub building_production_queue: bool,
-    /// Phobos `[General] BuildingTypeSelectable=` (default false): type select
-    /// admits every building, not only the `UndeploysInto=` ones the retail ID
-    /// match admits (`0x00732C61..0x00732C83`). Phobos disables the switch
-    /// without Ares (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
+    /// Phobos `[General] BuildingTypeSelectable=` (default false): the type
+    /// select ID match lets a building pass the `0x00465D40` type query of
+    /// CanBeSelectedNow, so any building that survives the TechnoClass checks
+    /// joins. Phobos disables the switch without Ares
+    /// (`BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable`).
     #[cfg(all(feature = "phobos", feature = "ares"))]
     pub building_type_selectable: bool,
     /// Phobos `[General] AIFireSale=` (default true): whether a computer
@@ -4725,9 +4726,22 @@ pub struct RuleSet {
     /// projectile emitter's nullable type keys.
     #[cfg(feature = "phobos")]
     pub phobos_airburst: crate::rules::phobos_airburst::PhobosAirburstGlobals,
+    /// Phobos `[AudioVisual] LaserPositionUpdate.StopOnFirerConvert=`, the
+    /// default the weapon-level nullable inherits.
+    #[cfg(feature = "phobos")]
+    pub phobos_laser_tracking: crate::rules::phobos_laser_tracking::LaserTrackingGlobals,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
+    /// Phobos `[SIDE] Sidebar.PowerDelta.*`, in `[Sides]` order: the per-side
+    /// offset, colours and alignment of the power-delta sidebar indicator.
+    #[cfg(feature = "phobos")]
+    side_power_delta: Vec<crate::rules::phobos_sidebar_indicators::PowerDeltaSideSettings>,
+    /// Phobos `[SIDE] Sidebar.HarvesterCounter.*`, in `[Sides]` order: the
+    /// offset, count-format switches and colours of the harvester counter.
+    #[cfg(feature = "phobos")]
+    side_harvester_counter:
+        Vec<crate::rules::phobos_sidebar_indicators::HarvesterCounterSideSettings>,
     /// Effective side for each country after `[Sides]` membership and the
     /// per-country `Side=` override have both run.
     country_sides: Vec<Option<SideIdx>>,
@@ -6842,6 +6856,9 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         let phobos_airburst = crate::rules::phobos_airburst::PhobosAirburstGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let phobos_laser_tracking =
+            crate::rules::phobos_laser_tracking::LaserTrackingGlobals::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -6850,6 +6867,37 @@ impl RuleSet {
             .map(|name| {
                 ini.section(name)
                     .map(crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt::from_section)
+                    .unwrap_or_default()
+            })
+            .collect();
+        // Phobos `SideClass_LoadAllFromINI 0x679A10` asks every registered side
+        // section for its own indicator settings; a side with no section keeps
+        // the constructor defaults.
+        #[cfg(feature = "phobos")]
+        let side_power_delta: Vec<
+            crate::rules::phobos_sidebar_indicators::PowerDeltaSideSettings,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(
+                        crate::rules::phobos_sidebar_indicators::PowerDeltaSideSettings::from_section,
+                    )
+                    .unwrap_or_default()
+            })
+            .collect();
+        #[cfg(feature = "phobos")]
+        let side_harvester_counter: Vec<
+            crate::rules::phobos_sidebar_indicators::HarvesterCounterSideSettings,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(
+                        crate::rules::phobos_sidebar_indicators::HarvesterCounterSideSettings::from_section,
+                    )
                     .unwrap_or_default()
             })
             .collect();
@@ -7196,7 +7244,13 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             phobos_airburst,
             #[cfg(feature = "phobos")]
+            phobos_laser_tracking,
+            #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
+            #[cfg(feature = "phobos")]
+            side_power_delta,
+            #[cfg(feature = "phobos")]
+            side_harvester_counter,
             #[cfg(feature = "ares")]
             side_extensions: country_side_registry.side_extensions,
             side_indices: country_side_registry.side_indices,
@@ -8475,6 +8529,13 @@ impl RuleSet {
         {
             b"phobos-sidebar-gdi-positions-v1".hash(&mut hasher);
             self.side_gdi_positions.hash(&mut hasher);
+        }
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-sidebar-power-delta-v1".hash(&mut hasher);
+            self.side_power_delta.hash(&mut hasher);
+            b"phobos-sidebar-harvester-counter-v1".hash(&mut hasher);
+            self.side_harvester_counter.hash(&mut hasher);
         }
         #[cfg(feature = "phobos")]
         {
@@ -9892,6 +9953,27 @@ impl RuleSet {
             })
             .collect::<BTreeMap<_, _>>()
             .hash(&mut hasher);
+        // GetFLH's burst-specific offsets are projectile-origin inputs too.
+        #[cfg(feature = "phobos")]
+        {
+            let burst_rows = self
+                .object_list
+                .iter()
+                .filter_map(|object| {
+                    let rows = object
+                        .burst_flh_rows()
+                        .into_iter()
+                        .map(|set| (set.normal().to_vec(), set.elite().to_vec()))
+                        .collect::<Vec<_>>();
+                    (rows.iter().any(|(normal, _)| !normal.is_empty()))
+                        .then(|| (object.id.to_ascii_uppercase(), rows))
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !burst_rows.is_empty() {
+                b"phobos-art-burst-flh-v1".hash(&mut hasher);
+                burst_rows.hash(&mut hasher);
+            }
+        }
         self.hash_building_body_config(&mut hasher);
         self.hash_building_slot_config(&mut hasher);
         hasher.finish()
@@ -10613,27 +10695,34 @@ impl RuleSet {
             .unwrap_or(self.mind_control.mind_control_link_visible_to_house)
     }
 
-    /// Type-select admission for a structure.
+    /// The ID match's independent building arm (`0x00732C61..0x00732C83`): a
+    /// structure of a listed type is admitted outright when its type has
+    /// `UndeploysInto=`, even when CanBeSelectedNow refuses it.
     ///
-    /// The native ID match (`0x00732C30`) admits a building of a listed type
-    /// when CanBeSelectedNow (vt+0x13C) answers true or its type has
-    /// `UndeploysInto=` (`0x00732C61..0x00732C83`). A building's
-    /// CanBeSelectedNow (`0x00459C00`) first asks `0x00465D40`, true only for
-    /// a 1x1 `UndeploysInto=` type, so retail admits exactly the
-    /// `UndeploysInto=` buildings. Phobos's hook makes `0x00465D40` answer true
-    /// during the ID match under `BuildingTypeSelectable`, with Ares loaded.
-    /// RESIDUAL: with the switch on, native still applies CanBeSelectedNow's
-    /// TechnoClass checks (`0x006FC030`); this admits every building of the
-    /// type.
+    /// The other admission is CanBeSelectedNow (`vt+0x13C`), which a building
+    /// answers through `0x00465D40` plus the TechnoClass checks at
+    /// `0x006FC030` — see [`Self::building_type_selectable`].
     pub fn structure_type_selectable(&self, id: &str) -> bool {
-        #[cfg(all(feature = "phobos", feature = "ares"))]
-        {
-            if self.general.building_type_selectable {
-                return true;
-            }
-        }
         self.object(id)
             .is_some_and(|object| object.undeploys_into.is_some())
+    }
+
+    /// Phobos `[General] BuildingTypeSelectable=` (default false): the hook at
+    /// `BuildingClass_Is1x1AndUndeployable_BuildingMassSelectable 0x00465D40`
+    /// makes that type query answer true, so CanBeSelectedNow admits every
+    /// building that passes its TechnoClass checks (`0x006FC030`). The hook is
+    /// gated on its own `ExtSelection::ProcessingIDMatches` flag, so only the
+    /// type-select ID match sees the lift; it also returns at once without
+    /// Ares, which patches the same region.
+    pub fn building_type_selectable(&self) -> bool {
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        {
+            self.general.building_type_selectable
+        }
+        #[cfg(not(all(feature = "phobos", feature = "ares")))]
+        {
+            false
+        }
     }
 
     /// Phobos `[AudioVisual] MissingCameo=`: the file a cameo with no art
@@ -10676,6 +10765,35 @@ impl RuleSet {
         usize::try_from(index)
             .ok()
             .and_then(|index| self.side_sw_sidebar_art.get(index))
+    }
+
+    /// Phobos `[SIDE] Sidebar.PowerDelta.*` for a native side index. A side
+    /// outside `[Sides]` keeps the constructor defaults, the way `SideExt`
+    /// leaves a side with no section untouched.
+    #[cfg(feature = "phobos")]
+    pub fn side_power_delta(
+        &self,
+        index: i32,
+    ) -> crate::rules::phobos_sidebar_indicators::PowerDeltaSideSettings {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_power_delta.get(index))
+            .copied()
+            .unwrap_or_default()
+    }
+
+    /// Phobos `[SIDE] Sidebar.HarvesterCounter.*` for a native side index. A
+    /// side outside `[Sides]` keeps the constructor defaults.
+    #[cfg(feature = "phobos")]
+    pub fn side_harvester_counter(
+        &self,
+        index: i32,
+    ) -> crate::rules::phobos_sidebar_indicators::HarvesterCounterSideSettings {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_harvester_counter.get(index))
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Resolve a side index back to its source spelling.

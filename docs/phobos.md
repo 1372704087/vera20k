@@ -50,6 +50,9 @@ Supported extensions:
 - [Superweapon sidebar](phobos-superweapon-sidebar.md) (left-edge superweapon cameos, toggle and positional hotkeys)
 - [Prone movement speed](phobos-prone-speed.md) (`ProneSpeed` for crawling and non-crawling prone infantry)
 - [Type select for buildings](phobos-building-type-selectable.md) (`BuildingTypeSelectable` for every building type)
+- [Power-delta indicator](phobos-power-delta-indicator.md) (`PowerDelta.*` net-power text beside the credits counter)
+- [Burst with no delay](phobos-burst-no-delay.md) (`Burst.NoDelay=` empties a burst in one frame)
+- [Harvester counter](phobos-harvester-counter.md) (`HarvesterCounter.*` working/total harvesters, `Harvester.Counted=`)
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)
 - [Missing cameo](phobos-missing-cameo.md) (`[AudioVisual] MissingCameo=` for types with no cameo art)
 - [Power plant enhancers](phobos-power-plant-enhancer.md) (`PowerPlantEnhancer.*` output boosts, `PowerPlant.DamageFactor` and placement range rings)
@@ -62,6 +65,7 @@ Supported extensions:
 - [Selection flash](phobos-selection-flash.md) (`[AudioVisual] SelectionFlashDuration` behind `[Phobos] ShowFlashOnSelecting`)
 - [Semantic locomotor aliases](phobos-locomotor-aliases.md) (`Locomotor=Drive` and friends beside the braced CLSIDs)
 - [Airstrike target eligibility](phobos-airstrike-targets.md) (`AllowAirstrike` per TechnoType, `AirstrikeTargets` per warhead, and object targets for non-buildings)
+- [Deployable-building alternate cameo](phobos-deployable-cameo.md) (Ares' `UndeploysInto` cameo arm, fixed)
 
 ## Original project and authors
 

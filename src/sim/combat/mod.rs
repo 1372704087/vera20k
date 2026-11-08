@@ -83,6 +83,8 @@ pub(crate) mod receiver_fixture;
 mod aegis_launch_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod airstrike_target_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod burst_no_delay_tests;
 #[cfg(all(test, feature = "ares"))]
 mod ares_armor_tests;
 #[cfg(all(test, feature = "ares"))]
@@ -124,8 +126,12 @@ mod ifv_fireat_tests;
 /// oracle cases in `bridge_launch_tests` and `world::projectile_collision`.
 #[cfg(test)]
 mod impact_height_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod infantry_flh_tests;
 #[cfg(test)]
 mod laser_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod laser_tracking_tests;
 #[cfg(test)]
 mod mirage_disguise_tests;
 #[cfg(test)]

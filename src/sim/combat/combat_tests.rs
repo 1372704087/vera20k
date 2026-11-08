@@ -9486,6 +9486,90 @@ fn campaign_reverse_only_alliance_keeps_shrapnel_hostile_head_before_random_cell
     assert_eq!(scenario_rng.logical_state(), expected_rng.logical_state());
 }
 
+/// Phobos `BulletClass_Shrapnel_Forced @ 0x46A3D6`
+/// (`Ext/Bullet/Hooks.cpp:252-282`): stock refuses shrapnel when the impact
+/// cell holds no ground object; `Shrapnel.AffectsGround` admits it. The key is
+/// a `Nullable` falling back to the `[CombatDamage]` global, whose value
+/// default is `no`, so the unset case must stay at the stock refusal.
+#[test]
+fn ground_shrapnel_needs_the_phobos_affects_ground_key() {
+    const BODY: &str = "[VehicleTypes]\n0=MTNK\n\n[MTNK]\nStrength=100\nArmor=heavy\nPrimary=PARENT\nSecondary=CHILD\n\n[PARENT]\nDamage=20\nROF=10\nRange=6\nSpeed=30\nProjectile=PARENTPROJ\nWarhead=WH\n\n[PARENTPROJ]\nAirburst=yes\nShrapnelWeapon=CHILD\nShrapnelCount=2\n{AFFECTS}\n\n[CHILD]\nDamage=5\nROF=10\nRange=3\nSpeed=40\nProjectile=CHILDPROJ\nWarhead=WH\n\n[CHILDPROJ]\nSubjectToWalls=yes\n\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{GLOBAL}";
+    let spawns = |affects: &str, global: &str| {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            &BODY
+                .replace("{AFFECTS}", affects)
+                .replace("{GLOBAL}", global),
+        ))
+        .expect("shrapnel rules");
+        let mut entities = EntityStore::new();
+        // The firer sits beside the impact cell, which holds no ground object.
+        let mut source = make_entity_owned(1, "MTNK", 4, 4, 100, "Soviet");
+        source.lifecycle.set_cell_marked_for_test(true);
+        entities.insert(source);
+        let mut target = make_entity_owned(2, "MTNK", 5, 6, 100, "Americans");
+        target.lifecycle.set_cell_marked_for_test(true);
+        entities.insert(target);
+        let mut occupancy = OccupancyGrid::rebuild(&entities);
+        let mut interner = test_interner();
+        let detonation = crate::sim::projectile::ProjectileDetonation {
+            projectile_id: 7,
+            source_id: 1,
+            target: crate::sim::projectile::ProjectileTarget::Cell { rx: 5, ry: 5 },
+            impact: crate::sim::projectile::ProjectileCoord::new(5 * 256 + 128, 5 * 256 + 128, 0),
+            payload: payload_from_weapon(
+                20,
+                interner.intern("WH"),
+                interner.intern("PARENT"),
+                &rules,
+                &mut interner,
+            ),
+            reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+        };
+        align_attackers_to_targets(&mut entities);
+        let alliances = HouseAllianceMap::from([(
+            "AMERICANS".to_owned(),
+            std::collections::BTreeSet::from(["SOVIET".to_owned()]),
+        )]);
+        tick_detonations(
+            &mut entities,
+            &mut occupancy,
+            &rules,
+            &mut interner,
+            &mut crate::sim::houses::Houses::default(),
+            &alliances,
+            1,
+            &[1, 2],
+            &[detonation],
+            &mut SimRng::new(0x46_a310),
+            &mut SimRng::new(1),
+        )
+        .projectile_spawns
+        .len()
+    };
+
+    assert_eq!(
+        spawns("", ""),
+        0,
+        "an empty impact cell refuses shrapnel without the key"
+    );
+    assert!(
+        spawns("Shrapnel.AffectsGround=yes", "") > 0,
+        "the type key admits ground shrapnel"
+    );
+    assert!(
+        spawns("", "[CombatDamage]\nShrapnel.AffectsGround=yes\n") > 0,
+        "the [CombatDamage] global admits it when the type is unset"
+    );
+    assert_eq!(
+        spawns(
+            "Shrapnel.AffectsGround=no",
+            "[CombatDamage]\nShrapnel.AffectsGround=yes\n"
+        ),
+        0,
+        "an explicit no on the type overrides the global"
+    );
+}
+
 /// SpawnShrapnel lessens a negative ShrapnelCount by the cells from the
 /// bullet to its firer's GetCoords (`[bullet+0xB0]`, vt+0x48 at
 /// `0x0046A370`): for a building firer its foundation centre (`0x00447AC0`),

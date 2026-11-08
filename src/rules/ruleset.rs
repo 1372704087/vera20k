@@ -4982,6 +4982,10 @@ pub struct RuleSet {
     /// IonCannonWarhead=`, `C4Warhead=`, `CrushWarhead=`). Resolution to interned IDs happens
     /// at world init.
     pub bridge_warheads: crate::rules::bridge_warheads::BridgeWarheads,
+    /// Phobos `RulesExt::LoadFromINI` `[CombatDamage]` globals, read once from
+    /// the merged layer state.
+    #[cfg(feature = "phobos")]
+    pub phobos_globals: crate::rules::phobos_globals::PhobosGlobals,
     /// Mind-control globals: ring anim, Mastermind overload, sounds and the
     /// AI capture-decision tables.
     pub mind_control: crate::rules::mind_control_rules::MindControlRules,
@@ -7138,6 +7142,8 @@ impl RuleSet {
         // [CombatDamage] IonCannonWarhead, C4Warhead and CrushWarhead: the
         // ordered Process owner's, published by from_processed_rules.
         let bridge_warheads = crate::rules::bridge_warheads::BridgeWarheads::default();
+        #[cfg(feature = "phobos")]
+        let phobos_globals = crate::rules::phobos_globals::PhobosGlobals::from_ini(ini);
 
         let mut mind_control = crate::rules::mind_control_rules::MindControlRules::from_ini(
             ini,
@@ -7393,6 +7399,8 @@ impl RuleSet {
             super_weapon_order,
             combat_damage,
             bridge_warheads,
+            #[cfg(feature = "phobos")]
+            phobos_globals,
             mind_control,
             missile_spawn,
             c4_delay,
@@ -9115,6 +9123,11 @@ impl RuleSet {
         self.general.ion_blast_anim.hash(&mut hasher);
         self.general.ion_beam_anim.hash(&mut hasher);
         self.bridge_warheads.ion_cannon_name.hash(&mut hasher);
+        #[cfg(feature = "phobos")]
+        {
+            b"phobos-globals-v1".hash(&mut hasher);
+            self.phobos_globals.hash(&mut hasher);
+        }
         // Earlier Rules passes retain these signed divisors even when the
         // current source stack omits them; sale crew and its RNG consumers
         // must not be presented as the same effective configuration.

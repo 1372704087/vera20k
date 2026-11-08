@@ -108,6 +108,27 @@ pub(super) fn emit_projectile_shrapnel(
             .ok()
             .zip(u16::try_from(center_ry).ok()),
     };
+    // Phobos `BulletClass_Shrapnel_Forced @ 0x46A3D6`
+    // (`Ext/Bullet/Hooks.cpp:252-282`) replaces the stock admission: an empty
+    // cell is admitted only when `Shrapnel.AffectsGround`, which falls back to
+    // the `[CombatDamage]` global. The global is a `Nullable<bool>` whose value
+    // default is `no`, so an unset key keeps the stock refusal.
+    // RESIDUAL: `Shrapnel.AffectsBuildings` (the same hook, `:270`) parses but
+    // stays unread here: admitting the impact building also needs native's
+    // `InitialTargetBuilding` skip in the ring (`:300-301`), which this ring
+    // owner does not track yet.
+    let affects_ground = {
+        #[cfg(feature = "phobos")]
+        {
+            parent_projectile
+                .shrapnel_affects_ground
+                .unwrap_or(rules.phobos_globals.shrapnel_affects_ground)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    };
     let admitted = match ground_head(world, bullet_cell) {
         Some(crate::sim::occupancy::CellObjectMember::Entity(id)) => world
             .substrate
@@ -115,7 +136,7 @@ pub(super) fn emit_projectile_shrapnel(
             .get(id)
             .is_some_and(|object| object.category() != EntityCategory::Structure),
         Some(crate::sim::occupancy::CellObjectMember::Terrain(_)) => true,
-        None => false,
+        None => affects_ground,
     };
     if !admitted {
         return;

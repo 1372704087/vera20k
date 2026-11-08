@@ -144,6 +144,14 @@ pub struct ProjectileType {
     color_scheme: i32,
 
     // --- String/reference fields ---
+    /// Phobos `Shrapnel.AffectsGround=` (`Nullable<bool>`,
+    /// `Ext/BulletType/Body.cpp:41`): `None` falls back to the
+    /// `[CombatDamage]` global. Only the shrapnel admission gate reads it.
+    #[cfg(feature = "phobos")]
+    pub shrapnel_affects_ground: Option<bool>,
+    /// Phobos `Shrapnel.AffectsBuildings=` (`:42`), same fallback.
+    #[cfg(feature = "phobos")]
+    pub shrapnel_affects_buildings: Option<bool>,
     /// `ShrapnelWeapon=` (+2B4), the WeaponType fired for each shrapnel
     /// fragment, as the ordered Rules processor resolved it.
     pub shrapnel_weapon: Option<String>,
@@ -454,6 +462,12 @@ impl ProjectileType {
             // Integer fields
             cluster: section.read_int("Cluster", 1),
             shrapnel_count: section.read_int("ShrapnelCount", 0),
+            #[cfg(feature = "phobos")]
+            shrapnel_affects_ground: section
+                .read_phobos_nullable_bool("Shrapnel.AffectsGround", None),
+            #[cfg(feature = "phobos")]
+            shrapnel_affects_buildings: section
+                .read_phobos_nullable_bool("Shrapnel.AffectsBuildings", None),
             detonation_altitude: section.read_int("DetonationAltitude", 0),
             acceleration: section.read_int("Acceleration", 3),
             course_lock_duration: section.read_int("CourseLockDuration", 0),

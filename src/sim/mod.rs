@@ -132,6 +132,10 @@ pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the b
 pub(crate) mod stage;
 pub use stage::StageClass;
 pub(crate) mod state_hasher; // parallel digests over util::state_hasher
+pub(crate) mod storage_class; // one owner of StorageClass GetTotalAmount/Add_Amount
+#[cfg(test)]
+#[path = "weed_storage_tests.rs"]
+mod weed_storage_tests;
 pub mod temporal;
 pub(crate) mod tesla_charging;
 pub mod timer; // signed frame-anchored countdown primitive

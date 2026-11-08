@@ -6,7 +6,7 @@ use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n1=E2\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n15=TANKLIMBO\n\
 [E1]\nStrength=125\nSight=0\n\
 [E2]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
@@ -37,6 +37,8 @@ AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\n\
 AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=no\n\
 [TANKOTOH]\nStrength=100\nSight=0\nSpeed=5\n\
 AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.OnOwnerChange.HumanToComputer=no\n\
+[TANKLIMBO]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.AllowLimboed=no\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -229,21 +231,21 @@ fn an_unknown_name_and_an_enemy_house_select_the_scan() {
 /// Two houses, one human and one computer, with the object moving from the
 /// human one to the computer one (or the reverse when `from_human` is false).
 fn owner_change_spares(kind: &str, from_human: bool) -> bool {
+    owner_change_spares_between(kind, from_human, !from_human)
+}
+
+/// As [`owner_change_spares`], with each house's control chosen separately.
+fn owner_change_spares_between(kind: &str, old_human: bool, new_human: bool) -> bool {
     let (mut sim, rules) = arena();
     let americans = sim.intern("Americans");
     let russians = sim.intern("Russians");
     sim.houses_mut_for_test()
         .register(crate::sim::house_state::HouseState::new(
-            americans, 0, None, from_human, 0, 0,
+            americans, 0, None, old_human, 0, 0,
         ));
     sim.houses_mut_for_test()
         .register(crate::sim::house_state::HouseState::new(
-            russians,
-            0,
-            None,
-            !from_human,
-            0,
-            0,
+            russians, 0, None, new_human, 0, 0,
         ));
     let tank = sim
         .spawn_object(kind, "Americans", 10, 10, 0, &rules)
@@ -259,6 +261,36 @@ fn owner_change_spares(kind: &str, from_human: bool) -> bool {
     sim.session.set_binary_frame_for_test(5);
     sim.object_ai_stage(Some(&rules));
     alive(&sim, tank)
+}
+
+/// The owner-change hook's flag for a unit carrying the retained `Transporter`
+/// field, read before any AI visit (a boarded object may not get one).
+fn owner_change_flag_transported(kind: &str) -> bool {
+    let (mut sim, rules) = arena();
+    let americans = sim.intern("Americans");
+    let russians = sim.intern("Russians");
+    sim.houses_mut_for_test()
+        .register(crate::sim::house_state::HouseState::new(
+            americans, 0, None, true, 0, 0,
+        ));
+    sim.houses_mut_for_test()
+        .register(crate::sim::house_state::HouseState::new(
+            russians, 0, None, false, 0, 0,
+        ));
+    let tank = sim
+        .spawn_object(kind, "Americans", 10, 10, 0, &rules)
+        .expect("the auto-death type spawns");
+    sim.house_added_to_game(tank, &rules);
+    sim.substrate.entities.get_mut(tank).unwrap().passenger_role =
+        crate::sim::passenger::PassengerRole::boarded_for_test(99, false);
+    sim.change_owner_with_rules(
+        tank,
+        russians,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    sim.entities().get(tank).unwrap().should_be_dead()
 }
 
 /// `TechnoClass_Captured_UpdateTracking @ 0x7015C9`
@@ -293,6 +325,33 @@ fn the_direction_keys_override_the_master() {
     assert!(
         !owner_change_spares("TANKOTOH", false),
         "ComputerToHuman still takes the master's yes"
+    );
+}
+
+/// `Ext/House/Hooks.cpp:240-243`: both direction keys on kills on any change,
+/// even between two houses of the same control kind.
+#[cfg(feature = "phobos")]
+#[test]
+fn both_directions_kill_across_two_human_houses() {
+    assert!(
+        !owner_change_spares_between("TANKOWNER", true, true),
+        "both keys on kills even when both houses are human"
+    );
+}
+
+/// `:253-258` with `Ext/Rules/Body.h:1027`: `[CombatDamage] AutoDeath.AllowLimboed`
+/// constructs `true`, so a transported object dies by default and only an
+/// explicit `AllowLimboed=no` clears the flag.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_allow_limboed_gate_spares_only_when_it_is_off() {
+    assert!(
+        owner_change_flag_transported("TANKOWNER"),
+        "the global default yes keeps the flag on a transported object"
+    );
+    assert!(
+        !owner_change_flag_transported("TANKLIMBO"),
+        "AllowLimboed=no clears it"
     );
 }
 

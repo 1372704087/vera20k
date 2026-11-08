@@ -4,14 +4,16 @@
 //!
 //! ## Scope
 //!
-//! Ported arms, in native order: `AutoDeath.Behavior=kill` with
-//! `OnAmmoDepletion` (`:166`), `AfterDelay` (`:173-184`), `PlayerPowerState`
-//! (`:210-221`), `PlayerMoney.Max/Min` (`:223-234`), `TechnosDontExist`
-//! (`:236-245`) and `TechnosExist` (`:247-255`).
+//! Ported arms, in native order: `ShouldBeDead` (`:159-163`),
+//! `AutoDeath.Behavior=kill` with `OnAmmoDepletion` (`:166`), `AfterDelay`
+//! (`:173-184`), `PlayerPowerState` (`:210-221`), `PlayerMoney.Max/Min`
+//! (`:223-234`), `TechnosDontExist` (`:236-245`) and `TechnosExist`
+//! (`:247-255`). `OnOwnerChange.*` sets the flag at the owner-change hook.
 //!
-//! Still open: the `ShouldBeDead` flag, `OnOwnerChange.*`, the `Vanish`/`Sell`
-//! behaviors with `VanishAnimation`, `AutoDeath.AllowLimboed` with `KillSelf`'s
-//! limbo arm (`:721-766`), and the scenario-level `AutoDeathObjects` collection.
+//! Still open: the `Vanish`/`Sell` behaviors with `VanishAnimation` — a type
+//! using them gets a flag `check_auto_death` never consumes, where native would
+//! sell or vanish — `KillSelf`'s limbo arm (`:721-766`), and the scenario-level
+//! `AutoDeathObjects` collection.
 //! A type that authors only those keeps that chain's gap entry.
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1).
@@ -269,15 +271,17 @@ impl Simulation {
                 entity.passenger_role.transporter().is_some(),
             )
         };
+        // `HouseClass::IsControlledByHuman`, the same mode-aware predicate the
+        // AttachEffect owner-change hook reads.
+        let game_mode_nonzero = self.session.game_mode_nonzero();
         let old_human = self
             .houses()
             .get(&old_owner)
-            .is_some_and(crate::sim::house_state::HouseState::is_human);
+            .is_some_and(|house| house.is_controlled_by_human(game_mode_nonzero));
         let new_human = self
             .houses()
             .get(&new_owner)
-            .is_some_and(crate::sim::house_state::HouseState::is_human);
-        let master = master.unwrap_or(false);
+            .is_some_and(|house| house.is_controlled_by_human(game_mode_nonzero));
         let to_computer = to_computer.unwrap_or(master);
         let to_human = to_human.unwrap_or(master);
         let mut should = false;
@@ -288,15 +292,24 @@ impl Simulation {
                 should = true;
             }
         }
-        // `:253-258`: a transported object is spared unless `AllowLimboed`.
-        if should
+        // Native ORs into the existing flag, then `:253-258` clears it on a
+        // transported object unless `AllowLimboed` (default `yes`).
+        let already = self
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(crate::sim::game_entity::GameEntity::should_be_dead);
+        let mut value = already || should;
+        if value
             && has_transporter
             && !allow_limboed.unwrap_or(rules.phobos_globals.auto_death_allow_limboed)
         {
-            should = false;
+            value = false;
         }
-        if should && let Some(entity) = self.substrate.entities.get_mut(id) {
-            entity.set_should_be_dead(true);
+        if value != already
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+        {
+            entity.set_should_be_dead(value);
         }
     }
 

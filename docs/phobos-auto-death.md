@@ -23,7 +23,7 @@ A Techno type that destroys itself when a condition holds. The ported arms are
 | `AutoDeath.TechnosExist.Any` | TechnoType | `yes` | `Ext/TechnoType/Body.cpp:831` |
 | `AutoDeath.TechnosExist.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:832` |
 | `AutoDeath.TechnosExist.Houses` | TechnoType | `owner` | `Ext/TechnoType/Body.cpp:833` |
-| `AutoDeath.OnOwnerChange` | TechnoType | unset | `Ext/TechnoType/Body.cpp:821` |
+| `AutoDeath.OnOwnerChange` | TechnoType | `no` | `Ext/TechnoType/Body.cpp:821` |
 | `AutoDeath.OnOwnerChange.HumanToComputer` | TechnoType | master | `Ext/TechnoType/Body.cpp:823` |
 | `AutoDeath.OnOwnerChange.ComputerToHuman` | TechnoType | master | `Ext/TechnoType/Body.cpp:824` |
 | `AutoDeath.OnOwnerChange.IgnoreRevertOnExit` | TechnoType | global | `Ext/TechnoType/Body.cpp:822` |
@@ -92,8 +92,9 @@ An owner change sets `ShouldBeDead` at
 (`Ext/House/Hooks.cpp:231-259`), and the next `CheckDeathConditions` visit kills
 on it (`Ext/Techno/Body.Update.cpp:159-163`). The master `OnOwnerChange=` arms
 both directions unless each names its own; a change between a human and a
-computer house takes the matching one. A transported object is spared unless
-`AllowLimboed`.
+computer house takes the matching one. A transported object is spared only when
+`AllowLimboed` is turned off — the `[CombatDamage]` global constructs `yes`
+(`Ext/Rules/Body.h:1027`).
 
 A type change through `TechnoClass::ChangeType` calls
 `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`), which stops a running

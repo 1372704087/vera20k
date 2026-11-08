@@ -90,9 +90,10 @@ pub struct AutoDeathTypeSettings {
     pub technos_exist_allow_limboed: Option<bool>,
     /// `AutoDeath.TechnosExist.Houses=`, default `owner`.
     pub technos_exist_houses: crate::rules::phobos_shields::AffectedHouse,
-    /// `AutoDeath.OnOwnerChange=`, `Nullable<bool>` (`Ext/TechnoType/Body.cpp:821`),
-    /// the master switch the two directions fall back to.
-    pub on_owner_change: Option<bool>,
+    /// `AutoDeath.OnOwnerChange=`, `Valueable<bool>` default `no`
+    /// (`Ext/TechnoType/Body.cpp:821`, constructor `Body.h:573`), the master
+    /// switch the two directions fall back to.
+    pub on_owner_change: bool,
     /// `AutoDeath.OnOwnerChange.HumanToComputer=` (`:823`).
     pub on_owner_change_human_to_computer: Option<bool>,
     /// `AutoDeath.OnOwnerChange.ComputerToHuman=` (`:824`).
@@ -163,7 +164,7 @@ impl AutoDeathTypeSettings {
                 "AutoDeath.TechnosExist.Houses",
                 crate::rules::phobos_shields::AffectedHouse::OWNER,
             ),
-            on_owner_change: section.read_phobos_nullable_bool("AutoDeath.OnOwnerChange", None),
+            on_owner_change: section.read_bool("AutoDeath.OnOwnerChange", false),
             on_owner_change_human_to_computer: section
                 .read_phobos_nullable_bool("AutoDeath.OnOwnerChange.HumanToComputer", None),
             on_owner_change_computer_to_human: section

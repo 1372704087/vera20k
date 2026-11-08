@@ -6,8 +6,10 @@
 //! `ProcessedRulesLayers::ini()` is already that merged state, so one read here
 //! is equivalent.
 //!
-//! The globals are `Valueable<bool>` with constructor defaults `false`
-//! (`Ext/Rules/Body.h:464-465`, `:968-969`). The type-level keys are
+//! The globals are `Valueable<bool>`; every one constructs `false`
+//! (`Ext/Rules/Body.h:464-465`, `:968-969`) except
+//! `AutoDeath.AllowLimboed`, which constructs `true` (`:1027`). The type-level
+//! keys are
 //! `Nullable<bool>`, and their consumer passes the global through
 //! `Valueable<T>::operator const T&`, so an unset type key and an unset global
 //! both read `false`. A `Valueable` global has no unset state and no
@@ -20,9 +22,7 @@
 use crate::rules::ini_parser::IniFile;
 
 /// `[CombatDamage]` globals this port reads.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosGlobals {
     /// `Shrapnel.AffectsGround=`, default `no`: admit shrapnel when the impact
     /// cell holds no ground object (`Ext/Bullet/Hooks.cpp:276`).
@@ -48,8 +48,24 @@ pub struct PhobosGlobals {
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).
     pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
-    /// `AutoDeath.AllowLimboed=`, default `no` (`Ext/Rules/Body.cpp:629`).
+    /// `AutoDeath.AllowLimboed=`, **default `yes`**: Phobos constructs it
+    /// `true` (`Ext/Rules/Body.h:1027`) and `Ext/Rules/Body.cpp:629` reads it.
     pub auto_death_allow_limboed: bool,
+}
+
+impl Default for PhobosGlobals {
+    fn default() -> Self {
+        Self {
+            shrapnel_affects_ground: false,
+            shrapnel_affects_buildings: false,
+            auto_death_technos_exist_allow_limboed: false,
+            auto_death_technos_dont_exist_allow_limboed: false,
+            shrapnel_ignore_hit_buildings: false,
+            shrapnel_use_weapon_targeting: false,
+            auto_death_on_owner_change_ignore_revert_on_exit: false,
+            auto_death_allow_limboed: true,
+        }
+    }
 }
 
 impl PhobosGlobals {

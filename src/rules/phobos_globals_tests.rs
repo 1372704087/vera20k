@@ -28,6 +28,8 @@ fn the_shrapnel_globals_default_to_the_stock_admission() {
     // The AutoDeath scan layers default to the same `no`.
     assert!(!PhobosGlobals::default().auto_death_technos_exist_allow_limboed);
     assert!(!PhobosGlobals::default().auto_death_technos_dont_exist_allow_limboed);
+    // `Ext/Rules/Body.h:1027` constructs this one `true`.
+    assert!(PhobosGlobals::default().auto_death_allow_limboed);
     let limbo = read(
         "[CombatDamage]\nAutoDeath.TechnosExist.AllowLimboed=yes\n\
          AutoDeath.TechnosDontExist.AllowLimboed=yes\n",

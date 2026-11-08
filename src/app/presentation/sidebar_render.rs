@@ -65,11 +65,18 @@ pub(crate) fn advance_sidebar_credits_after_frame(
         return;
     };
     let credits = counter_credits(sim, &owner_name);
+    #[cfg(feature = "phobos")]
+    let (max_step, smooth) = {
+        let ui = &state.match_state.match_presentation.sidebar_indicators;
+        (ui.credits_max_step, ui.credits_smooth)
+    };
+    #[cfg(not(feature = "phobos"))]
+    let (max_step, smooth) = (143, true);
     let Some(tick) = state
         .match_state
         .match_presentation
         .sidebar_projection
-        .advance_credits(&owner_name, credits)
+        .advance_credits(&owner_name, credits, max_step, smooth)
     else {
         return;
     };

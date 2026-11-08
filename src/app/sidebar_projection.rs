@@ -1246,8 +1246,18 @@ impl SidebarProjectionState {
     /// Returns the step's [`CreditTick`]: `Some(CreditTick { counting_up })`
     /// when the displayed value changed (native sets `animating(+0xA) = 1` and
     /// `counting_up(+0x9) = step > 0` at `0x004A2740..0x004A2751` only on a
-    /// changed step), `None` otherwise.
-    pub(crate) fn advance_credits(&mut self, owner: &str, actual: i32) -> Option<CreditTick> {
+    /// changed step), `None` otherwise. `max_step` is Phobos
+    /// `CreditsIndicator.MaxStep` (`0x4A2729`): above zero it caps the step, at
+    /// or below it removes the upper bound. `smooth` is `CreditsIndicator.
+    /// Smooth` (`0x4A26E8`): off snaps straight to the balance with no step or
+    /// tick cue.
+    pub(crate) fn advance_credits(
+        &mut self,
+        owner: &str,
+        actual: i32,
+        max_step: i32,
+        smooth: bool,
+    ) -> Option<CreditTick> {
         use std::collections::hash_map::Entry;
 
         let mut entry = match self.displayed_credits.entry(owner.to_string()) {
@@ -1261,12 +1271,27 @@ impl SidebarProjectionState {
         if *displayed == actual {
             return None;
         }
+        if !smooth {
+            // `0x4A26EE` with Phobos's jump to `0x4A26F0`: the balance is
+            // stored directly and neither the animating byte nor a tick cue is
+            // set.
+            *displayed = actual;
+            return None;
+        }
 
         // gamemd `CreditsClass::AI / FUN_004A2600 @ 0x004A2600`:
-        // |actual-displayed| / 8, clamped to [1, 143]. The stored 1/3 value
-        // does not delay this call's step (SIDEBAR_SYSTEM_GHIDRA_REPORT §30).
+        // |actual-displayed| / 8, floored at 1 (`0x4A2721..0x4A2727`), then
+        // capped at 143 (`0x4A2729..0x4A2730`) — Phobos replaces that cap with
+        // min(step, MaxStep) and skips it when MaxStep is not positive. The
+        // stored 1/3 value does not delay this call's step
+        // (SIDEBAR_SYSTEM_GHIDRA_REPORT §30).
         let difference = (i64::from(actual) - i64::from(*displayed)).unsigned_abs();
-        let step = (difference / 8).clamp(1, 143) as i32;
+        let step = (difference / 8).max(1);
+        let step = if max_step > 0 {
+            step.min(u64::try_from(max_step).unwrap_or(u64::MAX))
+        } else {
+            step
+        } as i32;
         let before = *displayed;
         let counting_up = actual > *displayed;
         if counting_up {
@@ -2121,12 +2146,52 @@ mod tests {
         projection.start_scenario_credits_counter(Some("Americans"));
         assert_eq!(projection.displayed_credits_or_seed("Americans", 10_000), 0);
         assert_eq!(
-            projection.advance_credits("Americans", 10_000),
+            projection.advance_credits("Americans", 10_000, 143, true),
             Some(CreditTick { counting_up: true })
         );
         assert_eq!(
             projection.displayed_credits_for_test("Americans"),
             Some(0x8F)
+        );
+    }
+
+    /// Phobos `CreditsIndicator.MaxStep` (`0x4A2729`) and `.Smooth`
+    /// (`0x4A26E8`): the step cap is configurable — a value at or below zero
+    /// removes it — and smoothing off snaps to the balance with no tick cue.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_credits_indicator_step_cap_and_smooth() {
+        let mut capped = SidebarProjectionState::default();
+        capped.displayed_credits_or_seed("Americans", 0);
+        assert_eq!(
+            capped.advance_credits("Americans", 10_000, 10, true),
+            Some(CreditTick { counting_up: true })
+        );
+        assert_eq!(capped.displayed_credits_for_test("Americans"), Some(10));
+
+        let mut unbounded = SidebarProjectionState::default();
+        unbounded.displayed_credits_or_seed("Americans", 0);
+        assert!(
+            unbounded
+                .advance_credits("Americans", 10_000, 0, true)
+                .is_some()
+        );
+        assert_eq!(
+            unbounded.displayed_credits_for_test("Americans"),
+            Some(1_250),
+            "difference / 8 without the 143 cap"
+        );
+
+        let mut smooth_off = SidebarProjectionState::default();
+        smooth_off.displayed_credits_or_seed("Americans", 0);
+        assert_eq!(
+            smooth_off.advance_credits("Americans", 10_000, 143, false),
+            None,
+            "snapping plays no tick cue"
+        );
+        assert_eq!(
+            smooth_off.displayed_credits_for_test("Americans"),
+            Some(10_000)
         );
     }
 
@@ -2139,19 +2204,25 @@ mod tests {
         let ticks = vec!["CreditUp".to_string(), "CreditDown".to_string()];
         let mut projection = SidebarProjectionState::default();
         // First observation seeds silently.
-        assert_eq!(projection.advance_credits("Americans", 100), None);
+        assert_eq!(
+            projection.advance_credits("Americans", 100, 143, true),
+            None
+        );
         // Counting up.
-        let up = projection.advance_credits("Americans", 900);
+        let up = projection.advance_credits("Americans", 900, 143, true);
         assert_eq!(up, Some(CreditTick { counting_up: true }));
         assert_eq!(credit_tick_sound(&ticks, up.unwrap()), Some("CreditUp"));
         // Counting down.
-        let down = projection.advance_credits("Americans", 0);
+        let down = projection.advance_credits("Americans", 0, 143, true);
         assert_eq!(down, Some(CreditTick { counting_up: false }));
         assert_eq!(credit_tick_sound(&ticks, down.unwrap()), Some("CreditDown"));
         // Settle, then no change → no tick.
-        while projection.advance_credits("Americans", 0).is_some() {}
+        while projection
+            .advance_credits("Americans", 0, 143, true)
+            .is_some()
+        {}
         assert_eq!(projection.displayed_credits_for_test("Americans"), Some(0));
-        assert_eq!(projection.advance_credits("Americans", 0), None);
+        assert_eq!(projection.advance_credits("Americans", 0, 143, true), None);
         // A list shorter than two names never plays.
         let short = vec!["CreditUp".to_string()];
         assert_eq!(
@@ -2168,7 +2239,7 @@ mod tests {
     fn saved_credits_replace_warm_and_cold_counters_without_an_ai_step() {
         let mut saved = SidebarProjectionState::default();
         saved.displayed_credits_or_seed("Americans", 1000);
-        saved.advance_credits("Americans", 0);
+        saved.advance_credits("Americans", 0, 143, true);
         let display = saved.saved_credits_counter("Americans");
         assert_ne!(display, Some(1000), "save during the counter's animation");
 
@@ -2185,9 +2256,9 @@ mod tests {
             cold.displayed_credits_or_seed("Americans", 1000),
             display.unwrap()
         );
-        let next_tick = saved.advance_credits("Americans", 1000);
-        assert_eq!(warm.advance_credits("Americans", 1000), next_tick);
-        assert_eq!(cold.advance_credits("Americans", 1000), next_tick);
+        let next_tick = saved.advance_credits("Americans", 1000, 143, true);
+        assert_eq!(warm.advance_credits("Americans", 1000, 143, true), next_tick);
+        assert_eq!(cold.advance_credits("Americans", 1000, 143, true), next_tick);
         assert_eq!(
             warm.saved_credits_counter("Americans"),
             saved.saved_credits_counter("Americans")

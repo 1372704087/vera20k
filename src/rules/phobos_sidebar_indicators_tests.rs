@@ -204,3 +204,29 @@ fn harvester_counted_falls_back_in_the_sources_read_order() {
         "a building with no key and no Enslaves= is left out"
     );
 }
+
+/// `[Sidebar] CreditsIndicator.MaxStep=` (default 143) and `.Smooth=`
+/// (default yes) (`Phobos.INI.cpp:237-241`).
+#[test]
+fn the_credits_indicator_defaults_and_reads_its_two_keys() {
+    let defaults = uimd("");
+    assert_eq!(defaults.credits_max_step, 143);
+    assert!(defaults.credits_smooth);
+
+    let set = uimd(
+        "[Sidebar]
+CreditsIndicator.MaxStep=0
+CreditsIndicator.Smooth=no
+",
+    );
+    assert_eq!(set.credits_max_step, 0);
+    assert!(!set.credits_smooth);
+
+    let half = uimd(
+        "[Sidebar]
+CreditsIndicator.MaxStep=200
+",
+    );
+    assert_eq!(half.credits_max_step, 200);
+    assert!(half.credits_smooth, "an unset Smooth keeps yes");
+}

@@ -160,6 +160,13 @@ pub struct SidebarIndicatorsUi {
     pub power_label: String,
     /// `[ToolTips] PowerBlackoutLabel=`, default `⚡❌` (U+26A1 U+274C).
     pub power_blackout_label: String,
+    /// `[Sidebar] CreditsIndicator.MaxStep=` (`Phobos.INI.cpp:237`), default
+    /// 143: the largest per-frame step; a value at or below zero removes the
+    /// upper bound.
+    pub credits_max_step: i32,
+    /// `[Sidebar] CreditsIndicator.Smooth=` (`Phobos.INI.cpp:240`), default
+    /// `yes`: when off the counter snaps to the balance without stepping.
+    pub credits_smooth: bool,
 }
 
 impl Default for SidebarIndicatorsUi {
@@ -172,6 +179,8 @@ impl Default for SidebarIndicatorsUi {
             weeds: WeedsCounterUi::default(),
             power_label: POWER_LABEL_DEFAULT.to_string(),
             power_blackout_label: POWER_BLACKOUT_LABEL_DEFAULT.to_string(),
+            credits_max_step: 143,
+            credits_smooth: true,
         }
     }
 }
@@ -213,6 +222,12 @@ impl SidebarIndicatorsUi {
                 .unwrap_or_default(),
             power_label: label("PowerLabel", POWER_LABEL_DEFAULT),
             power_blackout_label: label("PowerBlackoutLabel", POWER_BLACKOUT_LABEL_DEFAULT),
+            credits_max_step: ini.section("Sidebar").map_or(143, |section| {
+                section.read_int("CreditsIndicator.MaxStep", 143)
+            }),
+            credits_smooth: ini
+                .section("Sidebar")
+                .is_none_or(|section| section.read_bool("CreditsIndicator.Smooth", true)),
         }
     }
 }

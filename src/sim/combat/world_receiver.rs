@@ -829,29 +829,10 @@ pub(crate) fn apply_area_damage_in_run_with_target(
     origin: (u64, Option<InternedId>, InternedId),
     area_target: Option<u64>,
 ) -> (DeathEffects, Vec<UnderAttackEvent>, bool, AreaDamageResult) {
-    let area = collect_area_at(
-        world,
-        rules,
-        overlay_registry,
-        impact,
-        damage,
-        warhead,
-        affects_tiberium,
-        origin,
-        run.effects(),
-    );
+    // Phobos `MapClass_DamageArea @ 0x489286`: the hook runs at the routine's
+    // entry, so the per-target pass (its own cell-spread walk) visits its
+    // targets before the native area damage collects and commits them.
     let mut effects = DeathEffects::default();
-    #[cfg(test)]
-    append_fixture_tiberium(world, &mut effects.tiberium_reduction_requests);
-    #[cfg(any(test, feature = "test-support"))]
-    effects.wall_mutations.extend(area.aoe.wall_mutations);
-    #[cfg(any(test, feature = "test-support"))]
-    effects
-        .cell_target_detaches
-        .extend(area.aoe.cell_target_detaches);
-    // Phobos `MapClass_DamageArea @ 0x489286`: a direct `DamageArea` caller's
-    // per-target pass runs before the native area damage, exactly like the
-    // bullet path.
     #[cfg(feature = "phobos")]
     let crit_active = super::crit::detonate(
         world,
@@ -864,13 +845,31 @@ pub(crate) fn apply_area_damage_in_run_with_target(
         origin.1,
         impact,
         area_target,
-        &area.aoe.receivers,
         &mut effects,
     );
     #[cfg(not(feature = "phobos"))]
     let _ = area_target;
     #[cfg(not(feature = "phobos"))]
     let crit_active = false;
+    let area = collect_area_at(
+        world,
+        rules,
+        overlay_registry,
+        impact,
+        damage,
+        warhead,
+        affects_tiberium,
+        origin,
+        run.effects(),
+    );
+    #[cfg(test)]
+    append_fixture_tiberium(world, &mut effects.tiberium_reduction_requests);
+    #[cfg(any(test, feature = "test-support"))]
+    effects.wall_mutations.extend(area.aoe.wall_mutations);
+    #[cfg(any(test, feature = "test-support"))]
+    effects
+        .cell_target_detaches
+        .extend(area.aoe.cell_target_detaches);
     let (nested, mut pings, area_result) =
         commit_area_with_dispatch(world, run, &area.aoe.receivers, rules, overlay_registry);
     effects.append(nested);
@@ -3927,6 +3926,31 @@ fn emit_detonation_receivers<'r>(
         }
     }
 
+    // Phobos `BulletClass_Detonate @ 0x46920B` runs at this routine's entry:
+    // the warhead's per-target pass (AttachEffect lists, crit) visits its own
+    // cell-spread collection before the special/ordinary arm split, before
+    // SpawnShrapnel and before the native area damage. A target it kills is
+    // therefore skipped by the arm and area gates below.
+    #[cfg(feature = "phobos")]
+    let crit_active = super::crit::detonate(
+        world,
+        run,
+        rules,
+        overlay_registry,
+        warhead,
+        detonation.payload.warhead,
+        detonation.source_id,
+        detonation_source_house(world, detonation),
+        detonation.impact,
+        match detonation.target {
+            ProjectileTarget::Entity(id) => Some(id),
+            _ => None,
+        },
+        &mut out.effects,
+    );
+    #[cfg(not(feature = "phobos"))]
+    let crit_active = false;
+
     // `BulletClass::DetonateAtCoord @ 0x0046978e` is the chain's only
     // conditional arm and the only one that consults the target: it reads the
     // bullet's raw `+0x10c` and calls `What_Am_I` through vtable `+0x2c`,
@@ -3995,30 +4019,6 @@ fn emit_detonation_receivers<'r>(
             out.effects
                 .cell_target_detaches
                 .extend(area.aoe.cell_target_detaches);
-            // Phobos `BulletClass_Detonate @ 0x46920B`: the warhead's
-            // per-target pass (AttachEffect lists, crit) runs before the
-            // native area damage, so a target it kills is skipped by the
-            // dispatch gates below.
-            #[cfg(feature = "phobos")]
-            let crit_active = super::crit::detonate(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                warhead,
-                detonation.payload.warhead,
-                detonation.source_id,
-                source_house,
-                detonation.impact,
-                match detonation.target {
-                    ProjectileTarget::Entity(id) => Some(id),
-                    _ => None,
-                },
-                &area.aoe.receivers,
-                &mut out.effects,
-            );
-            #[cfg(not(feature = "phobos"))]
-            let crit_active = false;
             out.damage_events.extend(area.aoe.receivers);
 
             (Some(area.continuation), crit_active)
@@ -4032,7 +4032,7 @@ fn emit_detonation_receivers<'r>(
                 overlay_registry,
                 effects,
             );
-            (None, false)
+            (None, crit_active)
         }
     }
 }

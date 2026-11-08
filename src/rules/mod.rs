@@ -141,6 +141,8 @@ pub mod phobos_pause_menu;
 #[cfg(feature = "phobos")]
 pub mod phobos_placement_preview;
 #[cfg(feature = "phobos")]
+pub mod phobos_auto_death;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

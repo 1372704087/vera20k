@@ -53,6 +53,8 @@ pub(crate) mod ares_tunnel; // Ares building tunnels (TunnelTypes.cpp, 100097D0)
 #[cfg(feature = "ares")]
 pub(crate) mod ares_veterancy; // Ares UpdateVeterancy 10046AF0 and academies
 pub mod attach_effect;
+#[cfg(feature = "phobos")]
+pub(crate) mod auto_death;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;

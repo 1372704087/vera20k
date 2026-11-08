@@ -865,6 +865,15 @@ pub struct GameEntity {
     #[cfg(feature = "ares")]
     #[serde(default)]
     pub(crate) ares_self_heal_combat: crate::sim::timer::CdTimer,
+    /// Phobos `TechnoExt::AutoDeathTimer` (`Ext/Techno/Body.h:43`), a
+    /// `CDTimerClass` whose constructor leaves StartTime -1 / TimeLeft 0.
+    /// `sim::auto_death` starts it with `AutoDeath.AfterDelay=`;
+    /// `FootExt::UpdateTypeData` stops it when the new type has no timed
+    /// AutoDeath. `start_frame() == PAUSED_START_FRAME` is `HasStarted() ==
+    /// false`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) auto_death_timer: crate::sim::timer::CdTimer,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -1237,6 +1246,18 @@ impl GameEntity {
     /// The authoritative Techno reload clock, preserved verbatim in saves.
     pub const fn ammo_reload_timer(&self) -> crate::sim::timer::CdTimer {
         self.ammo_reload_timer
+    }
+
+    /// Phobos `TechnoExt::AutoDeathTimer`; an unstarted clock reads as
+    /// `start_frame() == PAUSED_START_FRAME`, which is `HasStarted() == false`.
+    #[cfg(feature = "phobos")]
+    pub const fn auto_death_timer(&self) -> crate::sim::timer::CdTimer {
+        self.auto_death_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn auto_death_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
+        &mut self.auto_death_timer
     }
 
     /// Ares BuildingClass_FireLaser (10016490) starts this clock (YRpp's
@@ -2352,6 +2373,8 @@ impl GameEntity {
             ares_disable_weapons: Default::default(),
             #[cfg(feature = "ares")]
             ares_self_heal_combat: Default::default(),
+            #[cfg(feature = "phobos")]
+            auto_death_timer: Default::default(),
             pending_c4_detonation: Default::default(),
             #[cfg(feature = "ares")]
             display_production_to: Default::default(),

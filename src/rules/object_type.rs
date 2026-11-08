@@ -857,6 +857,11 @@ pub struct ObjectType {
     /// (`IronCurtain.*`, `ForceShield.*`).
     #[cfg(feature = "phobos")]
     pub phobos_invulnerability: crate::rules::invulnerability_rules::PhobosInvulnerability,
+    /// Phobos `AutoDeath.Behavior=` and `AutoDeath.AfterDelay=`
+    /// (`Ext/TechnoType/Body.cpp:817,825`). The other `AutoDeath.*` triggers
+    /// stay unported; see [`crate::rules::phobos_auto_death`].
+    #[cfg(feature = "phobos")]
+    pub phobos_auto_death: crate::rules::phobos_auto_death::AutoDeathTypeSettings,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4650,6 +4655,10 @@ impl ObjectType {
             attach_effect_recreation_delays: section
                 .read_int_list("AttachEffect.RecreationDelays")
                 .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            phobos_auto_death: crate::rules::phobos_auto_death::AutoDeathTypeSettings::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             digital_display_disable: section.read_bool("DigitalDisplay.Disable", false),
             #[cfg(feature = "phobos")]

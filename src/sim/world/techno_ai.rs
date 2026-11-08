@@ -919,6 +919,12 @@ fn techno_ai_shell(
     // common Techno body's estimated-health recover.
     #[cfg(feature = "phobos")]
     sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
+    // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
+    // (`Ext/Techno/Body.Update.cpp:26`), after ApplyMindControlRangeLimit and
+    // before ApplyInterceptor. Native's early return skips only the unported
+    // ApplyInterceptor, so this visit continues either way.
+    #[cfg(feature = "phobos")]
+    sim.check_auto_death(id, rules, ctx.overlay_registry, ctx.effects);
     // Techno6F9F6E..9F precedes veterancy promotion, missions and acquisition for every
     // Techno category. object_ai_visit_one excludes the entry-active Tube leaf
     // before this common owner. Actual health and this retained estimate differ.

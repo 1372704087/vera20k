@@ -6,9 +6,8 @@
 //! and never reaches into another module's private fields. It only reads;
 //! it never advances timers, draws RNG or writes state.
 //!
-//! Two native info types have no owner in VERA and therefore return `None`:
-//! `PassengerKill` (Phobos passenger deletion) and `AutoDeath` (Phobos
-//! auto-death). A display whose value is absent draws nothing, matching
+//! `PassengerKill` (Phobos passenger deletion) has no owner in VERA and
+//! returns `None`. A display whose value is absent draws nothing, matching
 //! Phobos's `value <= -1 || maxValue <= 0` skip.
 
 use crate::rules::digital_display::DigitalInfoType;
@@ -220,8 +219,22 @@ pub fn values_for_display(
             let timer = entity.produce_cash.timer();
             (timer.remaining(frame), timer.duration())
         }
-        // No Phobos PassengerDeletion or AutoDeath owner exists in VERA.
-        DigitalInfoType::PassengerKill | DigitalInfoType::AutoDeath => return None,
+        // Phobos `Body.Visuals.cpp:696-717`: an unset `AutoDeath.Behavior=`
+        // draws nothing; the timed arm reports the clock's remaining and full
+        // duration, the ammo arm (unported) the Ammo. An unstarted clock has
+        // `remaining == duration == 0`, which the renderer's `maximum <= 0`
+        // skip drops, as native's `TimeLeft` does.
+        DigitalInfoType::AutoDeath => {
+            if object.phobos_auto_death.behavior.is_none()
+                || object.phobos_auto_death.after_delay <= 0
+            {
+                return None;
+            }
+            let timer = entity.auto_death_timer();
+            (timer.remaining(frame), timer.duration())
+        }
+        // No Phobos PassengerDeletion owner exists in VERA.
+        DigitalInfoType::PassengerKill => return None,
         DigitalInfoType::SuperWeapon => {
             if entity.category() != crate::map::entities::EntityCategory::Structure {
                 return None;

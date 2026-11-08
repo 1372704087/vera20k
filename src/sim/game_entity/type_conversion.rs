@@ -118,6 +118,16 @@ impl Simulation {
         actor.type_ref = new_type;
         actor.is_voxel = GameEntity::object_uses_voxel(&destination.id, destination, rules);
         actor.refresh_type_projection(Some(destination), rules);
+        // Phobos `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`,
+        // called from `TechnoClass::ChangeType` at `Ext/Techno/Body.cpp:366`):
+        // a running countdown is dropped when the new type has no timed
+        // AutoDeath. The untimed type then never re-arms it.
+        #[cfg(feature = "phobos")]
+        if actor.auto_death_timer.start_frame() != crate::sim::timer::PAUSED_START_FRAME
+            && destination.phobos_auto_death.after_delay <= 0
+        {
+            actor.auto_death_timer = crate::sim::timer::CdTimer::default();
+        }
         // RESIDUAL: construction alone builds some Type-derived state, and
         // nothing here refreshes it: passenger capacity (PassengerCargo from
         // Passengers=/SizeLimit=), the SHP vehicle Animation component, the

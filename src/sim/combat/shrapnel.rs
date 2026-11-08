@@ -114,10 +114,6 @@ pub(super) fn emit_projectile_shrapnel(
     // the `[CombatDamage]` global. That global is a `Valueable<bool>` defaulting
     // to `no` (`Ext/Rules/Body.h:464-465`), so an unset key keeps the stock
     // refusal.
-    // RESIDUAL: `Shrapnel.AffectsBuildings` (the same hook, `:270`) parses but
-    // stays unread here: admitting the impact building also needs native's
-    // `InitialTargetBuilding` skip in the ring (`:300-301`), which this ring
-    // owner does not track yet.
     let affects_ground = {
         #[cfg(feature = "phobos")]
         {
@@ -177,6 +173,14 @@ pub(super) fn emit_projectile_shrapnel(
     };
     // `Hooks.cpp:260,348-349`: one emission's previously hit buildings.
     let mut targets_to_ignore: Vec<u64> = Vec::new();
+    // `Hooks.cpp:309`: replaces the stock alliance test with the shrapnel
+    // weapon's own targeting admission.
+    #[cfg(feature = "phobos")]
+    let use_weapon_targeting = parent_projectile
+        .shrapnel_use_weapon_targeting
+        .unwrap_or(rules.phobos_globals.shrapnel_use_weapon_targeting);
+    #[cfg(feature = "phobos")]
+    let child_warhead = rules.warhead(child_warhead_name);
 
     let construct = |world: &mut Simulation,
                      target: ProjectileTarget,
@@ -376,11 +380,35 @@ pub(super) fn emit_projectile_shrapnel(
                         continue;
                     }
                 }
-                if source_owner.is_some_and(|owner| {
+                #[cfg(feature = "phobos")]
+                let admitted = if use_weapon_targeting {
+                    source_owner.is_some_and(|owner| {
+                        child_warhead.is_some_and(|warhead| {
+                            super::phobos_airburst::weapon_picking_allows(
+                                world,
+                                rules,
+                                detonation.source_id,
+                                owner,
+                                child_weapon,
+                                warhead,
+                                id,
+                            )
+                        })
+                    })
+                } else {
+                    !source_owner.is_some_and(|owner| {
+                        world
+                            .house_alliances
+                            .is_allied(&world.interner, owner, target.owner())
+                    })
+                };
+                #[cfg(not(feature = "phobos"))]
+                let admitted = !source_owner.is_some_and(|owner| {
                     world
                         .house_alliances
                         .is_allied(&world.interner, owner, target.owner())
-                }) {
+                });
+                if !admitted {
                     continue;
                 }
                 // `Hooks.cpp:348-349`: record after every other test passed.

@@ -42,8 +42,7 @@ pub struct PhobosGlobals {
     /// (`Ext/Bullet/Hooks.cpp:295,303,348`).
     pub shrapnel_ignore_hit_buildings: bool,
     /// `Shrapnel.UseWeaponTargeting=`, default `no`: replace the ally test with
-    /// the child weapon's own target eligibility (`:309-342`). Parsed here so
-    /// the key has one owner; the consumer is its own chain.
+    /// the child weapon's own target eligibility (`:309-342`).
     pub shrapnel_use_weapon_targeting: bool,
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).

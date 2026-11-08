@@ -947,9 +947,8 @@ fn splits_projectile_check(
 }
 
 /// `IsAllowedSplitsTarget`. Without weapon targeting the weapon's warhead
-/// applies its `Affects[Owner/Allies/Enemies]` gate; with it, `LegalTarget`,
-/// the warhead's Verses against the target's (or shield's) armor and the
-/// weapon's `CanTargetHouses` apply, and the warhead Affects gate is skipped.
+/// applies its `Affects[Owner/Allies/Enemies]` gate; with it, the shared
+/// weapon-picking admission applies.
 fn allowed_splits_target(
     world: &Simulation,
     rules: &RuleSet,
@@ -960,10 +959,10 @@ fn allowed_splits_target(
     target: u64,
     use_weapon_targeting: bool,
 ) -> bool {
-    let Some(entity) = world.substrate.entities.get(target) else {
-        return false;
-    };
     if !use_weapon_targeting {
+        let Some(entity) = world.substrate.entities.get(target) else {
+            return false;
+        };
         return crate::sim::shield::can_target_house(
             warhead,
             Some(owner_house),
@@ -971,6 +970,26 @@ fn allowed_splits_target(
             world,
         );
     }
+    weapon_picking_allows(world, rules, source_id, owner_house, weapon, warhead, target)
+}
+
+/// The `UseWeaponTargeting` arm shared with `Shrapnel.UseWeaponTargeting`
+/// (`Ext/Bullet/Hooks.cpp:309-345`): `LegalTarget`, the warhead's Verses
+/// against the target's (or shield's) armor, the weapon's `CanTargetHouses`,
+/// then the canonical `CanTarget` cell/techno bits, health range, veterancy
+/// and AttachEffect gates. The warhead Affects gate is skipped.
+pub(super) fn weapon_picking_allows(
+    world: &Simulation,
+    rules: &RuleSet,
+    source_id: u64,
+    owner_house: InternedId,
+    weapon: &WeaponType,
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: u64,
+) -> bool {
+    let Some(entity) = world.substrate.entities.get(target) else {
+        return false;
+    };
     let Some(object) = world.interner.object_type(entity.type_ref(), rules) else {
         return false;
     };

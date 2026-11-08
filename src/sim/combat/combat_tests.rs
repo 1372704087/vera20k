@@ -9707,6 +9707,86 @@ fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
     );
 }
 
+/// Phobos `BulletClass_Shrapnel_Targeting` `UseWeaponTargeting`
+/// (`Ext/Bullet/Hooks.cpp:309-345`): with the key the shrapnel weapon's own
+/// targeting replaces the stock alliance test, so an allied unit becomes a
+/// legal child target while a `LegalTarget=no` type stops being one. The
+/// `[CombatDamage]` global supplies the same switch to a type that omits it.
+#[cfg(feature = "phobos")]
+#[test]
+fn shrapnel_use_weapon_targeting_replaces_the_alliance_test() {
+    const BODY: &str = "\
+[VehicleTypes]\n0=MTNK\n1=ALLY\n2=NOLEGAL\n\n\
+[MTNK]\nStrength=100\nArmor=heavy\nPrimary=PARENT\nSecondary=CHILD\n\n\
+[ALLY]\nStrength=100\nSpeed=5\nArmor=heavy\n\n\
+[NOLEGAL]\nStrength=100\nSpeed=5\nArmor=heavy\nLegalTarget=no\n\n\
+[PARENT]\nDamage=20\nROF=10\nRange=6\nSpeed=30\nProjectile=PARENTPROJ\nWarhead=WH\n\n\
+[PARENTPROJ]\nAirburst=yes\nShrapnelWeapon=CHILD\nShrapnelCount=12\n\
+Shrapnel.AffectsGround=yes\n{TYPE}\n\n\
+[CHILD]\nDamage=5\nROF=10\nRange=3\nSpeed=40\nProjectile=CHILDPROJ\nWarhead=WH\n\n\
+[CHILDPROJ]\nSubjectToWalls=yes\n\n\
+[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{GLOBAL}";
+    // Returns (hits on the allied unit, hits on the LegalTarget=no unit).
+    let run = |type_key: bool, global: bool| {
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            &BODY
+                .replace(
+                    "{TYPE}",
+                    if type_key {
+                        "Shrapnel.UseWeaponTargeting=yes"
+                    } else {
+                        ""
+                    },
+                )
+                .replace(
+                    "{GLOBAL}",
+                    if global {
+                        "[CombatDamage]\nShrapnel.UseWeaponTargeting=yes\n"
+                    } else {
+                        ""
+                    },
+                ),
+        ))
+        .expect("shrapnel rules");
+        let mut sim = shrapnel_world(
+            &rules,
+            vec![
+                make_entity_owned(1, "MTNK", 2, 2, 100, "Soviet"),
+                // Two opposite first-ring heads: an ally and an enemy whose
+                // type refuses weapon targeting.
+                make_entity_owned(2, "ALLY", 6, 4, 100, "Americans"),
+                make_entity_owned(3, "NOLEGAL", 8, 5, 100, "Africans"),
+            ],
+        );
+        sim.house_alliances_mut_for_test()
+            .entry("SOVIET".into())
+            .or_default()
+            .insert("AMERICANS".into());
+        let targets: Vec<_> = commit_shrapnel_at_5_5(&mut sim, &rules)
+            .into_iter()
+            .map(|fragment| fragment.target())
+            .collect();
+        (
+            targets.contains(&crate::sim::projectile::ProjectileTarget::Entity(2)),
+            targets.contains(&crate::sim::projectile::ProjectileTarget::Entity(3)),
+        )
+    };
+
+    let stock = run(false, false);
+    assert!(!stock.0, "the stock ring skips an allied head");
+    assert!(stock.1, "the stock ring has no LegalTarget test");
+    for targeted in [run(true, false), run(false, true)] {
+        assert!(
+            targeted.0,
+            "UseWeaponTargeting admits the allied head the weapon can target"
+        );
+        assert!(
+            !targeted.1,
+            "UseWeaponTargeting skips a LegalTarget=no head"
+        );
+    }
+}
+
 /// SpawnShrapnel lessens a negative ShrapnelCount by the cells from the
 /// bullet to its firer's GetCoords (`[bullet+0xB0]`, vt+0x48 at
 /// `0x0046A370`): for a building firer its foundation centre (`0x00447AC0`),

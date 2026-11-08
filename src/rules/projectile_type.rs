@@ -156,8 +156,8 @@ pub struct ProjectileType {
     /// same fallback.
     #[cfg(feature = "phobos")]
     pub shrapnel_ignore_hit_buildings: Option<bool>,
-    /// Phobos `Shrapnel.UseWeaponTargeting=` (`:43`), same fallback. Parsed
-    /// here only; the consumer is its own chain.
+    /// Phobos `Shrapnel.UseWeaponTargeting=` (`:43`), same fallback; consumed
+    /// by `sim::combat::shrapnel`'s ring walk.
     #[cfg(feature = "phobos")]
     pub shrapnel_use_weapon_targeting: Option<bool>,
     /// `ShrapnelWeapon=` (+2B4), the WeaponType fired for each shrapnel

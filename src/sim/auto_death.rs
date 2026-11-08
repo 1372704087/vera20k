@@ -1,15 +1,18 @@
-//! Phobos `AutoDeath`: the timed arm of `TechnoExt::CheckDeathConditions`
-//! (`Ext/Techno/Body.Update.cpp:138-184`) and `TechnoExt::KillSelf`'s `Kill`
+//! Phobos `AutoDeath`: `TechnoExt::CheckDeathConditions`
+//! (`Ext/Techno/Body.Update.cpp:138-255`) and `TechnoExt::KillSelf`'s `Kill`
 //! behavior (`:809-821`).
 //!
 //! ## Scope
 //!
-//! Only `AutoDeath.Behavior=kill` with `AutoDeath.AfterDelay=` is ported. The
-//! `ShouldBeDead` flag, `OnAmmoDepletion`, `OnOwnerChange.*`,
-//! `TechnosDontExist.*`, `TechnosExist.*`, `PlayerPowerState`,
-//! `PlayerMoney.Max/Min`, the `Vanish`/`Sell` behaviors and
-//! `AutoDeath.AllowLimboed` with `KillSelf`'s limbo arm (`:721-766`) stay open;
-//! a type that authors any of them keeps that chain's gap entry.
+//! Ported arms, in native order: `AutoDeath.Behavior=kill` with
+//! `OnAmmoDepletion` (`:166`), `AfterDelay` (`:173-184`), `PlayerPowerState`
+//! (`:210-221`), `PlayerMoney.Max/Min` (`:223-234`), `TechnosDontExist`
+//! (`:236-245`) and `TechnosExist` (`:247-255`).
+//!
+//! Still open: the `ShouldBeDead` flag, `OnOwnerChange.*`, the `Vanish`/`Sell`
+//! behaviors with `VanishAnimation`, `AutoDeath.AllowLimboed` with `KillSelf`'s
+//! limbo arm (`:721-766`), and the scenario-level `AutoDeathObjects` collection.
+//! A type that authors only those keeps that chain's gap entry.
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1).
 
@@ -50,7 +53,7 @@ impl Simulation {
             if entity.lifecycle.in_limbo() {
                 return false;
             }
-            object.phobos_auto_death
+            object.phobos_auto_death.clone()
         };
         // `Vanish` and `Sell` (`:771-807`) are unported; refusing them up front
         // keeps a timer from running that could never fire.
@@ -123,10 +126,116 @@ impl Simulation {
                 return self.kill_self(id, rules, registry, effects);
             }
         }
+        let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
+            return false;
+        };
+        // `:236-245`: kill when the listed types are absent. Native passes
+        // `!Any` to the scan, so the default `Any=no` becomes "any of them".
+        if !settings.technos_dont_exist.is_empty() {
+            let allow_limbo = settings.technos_dont_exist_allow_limboed.unwrap_or(
+                rules
+                    .phobos_globals
+                    .auto_death_technos_dont_exist_allow_limboed,
+            );
+            if !self.auto_death_technos_exist(
+                &settings.technos_dont_exist,
+                settings.technos_dont_exist_houses,
+                !settings.technos_dont_exist_any,
+                allow_limbo,
+                owner,
+                rules,
+            ) {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
+        // `:247-255`: kill when the listed types are present.
+        if !settings.technos_exist.is_empty() {
+            let allow_limbo = settings
+                .technos_exist_allow_limboed
+                .unwrap_or(rules.phobos_globals.auto_death_technos_exist_allow_limboed);
+            if self.auto_death_technos_exist(
+                &settings.technos_exist,
+                settings.technos_exist_houses,
+                settings.technos_exist_any,
+                allow_limbo,
+                owner,
+                rules,
+            ) {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
         false
     }
 
-    /// The `AfterDelay` arm's clock: start it on the first visit, then report
+    /// `Ext/Techno/Body.Update.cpp:188-208`: whether the listed types exist for
+    /// the selected houses. `any` selects `any_of`; `all_of` otherwise. The
+    /// non-limbo count is `CountOwnedAndPresent` (`active_count`, `0x0049FAE0`);
+    /// `allow_limbo` adds the distinct limbo count.
+    #[allow(clippy::too_many_arguments)]
+    fn auto_death_technos_exist(
+        &self,
+        list: &[String],
+        houses: crate::rules::phobos_shields::AffectedHouse,
+        any: bool,
+        allow_limbo: bool,
+        owner: crate::sim::intern::InternedId,
+        rules: &RuleSet,
+    ) -> bool {
+        let exist_single = |name: &str| {
+            let Some(type_id) = self.interner.get(name) else {
+                return false;
+            };
+            let Some(object) = self.interner.object_type(type_id, rules) else {
+                return false;
+            };
+            let category = match object.category {
+                crate::rules::object_type::ObjectCategory::Infantry => {
+                    crate::map::entities::EntityCategory::Infantry
+                }
+                crate::rules::object_type::ObjectCategory::Vehicle => {
+                    crate::map::entities::EntityCategory::Unit
+                }
+                crate::rules::object_type::ObjectCategory::Aircraft => {
+                    crate::map::entities::EntityCategory::Aircraft
+                }
+                crate::rules::object_type::ObjectCategory::Building => {
+                    crate::map::entities::EntityCategory::Structure
+                }
+            };
+            let count_in = |house: &crate::sim::house_state::HouseState| {
+                if allow_limbo {
+                    house
+                        .tracking()
+                        .count_owned_present_and_limboed(category, type_id)
+                } else {
+                    house.tracking().active_count(category, type_id)
+                }
+            };
+            if houses == crate::rules::phobos_shields::AffectedHouse::OWNER {
+                return self
+                    .houses()
+                    .get(&owner)
+                    .is_some_and(|house| count_in(house) > 0);
+            }
+            self.houses().iter().any(|(house_id, house)| {
+                crate::sim::combat::can_target_house(
+                    houses,
+                    owner,
+                    *house_id,
+                    self.houses(),
+                    self.house_alliances(),
+                    self.interner(),
+                ) && count_in(house) > 0
+            })
+        };
+        if any {
+            list.iter().any(|name| exist_single(name))
+        } else {
+            list.iter().all(|name| exist_single(name))
+        }
+    }
+
+    /// The `AfterDelay` arm's clock
     /// whether it has completed. `HasStarted()` is the `PAUSED_START_FRAME`
     /// test VERA uses everywhere else for an unstarted `CDTimerClass`.
     fn auto_death_clock_expires(&mut self, id: u64, after_delay: i32) -> bool {

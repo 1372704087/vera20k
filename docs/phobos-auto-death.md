@@ -13,6 +13,19 @@ A Techno type that destroys itself when a condition holds. This page covers the
 | `AutoDeath.PlayerPowerState` | TechnoType | `none` | `Ext/TechnoType/Body.cpp:834` |
 | `AutoDeath.PlayerMoney.Max` | TechnoType | `-1` (off) | `Ext/TechnoType/Body.cpp:835` |
 | `AutoDeath.PlayerMoney.Min` | TechnoType | `-1` (off) | `Ext/TechnoType/Body.cpp:836` |
+| `AutoDeath.TechnosDontExist` | TechnoType | empty | `Ext/TechnoType/Body.cpp:826` |
+| `AutoDeath.TechnosDontExist.Any` | TechnoType | `no` | `Ext/TechnoType/Body.cpp:827` |
+| `AutoDeath.TechnosDontExist.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:828` |
+| `AutoDeath.TechnosDontExist.Houses` | TechnoType | `owner` | `Ext/TechnoType/Body.cpp:829` |
+| `AutoDeath.TechnosExist` | TechnoType | empty | `Ext/TechnoType/Body.cpp:830` |
+| `AutoDeath.TechnosExist.Any` | TechnoType | `yes` | `Ext/TechnoType/Body.cpp:831` |
+| `AutoDeath.TechnosExist.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:832` |
+| `AutoDeath.TechnosExist.Houses` | TechnoType | `owner` | `Ext/TechnoType/Body.cpp:833` |
+
+The two `AllowLimboed` keys fall back to `[CombatDamage]
+AutoDeath.TechnosDontExist.AllowLimboed` / `AutoDeath.TechnosExist.AllowLimboed`
+(`Ext/Rules/Body.cpp:631-632`), both `Valueable<bool>` defaulting to `no` and
+read once from the merged layer state.
 
 `AutoDeath.PlayerPowerState` takes `none`, `low`/`consumer` or `full`/`normal`
 (`Utilities/TemplateDef.h:1762-1781`). The two money bounds are inclusive and
@@ -50,6 +63,15 @@ The low-power arm is written
 tighter than `||`, so the first-frame guard applies to the `Low` arm only and a
 `Full` type also dies on frame 0. That is reproduced as written.
 
+The presence arms (`Ext/Techno/Body.Update.cpp:186-255`) scan the selected
+houses for each listed type. Without `AllowLimboed` they use
+`CountOwnedAndPresent` (`0x0049FAE0`); with it, the distinct limbo count is
+added. `Houses=` selects the house set through `CanTargetHouse`, `owner`
+short-circuiting to the object's own house. `TechnosDontExist` passes `!Any`
+into the scan, so its default `Any=no` means "kill when none of the listed types
+exists" and `Any=yes` means "kill unless all exist". `TechnosExist` uses `Any`
+directly.
+
 A type change through `TechnoClass::ChangeType` calls
 `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`), which stops a running
 countdown when the new type has no `AfterDelay`. Without that reset a round trip
@@ -67,11 +89,10 @@ clock has a zero maximum, which the renderer skips.
 
 ## Residuals
 
-- The remaining triggers are unported: `ShouldBeDead`,
-  `AutoDeath.OnOwnerChange` (and its `IgnoreRevertOnExit`, `HumanToComputer`,
-  `ComputerToHuman` sub-keys), `AutoDeath.TechnosDontExist.*` and
-  `AutoDeath.TechnosExist.*` (with their `Any`, `AllowLimboed` and `Houses`
-  sub-keys). A type that authors only those never dies.
+- The remaining triggers are unported: `ShouldBeDead` and
+  `AutoDeath.OnOwnerChange` with its `IgnoreRevertOnExit`,
+  `HumanToComputer` and `ComputerToHuman` sub-keys. A type that authors only
+  those never dies.
 - `AutoDeath.Behavior=vanish` and `=sell` are unported, so their timer never
   arms; `AutoDeath.VanishAnimation` is unread.
 - `AutoDeath.AllowLimboed` (the type key and the `[CombatDamage]` global at

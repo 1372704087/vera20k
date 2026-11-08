@@ -12,11 +12,14 @@ gate; the per-target filters are residual.
 | `Shrapnel.AffectsGround` | BulletType | `no` | `Ext/BulletType/Body.cpp:41` |
 | `Shrapnel.AffectsBuildings` | BulletType | `no` | `Ext/BulletType/Body.cpp:42` |
 
-Both are `Nullable<bool>` and fall back to the same-named `[CombatDamage]`
-global. Phobos passes the global `Nullable` itself to `Get(T)`, which converts
-through `Valueable<T>::Value`, so an unset key and an unset global both read
-`no`. `no` is also the stock behaviour, so a rules set that never names these
-keys is unchanged.
+Both type-level keys are `Nullable<bool>` and fall back to the same-named
+`[CombatDamage]` global. That global is a `Valueable<bool>` with constructor
+default `false` (`Ext/Rules/Body.h:464-465`, `:968-969`), and Phobos passes it to
+`Get(T)` through `Valueable<T>::operator const T&`, so an unset key and an unset
+global both read `no`. `no` is also the stock behaviour, so a rules set that
+never names these keys is unchanged. The global has no unset state and no
+`none`/`<default>` clearing token — do not give these reads `Nullable`
+semantics.
 
 ## Behavior
 
@@ -44,3 +47,9 @@ the early refusal differs.
 - The `[CombatDamage]` globals are read once from the merged layer state
   (`rules::phobos_globals`), which equals Phobos re-reading them on every
   `Process` for scalar keys. A later layer naming only one key keeps the other.
+- Retention across scenarios in one process is unverified: Phobos reads these
+  into the `RulesClass`-lifetime `RulesExt::Data` and never resets them, while
+  VERA builds a fresh `PhobosGlobals` from the current layer stack. Within one
+  scenario the fold is equivalent; a second scenario that does not author a key
+  the first map authored would read `no` in VERA and keep the earlier `yes` in
+  Phobos. Settle it with a two-map load.

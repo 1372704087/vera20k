@@ -6,7 +6,7 @@ use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n\
 [E1]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
 [TANKONLYDELAY]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.AfterDelay=1\n\
@@ -16,6 +16,10 @@ AutoDeath.Behavior=kill\nAutoDeath.OnAmmoDepletion=yes\n\
 AutoDeath.Behavior=kill\nAutoDeath.PlayerPowerState=low\n\
 [TANKMONEY]\nStrength=100\nSight=0\nSpeed=5\n\
 AutoDeath.Behavior=kill\nAutoDeath.PlayerMoney.Max=50\n\
+[TANKEXIST]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1\n\
+[TANKDONT]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosDontExist=E1\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -64,6 +68,75 @@ fn a_timed_auto_death_starts_its_clock_then_kills_the_object() {
         !alive(&sim, tank),
         "AfterDelay=3 completes on the third frame after the clock starts"
     );
+}
+
+/// The scan counts on-map instances (`HouseClass::CountOwnedAndPresent`,
+/// `0x0049FAE0`), so the fixture registers each spawn the way the scenario
+/// loader does: a House, then `house_added_to_game`.
+fn register_on_map(sim: &mut Simulation, rules: &RuleSet, id: u64) {
+    let owner = sim.substrate.entities.get(id).unwrap().owner();
+    if sim.houses().get(&owner).is_none() {
+        sim.houses_mut_for_test()
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 0,
+            ));
+    }
+    sim.house_added_to_game(id, rules);
+}
+
+/// `Ext/Techno/Body.Update.cpp:247-255`: `AutoDeath.TechnosExist=` kills the
+/// object while any listed type (its default `Any=yes`) is present for the
+/// selected houses.
+#[cfg(feature = "phobos")]
+#[test]
+fn technos_exist_kills_only_when_the_listed_type_is_present() {
+    for (with_crew, expected_alive) in [(false, true), (true, false)] {
+        let (mut sim, rules) = arena();
+        let tank = sim
+            .spawn_object("TANKEXIST", "Americans", 10, 10, 0, &rules)
+            .expect("TANKEXIST spawns");
+        register_on_map(&mut sim, &rules, tank);
+        if with_crew {
+            let crew = sim
+                .spawn_object("E1", "Americans", 12, 10, 0, &rules)
+                .expect("E1 spawns");
+            register_on_map(&mut sim, &rules, crew);
+        }
+        sim.session.set_binary_frame_for_test(5);
+        sim.object_ai_stage(Some(&rules));
+        assert_eq!(
+            alive(&sim, tank),
+            expected_alive,
+            "TechnosExist=E1 with the type present = {with_crew}"
+        );
+    }
+}
+
+/// `:236-245`: `AutoDeath.TechnosDontExist=` kills it while none of the listed
+/// types exist; native inverts `Any`, whose default `no` becomes "any of them".
+#[cfg(feature = "phobos")]
+#[test]
+fn technos_dont_exist_kills_only_when_the_listed_type_is_absent() {
+    for (with_crew, expected_alive) in [(false, false), (true, true)] {
+        let (mut sim, rules) = arena();
+        let tank = sim
+            .spawn_object("TANKDONT", "Americans", 10, 10, 0, &rules)
+            .expect("TANKDONT spawns");
+        register_on_map(&mut sim, &rules, tank);
+        if with_crew {
+            let crew = sim
+                .spawn_object("E1", "Americans", 12, 10, 0, &rules)
+                .expect("E1 spawns");
+            register_on_map(&mut sim, &rules, crew);
+        }
+        sim.session.set_binary_frame_for_test(5);
+        sim.object_ai_stage(Some(&rules));
+        assert_eq!(
+            alive(&sim, tank),
+            expected_alive,
+            "TechnosDontExist=E1 with the type present = {with_crew}"
+        );
+    }
 }
 
 /// `:165-170`: a type whose `Ammo=` capacity is above zero dies at zero.

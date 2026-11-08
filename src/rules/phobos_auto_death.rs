@@ -51,9 +51,7 @@ impl AutoDeathBehavior {
 }
 
 /// The type-level `AutoDeath.*` keys this chain reads.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
-)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 pub struct AutoDeathTypeSettings {
     /// `AutoDeath.Behavior=`: `None` disables the mechanism.
     pub behavior: Option<AutoDeathBehavior>,
@@ -71,6 +69,27 @@ pub struct AutoDeathTypeSettings {
     pub player_money_max: i32,
     /// `AutoDeath.PlayerMoney.Min=`, `Valueable<int>` default `-1` (off).
     pub player_money_min: i32,
+    /// `AutoDeath.TechnosDontExist=`, default empty: die when the listed types
+    /// are absent from the selected houses (`Ext/Techno/Body.Update.cpp:236-245`).
+    pub technos_dont_exist: Vec<String>,
+    /// `AutoDeath.TechnosDontExist.Any=`, default `no`. Native inverts it
+    /// (`existTechnoTypes(..., !Any, ...)`, `:239`), so `no` asks "none of the
+    /// listed types exists" and `yes` asks "not all of them exist".
+    pub technos_dont_exist_any: bool,
+    /// `AutoDeath.TechnosDontExist.AllowLimboed=`: `None` falls back to the
+    /// `[CombatDamage]` global.
+    pub technos_dont_exist_allow_limboed: Option<bool>,
+    /// `AutoDeath.TechnosDontExist.Houses=`, default `owner`.
+    pub technos_dont_exist_houses: crate::rules::phobos_shields::AffectedHouse,
+    /// `AutoDeath.TechnosExist=`, default empty: die when the listed types
+    /// exist (`:247-255`).
+    pub technos_exist: Vec<String>,
+    /// `AutoDeath.TechnosExist.Any=`, default `yes`.
+    pub technos_exist_any: bool,
+    /// `AutoDeath.TechnosExist.AllowLimboed=`, same fallback.
+    pub technos_exist_allow_limboed: Option<bool>,
+    /// `AutoDeath.TechnosExist.Houses=`, default `owner`.
+    pub technos_exist_houses: crate::rules::phobos_shields::AffectedHouse,
 }
 
 /// `PowerStatus` (`Utilities/Enum.h:203-208`). Its parser
@@ -114,8 +133,39 @@ impl AutoDeathTypeSettings {
                 .unwrap_or_default(),
             player_money_max: section.read_int("AutoDeath.PlayerMoney.Max", -1),
             player_money_min: section.read_int("AutoDeath.PlayerMoney.Min", -1),
+            technos_dont_exist: type_list(section, "AutoDeath.TechnosDontExist"),
+            technos_dont_exist_any: section.read_bool("AutoDeath.TechnosDontExist.Any", false),
+            technos_dont_exist_allow_limboed: section
+                .read_phobos_nullable_bool("AutoDeath.TechnosDontExist.AllowLimboed", None),
+            technos_dont_exist_houses: affected_house(section, "AutoDeath.TechnosDontExist.Houses"),
+            technos_exist: type_list(section, "AutoDeath.TechnosExist"),
+            technos_exist_any: section.read_bool("AutoDeath.TechnosExist.Any", true),
+            technos_exist_allow_limboed: section
+                .read_phobos_nullable_bool("AutoDeath.TechnosExist.AllowLimboed", None),
+            technos_exist_houses: affected_house(section, "AutoDeath.TechnosExist.Houses"),
         }
     }
+}
+
+fn type_list(section: &IniSection, key: &str) -> Vec<String> {
+    section
+        .read_list(key, 0x800)
+        .map(|tokens| {
+            tokens
+                .into_iter()
+                .map(|token| token.trim().to_owned())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// `Valueable<AffectedHouse>`: a failed or absent read keeps `Owner`
+/// (`Utilities/TemplateDef.h:824..873`).
+fn affected_house(section: &IniSection, key: &str) -> crate::rules::phobos_shields::AffectedHouse {
+    section
+        .read_name(key, 0x100)
+        .and_then(|raw| crate::rules::phobos_shields::AffectedHouse::parse(&raw))
+        .unwrap_or(crate::rules::phobos_shields::AffectedHouse::OWNER)
 }
 
 #[cfg(test)]

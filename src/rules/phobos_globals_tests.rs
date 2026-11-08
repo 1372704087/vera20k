@@ -24,4 +24,14 @@ fn the_shrapnel_globals_default_to_the_stock_admission() {
     let half = read("[CombatDamage]\nShrapnel.AffectsBuildings=yes\n");
     assert!(!half.shrapnel_affects_ground);
     assert!(half.shrapnel_affects_buildings);
+
+    // The AutoDeath scan layers default to the same `no`.
+    assert!(!PhobosGlobals::default().auto_death_technos_exist_allow_limboed);
+    assert!(!PhobosGlobals::default().auto_death_technos_dont_exist_allow_limboed);
+    let limbo = read(
+        "[CombatDamage]\nAutoDeath.TechnosExist.AllowLimboed=yes\n\
+         AutoDeath.TechnosDontExist.AllowLimboed=yes\n",
+    );
+    assert!(limbo.auto_death_technos_exist_allow_limboed);
+    assert!(limbo.auto_death_technos_dont_exist_allow_limboed);
 }

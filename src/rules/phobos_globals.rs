@@ -6,9 +6,13 @@
 //! `ProcessedRulesLayers::ini()` is already that merged state, so one read here
 //! is equivalent.
 //!
-//! The values are `Nullable<bool>` in Phobos and callers pass the `Nullable`
-//! itself to a `Get(T)` fallback, which converts through `Valueable<T>::Value`:
-//! an unset global therefore reads as its value default, `false`.
+//! The globals are `Valueable<bool>` with constructor defaults `false`
+//! (`Ext/Rules/Body.h:464-465`, `:968-969`). The type-level keys are
+//! `Nullable<bool>`, and their consumer passes the global through
+//! `Valueable<T>::operator const T&`, so an unset type key and an unset global
+//! both read `false`. A `Valueable` global has no unset state and no
+//! `none`/`<default>` clearing token; do not give these reads `Nullable`
+//! semantics.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
@@ -26,6 +30,13 @@ pub struct PhobosGlobals {
     /// `Shrapnel.AffectsBuildings=`, default `no`: admit shrapnel when the
     /// impact cell's first ground object is a building (`:270`).
     pub shrapnel_affects_buildings: bool,
+    /// `AutoDeath.TechnosExist.AllowLimboed=`, default `no`: count limboed
+    /// instances in `AutoDeath.TechnosExist=` scans
+    /// (`Ext/Rules/Body.cpp:632`, consumed at `Ext/Techno/Body.Update.cpp:250`).
+    pub auto_death_technos_exist_allow_limboed: bool,
+    /// `AutoDeath.TechnosDontExist.AllowLimboed=`, default `no` (`:631`,
+    /// consumed at `:239`).
+    pub auto_death_technos_dont_exist_allow_limboed: bool,
 }
 
 impl PhobosGlobals {
@@ -42,6 +53,14 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         shrapnel_affects_buildings: section.read_bool(
             "Shrapnel.AffectsBuildings",
             defaults.shrapnel_affects_buildings,
+        ),
+        auto_death_technos_exist_allow_limboed: section.read_bool(
+            "AutoDeath.TechnosExist.AllowLimboed",
+            defaults.auto_death_technos_exist_allow_limboed,
+        ),
+        auto_death_technos_dont_exist_allow_limboed: section.read_bool(
+            "AutoDeath.TechnosDontExist.AllowLimboed",
+            defaults.auto_death_technos_dont_exist_allow_limboed,
         ),
     }
 }

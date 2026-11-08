@@ -9491,6 +9491,7 @@ fn campaign_reverse_only_alliance_keeps_shrapnel_hostile_head_before_random_cell
 /// cell holds no ground object; `Shrapnel.AffectsGround` admits it. The key is
 /// a `Nullable` falling back to the `[CombatDamage]` global, whose value
 /// default is `no`, so the unset case must stay at the stock refusal.
+#[cfg(feature = "phobos")]
 #[test]
 fn ground_shrapnel_needs_the_phobos_affects_ground_key() {
     const BODY: &str = "[VehicleTypes]\n0=MTNK\n\n[MTNK]\nStrength=100\nArmor=heavy\nPrimary=PARENT\nSecondary=CHILD\n\n[PARENT]\nDamage=20\nROF=10\nRange=6\nSpeed=30\nProjectile=PARENTPROJ\nWarhead=WH\n\n[PARENTPROJ]\nAirburst=yes\nShrapnelWeapon=CHILD\nShrapnelCount=2\n{AFFECTS}\n\n[CHILD]\nDamage=5\nROF=10\nRange=3\nSpeed=40\nProjectile=CHILDPROJ\nWarhead=WH\n\n[CHILDPROJ]\nSubjectToWalls=yes\n\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{GLOBAL}";

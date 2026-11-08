@@ -111,8 +111,9 @@ pub(super) fn emit_projectile_shrapnel(
     // Phobos `BulletClass_Shrapnel_Forced @ 0x46A3D6`
     // (`Ext/Bullet/Hooks.cpp:252-282`) replaces the stock admission: an empty
     // cell is admitted only when `Shrapnel.AffectsGround`, which falls back to
-    // the `[CombatDamage]` global. The global is a `Nullable<bool>` whose value
-    // default is `no`, so an unset key keeps the stock refusal.
+    // the `[CombatDamage]` global. That global is a `Valueable<bool>` defaulting
+    // to `no` (`Ext/Rules/Body.h:464-465`), so an unset key keeps the stock
+    // refusal.
     // RESIDUAL: `Shrapnel.AffectsBuildings` (the same hook, `:270`) parses but
     // stays unread here: admitting the impact building also needs native's
     // `InitialTargetBuilding` skip in the ring (`:300-301`), which this ring

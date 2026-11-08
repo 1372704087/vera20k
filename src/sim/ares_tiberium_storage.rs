@@ -119,18 +119,13 @@ impl TiberiumStore {
         ));
     }
 
-    /// `StorageClass::RemoveAmount @ 0x006C96B0`: at most the slot's
-    /// amount leaves; returns what left.
+    /// `StorageClass::RemoveAmount @ 0x006C96B0`; the single native port lives
+    /// on [`crate::sim::storage_class::StorageAmounts`], which this Ares view
+    /// borrows by value.
     fn remove_amount(&mut self, amount: NativeF32Bits, slot: usize) -> NativeF32Bits {
-        let held = self.0[slot];
-        let removed = if X87::compare(X87::load_f32(held), X87::load_f32(amount))
-            == MaskedX87Ordering::Less
-        {
-            held
-        } else {
-            amount
-        };
-        self.0[slot] = minus(held, removed);
+        let mut store = crate::sim::storage_class::StorageAmounts::from_amounts(self.0);
+        let removed = store.remove_amount(amount, slot);
+        self.0 = store.amounts();
         removed
     }
 

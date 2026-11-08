@@ -92,6 +92,8 @@ pub mod psychic_reveal;
 mod sonar_pulse;
 mod spy_plane;
 mod two_stage;
+#[cfg(all(test, feature = "phobos"))]
+mod use_weeds_tests;
 pub use two_stage::PaidSuperWeaponSelection;
 
 /// A cell selected by the Ares selector has already followed its native
@@ -916,6 +918,12 @@ impl SuperWeaponInstance {
         sw: &SuperWeaponType,
         current_frame: u32,
     ) -> bool {
+        #[cfg(feature = "phobos")]
+        if sw.use_weeds {
+            // Phobos `SuperClass_SetSWCharge_UseWeeds @ 0x6CC1E6`: the charge
+            // is tied to the weed store, so a scripted set does nothing.
+            return false;
+        }
         if !self.is_active || !(0..=100).contains(&percentage) {
             return false;
         }
@@ -1178,6 +1186,7 @@ impl SuperWeaponInstance {
         sw: &SuperWeaponType,
         frame: i32,
         ratio: NativeF64Bits,
+        stage_override: Option<i32>,
     ) -> SuperWeaponDisplay {
         // NameReadiness6CC2B0: HOLD has priority, independently of rawReady.
         let status = if self.is_suspended {
@@ -1193,7 +1202,7 @@ impl SuperWeaponInstance {
             self.is_ready.then_some(SuperWeaponStatus::Ready)
         };
         SuperWeaponDisplay {
-            stage: self.anim_stage(sw, frame, ratio),
+            stage: stage_override.unwrap_or_else(|| self.anim_stage(sw, frame, ratio)),
             // ShouldDrawProgress6CDE90; draining still draws while rawReady.
             draw_progress: sw.use_charge_drain || !self.is_ready,
             status,
@@ -1558,6 +1567,37 @@ impl SuperWeaponView {
     }
 }
 
+/// Phobos `SuperClass_AnimStage_UseWeeds @ 0x6CBEF4` (`Ext/SWType/Hooks.cpp:94`):
+/// a ready `UseWeeds=` Super shows the newest stage; otherwise
+/// `UseWeeds.StorageTimer=` maps the weed ratio onto the 54 cameo stages and
+/// its absence parks the cameo at the not-ready stage. `None` leaves the
+/// stock AnimStage for a non-UseWeeds or inactive Super.
+#[cfg(feature = "phobos")]
+fn use_weeds_anim_stage(
+    sw: &SuperWeaponType,
+    active: bool,
+    ready: bool,
+    total: i32,
+    weed_capacity: i32,
+) -> Option<i32> {
+    if !active || !sw.use_weeds {
+        return None;
+    }
+    if ready {
+        return Some(54);
+    }
+    if !sw.use_weeds_storage_timer {
+        return Some(0);
+    }
+    use crate::util::native_x87::MaskedX87Chop53 as X87;
+    let amount = sw.use_weeds_amount.unwrap_or(weed_capacity);
+    let progress = X87::ftol_i32_low_masked(X87::div(
+        X87::mul(X87::load_i32(total), X87::load_i32(54)),
+        X87::load_i32(amount),
+    ));
+    Some(progress.min(54))
+}
+
 /// Query active superweapons for a specific owner (for sidebar rendering).
 pub fn superweapon_views_for_owner(
     sim: &Simulation,
@@ -1580,10 +1620,23 @@ pub fn superweapon_views_for_owner(
         let paid_source = paid_pair_source(rules, sw_type);
         #[cfg(feature = "ares")]
         let money_type = financial_type(rules, sw_type);
+        #[cfg(feature = "phobos")]
+        let weeds_stage = use_weeds_anim_stage(
+            sw_type,
+            inst.is_active,
+            inst.is_ready,
+            sim.houses
+                .get(owner)
+                .map_or(0, |house| house.economy().owned_weed_total()),
+            rules.general.weed_capacity,
+        );
+        #[cfg(not(feature = "phobos"))]
+        let weeds_stage = None;
         let display = inst.sidebar_display(
             sw_type,
             current_frame,
             charge_to_drain_ratio(rules, sw_type),
+            weeds_stage,
         );
         let native_can_fire = if paid_source.is_some() {
             sim.paid_super_weapon_selection(*owner)
@@ -1673,7 +1726,7 @@ pub(crate) fn tick_house_superweapon_instances(
         .is_some_and(|house| house.is_controlled_by_human(sim.session.game_mode_nonzero()));
     for type_id in house_super_order(sim, rules, owner) {
         #[cfg_attr(not(feature = "ares"), allow(unused_variables))]
-        let (fade, ready, drain_ended) = {
+        let (fade, ready, drain_ended) = 'stock: {
             let instance = sim
                 .super_weapons
                 .instance_mut(&owner, &type_id)
@@ -1681,6 +1734,48 @@ pub(crate) fn tick_house_superweapon_instances(
             // The fade head precedes the granted/held/readiness gates.
             let fade = instance.step_fade();
             let sw = rules.super_weapon(sim.interner.resolve(type_id));
+            // Phobos `SuperClass_AI_UseWeeds @ 0x6CBD2C` replaces the timer
+            // body for a `UseWeeds=` Super.
+            #[cfg(feature = "phobos")]
+            if let Some(use_weeds) = sw
+                && use_weeds.use_weeds
+            {
+                match tick_use_weeds(
+                    &mut sim.houses,
+                    rules,
+                    owner,
+                    use_weeds,
+                    instance,
+                    current_frame,
+                ) {
+                    UseWeedsTick::Parked => break 'stock (fade, false, false),
+                    UseWeedsTick::Charged => {
+                        // Native jumps to the stock charged branch (6CBD73):
+                        // without UseChargeDrain it announces readiness; with
+                        // it the +0x7C drain state machine runs instead.
+                        let mut drain_ended = false;
+                        let ready = if use_weeds.use_charge_drain {
+                            if instance.charge_drain_state == 2 {
+                                instance.charge_drain_state = 0;
+                                instance.store_charge_timer(CdTimer::started(
+                                    current_frame as i32,
+                                    instance.recharge_time(use_weeds),
+                                ));
+                                drain_ended = true;
+                            } else {
+                                instance.charge_drain_state = 1;
+                                instance.is_ready = true;
+                            }
+                            false
+                        } else {
+                            instance.is_ready = true;
+                            instance.ready_tick = current_frame as i32;
+                            true
+                        };
+                        break 'stock (fade, ready, drain_ended);
+                    }
+                }
+            }
             let charge_drain = sw.is_some_and(|sw| sw.use_charge_drain);
             let running = instance.is_active
                 && (!instance.is_ready || charge_drain)
@@ -1771,6 +1866,57 @@ pub(crate) fn tick_house_superweapon_instances(
             });
         }
     }
+}
+
+/// Phobos `SuperClass_AI_UseWeeds @ 0x6CBD2C` (`Ext/SWType/Hooks.cpp:126`):
+/// a `UseWeeds=` Super ignores its recharge clock. Once the owner's house weed
+/// store holds `UseWeeds.Amount` rounds the whole amount is compared, the
+/// store gives what slot 0 holds, and the timer restarts at zero so the stock
+/// charged branch announces it. Below the amount the timer is parked at 15
+/// frames (at or above `UseWeeds.ReadinessAnimationPercentage` of the amount)
+/// or 915, and the cameo stage comes from the weed ratio instead.
+/// What this visit did, mapped to the native jump targets: 0x6CBD73 for a
+/// full store, otherwise the parked timer and no announcement.
+#[cfg(feature = "phobos")]
+enum UseWeedsTick {
+    Parked,
+    Charged,
+}
+
+/// `SuperClass::AI`'s gates before `0x6CBD2C` exit a ready Super only when its
+/// type is not `UseChargeDrain`, so a draining type keeps visiting the store.
+#[cfg(feature = "phobos")]
+fn tick_use_weeds(
+    houses: &mut crate::sim::houses::Houses,
+    rules: &RuleSet,
+    owner: InternedId,
+    sw: &SuperWeaponType,
+    instance: &mut SuperWeaponInstance,
+    current_frame: u32,
+) -> UseWeedsTick {
+    if !instance.is_active || instance.is_suspended || (instance.is_ready && !sw.use_charge_drain) {
+        return UseWeedsTick::Parked;
+    }
+    let now = current_frame as i32;
+    let amount = sw.use_weeds_amount.unwrap_or(rules.general.weed_capacity);
+    let total = houses
+        .get(&owner)
+        .map_or(0, |house| house.economy().owned_weed_total());
+    if total >= amount {
+        if let Some(house) = houses.get_mut(&owner) {
+            house.economy_mut().remove_weed_amount(amount);
+        }
+        instance.store_charge_timer(crate::sim::timer::CdTimer::started(now, 0));
+        return UseWeedsTick::Charged;
+    }
+    let ratio_threshold = sw.use_weeds_readiness_animation_percentage * f64::from(amount);
+    let duration = if f64::from(total) >= ratio_threshold {
+        15
+    } else {
+        915
+    };
+    instance.store_charge_timer(crate::sim::timer::CdTimer::started(now, duration));
+    UseWeedsTick::Parked
 }
 
 /// SuperClass_Update_DrainMoney100358A0's body for one running draining
@@ -2592,7 +2738,13 @@ fn grant_super(
     if !instance.apply_grant_state(sw, rules, session.binary_frame(), one_time, on_hold) {
         return false;
     }
-    instance.timer_place = (sw.show_timer && !passive).then_some(place);
+    // Phobos `SuperClass_AI_UseWeeds` clears the type's ShowTimer, so a
+    // UseWeeds Super never takes a sidebar timer slot.
+    #[cfg(feature = "phobos")]
+    let show_timer = sw.show_timer && !sw.use_weeds;
+    #[cfg(not(feature = "phobos"))]
+    let show_timer = sw.show_timer;
+    instance.timer_place = (show_timer && !passive).then_some(place);
     if !sw.manual_control {
         Simulation::release_super_anim(substrate, super_weapons, owner, type_id);
     }

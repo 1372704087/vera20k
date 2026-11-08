@@ -684,6 +684,21 @@ pub struct SuperWeaponType {
     sidebar_palette: Option<String>,
     /// Whether to show the charge timer countdown on the sidebar.
     pub show_timer: bool,
+    /// Phobos `UseWeeds=` (`Ext/SWType/Body.cpp:296`), default `no`: the Super
+    /// charges from the owner's house weed store instead of its recharge clock.
+    #[cfg(feature = "phobos")]
+    pub use_weeds: bool,
+    /// Phobos `UseWeeds.Amount=` (`:297`); `None` keeps the constructor
+    /// default `[General] WeedCapacity`.
+    #[cfg(feature = "phobos")]
+    pub use_weeds_amount: Option<i32>,
+    /// Phobos `UseWeeds.StorageTimer=` (`:298`), default `no`: show the weed
+    /// ratio as the cameo animation stage.
+    #[cfg(feature = "phobos")]
+    pub use_weeds_storage_timer: bool,
+    /// Phobos `UseWeeds.ReadinessAnimationPercentage=` (`:299`), default 0.9.
+    #[cfg(feature = "phobos")]
+    pub use_weeds_readiness_animation_percentage: f64,
     /// Whether this SW can be disabled from the game lobby.
     pub disableable_from_shell: bool,
     /// Charge→drain cycling mode (used by Force Shield).
@@ -947,6 +962,15 @@ impl SuperWeaponType {
             #[cfg(feature = "ares")]
             sidebar_palette: section.read_name("SidebarPalette", 2048).map(str::to_owned),
             show_timer: section.read_bool("ShowTimer", false),
+            #[cfg(feature = "phobos")]
+            use_weeds: section.read_bool("UseWeeds", false),
+            #[cfg(feature = "phobos")]
+            use_weeds_amount: section.read_phobos_nullable_int("UseWeeds.Amount", None),
+            #[cfg(feature = "phobos")]
+            use_weeds_storage_timer: section.read_bool("UseWeeds.StorageTimer", false),
+            #[cfg(feature = "phobos")]
+            use_weeds_readiness_animation_percentage: section
+                .read_phobos_double("UseWeeds.ReadinessAnimationPercentage", 0.9),
             disableable_from_shell: section.read_bool("DisableableFromShell", false),
             // SW_Battery::LoadFromINI1006ECC0 and SW_Firewall's (10071620)
             // force UseChargeDrain each pass.

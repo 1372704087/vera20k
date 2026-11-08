@@ -8,7 +8,7 @@
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1).
 
-use crate::util::native_x87::{MaskedX87Chop53 as X87, NativeF32Bits};
+use crate::util::native_x87::{MaskedX87Chop53 as X87, MaskedX87Ordering, NativeF32Bits};
 
 /// Four retained float slots in native Tiberium slot order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -63,6 +63,25 @@ impl StorageAmounts {
             return;
         };
         *slot = X87::store_f32_masked_chop(X87::add(X87::load_f32(amount), X87::load_f32(*slot)));
+    }
+
+    /// `StorageClass::RemoveAmount @ 0x006C96B0`: the slot gives at most what
+    /// it holds; returns what left.
+    #[cfg(any(feature = "phobos", feature = "ares"))]
+    pub(crate) fn remove_amount(&mut self, amount: NativeF32Bits, slot: usize) -> NativeF32Bits {
+        let Some(held) = self.amounts.get(slot).copied() else {
+            return NativeF32Bits::POSITIVE_ZERO;
+        };
+        let removed = if X87::compare(X87::load_f32(held), X87::load_f32(amount))
+            == MaskedX87Ordering::Less
+        {
+            held
+        } else {
+            amount
+        };
+        self.amounts[slot] =
+            X87::store_f32_masked_chop(X87::sub(X87::load_f32(held), X87::load_f32(removed)));
+        removed
     }
 
     /// A captured set of slots for a test.

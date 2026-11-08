@@ -397,7 +397,6 @@ mod tests {
             DigitalInfoType::Occupants,
             DigitalInfoType::ProduceCash,
             DigitalInfoType::PassengerKill,
-            DigitalInfoType::AutoDeath,
             DigitalInfoType::SuperWeapon,
             DigitalInfoType::IronCurtain,
             DigitalInfoType::TemporalLife,

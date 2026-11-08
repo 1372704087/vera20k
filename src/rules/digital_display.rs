@@ -32,8 +32,8 @@ use crate::rules::phobos_shields::AffectedHouse;
 const NAME_PAYLOAD_BYTES: usize = 0x1F;
 
 /// Phobos `DisplayInfoType` (`Utilities/Enum.h:320..343`), in declaration
-/// order. `PassengerKill` and `AutoDeath` have no owner in VERA and therefore
-/// never produce a displayed value.
+/// order. `PassengerKill` has no owner in VERA and therefore never produces a
+/// displayed value; `AutoDeath` does (see `sim::digital_display`).
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
 )]

@@ -919,12 +919,6 @@ fn techno_ai_shell(
     // common Techno body's estimated-health recover.
     #[cfg(feature = "phobos")]
     sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
-    // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
-    // (`Ext/Techno/Body.Update.cpp:26`), after ApplyMindControlRangeLimit and
-    // before ApplyInterceptor. Native's early return skips only the unported
-    // ApplyInterceptor, so this visit continues either way.
-    #[cfg(feature = "phobos")]
-    sim.check_auto_death(id, rules, ctx.overlay_registry, ctx.effects);
     // Techno6F9F6E..9F precedes veterancy promotion, missions and acquisition for every
     // Techno category. object_ai_visit_one excludes the entry-active Tube leaf
     // before this common owner. Actual health and this retained estimate differ.
@@ -1743,6 +1737,13 @@ fn techno_common_steps(
     // from the building and foot AI hooks; the shared techno phase owns it.
     #[cfg(feature = "phobos")]
     sim.update_phobos_laser_trails(id, rules);
+    // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
+    // (`Ext/Techno/Body.Update.cpp:26`): after `UpdateAttachEffects`, which this
+    // body has just run, and after the Structure arm's own Update steps (they
+    // precede this shared body). Native's early return skips only the unported
+    // `ApplyInterceptor`, so the rest of the visit continues.
+    #[cfg(feature = "phobos")]
+    sim.check_auto_death(id, rules, overlay_registry, effects);
     #[cfg(feature = "ares")]
     sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before

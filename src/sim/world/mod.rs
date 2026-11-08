@@ -3129,19 +3129,24 @@ impl Simulation {
         )
     }
 
-    /// `ReceiveDamage(&Health, 0, C4Warhead=, NULL, 1, 1, NULL)` (vt+0x16C):
-    /// the self-destruct that ends a flying locomotor's owner when it has
-    /// nowhere to go, in Fly's Stop_Moving (`0x004CD0CD`) and landing retry
-    /// (`0x004CEBC7`) and Jumpjet's Stop_Moving (`0x0054B6B6`). Native passes
-    /// the Health field itself; this uses the shared bridge_ground stock
-    /// C4Warhead=Super fatal-path quotient, not general aliased packet
-    /// support: override-only early damage-pointer writes remain outside it.
+    /// `ReceiveDamage(&Health, 0, C4Warhead=, NULL, true, arg6, NULL)`: the
+    /// single owner of an object dealing its own Health as fatal C4 damage to
+    /// itself. Callers differ only in arg6 (`PreventCrewEscape`):
+    /// - `true`: the fly/jumpjet self-destruct that ends a locomotor's owner
+    ///   when it has nowhere to go (Fly Stop_Moving `0x004CD0CD`, landing retry
+    ///   `0x004CEBC7`, Jumpjet Stop_Moving `0x0054B6B6`, vt+0x16C).
+    /// - `false`: Phobos `AutoDeath`'s `KillSelf` (`Ext/Techno/Body.Update.cpp:820`).
+    ///
+    /// This uses the shared bridge_ground stock C4Warhead=Super fatal-path
+    /// quotient, not general aliased packet support: override-only early
+    /// damage-pointer writes remain outside it.
     pub fn receive_own_health_c4(
         &mut self,
         id: u64,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
+        arg6: bool,
     ) {
         let Some(health) = self.substrate.entities.get(id).map(|e| e.health.current()) else {
             return;
@@ -3159,7 +3164,7 @@ impl Simulation {
                 warhead,
                 crate::sim::combat::ReceiverCallFlags {
                     ignore_defenses: true,
-                    arg6: true,
+                    arg6,
                 },
             ),
             frame_effects,

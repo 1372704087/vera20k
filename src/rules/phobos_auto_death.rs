@@ -60,6 +60,44 @@ pub struct AutoDeathTypeSettings {
     /// `AutoDeath.AfterDelay=`, `Valueable<int>` default `0` — a non-positive
     /// value never starts the countdown (`Ext/Techno/Body.Update.cpp:173`).
     pub after_delay: i32,
+    /// `AutoDeath.OnAmmoDepletion=`, `Valueable<bool>` default `no`: die once
+    /// the type's `Ammo=` capacity is set and the count reaches zero or below
+    /// (`:166`).
+    pub on_ammo_depletion: bool,
+    /// `AutoDeath.PlayerPowerState=`, `Valueable<PowerStatus>` default `none`
+    /// (`:210-221`).
+    pub player_power_state: AutoDeathPowerStatus,
+    /// `AutoDeath.PlayerMoney.Max=`, `Valueable<int>` default `-1` (off).
+    pub player_money_max: i32,
+    /// `AutoDeath.PlayerMoney.Min=`, `Valueable<int>` default `-1` (off).
+    pub player_money_min: i32,
+}
+
+/// `PowerStatus` (`Utilities/Enum.h:203-208`). Its parser
+/// (`Utilities/TemplateDef.h:1762-1781`) accepts `consumer` as a synonym for
+/// `low` and `normal` for `full`.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum AutoDeathPowerStatus {
+    #[default]
+    None,
+    Full,
+    Low,
+}
+
+impl AutoDeathPowerStatus {
+    pub fn parse(raw: &str) -> Option<Self> {
+        if raw.eq_ignore_ascii_case("none") {
+            Some(Self::None)
+        } else if raw.eq_ignore_ascii_case("consumer") || raw.eq_ignore_ascii_case("low") {
+            Some(Self::Low)
+        } else if raw.eq_ignore_ascii_case("full") || raw.eq_ignore_ascii_case("normal") {
+            Some(Self::Full)
+        } else {
+            None
+        }
+    }
 }
 
 impl AutoDeathTypeSettings {
@@ -69,6 +107,13 @@ impl AutoDeathTypeSettings {
                 .read_name("AutoDeath.Behavior", 2048)
                 .and_then(|raw| AutoDeathBehavior::parse(&raw)),
             after_delay: section.read_int("AutoDeath.AfterDelay", 0),
+            on_ammo_depletion: section.read_bool("AutoDeath.OnAmmoDepletion", false),
+            player_power_state: section
+                .read_name("AutoDeath.PlayerPowerState", 2048)
+                .and_then(|raw| AutoDeathPowerStatus::parse(&raw))
+                .unwrap_or_default(),
+            player_money_max: section.read_int("AutoDeath.PlayerMoney.Max", -1),
+            player_money_min: section.read_int("AutoDeath.PlayerMoney.Min", -1),
         }
     }
 }

@@ -9,6 +9,14 @@ A Techno type that destroys itself when a condition holds. This page covers the
 |---|---|---|---|
 | `AutoDeath.Behavior` | TechnoType | unset | `Ext/TechnoType/Body.cpp:817` |
 | `AutoDeath.AfterDelay` | TechnoType | `0` | `Ext/TechnoType/Body.cpp:825` |
+| `AutoDeath.OnAmmoDepletion` | TechnoType | `no` | `Ext/TechnoType/Body.cpp:820` |
+| `AutoDeath.PlayerPowerState` | TechnoType | `none` | `Ext/TechnoType/Body.cpp:834` |
+| `AutoDeath.PlayerMoney.Max` | TechnoType | `-1` (off) | `Ext/TechnoType/Body.cpp:835` |
+| `AutoDeath.PlayerMoney.Min` | TechnoType | `-1` (off) | `Ext/TechnoType/Body.cpp:836` |
+
+`AutoDeath.PlayerPowerState` takes `none`, `low`/`consumer` or `full`/`normal`
+(`Utilities/TemplateDef.h:1762-1781`). The two money bounds are inclusive and
+`-1` leaves that end open.
 
 `AutoDeath.Behavior` is a `Nullable<AutoDeathBehavior>` (`Utilities/Enum.h:196`):
 `kill` (0), `sell` (2) or `vanish` (1), matched with `_strcmpi`
@@ -37,13 +45,20 @@ defenses: `ReceiveDamage(&pThis->Health, 0, C4Warhead, nullptr, true, false,
 nullptr)`. VERA routes that through the shared direct-receiver owner, so the
 object dies through the ordinary damage and death path.
 
+The low-power arm is written
+`(Full && !isLowPower) || (Low && isLowPower) && !isFirstFrame`. `&&` binds
+tighter than `||`, so the first-frame guard applies to the `Low` arm only and a
+`Full` type also dies on frame 0. That is reproduced as written.
+
 A type change through `TechnoClass::ChangeType` calls
 `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`), which stops a running
 countdown when the new type has no `AfterDelay`. Without that reset a round trip
 through an untimed type would return the unit with an already-completed clock
-and kill it on its first timed visit. VERA's only `ChangeType` caller is the Ares
-`Convert.Water=`/`Convert.Land=` surface conversion; `Deploy`/`Undeploy` are
-different native functions and do not reach it.
+and kill it on its first timed visit. VERA reaches `ChangeType` from the Ares
+`Convert.Water=`/`Convert.Land=` surface conversion, Ares `Convert.Deploy=`
+(`sim/unit_simple_deploy.rs`) and the team-script conversion action
+(`sim/team_script_vm/actions.rs`); all of them pass through the one owner, so
+every conversion drops a stale countdown.
 
 `GetValuesForDisplay` (`Ext/Techno/Body.Visuals.cpp:696-717`) reports the clock's
 remaining time over its full duration for `DigitalDisplay` entries of type
@@ -52,17 +67,23 @@ clock has a zero maximum, which the renderer skips.
 
 ## Residuals
 
-- The other triggers are unported: `ShouldBeDead`, `AutoDeath.OnAmmoDepletion`,
-  `AutoDeath.OnOwnerChange` (and its `IgnoreRevertOnExit`,
-  `HumanToComputer`, `ComputerToHuman` sub-keys),
-  `AutoDeath.TechnosDontExist.*`, `AutoDeath.TechnosExist.*`,
-  `AutoDeath.PlayerPowerState`, `AutoDeath.PlayerMoney.Max/Min`. A type that
-  authors only those never dies.
+- The remaining triggers are unported: `ShouldBeDead`,
+  `AutoDeath.OnOwnerChange` (and its `IgnoreRevertOnExit`, `HumanToComputer`,
+  `ComputerToHuman` sub-keys), `AutoDeath.TechnosDontExist.*` and
+  `AutoDeath.TechnosExist.*` (with their `Any`, `AllowLimboed` and `Houses`
+  sub-keys). A type that authors only those never dies.
 - `AutoDeath.Behavior=vanish` and `=sell` are unported, so their timer never
   arms; `AutoDeath.VanishAnimation` is unread.
 - `AutoDeath.AllowLimboed` (the type key and the `[CombatDamage]` global at
   `Ext/Rules/Body.cpp:629-632`) and `KillSelf`'s limbo arm (`:721-766`) are
   unported, so a limboed object never dies here.
+- Ares `SpawnSurvivors` before the fatal hit (`Ext/Techno/Body.Update.cpp:810-816`)
+  is not ported. The hit ignores defenses, and VERA's death path then refuses its
+  own survivor release and marks the transport handled, so an `AutoDeath`-killed
+  `Crewed=`/driver Unit or Aircraft loses its crew where native ejects it.
+  Reproducing Phobos' pre-call needs VERA's survivor owner taught the
+  pre-damage context (it currently assumes the unit is already lifted), which is
+  its own chain.
 - The scenario-level `AutoDeathObjects` collection
   (`Ext/Scenario/Body.cpp:101-131`) tracks limboed objects for the limbo arm and
   is not ported with it.

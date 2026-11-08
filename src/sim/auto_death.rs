@@ -13,7 +13,7 @@
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1).
 
-use crate::rules::phobos_auto_death::AutoDeathBehavior;
+use crate::rules::phobos_auto_death::{AutoDeathBehavior, AutoDeathPowerStatus};
 use crate::rules::ruleset::RuleSet;
 use crate::sim::timer::PAUSED_START_FRAME;
 use crate::sim::world::{FrameEffects, Simulation};
@@ -25,16 +25,11 @@ impl Simulation {
     ///
     /// Native's `if (CheckDeathConditions()) return;` aborts `OnEarlyUpdate`,
     /// whose only remaining step is the unported `ApplyInterceptor`; the
-    /// caller therefore continues the AI visit instead of unwinding. Returns
-    /// whether a self-kill was issued so a future `ApplyInterceptor` port can
-    /// honour the early return.
-    ///
-    /// RESIDUAL: the caller keeps running this object's `TechnoClass_AI` body
-    /// after a fatal self-kill, where native returns from `OnEarlyUpdate` and
-    /// then continues `TechnoClass_AI` on the object `ReceiveDamage` already
-    /// erased. VERA stops that object's later steps only through the existing
-    /// "entity gone" guards; the difference is not player-visible because a
-    /// killed object's later AI output is discarded.
+    /// caller therefore continues the AI visit instead of unwinding. Native
+    /// likewise keeps running the rest of `TechnoClass_AI` on the object
+    /// `ReceiveDamage` already erased, and VERA's later steps carry the same
+    /// "entity gone" guards. Returns whether a self-kill was issued so a
+    /// future `ApplyInterceptor` port can honour the early return.
     #[cfg(feature = "phobos")]
     pub(crate) fn check_auto_death(
         &mut self,
@@ -43,7 +38,7 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> bool {
-        let (behavior, after_delay) = {
+        let settings = {
             let Some(entity) = self.substrate.entities.get(id) else {
                 return false;
             };
@@ -55,17 +50,86 @@ impl Simulation {
             if entity.lifecycle.in_limbo() {
                 return false;
             }
-            let settings = object.phobos_auto_death;
-            let Some(behavior) = settings.behavior else {
-                return false;
-            };
-            (behavior, settings.after_delay)
+            object.phobos_auto_death
         };
         // `Vanish` and `Sell` (`:771-807`) are unported; refusing them up front
         // keeps a timer from running that could never fire.
-        if behavior != AutoDeathBehavior::Kill || after_delay <= 0 {
+        if settings.behavior != Some(AutoDeathBehavior::Kill) {
             return false;
         }
+        // `:165-170`: a type with an `Ammo=` capacity dies at zero or below.
+        if settings.on_ammo_depletion {
+            let (capacity, current) = {
+                let Some(entity) = self.substrate.entities.get(id) else {
+                    return false;
+                };
+                (
+                    self.interner
+                        .object_type(entity.type_ref(), rules)
+                        .map_or(0, |object| object.ammo),
+                    entity.ammo().map_or(0, |ammo| ammo.current()),
+                )
+            };
+            if capacity > 0 && current <= 0 {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
+        // `:172-184`: the timed arm. Phobos tests `HasStarted()` before
+        // `Completed()`, which matters because an unstarted `CDTimerClass`
+        // reads as already completed.
+        if settings.after_delay > 0 {
+            if self.auto_death_clock_expires(id, settings.after_delay) {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
+        // `:210-221`: the low-power predicate. Phobos writes
+        // `(Full && !isLowPower) || (Low && isLowPower) && !isFirstFrame`; `&&`
+        // binds tighter than `||`, so the first-frame guard applies to the
+        // `Low` arm only and a `Full` type dies on frame 0 too. Reproduced as
+        // written rather than as it reads.
+        if settings.player_power_state != AutoDeathPowerStatus::None {
+            let low_power = self
+                .power_states()
+                .get(
+                    &self
+                        .substrate
+                        .entities
+                        .get(id)
+                        .map_or(crate::sim::intern::InternedId::default(), |entity| {
+                            entity.owner()
+                        }),
+                )
+                .is_some_and(crate::sim::power_system::PowerState::is_low_power);
+            let first_frame = self.session.binary_frame() == 0;
+            let dies = (settings.player_power_state == AutoDeathPowerStatus::Full && !low_power)
+                || (settings.player_power_state == AutoDeathPowerStatus::Low
+                    && low_power
+                    && !first_frame);
+            if dies {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
+        // `:223-234`: `-1` on either bound means that bound is open.
+        if settings.player_money_max != -1 || settings.player_money_min != -1 {
+            let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
+                return false;
+            };
+            let money = self
+                .houses()
+                .get(&owner)
+                .map_or(0, |house| house.economy().available_money());
+            let (max, min) = (settings.player_money_max, settings.player_money_min);
+            if (max == -1 || money <= max) && (min == -1 || money >= min) {
+                return self.kill_self(id, rules, registry, effects);
+            }
+        }
+        false
+    }
+
+    /// The `AfterDelay` arm's clock: start it on the first visit, then report
+    /// whether it has completed. `HasStarted()` is the `PAUSED_START_FRAME`
+    /// test VERA uses everywhere else for an unstarted `CDTimerClass`.
+    fn auto_death_clock_expires(&mut self, id: u64, after_delay: i32) -> bool {
         let frame = self.session.binary_frame() as i32;
         let Some(timer) = self
             .substrate
@@ -84,17 +148,13 @@ impl Simulation {
             }
             return false;
         }
-        if !timer.expired(frame) {
-            return false;
-        }
-        self.kill_self(id, rules, registry, effects)
+        timer.expired(frame)
     }
 
     /// `TechnoExt::KillSelf`'s non-limbo `Kill` arm (`:809-821`):
-    /// `ReceiveDamage(&pThis->Health, 0, RulesClass::Instance->C4Warhead,
-    /// nullptr, true, false, nullptr)` — the object's own Health as damage,
-    /// ignoring defenses, with no attacker and no source house. The Ares
-    /// `SpawnSurvivors` call ahead of it is an Ares-only step.
+    /// `[CombatDamage] C4Warhead=` with the object's own Health, no attacker,
+    /// no source house and ignoring defenses, through the shared self-kill
+    /// owner. arg6 is `false`, unlike the locomotor self-destruct's `true`.
     fn kill_self(
         &mut self,
         id: u64,
@@ -102,27 +162,17 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> bool {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return false;
-        };
-        let health = entity.health.current();
-        let Some(warhead) = rules.warhead(&rules.bridge_warheads.c4_name) else {
-            return false;
-        };
-        let warhead_ref = self.interner.intern(&warhead.id);
-        let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
-            id,
-            health,
-            0,
-            crate::sim::combat::RAD_NO_ATTACKER,
-            None,
-            warhead_ref,
-            crate::sim::combat::ReceiverCallFlags {
-                ignore_defenses: true,
-                arg6: false,
-            },
-        );
-        self.commit_direct_damage_receiver(rules, registry, event, effects);
+        // RESIDUAL: Phobos calls Ares `SpawnSurvivors(pThis, nullptr, false,
+        // false)` immediately before this hit `:810-816`, because the hit's
+        // `ignoreDefenses` makes the death path's own survivor release refuse
+        // (it marks the transport handled and ejects nobody). VERA's
+        // `release_ares_vehicle_survivors` assumes the damage path has already
+        // lifted the unit (`foot_mark_remove`), so calling it from here places
+        // no survivor; trigger: `AutoDeath.Behavior=kill` on a `Crewed=` or
+        // driver Unit/Aircraft in an Ares build; effect: the crew is lost where
+        // native ejects it. Reproducing it needs the survivor owner taught the
+        // pre-damage context, which is its own chain.
+        self.receive_own_health_c4(id, rules, registry, effects, false);
         true
     }
 }

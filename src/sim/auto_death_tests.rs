@@ -6,10 +6,16 @@ use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n\
 [E1]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
 [TANKONLYDELAY]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.AfterDelay=1\n\
+[TANKAMMO]\nStrength=100\nSight=0\nSpeed=5\nAmmo=1\n\
+AutoDeath.Behavior=kill\nAutoDeath.OnAmmoDepletion=yes\n\
+[TANKPOWER]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.PlayerPowerState=low\n\
+[TANKMONEY]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.PlayerMoney.Max=50\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -50,11 +56,83 @@ fn a_timed_auto_death_starts_its_clock_then_kills_the_object() {
         alive(&sim, tank),
         "the first visit only starts the countdown"
     );
-    tick(&mut sim, &rules, 3);
+    // Two more frames are one short of the three-frame countdown.
+    tick(&mut sim, &rules, 2);
+    assert!(alive(&sim, tank), "the frame before expiry still lives");
+    tick(&mut sim, &rules, 1);
     assert!(
         !alive(&sim, tank),
-        "AfterDelay=3 completes three frames after the clock starts"
+        "AfterDelay=3 completes on the third frame after the clock starts"
     );
+}
+
+/// `:165-170`: a type whose `Ammo=` capacity is above zero dies at zero.
+#[test]
+fn a_type_with_ammo_dies_when_the_ammo_is_gone() {
+    let (mut sim, rules) = arena();
+    let tank = sim
+        .spawn_object("TANKAMMO", "Americans", 10, 10, 0, &rules)
+        .expect("TANKAMMO spawns");
+    sim.session.set_binary_frame_for_test(5);
+    sim.object_ai_stage(Some(&rules));
+    assert!(alive(&sim, tank), "Ammo=1 is not depleted yet");
+    sim.substrate
+        .entities
+        .get_mut(tank)
+        .unwrap()
+        .ammo_mut()
+        .expect("Ammo=1 installs a counter")
+        .set_current_for_test(0);
+    sim.session.set_binary_frame_for_test(6);
+    sim.object_ai_stage(Some(&rules));
+    assert!(!alive(&sim, tank), "zero ammo triggers the arm");
+}
+
+/// `:210-221`: the retained low-power flag. The first-frame guard binds to the
+/// `Low` arm only, so frame 5 is enough for it to fire.
+#[test]
+fn a_low_power_house_kills_its_auto_death_type() {
+    let (mut sim, rules) = arena();
+    let tank = sim
+        .spawn_object("TANKPOWER", "Americans", 10, 10, 0, &rules)
+        .expect("TANKPOWER spawns");
+    let owner = sim.substrate.entities.get(tank).unwrap().owner();
+    sim.power_states_mut_for_test()
+        .entry(owner)
+        .or_default()
+        .set_is_low_power_for_test(true);
+    sim.session.set_binary_frame_for_test(5);
+    sim.object_ai_stage(Some(&rules));
+    assert!(!alive(&sim, tank), "a low-power house kills the type");
+}
+
+/// `:223-234`: a closed money range kills, and the same type survives once the
+/// balance is above `PlayerMoney.Max`.
+#[test]
+fn the_owner_money_range_kills_or_spares() {
+    for (credits, expected_alive) in [(0, false), (100, true)] {
+        let (mut sim, rules) = arena();
+        let tank = sim
+            .spawn_object("TANKMONEY", "Americans", 10, 10, 0, &rules)
+            .expect("TANKMONEY spawns");
+        let owner = sim.substrate.entities.get(tank).unwrap().owner();
+        sim.houses_mut_for_test()
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 0,
+            ));
+        sim.houses_mut_for_test()
+            .get_mut(&owner)
+            .expect("house")
+            .economy_mut_for_test()
+            .set_credits_for_test(credits);
+        sim.session.set_binary_frame_for_test(5);
+        sim.object_ai_stage(Some(&rules));
+        assert_eq!(
+            alive(&sim, tank),
+            expected_alive,
+            "PlayerMoney.Max=50 with a balance of {credits}"
+        );
+    }
 }
 
 /// `Ext/Techno/Body.Visuals.cpp:696-717`: the digital display shows the

@@ -757,7 +757,7 @@ impl Simulation {
         if health <= 0 {
             return;
         }
-        self.receive_own_health_c4(id, rules, registry, frame_effects);
+        self.receive_own_health_c4(id, rules, registry, frame_effects, true);
         // Read the retained live owner only AFTER synchronous damage/lifecycle.
         if let Some(state) = self
             .substrate

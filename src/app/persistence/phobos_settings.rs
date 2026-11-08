@@ -33,6 +33,10 @@ pub(crate) struct PhobosClientSettings {
     /// the client half of the harvester counter; the `uimd.ini` switch must be
     /// on too.
     pub(crate) show_harvester_counter: bool,
+    /// `[Phobos] ShowWeedsCounter=`, default `yes` (`Phobos.INI.cpp:110` reads
+    /// with `true`; the `false` static initializer at `:71` is overwritten):
+    /// the client half of the weeds counter.
+    pub(crate) show_weeds_counter: bool,
 }
 
 impl Default for PhobosClientSettings {
@@ -47,6 +51,7 @@ impl Default for PhobosClientSettings {
             show_power_plant_enhancer_range: false,
             show_power_delta: true,
             show_harvester_counter: true,
+            show_weeds_counter: true,
         }
     }
 }
@@ -83,6 +88,7 @@ pub(crate) fn read(settings_dir: &Path) -> PhobosClientSettings {
         show_power_delta: section.read_bool("ShowPowerDelta", defaults.show_power_delta),
         show_harvester_counter: section
             .read_bool("ShowHarvesterCounter", defaults.show_harvester_counter),
+        show_weeds_counter: section.read_bool("ShowWeedsCounter", defaults.show_weeds_counter),
     }
 }
 
@@ -117,7 +123,8 @@ mod tests {
         let dir = profile_with(
             "[Phobos]\nShowPlacementPreview=no\nDigitalDisplay.Enable=yes\n\
              SuperWeaponSidebar.RequiredSignificance=2\nShowFlashOnSelecting=yes\n\
-             ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n",
+             ShowPowerPlantEnhancerRange=yes\nShowPowerDelta=no\nShowHarvesterCounter=no\n\
+             ShowWeedsCounter=no\n",
         );
         assert_eq!(
             read(&dir),
@@ -129,6 +136,7 @@ mod tests {
                 show_power_plant_enhancer_range: true,
                 show_power_delta: false,
                 show_harvester_counter: false,
+                show_weeds_counter: false,
             }
         );
         std::fs::remove_dir_all(dir).unwrap();

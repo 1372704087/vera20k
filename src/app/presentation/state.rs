@@ -162,6 +162,10 @@ pub(crate) struct MatchPresentationState {
     /// client half of the harvester counter.
     #[cfg(feature = "phobos")]
     pub(crate) show_harvester_counter: bool,
+    /// Phobos `[Phobos] ShowWeedsCounter=` (source default `yes`): the client
+    /// half of the weeds counter.
+    #[cfg(feature = "phobos")]
+    pub(crate) show_weeds_counter: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

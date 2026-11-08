@@ -125,12 +125,37 @@ impl HarvesterCounterUi {
 /// `⛏`, the `defaultValue` of `Phobos.INI.cpp:178`.
 const HARVESTER_LABEL_DEFAULT: &str = "\u{26CF}";
 
+/// `uimd.ini [Sidebar] WeedsCounter.*` (`src/Phobos.INI.cpp:186-187`). The
+/// weeds branch reads one switch: it has no label key, no thresholds and no
+/// alignment key, unlike the harvester and power-delta branches.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeedsCounterUi {
+    /// `WeedsCounter.Show=`, default `no` (`ReadBool(..., false)`).
+    pub show: bool,
+}
+
+impl Default for WeedsCounterUi {
+    fn default() -> Self {
+        Self { show: false }
+    }
+}
+
+impl WeedsCounterUi {
+    fn from_section(section: &IniSection) -> Self {
+        let defaults = Self::default();
+        Self {
+            show: section.read_bool("WeedsCounter.Show", defaults.show),
+        }
+    }
+}
+
 /// Everything `uimd.ini` contributes to the indicator hook, with the two
 /// `[ToolTips]` labels already resolved to text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SidebarIndicatorsUi {
     pub power_delta: PowerDeltaUi,
     pub harvester: HarvesterCounterUi,
+    pub weeds: WeedsCounterUi,
     /// `[ToolTips] PowerLabel=`, default the `⚡` glyph (U+26A1).
     pub power_label: String,
     /// `[ToolTips] PowerBlackoutLabel=`, default `⚡❌` (U+26A1 U+274C).
@@ -144,6 +169,7 @@ impl Default for SidebarIndicatorsUi {
         Self {
             power_delta: PowerDeltaUi::default(),
             harvester: HarvesterCounterUi::default(),
+            weeds: WeedsCounterUi::default(),
             power_label: POWER_LABEL_DEFAULT.to_string(),
             power_blackout_label: POWER_BLACKOUT_LABEL_DEFAULT.to_string(),
         }
@@ -180,6 +206,10 @@ impl SidebarIndicatorsUi {
             harvester: ini
                 .section("Sidebar")
                 .map(|section| HarvesterCounterUi::from_section(section, lookup))
+                .unwrap_or_default(),
+            weeds: ini
+                .section("Sidebar")
+                .map(WeedsCounterUi::from_section)
                 .unwrap_or_default(),
             power_label: label("PowerLabel", POWER_LABEL_DEFAULT),
             power_blackout_label: label("PowerBlackoutLabel", POWER_BLACKOUT_LABEL_DEFAULT),
@@ -341,6 +371,40 @@ impl HarvesterCounterSideSettings {
             ),
             color_red: section
                 .read_phobos_color("Sidebar.HarvesterCounter.ColorRed", defaults.color_red),
+        }
+    }
+}
+
+/// `rulesmd.ini [<Side ID>] Sidebar.WeedsCounter.*`
+/// (`src/Ext/Side/Body.cpp:39-40`, types at `Body.h:35-36`, defaults at
+/// `:66-67`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct WeedsCounterSideSettings {
+    /// `Sidebar.WeedsCounter.Offset=`, `Valueable<Point2D>`, default `0,0`.
+    pub offset: [i32; 2],
+    /// `Sidebar.WeedsCounter.Color=`, `Nullable<ColorStruct>`: unset falls back
+    /// to `Drawing::TooltipColor` at the draw (`Hooks.UI.cpp:179`). The branch
+    /// has no colour thresholds, so this is the only colour it reads.
+    pub color: Option<[u8; 3]>,
+}
+
+impl Default for WeedsCounterSideSettings {
+    fn default() -> Self {
+        Self {
+            offset: [0, 0],
+            color: None,
+        }
+    }
+}
+
+impl WeedsCounterSideSettings {
+    pub(crate) fn from_section(section: &IniSection) -> Self {
+        let defaults = Self::default();
+        Self {
+            offset: section
+                .read_int_fields_complete::<2>("Sidebar.WeedsCounter.Offset", 2048)
+                .unwrap_or(defaults.offset),
+            color: section.read_phobos_nullable_color("Sidebar.WeedsCounter.Color", None),
         }
     }
 }

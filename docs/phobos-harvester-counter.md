@@ -89,5 +89,6 @@ weeds counter's, which is why Phobos documents the two as overlapping.
 - `TechnoExt::IsHarvesting`'s Enter arm reads this object's one radio link
   (`tether`), where native asks `GetNthLink(0)` from the link array. VERA models
   a single dock link today, so the two agree in every reachable case.
-- The weeds counter (`WeedsCounter.*`) is the hook's third branch and needs the
-  unported TS weeds mechanic for its data; see the issue.
+- The weeds counter (`WeedsCounter.*`) is the hook's third branch; it is ported
+  on its own page ([phobos-weeds-counter.md](phobos-weeds-counter.md)) and reads
+  the House weed store. What still feeds neither is the `Weeder=` harvest chain.

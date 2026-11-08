@@ -302,6 +302,13 @@ impl Economy {
         self.owned_weed.amounts()
     }
 
+    /// Drive the production `GiveWeed @ 0x004F9700` gate from a client test,
+    /// capacity check included, rather than poking the retained slots.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn give_weed_for_test(&mut self, count: i32, slot: usize, weed_capacity: i32) {
+        self.give_weed(count, slot, weed_capacity);
+    }
+
     /// A captured or authored balance for a test.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_credits_for_test(&mut self, credits: i32) {

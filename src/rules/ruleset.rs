@@ -4755,6 +4755,10 @@ pub struct RuleSet {
     #[cfg(feature = "phobos")]
     side_harvester_counter:
         Vec<crate::rules::phobos_sidebar_indicators::HarvesterCounterSideSettings>,
+    /// Phobos `[SIDE] Sidebar.WeedsCounter.*`, in `[Sides]` order: the offset
+    /// and the single nullable colour of the weeds counter.
+    #[cfg(feature = "phobos")]
+    side_weeds_counter: Vec<crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings>,
     /// Effective side for each country after `[Sides]` membership and the
     /// per-country `Side=` override have both run.
     country_sides: Vec<Option<SideIdx>>,
@@ -6914,6 +6918,20 @@ impl RuleSet {
                     .unwrap_or_default()
             })
             .collect();
+        #[cfg(feature = "phobos")]
+        let side_weeds_counter: Vec<
+            crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings,
+        > = country_side_registry
+            .side_ids
+            .iter()
+            .map(|name| {
+                ini.section(name)
+                    .map(
+                        crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings::from_section,
+                    )
+                    .unwrap_or_default()
+            })
+            .collect();
         let color_schemes = crate::rules::color_scheme::parse_color_schemes(ini);
         let house_color_ramps =
             crate::rules::house_colors::HouseColorRamps::from_schemes(&color_schemes);
@@ -7264,6 +7282,8 @@ impl RuleSet {
             side_power_delta,
             #[cfg(feature = "phobos")]
             side_harvester_counter,
+            #[cfg(feature = "phobos")]
+            side_weeds_counter,
             #[cfg(feature = "ares")]
             side_extensions: country_side_registry.side_extensions,
             side_indices: country_side_registry.side_indices,
@@ -8549,6 +8569,8 @@ impl RuleSet {
             self.side_power_delta.hash(&mut hasher);
             b"phobos-sidebar-harvester-counter-v1".hash(&mut hasher);
             self.side_harvester_counter.hash(&mut hasher);
+            b"phobos-sidebar-weeds-counter-v1".hash(&mut hasher);
+            self.side_weeds_counter.hash(&mut hasher);
         }
         #[cfg(feature = "phobos")]
         {
@@ -10806,6 +10828,20 @@ impl RuleSet {
             .ok()
             .and_then(|index| self.side_harvester_counter.get(index))
             .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Phobos `[SIDE] Sidebar.WeedsCounter.*` for a native side index. A side
+    /// outside `[Sides]` keeps the constructor defaults.
+    #[cfg(feature = "phobos")]
+    pub fn side_weeds_counter(
+        &self,
+        index: i32,
+    ) -> crate::rules::phobos_sidebar_indicators::WeedsCounterSideSettings {
+        usize::try_from(index)
+            .ok()
+            .and_then(|index| self.side_weeds_counter.get(index))
+            .copied()
             .unwrap_or_default()
     }
 

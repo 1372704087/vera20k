@@ -307,3 +307,94 @@ fn a_defeated_player_draws_no_harvester_counter() {
         .is_none()
     );
 }
+
+/// The weeds branch (`Hooks.UI.cpp:175-190`): two switches and no building
+/// gate, the bare total with no label, one nullable colour falling back to the
+/// tooltip tint, and the hardcoded centre bit on the shared `+50` column.
+#[test]
+fn the_weeds_counter_prints_the_bare_total_without_a_building_gate() {
+    use super::weeds_counter_indicator;
+    let (mut sim, owner) = house(0);
+    sim.houses_mut_for_test()
+        .get_mut(&owner)
+        .expect("house")
+        .economy_mut_for_test()
+        .give_weed_for_test(7, 0, 100);
+    let rules = rules("");
+    let on = ui("WeedsCounter.Show=yes\n");
+    let tooltip = [1.0, 1.0, 1.0];
+
+    assert!(
+        weeds_counter_indicator(&sim, &rules, 0, owner, &ui(""), true, tooltip).is_none(),
+        "WeedsCounter.Show defaults to no"
+    );
+    assert!(
+        weeds_counter_indicator(&sim, &rules, 0, owner, &on, false, tooltip).is_none(),
+        "[Phobos] ShowWeedsCounter=no closes the branch"
+    );
+
+    let drawn = weeds_counter_indicator(&sim, &rules, 0, owner, &on, true, tooltip)
+        .expect("a house with no tracked building still draws the weeds counter");
+    assert_eq!(drawn.text, "7", "the branch prints L\"%d\" with no label");
+    assert_eq!(
+        drawn.tint, tooltip,
+        "an unset Nullable colour falls back to Drawing::TooltipColor"
+    );
+    assert_eq!((drawn.anchor_x, drawn.anchor_y), (50, 2));
+    assert_eq!(drawn.align, SidebarTextAlign::Center);
+}
+
+/// `Sidebar.WeedsCounter.Offset` and the single `Color`
+/// (`Ext/Side/Body.cpp:39-40`, defaults `Body.h:66-67`).
+#[test]
+fn the_weeds_counter_side_settings_move_the_anchor_and_set_the_only_colour() {
+    use super::weeds_counter_indicator;
+    let (mut sim, owner) = house(0);
+    sim.houses_mut_for_test()
+        .get_mut(&owner)
+        .expect("house")
+        .economy_mut_for_test()
+        .give_weed_for_test(3, 0, 100);
+    let drawn = weeds_counter_indicator(
+        &sim,
+        &rules("Sidebar.WeedsCounter.Offset=10,-4\nSidebar.WeedsCounter.Color=255,128,0\n"),
+        0,
+        owner,
+        &ui("WeedsCounter.Show=yes\n"),
+        true,
+        [1.0, 1.0, 1.0],
+    )
+    .expect("drawn");
+    assert_eq!(drawn.text, "3");
+    assert_eq!((drawn.anchor_x, drawn.anchor_y), (60, -2));
+    assert_eq!(drawn.tint, [1.0, 128.0 / 255.0, 0.0]);
+    assert_eq!(
+        drawn.align,
+        SidebarTextAlign::Center,
+        "the branch has no alignment key, unlike the power delta"
+    );
+}
+
+/// `Hooks.UI.cpp:104` returns before every branch, so a defeated player draws
+/// no weeds counter either.
+#[test]
+fn a_defeated_player_draws_no_weeds_counter() {
+    use super::weeds_counter_indicator;
+    let (mut sim, owner) = house(0);
+    sim.houses_mut_for_test()
+        .get_mut(&owner)
+        .expect("house")
+        .set_is_defeated_for_test(true);
+    assert!(
+        weeds_counter_indicator(
+            &sim,
+            &rules(""),
+            0,
+            owner,
+            &ui("WeedsCounter.Show=yes\n"),
+            true,
+            [1.0, 1.0, 1.0]
+        )
+        .is_none()
+    );
+}

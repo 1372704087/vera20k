@@ -841,6 +841,17 @@ pub(crate) fn refresh_sidebar_indicators(state: &mut AppState) {
                     produced,
                     drained,
                 ),
+                weeds_counter_indicator(
+                    sim,
+                    rules,
+                    side,
+                    owner,
+                    &presentation.sidebar_indicators,
+                    presentation.show_weeds_counter,
+                    crate::app::presentation::sidebar_text::credits_tint(current_sidebar_theme(
+                        state,
+                    )),
+                ),
             ]
             .into_iter()
             .flatten()
@@ -1039,6 +1050,46 @@ fn power_delta_indicator(
         anchor_x: POWER_DELTA_ANCHOR_X + side_settings.offset[0],
         anchor_y: INDICATOR_SURFACE_Y + side_settings.offset[1],
         align: side_settings.align,
+    })
+}
+
+/// The weeds branch of the same hook (`src/Misc/Hooks.UI.cpp:175-190`), third
+/// in native draw order after the harvester counter and the power delta.
+///
+/// Two conjuncts open it: `uimd.ini [Sidebar] WeedsCounter.Show` and the
+/// `[Phobos] ShowWeedsCounter` client switch. Unlike the power delta it asks
+/// nothing about owned buildings; the defeated player returns at the hook entry
+/// (`:104`) before any branch, which VERA checks per branch as its siblings do.
+/// It prints the bare total with no label (`L"%d"`), takes one nullable colour
+/// falling back to the tooltip tint, and hardcodes `TextPrintType::Center`
+/// rather than reading an alignment key.
+#[cfg(feature = "phobos")]
+fn weeds_counter_indicator(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    side: i32,
+    owner: crate::sim::intern::InternedId,
+    ui: &crate::rules::phobos_sidebar_indicators::SidebarIndicatorsUi,
+    client_enabled: bool,
+    tooltip_tint: [f32; 3],
+) -> Option<crate::ui::sidebar::SidebarIndicator> {
+    if !(ui.weeds.show && client_enabled) {
+        return None;
+    }
+    let house = sim.houses().get(&owner)?;
+    if house.is_defeated() {
+        return None;
+    }
+    let side_settings = rules.side_weeds_counter(side);
+    Some(crate::ui::sidebar::SidebarIndicator {
+        text: format!("{}", house.economy().owned_weed_total()),
+        tint: side_settings
+            .color
+            .map(sidebar_colour)
+            .unwrap_or(tooltip_tint),
+        anchor_x: HARVESTER_ANCHOR_X + side_settings.offset[0],
+        anchor_y: INDICATOR_SURFACE_Y + side_settings.offset[1],
+        align: crate::rules::phobos_sidebar_indicators::SidebarTextAlign::Center,
     })
 }
 

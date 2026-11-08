@@ -22,7 +22,7 @@ use crate::sim::timer::PAUSED_START_FRAME;
 use crate::sim::world::{FrameEffects, Simulation};
 
 impl Simulation {
-    /// The timed arm of `TechnoExt::CheckDeathConditions`, called from
+    /// `TechnoExt::CheckDeathConditions`, called from
     /// `TechnoExt::OnEarlyUpdate` (`Ext/Techno/Body.Update.cpp:26`) after
     /// `ApplyMindControlRangeLimit` and before `ApplyInterceptor`.
     ///
@@ -41,7 +41,9 @@ impl Simulation {
         registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) -> bool {
-        let settings = {
+        // Only the scalar keys are copied: the type's presence lists are read
+        // later, under a borrow that ends before any mutation.
+        let (behavior, after_delay, on_ammo_depletion, power_state, money_max, money_min) = {
             let Some(entity) = self.substrate.entities.get(id) else {
                 return false;
             };
@@ -53,15 +55,23 @@ impl Simulation {
             if entity.lifecycle.in_limbo() {
                 return false;
             }
-            object.phobos_auto_death.clone()
+            let settings = &object.phobos_auto_death;
+            (
+                settings.behavior,
+                settings.after_delay,
+                settings.on_ammo_depletion,
+                settings.player_power_state,
+                settings.player_money_max,
+                settings.player_money_min,
+            )
         };
         // `Vanish` and `Sell` (`:771-807`) are unported; refusing them up front
         // keeps a timer from running that could never fire.
-        if settings.behavior != Some(AutoDeathBehavior::Kill) {
+        if behavior != Some(AutoDeathBehavior::Kill) {
             return false;
         }
         // `:165-170`: a type with an `Ammo=` capacity dies at zero or below.
-        if settings.on_ammo_depletion {
+        if on_ammo_depletion {
             let (capacity, current) = {
                 let Some(entity) = self.substrate.entities.get(id) else {
                     return false;
@@ -80,8 +90,8 @@ impl Simulation {
         // `:172-184`: the timed arm. Phobos tests `HasStarted()` before
         // `Completed()`, which matters because an unstarted `CDTimerClass`
         // reads as already completed.
-        if settings.after_delay > 0 {
-            if self.auto_death_clock_expires(id, settings.after_delay) {
+        if after_delay > 0 {
+            if self.auto_death_clock_expires(id, after_delay) {
                 return self.kill_self(id, rules, registry, effects);
             }
         }
@@ -90,7 +100,7 @@ impl Simulation {
         // binds tighter than `||`, so the first-frame guard applies to the
         // `Low` arm only and a `Full` type dies on frame 0 too. Reproduced as
         // written rather than as it reads.
-        if settings.player_power_state != AutoDeathPowerStatus::None {
+        if power_state != AutoDeathPowerStatus::None {
             let low_power = self
                 .power_states()
                 .get(
@@ -104,16 +114,14 @@ impl Simulation {
                 )
                 .is_some_and(crate::sim::power_system::PowerState::is_low_power);
             let first_frame = self.session.binary_frame() == 0;
-            let dies = (settings.player_power_state == AutoDeathPowerStatus::Full && !low_power)
-                || (settings.player_power_state == AutoDeathPowerStatus::Low
-                    && low_power
-                    && !first_frame);
+            let dies = (power_state == AutoDeathPowerStatus::Full && !low_power)
+                || (power_state == AutoDeathPowerStatus::Low && low_power && !first_frame);
             if dies {
                 return self.kill_self(id, rules, registry, effects);
             }
         }
         // `:223-234`: `-1` on either bound means that bound is open.
-        if settings.player_money_max != -1 || settings.player_money_min != -1 {
+        if money_max != -1 || money_min != -1 {
             let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
                 return false;
             };
@@ -121,7 +129,7 @@ impl Simulation {
                 .houses()
                 .get(&owner)
                 .map_or(0, |house| house.economy().available_money());
-            let (max, min) = (settings.player_money_max, settings.player_money_min);
+            let (max, min) = (money_max, money_min);
             if (max == -1 || money <= max) && (min == -1 || money >= min) {
                 return self.kill_self(id, rules, registry, effects);
             }
@@ -129,64 +137,70 @@ impl Simulation {
         let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
             return false;
         };
-        // `:236-245`: kill when the listed types are absent. Native passes
-        // `!Any` to the scan, so the default `Any=no` becomes "any of them".
-        if !settings.technos_dont_exist.is_empty() {
-            let allow_limbo = settings.technos_dont_exist_allow_limboed.unwrap_or(
-                rules
-                    .phobos_globals
-                    .auto_death_technos_dont_exist_allow_limboed,
-            );
-            if !self.auto_death_technos_exist(
-                &settings.technos_dont_exist,
-                settings.technos_dont_exist_houses,
-                !settings.technos_dont_exist_any,
-                allow_limbo,
-                owner,
-                rules,
-            ) {
-                return self.kill_self(id, rules, registry, effects);
+        // `:236-255`: both presence scans, evaluated under one immutable borrow
+        // so no type settings are cloned per visit.
+        let kill = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return false;
+            };
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return false;
+            };
+            let settings = &object.phobos_auto_death;
+            let dont = self.auto_death_resolve_technos(&settings.technos_dont_exist, rules);
+            let dont_kills = !dont.is_empty()
+                && !self.auto_death_technos_exist(
+                    &dont,
+                    settings.technos_dont_exist_houses,
+                    !settings.technos_dont_exist_any,
+                    settings.technos_dont_exist_allow_limboed.unwrap_or(
+                        rules
+                            .phobos_globals
+                            .auto_death_technos_dont_exist_allow_limboed,
+                    ),
+                    owner,
+                );
+            if dont_kills {
+                true
+            } else {
+                let exist = self.auto_death_resolve_technos(&settings.technos_exist, rules);
+                !exist.is_empty()
+                    && self.auto_death_technos_exist(
+                        &exist,
+                        settings.technos_exist_houses,
+                        settings.technos_exist_any,
+                        settings
+                            .technos_exist_allow_limboed
+                            .unwrap_or(rules.phobos_globals.auto_death_technos_exist_allow_limboed),
+                        owner,
+                    )
             }
-        }
-        // `:247-255`: kill when the listed types are present.
-        if !settings.technos_exist.is_empty() {
-            let allow_limbo = settings
-                .technos_exist_allow_limboed
-                .unwrap_or(rules.phobos_globals.auto_death_technos_exist_allow_limboed);
-            if self.auto_death_technos_exist(
-                &settings.technos_exist,
-                settings.technos_exist_houses,
-                settings.technos_exist_any,
-                allow_limbo,
-                owner,
-                rules,
-            ) {
-                return self.kill_self(id, rules, registry, effects);
-            }
+        };
+        if kill {
+            return self.kill_self(id, rules, registry, effects);
         }
         false
     }
 
-    /// `Ext/Techno/Body.Update.cpp:188-208`: whether the listed types exist for
-    /// the selected houses. `any` selects `any_of`; `all_of` otherwise. The
-    /// non-limbo count is `CountOwnedAndPresent` (`active_count`, `0x0049FAE0`);
-    /// `allow_limbo` adds the distinct limbo count.
-    #[allow(clippy::too_many_arguments)]
-    fn auto_death_technos_exist(
+    /// The native list is a `ValueableVector<TechnoTypeClass*>`: unknown tokens
+    /// never reach it (`Utilities/TemplateDef.h:1727-1742`), so a typo leaves
+    /// the arm's emptiness guard in charge rather than changing the decision.
+    /// Tokens arrive untrimmed, as `strtok(",")` yields them.
+    fn auto_death_resolve_technos(
         &self,
         list: &[String],
-        houses: crate::rules::phobos_shields::AffectedHouse,
-        any: bool,
-        allow_limbo: bool,
-        owner: crate::sim::intern::InternedId,
         rules: &RuleSet,
-    ) -> bool {
-        let exist_single = |name: &str| {
-            let Some(type_id) = self.interner.get(name) else {
-                return false;
-            };
-            let Some(object) = self.interner.object_type(type_id, rules) else {
-                return false;
+    ) -> Vec<(
+        Option<crate::sim::intern::InternedId>,
+        crate::map::entities::EntityCategory,
+    )> {
+        let mut resolved = Vec::new();
+        for name in list {
+            // The type registry is the authority, as native's `TechnoTypeClass::Find`
+            // is; the interner only knows names this match has already used, so a
+            // known type with no instance resolves to `None` and counts zero.
+            let Some(object) = rules.object(name) else {
+                continue;
             };
             let category = match object.category {
                 crate::rules::object_type::ObjectCategory::Infantry => {
@@ -201,6 +215,39 @@ impl Simulation {
                 crate::rules::object_type::ObjectCategory::Building => {
                     crate::map::entities::EntityCategory::Structure
                 }
+            };
+            resolved.push((self.interner.get(name), category));
+        }
+        resolved
+    }
+
+    /// `Ext/Techno/Body.Update.cpp:188-208`: whether the listed types exist for
+    /// the selected houses. `any` selects `any_of`; `all_of` otherwise. The
+    /// non-limbo count is `HouseClass::CountOwnedAndPresent`; VERA reads the
+    /// on-map `+0x5550` family (`active_count`). RESIDUAL: the wrapper's body
+    /// was not read instruction-level, and `docs/phobos-harvester-counter.md`
+    /// records `+0x5500` as the same query, so the counter identity is not
+    /// proven here. `allow_limbo` adds the distinct limbo count.
+    #[allow(clippy::too_many_arguments)]
+    fn auto_death_technos_exist(
+        &self,
+        list: &[(
+            Option<crate::sim::intern::InternedId>,
+            crate::map::entities::EntityCategory,
+        )],
+        houses: crate::rules::phobos_shields::AffectedHouse,
+        any: bool,
+        allow_limbo: bool,
+        owner: crate::sim::intern::InternedId,
+    ) -> bool {
+        let exist_single = |(type_id, category): &(
+            Option<crate::sim::intern::InternedId>,
+            crate::map::entities::EntityCategory,
+        )| {
+            let (type_id, category) = (*type_id, *category);
+            // A known type this match has not interned yet has no instances.
+            let Some(type_id) = type_id else {
+                return false;
             };
             let count_in = |house: &crate::sim::house_state::HouseState| {
                 if allow_limbo {

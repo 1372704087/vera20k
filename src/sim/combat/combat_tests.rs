@@ -9581,8 +9581,8 @@ fn ground_shrapnel_needs_the_phobos_affects_ground_key() {
 #[test]
 fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
     const BODY: &str = "[VehicleTypes]\n0=MTNK\n\n[BuildingTypes]\n0=HQ\n\n[HQ]\nStrength=100\n\n[MTNK]\nStrength=100\nArmor=heavy\nPrimary=PARENT\nSecondary=CHILD\n\n[PARENT]\nDamage=20\nROF=10\nRange=6\nSpeed=30\nProjectile=PARENTPROJ\nWarhead=WH\n\n[PARENTPROJ]\nAirburst=yes\nShrapnelWeapon=CHILD\nShrapnelCount=12\n{AFFECTS}\n{IGNORE}\n\n[CHILD]\nDamage=5\nROF=10\nRange=3\nSpeed=40\nProjectile=CHILDPROJ\nWarhead=WH\n\n[CHILDPROJ]\nSubjectToWalls=yes\n\n[WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
-    // Returns (children, times the second building is targeted).
-    let run = |affects: &str, ignore: &str, with_second: bool| {
+    // Returns (children, hits on the impact building, hits on the second).
+    let run = |affects: &str, ignore: &str, with_second: bool, head: bool| {
         let ini = IniFile::from_str(
             &BODY
                 .replace("{AFFECTS}", affects)
@@ -9595,12 +9595,15 @@ fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
         source.lifecycle.set_cell_marked_for_test(true);
         entities.insert(source);
         // The impact building: a 3x3 at (6,6) covering the impact cell.
-        let mut head = make_entity_owned(2, "HQ", 6, 6, 100, "Americans");
-        head.set_category_for_test(EntityCategory::Structure);
-        head.type_facts
-            .set_foundation_for_test("3x3".to_string().into());
-        head.lifecycle.set_cell_marked_for_test(true);
-        entities.insert(head);
+        if head {
+            let mut target = make_entity_owned(2, "HQ", 6, 6, 100, "Americans");
+            target.set_category_for_test(EntityCategory::Structure);
+            target
+                .type_facts
+                .set_foundation_for_test("3x3".to_string().into());
+            target.lifecycle.set_cell_marked_for_test(true);
+            entities.insert(target);
+        }
         if with_second {
             // A second building on the first ring, three cells away.
             let mut second = make_entity_owned(3, "HQ", 3, 5, 100, "Americans");
@@ -9654,16 +9657,30 @@ fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
     };
 
     assert_eq!(
-        run("", "", false).0,
+        run("", "", false, true).0,
         0,
         "a building head refuses shrapnel without Shrapnel.AffectsBuildings"
     );
+    assert_eq!(
+        run("Shrapnel.AffectsGround=yes", "", false, true).0,
+        0,
+        "AffectsGround cannot admit a building head"
+    );
+    assert_eq!(
+        run("Shrapnel.AffectsBuildings=yes", "", false, false).0,
+        0,
+        "AffectsBuildings cannot admit an empty cell"
+    );
     assert!(
-        run("Shrapnel.AffectsBuildings=yes", "", false).0 > 0,
+        run("Shrapnel.AffectsGround=yes", "", false, false).0 > 0,
+        "AffectsGround admits an empty cell"
+    );
+    assert!(
+        run("Shrapnel.AffectsBuildings=yes", "", false, true).0 > 0,
         "the admitted building head still spawns its children"
     );
     assert_eq!(
-        run("Shrapnel.AffectsBuildings=yes", "", false).1,
+        run("Shrapnel.AffectsBuildings=yes", "", false, true).1,
         0,
         "the initial target building is never a child's target"
     );
@@ -9671,6 +9688,7 @@ fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
         run(
             "Shrapnel.AffectsBuildings=yes",
             "Shrapnel.IgnoreHitBuildings=no",
+            true,
             true
         )
         .2 >= 2,
@@ -9680,6 +9698,7 @@ fn shrapnel_building_targets_need_affects_buildings_and_hit_buildings_once() {
         run(
             "Shrapnel.AffectsBuildings=yes",
             "Shrapnel.IgnoreHitBuildings=yes",
+            true,
             true
         )
         .2,

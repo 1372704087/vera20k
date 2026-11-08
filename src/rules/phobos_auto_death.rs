@@ -137,35 +137,33 @@ impl AutoDeathTypeSettings {
             technos_dont_exist_any: section.read_bool("AutoDeath.TechnosDontExist.Any", false),
             technos_dont_exist_allow_limboed: section
                 .read_phobos_nullable_bool("AutoDeath.TechnosDontExist.AllowLimboed", None),
-            technos_dont_exist_houses: affected_house(section, "AutoDeath.TechnosDontExist.Houses"),
+            technos_dont_exist_houses: crate::rules::phobos_shields::read_affected_house(
+                section,
+                "AutoDeath.TechnosDontExist.Houses",
+                crate::rules::phobos_shields::AffectedHouse::OWNER,
+            ),
             technos_exist: type_list(section, "AutoDeath.TechnosExist"),
             technos_exist_any: section.read_bool("AutoDeath.TechnosExist.Any", true),
             technos_exist_allow_limboed: section
                 .read_phobos_nullable_bool("AutoDeath.TechnosExist.AllowLimboed", None),
-            technos_exist_houses: affected_house(section, "AutoDeath.TechnosExist.Houses"),
+            technos_exist_houses: crate::rules::phobos_shields::read_affected_house(
+                section,
+                "AutoDeath.TechnosExist.Houses",
+                crate::rules::phobos_shields::AffectedHouse::OWNER,
+            ),
         }
     }
 }
 
+/// `ValueableVector<TechnoTypeClass*>`: tokens stay untrimmed, exactly as
+/// native `strtok(",")` yields them; an unknown token is dropped when the list
+/// is resolved (`Utilities/TemplateDef.h:1727-1742`), which `sim::auto_death`
+/// does because the registry is not available here.
 fn type_list(section: &IniSection, key: &str) -> Vec<String> {
     section
         .read_list(key, 0x800)
-        .map(|tokens| {
-            tokens
-                .into_iter()
-                .map(|token| token.trim().to_owned())
-                .collect()
-        })
+        .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
         .unwrap_or_default()
-}
-
-/// `Valueable<AffectedHouse>`: a failed or absent read keeps `Owner`
-/// (`Utilities/TemplateDef.h:824..873`).
-fn affected_house(section: &IniSection, key: &str) -> crate::rules::phobos_shields::AffectedHouse {
-    section
-        .read_name(key, 0x100)
-        .and_then(|raw| crate::rules::phobos_shields::AffectedHouse::parse(&raw))
-        .unwrap_or(crate::rules::phobos_shields::AffectedHouse::OWNER)
 }
 
 #[cfg(test)]

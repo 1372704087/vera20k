@@ -1,7 +1,9 @@
 # Phobos AutoDeath
 
-A Techno type that destroys itself when a condition holds. This page covers the
-**timed** arm only: `AutoDeath.Behavior=` plus `AutoDeath.AfterDelay=`.
+A Techno type that destroys itself when a condition holds. The ported arms are
+`AutoDeath.Behavior=kill` with `OnAmmoDepletion`, `AfterDelay`,
+`PlayerPowerState`, `PlayerMoney.Max/Min`, `TechnosDontExist` and
+`TechnosExist`; the residuals below list what is still open.
 
 ## Keys
 
@@ -64,13 +66,21 @@ tighter than `||`, so the first-frame guard applies to the `Low` arm only and a
 `Full` type also dies on frame 0. That is reproduced as written.
 
 The presence arms (`Ext/Techno/Body.Update.cpp:186-255`) scan the selected
-houses for each listed type. Without `AllowLimboed` they use
-`CountOwnedAndPresent` (`0x0049FAE0`); with it, the distinct limbo count is
-added. `Houses=` selects the house set through `CanTargetHouse`, `owner`
-short-circuiting to the object's own house. `TechnosDontExist` passes `!Any`
-into the scan, so its default `Any=no` means "kill when none of the listed types
-exists" and `Any=yes` means "kill unless all exist". `TechnosExist` uses `Any`
-directly.
+houses for each listed type. Without `AllowLimboed` they read
+`HouseClass::CountOwnedAndPresent` through VERA's on-map `+0x5550` family; with
+it, the distinct limbo count is added. RESIDUAL: the wrapper's body was not read
+instruction-level, and `docs/phobos-harvester-counter.md` records `+0x5500` as
+the same query, so the counter identity is unproven. `Houses=` selects the house
+set through `CanTargetHouse`, `owner` short-circuiting to the object's own
+house. `TechnosDontExist` passes `!Any` into the scan, so its default `Any=no`
+means "kill when none of the listed types exists" and `Any=yes` means "kill
+unless all exist". `TechnosExist` uses `Any` directly.
+
+The lists are `ValueableVector<TechnoTypeClass*>`: tokens arrive untrimmed, as
+`strtok(",")` yields them, and a token that names no type is dropped when the
+list is resolved (`Utilities/TemplateDef.h:1727-1742`). An all-unknown list
+therefore leaves the arm's emptiness guard in charge instead of flipping the
+decision — a typo keeps the object alive rather than killing it.
 
 A type change through `TechnoClass::ChangeType` calls
 `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:219-221`), which stops a running

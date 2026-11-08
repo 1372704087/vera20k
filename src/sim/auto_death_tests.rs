@@ -5,9 +5,10 @@ use crate::rules::ruleset::RuleSet;
 use crate::sim::world::Simulation;
 
 const RULES: &str = "\
-[InfantryTypes]\n0=E1\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n\
+[InfantryTypes]\n0=E1\n1=E2\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n\
 [E1]\nStrength=125\nSight=0\n\
+[E2]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
 [TANKONLYDELAY]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.AfterDelay=1\n\
 [TANKAMMO]\nStrength=100\nSight=0\nSpeed=5\nAmmo=1\n\
@@ -20,6 +21,16 @@ AutoDeath.Behavior=kill\nAutoDeath.PlayerMoney.Max=50\n\
 AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1\n\
 [TANKDONT]\nStrength=100\nSight=0\nSpeed=5\n\
 AutoDeath.Behavior=kill\nAutoDeath.TechnosDontExist=E1\n\
+[TANKANY]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1,E2\n\
+[TANKALL]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1,E2\nAutoDeath.TechnosExist.Any=no\n\
+[TANKJUNK]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=NOTATYPE\nAutoDeath.TechnosExist.Any=no\n\
+[TANKDONTALL]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosDontExist=E1,E2\nAutoDeath.TechnosDontExist.Any=yes\n\
+[TANKENEMY]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=kill\nAutoDeath.TechnosExist=E1\nAutoDeath.TechnosExist.Houses=enemies\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -137,6 +148,76 @@ fn technos_dont_exist_kills_only_when_the_listed_type_is_absent() {
             "TechnosDontExist=E1 with the type present = {with_crew}"
         );
     }
+}
+
+/// Spawn `kind`, optionally spawn each listed type for `crew_owner`, register
+/// them the way the loader does, and run one AI visit.
+fn alive_after_presence(kind: &str, present: &[&str], crew_owner: &str) -> bool {
+    let (mut sim, rules) = arena();
+    let tank = sim
+        .spawn_object(kind, "Americans", 10, 10, 0, &rules)
+        .expect("the auto-death type spawns");
+    register_on_map(&mut sim, &rules, tank);
+    for (index, name) in present.iter().enumerate() {
+        let id = sim
+            .spawn_object(name, crew_owner, 12 + index as u16, 10, 0, &rules)
+            .expect("the presence type spawns");
+        register_on_map(&mut sim, &rules, id);
+    }
+    sim.session.set_binary_frame_for_test(5);
+    sim.object_ai_stage(Some(&rules));
+    alive(&sim, tank)
+}
+
+/// `:205-208`: `Any=yes` is `any_of` and `Any=no` is `all_of`. One type
+/// satisfies `any_of` alone; `all_of` needs both.
+#[test]
+fn technos_exist_any_and_all_are_distinct() {
+    assert!(
+        !alive_after_presence("TANKANY", &["E1"], "Americans"),
+        "Any=yes kills on the first listed type"
+    );
+    assert!(
+        alive_after_presence("TANKALL", &["E1"], "Americans"),
+        "Any=no needs every listed type"
+    );
+    assert!(
+        !alive_after_presence("TANKALL", &["E1", "E2"], "Americans"),
+        "Any=no kills once both are present"
+    );
+}
+
+/// `:239`: `TechnosDontExist` inverts `Any`, so `Any=yes` asks "do all exist?"
+/// and kills when they do not.
+#[test]
+fn technos_dont_exist_inverts_any() {
+    assert!(
+        !alive_after_presence("TANKDONTALL", &["E1"], "Americans"),
+        "Any=yes kills while not every listed type exists"
+    );
+    assert!(
+        alive_after_presence("TANKDONTALL", &["E1", "E2"], "Americans"),
+        "Any=yes spares once all exist"
+    );
+}
+
+/// `:188-208` with `Utilities/TemplateDef.h:1727-1742`: an unknown token never
+/// reaches the list, so the arm keeps its emptiness guard; and `Houses=` picks
+/// the scanned house set rather than the owner alone.
+#[test]
+fn an_unknown_name_and_an_enemy_house_select_the_scan() {
+    assert!(
+        alive_after_presence("TANKJUNK", &[], "Americans"),
+        "an unknown type name is dropped, leaving the arm empty"
+    );
+    assert!(
+        alive_after_presence("TANKENEMY", &["E1"], "Americans"),
+        "Houses=enemies ignores the owner's own type"
+    );
+    assert!(
+        !alive_after_presence("TANKENEMY", &["E1"], "Russians"),
+        "Houses=enemies finds an enemy house's type"
+    );
 }
 
 /// `:165-170`: a type whose `Ammo=` capacity is above zero dies at zero.

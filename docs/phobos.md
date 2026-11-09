@@ -46,6 +46,7 @@ Supported extensions:
 - [Overload tables](phobos-overload.md) (`Overload.Count`, `.Damage`, `.Frames`, `.DeathSound`, `.ParticleSys` and `.ParticleSysCount` for mind-control managers)
 - [Grinding gates](phobos-grinding.md) (`Grinding.AllowAllies`, `.AllowOwner`, `.AllowTypes`, `.DisallowTypes`, `.Sound`, `.PlayDieSound`, `.Weapon` and `.Weapon.RequiredCredits`)
 - [Kill weapons](phobos-kill-weapon.md) (`KillWeapon`, `.OnFirer`, their `AffectsHouse`/`AffectsTarget` gates, and `SuppressKillWeapons`)
+- [Ranking overrides](phobos-ranking.md) (campaign `Ranking.ParTime*` and title/message keys in the scenario's MISSIONMD section)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

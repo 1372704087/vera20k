@@ -123,6 +123,9 @@ pub(crate) struct MapPresentationInputs {
     pub(crate) lighting_config: crate::map::lighting::LightingConfig,
     /// Present only for a fresh map, from before authored Overlay admission.
     pub(crate) lighting_events: Option<Vec<crate::sim::light_sources::LightingEvent>>,
+    /// True on the fresh-start route only: a save restore keeps the ranking
+    /// ScenarioClass fields the save carries (`ScenarioClass::LoadFromINI`).
+    pub(crate) fresh_startup: bool,
     pub(crate) theater_name: String,
     pub(crate) theater_ext: String,
 }
@@ -141,7 +144,33 @@ pub(crate) fn install_world_presentation(
         state.match_state.campaign_names = names;
     }
     state.match_state.map_basic = map.basic;
-    state.match_state.map_ranking = map.ranking;
+    // Phobos `ScenarioExt::LoadFromINIFile` (`Ext/Scenario/Body.cpp:152-166`):
+    // a campaign scenario re-reads MISSIONMD.INI under its own file name and
+    // lets `Ranking.*` override the map's `[Ranking]` fields. Native applies
+    // it while `ScenarioClass::LoadFromINI` reads a scenario, so a restored
+    // save keeps the ranking fields it carries.
+    #[cfg(feature = "phobos")]
+    let ranking = {
+        let mut ranking = map.ranking;
+        if map.fresh_startup {
+            let campaign = state.match_state.sim_runtime.as_ref().filter(|runtime| {
+                runtime.simulation.session().game_mode()
+                    == crate::sim::scenario_session::ScenarioGameMode::Campaign
+            });
+            if let Some(runtime) = campaign
+                && let Some(manager) = state.process_assets.manager()
+                && let Ok(selected) =
+                    crate::rules::retail_sources::select_ini(manager, "MISSIONMD.INI")
+            {
+                let file_name = runtime.simulation.session().map_name().to_owned();
+                ranking.apply_missionmd_overrides(true, &selected.ini, &file_name);
+            }
+        }
+        ranking
+    };
+    #[cfg(not(feature = "phobos"))]
+    let ranking = map.ranking;
+    state.match_state.map_ranking = ranking;
     state.match_state.loaded_map_source = Some(map.source);
     state.match_state.loaded_map_hash = map.map_hash;
     state.match_state.match_presentation.terrain_grid = map.terrain_grid;
@@ -614,6 +643,7 @@ pub(crate) fn apply_map_load_result(state: &mut AppState, result: init::MapLoadR
             house_roster: result.scenario.house_roster,
             lighting_config: result.scenario.map_lighting_config,
             lighting_events,
+            fresh_startup: true,
             theater_name: result.scenario.theater_name,
             theater_ext: result.scenario.theater_ext,
         },

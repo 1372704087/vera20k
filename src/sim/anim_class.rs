@@ -1555,6 +1555,36 @@ impl Simulation {
         Some(id)
     }
 
+    /// `AnimExt::CreateRandomAnim`'s name/random half
+    /// (`Ext/Anim/Body.cpp:407-432`), shared by the Phobos consumers: an
+    /// unresolvable `ValueableVector<AnimTypeClass*>` token never reached the
+    /// native vector, so only names with a type take part in
+    /// `RandomRanged(0, size - 1)`; an empty list draws nothing. Constructs
+    /// with the owner house and owner object.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn spawn_random_owned_anim(
+        &mut self,
+        rules: &RuleSet,
+        names: &[String],
+        world_coord: AnimWorldCoord,
+        owner_house: InternedId,
+        owner_object: Option<u64>,
+    ) -> Option<AnimId> {
+        let anims: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| rules.has_anim_type(name))
+            .collect();
+        if anims.is_empty() {
+            return None;
+        }
+        let pick = self
+            .scenario_rng
+            .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
+        let type_name = self.interner.intern(anims[pick]);
+        self.spawn_owned_anim(rules, type_name, world_coord, owner_house, owner_object)
+    }
+
     /// `AnimExt::SetAnimOwnerHouseKind(anim, house, None, false, true)`'s
     /// post-construction tail: install the owner House and, for a
     /// `MakeInfantry=` or remapping `CreateUnit=` type, its light conversion.

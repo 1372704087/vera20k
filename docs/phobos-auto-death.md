@@ -1,9 +1,10 @@
 # Phobos AutoDeath
 
 A Techno type that destroys itself when a condition holds. The ported arms are
-`AutoDeath.Behavior=kill` with `OnAmmoDepletion`, `AfterDelay`,
+`AutoDeath.Behavior=kill|vanish|sell` with `OnAmmoDepletion`, `AfterDelay`,
 `PlayerPowerState`, `PlayerMoney.Max/Min`, `TechnosDontExist` and
-`TechnosExist`; the residuals below list what is still open.
+`TechnosExist`, and the `AutoDeath.VanishAnimation` list; the residuals below
+list what is still open.
 
 ## Keys
 
@@ -28,6 +29,7 @@ A Techno type that destroys itself when a condition holds. The ported arms are
 | `AutoDeath.OnOwnerChange.ComputerToHuman` | TechnoType | master | `Ext/TechnoType/Body.cpp:824` |
 | `AutoDeath.OnOwnerChange.IgnoreRevertOnExit` | TechnoType | global | `Ext/TechnoType/Body.cpp:822` |
 | `AutoDeath.AllowLimboed` | TechnoType | global | `Ext/TechnoType/Body.cpp:818` |
+| `AutoDeath.VanishAnimation` | TechnoType | empty | `Ext/TechnoType/Body.cpp:819` |
 
 The two `AllowLimboed` keys fall back to `[CombatDamage]
 AutoDeath.TechnosDontExist.AllowLimboed` / `AutoDeath.TechnosExist.AllowLimboed`
@@ -59,11 +61,26 @@ Phobos tests `HasStarted()` before `Completed()`, which matters: an unstarted
 `CDTimerClass` reads as already completed. VERA keeps that order by comparing
 `start_frame()` with `PAUSED_START_FRAME`.
 
-`KillSelf`'s `Kill` arm (`:809-821`) deals the object's own Health as damage
-with `[CombatDamage] C4Warhead=`, no attacker and no source house, ignoring
-defenses: `ReceiveDamage(&pThis->Health, 0, C4Warhead, nullptr, true, false,
-nullptr)`. VERA routes that through the shared direct-receiver owner, so the
-object dies through the ordinary damage and death path.
+`KillSelf`'s non-limbo dispatch (`:769-824`) selects the arm from
+`AutoDeath.Behavior`. The `Kill` arm (`:809-821`) deals the object's own Health
+as damage with `[CombatDamage] C4Warhead=`, no attacker and no source house,
+ignoring defenses: `ReceiveDamage(&pThis->Health, 0, C4Warhead, nullptr, true,
+false, nullptr)`. VERA routes that through the shared direct-receiver owner, so
+the object dies through the ordinary damage and death path.
+
+The `Vanish` arm (`:771-790`) first plays a random
+`AutoDeath.VanishAnimation` at `pThis->GetCoords()` with the object's house as
+the animation owner (the list is `ValueableVector<AnimTypeClass*>`, so an
+unresolvable name never entered it and the pick covers only loaded types), then
+unloads a bunker the building holds (`BuildingClass::UnloadBunker`, the
+`EmptyBunker @ 0x004595C0` owner), kills its passengers with the object as
+their killer, stuns it, limboes it, registers the kill under its own owner
+(`RegisterKill(pThis->Owner)`) and uninitialises it — no death animation,
+corpse or C4 damage. The `Sell` arm (`:792-807`) sells a Building whose Buildup
+SHP is bound (`+0x6E9`, `rules.has_buildup`) by queueing and commencing the
+Selling mission unless it is already selling; anything else — a non-building or
+a type without a Buildup SHP — falls through to the `Kill` arm, as the native
+developer warning does.
 
 The low-power arm is written
 `(Full && !isLowPower) || (Low && isLowPower) && !isFirstFrame`. `&&` binds
@@ -116,8 +133,9 @@ clock has a zero maximum, which the renderer skips.
 - `FootExt::IsOwnerChangeFromRevertOnExit` is unported — the AttachEffect
   discard chain also reads it as `false` — so `IgnoreRevertOnExit` cannot fire
   and the owner-change transporter gate has no revert term.
-- `AutoDeath.Behavior=vanish` and `=sell` are unported, so their timer never
-  arms; `AutoDeath.VanishAnimation` is unread.
+- The vanish animation's `invoker=true` (`AnimExt::SetInvoker(pThis)`) has no
+  VERA anim field; the animation keeps its owner house and object, so a later
+  reader of the vanish anim's invoker sees none.
 - `AutoDeath.AllowLimboed` is read for the owner-change transporter gate, but
   `KillSelf`'s limbo arm (`:721-766`) is unported, so a limboed object still
   never dies here and the object-level limbo gate refuses regardless of the key.

@@ -8,12 +8,12 @@
 //!
 //! ## Scope
 //!
-//! This reader covers the timed arm only. The other triggers
-//! (`OnAmmoDepletion`, `OnOwnerChange.*`, `TechnosDontExist.*`, `TechnosExist.*`,
-//! `PlayerPowerState`, `PlayerMoney.*`), the `VanishAnimation` list and the
-//! `AllowLimboed` gate (type key plus the `[CombatDamage]` global at
-//! `Ext/Rules/Body.cpp:629-632`) are unported; they keep their gap entries in
-//! the chain plan so a later chain reads each from the layer native does.
+//! This reader covers the triggers (`OnAmmoDepletion`, `AfterDelay`,
+//! `PlayerPowerState`, `PlayerMoney.*`, `Technos*`), the `OnOwnerChange.*`
+//! flags and the `VanishAnimation` list. The `AllowLimboed` gate (type key
+//! plus the `[CombatDamage]` global at `Ext/Rules/Body.cpp:629-632`) is
+//! unported; it keeps its gap entry in the chain plan so a later chain reads
+//! each from the layer native does.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
@@ -103,6 +103,10 @@ pub struct AutoDeathTypeSettings {
     pub on_owner_change_ignore_revert_on_exit: Option<bool>,
     /// `AutoDeath.AllowLimboed=` (`:818`), falling back to the global.
     pub allow_limboed: Option<bool>,
+    /// `AutoDeath.VanishAnimation=`, `ValueableVector<AnimTypeClass*>`, default
+    /// empty: the list a `vanish` behavior picks from
+    /// (`Ext/Techno/Body.Update.cpp:773`).
+    pub vanish_animation: Vec<String>,
 }
 
 /// `PowerStatus` (`Utilities/Enum.h:203-208`). Its parser
@@ -172,6 +176,7 @@ impl AutoDeathTypeSettings {
             on_owner_change_ignore_revert_on_exit: section
                 .read_phobos_nullable_bool("AutoDeath.OnOwnerChange.IgnoreRevertOnExit", None),
             allow_limboed: section.read_phobos_nullable_bool("AutoDeath.AllowLimboed", None),
+            vanish_animation: type_list(section, "AutoDeath.VanishAnimation"),
         }
     }
 }

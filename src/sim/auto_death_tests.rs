@@ -6,7 +6,8 @@ use crate::sim::world::Simulation;
 
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n1=E2\n\
-[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n15=TANKLIMBO\n\
+[VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n15=TANKLIMBO\n16=TANKVANISH\n\
+[BuildingTypes]\n0=BARR\n1=BARRNOB\n\
 [E1]\nStrength=125\nSight=0\n\
 [E2]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
@@ -39,6 +40,12 @@ AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=no\n\
 AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.OnOwnerChange.HumanToComputer=no\n\
 [TANKLIMBO]\nStrength=100\nSight=0\nSpeed=5\n\
 AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.AllowLimboed=no\n\
+[TANKVANISH]\nStrength=100\nSight=0\nSpeed=5\n\
+AutoDeath.Behavior=vanish\nAutoDeath.AfterDelay=1\nAutoDeath.VanishAnimation=VA\n\
+[BARR]\nStrength=500\nSight=0\nAutoDeath.Behavior=sell\nAutoDeath.AfterDelay=1\n\
+[BARRNOB]\nStrength=500\nSight=0\nAutoDeath.Behavior=sell\nAutoDeath.AfterDelay=1\n\
+[Animations]\n0=VA\n\
+[VA]\n\
 [Warheads]\n0=C4WH\n\
 [C4WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
 [CombatDamage]\nC4Warhead=C4WH\n\
@@ -570,5 +577,76 @@ fn an_ares_surface_conversion_stops_the_countdown() {
     assert!(
         alive(&sim, id),
         "a returning timed type must start a fresh countdown, not inherit a completed one"
+    );
+}
+
+/// `TechnoExt::KillSelf`'s `Vanish` arm
+/// (`Ext/Techno/Body.Update.cpp:771-790`): a random
+/// `AutoDeath.VanishAnimation` plays at the object's GetCoords owned by its
+/// house, and the object leaves the world without a death.
+#[cfg(feature = "phobos")]
+#[test]
+fn vanish_plays_its_animation_and_erases_the_object() {
+    let (mut sim, mut rules) = arena();
+    // The fixture registers every rule type and an empty art table, as the
+    // scenario loader does, so the spawn owner resolves its `[Animations]`
+    // entry and constructs with the default draw state.
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::empty());
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let tank = sim
+        .spawn_object("TANKVANISH", "Americans", 10, 10, 0, &rules)
+        .expect("TANKVANISH spawns");
+    let owner = sim.entities().get(tank).unwrap().owner();
+    let coords = crate::sim::movement::ground_pose::object_get_coords(
+        sim.entities().get(tank).unwrap(),
+        sim.resolved_terrain.as_ref(),
+    );
+    tick(&mut sim, &rules, 2);
+    assert!(
+        sim.entities().get(tank).is_none(),
+        "Vanish UnInits the object"
+    );
+    let anims: Vec<_> = sim.anims().collect();
+    assert_eq!(anims.len(), 1, "one vanish animation");
+    let (_, anim) = anims[0];
+    assert_eq!(sim.interner.resolve(anim.type_id()), "VA");
+    assert_eq!(anim.owner_house(), Some(owner));
+    let world = anim.world_coord();
+    assert_eq!(
+        [world.x, world.y, world.z],
+        [coords.x, coords.y, coords.z],
+        "the anim anchors on the object's GetCoords"
+    );
+}
+
+/// `TechnoExt::KillSelf`'s `Sell` arm (`:792-807`): a building whose Buildup
+/// SHP is bound (`+0x6E9`) takes the Selling mission instead of dying; a
+/// building without one falls through to the `Kill` arm.
+#[cfg(feature = "phobos")]
+#[test]
+fn sell_starts_the_selling_mission_or_falls_back_to_kill() {
+    let (mut sim, mut rules) = arena();
+    rules.set_buildup_control_for_test("BARR", [8, 1, 0]);
+    let building = sim
+        .spawn_object("BARR", "Americans", 10, 10, 0, &rules)
+        .expect("BARR spawns");
+    tick(&mut sim, &rules, 2);
+    let entity = sim.entities().get(building).expect("the building lives");
+    assert!(entity.lifecycle.object_alive());
+    assert_eq!(
+        entity.mission.current().known(),
+        Some(crate::sim::mission::MissionType::Selling),
+        "the trigger queues and commences Selling"
+    );
+
+    let (mut sim, rules) = arena();
+    let building = sim
+        .spawn_object("BARRNOB", "Americans", 10, 10, 0, &rules)
+        .expect("BARRNOB spawns");
+    tick(&mut sim, &rules, 2);
+    assert!(
+        !alive(&sim, building),
+        "no Buildup SHP falls through to the Kill arm"
     );
 }

@@ -75,7 +75,7 @@ Supported extensions:
 - [Burst with no delay](phobos-burst-no-delay.md) (`Burst.NoDelay=` empties a burst in one frame)
 - [Harvester counter](phobos-harvester-counter.md) (`HarvesterCounter.*` working/total harvesters, `Harvester.Counted=`)
 - [Weeds counter](phobos-weeds-counter.md) (`WeedsCounter.*` the House's stored weed total beside the credits counter)
-- [AutoDeath](phobos-auto-death.md) (`AutoDeath.Behavior=` + `AutoDeath.AfterDelay=` timed self-destruction)
+- [AutoDeath](phobos-auto-death.md) (`AutoDeath.Behavior=kill|vanish|sell`, the condition arms and timers, `AutoDeath.VanishAnimation`)
 - [Shrapnel admission](phobos-shrapnel.md) (`Shrapnel.AffectsGround=` / `Shrapnel.AffectsBuildings=` gate whether a bullet spawns its shrapnel)
 - [Cluster scatter distance](phobos-cluster-scatter.md) (`ClusterScatter.Min=` / `ClusterScatter.Max=` set each cluster successor's distance from the impact)
 - [Timer blink colour](phobos-timer-blink-color.md) (`[AudioVisual] TimerBlinkColorScheme=` names a `[Colors]` entry)

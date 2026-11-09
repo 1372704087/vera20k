@@ -10,18 +10,20 @@
 //! (`:223-234`), `TechnosDontExist` (`:236-245`) and `TechnosExist`
 //! (`:247-255`). `OnOwnerChange.*` sets the flag at the owner-change hook.
 //!
-//! Still open: the `Vanish`/`Sell` behaviors with `VanishAnimation` — a type
-//! using them gets a flag `check_auto_death` never consumes, where native would
-//! sell or vanish — `KillSelf`'s limbo arm (`:721-766`), and the scenario-level
-//! `AutoDeathObjects` collection.
-//! A type that authors only those keeps that chain's gap entry.
+//! The `Vanish`/`Sell` behaviors dispatch from the same triggers through
+//! [`Simulation::self_death`] (`KillSelf` `:771-807`).
+//!
+//! Still open: `KillSelf`'s limbo arm (`:721-766`) and the scenario-level
+//! `AutoDeathObjects` collection. A type that authors only those keeps that
+//! chain's gap entry.
 //!
 //! Never depends on render/ui/audio/net (sim invariant #1).
 
 use crate::rules::phobos_auto_death::{AutoDeathBehavior, AutoDeathPowerStatus};
 use crate::rules::ruleset::RuleSet;
+use crate::sim::combat::{KillCallback, KillSource};
 use crate::sim::timer::PAUSED_START_FRAME;
-use crate::sim::world::{FrameEffects, Simulation};
+use crate::sim::world::{FrameEffects, Simulation, UninitContext};
 
 impl Simulation {
     /// `TechnoExt::CheckDeathConditions`, called from
@@ -76,14 +78,12 @@ impl Simulation {
                 entity.should_be_dead(),
             )
         };
-        // `Vanish` and `Sell` (`:771-807`) are unported; refusing them up front
-        // keeps a timer from running that could never fire.
-        if behavior != Some(AutoDeathBehavior::Kill) {
+        let Some(behavior) = behavior else {
             return false;
-        }
+        };
         // `:159-163`: a flag another hook set kills the object on this visit.
         if should_be_dead {
-            return self.kill_self(id, rules, registry, effects);
+            return self.self_death(id, behavior, rules, registry, effects);
         }
         // `:165-170`: a type with an `Ammo=` capacity dies at zero or below.
         if on_ammo_depletion {
@@ -99,7 +99,7 @@ impl Simulation {
                 )
             };
             if capacity > 0 && current <= 0 {
-                return self.kill_self(id, rules, registry, effects);
+                return self.self_death(id, behavior, rules, registry, effects);
             }
         }
         // `:172-184`: the timed arm. Phobos tests `HasStarted()` before
@@ -107,7 +107,7 @@ impl Simulation {
         // reads as already completed.
         if after_delay > 0 {
             if self.auto_death_clock_expires(id, after_delay) {
-                return self.kill_self(id, rules, registry, effects);
+                return self.self_death(id, behavior, rules, registry, effects);
             }
         }
         // `:210-221`: the low-power predicate. Phobos writes
@@ -132,7 +132,7 @@ impl Simulation {
             let dies = (power_state == AutoDeathPowerStatus::Full && !low_power)
                 || (power_state == AutoDeathPowerStatus::Low && low_power && !first_frame);
             if dies {
-                return self.kill_self(id, rules, registry, effects);
+                return self.self_death(id, behavior, rules, registry, effects);
             }
         }
         // `:223-234`: `-1` on either bound means that bound is open.
@@ -146,7 +146,7 @@ impl Simulation {
                 .map_or(0, |house| house.economy().available_money());
             let (max, min) = (money_max, money_min);
             if (max == -1 || money <= max) && (min == -1 || money >= min) {
-                return self.kill_self(id, rules, registry, effects);
+                return self.self_death(id, behavior, rules, registry, effects);
             }
         }
         let Some(owner) = self.substrate.entities.get(id).map(|entity| entity.owner()) else {
@@ -192,7 +192,7 @@ impl Simulation {
             }
         };
         if kill {
-            return self.kill_self(id, rules, registry, effects);
+            return self.self_death(id, behavior, rules, registry, effects);
         }
         false
     }
@@ -397,6 +397,120 @@ impl Simulation {
             return false;
         }
         timer.expired(frame)
+    }
+
+    /// `TechnoExt::KillSelf`'s non-limbo dispatch
+    /// (`Ext/Techno/Body.Update.cpp:769-824`) on the type's
+    /// `AutoDeath.Behavior`. Every trigger calls it and reports the visit as
+    /// handled, exactly as `CheckDeathConditions` returns true after any
+    /// `KillSelf`.
+    fn self_death(
+        &mut self,
+        id: u64,
+        behavior: AutoDeathBehavior,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        match behavior {
+            AutoDeathBehavior::Kill => self.kill_self(id, rules, registry, effects),
+            AutoDeathBehavior::Vanish => self.vanish_self(id, rules, registry, effects),
+            AutoDeathBehavior::Sell => self.sell_self(id, rules, registry, effects),
+        }
+    }
+
+    /// `TechnoExt::KillSelf`'s `Vanish` arm (`:771-790`): a random
+    /// `AutoDeath.VanishAnimation` at the object's GetCoords with its owner
+    /// house, then the bunker unload, `KillPassengers(pThis)` (the object is
+    /// its own killer), `Stun`, `Limbo`, `RegisterKill(pThis->Owner)` and
+    /// `UnInit`.
+    ///
+    /// RESIDUAL: the native call also passes `invoker=true`
+    /// (`AnimExt::SetInvoker(pThis)`); VERA's anims store only the owner house
+    /// and object, so a later reader of the vanish anim's invoker sees none.
+    fn vanish_self(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let context = UninitContext::new(rules, registry).with_effects(effects);
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return true;
+        };
+        let owner = entity.owner();
+        let (anims, coords, structure_with_bunker) = {
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return true;
+            };
+            (
+                object.phobos_auto_death.vanish_animation.clone(),
+                crate::sim::movement::ground_pose::object_get_coords(
+                    entity,
+                    self.resolved_terrain.as_ref(),
+                ),
+                entity.category() == crate::map::entities::EntityCategory::Structure
+                    && entity.bunker.occupant().is_some(),
+            )
+        };
+        self.spawn_random_owned_anim(
+            rules,
+            &anims,
+            crate::sim::anim_class::AnimWorldCoord {
+                x: coords.x,
+                y: coords.y,
+                z: coords.z,
+            },
+            owner,
+            None,
+        );
+        if structure_with_bunker {
+            // `BuildingClass::UnloadBunker @ 0x004595C0` (EmptyBunker).
+            crate::sim::docking::bunker_link::release_normal(self, id, rules, effects);
+        }
+        self.kill_passengers(id, Some(id), context);
+        self.stun(id, context);
+        let _ = self.techno_limbo_with_context(id, context);
+        self.record_the_kill(
+            id,
+            KillSource::House(Some(owner)),
+            KillCallback::Terminal,
+            context,
+        );
+        self.uninit_with_context(id, context);
+        true
+    }
+
+    /// `TechnoExt::KillSelf`'s `Sell` arm (`:792-807`): a Building with a bound
+    /// Buildup SHP (`+0x6E9`) takes the Selling mission unless it is already
+    /// selling (`Queue_Mission(Selling, 0)` then Commence, the owner
+    /// [`crate::sim::production::begin_selling`]); anything else falls through
+    /// to the `Kill` arm, as the native developer warning does.
+    fn sell_self(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) -> bool {
+        let sellable = self.substrate.entities.get(id).is_some_and(|entity| {
+            entity.category() == crate::map::entities::EntityCategory::Structure
+                && self
+                    .interner
+                    .object_type(entity.type_ref(), rules)
+                    .is_some_and(|object| rules.has_buildup(&object.id))
+        });
+        if sellable {
+            let selling = self.substrate.entities.get(id).is_some_and(|entity| {
+                entity.mission.current().known() == Some(crate::sim::mission::MissionType::Selling)
+            });
+            if !selling {
+                crate::sim::production::begin_selling(self, rules, id, false);
+            }
+            return true;
+        }
+        self.kill_self(id, rules, registry, effects)
     }
 
     /// `TechnoExt::KillSelf`'s non-limbo `Kill` arm (`:809-821`):

@@ -1363,7 +1363,7 @@ fn show_promote_anim(
 ) {
     use crate::sim::combat::veterancy::LEVEL_VETERAN;
 
-    let (anims, world) = {
+    let (chosen, world) = {
         let Some(entity) = sim.substrate.entities.get(id) else {
             return;
         };
@@ -1380,28 +1380,13 @@ fn show_promote_anim(
         } else {
             return;
         };
-        // The native reader drops an unresolvable `AnimTypeClass*` token, so
-        // the random range covers only names a type exists for.
-        let anims: Vec<&str> = chosen
-            .iter()
-            .map(String::as_str)
-            .filter(|name| rules.has_anim_type(name))
-            .collect();
-        if anims.is_empty() {
-            return;
-        }
         let world = crate::sim::movement::ground_pose::object_get_coords(
             entity,
             sim.resolved_terrain.as_ref(),
         );
-        (anims, world)
+        (chosen.to_vec(), world)
     };
-    // `RandomRanged(0, size - 1)` over the resolved list.
-    let pick = sim
-        .scenario_rng
-        .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
-    let type_name = sim.interner.intern(anims[pick]);
-    sim.spawn_owned_anim(rules, type_name, world.into(), owner, Some(id));
+    sim.spawn_random_owned_anim(rules, &chosen, world.into(), owner, Some(id));
 }
 
 /// The house self-heal pulse of `TechnoClass::AI_Update`, read from the

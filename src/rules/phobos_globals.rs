@@ -37,7 +37,7 @@ fn true_bool() -> bool {
 }
 
 /// `[CombatDamage]` globals this port reads.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosGlobals {
     /// `Shrapnel.AffectsGround=`, default `no`: admit shrapnel when the impact
     /// cell holds no ground object (`Ext/Bullet/Hooks.cpp:276`).
@@ -136,6 +136,21 @@ pub struct PhobosGlobals {
     /// with the turret.
     #[serde(default)]
     pub spawner_recycle_on_turret: bool,
+    /// `[General] Promote.IncludeSpawns=`, default `no`
+    /// (`Ext/Rules/Body.cpp:212`, `Body.h:119,656`): fallback for an unset
+    /// type-level `Promote.IncludeSpawns`.
+    #[serde(default)]
+    pub promote_include_spawns: bool,
+    /// `[AudioVisual] Promote.VeteranAnimation=`,
+    /// `ValueableVector<AnimTypeClass*>`, constructed empty
+    /// (`Ext/Rules/Body.cpp:316`, `Body.h:239,748`): fallback for a type with
+    /// no veteran list.
+    #[serde(default)]
+    pub promote_veteran_animation: Vec<String>,
+    /// `[AudioVisual] Promote.EliteAnimation=`, constructed empty
+    /// (`Ext/Rules/Body.cpp:317`, `Body.h:240,749`).
+    #[serde(default)]
+    pub promote_elite_animation: Vec<String>,
     /// `[General] OpenTopped.IgnoreRangefinding=`, default `no`
     /// (`Ext/Rules/Body.cpp:455`, `Body.h:870`): the per-type fallback for
     /// skipping the passenger-min weapon-range clamp in `WeaponRange`.
@@ -201,6 +216,9 @@ impl Default for PhobosGlobals {
             spawner_use_turret_facing: false,
             spawner_recycle_range: -1,
             spawner_recycle_on_turret: false,
+            promote_include_spawns: false,
+            promote_veteran_animation: Vec::new(),
+            promote_elite_animation: Vec::new(),
             open_topped_ignore_rangefinding: false,
             open_topped_allow_firing_if_deactivated: true,
             open_topped_allow_firing_if_attacked_by_locomotor: true,
@@ -240,6 +258,26 @@ impl PhobosGlobals {
             "DisplayIncome.Houses",
             globals.display_income_houses,
         );
+        // `[AudioVisual] Promote.VeteranAnimation=` / `.EliteAnimation=`
+        // (`Ext/Rules/Body.cpp:316-317`): `ValueableVector<AnimTypeClass*>`
+        // reads, so an absent or empty key keeps the list and any other value
+        // replaces it. Names stay until a consumer resolves them against the
+        // AnimType registry (`has_anim_type`).
+        let keep = |name: &str| Some(name.to_owned());
+        globals.promote_veteran_animation =
+            crate::rules::native_processing::read_valueable_type_vector(
+                audio_visual,
+                "Promote.VeteranAnimation",
+                &globals.promote_veteran_animation,
+                keep,
+            );
+        globals.promote_elite_animation =
+            crate::rules::native_processing::read_valueable_type_vector(
+                audio_visual,
+                "Promote.EliteAnimation",
+                &globals.promote_elite_animation,
+                keep,
+            );
         // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
         // the three sections share no key, so their order does not matter.
         let general = ini.section_or_empty("General");
@@ -274,6 +312,8 @@ impl PhobosGlobals {
             general.read_phobos_leptons("Spawner.RecycleRange", globals.spawner_recycle_range);
         globals.spawner_recycle_on_turret =
             general.read_bool("Spawner.RecycleOnTurret", globals.spawner_recycle_on_turret);
+        globals.promote_include_spawns =
+            general.read_bool("Promote.IncludeSpawns", globals.promote_include_spawns);
         // The eight `[General] OpenTopped.*` `Valueable<bool>` switches
         // (`Ext/Rules/Body.cpp:455-462`); `Valueable` has no unset state, so
         // these are plain `read_bool` reads from the constructor defaults.

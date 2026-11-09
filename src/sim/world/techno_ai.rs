@@ -55,9 +55,6 @@ use crate::sim::intern::StringInterner;
 use crate::sim::mission::MissionType;
 use crate::sim::rng::SimRng;
 use crate::sim::scenario_session::ScenarioSession;
-#[cfg(not(feature = "ares"))]
-use crate::sim::world::FrameChannel;
-use crate::sim::world::SimSoundEvent;
 
 /// Non-rules world context the mission handler bodies dispatched from the
 /// host need (overlay types and frame effects; handlers read navigation
@@ -1266,44 +1263,125 @@ fn techno_ai_shell(
 /// newly promoted object's timer therefore loses one on this same visit.
 /// Ares replaces this whole block (`Simulation::update_ares_veterancy`).
 #[cfg(not(feature = "ares"))]
-fn veterancy_promotion_step(
-    interner: &mut StringInterner,
-    substrate: &mut ObjectSubstrate,
-    terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,
-    sound_events: &mut FrameChannel<SimSoundEvent>,
-    id: u64,
-    rules: &RuleSet,
-) {
-    let Some(entity) = substrate.entities.get_mut(id) else {
+fn veterancy_promotion_step(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    #[cfg(feature = "phobos")]
+    use crate::sim::combat::veterancy::LEVEL_UNSAMPLED;
+    use crate::sim::combat::veterancy::Promotion;
+
+    // `previous` and `level` feed the Phobos promotion-animation arm only.
+    #[cfg_attr(not(feature = "phobos"), allow(unused_variables))]
+    let (previous, promotion, level, owner, type_id, world) = {
+        let terrain = sim.resolved_terrain.as_ref();
+        let Some(entity) = sim.substrate.entities.get_mut(id) else {
+            return;
+        };
+        let previous = entity.veterancy.rank_cache();
+        let promotion = entity
+            .veterancy
+            .sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer);
+        (
+            previous,
+            promotion,
+            entity.veterancy.rank_cache(),
+            entity.owner(),
+            // The promoted object's type is already interned on the entity;
+            // carry it out so the accessibility line can name the game's own
+            // object without a second lookup or a guessed translation.
+            // Transient fact only.
+            entity.type_ref(),
+            crate::sim::anim_class::AnimWorldCoord::from(
+                crate::sim::movement::ground_pose::object_location(entity, terrain),
+            ),
+        )
+    };
+    // Phobos `TechnoClass_AI_PromoteAnim @ 0x6FA07A` (`Ext/Techno/Hooks.cpp:
+    // 158-170`) replaces the promotion block's `GetRemainingLevel` call, so it
+    // runs on every sampled rank change — demotions included — before the
+    // stock sound and flash arms.
+    #[cfg(feature = "phobos")]
+    if previous != LEVEL_UNSAMPLED && level != previous {
+        show_promote_anim(sim, rules, id, owner, level);
+    }
+    let Some(promotion) = promotion else {
         return;
     };
-    let Some(promotion) = entity
-        .veterancy
-        .sample_promotion(&mut entity.flashing, rules.general.elite_flash_timer)
-    else {
-        return;
-    };
-    let owner = entity.owner();
-    // The promoted object's type is already interned on the entity; carry it
-    // out so the accessibility line can name the game's own object without a
-    // second lookup or a guessed translation. Transient fact only.
-    let type_id = entity.type_ref();
-    let world = crate::sim::movement::ground_pose::object_location(entity, terrain).into();
     let sound = match promotion {
-        crate::sim::combat::veterancy::Promotion::Elite => {
-            rules.general.upgrade_elite_sound.as_deref()
-        }
-        crate::sim::combat::veterancy::Promotion::Veteran => {
-            rules.general.upgrade_veteran_sound.as_deref()
-        }
+        Promotion::Elite => rules.general.upgrade_elite_sound.as_deref(),
+        Promotion::Veteran => rules.general.upgrade_veteran_sound.as_deref(),
     };
-    let sound_id = sound.map(|name| interner.intern(name));
-    sound_events.emit(super::SimSoundEvent::UnitPromoted {
+    let sound_id = sound.map(|name| sim.interner.intern(name));
+    sim.sound_events.emit(super::SimSoundEvent::UnitPromoted {
         owner,
         sound_id,
         type_id,
         world,
     });
+}
+
+/// Phobos `TechnoExt::ShowPromoteAnim` (`Ext/Techno/Body.Visuals.cpp:863-874`)
+/// from the `TechnoClass_AI_PromoteAnim @ 0x6FA07A` hook
+/// (`Ext/Techno/Hooks.cpp:158-170`).
+///
+/// The type's list replaces the global `[AudioVisual]` list of its tier when
+/// non-empty. The veteran list plays only at `Rank::Veteran` (the native
+/// `GetRemainingLevel == 1`); the `else if` fires the elite list for every
+/// other tier, including a demotion to Rookie, and also for a Veteran
+/// crossing whose veteran list is empty. One
+/// `AnimExt::CreateRandomAnim` (`RandomRanged(0, size - 1)`) spawns at
+/// `GetCenterCoords()` with the object as owner-object and its owner House.
+///
+/// RESIDUAL: the anim sits at `GetCoords` (`object_get_coords`) instead of
+/// `GetCenterCoords`'s centre-height point — visual only, the same residual
+/// as the delayed-fire `CenterAnimOnFirer` arm.
+#[cfg(all(feature = "phobos", not(feature = "ares")))]
+fn show_promote_anim(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    owner: crate::sim::intern::InternedId,
+    level: i8,
+) {
+    use crate::sim::combat::veterancy::LEVEL_VETERAN;
+
+    let (anims, world) = {
+        let Some(entity) = sim.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(object) = sim.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        let promote = &object.phobos_promote;
+        let veteran = promote.veteran_animation(&rules.phobos_globals.promote_veteran_animation);
+        let elite = promote.elite_animation(&rules.phobos_globals.promote_elite_animation);
+        let chosen = if level == LEVEL_VETERAN && !veteran.is_empty() {
+            veteran
+        } else if !elite.is_empty() {
+            elite
+        } else {
+            return;
+        };
+        // The native reader drops an unresolvable `AnimTypeClass*` token, so
+        // the random range covers only names a type exists for.
+        let anims: Vec<&str> = chosen
+            .iter()
+            .map(String::as_str)
+            .filter(|name| rules.has_anim_type(name))
+            .collect();
+        if anims.is_empty() {
+            return;
+        }
+        let world = crate::sim::movement::ground_pose::object_get_coords(
+            entity,
+            sim.resolved_terrain.as_ref(),
+        );
+        (anims, world)
+    };
+    // `RandomRanged(0, size - 1)` over the resolved list.
+    let pick = sim
+        .scenario_rng
+        .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
+    let type_name = sim.interner.intern(anims[pick]);
+    sim.spawn_owned_anim(rules, type_name, world.into(), owner, Some(id));
 }
 
 /// The house self-heal pulse of `TechnoClass::AI_Update`, read from the
@@ -1826,14 +1904,7 @@ fn techno_common_steps(
         }
     }
     #[cfg(not(feature = "ares"))]
-    veterancy_promotion_step(
-        &mut sim.interner,
-        &mut sim.substrate,
-        sim.resolved_terrain.as_ref(),
-        &mut sim.sound_events,
-        id,
-        rules,
-    );
+    veterancy_promotion_step(sim, id, rules);
     // Ares TechnoClass_Update_Veterancy1004F2E0 (hook6FA054..6FA14B).
     #[cfg(feature = "ares")]
     sim.update_ares_veterancy(id, false, true, rules, effects);
@@ -6286,6 +6357,10 @@ use super::bridge_test_evidence;
 #[cfg(test)]
 #[path = "techno_ai/promotion_sound_tests.rs"]
 mod promotion_sound_tests;
+
+#[cfg(all(test, feature = "phobos", not(feature = "ares")))]
+#[path = "techno_ai/promote_anim_tests.rs"]
+mod promote_anim_tests;
 
 #[cfg(test)]
 #[path = "techno_ai/surface_conversion_tests.rs"]

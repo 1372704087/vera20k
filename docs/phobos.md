@@ -96,6 +96,7 @@ Supported extensions:
 - [Aircraft spawner customizations](phobos-spawner.md) (`Spawner.*` launch spacing, immediate attack, turret facing, pursue range and the recycle point; 9 keys + 4 `[General]` fallbacks)
 - [Detonate on all map objects](phobos-detonate-all-map.md) (`DetonateOnAllMapObjects.*` whole-map detonation, target/house/type filters and the Full/damage-area arms)
 - [OpenTopped per-type properties](phobos-open-topped.md) (eleven `OpenTopped.*` TechnoType keys, eight `[General]` globals, two fallback chains and the firing/range/cloak/temporal hooks)
+- [Promotion animations and promoted spawns](phobos-promote.md) (`Promote.*` rank-crossing animation lists with the `[AudioVisual]` fallbacks, and the spawner child rank lift; 3 keys + 3 globals)
 
 ## Original project and authors
 

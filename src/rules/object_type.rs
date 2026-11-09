@@ -936,6 +936,10 @@ pub struct ObjectType {
     /// rocket's cruise/takeoff keys.
     #[cfg(feature = "phobos")]
     pub phobos_missile: crate::rules::phobos_missile::PhobosMissileRules,
+    /// Phobos `Promote.*` (`Ext/TechnoType/Body.cpp:800`, `:1128-1129`): the
+    /// rank-crossing animations and the spawner rank lift.
+    #[cfg(feature = "phobos")]
+    pub phobos_promote: crate::rules::phobos_promote::PhobosPromote,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4829,6 +4833,8 @@ impl ObjectType {
                 ),
             #[cfg(feature = "phobos")]
             phobos_missile: crate::rules::phobos_missile::PhobosMissileRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_promote: crate::rules::phobos_promote::PhobosPromote::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

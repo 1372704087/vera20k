@@ -4743,6 +4743,10 @@ pub struct RuleSet {
     /// default the weapon-level nullable inherits.
     #[cfg(feature = "phobos")]
     pub phobos_laser_tracking: crate::rules::phobos_laser_tracking::LaserTrackingGlobals,
+    /// Phobos `[AudioVisual] JumpjetTilt=` and the four `JumpjetTilt.*`
+    /// factors, the defaults the per-type nullable fields inherit.
+    #[cfg(feature = "phobos")]
+    pub phobos_jumpjet_tilt: crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltGlobal,
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` names, in `[Sides]` order.
     #[cfg(feature = "phobos")]
     side_sw_sidebar_art: Vec<crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt>,
@@ -6880,6 +6884,9 @@ impl RuleSet {
         let phobos_laser_tracking =
             crate::rules::phobos_laser_tracking::LaserTrackingGlobals::from_ini(ini);
         #[cfg(feature = "phobos")]
+        let phobos_jumpjet_tilt =
+            crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltGlobal::from_ini(ini);
+        #[cfg(feature = "phobos")]
         let side_sw_sidebar_art: Vec<
             crate::rules::phobos_sw_sidebar::SuperWeaponSidebarSideArt,
         > = country_side_registry
@@ -7282,6 +7289,8 @@ impl RuleSet {
             phobos_airburst,
             #[cfg(feature = "phobos")]
             phobos_laser_tracking,
+            #[cfg(feature = "phobos")]
+            phobos_jumpjet_tilt,
             #[cfg(feature = "phobos")]
             side_sw_sidebar_art,
             #[cfg(feature = "phobos")]

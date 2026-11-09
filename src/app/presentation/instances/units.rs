@@ -585,14 +585,19 @@ pub(crate) fn unit_visitor<'a>(
                 .rules()
                 .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules));
             let tilt_crash = object_type.is_some_and(|object| object.tilt_crash_jumpjet);
+            let jumpjet_tilt = jumpjet_tilt_settings(state.rules(), type_name.as_ref());
             if let Some(tilt) = body_pose_with_angles(
                 entity,
                 band,
                 tilt_crash,
-                render_pose.angles,
-                render_pose.rocket_pitch,
-                object_type,
-                render_pose.fly_bank_direction,
+                BodyPoseContext {
+                    angles: render_pose.angles,
+                    pitch: render_pose.rocket_pitch,
+                    object_type,
+                    bank_direction: render_pose.fly_bank_direction,
+                    jumpjet_tilt,
+                    binary_frame: sim.session().binary_frame(),
+                },
             ) {
                 body = BodyDraw::Pose(tilt);
             } else if matches!(body, BodyDraw::Pose(_)) {
@@ -1228,7 +1233,7 @@ fn body_draw(
     tilt_crash_jumpjet: bool,
     turret_parts: bool,
 ) -> BodyDraw {
-    if let Some(tilt) = body_pose(entity, band, tilt_crash_jumpjet) {
+    if let Some(tilt) = body_pose(entity, band, binary_frame, tilt_crash_jumpjet) {
         return BodyDraw::Pose(tilt);
     }
     if !turret_parts {
@@ -1243,17 +1248,34 @@ fn body_draw(
     }
 }
 
+/// The inputs the locomotor pose decision reads beyond the entity. `angles`
+/// and `pitch` are the sampled pose values (interpolated on the live draw).
+#[derive(Clone, Copy)]
+struct BodyPoseContext<'a> {
+    angles: [f32; 2],
+    pitch: f32,
+    object_type: Option<&'a crate::rules::object_type::ObjectType>,
+    bank_direction: Option<crate::sim::movement::facing_class::RotationDirection>,
+    /// Phobos `JumpjetTilt` after the per-type/global fallback; `None` keeps
+    /// the stock draw.
+    jumpjet_tilt: Option<crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt>,
+    binary_frame: u32,
+}
+
 /// The locomotor Draw_Matrix arm that poses this body, if any. Fly
 /// Draw_Matrix tilts a crashing body by its roll and pitch
 /// (`TechnoClass+0x328`/`+0x32C`) while it is airborne (`0x004CF6A3`): every
 /// airborne Fly body is in the Top band (`In_Which_Layer @ 0x004CFCF0`).
 /// Jumpjet Draw_Matrix tilts a `TiltCrashJumpjet=` type whenever either angle
-/// passes its gate (`0x0054DCDA..0x0054DD13`), crashing or not. Rocket
-/// Draw_Matrix (`0x00663470`) pitches the body whenever CurrentPitch is not
-/// zero; at zero it is the plain facing matrix.
+/// passes its gate (`0x0054DCDA..0x0054DD13`), crashing or not; Phobos's
+/// replacement default arm adds the `JumpjetTilt` pose while airborne
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:447-491`). Rocket Draw_Matrix
+/// (`0x00663470`) pitches the body whenever CurrentPitch is not zero; at zero
+/// it is the plain facing matrix.
 fn body_pose(
     entity: &crate::sim::game_entity::GameEntity,
     band: EntityDrawBand,
+    binary_frame: u32,
     tilt_crash_jumpjet: bool,
 ) -> Option<crate::render::unit_atlas::PoseTilt> {
     let angles = entity
@@ -1265,7 +1287,19 @@ fn body_pose(
         .as_ref()
         .and_then(|l| l.rocket_runtime())
         .map_or(0., |r| r.draw_pitch());
-    body_pose_with_angles(entity, band, tilt_crash_jumpjet, angles, pitch, None, None)
+    body_pose_with_angles(
+        entity,
+        band,
+        tilt_crash_jumpjet,
+        BodyPoseContext {
+            angles,
+            pitch,
+            object_type: None,
+            bank_direction: None,
+            jumpjet_tilt: None,
+            binary_frame,
+        },
+    )
 }
 
 /// Normal `FlyLocomotionClass::Draw_Matrix @ 0x004CF610`: its non-crash arm
@@ -1310,36 +1344,94 @@ fn body_pose_with_angles(
     entity: &crate::sim::game_entity::GameEntity,
     band: EntityDrawBand,
     tilt_crash_jumpjet: bool,
-    angles: [f32; 2],
-    pitch: f32,
-    object_type: Option<&crate::rules::object_type::ObjectType>,
-    bank_direction: Option<crate::sim::movement::facing_class::RotationDirection>,
+    context: BodyPoseContext<'_>,
 ) -> Option<crate::render::unit_atlas::PoseTilt> {
     use crate::render::unit_atlas::PoseTilt;
     use crate::rules::locomotor_type::LocomotorKind;
     // Normal Fly Draw_Matrix has its own airborne/speed gate and does not
     // depend on RockingState (native `Draw_Matrix @ 0x004CF610`).
-    if let Some(object_type) = object_type
-        && let Some(tilt) = normal_fly_pose(entity, band, object_type, bank_direction)
+    if let Some(object_type) = context.object_type
+        && let Some(tilt) = normal_fly_pose(entity, band, object_type, context.bank_direction)
     {
         return Some(tilt);
     }
     let locomotor = entity.locomotor.as_ref()?;
     if locomotor.rocket_runtime().is_some() {
-        return (pitch != 0.0).then_some(PoseTilt::Rocket(pitch));
+        return (context.pitch != 0.0).then_some(PoseTilt::Rocket(context.pitch));
     }
-    entity.rocking.as_ref()?;
     match locomotor.active_kind() {
         LocomotorKind::Fly if entity.crash.is_crashing() && band != EntityDrawBand::Ground => {
-            Some(PoseTilt::Fly(angles))
+            entity.rocking.as_ref()?;
+            Some(PoseTilt::Fly(context.angles))
         }
         LocomotorKind::Jumpjet
-            if tilt_crash_jumpjet && crate::map::voxel_pose::voxel_tilt_applies(angles) =>
+            if tilt_crash_jumpjet && crate::map::voxel_pose::voxel_tilt_applies(context.angles) =>
         {
-            Some(PoseTilt::Jumpjet(angles))
+            entity.rocking.as_ref()?;
+            Some(PoseTilt::Jumpjet(context.angles))
+        }
+        LocomotorKind::Jumpjet => {
+            jumpjet_tilt_pose(entity, context.jumpjet_tilt?, context.binary_frame)
         }
         _ => None,
     }
+}
+
+/// Phobos `JumpjetLocomotionClass_Draw_Matrix`'s default arm
+/// (`Ext/TechnoType/Hooks.MatrixOp.cpp:449-491`, vtable `0x7ECD8C`): a live
+/// Unit whose type enables `JumpjetTilt`, airborne, moving, healthy and not
+/// held by a Magnetron gets a pitch from its current speed and acceleration
+/// and, while its LocomotionFacing turns, a roll from the signed turn
+/// difference. The resulting pose is the plain facing matrix times the two
+/// rotations, so the crashed `TiltCrashJumpjet=` arm above keeps precedence.
+fn jumpjet_tilt_pose(
+    entity: &crate::sim::game_entity::GameEntity,
+    settings: crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt,
+    binary_frame: u32,
+) -> Option<crate::render::unit_atlas::PoseTilt> {
+    if entity.category() != EntityCategory::Unit {
+        return None;
+    }
+    let runtime = entity.locomotor.as_ref()?.jumpjet_runtime()?;
+    if runtime.is_grounded() || !entity.is_alive() || entity.is_attacked_by_locomotor() {
+        return None;
+    }
+    let flight = runtime.flight();
+    // Strict native `CurrentSpeed > 0.0`; NaN fails the comparison.
+    let current_speed = f64::from_bits(flight.current_speed_bits());
+    if !(current_speed > 0.0) {
+        return None;
+    }
+    let facing = flight.facing();
+    let angles = settings.tilt_angles(
+        current_speed,
+        f32::from_bits(runtime.params().accel_bits()),
+        facing.is_rotating(binary_frame),
+        facing.difference_raw(),
+    )?;
+    Some(crate::render::unit_atlas::PoseTilt::JumpjetTilt(angles))
+}
+
+/// Phobos `JumpjetTilt` settings for the type being drawn (`pDrawTypeExt`).
+/// The per-type nullable fields fall back to the `[AudioVisual]` globals.
+#[cfg(feature = "phobos")]
+fn jumpjet_tilt_settings(
+    rules: Option<&crate::rules::ruleset::RuleSet>,
+    drawn_type: &str,
+) -> Option<crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt> {
+    let rules = rules?;
+    rules
+        .object(drawn_type)?
+        .phobos_jumpjet_tilt
+        .resolve(&rules.phobos_jumpjet_tilt)
+}
+
+#[cfg(not(feature = "phobos"))]
+fn jumpjet_tilt_settings(
+    _rules: Option<&crate::rules::ruleset::RuleSet>,
+    _drawn_type: &str,
+) -> Option<crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt> {
+    None
 }
 
 /// Drive4AFFB0..4AFFE8 / Ship69F6C0..69F6F8 key dynamic draws for an unsettled slope or either

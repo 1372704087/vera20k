@@ -81,6 +81,12 @@ pub enum PoseTilt {
     /// `JumpjetLocomotionClass`'s `TiltCrashJumpjet=` arm (`0x0054DCC0`), with
     /// the same roll and pitch.
     Jumpjet([f32; 2]),
+    /// Phobos `JumpjetLocomotionClass_Draw_Matrix` default arm (vtable
+    /// `0x7ECD8C`, `Ext/TechnoType/Hooks.MatrixOp.cpp:447-491`): airborne
+    /// roll and pitch in radians, quantized by the caller to 128 `DirStruct`
+    /// facings. Unlike [`Self::Jumpjet`] this arm adds no grounded
+    /// translation: the matrix is yaw, RotateX(roll), RotateY(pitch).
+    JumpjetTilt([f32; 2]),
     /// `RocketLocomotionClass::Draw_Matrix` (`0x00663470`): CurrentPitch in
     /// radians above the horizon, never zero here.
     Rocket(f32),
@@ -1676,6 +1682,7 @@ impl UnitModel {
                 half_sizes: crate::rules::voxel_asset_catalog::voxel_tilt_half_sizes(body.vxl())
                     .unwrap_or([0.0; 2]),
             },
+            PoseTilt::JumpjetTilt(angles) => vxl_raster::BodyTilt::JumpjetTilt(angles),
             PoseTilt::Rocket(pitch) => vxl_raster::BodyTilt::Rocket(pitch),
             PoseTilt::Ground(_) => unreachable!("ground parts returned above"),
         };

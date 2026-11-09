@@ -176,8 +176,7 @@ impl JumpjetFlightParams {
     }
 
     /// See the field.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn accel_bits(&self) -> u32 {
+    pub const fn accel_bits(&self) -> u32 {
         self.accel_bits
     }
 
@@ -250,9 +249,9 @@ pub struct JumpjetFlight {
 }
 
 impl JumpjetFlight {
-    /// See the field.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) fn facing(&self) -> &FacingClass {
+    /// See the field. The draw's Phobos JumpjetTilt reads this facing's
+    /// current/timer state; it stays the locomotor's authority.
+    pub fn facing(&self) -> &FacingClass {
         &self.facing
     }
 
@@ -262,9 +261,9 @@ impl JumpjetFlight {
         &mut self.facing
     }
 
-    /// See the field.
-    #[cfg(any(test, feature = "test-support"))]
-    pub(crate) const fn current_speed_bits(&self) -> u64 {
+    /// See the field. Phobos `JumpjetLocomotionClass_Draw_Matrix` reads this
+    /// binary64 directly for the forwards tilt.
+    pub const fn current_speed_bits(&self) -> u64 {
         self.current_speed_bits
     }
 

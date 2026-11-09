@@ -889,6 +889,11 @@ pub struct ObjectType {
     /// Phobos `Adjacent.*` (`Ext/BuildingType/Body.cpp:235-238`).
     #[cfg(feature = "phobos")]
     pub phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent,
+    /// Phobos `JumpjetTilt.*` (`Ext/UnitType/Body.cpp:63-67`). Every field is
+    /// `Nullable`, so an unset value inherits
+    /// [`RuleSet::phobos_jumpjet_tilt`](crate::rules::ruleset::RuleSet).
+    #[cfg(feature = "phobos")]
+    pub phobos_jumpjet_tilt: crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltType,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4735,6 +4740,9 @@ impl ObjectType {
             ),
             #[cfg(feature = "phobos")]
             phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_jumpjet_tilt:
+                crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltType::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

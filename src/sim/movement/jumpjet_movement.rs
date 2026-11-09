@@ -159,6 +159,12 @@ impl JumpjetRuntime {
         self.phase
     }
 
+    /// `JumpjetLocomotionClass::State::Grounded` (`+0x50 == 0`). Phobos's
+    /// JumpjetTilt draw arm applies only while the locomotor is airborne.
+    pub fn is_grounded(&self) -> bool {
+        self.phase == jumpjet_flight::STATE_GROUND
+    }
+
     pub fn params(&self) -> jumpjet_flight::JumpjetFlightParams {
         self.params
     }

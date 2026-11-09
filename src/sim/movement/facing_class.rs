@@ -210,6 +210,13 @@ impl FacingClass {
         (self.rot_per_frame as i16) > 0 && self.remaining_frames(binary_frame) != 0
     }
 
+    /// `FacingClass::Difference` (`YRpp/Facing.h:115-118`): the signed arc
+    /// from the rotation's start to its destination, in DirStruct units.
+    /// Phobos's JumpjetTilt reads `(short)Difference().Raw` while turning.
+    pub fn difference_raw(&self) -> i16 {
+        self.current.wrapping_sub(self.prev) as i16
+    }
+
     /// Whether the live SecondaryFacing turn selects Fly's positive or
     /// negative bank. `FlyLocomotionClass::Draw_Matrix @ 0x004CF610` calls
     /// `IsRotatingPositive @ 0x004C94B0` before

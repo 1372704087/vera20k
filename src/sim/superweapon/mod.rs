@@ -57,6 +57,8 @@ mod emp_pulse;
 #[cfg(all(test, feature = "ares"))]
 mod emp_pulse_tests;
 mod fire;
+#[cfg(feature = "phobos")]
+pub(crate) use fire::launch_super_preserving_charge;
 #[cfg(feature = "ares")]
 mod firewall;
 #[cfg(all(test, feature = "ares"))]
@@ -550,6 +552,13 @@ impl SuperWeaponInstance {
     /// Charged (`SuperClass+0x6F`).
     pub fn is_ready(&self) -> bool {
         self.is_ready
+    }
+
+    /// `SuperClass::SetReadiness @ 0x006CB820`: a byte write to `+0x6F`, no
+    /// timer, ready-frame or animation change (the whole function is
+    /// `mov [ecx+0x6F], al; ret 4`).
+    pub(crate) fn set_readiness(&mut self, ready: bool) {
+        self.is_ready = ready;
     }
 
     /// Held for low power or by the user ([`Self::suspend`]).

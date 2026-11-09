@@ -102,6 +102,7 @@ Supported extensions:
 - [Promotion animations and promoted spawns](phobos-promote.md) (`Promote.*` rank-crossing animation lists with the `[AudioVisual]` fallbacks, and the spawner child rank lift; 3 keys + 3 globals)
 - [Attack move](phobos-attack-move.md) (`AttackMove.IgnoreWeaponCheck`, `.Aggressive` and `.UpdateTarget`: the weapon check on the order, unarmed buildings as targets, and the target swap)
 - [Attack-move followers](phobos-attack-move-follow.md) (`AttackMove.Follow*`: escort the nearest friendly attack-mover, air inclusion, the mind-control-full condition and the per-leader follower count)
+- [Spy-effect superweapon launches](phobos-spy-effect.md) (`SpyEffect.*` victim/infiltrator launches on a spy infiltration, with the recharge kept; 3 keys)
 
 ## Original project and authors
 

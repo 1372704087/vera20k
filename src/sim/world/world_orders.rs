@@ -2009,6 +2009,11 @@ impl Simulation {
                 .map(|infantry| infantry.owner())
             {
                 self.infiltrate_building(building_id, owner, rules);
+                // Phobos's `BuildingClass_InfiltratedBy_Wrapper @ 0x51A00B`
+                // (`Ext/Building/Body.cpp:662-671`) runs `HandleInfiltrate`
+                // after the base function.
+                #[cfg(feature = "phobos")]
+                self.phobos_handle_infiltrate(building_id, owner, rules, registry, frame_effects);
             }
             true
         } else {

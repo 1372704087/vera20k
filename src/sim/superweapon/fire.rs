@@ -328,7 +328,7 @@ impl Simulation {
             // `0x004FAEA6..0x004FAEC1`.
             super_instance(self, owner, pre_type)
                 .expect("retained paired Super")
-                .is_ready = false;
+                .set_readiness(false);
             Self::release_super_anim(
                 &mut self.substrate,
                 &mut self.super_weapons,
@@ -947,6 +947,62 @@ fn launch(
         return false;
     }
     true
+}
+
+/// Phobos `BuildingExt::HandleInfiltrate`'s `launchTheSWHere`
+/// (`Ext/Building/Body.cpp:333-346`): save the Super's charge timer
+/// (`StartTime`/`TimeLeft`, `+0x30`/`+0x38`), force it ready
+/// (`SuperClass::SetReadiness @ 0x006CB820`), Launch the type's action at
+/// `cell` (`SuperClass::Launch @ 0x006CC390`), Reset the Super
+/// (`SuperClass::Reset @ 0x006CE0B0`), then write the saved timer back. The
+/// launch does not consume the recharge.
+///
+/// RESIDUAL: native Launch also receives `pHouse->IsCurrentPlayer()`; the
+/// shared launch owner here takes no such flag (no stock arm reads one), so
+/// the launch effects are the same for both audiences.
+#[cfg(feature = "phobos")]
+pub(crate) fn launch_super_preserving_charge(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    sw_type_id: InternedId,
+    cell: (u16, u16),
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    frame_effects: FrameEffects<'_>,
+) {
+    let Some(sw) = rules.super_weapon(sim.interner.resolve(sw_type_id)) else {
+        return;
+    };
+    let Some(instance) = super_instance(sim, owner, sw_type_id) else {
+        return;
+    };
+    let saved = (instance.charge_start_tick(), instance.charge_duration());
+    instance.set_readiness(true);
+    launch(
+        sim,
+        rules,
+        owner,
+        sw_type_id,
+        sw,
+        cell,
+        overlay_registry,
+        frame_effects,
+    );
+    // `pSuper->Reset()` runs whatever the launch case did.
+    let name = sim.interner.resolve(sw_type_id).to_owned();
+    super::reset_super(
+        &sim.interner,
+        &sim.session,
+        &mut sim.substrate,
+        &mut sim.sound_events,
+        &mut sim.super_weapons,
+        rules,
+        owner,
+        &name,
+    );
+    if let Some(instance) = super_instance(sim, owner, sw_type_id) {
+        instance.store_charge_timer(crate::sim::timer::CdTimer::from_raw(saved.0, saved.1));
+    }
 }
 
 /// The retained Super constructed by the scenario House owner. Native valid

@@ -6407,6 +6407,12 @@ impl RulesPassProcessor {
         // same pass, for every TechnoType family.
         #[cfg(feature = "phobos")]
         self.allocate_warp_in_weapon_references(pass);
+        // Phobos `WarheadTypeExt`'s `Shield.BreakWeapon.Read<true>`
+        // (`Ext/WarheadType/Body.cpp:253`) constructs the weapon it names
+        // before this pass's type bodies, for every WarheadType; the
+        // plain-Find `Shield.Respawn.Weapon` allocates nothing.
+        #[cfg(feature = "phobos")]
+        self.allocate_shield_break_weapon_references(pass);
         // Phobos `RulesExt::LoadBeforeTypeData` runs
         // `InsigniaTypeClass::LoadFromINIList` before this pass's type bodies,
         // so a same-pass `InsigniaType=` resolves against it.
@@ -10385,6 +10391,33 @@ impl RulesPassProcessor {
                 if let Some(weapon) = section.read_type_name(key, 2048) {
                     self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
                 }
+            }
+        }
+    }
+
+    /// Phobos `WarheadTypeExt`'s `Shield.BreakWeapon.Read<true>`: the weapon
+    /// only this warhead key names is constructed before this pass's type
+    /// bodies, so the later merged type read resolves it.
+    #[cfg(feature = "phobos")]
+    fn allocate_shield_break_weapon_references(&mut self, pass: &IniFile) {
+        let members = self
+            .families
+            .get(&RulesTypeFamily::Warhead)
+            .cloned()
+            .unwrap_or_default();
+        for member in members {
+            let name = member.native_stored_id;
+            let section = pass.section(&name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(&name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            if let Some(weapon) = section.read_type_name("Shield.BreakWeapon", 2048) {
+                self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
             }
         }
     }

@@ -1,8 +1,8 @@
 # Optional Phobos Shields
 
-Build with `--features phobos` to register `[ShieldTypes]`, bind a techno with
-`ShieldType=`, and read the warhead-side `Shield.*` overrides. Default builds
-have no shield state and keep gamemd's receiver untouched.
+Build with `--features phobos` to register `[ShieldTypes]` and bind a techno
+with `ShieldType=`. Default builds have no shield state and keep gamemd's
+receiver untouched.
 
 ```ini
 [ShieldTypes]
@@ -61,6 +61,10 @@ Shield.ReceivedDamage.Minimum=      ; integer
 Shield.ReceivedDamage.Maximum=      ; integer
 Shield.ReceivedDamage.MinMultiplier=1.0 ; floating point value
 Shield.ReceivedDamage.MaxMultiplier=1.0 ; floating point value
+
+The full warhead-side family (break, respawn/self-healing modifiers,
+attach/remove/replace) is documented in
+[Warhead shield modifiers](phobos-shield-warhead.md).
 ```
 
 A techno creates a shield only when the bound entry resolves and `Strength` is
@@ -172,19 +176,13 @@ stays open:
 - A building slot anim whose type lacks `ShouldUseCellDrawer=` keeps its cell
   light without the shield `Tint.Intensity`; its colour word still carries
   `Tint.Color`.
-- `IsBrokenAndNonRespawning` gates the bar from the shield type's `Respawn=`
-  only; the warhead `Respawn` timer modifier that can override it is not read.
 - A negative hit on a shield does not remove the attacker's parasite
   (`ShieldClass.cpp` `ParasiteEatingMe` arm).
-- `BreakAnim`, `HitAnim`, `HitFlash*`, `IdleAnim*`, `Respawn.Anim` and the
-  `BreakWeapon`/`Respawn.Weapon` detonations: no animation or self-fire is
-  spawned.
+- `IdleAnim*`: no idle animation is spawned.
 - `SelfHealing.EnabledBy` and `AllowTransfer`/`AllowTransfer.Convert` are read
   but not consumed.
-- Type conversion/deploy transfer (`SyncShieldToAnother`, `ConvertCheck`) and
-  the warhead `Shield.Break`, `Shield.BreakAnim`, `Shield.BreakWeapon`,
-  `Shield.HitAnim`, `Shield.SkipHitAnim`, `Shield.HitFlash`,
-  `Shield.AttachTypes`/`RemoveTypes` effects are not ported.
+- Type conversion/deploy transfer (`SyncShieldToAnother`, `ConvertCheck`) is
+  not ported.
 - Ares EMP does not yet offline a shield (`IsUnderEMP` in native); only the
   building power and warp paths gate it.
 - The shield-armour substitution in targeting/threat (`CanBeTargeted`,
@@ -192,5 +190,5 @@ stays open:
   `0x708AEB`) is not ported; acquisitions and threat still read the techno's
   own armour.
 
-These do not change the absorbed/recovered points; they change how the shield
-looks, sounds and reacts to type changes.
+The warhead-side `Shield.*` keys live in
+[Warhead shield modifiers](phobos-shield-warhead.md).

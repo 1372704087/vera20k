@@ -379,10 +379,11 @@ pub struct WarheadType {
     /// `[General] DecloakDamagedTargets` value.
     #[cfg(feature = "phobos")]
     decloak_damaged_targets: Option<bool>,
-    /// Phobos warhead shield overrides (`Shield.Penetrate`,
-    /// `Shield.AffectTypes`, `Shield.Penetrate.Types`, absorb/pass and
-    /// received-damage bounds). Phobos `WarheadTypeExt` reads them after the
-    /// stock keys; a build without the capability carries only the defaults.
+    /// Phobos warhead shield overrides (`Shield.Penetrate`, the absorb/pass
+    /// and received-damage bounds, `Shield.AffectTypes`, and the Break,
+    /// Respawn, SelfHealing and Attach/Remove/Replace families). Phobos
+    /// `WarheadTypeExt` reads them at `Body.cpp:246..287`; a build without
+    /// the capability carries only the defaults.
     #[cfg(feature = "phobos")]
     pub shield: crate::rules::phobos_shields::ShieldWarheadRules,
     /// Phobos `WarheadTypeExt`'s `Crit.*` block, read in `LoadFromINI` order.

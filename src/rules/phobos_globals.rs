@@ -94,6 +94,33 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:945`): the fallback for a transport type whose own
     /// level is unset.
     pub penetrates_transport_level: i32,
+    /// `[General] OpenTopped.IgnoreRangefinding=`, default `no`
+    /// (`Ext/Rules/Body.cpp:455`, `Body.h:870`): the per-type fallback for
+    /// skipping the passenger-min weapon-range clamp in `WeaponRange`.
+    pub open_topped_ignore_rangefinding: bool,
+    /// `[General] OpenTopped.AllowFiringIfDeactivated=`, default **`yes`**
+    /// (`Body.cpp:456`, `Body.h:871`).
+    pub open_topped_allow_firing_if_deactivated: bool,
+    /// `[General] OpenTopped.AllowFiringIfAttackedByLocomotor=`, default
+    /// **`yes`** (`Body.cpp:457`, `Body.h:872`).
+    pub open_topped_allow_firing_if_attacked_by_locomotor: bool,
+    /// `[General] OpenTopped.ShareTransportTarget=`, default **`yes`**
+    /// (`Body.cpp:458`, `Body.h:873`).
+    pub open_topped_share_transport_target: bool,
+    /// `[General] OpenTopped.UseTransportRangeModifiers=`, default `no`
+    /// (`Body.cpp:459`, `Body.h:874`). Also read into `AttachEffectGlobals`.
+    pub open_topped_use_transport_range_modifiers: bool,
+    /// `[General] OpenTopped.CheckTransportDisableWeapons=`, default `no`
+    /// (`Body.cpp:460`, `Body.h:875`). Also read into `AttachEffectGlobals`.
+    pub open_topped_check_transport_disable_weapons: bool,
+    /// `[General] OpenTopped.DecloakToFire=`, default `no`
+    /// (`Body.cpp:461`, `Body.h:876`). The docs at
+    /// `docs/New-or-Enhanced-Logics.md:1912` claim `yes`; the constructor is
+    /// `{ false }`, so the source wins.
+    pub open_topped_decloak_to_fire: bool,
+    /// `[General] OpenTopped.FireWhileMoving=`, default **`yes`**
+    /// (`Body.cpp:462`, `Body.h:877`).
+    pub open_topped_fire_while_moving: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -118,6 +145,14 @@ impl Default for PhobosGlobals {
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
             penetrates_transport_level: 10,
+            open_topped_ignore_rangefinding: false,
+            open_topped_allow_firing_if_deactivated: true,
+            open_topped_allow_firing_if_attacked_by_locomotor: true,
+            open_topped_share_transport_target: true,
+            open_topped_use_transport_range_modifiers: false,
+            open_topped_check_transport_disable_weapons: false,
+            open_topped_decloak_to_fire: false,
+            open_topped_fire_while_moving: true,
         }
     }
 }
@@ -163,6 +198,41 @@ impl PhobosGlobals {
         globals.force_aa_weapon_in_range_apply_range_modifiers = general.read_bool(
             "ForceAAWeapon.InRange.ApplyRangeModifiers",
             globals.force_aa_weapon_in_range_apply_range_modifiers,
+        );
+        // The eight `[General] OpenTopped.*` `Valueable<bool>` switches
+        // (`Ext/Rules/Body.cpp:455-462`); `Valueable` has no unset state, so
+        // these are plain `read_bool` reads from the constructor defaults.
+        globals.open_topped_ignore_rangefinding = general.read_bool(
+            "OpenTopped.IgnoreRangefinding",
+            globals.open_topped_ignore_rangefinding,
+        );
+        globals.open_topped_allow_firing_if_deactivated = general.read_bool(
+            "OpenTopped.AllowFiringIfDeactivated",
+            globals.open_topped_allow_firing_if_deactivated,
+        );
+        globals.open_topped_allow_firing_if_attacked_by_locomotor = general.read_bool(
+            "OpenTopped.AllowFiringIfAttackedByLocomotor",
+            globals.open_topped_allow_firing_if_attacked_by_locomotor,
+        );
+        globals.open_topped_share_transport_target = general.read_bool(
+            "OpenTopped.ShareTransportTarget",
+            globals.open_topped_share_transport_target,
+        );
+        globals.open_topped_use_transport_range_modifiers = general.read_bool(
+            "OpenTopped.UseTransportRangeModifiers",
+            globals.open_topped_use_transport_range_modifiers,
+        );
+        globals.open_topped_check_transport_disable_weapons = general.read_bool(
+            "OpenTopped.CheckTransportDisableWeapons",
+            globals.open_topped_check_transport_disable_weapons,
+        );
+        globals.open_topped_decloak_to_fire = general.read_bool(
+            "OpenTopped.DecloakToFire",
+            globals.open_topped_decloak_to_fire,
+        );
+        globals.open_topped_fire_while_moving = general.read_bool(
+            "OpenTopped.FireWhileMoving",
+            globals.open_topped_fire_while_moving,
         );
         globals
     }

@@ -90,6 +90,7 @@ Supported extensions:
 - [Airstrike target eligibility](phobos-airstrike-targets.md) (`AllowAirstrike` per TechnoType, `AirstrikeTargets` per warhead, and object targets for non-buildings)
 - [Deployable-building alternate cameo](phobos-deployable-cameo.md) (Ares' `UndeploysInto` cameo arm, fixed)
 - [Animation bracket draw offsets](phobos-anim-offset.md) (`XDrawOffset.*` and `YDrawOffset.*` selection-bracket keys for owned animations)
+- [OpenTopped per-type properties](phobos-open-topped.md) (eleven `OpenTopped.*` TechnoType keys, eight `[General]` globals, two fallback chains and the firing/range/cloak/temporal hooks)
 
 ## Original project and authors
 

@@ -50,47 +50,62 @@ impl FlyingCredits {
         ) {
             return;
         }
-        let Some(actor) = sim.entities().get(event.entity_id) else {
-            return;
+        let actor = match event.entity_id {
+            Some(id) => match sim.entities().get(id) {
+                Some(actor) => Some(actor),
+                None => return,
+            },
+            // Phobos `FlyingStrings::AddMoneyString` with `pSource = nullptr`
+            // (warhead `TransactMoney`): no anchor object and no
+            // visual-character test, only the coordinates and the owner.
+            None => None,
         };
         // Phobos `FlyingStrings::AddMoneyString`: a non-All
         // `DisplaySoylentToHouses` compares the paying House with the local
         // player before the source's visual-character test.
         #[cfg(feature = "phobos")]
-        if let Some(flags) = event.display_to
-            && !crate::sim::combat::can_target_house(
+        if let Some(flags) = event.display_to {
+            let Some(owner) = event
+                .display_owner
+                .or_else(|| actor.map(|actor| actor.owner()))
+            else {
+                return;
+            };
+            if !crate::sim::combat::can_target_house(
                 flags,
-                event.display_owner.unwrap_or(actor.owner()),
+                owner,
                 viewer,
                 sim.houses(),
                 sim.house_alliances(),
                 sim.interner(),
-            )
-        {
-            return;
+            ) {
+                return;
+            }
         }
-        let observer = super::instances::observer_draw_context(
-            sim,
-            actor,
-            Some(sim.interner().resolve(viewer)),
-            Some(viewer),
-            Some(rules),
-        );
-        if actor.visual_character(
-            observer.cloaking_stages,
-            observer.invisible,
-            actor.discovery.owned_by_current_house(),
-            VisualCharacterQuery::screen(
-                true,
-                observer.observer_present,
-                observer.detects_cloak,
-                observer.owner_is_mutually_allied,
-                observer.is_campaign,
-                false,
-            ),
-        ) == 5
-        {
-            return;
+        if let Some(actor) = actor {
+            let observer = super::instances::observer_draw_context(
+                sim,
+                actor,
+                Some(sim.interner().resolve(viewer)),
+                Some(viewer),
+                Some(rules),
+            );
+            if actor.visual_character(
+                observer.cloaking_stages,
+                observer.invisible,
+                actor.discovery.owned_by_current_house(),
+                VisualCharacterQuery::screen(
+                    true,
+                    observer.observer_present,
+                    observer.detects_cloak,
+                    observer.owner_is_mutually_allied,
+                    observer.is_campaign,
+                    false,
+                ),
+            ) == 5
+            {
+                return;
+            }
         }
         //100444ED..10044527: native format is "%c$%d" with wrapping ABS.
         // Keep the i32::MIN representation rather than panicking in debug.
@@ -199,7 +214,7 @@ mod tests {
         sim.session_mut_for_test()
             .set_current_house_for_test(Some(viewer));
         let event = BountyText {
-            entity_id: actor,
+            entity_id: Some(actor),
             amount: 30,
             coord: ProjectileCoord {
                 x: 12 * 256,
@@ -290,7 +305,7 @@ Sight=0
             .set_current_house_for_test(Some(viewer));
         sim.fog_mut_for_test().reveal_all_for_owner(viewer);
         let event = BountyText {
-            entity_id: actor,
+            entity_id: Some(actor),
             amount: 40,
             coord: ProjectileCoord {
                 x: 16 * 256,
@@ -347,7 +362,7 @@ Sight=0
             .set_current_house_for_test(Some(viewer));
         sim.fog_mut_for_test().reveal_all_for_owner(viewer);
         let event = BountyText {
-            entity_id: tank,
+            entity_id: Some(tank),
             amount: -40,
             coord: ProjectileCoord {
                 x: 16 * 256,
@@ -374,5 +389,62 @@ Sight=0
             },
         );
         assert_eq!(credits.live[0].text, "-$40");
+    }
+
+    /// Phobos `FlyingStrings::AddMoneyString`'s warhead `TransactMoney` call
+    /// passes `pSource = nullptr`: the label has no anchor object, so the
+    /// source's visual-character test is skipped and the House filter reads
+    /// the event's explicit owner.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_source_less_money_label_uses_its_explicit_owner() {
+        use crate::rules::phobos_shields::AffectedHouse;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]
+0=TANK
+[TANK]
+Strength=100
+Sight=0
+",
+        ))
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 23);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        let tank = sim
+            .spawn_object("TANK", "Americans", 16, 16, 64, &rules)
+            .unwrap();
+        let viewer = sim.entities().get(tank).unwrap().owner();
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(viewer));
+        sim.fog_mut_for_test().reveal_all_for_owner(viewer);
+        let event = BountyText {
+            entity_id: None,
+            amount: 9,
+            coord: ProjectileCoord {
+                x: 16 * 256,
+                y: 16 * 256,
+                z: 0,
+            },
+            z_offset: 0,
+            display_to: Some(AffectedHouse::OWNER),
+            display_owner: Some(viewer),
+            pixel_offset: [0, 0],
+        };
+        let mut credits = FlyingCredits::default();
+        credits.admit(&sim, &rules, event);
+        assert_eq!(credits.live[0].text, "+$9");
+        credits.admit(
+            &sim,
+            &rules,
+            BountyText {
+                display_to: Some(AffectedHouse::ENEMIES),
+                ..event
+            },
+        );
+        assert_eq!(
+            credits.live.len(),
+            1,
+            "the explicit owner fails the enemies filter"
+        );
     }
 }

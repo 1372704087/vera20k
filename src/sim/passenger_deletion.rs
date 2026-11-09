@@ -449,7 +449,7 @@ fn emit_soylent_text(
         sim,
         rules,
         BountyText {
-            entity_id: transport,
+            entity_id: Some(transport),
             amount,
             coord: crate::sim::projectile::ProjectileCoord::new(coord.x, coord.y, coord.z),
             z_offset: 0,

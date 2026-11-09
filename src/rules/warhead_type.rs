@@ -450,6 +450,11 @@ pub struct WarheadType {
     #[cfg(feature = "phobos")]
     pub phobos_penetrates_transport:
         crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules,
+    /// Phobos `TransactMoney.*` (`Ext/WarheadType/Body.cpp:159-163`): the
+    /// amount a detonation moves to the firing house and its optional flying
+    /// credit label (`Ext/WarheadType/Detonate.cpp:102-111`).
+    #[cfg(feature = "phobos")]
+    pub transact_money: crate::rules::phobos_transact_money::TransactMoneyRules,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -826,6 +831,9 @@ impl WarheadType {
                 crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules::from_section(
                     section,
                 ),
+            #[cfg(feature = "phobos")]
+            transact_money:
+                crate::rules::phobos_transact_money::TransactMoneyRules::from_section(section),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

@@ -818,7 +818,7 @@ fn emit_drain_money_text(
             sim,
             rules,
             BountyText {
-                entity_id: drainer_id,
+                entity_id: Some(drainer_id),
                 amount,
                 coord: ProjectileCoord::new(location.x, location.y, location.z),
                 z_offset: 0,
@@ -855,7 +855,7 @@ fn emit_drain_money_text(
             sim,
             rules,
             BountyText {
-                entity_id: victim_id,
+                entity_id: Some(victim_id),
                 amount: amount.wrapping_neg(),
                 coord: ProjectileCoord::new(coords.x, coords.y, coords.z),
                 z_offset: 0,
@@ -878,7 +878,7 @@ fn emit_drain_money_text(
             sim,
             rules,
             BountyText {
-                entity_id: victim_id,
+                entity_id: Some(victim_id),
                 amount: amount.wrapping_neg(),
                 coord: ProjectileCoord::new(coords.x, coords.y, coords.z),
                 z_offset: 0,
@@ -1935,7 +1935,7 @@ mod tests {
         let events = events.borrow();
         assert_eq!(events.len(), 2, "one label per drain block");
         let source = events[0];
-        assert_eq!(source.entity_id, disk);
+        assert_eq!(source.entity_id, Some(disk));
         assert_eq!(source.amount, 13);
         assert_eq!(
             source.coord,
@@ -1947,7 +1947,7 @@ mod tests {
         assert_eq!(source.pixel_offset, [6, -4]);
 
         let target = events[1];
-        assert_eq!(target.entity_id, refinery);
+        assert_eq!(target.entity_id, Some(refinery));
         assert_eq!(target.amount, -13);
         assert_eq!(
             target.coord,
@@ -2030,14 +2030,14 @@ mod tests {
         let events = events.borrow();
         assert_eq!(events.len(), 2);
         let source = events[0];
-        assert_eq!(source.entity_id, disk);
+        assert_eq!(source.entity_id, Some(disk));
         assert_eq!(
             (source.display_to, source.pixel_offset),
             (Some(AffectedHouse::ENEMIES), [6, -4]),
             "the drainer label falls back to the global Houses and its own offset"
         );
         let target = events[1];
-        assert_eq!(target.entity_id, refinery);
+        assert_eq!(target.entity_id, Some(refinery));
         assert_eq!(target.amount, -13);
         assert_eq!(
             target.coord,

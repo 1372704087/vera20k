@@ -196,6 +196,8 @@ pub mod phobos_spawner;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
+pub mod phobos_transact_money;
+#[cfg(feature = "phobos")]
 pub mod phobos_turret_anim;
 #[cfg(feature = "phobos")]
 pub mod phobos_units;

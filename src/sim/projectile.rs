@@ -685,12 +685,19 @@ pub(crate) fn projectile_slope_reflect_double(
 /// direction of its low byte, truncated; the impact itself when either axis
 /// leaves the 512-cell map). So every cluster after the first lands around
 /// the impact, never around the previous cluster.
+///
+/// Phobos `BulletClass_Explode_Cluster` (`0x46902C`,
+/// `Ext/Bullet/Hooks.cpp:352`) draws `RandomRanged(min, max)` from the firing
+/// type's `ClusterScatter.Min=`/`Max=` instead, so the caller passes those
+/// bounds; stock builds pass `0x100`/`0x200`.
 pub fn projectile_next_cluster_coord(
     grid: crate::map::cell_index::CellGrid,
     impact: ProjectileCoord,
+    min: i32,
+    max: i32,
     scenario_rng: &mut SimRng,
 ) -> ProjectileCoord {
-    let distance = scenario_rng.next_range_i32_inclusive(0x100, 0x200);
+    let distance = scenario_rng.next_range_i32_inclusive(min, max);
     let (x, y) = crate::sim::combat::inviso_scatter::random_direction_coord(
         grid,
         scenario_rng,
@@ -4147,6 +4154,8 @@ mod tests {
         let coordinate = projectile_next_cluster_coord(
             crate::map::cell_index::CellGrid::Retail,
             ProjectileCoord::new(20 * 256 + 128, 20 * 256 + 128, 77),
+            0x100,
+            0x200,
             &mut cluster_rng,
         );
         assert_eq!(

@@ -4543,9 +4543,21 @@ pub(crate) fn commit_projectile_detonations_inline(
                 super::airburst::emit(world, rules, &live_tail);
             }
             if cluster_draws {
+                // Phobos `BulletClass_Explode_Cluster` (`0x46902C`,
+                // `Ext/Bullet/Hooks.cpp:352-378`) replaces the stock
+                // `RandomRanged(0x100, 0x200)` bounds with the firing type's
+                // `ClusterScatter.Min=`/`Max=` leptons.
+                #[cfg(feature = "phobos")]
+                let (scatter_min, scatter_max) = projectile_type.map_or((0x100, 0x200), |kind| {
+                    (kind.cluster_scatter_min, kind.cluster_scatter_max)
+                });
+                #[cfg(not(feature = "phobos"))]
+                let (scatter_min, scatter_max) = (0x100, 0x200);
                 coordinate = projectile_next_cluster_coord(
                     world.cell_grid(),
                     detonation.impact,
+                    scatter_min,
+                    scatter_max,
                     &mut world.scenario_rng,
                 );
             }

@@ -7715,6 +7715,8 @@ fn inviso_detonation_draws(
     let _ = crate::sim::projectile::projectile_next_cluster_coord(
         crate::map::cell_index::CellGrid::Retail,
         ProjectileCoord::new(0, 0, 0),
+        0x100,
+        0x200,
         rng,
     );
     effect
@@ -12074,6 +12076,71 @@ fn clusters_scatter_around_the_impact() {
         assert!(
             (255.0..=513.0).contains(&distance),
             "each later cluster lies 256..512 leptons from the impact, got {distance}"
+        );
+    }
+}
+
+/// Phobos `BulletClass_Explode_Cluster` (`0x46902C`,
+/// `Ext/Bullet/Hooks.cpp:352-378`): the firing type's
+/// `ClusterScatter.Min=`/`Max=` replace the stock 256..512 lepton bounds of
+/// each cluster successor's distance from the impact.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_cluster_scatter_overrides_the_successor_distance() {
+    let mut rules = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n\
+         [VehicleTypes]\n0=LAUNCHER\n\
+         [AircraftTypes]\n\
+         [BuildingTypes]\n\
+         [LAUNCHER]\nStrength=100\nPrimary=ClusterGun\n\
+         [ClusterGun]\nDamage=10\nProjectile=ClusterP\nWarhead=Blast\n\
+         [ClusterP]\nCluster=5\nClusterScatter.Min=0.5\nClusterScatter.Max=0.5\n\
+         [Warheads]\n0=Blast\n[Animations]\n0=EXPLOSML\n\
+         [Blast]\nAnimList=EXPLOSML\n\
+         Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    ))
+    .expect("cluster rules");
+    initialize_fixture_anim_types(&mut rules);
+    let mut interner = test_interner();
+    let mut entities = EntityStore::new();
+    let impact = ProjectileCoord::new(40 * 256 + 64, 50 * 256 + 200, 0);
+    let detonation = ProjectileDetonation {
+        projectile_id: 1,
+        source_id: 77,
+        target: ProjectileTarget::Cell { rx: 40, ry: 50 },
+        impact,
+        payload: payload_from_weapon(
+            10,
+            interner.intern("Blast"),
+            interner.intern("ClusterGun"),
+            &rules,
+            &mut interner,
+        ),
+        reason: ProjectileDetonationReason::ReachedTarget,
+    };
+    let mut trace = FixtureTrace::default();
+    emit_detonations(
+        &[detonation],
+        &mut entities,
+        &rules,
+        &mut interner,
+        false,
+        &mut SimRng::new(11),
+        Some(&mut trace),
+    );
+    let points: Vec<(i32, i32)> = trace
+        .constructed_anims
+        .iter()
+        .map(|effect| (effect.world_coord.x, effect.world_coord.y))
+        .collect();
+    assert_eq!(points.len(), 5, "one anim per cluster");
+    assert_eq!(points[0], (impact.x, impact.y), "the first at the impact");
+    for &(x, y) in &points[1..] {
+        let (dx, dy) = (f64::from(x - impact.x), f64::from(y - impact.y));
+        let distance = dx.hypot(dy);
+        assert!(
+            (127.0..=129.0).contains(&distance),
+            "ClusterScatter.Min=Max=0.5 puts every later cluster 128 leptons from the impact, got {distance}"
         );
     }
 }

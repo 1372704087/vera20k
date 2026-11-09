@@ -109,6 +109,16 @@ pub struct ProjectileType {
     // --- Integer fields ---
     /// Number of sub-projectiles on detonation. (+0x2AC)
     pub cluster: i32,
+    /// Phobos `ClusterScatter.Min=` (`Ext/BulletType/Body.cpp:46`,
+    /// `Valueable<Leptons>`): lower `RandomRanged` bound, in leptons, of each
+    /// cluster successor's distance from the impact. Constructor default 256
+    /// (`Ext/BulletType/Body.h:111`).
+    #[cfg(feature = "phobos")]
+    pub cluster_scatter_min: i32,
+    /// Phobos `ClusterScatter.Max=` (`:47`), upper bound; default 512
+    /// (`Ext/BulletType/Body.h:112`).
+    #[cfg(feature = "phobos")]
+    pub cluster_scatter_max: i32,
     /// Number of shrapnel fragments on impact. (+0x2B8)
     pub shrapnel_count: i32,
     /// Altitude at which the projectile detonates (for airburst). (+0x2BC)
@@ -469,6 +479,10 @@ impl ProjectileType {
             flat: false,
             // Integer fields
             cluster: section.read_int("Cluster", 1),
+            #[cfg(feature = "phobos")]
+            cluster_scatter_min: section.read_phobos_leptons("ClusterScatter.Min", 256),
+            #[cfg(feature = "phobos")]
+            cluster_scatter_max: section.read_phobos_leptons("ClusterScatter.Max", 512),
             shrapnel_count: section.read_int("ShrapnelCount", 0),
             #[cfg(feature = "phobos")]
             shrapnel_affects_ground: section
@@ -654,6 +668,28 @@ mod tests {
         );
         assert_eq!(gravity("Q"), None);
         assert_eq!(gravity("R"), None);
+    }
+
+    /// Phobos `ClusterScatter.Min=`/`Max=` (`Valueable<Leptons>`): absent
+    /// keeps the constructor's 256/512 leptons, a value is read in cells and
+    /// truncated to leptons, and `<default>` keeps the current value.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_cluster_scatter_reads_cell_leptons_with_constructor_defaults() {
+        let ini = IniFile::from_str(
+            "[P]\nClusterScatter.Min=0.5\nClusterScatter.Max=2.25\n\
+             [Q]\nClusterScatter.Min=<default>\nClusterScatter.Max=<default>\n",
+        );
+        let scatter = |name: &str| {
+            let projectile =
+                ProjectileType::from_ini_section(name, ini.section(name).unwrap(), None);
+            (
+                projectile.cluster_scatter_min,
+                projectile.cluster_scatter_max,
+            )
+        };
+        assert_eq!(scatter("P"), (128, 576));
+        assert_eq!(scatter("Q"), (256, 512));
     }
 
     #[test]

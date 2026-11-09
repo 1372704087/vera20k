@@ -1,6 +1,7 @@
-//! Phobos `RulesExt::LoadFromINI` globals, read from `[CombatDamage]` and
-//! `[AudioVisual]` on every rules pass (`Ext/Rules/Body.cpp:291-304`,
-//! `:629-632` and the shrapnel block).
+//! Phobos `RulesExt::LoadFromINI` globals, read from `[CombatDamage]`,
+//! `[AudioVisual]` and `[General]` on every rules pass
+//! (`Ext/Rules/Body.cpp:230-232`, `:291-304`, `:629-632` and the shrapnel
+//! block).
 //!
 //! Phobos reads these in its own extension reader, once per `Process`, with the
 //! current field as the default; a later layer changes only the keys it names.
@@ -79,6 +80,16 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:728`): fallback for a building's own
     /// `DisplayIncome.Houses` in the drain target label.
     pub display_income_houses: AffectedHouse,
+    /// `[General] ForceWeapon.InRange.TechnoOnly=`, default **`yes`**
+    /// (`Ext/Rules/Body.h:674`): the per-type fallback for the in-range
+    /// force-weapon gate.
+    pub force_weapon_in_range_techno_only: bool,
+    /// `[General] ForceWeapon.InRange.ApplyRangeModifiers=`, default `no`
+    /// (`Ext/Rules/Body.h:675`).
+    pub force_weapon_in_range_apply_range_modifiers: bool,
+    /// `[General] ForceAAWeapon.InRange.ApplyRangeModifiers=`, default `no`
+    /// (`Ext/Rules/Body.cpp:232`, constructor `Body.h:676`).
+    pub force_aa_weapon_in_range_apply_range_modifiers: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -99,6 +110,9 @@ impl Default for PhobosGlobals {
             drain_money_display_on_target: false,
             drain_money_display_on_target_use_display_income: true,
             display_income_houses: AffectedHouse::ALL,
+            force_weapon_in_range_techno_only: true,
+            force_weapon_in_range_apply_range_modifiers: false,
+            force_aa_weapon_in_range_apply_range_modifiers: false,
         }
     }
 }
@@ -129,6 +143,21 @@ impl PhobosGlobals {
             audio_visual,
             "DisplayIncome.Houses",
             globals.display_income_houses,
+        );
+        // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
+        // the three sections share no key, so their order does not matter.
+        let general = ini.section_or_empty("General");
+        globals.force_weapon_in_range_techno_only = general.read_bool(
+            "ForceWeapon.InRange.TechnoOnly",
+            globals.force_weapon_in_range_techno_only,
+        );
+        globals.force_weapon_in_range_apply_range_modifiers = general.read_bool(
+            "ForceWeapon.InRange.ApplyRangeModifiers",
+            globals.force_weapon_in_range_apply_range_modifiers,
+        );
+        globals.force_aa_weapon_in_range_apply_range_modifiers = general.read_bool(
+            "ForceAAWeapon.InRange.ApplyRangeModifiers",
+            globals.force_aa_weapon_in_range_apply_range_modifiers,
         );
         globals
     }

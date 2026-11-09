@@ -1259,6 +1259,19 @@ pub(crate) fn select_weapon_index_against_in_query(
         Some(TargetKind::Cell(rx, ry)) => Some(cell_target_facts(rx, ry, terrain)),
         None => None,
     };
+    #[cfg(feature = "phobos")]
+    if let Some(index) = phobos_force_weapon_index(
+        rules,
+        attacker_entity,
+        attacker_obj,
+        attacker,
+        target,
+        target_facts.as_ref(),
+        world,
+        interner,
+    ) {
+        return Some(index);
+    }
     Some(what_weapon_should_i_use(
         rules,
         attacker_obj,
@@ -1275,6 +1288,185 @@ pub(crate) fn select_weapon_index_against_in_query(
             )
         },
     ))
+}
+
+/// Phobos `TechnoTypeExt::SelectForceWeapon` (`Ext/TechnoType/Body.cpp:60-155`)
+/// under the hook at `0x6F3428` (`Ext/Techno/Hooks.Firing.cpp:94-118`): a
+/// `-1` falls through to the native ladder, otherwise the slot is returned
+/// before native selection. Target-state arms run first, then the ordered
+/// in-range lists, then the class arms; every arm needs a live Techno target.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn phobos_force_weapon_index(
+    rules: &RuleSet,
+    attacker_entity: &GameEntity,
+    attacker_obj: &ObjectType,
+    attacker: &AttackerFacts,
+    target: Option<&TargetKind>,
+    target_facts: Option<&TargetFacts<'_>>,
+    world: &Simulation,
+    interner: &StringInterner,
+) -> Option<i32> {
+    let settings = &attacker_obj.phobos_force_weapon;
+    if !settings.any() {
+        return None;
+    }
+    let target = target?;
+    let target_entity = match *target {
+        TargetKind::Entity(id) => world.substrate.entities.get(id),
+        TargetKind::Cell(..) => None,
+    };
+    let target_obj =
+        target_entity.and_then(|entity| interner.object_type(entity.type_ref(), rules));
+    let target_in_air = match target_facts {
+        Some(TargetFacts::Techno { flight, .. }) => flight.high(),
+        _ => false,
+    };
+    let mut force = -1;
+    if let (Some(entity), Some(obj)) = (target_entity, target_obj) {
+        let cloak_state = entity.cloak.as_ref().map_or(0, |cloak| cloak.state());
+        if settings.naval_decloaked >= 0 && obj.cloakable && obj.naval && cloak_state == 0 {
+            force = settings.naval_decloaked;
+        } else if settings.cloaked >= 0 && cloak_state == 2 {
+            force = settings.cloaked;
+        } else if settings.disguised >= 0
+            && entity
+                .disguise
+                .as_ref()
+                .is_some_and(|state| state.is_disguised())
+        {
+            force = settings.disguised;
+        } else if settings.under_emp >= 0 && entity.emp_remaining() > 0 {
+            force = settings.under_emp;
+        }
+    }
+    let globals = &rules.phobos_globals;
+    if force == -1 {
+        let techno_only = settings
+            .in_range_techno_only
+            .unwrap_or(globals.force_weapon_in_range_techno_only);
+        let any_in_range = !settings.in_range.is_empty() || !settings.aa_in_range.is_empty();
+        if any_in_range
+            && (target_entity.is_some() || !techno_only)
+            && let Some(facts) = target_facts
+        {
+            let use_aa = !settings.aa_in_range.is_empty() && target_in_air;
+            let (indices, overrides) = if use_aa {
+                (&settings.aa_in_range, &settings.aa_in_range_overrides)
+            } else {
+                (&settings.in_range, &settings.in_range_overrides)
+            };
+            let apply = if use_aa {
+                settings
+                    .aa_in_range_apply_range_modifiers
+                    .unwrap_or(globals.force_aa_weapon_in_range_apply_range_modifiers)
+            } else {
+                settings
+                    .in_range_apply_range_modifiers
+                    .unwrap_or(globals.force_weapon_in_range_apply_range_modifiers)
+            };
+            let resolve = |index: i32| {
+                get_weapon(
+                    attacker_entity,
+                    attacker_obj,
+                    index,
+                    &world.substrate.entities,
+                    rules,
+                    interner,
+                )
+            };
+            let default_index =
+                what_weapon_should_i_use(rules, attacker_obj, attacker, Some(facts), resolve);
+            let default_weapon = resolve(default_index);
+            let source = crate::sim::attach_effect::range_modifier_source(
+                attacker_entity,
+                Some(&world.substrate.entities),
+                rules,
+                interner,
+            );
+            if let Some(distance) =
+                super::object_distance_to(attacker_entity.stable_id(), target, world)
+            {
+                for (slot, &index) in indices.iter().enumerate() {
+                    let mut range = if overrides.get(slot).is_some_and(|&cells| cells > 0.0) {
+                        (overrides[slot] * 256.0) as i32
+                    } else {
+                        0
+                    };
+                    if range > 0 || apply {
+                        let weapon = if index >= 0 {
+                            resolve(index)
+                        } else {
+                            default_weapon
+                        };
+                        if let Some(weapon) = weapon {
+                            let base = if range > 0 {
+                                range
+                            } else {
+                                weapon.range_leptons
+                            };
+                            range = if apply {
+                                crate::sim::attach_effect::range_with_attach_effects(
+                                    source, &weapon.id, base, rules,
+                                )
+                            } else {
+                                base
+                            };
+                        }
+                    }
+                    if index >= 0 {
+                        if distance <= range {
+                            force = index;
+                            break;
+                        }
+                    } else if distance <= range {
+                        // `0x6F3428` list arm: a matching gap entry stops the
+                        // walk without forcing a slot.
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    if force == -1
+        && let Some(obj) = target_obj
+    {
+        match target_entity.map(|entity| entity.category()) {
+            Some(EntityCategory::Structure) => {
+                force = settings.buildings;
+                if settings.defenses >= 0
+                    && obj.build_cat == Some(crate::rules::object_type::BuildCategory::Combat)
+                {
+                    force = settings.defenses;
+                }
+            }
+            Some(EntityCategory::Infantry) => {
+                force = if settings.aa_infantry >= 0 && target_in_air {
+                    settings.aa_infantry
+                } else {
+                    settings.infantry
+                };
+            }
+            Some(EntityCategory::Unit) => {
+                force = if settings.aa_units >= 0 && target_in_air {
+                    settings.aa_units
+                } else if settings.naval_units >= 0 && obj.naval {
+                    settings.naval_units
+                } else {
+                    settings.units
+                };
+            }
+            Some(EntityCategory::Aircraft) => {
+                force = if settings.aa_aircraft >= 0 && target_in_air {
+                    settings.aa_aircraft
+                } else {
+                    settings.aircraft
+                };
+            }
+            _ => {}
+        }
+    }
+    (force >= 0).then_some(force)
 }
 
 /// The occupied arm of `BuildingClass::GetWeapon @ 0x004526F0`, which answers

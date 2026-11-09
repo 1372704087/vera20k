@@ -7088,6 +7088,112 @@ fn selected_weapon_range(
     .map(|selected| selected.weapon.range_leptons)
 }
 
+/// Phobos `TechnoTypeExt::SelectForceWeapon` under the hook at `0x6F3428`
+/// (`Ext/Techno/Hooks.Firing.cpp:94-118`): a configured class arm answers the
+/// slot before the native ladder, and `ForceAAWeapon.Aircraft` takes over from
+/// `ForceWeapon.Aircraft` once the target is airborne.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_force_weapon_replaces_the_native_selection() {
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [InfantryTypes]\n\
+         [VehicleTypes]\n0=TANK\n1=HTNK\n2=SIEGE\n\
+         [AircraftTypes]\n0=PLANE\n\
+         [TANK]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         Primary=Gun\nSecondary=AA\n\
+         ForceWeapon.Units=1\nForceAAWeapon.Aircraft=1\nForceWeapon.Aircraft=0\n\
+         [SIEGE]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         Primary=Gun\nSecondary=AA\n\
+         ForceWeapon.InRange=1\nForceWeapon.InRange.Overrides=4\nForceWeapon.Units=0\n\
+         [HTNK]\nStrength=400\nArmor=heavy\n\
+         [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\n\
+         [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=Invisible\nWarhead=WH\nAA=yes\n\
+         [AA]\nDamage=10\nROF=50\nRange=8\nProjectile=Invisible\nWarhead=WH\nAA=yes\n\
+         [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("force weapon rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+    let tank = sim
+        .spawn_object("TANK", "Americans", 10, 10, 0, &rules)
+        .expect("tank spawns");
+    let target = sim
+        .spawn_object("HTNK", "Russians", 12, 10, 0, &rules)
+        .expect("target spawns");
+    let plane = sim
+        .spawn_object("PLANE", "Russians", 12, 12, 0, &rules)
+        .expect("plane spawns");
+    let select = |sim: &crate::sim::world::Simulation, target_id: u64| {
+        let entity = sim.entities().get(tank).unwrap();
+        let object = rules.object("TANK").unwrap();
+        combat_weapon::select_weapon_against(
+            &rules,
+            entity,
+            object,
+            &combat_weapon::attacker_facts(entity, object),
+            Some(&TargetKind::Entity(target_id)),
+            sim,
+            &sim.interner,
+            sim.resolved_terrain.as_ref(),
+            Some(&sim.house_alliances),
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(select(&sim, target), 1, "ForceWeapon.Units answers slot 1");
+    assert_eq!(
+        select(&sim, plane),
+        0,
+        "a grounded aircraft takes ForceWeapon.Aircraft, not the AA arm"
+    );
+    sim.substrate
+        .entities
+        .get_mut(plane)
+        .unwrap()
+        .position
+        .set_exact_z_leptons_for_test(Some(1024));
+    assert_eq!(
+        select(&sim, plane),
+        1,
+        "an airborne aircraft takes ForceAAWeapon.Aircraft"
+    );
+
+    // `ForceWeapon.InRange` walks the list and forces slot 1 inside four
+    // cells; outside it falls through to ForceWeapon.Units=0.
+    let siege = sim
+        .spawn_object("SIEGE", "Americans", 10, 14, 0, &rules)
+        .expect("siege spawns");
+    let near = sim
+        .spawn_object("HTNK", "Russians", 12, 14, 0, &rules)
+        .expect("near target spawns");
+    let far = sim
+        .spawn_object("HTNK", "Russians", 18, 14, 0, &rules)
+        .expect("far target spawns");
+    let select_siege = |sim: &crate::sim::world::Simulation, target_id: u64| {
+        let entity = sim.entities().get(siege).unwrap();
+        let object = rules.object("SIEGE").unwrap();
+        combat_weapon::select_weapon_against(
+            &rules,
+            entity,
+            object,
+            &combat_weapon::attacker_facts(entity, object),
+            Some(&TargetKind::Entity(target_id)),
+            sim,
+            &sim.interner,
+            sim.resolved_terrain.as_ref(),
+            Some(&sim.house_alliances),
+        )
+        .unwrap()
+        .0
+    };
+    assert_eq!(select_siege(&sim, near), 1, "inside the override range");
+    assert_eq!(
+        select_siege(&sim, far),
+        0,
+        "outside the override range the class arm answers"
+    );
+}
+
 /// `TechnoClass::CanFireAtTarget @ 0x006F7780` is `CanFireAt(target,
 /// SelectWeapon(target))` (`0x006F77B0`, then `InRange @ 0x006F7220`), and
 /// `FootClass::Approach_Target @ 0x004D5690` measures the same way: neither

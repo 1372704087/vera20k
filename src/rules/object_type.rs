@@ -903,6 +903,10 @@ pub struct ObjectType {
     /// [`RuleSet::phobos_jumpjet_tilt`](crate::rules::ruleset::RuleSet).
     #[cfg(feature = "phobos")]
     pub phobos_jumpjet_tilt: crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltType,
+    /// Phobos `ForceWeapon.*` / `ForceAAWeapon.*`
+    /// (`Ext/TechnoType/Body.cpp:905-936`), the forced SelectWeapon slot.
+    #[cfg(feature = "phobos")]
+    pub phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4762,6 +4766,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_jumpjet_tilt:
                 crate::rules::phobos_jumpjet_tilt::PhobosJumpjetTiltType::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

@@ -7,6 +7,28 @@ fn read(text: &str) -> PhobosGlobals {
     PhobosGlobals::from_ini(&IniFile::from_str(text))
 }
 
+/// `[General]` force-weapon fallbacks (`Ext/Rules/Body.cpp:230-232`,
+/// `Ext/Rules/Body.h:674-676`).
+#[test]
+fn the_force_weapon_globals_default_and_read_from_general() {
+    let defaults = PhobosGlobals::default();
+    assert!(
+        defaults.force_weapon_in_range_techno_only,
+        "TechnoOnly constructs yes"
+    );
+    assert!(!defaults.force_weapon_in_range_apply_range_modifiers);
+    assert!(!defaults.force_aa_weapon_in_range_apply_range_modifiers);
+
+    let set = read(
+        "[General]\nForceWeapon.InRange.TechnoOnly=no\n\
+         ForceWeapon.InRange.ApplyRangeModifiers=yes\n\
+         ForceAAWeapon.InRange.ApplyRangeModifiers=yes\n",
+    );
+    assert!(!set.force_weapon_in_range_techno_only);
+    assert!(set.force_weapon_in_range_apply_range_modifiers);
+    assert!(set.force_aa_weapon_in_range_apply_range_modifiers);
+}
+
 #[test]
 fn the_shrapnel_globals_default_to_the_stock_admission() {
     // An absent section, an absent key and a later layer that names nothing all

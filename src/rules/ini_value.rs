@@ -633,6 +633,21 @@ impl IniSection {
         )
     }
 
+    /// Ares/Phobos `ValueableVector<double>` (`detail::parse_values<double>`
+    /// over `strtok(",")`): each token through the Ares `Parser<double>`
+    /// scan; a token that does not convert is skipped. An absent key keeps
+    /// the caller's list; a present one replaces it.
+    pub fn read_ares_double_list(&self, key: &str) -> Option<Vec<f64>> {
+        Some(
+            self.read_list(key, 2048)?
+                .iter()
+                .filter_map(|token| {
+                    parse_ares_double_bits(token).map(|bits| f64::from_bits(bits.bits()))
+                })
+                .collect(),
+        )
+    }
+
     /// Ares Valueable<double>1000EB00/10076B60: the native string-sized
     /// reader scans binary64, not ReadDouble's intermediate binary32. An
     /// unsuccessful scan retains the old field; a percent anywhere scales it.

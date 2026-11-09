@@ -724,3 +724,109 @@ fn retail_room_bans_refuse_the_spy_and_stolen_tech_units() {
         CanBuild::No
     );
 }
+
+/// Rules for the Phobos `BuildLimitGroup.*` gate: `Q` is the asked VehicleType,
+/// `GT` a group member, `EX` an ExtraLimit type. `q_keys` (newline-terminated)
+/// is appended to `[Q]`.
+#[cfg(feature = "phobos")]
+fn build_limit_group_rules(q_keys: &str) -> RuleSet {
+    let mut ini = String::from(
+        "[Countries]\n0=C0\n[VehicleTypes]\n0=Q\n1=GT\n2=EX\n\
+         [Q]\nStrength=100\nTechLevel=1\n",
+    );
+    ini.push_str(q_keys);
+    ini.push_str(
+        "[GT]\nStrength=100\nTechLevel=1\n\
+         [EX]\nStrength=100\nTechLevel=1\n",
+    );
+    RuleSet::from_ini(&IniFile::from_str(&ini)).unwrap()
+}
+
+/// Boundary 1: reaching the group cap refuses one more, via the production
+/// `can_build` / `check_build_limit` owners, not a private helper.
+#[test]
+#[cfg(feature = "phobos")]
+fn build_limit_group_reached_refuses_one_more() {
+    let rules = build_limit_group_rules("BuildLimitGroup.Types=GT\nBuildLimitGroup.Nums=2\n");
+    let product = rules.object("Q").unwrap();
+    // owned(GT)=1 -> sum 1 < 2 -> still buildable.
+    let (sim, owner) = sim_for(&json!({"owned": [["unit", "GT", 1]]}), &rules);
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, true, true),
+        CanBuild::Yes
+    );
+    assert!(!check_build_limit(&sim, &rules, owner, product));
+    // owned(GT)=2 -> sum 2 >= 2 + 1 - 1 -> TemporarilyUnbuildable.
+    let (sim, owner) = sim_for(&json!({"owned": [["unit", "GT", 2]]}), &rules);
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, true, true),
+        CanBuild::AtLimit
+    );
+    assert!(check_build_limit(&sim, &rules, owner, product));
+}
+
+/// Boundary 2: `ExtraLimit` appends a quota to every limit (MaxNum caps it).
+#[test]
+#[cfg(feature = "phobos")]
+fn build_limit_group_extra_limit_adds_quota_and_maxnum_caps_it() {
+    let base = "BuildLimitGroup.Types=GT\nBuildLimitGroup.Nums=2\n\
+                BuildLimitGroup.ExtraLimit.Types=EX\nBuildLimitGroup.ExtraLimit.Nums=1\n";
+    let row = json!({"owned": [["unit", "GT", 3], ["unit", "EX", 2]]});
+    // Owning 2 EX adds 2*1 -> limit 4, so owned(GT)=3 stays under the cap.
+    let rules = build_limit_group_rules(base);
+    let product = rules.object("Q").unwrap();
+    let (sim, owner) = sim_for(&row, &rules);
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, true, true),
+        CanBuild::Yes,
+        "ExtraLimit appends owned-EX quota so 3 group units are allowed"
+    );
+    assert!(!check_build_limit(&sim, &rules, owner, product));
+
+    // MaxNum=3 caps the appended limit to 3, so the same 3 reach it.
+    let capped = build_limit_group_rules(&format!("{base}BuildLimitGroup.ExtraLimit.MaxNum=3\n"));
+    let product = capped.object("Q").unwrap();
+    let (sim, owner) = sim_for(&row, &capped);
+    assert_eq!(
+        can_build(&sim, &capped, owner, product, true, true),
+        CanBuild::AtLimit,
+        "MaxNum=3 caps the appended quota so 3 group units reach the limit"
+    );
+    assert!(check_build_limit(&sim, &capped, owner, product));
+}
+
+/// Boundary 3: `NotBuildableIfQueueMatch` blocks a queue-only reach (the
+/// exact TechnoType is queued; owned alone never reaches the cap).
+#[test]
+#[cfg(feature = "phobos")]
+fn build_limit_group_not_buildable_if_queue_match_blocks_queue_only() {
+    let base = "BuildLimitGroup.Types=GT\nBuildLimitGroup.Nums=2\n";
+    // owned(GT)=1 (<2) plus one queued GT -> total 2, reached only by queue.
+    let row = json!({
+        "owned": [["unit", "GT", 1]],
+        "factories": [{"kind": "vehicle", "object": "Q", "queued": ["GT"]}]
+    });
+    // Unset (global false): a queue-only reach is released.
+    let rules = build_limit_group_rules(base);
+    let product = rules.object("Q").unwrap();
+    let (sim, owner) = sim_for(&row, &rules);
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, true, true),
+        CanBuild::Yes,
+        "a queue-only reach is released when NotBuildableIfQueueMatch is unset"
+    );
+    assert!(!check_build_limit(&sim, &rules, owner, product));
+
+    // NotBuildableIfQueueMatch=yes: the queue-only reach is blocked.
+    let rules = build_limit_group_rules(&format!(
+        "{base}BuildLimitGroup.NotBuildableIfQueueMatch=yes\n"
+    ));
+    let product = rules.object("Q").unwrap();
+    let (sim, owner) = sim_for(&row, &rules);
+    assert_eq!(
+        can_build(&sim, &rules, owner, product, true, true),
+        CanBuild::AtLimit,
+        "NotBuildableIfQueueMatch blocks even a queue-only reach"
+    );
+    assert!(check_build_limit(&sim, &rules, owner, product));
+}

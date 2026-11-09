@@ -876,6 +876,10 @@ pub struct ObjectType {
     /// Phobos `Grinding.*` (`Ext/BuildingType/Body.cpp:200-207`).
     #[cfg(feature = "phobos")]
     pub phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings,
+    /// Phobos `BuildLimitGroup.*` (`Ext/TechnoType/Body.cpp:1033-1041`): a
+    /// techno's group build-limit settings, consumed by `can_build`.
+    #[cfg(feature = "phobos")]
+    pub phobos_build_limit_group: crate::rules::phobos_build_limit_group::BuildLimitGroupSettings,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -4742,6 +4746,11 @@ impl ObjectType {
             phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_build_limit_group:
+                crate::rules::phobos_build_limit_group::BuildLimitGroupSettings::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),

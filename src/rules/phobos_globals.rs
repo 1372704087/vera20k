@@ -90,6 +90,18 @@ pub struct PhobosGlobals {
     /// `[General] ForceAAWeapon.InRange.ApplyRangeModifiers=`, default `no`
     /// (`Ext/Rules/Body.cpp:232`, constructor `Body.h:676`).
     pub force_aa_weapon_in_range_apply_range_modifiers: bool,
+    /// `[General] BuildLimitGroup.ContentIfAnyMatch=`, default `no`
+    /// (`Ext/Rules/Body.cpp:223`, `Body.h:130,667`): fallback for an unset
+    /// type-level `BuildLimitGroup.ContentIfAnyMatch`; `yes` makes any one
+    /// group member reaching its limit block the whole group.
+    #[serde(default)]
+    pub build_limit_group_content_if_any_match: bool,
+    /// `[General] BuildLimitGroup.NotBuildableIfQueueMatch=`, default `no`
+    /// (`Ext/Rules/Body.cpp:224`, `Body.h:131,668`): fallback for an unset
+    /// type-level `BuildLimitGroup.NotBuildableIfQueueMatch`; `yes` blocks
+    /// even when only queued (not owned) copies reach the limit.
+    #[serde(default)]
+    pub build_limit_group_not_buildable_if_queue_match: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -113,6 +125,8 @@ impl Default for PhobosGlobals {
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
+            build_limit_group_content_if_any_match: false,
+            build_limit_group_not_buildable_if_queue_match: false,
         }
     }
 }
@@ -158,6 +172,14 @@ impl PhobosGlobals {
         globals.force_aa_weapon_in_range_apply_range_modifiers = general.read_bool(
             "ForceAAWeapon.InRange.ApplyRangeModifiers",
             globals.force_aa_weapon_in_range_apply_range_modifiers,
+        );
+        globals.build_limit_group_content_if_any_match = general.read_bool(
+            "BuildLimitGroup.ContentIfAnyMatch",
+            globals.build_limit_group_content_if_any_match,
+        );
+        globals.build_limit_group_not_buildable_if_queue_match = general.read_bool(
+            "BuildLimitGroup.NotBuildableIfQueueMatch",
+            globals.build_limit_group_not_buildable_if_queue_match,
         );
         globals
     }

@@ -86,6 +86,7 @@ Supported extensions:
 - [Airstrike target eligibility](phobos-airstrike-targets.md) (`AllowAirstrike` per TechnoType, `AirstrikeTargets` per warhead, and object targets for non-buildings)
 - [Deployable-building alternate cameo](phobos-deployable-cameo.md) (Ares' `UndeploysInto` cameo arm, fixed)
 - [Animation bracket draw offsets](phobos-anim-offset.md) (`XDrawOffset.*` and `YDrawOffset.*` selection-bracket keys for owned animations)
+- [Build limit groups](phobos-build-limit-group.md) (`BuildLimitGroup.*` nine keys, `[General]` fallbacks, ExtraLimit quota and the queue-match gate)
 
 ## Original project and authors
 

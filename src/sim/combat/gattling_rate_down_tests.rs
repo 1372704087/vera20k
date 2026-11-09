@@ -148,7 +148,7 @@ fn rate_down_reset_zeroes_on_a_target_change() {
 /// decay too, then the rate applies to the accumulated ticks.
 #[test]
 fn rate_down_delay_holds_the_idle_decay() {
-    let (mut sim, rules, gun) = scene("RateDown.Delay=2\n");
+    let (sim, rules, gun) = scene("RateDown.Delay=2\n");
     let (settings, table) = {
         let entity = sim.substrate.entities.get(gun).unwrap();
         let obj = sim.object_type(entity.type_ref(), &rules).unwrap();

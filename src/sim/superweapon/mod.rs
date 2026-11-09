@@ -1949,7 +1949,7 @@ fn drain_money(
         }
         return false;
     }
-    money::settle(houses, owner, amount);
+    crate::sim::credit_income::transact_money(houses, owner, amount);
     true
 }
 

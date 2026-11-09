@@ -58,7 +58,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::warhead_type::WarheadType;
 use crate::sim::combat::veterancy::{VeterancyRank, has_weapon_ability};
-use crate::sim::credit_income::{add_credits, spend_money};
+use crate::sim::credit_income::transact_money;
 use crate::sim::intern::InternedId;
 use crate::sim::projectile::{
     ProjectileCoord, ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload,
@@ -248,12 +248,7 @@ fn apply_transact_money(
     let Some(house) = house else {
         return;
     };
-    if settings.amount > 0 {
-        add_credits(&mut world.houses, house, settings.amount);
-    } else {
-        // `Spend_Money(-amount)`; wrapping keeps `i32::MIN` non-fatal.
-        spend_money(&mut world.houses, house, settings.amount.wrapping_neg());
-    }
+    transact_money(&mut world.houses, house, settings.amount);
     if !settings.display {
         return;
     }

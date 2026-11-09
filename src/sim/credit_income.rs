@@ -188,6 +188,18 @@ pub(crate) fn available_money(houses: &Houses, owner: InternedId) -> i32 {
         .map_or(0, |house| house.economy().available_money())
 }
 
+/// `HouseClass::TransactMoney`: `GiveMoney` (`Add_Credits @ 0x004F9950`) for a
+/// positive amount, `TakeMoney` (`Spend_Money @ 0x004F9790`) of its negation
+/// otherwise. The negation wraps exactly as the native two's-complement does;
+/// a caller moving a negative amount admits it first.
+pub(crate) fn transact_money(houses: &mut Houses, owner: InternedId, amount: i32) {
+    if amount < 0 {
+        spend_money(houses, owner, amount.wrapping_neg());
+    } else if amount > 0 {
+        add_credits(houses, owner, amount);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Oil derrick ProduceCash
 // ---------------------------------------------------------------------------

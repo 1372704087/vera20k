@@ -262,6 +262,10 @@ fn facts(input: &Value) -> FireFacts {
             #[cfg(feature = "ares")]
             temporal_gunner_weapon: false,
             owner_is_human: flag(&f["owner_is_human"]),
+            // The native corpus carries no `TransactMoney` facts; zero money
+            // and a zero amount leave the `0x6FC339` money arm a no-op.
+            #[cfg(feature = "phobos")]
+            owner_money: f.get("owner_money").map_or(0, int),
             // Foot `0x004DE770` (SETNE); a Building's vt+0x380 is false.
             paralyzed: class.is_foot()
                 && time_left(&f["paralysis_start"], &f["paralysis_left"], frame) != 0,

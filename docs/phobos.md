@@ -51,7 +51,7 @@ Supported extensions:
 - [Repair-service overrides](phobos-units-repair.md) (`Units.RepairRate`, `.RepairStep`, `.RepairPercent` and `.UseRepairCost` on hospitals, depots and `UnitReload` buildings)
 - [Placement adjacency](phobos-adjacent.md) (`Adjacent.Allowed`, `.Disallowed`, `.Disallowed.Prohibit` and `.ProhibitDistance`)
 - [Drain money display](phobos-drain-money-display.md) (`DrainMoneyDisplay.*` flying credit labels for a DrainWeapon link)
-- [TransactMoney warhead keys](phobos-transact-money.md) (`TransactMoney` and its `Display.*` label on a detonation)
+- [TransactMoney warhead keys](phobos-transact-money.md) (`TransactMoney`, its `Display.*` label and the `0x6FC339` insufficient-funds fire gate)
 - [Jumpjet tilt](phobos-jumpjet-tilt.md) (`JumpjetTilt` and the four `JumpjetTilt.*` factors pitch and roll an airborne jumpjet body)
 - [Forced weapon selection](phobos-force-weapon.md) (`ForceWeapon.*` / `ForceAAWeapon.*` force the SelectWeapon slot by target state, range and class)
 - [Deploy ammo](phobos-ammo-deploy.md) (`Ammo.AddOnDeploy`, `.DeployUnlock*` and `.AutoDeploy*` shape a vehicle deployer's ammo and deploy admission)

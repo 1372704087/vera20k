@@ -225,6 +225,11 @@ pub(crate) struct WarheadFacts {
     pub airstrike: bool,
     #[cfg(feature = "phobos")]
     pub airstrike_targets: crate::rules::airstrike_targets::AirstrikeTargets,
+    /// Phobos `WarheadTypeExt::TransactMoney`: the signed amount a detonation
+    /// moves on the firing house. A negative amount gates the shot at
+    /// `0x6FC339` on that house's wallet.
+    #[cfg(feature = "phobos")]
+    pub transact_money: i32,
     /// Rule-owned armor interaction refuses this target. Vanilla T54 uses
     /// `FCOMP` zero/unordered; Ares100542A0 uses its independent fire flag.
     pub armor_rejects_fire: bool,
@@ -302,6 +307,10 @@ pub(crate) struct FirerFacts {
     pub temporal_gunner_weapon: bool,
     /// Owner `IsHumanPlayer` (`House+0x1EC`).
     pub owner_is_human: bool,
+    /// The owner's `Available_Money` (`0x004F6990`), read by the Phobos
+    /// `0x6FC339` `TransactMoney<0` gate.
+    #[cfg(feature = "phobos")]
+    pub owner_money: i32,
     /// Paralysed (vt+0x380: Foot `0x004DE770`, time left != 0).
     pub paralyzed: bool,
     /// SpawnManager (`+0x2D0`) counts: `0x006B7D30` spawns not
@@ -407,6 +416,8 @@ impl Default for FirerFacts {
             #[cfg(feature = "ares")]
             temporal_gunner_weapon: false,
             owner_is_human: false,
+            #[cfg(feature = "phobos")]
+            owner_money: 0,
             paralyzed: false,
             spawns: None,
             primary_facing: 0,
@@ -1061,6 +1072,17 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
     let Some(weapon) = query.weapon(facts.weapon_index) else {
         return Cant;
     };
+    // Phobos `TechnoClass_CanFire` (`0x6FC339`) money arm
+    // (`Ext/Techno/Hooks.Firing.cpp:325-328`): a negative `TransactMoney`
+    // warhead refuses the shot unless the firing house can pay `-amount`.
+    // The negation wraps like the native one, so `i32::MIN` passes.
+    #[cfg(feature = "phobos")]
+    if weapon.warhead.is_some_and(|warhead| {
+        warhead.transact_money < 0
+            && facts.firer.owner_money < warhead.transact_money.wrapping_neg()
+    }) {
+        return Cant;
+    }
     // Phobos `TechnoClass_CanFire` (`0x6FC339`): the weapon's AttachEffect
     // lists gate the shot against the target (or, with `CheckOnFirer`, the
     // firer) right after the weapon exists and before the per-target arms.

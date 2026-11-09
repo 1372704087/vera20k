@@ -20,6 +20,12 @@ value, so later layers may replace each field independently.
 
 ## Behavior
 
+A weapon whose warhead carries a negative amount refuses the shot when the
+firing house's `Available_Money` is below `-amount`
+(`TechnoClass_CanFire @ 0x6FC339`, `Ext/Techno/Hooks.Firing.cpp:325-328`).
+The negation wraps like the native two's-complement, so `i32::MIN` passes the
+gate. A non-negative amount never gates.
+
 On every detonation whose warhead carries a non-zero `TransactMoney`, before
 the crit/AttachEffect per-target pass:
 
@@ -45,9 +51,12 @@ Rules live in `rules::phobos_transact_money` and the warhead's
 `WarheadType::transact_money`. The transfer and label are emitted by
 `sim::combat::crit::apply_transact_money`, called at the top of the
 `WarheadTypeExt::Detonate` port (`sim::combat::crit::detonate`) so the block
-runs even when the warhead has no crit or AttachEffects. The wallet uses the
-existing `sim::credit_income` owners (`add_credits`, `spend_money`), and the
-label reuses `sim::flying_text::BountyText` / `FrameEffects`'s money-text
+runs even when the warhead has no crit or AttachEffects. Both directions go
+through `sim::credit_income::transact_money`, the single
+`HouseClass::TransactMoney` owner (also used by the Ares superweapon money
+path). The firing gate lives in `sim::combat::fire_error` at its `0x6FC339`
+site, reading `WarheadFacts::transact_money` and `FirerFacts::owner_money`.
+The label reuses `sim::flying_text::BountyText` / `FrameEffects`'s money-text
 boundary. `BountyText::entity_id` is `Option`, and `None` selects the source-less
 path native's `nullptr` source describes; the client's
 `app::presentation::flying_credits` still owns the shroud, House and pixel
@@ -55,15 +64,6 @@ checks.
 
 ## Residuals
 
-- Phobos also refuses to fire a weapon whose warhead has a negative
-  `TransactMoney` when the firing house cannot cover it
-  (`Ext/Techno/Hooks.Firing.cpp:313-328`, `CanTransactMoney`). That gate is on
-  the firing-admission chain, not the detonation, and is not ported here: a
-  shot with insufficient funds still fires and `Spend_Money` takes whatever
-  balance exists (zeroing it) instead of being refused. Trigger: a
-  `TransactMoney<0` warhead fired by a house with too few credits. Effect:
-  the shot happens and the house cannot go below zero. Frequency: only mods
-  that author a negative amount.
 - The display's shroud test runs per client against the local player's fog,
   while native `FlyingStrings::AddMoneyString` tests
   `MapClass::IsLocationShrouded` once at emission. This is the same

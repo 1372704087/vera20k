@@ -346,21 +346,33 @@ fn warhead_trigger_gates_skip_the_per_target_pass() {
 /// zero amount moves nothing.
 #[test]
 fn transact_money_moves_the_firing_house_by_the_signed_amount() {
-    let delta = |amount: i32| {
+    // (firing house delta, target house delta) from `start` credits each.
+    let run = |amount: i32, start: i32| {
         let (mut sim, rules, firer, target) =
             scene("", &format!("TransactMoney={amount}\n"), "", "", "Russians");
         let owner = sim.entities().get(firer).unwrap().owner();
-        sim.houses
-            .get_mut(&owner)
-            .unwrap()
-            .economy_mut_for_test()
-            .add_credits(100);
+        let target_owner = sim.entities().get(target).unwrap().owner();
+        for house in [owner, target_owner] {
+            sim.houses
+                .get_mut(&house)
+                .unwrap()
+                .economy_mut_for_test()
+                .set_credits_for_test(start);
+        }
         shoot(&mut sim, &rules, "WH", firer, target, 0);
-        sim.houses.get(&owner).unwrap().economy().credits() - 100
+        (
+            sim.houses.get(&owner).unwrap().economy().credits() - start,
+            sim.houses.get(&target_owner).unwrap().economy().credits() - start,
+        )
     };
-    assert_eq!(delta(25), 25, "a positive value credits the firing house");
-    assert_eq!(delta(-40), -40, "a negative value debits it");
-    assert_eq!(delta(0), 0, "zero moves nothing");
+    assert_eq!(run(25, 0), (25, 0), "a positive value credits the firer");
+    assert_eq!(run(-40, 100), (-40, 0), "a negative value debits the firer");
+    assert_eq!(
+        run(-40, 10),
+        (-10, 0),
+        "Spend_Money clamps at the balance it covers"
+    );
+    assert_eq!(run(0, 0), (0, 0), "zero moves nothing");
 }
 
 /// `TransactMoney.Display`'s label fields: `AtFirer` anchors on the firer's
@@ -422,6 +434,69 @@ fn transact_money_display_uses_at_firer_houses_and_offset() {
     commit_projectiles(&mut sim, &mut run, &[shot], &rules, None);
     run.finish();
     assert!(hidden.borrow().is_empty(), "Display=no emits no label");
+
+    // `if (this->TransactMoney)` wraps the Display block too: a zero amount
+    // moves nothing and emits no label.
+    let zero = RefCell::new(Vec::new());
+    let observe_zero = |_: &Simulation, _: &RuleSet, text: BountyText| {
+        zero.borrow_mut().push(text);
+    };
+    let zero_effects = FrameEffects::empty().with_bounty_text(&observe_zero);
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "TransactMoney=0\nTransactMoney.Display=yes\n",
+        "",
+        "",
+        "Russians",
+    );
+    let shot = detonation(&mut sim, "WH", firer, target, 0);
+    let mut run = ReceiverRun::default().with_effects(zero_effects);
+    commit_projectiles(&mut sim, &mut run, &[shot], &rules, None);
+    run.finish();
+    assert!(zero.borrow().is_empty(), "a zero amount emits no label");
+}
+
+/// Phobos `TechnoClass_CanFire @ 0x6FC339`
+/// (`Ext/Techno/Hooks.Firing.cpp:325-328`): a negative `TransactMoney`
+/// warhead refuses the shot while the firing house's `Available_Money` is
+/// below `-amount`; an affordable or non-negative amount fires.
+#[cfg(feature = "phobos")]
+#[test]
+fn transact_money_gates_the_shot_on_the_firing_house_wallet() {
+    use crate::sim::combat::fire_error::FireError;
+    let error = |amount: i32, credits: i32| {
+        let (mut sim, rules, firer, target) =
+            scene("", &format!("TransactMoney={amount}\n"), "", "", "Russians");
+        let owner = sim.entities().get(firer).unwrap().owner();
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut_for_test()
+            .set_credits_for_test(credits);
+        crate::sim::combat::fire_error_world::FireSubject {
+            world: &sim,
+            rules: &rules,
+            overlay_registry: None,
+            fog: None,
+            firer: sim.entities().get(firer).unwrap(),
+            obj: rules.object("FIRER").unwrap(),
+            target: Some(crate::sim::combat::TargetKind::Entity(target)),
+            weapon_index: 0,
+        }
+        .fire_error(true)
+    };
+    assert_eq!(
+        error(-100, 40),
+        FireError::Cant,
+        "40 credits cannot pay 100"
+    );
+    assert_ne!(error(-100, 100), FireError::Cant, "an equal balance pays");
+    assert_ne!(error(-100, 250), FireError::Cant, "a surplus pays");
+    assert_ne!(
+        error(100, 0),
+        FireError::Cant,
+        "a positive amount never gates the shot"
+    );
 }
 
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block

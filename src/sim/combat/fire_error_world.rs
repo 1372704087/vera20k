@@ -221,6 +221,8 @@ impl<'a> FireSubject<'a> {
                 airstrike: warhead.airstrike,
                 #[cfg(feature = "phobos")]
                 airstrike_targets: warhead.airstrike_targets,
+                #[cfg(feature = "phobos")]
+                transact_money: warhead.transact_money.amount,
                 armor_rejects_fire: armor.is_some_and(|armor| {
                     // Ares 3.0 hook100542A0 admits ForceFire OR nonzero
                     // multiplier; this is the shared GetFireError gate, not
@@ -392,6 +394,11 @@ impl<'a> FireSubject<'a> {
                 firer.owner(),
             )
             .is_some_and(|house| house.is_human()),
+            #[cfg(feature = "phobos")]
+            owner_money: crate::sim::credit_income::available_money(
+                &self.world.houses,
+                firer.owner(),
+            ),
             paralyzed: firer.parasite.is_paralyzed(frame),
             spawns: firer.spawn_manager.as_ref().map(|manager| SpawnCounts {
                 not_regenerating: manager.count_alive_spawns() as i32,

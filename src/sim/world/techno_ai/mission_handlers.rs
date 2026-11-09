@@ -51,6 +51,10 @@ mod campaign_hunt_oracle_tests;
 #[path = "area_guard_post_tests.rs"]
 mod area_guard_post_tests;
 
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_harvester_guard_tests.rs"]
+mod phobos_harvester_guard_tests;
+
 /// Whether [`dispatch_foot_mission`] runs `id`'s handler at `now`: a Unit or
 /// Infantry that passes `MissionClass::AI`'s gate
 /// ([`GameEntity::mission_handler_due`]; harvest_attack_return.json
@@ -2161,11 +2165,46 @@ pub(super) fn evaluate_foot_area_guard(
     }
     sim.area_guard_navigation_head(id, rules, ctx.overlay_registry, ctx.effects);
     area_guard_post_off_building(sim, id);
-    if sim
-        .substrate
-        .entities
-        .get(id)
-        .is_some_and(|entity| entity.category() == EntityCategory::Unit && entity.is_harvester())
+    // Phobos `FootClass_MissionAreaGuard_Miner @ 0x4D6D34`
+    // (`Ext/Unit/Hooks.Harvester.cpp:75-94`): a human-owned Unit harvester
+    // whose type sets `Harvester.CanGuardArea` jumps past the stock Harvest
+    // switch; `RequireTarget` asks `TargetAndEstimateDamage(Location,
+    // ThreatType::Area)`, the Area Guard threat scan, first.
+    #[cfg(feature = "phobos")]
+    let keep_area_guard = {
+        let key = sim.substrate.entities.get(id).is_some_and(|entity| {
+            sim.owner_is_human(entity.owner())
+                && sim
+                    .object_type(entity.type_ref(), rules)
+                    .is_some_and(|object| object.phobos_harvester_guard.can_guard_area)
+        });
+        let require_target = sim.substrate.entities.get(id).is_some_and(|entity| {
+            sim.object_type(entity.type_ref(), rules)
+                .is_some_and(|object| object.phobos_harvester_guard.require_target)
+        });
+        let location = sim.substrate.entities.get(id).map(|entity| {
+            let coord = crate::sim::movement::ground_pose::object_location(
+                entity,
+                sim.resolved_terrain.as_ref(),
+            );
+            [coord.x, coord.y, coord.z]
+        });
+        key && (!require_target
+            || super::target_scan::scan(
+                sim,
+                id,
+                rules,
+                crate::sim::combat::ScanMission::AreaGuard,
+                ctx,
+                location,
+            ))
+    };
+    #[cfg(not(feature = "phobos"))]
+    let keep_area_guard = false;
+    if !keep_area_guard
+        && sim.substrate.entities.get(id).is_some_and(|entity| {
+            entity.category() == EntityCategory::Unit && entity.is_harvester()
+        })
     {
         // Foot4D6D34..4D6D68: Queue(Harvest,0), unconditional Commence,
         // then Scenario RandomRanged(1,10)+1. Commence is deliberately not

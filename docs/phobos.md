@@ -45,6 +45,7 @@ Supported extensions:
 - [Warhead trigger conditions](phobos-warhead-triggers.md) (`AffectsAbovePercent`, `AffectsBelowPercent`, `AffectsVeterancy` and `AffectsInvokerOnly.*` on a detonation's targets)
 - [Overload tables](phobos-overload.md) (`Overload.Count`, `.Damage`, `.Frames`, `.DeathSound`, `.ParticleSys` and `.ParticleSysCount` for mind-control managers)
 - [Grinding gates](phobos-grinding.md) (`Grinding.AllowAllies`, `.AllowOwner`, `.AllowTypes`, `.DisallowTypes`, `.Sound`, `.PlayDieSound`, `.Weapon` and `.Weapon.RequiredCredits`)
+- [Harvester area guard](phobos-harvester-guard.md) (`Harvester.CanGuardArea` and `.RequireTarget`: a human harvester holds Area Guard, optionally only with a threat in range)
 - [Kill weapons](phobos-kill-weapon.md) (`KillWeapon`, `.OnFirer`, their `AffectsHouse`/`AffectsTarget` gates, and `SuppressKillWeapons`)
 - [Ranking overrides](phobos-ranking.md) (campaign `Ranking.ParTime*` and title/message keys in the scenario's MISSIONMD section)
 - [Gattling rate-down](phobos-rate-down.md) (`RateDown.Delay`, `.Reset`, `.Cover.Value` and `.Cover.AmmoBelow`)

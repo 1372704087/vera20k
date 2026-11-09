@@ -155,6 +155,8 @@ pub mod phobos_globals;
 #[cfg(feature = "phobos")]
 pub mod phobos_grinding;
 #[cfg(feature = "phobos")]
+pub mod phobos_harvester_guard;
+#[cfg(feature = "phobos")]
 pub mod phobos_health_bar;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_infantry_deploy_tests.rs"]

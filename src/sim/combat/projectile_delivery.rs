@@ -410,6 +410,10 @@ fn admit_bullet(
     );
     let spawn = delivery.spawn(&world.substrate.entities, rules, projectile_type, bullet);
     world.admit_projectile(bullet_id, spawn);
+    // Phobos `BulletClass_Unlimbo_Trajectories @ 0x468B72`: a trajectory
+    // instance is created and `OnUnlimbo` runs during Fire's placement.
+    #[cfg(feature = "phobos")]
+    world.init_phobos_trajectory(bullet_id, rules, weapon);
     Simulation::construct_bullet_scheme(
         &world.interner,
         &world.substrate,

@@ -466,7 +466,7 @@ impl Simulation {
         let house_alliances = &self.house_alliances;
         let collision_world = super::projectile_collision::ProjectileCollisionWorld {
             terrain,
-            dummy: &shared_cell_dummy,
+            dummy: shared_cell_dummy.clone(),
             occupancy,
             entities,
             terrain_objects: self.terrain_objects.objects(),
@@ -490,6 +490,38 @@ impl Simulation {
         ));
         #[cfg(feature = "ares")]
         let nuke = nuke.map(|nuke| nuke.with_ares(&ares_ball));
+        // Phobos `PhobosTrajectory.cpp:436-608`: a bullet carrying a
+        // trajectory runs its own `OnAI`/velocity/hit checks instead of the
+        // stock arms. The detonations keep the normal projectile boundary.
+        #[cfg(feature = "phobos")]
+        if self
+            .projectiles
+            .get(id)
+            .is_some_and(|projectile| projectile.has_phobos_trajectory())
+        {
+            let trajectory = self.step_phobos_trajectory(id, rules, ctx.overlay_registry);
+            outcome.bridge_state_changed |= self.commit_logic_projectile_detonations(
+                rules,
+                ctx.overlay_registry,
+                &trajectory.detonations,
+                ctx.effects,
+            );
+            outcome.bridge_state_changed |= self.commit_direct_damage_events(
+                rules,
+                ctx.overlay_registry,
+                &trajectory.direct_damage,
+                ctx.effects,
+            );
+            if trajectory.expired || !trajectory.detonations.is_empty() {
+                let retired = self.retire_non_entity_object(
+                    id,
+                    super::UninitContext::new(rules, ctx.overlay_registry)
+                        .with_effects(ctx.effects),
+                );
+                debug_assert!(retired);
+            }
+            return outcome;
+        }
         let result = self
             .projectiles
             .advance_after_head(

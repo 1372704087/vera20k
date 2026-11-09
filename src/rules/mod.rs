@@ -208,6 +208,8 @@ pub mod phobos_spy_effect;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
+pub mod phobos_trajectory;
+#[cfg(feature = "phobos")]
 pub mod phobos_transact_money;
 #[cfg(feature = "phobos")]
 pub mod phobos_turret_anim;

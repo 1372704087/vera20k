@@ -693,7 +693,7 @@ fn crit_effects(
 /// `FirepowerMultiplier`, the house bias, the FIREPOWER rank stage and an
 /// occupiable building's `OccupyDamageMultiplier=`.
 #[cfg(feature = "phobos")]
-fn current_firepower_multiplier(
+pub(crate) fn current_firepower_multiplier(
     world: &Simulation,
     rules: &RuleSet,
     entity: &crate::sim::game_entity::GameEntity,

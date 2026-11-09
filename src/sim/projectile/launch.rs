@@ -497,6 +497,20 @@ fn scatter_delta(
     offset_along(point, angle, magnitude, trig)
 }
 
+/// `MapClass::GetRandomCoordsNear`'s direction draw for a distance already
+/// chosen: one raw angle draw through the retail table. The native helper is
+/// not ported in VERA; the StraightTrajectory `Inaccurate=` arm uses this
+/// closest existing form (recorded as a residual).
+pub(crate) fn random_coords_near(
+    point: ProjectileCoord,
+    magnitude: i32,
+    rng: &mut SimRng,
+) -> ProjectileCoord {
+    let raw = rng.next_range_i32_inclusive(0, 0x7fff_fffe);
+    let trig = TrigTable::embedded();
+    scatter_delta(point, magnitude, raw, &trig)
+}
+
 /// The pitch both nuclear missiles leave at, pushed as an immediate
 /// (`0x0044CB4E`, `0x0046B43B`): a hair under pi/2.
 const MISSILE_PITCH: NativeF64Bits = NativeF64Bits::from_bits(0x3ff9_21c9_0fe8_fbda);

@@ -1266,6 +1266,12 @@ pub struct Projectile {
     #[cfg(feature = "ares")]
     #[serde(default)]
     ares_nuke_sw: Option<InternedId>,
+    /// Phobos `BulletExt::Trajectory`: the per-bullet trajectory instance
+    /// (`Ext/Bullet/Trajectories/PhobosTrajectory.h:146-160`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_trajectory:
+        Option<crate::sim::world::phobos_trajectory::PhobosTrajectoryState>,
     /// Bullet `+0x158`: set at a `NUKE` impact (`0x00467F3C`), cleared when
     /// the wait ends (`0x0046676A`).
     #[serde(default)]
@@ -1462,6 +1468,56 @@ impl Projectile {
     pub const fn on_bridge(&self) -> bool {
         self.on_bridge
     }
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_trajectory(
+        &self,
+    ) -> Option<&crate::sim::world::phobos_trajectory::PhobosTrajectoryState> {
+        self.phobos_trajectory.as_ref()
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_trajectory_mut(
+        &mut self,
+    ) -> Option<&mut crate::sim::world::phobos_trajectory::PhobosTrajectoryState> {
+        self.phobos_trajectory.as_mut()
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_trajectory(
+        &mut self,
+        state: Option<crate::sim::world::phobos_trajectory::PhobosTrajectoryState>,
+    ) {
+        self.phobos_trajectory = state;
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn has_phobos_trajectory(&self) -> bool {
+        self.phobos_trajectory.is_some()
+    }
+
+    pub(crate) fn set_position(&mut self, value: ProjectileCoord) {
+        self.position = value;
+    }
+
+    pub(crate) fn set_velocity(&mut self, value: ProjectileVelocity) {
+        self.velocity = value;
+    }
+
+    pub(crate) fn set_last_target_position(&mut self, value: ProjectileCoord) {
+        self.last_target_position = value;
+    }
+
+    pub(crate) fn set_target(&mut self, value: ProjectileTarget) {
+        self.target = value;
+    }
+
+    pub(crate) fn set_previous_cell(&mut self, value: (i16, i16)) {
+        self.previous_cell = value;
+    }
+
+    pub(crate) fn payload_mut(&mut self) -> &mut ProjectilePayload {
+        &mut self.payload
+    }
 
     /// The ids [`ProjectileStore::pointer_expired`] compares: the source
     /// (Owner `+0xB0`), target object (`+0x10C`) and awaited Anim (`+0x154`). A source already
@@ -1600,6 +1656,10 @@ pub enum ProjectileDetonationReason {
     AttachEffectShot,
     /// A `NUKE` impact's wait ended: its anim is gone (`0x00466771`).
     AnimEnded,
+    /// Phobos `StraightTrajectory`'s own warhead detonations
+    /// (`WarheadTypeExt::DetonateAt`): the pass-through, proximity and
+    /// last-check hits, and the bullet's own trajectory-triggered detonation.
+    PhobosTrajectory,
     /// Phobos `ApplyCrit`'s `Crit.Warhead_FullDetonation` arm:
     /// `WarheadTypeExt::DetonateAt` builds a bullet with no weapon type and
     /// explodes it at the target (`Ext/WarheadType/Body.cpp:102..110`).
@@ -2099,6 +2159,8 @@ impl ProjectileStore {
                 ares_nuke_sw: None,
                 awaiting_anim: false,
                 awaited_anim: None,
+                #[cfg(feature = "phobos")]
+                phobos_trajectory: None,
             },
         );
         id
@@ -3339,7 +3401,7 @@ fn ladder_detonation(
 }
 
 // YR BulletClass::Detonate linkage: only this handoff permits combat damage/effects.
-fn detonation(
+pub(crate) fn detonation(
     projectile: &Projectile,
     impact: ProjectileCoord,
     reason: ProjectileDetonationReason,

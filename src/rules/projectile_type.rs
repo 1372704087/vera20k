@@ -179,6 +179,11 @@ pub struct ProjectileType {
     /// Phobos constructor defaults; only Phobos builds read or consume them.
     #[cfg(feature = "phobos")]
     pub phobos_airburst: crate::rules::phobos_airburst::PhobosAirburstType,
+    /// Phobos `Trajectory` / `Trajectory.Speed` / `Trajectory.Straight.*`
+    /// (`Ext/Bullet/Trajectories/`): a selected flight trajectory instead of
+    /// the stock `BulletClass::AI` arms.
+    #[cfg(feature = "phobos")]
+    pub phobos_trajectory: crate::rules::phobos_trajectory::PhobosTrajectoryRules,
     /// Ares BulletTypeExt keys (`rules::ares_bullet_type`, read by
     /// `100193C0`).
     #[cfg(feature = "ares")]
@@ -517,6 +522,10 @@ impl ProjectileType {
             airburst_weapon: None,
             #[cfg(feature = "phobos")]
             phobos_airburst: crate::rules::phobos_airburst::PhobosAirburstType::from_section(
+                section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_trajectory: crate::rules::phobos_trajectory::PhobosTrajectoryRules::from_section(
                 section,
             ),
             #[cfg(feature = "ares")]

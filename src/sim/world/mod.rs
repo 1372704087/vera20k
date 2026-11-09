@@ -134,6 +134,8 @@ pub use world_orders::UnitRepairAction;
 pub(crate) use world_orders::VehicleCaptureOutcome;
 pub use world_orders::{EntryBaseAction, EntryClickAction};
 mod fog_objects;
+#[cfg(feature = "phobos")]
+pub(crate) mod phobos_trajectory;
 mod projectile_collision;
 mod shroud_refresh;
 mod substrate;
@@ -2507,6 +2509,48 @@ impl Simulation {
             commit.effects,
             commit.under_attack_events,
             terrain_navigation_changed_cells,
+            frame_effects,
+        )
+        .bridge_state_changed
+    }
+
+    /// Commit a trajectory's direct warhead damage
+    /// (`StraightTrajectory::ProximityDirect`, `TechnoClass::ReceiveDamage`)
+    /// through the shared entity receiver transaction.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn commit_direct_damage_events(
+        &mut self,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        events: &[crate::sim::combat::EntityDamageEvent],
+        frame_effects: FrameEffects<'_>,
+    ) -> bool {
+        if events.is_empty() {
+            return false;
+        }
+        let mut run =
+            crate::sim::combat::world_receiver::ReceiverRun::default().with_effects(frame_effects);
+        let (death, under_attack_events) = crate::sim::combat::world_receiver::commit_entities(
+            self,
+            &mut run,
+            events,
+            None,
+            rules,
+            overlay_registry,
+        );
+        let changed = run.finish();
+        #[cfg(test)]
+        if let Some(fixture) = self.receiver_fixture.as_mut() {
+            let bridge = death.bridge_state_changed;
+            fixture.tail_effects.push((death, under_attack_events));
+            return bridge;
+        }
+        self.absorb_noncombat_damage_effects(
+            rules,
+            overlay_registry,
+            death,
+            under_attack_events,
+            changed,
             frame_effects,
         )
         .bridge_state_changed

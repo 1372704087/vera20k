@@ -6407,6 +6407,11 @@ impl RulesPassProcessor {
         // same pass, for every TechnoType family.
         #[cfg(feature = "phobos")]
         self.allocate_warp_in_weapon_references(pass);
+        // Phobos `StraightTrajectoryType::Read` reads
+        // `Trajectory.Straight.PassDetonateWarhead` / `ProximityWarhead` with
+        // `Read<true>`: their warheads are constructed on this pass too.
+        #[cfg(feature = "phobos")]
+        self.allocate_trajectory_warhead_references(pass);
         // Phobos `RulesExt::LoadBeforeTypeData` runs
         // `InsigniaTypeClass::LoadFromINIList` before this pass's type bodies,
         // so a same-pass `InsigniaType=` resolves against it.
@@ -10384,6 +10389,43 @@ impl RulesPassProcessor {
             for key in ["WarpInWeapon", "WarpInMinRangeWeapon"] {
                 if let Some(weapon) = section.read_type_name(key, 2048) {
                     self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+                }
+            }
+        }
+    }
+
+    /// Phobos `StraightTrajectoryType::Read`'s two `Read<true>` warhead keys
+    /// (`Ext/Bullet/Trajectories/StraightTrajectory.cpp:75,87`): a warhead
+    /// only a bullet trajectory names is constructed before this pass's type
+    /// bodies, so the later bullet read resolves it.
+    #[cfg(feature = "phobos")]
+    fn allocate_trajectory_warhead_references(&mut self, pass: &IniFile) {
+        let ids: Vec<String> = self
+            .families
+            .get(&RulesTypeFamily::Projectile)
+            .map(|members| {
+                members
+                    .iter()
+                    .map(|member| member.native_stored_id.clone())
+                    .collect()
+            })
+            .unwrap_or_default();
+        for name in ids {
+            let section = pass.section(&name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(&name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            for key in [
+                "Trajectory.Straight.PassDetonateWarhead",
+                "Trajectory.Straight.ProximityWarhead",
+            ] {
+                if let Some(warhead) = section.read_type_name(key, 2048) {
+                    self.find_or_allocate(RulesTypeFamily::Warhead, warhead);
                 }
             }
         }

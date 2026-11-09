@@ -2166,14 +2166,18 @@ pub(super) fn evaluate_foot_area_guard(
     sim.area_guard_navigation_head(id, rules, ctx.overlay_registry, ctx.effects);
     area_guard_post_off_building(sim, id);
     // Phobos `FootClass_MissionAreaGuard_Miner @ 0x4D6D34`
-    // (`Ext/Unit/Hooks.Harvester.cpp:75-94`): a human-owned Unit harvester
+    // (`Ext/Unit/Hooks.Harvester.cpp:71-90`): a human-owned Unit harvester
     // whose type sets `Harvester.CanGuardArea` jumps past the stock Harvest
     // switch; `RequireTarget` asks `TargetAndEstimateDamage(Location,
     // ThreatType::Area)`, the Area Guard threat scan, first.
     #[cfg(feature = "phobos")]
     let keep_area_guard = {
         let key = sim.substrate.entities.get(id).is_some_and(|entity| {
-            sim.owner_is_human(entity.owner())
+            // The hook sits inside the stock harvester arm: only a Unit whose
+            // type is `Harvester=` reaches it (`0x4D6D24`, `0x4D6D2C`).
+            entity.category() == EntityCategory::Unit
+                && entity.is_harvester()
+                && sim.owner_is_human(entity.owner())
                 && sim
                     .object_type(entity.type_ref(), rules)
                     .is_some_and(|object| object.phobos_harvester_guard.can_guard_area)

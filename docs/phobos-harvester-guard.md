@@ -16,7 +16,7 @@ constructor `false` at `:89-90`.
 ## Behavior
 
 Native hook `FootClass_MissionAreaGuard_Miner @ 0x4D6D34`
-(`Ext/Unit/Hooks.Harvester.cpp:75-94`), inside `FootClass::Mission_AreaGuard`:
+(`Ext/Unit/Hooks.Harvester.cpp:71-90`), inside `FootClass::Mission_AreaGuard`:
 
 - the object must be a Unit whose type sets `Harvester.CanGuardArea` **and**
   whose owner is human-controlled; a computer harvester always takes the
@@ -37,14 +37,14 @@ shared threat scanner (`techno_ai::target_scan::scan`) with
 the object's `Location`, standing in for `TargetAndEstimateDamage`'s area
 query.
 
-RESIDUAL: native `TargetAndEstimateDamage` returns an estimated-damage result
-and may not install the scanned target; VERA's shared scanner assigns the
-target it finds (the same side effect the Area Guard body's own scan has). A
-`RequireTarget` harvester that finds a threat can therefore acquire it one
-step earlier than native would.
+RESIDUAL: Phobos also hooks the scan entry `0x70982C` to apply a
+per-TechnoType targeting delay; that hook is not part of this chain, so a
+`RequireTarget` scan still uses the global `[General]` Guard Area delay.
 
-RESIDUAL (test coverage): this checkout has no retail INIs, and the synthetic
-fixture's scanner cannot form a candidate, so the "a threat keeps Area Guard"
-arm is not exercised by a test. The key/owner gate and the no-threat refusal
-are covered through the production dispatcher; the positive arm calls the
-same shared scanner the Area Guard body uses.
+RESIDUAL (test coverage): this checkout has no retail INIs, so
+`retail_ini_fixture` returns `None` and the retail-gated positive-arm test
+(the key keeps Area Guard with a threat) is skipped here. The synthetic
+fixture cannot form a scanner candidate, so the positive arm runs only on a
+machine with the retail data. The key/owner/reachability gate, the no-threat
+refusal and the scan attempt itself (the targeting-timer stamp) are covered
+through the production dispatcher.

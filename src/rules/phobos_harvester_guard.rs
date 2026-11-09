@@ -3,7 +3,7 @@
 //! `Ext/UnitType/Body.h:19-20`, constructor `false` `:89-90`).
 //!
 //! Consumer: `FootClass_MissionAreaGuard_Miner @ 0x4D6D34`
-//! (`Ext/Unit/Hooks.Harvester.cpp:75-94`). A human-owned Unit harvester whose
+//! (`Ext/Unit/Hooks.Harvester.cpp:71-90`). A human-owned Unit harvester whose
 //! type sets `CanGuardArea` keeps Area Guard instead of switching to Harvest;
 //! with `RequireTarget` it keeps it only when
 //! `TargetAndEstimateDamage(Location, ThreatType::Area)` finds a threat.

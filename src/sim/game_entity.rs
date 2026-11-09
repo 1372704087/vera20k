@@ -167,6 +167,12 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_delayed_fire_remove_anim_on_no_delay: bool,
+    /// Phobos `UnitExt::KeepTargetOnMove` (`Ext/Unit/Body.h`): a Move order
+    /// kept this unit's in-range target, so the Unit AI re-checks the range
+    /// until it gives up.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_keep_target_on_move: bool,
     /// Techno+504 and Ares held sparkle. One private counter owner; stock
     /// constructor remains zero and only the feature-gated EMP producer writes it.
     #[serde(default)]
@@ -2089,6 +2095,17 @@ impl GameEntity {
         self.phobos_delayed_fire_sequence_paused = paused;
     }
 
+    /// Phobos `UnitExt::KeepTargetOnMove`: the Move-order latch.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_keep_target_on_move(&self) -> bool {
+        self.phobos_keep_target_on_move
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_keep_target_on_move(&mut self, keep: bool) {
+        self.phobos_keep_target_on_move = keep;
+    }
+
     /// `CurrentDelayedFireAnim` registration (`Body.cpp:691-695`): only an
     /// attached anim is tracked, together with its stored removal flag.
     #[cfg(feature = "phobos")]
@@ -2395,6 +2412,8 @@ impl GameEntity {
             phobos_delayed_fire_anim: None,
             #[cfg(feature = "phobos")]
             phobos_delayed_fire_remove_anim_on_no_delay: false,
+            #[cfg(feature = "phobos")]
+            phobos_keep_target_on_move: false,
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),

@@ -60,8 +60,6 @@ pub(crate) mod base_plan_generation;
 pub mod bomb;
 #[cfg(feature = "ares")]
 pub mod bounty;
-#[cfg(any(feature = "ares", feature = "phobos"))]
-pub mod flying_text;
 pub(crate) mod build_site;
 pub mod building_art;
 pub mod building_construction;
@@ -90,6 +88,8 @@ pub(crate) mod estimated_health;
 #[cfg(feature = "ares")]
 pub(crate) mod factory_owners;
 pub(crate) mod flashing;
+#[cfg(any(feature = "ares", feature = "phobos"))]
+pub mod flying_text;
 pub mod frame_profile;
 pub mod game_entity;
 #[cfg(any(test, feature = "test-support"))]
@@ -117,6 +117,10 @@ pub mod telemetry;
 pub(crate) mod vehicle_theft;
 // A wasm build has no threads (the browser package, the headless WASI run)
 // unless the browser package opts into its Web Worker pool.
+#[cfg(feature = "phobos")]
+pub(crate) mod grinding; // Phobos BuildingExt CanGrindTechno / DoGrindingExtras (Grinding.*)
+#[cfg(feature = "phobos")]
+pub(crate) mod kill_weapon; // Phobos TechnoExt::ApplyKillWeapon (KillWeapon.*, 0x702672)
 #[cfg_attr(
     all(target_arch = "wasm32", not(feature = "wasm-threads")),
     path = "parallel_web.rs"
@@ -125,6 +129,8 @@ pub(crate) mod parallel; // order-preserving work over scoped threads
 #[cfg(all(test, feature = "wasm", not(target_arch = "wasm32")))]
 #[path = "parallel_web.rs"]
 mod parallel_web_tests;
+#[cfg(feature = "phobos")]
+pub(crate) mod passenger_deletion; // Phobos TechnoExt::EatPassengers (PassengerDeletion.*)
 pub mod rng;
 pub mod scenario_bootstrap;
 pub mod scenario_post_map;
@@ -133,12 +139,6 @@ pub mod score;
 pub(crate) mod secret_lab;
 pub mod sensor_lifecycle;
 pub(crate) mod shared_ammo; // Phobos Ammo.Shared hand-out at StartReloading (0x6FB080)
-#[cfg(feature = "phobos")]
-pub(crate) mod passenger_deletion; // Phobos TechnoExt::EatPassengers (PassengerDeletion.*)
-#[cfg(feature = "phobos")]
-pub(crate) mod grinding; // Phobos BuildingExt CanGrindTechno / DoGrindingExtras (Grinding.*)
-#[cfg(feature = "phobos")]
-pub(crate) mod kill_weapon; // Phobos TechnoExt::ApplyKillWeapon (KillWeapon.*, 0x702672)
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;
@@ -239,6 +239,8 @@ pub mod digital_display;
 pub mod shield;
 
 // --- Passengers, transport, slaves ---
+#[cfg(feature = "phobos")]
+pub mod keep_target_on_move;
 pub mod parity_digest;
 pub mod passenger;
 pub(crate) mod slave_deposit;

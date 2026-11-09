@@ -771,6 +771,15 @@ impl Simulation {
             && !entity.ai_frozen()
             && !entity.is_warped_out()
         {
+            // `UnitClass_AI` hook `0x736480` runs UpdateKeepTargetOnMove
+            // before DepletedAmmoActions.
+            crate::sim::keep_target_on_move::update_keep_target_on_move(
+                self,
+                id,
+                rules,
+                ctx.overlay_registry,
+                ctx.effects,
+            );
             crate::sim::unit_simple_deploy::depleted_ammo_actions(self, id, rules);
         }
         outcome

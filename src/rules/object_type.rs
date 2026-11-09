@@ -891,6 +891,10 @@ pub struct ObjectType {
     /// the aircraft-spawner customizations consumed by `sim::spawn_manager`.
     #[cfg(feature = "phobos")]
     pub phobos_spawner: crate::rules::phobos_spawner::PhobosSpawner,
+    /// Phobos `KeepTargetOnMove.*` (`Ext/TechnoType/Body.cpp:1103-1106`):
+    /// whether a Move order keeps an in-range target.
+    #[cfg(feature = "phobos")]
+    pub phobos_keep_target: crate::rules::phobos_keep_target::PhobosKeepTargetOnMove,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -4786,6 +4790,9 @@ impl ObjectType {
                 ),
             #[cfg(feature = "phobos")]
             phobos_spawner: crate::rules::phobos_spawner::PhobosSpawner::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_keep_target:
+                crate::rules::phobos_keep_target::PhobosKeepTargetOnMove::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),

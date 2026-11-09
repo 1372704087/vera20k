@@ -157,6 +157,8 @@ pub mod phobos_health_bar;
 mod phobos_infantry_deploy_tests;
 pub mod phobos_jumpjet_tilt;
 #[cfg(feature = "phobos")]
+pub mod phobos_keep_target;
+#[cfg(feature = "phobos")]
 pub mod phobos_kill_weapon;
 pub mod phobos_laser_tracking;
 #[cfg(feature = "phobos")]

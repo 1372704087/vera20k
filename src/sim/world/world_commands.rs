@@ -3640,6 +3640,33 @@ impl Simulation {
         }
         // `0x004C745B`, then the target setter.
         let target = self.resolve_event_token(target);
+        // Phobos `EventClass_Execute_MegaMission_MoveCommand @ 0x4C7462`
+        // (`Ext/Techno/Hooks.Misc.cpp:1036-1075`) replaces that setter for a
+        // Move order: a unit whose live target is already close enough to
+        // attack keeps it, stores the order destination itself and skips the
+        // shared target clear and destination setter.
+        #[cfg(feature = "phobos")]
+        if mission == MissionType::Move
+            && target.is_none()
+            && crate::sim::keep_target_on_move::move_order_keeps_target(
+                self,
+                entity_id,
+                rules,
+                overlay_registry,
+            )
+        {
+            let destination = self.resolve_event_token(destination);
+            if let Err(cause) = self.assign_destination_represented(
+                entity_id,
+                destination.map(Into::into),
+                rules,
+                overlay_registry,
+                frame_effects,
+            ) {
+                log::warn!("KeepTargetOnMove destination {entity_id}: {cause}");
+            }
+            return MegaMissionExecution::Executed;
+        }
         // Its changed-null path6FCF5B also resets retained burst state;
         // dropping Target alone cannot.
         let _ = self.assign_target_represented(

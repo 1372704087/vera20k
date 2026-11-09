@@ -95,6 +95,7 @@ Supported extensions:
 - [Delayed fire](phobos-delayed-fire.md) (`DelayedFire.*` wind-up delay, timer, pause, wind-up animation and `Burst.NoDelay` compatibility; 11 keys)
 - [Aircraft spawner customizations](phobos-spawner.md) (`Spawner.*` launch spacing, immediate attack, turret facing, pursue range and the recycle point; 9 keys + 4 `[General]` fallbacks)
 - [Detonate on all map objects](phobos-detonate-all-map.md) (`DetonateOnAllMapObjects.*` whole-map detonation, target/house/type filters and the Full/damage-area arms)
+- [Keep target on move](phobos-keep-target-on-move.md) (`KeepTargetOnMove.*` move-order target retention, the Unit AI range re-check and the temporary ExtraDistance)
 - [OpenTopped per-type properties](phobos-open-topped.md) (eleven `OpenTopped.*` TechnoType keys, eight `[General]` globals, two fallback chains and the firing/range/cloak/temporal hooks)
 
 ## Original project and authors

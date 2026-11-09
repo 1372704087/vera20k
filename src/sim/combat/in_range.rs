@@ -1091,6 +1091,79 @@ pub fn can_fire_at_target_in_query(
     )
 }
 
+/// `TechnoClass::IsCloseEnough @ 0x006F7930` for an explicit weapon slot (or
+/// the selected one when `weapon_index < 0`) with Phobos
+/// `KeepTargetOnMove.ExtraDistance` added to that weapon's range for this
+/// query only. Native mutates the shared `WeaponTypeClass::Range` around the
+/// call; a local copy is behaviorally identical because nothing else runs
+/// between the two writes.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn in_range_with_weapon_extra(
+    world: &Simulation,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    attacker_id: u64,
+    target: &TargetKind,
+    weapon_index: i32,
+    extra_leptons: i32,
+    cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
+    alliances: Option<&HouseAlliances>,
+    los: &line_of_fire::LineOfFireInputs<'_>,
+) -> bool {
+    let Some(attacker) = world.substrate.entities.get(attacker_id) else {
+        return false;
+    };
+    let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules) else {
+        return false;
+    };
+    let index = if weapon_index >= 0 {
+        weapon_index
+    } else {
+        let Some((index, _)) = combat_weapon::select_weapon_against_in_query(
+            rules,
+            attacker,
+            attacker_obj,
+            &combat_weapon::attacker_facts(attacker, attacker_obj),
+            Some(target),
+            world,
+            interner,
+            Some(cells),
+            alliances,
+        ) else {
+            return false;
+        };
+        index
+    };
+    let Some(weapon) = combat_weapon::get_weapon(
+        attacker,
+        attacker_obj,
+        index,
+        &world.substrate.entities,
+        rules,
+        interner,
+    ) else {
+        return false;
+    };
+    let mut weapon = weapon.clone();
+    weapon.range_leptons = weapon.range_leptons.wrapping_add(extra_leptons);
+    let target = RangeTarget::from_target(target, world, cells.terrain());
+    let Some(source) = fire_source_for_target(attacker, target, &weapon, cells, (rules, interner))
+    else {
+        return false;
+    };
+    compute_range_target(
+        attacker,
+        source,
+        target,
+        &weapon,
+        rules,
+        interner,
+        cells,
+        los,
+        Some(&world.substrate.entities),
+    )
+}
+
 /// What [`mapless_in_range`] measures to.
 #[derive(Clone, Copy)]
 pub enum MaplessTarget<'a> {

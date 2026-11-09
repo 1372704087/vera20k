@@ -53,9 +53,13 @@ the shared receiver (`commit_entities`), so armor, verses and shields apply.
 
 - `SetLocation(transporterCoords)` before each passenger's damage is not
   applied; a killed passenger's death effects use its own stored position.
-- Gunner removal/re-add (`Gunner=` transports) is not ported.
-- The `distance` handed to ReceiveDamage is 0; native forwards the area
-  distance, which the VERA damage kernel does not consume.
-- Under-attack events produced by the passenger damage are dropped.
+- The general death path already removes a dying gunner; only the
+  `ReceiveGunner(new head)` half of `Gunner=` handling is missing, so a
+  transport with `Gunner=yes` and at least two passengers keeps an empty
+  gunner slot after a penetrating kill.
+- The receiver's under-attack events produced by passenger damage are
+  dropped; nested death effects still surface through the shared effects.
 - `ApplyPerTargetEffectsOnDetonate=no` keeps the existing VERA residual: the
   pass stays on the bullet entry rather than moving into ReceiveDamage.
+- Passenger fixtures inject the cargo id list without the full limbo/Inside
+  transport link; the production boarding state is exercised elsewhere.

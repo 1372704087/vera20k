@@ -207,7 +207,7 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         auto_death_allow_limboed: section
             .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
-        penetrates_transport_level: section.read_int(
+        penetrates_transport_level: section.read_ares_int(
             "PenetratesTransport.Level",
             defaults.penetrates_transport_level,
         ),

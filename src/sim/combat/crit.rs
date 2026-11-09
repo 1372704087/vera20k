@@ -79,8 +79,9 @@ pub(crate) struct CritRoll {
 /// `DetonateOnOneUnit` on every `getCellSpreadItemsExt` item of a cell-spread
 /// warhead, or on `intended_target` (the bullet's target, or `DamageAreaTarget`)
 /// within 64 leptons of `impact`. `source_house` is the hook's house; a direct
-/// `DamageArea` without one takes the owner's (`0x489286`). Returns
-/// `Crit_Active`, which the damage-animation selection reads.
+/// `DamageArea` without one takes the owner's (`0x489286`). `damage` is the
+/// firing bullet's Health for the PenetratesTransport arm, 0 without a
+/// bullet. Returns `Crit_Active`, which the damage-animation selection reads.
 #[cfg(feature = "phobos")]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn detonate(
@@ -153,8 +154,8 @@ pub(crate) fn detonate(
             continue;
         }
         // `DetonateOnOneUnit`'s PenetratesTransport arm (`Detonate.cpp:233`):
-        // before the shield/AE/crit blocks, the shot reaches the target's
-        // passengers.
+        // before the attach-effect and crit blocks, the shot reaches the
+        // target's passengers. Shields resolve inside the passenger receiver.
         super::penetrates_transport::apply(
             world,
             run,
@@ -166,6 +167,7 @@ pub(crate) fn detonate(
             house,
             target_id,
             damage,
+            impact,
             effects,
         );
         if attach {

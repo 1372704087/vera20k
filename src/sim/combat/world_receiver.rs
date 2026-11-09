@@ -845,6 +845,7 @@ pub(crate) fn apply_area_damage_in_run_with_target(
         origin.1,
         impact,
         area_target,
+        0,
         &mut effects,
     );
     #[cfg(not(feature = "phobos"))]
@@ -3987,6 +3988,7 @@ fn emit_detonation_receivers<'r>(
             ProjectileTarget::Entity(id) => Some(id),
             _ => None,
         },
+        detonation.payload.base_damage,
         &mut out.effects,
     );
     #[cfg(not(feature = "phobos"))]

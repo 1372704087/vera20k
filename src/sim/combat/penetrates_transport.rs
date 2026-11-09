@@ -29,6 +29,7 @@ pub(super) fn apply(
     source_house: Option<InternedId>,
     target_id: u64,
     damage: i32,
+    impact: crate::sim::projectile::ProjectileCoord,
     effects: &mut DeathEffects,
 ) {
     let settings = &warhead.phobos_penetrates_transport;
@@ -72,6 +73,17 @@ pub(super) fn apply(
     };
     let adjusted = (f64::from(damage) * settings.damage_multiplier * target_rules.damage_multiplier)
         .ceil() as i32;
+    // `Detonate.cpp:807`: `coords.DistanceFrom(transporterCoords)` when the
+    // caller's distance is negative; the receiver's CellSpread falloff and
+    // delay-kill interpolation read it.
+    let transport_coord = crate::sim::movement::ground_pose::object_get_coords(
+        target,
+        world.resolved_terrain.as_ref(),
+    );
+    let distance = crate::util::native_x87::distance_3d_leptons(
+        [impact.x, impact.y, impact.z],
+        [transport_coord.x, transport_coord.y, transport_coord.z],
+    );
     for passenger_id in picked {
         let Some(passenger) = world.substrate.entities.get(passenger_id) else {
             continue;
@@ -92,7 +104,7 @@ pub(super) fn apply(
         let event = EntityDamageEvent::direct_receiver(
             passenger_id,
             amount,
-            0,
+            distance,
             source_id,
             source_house,
             warhead_ref,

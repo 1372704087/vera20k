@@ -1682,6 +1682,12 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             .phobos_delayed_fire_remove_anim_on_no_delay()
             .hash(hasher);
     }
+    // Phobos `HasUndeployConverted` gates the next Undeploy conversion.
+    #[cfg(feature = "phobos")]
+    if entity.phobos_infantry_undeploy_converted() {
+        b"phobos-undeploy-convert-v1".hash(hasher);
+        entity.phobos_infantry_undeploy_converted().hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);

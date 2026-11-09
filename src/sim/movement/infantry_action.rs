@@ -664,6 +664,15 @@ impl Simulation {
         } else {
             false
         };
+        // Phobos `InfantryClass_DoingAI_DeployConvert_ResetFlags @ 0x520E75`:
+        // outside the Deploy (27) and Undeploy (31) sequences the conversion
+        // latches clear.
+        #[cfg(feature = "phobos")]
+        if !matches!(doing, DO_DEPLOY | 31)
+            && let Some(actor) = self.substrate.entities.get_mut(id)
+        {
+            actor.set_phobos_infantry_undeploy_converted(false);
+        }
         //520E52: the landing tail runs even below the sequence's count.
         if self.substrate.entities.get(id).is_some_and(|actor| {
             actor

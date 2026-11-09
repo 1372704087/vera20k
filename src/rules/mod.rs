@@ -139,6 +139,8 @@ pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
 pub mod phobos_build_limit_group;
 #[cfg(feature = "phobos")]
+pub mod phobos_convert;
+#[cfg(feature = "phobos")]
 pub mod phobos_convert_health;
 #[cfg(feature = "phobos")]
 pub mod phobos_crit;

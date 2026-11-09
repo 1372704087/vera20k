@@ -931,6 +931,10 @@ pub struct ObjectType {
     /// converts when its health ratio enters the band.
     #[cfg(feature = "phobos")]
     pub phobos_convert_health: crate::rules::phobos_convert_health::PhobosConvertHealth,
+    /// Phobos `Convert.Undeploy` (`Ext/TechnoType/Body.cpp:1014`): the type an
+    /// infantryman converts to when its Undeploy sequence completes.
+    #[cfg(feature = "phobos")]
+    pub phobos_convert: crate::rules::phobos_convert::PhobosConvert,
     /// Phobos `TurretAnim.*` (`Ext/BuildingType/Body.cpp:260-265`).
     #[cfg(feature = "phobos")]
     pub phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim,
@@ -4892,6 +4896,8 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_convert_health:
                 crate::rules::phobos_convert_health::PhobosConvertHealth::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_convert: crate::rules::phobos_convert::PhobosConvert::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim::from_section(
                 section,

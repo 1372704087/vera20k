@@ -439,10 +439,11 @@ impl BuildingUpgrades {
 }
 
 impl Simulation {
-    /// Phobos BuildingTypeExt::GetUpgradesAmount (Ext/BuildingType/Body.cpp):
-    /// read the owning House's Building array and the host's installed types,
-    /// without counting the temporary/producing upgrade object. A non-upgrade
-    /// returns None so the caller can use the normal presence counters.
+    /// Phobos BuildingTypeExt::GetUpgradesAmount (`Ext/BuildingType/Body.cpp:128`):
+    /// sum the installed slots of this type over every owned
+    /// `PowersUp.Buildings` host, without counting the temporary/producing
+    /// upgrade object. A type with no host returns None so the caller can use
+    /// the normal presence counters.
     #[cfg(feature = "phobos")]
     pub(crate) fn count_owned_building_upgrades(
         &self,
@@ -450,11 +451,20 @@ impl Simulation {
         upgrade: &ObjectType,
         rules: &RuleSet,
     ) -> Option<i32> {
-        let host = rules.object_in_category(
-            crate::rules::object_type::ObjectCategory::Building,
-            upgrade.building_upgrade().host()?,
-        )?;
-        let host_id = self.interner.get(&host.id)?;
+        // `GetUpgradesAmount @ Ext/BuildingType/Body.cpp:128-160` walks every
+        // `PowersUp_Buildings` host, not only the legacy single one.
+        let host_ids: Vec<crate::sim::intern::InternedId> = upgrade
+            .building_upgrade()
+            .powers_up_buildings()
+            .iter()
+            .filter_map(|name| {
+                rules.object_in_category(crate::rules::object_type::ObjectCategory::Building, name)
+            })
+            .filter_map(|host| self.interner.get(&host.id))
+            .collect();
+        if host_ids.is_empty() {
+            return None;
+        }
         let upgrade_id = self.interner.get(&upgrade.id)?;
         Some(self.houses.get(&owner).map_or(0, |house| {
             house
@@ -463,7 +473,8 @@ impl Simulation {
                 .iter()
                 .filter_map(|id| self.substrate.entities.get(*id))
                 .filter(|building| {
-                    building.type_ref() == host_id && building.building_upgrades().count() != 0
+                    host_ids.contains(&building.type_ref())
+                        && building.building_upgrades().count() != 0
                 })
                 .map(|building| {
                     building

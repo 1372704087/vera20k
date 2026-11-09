@@ -8,9 +8,9 @@ fn read(text: &str) -> BuildLimitGroupSettings {
     BuildLimitGroupSettings::from_section(IniFile::from_str(text).section_or_empty("Q"))
 }
 
-/// The constructor defaults, all nine keys, the `Types`/`Nums` index
-/// alignment through an unparseable token, unresolved names kept for the
-/// consumer, and the two `[General]` fallback globals.
+/// The constructor defaults, all nine keys, `ValueableVector` token dropping,
+/// unresolved names kept for the consumer, and the two `[General]` fallback
+/// globals.
 #[test]
 fn build_limit_group_rules_defaults_paired_reads_and_general_fallbacks() {
     let defaults = BuildLimitGroupSettings::default();
@@ -36,11 +36,12 @@ fn build_limit_group_rules_defaults_paired_reads_and_general_fallbacks() {
          BuildLimitGroup.ExtraLimit.MaxCount=7\n\
          BuildLimitGroup.ExtraLimit.MaxNum=9\n",
     );
-    // Unresolved type names are retained, not dropped.
+    // Unresolved type names are retained for the consumer, which drops them
+    // before pairing (the native reader's `Parser<TechnoTypeClass*>` skip).
     assert_eq!(set.types, ["A", "B", "NOT_A_TYPE"]);
-    // `x` fails Parser<int> but keeps its slot as 0, so Nums stays aligned
-    // with Types (read_ares_int_list's filter_map would have dropped it).
-    assert_eq!(set.nums, [2, 3, 0]);
+    // `x` fails Parser<int> and is skipped, so `ValueableVector<int>` keeps
+    // only the two parsed values (`detail::parse_values`, TemplateDef.h:1728).
+    assert_eq!(set.nums, [2, 3]);
     assert_eq!(set.factor, 4);
     assert_eq!(set.content_if_any_match, Some(true));
     assert_eq!(set.not_buildable_if_queue_match, Some(false));

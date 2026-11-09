@@ -35,38 +35,62 @@ Two `[General]` `Valueable<bool>` globals are the `Nullable` fallbacks
 
 - `CountOwnedIncludeDeploy` (`:774-780`) = `CountOwnedNow(pItem)` +
   `DeploysInto` + `UndeploysInto`.
-- `BuildLimitGroupUpgradeCheck` (`:802-1013`) and `ReachedBuildLimit`
-  (`:1036-1188`) duplicate the cap logic; `QueuedNum` (`:1015-1034`) is
-  `CountTotal(pType)` minus the factory's held object when it is that exact
-  type; `RemoveProduction` (`:782-800`) drops queued copies on a match.
+- `QueuedNum` (`:1015-1034`) is `CountTotal(pType)` minus the factory's held
+  object when it is that exact type; `RemoveProduction` (`:782-800`) drops
+  queued copies on a match.
+- The two native bodies disagree, so VERA keeps two owners:
+  `BuildLimitGroupUpgradeCheck` (`:802-1013`) for `CanBuild` and
+  `ReachedBuildLimit` (`:1036-1188`) for the cameo grey-out.
 
-1. Short-circuit: empty `Types` (`:806`) and, more strictly, empty `Types` or
-   `Nums` (`:1040-1041`) mean no cap. VERA uses the union, keeping the
-   all-empty constructor default inert (stock behaviour unchanged).
-2. ExtraLimit quota (`:809-843` / `:1049-1077`): `limits` is a local copy of
-   `Nums`. Only when `ExtraLimit.Types` and `.Nums` are both non-empty, each
-   index `i` pairs `Types[i]/Nums[i]/MaxCount[i]`; `count` is the type's owned
-   units (`GetUpgradesAmount` for PowersUp upgrades, else `CountOwnedNow`),
-   clamped by `MaxCount[i] > 0`; every `limit` gains `count * Nums[i]` (only
-   when `Nums[i] > 0`) and is then capped by `MaxNum > 0`. Out-of-range and
-   `<= 0` tokens are silently ignored. `MaxCount` caps the counted units;
-   `MaxNum` caps each resulting limit.
-3. Group contributions (`:845-861`): per group type,
+### Grey-out: `ReachedBuildLimit` (`check_build_limit`)
+
+1. Empty `Types` or `Nums` (`:1040-1041`) means no cap.
+2. ExtraLimit quota (`:1049-1077`): `limits` is a local copy of `Nums`. Only
+   when `ExtraLimit.Types` and `.Nums` are both non-empty, each index `i`
+   pairs `Types[i]/Nums[i]/MaxCount[i]`; `count` is the type's owned units
+   (`GetUpgradesAmount` for PowersUp upgrades, else `CountOwnedNow`), clamped
+   by `MaxCount[i] > 0`; every `limit` gains `count * Nums[i]` (only when
+   `Nums[i] > 0`) and is then capped by `MaxNum > 0`.
+3. Single `Nums` (`:1085-1112`): `count = Σ CountOwnedNow[i]*Factor[i]`,
+   `queued = Σ QueuedNum[i]*Factor[i]`, `num = count - limits[0]`; returns
+   true when `num + queued >= 1 - Factor(pItem)`. `ContentIfAnyMatch` is not
+   read here; **`NotBuildableIfQueueMatch` does not change the return** — it
+   only picks `RemoveProduction`'s count.
+4. Multiple `Nums` (`:1115-1187`): pair by index with
+   `size = min(Nums, Types)`; `num = CountOwnedNow[i] * (Factor[i] - limits[i])`
+   (the Phobos defect, not `owned * Factor - limit`); the pItem slot tests
+   `num + queued >= 1 - Factor`, other slots `num + queued >= 0`;
+   `ContentIfAnyMatch` returns on any reaching slot, else the AND `reached`
+   is the answer. `realReached` only selects `RemoveProduction`'s argument.
+
+### CanBuild: `BuildLimitGroupUpgradeCheck` (`can_build`)
+
+Reached only for a BuildingType whose `PowersUp.Buildings` is non-empty
+(`Hooks.Upgrade.cpp:104-108`).
+
+1. Empty `Types` (`:806`) returns Buildable. Empty `Nums` with non-empty
+   `Types` falls into the multi branch with `size = 0`, which is reached
+   (`TemporarilyUnbuildable`).
+2. ExtraLimit quota (`:809-843`) and contributions (`:845-861`):
    `contribution = CountOwnedIncludeDeploy * that type's OWN Factor` (not
-   pItem's). Queued copies contribute `QueuedNum * that type's Factor`
-   (`:1093`, `:1133`).
-4. Switches: `factor` is **pItem's own** Factor (`:863`); `notBuildable` /
-   `contentIfAny` are `.Get(global)` (`:864-865`, `:1080`, `:1125`).
-   `ContentIfAnyMatch=yes` → OR (any member reaching blocks), `no` → AND.
-   `NotBuildableIfQueueMatch=yes` → a queue-only reach is blocked too.
-5. `Nums.len() == 1` (`:867-890`): sum all contributions;
-   `sum >= limits[0] + 1 - factor` (equiv. `num >= 1 - factor`) → unbuildable.
-6. Otherwise (`:892-947`): pair by index with `size = min(limits, types)`;
-   pItem's own slot uses threshold `1 - factor`, other slots `0`;
-   `ContentIfAnyMatch` makes it OR, else AND.
-7. Final gate (`:1112`, `:1180`): `reached && (realReached || notBuildable)` —
-   queue-only reaches are blocked only when `NotBuildableIfQueueMatch` is set.
-   Queue matches are exact TechnoType pointers, not group/category.
+   pItem's).
+3. Single `Nums` (`:867-890`): `Σ contributions >= limits[0] + 1 - factor`.
+4. Multiple `Nums` (`:892-947`): first pass pairs by index; the pItem slot is
+   never required by the AND (its only `realReached` assignment is
+   unreachable), other slots need `contribution - limit >= 0`;
+   `ContentIfAnyMatch` returns on any reaching slot.
+5. Second pass (`:949-1012`) runs when the first pass did not return:
+   - `ContentIfAnyMatch`: any slot with `contribution >= limit + 1 - factor`
+     and, when `includeQueued`, no copy in production blocks.
+   - Single `Nums`: the same sum comparison would already have returned; the
+     branch is dead but reproduced.
+   - Multiple `Nums`: every slot must be at its threshold (`1 - factor` for
+     the pItem slot, `limit` for others) and have no copy in production when
+     `includeQueued`; otherwise Buildable.
+6. `NotBuildableIfQueueMatch` never changes either owner's return value;
+   only the unported `RemoveProduction` reads it. Queue presence in the
+   second pass is `FactoryClass::FindByOwnerAndProduct`, VERA's
+   `held_in_factory`.
 
 ## Native evidence (gamemd / Phobos hooks)
 
@@ -82,40 +106,46 @@ Two `[General]` `Valueable<bool>` globals are the `Nullable` fallbacks
 | `0x005F7900` | `ObjectTypeClass::FindFactory` | `can_build::find_factory` |
 
 `Building/Body.cpp` and `Techno/Body.cpp` contain no `BuildLimitGroup` match.
-VERA has no Ares injection point, so it does **not** reproduce Phobos's
-"only PowersUp buildings go through `0x4F8361`" split; one shared gate is
-added at the top of `build_limit()` (before both the `ares` and non-`ares`
-return blocks) and of `check_build_limit()`, reusing `HouseTracking::owned_count`,
-`produced_count`, `held_in_factory()` and `sim.production.factories()`.
+The Phobos hook at `0x4F8361` only replaces the result for a BuildingType
+whose `PowersUp_Buildings` is non-empty, so `build_limit()` asks
+`build_limit_group_upgrade_check()` only for such a type; every type still
+meets `build_limit_group_reached()` through the grey-out. Both reuse
+`HouseTracking::owned_count`, `held_in_factory()` and
+`sim.production.factories()`; `count_owned_building_upgrades()` supplies
+`GetUpgradesAmount` over **all** `PowersUp.Buildings` hosts.
 
-## Two Phobos inconsistencies — ruling
+## Phobos inconsistencies — ruling
 
-The two duplicated algorithms disagree. VERA follows
-`BuildLimitGroupUpgradeCheck` and records the deviations:
+The two duplicated algorithms disagree; each port keeps its own body because
+both are observable (cameo grey-out vs CanBuild):
 
 1. `BuildLimitGroupUpgradeCheck:901` uses `num = contribution - limit`;
-   `ReachedBuildLimit:1142` uses `num *= Factor - limits[i]`
-   (i.e. `owned * (factor - limit)`), which is mathematically different and
-   looks like a Phobos defect. VERA uses `contribution - limit`.
-2. `ReachedBuildLimit:1102/1140` counts only `CountOwnedNow` (no deploy
-   conversions), while `BuildLimitGroupUpgradeCheck:858` uses
-   `CountOwnedIncludeDeploy`. VERA uses the latter.
+   `ReachedBuildLimit:1142` uses `num = owned * (Factor - limit)`, which is
+   mathematically different and looks like a Phobos defect. VERA reproduces
+   both: the CanBuild gate subtracts the limit, the grey-out multiplies by
+   the difference.
+2. `ReachedBuildLimit:1102/1140` counts only `CountOwnedNow`, while
+   `BuildLimitGroupUpgradeCheck:858` uses `CountOwnedIncludeDeploy`. Each
+   owner uses its own counter.
+3. In the multi-limit `UpgradeCheck` first pass every `realReached = false`
+   assignment sits inside the opposite branch of its own `if`, so
+   `reached && (realReached || notBuildable)` reduces to `reached` and the
+   pItem slot is never required by that pass. Reproduced as written.
+4. `NotBuildableIfQueueMatch` is only read by `RemoveProduction`'s argument in
+   both bodies; it never changes a return value.
 
-`BuildLimitGroupUpgradeCheck` also has a second pass (`:949-1012`) with a
-`contentIfAny` loop over all items at a `1 - factor` threshold and an
-`includeQueued` / `FindByOwnerAndProduct` release. VERA keeps the first pass's
-paired-threshold semantics (`1 - factor` for pItem, `0` for others) and the
-`ReachedBuildLimit` queue/notBuildable gate; the second pass is not ported.
+## Reader: `ValueableVector` token dropping
 
-## Reader: index alignment (`read_ares_int_list` trap)
-
-`IniSection::read_ares_int_list` (`ini_value.rs:627`) uses `filter_map`, so an
-unparseable `Nums` token is dropped and the `Types`/`Nums`/`MaxCount` pairing
-shifts. VERA reads integer lists with `read_list` (`ini_value.rs:1043`) and
-`parse_ares_int` (`ini_value.rs:1957`, Ares/Phobos `Parser<int>`), keeping a
-`0` placeholder for a rejected token — no `str::parse`, one slot per token.
-Type-name lists use `read_valueable_type_vector` and keep unresolved names as
-`Vec<String>` for the consumer to resolve (the `phobos_grinding` convention).
+`ValueableVector<int>::Read` (`TemplateDef.h:1947`) sends every comma token
+through `Parser<int>` and **skips** a token that does not convert
+(`detail::parse_values`, `TemplateDef.h:1728-1741`), so `Nums=2,3,x` reads as
+`[2,3]`. `IniSection::read_ares_int_list` (`ini_value.rs:627`) has exactly that
+behaviour and is used for `Nums`, `ExtraLimit.Nums` and `ExtraLimit.MaxCount`.
+Type-name lists (`ValueableVector<TechnoTypeClass*>`) drop unresolvable names
+the same way; VERA reads them with `read_valueable_type_vector` while the
+types are still being constructed, so the names stay as `Vec<String>` and the
+consumer applies the same filter *before* pairing with `Nums` — a dropped name
+does not hold a slot.
 
 ## Residuals (trigger · impact · frequency · risk)
 
@@ -124,28 +154,20 @@ Type-name lists use `read_valueable_type_vector` and keep unresolved names as
   against real RA2 data. Impact: cap behavior only verified on synthetic
   fixtures. Frequency: always in this workspace. Risk: medium — real INI
   values may exercise untested `Types`/`Nums` shapes.
-- **PowersUp upgrades `GetUpgradesAmount`** (`UpgradeCheck:824-825`, `:855-856`,
-  `ReachedBuildLimit:1058-1060`, `:1137-1138`): VERA has no
-  `PowersUp_Buildings` equivalent and uses `owned_count` for every group member.
-  Trigger: a group member is an upgrade building. Impact: its contribution may
-  differ. Frequency: rare. Risk: low.
 - **`RemoveProduction` queue deletion** (`:782-800`): VERA's gate is read-only;
-  it does not remove queued copies on a match (the caller owns UI/queue state).
-  Trigger: a group cap is reached with a matching queue. Impact: cameo greys
-  but the queue is not purged. Frequency: rare. Risk: low.
-- **`UpgradeCheck` second pass** (`:949-1012`, `FindByOwnerAndProduct` release,
-  contentIfAny all-item `1 - factor` loop): not ported; VERA uses the first
-  pass's paired thresholds plus the `ReachedBuildLimit` queue gate. Trigger:
-  `ContentIfAnyMatch=yes` with a queue-only reach. Impact: a borderline OR
-  case may differ. Frequency: rare. Risk: low.
+  it does not remove queued copies on a match, and this is the only reader of
+  `NotBuildableIfQueueMatch` in either native body. Trigger: a group cap is
+  reached with a matching queue. Impact: cameo greys but the queue is not
+  purged. Frequency: a player over-queues a grouped type. Risk: more copies
+  can complete than the group allows if the dequeue path does not re-check
+  `CanBuild`.
 - **Held-object deduction scope**: `QueuedNum` uses the primary factory of the
   type; VERA's `held_in_factory()` matches any factory of the owner, so a held
   object in a different strip is deduced from a queue count it was never part
   of (the count is clamped at 0). Trigger: a type held in a cross-strip
   factory. Impact: that type's queued contribution may be 0. Frequency: never
   on synthetic fixtures. Risk: low.
-- **Paired (`Nums.len() > 1`) branch**: implemented from `:892-947` but not
-  covered by a dedicated production-code regression test (the three required
-  tests exercise the single-`Nums` sum branch). Trigger: authored INIs with
-  multiple `Nums`. Impact: unverified OR/AND pairing. Frequency: rare. Risk:
-  low.
+- **`GetUpgradesAmount` host resolution**: VERA resolves `PowersUp.Buildings`
+  names through the RuleSet; an unresolved host contributes nothing, matching
+  the native reader's dropped pointer. Trigger: a typo'd host name. Impact:
+  installed upgrades count as 0. Frequency: broken mod data only. Risk: low.

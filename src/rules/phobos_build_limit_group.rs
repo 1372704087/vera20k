@@ -5,10 +5,11 @@
 //! The consumer is the House build-limit gate in `sim::production::can_build`
 //! (`HouseExt::BuildLimitGroupUpgradeCheck @ Ext/House/Body.cpp:802-1013`,
 //! `HouseExt::ReachedBuildLimit @ Ext/House/Body.cpp:1036-1188`). Type names
-//! are kept as `Vec<String>` and resolved at use time: a `ValueableVector`
-//! has no `<default>` form and the consumer must treat an unresolved name as
-//! a group member that contributes nothing (the same rule as
-//! `phobos_grinding`'s `grinding_keeps_unresolved_type_names_for_the_consumer`).
+//! are kept as `Vec<String>` because types are still being constructed while
+//! this section is read; the consumer drops unresolved names *before* pairing
+//! with `Nums`, which reproduces the native read-time filter of
+//! `Parser<TechnoTypeClass*>` (an invalid token is skipped, it does not hold a
+//! `Nums` slot).
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependency on sim/, render/, ui/, etc.
@@ -21,10 +22,12 @@ use crate::rules::ini_parser::IniSection;
 #[derive(Debug, Clone, PartialEq)]
 pub struct BuildLimitGroupSettings {
     /// `BuildLimitGroup.Types=`, `ValueableVector<TechnoTypeClass*>`, default
-    /// empty. Unresolved names stay in the list for the consumer to resolve.
+    /// empty. Unresolved names stay in the list for the consumer, which drops
+    /// them before pairing (the native reader's skip).
     pub types: Vec<String>,
-    /// `BuildLimitGroup.Nums=`, `ValueableVector<int>`, default empty. Tokens
-    /// are kept positionally (see [`read_aligned_ints`]).
+    /// `BuildLimitGroup.Nums=`, `ValueableVector<int>`, default empty.
+    /// Unparseable tokens are dropped by the native parser, so the indices of
+    /// the surviving values shift left (`Nums=2,3,x` is `[2,3]`).
     pub nums: Vec<i32>,
     /// `BuildLimitGroup.Factor=`, **`Valueable<int>`** (not double), default 1.
     pub factor: i32,
@@ -61,37 +64,17 @@ impl Default for BuildLimitGroupSettings {
     }
 }
 
-/// `ValueableVector<int>` that keeps one slot per comma token.
-///
-/// `IniSection::read_ares_int_list` (`ini_value.rs:627`) uses `filter_map` and
-/// drops tokens that fail Ares `Parser<int>`, which would shift the `Nums` /
-/// `MaxCount` pairing against `Types` when a token is unparseable. Instead go
-/// through `read_list` (`ini_value.rs:1043`, the same `strtok(",")` tokens a
-/// native `ValueableVector` is read from) and parse each token with the
-/// existing `parse_ares_int` core (`ini_value.rs:1957`, Ares/Phobos
-/// `Parser<int>`), keeping `0` as an aligned placeholder for a rejected token.
-/// No `str::parse` is used. An absent key leaves the vector empty.
-fn read_aligned_ints(section: &IniSection, key: &str) -> Vec<i32> {
-    section
-        .read_list(key, 0x800)
-        .map(|tokens| {
-            tokens
-                .into_iter()
-                .map(|token| crate::rules::ini_value::parse_ares_int(token).unwrap_or(0))
-                .collect()
-        })
-        .unwrap_or_default()
-}
-
 impl BuildLimitGroupSettings {
     pub fn from_section(section: &IniSection) -> Self {
         use crate::rules::native_processing::read_valueable_type_vector;
-        // `ValueableVector<TechnoTypeClass*>` resolves at use time; keep every
-        // name (phobos_grinding.rs's `grinding_keeps_unresolved_type_names`).
+        // `ValueableVector<TechnoTypeClass*>` filters at read time natively;
+        // the names are kept here until a RuleSet can resolve them, and the
+        // consumer applies the same filter before pairing.
         let keep = |name: &str| Some(name.to_owned());
+        let read_ints = |key: &str| section.read_ares_int_list(key).unwrap_or_default();
         Self {
             types: read_valueable_type_vector(section, "BuildLimitGroup.Types", &[], keep),
-            nums: read_aligned_ints(section, "BuildLimitGroup.Nums"),
+            nums: read_ints("BuildLimitGroup.Nums"),
             factor: section.read_ares_int("BuildLimitGroup.Factor", 1),
             content_if_any_match: section
                 .read_phobos_nullable_bool("BuildLimitGroup.ContentIfAnyMatch", None),
@@ -103,11 +86,8 @@ impl BuildLimitGroupSettings {
                 &[],
                 keep,
             ),
-            extra_limit_nums: read_aligned_ints(section, "BuildLimitGroup.ExtraLimit.Nums"),
-            extra_limit_max_count: read_aligned_ints(
-                section,
-                "BuildLimitGroup.ExtraLimit.MaxCount",
-            ),
+            extra_limit_nums: read_ints("BuildLimitGroup.ExtraLimit.Nums"),
+            extra_limit_max_count: read_ints("BuildLimitGroup.ExtraLimit.MaxCount"),
             extra_limit_max_num: section.read_ares_int("BuildLimitGroup.ExtraLimit.MaxNum", 0),
         }
     }

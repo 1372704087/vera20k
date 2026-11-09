@@ -97,6 +97,14 @@ impl RearmTimer {
         self.timer.start(current_frame, duration);
     }
 
+    /// Phobos `TechnoExt::UpdateRearmInEMPState` (`Ext/Techno/Body.Update.cpp:
+    /// 875-876`) and `UpdateRearmInTemporal` (`:887-888`): hold a running
+    /// rearm with `RearmTimer.StartTime++`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn delay_one_frame(&mut self) {
+        self.timer.delay_one_frame();
+    }
+
     /// Install a fixture's countdown.
     #[cfg(any(test, feature = "test-support"))]
     pub fn set_for_test(&mut self, timer: crate::sim::timer::CdTimer) {

@@ -902,6 +902,10 @@ pub struct ObjectType {
     /// Phobos `RateDown.*` (`Ext/TechnoType/Body.cpp:1049-1052`).
     #[cfg(feature = "phobos")]
     pub phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown,
+    /// Phobos `NoRearm.*` / `NoReload.*` (`Ext/TechnoType/Body.cpp:1054-1057`):
+    /// hold the rearm and ammo-reload timers while EMP'd or Temporal-held.
+    #[cfg(feature = "phobos")]
+    pub phobos_no_rearm: crate::rules::phobos_no_rearm::PhobosNoRearm,
     /// Phobos `TurretAnim.*` (`Ext/BuildingType/Body.cpp:260-265`).
     #[cfg(feature = "phobos")]
     pub phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim,
@@ -4806,6 +4810,8 @@ impl ObjectType {
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_no_rearm: crate::rules::phobos_no_rearm::PhobosNoRearm::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim::from_section(
                 section,

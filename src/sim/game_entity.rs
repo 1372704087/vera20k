@@ -1315,6 +1315,20 @@ impl GameEntity {
         self.ammo_reload_timer
     }
 
+    /// Phobos `TechnoExt::UpdateRearmInEMPState` (`Ext/Techno/Body.Update.cpp:
+    /// 878-879`) and `UpdateRearmInTemporal` (`:890-891`): hold a running
+    /// Techno `ReloadTimer` (this clock, `Techno+1FC`) with `StartTime++`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn delay_ammo_reload_one_frame(&mut self) {
+        self.ammo_reload_timer.delay_one_frame();
+    }
+
+    /// Install a fixture's reload countdown.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn set_ammo_reload_timer_for_test(&mut self, timer: crate::sim::timer::CdTimer) {
+        self.ammo_reload_timer = timer;
+    }
+
     /// Phobos `TechnoExt::AutoDeathTimer`; an unstarted clock reads as
     /// `start_frame() == PAUSED_START_FRAME`, which is `HasStarted() == false`.
     #[cfg(feature = "phobos")]

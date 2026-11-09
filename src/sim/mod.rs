@@ -55,6 +55,8 @@ pub(crate) mod ares_veterancy; // Ares UpdateVeterancy 10046AF0 and academies
 pub mod attach_effect;
 #[cfg(feature = "phobos")]
 pub(crate) mod auto_death;
+#[cfg(feature = "phobos")]
+pub(crate) mod phobos_no_rearm;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;

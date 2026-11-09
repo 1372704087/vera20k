@@ -3236,3 +3236,103 @@ fn ares_temporal_update_frees_the_targets_radar_jammer() {
     );
     assert!(entity(&sim, target).radar_jam.is_default());
 }
+
+/// Phobos `TechnoExt::UpdateRearmInTemporal` (`Ext/Techno/Body.Update.cpp:
+/// 882-895`) from the `TemporalClass_AI @ 0x71A88D` hook: a held target with
+/// `NoRearm.Temporal=yes` / `NoReload.Temporal=yes` keeps its running rearm
+/// and Techno Reload timers still across updates (`StartTime++` per visit),
+/// while a target without the keys counts down as the frames pass.
+#[cfg(feature = "phobos")]
+#[test]
+fn no_rearm_temporal_holds_the_held_target_timers() {
+    let held_rules = rules_from(
+        &RULES.replace(
+            "[HTNK]\n",
+            "[HTNK]\nNoRearm.Temporal=yes\nNoReload.Temporal=yes\n",
+        ),
+        ART,
+    );
+    {
+        let mut sim = sim(9);
+        let tank = spawn(&mut sim, &held_rules, "HTNK", "Americans", 12, 10);
+        let cleg = spawn(&mut sim, &held_rules, "CLEG", "Russians", 10, 10);
+        chain(&mut sim, tank, &[cleg], 4000);
+        let held = sim.substrate.entities.get_mut(tank).unwrap();
+        held.rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(40, 100));
+        held.set_ammo_reload_timer_for_test(crate::sim::timer::CdTimer::started(40, 80));
+        sim.session.set_binary_frame_for_test(50);
+        sim.temporal_update_head(
+            cleg,
+            &held_rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        assert_eq!(
+            link(&sim, cleg).warp_remaining,
+            3992,
+            "the warp keeps running"
+        );
+        let rearm_after_first = {
+            let after_first = sim.substrate.entities.get(tank).unwrap();
+            (
+                after_first.rearm_timer.remaining(50),
+                after_first.ammo_reload_timer().remaining(50),
+            )
+        };
+        assert_eq!(
+            rearm_after_first.0, 91,
+            "the visit's StartTime++ holds the rearm"
+        );
+        assert_eq!(rearm_after_first.1, 71);
+        sim.session.set_binary_frame_for_test(51);
+        sim.temporal_update_head(
+            cleg,
+            &held_rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
+        let after_second = {
+            let entity = sim.substrate.entities.get(tank).unwrap();
+            (
+                entity.rearm_timer.remaining(51),
+                entity.ammo_reload_timer().remaining(51),
+            )
+        };
+        assert_eq!(
+            after_second.0, rearm_after_first.0,
+            "the rearm stays held across updates"
+        );
+        assert_eq!(
+            after_second.1, rearm_after_first.1,
+            "the ammo reload stays held across updates"
+        );
+    }
+    // Without the keys the same updates let both timers count.
+    let mut sim = sim(9);
+    let rules = rules();
+    let tank = spawn(&mut sim, &rules, "HTNK", "Americans", 12, 10);
+    let cleg = spawn(&mut sim, &rules, "CLEG", "Russians", 10, 10);
+    chain(&mut sim, tank, &[cleg], 4000);
+    let held = sim.substrate.entities.get_mut(tank).unwrap();
+    held.rearm_timer
+        .set_for_test(crate::sim::timer::CdTimer::started(40, 100));
+    held.set_ammo_reload_timer_for_test(crate::sim::timer::CdTimer::started(40, 80));
+    sim.session.set_binary_frame_for_test(50);
+    sim.temporal_update_head(
+        cleg,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    sim.session.set_binary_frame_for_test(51);
+    sim.temporal_update_head(
+        cleg,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default(),
+    );
+    let counted = sim.substrate.entities.get(tank).unwrap();
+    assert_eq!(counted.rearm_timer.remaining(51), 89);
+    assert_eq!(counted.ammo_reload_timer().remaining(51), 69);
+}

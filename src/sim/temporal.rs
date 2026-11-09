@@ -739,6 +739,14 @@ impl Simulation {
             stored.warp_remaining = remaining;
         }
         if remaining > 0 {
+            // Phobos `TemporalClass_AI @ 0x71A88D` -> `TechnoExt::UpdateTemporal`
+            // -> `UpdateRearmInTemporal` (`Ext/Techno/Body.Update.cpp:863,
+            // 882-895`): the held target's timers freeze while the warp runs.
+            // The <= 0 path erases the target, whose timers then cease.
+            #[cfg(feature = "phobos")]
+            if let Some(target) = link.target {
+                self.update_rearm_in_temporal(target, rules);
+            }
             return;
         }
         self.temporal_erase(head, link.target, rules, registry, effects);

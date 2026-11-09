@@ -100,6 +100,7 @@ Supported extensions:
 - [Keep target on move](phobos-keep-target-on-move.md) (`KeepTargetOnMove.*` move-order target retention, the Unit AI range re-check and the temporary ExtraDistance)
 - [OpenTopped per-type properties](phobos-open-topped.md) (eleven `OpenTopped.*` TechnoType keys, eight `[General]` globals, two fallback chains and the firing/range/cloak/temporal hooks)
 - [Promotion animations and promoted spawns](phobos-promote.md) (`Promote.*` rank-crossing animation lists with the `[AudioVisual]` fallbacks, and the spawner child rank lift; 3 keys + 3 globals)
+- [Rearm and reload holds](phobos-no-rearm.md) (`NoRearm.*` / `NoReload.*` freeze the rearm and ammo-reload timers while EMP'd or Temporal-held; 4 keys + 4 `[General]` globals)
 
 ## Original project and authors
 

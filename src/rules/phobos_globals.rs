@@ -186,6 +186,27 @@ pub struct PhobosGlobals {
     /// (`Body.cpp:462`, `Body.h:877`).
     #[serde(default = "true_bool")]
     pub open_topped_fire_while_moving: bool,
+    /// `[General] NoRearm.UnderEMP=`, default `no` (`Ext/Rules/Body.cpp:383`,
+    /// constructor `Ext/Rules/Body.h:804`): the fallback for an unset type key;
+    /// `yes` holds a running rearm timer while the techno is EMP'd or
+    /// deactivated.
+    #[serde(default)]
+    pub no_rearm_under_emp: bool,
+    /// `[General] NoRearm.Temporal=`, default `no` (`Ext/Rules/Body.cpp:384`,
+    /// constructor `Body.h:805`): the same hold while a Temporal weapon warps
+    /// the techno.
+    #[serde(default)]
+    pub no_rearm_temporal: bool,
+    /// `[General] NoReload.UnderEMP=`, default `no` (`Ext/Rules/Body.cpp:385`,
+    /// constructor `Body.h:806`): the ammo-reload counterpart of
+    /// `no_rearm_under_emp`.
+    #[serde(default)]
+    pub no_reload_under_emp: bool,
+    /// `[General] NoReload.Temporal=`, default `no` (`Ext/Rules/Body.cpp:386`,
+    /// constructor `Body.h:807`): the ammo-reload counterpart of
+    /// `no_rearm_temporal`.
+    #[serde(default)]
+    pub no_reload_temporal: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -227,6 +248,10 @@ impl Default for PhobosGlobals {
             open_topped_check_transport_disable_weapons: false,
             open_topped_decloak_to_fire: false,
             open_topped_fire_while_moving: true,
+            no_rearm_under_emp: false,
+            no_rearm_temporal: false,
+            no_reload_under_emp: false,
+            no_reload_temporal: false,
         }
     }
 }
@@ -349,6 +374,17 @@ impl PhobosGlobals {
             "OpenTopped.FireWhileMoving",
             globals.open_topped_fire_while_moving,
         );
+        // The four `NoRearm.*` / `NoReload.*` `Valueable<bool>` globals
+        // (`Ext/Rules/Body.cpp:383-386`); `Valueable` has no unset state, so
+        // these are plain `read_bool` reads from the constructor defaults.
+        globals.no_rearm_under_emp =
+            general.read_bool("NoRearm.UnderEMP", globals.no_rearm_under_emp);
+        globals.no_rearm_temporal =
+            general.read_bool("NoRearm.Temporal", globals.no_rearm_temporal);
+        globals.no_reload_under_emp =
+            general.read_bool("NoReload.UnderEMP", globals.no_reload_under_emp);
+        globals.no_reload_temporal =
+            general.read_bool("NoReload.Temporal", globals.no_reload_temporal);
         globals
     }
 }

@@ -72,6 +72,10 @@ pub struct PhobosGlobals {
     /// `AutoDeath.AllowLimboed=`, **default `yes`**: Phobos constructs it
     /// `true` (`Ext/Rules/Body.h:1027`) and `Ext/Rules/Body.cpp:629` reads it.
     pub auto_death_allow_limboed: bool,
+    /// `[General] Convert.ResetMindControl=`, default `no`
+    /// (`Ext/Rules/Body.cpp:222`, constructor `Ext/Rules/Body.h:666`): the
+    /// fallback for a type's `Convert.ResetMindControl` when it is unset.
+    pub convert_reset_mind_control: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -264,6 +268,7 @@ impl Default for PhobosGlobals {
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
+            convert_reset_mind_control: false,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -494,6 +499,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         auto_death_allow_limboed: section
             .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
+        convert_reset_mind_control: section.read_bool(
+            "Convert.ResetMindControl",
+            defaults.convert_reset_mind_control,
+        ),
         penetrates_transport_level: section.read_ares_int(
             "PenetratesTransport.Level",
             defaults.penetrates_transport_level,

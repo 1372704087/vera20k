@@ -126,7 +126,7 @@ pub struct CaptureManagerState {
 }
 
 impl CaptureManagerState {
-    fn constructed(max_control: i32, infinite: bool) -> Self {
+    pub(crate) fn constructed(max_control: i32, infinite: bool) -> Self {
         Self {
             max_control,
             infinite,
@@ -135,6 +135,40 @@ impl CaptureManagerState {
             overload_countdown: OVERLOAD_FIRST_CHECK_FRAMES,
             overload_pip_countdown: 0,
         }
+    }
+
+    /// Phobos `FootExt::UpdateTypeData`'s capture arm: adopt the new type's
+    /// limits and return the nodes beyond a finite limit, newest first, in
+    /// the `CaptureManagerClass::FreeUnit` order the caller frees them.
+    pub(crate) fn phobos_reset_for_new_type(
+        &mut self,
+        max_control: i32,
+        infinite: bool,
+    ) -> Vec<u64> {
+        self.max_control = max_control;
+        self.infinite = infinite;
+        if infinite {
+            return Vec::new();
+        }
+        let limit = usize::try_from(max_control.max(0)).unwrap_or(0);
+        // The nodes stay in the manager: the caller frees each victim through
+        // `free_unit`, which removes that victim's nodes in FreeUnit order.
+        self.nodes
+            .iter()
+            .skip(limit)
+            .rev()
+            .map(|node| node.victim)
+            .collect()
+    }
+
+    /// Seed a controlled victim for conversion fixtures.
+    #[cfg(any(test, feature = "test-support"))]
+    pub(crate) fn seed_node_for_test(&mut self, victim: u64, original_owner: InternedId) {
+        self.nodes.push(ControlNode {
+            victim,
+            original_owner,
+            line_timer: crate::sim::timer::CdTimer::default(),
+        });
     }
 
     /// `IsFull @ 0x004722A0`: a finite manager at its limit. Gates

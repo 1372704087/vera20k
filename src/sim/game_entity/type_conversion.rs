@@ -90,6 +90,14 @@ impl Simulation {
             return false;
         };
         let old_locomotor = source.locomotor;
+        // Phobos `FootExt::UpdateTypeData`'s capture-manager arm
+        // (`Ext/Foot/Body.cpp:470-540`) is gated by the OLD type's
+        // `Convert.ResetMindControl` (`Nullable`, `[General]` fallback).
+        #[cfg(feature = "phobos")]
+        let reset_mind_control = source
+            .phobos_convert
+            .reset_mind_control
+            .unwrap_or(rules.phobos_globals.convert_reset_mind_control);
         if actor.temporal.is_warping_someone() {
             self.temporal_clear_linked_list(id, rules, effects);
         }
@@ -154,6 +162,12 @@ impl Simulation {
         // converting a transport is the visible case, keeping its old capacity.
         crate::sim::miner::Miner::change_type_binding(&mut actor.miner, destination);
         health.apply(actor);
+        // Phobos `FootExt::UpdateTypeData`'s capture-manager arm: rebuild the
+        // manager's limits from the new type's weapons.
+        #[cfg(feature = "phobos")]
+        if reset_mind_control {
+            self.phobos_reset_mind_control_on_convert(id, destination, rules, effects);
+        }
         Self::update_house_tracking(
             &mut self.substrate,
             &mut self.houses,
@@ -425,6 +439,71 @@ impl Simulation {
             &crate::sim::mission::authority::LiveReadyInputProvider { rules },
         );
     }
+
+    /// Phobos `FootExt::UpdateTypeData`'s capture-manager arm
+    /// (`Ext/Foot/Body.cpp:470-540`): scan the new type's weapon slots for a
+    /// `MindControl=` warhead, take the highest `Damage=` as the retained
+    /// limit and any `InfiniteMindControl=`, then trim the tail of the node
+    /// list, delete the manager when no mind-control weapon remains, or
+    /// create one when the type gained such a weapon.
+    #[cfg(feature = "phobos")]
+    fn phobos_reset_mind_control_on_convert(
+        &mut self,
+        id: u64,
+        new_type: &crate::rules::object_type::ObjectType,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        let (mut max_capture, mut infinite) = (0, false);
+        if let Some(entity) = self.substrate.entities.get(id) {
+            for index in 0..crate::rules::object_type::WEAPON_SLOT_COUNT as i32 {
+                if let Some(weapon) = crate::sim::combat::combat_weapon::get_weapon(
+                    entity,
+                    new_type,
+                    index,
+                    &self.substrate.entities,
+                    rules,
+                    &self.interner,
+                ) && let Some(warhead) = rules.weapon_warhead(weapon)
+                    && warhead.mind_control
+                {
+                    max_capture = max_capture.max(weapon.damage);
+                    infinite |= weapon.infinite_mind_control;
+                }
+            }
+        }
+        let has_manager = self
+            .substrate
+            .entities
+            .get(id)
+            .is_some_and(|entity| entity.capture_manager.is_some());
+        if max_capture > 0 {
+            if has_manager {
+                let freed = self
+                    .substrate
+                    .entities
+                    .get_mut(id)
+                    .and_then(|entity| entity.capture_manager.as_mut())
+                    .map(|manager| manager.phobos_reset_for_new_type(max_capture, infinite))
+                    .unwrap_or_default();
+                for victim in freed {
+                    self.free_unit(id, victim, rules, None, effects);
+                }
+            } else if let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity.capture_manager = Some(
+                    crate::sim::capture_manager::CaptureManagerState::constructed(
+                        max_capture,
+                        infinite,
+                    ),
+                );
+            }
+        } else if has_manager {
+            self.free_all_captures(id, rules, None, effects);
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity.capture_manager = None;
+            }
+        }
+    }
 }
 
 /// `TechnoExt::IsHealthInThreshold` (`Ext/Techno/Body.cpp:752-759`):
@@ -464,3 +543,7 @@ mod health_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "type_conversion_owner_tests.rs"]
 mod owner_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "type_conversion_mind_control_tests.rs"]
+mod mind_control_tests;

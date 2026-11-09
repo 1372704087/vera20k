@@ -26,6 +26,10 @@ pub struct PhobosConvert {
     /// `Convert.ComputerToHuman=`: the same for a computer-to-human change
     /// (`Ext/TechnoType/Body.cpp:1016`).
     pub computer_to_human: Option<String>,
+    /// `Convert.ResetMindControl=`: `Nullable<bool>`, unset falls back to the
+    /// `[General]` key; rebuilds the capture-manager limits from the new
+    /// type's weapons on conversion (`Ext/TechnoType/Body.cpp:1017`).
+    pub reset_mind_control: Option<bool>,
 }
 
 impl PhobosConvert {
@@ -43,6 +47,7 @@ impl PhobosConvert {
                 .read_type_name("Convert.ComputerToHuman", 0x800)
                 .filter(|name| !name.eq_ignore_ascii_case("none"))
                 .map(str::to_owned),
+            reset_mind_control: section.read_phobos_nullable_bool("Convert.ResetMindControl", None),
         }
     }
 }

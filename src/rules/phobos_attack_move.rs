@@ -11,6 +11,13 @@
 //! flag, which is `Valueable<bool>` and therefore has no unset state
 //! (`Ext/Rules/Body.cpp:377-378`, constructor `Ext/Rules/Body.h:800-801`).
 //!
+//! Three more per-type keys make an attack-mover follow a nearby friendly
+//! attack-mover instead of heading for its own destination
+//! (`Ext/TechnoType/Body.cpp:1149-1151`, fields `Ext/TechnoType/Body.h:383-385`,
+//! constructed `false` at `:805-807`): `.Follow=`, `.Follow.IncludeAir=` and
+//! `.Follow.IfMindControlIsFull=`. They are `Valueable<bool>` with no
+//! `[General]` counterpart, so an absent key is a plain `false`.
+//!
 //! The third key of the family, `[General] AttackMove.IgnoreWeaponCheck`
 //! (`Ext/Rules/Body.cpp:423`, constructor `Ext/Rules/Body.h:853`), is global
 //! only: it drops the native "must own a `Primary=`" test from
@@ -36,6 +43,17 @@ pub struct PhobosAttackMove {
     /// it cannot use and rescan. `None` inherits
     /// `[General] AttackMove.UpdateTarget` (default `false`).
     pub update_target: Option<bool>,
+    /// `AttackMove.Follow=`: on an attack move, take a nearby friendly
+    /// attack-mover as the destination and area-guard it instead of walking
+    /// to this object's own MegaDestination (`Ext/Techno/Hooks.cpp:1297`).
+    pub follow: bool,
+    /// `AttackMove.Follow.IncludeAir=`: the follower search also considers
+    /// airborne Foot objects (`Ext/Techno/Hooks.cpp:1300`).
+    pub follow_include_air: bool,
+    /// `AttackMove.Follow.IfMindControlIsFull=`: follow only while this
+    /// object has a capture manager with no free control slot
+    /// (`Ext/Techno/Hooks.cpp:1297`).
+    pub follow_if_mind_control_is_full: bool,
 }
 
 impl PhobosAttackMove {
@@ -45,6 +63,10 @@ impl PhobosAttackMove {
         Self {
             aggressive: section.read_phobos_nullable_bool("AttackMove.Aggressive", None),
             update_target: section.read_phobos_nullable_bool("AttackMove.UpdateTarget", None),
+            follow: section.read_bool("AttackMove.Follow", false),
+            follow_include_air: section.read_bool("AttackMove.Follow.IncludeAir", false),
+            follow_if_mind_control_is_full: section
+                .read_bool("AttackMove.Follow.IfMindControlIsFull", false),
         }
     }
 

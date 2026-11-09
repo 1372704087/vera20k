@@ -761,6 +761,17 @@ impl Simulation {
 
         let category = entity.category();
         techno_ai_shell(self, id, category, rules, ctx, &mut outcome);
+        // Phobos `FootClass_AI`'s tail (`src/Ext/Techno/Hooks.cpp:50-51`,
+        // hook `0x4DA54E`): the follower count ages by one per frame, so a
+        // leader that stopped being followed frees its slots again.
+        #[cfg(feature = "phobos")]
+        if category != EntityCategory::Structure
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+            && entity.phobos_attack_move_follower_temp_count() != 0
+        {
+            let count = entity.phobos_attack_move_follower_temp_count();
+            entity.set_phobos_attack_move_follower_temp_count(count - 1);
+        }
         // `UnitClass_AI` hook `0x736480`, after `FootClass::AI`: Phobos
         // `DepletedAmmoActions` queues Unload inside the auto-deploy band and
         // cancels it outside. Native never reaches the hook for a warped-out

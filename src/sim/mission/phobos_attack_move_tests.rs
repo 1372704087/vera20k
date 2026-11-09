@@ -6,6 +6,7 @@
 //! `0x4DF3A0`). No retail INI or ART is involved.
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
+use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::world::{ObjectAiCtx, Simulation};
 
 use super::MegaMission;
@@ -168,6 +169,12 @@ fn attack_move_reaches_unarmed_buildings_and_replaces_a_useless_target() {
         let tank = tank.expect("armed threat");
         {
             let actor = sim.entities_mut_for_test().get_mut(firer).expect("firer");
+            // A real attack-mover holds Mission::Move or Attack; Phobos'
+            // `FootClass_UpdateAttackMove_Follow @ 0x4DF3A6` resumes the mega
+            // mission for any other mission, which would clear the fixture.
+            actor
+                .mission
+                .set_current_for_test(MissionId::from_known(MissionType::Move), 0);
             // `HaveAttackMoveTarget=1` with no MegaTarget: the handler holds a
             // TarCom in reach and drops it only when the scan finds nothing.
             actor.mega_mission = MegaMission::for_test(true, None, None, true);

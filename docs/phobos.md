@@ -95,6 +95,7 @@ Supported extensions:
 - [Delayed fire](phobos-delayed-fire.md) (`DelayedFire.*` wind-up delay, timer, pause, wind-up animation and `Burst.NoDelay` compatibility; 11 keys)
 - [Aircraft spawner customizations](phobos-spawner.md) (`Spawner.*` launch spacing, immediate attack, turret facing, pursue range and the recycle point; 9 keys + 4 `[General]` fallbacks)
 - [Attack move](phobos-attack-move.md) (`AttackMove.IgnoreWeaponCheck`, `.Aggressive` and `.UpdateTarget`: the weapon check on the order, unarmed buildings as targets, and the target swap)
+- [Attack-move followers](phobos-attack-move-follow.md) (`AttackMove.Follow*`: escort the nearest friendly attack-mover, air inclusion, the mind-control-full condition and the per-leader follower count)
 
 ## Original project and authors
 

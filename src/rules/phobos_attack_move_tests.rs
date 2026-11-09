@@ -59,6 +59,49 @@ fn attack_move_type_keys_override_and_clear_back_to_the_global() {
 }
 
 #[test]
+fn attack_move_follow_keys_are_plain_valueables_without_a_global() {
+    // `Ext/TechnoType/Body.cpp:1149-1151`: three `Valueable<bool>` keys,
+    // constructed `false` (`Body.h:805-807`). Nothing in `[General]` mirrors
+    // them, so an absent key is only ever the default.
+    let empty =
+        PhobosAttackMove::from_section(IniFile::from_str("[MTNK]\n").section_or_empty("MTNK"));
+    assert_eq!(
+        (
+            empty.follow,
+            empty.follow_include_air,
+            empty.follow_if_mind_control_is_full
+        ),
+        (false, false, false)
+    );
+
+    let set = PhobosAttackMove::from_section(
+        IniFile::from_str(
+            "[MTNK]\nAttackMove.Follow=yes\nAttackMove.Follow.IncludeAir=yes\n\
+             AttackMove.Follow.IfMindControlIsFull=yes\n",
+        )
+        .section_or_empty("MTNK"),
+    );
+    assert_eq!(
+        (
+            set.follow,
+            set.follow_include_air,
+            set.follow_if_mind_control_is_full
+        ),
+        (true, true, true)
+    );
+
+    // The three keys are independent: `IncludeAir` alone does not enable the
+    // follow search and `Follow=no` is not `IfMindControlIsFull=yes`.
+    let split = PhobosAttackMove::from_section(
+        IniFile::from_str("[MTNK]\nAttackMove.Follow=no\nAttackMove.Follow.IncludeAir=yes\n")
+            .section_or_empty("MTNK"),
+    );
+    assert!(!split.follow);
+    assert!(split.follow_include_air);
+    assert!(!split.follow_if_mind_control_is_full);
+}
+
+#[test]
 fn attack_move_general_keys_read_the_three_flags() {
     let globals = PhobosGlobals::from_ini(&IniFile::from_str(
         "[General]\nAttackMove.Aggressive=yes\nAttackMove.UpdateTarget=yes\n\

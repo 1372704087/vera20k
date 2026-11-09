@@ -326,6 +326,14 @@ impl Simulation {
         // handler's own body.
         #[cfg(feature = "phobos")]
         self.phobos_attack_move_select_new_target(id, rules, ctx.overlay_registry);
+        // Phobos `FootClass_UpdateAttackMove_Follow @ 0x4DF3A6`
+        // (`Ext/Techno/Hooks.cpp:1266-1358`) hooks the very next six bytes,
+        // `mov eax,[esi+0x5C8]`. Its follow arm returns through `0x4DF425`,
+        // the handler's epilogue, so the native body below must not run.
+        #[cfg(feature = "phobos")]
+        if self.phobos_attack_move_follow(id, rules, ctx) {
+            return;
+        }
 
         let Some(ArrivalStep::Scan {
             drop_tarcom,
@@ -373,6 +381,262 @@ impl Simulation {
         self.foot_queue_mission_now(id, MissionType::Attack, rules);
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.mega_mission.have_attack_move_target = true;
+        }
+    }
+
+    /// Phobos `FootClass_UpdateAttackMove_Follow @ 0x4DF3A6`
+    /// (`Ext/Techno/Hooks.cpp:1266-1358`), the instruction immediately after
+    /// the `AttackMove.UpdateTarget` hook and still inside
+    /// `Arrival_Target_Handler @ 0x4DF3A0`.
+    ///
+    /// Two independent halves live here, as in the hook:
+    /// - `:1273-1295` repairs a mega mission that another order interrupted,
+    ///   for **every** attack-mover, follow or not;
+    /// - `:1297-1357` is the follow search, reached by `AttackMove.Follow=` or
+    ///   by `.Follow.IfMindControlIsFull=` on a full capture manager. It picks
+    ///   the nearest friendly attack-mover that is not itself a follower and
+    ///   is not already surrounded, hands this object to it through
+    ///   `SetDestination`/`SetArchiveTarget`/`QueueMission(Area_Guard, 1)`,
+    ///   then clears the mega mission. With no candidate it re-issues the
+    ///   object's own MegaTarget or MegaDestination and clears the mega
+    ///   mission anyway.
+    ///
+    /// Answers `true` when the hook takes its early return (`0x4DF425`).
+    #[cfg(feature = "phobos")]
+    fn phobos_attack_move_follow(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        ctx: ObjectAiCtx<'_>,
+    ) -> bool {
+        // `pThis->GetCurrentMission()` (`:1273`). A SimpleDeployer interrupted
+        // out of Unload keeps its order (`:1279-1291`); every other object
+        // with a mission other than Attack/Move resumes the mega mission.
+        let Some(mission) = self
+            .substrate
+            .entities
+            .get(id)
+            .map(|entity| entity.mission.current().known())
+        else {
+            return false;
+        };
+        if mission != Some(MissionType::Attack) && mission != Some(MissionType::Move) {
+            let deploys = self.substrate.entities.get(id).is_some_and(|entity| {
+                mission == Some(MissionType::Unload)
+                    && entity.category() == crate::map::entities::EntityCategory::Unit
+                    && self
+                        .object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| object.is_simple_deployer)
+            });
+            if !deploys {
+                self.foot_continue_mega_mission(id, rules, ctx.overlay_registry, ctx.effects);
+            }
+        }
+
+        // `pTypeExt->AttackMove_Follow || (…IfMindControlIsFull &&
+        // pThis->CaptureManager && pThis->CaptureManager->CannotControlAnyMore())`
+        // (`:1297`).
+        let (radius, include_air) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return false;
+            };
+            let Some(object) = self.object_type(entity.type_ref(), rules) else {
+                return false;
+            };
+            let settings = object.phobos_attack_move;
+            let follow = settings.follow
+                || (settings.follow_if_mind_control_is_full
+                    && self.phobos_capture_cannot_control_any_more(id, rules));
+            if !follow {
+                return false;
+            }
+            // `pThis->GetGuardRange(2)` (`:1300`): TechnoClass::Threat_Range's
+            // Patrol mode, then `/(double)LeptonsPerCell` for the CellSpread.
+            let ranges = [
+                crate::sim::combat::combat_weapon::weapon_range(
+                    entity,
+                    object,
+                    0,
+                    &self.substrate.entities,
+                    rules,
+                    &self.interner,
+                ),
+                crate::sim::combat::combat_weapon::weapon_range(
+                    entity,
+                    object,
+                    1,
+                    &self.substrate.entities,
+                    rules,
+                    &self.interner,
+                ),
+            ];
+            (
+                crate::sim::combat::threat_range::threat_range_leptons(object, 2, ranges),
+                settings.follow_include_air,
+            )
+        };
+
+        // `pMegaMissionTarget = MegaDestination ? MegaDestination :
+        // (MegaTarget ? MegaTarget : pThis)` (`:1303`).
+        let mega = self.mega_mission(id);
+        let anchor = mega.destination.or(mega.target);
+        let Some(origin) = self.phobos_attack_move_target_coords(Some(TargetKind::Entity(id)))
+        else {
+            return false;
+        };
+        let anchor_coords = self
+            .phobos_attack_move_target_coords(anchor)
+            .unwrap_or(origin);
+
+        // `getCellSpreadItems(pThis->GetCoords(), GuardRange / 256.0,
+        // IncludeAir)` (`:1298-1301`).
+        let candidates = crate::sim::combat::cell_spread_technos_with_air(
+            self,
+            rules,
+            crate::sim::projectile::ProjectileCoord::new(origin.x, origin.y, origin.z),
+            f64::from(radius.max(0)) / 256.0,
+            false,
+            include_air,
+        );
+
+        let owner = self.substrate.entities.get(id).map(|entity| entity.owner());
+        let mut closest: Option<(u64, i32)> = None;
+        for candidate in candidates {
+            if candidate == id {
+                continue;
+            }
+            let Some(other) = self.substrate.entities.get(candidate) else {
+                continue;
+            };
+            // `AbstractFlags::Foot` (`:1308`): Infantry, Unit or Aircraft; a
+            // Building never follows and never leads.
+            if !matches!(
+                other.category(),
+                crate::map::entities::EntityCategory::Infantry
+                    | crate::map::entities::EntityCategory::Unit
+                    | crate::map::entities::EntityCategory::Aircraft
+            ) {
+                continue;
+            }
+            if Some(other.owner()) != owner {
+                continue;
+            }
+            if !other.mega_mission.is_attack_move() {
+                continue;
+            }
+            // `AttackMoveFollowerTempCount >= 6` (`:1317`): the leader is
+            // surrounded, look elsewhere.
+            if other.phobos_attack_move_follower_temp_count() >= 6 {
+                continue;
+            }
+            let Some(other_object) = self.object_type(other.type_ref(), rules) else {
+                continue;
+            };
+            // `!pTargetTypeExt->AttackMove_Follow` (`:1322`): a follower is
+            // not a leader, which would chain the whole squad.
+            if other_object.phobos_attack_move.follow {
+                continue;
+            }
+            let Some(coords) =
+                self.phobos_attack_move_target_coords(Some(TargetKind::Entity(candidate)))
+            else {
+                continue;
+            };
+            // `pFoot->DistanceFrom(pMegaMissionTarget)` (`:1324`), a 3D
+            // lepton distance through the native `Sqrt_Approx`.
+            let distance = crate::util::native_x87::sqrt_approx_length([
+                coords.x.wrapping_sub(anchor_coords.x),
+                coords.z.wrapping_sub(anchor_coords.z),
+                coords.y.wrapping_sub(anchor_coords.y),
+            ]);
+            if distance < closest.map_or(65536, |(_, best)| best) {
+                closest = Some((candidate, distance));
+            }
+        }
+
+        if let Some((target, _)) = closest {
+            // `+= WhatAmI() == Infantry ? 1 : 3` (`:1338`).
+            let bump = if self.substrate.entities.get(id).is_some_and(|entity| {
+                entity.category() == crate::map::entities::EntityCategory::Infantry
+            }) {
+                1
+            } else {
+                3
+            };
+            if let Some(leader) = self.substrate.entities.get_mut(target) {
+                let count = leader.phobos_attack_move_follower_temp_count();
+                leader.set_phobos_attack_move_follower_temp_count(count + bump);
+            }
+            // `SetDestination(pClosestTarget, false)` / `SetArchiveTarget`
+            // / `QueueMission(Area_Guard, true)` (`:1339-1341`).
+            let _ = self.assign_destination_represented(
+                id,
+                Some(crate::sim::components::NavTargetRef::Object { id: target }),
+                rules,
+                ctx.overlay_registry,
+                ctx.effects,
+            );
+            if let Some(entity) = self.substrate.entities.get_mut(id) {
+                entity.set_archive_target(Some(TargetKind::Entity(target)));
+            }
+            self.foot_queue_mission_now(id, MissionType::AreaGuard, rules);
+        } else {
+            // `SetDestination(MegaTarget ? MegaTarget : MegaDestination,
+            // false)` (`:1345-1349`).
+            let destination = mega.target.or(mega.destination);
+            let _ = self.assign_destination_represented(
+                id,
+                destination.map(Into::into),
+                rules,
+                ctx.overlay_registry,
+                ctx.effects,
+            );
+        }
+        // `ClearMegaMissionData()` (`:1351`): the order is spent in both
+        // arms.
+        self.substrate.foot_clear_all_tarcom(id);
+        true
+    }
+
+    /// `pThis->CaptureManager && pThis->CaptureManager->CannotControlAnyMore()`
+    /// (`Ext/Techno/Hooks.cpp:1297`): a capture manager with no free control
+    /// slot. `IsFull @ 0x004722A0` supplies the capacity verdict, with Phobos'
+    /// `GetControlledCount` size sum as the count.
+    #[cfg(feature = "phobos")]
+    fn phobos_capture_cannot_control_any_more(&self, id: u64, rules: &RuleSet) -> bool {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return false;
+        };
+        let Some(manager) = entity.capture_manager.as_ref() else {
+            return false;
+        };
+        let effective = self.capture_effective_count(id, rules).unwrap_or(0);
+        manager.is_full(effective)
+    }
+
+    /// `GetCoords` of a [`TargetKind`], or of this object when the target is
+    /// absent. The mega mission's anchor uses it for `DistanceFrom`.
+    #[cfg(feature = "phobos")]
+    fn phobos_attack_move_target_coords(
+        &self,
+        target: Option<TargetKind>,
+    ) -> Option<crate::sim::components::DriveCoord> {
+        let terrain = self.resolved_terrain.as_ref();
+        match target? {
+            TargetKind::Entity(id) => {
+                let entity = self.substrate.entities.get(id)?;
+                Some(crate::sim::movement::ground_pose::object_get_coords(
+                    entity, terrain,
+                ))
+            }
+            TargetKind::Cell(rx, ry) => {
+                let coord = crate::sim::projectile::cell_target_coord(terrain, rx, ry);
+                Some(crate::sim::components::DriveCoord {
+                    x: coord.x,
+                    y: coord.y,
+                    z: coord.z,
+                })
+            }
         }
     }
 
@@ -587,3 +851,8 @@ mod tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_attack_move_tests.rs"]
 mod phobos_attack_move_tests;
+
+/// Phobos `AttackMove.Follow.*` (`Ext/TechnoType/Body.cpp:1149-1151`).
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_attack_move_follow_tests.rs"]
+mod phobos_attack_move_follow_tests;

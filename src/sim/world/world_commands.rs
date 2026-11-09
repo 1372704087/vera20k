@@ -3577,6 +3577,20 @@ impl Simulation {
         if !self.order_actor_admits(entity_id) {
             return MegaMissionExecution::Refused;
         }
+        // Phobos `EventClass_Execute_MegaMission_MoveCommand @ 0x4C7462`
+        // clears the latch for every Unit MegaMission that does not take its
+        // keep arm (`Ext/Techno/Hooks.Misc.cpp:1071`); the keep branch below
+        // sets it again.
+        #[cfg(feature = "phobos")]
+        if self
+            .substrate
+            .entities
+            .get(entity_id)
+            .is_some_and(|entity| entity.category() == EntityCategory::Unit)
+            && let Some(entity) = self.substrate.entities.get_mut(entity_id)
+        {
+            entity.set_phobos_keep_target_on_move(false);
+        }
         for token in [target, destination] {
             if let Some(id) = self.event_token_object(token)
                 && !self.order_object_token_admits(id)

@@ -29,12 +29,14 @@ use crate::sim::world::{FrameEffects, Simulation};
 /// selected weapon's range. The map path uses the shared InRange owner; a
 /// map-less fixture keeps the native refusal (no cells to measure).
 #[cfg(feature = "phobos")]
-fn close_enough_to_attack(
+fn in_range_with(
     sim: &Simulation,
     id: u64,
     target: &TargetKind,
     rules: &RuleSet,
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    weapon_index: i32,
+    extra_distance: i32,
 ) -> bool {
     let Some(entity) = sim.substrate.entities.get(id) else {
         return false;
@@ -46,7 +48,7 @@ fn close_enough_to_attack(
         return false;
     };
     let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-    let cfg = obj.phobos_keep_target;
+    let _ = obj;
     let los = LineOfFireInputs {
         overlay_grid: sim.overlay_grid.as_ref(),
         overlay_registry: registry,
@@ -60,12 +62,45 @@ fn close_enough_to_attack(
         &sim.interner,
         id,
         target,
-        cfg.weapon,
-        cfg.extra_distance,
+        weapon_index,
+        extra_distance,
         &cells,
         Some(&sim.house_alliances),
         &los,
     )
+}
+
+/// `IsCloseEnoughToAttack @ 0x6F7780` (`CanFireAtTarget`): the selected
+/// weapon with no key overrides. The Move-order hook uses this plain form.
+#[cfg(feature = "phobos")]
+fn close_enough_to_attack(
+    sim: &Simulation,
+    id: u64,
+    target: &TargetKind,
+    rules: &RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> bool {
+    in_range_with(sim, id, target, rules, registry, -1, 0)
+}
+
+/// `IsCloseEnough` (vt+0x3A8) with `KeepTargetOnMove.Weapon` and the
+/// temporary `ExtraDistance`. The Unit-AI update uses this form.
+#[cfg(feature = "phobos")]
+fn close_enough_with_key(
+    sim: &Simulation,
+    id: u64,
+    target: &TargetKind,
+    rules: &RuleSet,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+) -> bool {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return false;
+    };
+    let Some(obj) = sim.interner.object_type(entity.type_ref(), rules) else {
+        return false;
+    };
+    let cfg = obj.phobos_keep_target;
+    in_range_with(sim, id, target, rules, registry, cfg.weapon, cfg.extra_distance)
 }
 
 /// `EventClass_Execute_MegaMission_MoveCommand`'s keep arm: latches the unit
@@ -158,7 +193,7 @@ pub(crate) fn update_keep_target_on_move(
     } else if mission != Some(moving) {
         return;
     }
-    if !close_enough_to_attack(sim, id, &target, rules, registry) {
+    if !close_enough_with_key(sim, id, &target, rules, registry) {
         clear_latched_target(sim, id, rules, registry, effects);
     }
 }

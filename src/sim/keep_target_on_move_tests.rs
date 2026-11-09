@@ -8,10 +8,10 @@ use crate::sim::mission::MissionId;
 use crate::sim::mission::MissionType;
 use crate::sim::world::{FrameEffects, Simulation};
 
-/// A `TANK` (Americans) with `KeepTargetOnMove` as asked and an enemy
+/// A `TANK` (Americans) with `keys` appended to its section and an enemy
 /// `DUMMY` two cells east, on flat ground.
-fn scene(keep: bool) -> (Simulation, RuleSet, InternedId, u64, u64) {
-    let key = if keep { "KeepTargetOnMove=yes\n" } else { "" };
+fn scene(keys: &str) -> (Simulation, RuleSet, InternedId, u64, u64) {
+    let key = keys;
     let ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[Countries]\n0=Americans\n1=Russians\n\
          [VehicleTypes]\n0=TANK\n1=DUMMY\n\
@@ -82,7 +82,12 @@ fn issue_move(
 #[test]
 fn a_move_order_keeps_an_in_range_target_only_with_the_key() {
     for keep in [true, false] {
-        let (mut sim, rules, owner, tank, target) = scene(keep);
+        let (mut sim, rules, owner, tank, target) = scene(if keep {
+            "KeepTargetOnMove=yes
+"
+        } else {
+            ""
+        });
         issue_move(&mut sim, &rules, owner, tank);
         let entity = sim.entities().get(tank).unwrap();
         assert_eq!(
@@ -110,7 +115,10 @@ fn a_move_order_keeps_an_in_range_target_only_with_the_key() {
 
 #[test]
 fn the_unit_ai_drops_a_kept_target_once_it_leaves_range() {
-    let (mut sim, rules, _owner, tank, target) = scene(true);
+    let (mut sim, rules, _owner, tank, target) = scene(
+        "KeepTargetOnMove=yes
+",
+    );
     assert!(move_order_keeps_target(&mut sim, tank, &rules, None));
     let entity = sim.entities().get(tank).unwrap();
     assert_eq!(
@@ -137,4 +145,73 @@ fn the_unit_ai_drops_a_kept_target_once_it_leaves_range() {
         "a target past the weapon range is dropped"
     );
     assert!(!entity.phobos_keep_target_on_move());
+}
+
+/// A Guard unit with `NoMorePursuit=no` queues Attack on its next AI pass
+/// and clears the latch (`Ext/Unit/Body.cpp:114-123`).
+#[test]
+fn a_guard_unit_without_no_more_pursuit_queues_attack() {
+    let (mut sim, rules, _owner, tank, target) =
+        scene("KeepTargetOnMove=yes\nKeepTargetOnMove.NoMorePursuit=no\n");
+    assert!(move_order_keeps_target(&mut sim, tank, &rules, None));
+    sim.entities_mut_for_test()
+        .get_mut(tank)
+        .unwrap()
+        .mission
+        .set_current_for_test(MissionId::from_known(MissionType::Guard), 0);
+    update_keep_target_on_move(&mut sim, tank, &rules, None, FrameEffects::empty());
+    let entity = sim.entities().get(tank).unwrap();
+    assert_eq!(
+        entity.mission.queued(),
+        MissionId::from_known(MissionType::Attack),
+        "the unit starts pursuing again"
+    );
+    assert!(!entity.phobos_keep_target_on_move(), "the latch is cleared");
+    assert_eq!(
+        entity.attack_target.target(),
+        Some(TargetKind::Entity(target)),
+        "the target itself is kept"
+    );
+}
+
+/// `ExtraDistance` extends the retention window in the Unit-AI re-check but
+/// not the order-time keep decision (`Ext/Unit/Body.cpp:136-142`).
+#[test]
+fn extra_distance_extends_only_the_unit_ai_retention_window() {
+    let (mut sim, rules, _owner, tank, target) =
+        scene("KeepTargetOnMove=yes\nKeepTargetOnMove.ExtraDistance=1\n");
+    assert!(move_order_keeps_target(&mut sim, tank, &rules, None));
+    sim.entities_mut_for_test()
+        .get_mut(tank)
+        .unwrap()
+        .mission
+        .set_current_for_test(MissionId::from_known(MissionType::Move), 0);
+    let at = |sim: &mut Simulation, distance: i32| {
+        sim.entities_mut_for_test()
+            .get_mut(target)
+            .unwrap()
+            .position
+            .put_world_xy([10 * 256 + 128 + distance, 10 * 256 + 128]);
+    };
+    // Weapon range 2432 leptons + 256 = 2688: inside the extended window.
+    at(&mut sim, 2500);
+    update_keep_target_on_move(&mut sim, tank, &rules, None, FrameEffects::empty());
+    assert!(
+        sim.entities()
+            .get(tank)
+            .unwrap()
+            .phobos_keep_target_on_move(),
+        "within range + ExtraDistance the target is kept"
+    );
+    at(&mut sim, 2700);
+    update_keep_target_on_move(&mut sim, tank, &rules, None, FrameEffects::empty());
+    assert!(
+        sim.entities()
+            .get(tank)
+            .unwrap()
+            .attack_target
+            .target()
+            .is_none(),
+        "beyond range + ExtraDistance the target is dropped"
+    );
 }

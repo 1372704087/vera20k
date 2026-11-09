@@ -1042,24 +1042,63 @@ pub fn can_fire_at_target_in_query(
     los: &line_of_fire::LineOfFireInputs<'_>,
     selection_target: Option<&TargetKind>,
 ) -> bool {
+    in_range_at_slot(
+        world,
+        rules,
+        interner,
+        attacker_id,
+        target,
+        cells,
+        alliances,
+        los,
+        selection_target,
+        -1,
+        0,
+    )
+}
+
+/// The one `InRange` (`0x006F7220`) body. `-1`/`0` is `CanFireAtTarget
+/// @ 0x006F7780` (SelectWeapon + InRange); an explicit slot with a nonzero
+/// `extra_leptons` is `IsCloseEnough` (vt+0x3A8) with Phobos
+/// `KeepTargetOnMove.ExtraDistance` folded into a local copy of that weapon's
+/// range (native mutates `WeaponTypeClass::Range` around the call).
+#[allow(clippy::too_many_arguments)]
+fn in_range_at_slot(
+    world: &Simulation,
+    rules: &RuleSet,
+    interner: &StringInterner,
+    attacker_id: u64,
+    target: &TargetKind,
+    cells: &crate::map::resolved_terrain::NativeCellQuery<'_>,
+    alliances: Option<&HouseAlliances>,
+    los: &line_of_fire::LineOfFireInputs<'_>,
+    selection_target: Option<&TargetKind>,
+    weapon_index: i32,
+    extra_leptons: i32,
+) -> bool {
     let Some(attacker) = world.substrate.entities.get(attacker_id) else {
         return false;
     };
     let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules) else {
         return false;
     };
-    let Some((index, _)) = combat_weapon::select_weapon_against_in_query(
-        rules,
-        attacker,
-        attacker_obj,
-        &combat_weapon::attacker_facts(attacker, attacker_obj),
-        selection_target,
-        world,
-        interner,
-        Some(cells),
-        alliances,
-    ) else {
-        return false;
+    let index = if weapon_index >= 0 {
+        weapon_index
+    } else {
+        let Some((index, _)) = combat_weapon::select_weapon_against_in_query(
+            rules,
+            attacker,
+            attacker_obj,
+            &combat_weapon::attacker_facts(attacker, attacker_obj),
+            selection_target,
+            world,
+            interner,
+            Some(cells),
+            alliances,
+        ) else {
+            return false;
+        };
+        index
     };
     // CanFireAt6F77B0 reads GetWeapon(index), not a Warhead pointer. Keep
     // selection's index even when the selected slot has no resolved warhead.
@@ -1073,6 +1112,9 @@ pub fn can_fire_at_target_in_query(
     ) else {
         return false;
     };
+    let mut weapon = weapon.clone();
+    weapon.range_leptons = weapon.range_leptons.wrapping_add(extra_leptons);
+    let weapon = &weapon;
     let target = RangeTarget::from_target(target, world, cells.terrain());
     let Some(source) = fire_source_for_target(attacker, target, weapon, cells, (rules, interner))
     else {
@@ -1091,12 +1133,9 @@ pub fn can_fire_at_target_in_query(
     )
 }
 
-/// `TechnoClass::IsCloseEnough @ 0x006F7930` for an explicit weapon slot (or
-/// the selected one when `weapon_index < 0`) with Phobos
-/// `KeepTargetOnMove.ExtraDistance` added to that weapon's range for this
-/// query only. Native mutates the shared `WeaponTypeClass::Range` around the
-/// call; a local copy is behaviorally identical because nothing else runs
-/// between the two writes.
+/// [`in_range_at_slot`] for `KeepTargetOnMove`'s Unit-AI re-check: an
+/// explicit weapon slot (or the selected one when negative) with the extra
+/// distance.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn in_range_with_weapon_extra(
     world: &Simulation,
@@ -1110,57 +1149,18 @@ pub(crate) fn in_range_with_weapon_extra(
     alliances: Option<&HouseAlliances>,
     los: &line_of_fire::LineOfFireInputs<'_>,
 ) -> bool {
-    let Some(attacker) = world.substrate.entities.get(attacker_id) else {
-        return false;
-    };
-    let Some(attacker_obj) = interner.object_type(attacker.type_ref(), rules) else {
-        return false;
-    };
-    let index = if weapon_index >= 0 {
-        weapon_index
-    } else {
-        let Some((index, _)) = combat_weapon::select_weapon_against_in_query(
-            rules,
-            attacker,
-            attacker_obj,
-            &combat_weapon::attacker_facts(attacker, attacker_obj),
-            Some(target),
-            world,
-            interner,
-            Some(cells),
-            alliances,
-        ) else {
-            return false;
-        };
-        index
-    };
-    let Some(weapon) = combat_weapon::get_weapon(
-        attacker,
-        attacker_obj,
-        index,
-        &world.substrate.entities,
+    in_range_at_slot(
+        world,
         rules,
         interner,
-    ) else {
-        return false;
-    };
-    let mut weapon = weapon.clone();
-    weapon.range_leptons = weapon.range_leptons.wrapping_add(extra_leptons);
-    let target = RangeTarget::from_target(target, world, cells.terrain());
-    let Some(source) = fire_source_for_target(attacker, target, &weapon, cells, (rules, interner))
-    else {
-        return false;
-    };
-    compute_range_target(
-        attacker,
-        source,
+        attacker_id,
         target,
-        &weapon,
-        rules,
-        interner,
         cells,
+        alliances,
         los,
-        Some(&world.substrate.entities),
+        Some(target),
+        weapon_index,
+        extra_leptons,
     )
 }
 

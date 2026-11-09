@@ -19,11 +19,12 @@ KeepTargetOnMove.ExtraDistance=0   ; Leptons (INI cells x 256)
   (`Ext/Techno/Hooks.Misc.cpp:1036-1075`) replaces the target setter for a
   `Mission::Move` order to a Unit with the type key and a live target:
   when the order's own target token is null and the unit's current target is
-  close enough to attack (`IsCloseEnoughToAttack`), the unit keeps the
+  close enough to attack (`IsCloseEnoughToAttack @ 0x6F7780`, i.e.
+  `SelectWeapon(target)` + InRange with **no** key overrides), the unit keeps the
   target, calls `SetDestination(order destination)` itself, latches
   `UnitExt::KeepTargetOnMove`, and skips the shared target clear and
-  destination setter. Otherwise the latch is cleared and the stock order
-  runs.
+  destination setter. Every other Unit MegaMission clears the latch and runs
+  the stock order.
 - `UnitExt::UpdateKeepTargetOnMove` (`Ext/Unit/Body.cpp:94-144`), from the
   `UnitClass_AI @ 0x736480` hook before `DepletedAmmoActions`:
   - no target → clear the latch;
@@ -46,11 +47,13 @@ KeepTargetOnMove.ExtraDistance=0   ; Leptons (INI cells x 256)
   `world_commands::apply_megamission_command` at the target-setter point;
   `update_keep_target_on_move` runs in the `UnitClass_AI` hook slot in
   `techno_ai` before the depleted-ammo actions.
-- `combat::in_range::in_range_with_weapon_extra` is `IsCloseEnough` for an
-  explicit/selected slot with the temporary range extension; it reuses
-  `compute_range_target` and clones the weapon instead of mutating the
-  shared rules record (native writes `WeaponTypeClass::Range` around the
-  call, and nothing else runs in between).
+- `combat::in_range::in_range_at_slot` is the one InRange body; the Move-order
+  arm uses its `-1`/`0` form (`CanFireAtTarget @ 0x6F7780`), and the Unit-AI
+  re-check uses an explicit/selected slot with the temporary range extension
+  (`IsCloseEnough`, vt+0x3A8). It reuses `compute_range_target` and clones the
+  weapon instead of mutating the shared rules record (native writes
+  `WeaponTypeClass::Range` around the call; VERA discards the clone before
+  `SetTarget(null)`, and no reader observes the shared field in between).
 
 ## Residuals (trigger · impact · frequency · risk)
 

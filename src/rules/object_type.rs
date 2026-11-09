@@ -886,6 +886,9 @@ pub struct ObjectType {
     /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
     #[cfg(feature = "phobos")]
     pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
+    /// Phobos `Adjacent.*` (`Ext/BuildingType/Body.cpp:235-238`).
+    #[cfg(feature = "phobos")]
+    pub phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4730,6 +4733,8 @@ impl ObjectType {
             phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

@@ -828,11 +828,92 @@ pub fn is_within_build_area(
     {
         return true;
     }
-    let (width, height) = obj.foundation.dimensions();
     let placed_adjacent = obj.adjacent;
     if placed_adjacent < 0 {
         return false;
     }
+    // Phobos `DisplayClass_BuildingProximityCheck_BeforeChecks` (`0x4A8F3E`,
+    // `Ext/BuildingType/Hooks.cpp:203-234`): a prohibit pass scans the larger
+    // `Adjacent.Disallowed.ProhibitDistance` ring first, and the normal pass
+    // then ignores the disallowed list.
+    #[cfg(feature = "phobos")]
+    {
+        let adjacent = &obj.phobos_adjacent;
+        if adjacent.prohibit && adjacent.prohibit_distance > 0 {
+            if !build_area_scan(
+                sim,
+                rules,
+                owner,
+                obj,
+                rx,
+                ry,
+                adjacent.prohibit_distance,
+                DisallowRule::Fatal,
+            ) {
+                return false;
+            }
+            return build_area_scan(
+                sim,
+                rules,
+                owner,
+                obj,
+                rx,
+                ry,
+                placed_adjacent,
+                DisallowRule::Ignored,
+            );
+        }
+        return build_area_scan(
+            sim,
+            rules,
+            owner,
+            obj,
+            rx,
+            ry,
+            placed_adjacent,
+            if adjacent.prohibit {
+                DisallowRule::Fatal
+            } else {
+                DisallowRule::Skip
+            },
+        );
+    }
+    #[cfg(not(feature = "phobos"))]
+    build_area_scan(
+        sim,
+        rules,
+        owner,
+        obj,
+        rx,
+        ry,
+        placed_adjacent,
+        DisallowRule::Skip,
+    )
+}
+
+/// What a same-house `Adjacent.Disallowed=` provider does in one scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(feature = "phobos"), allow(dead_code))]
+enum DisallowRule {
+    Skip,
+    Fatal,
+    Ignored,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_area_scan(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: &str,
+    obj: &ObjectType,
+    rx: u16,
+    ry: u16,
+    adjacent: i32,
+    disallow: DisallowRule,
+) -> bool {
+    let (width, height) = obj.foundation.dimensions();
+    #[cfg(not(feature = "phobos"))]
+    let _ = disallow;
     for e in sim.substrate.entities.values() {
         // A dying structure provides no build-area adjacency during its window.
         if e.death.is_dying() || e.lifecycle.in_limbo() {
@@ -840,6 +921,45 @@ pub fn is_within_build_area(
         }
         if e.category() != EntityCategory::Structure {
             continue;
+        }
+        //4A8F21..4A8FB9 uses declared dimensions for the placed ring;
+        //4A8FC5/4A8FCC queries the first actual ground Building47C520 in
+        //each ring cell, and the hooks below run per ring cell. A provider's
+        // bounding rectangle fills Custom holes incorrectly; this order-free
+        // existential walk changes no RNG/state.
+        let in_ring = crate::sim::occupancy::entity_occupancy_cells(e)
+            .into_iter()
+            .any(|cell| {
+                cell_in_build_area_ring((rx, ry, width, height), cell, adjacent)
+                    && sim.substrate.occupancy.first_building_on_layer(
+                        cell.0,
+                        cell.1,
+                        MovementLayer::Ground,
+                    ) == Some(e.stable_id())
+            });
+        if !in_ring {
+            continue;
+        }
+        // Phobos `DisplayClass_BuildingProximityCheck_BuildArea` (`0x4A8FD7`,
+        // `Ext/BuildingType/Hooks.cpp:236-273`): the allow list filters every
+        // provider, and a same-house disallowed type is skipped (or fatal
+        // with `Prohibit`).
+        #[cfg(feature = "phobos")]
+        {
+            let adjacent_rules = &obj.phobos_adjacent;
+            let provider_type = sim.interner.resolve(e.type_ref());
+            if !adjacent_rules.permits_provider(provider_type) {
+                continue;
+            }
+            if sim.interner.resolve(e.owner()).eq_ignore_ascii_case(owner)
+                && adjacent_rules.disallows(provider_type)
+            {
+                match disallow {
+                    DisallowRule::Fatal => return false,
+                    DisallowRule::Skip => continue,
+                    DisallowRule::Ignored => {}
+                }
+            }
         }
         #[cfg(not(feature = "ares"))]
         if !e.unit_delivery_provides_base_space() {
@@ -879,23 +999,7 @@ pub fn is_within_build_area(
         {
             continue;
         }
-        //4A8F21..4A8FB9 uses declared dimensions for the placed ring;
-        //4A8FC5/4A8FCC queries the first actual ground Building47C520 in
-        //each ring cell. A provider's bounding rectangle fills Custom holes
-        //incorrectly. This order-free existential walk changes no RNG/state.
-        if crate::sim::occupancy::entity_occupancy_cells(e)
-            .into_iter()
-            .any(|cell| {
-                cell_in_build_area_ring((rx, ry, width, height), cell, placed_adjacent)
-                    && sim.substrate.occupancy.first_building_on_layer(
-                        cell.0,
-                        cell.1,
-                        MovementLayer::Ground,
-                    ) == Some(e.stable_id())
-            })
-        {
-            return true;
-        }
+        return true;
     }
     false
 }

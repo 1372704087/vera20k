@@ -159,6 +159,8 @@ pub mod phobos_rate_down;
 #[cfg(feature = "phobos")]
 pub mod phobos_units;
 #[cfg(feature = "phobos")]
+pub mod phobos_adjacent;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

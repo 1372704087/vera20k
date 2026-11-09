@@ -176,6 +176,7 @@ pub mod phobos_selection_flash;
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
 pub mod phobos_warhead_anim;
+pub mod phobos_jumpjet_tilt;
 pub mod phobos_laser_tracking;
 pub mod phobos_radiation;
 pub mod phobos_shields;

@@ -17,6 +17,110 @@ use crate::rules::voxel_frame_catalog::{
 };
 use crate::sim::world::Simulation;
 
+/// Phobos `JumpjetTilt.*`: an airborne Unit whose drawn type enables the tilt
+/// gains the pose; a grounded one, a stopped one and a type that disables it
+/// keep the stock draw.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_jumpjet_tilt_poses_only_an_airborne_enabled_unit() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[AudioVisual]\nJumpjetTilt=yes\n\
+         [VehicleTypes]\n0=TILT\n1=NOTILT\n\
+         [TILT]\nStrength=100\nLocomotor={92612C46-F71F-11D1-AC9F-006008055BB5}\n\
+         [NOTILT]\nStrength=100\nJumpjetTilt=no\n\
+         Locomotor={92612C46-F71F-11D1-AC9F-006008055BB5}\n",
+    ))
+    .expect("jumpjet tilt rules");
+    let mut sim = Simulation::new();
+    let spawn = |sim: &mut Simulation, type_id: &str| {
+        sim.spawn_object_limbo_at_height(type_id, "Americans", 10, 10, 0, 100, &rules)
+            .unwrap_or_else(|| panic!("build {type_id}"))
+    };
+    let tilted = spawn(&mut sim, "TILT");
+    let disabled = spawn(&mut sim, "NOTILT");
+    // Limbo construction installs no locomotor; the draw needs the type's
+    // Jumpjet runtime, so bind it the way a placed Unit gets it.
+    for (id, name) in [(tilted, "TILT"), (disabled, "NOTILT")] {
+        let object = rules.object(name).expect("the spawned type");
+        sim.entities_mut_for_test().get_mut(id).unwrap().locomotor =
+            Some(crate::sim::movement::locomotor::LocomotorState::from_object_type(object, 0));
+    }
+    // A live airborne jumpjet: phase 1 (ascend), CurrentSpeed 32 binary64, and
+    // a LocomotionFacing turn from north toward east (Difference 0x4000).
+    let set_runtime = |sim: &mut Simulation, id: u64, phase: i32, current_speed: f64| {
+        let locomotor = sim
+            .entities_mut_for_test()
+            .get_mut(id)
+            .unwrap()
+            .locomotor
+            .as_mut()
+            .unwrap();
+        let mut saved = serde_json::to_value(&*locomotor).unwrap();
+        let runtime = &mut saved["runtime_payload"]["Jumpjet"];
+        runtime["phase"] = serde_json::json!(phase);
+        let flight = &mut runtime["flight"];
+        flight["current_speed_bits"] = serde_json::json!(current_speed.to_bits());
+        flight["facing"]["current"] = serde_json::json!(0x4000_u16);
+        flight["facing"]["prev"] = serde_json::json!(0_u16);
+        flight["facing"]["start_frame"] = serde_json::json!(0_u32);
+        flight["facing"]["duration_frames"] = serde_json::json!(10_u16);
+        flight["facing"]["rot_per_frame"] = serde_json::json!(0x0400_u16);
+        *locomotor = serde_json::from_value(saved).unwrap();
+    };
+    let pose = |sim: &Simulation, id: u64| {
+        let entity = sim.entities().get(id).unwrap();
+        let object = rules
+            .object(sim.interner().resolve(entity.type_ref()))
+            .expect("the spawned type");
+        body_pose_with_angles(
+            entity,
+            EntityDrawBand::Top,
+            object.tilt_crash_jumpjet,
+            BodyPoseContext {
+                angles: [0.0; 2],
+                pitch: 0.0,
+                object_type: Some(object),
+                bank_direction: None,
+                jumpjet_tilt: object
+                    .phobos_jumpjet_tilt
+                    .resolve(&rules.phobos_jumpjet_tilt),
+                binary_frame: sim.session().binary_frame(),
+            },
+        )
+    };
+
+    set_runtime(&mut sim, tilted, 1, 32.0);
+    let tilt = pose(&sim, tilted).expect("airborne enabled jumpjet");
+    assert!(
+        matches!(
+            tilt,
+            crate::render::unit_atlas::PoseTilt::JumpjetTilt([sideways, forwards])
+                if sideways.to_bits() == 0x3e49_0fdb && forwards.to_bits() == 0x3ec9_0fdb
+        ),
+        "{tilt:?}"
+    );
+
+    set_runtime(&mut sim, tilted, 0, 32.0);
+    assert_eq!(pose(&sim, tilted), None, "Grounded draws the plain matrix");
+
+    set_runtime(&mut sim, tilted, 1, 0.0);
+    assert_eq!(pose(&sim, tilted), None, "CurrentSpeed must exceed zero");
+
+    set_runtime(&mut sim, disabled, 1, 32.0);
+    let entity = sim.entities().get(disabled).unwrap();
+    let object = rules
+        .object(sim.interner().resolve(entity.type_ref()))
+        .unwrap();
+    assert_eq!(
+        object
+            .phobos_jumpjet_tilt
+            .resolve(&rules.phobos_jumpjet_tilt),
+        None,
+        "the type's JumpjetTilt=no overrides the [AudioVisual] yes"
+    );
+    assert_eq!(pose(&sim, disabled), None);
+}
+
 #[test]
 fn normal_fly_pose_uses_strict_pitch_speed_gate_and_secondary_turn_sign() {
     use crate::rules::retail_ini_fixture::retail_battle_rules;
@@ -65,10 +169,14 @@ fn normal_fly_pose_uses_strict_pitch_speed_gate_and_secondary_turn_sign() {
             entity,
             EntityDrawBand::Top,
             object.tilt_crash_jumpjet,
-            [0.0; 2],
-            0.0,
-            Some(object),
-            direction,
+            BodyPoseContext {
+                angles: [0.0; 2],
+                pitch: 0.0,
+                object_type: Some(object),
+                bank_direction: direction,
+                jumpjet_tilt: None,
+                binary_frame: sim.session().binary_frame(),
+            },
         );
         (body, direction, tilt)
     };

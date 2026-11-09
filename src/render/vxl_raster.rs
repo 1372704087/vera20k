@@ -289,6 +289,11 @@ pub enum BodyTilt {
         angles: [f32; 2],
         half_sizes: [f32; 2],
     },
+    /// Phobos `JumpjetLocomotionClass_Draw_Matrix` default arm (vtable
+    /// `0x7ECD8C`, `Ext/TechnoType/Hooks.MatrixOp.cpp:479-491`): airborne
+    /// roll and pitch, no `TiltCrashJumpjet=` translation. The matrix is the
+    /// same facing/X/Y product as the Fly crash arm.
+    JumpjetTilt([f32; 2]),
     /// `RocketLocomotionClass::Draw_Matrix` (`0x00663470`): CurrentPitch in
     /// radians above the horizon.
     Rocket(f32),
@@ -366,6 +371,9 @@ fn voxel_params_draw_rotation(params: &VxlRenderParams, step: u8) -> Mat4 {
             voxel_jumpjet_tilt_locomotor_matrix(step, angles, half_sizes),
         )
         .expect("finite tilt matrix"),
+        // Phobos's airborne arm drops the crash translation; what remains is
+        // the shared yaw/X/Y product.
+        Some(BodyTilt::JumpjetTilt(angles)) => voxel_crash_rotation(step, angles),
         Some(BodyTilt::Rocket(pitch)) => affine::matrix_product(
             voxel_camera_view(),
             voxel_rocket_locomotor_matrix(step, pitch),

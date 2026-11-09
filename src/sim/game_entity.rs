@@ -2785,6 +2785,13 @@ impl GameEntity {
         self.health.current() > 0
     }
 
+    /// `FootClass+0x6AD` `IsAttackedByLocomotor`: a Magnetron's lift currently
+    /// displaces this object's locomotor. The Jumpjet draw's Phobos
+    /// JumpjetTilt arm excludes such a body and draws its PrimaryFacing.
+    pub fn is_attacked_by_locomotor(&self) -> bool {
+        self.lift.swap_active()
+    }
+
     /// The particle systems GetROF and FireAt test (`+0x304`, `+0x308`,
     /// `+0x314`) as they are linked now.
     pub(crate) fn live_particles(&self) -> crate::sim::combat::rof::LiveParticles {

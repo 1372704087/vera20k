@@ -369,6 +369,13 @@ impl SpawnHost for Replay<'_> {
         self.child(child).z - int(&self.owner["location"][2])
     }
 
+    /// The oracle replays vanilla bodies; the Phobos destination hooks are
+    /// disabled so the recorded native calls stay comparable.
+    #[cfg(feature = "phobos")]
+    fn phobos_hooks(&self) -> bool {
+        false
+    }
+
     fn launch(&mut self, child: u64, burst_parity: Option<i32>) {
         self.log(json!(["launch", name(Some(child)), burst_parity]));
     }
@@ -399,9 +406,14 @@ impl SpawnHost for Replay<'_> {
         ]));
     }
 
-    fn queue_mission(&mut self, child: u64, mission: MissionType) {
+    fn queue_mission(&mut self, child: u64, mission: MissionType, force: bool) {
         let mission = crate::sim::mission::MissionId::from_known(mission).raw();
-        self.log(json!(["queue_mission", name(Some(child)), mission, 0]));
+        self.log(json!([
+            "queue_mission",
+            name(Some(child)),
+            mission,
+            i32::from(force)
+        ]));
     }
 
     fn assign_target(&mut self, child: u64, target: Option<TargetKind>) {

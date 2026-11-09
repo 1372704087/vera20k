@@ -544,6 +544,65 @@ pub(crate) fn fire_coordinate(
     }
 }
 
+/// Phobos `TechnoExt::GetFLHAbsoluteCoords` (`Ext/Techno/Body.Internal.cpp:80`,
+/// "reversed from `0x006F3D60`"): the world coordinate of an arbitrary FLH.
+/// Unlike [`fire_coordinate`] there is no weapon slot, burst mirror or
+/// building pixel-port arm: the FLH is rotated by the body matrix, plus — when
+/// `on_turret` — the `TurretOffset` and the turret's rotation relative to the
+/// body (a building's turret angle is its own heading, absolute, so the
+/// no-locomotor quarter-turn term is cancelled by adding it). Used by
+/// `Spawner.RecycleCoord`'s dock point and destination offset.
+///
+/// RESIDUAL: the building arm assumes the native turret pivot is the type's
+/// `TurretOffset` and its angle the object's PrimaryFacing; a building whose
+/// ART declares a voxel-barrel pivot chain is not re-projected here.
+#[cfg(feature = "phobos")]
+pub(crate) fn custom_flh_coordinate(
+    world: &Simulation,
+    rules: &RuleSet,
+    snap: &FireSource,
+    obj: &ObjectType,
+    flh: Flh,
+    on_turret: bool,
+) -> Option<crate::sim::components::DriveCoord> {
+    let base = fire_coordinate_base(world, rules, snap, obj);
+    let structure = snap.category == EntityCategory::Structure;
+    let turret_arm = on_turret && (structure || snap.barrel_facing.is_some());
+    let turret_offset = if turret_arm {
+        base.art.map_or(0, |art| art.turret_offset)
+    } else {
+        0
+    };
+    // `native_flh_world_delta`'s no-locomotor arm subtracts the quarter turn
+    // (`aim_step - 8`); a building never passes through the relative form, so
+    // adding that quarter back makes its rotation the absolute heading.
+    let aim = if structure {
+        base.facings.body.wrapping_add(0x4000)
+    } else if turret_arm {
+        base.fire_facing
+    } else {
+        base.facings.body
+    };
+    let (dx, dy, dz) = crate::util::flh_transform::native_flh_world_delta(
+        flh.forward,
+        flh.lateral,
+        flh.height,
+        turret_offset,
+        crate::util::flh_transform::FlhFacings {
+            aim,
+            body: base.facings.body,
+            matrix: base.facings.matrix,
+        },
+        0,
+        base.locomotor_basis,
+    )?;
+    Some(crate::sim::components::DriveCoord {
+        x: base.x.wrapping_add(dx),
+        y: base.y.wrapping_add(dy),
+        z: base.z.wrapping_add(dz),
+    })
+}
+
 /// Phobos `InfantryClass` states the firing offset reads: `IsDeployed` wins
 /// over `Crawling`, and neither applies to another TechnoType.
 #[cfg(feature = "phobos")]

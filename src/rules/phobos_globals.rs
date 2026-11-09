@@ -26,6 +26,11 @@
 use crate::rules::ini_parser::IniFile;
 use crate::rules::phobos_shields::AffectedHouse;
 
+/// `Leptons(-1)`'s constructor value for saves that predate the field.
+fn minus_one_i32() -> i32 {
+    -1
+}
+
 /// `[CombatDamage]` globals this port reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosGlobals {
@@ -106,6 +111,26 @@ pub struct PhobosGlobals {
     /// even when only queued (not owned) copies reach the limit.
     #[serde(default)]
     pub build_limit_group_not_buildable_if_queue_match: bool,
+    /// `[General] Spawner.AttackImmediately=`, default `no`
+    /// (`Ext/Rules/Body.cpp:208`, `Body.h:115,652`): fallback for an unset
+    /// type-level key; `yes` sends a fresh child straight at the target.
+    #[serde(default)]
+    pub spawner_attack_immediately: bool,
+    /// `[General] Spawner.UseTurretFacing=`, default `no`
+    /// (`Ext/Rules/Body.cpp:209`, `Body.h:116,653`): launch facing uses the
+    /// owner's turret instead of its body.
+    #[serde(default)]
+    pub spawner_use_turret_facing: bool,
+    /// `[General] Spawner.RecycleRange=`, `Valueable<Leptons>`, default
+    /// `Leptons(-1)` (`Ext/Rules/Body.cpp:210`, `Body.h:117,654`): cells ×
+    /// 256; a negative value selects the legacy dock test.
+    #[serde(default = "minus_one_i32")]
+    pub spawner_recycle_range: i32,
+    /// `[General] Spawner.RecycleOnTurret=`, default `no`
+    /// (`Ext/Rules/Body.cpp:211`, `Body.h:118,655`): `RecycleCoord` rotates
+    /// with the turret.
+    #[serde(default)]
+    pub spawner_recycle_on_turret: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -132,6 +157,10 @@ impl Default for PhobosGlobals {
             penetrates_transport_level: 10,
             build_limit_group_content_if_any_match: false,
             build_limit_group_not_buildable_if_queue_match: false,
+            spawner_attack_immediately: false,
+            spawner_use_turret_facing: false,
+            spawner_recycle_range: -1,
+            spawner_recycle_on_turret: false,
         }
     }
 }
@@ -186,6 +215,17 @@ impl PhobosGlobals {
             "BuildLimitGroup.NotBuildableIfQueueMatch",
             globals.build_limit_group_not_buildable_if_queue_match,
         );
+        globals.spawner_attack_immediately = general.read_bool(
+            "Spawner.AttackImmediately",
+            globals.spawner_attack_immediately,
+        );
+        globals.spawner_use_turret_facing =
+            general.read_bool("Spawner.UseTurretFacing", globals.spawner_use_turret_facing);
+        // `Valueable<Leptons>`: cells × 256 (F2I); a failed read keeps -1.
+        globals.spawner_recycle_range =
+            general.read_phobos_leptons("Spawner.RecycleRange", globals.spawner_recycle_range);
+        globals.spawner_recycle_on_turret =
+            general.read_bool("Spawner.RecycleOnTurret", globals.spawner_recycle_on_turret);
         globals
     }
 }

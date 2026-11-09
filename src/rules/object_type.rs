@@ -880,6 +880,10 @@ pub struct ObjectType {
     /// techno's group build-limit settings, consumed by `can_build`.
     #[cfg(feature = "phobos")]
     pub phobos_build_limit_group: crate::rules::phobos_build_limit_group::BuildLimitGroupSettings,
+    /// Phobos `Spawner.*` (`Ext/TechnoType/Body.cpp:790-794`, `:1120-1123`):
+    /// the aircraft-spawner customizations consumed by `sim::spawn_manager`.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawner: crate::rules::phobos_spawner::PhobosSpawner,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -4765,6 +4769,8 @@ impl ObjectType {
                 crate::rules::phobos_build_limit_group::BuildLimitGroupSettings::from_section(
                     section,
                 ),
+            #[cfg(feature = "phobos")]
+            phobos_spawner: crate::rules::phobos_spawner::PhobosSpawner::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),

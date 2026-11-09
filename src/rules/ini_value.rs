@@ -874,6 +874,19 @@ impl IniSection {
         })
     }
 
+    /// Phobos `Nullable<Leptons>`: the clearing tokens of
+    /// [`Self::read_phobos_nullable_with`], then the same `read<Leptons>`
+    /// conversion (cells × 256, `F2I`). A failed read keeps the old nullable.
+    pub fn read_phobos_nullable_leptons(&self, key: &str, current: Option<i32>) -> Option<i32> {
+        self.read_phobos_nullable_with(key, current, |raw| {
+            parse_phobos_double(raw).map(|cells| {
+                crate::util::native_x87::X87Chop53::ftol_f64_low_masked(
+                    cells * f64::from(crate::util::lepton::LEPTONS_PER_CELL_I32),
+                )
+            })
+        })
+    }
+
     /// [`Self::read_bool`] where the caller supplies the default later: `None`
     /// wherever ReadBool would return its default argument (an absent key,
     /// or a first character outside `1TY0FN`).

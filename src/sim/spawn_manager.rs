@@ -458,6 +458,15 @@ impl SpawnManagerState {
         }
     }
 
+    /// `SpawnManagerClass::ResetTarget`: clear the live target without
+    /// queueing another (`Target = nullptr`). VERA drops the queued
+    /// `NewTarget` too, since promoting it would resume the same pursuit the
+    /// range limit aborted; native's own queue is only written by `SetTarget`.
+    pub(crate) fn reset_target(&mut self) {
+        self.current_target = None;
+        self.queued_target = None;
+    }
+
     /// Promote the queued target, as every state branch does before reading
     /// `current_target`: `if (NewTarget) { Target = NewTarget; NewTarget = 0; }`.
     fn promote_queued_target(&mut self) -> Option<TargetKind> {
@@ -530,6 +539,107 @@ pub fn init_spawn_manager(
 // The original's bodies
 // ---------------------------------------------------------------------------
 
+/// `House`-independent reader: the target's GetCoords for the 3D distance.
+#[cfg(feature = "phobos")]
+fn spawn_limit_target_coords(world: &Simulation, target: &TargetKind) -> Option<[i32; 3]> {
+    let terrain = world.resolved_terrain.as_ref();
+    match *target {
+        TargetKind::Entity(id) => world
+            .substrate
+            .entities
+            .get(id)
+            .map(|entity| {
+                let coord = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
+                [coord.x, coord.y, coord.z]
+            })
+            .or_else(|| {
+                world
+                    .terrain_objects
+                    .objects()
+                    .get(&id)
+                    .map(|terrain_object| terrain_object.world_coord())
+                    .map(|coord| [coord.x, coord.y, coord.z])
+            }),
+        TargetKind::Cell(rx, ry) => Some([i32::from(rx) * 256 + 128, i32::from(ry) * 256 + 128, 0]),
+    }
+}
+
+/// Phobos `TechnoTypeExt::CalculateSpawnerRange` (`Ext/TechnoType/Body.cpp:539-563`,
+/// run from `Ext/Rules/Body.cpp:77`): the largest `Range` among the type's
+/// `Spawner=yes` weapons for the asked tier, plus `Spawner.ExtraLimitRange`
+/// cells. `MultiWeapon` (Ares) is not represented; the stock
+/// `TurretCount > 0 && WeaponCount > 0` form picks the numbered slots.
+#[cfg(feature = "phobos")]
+fn spawner_range(obj: &crate::rules::object_type::ObjectType, elite: bool, rules: &RuleSet) -> i32 {
+    let multi_weapon = obj.turret_count > 0 && obj.weapon_count > 0;
+    let weapon_count = if multi_weapon { obj.weapon_count } else { 2 };
+    let mut range = 0;
+    for index in 0..weapon_count.max(0) {
+        let index = index as usize;
+        let normal = obj.weapon_at(index).and_then(|id| rules.weapon(id));
+        let weapon = if elite {
+            obj.elite_weapon_at(index)
+                .and_then(|id| rules.weapon(id))
+                .or(normal)
+        } else {
+            normal
+        };
+        if let Some(weapon) = weapon
+            && weapon.spawner
+            && weapon.range_leptons > range
+        {
+            range = weapon.range_leptons;
+        }
+    }
+    range.wrapping_add(
+        obj.phobos_spawner
+            .extra_limit_range
+            .wrapping_mul(crate::util::lepton::LEPTONS_PER_CELL_I32),
+    )
+}
+
+impl Simulation {
+    /// Phobos `TechnoExt::ApplySpawnLimitRange` (`Ext/Techno/Body.Update.cpp:445-461`,
+    /// called from `OnEarlyUpdate` at the head of `TechnoClass::AI`): a
+    /// spawner whose live target is beyond its strongest `Spawner=yes`
+    /// weapon's range drops it. `ResetTarget` only nulls `Target` natively;
+    /// VERA also drops the queued target, which would otherwise promote the
+    /// same object on the next AI pass and resume the aborted pursuit.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn apply_spawn_limit_range(&mut self, id: u64, rules: &RuleSet) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(obj) = self.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        if !obj.phobos_spawner.limit_range {
+            return;
+        }
+        let Some(manager) = entity.spawn_manager.as_ref() else {
+            return;
+        };
+        let Some(target) = manager.current_target() else {
+            return;
+        };
+        let Some(target_coords) = spawn_limit_target_coords(self, &target) else {
+            return;
+        };
+        let elite = entity.veterancy.rank() >= crate::sim::combat::veterancy::RANK_ELITE_U16;
+        let range = spawner_range(obj, elite, rules);
+        let terrain = self.resolved_terrain.as_ref();
+        let own = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
+        let distance =
+            crate::util::native_x87::distance_3d_leptons([own.x, own.y, own.z], target_coords);
+        if distance > range
+            && let Some(entity) = self.substrate.entities.get_mut(id)
+            && let Some(manager) = entity.spawn_manager.as_mut()
+        {
+            manager.reset_target();
+        }
+    }
+}
+
 /// Where the manager sends a child (`Assign_Destination(dest, 1)`, vt+0x480).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SpawnDestination {
@@ -593,6 +703,39 @@ trait SpawnHost {
     fn child_cell(&self, child: u64) -> (i32, i32);
     /// The child's Location Z less the owner's (`+0xA4`, `0x006B77F7`).
     fn child_height_over_owner(&self, child: u64) -> i32;
+    /// Case 4's dock test: child and owner in one cell with the child under
+    /// [`DOCK_HEIGHT_EPSILON_LEPTONS`]. Under `phobos` the real host replaces
+    /// it with the `0x6B77B4` `Spawner.RecycleRange` predicate.
+    fn dock_reached(&self, child: u64) -> bool {
+        self.child_cell(child) == self.owner_cell()
+            && self.child_height_over_owner(child) < DOCK_HEIGHT_EPSILON_LEPTONS
+    }
+    /// Phobos `Spawner.RecycleAnim` / `Spawner.RecycleCoord`: the random
+    /// recycle anim and the `SetLocation(carrier)` before the recycle jump
+    /// (`Ext/Techno/Hooks.Misc.cpp:275-276`).
+    #[cfg(feature = "phobos")]
+    fn recycle_effects(&mut self, _child: u64) {}
+    /// The owner type's `Spawner.*` settings.
+    #[cfg(feature = "phobos")]
+    fn owner_spawner(&self) -> Option<&crate::rules::phobos_spawner::PhobosSpawner> {
+        None
+    }
+    /// Whether the `0x6B769F` / `0x6B7600` destination hooks apply. The native
+    /// oracle replays vanilla behavior, so its fixture host opts out.
+    #[cfg(feature = "phobos")]
+    fn phobos_hooks(&self) -> bool {
+        true
+    }
+    /// `Spawner.AttackImmediately.Get([General])`.
+    #[cfg(feature = "phobos")]
+    fn attack_immediately(&self) -> bool {
+        false
+    }
+    /// `Spawner.UseTurretFacing.Get([General])`.
+    #[cfg(feature = "phobos")]
+    fn use_turret_facing(&self) -> bool {
+        false
+    }
     /// Case 0's launch (`0x006B73FC..0x006B7505`): GetFLH with the owner's
     /// CurrentBurstIndex (`+0x3B8`), which a burst launch sets to the slot's
     /// parity first, then the child's Unlimbo (vt+0xD8) at that coordinate
@@ -604,8 +747,8 @@ trait SpawnHost {
     /// A `CMislType=` pool's `V3TAKOFF` at the launched child (`0x006B751B..`).
     fn takeoff_anim(&mut self, child: u64);
     fn set_destination(&mut self, child: u64, destination: SpawnDestination);
-    /// `Queue_Mission(mission, 0)` (vt+0x1E8).
-    fn queue_mission(&mut self, child: u64, mission: MissionType);
+    /// `Queue_Mission(mission, force)` (vt+0x1E8).
+    fn queue_mission(&mut self, child: u64, mission: MissionType, force: bool);
     /// `Assign_Target` (vt+0x3C8).
     fn assign_target(&mut self, child: u64, target: Option<TargetKind>);
     /// `Limbo` (vt+0xD4, `FootClass::Limbo`).
@@ -633,7 +776,20 @@ fn ai(host: &mut impl SpawnHost) {
     if !host.manager_ref().update_timer.expired(frame) {
         return;
     }
-    host.manager().update_timer = CdTimer::started(frame, UPDATE_PERIOD_FRAMES);
+    // Phobos `SpawnManagerClass_AI_UpdateTimer @ 0x6B7265`: while launching
+    // with docked children, a set `Spawner.DelayFrames` replaces the 10-frame
+    // gate with `min(delay, 10)`.
+    let mut period = UPDATE_PERIOD_FRAMES;
+    #[cfg(feature = "phobos")]
+    if host.manager_ref().mode == SpawnManagerMode::Launching
+        && host.manager_ref().count_docked_spawns() != 0
+        && let Some(delay) = host
+            .owner_spawner()
+            .and_then(|spawner| spawner.delay_frames)
+    {
+        period = delay.min(UPDATE_PERIOD_FRAMES);
+    }
+    host.manager().update_timer = CdTimer::started(frame, period);
     let mut index = 0;
     while index < host.manager_ref().slots.len() {
         visit_slot(host, index, frame);
@@ -670,11 +826,31 @@ fn visit_slot(host: &mut impl SpawnHost, index: usize, frame: i32) {
                     host.manager().slots[index].state = ComingHome;
                 }
                 Some(_) => {
+                    // Phobos `SpawnManagerClass_AI_InitDestination` hook at
+                    // `0x6B769F` (`Ext/Techno/Hooks.Misc.cpp:134-160`): with
+                    // `Spawner.AttackImmediately` the child takes the
+                    // manager's target and an attack mission; otherwise it
+                    // holds north of the carrier.
+                    #[cfg(feature = "phobos")]
+                    if host.phobos_hooks() {
+                        if host.attack_immediately() {
+                            let target = host.manager_ref().current_target;
+                            host.assign_target(child, target);
+                            host.queue_mission(child, MissionType::Attack, true);
+                            return;
+                        }
+                        host.set_destination(
+                            child,
+                            SpawnDestination::Adjacent(ADJACENT_DIR_ON_LAUNCH),
+                        );
+                        host.queue_mission(child, MissionType::Move, false);
+                        return;
+                    }
                     host.set_destination(
                         child,
                         SpawnDestination::Adjacent(ADJACENT_DIR_WHILE_HELD),
                     );
-                    host.queue_mission(child, MissionType::Move);
+                    host.queue_mission(child, MissionType::Move, false);
                 }
             }
         }
@@ -683,7 +859,7 @@ fn visit_slot(host: &mut impl SpawnHost, index: usize, frame: i32) {
             match target.filter(|_| host.child_ammo(child) != 0) {
                 Some(target) => {
                     host.assign_target(child, Some(target));
-                    host.queue_mission(child, MissionType::Attack);
+                    host.queue_mission(child, MissionType::Attack, false);
                 }
                 None => {
                     recall(host, child);
@@ -697,11 +873,11 @@ fn visit_slot(host: &mut impl SpawnHost, index: usize, frame: i32) {
                 Some(target) => {
                     host.manager().slots[index].state = Attacking;
                     host.assign_target(child, Some(target));
-                    host.queue_mission(child, MissionType::Attack);
+                    host.queue_mission(child, MissionType::Attack, false);
                 }
-                None if host.child_cell(child) == host.owner_cell()
-                    && host.child_height_over_owner(child) < DOCK_HEIGHT_EPSILON_LEPTONS =>
-                {
+                None if host.dock_reached(child) => {
+                    #[cfg(feature = "phobos")]
+                    host.recycle_effects(child);
                     host.limbo(child);
                     let manager = host.manager();
                     let reload = manager.reload_rate as i32;
@@ -748,6 +924,20 @@ fn launch_slot(host: &mut impl SpawnHost, index: usize, child: u64, frame: i32) 
     if host.owner_locomotor_swap() {
         return;
     }
+    // Phobos `SpawnManagerClass_AI_SpawnTimer` hooks at `0x6B73A8` and
+    // `0x6B73B9`: a set `Spawner.DelayFrames` replaces both native spacings.
+    #[cfg(feature = "phobos")]
+    let delay = host
+        .owner_spawner()
+        .and_then(|spawner| spawner.delay_frames)
+        .unwrap_or_else(|| {
+            if host.owner_missile_spawn() {
+                LAUNCH_DELAY_FRAMES_MISSILE_PARENT
+            } else {
+                LAUNCH_DELAY_FRAMES
+            }
+        });
+    #[cfg(not(feature = "phobos"))]
     let delay = if host.owner_missile_spawn() {
         LAUNCH_DELAY_FRAMES_MISSILE_PARENT
     } else {
@@ -767,10 +957,20 @@ fn launch_slot(host: &mut impl SpawnHost, index: usize, child: u64, frame: i32) 
     if host.manager_ref().slots[index].is_missile_spawn {
         let target = host.manager().promote_queued_target();
         host.set_destination(child, SpawnDestination::Target(target));
+        host.queue_mission(child, MissionType::Move, false);
     } else {
+        // Phobos `0x6B7600`: a non-missile child either attacks the manager's
+        // target at once or takes the carrier's north neighbour.
+        #[cfg(feature = "phobos")]
+        if host.phobos_hooks() && host.attack_immediately() {
+            let target = host.manager_ref().current_target;
+            host.assign_target(child, target);
+            host.queue_mission(child, MissionType::Attack, true);
+            return;
+        }
         host.set_destination(child, SpawnDestination::Adjacent(ADJACENT_DIR_ON_LAUNCH));
+        host.queue_mission(child, MissionType::Move, false);
     }
-    host.queue_mission(child, MissionType::Move);
 }
 
 /// Case 7's body (`0x006B78D3..0x006B7953`), also the constructor's
@@ -799,7 +999,7 @@ fn fill_slot(host: &mut impl SpawnHost, index: usize) {
 fn recall(host: &mut impl SpawnHost, child: u64) {
     host.set_destination(child, SpawnDestination::Owner);
     host.assign_target(child, None);
-    host.queue_mission(child, MissionType::Move);
+    host.queue_mission(child, MissionType::Move, false);
 }
 
 /// The manager status after the node walk (`0x006B796A..`).
@@ -841,7 +1041,7 @@ fn manager_status(host: &mut impl SpawnHost, frame: i32) {
                 if !host.child_missile_spawn(child) {
                     host.manager().slots[index - 1].state = Attacking;
                     host.assign_target(child, target);
-                    host.queue_mission(child, MissionType::Attack);
+                    host.queue_mission(child, MissionType::Attack, false);
                     continue;
                 }
                 pushed = true;
@@ -1176,6 +1376,50 @@ impl<'a, 'c> WorldSpawn<'a, 'c> {
         let owner = self.sim.substrate.entities.get(self.owner_id)?;
         self.sim.object_type(owner.type_ref(), rules)
     }
+
+    /// Phobos `TechnoExt::GetFLHAbsoluteCoords(carrier, FLH, onTurret)`.
+    #[cfg(feature = "phobos")]
+    fn recycle_flh(
+        &self,
+        owner: &crate::sim::game_entity::GameEntity,
+        obj: &crate::rules::object_type::ObjectType,
+        coord: [i32; 3],
+        on_turret: bool,
+    ) -> Option<crate::sim::components::DriveCoord> {
+        let rules = self.context.rules();
+        let snap = crate::sim::combat::fire_coord::FireSource::of_entity(owner);
+        crate::sim::combat::fire_coord::custom_flh_coordinate(
+            self.sim,
+            rules,
+            &snap,
+            obj,
+            crate::rules::flh::Flh {
+                forward: coord[0],
+                lateral: coord[1],
+                height: coord[2],
+            },
+            on_turret,
+        )
+    }
+
+    /// The carrier's `Spawner.RecycleCoord` point reduced to its map cell, for
+    /// a returning child's NavCom (`0x4D962B`).
+    #[cfg(feature = "phobos")]
+    fn recycle_destination_cell(&self) -> Option<crate::sim::components::NavTargetRef> {
+        let rules = self.context.rules();
+        let owner = self.sim.substrate.entities.get(self.owner_id)?;
+        let obj = self.owner_type()?;
+        let spawner = &obj.phobos_spawner;
+        if spawner.recycle_coord == [0; 3] {
+            return None;
+        }
+        let on_turret = spawner.recycle_on_turret(rules.phobos_globals.spawner_recycle_on_turret);
+        let coord = self.recycle_flh(owner, obj, spawner.recycle_coord, on_turret)?;
+        Some(crate::sim::components::NavTargetRef::cell(
+            coord.x.div_euclid(256).clamp(0, i32::from(u16::MAX)) as u16,
+            coord.y.div_euclid(256).clamp(0, i32::from(u16::MAX)) as u16,
+        ))
+    }
 }
 
 impl SpawnHost for WorldSpawn<'_, '_> {
@@ -1376,6 +1620,134 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             .map_or(0, |(child, owner)| child.wrapping_sub(owner))
     }
 
+    #[cfg(feature = "phobos")]
+    fn owner_spawner(&self) -> Option<&crate::rules::phobos_spawner::PhobosSpawner> {
+        self.owner_type().map(|obj| &obj.phobos_spawner)
+    }
+
+    #[cfg(feature = "phobos")]
+    fn attack_immediately(&self) -> bool {
+        let rules = self.context.rules();
+        self.owner_spawner().is_some_and(|spawner| {
+            spawner.attack_immediately(rules.phobos_globals.spawner_attack_immediately)
+        })
+    }
+
+    #[cfg(feature = "phobos")]
+    fn use_turret_facing(&self) -> bool {
+        let rules = self.context.rules();
+        self.owner_spawner().is_some_and(|spawner| {
+            spawner.use_turret_facing(rules.phobos_globals.spawner_use_turret_facing)
+        })
+    }
+
+    /// Phobos `SpawnManagerClass_Update_RecycleSpawned @ 0x6B77B4`
+    /// (`Ext/Techno/Hooks.Misc.cpp:240-278`): the spawner is close enough to
+    /// the carrier's `Spawner.RecycleCoord` point (or the carrier itself) per
+    /// `Spawner.RecycleRange`. A negative range keeps the legacy test: a
+    /// building allows 182 leptons per axis (its 1x1-cell centre offset),
+    /// anything else the same cell; both require a Z delta under 20.
+    #[cfg(feature = "phobos")]
+    fn dock_reached(&self, child: u64) -> bool {
+        let rules = self.context.rules();
+        let Some(owner) = self.sim.substrate.entities.get(self.owner_id) else {
+            return false;
+        };
+        let Some(child_entity) = self.sim.substrate.entities.get(child) else {
+            return false;
+        };
+        let Some(obj) = self.owner_type() else {
+            return false;
+        };
+        let spawner = &obj.phobos_spawner;
+        let terrain = self.sim.resolved_terrain.as_ref();
+        let on_turret = spawner.recycle_on_turret(rules.phobos_globals.spawner_recycle_on_turret);
+        let recycle = if spawner.recycle_coord != [0; 3] {
+            self.recycle_flh(owner, obj, spawner.recycle_coord, on_turret)
+        } else {
+            None
+        }
+        .unwrap_or_else(|| crate::sim::movement::ground_pose::object_get_coords(owner, terrain));
+        let spawner_coord =
+            crate::sim::movement::ground_pose::object_get_coords(child_entity, terrain);
+        let delta = [
+            spawner_coord.x.wrapping_sub(recycle.x),
+            spawner_coord.y.wrapping_sub(recycle.y),
+            spawner_coord.z.wrapping_sub(recycle.z),
+        ];
+        let range = spawner.recycle_range(rules.phobos_globals.spawner_recycle_range);
+        if range < 0 {
+            if owner.category() == crate::map::entities::EntityCategory::Structure {
+                // `0x6B77C4` arm: a building's centre is up to √2/2 cell
+                // (182 leptons) from the spawner's map cell.
+                delta[0] <= 182 && delta[1] <= 182 && delta[2] < 20
+            } else {
+                child_entity.position.rx() == owner.position.rx()
+                    && child_entity.position.ry() == owner.position.ry()
+                    && delta[2] < 20
+            }
+        } else {
+            // `CoordStruct::Magnitude()`: the Euclidean root; no root
+            // approximation participates, so compare it against the range.
+            let magnitude = (f64::from(delta[0]).powi(2)
+                + f64::from(delta[1]).powi(2)
+                + f64::from(delta[2]).powi(2))
+            .sqrt();
+            magnitude <= f64::from(range)
+        }
+    }
+
+    /// `AnimExt::CreateRandomAnim(Spawner_RecycleAnim, spawnerCrd, ...)` and
+    /// `pSpawner->SetLocation(pCarrier->GetCoords())` at `0x6B77CE..0x6B77F4`.
+    #[cfg(feature = "phobos")]
+    fn recycle_effects(&mut self, child: u64) {
+        let rules = self.context.rules();
+        let Some(obj) = self.owner_type() else {
+            return;
+        };
+        let spawner = obj.phobos_spawner.clone();
+        let Some(owner_position) = self
+            .sim
+            .substrate
+            .entities
+            .get(self.owner_id)
+            .map(|owner| owner.position)
+        else {
+            return;
+        };
+        let Some(spawner_coord) =
+            self.sim.substrate.entities.get(child).map(|child| {
+                crate::sim::movement::ground_pose::position_world_coord(&child.position)
+            })
+        else {
+            return;
+        };
+        if !spawner.recycle_anim.is_empty() {
+            // `RandomRanged(0, size - 1)` over the authored list; a name the
+            // rules never defined draws too and simply spawns nothing.
+            let pick = self
+                .sim
+                .scenario_rng
+                .next_range_i32_inclusive(0, spawner.recycle_anim.len() as i32 - 1)
+                as usize;
+            let _ = self.sim.spawn_named_anim(
+                rules,
+                &spawner.recycle_anim[pick],
+                crate::sim::anim_class::AnimWorldCoord {
+                    x: spawner_coord.x,
+                    y: spawner_coord.y,
+                    z: spawner_coord.z,
+                },
+                0,
+                0,
+                0,
+            );
+        }
+        if let Some(child_entity) = self.sim.substrate.entities.get_mut(child) {
+            child_entity.position = owner_position;
+        }
+    }
+
     fn launch(&mut self, child: u64, burst_parity: Option<i32>) {
         let rules = self.context.rules();
         let frame = self.sim.session.binary_frame();
@@ -1384,7 +1756,20 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         };
         let owner_position = owner.position;
         // The Unlimbo direction: the owner's PrimaryFacing `Current()` rounded
-        // to a DirType (`0x006B74E9..0x006B74FC`).
+        // to a DirType (`0x006B74E9..0x006B74FC`). Phobos
+        // `SpawnManagerClass_AI_UseTurretFacing @ 0x6B74F0` substitutes the
+        // SecondaryFacing raw value when the owner has a turret and the
+        // setting is on.
+        #[cfg(feature = "phobos")]
+        let launch_dir = if self.use_turret_facing() {
+            owner.barrel_facing.as_ref().map_or_else(
+                || owner.body_facing_dir(frame),
+                |turret| crate::util::direction_tables::round_facing16_to_8(turret.current(frame)),
+            )
+        } else {
+            owner.body_facing_dir(frame)
+        };
+        #[cfg(not(feature = "phobos"))]
         let launch_dir = owner.body_facing_dir(frame);
         let Some(launch) = launch_coordinate(self.sim, rules, self.owner_id, burst_parity) else {
             return;
@@ -1489,17 +1874,31 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             // The NavCom is the owner itself, so the child heads for the
             // owner's vt+0x4C: a moving carrier's destination, a standing
             // one's center.
-            SpawnDestination::Owner => Some(TargetKind::Entity(self.owner_id).into()),
+            // Phobos `FootClass_SetDestination_RecycleFLH @ 0x4D962B`: a
+            // spawner whose destination is its carrier aims at the carrier's
+            // `Spawner.RecycleCoord` FLH instead of the carrier itself. VERA's
+            // NavCom targets a cell, so the exact lepton point is reduced to
+            // its cell (the dock test still uses the exact point).
+            SpawnDestination::Owner => {
+                #[cfg(feature = "phobos")]
+                if let Some(cell) = self.recycle_destination_cell() {
+                    Some(cell)
+                } else {
+                    Some(TargetKind::Entity(self.owner_id).into())
+                }
+                #[cfg(not(feature = "phobos"))]
+                Some(TargetKind::Entity(self.owner_id).into())
+            }
         };
         self.sim
             .assign_aircraft_destination(child, destination, rules, self.context.effects());
     }
 
-    fn queue_mission(&mut self, child: u64, mission: MissionType) {
+    fn queue_mission(&mut self, child: u64, mission: MissionType, force: bool) {
         let _ = self.sim.mission_queue_exact(
             child,
             crate::sim::mission::MissionId::from_known(mission),
-            0,
+            i32::from(force),
             self.sim.session.binary_frame(),
             &crate::sim::mission::authority::LiveReadyInputProvider {
                 rules: self.context.rules(),

@@ -159,6 +159,8 @@ pub mod phobos_kill_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_rate_down;
 #[cfg(feature = "phobos")]
+pub mod phobos_attack_move;
+#[cfg(feature = "phobos")]
 pub mod phobos_units;
 #[cfg(feature = "phobos")]
 pub mod phobos_adjacent;

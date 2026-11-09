@@ -141,12 +141,26 @@ impl Simulation {
     /// `Can_Attack_Move` (vt+0x4C0): Infantry `0x005228C0` and Unit
     /// `0x00746CC0` jump to `TechnoClass::Can_Attack_Move @ 0x0070F090`, which
     /// asks the type ([`crate::rules::object_type::ObjectType::can_attack_move`]).
+    /// Phobos `[General] AttackMove.IgnoreWeaponCheck=` instead reaches
+    /// [`crate::rules::object_type::ObjectType::can_attack_move_with`], which
+    /// drops only the `Primary != null` half (`0x00711E90`).
     pub fn techno_can_attack_move(&self, id: u64, rules: &RuleSet) -> bool {
         self.substrate
             .entities
             .get(id)
             .and_then(|entity| self.object_type(entity.type_ref(), rules))
-            .is_some_and(|object| object.can_attack_move())
+            .is_some_and(|object| {
+                // `AttackMove.IgnoreWeaponCheck` (`0x00711E90`).
+                #[cfg(feature = "phobos")]
+                {
+                    object
+                        .can_attack_move_with(rules.phobos_globals.attack_move_ignore_weapon_check)
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    object.can_attack_move()
+                }
+            })
     }
 
     /// `Assign_Target_Command` (vt+0x4A4), which the MEGAMISSION event asks
@@ -307,6 +321,12 @@ impl Simulation {
         rules: &RuleSet,
         ctx: ObjectAiCtx<'_>,
     ) {
+        // `FootClass_UpdateAttackMove_SelectNewTarget @ 0x4DF3A0`
+        // (`Ext/Techno/Hooks.TargetEvaluation.cpp:179-194`) runs before the
+        // handler's own body.
+        #[cfg(feature = "phobos")]
+        self.phobos_attack_move_select_new_target(id, rules, ctx.overlay_registry);
+
         let Some(ArrivalStep::Scan {
             drop_tarcom,
             fallback,
@@ -354,6 +374,115 @@ impl Simulation {
         if let Some(entity) = self.substrate.entities.get_mut(id) {
             entity.mega_mission.have_attack_move_target = true;
         }
+    }
+
+    /// Phobos `AttackMove.UpdateTarget` (`Ext/Techno/Hooks.TargetEvaluation.cpp:179-194`),
+    /// `FootClass_UpdateAttackMove_SelectNewTarget @ 0x4DF3A0`.
+    ///
+    /// The key turns [`Self::phobos_can_reset_attack_move_target`] into a
+    /// permission to drop the held TarCom and clear `HaveAttackMoveTarget`
+    /// before the arrival handler decides; `UpdateGattlingRateDownReset()`
+    /// follows (`:191-192`). The handler then sees no target and rescans.
+    #[cfg(feature = "phobos")]
+    fn phobos_attack_move_select_new_target(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        let Some(obj) = self.object_type(entity.type_ref(), rules) else {
+            return;
+        };
+        if !obj.phobos_attack_move.update_target(&rules.phobos_globals) {
+            return;
+        }
+        // Steps 1-3 of `CheckAttackMoveCanResetTarget`: no target, the
+        // MegaTarget itself, a target that is not a Techno or one that
+        // `IsArmed()`, and a targeting timer still running.
+        let Some(stale) = self.phobos_attack_move_stale_target(id, rules) else {
+            return;
+        };
+        // Step 4: `pThis->GetWeapon(0)->WeaponType` must exist.
+        let Some(primary) = crate::sim::world::weapon_at_index(self, rules, id, 0) else {
+            return;
+        };
+        let primary_range = primary.range_leptons;
+        // Step 5: `Greatest_Threat(ThreatType::Range, &Location, false)`.
+        // `ThreatType::Range` is mask 1, the passive scan's literal.
+        let Some(crate::sim::combat::TargetKind::Entity(found)) =
+            crate::sim::world::direct_greatest_threat(
+                self,
+                rules,
+                registry,
+                id,
+                crate::sim::combat::ScanMission::Guard,
+            )
+        else {
+            return;
+        };
+        // Step 5b: the pick must be a different TechnoType than the held one.
+        match (
+            self.substrate.entities.get(stale),
+            self.substrate.entities.get(found),
+        ) {
+            (Some(held), Some(pick)) if held.type_ref() != pick.type_ref() => {}
+            _ => return,
+        }
+        // Step 6: a slot-1 weapon that exists and is `NeverUse=` vetoes unless
+        // its range is at most the slot-0 range (a melee unit's virtual
+        // scanner).
+        match crate::sim::world::weapon_at_index(self, rules, id, 1) {
+            Some(secondary) if secondary.never_use && secondary.range_leptons > primary_range => {
+                return;
+            }
+            _ => {}
+        }
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.attack_target.set(None);
+            entity.mega_mission.have_attack_move_target = false;
+        }
+        self.apply_rate_down_target_reset(id, rules);
+    }
+
+    /// The `&self` half of Phobos `CheckAttackMoveCanResetTarget`
+    /// (`Ext/Techno/Hooks.TargetEvaluation.cpp:144-176`): the id of the held
+    /// target when it is worth replacing, or `None` when the hook refuses.
+    ///
+    /// - no target, or the target **is** the MegaTarget, refuses;
+    /// - a target that is not a Techno, or one that `IsArmed()`, refuses;
+    /// - a targeting timer still `InProgress()` refuses.
+    ///
+    /// `InProgress()` is the passive scan's live timer
+    /// (`TechnoClass+0x180/+0x188`); `!due` is this tree's "still running".
+    #[cfg(feature = "phobos")]
+    fn phobos_attack_move_stale_target(&self, id: u64, rules: &RuleSet) -> Option<u64> {
+        use crate::sim::combat::TargetKind;
+        let entity = self.substrate.entities.get(id)?;
+        let target = entity.attack_target.target()?;
+        if Some(target) == entity.mega_mission.target {
+            return None;
+        }
+        let TargetKind::Entity(target_id) = target else {
+            return None;
+        };
+        let target_entity = self.substrate.entities.get(target_id)?;
+        let target_obj = self.object_type(target_entity.type_ref(), rules)?;
+        if crate::sim::combat::combat_weapon::is_armed(
+            target_entity,
+            target_obj,
+            &self.substrate.entities,
+            rules,
+            &self.interner,
+        ) {
+            return None;
+        }
+        if !entity.passive_scan.timer().due(self.session.binary_frame()) {
+            return None;
+        }
+        Some(target_id)
     }
 
     /// What [`Self::foot_arrival_target_handler`] does with `id` as it
@@ -453,3 +582,8 @@ pub(crate) enum ArrivalStep {
 #[cfg(test)]
 #[path = "mega_mission_tests.rs"]
 mod tests;
+
+/// Phobos `AttackMove.*` (`Ext/TechnoType/Body.cpp:1086-1087`).
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_attack_move_tests.rs"]
+mod phobos_attack_move_tests;

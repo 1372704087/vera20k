@@ -692,6 +692,13 @@ struct ScanContext<'a> {
     /// (`0x006F7CE8`). Every production caller supplies it; `None` only in
     /// unit tests of the walk and the score, which then skip the probe.
     fire_world: Option<&'a crate::sim::world::Simulation>,
+    /// Phobos `AttackMove.Aggressive`: the scanner is on an attack move and
+    /// its type (or `[General]`) enables the flag, so the unarmed-building
+    /// reject at `0x006F85AB..0x006F85B8` yields
+    /// (`Ext/Techno/Hooks.TargetEvaluation.cpp:196-216`, which jumps to
+    /// `0x006F8604`).
+    #[cfg(feature = "phobos")]
+    attack_move_aggressive: bool,
     /// VERA-only: [`Self::is_ally`]'s answers so far, by candidate owner.
     /// A scan changes no alliance, and its cell walk asks about the same few
     /// houses for each object it passes.
@@ -1391,6 +1398,14 @@ pub(crate) fn greatest_threat(
     // Scenario+0 bit `0x800`, read once per scan; the HarvesterImmune gate's
     // Rules list resolves with it so the ordinary bit-off scan builds nothing.
     let harvester_immune = fire_world.is_some_and(|world| world.session.harvester_immune());
+    // `MegaMissionIsAttackMove()` (vt+0x4C4) and the type's
+    // `AttackMove.Aggressive` with its `[General]` fallback: asked once per
+    // scan, not per candidate.
+    #[cfg(feature = "phobos")]
+    let attack_move_aggressive = scanner.mega_mission.is_attack_move()
+        && attacker_obj
+            .phobos_attack_move
+            .aggressive(&rules.phobos_globals);
     let ctx = ScanContext {
         entities,
         scanner,
@@ -1402,6 +1417,8 @@ pub(crate) fn greatest_threat(
         fog,
         terrain,
         require_playfield_membership,
+        #[cfg(feature = "phobos")]
+        attack_move_aggressive,
         range,
         coefficients: ThreatCoefficients::resolve(
             rules,
@@ -2142,6 +2159,24 @@ fn cutoff_distance(scanner: DriveCoord, candidate: DriveCoord, candidate_high_fl
     }
 }
 
+/// Phobos `AttackMove.Aggressive` (`Ext/Techno/Hooks.TargetEvaluation.cpp:196-216`):
+/// an attack-mover whose flag is on sends the candidate straight to
+/// `0x006F8604`, past the unarmed-building reject at `0x006F85AB`.
+///
+/// Stock builds answer `false`, which is the native path.
+#[inline]
+fn aggressive_attack_move(ctx: &ScanContext<'_>) -> bool {
+    #[cfg(feature = "phobos")]
+    {
+        ctx.attack_move_aggressive
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = ctx;
+        false
+    }
+}
+
 /// `TechnoClass::Evaluate_Candidate @ 0x006F7CA0` — the gate ladder, in native
 /// order, followed by the score.
 ///
@@ -2675,7 +2710,8 @@ fn evaluate_candidate(
     //
     // An Engineer (Infantry vt+330,5224D0) instead falls through to its own
     // building gate below, including from the human reject (6F85F0..85F6).
-    if ctx.standing.team.is_none()
+    if !aggressive_attack_move(ctx)
+        && ctx.standing.team.is_none()
         && ctx.standing.human
         && !vehicle_like(ctx, candidate, candidate_obj)
         && building

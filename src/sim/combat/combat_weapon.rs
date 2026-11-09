@@ -340,9 +340,21 @@ pub(crate) fn controlled_transport_house(
     rider: &GameEntity,
 ) -> Option<InternedId> {
     let transport = entities.get(rider.passenger_role.transporter()?)?;
-    let open_topped = interner
-        .object_type(transport.type_ref(), rules)
-        .is_some_and(|obj| obj.open_topped);
+    let object = interner.object_type(transport.type_ref(), rules)?;
+    // Phobos `TechnoClass_ThreatEvals_OpenToppedOwner`
+    // (`Ext/Techno/Hooks.Transport.cpp:6-42`, sites `0x6F8FD7`, `0x6F7EC2`,
+    // `0x6F89F4`, `0x6FA33C`): when the transport's type has
+    // `Passengers.SyncOwner`, every site skips the controller-house
+    // substitution and the rider evaluates for its own house — which the
+    // sync has already made the transport's.
+    #[cfg(feature = "phobos")]
+    if object
+        .phobos_passengers_sync
+        .sync_owner(rules.phobos_globals.passengers_sync_owner)
+    {
+        return None;
+    }
+    let open_topped = object.open_topped;
     open_topped
         .then(|| transport.mind_control.controller())
         .flatten()

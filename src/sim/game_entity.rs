@@ -943,6 +943,23 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) should_be_dead: bool,
+    /// Phobos `FootExt::OriginalPassengerOwner` (`Ext/Foot/Body.h:18`), the
+    /// house a passenger held when it boarded a transport whose type has
+    /// `Passengers.SyncOwner` + `.RevertOnExit`. Set by the AddPassenger hook
+    /// (`Ext/Techno/Hooks.Transport.cpp:66-89`), consumed uncleared by the
+    /// leave hook (`:91-122`) and the dying-unit cargo arm (`:125-149`),
+    /// serialized by FootExt (`Ext/Foot/Body.cpp:943`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_original_passenger_owner: Option<crate::sim::intern::InternedId>,
+    /// Phobos `FootExt::IsOwnerChangeFromRevertOnExit`
+    /// (`Ext/Foot/Body.h:27`), held `true` only across the exit revert's own
+    /// owner change; FootExt does not serialize it
+    /// (`Ext/Foot/Body.cpp:952`). The AutoDeath owner-change hook reads it
+    /// (`Ext/House/Hooks.cpp:225`); the AttachEffect discard chain's read
+    /// stays a residual of [`crate::sim::auto_death`].
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_revert_on_exit_latch: bool,
     /// Phobos `TechnoExt::PassengerDeletionTimer` (`Ext/Techno/Body.h:40`),
     /// started by `TechnoExt::EatPassengers` (`Ext/Techno/Body.Update.cpp:261`)
     /// and stopped by `FootExt::UpdateTypeData` when the new type configures no
@@ -1368,6 +1385,33 @@ impl GameEntity {
     #[cfg(feature = "phobos")]
     pub(crate) fn set_should_be_dead(&mut self, value: bool) {
         self.should_be_dead = value;
+    }
+
+    /// `FootExt::OriginalPassengerOwner`, set when the passenger boards a
+    /// `Passengers.SyncOwner` + `.RevertOnExit` transport.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_original_passenger_owner(&self) -> Option<crate::sim::intern::InternedId> {
+        self.phobos_original_passenger_owner
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_original_passenger_owner(
+        &mut self,
+        owner: Option<crate::sim::intern::InternedId>,
+    ) {
+        self.phobos_original_passenger_owner = owner;
+    }
+
+    /// `FootExt::IsOwnerChangeFromRevertOnExit`, held across the exit
+    /// revert's own owner change.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_revert_on_exit_latch(&self) -> bool {
+        self.phobos_revert_on_exit_latch
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_revert_on_exit_latch(&mut self, value: bool) {
+        self.phobos_revert_on_exit_latch = value;
     }
 
     /// Ares BuildingClass_FireLaser (10016490) starts this clock (YRpp's
@@ -2634,6 +2678,10 @@ impl GameEntity {
             auto_death_timer: Default::default(),
             #[cfg(feature = "phobos")]
             should_be_dead: false,
+            #[cfg(feature = "phobos")]
+            phobos_original_passenger_owner: None,
+            #[cfg(feature = "phobos")]
+            phobos_revert_on_exit_latch: false,
             #[cfg(feature = "phobos")]
             passenger_deletion_timer: Default::default(),
             pending_c4_detonation: Default::default(),

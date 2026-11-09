@@ -197,6 +197,8 @@ pub mod phobos_rate_down;
 #[cfg(feature = "phobos")]
 pub mod phobos_no_rearm;
 #[cfg(feature = "phobos")]
+pub mod phobos_passengers_sync;
+#[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
 pub mod phobos_shields;
 #[cfg(feature = "phobos")]

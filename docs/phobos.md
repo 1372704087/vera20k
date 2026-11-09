@@ -106,6 +106,7 @@ Supported extensions:
 - [Trajectory base and Straight](phobos-trajectory-straight.md) (`Trajectory` selection, `Trajectory.Speed` and the 30 `Trajectory.Straight.*` keys: speed flight, snap/detonation distances, pass/proximity hits, obstacles and attenuation; 32 keys)
 - [Spy-effect superweapon launches](phobos-spy-effect.md) (`SpyEffect.*` victim/infiltrator launches on a spy infiltration, with the recharge kept; 3 keys)
 - [Rearm and reload holds](phobos-no-rearm.md) (`NoRearm.*` / `NoReload.*` freeze the rearm and ammo-reload timers while EMP'd or Temporal-held; 4 keys + 4 `[General]` globals)
+- [Passenger owner sync](phobos-passengers-sync-owner.md) (`Passengers.SyncOwner` re-houses cargo on the transport's house change, `Passengers.SyncOwner.RevertOnExit` restores board-time houses on exit and on the carrier's death, and the threat-eval owner substitution skip; 2 keys + 2 `[General]` globals)
 - [Driver-killed passengers](phobos-driver-killed.md) (`DriverKilled.KeptPassengers` and `.KillPassengers` choose keep-aboard, kill or the stock ejection for a driverless vehicle's passengers; 2 keys + 2 globals)
 - [No manual move](phobos-no-manual-move.md) (`NoManualMove`: the shared player-control answer refuses the type while its AI keeps moving it)
 

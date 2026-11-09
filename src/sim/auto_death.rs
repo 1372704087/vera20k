@@ -238,12 +238,15 @@ impl Simulation {
 
     /// `TechnoClass_Captured_UpdateTracking @ 0x7015C9`'s AutoDeath block
     /// (`Ext/House/Hooks.cpp:231-259`), run before that hook's tracking work.
-    /// Sets `ShouldBeDead` from the owner-change direction keys.
+    /// Sets `ShouldBeDead` from the owner-change direction keys. The
+    /// `IgnoreRevertOnExit` arm (`:236-239`) and the transporter gate's
+    /// revert term (`:253-258`) read the `FootExt::
+    /// IsOwnerChangeFromRevertOnExit` latch the exit revert holds
+    /// (`Ext/Techno/Hooks.Transport.cpp:115-117`).
     ///
-    /// RESIDUAL: `FootExt::IsOwnerChangeFromRevertOnExit` is unported — the
-    /// AttachEffect discard chain also reads it as `false` — so the
-    /// `IgnoreRevertOnExit` arm and the transporter gate's revert term cannot
-    /// fire; the key is read, the guard it needs is not.
+    /// RESIDUAL: the AttachEffect `DiscardOn.OwnerChange.
+    /// IgnoreRevertOnExit` chain also reads the latch and still sees
+    /// `false` there.
     #[cfg(feature = "phobos")]
     pub(crate) fn check_auto_death_owner_change(
         &mut self,
@@ -251,7 +254,16 @@ impl Simulation {
         new_owner: crate::sim::intern::InternedId,
         rules: &RuleSet,
     ) {
-        let (master, to_computer, to_human, allow_limboed, old_owner, has_transporter) = {
+        let (
+            master,
+            to_computer,
+            to_human,
+            ignore_revert_key,
+            allow_limboed,
+            old_owner,
+            has_transporter,
+            revert_latch,
+        ) = {
             let Some(entity) = self.substrate.entities.get(id) else {
                 return;
             };
@@ -266,9 +278,11 @@ impl Simulation {
                 settings.on_owner_change,
                 settings.on_owner_change_human_to_computer,
                 settings.on_owner_change_computer_to_human,
+                settings.on_owner_change_ignore_revert_on_exit,
                 settings.allow_limboed,
                 entity.owner(),
                 entity.passenger_role.transporter().is_some(),
+                entity.phobos_revert_on_exit_latch(),
             )
         };
         // `HouseClass::IsControlledByHuman`, the same mode-aware predicate the
@@ -292,16 +306,30 @@ impl Simulation {
                 should = true;
             }
         }
-        // Native ORs into the existing flag, then `:253-258` clears it on a
-        // transported object unless `AllowLimboed` (default `yes`).
+        // Native `:236-239`: with `AutoDeath.OnOwnerChange.IgnoreRevertOnExit`
+        // and the revert latch set, the arm assigns `ShouldBeDead = false`
+        // and the direction arms do not run. Native `:253-258` then clears
+        // `ShouldBeDead` on a transported object unless `AllowLimboed`
+        // (default `yes`) or the latch is set.
         let already = self
             .substrate
             .entities
             .get(id)
             .is_some_and(crate::sim::game_entity::GameEntity::should_be_dead);
-        let mut value = already || should;
+        let ignore_revert = revert_latch
+            && ignore_revert_key.unwrap_or(
+                rules
+                    .phobos_globals
+                    .auto_death_on_owner_change_ignore_revert_on_exit,
+            );
+        let mut value = if ignore_revert {
+            false
+        } else {
+            already || should
+        };
         if value
             && has_transporter
+            && !revert_latch
             && !allow_limboed.unwrap_or(rules.phobos_globals.auto_death_allow_limboed)
         {
             value = false;

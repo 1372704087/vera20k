@@ -761,6 +761,13 @@ impl Simulation {
 
         let category = entity.category();
         techno_ai_shell(self, id, category, rules, ctx, &mut outcome);
+        // `UnitClass_AI` hook `0x736480`, after `FootClass::AI`: Phobos
+        // `DepletedAmmoActions` queues Unload inside the auto-deploy band and
+        // cancels it outside.
+        #[cfg(feature = "phobos")]
+        if category == EntityCategory::Unit {
+            crate::sim::unit_simple_deploy::depleted_ammo_actions(self, id, rules);
+        }
         outcome
     }
 

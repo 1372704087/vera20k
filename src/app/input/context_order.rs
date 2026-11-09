@@ -3549,7 +3549,8 @@ fn unit_refuses_deploy(
         .get(id)
         .is_some_and(|entity| entity.category() == EntityCategory::Unit)
         && (sim.unit_self_deploy_site_refused(id, rules, registry)
-            || !sim.can_deploy_slash_unload(id, rules))
+            || !sim.can_deploy_slash_unload(id, rules)
+            || !sim.phobos_unit_has_ammo_to_deploy(id, rules))
 }
 
 fn self_action(

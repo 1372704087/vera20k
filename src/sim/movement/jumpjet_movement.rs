@@ -165,6 +165,14 @@ impl JumpjetRuntime {
         self.phase == jumpjet_flight::STATE_GROUND
     }
 
+    /// Phobos `DepletedAmmoActions`' cancel arm (`Ext/Unit/Body.cpp:190-194`):
+    /// a simple deployer whose ammo left the auto-deploy band and is airborne
+    /// re-enters `State::Ascending`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_ascending(&mut self) {
+        self.phase = STATE_ASCEND;
+    }
+
     pub fn params(&self) -> jumpjet_flight::JumpjetFlightParams {
         self.params
     }

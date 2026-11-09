@@ -90,6 +90,13 @@ impl TechnoAmmo {
         self.current
     }
 
+    /// Phobos `UnitExt::HandleOnDeployAmmoChange` (`Ext/Unit/Body.cpp:249`):
+    /// the clamped deploy rewrite, followed by StartReloading at the caller.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_current(&mut self, current: i32) {
+        self.current = current;
+    }
+
     /// TechnoClass::DecreaseAmmo70D670, virtual+390: only positive counts
     /// debit. Aircraft overrides the slot with RET41B900 at the caller.
     /// Ares100441F0 calls the same DecreaseAmmo slot once per positive

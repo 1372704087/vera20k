@@ -251,6 +251,32 @@ impl Simulation {
         {
             disguise.clear_unit();
         }
+        // Phobos `UnitClass_SimpleDeployer_Deploy/Undeploy` tails
+        // (`Ext/Unit/Hooks.SimpleDeployer.cpp:155-170, 218-228`): once the
+        // deployed byte matches the direction, the type's `Ammo.AddOnDeploy=`
+        // rewrites the count, before the deploy/undeploy sound.
+        #[cfg(feature = "phobos")]
+        {
+            let deployed = self
+                .substrate
+                .entities
+                .get(id)
+                .is_some_and(|entity| entity.is_fully_deployed());
+            if deployed == deploying {
+                #[cfg(feature = "ares")]
+                let max_ammo_override = self
+                    .substrate
+                    .entities
+                    .get(id)
+                    .and_then(|entity| self.entity_object_type(entity, rules))
+                    .and_then(|object| object.techno_combat().convert_deploy())
+                    .and_then(|target| rules.object(&target.id))
+                    .map(|object| object.ammo);
+                #[cfg(not(feature = "ares"))]
+                let max_ammo_override = None;
+                self.apply_deploy_ammo_change(id, max_ammo_override, rules);
+            }
+        }
         // The native updaters request these sounds on every admitted visit,
         // independently of whether this call finished or merely waited.
         Self::emit_deploy_action_sound(
@@ -262,6 +288,81 @@ impl Simulation {
             if deploying { 27 } else { 31 },
             rules,
         )
+    }
+
+    /// Phobos `UnitExt::HandleOnDeployAmmoChange` (`Ext/Unit/Body.cpp:239-256`):
+    /// `Ammo.AddOnDeploy=` shifts the count on a completed deploy and again on
+    /// a completed undeploy, clamped to `[0, Ammo]`; a changed count starts
+    /// the reload clock. `max_ammo_override` is the Ares `Convert.Deploy`
+    /// target's Ammo when the deploy converts.
+    #[cfg(feature = "phobos")]
+    fn apply_deploy_ammo_change(
+        &mut self,
+        id: u64,
+        max_ammo_override: Option<i32>,
+        rules: &RuleSet,
+    ) {
+        let Some(object) = self
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
+        else {
+            return;
+        };
+        let settings = object.phobos_ammo_deploy;
+        if settings.add_on_deploy == 0 {
+            return;
+        }
+        let max_ammo = max_ammo_override.unwrap_or(object.ammo);
+        let Some(ammo) = self
+            .substrate
+            .entities
+            .get_mut(id)
+            .and_then(|entity| entity.ammo_mut())
+        else {
+            return;
+        };
+        let original = ammo.current();
+        let target = settings.ammo_after_deploy(original, max_ammo);
+        if original == target {
+            return;
+        }
+        ammo.set_current(target);
+        let now = self.session.binary_frame();
+        crate::sim::shared_ammo::start_reloading(
+            &mut self.substrate.entities,
+            &self.interner,
+            rules,
+            id,
+            now as i32,
+        );
+    }
+
+    /// Phobos `UnitExt::HasAmmoToDeploy` (`Ext/Unit/Body.cpp:218-237`) for the
+    /// player deploy cursor/action: only a Unit's `Ammo.DeployUnlock*` band
+    /// applies; every other class and an unset band answer true. Builds
+    /// without Phobos always answer true.
+    pub fn phobos_unit_has_ammo_to_deploy(&self, id: u64, rules: &RuleSet) -> bool {
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = (id, rules);
+            return true;
+        }
+        #[cfg(feature = "phobos")]
+        {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return false;
+            };
+            if entity.category() != EntityCategory::Unit {
+                return true;
+            }
+            let Some(object) = self.object_type(entity.type_ref(), rules) else {
+                return false;
+            };
+            let ammo = entity.ammo().map_or(0, |ammo| ammo.current());
+            object.phobos_ammo_deploy.has_ammo_to_deploy(ammo)
+        }
     }
 
     /// Ares 3.0 UnitClass_SimpleDeploy_Facing (1004C2D0, hook 0x739B8A): a
@@ -361,6 +462,81 @@ impl Simulation {
             .retain_deploy_anim(anim);
         self.substrate.anims.set_anim_house_remap(anim, remap_house);
         Ok(anim)
+    }
+}
+
+/// Phobos `UnitExt::DepletedAmmoActions` (`Ext/Unit/Body.cpp:149-195`), called
+/// after `FootClass::AI` by the `UnitClass::AI` hook `0x736480`
+/// (`Ext/Techno/Hooks.cpp:56-66`): a deploy-capable Unit queues Unload while
+/// its ammo sits in the `Ammo.AutoDeploy*` band and the deploy-unlock band
+/// admits it, and queues Guard (re-ascending a jumpjet) when it leaves.
+#[cfg(feature = "phobos")]
+pub(crate) fn depleted_ammo_actions(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let Some(object) = sim.object_type(entity.type_ref(), rules) else {
+        return;
+    };
+    let settings = object.phobos_ammo_deploy;
+    let Some((minimum, maximum)) = settings.auto_deploy_band() else {
+        return;
+    };
+    if object.ammo <= 0 {
+        return;
+    }
+    let live_passengers = entity
+        .passenger_role
+        .cargo()
+        .map_or(0, |cargo| cargo.passengers().len());
+    if !object.is_simple_deployer
+        && object.deploys_into.is_none()
+        && !object.deploy_fire
+        && object.passengers < 1
+        && live_passengers < 1
+    {
+        return;
+    }
+    let ammo = entity.ammo().map_or(0, |ammo| ammo.current());
+    let can_deploy = settings.has_ammo_to_deploy(ammo)
+        && (minimum < 0 || ammo >= minimum)
+        && (maximum < 0 || ammo <= maximum);
+    let deploying_now = entity.mission.current().known() == Some(MissionType::Unload)
+        || entity.mission.queued().known() == Some(MissionType::Unload);
+    let simple_deployer = object.is_simple_deployer;
+    let height = crate::sim::movement::air_movement::current_fly_height(
+        entity,
+        sim.resolved_terrain.as_ref(),
+    );
+    let now = sim.session.binary_frame();
+    let provider = LiveReadyInputProvider { rules };
+    if can_deploy && !deploying_now {
+        let _ = sim.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Unload),
+            0,
+            now,
+            &provider,
+        );
+    } else if !can_deploy && deploying_now {
+        let _ = sim.mission_queue_exact(
+            id,
+            MissionId::from_known(MissionType::Guard),
+            0,
+            now,
+            &provider,
+        );
+        if simple_deployer
+            && height > 0
+            && let Some(runtime) = sim
+                .substrate
+                .entities
+                .get_mut(id)
+                .and_then(|entity| entity.locomotor.as_mut())
+                .and_then(|locomotor| locomotor.jumpjet_runtime_mut())
+        {
+            runtime.set_ascending();
+        }
     }
 }
 

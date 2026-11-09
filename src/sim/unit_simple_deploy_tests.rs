@@ -777,3 +777,125 @@ fn ares_simple_deployer_converts_to_its_convert_deploy_type() {
     assert_eq!(sim.interner.resolve(entity.type_ref()), "SDEP2");
     assert_eq!(entity.mission_leaf.as_unit().unwrap().deployed(), 0);
 }
+
+/// A simple deployer scene for the Phobos deploy-ammo keys
+/// (`Ext/UnitType/Body.cpp:45-49`).
+#[cfg(feature = "phobos")]
+fn phobos_deploy_scene(lines: &str) -> (Simulation, RuleSet, u64) {
+    let ini = IniFile::from_str(&format!(
+        "[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+         [VehicleTypes]\n0=DEP\n\
+         [DEP]\nStrength=300\nSpeed=6\nROT=5\nArmor=none\nAmmo=8\nInitialAmmo=8\n\
+         IsSimpleDeployer=yes\n{lines}"
+    ));
+    let rules = RuleSet::from_ini(&ini).unwrap();
+    let mut sim = Simulation::with_seed(0);
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let id = sim
+        .spawn_object("DEP", "Russians", 10, 10, 0, &rules)
+        .unwrap();
+    (sim, rules, id)
+}
+
+/// Phobos `UnitExt::HandleOnDeployAmmoChange`
+/// (`Ext/Unit/Body.cpp:239-256`): the add applies when a deploy and again when
+/// an undeploy completes, clamped by the type's Ammo.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_add_on_deploy_rewrites_ammo_on_both_transitions() {
+    let (mut sim, rules, id) = phobos_deploy_scene("Ammo.AddOnDeploy=-3\n");
+    let ammo = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .ammo()
+            .unwrap()
+            .current()
+    };
+    assert_eq!(ammo(&sim), 8);
+    sim.update_unit_simple_deploy(id, true, &rules, FrameEffects::empty())
+        .unwrap();
+    assert!(sim.substrate.entities.get(id).unwrap().is_fully_deployed());
+    assert_eq!(ammo(&sim), 5, "deploy completion adds -3");
+    sim.update_unit_simple_deploy(id, false, &rules, FrameEffects::empty())
+        .unwrap();
+    assert!(!sim.substrate.entities.get(id).unwrap().is_fully_deployed());
+    assert_eq!(ammo(&sim), 2, "undeploy completion adds -3 again");
+}
+
+/// Phobos `UnitExt::HasAmmoToDeploy` (`Ext/Unit/Body.cpp:218-237`): the
+/// `Ammo.DeployUnlock*` band admits only counts inside it.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_deploy_unlock_band_gates_the_player_check() {
+    let (mut sim, rules, id) =
+        phobos_deploy_scene("Ammo.DeployUnlockMinimumAmount=2\nAmmo.DeployUnlockMaximumAmount=6\n");
+    assert!(
+        !sim.phobos_unit_has_ammo_to_deploy(id, &rules),
+        "8 is above the band"
+    );
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .ammo_mut()
+        .unwrap()
+        .set_current_for_test(4);
+    assert!(sim.phobos_unit_has_ammo_to_deploy(id, &rules));
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .ammo_mut()
+        .unwrap()
+        .set_current_for_test(1);
+    assert!(!sim.phobos_unit_has_ammo_to_deploy(id, &rules));
+}
+
+/// Phobos `UnitExt::DepletedAmmoActions` (`Ext/Unit/Body.cpp:149-195`): the
+/// unit queues Unload while its ammo is in the auto-deploy band and cancels
+/// with Guard when it leaves.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_auto_deploy_band_queues_and_cancels_unload() {
+    let (mut sim, rules, id) =
+        phobos_deploy_scene("Ammo.AutoDeployMinimumAmount=0\nAmmo.AutoDeployMaximumAmount=4\n");
+    let queued = |sim: &Simulation| {
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .mission
+            .queued()
+            .known()
+    };
+    super::depleted_ammo_actions(&mut sim, id, &rules);
+    assert_eq!(queued(&sim), None, "8 is outside the band");
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .ammo_mut()
+        .unwrap()
+        .set_current_for_test(3);
+    super::depleted_ammo_actions(&mut sim, id, &rules);
+    assert_eq!(
+        queued(&sim),
+        Some(MissionType::Unload),
+        "inside the band queues Unload"
+    );
+    sim.substrate
+        .entities
+        .get_mut(id)
+        .unwrap()
+        .ammo_mut()
+        .unwrap()
+        .set_current_for_test(6);
+    super::depleted_ammo_actions(&mut sim, id, &rules);
+    assert_eq!(
+        queued(&sim),
+        Some(MissionType::Guard),
+        "leaving the band cancels the Unload"
+    );
+}

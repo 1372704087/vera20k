@@ -4138,6 +4138,7 @@ fn deploy_key_commands(
             rules.is_none_or(|rules| {
                 (sim.techno_player_controllable(id, rules) || sim.techno_is_active(id, rules))
                     && sim.can_deploy_slash_unload(id, rules)
+                    && sim.phobos_unit_has_ammo_to_deploy(id, rules)
             }) && sim
                 .entities()
                 .get(id)

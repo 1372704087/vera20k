@@ -929,6 +929,10 @@ pub struct ObjectType {
     /// (`Ext/TechnoType/Body.cpp:905-936`), the forced SelectWeapon slot.
     #[cfg(feature = "phobos")]
     pub phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon,
+    /// Phobos `WarpInWeapon.*` (`Ext/TechnoType/Body.cpp:870-873`): the weapon
+    /// a teleporting techno detonates at itself on warp-in.
+    #[cfg(feature = "phobos")]
+    pub phobos_warp_in_weapon: crate::rules::phobos_warp_in_weapon::WarpInWeaponRules,
     /// Phobos `Ammo.*` deploy keys (`Ext/UnitType/Body.cpp:45-49`).
     #[cfg(feature = "phobos")]
     pub phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy,
@@ -4829,6 +4833,9 @@ impl ObjectType {
             phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_warp_in_weapon:
+                crate::rules::phobos_warp_in_weapon::WarpInWeaponRules::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy::from_section(
                 section,

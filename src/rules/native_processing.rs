@@ -6402,6 +6402,11 @@ impl RulesPassProcessor {
         // constructs the named weapon on the same pass.
         #[cfg(feature = "phobos")]
         self.allocate_grinding_references(pass);
+        // Phobos `TechnoTypeExt::LoadFromINI`'s `WarpInWeapon.Read<true>` and
+        // `WarpInMinRangeWeapon.Read<true>` construct their weapons on the
+        // same pass, for every TechnoType family.
+        #[cfg(feature = "phobos")]
+        self.allocate_warp_in_weapon_references(pass);
         // Phobos `RulesExt::LoadBeforeTypeData` runs
         // `InsigniaTypeClass::LoadFromINIList` before this pass's type bodies,
         // so a same-pass `InsigniaType=` resolves against it.
@@ -10351,6 +10356,35 @@ impl RulesPassProcessor {
             };
             if let Some(weapon) = section.read_type_name("Grinding.Weapon", 0x80) {
                 self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+            }
+        }
+    }
+
+    /// Phobos `TechnoTypeExt::LoadFromINI`'s `WarpInWeapon.Read<true>` and
+    /// `WarpInMinRangeWeapon.Read<true>`: a weapon only these keys name is
+    /// constructed before this pass's type bodies, for every TechnoType
+    /// family, so the later merged type read resolves it.
+    #[cfg(feature = "phobos")]
+    fn allocate_warp_in_weapon_references(&mut self, pass: &IniFile) {
+        let order = self.techno_type_order.clone();
+        for (family, index) in order {
+            let Some(member) = self.families.get(&family).and_then(|list| list.get(index)) else {
+                continue;
+            };
+            let name = member.native_stored_id.clone();
+            let section = pass.section(&name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(&name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            for key in ["WarpInWeapon", "WarpInMinRangeWeapon"] {
+                if let Some(weapon) = section.read_type_name(key, 2048) {
+                    self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+                }
             }
         }
     }

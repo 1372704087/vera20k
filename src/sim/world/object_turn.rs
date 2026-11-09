@@ -402,6 +402,18 @@ impl Simulation {
             teleport_movement::warp_destination_reached(entity, sim.resolved_terrain.as_ref())
         });
         let teleport_relocating = teleport_armed && !teleport_reached;
+        // Phobos `FootExt::LastWarpDistance`: the distance the warp-out step
+        // stores, read below by the arrival WarpIn weapon arm.
+        #[cfg(feature = "phobos")]
+        let warp_distance = if teleport_relocating {
+            sim.substrate
+                .entities
+                .get(stable_id)
+                .and_then(|entity| entity.teleport_state())
+                .map(|state| state.warp_distance_leptons())
+        } else {
+            None
+        };
         if teleport_relocating {
             // `0x007193C7`: the detach sweep (`0x0070D4A0`) with the owner,
             // so every Techno aiming at it restores its mission and takes the
@@ -498,6 +510,12 @@ impl Simulation {
             sim.assign_null_destination(stable_id, rules, overlay_registry, ctx.effects);
             // 0x00719742..0x00719791: the arrival WarpOut at the Location.
             sim.teleport_warp_out(stable_id, rules);
+            // Phobos `TeleportLocomotionClass_ILocomotion_Process_WarpInAnim
+            // @ 0x719742` fires the type's warp-in weapon after that animation.
+            #[cfg(feature = "phobos")]
+            if let Some(distance) = warp_distance {
+                sim.apply_warp_in_weapon(stable_id, distance, rules, overlay_registry, ctx.effects);
+            }
         }
         Ok(process)
     }

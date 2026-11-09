@@ -761,3 +761,119 @@ fn an_armed_warp_waits_while_a_drive_piggyback_is_active() {
     let mover = sim.substrate.entities.get(1).unwrap();
     assert_eq!((mover.position.rx(), mover.position.ry()), (8, 9));
 }
+
+/// Warp-in weapon rules: a CLEG/CMON pair with `WARPWH` (30) and `MINWH` (11)
+/// over one `WARPH` warhead that admits its own source, so the arrived object
+/// takes the detonation's damage.
+fn warp_weapon_rules(
+    warp_in: &str,
+    min_range: &str,
+    use_distance_as_damage: bool,
+    chrono_range_minimum: i32,
+) -> RuleSet {
+    let mut rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[General]\nWarpOut=WARPOUT\nChronoRangeMinimum={chrono_range_minimum}\n\n\
+         [InfantryTypes]\n0=CLEG\n\n\
+         [VehicleTypes]\n0=CMON\n\n\
+         [WeaponTypes]\n0=WARPWH\n1=MINWH\n\
+         [WARPWH]\nDamage=30\nRange=5\nROF=20\nWarhead=WARPH\n\
+         [MINWH]\nDamage=11\nRange=5\nROF=20\nWarhead=WARPH\n\
+         [Warheads]\n0=WARPH\n\
+         [WARPH]\nCellSpread=0\nAllowDamageOnSelf=yes\n\n\
+         [CLEG]\nStrength=100\nSpeed=4\nSensorsSight=1\nSpeedType=Foot\n\
+         MovementZone=Infantry\nWarpInWeapon={warp_in}\n\
+         WarpInMinRangeWeapon={min_range}\n\
+         WarpInWeapon.UseDistanceAsDamage={use_distance_as_damage}\n\n\
+         [CMON]\nStrength=100\nSpeed=4\nSensorsSight=1\n\
+         WarpInWeapon={warp_in}\nWarpInMinRangeWeapon={min_range}\n\
+         WarpInWeapon.UseDistanceAsDamage={use_distance_as_damage}\n\n\
+         [Clear]\nFoot=100%\n"
+    )))
+    .unwrap();
+    let mut art = ArtRegistry::from_ini(&IniFile::from_str(
+        "[WARPOUT]\nFlat=yes\nTranslucent=yes\nRate=120\n",
+    ));
+    art.bind_anim_frame_count_for_test("WARPOUT", 13);
+    rules.replace_art_registry_for_test(art);
+    rules
+}
+
+/// One production object turn of a warp armed from cell 5,5 to 8,9 with the
+/// stored `LastWarpDistance`; the arrived object's health is the observable.
+fn warp_in_health(
+    warp_in: &str,
+    min_range: &str,
+    use_distance_as_damage: bool,
+    chrono_range_minimum: i32,
+    distance_leptons: i32,
+) -> i32 {
+    let rules = warp_weapon_rules(
+        warp_in,
+        min_range,
+        use_distance_as_damage,
+        chrono_range_minimum,
+    );
+    let mut sim = relocating_chrono_unit((8, 9));
+    install_destination_cells(&mut sim, &rules);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .teleport_state_for_test_mut()
+        .unwrap()
+        .set_warp_distance_leptons_for_test(distance_leptons);
+    sim.advance_live_object_turn(1, &rules, techno_ai::ObjectAiCtx::default())
+        .unwrap();
+    let mover = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        (mover.position.rx(), mover.position.ry()),
+        (8, 9),
+        "the warp landed"
+    );
+    mover.health.current()
+}
+
+/// Phobos `TeleportLocomotionClass_ILocomotion_Process_WarpInAnim @ 0x719742`
+/// (`Ext/TechnoType/Hooks.Teleport.cpp:88-95`): the warp-in weapon detonates
+/// at the arrived object; below `[General] ChronoRangeMinimum`
+/// `WarpInMinRangeWeapon` replaces it, falling back to `WarpInWeapon` while
+/// unset.
+#[test]
+fn warp_in_weapon_picks_the_min_range_weapon_by_last_warp_distance() {
+    assert_eq!(
+        warp_in_health("WARPWH", "", false, 0, 1000),
+        70,
+        "WarpInWeapon detonates its 30 damage at the object"
+    );
+    assert_eq!(
+        warp_in_health("WARPWH", "MINWH", false, 2000, 1000),
+        89,
+        "a short warp takes WarpInMinRangeWeapon's 11 damage"
+    );
+    assert_eq!(
+        warp_in_health("WARPWH", "", false, 2000, 1000),
+        70,
+        "an unset min-range weapon falls back to WarpInWeapon"
+    );
+    assert_eq!(
+        warp_in_health("WARPWH", "MINWH", false, 2000, 3000),
+        70,
+        "a warp at or above ChronoRangeMinimum keeps WarpInWeapon"
+    );
+}
+
+/// `WarpInWeapon.UseDistanceAsDamage` (`Ext/TechnoType/Body.cpp:873`): the
+/// detonation's damage is `distance / 256` instead of the weapon's `Damage=`.
+#[test]
+fn warp_in_weapon_use_distance_as_damage_divides_by_256() {
+    assert_eq!(
+        warp_in_health("WARPWH", "", true, 0, 1024),
+        96,
+        "1024 leptons deal 4 damage, not the weapon's 30"
+    );
+    assert_eq!(
+        warp_in_health("WARPWH", "", true, 0, 255),
+        100,
+        "a fraction of a cell truncates to no damage"
+    );
+}

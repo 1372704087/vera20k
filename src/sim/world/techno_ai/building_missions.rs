@@ -260,6 +260,10 @@ pub(super) fn update_animation(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         entity.advance_building_body(now, archive_less_sale, has_turret, options);
     }
+    // Phobos BuildingClass_AnimationAI_TurretAnim (0x451242): AnimationAI
+    // runs once per frame, so GetTurretFrame is called exactly once here.
+    #[cfg(feature = "phobos")]
+    update_turret_anim_frame(sim, id, rules);
     // 450F9E..451145, between the step and the ready admission, which it
     // does not touch.
     sim.update_super_weapon_anims(id, rules);
@@ -990,6 +994,10 @@ fn attack_arm(
     match code {
         FireError::Ok => {
             fire_arm(sim, id, rules, target, weapon, ctx, bridge_state_changed);
+            // Phobos BuildingClass_Mission_Attack_TurretAnim (0x44B6C7):
+            // arm the firing block at the firing instant.
+            #[cfg(feature = "phobos")]
+            arm_turret_anim_firing(sim, id, rules);
             // The tail every OK arm reaches (`0x0044B6D6..0x0044B724`).
             if !gattling_step(sim, id, rules, StageCall::Increase, ctx.effects) {
                 advance_turret_anim(&mut sim.substrate, id);
@@ -1017,6 +1025,11 @@ fn attack_arm(
         // on REARM advances `+0x148` (`0x0044B235..0x0044B23C`).
         FireError::Facing | FireError::Rearm => {
             aim_turret(sim, id, rules, target);
+            // Phobos 0x44B6C7 is one point in Mission_Attack's OK firing
+            // tail; VERA reaches its firing tail from OK and REARM, so both
+            // arm (idempotent while a firing animation is playing).
+            #[cfg(feature = "phobos")]
+            arm_turret_anim_firing(sim, id, rules);
             if !gattling_step(sim, id, rules, StageCall::Increase, ctx.effects)
                 && code == FireError::Rearm
             {
@@ -1154,6 +1167,86 @@ fn advance_turret_anim(substrate: &mut ObjectSubstrate, id: u64) {
     if let Some(entity) = substrate.entities.get_mut(id) {
         entity.turret_anim_frame.advance();
     }
+}
+
+/// Phobos `BuildingClass_AnimationAI_TurretAnim` hook `0x451242`
+/// (`Ext/Building/Hooks.cpp:1318-1331`): `AnimationAI` calls
+/// `BuildingExt::GetTurretFrame` (`Ext/Building/Body.cpp:488-569`) once per
+/// frame and writes `pAnim->Animation.Value`, but only while a
+/// `BuildingAnimSlot::Turret` (slot 9) animation exists. VERA's SHP slot-9
+/// drawing is unported (retail dormant), so this pins only the CPU frame
+/// selection + state advance on the existing `UpdateAnimation` owner.
+#[cfg(feature = "phobos")]
+fn update_turret_anim_frame(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    let Some(anim_id) = entity.building_art.anim_slots()[9] else {
+        return;
+    };
+    let name = sim.interner.resolve(entity.type_ref());
+    let Some(object) = rules.object(name) else {
+        return;
+    };
+    if object.turret_anim_is_voxel {
+        return;
+    }
+    // `facing = PrimaryFacing.Current().GetValue<5>()` →
+    // `ObjectClass::BodyShape[facing]` (`Body.cpp:492-493`). VERA reuses its
+    // single 32-way facing bucket (`step32_from_facing16`, the 0x007F4890
+    // reader at 0x004466BE) as shapeFacing; the BodyShape permutation is part
+    // of the unported slot-9 SHP drawing and is not replicated here.
+    let shape_facing = i32::from(crate::util::direction_tables::step32_from_facing16(
+        entity.body_facing_current(sim.session.binary_frame()),
+    ));
+    // `isLowPower = !StuffEnabled || !IsPowerOnline()` (`Body.cpp:495`).
+    let is_low_power = !entity.building_art.stuff_enabled() || !entity.building_online();
+    let Some(entity) = sim.substrate.entities.get_mut(id) else {
+        return;
+    };
+    let frame = object.phobos_turret_anim.get_turret_frame(
+        &mut entity.phobos_turret_anim,
+        shape_facing,
+        is_low_power,
+    );
+    let z_adjust = sim
+        .substrate
+        .anims
+        .get(anim_id)
+        .map_or(0, crate::sim::anim_class::AnimObject::z_adjust);
+    sim.substrate
+        .set_anim_frame_and_z_adjust(anim_id, frame, z_adjust);
+}
+
+/// Phobos `BuildingClass_Mission_Attack_TurretAnim` hook `0x44B6C7`
+/// (`Ext/Building/Hooks.cpp:1333-1357`): on the firing instant, with
+/// `HasTurret()` (`0x004527D0`) and a Turret slot animation, arm the firing
+/// block when its frame count is positive and no firing animation plays.
+#[cfg(feature = "phobos")]
+fn arm_turret_anim_firing(sim: &mut Simulation, id: u64, rules: &RuleSet) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    if entity.building_art.anim_slots()[9].is_none() {
+        return;
+    }
+    let name = sim.interner.resolve(entity.type_ref());
+    let Some(object) = rules.object(name) else {
+        return;
+    };
+    if !entity
+        .building_upgrades()
+        .has_turret(object, rules, &sim.interner)
+    {
+        return;
+    }
+    let is_low_power = !entity.building_art.stuff_enabled() || !entity.building_online();
+    let Some(entity) = sim.substrate.entities.get_mut(id) else {
+        return;
+    };
+    object
+        .phobos_turret_anim
+        .arm_firing(&mut entity.phobos_turret_anim, is_low_power);
 }
 
 /// BuildingClass::Update's Gattling block once the Techno AI has returned

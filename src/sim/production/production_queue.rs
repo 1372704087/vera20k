@@ -272,6 +272,33 @@ pub(in crate::sim) fn exit_produced_object(
     else {
         return BuildingExit::Failed;
     };
+    // Phobos `BuildingClass_ExitObject_InitialClonedHealth` @ 0x443C81
+    // (`Ext/Building/Hooks.cpp:91-106`), reached on every ExitObject call
+    // before RTTI, admission or Unlimbo: an exiting InfantryClass from a
+    // `Cloning=` producer writes both Health and EstimatedHealth from the
+    // clone infantry type's Strength, scaled by the producer type's
+    // `InitialStrength.Cloning`.
+    #[cfg(feature = "phobos")]
+    if product_category == EntityCategory::Infantry && producer_type.cloning {
+        let percentage =
+            initial_cloning_percentage(producer_type.phobos_initial_cloning, &mut sim.scenario_rng);
+        let health = product_type.strength;
+        // `Math::clamp((int)(health * percentage), 1, health)`: the native
+        // clamp evaluates the lo side first, so the order here matches it
+        // even for a type whose Strength is below one.
+        let scaled = (health as f64 * percentage) as i32;
+        let strength = if scaled < 1 {
+            1
+        } else if scaled > health {
+            health
+        } else {
+            scaled
+        };
+        if let Some(entity) = sim.substrate.entities.get_mut(stable_id) {
+            entity.health.set(strength);
+            entity.estimated_health.reset(strength);
+        }
+    }
     // NPSE 2.0 Exit_Object C33940..C33998 reads the producer's Naval,
     // unlike capped starts and abandonment, which read the product's type.
     let Some(kind) = UnitChoiceKind::of(product_type.category, producer_type.naval) else {
@@ -398,6 +425,25 @@ pub(in crate::sim) fn exit_produced_object(
             effects,
         ),
     }
+}
+
+/// Phobos `GeneralUtils::GetRangedRandomOrSingleValue(PartialVector2D<double>)`
+/// (`src/Utilities/GeneralUtils.cpp:66-72`): `min = (int)(X * 100)`,
+/// `max = (int)(Y * 100)`; return `X` when `X >= Y || ValueCount < 2`, else
+/// the inclusive integer percentage draw divided by 100. One Scenario RNG
+/// draw per call when a real range is authored, none otherwise.
+#[cfg(feature = "phobos")]
+fn initial_cloning_percentage(
+    settings: crate::rules::ini_value::PartialDoublePair,
+    scenario_rng: &mut crate::sim::rng::SimRng,
+) -> f64 {
+    if settings.is_single() {
+        return settings.low;
+    }
+    let min = (settings.low * 100.0) as i32;
+    let max = (settings.high * 100.0) as i32;
+    let drawn = scenario_rng.next_range_i32_inclusive(min, max);
+    f64::from(drawn) / 100.0
 }
 
 /// ExitObject's naval arm (`0x00444175..0x00444492`): an uncontacted yard

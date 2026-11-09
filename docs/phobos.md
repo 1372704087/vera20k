@@ -105,6 +105,7 @@ Supported extensions:
 - [Spy-effect superweapon launches](phobos-spy-effect.md) (`SpyEffect.*` victim/infiltrator launches on a spy infiltration, with the recharge kept; 3 keys)
 - [Rearm and reload holds](phobos-no-rearm.md) (`NoRearm.*` / `NoReload.*` freeze the rearm and ammo-reload timers while EMP'd or Temporal-held; 4 keys + 4 `[General]` globals)
 - [Driver-killed passengers](phobos-driver-killed.md) (`DriverKilled.KeptPassengers` and `.KillPassengers` choose keep-aboard, kill or the stock ejection for a driverless vehicle's passengers; 2 keys + 2 globals)
+- [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)
 
 ## Original project and authors
 

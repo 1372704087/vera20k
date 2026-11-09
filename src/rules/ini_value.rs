@@ -567,6 +567,33 @@ impl IniSection {
         })
     }
 
+    /// Ares/Phobos `PartialVector2D<double>` (`Utilities/TemplateDef.h:290`'s
+    /// `read<PartialVector2D<double>>` over `ReadMultipleDoubles` ->
+    /// `MultiParser<double>::Parse(value, out, 2)`): ReadString(2048), then at
+    /// most two comma-separated [`parse_phobos_double`] tokens. Each token is
+    /// space-trimmed on both sides and the scan stops at the first token that
+    /// does not convert, so a one-token read leaves the second slot at its
+    /// previous value and marks the pair single. A zero-token scan writes
+    /// neither slot and leaves the count, so the whole pair retains.
+    pub fn read_ares_partial_double_pair(
+        &self,
+        key: &str,
+        current: PartialDoublePair,
+    ) -> PartialDoublePair {
+        self.read_string_with(key, 2048, current, |previous, value| {
+            let mut fields = [previous.low, previous.high];
+            let values = scan_partial_double_fields(value, &mut fields);
+            if values == 0 {
+                return previous;
+            }
+            PartialDoublePair {
+                low: fields[0],
+                high: fields[1],
+                values,
+            }
+        })
+    }
+
     /// Ares coordinate reader100406D0 -> MultiParser1000C7E0. Each comma
     /// token uses the shared Parser<int> and a 128-byte scanf_s buffer.
     /// A partial native parse copies uninitialized trailing locals; retain
@@ -1933,6 +1960,35 @@ impl PartialIntPair {
     }
 }
 
+/// Ares/Phobos `PartialVector2D<double>` storage: the two scanned slots plus
+/// how many the last successful read wrote. `values < 2` means the second
+/// slot is stale, so every ranged consumer must use [`Self::low`] and draw
+/// nothing.
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct PartialDoublePair {
+    pub low: f64,
+    pub high: f64,
+    pub values: u8,
+}
+
+impl PartialDoublePair {
+    /// A one-value spelling: Phobos' `PartialVector2D<double>{ 1.0 }`
+    /// initializer, the `InitialStrength.Cloning` default.
+    pub const fn single(value: f64) -> Self {
+        Self {
+            low: value,
+            high: 0.0,
+            values: 1,
+        }
+    }
+
+    /// `GeneralUtils::GetRangedRandomOrSingleValue`'s non-random arm: the
+    /// consumer takes `low` and draws nothing when this is true.
+    pub const fn is_single(&self) -> bool {
+        self.values < 2 || self.low >= self.high
+    }
+}
+
 /// Phobos b90ab4bc Utilities/Parser.h:248..271 `Parser<double>`: `strtod`,
 /// cast to binary32, optional binary32 percent scaling, then widen to double.
 /// `None` where `strtod` converts nothing or reports ERANGE.
@@ -2060,6 +2116,40 @@ fn scan_partial_int_fields(value: &str, out: &mut [i32]) -> u8 {
             token = &token[..token.len() - 1];
         }
         let parsed = std::str::from_utf8(token).ok().and_then(parse_ares_int);
+        let Some(parsed) = parsed else {
+            return index as u8;
+        };
+        *slot = parsed;
+        rest = rest[token_end..]
+            .strip_prefix(b",")
+            .unwrap_or(&rest[token_end..]);
+    }
+    out.len() as u8
+}
+
+/// `MultiParser<double>::Parse` (`Utilities/Parser.h:345`): the same token
+/// walk as [`scan_partial_int_fields`], each token through the Phobos
+/// `Parser<double>` scan ([`parse_phobos_double`]).
+fn scan_partial_double_fields(value: &str, out: &mut [f64]) -> u8 {
+    let mut rest = value.as_bytes();
+    for (index, slot) in out.iter_mut().enumerate() {
+        while rest.first().is_some_and(|byte| is_crt_space(*byte)) {
+            rest = &rest[1..];
+        }
+        let token_end = rest
+            .iter()
+            .position(|byte| *byte == b',')
+            .unwrap_or(rest.len());
+        if token_end == 0 {
+            return index as u8;
+        }
+        let mut token = &rest[..token_end];
+        while token.last().is_some_and(|byte| is_crt_space(*byte)) {
+            token = &token[..token.len() - 1];
+        }
+        let parsed = std::str::from_utf8(token)
+            .ok()
+            .and_then(parse_phobos_double);
         let Some(parsed) = parsed else {
             return index as u8;
         };

@@ -917,6 +917,13 @@ pub struct ObjectType {
     /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
     #[cfg(feature = "phobos")]
     pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
+    /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
+    /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
+    /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
+    /// of the clone infantry type's Strength a `Cloning=` producer's exit
+    /// installs as the copy's starting `Health`/`EstimatedHealth`.
+    #[cfg(feature = "phobos")]
+    pub phobos_initial_cloning: crate::rules::ini_value::PartialDoublePair,
     /// Phobos `Adjacent.*` (`Ext/BuildingType/Body.cpp:235-238`).
     #[cfg(feature = "phobos")]
     pub phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent,
@@ -4857,6 +4864,11 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
                 section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_initial_cloning: section.read_ares_partial_double_pair(
+                "InitialStrength.Cloning",
+                crate::rules::ini_value::PartialDoublePair::single(1.0),
             ),
             #[cfg(feature = "phobos")]
             phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),

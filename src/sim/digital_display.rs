@@ -56,7 +56,7 @@ pub fn values_for_display(
         DigitalInfoType::Shield => {
             let shield = entity.shield()?;
             let ty = rules.shield_type(shield.type_name())?;
-            if shield.broken_non_respawning(ty) {
+            if shield.broken_non_respawning(ty, sim.session.binary_frame() as i32) {
                 return None;
             }
             (shield.hp(), ty.strength())

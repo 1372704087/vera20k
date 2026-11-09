@@ -456,7 +456,8 @@ pub(super) fn phobos_draw_offset_point(
     let Some(object) = rules.object(sim.interner().resolve(owner.type_ref())) else {
         return point;
     };
-    let shield_bracket_delta = shield_type_bracket_delta(owner, rules);
+    let shield_bracket_delta =
+        shield_type_bracket_delta(owner, rules, sim.session().binary_frame() as i32);
     if owner.category() == crate::map::entities::EntityCategory::Structure {
         let anchor = crate::app::presentation::digital_display::building_bracket(
             sim,
@@ -506,11 +507,13 @@ pub(super) fn phobos_draw_offset_point(
 fn shield_type_bracket_delta(
     owner: &crate::sim::game_entity::GameEntity,
     rules: &crate::rules::ruleset::RuleSet,
+    frame: i32,
 ) -> Option<i32> {
     let shield = owner.shield()?;
     let ty = rules.shield_type(shield.type_name())?;
-    (!shield.broken_non_respawning(ty) && (shield.hp() > 0 || !ty.pips_hide_if_no_strength()))
-        .then(|| ty.bracket_delta())
+    (!shield.broken_non_respawning(ty, frame)
+        && (shield.hp() > 0 || !ty.pips_hide_if_no_strength()))
+    .then(|| ty.bracket_delta())
 }
 
 #[cfg(test)]

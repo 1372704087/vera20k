@@ -1182,6 +1182,7 @@ fn shield_pip_frame(
 fn shield_bar_instances(
     entity: &crate::sim::game_entity::GameEntity,
     rules: &RuleSet,
+    frame: i32,
     shape: &crate::render::selection_overlay::CenteredShapeStrip,
     pip_board: Option<&crate::render::selection_overlay::CenteredShapeStrip>,
     building: bool,
@@ -1198,7 +1199,7 @@ fn shield_bar_instances(
     };
     // `0x6F65D1`/`0x6F683C` skip the whole shield bar, background included,
     // while the shield is broken and nothing will respawn it.
-    if shield.broken_non_respawning(ty) {
+    if shield.broken_non_respawning(ty, frame) {
         return;
     }
     let globals = rules.shield_globals();
@@ -1731,6 +1732,7 @@ pub(crate) fn techno_extras_for_parent(
             shield_bar_instances(
                 entity,
                 rules,
+                sim.session().binary_frame() as i32,
                 shape,
                 overlay.pipbrd(),
                 true,
@@ -1824,6 +1826,7 @@ pub(crate) fn techno_extras_for_parent(
         shield_bar_instances(
             entity,
             rules,
+            sim.session().binary_frame() as i32,
             shape,
             overlay.pipbrd(),
             false,

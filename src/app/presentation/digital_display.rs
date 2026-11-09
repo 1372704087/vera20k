@@ -174,7 +174,9 @@ pub(crate) fn digital_display_instances(
                     .shield()
                     .and_then(|s| rules.shield_type(s.type_name())),
             )
-            .is_some_and(|(shield, ty)| !shield.broken_non_respawning(ty));
+            .is_some_and(|(shield, ty)| {
+                !shield.broken_non_respawning(ty, sim.session().binary_frame() as i32)
+            });
         let mut position = if is_building {
             building_bracket(sim, entity, object, rules, display.anchor_building)
         } else {

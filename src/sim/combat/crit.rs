@@ -126,11 +126,13 @@ pub(crate) fn detonate(
         run.effects(),
     );
     let chance = get_crit_chance(world, rules, warhead, source_id);
-    // `PossibleCellSpreadDetonate`, of which VERA reads the AttachEffect lists
-    // and the PenetratesTransport level (`WarheadType/Body.cpp:517`).
+    // `PossibleCellSpreadDetonate` (`WarheadType/Body.cpp:495..516`), of which
+    // VERA reads the AttachEffect lists, the PenetratesTransport level and the
+    // shield attach/remove/break/respawn/self-healing members.
     let attach = !warhead.attach_effect.is_empty();
     let penetrates = warhead.phobos_penetrates_transport.level > 0;
-    if !(attach || penetrates || chance > 0.0) {
+    let shield_modifiers = warhead.shield.has_per_target_modifier();
+    if !(attach || penetrates || chance > 0.0 || shield_modifiers) {
         return false;
     }
     let on_detonate = warhead
@@ -186,6 +188,23 @@ pub(crate) fn detonate(
             impact,
             effects,
         );
+        // `DetonateOnOneUnit`'s `ApplyShieldModifiers(pTarget)`
+        // (`Detonate.cpp:240`): after the PenetratesTransport arm and before
+        // the attach-effect and crit blocks, so the receiver's damage hits
+        // the removed, replaced or reconfigured shield.
+        let shield_shots =
+            crate::sim::shield::apply_shield_modifiers(world, rules, warhead, target_id);
+        if !shield_shots.is_empty() {
+            // `FireWeaponAtSelf`'s `WeaponTypeExt::DetonateAt` shot: the break
+            // weapon detonates on the shield owner inside the per-target
+            // pass, committed through this run.
+            let detonations = world.shield_break_detonations(shield_shots, rules);
+            let commit = commit_projectiles(world, run, &detonations, rules, overlay_registry);
+            effects.append(commit.effects);
+            effects
+                .under_attack_events
+                .extend(commit.under_attack_events);
+        }
         if attach {
             world.apply_warhead_attach_effects(
                 target_id,

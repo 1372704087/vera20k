@@ -533,11 +533,11 @@ fn a_broken_shield_draws_only_while_it_can_respawn() {
     let ty = fixed.shield_type("TestShield").unwrap();
     let mut state = ShieldState::new("TestShield".to_owned(), 100, 100);
     state.hp = 0;
-    assert!(state.broken_non_respawning(ty));
+    assert!(state.broken_non_respawning(ty, 0));
 
     let respawning = rules("Respawn=0.5", "");
     let ty = respawning.shield_type("TestShield").unwrap();
-    assert!(!state.broken_non_respawning(ty));
+    assert!(!state.broken_non_respawning(ty, 0));
 }
 
 /// ShieldClass::CanBePenetrated checks the Psychedelic arm before the
@@ -644,5 +644,496 @@ fn phobos_shield_damage_decloaks_only_when_the_warhead_allows_it() {
         hit_cloaked(&rules("", "DecloakDamagedTargets=no")),
         2,
         "the per-warhead no keeps the shield owner hidden"
+    );
+}
+
+// --- Warhead `Shield.*` (`WarheadTypeExt::ApplyShieldModifiers`) through the
+// --- production detonation path (`sim::combat::crit::detonate`). ---
+
+/// FIRER and TARGET on rival houses; TARGET binds `TestShield`. `warheads`
+/// extends the `[Warheads]` registry, `wh_ini` the `[WH]` body, `sections`
+/// further type bodies. `[Warheads]` rows end in the caller's `\n`.
+fn detonation_scene(
+    warheads: &str,
+    wh_ini: &str,
+    sections: &str,
+) -> (Simulation, RuleSet, u64, u64) {
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [VehicleTypes]\n0=FIRER\n1=TARGET\n2=NEIGHBOR\n\
+         [WeaponTypes]\n0=GUN\n1=BRKWPN\n\
+         [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
+         [BRKWPN]\nDamage=5\nRange=5\nROF=20\nWarhead=WHBRK\n\
+         [Warheads]\n0=WH\n{warheads}\
+         [WH]\nCellSpread=0\n{VERSES}\n{wh_ini}\n\
+         [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
+         [TARGET]\nStrength=500\nArmor=none\nSpeed=6\nShieldType=TestShield\n\
+         [NEIGHBOR]\nStrength=500\nArmor=none\nSpeed=6\n\
+         [ShieldTypes]\n0=TestShield\n1=SecondShield\n2=ThirdShield\n3=OtherShield\n\
+         [TestShield]\nStrength=100\nInitialStrength=100\nArmor=none\n\
+         [SecondShield]\nStrength=100\nInitialStrength=100\nArmor=none\n\
+         [ThirdShield]\nStrength=100\nInitialStrength=100\nArmor=none\n\
+         [OtherShield]\nStrength=50\nInitialStrength=50\nArmor=none\n\
+         [Animations]\n0=BRKANIM\n1=HITANIM\n\
+         {sections}"
+    )))
+    .expect("detonation fixture rules");
+    // The break/hit animation types spawn only with resolvable art.
+    let mut art = crate::rules::art_data::ArtRegistry::from_ini(&IniFile::from_str(
+        "[BRKANIM]\nRate=1\n[HITANIM]\nRate=1\n",
+    ));
+    art.bind_anim_frame_count_for_test("BRKANIM", 20);
+    art.bind_anim_frame_count_for_test("HITANIM", 20);
+    let mut rules = rules;
+    rules.replace_art_registry_for_test(art);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5A_AA_1E);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let firer = sim
+        .spawn_object("FIRER", "Americans", 20, 20, 0, &rules)
+        .expect("firer");
+    let target = sim
+        .spawn_object("TARGET", "Russians", 22, 20, 0, &rules)
+        .expect("target");
+    (sim, rules, firer, target)
+}
+
+/// One `WarheadTypeExt::Detonate` of `warhead` on `target` with the bullet's
+/// `damage`, through `commit_projectiles`.
+fn shoot(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    warhead: &str,
+    firer: u64,
+    target: u64,
+    damage: i32,
+) -> crate::sim::combat::LogicProjectileCommit {
+    let coords = {
+        let target = sim.substrate.entities.get(target).expect("target");
+        crate::sim::movement::ground_pose::object_get_coords(target, sim.resolved_terrain.as_ref())
+    };
+    let detonation = crate::sim::projectile::ProjectileDetonation {
+        projectile_id: target,
+        source_id: firer,
+        target: crate::sim::projectile::ProjectileTarget::Entity(target),
+        impact: crate::sim::projectile::ProjectileCoord::new(coords.x, coords.y, coords.z),
+        payload: crate::sim::projectile::ProjectilePayload::new(
+            damage,
+            sim.interner.intern(warhead),
+            None,
+            false,
+        ),
+        reason: crate::sim::projectile::ProjectileDetonationReason::ReachedTarget,
+    };
+    let mut run = crate::sim::combat::world_receiver::ReceiverRun::default();
+    let commit = crate::sim::combat::world_receiver::commit_projectiles(
+        sim,
+        &mut run,
+        &[detonation],
+        rules,
+        None,
+    );
+    run.finish();
+    commit
+}
+
+fn target_shield(sim: &Simulation, target: u64) -> &ShieldState {
+    sim.substrate
+        .entities
+        .get(target)
+        .expect("target")
+        .shield
+        .as_ref()
+        .expect("shield")
+}
+
+fn set_target_shield_hp(sim: &mut Simulation, target: u64, hp: i32) {
+    sim.substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .shield
+        .as_mut()
+        .unwrap()
+        .hp = hp;
+}
+
+fn target_health(sim: &Simulation, target: u64) -> i32 {
+    sim.substrate.entities.get(target).unwrap().health.current()
+}
+
+fn anim_names(sim: &Simulation) -> Vec<String> {
+    sim.anims()
+        .map(|(_, anim)| sim.interner.resolve(anim.type_id()).to_owned())
+        .collect()
+}
+
+/// `ApplyShieldModifiers` removes through `Shield.RemoveTypes` and attaches
+/// the first `Shield.AttachTypes` entry at full strength
+/// (`Detonate.cpp:375..430`).
+#[test]
+fn warhead_remove_then_attach_reconfigures_the_shield() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.RemoveTypes=TestShield\nShield.AttachTypes=SecondShield",
+        "",
+    );
+    set_target_shield_hp(&mut sim, target, 40);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    let state = target_shield(&sim, target);
+    assert_eq!(state.type_name(), "SecondShield");
+    assert_eq!(
+        state.hp(),
+        100,
+        "the attached shield starts at InitialStrength"
+    );
+}
+
+/// `Shield.RemoveTypes` without an attach leaves no shield at all.
+#[test]
+fn warhead_remove_types_strips_the_shield() {
+    let (mut sim, rules, firer, target) = detonation_scene("", "Shield.RemoveTypes=TestShield", "");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    assert!(
+        sim.substrate.entities.get(target).unwrap().shield.is_none(),
+        "the removed shield is gone"
+    );
+    assert_eq!(target_health(&sim, target), 500, "no damage rides the pass");
+}
+
+/// `ReplaceOnly` without a removal match attaches nothing
+/// (`Detonate.cpp:395..401`).
+#[test]
+fn replace_only_without_a_remove_match_keeps_the_shield() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.ReplaceOnly=yes\nShield.AttachTypes=SecondShield",
+        "",
+    );
+    set_target_shield_hp(&mut sim, target, 40);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    let state = target_shield(&sim, target);
+    assert_eq!(state.type_name(), "TestShield");
+    assert_eq!(state.hp(), 40);
+}
+
+/// `ReplaceOnly` attaches `AttachTypes[min(removed index, size - 1)]`
+/// (`Detonate.cpp:397..398`).
+#[test]
+fn replace_only_maps_the_removed_index_into_the_attach_list() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.ReplaceOnly=yes\n\
+         Shield.RemoveTypes=ThirdShield,TestShield\n\
+         Shield.AttachTypes=SecondShield,ThirdShield",
+        "",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    let state = target_shield(&sim, target);
+    assert_eq!(
+        state.type_name(),
+        "ThirdShield",
+        "TestShield sits at RemoveTypes index 1, so AttachTypes[1] attaches"
+    );
+}
+
+/// `InheritStateOnReplace` sets the new shield to
+/// `(int)(strength * removed ratio)` (`Detonate.cpp:419..427`).
+#[test]
+fn inherit_state_on_replace_copies_the_health_ratio() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.RemoveTypes=TestShield\n\
+         Shield.AttachTypes=SecondShield\n\
+         Shield.ReplaceOnly=yes\n\
+         Shield.InheritStateOnReplace=yes",
+        "",
+    );
+    set_target_shield_hp(&mut sim, target, 40);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    let state = target_shield(&sim, target);
+    assert_eq!(state.type_name(), "SecondShield");
+    assert_eq!(state.hp(), 40, "0.4 * SecondShield's 100 strength");
+}
+
+/// `ReplaceNonRespawning` replaces a broken non-respawning shield only once
+/// it has been down for `MinimumReplaceDelay` frames
+/// (`Detonate.cpp:409..413`).
+#[test]
+fn replace_non_respawning_honors_the_minimum_replace_delay() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "1=PLAIN\n",
+        "Shield.AttachTypes=SecondShield\n\
+         Shield.ReplaceNonRespawning=yes\n\
+         Shield.MinimumReplaceDelay=10",
+        "[PLAIN]\nCellSpread=0\n",
+    );
+    // Break TestShield at frame 0: it has no Respawn, so it stays broken.
+    shoot(&mut sim, &rules, "PLAIN", firer, target, 150);
+    assert_eq!(target_shield(&sim, target).hp(), 0);
+
+    sim.session.set_binary_frame_for_test(5);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        target_shield(&sim, target).type_name(),
+        "TestShield",
+        "5 frames since the break is below MinimumReplaceDelay"
+    );
+
+    sim.session.set_binary_frame_for_test(10);
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    let state = target_shield(&sim, target);
+    assert_eq!(state.type_name(), "SecondShield");
+    assert_eq!(state.hp(), 100);
+}
+
+/// `Shield.Break` breaks the eligible active shield and emits the warhead's
+/// break animation and break weapon on the owner
+/// (`Detonate.cpp:442..443`, `ShieldClass.cpp:836..860`).
+#[test]
+fn warhead_break_emits_the_break_anim_and_weapon() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "1=WHBRK\n",
+        "Shield.Break=yes\nShield.BreakAnim=BRKANIM\nShield.BreakWeapon=BRKWPN",
+        "[WHBRK]\nCellSpread=1.5\n{VERSES}\n\
+         [BRKWPN]\nDamage=5\nRange=5\nROF=20\nWarhead=WHBRK\n",
+    );
+    let neighbor = sim
+        .spawn_object("NEIGHBOR", "Russians", 23, 20, 0, &rules)
+        .expect("neighbor");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+
+    assert_eq!(target_shield(&sim, target).hp(), 0, "the shield broke");
+    assert!(
+        anim_names(&sim)
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("BRKANIM")),
+        "the break animation spawned on the shield owner"
+    );
+    // `FireWeaponAtSelf` -> `DetonateAt(weapon, pThis, pThis)`: the break
+    // weapon's shot detonates on the shield owner. `DamageArea`'s self
+    // exclusion (`Explosion_Damage_DamageSelf @ 0x004896EC`) keeps the owner
+    // out of its own weapon's ground list, so the damage assert runs on a
+    // neighbor inside the break warhead's cell spread.
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(neighbor)
+            .unwrap()
+            .health
+            .current(),
+        495,
+        "the break weapon's shot detonated"
+    );
+    assert_eq!(
+        sim.substrate.entities.get(target).unwrap().health.current(),
+        500,
+        "the owner is excluded from its own weapon's area damage"
+    );
+}
+
+/// `Shield.Break.Types` narrows the break to its parsed types
+/// (`Detonate.cpp:437..443`).
+#[test]
+fn break_types_gate_the_warhead_break() {
+    let outside = detonation_scene("", "Shield.Break=yes\nShield.Break.Types=OtherShield", "");
+    let (mut sim, rules, firer, target) = outside;
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        100,
+        "TestShield is outside Shield.Break.Types"
+    );
+
+    let (mut sim, rules, firer, target) =
+        detonation_scene("", "Shield.Break=yes\nShield.Break.Types=TestShield", "");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(target_shield(&sim, target).hp(), 0);
+}
+
+/// `Shield.Respawn.*` installs the warhead modifier (`SetRespawn`,
+/// `ShieldClass.cpp:930..963`): rate is minutes * 900, and the AI respawns
+/// with the warhead's amount while the modifier timer runs.
+#[test]
+fn warhead_respawn_modifier_respawns_at_the_warhead_rate() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "1=PLAIN\n",
+        "Shield.Respawn.Duration=50\nShield.Respawn.Amount=0.5\nShield.Respawn.Rate=0.05",
+        "[PLAIN]\nCellSpread=0\n",
+    );
+    // Break at frame 0 (TestShield has no type respawn: it stays broken).
+    shoot(&mut sim, &rules, "PLAIN", firer, target, 150);
+    assert_eq!(target_shield(&sim, target).hp(), 0);
+
+    // The warhead installs 50 frames of 0.5 amount at 0.05 minutes = 45 frames.
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    let state = target_shield(&sim, target);
+    assert!(
+        state.timers.respawn_wh_modifier.in_progress(0),
+        "the modifier timer runs for its duration"
+    );
+    let modifier = state.respawn_modifier.as_ref().expect("modifier stored");
+    assert_eq!(modifier.rate, 45, "0.05 minutes * 900");
+    assert_eq!(modifier.amount.to_bits(), 0.5f64.to_bits());
+
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(target_shield(&sim, target).hp(), 0, "45 frames out");
+
+    sim.session.set_binary_frame_for_test(45);
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        50,
+        "the warhead amount respawned the shield"
+    );
+}
+
+/// `Shield.SelfHealing.*` installs the warhead modifier (`SetSelfHealing`,
+/// `ShieldClass.cpp:987..1017`); the AI heals the warhead amount on the
+/// warhead rate while the modifier runs.
+#[test]
+fn warhead_self_healing_modifier_heals_at_the_warhead_rate() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.SelfHealing.Duration=50\nShield.SelfHealing.Amount=0.25\nShield.SelfHealing.Rate=0.02",
+        "",
+    );
+    set_target_shield_hp(&mut sim, target, 40);
+
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    let state = target_shield(&sim, target);
+    let modifier = state
+        .self_healing_modifier
+        .as_ref()
+        .expect("modifier stored");
+    // Native parses the minutes through float (`Parser<double>::TryParse`),
+    // so 0.02f32 * 900 truncates to 17.
+    assert_eq!(modifier.rate, 17);
+    assert_eq!(modifier.amount.to_bits(), 0.25f64.to_bits());
+
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(target_shield(&sim, target).hp(), 40, "17 frames out");
+
+    sim.session.set_binary_frame_for_test(17);
+    super::tick(&mut sim, target, &rules);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        65,
+        "the warhead amount healed the active shield"
+    );
+}
+
+/// `Shield.AffectTypes` gates the absorb/pass override
+/// (`ShieldClass.cpp:230..232`): a type outside the list keeps the shield
+/// type's own split; a type inside it takes the warhead's override.
+#[test]
+fn affect_types_gate_the_absorb_override() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "1=WH2\n",
+        "Shield.AbsorbPercent=0\nShield.AffectTypes=OtherShield",
+        "[WH2]\nCellSpread=0\nShield.AbsorbPercent=0\nShield.AffectTypes=TestShield\n",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 40);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        60,
+        "the override does not reach TestShield"
+    );
+    assert_eq!(target_health(&sim, target), 500);
+
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "1=WH2\n",
+        "Shield.AbsorbPercent=0\nShield.AffectTypes=OtherShield",
+        "[WH2]\nCellSpread=0\nShield.AbsorbPercent=0\nShield.AffectTypes=TestShield\n",
+    );
+    shoot(&mut sim, &rules, "WH2", firer, target, 40);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        100,
+        "zero absorption leaves the shield full"
+    );
+    assert_eq!(
+        target_health(&sim, target),
+        500,
+        "the zero pass percent leaves the hull untouched"
+    );
+}
+
+/// `Shield.Penetrate.Types` restricts which shield types a penetrating
+/// warhead bypasses (`ShieldClass.cpp:379..395`).
+#[test]
+fn penetrate_types_restrict_which_shields_are_bypassed() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.Penetrate=yes\nShield.Penetrate.Types=OtherShield",
+        "",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 40);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        60,
+        "TestShield is outside Shield.Penetrate.Types"
+    );
+    assert_eq!(target_health(&sim, target), 500);
+
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.Penetrate=yes\nShield.Penetrate.Types=TestShield",
+        "",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 40);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        100,
+        "the shield is untouched"
+    );
+    assert_eq!(target_health(&sim, target), 460, "the hit reached the hull");
+}
+
+/// `Shield.ReceivedDamage.MinMultiplier` scales the received floor
+/// (`ShieldClass.cpp:240..244`).
+#[test]
+fn received_damage_minimum_multiplier_scales_the_floor() {
+    let (mut sim, rules, firer, target) = detonation_scene(
+        "",
+        "Shield.ReceivedDamage.Minimum=10\nShield.ReceivedDamage.MinMultiplier=2",
+        "",
+    );
+    shoot(&mut sim, &rules, "WH", firer, target, 5);
+    assert_eq!(
+        target_shield(&sim, target).hp(),
+        80,
+        "the 5-point hit clamps up to 10 * 2"
+    );
+    assert_eq!(target_health(&sim, target), 500);
+}
+
+/// `WeaponNullifyAnim` draws the warhead's `Shield.HitAnim` on an absorbed
+/// hit unless `Shield.SkipHitAnim` (`ShieldClass.cpp:297..298`, `:359..366`).
+#[test]
+fn the_hit_anim_emits_unless_skip_hit_anim() {
+    let (mut sim, rules, firer, target) = detonation_scene("", "Shield.HitAnim=HITANIM", "");
+    shoot(&mut sim, &rules, "WH", firer, target, 40);
+    assert_eq!(target_shield(&sim, target).hp(), 60, "the shield absorbed");
+    assert!(
+        anim_names(&sim)
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("HITANIM")),
+        "the absorbed-hit animation spawned"
+    );
+
+    let (mut sim, rules, firer, target) =
+        detonation_scene("", "Shield.HitAnim=HITANIM\nShield.SkipHitAnim=yes", "");
+    shoot(&mut sim, &rules, "WH", firer, target, 40);
+    assert!(
+        !anim_names(&sim)
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case("HITANIM")),
+        "Shield.SkipHitAnim suppressed the animation"
     );
 }

@@ -1484,7 +1484,7 @@ pub(crate) fn commit_entities(
         // surviving damage. The stage owns the mutation here, before the
         // otherwise-immutable resolver is entered.
         #[cfg(feature = "phobos")]
-        let shield_receipt = {
+        let mut shield_receipt = {
             let warhead = rules.warhead(world.interner.resolve(event.warhead_ref));
             let target = world.substrate.entities.get(target_id);
             match (target, warhead) {
@@ -1517,6 +1517,29 @@ pub(crate) fn commit_entities(
             // shield absorbed hit still surfaces it. The later native-slot
             // call rejects the already-uncloaking state.
             start_uncloaking_for_damage(world, target_id, rules, current_tick, sound_enabled);
+        }
+
+        #[cfg(feature = "phobos")]
+        if shield_receipt
+            .as_ref()
+            .is_some_and(|receipt| !receipt.break_shots.is_empty())
+        {
+            // `BreakShield`'s `TechnoExt::FireWeaponAtSelf`
+            // (`ShieldClass.cpp:858..859` -> `WeaponTypeExt::DetonateAt`):
+            // the break weapon detonates on the shield owner inside the
+            // receive stage, before the native receiver body. Commit through
+            // this run; a break weapon that hits its own carrier re-enters
+            // the shield stage on the already-broken state.
+            let shots = std::mem::take(
+                &mut shield_receipt
+                    .as_mut()
+                    .expect("the outer test holds a receipt")
+                    .break_shots,
+            );
+            let detonations = world.shield_break_detonations(shots, rules);
+            let commit = commit_projectiles(world, run, &detonations, rules, overlay_registry);
+            death.append(commit.effects);
+            under_attack_events.extend(commit.under_attack_events);
         }
 
         #[cfg(feature = "phobos")]

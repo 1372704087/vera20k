@@ -1418,7 +1418,7 @@ fn show_promote_anim(
         );
         (chosen.to_vec(), world)
     };
-    sim.spawn_random_owned_anim(rules, &chosen, world.into(), owner, Some(id));
+    sim.spawn_random_owned_anim(rules, &chosen, world.into(), owner, Some(id), Some(id));
 }
 
 /// The house self-heal pulse of `TechnoClass::AI_Update`, read from the

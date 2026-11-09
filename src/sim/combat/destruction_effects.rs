@@ -96,6 +96,11 @@ pub struct DeathAnimSpawn {
     pub draws: Option<crate::sim::anim_class::AnimConstructorDraws>,
     /// What the producer writes on the anim right after its constructor.
     pub follow_up: Option<DeathAnimFollowUp>,
+    /// `ProcessDestroyAnims`' `SetInvoker(pThis)` (`Ext/AnimType/
+    /// Body.cpp:54`): the destroyed unit and its House. Only the Unit
+    /// `DestroyAnim=` producer sets it.
+    #[cfg(feature = "phobos")]
+    pub invoker: Option<(u64, InternedId)>,
 }
 
 impl DeathAnimSpawn {
@@ -106,6 +111,8 @@ impl DeathAnimSpawn {
             delay,
             draws: None,
             follow_up: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
         }
     }
 }
@@ -313,6 +320,11 @@ impl Simulation {
                 }
             }
         }
+        #[cfg(feature = "phobos")]
+        if let Some((invoker, house)) = spawn.invoker {
+            self.substrate
+                .set_anim_invoker(anim, Some(invoker), Some(house));
+        }
         Some(anim)
     }
 
@@ -478,6 +490,8 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
+        #[cfg(feature = "phobos")]
+        let owner_house = entity.owner();
         let location = position_world_coord(&entity.position);
         let coord = AnimWorldCoord {
             x: location.x,
@@ -513,7 +527,16 @@ impl Simulation {
         self.ares_unit_tiberium_explosive(unit_id, rules, registry, effects);
         if !object.destroy_anims.is_empty() {
             let anim = pick_death_anim(&mut self.scenario_rng, &object.destroy_anims);
-            self.emit_death_anim(rules, anims, anim, DeathAnimSpawn::at(coord, 0));
+            self.emit_death_anim(
+                rules,
+                anims,
+                anim,
+                DeathAnimSpawn {
+                    #[cfg(feature = "phobos")]
+                    invoker: Some((unit_id, owner_house)),
+                    ..DeathAnimSpawn::at(coord, 0)
+                },
+            );
         }
     }
 

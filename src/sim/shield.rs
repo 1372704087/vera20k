@@ -559,6 +559,7 @@ impl ShieldEmissions {
                 anim.coord,
                 anim.owner_house,
                 Some(anim.owner_object),
+                Some(anim.owner_object),
             );
         }
     }
@@ -1648,6 +1649,7 @@ pub(crate) fn apply_shield_modifiers(
                 &break_anim_names(rules, shield, ty),
                 location,
                 owner_house,
+                Some(target_id),
                 Some(target_id),
             );
             if let Some(weapon) = break_weapon_name(shield, ty) {

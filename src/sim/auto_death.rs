@@ -492,6 +492,7 @@ impl Simulation {
             },
             owner,
             None,
+            Some(id),
         );
         if structure_with_bunker {
             // `BuildingClass::UnloadBunker @ 0x004593A0`: the sell/death

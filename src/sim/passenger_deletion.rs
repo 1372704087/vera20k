@@ -233,7 +233,14 @@ fn delete_passenger(
                 as usize;
             if let Some(name) = settings.anim.get(pick) {
                 let type_id = sim.interner.intern(name);
-                sim.spawn_owned_anim(rules, type_id, location, owner, Some(transport));
+                sim.spawn_owned_anim(
+                    rules,
+                    type_id,
+                    location,
+                    owner,
+                    Some(transport),
+                    Some(transport),
+                );
             }
         }
     }

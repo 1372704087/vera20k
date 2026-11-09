@@ -448,6 +448,17 @@ pub struct AnimObject {
     /// rides its missile this way.
     #[serde(default)]
     attached_bullet: Option<u64>,
+    /// Phobos `AnimExt::Invoker` (`Ext/Anim/Body.h:28`): the Techno whose
+    /// `SetInvoker` named this anim. `InvalidateTechnoPointers`
+    /// (`Body.cpp:497`) clears it when that Techno is destroyed; VERA keeps
+    /// the identity and a stable-id lookup answers absent instead.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    invoker: Option<u64>,
+    /// Phobos `AnimExt::InvokerHouse` (`Ext/Anim/Body.h:29`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    invoker_house: Option<InternedId>,
     /// `AnimClass+0xCC` when it names a `TerrainClass`: a tree's fire, which
     /// only the Ares terrain fire attaches (`sim::terrain_fire`). VERA keeps
     /// a terrain owner apart from `owner_entity` and its stored coordinate
@@ -763,6 +774,10 @@ impl AnimObject {
             flaming_guy: None,
             owner_house: None,
             attached_bullet: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
+            #[cfg(feature = "phobos")]
+            invoker_house: None,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         }
@@ -772,6 +787,18 @@ impl AnimObject {
     #[cfg(test)]
     pub fn owner_house(&self) -> Option<InternedId> {
         self.owner_house
+    }
+
+    /// The invoker Techno (`AnimExt::Invoker`).
+    #[cfg(feature = "phobos")]
+    pub fn invoker(&self) -> Option<u64> {
+        self.invoker
+    }
+
+    /// The invoker House (`AnimExt::InvokerHouse`).
+    #[cfg(feature = "phobos")]
+    pub fn invoker_house(&self) -> Option<InternedId> {
+        self.invoker_house
     }
 
     /// The bullet whose expiry ends this anim (`AnimClass+0x17C`).
@@ -836,6 +863,12 @@ impl AnimObject {
             b"anim-owner-house-bullet-v1".hash(hasher);
             self.owner_house.hash(hasher);
             self.attached_bullet.hash(hasher);
+        }
+        #[cfg(feature = "phobos")]
+        if self.invoker.is_some() || self.invoker_house.is_some() {
+            b"anim-invoker-v1".hash(hasher);
+            self.invoker.hash(hasher);
+            self.invoker_house.hash(hasher);
         }
         if let Some(state) = &self.flaming_guy {
             b"anim-flaming-guy-v1".hash(hasher);
@@ -1533,6 +1566,8 @@ impl Simulation {
     /// `SetAnimOwnerObject` (native `ownedObject=true`). RESIDUAL: a
     /// `MakeInfantry=`/`CreateUnit=` type re-selects its own owner kind here;
     /// this owner keeps the invoker House, like the existing combat producer.
+    /// `invoker` is `CreateRandomAnim`'s `pTechno` under its `invoker` flag
+    /// (the same object may or may not also be the `ownedObject`).
     #[cfg(feature = "phobos")]
     pub(crate) fn spawn_owned_anim(
         &mut self,
@@ -1541,6 +1576,7 @@ impl Simulation {
         world_coord: AnimWorldCoord,
         owner_house: InternedId,
         owner_object: Option<u64>,
+        invoker: Option<u64>,
     ) -> Option<AnimId> {
         let (rx, ry, sub_x, sub_y, z) = world_coord.to_cell_sub_z();
         let descriptor = AnimClassSpawnDescriptor {
@@ -1552,6 +1588,10 @@ impl Simulation {
             .spawn_anim_at_world(rules, descriptor, world_coord)
             .ok()?;
         self.install_anim_owner_house(rules, type_name, id, owner_house);
+        if let Some(invoker) = invoker {
+            self.substrate
+                .set_anim_invoker(id, Some(invoker), Some(owner_house));
+        }
         Some(id)
     }
 
@@ -1590,10 +1630,18 @@ impl Simulation {
         world_coord: AnimWorldCoord,
         owner_house: InternedId,
         owner_object: Option<u64>,
+        invoker: Option<u64>,
     ) -> Option<AnimId> {
         let name = self.resolve_random_anim_name(rules, names)?;
         let type_name = self.interner.intern(name);
-        self.spawn_owned_anim(rules, type_name, world_coord, owner_house, owner_object)
+        self.spawn_owned_anim(
+            rules,
+            type_name,
+            world_coord,
+            owner_house,
+            owner_object,
+            invoker,
+        )
     }
 
     /// `AnimExt::SetAnimOwnerHouseKind(anim, house, None, false, true)`'s
@@ -1992,6 +2040,10 @@ impl Simulation {
             flaming_guy: None,
             owner_house: None,
             attached_bullet: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
+            #[cfg(feature = "phobos")]
+            invoker_house: None,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         };
@@ -4445,6 +4497,25 @@ impl crate::sim::world::ObjectSubstrate {
             return false;
         };
         anim.owner_house = Some(house);
+        true
+    }
+
+    /// Phobos `AnimExt::SetInvoker` (`Ext/Anim/Body.cpp:28-45`): store the
+    /// invoker Techno and its House. RESIDUAL: the native per-Techno
+    /// `AnimRefCount` and `InvalidateTechnoPointers` (clearing a destroyed
+    /// invoker) are not modeled; a stable-id lookup answers absent instead.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_anim_invoker(
+        &mut self,
+        id: AnimId,
+        invoker: Option<u64>,
+        house: Option<InternedId>,
+    ) -> bool {
+        let Some(anim) = self.anims.get_mut(id) else {
+            return false;
+        };
+        anim.invoker = invoker;
+        anim.invoker_house = house;
         true
     }
     /// `0x00424C90`: store `+0x17C`, the bullet whose expiry ends the anim.

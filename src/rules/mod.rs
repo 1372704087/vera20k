@@ -171,6 +171,8 @@ pub mod phobos_ammo_deploy;
 #[cfg(feature = "phobos")]
 pub mod phobos_penetrates_transport;
 #[cfg(feature = "phobos")]
+pub mod phobos_missile;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

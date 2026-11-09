@@ -107,6 +107,14 @@ impl RocketHost for RocketProcessHost<'_> {
                 crate::util::fixed_math::ra2_speed_to_leptons_per_frame(object.speed)
             })
     }
+    #[cfg(feature = "phobos")]
+    fn phobos_missile(&self) -> Option<crate::rules::phobos_missile::PhobosMissileRules> {
+        let owner = self.owner();
+        self.sim
+            .interner
+            .object_type(owner.type_ref(), self.rules)
+            .map(|object| object.phobos_missile.clone())
+    }
     fn in_bounds(&self, cell: (i16, i16)) -> bool {
         self.sim.map_cell_in_bounds(cell)
     }

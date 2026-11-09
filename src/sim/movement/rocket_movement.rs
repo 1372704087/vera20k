@@ -246,6 +246,12 @@ pub(crate) trait RocketHost {
     /// `VocClass::PlayAt @ 0x007509E0` of the owner type's `AuxSound1=`
     /// (`+0x52C`) at `coord`, with no handle.
     fn aux_sound(&mut self, coord: [i32; 3]);
+    /// Phobos `AircraftTypeExt::Missile.*` of the linked owner's type; `None`
+    /// keeps the rules block's takeoff settings.
+    #[cfg(feature = "phobos")]
+    fn phobos_missile(&self) -> Option<crate::rules::phobos_missile::PhobosMissileRules> {
+        None
+    }
     /// The owner's cell (GetCell, vtable `+0x1BC` -> `0x005F6960`): its own
     /// GetCoords Z (`0x00486840`) when it carries a structural bridge
     /// (`+0x140 & 0x100`), else `None`.
@@ -307,6 +313,14 @@ pub(crate) fn process(
     host: &mut impl RocketHost,
 ) {
     let frame = host.binary_frame() as i32;
+    // Phobos `RocketLocomotionClass_Process_CruiseMissileCheck` (`0x662354`)
+    // and `_CruiseMissileRaise` (`0x662720`): the linked type's
+    // `Missile.Cruise=` forces the Boomer arms even without a CMisl block.
+    #[cfg(feature = "phobos")]
+    let cmisl = cmisl
+        || host
+            .phobos_missile()
+            .is_some_and(|settings| settings.effective_cruise(cmisl));
     match rocket.mission_state {
         STATE_PAUSE => pause(rocket, block, cmisl, ext, frame, host),
         STATE_TILT => tilt(rocket, block, ext, frame, host),
@@ -343,7 +357,7 @@ fn pause(
         if rocket.trailer_timer.remaining(frame) == 0 {
             // Ares Takeoff1 (hook 0x66238A, Ares.dll 10061120) names it.
             takeoff_puff(ext, host);
-            rocket.trailer_timer = CdTimer::started(frame, 0x18);
+            rocket.trailer_timer = CdTimer::started(frame, takeoff_separation(ext, host));
         }
         if rocket.resubmit_latch {
             host.mark(false);
@@ -527,7 +541,7 @@ fn raise(
     if rocket.trailer_timer.remaining(frame) == 0 {
         // Ares Takeoff2 (hook 0x662512, Ares.dll 10061190).
         takeoff_puff(ext, host);
-        rocket.trailer_timer = CdTimer::started(frame, 0x18);
+        rocket.trailer_timer = CdTimer::started(frame, takeoff_separation(ext, host));
     }
     let here = host.location();
     if !rocket.mission_timer_done(frame) {
@@ -586,8 +600,34 @@ fn tail(
 /// puff of states 1, 2 and 6; Ares builds name the type's anim and puff
 /// nothing for a null one.
 fn takeoff_puff(ext: &RocketTypeExt<'_>, host: &mut impl RocketHost) {
-    if let Some(anim) = ext.takeoff_anim {
+    // Phobos `RocketLocomotionClass_Process_CustomMissileTakeoff` (hook
+    // 0x6624FB): the linked type's `Missile.TakeOffAnim=`, default V3TAKOFF,
+    // replaces the rules block's takeoff anim.
+    #[cfg(feature = "phobos")]
+    let settings = host.phobos_missile();
+    #[cfg(feature = "phobos")]
+    let (anim, _) =
+        crate::rules::phobos_missile::takeoff_settings(settings.as_ref(), ext.takeoff_anim);
+    #[cfg(not(feature = "phobos"))]
+    let anim = ext.takeoff_anim;
+    if let Some(anim) = anim {
         host.anim(anim, host.location(), 2, -10);
+    }
+}
+
+/// The takeoff trailer-timer separation: Phobos
+/// `Missile.TakeOffSeparation=` (hook `0x6623FC`, default 24), else the stock
+/// 24-frame timer.
+fn takeoff_separation(ext: &RocketTypeExt<'_>, host: &impl RocketHost) -> i32 {
+    #[cfg(feature = "phobos")]
+    {
+        let settings = host.phobos_missile();
+        crate::rules::phobos_missile::takeoff_settings(settings.as_ref(), ext.takeoff_anim).1
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (ext, host);
+        0x18
     }
 }
 

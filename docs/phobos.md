@@ -55,6 +55,7 @@ Supported extensions:
 - [Forced weapon selection](phobos-force-weapon.md) (`ForceWeapon.*` / `ForceAAWeapon.*` force the SelectWeapon slot by target state, range and class)
 - [Deploy ammo](phobos-ammo-deploy.md) (`Ammo.AddOnDeploy`, `.DeployUnlock*` and `.AutoDeploy*` shape a vehicle deployer's ammo and deploy admission)
 - [Penetrates transport](phobos-penetrates-transport.md) (`PenetratesTransport.*` lets a warhead damage a transport's passengers)
+- [Missile cruise and takeoff](phobos-missile.md) (`Missile.Cruise`, `.TakeOffSeparation` and `.TakeOffAnim` on a rocket-flying AircraftType)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

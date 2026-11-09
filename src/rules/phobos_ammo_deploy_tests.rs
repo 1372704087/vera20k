@@ -44,6 +44,10 @@ fn reads_the_five_keys_and_their_bands() {
     assert_eq!(set.ammo_after_deploy(8, 10), 5);
     assert_eq!(set.ammo_after_deploy(1, 10), 0);
     assert_eq!(set.ammo_after_deploy(9, 10), 6);
+    // A type without `Ammo=` keeps the constructor's -1: native's ordered
+    // clamp answers 0 below zero and -1 above it, without panicking.
+    assert_eq!(set.ammo_after_deploy(4, -1), -1);
+    assert_eq!(set.ammo_after_deploy(2, -1), 0);
     // HasAmmoToDeploy admits only inside the unlock band.
     assert!(set.has_ammo_to_deploy(2) && set.has_ammo_to_deploy(6));
     assert!(!set.has_ammo_to_deploy(1) && !set.has_ammo_to_deploy(7));

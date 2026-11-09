@@ -322,6 +322,15 @@ impl Simulation {
                     return false;
                 }
                 let bunkered = entity.bunker.link().installed_in().is_some();
+                // Phobos `HasAmmoToDeploy` inside `CanDeploySlashUnload`
+                // (hook 0x7010C1, `Ext/Techno/Hooks.cpp:1455-1470`): every
+                // admission (deploy key, `UnitClass::Deploy`, AI/scripted)
+                // refuses outside the `Ammo.DeployUnlock*` band; a bunkered
+                // Unit is exempt.
+                #[cfg(feature = "phobos")]
+                if !self.phobos_unit_has_ammo_to_deploy(id, rules) {
+                    return false;
+                }
                 if object.deploys_into.is_none()
                     && object.passengers == 0
                     && !object.is_simple_deployer

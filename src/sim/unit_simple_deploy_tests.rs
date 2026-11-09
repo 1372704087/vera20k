@@ -835,6 +835,10 @@ fn phobos_deploy_unlock_band_gates_the_player_check() {
         !sim.phobos_unit_has_ammo_to_deploy(id, &rules),
         "8 is above the band"
     );
+    assert!(
+        !sim.can_deploy_slash_unload(id, &rules),
+        "the ammo gate lives in the deploy admission"
+    );
     sim.substrate
         .entities
         .get_mut(id)
@@ -843,6 +847,7 @@ fn phobos_deploy_unlock_band_gates_the_player_check() {
         .unwrap()
         .set_current_for_test(4);
     assert!(sim.phobos_unit_has_ammo_to_deploy(id, &rules));
+    assert!(sim.can_deploy_slash_unload(id, &rules));
     sim.substrate
         .entities
         .get_mut(id)
@@ -851,6 +856,7 @@ fn phobos_deploy_unlock_band_gates_the_player_check() {
         .unwrap()
         .set_current_for_test(1);
     assert!(!sim.phobos_unit_has_ammo_to_deploy(id, &rules));
+    assert!(!sim.can_deploy_slash_unload(id, &rules));
 }
 
 /// Phobos `UnitExt::DepletedAmmoActions` (`Ext/Unit/Body.cpp:149-195`): the
@@ -861,17 +867,22 @@ fn phobos_deploy_unlock_band_gates_the_player_check() {
 fn phobos_auto_deploy_band_queues_and_cancels_unload() {
     let (mut sim, rules, id) =
         phobos_deploy_scene("Ammo.AutoDeployMinimumAmount=0\nAmmo.AutoDeployMaximumAmount=4\n");
-    let queued = |sim: &Simulation| {
+    let current = |sim: &Simulation| {
         sim.substrate
             .entities
             .get(id)
             .unwrap()
             .mission
-            .queued()
+            .current()
             .known()
     };
+    let has_unload = |sim: &Simulation| {
+        let mission = &sim.substrate.entities.get(id).unwrap().mission;
+        mission.current().known() == Some(MissionType::Unload)
+            || mission.queued().known() == Some(MissionType::Unload)
+    };
     super::depleted_ammo_actions(&mut sim, id, &rules);
-    assert_eq!(queued(&sim), None, "8 is outside the band");
+    assert!(!has_unload(&sim), "8 is outside the band");
     sim.substrate
         .entities
         .get_mut(id)
@@ -880,11 +891,7 @@ fn phobos_auto_deploy_band_queues_and_cancels_unload() {
         .unwrap()
         .set_current_for_test(3);
     super::depleted_ammo_actions(&mut sim, id, &rules);
-    assert_eq!(
-        queued(&sim),
-        Some(MissionType::Unload),
-        "inside the band queues Unload"
-    );
+    assert!(has_unload(&sim), "inside the band queues/commences Unload");
     sim.substrate
         .entities
         .get_mut(id)
@@ -893,9 +900,10 @@ fn phobos_auto_deploy_band_queues_and_cancels_unload() {
         .unwrap()
         .set_current_for_test(6);
     super::depleted_ammo_actions(&mut sim, id, &rules);
+    assert!(!has_unload(&sim), "leaving the band cancels the Unload");
     assert_eq!(
-        queued(&sim),
+        current(&sim),
         Some(MissionType::Guard),
-        "leaving the band cancels the Unload"
+        "the cancel commences Guard"
     );
 }

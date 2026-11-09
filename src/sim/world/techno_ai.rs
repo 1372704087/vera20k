@@ -763,9 +763,14 @@ impl Simulation {
         techno_ai_shell(self, id, category, rules, ctx, &mut outcome);
         // `UnitClass_AI` hook `0x736480`, after `FootClass::AI`: Phobos
         // `DepletedAmmoActions` queues Unload inside the auto-deploy band and
-        // cancels it outside.
+        // cancels it outside. Native never reaches the hook for a warped-out
+        // or AI-frozen object, whose shell returned first.
         #[cfg(feature = "phobos")]
-        if category == EntityCategory::Unit {
+        if category == EntityCategory::Unit
+            && let Some(entity) = self.substrate.entities.get(id)
+            && !entity.ai_frozen()
+            && !entity.is_warped_out()
+        {
             crate::sim::unit_simple_deploy::depleted_ammo_actions(self, id, rules);
         }
         outcome

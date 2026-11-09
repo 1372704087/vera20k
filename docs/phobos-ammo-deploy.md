@@ -21,23 +21,28 @@ Ammo.AutoDeployMaximumAmount=-1
   undeploy completes: `ammo = clamp(ammo + add, 0, Ammo)`. A changed count
   starts the reload clock (`StartReloading`).
 - `Ammo.DeployUnlock*` is the `HasAmmoToDeploy` band: with both unset every
-  count admits; otherwise the player's deploy cursor/action refuses outside
-  the band. It does not gate the mission-driven deploy.
+  count admits; otherwise the native deploy admission (deploy key,
+  `UnitClass::Deploy`, AI/scripted `DeploysInto`) refuses outside the band.
+  A bunker-linked Unit is exempt. The simple-deployer Unload mission does not
+  pass through this admission.
 - `Ammo.AutoDeploy*`: after `FootClass::AI` in `UnitClass::AI` (hook
-  `0x736480`), a deploy-capable Unit queues the Unload mission while its ammo
-  is inside the auto-deploy band and also admitted by the deploy-unlock band,
-  and queues Guard when it leaves. A simple deployer leaving the band while
-  airborne re-enters `JumpjetLocomotionClass::State::Ascending`.
+  `0x736480`), a deploy-capable Unit queues/commences the Unload mission while
+  its ammo is inside the auto-deploy band and also admitted by the
+  deploy-unlock band, and queues/commences Guard when it leaves. A simple
+  deployer leaving the band while airborne re-enters
+  `JumpjetLocomotionClass::State::Ascending`.
 
 ## Where VERA20K owns it
 
 `rules::phobos_ammo_deploy` reads the five keys. `sim::unit_simple_deploy`
 owns the deploy/undeploy completion rewrite (`apply_deploy_ammo_change`), the
-`UnitClass::AI` action (`depleted_ammo_actions`) and the player gate
+`UnitClass::AI` action (`depleted_ammo_actions`) and the admission gate
 (`Simulation::phobos_unit_has_ammo_to_deploy`), which
-`app::input::context_order::unit_refuses_deploy` and the deploy-key filter in
-`app::input::dispatch` call. Ammo writes go through `TechnoAmmo` and the
-existing `shared_ammo::start_reloading` owner.
+`sim::deploy::can_deploy_slash_unload` calls as the one
+`CanDeploySlashUnload` owner. Ammo writes go through `TechnoAmmo` and the
+existing `shared_ammo::start_reloading` owner. The add clamp follows
+`std::clamp`'s ordered form, so a type without `Ammo=` (`-1`) answers 0 or -1
+instead of panicking.
 
 ## Residuals
 

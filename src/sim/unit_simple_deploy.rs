@@ -271,7 +271,8 @@ impl Simulation {
                     .and_then(|entity| self.entity_object_type(entity, rules))
                     .and_then(|object| object.techno_combat().convert_deploy())
                     .and_then(|target| rules.object(&target.id))
-                    .map(|object| object.ammo);
+                    // `maxAmmoOverride >= 0 ? override : OwnerObject()->Ammo`.
+                    .and_then(|object| (object.ammo >= 0).then_some(object.ammo));
                 #[cfg(not(feature = "ares"))]
                 let max_ammo_override = None;
                 self.apply_deploy_ammo_change(id, max_ammo_override, rules);
@@ -340,9 +341,9 @@ impl Simulation {
     }
 
     /// Phobos `UnitExt::HasAmmoToDeploy` (`Ext/Unit/Body.cpp:218-237`) for the
-    /// player deploy cursor/action: only a Unit's `Ammo.DeployUnlock*` band
-    /// applies; every other class and an unset band answer true. Builds
-    /// without Phobos always answer true.
+    /// deploy admission: only a Unit's `Ammo.DeployUnlock*` band applies and a
+    /// bunkered Unit skips it; every other class and an unset band answer
+    /// true. Builds without Phobos always answer true.
     pub fn phobos_unit_has_ammo_to_deploy(&self, id: u64, rules: &RuleSet) -> bool {
         #[cfg(not(feature = "phobos"))]
         {
@@ -355,6 +356,9 @@ impl Simulation {
                 return false;
             };
             if entity.category() != EntityCategory::Unit {
+                return true;
+            }
+            if entity.bunker.link().installed_in().is_some() {
                 return true;
             }
             let Some(object) = self.object_type(entity.type_ref(), rules) else {
@@ -514,7 +518,7 @@ pub(crate) fn depleted_ammo_actions(sim: &mut Simulation, id: u64, rules: &RuleS
         let _ = sim.mission_queue_exact(
             id,
             MissionId::from_known(MissionType::Unload),
-            0,
+            1,
             now,
             &provider,
         );
@@ -522,7 +526,7 @@ pub(crate) fn depleted_ammo_actions(sim: &mut Simulation, id: u64, rules: &RuleS
         let _ = sim.mission_queue_exact(
             id,
             MissionId::from_known(MissionType::Guard),
-            0,
+            1,
             now,
             &provider,
         );

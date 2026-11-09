@@ -77,9 +77,18 @@ impl PhobosAmmoDeploy {
     }
 
     /// `HandleOnDeployAmmoChange`: `original + add`, clamped to
-    /// `[0, max_ammo]`. A zero add keeps the count.
+    /// `[0, max_ammo]`. A zero add keeps the count. `max_ammo` may be the
+    /// type's unset `-1`; `std::clamp`'s ordered form then answers 0 for a
+    /// negative sum and -1 above zero, as native does without a panic.
     pub fn ammo_after_deploy(&self, original: i32, max_ammo: i32) -> i32 {
-        (original.wrapping_add(self.add_on_deploy)).clamp(0, max_ammo)
+        let value = original.wrapping_add(self.add_on_deploy);
+        if value < 0 {
+            0
+        } else if max_ammo < value {
+            max_ammo
+        } else {
+            value
+        }
     }
 }
 

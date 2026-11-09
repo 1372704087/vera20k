@@ -161,6 +161,8 @@ pub mod phobos_units;
 #[cfg(feature = "phobos")]
 pub mod phobos_adjacent;
 #[cfg(feature = "phobos")]
+pub mod phobos_anim_draw_offset;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

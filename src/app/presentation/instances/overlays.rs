@@ -616,13 +616,20 @@ pub(crate) fn build_display_effect_instances(
             lift_px,
         );
         // Phobos `AnimClass_DrawIt_DrawOffset` (`0x423122`, 6 bytes replaced):
-        // DrawIt's location takes the effect's accumulated
-        // `Animation.DrawOffsetN` after admission, so the sort row and the
-        // admission point keep the anim's own coordinate.
+        // DrawIt's location first takes the anim type's selection-bracket
+        // overwrite, then the effect's accumulated `Animation.DrawOffsetN`, so
+        // the sort row and the admission point keep the anim's own coordinate.
         #[cfg(feature = "phobos")]
         let (center_x, center_y) = {
+            let point = super::anim_draw::phobos_draw_offset_point(
+                sim,
+                input.rules,
+                anim,
+                config,
+                [center_x, center_y],
+            );
             let offset = attach_effect_draw_offset(sim, input.rules, anim);
-            (center_x + offset[0], center_y + offset[1])
+            (point[0] + offset[0], point[1] + offset[1])
         };
         debug_assert!(!anim.terrain_attached() || anim.use_cell_drawer());
         // Prepare the ordinary body coordinate/material. The shared DrawIt

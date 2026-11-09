@@ -480,6 +480,13 @@ pub struct AnimTypeRuntimeConfig {
     pub random_loop_delay: Option<(u16, u16)>,
     pub random_rate_logic_frames: Option<(u16, u16)>,
     pub y_draw_offset: i32,
+    /// Phobos `XDrawOffset.*`/`YDrawOffset.*` selection-bracket keys
+    /// (`Ext/AnimType/Body.cpp:82-90`), consumed by
+    /// `AnimClass_DrawIt_DrawOffset` (`0x423122`/`0x422CD8`). The plain
+    /// `XDrawOffset` is included because the atlas bakes it into the frame
+    /// offset that the bracket X assignment natively overwrites.
+    #[cfg(feature = "phobos")]
+    pub phobos_draw_offset: crate::rules::phobos_anim_draw_offset::PhobosAnimDrawOffset,
     pub z_adjust: i32,
     pub y_sort_adjust: i32,
     pub layer: AnimLayer,
@@ -875,6 +882,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         }),
         random_rate_logic_frames: read_random_rate(section),
         y_draw_offset: section.read_int("YDrawOffset", 0),
+        #[cfg(feature = "phobos")]
+        phobos_draw_offset:
+            crate::rules::phobos_anim_draw_offset::PhobosAnimDrawOffset::from_section(section),
         z_adjust: section.read_int("ZAdjust", 0),
         // AnimType ctor42765B initializes0; ReadINI428147 uses ReadInt5276D0.
         y_sort_adjust: section.read_int("YSortAdjust", 0),

@@ -9,11 +9,7 @@ fn defaults_match_initialize() {
     assert!(!set.cruise);
     assert_eq!(set.takeoff_separation, 24);
     assert_eq!(set.takeoff_anim.as_deref(), Some("V3TAKOFF"));
-    assert!(!set.effective_cruise(false));
-    assert!(
-        set.effective_cruise(true),
-        "a stock CMisl block stays cruise"
-    );
+    assert!(!set.cruise);
 }
 
 #[test]
@@ -27,7 +23,6 @@ fn reads_the_three_keys_and_the_anim_clearing_tokens() {
     assert!(set.cruise);
     assert_eq!(set.takeoff_separation, 5);
     assert_eq!(set.takeoff_anim.as_deref(), Some("MYTAKE"));
-    assert!(set.effective_cruise(false));
 
     assert_eq!(
         PhobosMissileRules::from_section(ini.section_or_empty("B")).takeoff_anim,

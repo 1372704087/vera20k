@@ -46,11 +46,6 @@ impl PhobosMissileRules {
             takeoff_anim: takeoff_anim(section, defaults.takeoff_anim),
         }
     }
-
-    /// `Missile.Cruise=yes` forces the cruise raise path.
-    pub fn effective_cruise(&self, stock: bool) -> bool {
-        stock || self.cruise
-    }
 }
 
 /// `Valueable<AnimTypeClass*>`: absent and blank keep the current (default

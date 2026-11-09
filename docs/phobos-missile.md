@@ -13,16 +13,18 @@ Missile.TakeOffAnim=V3TAKOFF     ; AnimType, default V3TAKOFF
 
 ## Behavior
 
-- `Missile.Cruise=yes` forces the cruise-missile raise path on the linked
-  rocket (`RocketLocomotionClass_Process_CruiseMissileCheck` hook `0x662354`
-  and `_CruiseMissileRaise` `0x662720`), even when the type is not the
-  configured CMisl type; the pause state then promotes to the raise state
-  instead of the tilt state.
-- `Missile.TakeOffSeparation` is the takeoff trailer-timer length in frames
-  (`_CustomSmokeInterval` `0x6623FC`); the stock value is 24.
-- `Missile.TakeOffAnim` names the takeoff animation
-  (`_CustomMissileTakeoff` `0x6624FB`); the type's key replaces the rules
-  block's anim, and `none`/`<none>` means no puff.
+- `Missile.Cruise=yes` sends the rocket's tilt-state entry into the raise body
+  (`RocketLocomotionClass_Process_CruiseMissileCheck` hook `0x662354` and
+  `_CruiseMissileRaise` `0x662720`): a crate with `PauseFrames=0` raises
+  immediately instead of tilting. The stock CMisl bool only selects the pause
+  state's next state; it does not promote from the tilt.
+- `Missile.TakeOffSeparation` is the takeoff trailer-timer length in frames at
+  the pause smoke interval (`_CustomSmokeInterval` `0x6623FC`) and at the raise
+  takeoff (`0x6624FB`); the stock value is 24.
+- `Missile.TakeOffAnim` names the raise takeoff animation
+  (`_CustomMissileTakeoff` `0x6624FB`, default `V3TAKOFF`; `none`/`<none>`
+  means no puff). The pause and tilt puffs keep the rules block/Ares anim;
+  Phobos does not hook those sites.
 
 ## Where VERA20K owns it
 
@@ -39,7 +41,7 @@ block's anim.
 - An unknown `Missile.TakeOffAnim` name is kept literally; native
   `AnimTypeClass::Find` would keep the previous value instead. No retail key
   names an unregistered animation.
-- `Missile.Cruise` is asserted through the rules helper and the stock rocket
-  corpus (which proves the flag does not disturb the CMisl paths); a scripted
-  production row with `Missile.Cruise=yes` is not part of the corpus.
+- Ares reads the same `Missile.TakeOffAnim` key for its custom-missile paths;
+  in `ares,phobos` builds the Phobos field outranks the Ares block at the
+  raise site, but both read the same section key, so authored values agree.
 - The host clones the small settings struct for every rocket frame.

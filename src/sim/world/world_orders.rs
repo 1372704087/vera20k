@@ -1049,11 +1049,31 @@ impl Simulation {
             {
                 return false;
             }
+            // Phobos `NoManualMove` zeroes the `UndeploysInto` this tail reads
+            // (`BuildingClass_CanPlayerMove @ 0x44F62B`, the fall-through tail
+            // of 44F5C0; hook `0x44F62B` -> `0x44F631` forces ECX 0,
+            // `Ext/Techno/Hooks.cpp:790-798`). The rally-line (455DA0) and
+            // ConYard/MCV-redeploy arms above stay native, so a factory with a
+            // rally line and a yard under `MCVRedeploy` keep answering true.
+            #[cfg(feature = "phobos")]
+            if object.phobos_no_manual_move {
+                return false;
+            }
             return crate::sim::production::undeploy_target(rules, &object.id).is_some();
         }
         if !self.house_is_human_player(actor.owner())
             || actor.bunker.link().installed_in().is_some()
         {
+            return false;
+        }
+        // Phobos `NoManualMove` settles the whole predicate for a non-building
+        // (`TechnoClass_CanPlayerMove @ 0x700C40`: Owner->IsHumanPlayer at
+        // `0x50B6F0`, then the hooked virtual at `0x700C58` -> `0x700C62`
+        // returns false, `Ext/Techno/Hooks.cpp:778-784`). Every player order
+        // path that asks vt+0xA0 — Move, Stop, Deploy, the attack rung — sees
+        // the same false the native hook produces; AI missions never ask it.
+        #[cfg(feature = "phobos")]
+        if object.phobos_no_manual_move {
             return false;
         }
         if object.spawned

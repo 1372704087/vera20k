@@ -860,6 +860,13 @@ pub struct ObjectType {
     /// not ported.
     #[cfg(feature = "phobos")]
     pub phobos_passengers_by_size: bool,
+    /// Phobos `NoManualMove` (`Valueable<bool>`, default `false`,
+    /// `Ext/TechnoType/Body.cpp:803`, constructor `Ext/TechnoType/Body.h:73`):
+    /// the player may not order this techno, while its AI keeps moving it.
+    /// Consumed by [`crate::sim::world::Simulation::techno_player_controllable`],
+    /// the vt+0xA0 predicate the player's order paths ask.
+    #[cfg(feature = "phobos")]
+    pub phobos_no_manual_move: bool,
     /// Phobos `TechnoTypeExt` Iron Curtain / Force Shield overrides
     /// (`IronCurtain.*`, `ForceShield.*`).
     #[cfg(feature = "phobos")]
@@ -5113,6 +5120,10 @@ impl ObjectType {
             phobos_insignia: crate::rules::insignia_type::PhobosInsignia::default(),
             #[cfg(feature = "phobos")]
             phobos_passengers_by_size: section.read_ares_bool("Passengers.BySize", true),
+            // Constructor-false `Valueable<bool>`; `ReadBool` (no Ares string
+            // staging), so an absent, empty or invalid value keeps `false`.
+            #[cfg(feature = "phobos")]
+            phobos_no_manual_move: section.read_bool("NoManualMove", false),
             #[cfg(feature = "phobos")]
             phobos_invulnerability:
                 crate::rules::invulnerability_rules::PhobosInvulnerability::parse(section),

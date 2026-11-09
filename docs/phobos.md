@@ -44,6 +44,7 @@ Supported extensions:
 - [Passenger deletion](phobos-passenger-deletion.md) (`PassengerDeletion.*` counts down and deletes a transport's passenger, optionally paying Soylent)
 - [Warhead trigger conditions](phobos-warhead-triggers.md) (`AffectsAbovePercent`, `AffectsBelowPercent`, `AffectsVeterancy` and `AffectsInvokerOnly.*` on a detonation's targets)
 - [Overload tables](phobos-overload.md) (`Overload.Count`, `.Damage`, `.Frames`, `.DeathSound`, `.ParticleSys` and `.ParticleSysCount` for mind-control managers)
+- [Grinding gates](phobos-grinding.md) (`Grinding.AllowAllies`, `.AllowOwner`, `.AllowTypes`, `.DisallowTypes`, `.Sound`, `.PlayDieSound`, `.Weapon` and `.Weapon.RequiredCredits`)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

@@ -1648,6 +1648,20 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         // Native Techno+3D0 affects a later Repair-depot sale (`0x0044C4BC`).
         b"techno-useless-v1".hash(hasher);
     }
+    // Phobos BuildingExt grinding-weapon accumulators gate the next
+    // `Grinding.Weapon=` shot; only nonzero state affects the future.
+    #[cfg(feature = "phobos")]
+    if entity.phobos_grinding_weapon_accumulated_credits() != 0
+        || entity.phobos_grinding_weapon_last_fired_frame() != 0
+    {
+        b"phobos-grinding-weapon-v1".hash(hasher);
+        entity
+            .phobos_grinding_weapon_accumulated_credits()
+            .hash(hasher);
+        entity
+            .phobos_grinding_weapon_last_fired_frame()
+            .hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);

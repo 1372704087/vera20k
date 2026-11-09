@@ -3628,8 +3628,9 @@ fn read_valueable_type(
 /// Ares `ValueableVector<TechnoTypeClass*>::Read` (`0x1000EDD0`): ReadString
 /// returning 0 (absent or empty) retains; any other value replaces the
 /// vector with the tokens that resolve. There is no `<default>` form.
-#[cfg(feature = "ares")]
-fn read_valueable_type_vector(
+/// Phobos repeats it for `ValueableVector<TechnoTypeClass*>` fields.
+#[cfg(any(feature = "ares", feature = "phobos"))]
+pub(crate) fn read_valueable_type_vector(
     section: &IniSection,
     key: &str,
     current: &[String],
@@ -6397,6 +6398,10 @@ impl RulesPassProcessor {
         // WarheadType only an AttachEffect key names is read in this pass.
         #[cfg(feature = "phobos")]
         self.allocate_attach_effect_references(pass);
+        // Phobos `BuildingTypeExt::LoadFromINI`'s `Grinding_Weapon.Read<true>`
+        // constructs the named weapon on the same pass.
+        #[cfg(feature = "phobos")]
+        self.allocate_grinding_references(pass);
         // Phobos `RulesExt::LoadBeforeTypeData` runs
         // `InsigniaTypeClass::LoadFromINIList` before this pass's type bodies,
         // so a same-pass `InsigniaType=` resolves against it.
@@ -10319,6 +10324,33 @@ impl RulesPassProcessor {
             }
             if let Some(warhead) = section.read_type_name("ReflectDamage.Warhead", 0x100) {
                 self.find_or_allocate(RulesTypeFamily::Warhead, warhead);
+            }
+        }
+    }
+
+    /// Phobos `BuildingTypeExt::LoadFromINI`'s `Grinding_Weapon.Read<true>`:
+    /// the named weapon is constructed before this pass's type bodies, so a
+    /// weapon only `Grinding.Weapon=` names is read in this pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_grinding_references(&mut self, pass: &IniFile) {
+        let Some(list) = pass.section("BuildingTypes") else {
+            return;
+        };
+        for key in list.physical_keys() {
+            let Some(name) = list.read_name(key, 2048) else {
+                continue;
+            };
+            let section = pass.section(name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            if let Some(weapon) = section.read_type_name("Grinding.Weapon", 0x80) {
+                self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
             }
         }
     }

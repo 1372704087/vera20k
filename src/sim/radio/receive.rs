@@ -261,6 +261,37 @@ pub(crate) fn can_load(
     ) {
         return CanLoad::Answer(RadioResponse::None);
     }
+    // Phobos `BuildingClass_ReceiveMessage_Grinding` (`0x43C30A`,
+    // `Ext/Building/Hooks.Grinding.cpp:6-38`): an allied `Grinding=`
+    // building answers before the shared admission. Ground/water class must
+    // match unless the sender's zone is amphibious, a building under
+    // construction, selling, in BState 0, offline or facing a balloon-hover
+    // sender refuses, and otherwise the type gates decide.
+    #[cfg(feature = "phobos")]
+    if building_type.grinding {
+        use crate::rules::locomotor_type::MovementZone;
+        let amphibious = matches!(
+            unit_type.movement_zone,
+            MovementZone::Amphibious
+                | MovementZone::AmphibiousCrusher
+                | MovementZone::AmphibiousDestroyer
+        );
+        if !amphibious && building_type.naval != unit_type.naval {
+            return CanLoad::Answer(RadioResponse::Negatory);
+        }
+        if building.constructing_or_selling()
+            || building.in_construction_bstate()
+            || !building.building_online()
+            || unit_type.balloon_hover
+        {
+            return CanLoad::Answer(RadioResponse::Negatory);
+        }
+        return CanLoad::Answer(if sim.can_grind_techno(building_id, from, rules) {
+            RadioResponse::Roger
+        } else {
+            RadioResponse::Negatory
+        });
+    }
     let absorbs = building_type.absorbs_passengers();
     // Ares 3.0 100174E0 (hook 0x43C326) skips the contact-capacity gate for
     // a `Tunnel=` building as for an absorber.

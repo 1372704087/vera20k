@@ -128,6 +128,15 @@ pub struct GameEntity {
     /// 4C9DED retains its owner's Cost_Of quote; Grand_Opening446AF2 consumes
     /// it independently of remaining debt and later House discounts (gamemd).
     production_start_price: i32,
+    /// Phobos `BuildingExt::GrindingWeapon_AccumulatedCredits` (`+0x04`):
+    /// refunds ground since the last `Grinding.Weapon=` shot.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    grinding_weapon_accumulated_credits: i32,
+    /// Phobos `BuildingExt::GrindingWeapon_LastFiredFrame` (`+0x08`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    grinding_weapon_last_fired_frame: i32,
     /// Techno+504 and Ares held sparkle. One private counter owner; stock
     /// constructor remains zero and only the feature-gated EMP producer writes it.
     #[serde(default)]
@@ -1970,6 +1979,26 @@ impl GameEntity {
     pub(crate) fn record_production_start_price(&mut self, price: i32) {
         self.production_start_price = price;
     }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_grinding_weapon_accumulated_credits(&self) -> i32 {
+        self.grinding_weapon_accumulated_credits
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_grinding_weapon_accumulated_credits(&mut self, credits: i32) {
+        self.grinding_weapon_accumulated_credits = credits;
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_grinding_weapon_last_fired_frame(&self) -> i32 {
+        self.grinding_weapon_last_fired_frame
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_grinding_weapon_last_fired_frame(&mut self, frame: i32) {
+        self.grinding_weapon_last_fired_frame = frame;
+    }
 }
 
 /// Fixture setup for the identity a constructor or decoder establishes.
@@ -2235,6 +2264,10 @@ impl GameEntity {
             native_cloak_displacement: crate::util::native_x87::NativeF32Bits::POSITIVE_ZERO,
             useless: false,
             production_start_price: 0,
+            #[cfg(feature = "phobos")]
+            grinding_weapon_accumulated_credits: 0,
+            #[cfg(feature = "phobos")]
+            grinding_weapon_last_fired_frame: 0,
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),

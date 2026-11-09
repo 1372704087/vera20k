@@ -873,6 +873,9 @@ pub struct ObjectType {
     /// Phobos `Overload.*` (`Ext/TechnoType/Body.cpp:1133-1138`).
     #[cfg(feature = "phobos")]
     pub phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings,
+    /// Phobos `Grinding.*` (`Ext/BuildingType/Body.cpp:200-207`).
+    #[cfg(feature = "phobos")]
+    pub phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4124,6 +4127,10 @@ impl ObjectType {
             self.phobos_overload.death_sound = section.and_then(|section| {
                 sounds.read_rules_reference(section, "Overload.DeathSound", None)
             });
+            // Phobos `Grinding_Sound` (`ValueableIdx<VocClass>`): unknown and
+            // unset names keep `None`, so the stock EnterGrinderSound plays.
+            self.phobos_grinding.sound = section
+                .and_then(|section| sounds.read_rules_reference(section, "Grinding.Sound", None));
         }
         #[cfg(feature = "ares")]
         for (slot, key) in ["Promote.VeteranSound", "Promote.EliteSound"]
@@ -4698,6 +4705,10 @@ impl ObjectType {
                 ),
             #[cfg(feature = "phobos")]
             phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings::from_section(
+                section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_grinding: crate::rules::phobos_grinding::PhobosGrindingSettings::from_section(
                 section,
             ),
             #[cfg(feature = "phobos")]

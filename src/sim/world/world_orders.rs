@@ -483,10 +483,30 @@ impl Simulation {
         &self,
         actor_id: u64,
         target_id: u64,
+        force_fire: bool,
         rules: &RuleSet,
     ) -> Option<EntryClickAction> {
         let actor = self.substrate.entities.get(actor_id)?;
         let target = self.substrate.entities.get(target_id)?;
+        // Phobos `UnitClass_WhatAction_Grinding` (`0x740134`,
+        // `Ext/Building/Hooks.Grinding.cpp:98-160`): with the force-fire key
+        // and an armed Unit the hook continues past the building arm.
+        #[cfg(feature = "phobos")]
+        if force_fire
+            && self
+                .object_type(actor.type_ref(), rules)
+                .is_some_and(|object| {
+                    combat::combat_weapon::is_armed(
+                        actor,
+                        object,
+                        &self.substrate.entities,
+                        rules,
+                        &self.interner,
+                    )
+                })
+        {
+            return None;
+        }
         if actor.category() != EntityCategory::Unit
             || !self.house_is_human_player(actor.owner())
             || !combat::combat_weapon::is_ally_by_object(
@@ -497,9 +517,19 @@ impl Simulation {
             )
             || target.is_warped_out()
             || target.category() != EntityCategory::Structure
-            || crate::sim::radio::receive::can_load_query(self, target_id, actor_id, rules)
-                != crate::sim::radio::RadioResponse::Roger
         {
+            return None;
+        }
+        let target_type = self.object_type(target.type_ref(), rules)?;
+        if crate::sim::radio::receive::can_load_query(self, target_id, actor_id, rules)
+            != crate::sim::radio::RadioResponse::Roger
+        {
+            // Phobos answers NoEnter for a refused grinder even though the
+            // stock answer leaves Select.
+            #[cfg(feature = "phobos")]
+            if target_type.grinding {
+                return Some(EntryClickAction::NoEnter);
+            }
             return None;
         }
         if self.object_type(actor.type_ref(), rules)?.movement_zone
@@ -507,7 +537,16 @@ impl Simulation {
         {
             return Some(EntryClickAction::NoEnter);
         }
-        Some(if self.object_type(target.type_ref(), rules)?.grinding {
+        Some(if target_type.grinding {
+            #[cfg(feature = "phobos")]
+            {
+                if self.can_grind_techno(target_id, actor_id, rules) {
+                    EntryClickAction::Grind
+                } else {
+                    EntryClickAction::NoEnter
+                }
+            }
+            #[cfg(not(feature = "phobos"))]
             EntryClickAction::Grind
         } else {
             EntryClickAction::Enter
@@ -567,6 +606,7 @@ impl Simulation {
         actor_id: u64,
         target_id: u64,
         base: EntryBaseAction,
+        force_fire: bool,
         rules: &RuleSet,
     ) -> Option<EntryClickAction> {
         let actor = self.substrate.entities.get(actor_id)?;
@@ -574,8 +614,16 @@ impl Simulation {
         let select = base == EntryBaseAction::Select;
         match actor.category() {
             EntityCategory::Unit => {
-                let building = if select {
-                    self.unit_building_click_action(actor_id, target_id, rules)
+                // Phobos runs the Unit building arm for a `Grinding=` target
+                // under any base action (`Hooks.Grinding.cpp:119`).
+                let target_obj = self.object_type(target.type_ref(), rules)?;
+                #[cfg(feature = "phobos")]
+                let ask_building = select
+                    || (target.category() == EntityCategory::Structure && target_obj.grinding);
+                #[cfg(not(feature = "phobos"))]
+                let ask_building = select;
+                let building = if ask_building {
+                    self.unit_building_click_action(actor_id, target_id, force_fire, rules)
                 } else {
                     None
                 };
@@ -590,9 +638,32 @@ impl Simulation {
                     return Some(action);
                 }
                 let target_obj = self.object_type(target.type_ref(), rules)?;
+                if target.category() != EntityCategory::Structure || !target_obj.grinding {
+                    return None;
+                }
+                // Phobos `InfantryClass_WhatAction_Grinding` (`0x51F0AF`,
+                // `Hooks.Grinding.cpp:68-89`): an allied, not warped-out
+                // grinder answers the type gates under any base action when
+                // `Grinding.AllowAllies=yes`, otherwise only on Select. The
+                // stock row below keeps its own current-player owner gate.
+                #[cfg(feature = "phobos")]
+                if self.house_is_human_player(actor.owner())
+                    && !target.is_warped_out()
+                    && combat::combat_weapon::is_ally_by_object(
+                        Some(&self.house_alliances),
+                        &self.interner,
+                        target.owner(),
+                        actor.owner(),
+                    )
+                    && (target_obj.phobos_grinding.allow_allies || select)
+                {
+                    return Some(if self.can_grind_techno(target_id, actor_id, rules) {
+                        EntryClickAction::Grind
+                    } else {
+                        EntryClickAction::NoEnter
+                    });
+                }
                 (select
-                    && target.category() == EntityCategory::Structure
-                    && target_obj.grinding
                     && self.house_is_human_player(actor.owner())
                     && !target_obj.is_1x1_with_undeploy())
                 .then(|| {
@@ -1193,6 +1264,14 @@ impl Simulation {
             return Some(if !full {
                 EngineerBuildingAction::Repair(true)
             } else if object.grinding {
+                // Phobos `InfantryClass_WhatAction_Grinding_Engineer`
+                // (`0x51E63A`, `Hooks.Grinding.cpp:91-105`): the grinder
+                // action asks the type gates; a refusal is NoGRepair (0x20),
+                // `Repair(false)` here.
+                #[cfg(feature = "phobos")]
+                if !self.can_grind_techno(target_id, actor_id, rules) {
+                    return Some(EngineerBuildingAction::Repair(false));
+                }
                 EngineerBuildingAction::EnterGrinder
             } else {
                 EngineerBuildingAction::Repair(false)

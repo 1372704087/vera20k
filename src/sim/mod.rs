@@ -135,6 +135,8 @@ pub mod sensor_lifecycle;
 pub(crate) mod shared_ammo; // Phobos Ammo.Shared hand-out at StartReloading (0x6FB080)
 #[cfg(feature = "phobos")]
 pub(crate) mod passenger_deletion; // Phobos TechnoExt::EatPassengers (PassengerDeletion.*)
+#[cfg(feature = "phobos")]
+pub(crate) mod grinding; // Phobos BuildingExt CanGrindTechno / DoGrindingExtras (Grinding.*)
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;

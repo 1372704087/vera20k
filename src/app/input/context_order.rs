@@ -3787,7 +3787,13 @@ pub(super) fn entry_action(
     {
         return None;
     }
-    sim.entry_click_action(actor_id, target_id, base, rules)
+    sim.entry_click_action(
+        actor_id,
+        target_id,
+        base,
+        modifier == OrderModifier::ForceFire,
+        rules,
+    )
 }
 
 /// The selected objects whose action over a friendly object is Enter, Grind

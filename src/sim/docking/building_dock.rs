@@ -1465,6 +1465,16 @@ pub(crate) fn mission_repair(
     };
     let building = sim.substrate.entities.get(depot)?;
     let object = sim.object_type(building.type_ref(), rules)?;
+    // Phobos `BuildingClass_Mission_Repair_UnitRepair` (`0x44BD38`,
+    // `Hooks.cpp:630-640`): the building type's `Units.RepairRate=`
+    // replaces `[General] URepairRate=`.
+    #[cfg(feature = "phobos")]
+    let unit_repair_rate = object
+        .phobos_units_repair
+        .repair_rate
+        .unwrap_or(rules.general.unit_repair_rate);
+    #[cfg(not(feature = "phobos"))]
+    let unit_repair_rate = rules.general.unit_repair_rate;
     // 0x0044B791..0x0044B7A3: a Bunker= type steps its install first.
     if object.bunker {
         super::bunker_install::update_bunker(sim, rules, registry, depot, frame_effects);
@@ -1705,9 +1715,7 @@ pub(crate) fn mission_repair(
             .mission_leaf
             .advance_building_repair_progress(now as i32);
         let threshold = X87::mul(
-            X87::load_f64(NativeF64Bits::from_bits(
-                rules.general.unit_repair_rate.to_bits(),
-            )),
+            X87::load_f64(NativeF64Bits::from_bits(unit_repair_rate.to_bits())),
             X87::load_i32(900),
         );
         // FC0/C2/C3 test includes unordered, as the original FCOMPP.

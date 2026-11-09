@@ -1862,7 +1862,7 @@ fn techno_receive(
                 )
             }
         }
-        RadioMessage::RepairTick => techno_repair_tick(sim, techno, rules, effects),
+        RadioMessage::RepairTick => techno_repair_tick(sim, techno, sender, false, rules, effects),
         RadioMessage::Reload => techno_reload(&sim.interner, &mut sim.substrate, techno, rules),
         // 0x1A, 0x1B and 0x1E have no represented sender; neither has 0x1D
         // to anything but an aircraft, which answers it itself.
@@ -1912,15 +1912,43 @@ fn techno_reload(
 fn techno_repair_tick(
     sim: &mut Simulation,
     techno: u64,
+    sender: Option<u64>,
+    separate: bool,
     rules: &RuleSet,
     effects: FrameEffects<'_>,
 ) -> RadioResponse {
+    #[cfg(not(feature = "phobos"))]
+    let _ = separate;
     let Some(entity) = sim.substrate.entities.get(techno) else {
         return RadioResponse::None;
     };
     let Some(object) = sim.object_type(entity.type_ref(), rules) else {
         return RadioResponse::None;
     };
+    // Phobos `TechnoClass_ReceiveCommand_Repair` (`0x6F4D1A`,
+    // `Hooks.cpp:643-668`): the building that ordered the repair supplies
+    // the step, cost share and cost switch for every category. A `UnitReload=`
+    // building with `Units.RepairRate=` owns its repairs in the separate loop,
+    // so the stock REPAIR_TICK effects are skipped outside that loop.
+    #[cfg(feature = "phobos")]
+    let depot_units = sender
+        .and_then(|sender| {
+            sim.substrate
+                .entities
+                .get(sender)
+                .filter(|building| building.category() == EntityCategory::Structure)
+        })
+        .and_then(|building| sim.object_type(building.type_ref(), rules))
+        .map(|depot| (depot.unit_reload, depot.phobos_units_repair));
+    #[cfg(feature = "phobos")]
+    if !separate
+        && let Some((unit_reload, units)) = depot_units
+        && unit_reload
+        && units.repair_rate.is_some()
+    {
+        // SkipEffects0x6F4DE5: the separate loop applies this service.
+        return RadioResponse::Roger;
+    }
     if entity.health.is_full(object.strength) {
         return RadioResponse::Negatory;
     }
@@ -1928,6 +1956,36 @@ fn techno_repair_tick(
     // InfantryType5247A0/524790 override the shared Techno6F4CD7 getters:
     // zero cost and signed Rules+16D8 IRepairStep. Techno6F4D1C clamps the
     // virtual heal result to at least1 for every category.
+    #[cfg(feature = "phobos")]
+    let (cost, heal) = if let Some((_, units)) = depot_units {
+        let passed = if entity.category() == EntityCategory::Infantry {
+            rules.general.infantry_repair_step
+        } else {
+            rules.general.repair_step
+        };
+        let step = units.repair_step.unwrap_or(passed);
+        let percent = units.repair_percent.unwrap_or(rules.general.repair_percent);
+        let use_cost = units
+            .use_repair_cost
+            .unwrap_or(entity.category() != EntityCategory::Infantry);
+        let cost = if use_cost {
+            let share =
+                f64::from(rules.type_cost(object)) / (f64::from(strength) / f64::from(step));
+            let cost = (share * percent) as i32;
+            cost.max(1)
+        } else {
+            0
+        };
+        (cost, step)
+    } else if entity.category() == EntityCategory::Infantry {
+        (0, rules.general.infantry_repair_step)
+    } else {
+        (
+            crate::sim::production::repair_step_cost(rules, object),
+            rules.general.repair_step,
+        )
+    };
+    #[cfg(not(feature = "phobos"))]
     let (cost, heal) = if entity.category() == EntityCategory::Infantry {
         (0, rules.general.infantry_repair_step)
     } else {
@@ -1977,6 +2035,20 @@ fn techno_repair_tick(
     } else {
         RadioResponse::Roger
     }
+}
+
+/// [`techno_repair_tick`] under Phobos's separate-repair latch
+/// (`UnitRepairTemp::SeparateRepair`): the `UnitReload=` loop's own requests
+/// keep their effects while the stock arm's ticks skip them.
+#[cfg(feature = "phobos")]
+pub(crate) fn techno_repair_tick_separate(
+    sim: &mut Simulation,
+    techno: u64,
+    sender: Option<u64>,
+    rules: &RuleSet,
+    effects: FrameEffects<'_>,
+) -> RadioResponse {
+    techno_repair_tick(sim, techno, sender, true, rules, effects)
 }
 
 /// OVER_OUT, Techno case 3 (`0x006F4C50`): with both ends tethered it sends

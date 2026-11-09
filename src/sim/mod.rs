@@ -147,6 +147,10 @@ pub(crate) mod storage_class; // one owner of StorageClass GetTotalAmount/Add_Am
 #[cfg(test)]
 #[path = "weed_storage_tests.rs"]
 mod weed_storage_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "units_repair_tests.rs"]
+mod units_repair_tests;
 pub mod temporal;
 pub(crate) mod tesla_charging;
 pub mod timer; // signed frame-anchored countdown primitive

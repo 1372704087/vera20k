@@ -883,6 +883,9 @@ pub struct ObjectType {
     /// Phobos `RateDown.*` (`Ext/TechnoType/Body.cpp:1049-1052`).
     #[cfg(feature = "phobos")]
     pub phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown,
+    /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
+    #[cfg(feature = "phobos")]
+    pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4723,6 +4726,10 @@ impl ObjectType {
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

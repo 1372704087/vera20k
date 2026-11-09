@@ -2649,6 +2649,12 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: &RuleSet, _effects: 
     // before EMP. Its simulation discovery prelude is independent of radar
     // presentation, viewport admission and rendering cadence.
     sim.update_techno_discovery_from_shroud(id);
+    // Phobos `TechnoExt::OnEarlyUpdate -> UpdateRearmInEMPState`
+    // (`Ext/Techno/Body.Update.cpp:23,866-880`), after the AttachEffect update
+    // this visit ran in `techno_common_steps` and before the Ares EMP
+    // recovery tick below, which decrements the counter the predicate reads.
+    #[cfg(feature = "phobos")]
+    sim.update_rearm_in_emp_state(id, rules);
     // Installed Ares6FAF0D ->10053DF0, after the ordinary Techno tail.
     // No global frame sweep: limbo/skipped/dead visits never reach this slot.
     #[cfg(feature = "ares")]
@@ -6320,6 +6326,156 @@ ConditionRedSparkingProbability=1.0\nConditionYellowSparkingProbability=1.0\n\n\
         assert!(
             rx < 16,
             "the destination lies in the mover's zone (rx {rx})"
+        );
+    }
+
+    /// Phobos `TechnoExt::UpdateRearmInEMPState`
+    /// (`Ext/Techno/Body.Update.cpp:866-880`): `NoRearm.UnderEMP=yes` /
+    /// `NoReload.UnderEMP=yes` hold a running rearm and Techno Reload timer
+    /// across EMP'd visits (`StartTime++` per visit), while `=no` lets them
+    /// count. The `Deactivated` half of the predicate holds too.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn no_rearm_under_emp_holds_running_timers() {
+        let rules_for = |keys: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=TNK\n[TNK]\nStrength=100\n{keys}"
+            )))
+            .unwrap()
+        };
+        let held_rules = rules_for("NoRearm.UnderEMP=yes\nNoReload.UnderEMP=yes\n");
+        let mut sim = Simulation::new();
+        let mut entity =
+            GameEntity::test_default_of_category(1, "TNK", "Americans", 2, 2, EntityCategory::Unit);
+        entity.set_type_ref_for_test(sim.interner.intern("TNK"));
+        entity
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(10, 50));
+        entity.set_ammo_reload_timer_for_test(crate::sim::timer::CdTimer::started(10, 40));
+        entity.set_emp_remaining_for_test(3);
+        sim.substrate.entities.insert(entity);
+        sim.session.set_binary_frame_for_test(20);
+        techno_common_post(&mut sim, 1, &held_rules, FrameEffects::empty());
+        let (rearm_after_first, reload_after_first) = {
+            let after_first = sim.substrate.entities.get(1).unwrap();
+            (
+                after_first.rearm_timer.remaining(20),
+                after_first.ammo_reload_timer().remaining(20),
+            )
+        };
+        assert_eq!(
+            rearm_after_first, 41,
+            "the visit's StartTime++ holds the rearm at one frame later"
+        );
+        assert_eq!(reload_after_first, 31);
+        sim.session.set_binary_frame_for_test(21);
+        techno_common_post(&mut sim, 1, &held_rules, FrameEffects::empty());
+        let (rearm_after_second, reload_after_second) = {
+            let after_second = sim.substrate.entities.get(1).unwrap();
+            (
+                after_second.rearm_timer.remaining(21),
+                after_second.ammo_reload_timer().remaining(21),
+            )
+        };
+        assert_eq!(
+            rearm_after_second, rearm_after_first,
+            "the second visit holds the timer still again"
+        );
+        assert_eq!(reload_after_second, reload_after_first);
+        // `=no` counts: the same fixture loses a frame per visit.
+        let counting_rules = rules_for("NoRearm.UnderEMP=no\nNoReload.UnderEMP=no\n");
+        let mut sim = Simulation::new();
+        let mut entity =
+            GameEntity::test_default_of_category(1, "TNK", "Americans", 2, 2, EntityCategory::Unit);
+        entity.set_type_ref_for_test(sim.interner.intern("TNK"));
+        entity
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(10, 50));
+        entity.set_ammo_reload_timer_for_test(crate::sim::timer::CdTimer::started(10, 40));
+        entity.set_emp_remaining_for_test(3);
+        sim.substrate.entities.insert(entity);
+        sim.session.set_binary_frame_for_test(20);
+        techno_common_post(&mut sim, 1, &counting_rules, FrameEffects::empty());
+        sim.session.set_binary_frame_for_test(21);
+        techno_common_post(&mut sim, 1, &counting_rules, FrameEffects::empty());
+        let counted = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(counted.rearm_timer.remaining(21), 39);
+        assert_eq!(counted.ammo_reload_timer().remaining(21), 29);
+        // The `Deactivated` half of the native predicate holds the timers too.
+        let mut sim = Simulation::new();
+        let mut entity =
+            GameEntity::test_default_of_category(1, "TNK", "Americans", 2, 2, EntityCategory::Unit);
+        entity.set_type_ref_for_test(sim.interner.intern("TNK"));
+        entity
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(10, 50));
+        entity.set_ammo_reload_timer_for_test(crate::sim::timer::CdTimer::started(10, 40));
+        entity.set_emp_remaining_for_test(0);
+        entity.deactivated.set_for_test(true);
+        sim.substrate.entities.insert(entity);
+        sim.session.set_binary_frame_for_test(20);
+        techno_common_post(&mut sim, 1, &held_rules, FrameEffects::empty());
+        let deactivated = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(deactivated.rearm_timer.remaining(20), 41);
+        assert_eq!(deactivated.ammo_reload_timer().remaining(20), 31);
+    }
+
+    /// The `[General]` fallback (`Ext/Rules/Body.cpp:383`): an unset type key
+    /// takes the global's value, and with the retail `false` default the
+    /// timers keep counting.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn unset_no_rearm_under_emp_falls_back_to_the_global() {
+        let held_rules = RuleSet::from_ini(&IniFile::from_str(
+            "[General]\nNoRearm.UnderEMP=yes\n\n[VehicleTypes]\n0=TNK\n[TNK]\nStrength=100\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let mut entity =
+            GameEntity::test_default_of_category(1, "TNK", "Americans", 2, 2, EntityCategory::Unit);
+        entity.set_type_ref_for_test(sim.interner.intern("TNK"));
+        entity
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(10, 50));
+        entity.set_emp_remaining_for_test(3);
+        sim.substrate.entities.insert(entity);
+        sim.session.set_binary_frame_for_test(20);
+        techno_common_post(&mut sim, 1, &held_rules, FrameEffects::empty());
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .rearm_timer
+                .remaining(20),
+            41,
+            "the global holds the rearm when the type key is unset"
+        );
+        // The retail default global is false: the same unset type counts.
+        let default_rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=TNK\n[TNK]\nStrength=100\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::new();
+        let mut entity =
+            GameEntity::test_default_of_category(1, "TNK", "Americans", 2, 2, EntityCategory::Unit);
+        entity.set_type_ref_for_test(sim.interner.intern("TNK"));
+        entity
+            .rearm_timer
+            .set_for_test(crate::sim::timer::CdTimer::started(10, 50));
+        entity.set_emp_remaining_for_test(3);
+        sim.substrate.entities.insert(entity);
+        sim.session.set_binary_frame_for_test(20);
+        techno_common_post(&mut sim, 1, &default_rules, FrameEffects::empty());
+        assert_eq!(
+            sim.substrate
+                .entities
+                .get(1)
+                .unwrap()
+                .rearm_timer
+                .remaining(20),
+            40,
+            "the false default leaves the countdown running"
         );
     }
 }

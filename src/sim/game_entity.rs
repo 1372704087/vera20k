@@ -556,6 +556,14 @@ pub struct GameEntity {
     /// [`TurretAnimCounter`]: crate::sim::combat::gattling::TurretAnimCounter
     #[serde(default)]
     pub turret_anim_frame: crate::sim::combat::gattling::TurretAnimCounter,
+    /// Phobos `BuildingExt` TurretAnim instance state
+    /// (`Ext/Building/Body.h:28-30,47-49`), owned by
+    /// [`crate::rules::phobos_turret_anim`]. Idle and firing share one rate
+    /// tick. Not folded into `world_hash`: its only reader is presentation
+    /// (cf. [`TurretAnimCounter`], `sim/combat/gattling.rs:528`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_turret_anim: crate::rules::phobos_turret_anim::TurretAnimState,
     /// Optional presentation-only native recoil, owned by voxel_recoil.
     voxel_recoil: Option<Box<voxel_recoil::VoxelRecoil>>,
     /// Techno+3B8 burst and +43C radial launch indices, owned by
@@ -2358,6 +2366,8 @@ impl GameEntity {
             radar_combat_flash: crate::sim::timer::CdTimer::started(construction_frame as i32, 0),
             gattling: Default::default(),
             turret_anim_frame: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_turret_anim: Default::default(),
             voxel_recoil: None,
             weapon_burst: Default::default(),
             building_body: (category == EntityCategory::Structure).then(Default::default),

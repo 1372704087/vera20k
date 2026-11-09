@@ -184,6 +184,8 @@ pub mod phobos_jumpjet_tilt;
 pub mod phobos_laser_tracking;
 pub mod phobos_radiation;
 pub mod phobos_shields;
+#[cfg(feature = "phobos")]
+pub mod phobos_turret_anim;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.

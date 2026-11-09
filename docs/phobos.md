@@ -86,6 +86,7 @@ Supported extensions:
 - [Airstrike target eligibility](phobos-airstrike-targets.md) (`AllowAirstrike` per TechnoType, `AirstrikeTargets` per warhead, and object targets for non-buildings)
 - [Deployable-building alternate cameo](phobos-deployable-cameo.md) (Ares' `UndeploysInto` cameo arm, fixed)
 - [Animation bracket draw offsets](phobos-anim-offset.md) (`XDrawOffset.*` and `YDrawOffset.*` selection-bracket keys for owned animations)
+- [Building turret animations](phobos-turret-anim.md) (`TurretAnim.IdleFrames`, `.LowPowerIdleFrames`, `.FiringFrames`, `.LowPowerFiringFrames`, `.IdleRate` and `.FiringRate` frame selection for SHP slot-9 turrets)
 
 ## Original project and authors
 

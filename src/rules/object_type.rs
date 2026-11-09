@@ -883,6 +883,9 @@ pub struct ObjectType {
     /// Phobos `RateDown.*` (`Ext/TechnoType/Body.cpp:1049-1052`).
     #[cfg(feature = "phobos")]
     pub phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown,
+    /// Phobos `TurretAnim.*` (`Ext/BuildingType/Body.cpp:260-265`).
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim,
     /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
     #[cfg(feature = "phobos")]
     pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
@@ -4747,6 +4750,10 @@ impl ObjectType {
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
                 section,

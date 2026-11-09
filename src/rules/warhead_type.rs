@@ -388,6 +388,10 @@ pub struct WarheadType {
     /// Phobos `WarheadTypeExt`'s `Crit.*` block, read in `LoadFromINI` order.
     #[cfg(feature = "phobos")]
     pub crit: crate::rules::phobos_crit::CritRules,
+    /// Phobos `DetonateOnAllMapObjects.*` (`Body.cpp:304-319`): the
+    /// whole-map detonation replacement at `0x4690C1`.
+    #[cfg(feature = "phobos")]
+    pub detonate_on_all_map: crate::rules::phobos_detonate_all_map::DetonateOnAllMapObjectsRules,
     /// Phobos `WarheadTypeExt::Jumpjet*`: overrides for an `IsLocomotor=`
     /// warhead whose installed locomotor is Jumpjet.
     #[cfg(feature = "phobos")]
@@ -774,6 +778,11 @@ impl WarheadType {
             shield: crate::rules::phobos_shields::ShieldWarheadRules::from_section(section),
             #[cfg(feature = "phobos")]
             crit: crate::rules::phobos_crit::CritRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            detonate_on_all_map:
+                crate::rules::phobos_detonate_all_map::DetonateOnAllMapObjectsRules::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             attach_effect: WarheadAttachEffectRules::from_section(section),
             #[cfg(feature = "phobos")]

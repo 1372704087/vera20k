@@ -2212,13 +2212,20 @@ impl ProjectileStore {
         }
     }
 
+    /// Bullet `+0x10C` replacement: shared by the Ares firestorm wall
+    /// (`10024C00`) and the Phobos all-map detonation that re-points the
+    /// bullet at each target before its nested `Detonate`.
+    pub(crate) fn set_target(&mut self, id: u64, target: ProjectileTarget) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.target = target;
+        }
+    }
+
     /// Ares TechnoClass_Fire_FSW (`10024C00`) replaces only the Target
     /// (`+0x10C`) of a bullet whose path crosses a firestorm wall.
     #[cfg(feature = "ares")]
     pub(crate) fn ares_firestorm_retarget(&mut self, id: u64, target: ProjectileTarget) {
-        if let Some(projectile) = self.get_mut(id) {
-            projectile.target = target;
-        }
+        self.set_target(id, target);
     }
 
     /// `BulletClass::Construct @ 0x004664C0`'s Owner (`+0xB0`) on a re-fired

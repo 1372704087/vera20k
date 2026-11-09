@@ -116,7 +116,6 @@
 //! - rules/ does NOT depend on (outside tests): sim/, render/, ui/, audio/, net/
 
 pub mod airstrike;
-pub(crate) mod threat_coefficients;
 #[cfg(feature = "phobos")]
 pub mod airstrike_targets;
 pub mod attach_effect;
@@ -125,77 +124,80 @@ pub mod digital_display;
 pub mod insignia_type;
 #[cfg(feature = "phobos")]
 pub mod invulnerability_rules;
-pub mod phobos_parallel_ai_queues;
-#[cfg(all(test, feature = "phobos"))]
-#[path = "phobos_infantry_deploy_tests.rs"]
-mod phobos_infantry_deploy_tests;
-#[cfg(all(test, feature = "phobos"))]
-#[path = "phobos_prone_speed_tests.rs"]
-mod phobos_prone_speed_tests;
-#[cfg(feature = "phobos")]
-pub mod phobos_airburst;
-#[cfg(feature = "phobos")]
-pub mod phobos_fly_wobble;
-#[cfg(feature = "phobos")]
-pub mod phobos_pause_menu;
-#[cfg(feature = "phobos")]
-pub mod phobos_placement_preview;
-#[cfg(feature = "phobos")]
-pub mod phobos_auto_death;
-#[cfg(feature = "phobos")]
-pub mod phobos_globals;
-#[cfg(feature = "phobos")]
-pub mod phobos_health_bar;
-#[cfg(feature = "phobos")]
-pub mod phobos_passenger_deletion;
-#[cfg(feature = "phobos")]
-pub mod phobos_overload;
-#[cfg(feature = "phobos")]
-pub mod phobos_grinding;
-#[cfg(feature = "phobos")]
-pub mod phobos_build_limit_group;
-#[cfg(feature = "phobos")]
-pub mod phobos_kill_weapon;
-#[cfg(feature = "phobos")]
-pub mod phobos_rate_down;
-#[cfg(feature = "phobos")]
-pub mod phobos_units;
 #[cfg(feature = "phobos")]
 pub mod phobos_adjacent;
 #[cfg(feature = "phobos")]
-pub mod phobos_drain_money_display;
-#[cfg(feature = "phobos")]
-pub mod phobos_anim_draw_offset;
-#[cfg(feature = "phobos")]
-pub mod phobos_force_weapon;
+pub mod phobos_airburst;
 #[cfg(feature = "phobos")]
 pub mod phobos_ammo_deploy;
 #[cfg(feature = "phobos")]
-pub mod phobos_penetrates_transport;
+pub mod phobos_anim_draw_offset;
 #[cfg(feature = "phobos")]
-pub mod phobos_missile;
+pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
-pub mod phobos_spawner;
+pub mod phobos_build_limit_group;
 #[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
+pub mod phobos_detonate_all_map;
+#[cfg(feature = "phobos")]
+pub mod phobos_drain_money_display;
+#[cfg(feature = "phobos")]
+pub mod phobos_fly_wobble;
+#[cfg(feature = "phobos")]
+pub mod phobos_force_weapon;
+#[cfg(feature = "phobos")]
+pub mod phobos_globals;
+#[cfg(feature = "phobos")]
+pub mod phobos_grinding;
+#[cfg(feature = "phobos")]
+pub mod phobos_health_bar;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_infantry_deploy_tests.rs"]
+mod phobos_infantry_deploy_tests;
+pub mod phobos_jumpjet_tilt;
+#[cfg(feature = "phobos")]
+pub mod phobos_kill_weapon;
+pub mod phobos_laser_tracking;
+#[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;
 #[cfg(feature = "phobos")]
+pub mod phobos_missile;
+#[cfg(feature = "phobos")]
+pub mod phobos_overload;
+pub mod phobos_parallel_ai_queues;
+#[cfg(feature = "phobos")]
+pub mod phobos_passenger_deletion;
+#[cfg(feature = "phobos")]
+pub mod phobos_pause_menu;
+#[cfg(feature = "phobos")]
+pub mod phobos_penetrates_transport;
+#[cfg(feature = "phobos")]
+pub mod phobos_placement_preview;
+#[cfg(feature = "phobos")]
 pub mod phobos_power_plant_enhancer;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_prone_speed_tests.rs"]
+mod phobos_prone_speed_tests;
+pub mod phobos_radiation;
+#[cfg(feature = "phobos")]
+pub mod phobos_rate_down;
+#[cfg(feature = "phobos")]
+pub mod phobos_selection_flash;
+pub mod phobos_shields;
 #[cfg(feature = "phobos")]
 pub mod phobos_sidebar_indicators;
 #[cfg(feature = "phobos")]
-pub mod phobos_selection_flash;
+pub mod phobos_spawner;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
-pub mod phobos_warhead_anim;
-pub mod phobos_jumpjet_tilt;
-pub mod phobos_laser_tracking;
-pub mod phobos_radiation;
-pub mod phobos_shields;
-#[cfg(feature = "phobos")]
 pub mod phobos_turret_anim;
+#[cfg(feature = "phobos")]
+pub mod phobos_units;
+#[cfg(feature = "phobos")]
+pub mod phobos_warhead_anim;
+pub(crate) mod threat_coefficients;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.
@@ -208,58 +210,56 @@ pub const VERAX_ENABLED: bool = cfg!(feature = "verax");
 /// Whether this binary includes the NPBUG bug-fix extension. INIs cannot
 /// change it; builds without the feature keep every native path.
 pub const NPBUG_ENABLED: bool = cfg!(feature = "npbug");
-pub(crate) mod ares_prerequisites;
-pub(crate) mod ares_armor;
-pub(crate) mod ares_emp;
+pub mod alpha_image_assets;
+pub mod animation_sequence;
 pub(crate) mod ares_abilities;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_country_paradrop;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_country_presentation;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_side_extension;
-pub(crate) mod ares_warhead;
-#[cfg(feature = "ares")]
-pub mod ares_weapon;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_spotlight;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_driver;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_crew;
+pub(crate) mod ares_armor;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_bounty;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_infiltration;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_building_type;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_bullet_type;
 #[cfg(feature = "ares")]
+pub mod ares_cloak_power;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_country_paradrop;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_country_presentation;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_crew;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_driver;
+pub(crate) mod ares_emp;
+#[cfg(feature = "ares")]
 pub(crate) mod ares_firestorm;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_infiltration;
+#[cfg(test)]
+mod ares_manual_control_tests;
+#[cfg(feature = "ares")]
+pub mod ares_mouse_cursor;
+pub(crate) mod ares_prerequisites;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_prism_forwarding;
 #[cfg(feature = "ares")]
-pub mod ares_cloak_power;
-#[cfg(feature = "ares")]
-pub mod ares_mouse_cursor;
-#[cfg(feature = "ares")]
-pub(crate) mod ares_veterancy;
-#[cfg(feature = "ares")]
 pub(crate) mod ares_production;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_side_extension;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_spotlight;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_techno_type;
 #[cfg(feature = "ares")]
 pub(crate) mod ares_tiberium;
-pub mod armor;
-pub mod alpha_image_assets;
-pub mod country_loading;
-#[cfg(test)]
-mod ares_manual_control_tests;
 #[cfg(test)]
 mod ares_type_selection_tests;
-pub mod compatibility;
-pub mod animation_sequence;
+#[cfg(feature = "ares")]
+pub(crate) mod ares_veterancy;
+pub(crate) mod ares_warhead;
+#[cfg(feature = "ares")]
+pub mod ares_weapon;
+pub mod armor;
 pub mod art_data;
 pub mod bridge_warheads;
 pub mod building_extra_power;
@@ -274,11 +274,13 @@ pub mod campaigns;
 pub mod color_add;
 pub mod color_scheme;
 pub mod combat_damage;
-pub mod crate_rules;
+pub mod compatibility;
+pub mod country_loading;
 #[cfg(test)]
 mod country_parent_tests;
 #[cfg(test)]
 mod country_veterancy_tests;
+pub mod crate_rules;
 pub mod effect_asset_catalog;
 pub mod end_game;
 pub mod error;
@@ -293,6 +295,7 @@ pub(crate) mod weapon_offsets;
 // The readers are a child of the raw store, so only they see raw value text.
 pub use ini_parser::ini_value;
 pub mod audio_sources;
+pub mod hunter_seeker;
 pub mod jumpjet_params;
 pub mod locomotor_type;
 pub mod mind_control_rules;
@@ -301,8 +304,8 @@ pub mod mission_data;
 pub mod movies;
 pub mod native_ini_hash;
 pub mod native_processing;
-pub mod object_type;
 pub mod object_image;
+pub mod object_type;
 pub mod overlay_types;
 pub mod particle_system_type;
 pub mod particle_type;
@@ -316,24 +319,23 @@ pub mod radar_event_config;
 #[cfg(test)]
 mod radial_indicator_tests;
 pub mod recoil;
-pub mod secret_lab;
 pub mod retail_sources;
 pub(crate) mod rules_type_references;
 pub mod ruleset;
+pub mod secret_lab;
 pub mod shp_vehicle_sequence;
 pub mod skirmish_colors;
 pub mod smudge_type;
 pub mod sound_ini;
-pub mod theme_ini;
 #[cfg(feature = "ares")]
 pub(crate) mod superweapon_influence;
 pub mod superweapon_targeting;
 pub mod superweapon_type;
-pub mod hunter_seeker;
 pub mod team_ai_ini;
 pub mod terrain_asset_catalog;
 pub mod terrain_object_type;
 pub mod terrain_rules;
+pub mod theme_ini;
 pub mod tiberium_type;
 pub mod voxel_anim_type;
 pub mod voxel_asset_catalog;

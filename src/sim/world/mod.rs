@@ -1590,6 +1590,12 @@ pub struct Simulation {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) warhead_anim_runtime: crate::sim::warhead_anim::WarheadAnimRuntime,
+    /// Phobos `WarheadTypeExt::WasDetonatedOnAllMapObjects`: the reentrancy
+    /// guard for the `0x4690C1` whole-map pass. Set and cleared inside one
+    /// synchronous detonation; never true between frames.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_all_map_detonation_active: bool,
     /// Persistent WaveClass registrations. They have their own logic lifetime;
     /// this is not a one-frame weapon-fire presentation list.
     pub(crate) waves: crate::sim::wave::WaveStore,
@@ -4663,6 +4669,8 @@ impl Simulation {
             projectiles: crate::sim::projectile::ProjectileStore::new(),
             #[cfg(feature = "phobos")]
             warhead_anim_runtime: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_all_map_detonation_active: false,
             waves: crate::sim::wave::WaveStore::new(),
             active_wave_links: BTreeMap::new(),
             object_custom_sounds: BTreeMap::new(),

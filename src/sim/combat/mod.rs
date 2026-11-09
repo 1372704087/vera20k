@@ -39,8 +39,6 @@ pub mod combat_weapon;
 pub(crate) mod crit;
 #[cfg(all(test, feature = "phobos"))]
 mod crit_tests;
-#[cfg(feature = "phobos")]
-pub(crate) mod penetrates_transport;
 pub(crate) mod damage;
 pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;
@@ -57,6 +55,8 @@ pub mod laser;
 pub mod line_of_fire;
 mod object_health;
 pub(crate) mod parasite;
+#[cfg(feature = "phobos")]
+pub(crate) mod penetrates_transport;
 #[cfg(feature = "phobos")]
 mod phobos_airburst;
 mod projectile_delivery;
@@ -101,8 +101,6 @@ mod bridge_launch_tests;
 mod bridge_live_chain_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod burst_no_delay_tests;
-#[cfg(all(test, feature = "phobos"))]
-mod phobos_delayed_fire_tests;
 #[cfg(test)]
 mod combat_cloak_damage_tests;
 #[cfg(test)]
@@ -121,6 +119,10 @@ mod fireat_launch_tests;
 mod garrison_oracle_tests;
 #[cfg(test)]
 mod homing_shipyard_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_delayed_fire_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_detonate_all_map_tests;
 // Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
 // this stock golden only holds without the capability.
 #[cfg(all(test, not(feature = "phobos")))]

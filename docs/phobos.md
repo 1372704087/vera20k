@@ -94,6 +94,7 @@ Supported extensions:
 - [Build limit groups](phobos-build-limit-group.md) (`BuildLimitGroup.*` nine keys, `[General]` fallbacks, ExtraLimit quota and the queue-match gate)
 - [Delayed fire](phobos-delayed-fire.md) (`DelayedFire.*` wind-up delay, timer, pause, wind-up animation and `Burst.NoDelay` compatibility; 11 keys)
 - [Aircraft spawner customizations](phobos-spawner.md) (`Spawner.*` launch spacing, immediate attack, turret facing, pursue range and the recycle point; 9 keys + 4 `[General]` fallbacks)
+- [Detonate on all map objects](phobos-detonate-all-map.md) (`DetonateOnAllMapObjects.*` whole-map detonation, target/house/type filters and the Full/damage-area arms)
 
 ## Original project and authors
 

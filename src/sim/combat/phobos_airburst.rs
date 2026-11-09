@@ -686,12 +686,27 @@ fn select_even_clusters(cells: &[ProjectileTarget], cluster_count: i32) -> Vec<P
 /// Phobos' shared `Helpers::Alex::getCellSpreadItemsExt(..., includeInAir =
 /// true, ...)`, returning Technos in native UniqueID order. Airburst's clusters
 /// and the warhead per-target pass both visit this collection.
-pub(super) fn cell_spread_technos(
+pub(crate) fn cell_spread_technos(
     world: &Simulation,
     rules: &RuleSet,
     coords: ProjectileCoord,
     spread_cells: f64,
     ignore_height: bool,
+) -> Vec<u64> {
+    cell_spread_technos_with_air(world, rules, coords, spread_cells, ignore_height, true)
+}
+
+/// The same walk with the `includeInAir` switch exposed for
+/// `AttackMove.Follow.IncludeAir=` (`Ext/Techno/Hooks.cpp:1299-1300`). The
+/// ground arm does not depend on it: a flying object is not in a Cell's
+/// content list, so only the AircraftTracker arm below adds airborne Technos.
+pub(crate) fn cell_spread_technos_with_air(
+    world: &Simulation,
+    rules: &RuleSet,
+    coords: ProjectileCoord,
+    spread_cells: f64,
+    ignore_height: bool,
+    include_air: bool,
 ) -> Vec<u64> {
     let mut found: BTreeMap<i32, u64> = BTreeMap::new();
     let spread_leptons = spread_cells * f64::from(LEPTONS_PER_CELL_I32);
@@ -772,6 +787,12 @@ pub(super) fn cell_spread_technos(
             // duplicate id collapses to the first insertion.
             found.entry(entity.native_unique_id()).or_insert(id);
         }
+    }
+
+    // `includeInAir=false` stops here: everything the tracker would add is
+    // airborne by definition.
+    if !include_air {
+        return found.into_values().collect();
     }
 
     // The AircraftTracker arm. Phobos applies the cylindrical flag here and

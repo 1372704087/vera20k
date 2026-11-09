@@ -133,6 +133,8 @@ pub mod phobos_ammo_deploy;
 #[cfg(feature = "phobos")]
 pub mod phobos_anim_draw_offset;
 #[cfg(feature = "phobos")]
+pub mod phobos_attack_move;
+#[cfg(feature = "phobos")]
 pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
 pub mod phobos_build_limit_group;

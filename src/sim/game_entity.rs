@@ -173,6 +173,15 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_keep_target_on_move: bool,
+    /// Phobos `FootExt::AttackMoveFollowerTempCount` (`src/Ext/Foot/Body.h:26`,
+    /// constructed `0` at `:44`, serialized at `src/Ext/Foot/Body.cpp:951`).
+    /// A per-frame transient: `FootClass_AI`'s tail decrements it
+    /// (`src/Ext/Techno/Hooks.cpp:50-51`, hook `0x4DA54E`) and the follow
+    /// search adds 1 (infantry) or 3 (anything else) to the chosen leader and
+    /// refuses a leader already at 6 (`:1317`, `:1338`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_attack_move_follower_temp_count: i32,
     /// Techno+504 and Ares held sparkle. One private counter owner; stock
     /// constructor remains zero and only the feature-gated EMP producer writes it.
     #[serde(default)]
@@ -2131,6 +2140,19 @@ impl GameEntity {
         self.phobos_delayed_fire_remove_anim_on_no_delay = false;
         anim
     }
+
+    /// `FootExt::AttackMoveFollowerTempCount` (`src/Ext/Foot/Body.h:26`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_attack_move_follower_temp_count(&self) -> i32 {
+        self.phobos_attack_move_follower_temp_count
+    }
+
+    /// The `FootClass_AI` tail decrement (`src/Ext/Techno/Hooks.cpp:50-51`)
+    /// and the follow search's refusals/additions (`:1317`, `:1338`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_attack_move_follower_temp_count(&mut self, count: i32) {
+        self.phobos_attack_move_follower_temp_count = count;
+    }
 }
 
 /// Fixture setup for the identity a constructor or decoder establishes.
@@ -2414,6 +2436,7 @@ impl GameEntity {
             phobos_delayed_fire_remove_anim_on_no_delay: false,
             #[cfg(feature = "phobos")]
             phobos_keep_target_on_move: false,
+            phobos_attack_move_follower_temp_count: 0,
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),

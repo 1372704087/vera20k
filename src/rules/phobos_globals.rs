@@ -116,6 +116,24 @@ pub struct PhobosGlobals {
     /// even when only queued (not owned) copies reach the limit.
     #[serde(default)]
     pub build_limit_group_not_buildable_if_queue_match: bool,
+    /// `[General] AttackMove.Aggressive=`, default `no`
+    /// (`Ext/Rules/Body.cpp:377`, `Body.h:282,800`): fallback for an unset
+    /// `TechnoType` `AttackMove.Aggressive`; `yes` lets an attack-mover treat
+    /// an unarmed enemy building as a legal auto-target.
+    #[serde(default)]
+    pub attack_move_aggressive: bool,
+    /// `[General] AttackMove.UpdateTarget=`, default `no`
+    /// (`Ext/Rules/Body.cpp:378`, `Body.h:283,801`): fallback for an unset
+    /// `TechnoType` `AttackMove.UpdateTarget`; `yes` lets the arrival handler
+    /// drop an unusable held target and rescan.
+    #[serde(default)]
+    pub attack_move_update_target: bool,
+    /// `[General] AttackMove.IgnoreWeaponCheck=`, default `no`
+    /// (`Ext/Rules/Body.cpp:423`, `Body.h:341,853`): global only — drops the
+    /// native "`Primary=` must name a weapon" test from
+    /// `TechnoTypeClass::Can_Attack_Move @ 0x00711E90`.
+    #[serde(default)]
+    pub attack_move_ignore_weapon_check: bool,
     /// `[General] Spawner.AttackImmediately=`, default `no`
     /// (`Ext/Rules/Body.cpp:208`, `Body.h:115,652`): fallback for an unset
     /// type-level key; `yes` sends a fresh child straight at the target.
@@ -212,6 +230,9 @@ impl Default for PhobosGlobals {
             penetrates_transport_level: 10,
             build_limit_group_content_if_any_match: false,
             build_limit_group_not_buildable_if_queue_match: false,
+            attack_move_aggressive: false,
+            attack_move_update_target: false,
+            attack_move_ignore_weapon_check: false,
             spawner_attack_immediately: false,
             spawner_use_turret_facing: false,
             spawner_recycle_range: -1,
@@ -300,6 +321,14 @@ impl PhobosGlobals {
         globals.build_limit_group_not_buildable_if_queue_match = general.read_bool(
             "BuildLimitGroup.NotBuildableIfQueueMatch",
             globals.build_limit_group_not_buildable_if_queue_match,
+        );
+        globals.attack_move_aggressive =
+            general.read_bool("AttackMove.Aggressive", globals.attack_move_aggressive);
+        globals.attack_move_update_target =
+            general.read_bool("AttackMove.UpdateTarget", globals.attack_move_update_target);
+        globals.attack_move_ignore_weapon_check = general.read_bool(
+            "AttackMove.IgnoreWeaponCheck",
+            globals.attack_move_ignore_weapon_check,
         );
         globals.spawner_attack_immediately = general.read_bool(
             "Spawner.AttackImmediately",

@@ -902,6 +902,11 @@ pub struct ObjectType {
     /// Phobos `RateDown.*` (`Ext/TechnoType/Body.cpp:1049-1052`).
     #[cfg(feature = "phobos")]
     pub phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown,
+    /// Phobos `AttackMove.Aggressive` / `.UpdateTarget`
+    /// (`Ext/TechnoType/Body.cpp:1086-1087`); each `None` inherits the
+    /// same-named `[General]` flag.
+    #[cfg(feature = "phobos")]
+    pub phobos_attack_move: crate::rules::phobos_attack_move::PhobosAttackMove,
     /// Phobos `TurretAnim.*` (`Ext/BuildingType/Body.cpp:260-265`).
     #[cfg(feature = "phobos")]
     pub phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim,
@@ -4330,6 +4335,27 @@ impl ObjectType {
                 .is_some_and(|primary| !is_native_none_type_name(primary))
     }
 
+    /// [`Self::can_attack_move`] with Phobos
+    /// `[General] AttackMove.IgnoreWeaponCheck=` (`Ext/Rules/Body.cpp:423`).
+    ///
+    /// `TechnoTypeClass_CanAttackMove_IgnoreWeapon @ 0x00711E90`
+    /// (`Ext/Techno/Hooks.cpp:1259-1264`) replaces the six bytes at
+    /// `0x00711E90..0x00711E9A` — the `Primary != null` test alone — and
+    /// resumes at `0x00711E9A`, so `PreventAttackMove` (+0x6C8) and the class's
+    /// own answer (Infantry/Unit only) still decide. The type therefore stays
+    /// refused when it authors `PreventAttackMove=yes`, and an Aircraft or
+    /// Building type still answers false.
+    #[cfg(feature = "phobos")]
+    pub fn can_attack_move_with(&self, ignore_weapon_check: bool) -> bool {
+        self.can_attack_move()
+            || (ignore_weapon_check
+                && matches!(
+                    self.category,
+                    ObjectCategory::Infantry | ObjectCategory::Vehicle
+                )
+                && !self.prevent_attack_move)
+    }
+
     /// Elite weapon-array slot 0 (`TechnoTypeClass+0xA94`), gamemd's
     /// `ElitePrimary` field: `ElitePrimary=` or `EliteWeapon1=`. Replaces
     /// [`Self::primary`] when the unit is at Elite tier (veterancy >= 200) and
@@ -4806,6 +4832,9 @@ impl ObjectType {
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_rate_down: crate::rules::phobos_rate_down::PhobosRateDown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_attack_move:
+                crate::rules::phobos_attack_move::PhobosAttackMove::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim::from_section(
                 section,

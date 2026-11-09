@@ -65,6 +65,20 @@ Building slot animations (`BuildingClass::CreateAnimForSlot`, `0x451890`) store
 absolute coordinates and have no `OwnerObject` (the native capture's stored
 location is the absolute slot position), so the hook does not move them.
 
+## Residuals
+
+- The type keys read through the project's Phobos `Valueable<int>` reader while
+  the sprite atlas bakes art `XDrawOffset` through the native `ReadInt`; the
+  two parsers only differ on `$`/`h`-prefixed text in that art key, so a
+  bracket X write could subtract a different value than the atlas added.
+  Trigger: such a token in an animation's art `XDrawOffset` with
+  `XDrawOffset.ApplyBracketWidth=yes`. Effect: a small X error on the owned
+  animation. Frequency: custom art only.
+- The Building branch's production dispatch (`Structure` -> Building anchor,
+  ART `Height` sign, shield delta) is exercised only at the
+  `phobos_bracket_draw_point` unit level, not through the Display caller; the
+  foot branch has the integration test.
+
 Tests: `rules::phobos_anim_draw_offset::tests` (reads, defaults, Nullable
 fallback) and `anim_draw::tests` (both owner arms, invert gates, building
 adjust, shield delta, and one attached animation through the production

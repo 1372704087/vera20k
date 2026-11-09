@@ -585,7 +585,7 @@ pub(crate) fn unit_visitor<'a>(
                 .rules()
                 .and_then(|rules| sim.interner().object_type(entity.type_ref(), rules));
             let tilt_crash = object_type.is_some_and(|object| object.tilt_crash_jumpjet);
-            let jumpjet_tilt = jumpjet_tilt_settings(state.rules(), type_name.as_ref());
+            let jumpjet_tilt = jumpjet_tilt_settings(state.rules(), object_type);
             if let Some(tilt) = body_pose_with_angles(
                 entity,
                 band,
@@ -1365,9 +1365,24 @@ fn body_pose_with_angles(
             Some(PoseTilt::Fly(context.angles))
         }
         LocomotorKind::Jumpjet
-            if tilt_crash_jumpjet && crate::map::voxel_pose::voxel_tilt_applies(context.angles) =>
+            if (tilt_crash_jumpjet || cfg!(feature = "phobos"))
+                && crate::map::voxel_pose::voxel_tilt_applies(context.angles) =>
         {
             entity.rocking.as_ref()?;
+            // Phobos moves the `TiltCrashJumpjet=` check to the crash itself
+            // (`Ext/Unit/Hooks.Jumpjet.cpp:159-165`) and its replacement
+            // matrix (`Ext/TechnoType/Hooks.MatrixOp.cpp:407-429`) rotates by
+            // the live angles for every jumpjet; airborne it drops the crash
+            // translation.
+            #[cfg(feature = "phobos")]
+            if entity
+                .locomotor
+                .as_ref()
+                .and_then(|l| l.jumpjet_runtime())
+                .is_some_and(|runtime| !runtime.is_grounded())
+            {
+                return Some(PoseTilt::JumpjetTilt(context.angles));
+            }
             Some(PoseTilt::Jumpjet(context.angles))
         }
         LocomotorKind::Jumpjet => {
@@ -1412,16 +1427,17 @@ fn jumpjet_tilt_pose(
     Some(crate::render::unit_atlas::PoseTilt::JumpjetTilt(angles))
 }
 
-/// Phobos `JumpjetTilt` settings for the type being drawn (`pDrawTypeExt`).
-/// The per-type nullable fields fall back to the `[AudioVisual]` globals.
+/// Phobos `JumpjetTilt` settings for the drawn techno's own type
+/// (`TechnoExt::Fetch(linked)->GetTypeExtData()`,
+/// `Ext/TechnoType/Hooks.MatrixOp.cpp:447`). The per-type nullable fields
+/// fall back to the `[AudioVisual]` globals.
 #[cfg(feature = "phobos")]
 fn jumpjet_tilt_settings(
     rules: Option<&crate::rules::ruleset::RuleSet>,
-    drawn_type: &str,
+    object_type: Option<&crate::rules::object_type::ObjectType>,
 ) -> Option<crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt> {
     let rules = rules?;
-    rules
-        .object(drawn_type)?
+    object_type?
         .phobos_jumpjet_tilt
         .resolve(&rules.phobos_jumpjet_tilt)
 }
@@ -1429,7 +1445,7 @@ fn jumpjet_tilt_settings(
 #[cfg(not(feature = "phobos"))]
 fn jumpjet_tilt_settings(
     _rules: Option<&crate::rules::ruleset::RuleSet>,
-    _drawn_type: &str,
+    _object_type: Option<&crate::rules::object_type::ObjectType>,
 ) -> Option<crate::rules::phobos_jumpjet_tilt::ResolvedJumpjetTilt> {
     None
 }

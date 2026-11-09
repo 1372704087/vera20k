@@ -41,18 +41,21 @@ presentation-only pose: no simulation field changes, and the crashed
 ## Where VERA20K owns it
 
 `rules::phobos_jumpjet_tilt` reads the five `[AudioVisual]` globals and the
-five per-type `Nullable` overrides (the type field falls back to the global
-in `resolve`). `ObjectType` carries the resolved inputs;
-`app::presentation::instances::units` applies the pose in
-`body_pose_with_angles`, and `render::vxl_raster::BodyTilt::JumpjetTilt`
-renders yaw/X/Y without the crash arm's translation. Stock builds keep the
-plain matrix.
+five per-type `Nullable` overrides; `ObjectType` carries the nullable type
+fields and the draw resolves them against the globals
+(`phobos_jumpjet_tilt_settings`). `app::presentation::instances::units`
+applies the pose in `body_pose_with_angles`, and
+`render::vxl_raster::BodyTilt::JumpjetTilt` renders yaw/X/Y without the
+crash arm's translation. In Phobos builds a jumpjet's live rocking angles
+are drawn for every type (the `TiltCrashJumpjet=` check moved to the crash
+itself) and airborne they take the same no-translation rotation; stock
+builds keep the flag-gated crash arm.
 
 ## Residuals
 
-- The matching shadow arm (`UnitClass::DrawVoxelShadow` hook `0x73C47A`,
+- The matching shadow arm (`UnitClass_DrawAsVXL_Shadow` hook `0x73C47A`,
   `Ext/TechnoType/Hooks.MatrixOp.cpp:729-773`) is not ported. Trigger: a
   drawn Unit shadow while the tilt is active. Effect: the shadow stays
-  untitled while the body pitches and rolls. Frequency: every frame such a
+  untilted while the body pitches and rolls. Frequency: every frame such a
   unit casts a shadow in view. Risk: visual mismatch only; simulation and
   the body draw are unaffected.

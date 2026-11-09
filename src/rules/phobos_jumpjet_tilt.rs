@@ -22,7 +22,16 @@
 //! Each result becomes a `DirStruct` (YRpp `Dir.h:14-96`), which quantizes it
 //! to one of 128 facings; the draw uses that quantized radian and skips a zero
 //! axis. The double-to-DirStruct conversion truncates towards zero before the
-//! 7-bit rounding, so an exact half step rounds back towards zero.
+//! 7-bit rounding, so an exact positive half step rounds down while a negative
+//! one rounds up (away from zero).
+//!
+//! ## Residuals
+//!
+//! The shadow arm of the same feature (`UnitClass_DrawAsVXL_Shadow` hook
+//! `0x73C47A`, `Ext/TechnoType/Hooks.MatrixOp.cpp:729-773`) is not ported:
+//! VERA's lifted-Unit shadow pose carries no rocking rotation yet, so a
+//! JumpjetTilt body casts another pose's shadow. Visual only; the body draw
+//! and the simulation are unaffected.
 //!
 //! ## Keys
 //!
@@ -34,14 +43,6 @@
 //! `Ext/UnitType/Body.cpp:63-67`. Only the factors are `JumpjetTilt.*` keys;
 //! the bare boolean is the gate the same consumer passes through
 //! `Valueable::Get(global)`.
-//!
-//! ## Residuals
-//!
-//! The shadow arm of the same feature (`UnitClass::DrawVoxelShadow` hook
-//! `0x73C47A`, `Ext/TechnoType/Hooks.MatrixOp.cpp:729-773`) is not ported:
-//! VERA's lifted-Unit shadow pose carries no rocking rotation yet, so a
-//! JumpjetTilt body casts an untitled shadow. Visual only; the body draw and
-//! the simulation are unaffected.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.

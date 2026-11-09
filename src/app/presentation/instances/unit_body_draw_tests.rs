@@ -119,6 +119,36 @@ fn phobos_jumpjet_tilt_poses_only_an_airborne_enabled_unit() {
         "the type's JumpjetTilt=no overrides the [AudioVisual] yes"
     );
     assert_eq!(pose(&sim, disabled), None);
+
+    // Phobos `JumpjetLocomotionClass_Draw_Matrix` no longer gates the crash
+    // rotation on `TiltCrashJumpjet=`: live rocking angles draw for any
+    // jumpjet, airborne with the raw angles and no crash translation.
+    use crate::render::unit_atlas::PoseTilt;
+    sim.entities_mut_for_test().get_mut(tilted).unwrap().rocking =
+        Some(crate::sim::rocking::RockingState::default());
+    let live_pose = |sim: &Simulation| {
+        let entity = sim.entities().get(tilted).unwrap();
+        let object = rules
+            .object(sim.interner().resolve(entity.type_ref()))
+            .unwrap();
+        body_pose_with_angles(
+            entity,
+            EntityDrawBand::Top,
+            false,
+            BodyPoseContext {
+                angles: [0.4, 0.3],
+                pitch: 0.0,
+                object_type: Some(object),
+                bank_direction: None,
+                jumpjet_tilt: None,
+                binary_frame: 0,
+            },
+        )
+    };
+    set_runtime(&mut sim, tilted, 1, 32.0);
+    assert_eq!(live_pose(&sim), Some(PoseTilt::JumpjetTilt([0.4, 0.3])));
+    set_runtime(&mut sim, tilted, 0, 32.0);
+    assert_eq!(live_pose(&sim), Some(PoseTilt::Jumpjet([0.4, 0.3])));
 }
 
 #[test]

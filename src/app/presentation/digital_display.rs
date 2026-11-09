@@ -249,7 +249,9 @@ pub(crate) fn digital_display_instances(
     out
 }
 
-fn screen_point(sim: &Simulation, entity: &GameEntity) -> (f32, f32) {
+/// `TechnoExt::GetScreenLocation`: the owning Techno's `GetCoords`, projected
+/// into VERA's world-pixel frame. Shared by the foot bracket anchor.
+pub(crate) fn screen_point(sim: &Simulation, entity: &GameEntity) -> (f32, f32) {
     let coord =
         crate::sim::movement::ground_pose::object_get_coords(entity, sim.resolved_terrain());
     crate::util::lepton::absolute_leptons_to_screen(coord.x, coord.y, coord.z)

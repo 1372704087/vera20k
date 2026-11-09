@@ -341,6 +341,178 @@ fn tiled_column(
     tiles
 }
 
+/// `Unsorted::CellWidthInPixels`: the native 60-pixel cell width the Phobos
+/// building bracket X shift multiplies (`Ext/Anim/Hooks.cpp:313`).
+#[cfg(feature = "phobos")]
+const CELL_WIDTH_IN_PIXELS: i32 = 60;
+
+/// Which native class arm the Phobos draw-offset hook takes. A Building uses
+/// `GetBuildingSelectBracketPosition(Top)` and the `Height`/foundation gates;
+/// every other Techno uses the `GetFootSelectBracketPosition` rect.
+#[cfg(feature = "phobos")]
+#[derive(Clone, Copy)]
+pub(super) enum PhobosBracketOwner {
+    Building {
+        /// `BuildingTypeClass::Height` (ART `Height=`, signed): the Y gate.
+        art_height: i32,
+        /// `GetFoundationWidth()`: the X shift's cell count.
+        foundation_width: i32,
+    },
+    Foot {
+        /// `PixelSelectionBracketDelta`: the Y gate and shift.
+        pixel_selection_bracket_delta: i32,
+    },
+}
+
+/// Phobos `AnimClass_DrawIt_DrawOffset` (`0x423122`, alternate `0x422CD8`)
+/// selection-bracket arms: `pLocation->X/Y =` the owner's bracket anchor plus
+/// the type's adjusts, replacing the DrawIt location.
+///
+/// `anchor` is `GetBuildingSelectBracketPosition(..., Top)` for a building and
+/// `Anchor(invertX ? Left : Right, Top)` for a foot. The X arm subtracts the
+/// plain `XDrawOffset` because the atlas already baked it into the frame
+/// offset that the native assignment discards. `shield_bracket_delta` is the
+/// owner shield type's `BracketDelta` when the shield bar would draw; either
+/// arm then adds `BracketDelta - 3` (`SHIELD_HEALTHBAR_OFFSET`).
+#[cfg(feature = "phobos")]
+pub(super) fn phobos_bracket_draw_point(
+    point: [f32; 2],
+    anchor: [f32; 2],
+    settings: &crate::rules::phobos_anim_draw_offset::PhobosAnimDrawOffset,
+    owner: PhobosBracketOwner,
+    shield_bracket_delta: Option<i32>,
+) -> [f32; 2] {
+    let invert_x = settings.x_invert_bracket_shift;
+    let invert_y = settings.y_invert_bracket_shift;
+    let mut point = point;
+    match owner {
+        PhobosBracketOwner::Building {
+            art_height,
+            foundation_width,
+        } => {
+            // `(Height >= 0 && !invertY) || (Height < 0 && invertY)`.
+            if settings.y_apply_bracket_height && ((art_height >= 0) != invert_y) {
+                point[1] = anchor[1] + settings.y_adjust(true) as f32;
+            }
+            if settings.x_apply_bracket_width {
+                // `(int)(CellWidthInPixels * (width / 2.0) * (invert ? -1 : 1))`;
+                // exact in integers for every foundation width.
+                let shift = foundation_width * (CELL_WIDTH_IN_PIXELS / 2);
+                point[0] = anchor[0]
+                    + (if invert_x { -shift } else { shift }) as f32
+                    + settings.x_adjust(true) as f32
+                    - settings.x_draw_offset as f32;
+            }
+        }
+        PhobosBracketOwner::Foot {
+            pixel_selection_bracket_delta,
+        } => {
+            // `(Delta <= 0 && !invertY) || (Delta > 0 && invertY)`.
+            if settings.y_apply_bracket_height && ((pixel_selection_bracket_delta <= 0) != invert_y)
+            {
+                point[1] = anchor[1]
+                    + pixel_selection_bracket_delta as f32
+                    + settings.y_adjust(false) as f32;
+            }
+            if settings.x_apply_bracket_width {
+                point[0] =
+                    anchor[0] + settings.x_adjust(false) as f32 - settings.x_draw_offset as f32;
+            }
+        }
+    }
+    // `TechnoExt::GetShield`'s bracket delta plus the hardcoded shield
+    // health-bar offset, after either owner arm.
+    const SHIELD_HEALTHBAR_OFFSET: i32 = -3;
+    if settings.y_apply_bracket_height
+        && let Some(delta) = shield_bracket_delta
+        && ((delta <= 0) != invert_y)
+    {
+        point[1] += (delta + SHIELD_HEALTHBAR_OFFSET) as f32;
+    }
+    point
+}
+
+/// Resolve one DrawIt location through the Phobos draw-offset hook: the
+/// bracket overwrite, before the caller adds `AEDrawOffset`. The hook reads
+/// `pThis->OwnerObject`; a building slot animation has none, so only attached
+/// animations reach these arms.
+#[cfg(feature = "phobos")]
+pub(super) fn phobos_draw_offset_point(
+    sim: &crate::sim::world::Simulation,
+    rules: &crate::rules::ruleset::RuleSet,
+    anim: &crate::sim::anim_class::AnimObject,
+    config: Option<&AnimTypeRuntimeConfig>,
+    point: [f32; 2],
+) -> [f32; 2] {
+    let Some(settings) = config.map(|config| &config.phobos_draw_offset) else {
+        return point;
+    };
+    if !settings.applies_bracket() {
+        return point;
+    }
+    let Some(owner) = anim.owner_entity().and_then(|id| sim.entities().get(id)) else {
+        return point;
+    };
+    let Some(object) = rules.object(sim.interner().resolve(owner.type_ref())) else {
+        return point;
+    };
+    let shield_bracket_delta = shield_type_bracket_delta(owner, rules);
+    if owner.category() == crate::map::entities::EntityCategory::Structure {
+        let anchor = crate::app::presentation::digital_display::building_bracket(
+            sim,
+            owner,
+            object,
+            rules,
+            crate::rules::building_select_bracket::BuildingSelectBracketPosition::Top,
+        );
+        phobos_bracket_draw_point(
+            point,
+            [anchor.0, anchor.1],
+            settings,
+            PhobosBracketOwner::Building {
+                art_height: rules.building_dimensions(object)[2]
+                    / crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS,
+                foundation_width: i32::from(object.foundation.dimensions().0),
+            },
+            shield_bracket_delta,
+        )
+    } else {
+        let (sx, sy) = crate::app::presentation::digital_display::screen_point(sim, owner);
+        let infantry = owner.category() == crate::map::entities::EntityCategory::Infantry;
+        let rect = crate::app::presentation::ui_overlays::foot_select_bracket(sx, sy, infantry);
+        // `Anchor(invertX ? Left : Right, Top).OffsetPosition(rect)`: the
+        // Top vertical offset is zero, so the right side is `rect` + width.
+        let anchor_x = if settings.x_invert_bracket_shift {
+            rect[0]
+        } else {
+            rect[0] + rect[2]
+        };
+        phobos_bracket_draw_point(
+            point,
+            [anchor_x, rect[1]],
+            settings,
+            PhobosBracketOwner::Foot {
+                pixel_selection_bracket_delta: object.pixel_selection_bracket_delta,
+            },
+            shield_bracket_delta,
+        )
+    }
+}
+
+/// The owner shield type's `BracketDelta` while the shared shield-bar
+/// admission draws it: `!IsBrokenAndNonRespawning && (HealthRatio > 0 ||
+/// !Pips.HideIfNoStrength)`.
+#[cfg(feature = "phobos")]
+fn shield_type_bracket_delta(
+    owner: &crate::sim::game_entity::GameEntity,
+    rules: &crate::rules::ruleset::RuleSet,
+) -> Option<i32> {
+    let shield = owner.shield()?;
+    let ty = rules.shield_type(shield.type_name())?;
+    (!shield.broken_non_respawning(ty) && (shield.hp() > 0 || !ty.pips_hide_if_no_strength()))
+        .then(|| ty.bracket_delta())
+}
+
 #[cfg(test)]
 #[path = "anim_draw_tests.rs"]
 mod tests;

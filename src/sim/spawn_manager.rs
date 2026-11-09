@@ -1738,23 +1738,16 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         else {
             return;
         };
-        // The native reader drops an unresolvable `AnimTypeClass*` token, so
-        // the random range covers only names a type exists for.
-        let anims: Vec<&str> = spawner
-            .recycle_anim
-            .iter()
-            .map(String::as_str)
-            .filter(|name| rules.has_anim_type(name))
-            .collect();
-        if !anims.is_empty() {
-            // `RandomRanged(0, size - 1)` over the resolved list.
-            let pick =
-                self.sim
-                    .scenario_rng
-                    .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
+        // `AnimExt::CreateRandomAnim`'s resolve+draw half; the construction
+        // here still passes no owner house and the default draw flags (a
+        // recorded deviation from the native call's spawner owner).
+        if let Some(name) = self
+            .sim
+            .resolve_random_anim_name(rules, &spawner.recycle_anim)
+        {
             let _ = self.sim.spawn_named_anim(
                 rules,
-                anims[pick],
+                name,
                 crate::sim::anim_class::AnimWorldCoord {
                     x: spawner_coord.x,
                     y: spawner_coord.y,

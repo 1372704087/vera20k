@@ -72,8 +72,9 @@ The `Vanish` arm (`:771-790`) first plays a random
 `AutoDeath.VanishAnimation` at `pThis->GetCoords()` with the object's house as
 the animation owner (the list is `ValueableVector<AnimTypeClass*>`, so an
 unresolvable name never entered it and the pick covers only loaded types), then
-unloads a bunker the building holds (`BuildingClass::UnloadBunker`, the
-`EmptyBunker @ 0x004595C0` owner), kills its passengers with the object as
+unloads a bunker the building holds (`BuildingClass::UnloadBunker @
+0x004593A0`, the sell/death release that does not reposition the unit or queue
+a Move), kills its passengers with the object as
 their killer, stuns it, limboes it, registers the kill under its own owner
 (`RegisterKill(pThis->Owner)`) and uninitialises it — no death animation,
 corpse or C4 damage. The `Sell` arm (`:792-807`) sells a Building whose Buildup
@@ -134,8 +135,9 @@ clock has a zero maximum, which the renderer skips.
   discard chain also reads it as `false` — so `IgnoreRevertOnExit` cannot fire
   and the owner-change transporter gate has no revert term.
 - The vanish animation's `invoker=true` (`AnimExt::SetInvoker(pThis)`) has no
-  VERA anim field; the animation keeps its owner house and object, so a later
-  reader of the vanish anim's invoker sees none.
+  VERA anim field; the animation keeps its owner house (`ownedObject` stays at
+  its `false` default, so there is no owner object), and a later reader of the
+  vanish anim's invoker sees none.
 - `AutoDeath.AllowLimboed` is read for the owner-change transporter gate, but
   `KillSelf`'s limbo arm (`:721-766`) is unported, so a limboed object still
   never dies here and the object-level limbo gate refuses regardless of the key.

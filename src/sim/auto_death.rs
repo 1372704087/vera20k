@@ -466,8 +466,9 @@ impl Simulation {
             None,
         );
         if structure_with_bunker {
-            // `BuildingClass::UnloadBunker @ 0x004595C0` (EmptyBunker).
-            crate::sim::docking::bunker_link::release_normal(self, id, rules, effects);
+            // `BuildingClass::UnloadBunker @ 0x004593A0`: the sell/death
+            // release, which does not reposition the unit or queue a Move.
+            crate::sim::docking::bunker_link::release_sell_destroy(self, id, rules, effects);
         }
         self.kill_passengers(id, Some(id), context);
         self.stun(id, context);

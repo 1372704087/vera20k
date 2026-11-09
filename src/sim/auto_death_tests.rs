@@ -7,7 +7,7 @@ use crate::sim::world::Simulation;
 const RULES: &str = "\
 [InfantryTypes]\n0=E1\n1=E2\n\
 [VehicleTypes]\n0=TANK\n1=TANKONLYDELAY\n2=TANKAMMO\n3=TANKPOWER\n4=TANKMONEY\n5=TANKEXIST\n6=TANKDONT\n7=TANKANY\n8=TANKALL\n9=TANKJUNK\n10=TANKDONTALL\n11=TANKENEMY\n12=TANKOWNER\n13=TANKNOOC\n14=TANKOTOH\n15=TANKLIMBO\n16=TANKVANISH\n\
-[BuildingTypes]\n0=BARR\n1=BARRNOB\n\
+[BuildingTypes]\n0=BARR\n1=BARRNOB\n2=BUNK\n\
 [E1]\nStrength=125\nSight=0\n\
 [E2]\nStrength=125\nSight=0\n\
 [TANK]\nStrength=100\nSight=0\nSpeed=5\nAutoDeath.Behavior=kill\nAutoDeath.AfterDelay=3\n\
@@ -44,6 +44,7 @@ AutoDeath.Behavior=kill\nAutoDeath.OnOwnerChange=yes\nAutoDeath.AllowLimboed=no\
 AutoDeath.Behavior=vanish\nAutoDeath.AfterDelay=1\nAutoDeath.VanishAnimation=VA\n\
 [BARR]\nStrength=500\nSight=0\nAutoDeath.Behavior=sell\nAutoDeath.AfterDelay=1\n\
 [BARRNOB]\nStrength=500\nSight=0\nAutoDeath.Behavior=sell\nAutoDeath.AfterDelay=1\n\
+[BUNK]\nStrength=500\nSight=0\nAutoDeath.Behavior=vanish\nAutoDeath.AfterDelay=1\n\
 [Animations]\n0=VA\n\
 [VA]\n\
 [Warheads]\n0=C4WH\n\
@@ -598,10 +599,6 @@ fn vanish_plays_its_animation_and_erases_the_object() {
         .spawn_object("TANKVANISH", "Americans", 10, 10, 0, &rules)
         .expect("TANKVANISH spawns");
     let owner = sim.entities().get(tank).unwrap().owner();
-    let coords = crate::sim::movement::ground_pose::object_get_coords(
-        sim.entities().get(tank).unwrap(),
-        sim.resolved_terrain.as_ref(),
-    );
     tick(&mut sim, &rules, 2);
     assert!(
         sim.entities().get(tank).is_none(),
@@ -615,8 +612,8 @@ fn vanish_plays_its_animation_and_erases_the_object() {
     let world = anim.world_coord();
     assert_eq!(
         [world.x, world.y, world.z],
-        [coords.x, coords.y, coords.z],
-        "the anim anchors on the object's GetCoords"
+        [10 * 256 + 128, 10 * 256 + 128, 0],
+        "the anim anchors on the object's cell-centre GetCoords"
     );
 }
 
@@ -648,5 +645,53 @@ fn sell_starts_the_selling_mission_or_falls_back_to_kill() {
     assert!(
         !alive(&sim, building),
         "no Buildup SHP falls through to the Kill arm"
+    );
+}
+
+/// `KillSelf`'s Vanish arm unloads a building's bunker through
+/// `BuildingClass::UnloadBunker @ 0x004593A0`, the sell/death release: the
+/// installed unit's reciprocal link is cleared, and no reposition, NavCom or
+/// Move is produced. An empty `AutoDeath.VanishAnimation` draws nothing.
+#[cfg(feature = "phobos")]
+#[test]
+fn vanish_unloads_a_bunker_without_repositioning_the_unit() {
+    let (mut sim, mut rules) = arena();
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::empty());
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let bunker = sim
+        .spawn_object("BUNK", "Americans", 14, 14, 0, &rules)
+        .expect("BUNK spawns");
+    let unit = sim
+        .spawn_object("TANK", "Americans", 14, 15, 0, &rules)
+        .expect("TANK spawns");
+    crate::sim::docking::bunker_link::install_bunker_link(&mut sim, bunker, unit, &rules);
+    assert_eq!(
+        sim.entities().get(bunker).unwrap().bunker.occupant(),
+        Some(unit)
+    );
+    let (rx, ry) = {
+        let position = sim.entities().get(unit).unwrap().position;
+        (position.rx(), position.ry())
+    };
+    tick(&mut sim, &rules, 2);
+    assert!(sim.entities().get(bunker).is_none(), "the bunker vanished");
+    assert_eq!(sim.anims().count(), 0, "an empty list draws nothing");
+    let unit_entity = sim
+        .entities()
+        .get(unit)
+        .expect("the installed unit survives");
+    assert!(
+        unit_entity.bunker.link().installed_in().is_none(),
+        "the reciprocal bunker link is cleared"
+    );
+    assert_eq!(
+        (unit_entity.position.rx(), unit_entity.position.ry()),
+        (rx, ry),
+        "the release does not reposition the unit"
+    );
+    assert!(
+        unit_entity.navigation.nav_com().is_none(),
+        "the release queues no Move"
     );
 }

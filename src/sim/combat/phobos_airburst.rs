@@ -970,7 +970,15 @@ fn allowed_splits_target(
             world,
         );
     }
-    weapon_picking_allows(world, rules, source_id, owner_house, weapon, warhead, target)
+    weapon_picking_allows(
+        world,
+        rules,
+        source_id,
+        owner_house,
+        weapon,
+        warhead,
+        target,
+    )
 }
 
 /// The `UseWeaponTargeting` arm shared with `Shrapnel.UseWeaponTargeting`
@@ -1049,17 +1057,10 @@ pub(super) fn weapon_picking_allows(
     )
 }
 
-/// `EnumFunctions::CanTargetVeterancy` (`src/Utilities/EnumFunctions.cpp:18`).
+/// `EnumFunctions::CanTargetVeterancy` (`src/Utilities/EnumFunctions.cpp:18`),
+/// through the shared warhead-trigger owner.
 fn veterancy_allowed(flags: AffectedVeterancy, rank: VeterancyRank) -> bool {
-    if flags == AffectedVeterancy::ALL {
-        return true;
-    }
-    let bit = match rank {
-        VeterancyRank::Elite => AffectedVeterancy::ELITE,
-        VeterancyRank::Veteran => AffectedVeterancy::VETERAN,
-        VeterancyRank::Rookie => AffectedVeterancy::ROOKIE,
-    };
-    flags.contains(bit)
+    super::affected_veterancy_allows(flags, rank)
 }
 
 /// `SimulatedFiringEffects`: firing Anim/Report when requested, then the

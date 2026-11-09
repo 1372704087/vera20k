@@ -673,6 +673,13 @@ fn admit_attacker_fire<'r>(
         subject(&*world, &mut |s| code = Some(s.fire_error(true)));
         code?
     };
+    // Phobos `0x6FCD1D` sits at GetFireError's OK return with the
+    // target-in-range check set: an open-topped passenger's carrier
+    // uncloaks at the admitted shot.
+    #[cfg(feature = "phobos")]
+    if code == fire_error::FireError::Ok {
+        open_topped_decloak_carrier(world, rules, snap.stable_id);
+    }
     let direction = crate::sim::movement::turret::facing_toward_lepton(
         snap.pos_rx,
         snap.pos_ry,
@@ -1053,44 +1060,57 @@ pub(crate) fn start_uncloaking_to_fire(world: &mut Simulation, rules: &RuleSet, 
         id,
         sound_enabled,
     );
-    // Phobos `TechnoClass_CanFire_OpenTopCloakFix @ 0x6FCD1D`
-    // (`Ext/Techno/Hooks.Cloak.cpp:201-214`): when the firer is in an
-    // open-topped transport whose type enables `OpenTopped.DecloakToFire`,
-    // `pThis->Transporter->Uncloak(true)` also drops the CARRIER's cloak, not
-    // the passenger's. The native hook sits in CanFire's in-range path; VERA
-    // reaches the uncloak from the CLOAKED arm's StartUncloaking.
-    #[cfg(feature = "phobos")]
-    {
-        let carrier = world
-            .substrate
-            .entities
-            .get(id)
-            .and_then(|passenger| passenger.passenger_role.transporter())
-            .and_then(|tid| {
-                world
-                    .substrate
-                    .entities
-                    .get(tid)
-                    .map(|t| (tid, t.type_ref()))
-            });
-        if let Some((carrier_id, carrier_type)) = carrier {
-            let carrier_obj = world.interner.object_type(carrier_type, rules);
-            if let Some(carrier_obj) = carrier_obj
-                && carrier_obj.open_topped
-                && carrier_obj.phobos_open_topped().decloak_to_fire(rules)
-            {
-                uncloak_to_fire(
-                    &world.session,
-                    &mut world.substrate,
-                    &mut world.sound_events,
-                    rules,
-                    carrier_obj,
-                    carrier_id,
-                    sound_enabled,
-                );
-            }
+}
+
+/// Phobos `TechnoClass_CanFire_OpenTopCloakFix @ 0x6FCD1D`
+/// (`Ext/Techno/Hooks.Cloak.cpp:201-214`): at `GetFireError`'s OK return with
+/// its target-in-range check set, a passenger inside an open-topped transport
+/// whose type enables `OpenTopped.DecloakToFire` also uncloaks the CARRIER
+/// (`pThis->Transporter->Uncloak(true)`), not just the passenger.
+#[cfg(feature = "phobos")]
+pub(crate) fn open_topped_decloak_carrier(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    passenger_id: u64,
+) {
+    let carrier = {
+        let Some(passenger) = world.substrate.entities.get(passenger_id) else {
+            return;
+        };
+        let Some(kind) = crate::sim::attach_effect::open_topped_transport_type(
+            passenger,
+            &world.substrate.entities,
+            rules,
+            &world.interner,
+        ) else {
+            return;
+        };
+        if !kind.phobos_open_topped().decloak_to_fire(rules) {
+            return;
         }
-    }
+        passenger.passenger_role.inside_transport_id()
+    };
+    let Some(carrier_id) = carrier else {
+        return;
+    };
+    let Some(carrier_obj) = world
+        .substrate
+        .entities
+        .get(carrier_id)
+        .and_then(|carrier| world.interner.object_type(carrier.type_ref(), rules))
+    else {
+        return;
+    };
+    let sound_enabled = sound_enabled(world);
+    uncloak_to_fire(
+        &world.session,
+        &mut world.substrate,
+        &mut world.sound_events,
+        rules,
+        carrier_obj,
+        carrier_id,
+        sound_enabled,
+    );
 }
 
 /// `TechnoClass::Uncloak` (vt+0x45C, `0x007036C0`) with its sound, each

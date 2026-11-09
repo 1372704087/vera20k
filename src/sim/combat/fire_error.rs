@@ -1142,10 +1142,10 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
         }
         // ③ the passenger's weapon is `weapon` (Some past T21 here).
         // ④ `CheckTransportDisableWeapons && HasWeaponsDisabled(pTransport)
-        //    && pWeapon` -> the hook's `OutOfRange` verdict (0x6FC0DF), not
-        //    Illegal. VERA maps that verdict to `Range` (8).
+        //    && pWeapon` jumps to `0x6FC0DF`, the T3 Rearm block (the same
+        //    address the Ares DisableWeapons hook calls Rearm), not Illegal.
         if firer.transport_check_disable_weapons && firer.transport_weapons_disabled {
-            return Range;
+            return Rearm;
         }
         // ⑤ only when the carrier casts to `FootClass`.
         if firer.transport_is_foot {

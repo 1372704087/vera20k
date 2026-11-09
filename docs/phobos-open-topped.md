@@ -81,12 +81,13 @@ keys later; the fallback is evaluated at the hook at runtime by `.Get(...)`.
   (`0x6FC86A`); ② `pTransport->Transporter` (carrier itself nested) →
   `Illegal` unconditionally, key-free; ③ take the passenger weapon;
   ④ `CheckTransportDisableWeapons && HasWeaponsDisabled(pTransport) &&
-  pWeapon` → `OutOfRange` (`0x6FC0DF`), **not** `Illegal`; ⑤ only when the
+  pWeapon` → the T3 `Rearm` exit (`0x6FC0DF`, return code 3), **not**
+  `Illegal` and not `OutOfRange`; ⑤ only when the
   carrier casts to `FootClass`: 5a `IsAttackedByLocomotor &&
   !AllowFiringIfAttackedByLocomotor` → `Illegal`; 5b the three-key AND being
   false runs the moving check (`BalloonHover` uses `Is_Moving_Now()`, else
   `Destination != nullptr`) → `Illegal`; ⑥ all pass → `Continue` (`0x6FC5D5`).
-  VERA `FireError`: `Illegal = 5`, `Range = 8` (`fire_error.rs:50-63`).
+  VERA `FireError`: `Illegal = 5`, `Rearm = 3` (`fire_error.rs:50-63`).
 - **`0x4D9510` `FootClass_SetDestination_OpenToppedFireWhileMoving`**
   (`Hooks.Transport.cpp:893-952`): on setting a destination, release each
   passenger's `LocomotorTarget` / `TemporalImUsing` when it may not fire while
@@ -98,7 +99,11 @@ keys later; the fallback is evaluated at the hook at runtime by `.Get(...)`.
 - **`0x6FCD1D` `TechnoClass_CanFire_OpenTopCloakFix`**
   (`Hooks.Cloak.cpp:201-214`): `checkIfTargetInRange` and a passenger in an
   open-topped carrier with `DecloakToFire` → `pThis->Transporter->Uncloak(true)`
-  (uncloaks the **carrier**, not the passenger).
+  (uncloaks the **carrier**, not the passenger). VERA runs it at the
+  `FireError::Ok` verdict in `admit_attacker_fire`, after the
+  target-in-range GetFireError call, through
+  `open_topped_decloak_carrier`; the production test fires a passenger from
+  a fully cloaked carrier and asserts the 2 → 3 transition only with the key.
 - **`0x6FE43B` `TechnoClass_FireAt_OpenToppedDmgMult`**
   (`Hooks.Firing.cpp:714-741`): replaces FireAt's `fild
   [OpenToppedDamageMultiplier]`; `EAX = int(damage * multiplier)` →
@@ -200,13 +205,10 @@ unchanged).
   impact = the moving check reads `Destination` rather than
   `Is_Moving_Now()`; frequency = very low (no retail open-topped
   BalloonHover type); risk = low.
-- **Check ④ verdict address `0x6FC0DF`**: Phobos names this its
-  `OutOfRange` verdict and VERA returns `Range` (8) per the port brief. The
-  stock-YR corpus (`tools/spatial_oracle/fire_error.json`, T3 rows) labels
-  the same shared exit `Rearm` (3). Trigger = `CheckTransportDisableWeapons`
-  with a disabled carrier; impact = the returned `FireError` code differs
-  between the Phobos hook and the stock T3 exit; frequency = low; risk = low
-  (both are non-firing errors; no consumer branches on the exact code here).
+- **Check ④ verdict address `0x6FC0DF`**: both the Phobos hook and the stock
+  T3 rows leave through the same shared exit, which the stock corpus labels
+  `Rearm` (3); VERA returns `Rearm` for the disabled-carrier gate. No
+  divergence remains.
 - **`crit.rs:616 current_firepower_multiplier`** is an independent path that
   folds only the occupy stage and carries no open-topped stage; not synced.
   Trigger = crit damage path; impact = no per-type open-topped multiplier in

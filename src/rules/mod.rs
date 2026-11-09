@@ -143,6 +143,8 @@ pub mod phobos_detonate_all_map;
 #[cfg(feature = "phobos")]
 pub mod phobos_drain_money_display;
 #[cfg(feature = "phobos")]
+pub mod phobos_driver_killed;
+#[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
 pub mod phobos_force_weapon;

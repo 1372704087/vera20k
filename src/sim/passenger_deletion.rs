@@ -454,6 +454,7 @@ fn emit_soylent_text(
             coord: crate::sim::projectile::ProjectileCoord::new(coord.x, coord.y, coord.z),
             z_offset: 0,
             display_to: Some(settings.display_soylent_to_houses),
+            display_owner: None,
             pixel_offset: settings.display_soylent_offset,
         },
     );

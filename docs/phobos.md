@@ -50,6 +50,7 @@ Supported extensions:
 - [Gattling rate-down](phobos-rate-down.md) (`RateDown.Delay`, `.Reset`, `.Cover.Value` and `.Cover.AmmoBelow`)
 - [Repair-service overrides](phobos-units-repair.md) (`Units.RepairRate`, `.RepairStep`, `.RepairPercent` and `.UseRepairCost` on hospitals, depots and `UnitReload` buildings)
 - [Placement adjacency](phobos-adjacent.md) (`Adjacent.Allowed`, `.Disallowed`, `.Disallowed.Prohibit` and `.ProhibitDistance`)
+- [Drain money display](phobos-drain-money-display.md) (`DrainMoneyDisplay.*` flying credit labels for a DrainWeapon link)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

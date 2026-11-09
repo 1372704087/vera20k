@@ -889,6 +889,15 @@ pub struct ObjectType {
     /// Phobos `Adjacent.*` (`Ext/BuildingType/Body.cpp:235-238`).
     #[cfg(feature = "phobos")]
     pub phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent,
+    /// Phobos `DrainMoneyDisplay.*` (`Ext/TechnoType/Body.cpp:1165-1169`).
+    #[cfg(feature = "phobos")]
+    pub phobos_drain_money_display:
+        crate::rules::phobos_drain_money_display::DrainMoneyDisplaySettings,
+    /// Phobos `DisplayIncome.Houses=` / `.Offset=` (`Ext/BuildingType/
+    /// Body.cpp:216-217`), consumed by the drain display's
+    /// `OnTarget.UseDisplayIncome` arm.
+    #[cfg(feature = "phobos")]
+    pub phobos_display_income: crate::rules::phobos_drain_money_display::DisplayIncomeSettings,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4735,6 +4744,16 @@ impl ObjectType {
             ),
             #[cfg(feature = "phobos")]
             phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_drain_money_display:
+                crate::rules::phobos_drain_money_display::DrainMoneyDisplaySettings::from_section(
+                    section,
+                ),
+            #[cfg(feature = "phobos")]
+            phobos_display_income:
+                crate::rules::phobos_drain_money_display::DisplayIncomeSettings::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

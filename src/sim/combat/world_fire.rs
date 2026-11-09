@@ -245,6 +245,224 @@ pub(crate) fn per_shot_report(
     weapon.report_item(usize::from(sequence) % count as usize)
 }
 
+/// Phobos `GeneralUtils::GetRangedRandomOrSingleValue`
+/// (`src/Utilities/GeneralUtils.cpp:61-64`): an authored `[min,max]` interval
+/// draws `ScenarioClass::Random.RandomRanged` (game frames), a single value is
+/// used as-is, then `Math::max(..., 0)` (`Hooks.Firing.cpp:672`,
+/// `Body.cpp:721`). VERA's Scenario RNG (`Simulation::scenario_rng`) is the
+/// sole saved/synchronized RNG and is folded into `world_hash`, so a ranged
+/// delay stays deterministic across peers.
+#[cfg(feature = "phobos")]
+fn phobos_delayed_fire_frames(
+    duration: &crate::rules::ini_value::PartialIntPair,
+    world: &mut Simulation,
+) -> i32 {
+    let frames = if duration.low >= duration.high || duration.values < 2 {
+        duration.low
+    } else {
+        world
+            .scenario_rng
+            .next_range_i32_inclusive(duration.low, duration.high)
+    };
+    frames.max(0)
+}
+
+/// Phobos `TechnoExt::ResetDelayedFireTimer`
+/// (`src/Ext/Techno/Body.cpp:658-669`): stop the timer, clear the index and
+/// pause flag, and `UnInit` the tracked anim when its stored
+/// `DelayedFireRemoveOnNoDelay` flag is set. `TechnoClass_DetachAnim @ 0x710415`
+/// (`Body.cpp:1256-1267`) clears that pointer without destroying on the anim's
+/// natural expiry; VERA's anim owns its lifetime, so a stale id is simply not
+/// destroyed here.
+#[cfg(feature = "phobos")]
+pub(crate) fn reset_phobos_delayed_fire_timer(world: &mut Simulation, rules: &RuleSet, id: u64) {
+    let anim = world
+        .substrate
+        .entities
+        .get_mut(id)
+        .map(|firer| firer.reset_phobos_delayed_fire())
+        .flatten();
+    if let Some(anim_id) = anim {
+        world.destroy_anim(anim_id, rules);
+    }
+}
+
+/// Phobos `TechnoExt::CreateDelayedFireAnim`
+/// (`src/Ext/Techno/Body.cpp:671-697`): `GameCreate<AnimClass>` at the FLH or
+/// centre coordinate, `AnimClass::SetOwnerObject @ 0x00424B50` only when
+/// `AnimIsAttached`, and registration of `CurrentDelayedFireAnim` with the
+/// `DelayedFireRemoveOnNoDelay` flag (so an unattached anim is never removed
+/// by the reset path).
+#[cfg(feature = "phobos")]
+fn create_phobos_delayed_fire_anim(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    snap: &AttackerSnapshot,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    weapon_index: i32,
+    in_transport: bool,
+) {
+    // `Hooks.Firing.cpp:673-676` / `Body.cpp:722-725`: an `isset`
+    // `OpenToppedAnimation` overrides `Animation` while inside a transport.
+    // VERA's `None` on that nullable is "unset", which falls back to Animation.
+    let anim_name = if in_transport {
+        weapon
+            .phobos_delayed_fire_open_topped_animation
+            .as_deref()
+            .or(weapon.phobos_delayed_fire_animation.as_deref())
+    } else {
+        weapon.phobos_delayed_fire_animation.as_deref()
+    };
+    let Some(anim_name) = anim_name else {
+        return;
+    };
+
+    // `CenterAnimOnFirer` short-circuits to `GetCenterCoords()`
+    // (`Body.cpp:677-680`); otherwise `GetFLHAbsoluteCoords`
+    // (`Body.Internal.cpp:80-89`) with `AnimOffset` replacing the weapon FLH
+    // (`Hooks.Firing.cpp:678-681`). RESIDUAL: VERA's `fire_coordinate` adds its
+    // `Flh` base to the weapon FLH (and ignores it for Infantry/Structure)
+    // rather than replacing it, and has no separate body/turret basis switch
+    // for `AnimOnTurret`; the anim is still placed at a valid firing coord.
+    let coord = if weapon.phobos_delayed_fire_center_anim_on_firer {
+        object_get_coords(world, snap.stable_id).map(crate::sim::anim_class::AnimWorldCoord::from)
+    } else {
+        let obj = world
+            .interner
+            .object_type_in_category(snap.type_id, snap.category.into(), rules);
+        obj.map(|obj| {
+            let base = weapon
+                .phobos_delayed_fire_anim_offset
+                .map(crate::rules::flh::Flh::from)
+                .unwrap_or_default();
+            let source = super::fire_coord::FireSource {
+                tar_com: fireat_tarcom(world, snap),
+                ..super::fire_coord::FireSource::from(snap)
+            };
+            super::fire_coord::fire_coordinate(world, rules, &source, obj, weapon_index, 0, base)
+                .coord
+        })
+        .map(crate::sim::anim_class::AnimWorldCoord::from)
+    };
+    let Some(coord) = coord else {
+        return;
+    };
+    let _ = weapon.phobos_delayed_fire_anim_on_turret;
+
+    let type_id = world.interner.intern(anim_name);
+    let attached = weapon.phobos_delayed_fire_anim_is_attached;
+    let owner = attached.then_some(snap.stable_id);
+    let Some(anim_id) = world.spawn_owned_anim(rules, type_id, coord, snap.owner, owner) else {
+        return;
+    };
+    if attached && let Some(firer) = world.substrate.entities.get_mut(snap.stable_id) {
+        firer.set_phobos_delayed_fire_anim(
+            Some(anim_id),
+            weapon.phobos_delayed_fire_remove_anim_on_no_delay,
+        );
+    }
+}
+
+/// Phobos `TechnoClass_FireAt_BeforeTruelyFire @ 0x6FDDC0`
+/// (`src/Ext/Techno/Hooks.Firing.cpp:638-693`, `SkipFiring=0x6FDE03`). The
+/// hook runs inside `FireAt` after weapon selection, before `GetFireError`;
+/// returning `true` makes `admit_attacker_fire` return `None` (suppress this
+/// frame's launch). The timer is a frame-based `CDTimerClass` (native decrements
+/// each game frame; VERA compares the absolute binary frame), and the weapon
+/// index / pause flag / anim pointer mirror `TechnoExt` `Body.h:60-63,120-123`.
+#[cfg(feature = "phobos")]
+fn phobos_delayed_fire_suppresses_this_frame(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    snap: &AttackerSnapshot,
+    weapon_index: i32,
+    weapon: &crate::rules::weapon_type::WeaponType,
+) -> bool {
+    let id = snap.stable_id;
+    let frame = world.session.binary_frame() as i32;
+
+    // `DelayedFireWeaponIndex >= 0 && != weaponIndex` → reset
+    // (`Hooks.Firing.cpp:651-652`, `Body.cpp:705-709`).
+    let previous_index = world
+        .substrate
+        .entities
+        .get(id)
+        .map_or(-1, |firer| firer.phobos_delayed_fire_weapon_index());
+    if previous_index >= 0 && previous_index != weapon_index {
+        reset_phobos_delayed_fire_timer(world, rules, id);
+    }
+
+    // `Duration.isset() && (!Transporter || !SkipInTransport)`
+    // (`Hooks.Firing.cpp:654`). `inside_transport_id` is `TechnoClass+0x11C`.
+    let Some(duration) = weapon.phobos_delayed_fire_duration.as_ref() else {
+        return false;
+    };
+    let in_transport = world
+        .substrate
+        .entities
+        .get(id)
+        .is_some_and(|firer| firer.passenger_role.inside_transport_id().is_some());
+    if in_transport && weapon.phobos_delayed_fire_skip_in_transport {
+        return false;
+    }
+
+    // `PauseFiringSequence && (Infantry || turretless SHP Unit)` yields to the
+    // class pause-sequence hooks `0x736F61` / `0x5209AF`
+    // (`Hooks.Firing.cpp:658-662`, `Body.cpp:699-750`). VERA keeps one timer
+    // but also sets `DelayedFireSequencePaused` for the `0x736480` frame freeze.
+    let pause_sequence = weapon.phobos_delayed_fire_pause_firing_sequence
+        && matches!(
+            snap.category,
+            EntityCategory::Infantry | EntityCategory::Unit
+        );
+
+    // `Burst <= 1 || !OnlyOnInitialBurst || CurrentBurstIndex == 0`
+    // (`Hooks.Firing.cpp:664`). `weapon_burst.index()` is `Techno+0x3B8`.
+    let burst_index = world
+        .substrate
+        .entities
+        .get(id)
+        .map_or(0, |firer| firer.weapon_burst.index());
+    let gate_open =
+        weapon.burst <= 1 || !weapon.phobos_delayed_fire_only_on_initial_burst || burst_index == 0;
+    if !gate_open {
+        return false;
+    }
+
+    let (start_frame, duration_frames) =
+        world.substrate.entities.get(id).map_or((-1, 0), |firer| {
+            (
+                firer.phobos_delayed_fire_start_frame(),
+                firer.phobos_delayed_fire_duration(),
+            )
+        });
+
+    if start_frame >= 0 {
+        let elapsed = frame.wrapping_sub(start_frame);
+        if elapsed < duration_frames {
+            // `timer.InProgress()` (`Hooks.Firing.cpp:666-667`,
+            // `Body.cpp:737-740`): keep suppressing; hold the frame freeze.
+            if pause_sequence && let Some(firer) = world.substrate.entities.get_mut(id) {
+                firer.set_phobos_delayed_fire_sequence_paused(true);
+            }
+            return true;
+        }
+        // `timer.Completed()` → `ResetDelayedFireTimer`, fall through and fire
+        // this frame (`Hooks.Firing.cpp:688-691`).
+        reset_phobos_delayed_fire_timer(world, rules, id);
+        return false;
+    }
+
+    // `!timer.HasStarted()` (`Hooks.Firing.cpp:669-687`, `Body.cpp:718-735`):
+    // record the index, start the timer, create the anim, suppress this frame.
+    let frames = phobos_delayed_fire_frames(duration, world);
+    if let Some(firer) = world.substrate.entities.get_mut(id) {
+        firer.start_phobos_delayed_fire(frame, frames, weapon_index, pause_sequence);
+    }
+    create_phobos_delayed_fire_anim(world, rules, snap, weapon, weapon_index, in_transport);
+    true
+}
+
 fn admit_attacker_fire<'r>(
     world: &mut Simulation,
     rules: &'r RuleSet,
@@ -388,6 +606,18 @@ fn admit_attacker_fire<'r>(
         };
         (index, selected)
     };
+
+    // Phobos `TechnoClass_FireAt_BeforeTruelyFire @ 0x6FDDC0`
+    // (`src/Ext/Techno/Hooks.Firing.cpp:638-693`, `SkipFiring = 0x6FDE03`):
+    // the hook sits between weapon selection and `GetFireError`, so the gate
+    // belongs here, with the chosen weapon and its native index in hand. A
+    // suppressed frame returns `None`, i.e. native's SkipFiring.
+    #[cfg(feature = "phobos")]
+    if let Some(weapon) = selected.as_ref().map(|selected| selected.weapon)
+        && phobos_delayed_fire_suppresses_this_frame(world, rules, snap, weapon_index, weapon)
+    {
+        return None;
+    }
 
     let infantry_fire = snap.category == EntityCategory::Infantry;
     let sequences =

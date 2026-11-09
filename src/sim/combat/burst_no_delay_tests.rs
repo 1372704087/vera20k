@@ -208,11 +208,23 @@ fn a_refused_repeat_restores_the_last_shots_rearm() {
 /// `DelayedFire.Duration=` without the second key keeps native's one shot per
 /// frame even with `Burst.NoDelay=yes`, and authoring both opens the repeat
 /// again - so each key is tested against a case the other one fails.
+///
+/// `DelayedFire.Duration` now also drives the full DelayedFire mechanism (the
+/// `0x6FDDC0` gate), so the very first FireAt starts the 5-frame timer and
+/// launches nothing. Advance the binary frame to the timer's completion frame
+/// before observing the burst cadence; the compatibility gate itself is
+/// unchanged.
 #[test]
 fn a_delayed_fire_weapon_keeps_its_burst_cadence() {
     for category in ["VehicleTypes", "InfantryTypes"] {
         let (mut sim, rules, firer, target) =
             arena(category, "Burst.NoDelay=yes\nDelayedFire.Duration=5\n", "");
+        assert_eq!(
+            visit(&mut sim, &rules, firer, target, category),
+            0,
+            "{category}: the first FireAt starts the delay timer"
+        );
+        sim.session.set_binary_frame_for_test(105);
         assert_eq!(
             visit(&mut sim, &rules, firer, target, category),
             1,
@@ -233,6 +245,12 @@ fn a_delayed_fire_weapon_keeps_its_burst_cadence() {
             "Burst.NoDelay=yes\nDelayedFire.Duration=5\nDelayedFire.OnlyOnInitialBurst=yes\n",
             "",
         );
+        assert_eq!(
+            visit(&mut sim, &rules, firer, target, category),
+            0,
+            "{category}: OnlyOnInitialBurst still delays the initial burst"
+        );
+        sim.session.set_binary_frame_for_test(105);
         assert_eq!(
             visit(&mut sim, &rules, firer, target, category),
             3,

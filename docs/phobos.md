@@ -92,6 +92,7 @@ Supported extensions:
 - [Animation bracket draw offsets](phobos-anim-offset.md) (`XDrawOffset.*` and `YDrawOffset.*` selection-bracket keys for owned animations)
 - [Building turret animations](phobos-turret-anim.md) (`TurretAnim.IdleFrames`, `.LowPowerIdleFrames`, `.FiringFrames`, `.LowPowerFiringFrames`, `.IdleRate` and `.FiringRate` frame selection for SHP slot-9 turrets)
 - [Build limit groups](phobos-build-limit-group.md) (`BuildLimitGroup.*` nine keys, `[General]` fallbacks, ExtraLimit quota and the queue-match gate)
+- [Delayed fire](phobos-delayed-fire.md) (`DelayedFire.*` wind-up delay, timer, pause, wind-up animation and `Burst.NoDelay` compatibility; 11 keys)
 
 ## Original project and authors
 

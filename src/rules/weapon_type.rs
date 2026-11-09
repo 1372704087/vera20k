@@ -290,10 +290,12 @@ pub struct WeaponType {
     #[cfg(feature = "phobos")]
     pub phobos_burst_no_delay: bool,
     /// Phobos `WeaponTypeExt::DelayedFire_Duration` (`Ext/WeaponType/Body.cpp:189`,
-    /// `Nullable<PartialVector2D<int>>`). Only its `isset` state is consulted
-    /// here, as the `Burst.NoDelay` hooks do: the pause sequence, the saved
-    /// `DelayedFireTimer` and the animation family are unported. A key authored
-    /// with no parsable field stays unset, which is what `Nullable::Read` leaves.
+    /// `Nullable<PartialVector2D<int>>`, game frames). A key authored with no
+    /// parsable field stays unset, which is what `Nullable::Read` leaves. The
+    /// `isset` state also drives the `Burst.NoDelay` compatibility gate
+    /// ([`Self::delayed_fire_allows_burst_repeat`]); the value itself is consumed
+    /// by the `0x6FDDC0` gate (`src/Ext/Techno/Hooks.Firing.cpp:638-693`) as the
+    /// delay timer's duration.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_delayed_fire_duration: Option<crate::rules::ini_value::PartialIntPair>,
     /// Phobos `WeaponTypeExt::DelayedFire_OnlyOnInitialBurst` (`Body.cpp:197`,
@@ -301,6 +303,64 @@ pub struct WeaponType {
     /// the second half of that gate.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_delayed_fire_only_on_initial_burst: bool,
+    /// The other nine `DelayedFire.*` keys, read by
+    /// `WeaponTypeExt::LoadFromINIFile` (`src/Ext/WeaponType/Body.cpp:190-199`),
+    /// declared at `Body.h:98-107` and defaulted at `Body.h:194-203`; serialized
+    /// at `Body.cpp:299-309`. All are consumed by the `0x6FDDC0` gate
+    /// (`src/Ext/Techno/Hooks.Firing.cpp:638-693`) and its animation helpers
+    /// (`src/Ext/Techno/Body.cpp:658-697`).
+    ///
+    /// `DelayedFire_SkipInTransport` (`Body.cpp:190`, `Body.h:98`, default
+    /// false): `TechnoClass_FireAt_BeforeTruelyFire @ 0x6FDDC0` suppresses the
+    /// delay for a firer whose `TechnoClass+0x11C` Transporter is set.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_skip_in_transport: bool,
+    /// `DelayedFire_Animation` (`Body.cpp:191`, `Body.h:99`, `Valueable<AnimTypeClass*>`,
+    /// default null): the wind-up anim. Empty and `none` both resolve to null
+    /// in the type factory; unlike the Nullable sibling it has no `isset` flag,
+    /// so `none` cannot "clear" an inherited value.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_animation: Option<String>,
+    /// `DelayedFire_OpenToppedAnimation` (`Body.cpp:192`, `Body.h:100`,
+    /// `Nullable<AnimTypeClass*>`, default unset): an open-topped override.
+    /// `none`/`<none>`/`<default>` clear the nullable (leave it unset), which
+    /// the `0x6FDDC0` gate answers by falling back to `Animation`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_open_topped_animation: Option<String>,
+    /// `DelayedFire_AnimIsAttached` (`Body.cpp:193`, `Body.h:101`, default
+    /// true): `TechnoExt::CreateDelayedFireAnim` (`Body.cpp:671-697`) only
+    /// calls `SetOwnerObject @ 0x00424B50` and registers
+    /// `CurrentDelayedFireAnim` when this is set.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_anim_is_attached: bool,
+    /// `DelayedFire_CenterAnimOnFirer` (`Body.cpp:194`, `Body.h:102`, default
+    /// false): `Body.cpp:677-680` short-circuits the FLH path with
+    /// `GetCenterCoords()`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_center_anim_on_firer: bool,
+    /// `DelayedFire_RemoveAnimOnNoDelay` (`Body.cpp:195`, `Body.h:103`, default
+    /// false): `TechnoExt::ResetDelayedFireTimer @ 0x6FDDC0`
+    /// (`Body.cpp:658-669`) force-destroys the tracked anim on reset; only
+    /// stored on the AnimExt of an attached anim (`Body.cpp:691-695`), so it
+    /// is inert when `AnimIsAttached` is false.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_remove_anim_on_no_delay: bool,
+    /// `DelayedFire_PauseFiringSequence` (`Body.cpp:196`, `Body.h:104`, default
+    /// false): `0x6FDDC0` (`Hooks.Firing.cpp:658-662`) yields to
+    /// `TechnoExt::HandleDelayedFireWithPauseSequence` (`Body.cpp:699-750`),
+    /// whose `UnitClass_AI @ 0x736480` hook freezes the firing-sequence frame.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_pause_firing_sequence: bool,
+    /// `DelayedFire_AnimOffset` (`Body.cpp:198`, `Body.h:106`,
+    /// `Nullable<CoordStruct>`, default unset): `Forward,Lateral,Height`
+    /// **replaces** the weapon FLH at `Hooks.Firing.cpp:680-681`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_anim_offset: Option<[i32; 3]>,
+    /// `DelayedFire_AnimOnTurret` (`Body.cpp:199`, `Body.h:107`, default true):
+    /// passed as `isOnTurret` to `TechnoExt::GetFLHAbsoluteCoords`
+    /// (`Body.Internal.cpp:80-89`).
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_delayed_fire_anim_on_turret: bool,
     /// Phobos `WeaponTypeExt::CanTargetHouses` (`AffectedHouse::All` default),
     /// read for `Splits.UseWeaponTargeting`.
     #[cfg(feature = "phobos")]
@@ -701,6 +761,48 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_delayed_fire_only_on_initial_burst: section
                 .read_ares_bool("DelayedFire.OnlyOnInitialBurst", false),
+            // The remaining `DelayedFire.*` reads (`Body.cpp:190-199`).
+            // `Valueable<bool>` keeps the constructor default on an absent or
+            // rejected read; `AnimIsAttached`/`AnimOnTurret` default true.
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_skip_in_transport: section
+                .read_ares_bool("DelayedFire.SkipInTransport", false),
+            // `Valueable<AnimTypeClass*>`: a present type name resolves, `none`
+            // and `<none>` answer the factory's null (no `isset` flag to clear).
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_animation: section
+                .read_type_name("DelayedFire.Animation", 0x100)
+                .map(str::to_owned),
+            // `Nullable<AnimTypeClass*>::Read<false, false>`: `<default>`,
+            // `none` and `<none>` clear the nullable to "unset"; a resolved
+            // name sets it. VERA models "unset" as `None` (fall back to
+            // `Animation`) and a set name as `Some`.
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_open_topped_animation: section.read_phobos_nullable_with(
+                "DelayedFire.OpenToppedAnimation",
+                None,
+                |raw| Some(raw.to_owned()),
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_anim_is_attached: section
+                .read_ares_bool("DelayedFire.AnimIsAttached", true),
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_center_anim_on_firer: section
+                .read_ares_bool("DelayedFire.CenterAnimOnFirer", false),
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_remove_anim_on_no_delay: section
+                .read_ares_bool("DelayedFire.RemoveAnimOnNoDelay", false),
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_pause_firing_sequence: section
+                .read_ares_bool("DelayedFire.PauseFiringSequence", false),
+            // `Nullable<CoordStruct>`: a complete `Forward,Lateral,Height`
+            // scan, the same reader as `weapon_offsets::nullable_flh`.
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_anim_offset: section
+                .read_int_fields_complete::<3>("DelayedFire.AnimOffset", 2048),
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_anim_on_turret: section
+                .read_ares_bool("DelayedFire.AnimOnTurret", true),
         }
     }
 }

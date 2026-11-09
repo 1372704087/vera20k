@@ -1053,6 +1053,44 @@ pub(crate) fn start_uncloaking_to_fire(world: &mut Simulation, rules: &RuleSet, 
         id,
         sound_enabled,
     );
+    // Phobos `TechnoClass_CanFire_OpenTopCloakFix @ 0x6FCD1D`
+    // (`Ext/Techno/Hooks.Cloak.cpp:201-214`): when the firer is in an
+    // open-topped transport whose type enables `OpenTopped.DecloakToFire`,
+    // `pThis->Transporter->Uncloak(true)` also drops the CARRIER's cloak, not
+    // the passenger's. The native hook sits in CanFire's in-range path; VERA
+    // reaches the uncloak from the CLOAKED arm's StartUncloaking.
+    #[cfg(feature = "phobos")]
+    {
+        let carrier = world
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|passenger| passenger.passenger_role.transporter())
+            .and_then(|tid| {
+                world
+                    .substrate
+                    .entities
+                    .get(tid)
+                    .map(|t| (tid, t.type_ref()))
+            });
+        if let Some((carrier_id, carrier_type)) = carrier {
+            let carrier_obj = world.interner.object_type(carrier_type, rules);
+            if let Some(carrier_obj) = carrier_obj
+                && carrier_obj.open_topped
+                && carrier_obj.phobos_open_topped().decloak_to_fire(rules)
+            {
+                uncloak_to_fire(
+                    &world.session,
+                    &mut world.substrate,
+                    &mut world.sound_events,
+                    rules,
+                    carrier_obj,
+                    carrier_id,
+                    sound_enabled,
+                );
+            }
+        }
+    }
 }
 
 /// `TechnoClass::Uncloak` (vt+0x45C, `0x007036C0`) with its sound, each
@@ -1285,11 +1323,39 @@ fn fire_damage_stages(
     obj: &ObjectType,
     is_garrison: bool,
 ) -> damage::attacker::FireDamageStages {
+    let firer = world.substrate.entities.get(snap.stable_id);
+    // Phobos `TechnoClass_FireAt_OpenToppedDmgMult @ 0x6FE43B`
+    // (`Ext/Techno/Hooks.Firing.cpp:714-741`) and the separate
+    // `GetCurrentFirepowerMultiplier` (`Ext/Techno/Body.cpp:228-232`): the
+    // transport type's `Nullable<float> OpenTopped.DamageMultiplier` replaces
+    // the YR `[CombatDamage]` global. Resolving it here feeds the shared
+    // `firepower_stages`, so both the FireAt and Bullet-init paths see it.
+    let open_topped_multiplier = {
+        #[cfg(feature = "phobos")]
+        {
+            firer
+                .and_then(|f| {
+                    crate::sim::attach_effect::open_topped_transport_type(
+                        f,
+                        &world.substrate.entities,
+                        rules,
+                        &world.interner,
+                    )
+                })
+                .map(|kind| kind.phobos_open_topped().damage_multiplier(rules))
+                .unwrap_or(rules.garrison_rules.open_topped_damage_multiplier)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            rules.garrison_rules.open_topped_damage_multiplier
+        }
+    };
     firepower_stages(
-        world.substrate.entities.get(snap.stable_id),
+        firer,
         &world.houses,
         rules,
         Some(obj),
+        open_topped_multiplier,
         self::veterancy::rank_from_u16(snap.veterancy),
         is_garrison,
     )
@@ -1303,6 +1369,7 @@ fn firepower_stages(
     houses: &crate::sim::houses::Houses,
     rules: &RuleSet,
     obj: Option<&ObjectType>,
+    open_topped_multiplier: f32,
     rank: self::veterancy::VeterancyRank,
     is_garrison: bool,
 ) -> damage::attacker::FireDamageStages {
@@ -1336,7 +1403,7 @@ fn firepower_stages(
             .map(|_| f32_bits(multipliers.bunker_damage_multiplier)),
         open_topped: firer
             .filter(|firer| firer.passenger_role.in_open_transport())
-            .map(|_| f32_bits(multipliers.open_topped_damage_multiplier)),
+            .map(|_| f32_bits(open_topped_multiplier)),
         #[cfg(feature = "phobos")]
         ae_firepower: firer.map_or(1.0, |firer| firer.phobos_stat_multipliers().firepower),
         #[cfg(not(feature = "phobos"))]
@@ -1405,11 +1472,20 @@ pub(crate) fn bullet_init_firepower_multiplier(
         && object.is_some_and(|object| {
             object.can_be_occupied && object.can_occupy_fire && object.max_number_occupants > 0
         });
+    let open_topped_multiplier = crate::sim::attach_effect::open_topped_transport_type(
+        firer,
+        &substrate.entities,
+        rules,
+        interner,
+    )
+    .map(|kind| kind.phobos_open_topped().damage_multiplier(rules))
+    .unwrap_or(rules.garrison_rules.open_topped_damage_multiplier);
     let stages = firepower_stages(
         Some(firer),
         houses,
         rules,
         object,
+        open_topped_multiplier,
         firer.veterancy.rank_kind(),
         occupied,
     );

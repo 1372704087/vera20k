@@ -616,6 +616,13 @@ pub struct ObjectType {
     /// set folds the transport's range modifiers instead of its own.
     #[cfg(feature = "phobos")]
     open_topped_use_transport_range_modifiers: Option<bool>,
+    /// The eleven Phobos `TechnoTypeExt` `OpenTopped.*` `Nullable` keys
+    /// (`Ext/TechnoType/Body.cpp:879-889`), read as one aggregate. The three
+    /// numeric keys fall back to the YR `[CombatDamage]` fields and the eight
+    /// booleans to the `[General]` `PhobosGlobals`; see
+    /// [`crate::rules::phobos_open_topped`].
+    #[cfg(feature = "phobos")]
+    phobos_open_topped: crate::rules::phobos_open_topped::PhobosOpenTopped,
     /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
     /// default true. The preview also needs the rules global and the client
     /// switch.
@@ -3657,6 +3664,14 @@ impl ObjectType {
         self.open_topped_use_transport_range_modifiers
     }
 
+    /// The eleven Phobos `TechnoTypeExt` `OpenTopped.*` `Nullable` keys
+    /// (`Ext/TechnoType/Body.cpp:879-889`); each accessor falls back to the
+    /// YR `[CombatDamage]` or `[General]` global at the consumer.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_open_topped(&self) -> &crate::rules::phobos_open_topped::PhobosOpenTopped {
+        &self.phobos_open_topped
+    }
+
     /// Phobos `DigitalDisplay.Health.FakeAtDisguise=`, `None` when inheriting.
     #[cfg(feature = "phobos")]
     pub fn digital_display_health_fake_at_disguise(&self) -> Option<bool> {
@@ -4826,6 +4841,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             open_topped_use_transport_range_modifiers: section
                 .read_phobos_nullable_bool("OpenTopped.UseTransportRangeModifiers", None),
+            #[cfg(feature = "phobos")]
+            phobos_open_topped:
+                crate::rules::phobos_open_topped::PhobosOpenTopped::from_section(section),
             #[cfg(feature = "phobos")]
             placement_preview: category == ObjectCategory::Building
                 && section.read_bool("PlacementPreview", true),

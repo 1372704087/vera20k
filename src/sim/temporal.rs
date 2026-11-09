@@ -683,12 +683,35 @@ impl Simulation {
                 [victim.x, victim.y, victim.z],
                 [owner.x, owner.y, owner.z],
             );
-            if distance
-                > rules
-                    .combat_damage
-                    .open_topped_warp_distance
-                    .wrapping_mul(256)
-            {
+            // Phobos `TemporalClass_AI_Opentopped_WarpDistance @ 0x71A82C`
+            // (`Ext/Techno/Hooks.Transport.cpp:185-197`): a passenger with a
+            // Transporter gets the carrier type's `Nullable<int>
+            // OpenTopped.WarpDistance` in cells (`EDX`), else the YR
+            // `[CombatDamage] OpenToppedWarpDistance` global. Keep the
+            // signed `i32.wrapping_mul(256)` overflow semantics.
+            let warp_distance = {
+                #[cfg(feature = "phobos")]
+                {
+                    self.substrate
+                        .entities
+                        .get(head)
+                        .and_then(|passenger| {
+                            crate::sim::attach_effect::open_topped_transport_type(
+                                passenger,
+                                &self.substrate.entities,
+                                rules,
+                                &self.interner,
+                            )
+                        })
+                        .map(|kind| kind.phobos_open_topped().warp_distance(rules))
+                        .unwrap_or(rules.combat_damage.open_topped_warp_distance)
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    rules.combat_damage.open_topped_warp_distance
+                }
+            };
+            if distance > warp_distance.wrapping_mul(256) {
                 Self::temporal_let_go(
                     &mut self.substrate,
                     &mut self.houses,

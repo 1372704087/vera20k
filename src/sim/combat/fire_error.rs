@@ -340,6 +340,32 @@ pub(crate) struct FirerFacts {
     /// tower that can fire (`10016360`).
     #[cfg(feature = "ares")]
     pub prism_breaks_support: bool,
+    // Phobos `TechnoClass_CanFire_OpenTopped @ 0x6FC5C7`
+    // (`Ext/Techno/Hooks.Firing.cpp:439-482`), transport-side facts. The
+    // `OpenTopped.*` type keys are resolved to their effective values against
+    // `[General]` at assembly time; cart/aircraft non-Foot carriers leave the
+    // raw facts false. Defaults are false, so a corpus `FirerFacts` that has
+    // no transport facts leaves the Phobos branch a no-op.
+    #[cfg(feature = "phobos")]
+    pub transport_deactivated: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_weapons_disabled: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_attacked_by_locomotor: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_is_foot: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_moving: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_allow_firing_if_deactivated: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_allow_firing_if_attacked_by_locomotor: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_check_disable_weapons: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_fire_while_moving: bool,
+    #[cfg(feature = "phobos")]
+    pub transport_decloak_to_fire: bool,
 }
 
 impl Default for FirerFacts {
@@ -403,6 +429,26 @@ impl Default for FirerFacts {
             building_has_turret: false,
             #[cfg(feature = "ares")]
             prism_breaks_support: false,
+            #[cfg(feature = "phobos")]
+            transport_deactivated: false,
+            #[cfg(feature = "phobos")]
+            transport_weapons_disabled: false,
+            #[cfg(feature = "phobos")]
+            transport_attacked_by_locomotor: false,
+            #[cfg(feature = "phobos")]
+            transport_is_foot: false,
+            #[cfg(feature = "phobos")]
+            transport_moving: false,
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_deactivated: false,
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_attacked_by_locomotor: false,
+            #[cfg(feature = "phobos")]
+            transport_check_disable_weapons: false,
+            #[cfg(feature = "phobos")]
+            transport_fire_while_moving: false,
+            #[cfg(feature = "phobos")]
+            transport_decloak_to_fire: false,
         }
     }
 }
@@ -1081,6 +1127,46 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
     {
         return Illegal;
     }
+    // Phobos `TechnoClass_CanFire_OpenTopped @ 0x6FC5C7`
+    // (`Ext/Techno/Hooks.Firing.cpp:439-482`): replaces the native T33 tail
+    // for a passenger whose weapon has `FireInTransport` and whose carrier is
+    // not warped-out/nested (T32/T33 above already answered those, and its
+    // `Transporter::Nested` arm is the hook's key-free check ②). The strict
+    // order is: Deactivated -> Carrier.Transporter -> CheckDisable ->
+    // IsAttackedByLocomotor -> FireWhileMoving's moving check.
+    #[cfg(feature = "phobos")]
+    if firer.in_open_transport {
+        // ① `pTransport->Deactivated && !AllowFiringIfDeactivated` -> Illegal.
+        if firer.transport_deactivated && !firer.transport_allow_firing_if_deactivated {
+            return Illegal;
+        }
+        // ③ the passenger's weapon is `weapon` (Some past T21 here).
+        // ④ `CheckTransportDisableWeapons && HasWeaponsDisabled(pTransport)
+        //    && pWeapon` -> the hook's `OutOfRange` verdict (0x6FC0DF), not
+        //    Illegal. VERA maps that verdict to `Range` (8).
+        if firer.transport_check_disable_weapons && firer.transport_weapons_disabled {
+            return Range;
+        }
+        // ⑤ only when the carrier casts to `FootClass`.
+        if firer.transport_is_foot {
+            // 5a `IsAttackedByLocomotor && !AllowFiringIfAttackedByLocomotor`.
+            if firer.transport_attacked_by_locomotor
+                && !firer.transport_allow_firing_if_attacked_by_locomotor
+            {
+                return Illegal;
+            }
+            // 5b three-way AND: carrier `OpenTopped.FireWhileMoving`, the
+            // passenger `OpenTransport.FireWhileMoving` (unported companion
+            // key, Phobos global default `true`) and the weapon's YR
+            // `FireWhileMoving`. Any false runs the carrier moving check
+            // (`BalloonHover` Is_Moving_Now / else Destination != nullptr).
+            if !firer.transport_fire_while_moving || !weapon.fire_while_moving {
+                if firer.transport_moving {
+                    return Illegal;
+                }
+            }
+        }
+    }
     // T34 `0x006FC5D5`: only Chrono shots join an erase.
     if kind.is_techno() && weapon.warhead.is_some() && target.warped_out && !warhead.temporal {
         return Illegal;
@@ -1201,12 +1287,32 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
     // T48 `0x006FCA26`: an aircraft surfaces only from a full cloak.
     // Ares 3.0 TechnoClass_GetWeaponState (1005D2B0, hook 0x6FCA30): a
     // transport that is not uncloaked answers CLOAKED first.
+    // Phobos `TechnoClass_CanFire_RevertAresOpenTopCloakFix @ 0x6FCA26`
+    // (`Ext/Techno/Hooks.Cloak.cpp:179-199`): an open-topped carrier whose
+    // `OpenTopped.DecloakToFire` is on returns `NotApplicable(0x6FCA5E)`,
+    // reverting the Ares forced-CLOAKED verdict and skipping T48; the
+    // `0x6FCD1D` hook uncloaks the carrier instead. `weapon.decloak_to_fire`
+    // is the YR WeaponType key, distinct from the Phobos TechnoType key.
+    let revert_decloak = {
+        #[cfg(feature = "phobos")]
+        {
+            firer.transport_decloak_to_fire
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            false
+        }
+    };
     #[cfg(feature = "ares")]
-    if weapon.decloak_to_fire && firer.transporter != Transporter::None && firer.transporter_cloaked
+    if weapon.decloak_to_fire
+        && firer.transporter != Transporter::None
+        && firer.transporter_cloaked
+        && !revert_decloak
     {
         return Cloaked;
     }
     if weapon.decloak_to_fire
+        && !revert_decloak
         && firer.cloak_state != 0
         && (class != FirerClass::Aircraft || firer.cloak_state == 2)
     {

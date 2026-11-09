@@ -527,8 +527,24 @@ pub(crate) fn weapon_range(
         weapon.range_leptons,
         rules,
     );
-    open_topped_cargo_range(entity, obj, entities, rules, interner)
-        .map_or(range, |cargo| range.min(cargo))
+    // Phobos `TechnoClass_WeaponRange @ 0x7012C2`
+    // (`Ext/Techno/Hooks.WeaponRange.cpp:4-49`): `OpenTopped.IgnoreRangefinding`
+    // reimplements the whole function and keeps `GetRangeWithModifiers(pWeapon,
+    // pThis)` instead of clamping the result to the shortest passenger weapon
+    // range. It is NOT an InRange branch: it drives threat/approach scanning.
+    #[cfg(feature = "phobos")]
+    {
+        if obj.open_topped && obj.phobos_open_topped().ignore_rangefinding(rules) {
+            return range;
+        }
+        open_topped_cargo_range(entity, obj, entities, rules, interner)
+            .map_or(range, |cargo| range.min(cargo))
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        open_topped_cargo_range(entity, obj, entities, rules, interner)
+            .map_or(range, |cargo| range.min(cargo))
+    }
 }
 
 /// GetWeaponRange's `OpenTopped=` arm (`0x007012ED..`, the same walk as
@@ -1630,6 +1646,94 @@ pub(crate) fn get_weapon_record<'r>(
 mod tests {
     use super::*;
     use crate::rules::ini_parser::IniFile;
+
+    /// Phobos `TechnoClass_WeaponRange @ 0x7012C2`
+    /// (`Ext/Techno/Hooks.WeaponRange.cpp:4-49`): `IgnoreRangefinding` keeps
+    /// `GetRangeWithModifiers(pWeapon, pThis)` instead of clamping the result
+    /// to the shortest passenger weapon range. Boundary: carrier weapon
+    /// `Range=10` (2560 lep) vs the passenger's `Range=3` (768 lep).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn open_topped_task_d_ignore_rangefinding() {
+        use crate::sim::intern::test_interner;
+        use crate::sim::passenger::{PassengerCargo, PassengerRole};
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=IGNORE\n1=CLAMP\n[InfantryTypes]\n0=RIDER\n\
+             [AircraftTypes]\n[BuildingTypes]\n\
+             [IGNORE]\nStrength=200\nOpenTopped=yes\nPassengers=1\nPrimary=BIGGUN\n\
+             OpenTopped.IgnoreRangefinding=yes\n\
+             [CLAMP]\nStrength=200\nOpenTopped=yes\nPassengers=1\nPrimary=BIGGUN\n\
+             [RIDER]\nStrength=100\nPrimary=SMALLGUN\n\
+             [BIGGUN]\nDamage=1\nRange=10\nWarhead=WH\n\
+             [SMALLGUN]\nDamage=1\nRange=3\nWarhead=WH\nFireInTransport=yes\n\
+             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::with_seed(0x4f50);
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default(1, "IGNORE", "Americans", 10, 10));
+        // A second carrier entity interns "CLAMP" before the interner clone.
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default(3, "CLAMP", "Americans", 10, 10));
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default_of_category(
+                2,
+                "RIDER",
+                "Americans",
+                10,
+                10,
+                EntityCategory::Infantry,
+            ));
+        sim.interner = test_interner();
+        for carrier_id in [1u64, 3] {
+            let mut cargo = PassengerCargo::new(1, 0.0);
+            cargo.set_passengers_for_test(vec![2]);
+            sim.substrate
+                .entities
+                .get_mut(carrier_id)
+                .unwrap()
+                .passenger_role = PassengerRole::transport(cargo);
+        }
+        sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+            PassengerRole::boarded_for_test(1, true);
+
+        let interner = test_interner();
+        let ignore_obj = rules.object("IGNORE").unwrap();
+        let carrier = sim.substrate.entities.get(1).unwrap();
+        assert_eq!(
+            weapon_range(
+                carrier,
+                ignore_obj,
+                0,
+                &sim.substrate.entities,
+                &rules,
+                &interner
+            ),
+            2560,
+            "IgnoreRangefinding keeps the carrier's own weapon range"
+        );
+
+        // Without the key, `open_topped_cargo_range` clamps to the shortest
+        // passenger weapon (SMALLGUN's 3 cells).
+        let clamp_obj = rules.object("CLAMP").unwrap();
+        let carrier = sim.substrate.entities.get(3).unwrap();
+        assert_eq!(
+            weapon_range(
+                carrier,
+                clamp_obj,
+                0,
+                &sim.substrate.entities,
+                &rules,
+                &interner
+            ),
+            768,
+            "stock clamps the carrier range to the passenger minimum"
+        );
+    }
 
     #[test]
     fn installed_upgrade_records_select_per_index_and_follow_removal() {

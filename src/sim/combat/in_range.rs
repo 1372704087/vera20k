@@ -133,7 +133,7 @@ fn reach_leptons(
             ),
         );
     }
-    range_lep + open_topped_range_bonus_leptons(attacker, rules)
+    range_lep + open_topped_range_bonus_leptons(attacker, rules, entities, interner)
 }
 
 /// `0x006F7525..0x006F7554`, on the non-arcing arm after the target's
@@ -233,13 +233,40 @@ fn occupied_range_leptons(
 /// (`+0x82`) reaches `[CombatDamage] OpenToppedRangeBonus=` cells farther
 /// (`Rules+0xF5C`, shifted to leptons). The stage runs before the
 /// MinimumRange test and the arcing split, so both arms and a cell target
-/// read it.
-fn open_topped_range_bonus_leptons(attacker: &GameEntity, rules: &RuleSet) -> i64 {
-    if attacker.passenger_role.in_open_transport() {
-        i64::from(rules.garrison_rules.open_topped_range_bonus) << 8
-    } else {
-        0
+/// read it. The `i64 << 8` (not `wrapping_mul`) is native's SHL.
+///
+/// Phobos `TechnoClass_IsCloseEnoughToTarget_OpenTopped_RangeBonus @ 0x6F72D2`
+/// (`Ext/Techno/Hooks.Transport.cpp:167-183`): the transport type's
+/// `Nullable<int> OpenTopped.RangeBonus` replaces the YR global via
+/// `.Get(RulesClass::Instance->OpenToppedRangeBonus)`. Stock keeps the global.
+fn open_topped_range_bonus_leptons(
+    attacker: &GameEntity,
+    rules: &RuleSet,
+    entities: Option<&crate::sim::entity_store::EntityStore>,
+    interner: &StringInterner,
+) -> i64 {
+    if !attacker.passenger_role.in_open_transport() {
+        return 0;
     }
+    let bonus = {
+        #[cfg(feature = "phobos")]
+        {
+            entities
+                .and_then(|store| {
+                    crate::sim::attach_effect::open_topped_transport_type(
+                        attacker, store, rules, interner,
+                    )
+                })
+                .map(|kind| kind.phobos_open_topped().range_bonus(rules))
+                .unwrap_or(rules.garrison_rules.open_topped_range_bonus)
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let _ = (entities, interner);
+            rules.garrison_rules.open_topped_range_bonus
+        }
+    };
+    i64::from(bonus) << 8
 }
 
 /// Which of InRange's two elevation bonuses to compute.
@@ -2860,6 +2887,75 @@ mod tests {
             assert!(allowed);
             assert_eq!(samples.len(), 4);
             assert!(samples.iter().all(|point| i64::from(point.z) == resolved.2));
+        }
+    }
+
+    /// Phobos `TechnoClass_IsCloseEnoughToTarget_OpenTopped_RangeBonus @
+    /// 0x6F72D2`: a passenger's `InRange` reach uses the carrier type's
+    /// `OpenTopped.RangeBonus` instead of the YR `[CombatDamage]` global.
+    /// Boundary: `Range=4` (1024 lep) + target 2048 lep east is out of reach
+    /// with the global bonus 2 (512) but inside the override 9 (2304).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn open_topped_task_d_range_bonus() {
+        use crate::sim::components::DriveCoord;
+        use crate::sim::intern::test_interner;
+        use crate::sim::passenger::PassengerRole;
+
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=CARRIER\n1=PLAIN\n[InfantryTypes]\n0=RIDER\n\
+             [AircraftTypes]\n[BuildingTypes]\n\
+             [CARRIER]\nStrength=200\nOpenTopped=yes\nPassengers=1\nOpenTopped.RangeBonus=9\n\
+             [PLAIN]\nStrength=200\nOpenTopped=yes\nPassengers=1\n\
+             [RIDER]\nStrength=100\nPrimary=GUN\n\
+             [GUN]\nDamage=1\nRange=4\nWarhead=WH\n\
+             [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [CombatDamage]\nOpenToppedRangeBonus=2\n",
+        ))
+        .unwrap();
+        let mut sim = Simulation::with_seed(0x4f50);
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default(1, "CARRIER", "Americans", 10, 10));
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default(3, "PLAIN", "Americans", 10, 10));
+        sim.substrate
+            .entities
+            .insert(GameEntity::test_default_of_category(
+                2,
+                "RIDER",
+                "Americans",
+                10,
+                10,
+                EntityCategory::Infantry,
+            ));
+        sim.interner = test_interner();
+        sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+            PassengerRole::boarded_for_test(1, true);
+
+        let weapon = rules.weapon("GUN").unwrap();
+        let interner = test_interner();
+        let reaches = |rider: &GameEntity, entities: &crate::sim::entity_store::EntityStore| {
+            let source = object_get_coords(rider, None);
+            let east = MaplessTarget::Point(DriveCoord {
+                x: source.x + 2048,
+                ..source
+            });
+            mapless_in_range(rider, east, weapon, &rules, &interner, Some(entities))
+        };
+
+        // The overriding carrier (9 cells) reaches; the plain carrier falls
+        // back to the global (2 cells) and does not.
+        {
+            let entities = &sim.substrate.entities;
+            assert!(reaches(entities.get(2).unwrap(), entities));
+        }
+        sim.substrate.entities.get_mut(2).unwrap().passenger_role =
+            PassengerRole::boarded_for_test(3, true);
+        {
+            let entities = &sim.substrate.entities;
+            assert!(!reaches(entities.get(2).unwrap(), entities));
         }
     }
 }

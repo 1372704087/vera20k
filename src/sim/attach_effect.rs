@@ -883,6 +883,26 @@ pub(crate) fn range_modifier_source<'a>(
     entity
 }
 
+/// Resolve the open-topped carrier's `ObjectType` for a passenger. The Phobos
+/// `OpenTopped.*` hooks read the transport's type extension
+/// (`TechnoExt::Fetch(pThis->Transporter)->TypeExtData`), e.g.
+/// `TechnoClass_IsCloseEnoughToTarget_OpenTopped_RangeBonus @ 0x6F72D2`
+/// (`Ext/Techno/Hooks.Transport.cpp:173-176`); VERA's carrier relation
+/// (`inside_transport_id`) is that entity. `None` for a mapless probe or a
+/// carrier whose type does not resolve.
+#[cfg(feature = "phobos")]
+pub(crate) fn open_topped_transport_type<'r>(
+    entity: &crate::sim::game_entity::GameEntity,
+    entities: &crate::sim::entity_store::EntityStore,
+    rules: &'r crate::rules::ruleset::RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+) -> Option<&'r crate::rules::object_type::ObjectType> {
+    let id = entity.passenger_role.inside_transport_id()?;
+    let transport = entities.get(id)?;
+    let kind = interner.object_type(transport.type_ref(), rules)?;
+    kind.open_topped.then_some(kind)
+}
+
 /// Phobos `WeaponTypeExt::GetRangeWithModifiers`'s AttachEffect arm: every
 /// active effect whose weapon lists admit `weapon` multiplies the range (in
 /// leptons, clamped) and sums its `WeaponRange.ExtraRange`; the summed cells

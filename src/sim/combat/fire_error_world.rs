@@ -272,6 +272,43 @@ impl<'a> FireSubject<'a> {
             .radio_contacts
             .slot(0)
             .and_then(|id| self.world.substrate.entities.get(id));
+        // Phobos `TechnoClass_CanFire_OpenTopped @ 0x6FC5C7`
+        // (`Ext/Techno/Hooks.Firing.cpp:439-482`) and
+        // `TechnoClass_CanFire_RevertAresOpenTopCloakFix @ 0x6FCA26`
+        // (`Ext/Techno/Hooks.Cloak.cpp:179-199`): the transport entity and the
+        // carrier type's resolved `OpenTopped.*` keys. A missing carrier type
+        // falls back to the `[General]`/`[CombatDamage]` defaults.
+        #[cfg(feature = "phobos")]
+        let open_topped = transport
+            .and_then(|t| self.world.object_type(t.type_ref(), self.rules))
+            .map(|kind| kind.phobos_open_topped())
+            .copied()
+            .unwrap_or_default();
+        #[cfg(feature = "phobos")]
+        let transport_deactivated = transport.is_some_and(|t| t.deactivated.is_offline());
+        #[cfg(feature = "phobos")]
+        let transport_weapons_disabled = transport.is_some_and(|t| {
+            // `TechnoExt::HasWeaponsDisabled` (`Ext/Techno/Body.cpp:1109-1123`):
+            // the Phobos AttachEffect stat fold, or the Ares timer.
+            let phobos = t.phobos_stat_multipliers().disable_weapons;
+            #[cfg(feature = "ares")]
+            let ares = t.ares_disable_weapons.start_frame()
+                != crate::sim::timer::PAUSED_START_FRAME
+                && t.ares_disable_weapons.remaining(frame as i32) > 0;
+            #[cfg(not(feature = "ares"))]
+            let ares = false;
+            phobos || ares
+        });
+        #[cfg(feature = "phobos")]
+        let transport_attacked_by_locomotor =
+            transport.is_some_and(|t| t.is_attacked_by_locomotor());
+        #[cfg(feature = "phobos")]
+        let transport_is_foot =
+            transport.is_some_and(|t| t.category() != EntityCategory::Structure);
+        // `BalloonHover` Is_Moving_Now / else `Destination != nullptr`; VERA's
+        // NavCom stands in for the destination (see residuals).
+        #[cfg(feature = "phobos")]
+        let transport_moving = transport.is_some_and(|t| t.navigation.nav_com().is_some());
         let firer_facts = FirerFacts {
             enslaved: firer.slave.owner().is_some(),
             warped_out: firer.is_warped_out(),
@@ -401,6 +438,29 @@ impl<'a> FireSubject<'a> {
             prism_breaks_support: self
                 .world
                 .ares_prism_breaks_support(firer.stable_id(), self.rules),
+            #[cfg(feature = "phobos")]
+            transport_deactivated,
+            #[cfg(feature = "phobos")]
+            transport_weapons_disabled,
+            #[cfg(feature = "phobos")]
+            transport_attacked_by_locomotor,
+            #[cfg(feature = "phobos")]
+            transport_is_foot,
+            #[cfg(feature = "phobos")]
+            transport_moving,
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_deactivated: open_topped
+                .allow_firing_if_deactivated(self.rules),
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_attacked_by_locomotor: open_topped
+                .allow_firing_if_attacked_by_locomotor(self.rules),
+            #[cfg(feature = "phobos")]
+            transport_check_disable_weapons: open_topped
+                .check_transport_disable_weapons(self.rules),
+            #[cfg(feature = "phobos")]
+            transport_fire_while_moving: open_topped.fire_while_moving(self.rules),
+            #[cfg(feature = "phobos")]
+            transport_decloak_to_fire: open_topped.decloak_to_fire(self.rules),
             ..FirerFacts::default()
         };
         let firer_type = FirerTypeFacts {

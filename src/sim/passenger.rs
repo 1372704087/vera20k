@@ -1715,10 +1715,29 @@ impl Simulation {
         let Some(transport) = self.substrate.entities.get(transport_id) else {
             return;
         };
-        if !self
-            .object_type(transport.type_ref(), rules)
-            .is_some_and(|object| object.open_topped)
-        {
+        let transport_type = self.object_type(transport.type_ref(), rules);
+        if !transport_type.is_some_and(|object| object.open_topped) {
+            return;
+        }
+        // Phobos `TechnoClass_SetOpenTransportCargoTarget_ShareTarget @
+        // 0x710552` (`Ext/Techno/Hooks.Transport.cpp:199-215`): a NON-null
+        // `pTarget` is withheld when `OpenTopped.ShareTransportTarget` is off;
+        // a null target (the Stop / DecideUnitFate / boarding clearing callers)
+        // is never intercepted, so the stock clear semantic is preserved.
+        let suppress_target = {
+            #[cfg(feature = "phobos")]
+            {
+                target.is_some()
+                    && transport_type.is_some_and(|kind| {
+                        !kind.phobos_open_topped().share_transport_target(rules)
+                    })
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                false
+            }
+        };
+        if suppress_target {
             return;
         }
         let passengers: Vec<u64> = transport

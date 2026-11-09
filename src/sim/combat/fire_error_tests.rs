@@ -293,6 +293,28 @@ fn facts(input: &Value) -> FireFacts {
             building_has_turret: flag(&ft["turret"]) || flag(&f["turret_upgrade"]),
             #[cfg(feature = "ares")]
             prism_breaks_support: false,
+            // The native corpus carries no Phobos open-topped transport
+            // facts; all-false leaves the `0x6FC5C7` branch a no-op.
+            #[cfg(feature = "phobos")]
+            transport_deactivated: false,
+            #[cfg(feature = "phobos")]
+            transport_weapons_disabled: false,
+            #[cfg(feature = "phobos")]
+            transport_attacked_by_locomotor: false,
+            #[cfg(feature = "phobos")]
+            transport_is_foot: false,
+            #[cfg(feature = "phobos")]
+            transport_moving: false,
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_deactivated: false,
+            #[cfg(feature = "phobos")]
+            transport_allow_firing_if_attacked_by_locomotor: false,
+            #[cfg(feature = "phobos")]
+            transport_check_disable_weapons: false,
+            #[cfg(feature = "phobos")]
+            transport_fire_while_moving: false,
+            #[cfg(feature = "phobos")]
+            transport_decloak_to_fire: false,
         },
         firer_type: FirerTypeFacts {
             natural: flag(&ft["natural"]),

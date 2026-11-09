@@ -116,6 +116,68 @@ impl crate::sim::world::Simulation {
     }
 }
 
+impl crate::sim::world::Simulation {
+    /// Phobos `TeleportLocomotionClass_ILocomotion_Process_WarpInAnim
+    /// @ 0x719742` (`Ext/TechnoType/Hooks.Teleport.cpp:74-98`), which runs
+    /// after the arrival `WarpIn` animation constructs:
+    ///
+    /// - `WarpInMinRangeWeapon` replaces `WarpInWeapon` when the stored
+    ///   `FootExt::LastWarpDistance` is below
+    ///   `[General] ChronoRangeMinimum`, falling back while unset.
+    /// - The chosen weapon detonates at the arrived object with that object as
+    ///   both target and owner (`WeaponTypeExt::DetonateAt(weapon, pLinked,
+    ///   pLinked, damage)`), so the warhead's house logic sees its owner.
+    /// - `WarpInWeapon.UseDistanceAsDamage` replaces the weapon's `Damage=`
+    ///   with `distance / 256`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn apply_warp_in_weapon(
+        &mut self,
+        id: u64,
+        distance_leptons: i32,
+        rules: &crate::rules::ruleset::RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        let (settings, coords) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return;
+            };
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return;
+            };
+            (
+                object.phobos_warp_in_weapon.clone(),
+                super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref()),
+            )
+        };
+        let name = if distance_leptons < rules.general.chrono_range_minimum {
+            settings
+                .warp_in_min_range_weapon
+                .as_deref()
+                .or(settings.warp_in_weapon.as_deref())
+        } else {
+            settings.warp_in_weapon.as_deref()
+        };
+        let Some(name) = name else {
+            return;
+        };
+        let Some(weapon) = rules.weapon(name) else {
+            return;
+        };
+        let damage = if settings.use_distance_as_damage {
+            distance_leptons / crate::util::lepton::LEPTONS_PER_CELL_I32
+        } else {
+            weapon.damage
+        };
+        let Some(detonation) =
+            self.weapon_detonation_at(weapon, id, id, None, [coords.x, coords.y, coords.z], damage)
+        else {
+            return;
+        };
+        self.commit_attach_effect_detonations(&[detonation], rules, registry, effects);
+    }
+}
+
 /// Phase within the teleport state machine.
 ///
 /// Phase 0 relocates instantly in one frame, then the chrono delay timer
@@ -156,6 +218,14 @@ pub struct TeleportState {
     /// it does not pause merely because the infantry has no active AI turn.
     /// Native7194B1..719573 starts it;719BF0 checks globalFrame-start.
     delay_timer: crate::sim::timer::CdTimer,
+    /// `FootExt::LastWarpDistance` in leptons: the departure-to-arrival
+    /// distance the warp-out step 0x7193F6 stores and the warp-in weapon step
+    /// 0x719742 reads (`Ext/TechnoType/Hooks.Teleport.cpp:30-32,88-94`).
+    /// VERA measures it when the warp arms, from the same owner GetCoords and
+    /// destination while the owner still stands at the departure point.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    distance_leptons: i32,
 }
 
 impl TeleportState {
@@ -185,7 +255,20 @@ impl TeleportState {
             phase,
             destination: Some(DriveCoord::cell(rx, ry, 0)),
             delay_timer: crate::sim::timer::CdTimer::started(0, ticks as i32),
+            #[cfg(feature = "phobos")]
+            distance_leptons: 0,
         }
+    }
+
+    /// `FootExt::LastWarpDistance` the warp-in weapon step reads.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn warp_distance_leptons(&self) -> i32 {
+        self.distance_leptons
+    }
+
+    #[cfg(all(feature = "phobos", any(test, feature = "test-support")))]
+    pub(crate) fn set_warp_distance_leptons_for_test(&mut self, distance: i32) {
+        self.distance_leptons = distance;
     }
 
     #[cfg(any(test, feature = "test-support"))]
@@ -1124,6 +1207,10 @@ fn arm_teleport(
             crate::sim::timer::PAUSED_START_FRAME,
             chrono_ticks as i32,
         ),
+        // `FootExt::LastWarpDistance`: the same GetCoords-vs-destination
+        // measure the warp-outs use for the delay.
+        #[cfg(feature = "phobos")]
+        distance_leptons,
     };
     let Some(runtime) = entity
         .locomotor
@@ -1407,6 +1494,8 @@ mod tests {
                     input["timer_start"].as_i64().unwrap() as i32,
                     input["timer_duration"].as_i64().unwrap() as i32,
                 ),
+                #[cfg(feature = "phobos")]
+                distance_leptons: 0,
             }));
             sim.session
                 .set_binary_frame_for_test(input["frame"].as_u64().unwrap() as u32);

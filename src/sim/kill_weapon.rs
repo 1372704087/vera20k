@@ -77,12 +77,13 @@ impl Simulation {
             )
             && !suppression.suppresses(weapon_name)
             && let Some(weapon) = rules.weapon(weapon_name)
-            && let Some(detonation) = self.kill_weapon_detonation(
+            && let Some(detonation) = self.weapon_detonation_at(
                 weapon,
                 dead_id,
                 event.attacker_id,
                 source_owner,
                 [victim_coords.x, victim_coords.y, victim_coords.z],
+                weapon.damage,
             )
         {
             detonations.push(detonation);
@@ -104,12 +105,13 @@ impl Simulation {
             )
             && !suppression.suppresses(weapon_name)
             && let Some(weapon) = rules.weapon(weapon_name)
-            && let Some(detonation) = self.kill_weapon_detonation(
+            && let Some(detonation) = self.weapon_detonation_at(
                 weapon,
                 source_id,
                 source_id,
                 None,
                 [coords.x, coords.y, coords.z],
+                weapon.damage,
             )
         {
             detonations.push(detonation);
@@ -117,17 +119,19 @@ impl Simulation {
         self.commit_attach_effect_detonations(&detonations, rules, registry, effects);
     }
 
-    /// `WeaponTypeExt::DetonateAt(weapon, target, owner, firingHouse)`:
+    /// `WeaponTypeExt::DetonateAt(weapon, target, owner, damage, firingHouse)`:
     /// a bullet of the weapon detonating on `target_id` at `impact`. `owner`
     /// is the bullet's owning techno, which can be missing for a kill without
-    /// a source.
-    fn kill_weapon_detonation(
+    /// a source. `damage` replaces the weapon's `Damage=` for callers that
+    /// override it (Phobos `WarpInWeapon.UseDistanceAsDamage`).
+    pub(crate) fn weapon_detonation_at(
         &mut self,
         weapon: &crate::rules::weapon_type::WeaponType,
         target_id: u64,
         owner_id: u64,
         firing_house: Option<crate::sim::intern::InternedId>,
         impact: [i32; 3],
+        damage: i32,
     ) -> Option<crate::sim::projectile::ProjectileDetonation> {
         let warhead = weapon
             .warhead
@@ -144,7 +148,7 @@ impl Simulation {
             target: crate::sim::projectile::ProjectileTarget::Entity(target_id),
             impact: crate::sim::projectile::ProjectileCoord::new(impact[0], impact[1], impact[2]),
             payload: crate::sim::projectile::ProjectilePayload::new(
-                weapon.damage,
+                damage,
                 warhead,
                 projectile,
                 weapon.bright,

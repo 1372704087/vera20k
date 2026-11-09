@@ -47,3 +47,56 @@ AffectsInvokerOnly.IgnoreInvokerState=no
     assert!(limbo.auto_death_technos_exist_allow_limboed);
     assert!(limbo.auto_death_technos_dont_exist_allow_limboed);
 }
+
+/// `[AudioVisual]` block (`Ext/Rules/Body.cpp:291-304`), whose `Valueable`
+/// defaults come from `Ext/Rules/Body.h:725-732`.
+#[test]
+fn the_drain_display_globals_default_to_phobos_constructor_values() {
+    assert_eq!(read(""), PhobosGlobals::default());
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.drain_money_display);
+    assert_eq!(
+        defaults.drain_money_display_houses,
+        crate::rules::phobos_shields::AffectedHouse::ALL
+    );
+    assert!(!defaults.drain_money_display_on_target);
+    assert!(
+        defaults.drain_money_display_on_target_use_display_income,
+        "UseDisplayIncome constructs yes"
+    );
+    assert_eq!(
+        defaults.display_income_houses,
+        crate::rules::phobos_shields::AffectedHouse::ALL
+    );
+
+    let set = read(
+        "[AudioVisual]\nDrainMoneyDisplay=yes\nDrainMoneyDisplay.Houses=owner,enemies\n\
+         DrainMoneyDisplay.OnTarget=yes\nDrainMoneyDisplay.OnTarget.UseDisplayIncome=no\n\
+         DisplayIncome.Houses=allies\n",
+    );
+    assert!(set.drain_money_display);
+    assert!(
+        set.drain_money_display_houses
+            .contains(crate::rules::phobos_shields::AffectedHouse::OWNER)
+    );
+    assert!(
+        set.drain_money_display_houses
+            .contains(crate::rules::phobos_shields::AffectedHouse::ENEMIES)
+    );
+    assert!(
+        !set.drain_money_display_houses
+            .contains(crate::rules::phobos_shields::AffectedHouse::ALLIES)
+    );
+    assert!(set.drain_money_display_on_target);
+    assert!(!set.drain_money_display_on_target_use_display_income);
+    assert_eq!(
+        set.display_income_houses,
+        crate::rules::phobos_shields::AffectedHouse::ALLIES
+    );
+
+    // The `[CombatDamage]` block keeps its own defaults in a layer that names
+    // only `[AudioVisual]` keys.
+    let audio_only = read("[AudioVisual]\nDrainMoneyDisplay=yes\n");
+    assert!(audio_only.drain_money_display);
+    assert!(!audio_only.shrapnel_affects_ground);
+}

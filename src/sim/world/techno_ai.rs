@@ -1822,7 +1822,7 @@ fn techno_common_steps(
     // Ares TechnoClass_Update_Veterancy1004F2E0 (hook6FA054..6FA14B).
     #[cfg(feature = "ares")]
     sim.update_ares_veterancy(id, false, true, rules, effects);
-    crate::sim::credit_income::drain_common_step(sim, id, rules);
+    crate::sim::credit_income::drain_common_step(sim, id, rules, effects);
     // Techno6FA224..6FA244: only a valid loaded main VXL reaches
     // RockingUpdate70B570 and its immediate Alive guard. This precedes
     // locomotor Process and the Foot parasite tail; no later global update

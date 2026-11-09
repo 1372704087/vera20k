@@ -4982,8 +4982,8 @@ pub struct RuleSet {
     /// IonCannonWarhead=`, `C4Warhead=`, `CrushWarhead=`). Resolution to interned IDs happens
     /// at world init.
     pub bridge_warheads: crate::rules::bridge_warheads::BridgeWarheads,
-    /// Phobos `RulesExt::LoadFromINI` `[CombatDamage]` globals, read once from
-    /// the merged layer state.
+    /// Phobos `RulesExt::LoadFromINI` `[CombatDamage]` and `[AudioVisual]`
+    /// globals, read once from the merged layer state.
     #[cfg(feature = "phobos")]
     pub phobos_globals: crate::rules::phobos_globals::PhobosGlobals,
     /// Mind-control globals: ring anim, Mastermind overload, sounds and the

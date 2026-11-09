@@ -112,6 +112,8 @@ impl Simulation {
                 z_offset: lift,
                 #[cfg(feature = "phobos")]
                 display_to: None,
+                #[cfg(feature = "phobos")]
+                display_owner: None,
                 pixel_offset: [0, 0],
             },
         );

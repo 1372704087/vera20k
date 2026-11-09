@@ -1,16 +1,19 @@
-//! Phobos `RulesExt::LoadFromINI` globals, read from `[CombatDamage]` on every
-//! rules pass (`Ext/Rules/Body.cpp:629-632` and the shrapnel block).
+//! Phobos `RulesExt::LoadFromINI` globals, read from `[CombatDamage]` and
+//! `[AudioVisual]` on every rules pass (`Ext/Rules/Body.cpp:291-304`,
+//! `:629-632` and the shrapnel block).
 //!
 //! Phobos reads these in its own extension reader, once per `Process`, with the
 //! current field as the default; a later layer changes only the keys it names.
 //! `ProcessedRulesLayers::ini()` is already that merged state, so one read here
 //! is equivalent.
 //!
-//! The globals are `Valueable<bool>`; all construct `false`
-//! (`Ext/Rules/Body.h:464-465`, `:968-969`) except
-//! `AutoDeath.AllowLimboed` (`:1027`) and
-//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`), which construct `true`.
-//! The type-level keys are `Nullable<bool>`, and their consumer passes the
+//! The globals are `Valueable`; the booleans construct `false`
+//! (`Ext/Rules/Body.h:464-465`, `:968-969`, `:729`, `:731`) except
+//! `AutoDeath.AllowLimboed` (`:1027`),
+//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`) and
+//! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`), which construct
+//! `true`; the `AffectedHouse` globals construct `All` (`:728`, `:730`).
+//! The type-level keys are `Nullable`, and their consumer passes the
 //! global through `Valueable<T>::operator const T&`, so an unset type key
 //! falls back to that global's value. A `Valueable` global has no unset state
 //! and no `none`/`<default>` clearing token; do not give these reads
@@ -20,6 +23,7 @@
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
 use crate::rules::ini_parser::IniFile;
+use crate::rules::phobos_shields::AffectedHouse;
 
 /// `[CombatDamage]` globals this port reads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -57,6 +61,24 @@ pub struct PhobosGlobals {
     /// `AutoDeath.AllowLimboed=`, **default `yes`**: Phobos constructs it
     /// `true` (`Ext/Rules/Body.h:1027`) and `Ext/Rules/Body.cpp:629` reads it.
     pub auto_death_allow_limboed: bool,
+    /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
+    /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
+    /// `Ext/Techno/Hooks.cpp:199`).
+    pub drain_money_display: bool,
+    /// `[AudioVisual] DrainMoneyDisplay.Houses=`, default `All`
+    /// (`Ext/Rules/Body.h:730`): the label's House filter.
+    pub drain_money_display_houses: AffectedHouse,
+    /// `[AudioVisual] DrainMoneyDisplay.OnTarget=`, default `no`
+    /// (`Ext/Rules/Body.h:731`): the drained object's own label.
+    pub drain_money_display_on_target: bool,
+    /// `[AudioVisual] DrainMoneyDisplay.OnTarget.UseDisplayIncome=`, default
+    /// `yes` (`Ext/Rules/Body.h:732`): the target label takes the building's
+    /// `DisplayIncome.Houses`/`.Offset` instead of the drain keys.
+    pub drain_money_display_on_target_use_display_income: bool,
+    /// `[AudioVisual] DisplayIncome.Houses=`, default `All`
+    /// (`Ext/Rules/Body.h:728`): fallback for a building's own
+    /// `DisplayIncome.Houses` in the drain target label.
+    pub display_income_houses: AffectedHouse,
 }
 
 impl Default for PhobosGlobals {
@@ -72,13 +94,43 @@ impl Default for PhobosGlobals {
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
+            drain_money_display: false,
+            drain_money_display_houses: AffectedHouse::ALL,
+            drain_money_display_on_target: false,
+            drain_money_display_on_target_use_display_income: true,
+            display_income_houses: AffectedHouse::ALL,
         }
     }
 }
 
 impl PhobosGlobals {
     pub fn from_ini(ini: &IniFile) -> Self {
-        section_settings(ini.section_or_empty("CombatDamage"))
+        let mut globals = section_settings(ini.section_or_empty("CombatDamage"));
+        // `RulesExt::LoadFromINIFile` reads this block in the same pass
+        // (`Ext/Rules/Body.cpp:291-304`); the two sections share no key, so
+        // their relative order does not matter.
+        let audio_visual = ini.section_or_empty("AudioVisual");
+        globals.drain_money_display =
+            audio_visual.read_bool("DrainMoneyDisplay", globals.drain_money_display);
+        globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
+            audio_visual,
+            "DrainMoneyDisplay.Houses",
+            globals.drain_money_display_houses,
+        );
+        globals.drain_money_display_on_target = audio_visual.read_bool(
+            "DrainMoneyDisplay.OnTarget",
+            globals.drain_money_display_on_target,
+        );
+        globals.drain_money_display_on_target_use_display_income = audio_visual.read_bool(
+            "DrainMoneyDisplay.OnTarget.UseDisplayIncome",
+            globals.drain_money_display_on_target_use_display_income,
+        );
+        globals.display_income_houses = crate::rules::phobos_shields::read_affected_house(
+            audio_visual,
+            "DisplayIncome.Houses",
+            globals.display_income_houses,
+        );
+        globals
     }
 }
 
@@ -121,6 +173,9 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         auto_death_allow_limboed: section
             .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
+        // The `[AudioVisual]` block belongs to `from_ini`; a `CombatDamage`
+        // section leaves these at their constructor values.
+        ..defaults
     }
 }
 

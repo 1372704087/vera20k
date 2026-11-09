@@ -60,7 +60,7 @@ impl FlyingCredits {
         if let Some(flags) = event.display_to
             && !crate::sim::combat::can_target_house(
                 flags,
-                actor.owner(),
+                event.display_owner.unwrap_or(actor.owner()),
                 viewer,
                 sim.houses(),
                 sim.house_alliances(),
@@ -209,6 +209,8 @@ mod tests {
             z_offset: 256,
             #[cfg(feature = "phobos")]
             display_to: None,
+            #[cfg(feature = "phobos")]
+            display_owner: None,
             pixel_offset: [0, 0],
         };
         let mut credits = FlyingCredits::default();
@@ -297,6 +299,7 @@ Sight=0
             },
             z_offset: 0,
             display_to: Some(AffectedHouse::ENEMIES),
+            display_owner: None,
             pixel_offset: [5, -3],
         };
         let mut credits = FlyingCredits::default();
@@ -315,5 +318,61 @@ Sight=0
         );
         assert_eq!(credits.live[0].pixel_offset, [5, -3]);
         assert_eq!(credits.live[0].text, "+$40");
+    }
+
+    /// `AddMoneyString`'s `pOwner` is not always the anchor object's owner:
+    /// the drain target label anchors at the drained building while its House
+    /// filter asks the drainer's House. `display_owner` carries that owner.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn the_money_label_house_filter_uses_its_explicit_owner() {
+        use crate::rules::phobos_shields::AffectedHouse;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]
+0=TANK
+[TANK]
+Strength=100
+Sight=0
+",
+        ))
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        let tank = sim
+            .spawn_object("TANK", "Americans", 16, 16, 64, &rules)
+            .unwrap();
+        let viewer = sim.entities().get(tank).unwrap().owner();
+        let drainer = sim.interner().get("Russians").expect("arena enemy house");
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(viewer));
+        sim.fog_mut_for_test().reveal_all_for_owner(viewer);
+        let event = BountyText {
+            entity_id: tank,
+            amount: -40,
+            coord: ProjectileCoord {
+                x: 16 * 256,
+                y: 16 * 256,
+                z: 0,
+            },
+            z_offset: 0,
+            display_to: Some(AffectedHouse::OWNER),
+            display_owner: Some(drainer),
+            pixel_offset: [0, 0],
+        };
+        let mut credits = FlyingCredits::default();
+        credits.admit(&sim, &rules, event);
+        assert!(
+            credits.live.is_empty(),
+            "the drainer's House is not the viewer even though the anchor is"
+        );
+        credits.admit(
+            &sim,
+            &rules,
+            BountyText {
+                display_to: Some(AffectedHouse::ENEMIES),
+                ..event
+            },
+        );
+        assert_eq!(credits.live[0].text, "-$40");
     }
 }

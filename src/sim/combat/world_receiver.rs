@@ -1466,6 +1466,17 @@ pub(crate) fn commit_entities(
         if let Some(writeback) = event.damage_writeback {
             receiver_event.damage = writeback.read(world, rules);
         }
+        // Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
+        // (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`): a warhead whose own
+        // health, veterancy, neutral or invoker gates refuse the victim zeroes
+        // the packet before the shield and the stock receiver body, so every
+        // direct ReceiveDamage use is covered.
+        #[cfg(feature = "phobos")]
+        if let Some(target) = world.substrate.entities.get(target_id)
+            && receive_damage_trigger_refuses(world, &receiver_event, target, rules)
+        {
+            receiver_event.damage = 0;
+        }
         let event = &receiver_event;
         // Phobos `TechnoClass_ReceiveDamage @ 0x701900+0x6` runs the shield
         // before gamemd's receiver body and replaces `args->Damage` with the
@@ -4555,6 +4566,38 @@ pub(crate) fn commit_projectiles(
         effects: emit.effects,
         under_attack_events,
     }
+}
+
+/// `Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`'s gate: the warhead's health and
+/// veterancy thresholds, its neutral filter and `IsInvokerAllowed` with the
+/// damaging techno as invoker.
+#[cfg(feature = "phobos")]
+fn receive_damage_trigger_refuses(
+    world: &Simulation,
+    event: &super::receiver_call::EntityDamageEvent,
+    target: &crate::sim::game_entity::GameEntity,
+    rules: &RuleSet,
+) -> bool {
+    let Some(warhead) = rules.warhead(world.interner.resolve(event.warhead_ref)) else {
+        return false;
+    };
+    let object = world.interner.object_type(target.type_ref(), rules);
+    if !super::super::combat::warhead_triggers_allow(
+        warhead,
+        target,
+        object,
+        (event.attacker_id != 0).then_some(event.attacker_id),
+        rules
+            .phobos_globals
+            .affects_invoker_only_ignore_invoker_state,
+    ) {
+        return true;
+    }
+    !warhead.affects_neutral
+        && world
+            .houses
+            .get(&target.owner())
+            .is_some_and(|house| house.multiplay_passive())
 }
 
 #[inline]

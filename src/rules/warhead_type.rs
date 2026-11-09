@@ -407,6 +407,26 @@ pub struct WarheadType {
     pub affects_ground: bool,
     #[cfg(feature = "phobos")]
     pub affects_air: bool,
+    /// Phobos `AffectsBelowPercent=`/`AffectsAbovePercent=`
+    /// (`Body.cpp:402-403`, `Valueable<double>` defaults 1.0/0.0): the
+    /// `IsHealthInThreshold` interval `(above, below]`.
+    #[cfg(feature = "phobos")]
+    pub affects_below_percent: f64,
+    #[cfg(feature = "phobos")]
+    pub affects_above_percent: f64,
+    /// Phobos `AffectsVeterancy=` (`Body.cpp:404`), default All.
+    #[cfg(feature = "phobos")]
+    pub affects_veterancy: crate::rules::phobos_airburst::AffectedVeterancy,
+    /// Phobos `AffectsInvokerOnly=` (`Body.cpp:411`), default `no`: only the
+    /// damaging techno itself (or, reversed, anything but it) is affected.
+    #[cfg(feature = "phobos")]
+    pub affects_invoker_only: bool,
+    #[cfg(feature = "phobos")]
+    pub affects_invoker_only_reverse: bool,
+    /// Phobos `AffectsInvokerOnly.IgnoreInvokerState=` (`Body.cpp:413`,
+    /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
+    #[cfg(feature = "phobos")]
+    pub affects_invoker_only_ignore_invoker_state: Option<bool>,
     /// Phobos `EffectsRequireVerses` (`Body.cpp:501`, default true): the
     /// per-target pass skips a target whose armor this warhead's Verses zero.
     #[cfg(feature = "phobos")]
@@ -524,6 +544,18 @@ impl WarheadAttachEffectRules {
 }
 
 impl WarheadType {
+    /// Phobos `HealthCheck`, derived after each read (`Body.cpp:409`).
+    #[cfg(feature = "phobos")]
+    pub fn health_check(&self) -> bool {
+        self.affects_above_percent > 0.0 || self.affects_below_percent < 1.0
+    }
+
+    /// Phobos `VeterancyCheck`, derived after each read (`Body.cpp:410`).
+    #[cfg(feature = "phobos")]
+    pub fn veterancy_check(&self) -> bool {
+        self.affects_veterancy != crate::rules::phobos_airburst::AffectedVeterancy::ALL
+    }
+
     pub(crate) fn ares_rules(&self) -> Option<&crate::rules::ares_warhead::AresWarheadRules> {
         self.ares.as_ref()
     }
@@ -741,6 +773,25 @@ impl WarheadType {
             affects_ground: section.read_bool("AffectsGround", true),
             #[cfg(feature = "phobos")]
             affects_air: section.read_bool("AffectsAir", true),
+            #[cfg(feature = "phobos")]
+            affects_below_percent: section
+                .read_phobos_double("AffectsBelowPercent", 1.0),
+            #[cfg(feature = "phobos")]
+            affects_above_percent: section
+                .read_phobos_double("AffectsAbovePercent", 0.0),
+            #[cfg(feature = "phobos")]
+            affects_veterancy: section
+                .read_name("AffectsVeterancy", 2048)
+                .and_then(crate::rules::phobos_airburst::AffectedVeterancy::parse)
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            affects_invoker_only: section.read_bool("AffectsInvokerOnly", false),
+            #[cfg(feature = "phobos")]
+            affects_invoker_only_reverse: section
+                .read_bool("AffectsInvokerOnly.Reverse", false),
+            #[cfg(feature = "phobos")]
+            affects_invoker_only_ignore_invoker_state: section
+                .read_phobos_nullable_bool("AffectsInvokerOnly.IgnoreInvokerState", None),
             #[cfg(feature = "phobos")]
             effects_require_verses: section.read_bool("EffectsRequireVerses", true),
             #[cfg(feature = "phobos")]
@@ -1126,5 +1177,56 @@ MaxDebris=2
             WarheadType::from_ini_section("EMPTY", ini.section("EMPTY").unwrap()).mind_control_anim,
             None
         );
+    }
+
+    /// Phobos `AffectsAbovePercent`/`AffectsBelowPercent`/`AffectsVeterancy`
+    /// and `AffectsInvokerOnly.*` (`Ext/WarheadType/Body.cpp:402-413`) with
+    /// their constructor defaults and derived checks.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn warhead_trigger_keys_read_with_their_derived_checks() {
+        use crate::rules::phobos_airburst::AffectedVeterancy;
+        let defaults = WarheadType::from_ini_section(
+            "WH",
+            IniFile::from_str(
+                "[WH]
+Verses=100%,100%,100%
+",
+            )
+            .section("WH")
+            .unwrap(),
+        );
+        assert_eq!(defaults.affects_above_percent, 0.0);
+        assert_eq!(defaults.affects_below_percent, 1.0);
+        assert_eq!(defaults.affects_veterancy, AffectedVeterancy::ALL);
+        assert!(!defaults.affects_invoker_only);
+        assert!(!defaults.affects_invoker_only_reverse);
+        assert_eq!(defaults.affects_invoker_only_ignore_invoker_state, None);
+        assert!(!defaults.health_check());
+        assert!(!defaults.veterancy_check());
+
+        let ini = IniFile::from_str(
+            "[WH]
+Verses=100%,100%,100%
+AffectsAbovePercent=0.4
+             AffectsBelowPercent=0.8
+AffectsVeterancy=veteran,elite
+             AffectsInvokerOnly=yes
+AffectsInvokerOnly.Reverse=yes
+             AffectsInvokerOnly.IgnoreInvokerState=no
+",
+        );
+        let set = WarheadType::from_ini_section("WH", ini.section("WH").unwrap());
+        // Phobos' `Valueable<double>` reader narrows through f32.
+        assert_eq!(set.affects_above_percent, f64::from(0.4_f32));
+        assert_eq!(set.affects_below_percent, f64::from(0.8_f32));
+        assert!(set.affects_veterancy.contains(AffectedVeterancy::VETERAN));
+        assert!(set.affects_veterancy.contains(AffectedVeterancy::ELITE));
+        assert!(!set.affects_veterancy.contains(AffectedVeterancy::ROOKIE));
+        assert!(set.affects_invoker_only);
+        assert!(set.affects_invoker_only_reverse);
+        assert_eq!(set.affects_invoker_only_ignore_invoker_state, Some(false));
+        assert!(set.health_check());
+        assert!(set.veterancy_check());
     }
 }

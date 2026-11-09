@@ -232,6 +232,176 @@ fn crit_gates_follow_house_health_and_immunity() {
     );
 }
 
+/// Phobos `WarheadTypeExt::CanAffectTarget`'s trigger gates
+/// (`Ext/WarheadType/Body.cpp:37-51`): a warhead whose own
+/// `AffectsAbovePercent`/`AffectsBelowPercent`, `AffectsVeterancy` or
+/// `AffectsInvokerOnly` refuses the target skips it before the crit pass.
+#[test]
+fn warhead_trigger_gates_skip_the_per_target_pass() {
+    let crit_damage = |wh_ini: &str, set_health: Option<i32>, rank: Option<u16>| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let (mut plain, plain_rules, plain_firer, plain_target) = scene("", "", "", "", "Russians");
+        for (world, id) in [(&mut sim, target), (&mut plain, plain_target)] {
+            if let Some(value) = set_health {
+                world
+                    .substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .health
+                    .set_for_test(value);
+            }
+            if let Some(rank) = rank {
+                world
+                    .substrate
+                    .entities
+                    .get_mut(id)
+                    .unwrap()
+                    .veterancy
+                    .set_rank_for_test(rank);
+            }
+        }
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        shoot(&mut plain, &plain_rules, "WH", plain_firer, plain_target, 0);
+        health(&plain, plain_target) - health(&sim, target)
+    };
+
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsAbovePercent=0.9\n",
+            Some(50),
+            None
+        ),
+        0,
+        "10% health fails the warhead's own threshold"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsAbovePercent=0.9\n",
+            None,
+            None
+        ),
+        50
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsBelowPercent=0.5\n",
+            None,
+            None
+        ),
+        0,
+        "full health fails (0.0, 0.5]"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsBelowPercent=0.5\n",
+            Some(100),
+            None
+        ),
+        50,
+        "20% health is inside (0.0, 0.5]"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsVeterancy=rookie\n",
+            None,
+            Some(100)
+        ),
+        0,
+        "a veteran target fails the rookie-only mask"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsVeterancy=veteran\n",
+            None,
+            Some(100)
+        ),
+        50
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsInvokerOnly=yes\n",
+            None,
+            None
+        ),
+        0,
+        "the firer is not the target"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Chance=1.0\nCrit.ExtraDamage=50\nAffectsInvokerOnly=yes\n\
+             AffectsInvokerOnly.Reverse=yes\n",
+            None,
+            None
+        ),
+        50,
+        "the reversed gate refuses only the invoker itself"
+    );
+}
+
+/// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
+/// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
+/// the warhead's own triggers refuse the victim. The gate does not set
+/// `SkipLowDamageCheck`, so native's `0x7019D8` floor turns that zero packet
+/// into one point of damage.
+#[test]
+fn warhead_trigger_gates_zero_the_received_damage() {
+    let damage = |wh_ini: &str, no_invoker: bool, set_health: Option<i32>| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        if let Some(value) = set_health {
+            sim.substrate
+                .entities
+                .get_mut(target)
+                .unwrap()
+                .health
+                .set_for_test(value);
+        }
+        let source = if no_invoker { 0 } else { firer };
+        let before = health(&sim, target);
+        shoot(&mut sim, &rules, "WH", source, target, 100);
+        before - health(&sim, target)
+    };
+
+    assert_eq!(damage("", false, None), 100, "control");
+    assert_eq!(
+        damage("AffectsAbovePercent=0.9\n", false, Some(50)),
+        1,
+        "10% health refuses the packet, leaving the low-damage floor"
+    );
+    assert_eq!(
+        damage("AffectsAbovePercent=0.9\n", false, None),
+        100,
+        "full health takes the damage"
+    );
+    assert_eq!(
+        damage("AffectsInvokerOnly=yes\n", false, None),
+        1,
+        "the firer is not the victim"
+    );
+    assert_eq!(
+        damage(
+            "AffectsInvokerOnly=yes\nAffectsInvokerOnly.Reverse=yes\n",
+            false,
+            None
+        ),
+        100
+    );
+    assert_eq!(
+        damage("AffectsInvokerOnly=yes\n", true, None),
+        1,
+        "no invoker and the default global true refuses"
+    );
+    assert_eq!(
+        damage(
+            "AffectsInvokerOnly=yes\nAffectsInvokerOnly.IgnoreInvokerState=no\n",
+            true,
+            None
+        ),
+        100,
+        "IgnoreInvokerState=no admits an invoker-less packet"
+    );
+}
+
 /// `Crit.Warhead` with `Crit.Warhead.FullDetonation` runs a real detonation of
 /// the named warhead at the target, whose own `AnimList` shows in the tail.
 #[test]

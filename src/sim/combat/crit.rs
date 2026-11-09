@@ -146,7 +146,7 @@ pub(crate) fn detonate(
     let invoker = (source_id != 0).then_some(source_id);
     let mut active = false;
     for target_id in detonation_targets(world, rules, warhead, impact, intended_target) {
-        if !can_detonate_on(world, rules, warhead, house, target_id) {
+        if !can_detonate_on(world, rules, warhead, house, target_id, invoker) {
             continue;
         }
         if attach {
@@ -191,6 +191,7 @@ fn can_detonate_on(
     warhead: &WarheadType,
     house: Option<InternedId>,
     target_id: u64,
+    invoker: Option<u64>,
 ) -> bool {
     let Some(target) = world.substrate.entities.get(target_id) else {
         return false;
@@ -206,21 +207,34 @@ fn can_detonate_on(
     if !crate::sim::shield::can_target_house(warhead, house, target.owner(), world) {
         return false;
     }
-    can_affect_target(world, rules, warhead, target)
+    can_affect_target(world, rules, warhead, target, invoker)
 }
 
-/// `WarheadTypeExt::CanAffectTarget` (`WarheadType/Body.cpp:37..57`) past
-/// its unread threshold gates: with `EffectsRequireVerses`, the
-/// `AffectsAir`/`AffectsGround` split on `IsInAir` (`0x005F6B90`) and a
-/// non-zero `GetWarheadVersusArmor`. Under Ares that is the raw Verses;
-/// without it `GetTotalDamage(100, WH, armor, 0) / 100`.
+/// `WarheadTypeExt::CanAffectTarget` (`WarheadType/Body.cpp:37..57`): the
+/// health, veterancy and invoker trigger gates, then with
+/// `EffectsRequireVerses` the `AffectsAir`/`AffectsGround` split on `IsInAir`
+/// (`0x005F6B90`) and a non-zero `GetWarheadVersusArmor`. Under Ares that is
+/// the raw Verses; without it `GetTotalDamage(100, WH, armor, 0) / 100`.
 #[cfg(feature = "phobos")]
 fn can_affect_target(
     world: &Simulation,
     rules: &RuleSet,
     warhead: &WarheadType,
     target: &crate::sim::game_entity::GameEntity,
+    invoker: Option<u64>,
 ) -> bool {
+    let object = world.interner.object_type(target.type_ref(), rules);
+    if !super::warhead_triggers_allow(
+        warhead,
+        target,
+        object,
+        invoker,
+        rules
+            .phobos_globals
+            .affects_invoker_only_ignore_invoker_state,
+    ) {
+        return false;
+    }
     if !warhead.effects_require_verses {
         return true;
     }

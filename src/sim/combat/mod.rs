@@ -83,8 +83,6 @@ pub(crate) mod receiver_fixture;
 mod aegis_launch_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod airstrike_target_tests;
-#[cfg(all(test, feature = "phobos"))]
-mod burst_no_delay_tests;
 #[cfg(all(test, feature = "ares"))]
 mod ares_armor_tests;
 #[cfg(all(test, feature = "ares"))]
@@ -99,6 +97,8 @@ mod bridge_cluster_tests;
 mod bridge_launch_tests;
 #[cfg(test)]
 mod bridge_live_chain_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod burst_no_delay_tests;
 #[cfg(test)]
 mod combat_cloak_damage_tests;
 #[cfg(test)]
@@ -423,6 +423,109 @@ pub(crate) fn health_in_threshold(health: i32, strength: i32, above: f64, below:
     } else {
         ratio >= above
     }) && ratio <= below
+}
+
+/// Phobos `EnumFunctions::CanTargetVeterancy` (`EnumFunctions.cpp:18`): the
+/// target's rank must be in the mask; `All` short-circuits.
+#[cfg(feature = "phobos")]
+pub(crate) fn affected_veterancy_allows(
+    flags: crate::rules::phobos_airburst::AffectedVeterancy,
+    rank: crate::sim::combat::veterancy::VeterancyRank,
+) -> bool {
+    use crate::rules::phobos_airburst::AffectedVeterancy;
+    if flags == AffectedVeterancy::ALL {
+        return true;
+    }
+    let bit = match rank {
+        crate::sim::combat::veterancy::VeterancyRank::Elite => AffectedVeterancy::ELITE,
+        crate::sim::combat::veterancy::VeterancyRank::Veteran => AffectedVeterancy::VETERAN,
+        crate::sim::combat::veterancy::VeterancyRank::Rookie => AffectedVeterancy::ROOKIE,
+    };
+    flags.contains(bit)
+}
+
+/// `WarheadTypeExt::IsHealthInThreshold` (`Ext/WarheadType/Body.cpp:59-65`):
+/// `HealthCheck` is on only for a non-default `AffectsAbovePercent=`/
+/// `AffectsBelowPercent=` pair, and an unset pair leaves every target in.
+#[cfg(feature = "phobos")]
+pub(crate) fn warhead_health_in_threshold(
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: &crate::sim::game_entity::GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+) -> bool {
+    !warhead.health_check()
+        || health_in_threshold(
+            target.health.current(),
+            object.strength,
+            warhead.affects_above_percent,
+            warhead.affects_below_percent,
+        )
+}
+
+/// `WarheadTypeExt::IsVeterancyInThreshold` (`Ext/WarheadType/Body.cpp:67-73`).
+#[cfg(feature = "phobos")]
+pub(crate) fn warhead_veterancy_in_threshold(
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: &crate::sim::game_entity::GameEntity,
+) -> bool {
+    !warhead.veterancy_check()
+        || affected_veterancy_allows(warhead.affects_veterancy, target.veterancy.rank_kind())
+}
+
+/// `WarheadTypeExt::IsInvokerAllowed` (`Ext/WarheadType/Body.cpp:75-94`): with
+/// `AffectsInvokerOnly=`, a present invoker must be (or, reversed, must not be)
+/// the target; without one the type's `IgnoreInvokerState` or the
+/// `[CombatDamage]` fallback decides.
+#[cfg(feature = "phobos")]
+pub(crate) fn warhead_invoker_allows(
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: u64,
+    invoker: Option<u64>,
+    global_ignore_invoker_state: bool,
+) -> bool {
+    if !warhead.affects_invoker_only {
+        return true;
+    }
+    match invoker {
+        Some(invoker) => {
+            let is_target = invoker == target;
+            if warhead.affects_invoker_only_reverse {
+                !is_target
+            } else {
+                is_target
+            }
+        }
+        None => !warhead
+            .affects_invoker_only_ignore_invoker_state
+            .unwrap_or(global_ignore_invoker_state),
+    }
+}
+
+/// `WarheadTypeExt::CanAffectTarget`'s first three gates
+/// (`Ext/WarheadType/Body.cpp:37-51`), in native order.
+#[cfg(feature = "phobos")]
+pub(crate) fn warhead_triggers_allow(
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: &crate::sim::game_entity::GameEntity,
+    object: Option<&crate::rules::object_type::ObjectType>,
+    invoker: Option<u64>,
+    global_ignore_invoker_state: bool,
+) -> bool {
+    if warhead.health_check() {
+        let Some(object) = object else {
+            return false;
+        };
+        if !warhead_health_in_threshold(warhead, target, object) {
+            return false;
+        }
+    }
+    warhead_veterancy_in_threshold(warhead, target)
+        && warhead_invoker_allows(
+            warhead,
+            target.stable_id(),
+            invoker,
+            global_ignore_invoker_state,
+        )
 }
 
 /// `EnumFunctions::CanTargetHouse` (`EnumFunctions.cpp:5..16`): `All` always

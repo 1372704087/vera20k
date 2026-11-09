@@ -30,6 +30,16 @@ fn the_shrapnel_globals_default_to_the_stock_admission() {
     assert!(!PhobosGlobals::default().auto_death_technos_dont_exist_allow_limboed);
     // `Ext/Rules/Body.h:1027` constructs this one `true`.
     assert!(PhobosGlobals::default().auto_death_allow_limboed);
+    // `Ext/Rules/Body.h:923` constructs the invoker-state fallback `true`.
+    assert!(PhobosGlobals::default().affects_invoker_only_ignore_invoker_state);
+    assert!(
+        !read(
+            "[CombatDamage]
+AffectsInvokerOnly.IgnoreInvokerState=no
+"
+        )
+        .affects_invoker_only_ignore_invoker_state
+    );
     let limbo = read(
         "[CombatDamage]\nAutoDeath.TechnosExist.AllowLimboed=yes\n\
          AutoDeath.TechnosDontExist.AllowLimboed=yes\n",

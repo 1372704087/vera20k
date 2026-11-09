@@ -6,15 +6,15 @@
 //! `ProcessedRulesLayers::ini()` is already that merged state, so one read here
 //! is equivalent.
 //!
-//! The globals are `Valueable<bool>`; every one constructs `false`
+//! The globals are `Valueable<bool>`; all construct `false`
 //! (`Ext/Rules/Body.h:464-465`, `:968-969`) except
-//! `AutoDeath.AllowLimboed`, which constructs `true` (`:1027`). The type-level
-//! keys are
-//! `Nullable<bool>`, and their consumer passes the global through
-//! `Valueable<T>::operator const T&`, so an unset type key and an unset global
-//! both read `false`. A `Valueable` global has no unset state and no
-//! `none`/`<default>` clearing token; do not give these reads `Nullable`
-//! semantics.
+//! `AutoDeath.AllowLimboed` (`:1027`) and
+//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`), which construct `true`.
+//! The type-level keys are `Nullable<bool>`, and their consumer passes the
+//! global through `Valueable<T>::operator const T&`, so an unset type key
+//! falls back to that global's value. A `Valueable` global has no unset state
+//! and no `none`/`<default>` clearing token; do not give these reads
+//! `Nullable` semantics.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
@@ -44,6 +44,10 @@ pub struct PhobosGlobals {
     /// `Shrapnel.UseWeaponTargeting=`, default `no`: replace the ally test with
     /// the child weapon's own target eligibility (`:309-342`).
     pub shrapnel_use_weapon_targeting: bool,
+    /// `AffectsInvokerOnly.IgnoreInvokerState=`, default **`yes`**
+    /// (`Ext/Rules/Body.h:923`): the fallback for a warhead whose own key is
+    /// unset when its damage has no invoker.
+    pub affects_invoker_only_ignore_invoker_state: bool,
     /// `AutoDeath.OnOwnerChange.IgnoreRevertOnExit=`, default `no`
     /// (`Ext/Rules/Body.cpp:630`).
     pub auto_death_on_owner_change_ignore_revert_on_exit: bool,
@@ -61,6 +65,7 @@ impl Default for PhobosGlobals {
             auto_death_technos_dont_exist_allow_limboed: false,
             shrapnel_ignore_hit_buildings: false,
             shrapnel_use_weapon_targeting: false,
+            affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
         }
@@ -97,6 +102,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         shrapnel_use_weapon_targeting: section.read_bool(
             "Shrapnel.UseWeaponTargeting",
             defaults.shrapnel_use_weapon_targeting,
+        ),
+        affects_invoker_only_ignore_invoker_state: section.read_bool(
+            "AffectsInvokerOnly.IgnoreInvokerState",
+            defaults.affects_invoker_only_ignore_invoker_state,
         ),
         auto_death_on_owner_change_ignore_revert_on_exit: section.read_bool(
             "AutoDeath.OnOwnerChange.IgnoreRevertOnExit",

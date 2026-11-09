@@ -35,8 +35,13 @@ ForceAAWeapon.InRange.ApplyRangeModifiers=no
 
 ## Behavior
 
-The forced slot is answered before native selection. A live Techno target is
-tested in order: `Naval.Decloaked` (Cloakable, Naval, Uncloaked), `Cloaked`,
+The forced slot is answered at the `0x6F3428` hook point inside the native
+`WhatWeaponShouldIUse` ladder: the class overrides (Infantry deploy-fire and
+Unit deployed deploy-fire), the turreted non-gattling slot, an occupied
+building, the two weapon-resolution arms, `NeverUse`, a null target or force
+fire, the open-topped slot, Ares `NoAmmoWeapon` and the gattling stage all
+return before it, exactly as natively. A live Techno target is tested in
+order: `Naval.Decloaked` (Cloakable, Naval, Uncloaked), `Cloaked`,
 `Disguised`, `UnderEMP`. Otherwise `InRange`/`ForceAAWeapon.InRange` walk their
 slots in order; a slot inside its range (an override in cells, else the
 weapon's own `Range=`, optionally with attach-effect range modifiers) is
@@ -54,20 +59,29 @@ slot; the in-range gate needs a Techno target when `TechnoOnly` is yes.
 ## Where VERA20K owns it
 
 `rules::phobos_force_weapon` reads the type fields (int list reader for slots,
-Ares double-vector reader for the overrides, Phobos `Nullable<bool>` for the
-modifiers) and `phobos_globals` reads the three `[General]` fallbacks. The one
-selection owner `sim::combat::combat_weapon::select_weapon_index_against_in_query`
-calls `phobos_force_weapon_index` before `what_weapon_should_i_use`, so every
-SelectWeapon consumer sees the forced slot. Range modifiers reuse
+Phobos `ValueableVector<double>` reader for the overrides, Phobos
+`Nullable<bool>` for the modifiers) and `phobos_globals` reads the three
+`[General]` fallbacks. The one selection owner
+`sim::combat::combat_weapon::select_weapon_index_against_in_query` computes
+the forced slot and hands it to `what_weapon_should_i_use_with_force`, which
+applies it at the `0x6F3428` position. Range modifiers reuse
 `attach_effect::range_with_attach_effects`, distance reuses
 `object_distance_to`.
 
 ## Residuals
 
-- `MultiWeapon.*` (the next hook arm at the same site) is a separate chain.
-- The in-range overrides are `ValueableVector<double>` read with the Ares
-  `Parser<double>` scan, matching the project's Phobos `Valueable` reader
-  convention; prefixed tokens may differ from a pure native `ReadDouble`.
+- `MultiWeapon.*` (the next arm at the same hook site) is a separate chain.
+- Four SelectWeapon consumers still call the raw ladder without a force
+  context: `greatest_threat.rs` acquisition and threat scoring and
+  `combat_targeting.rs` retaliation. Trigger: a type with any ForceWeapon arm
+  whose forced slot differs from the ladder's answer, during target
+  acquisition, threat scoring or retaliation. Effect: those gates use the
+  unforced slot. Frequency: every such evaluation. Risk: a unit may acquire,
+  score or retaliate with the wrong weapon slot; firing itself is correct.
+- `range_with_attach_effects` models the attach-effect arm of Phobos
+  `GetRangeWithModifiers`; the Ares RANGE-ability term is not applied, so an
+  in-range override with `ApplyRangeModifiers=yes` on such a firer may differ
+  by that bonus. Trigger: Ares RANGE ability plus an in-range force list.
 
 Tests: the reader defaults/overrides, the `[General]` fallbacks, and a
 production selection test covering a class arm, the air-only arm replacing the

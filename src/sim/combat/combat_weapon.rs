@@ -746,6 +746,19 @@ pub(crate) fn what_weapon_should_i_use<'r>(
     target: Option<&TargetFacts>,
     get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
 ) -> i32 {
+    what_weapon_should_i_use_with_force(rules, obj, attacker, target, get_weapon, None)
+}
+
+/// [`what_weapon_should_i_use`] with the Phobos forced slot handed to the
+/// `0x6F3428` hook point. Callers without a force context pass `None`.
+pub(crate) fn what_weapon_should_i_use_with_force<'r>(
+    rules: &'r RuleSet,
+    obj: &ObjectType,
+    attacker: &AttackerFacts,
+    target: Option<&TargetFacts>,
+    get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
+    forced: Option<i32>,
+) -> i32 {
     match attacker.kind {
         TechnoKind::Infantry if obj.deploy_fire => {
             if attacker.deploy_fire_active {
@@ -758,7 +771,7 @@ pub(crate) fn what_weapon_should_i_use<'r>(
         }
         _ => {}
     }
-    techno_what_weapon_should_i_use(rules, obj, attacker, target, get_weapon)
+    techno_what_weapon_should_i_use(rules, obj, attacker, target, get_weapon, forced)
 }
 
 /// Whether the airstrike secondary is selected for a techno target.
@@ -803,6 +816,7 @@ fn techno_what_weapon_should_i_use<'r>(
     attacker: &AttackerFacts,
     target: Option<&TargetFacts>,
     get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
+    forced: Option<i32>,
 ) -> i32 {
     // A @ 0x006F333B: turreted non-gattling types fire the gunner slot,
     // unconditionally (`-1` collapses to 0).
@@ -859,6 +873,15 @@ fn techno_what_weapon_should_i_use<'r>(
             return stage.wrapping_mul(2).wrapping_add(1);
         }
         return stage.wrapping_mul(2);
+    }
+    // Phobos `TechnoClass_WhatWeaponShouldIUse_ForceWeapon` hook at
+    // `0x6F3428`: the forced slot replaces the rest of the ladder. Every arm
+    // above (class overrides, turreted slot, occupied building, weapon
+    // resolution, NeverUse, null target/force fire, open-topped, Ares
+    // NoAmmoWeapon and the gattling stage) returns before this point, as it
+    // does natively; `MultiWeapon` at the same hook is a separate chain.
+    if let Some(index) = forced {
+        return index;
     }
     // I @ 0x006F3477: Airstrike secondary. Phobos adds two gates here
     // (`TechnoClass_WhatWeaponShouldIUse_Airstrike`, `0x6F348F`).
@@ -1260,7 +1283,7 @@ pub(crate) fn select_weapon_index_against_in_query(
         None => None,
     };
     #[cfg(feature = "phobos")]
-    if let Some(index) = phobos_force_weapon_index(
+    let forced = phobos_force_weapon_index(
         rules,
         attacker_entity,
         attacker_obj,
@@ -1269,10 +1292,10 @@ pub(crate) fn select_weapon_index_against_in_query(
         target_facts.as_ref(),
         world,
         interner,
-    ) {
-        return Some(index);
-    }
-    Some(what_weapon_should_i_use(
+    );
+    #[cfg(not(feature = "phobos"))]
+    let forced = None;
+    Some(what_weapon_should_i_use_with_force(
         rules,
         attacker_obj,
         attacker,
@@ -1287,14 +1310,17 @@ pub(crate) fn select_weapon_index_against_in_query(
                 interner,
             )
         },
+        forced,
     ))
 }
 
 /// Phobos `TechnoTypeExt::SelectForceWeapon` (`Ext/TechnoType/Body.cpp:60-155`)
 /// under the hook at `0x6F3428` (`Ext/Techno/Hooks.Firing.cpp:94-118`): a
-/// `-1` falls through to the native ladder, otherwise the slot is returned
-/// before native selection. Target-state arms run first, then the ordered
-/// in-range lists, then the class arms; every arm needs a live Techno target.
+/// `-1` falls through to the rest of the native ladder, otherwise the slot is
+/// answered at the hook point. Target-state arms run first, then the ordered
+/// in-range lists, then the class arms; state and class arms need a live
+/// Techno target, and the in-range arm needs one only when `TechnoOnly` is
+/// yes.
 #[cfg(feature = "phobos")]
 #[allow(clippy::too_many_arguments)]
 fn phobos_force_weapon_index(

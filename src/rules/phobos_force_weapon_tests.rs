@@ -80,4 +80,14 @@ fn reads_state_class_and_ordered_in_range_arms() {
         replaced.any(),
         "a non-empty in-range list arms the forced-selection check"
     );
+
+    // `ValueableVector<double>` tokens go through the Phobos Parser<double>
+    // scan: a percent scales at 0.01f and an unconvertible token is skipped.
+    let percent = PhobosForceWeapon::from_section(
+        IniFile::from_str(
+            "[TYPE]\nForceWeapon.InRange=1,2\nForceWeapon.InRange.Overrides=50%,bogus\n",
+        )
+        .section_or_empty("TYPE"),
+    );
+    assert_eq!(percent.in_range_overrides, vec![0.5]);
 }

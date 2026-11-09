@@ -2,11 +2,12 @@
 //! (`Ext/TechnoType/Body.cpp:905-936`).
 //!
 //! `TechnoTypeExt::SelectForceWeapon` (`Ext/TechnoType/Body.cpp:60-155`)
-//! answers a forced weapon slot before the native
-//! `TechnoClass::WhatWeaponShouldIUse` ladder; the hook at `0x6F3428`
-//! (`Ext/Techno/Hooks.Firing.cpp:94-118`) returns it as-is. Targets are
-//! classified by state (naval decloaked, cloaked, disguised, under EMP), then
-//! by an ordered in-range list that can override ranges, then by class.
+//! answers a forced weapon slot from the `0x6F3428` hook point inside the
+//! native `TechnoClass::WhatWeaponShouldIUse` ladder
+//! (`Ext/Techno/Hooks.Firing.cpp:94-118`); the arms before that point return
+//! first. Targets are classified by state (naval decloaked, cloaked,
+//! disguised, under EMP), then by an ordered in-range list that can override
+//! ranges, then by class.
 //!
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
@@ -109,7 +110,7 @@ impl PhobosForceWeapon {
                 .read_ares_int_list("ForceWeapon.InRange")
                 .unwrap_or_default(),
             in_range_overrides: section
-                .read_ares_double_list("ForceWeapon.InRange.Overrides")
+                .read_phobos_double_list("ForceWeapon.InRange.Overrides")
                 .unwrap_or_default(),
             in_range_apply_range_modifiers: section
                 .read_phobos_nullable_bool("ForceWeapon.InRange.ApplyRangeModifiers", None),
@@ -117,7 +118,7 @@ impl PhobosForceWeapon {
                 .read_ares_int_list("ForceAAWeapon.InRange")
                 .unwrap_or_default(),
             aa_in_range_overrides: section
-                .read_ares_double_list("ForceAAWeapon.InRange.Overrides")
+                .read_phobos_double_list("ForceAAWeapon.InRange.Overrides")
                 .unwrap_or_default(),
             aa_in_range_apply_range_modifiers: section
                 .read_phobos_nullable_bool("ForceAAWeapon.InRange.ApplyRangeModifiers", None),

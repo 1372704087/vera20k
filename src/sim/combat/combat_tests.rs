@@ -7098,7 +7098,7 @@ fn phobos_force_weapon_replaces_the_native_selection() {
     let ini = crate::sim::arena_fixture::clear_ground_ini(
         "[Countries]\n0=Americans\n1=Russians\n\
          [InfantryTypes]\n\
-         [VehicleTypes]\n0=TANK\n1=HTNK\n2=SIEGE\n\
+         [VehicleTypes]\n0=TANK\n1=HTNK\n2=SIEGE\n3=TURRET\n\
          [AircraftTypes]\n0=PLANE\n\
          [TANK]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
          Primary=Gun\nSecondary=AA\n\
@@ -7106,6 +7106,8 @@ fn phobos_force_weapon_replaces_the_native_selection() {
          [SIEGE]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
          Primary=Gun\nSecondary=AA\n\
          ForceWeapon.InRange=1\nForceWeapon.InRange.Overrides=4\nForceWeapon.Units=0\n\
+         [TURRET]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\nTurretCount=1\n\
+         Primary=Gun\nSecondary=AA\nForceWeapon.Units=1\n\
          [HTNK]\nStrength=400\nArmor=heavy\n\
          [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\n\
          [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=Invisible\nWarhead=WH\nAA=yes\n\
@@ -7191,6 +7193,33 @@ fn phobos_force_weapon_replaces_the_native_selection() {
         select_siege(&sim, far),
         0,
         "outside the override range the class arm answers"
+    );
+
+    // Native arm A (`0x6F333B`) returns the gunner slot for a turreted
+    // non-gattling type before the 0x6F3428 hook, so the force never runs.
+    let turret = sim
+        .spawn_object("TURRET", "Americans", 10, 18, 0, &rules)
+        .expect("turret tank spawns");
+    let turret_target = sim
+        .spawn_object("HTNK", "Russians", 12, 18, 0, &rules)
+        .expect("turret target spawns");
+    let entity = sim.entities().get(turret).unwrap();
+    let object = rules.object("TURRET").unwrap();
+    let (index, _) = combat_weapon::select_weapon_against(
+        &rules,
+        entity,
+        object,
+        &combat_weapon::attacker_facts(entity, object),
+        Some(&TargetKind::Entity(turret_target)),
+        &sim,
+        &sim.interner,
+        sim.resolved_terrain.as_ref(),
+        Some(&sim.house_alliances),
+    )
+    .unwrap();
+    assert_eq!(
+        index, 0,
+        "the turreted arm answers before the forced-weapon hook"
     );
 }
 

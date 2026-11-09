@@ -633,17 +633,16 @@ impl IniSection {
         )
     }
 
-    /// Ares/Phobos `ValueableVector<double>` (`detail::parse_values<double>`
-    /// over `strtok(",")`): each token through the Ares `Parser<double>`
-    /// scan; a token that does not convert is skipped. An absent key keeps
-    /// the caller's list; a present one replaces it.
-    pub fn read_ares_double_list(&self, key: &str) -> Option<Vec<f64>> {
+    /// Phobos `ValueableVector<double>` (`detail::parse_values<double>` over
+    /// `strtok(",")`): each token through the Phobos `Parser<double>` scan
+    /// ([`parse_phobos_double`]: strtod, binary32 store, `%` at 0.01f). A
+    /// token that does not convert is skipped. An absent key keeps the
+    /// caller's list; a present one replaces it.
+    pub fn read_phobos_double_list(&self, key: &str) -> Option<Vec<f64>> {
         Some(
             self.read_list(key, 2048)?
                 .iter()
-                .filter_map(|token| {
-                    parse_ares_double_bits(token).map(|bits| f64::from_bits(bits.bits()))
-                })
+                .filter_map(|token| parse_phobos_double(token))
                 .collect(),
         )
     }

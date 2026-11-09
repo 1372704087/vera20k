@@ -44,6 +44,9 @@ pub struct PhobosGlobals {
     /// `Shrapnel.UseWeaponTargeting=`, default `no`: replace the ally test with
     /// the child weapon's own target eligibility (`:309-342`).
     pub shrapnel_use_weapon_targeting: bool,
+    /// `Overload.ParticleSysCount=`, default 5 (`Ext/Rules/Body.h:670`):
+    /// the number of spark systems a damaging overload row throws.
+    pub overload_particle_sys_count: i32,
     /// `AffectsInvokerOnly.IgnoreInvokerState=`, default **`yes`**
     /// (`Ext/Rules/Body.h:923`): the fallback for a warhead whose own key is
     /// unset when its damage has no invoker.
@@ -65,6 +68,7 @@ impl Default for PhobosGlobals {
             auto_death_technos_dont_exist_allow_limboed: false,
             shrapnel_ignore_hit_buildings: false,
             shrapnel_use_weapon_targeting: false,
+            overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
@@ -102,6 +106,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         shrapnel_use_weapon_targeting: section.read_bool(
             "Shrapnel.UseWeaponTargeting",
             defaults.shrapnel_use_weapon_targeting,
+        ),
+        overload_particle_sys_count: section.read_int(
+            "Overload.ParticleSysCount",
+            defaults.overload_particle_sys_count,
         ),
         affects_invoker_only_ignore_invoker_state: section.read_bool(
             "AffectsInvokerOnly.IgnoreInvokerState",

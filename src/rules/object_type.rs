@@ -870,6 +870,9 @@ pub struct ObjectType {
     #[cfg(feature = "phobos")]
     pub phobos_passenger_deletion:
         Option<crate::rules::phobos_passenger_deletion::PassengerDeletionSettings>,
+    /// Phobos `Overload.*` (`Ext/TechnoType/Body.cpp:1133-1138`).
+    #[cfg(feature = "phobos")]
+    pub phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4114,6 +4117,14 @@ impl ObjectType {
         // ctor710FA5=-1. Unknown/empty later reads retain a valid override.
         self.mind_cleared_sound = section
             .and_then(|section| sounds.read_rules_reference(section, "MindClearedSound", None));
+        // Phobos `Overload.DeathSound=` (`ValueableIdx<VocClass>`): unknown and
+        // unset names keep `None`, so the stock overload voice stays.
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_overload.death_sound = section.and_then(|section| {
+                sounds.read_rules_reference(section, "Overload.DeathSound", None)
+            });
+        }
         #[cfg(feature = "ares")]
         for (slot, key) in ["Promote.VeteranSound", "Promote.EliteSound"]
             .into_iter()
@@ -4685,6 +4696,10 @@ impl ObjectType {
                 crate::rules::phobos_passenger_deletion::PassengerDeletionSettings::from_section(
                     section,
                 ),
+            #[cfg(feature = "phobos")]
+            phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

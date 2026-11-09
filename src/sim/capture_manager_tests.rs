@@ -1054,6 +1054,13 @@ fn native_overload_update_corpus() {
     for case in cases {
         let input = &case["input"];
         let name = input["name"].as_str().unwrap();
+        // Original `471A50` keeps row zero when a single-row Count table's
+        // bound is exceeded; Phobos' rewritten walk (`Hooks.cpp:131-139`)
+        // selects row one. The production Phobos walk has its own case in
+        // `phobos_overload_tables_sound_and_particle_count_override_the_rules`.
+        if cfg!(feature = "phobos") && name == "single_row_damages_without_lean" {
+            continue;
+        }
         let (count, damage, frames) = match input.get("tables") {
             Some(tables) => (
                 ints(&tables["count"]),
@@ -1259,11 +1266,22 @@ fn native_overload_update_corpus() {
                 .unwrap()
                 .rocking
                 .map_or(0, |state| state.native_bits()[2]);
-            assert_eq!(
-                rate,
-                (final_state["lean"].as_f64().unwrap() as f32).to_bits(),
-                "{name}: final native sideways rate"
-            );
+            let native_rate = (final_state["lean"].as_f64().unwrap() as f32).to_bits();
+            // Phobos `CaptureManagerClass_Overload_AI` (`Hooks.cpp:186`)
+            // inverts the stock magnitude: rows above one play 0.015 and row
+            // one plays 0.03. The sign draw is unchanged.
+            #[cfg(feature = "phobos")]
+            let expected_rate = {
+                let sign = native_rate & 0x8000_0000;
+                match native_rate & 0x7fff_ffff {
+                    0x3c75_c28f => sign | 0x3cf5_c28f,
+                    0x3cf5_c28f => sign | 0x3c75_c28f,
+                    other => other,
+                }
+            };
+            #[cfg(not(feature = "phobos"))]
+            let expected_rate = native_rate;
+            assert_eq!(rate, expected_rate, "{name}: final native sideways rate");
             let manager = sim
                 .substrate
                 .entities
@@ -2301,6 +2319,10 @@ fn a_killing_overload_frees_the_captives_before_the_sparks() {
     for _ in &captives {
         fate_draw(&mut replay);
     }
+    // Phobos draws the spark offsets only when the spark system resolves
+    // (`Ext/CaptureManager/Hooks.cpp:167`); this fixture defines none, so
+    // the stock-only ten draws disappear.
+    #[cfg(not(feature = "phobos"))]
     for _ in 0..10 {
         let _ = replay.next_range_i32_inclusive(-200, 200);
     }
@@ -2964,4 +2986,118 @@ fn a_captured_selected_unit_of_the_local_player_is_deselected() {
         selected(captured[1]),
         "only the local player's selection changes"
     );
+}
+
+/// Phobos `CaptureManagerClass_Overload_AI` (`Ext/CaptureManager/Hooks.cpp:
+/// 111-219`): the controller type's `NullableVector` lists replace the Rules
+/// tables when present, its registered death sound and particle system
+/// override the stock keys, `Overload.ParticleSysCount` replaces the five
+/// stock spark systems, and an unknown sound falls back to the stock voice.
+/// The rewritten row walk also selects row one for a single-row table whose
+/// bound the count exceeds, which the original walk keeps at row zero.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_overload_tables_sound_and_particle_count_override_the_rules() {
+    let run = |type_lines: &str, captives: usize| {
+        let text = RULES.replace(
+            "[MIND]\nStrength=500",
+            &format!("[MIND]\nStrength=50000\n{type_lines}"),
+        ) + "[ParticleSystems]\n0=SparkSys\n[SparkSys]\nBehavesLike=Spark\nLifetime=5\n";
+        let rules = RuleSet::from_ini_with_fixed_art_and_sounds_for_test(
+            &IniFile::from_str(&text),
+            &IniFile::from_str(ART),
+            &[
+                "YuriMindControl",
+                "MindCleared",
+                "MasterMindOverloadVoice",
+                "TypeVoice",
+            ],
+        )
+        .expect("overload rules");
+        let mut sim = sim(1);
+        let mind = spawn(&mut sim, &rules, "MIND", "YuriCountry", 10, 10);
+        let mut manager = CaptureManagerState::with_victims_for_test(10, true, &[]);
+        manager.nodes = (0..captives as u64)
+            .map(|index| ControlNode {
+                victim: 1_000_000 + index,
+                original_owner: InternedId::default(),
+                line_timer: Default::default(),
+            })
+            .collect();
+        manager.overload_countdown = 0;
+        sim.substrate
+            .entities
+            .get_mut(mind)
+            .unwrap()
+            .capture_manager = Some(manager);
+        let before = sim.entities().get(mind).unwrap().health.current();
+        sim.sound_events.clear_for_test();
+        let rng_before = sim.scenario_rng.logical_state();
+        sim.capture_manager_update(mind, &rules, None, FrameEffects::default());
+        let entity = sim.entities().get(mind).unwrap();
+        let damaged = before - entity.health.current();
+        let countdown = entity.capture_manager.as_ref().unwrap().overload_countdown;
+        let sparks = sim.particle_systems().iter().count();
+        let lean = entity
+            .rocking
+            .map(|state| state.native_bits()[2] & 0x7fff_ffff);
+        let voices: Vec<String> = sim
+            .sound_events()
+            .iter()
+            .filter_map(|event| match event {
+                crate::sim::world::SimSoundEvent::VocAt { sound_id, .. } => Some(sound_id.clone()),
+                _ => None,
+            })
+            .collect();
+        (
+            damaged,
+            countdown,
+            sparks,
+            lean,
+            voices,
+            sim.scenario_rng.logical_state() != rng_before,
+        )
+    };
+
+    let (damaged, countdown, sparks, _, voices, drew) = run(
+        "Overload.Count=1\nOverload.Damage=40\nOverload.Frames=7\n\
+         Overload.DeathSound=TypeVoice\nOverload.ParticleSys=SparkSys\n\
+         Overload.ParticleSysCount=2",
+        2,
+    );
+    assert_eq!(damaged, 40, "type damage row");
+    assert_eq!(countdown, 7, "type frames row");
+    assert_eq!(sparks, 2, "type spark count");
+    assert_eq!(voices, ["TypeVoice"], "type death sound");
+    assert!(drew, "two spark systems draw two coordinate pairs each");
+
+    // A name outside the fixed Voc catalog leaves the key unset, so the stock
+    // overload voice still plays.
+    let (damaged, _, _, _, voices, _) =
+        run("Overload.Damage=40\nOverload.DeathSound=MissingVoice\n", 2);
+    assert_eq!(damaged, 40);
+    assert_eq!(voices, ["MasterMindOverloadVoice"]);
+
+    // A present empty Count list disables the overload checks entirely.
+    let (damaged, countdown, sparks, lean, voices, drew) =
+        run("Overload.Count=,,,\nOverload.Damage=40\n", 2);
+    assert_eq!((damaged, sparks, lean), (0, 0, None));
+    assert_eq!(countdown, 0);
+    assert!(voices.is_empty());
+    assert!(!drew);
+
+    // `Overload.Count=2` with five captives picks row one, clamps every table
+    // read to its only entry, and still plays that row's 0.03 lean.
+    let (damaged, countdown, sparks, lean, voices, drew) = run(
+        "Overload.Count=2\nOverload.Damage=10\nOverload.Frames=5\n",
+        5,
+    );
+    assert_eq!((damaged, countdown, sparks), (10, 5, 0));
+    assert_eq!(
+        lean,
+        Some(0x3cf5_c28f),
+        "row one lean under the Phobos walk"
+    );
+    assert_eq!(voices, ["MasterMindOverloadVoice"]);
+    assert!(drew, "the lean sign draw still runs");
 }

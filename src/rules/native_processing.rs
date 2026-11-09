@@ -3595,8 +3595,9 @@ pub(crate) fn read_nullable_type_vector<T: Clone>(
 
 /// Ares `NullableVector<int>::Read` (`0x1002EB00`) over `parse_values<int>`,
 /// with the same retain/`<default>` rules as [`read_nullable_type_vector`].
-#[cfg(feature = "ares")]
-fn read_nullable_int_vector(
+/// Phobos repeats it for its own `NullableVector<int>` fields.
+#[cfg(any(feature = "ares", feature = "phobos"))]
+pub(crate) fn read_nullable_int_vector(
     section: &IniSection,
     key: &str,
     current: Option<&Vec<i32>>,

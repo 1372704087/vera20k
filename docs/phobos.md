@@ -43,6 +43,7 @@ Supported extensions:
 - [Credits indicator step limit](phobos-credits-indicator.md) (`CreditsIndicator.MaxStep=` and `.Smooth=` shape the sidebar balance roll)
 - [Passenger deletion](phobos-passenger-deletion.md) (`PassengerDeletion.*` counts down and deletes a transport's passenger, optionally paying Soylent)
 - [Warhead trigger conditions](phobos-warhead-triggers.md) (`AffectsAbovePercent`, `AffectsBelowPercent`, `AffectsVeterancy` and `AffectsInvokerOnly.*` on a detonation's targets)
+- [Overload tables](phobos-overload.md) (`Overload.Count`, `.Damage`, `.Frames`, `.DeathSound`, `.ParticleSys` and `.ParticleSysCount` for mind-control managers)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)
 - [Infantry auto deploy](phobos-infantry-auto-deploy.md) (`InfantryAutoDeploy` for AI GI-like infantry)

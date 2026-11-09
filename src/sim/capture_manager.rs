@@ -1672,6 +1672,49 @@ impl Simulation {
         frame_effects: FrameEffects<'_>,
     ) {
         let table = &rules.mind_control;
+        // Phobos `CaptureManagerClass_Overload_AI` (`Ext/CaptureManager/
+        // Hooks.cpp:111-219`): a `NullableVector<int>` type list replaces the
+        // Rules table when present, so a present empty list disables the
+        // checks; a registered `Overload.DeathSound=` replaces the stock
+        // voice, `Overload.ParticleSys=` replaces the spark system, and the
+        // count falls back to the `[CombatDamage]` global.
+        #[cfg(feature = "phobos")]
+        let (counts, frames, damages, death_sound, particle_sys, particle_count) = {
+            let settings = self
+                .substrate
+                .entities
+                .get(controller_id)
+                .and_then(|controller| self.interner.object_type(controller.type_ref(), rules))
+                .map(|object| object.phobos_overload.clone())
+                .unwrap_or_default();
+            (
+                settings
+                    .count
+                    .unwrap_or_else(|| table.overload_count.clone()),
+                settings
+                    .frames
+                    .unwrap_or_else(|| table.overload_frames.clone()),
+                settings
+                    .damage
+                    .unwrap_or_else(|| table.overload_damage.clone()),
+                settings
+                    .death_sound
+                    .or_else(|| table.overload_sound.clone()),
+                settings.particle_sys,
+                settings
+                    .particle_sys_count
+                    .unwrap_or(rules.phobos_globals.overload_particle_sys_count),
+            )
+        };
+        #[cfg(not(feature = "phobos"))]
+        let (counts, frames, damages, death_sound, particle_sys, particle_count) = (
+            table.overload_count.clone(),
+            table.overload_frames.clone(),
+            table.overload_damage.clone(),
+            table.overload_sound.clone(),
+            Option::<String>::None,
+            5,
+        );
         // Only an infinite manager overloads; checking it before the
         // effective-count lookup keeps finite managers off the size scan.
         let Some(infinite) = self
@@ -1703,23 +1746,52 @@ impl Simulation {
             manager.overload_countdown -= 1;
             return;
         }
-        // `0x00471A82..0x00471AB1` reads `OverloadCount[0]` unguarded; stock
-        // authors the table.
-        let Some(&first) = table.overload_count.first() else {
+        // Phobos returns before any check when the (possibly type-derived)
+        // count list is present but empty.
+        if counts.is_empty() {
             return;
-        };
+        }
         let count = effective_count.unwrap_or_else(|| manager.count());
-        let mut index = 0;
-        if count > first {
-            while index + 1 < table.overload_count.len() {
-                index += 1;
-                if count <= table.overload_count[index] {
-                    break;
+        // Original `0x00471A82..0x00471AB1`: the first row whose bound the
+        // count does not exceed, capped at the last row. Phobos rewrote the
+        // walk as the last row whose bound the count exceeds.
+        #[cfg(feature = "phobos")]
+        let index = {
+            let mut index = 0;
+            for slot in 0..counts.len() {
+                if count > counts[slot] {
+                    index = slot + 1;
                 }
             }
-        }
-        manager.overload_countdown = table.overload_frames.get(index).copied().unwrap_or(0);
-        let damage = table.overload_damage.get(index).copied().unwrap_or(0);
+            index
+        };
+        #[cfg(not(feature = "phobos"))]
+        let index = {
+            let mut index = 0;
+            if count > counts[0] {
+                while index + 1 < counts.len() {
+                    index += 1;
+                    if count <= counts[index] {
+                        break;
+                    }
+                }
+            }
+            index
+        };
+        // Phobos' `FixIdx` clamps an out-of-range row to the list's last
+        // entry; the original tables read zero past their end.
+        #[cfg(feature = "phobos")]
+        let fix = |values: &[i32]| -> i32 {
+            if values.is_empty() {
+                0
+            } else {
+                values[index.min(values.len() - 1)]
+            }
+        };
+        #[cfg(not(feature = "phobos"))]
+        let fix = |values: &[i32]| -> i32 { values.get(index).copied().unwrap_or(0) };
+        manager.overload_countdown = fix(&frames);
+        let damage = fix(&damages);
         if damage <= 0 {
             // `0x00471C83`: leaving overload re-arms the voice.
             manager.overload_sound_played = false;
@@ -1747,7 +1819,7 @@ impl Simulation {
         );
         self.commit_direct_damage_receiver(rules, overlay_registry, event, frame_effects);
         if !sound_played {
-            if let Some(sound) = rules.mind_control.overload_sound.clone() {
+            if let Some(sound) = death_sound.clone() {
                 self.sound_events
                     .emit(SimSoundEvent::voc_at(sound, &position));
             }
@@ -1762,29 +1834,42 @@ impl Simulation {
         }
         // 0x00471B48..0x00471C23: five `DefaultSparkSystem=` systems, each at
         // the controller's Location offset by (second draw, first draw, +100).
-        let spark_type = rules
-            .combat_damage
-            .default_spark_system
+        let spark_type = particle_sys
             .as_deref()
-            .and_then(|name| rules.ps_type_id_by_name(name));
-        for _ in 0..5 {
+            .and_then(|name| rules.ps_type_id_by_name(name))
+            .or_else(|| {
+                rules
+                    .combat_damage
+                    .default_spark_system
+                    .as_deref()
+                    .and_then(|name| rules.ps_type_id_by_name(name))
+            });
+        // Phobos draws the two offsets only inside `if (pParticle)`; the
+        // original draws them before the missing-type check.
+        for _ in 0..particle_count.max(0) {
+            #[cfg(feature = "phobos")]
+            let Some(system_type) = spark_type else {
+                continue;
+            };
             let dy = self.scenario_rng.next_range_i32_inclusive(-200, 200);
             let dx = self.scenario_rng.next_range_i32_inclusive(-200, 200);
-            if let Some(system_type) = spark_type {
-                self.spawn_particle_system(
-                    system_type,
-                    glam::IVec3::new(
-                        location.x.wrapping_add(dx),
-                        location.y.wrapping_add(dy),
-                        location.z.wrapping_add(100),
-                    ),
-                    None,
-                    None,
-                    glam::IVec3::ZERO,
-                    None,
-                    rules,
-                );
-            }
+            #[cfg(not(feature = "phobos"))]
+            let Some(system_type) = spark_type else {
+                continue;
+            };
+            self.spawn_particle_system(
+                system_type,
+                glam::IVec3::new(
+                    location.x.wrapping_add(dx),
+                    location.y.wrapping_add(dy),
+                    location.z.wrapping_add(100),
+                ),
+                None,
+                None,
+                glam::IVec3::ZERO,
+                None,
+                rules,
+            );
         }
         // 0x00471C29..0x00471C78: after the receiver and all five full Spark
         // constructors, a surviving controller above row zero replaces its
@@ -1799,6 +1884,11 @@ impl Simulation {
             .is_some_and(|controller| controller.lifecycle.object_alive());
         if index > 0 && alive {
             let lean_left = self.scenario_rng.next_range_i32_inclusive(0, 100) < 50;
+            // The Phobos hook inverts the stock row-1 magnitude
+            // (`Hooks.cpp:186`): its `nCurIdx != 1` plays 0.015.
+            #[cfg(feature = "phobos")]
+            let magnitude = if index != 1 { 0x3c75_c28f } else { 0x3cf5_c28f };
+            #[cfg(not(feature = "phobos"))]
             let magnitude = if index == 1 { 0x3c75_c28f } else { 0x3cf5_c28f };
             let velocity = crate::util::native_x87::NativeF32Bits::from_bits(
                 magnitude | if lean_left { 0x8000_0000 } else { 0 },

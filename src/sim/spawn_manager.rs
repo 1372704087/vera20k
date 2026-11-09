@@ -683,6 +683,12 @@ trait SpawnHost {
     /// (`Ext/Techno/Hooks.Misc.cpp:275-276`).
     #[cfg(feature = "phobos")]
     fn recycle_effects(&mut self, _child: u64) {}
+    /// Phobos `SpawnManagerClass_AI_PromoteSpawns @ 0x6B7282`
+    /// (`Ext/Techno/Hooks.Misc.cpp:216-238`): every slot child below the
+    /// owner's Veterancy is lifted to it when the owner type's
+    /// `Promote.IncludeSpawns` admits the pass.
+    #[cfg(feature = "phobos")]
+    fn promote_spawned_ranks(&mut self) {}
     /// The owner type's `Spawner.*` settings.
     #[cfg(feature = "phobos")]
     fn owner_spawner(&self) -> Option<&crate::rules::phobos_spawner::PhobosSpawner> {
@@ -758,6 +764,10 @@ fn ai(host: &mut impl SpawnHost) {
         period = delay.min(UPDATE_PERIOD_FRAMES);
     }
     host.manager().update_timer = CdTimer::started(frame, period);
+    // Phobos `SpawnManagerClass_AI_PromoteSpawns @ 0x6B7282`: after the
+    // update-timer gate and before the slot walk.
+    #[cfg(feature = "phobos")]
+    host.promote_spawned_ranks();
     let mut index = 0;
     while index < host.manager_ref().slots.len() {
         visit_slot(host, index, frame);
@@ -1662,6 +1672,45 @@ impl SpawnHost for WorldSpawn<'_, '_> {
                 + f64::from(delta[2]).powi(2))
             .sqrt();
             magnitude <= f64::from(range)
+        }
+    }
+
+    /// Phobos `SpawnManagerClass_AI_PromoteSpawns @ 0x6B7282`
+    /// (`Ext/Techno/Hooks.Misc.cpp:216-238`): with the owner type's
+    /// `Promote.IncludeSpawns.Get([General])`, each slot child whose
+    /// Veterancy is below the owner's takes `Veterancy.Add(owner - child)`.
+    #[cfg(feature = "phobos")]
+    fn promote_spawned_ranks(&mut self) {
+        let rules = self.context.rules();
+        let include = self.owner_type().is_some_and(|object| {
+            object
+                .phobos_promote
+                .include_spawns(rules.phobos_globals.promote_include_spawns)
+        });
+        if !include {
+            return;
+        }
+        let Some(owner_veterancy) = self
+            .sim
+            .substrate
+            .entities
+            .get(self.owner_id)
+            .map(|owner| owner.veterancy.raw())
+        else {
+            return;
+        };
+        let children: Vec<u64> = self
+            .manager_ref()
+            .slots
+            .iter()
+            .filter_map(|slot| slot.spawn)
+            .collect();
+        for child in children {
+            if let Some(entity) = self.sim.substrate.entities.get_mut(child) {
+                entity
+                    .veterancy
+                    .promote_toward(owner_veterancy, rules.general.veteran_cap);
+            }
         }
     }
 

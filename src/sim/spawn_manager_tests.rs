@@ -3334,3 +3334,72 @@ fn spawner_limit_range_drops_a_target_beyond_the_weapon_range() {
         );
     }
 }
+
+/// Phobos `SpawnManagerClass_AI_PromoteSpawns @ 0x6B7282`: on the manager's
+/// AI pass, a per-type `Promote.IncludeSpawns` (falling back to the
+/// `[General]` global) lifts every slot child below the owner's Veterancy to
+/// the owner's value.
+#[test]
+#[cfg(feature = "phobos")]
+fn promote_include_spawns_lifts_children_to_the_owner_rank() {
+    for (carrier_keys, general_keys, lifted) in [
+        ("Promote.IncludeSpawns=yes\n", "", true),
+        ("", "Promote.IncludeSpawns=yes\n", true),
+        (
+            "Promote.IncludeSpawns=no\n",
+            "Promote.IncludeSpawns=yes\n",
+            false,
+        ),
+        ("", "", false),
+    ] {
+        let text = spawner_rules_text()
+            .replace("[General]\n", &format!("[General]\n{general_keys}"))
+            .replace(
+                "[CARRIER]\nName=",
+                &format!("[CARRIER]\n{carrier_keys}Name="),
+            );
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&text))
+            .expect("spawner rules");
+        let mut sim = flat_sim();
+        let carrier = sim
+            .spawn_object("CARRIER", "Americans", 10, 10, 0, &rules)
+            .unwrap();
+        let children: Vec<u64> = sim
+            .substrate
+            .entities
+            .get(carrier)
+            .and_then(|e| e.spawn_manager.as_ref())
+            .expect("a Spawns= pool")
+            .slots
+            .iter()
+            .filter_map(|slot| slot.spawn)
+            .collect();
+        assert_eq!(children.len(), 3, "SpawnsNumber=3");
+        sim.substrate
+            .entities
+            .get_mut(carrier)
+            .unwrap()
+            .veterancy
+            .set_elite();
+        phobos_tick(&mut sim, &rules, carrier);
+        let owner_raw = sim.substrate.entities.get(carrier).unwrap().veterancy.raw();
+        for id in children {
+            let child = sim.substrate.entities.get(id).unwrap();
+            let rank = child.veterancy.rank_kind();
+            assert_eq!(
+                rank == crate::sim::combat::veterancy::VeterancyRank::Elite,
+                lifted,
+                "carrier {carrier_keys:?} general {general_keys:?}"
+            );
+            if lifted {
+                assert_eq!(
+                    child.veterancy.raw().bits(),
+                    owner_raw.bits(),
+                    "Add(owner - child) stores the owner's value"
+                );
+            } else {
+                assert_eq!(rank, crate::sim::combat::veterancy::VeterancyRank::Rookie);
+            }
+        }
+    }
+}

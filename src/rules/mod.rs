@@ -180,6 +180,8 @@ pub mod phobos_penetrates_transport;
 pub mod phobos_placement_preview;
 #[cfg(feature = "phobos")]
 pub mod phobos_power_plant_enhancer;
+#[cfg(feature = "phobos")]
+pub mod phobos_promote;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_prone_speed_tests.rs"]
 mod phobos_prone_speed_tests;

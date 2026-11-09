@@ -961,6 +961,11 @@ pub struct ObjectType {
     /// victim/infiltrator superweapon launches on a spy infiltration.
     #[cfg(feature = "phobos")]
     pub phobos_spy_effect: crate::rules::phobos_spy_effect::PhobosSpyEffect,
+    /// Phobos `DriverKilled.KeptPassengers=` / `.KillPassengers=`
+    /// (`Ext/TechnoType/Body.cpp:969-970`), consumed by the driver-change
+    /// passenger pass.
+    #[cfg(feature = "phobos")]
+    pub phobos_driver_killed: crate::rules::phobos_driver_killed::PhobosDriverKilled,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4892,6 +4897,9 @@ impl ObjectType {
             phobos_spy_effect: crate::rules::phobos_spy_effect::PhobosSpyEffect::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_driver_killed:
+                crate::rules::phobos_driver_killed::PhobosDriverKilled::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

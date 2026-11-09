@@ -104,6 +104,18 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:945`): the fallback for a transport type whose own
     /// level is unset.
     pub penetrates_transport_level: i32,
+    /// `[CombatDamage] DriverKilled.KeptPassengers=`, default `no`
+    /// (`Ext/Rules/Body.cpp:533`, `Body.h:949`): the fallback for a vehicle
+    /// type whose own key is unset; `yes` keeps the passengers of a
+    /// driver-killed vehicle owned by a neutral house aboard
+    /// (`Ext/Techno/Body.cpp:930-1017`).
+    #[serde(default)]
+    pub driver_killed_kept_passengers: bool,
+    /// `[CombatDamage] DriverKilled.KillPassengers=`, default `no`
+    /// (`Ext/Rules/Body.cpp:534`, `Body.h:950`): the fallback that destroys
+    /// each departing passenger instead of ejecting it.
+    #[serde(default)]
+    pub driver_killed_kill_passengers: bool,
     /// `[General] BuildLimitGroup.ContentIfAnyMatch=`, default `no`
     /// (`Ext/Rules/Body.cpp:223`, `Body.h:130,667`): fallback for an unset
     /// type-level `BuildLimitGroup.ContentIfAnyMatch`; `yes` makes any one
@@ -249,6 +261,8 @@ impl Default for PhobosGlobals {
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
             penetrates_transport_level: 10,
+            driver_killed_kept_passengers: false,
+            driver_killed_kill_passengers: false,
             build_limit_group_content_if_any_match: false,
             build_limit_group_not_buildable_if_queue_match: false,
             attack_move_aggressive: false,
@@ -460,6 +474,14 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         penetrates_transport_level: section.read_ares_int(
             "PenetratesTransport.Level",
             defaults.penetrates_transport_level,
+        ),
+        driver_killed_kept_passengers: section.read_bool(
+            "DriverKilled.KeptPassengers",
+            defaults.driver_killed_kept_passengers,
+        ),
+        driver_killed_kill_passengers: section.read_bool(
+            "DriverKilled.KillPassengers",
+            defaults.driver_killed_kill_passengers,
         ),
         // The `[AudioVisual]` block belongs to `from_ini`; a `CombatDamage`
         // section leaves these at their constructor values.

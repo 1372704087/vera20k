@@ -109,6 +109,7 @@ Supported extensions:
 - [Passenger owner sync](phobos-passengers-sync-owner.md) (`Passengers.SyncOwner` re-houses cargo on the transport's house change, `Passengers.SyncOwner.RevertOnExit` restores board-time houses on exit and on the carrier's death, and the threat-eval owner substitution skip; 2 keys + 2 `[General]` globals)
 - [Driver-killed passengers](phobos-driver-killed.md) (`DriverKilled.KeptPassengers` and `.KillPassengers` choose keep-aboard, kill or the stock ejection for a driverless vehicle's passengers; 2 keys + 2 globals)
 - [No manual move](phobos-no-manual-move.md) (`NoManualMove`: the shared player-control answer refuses the type while its AI keeps moving it)
+- [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)
 
 ## Original project and authors
 

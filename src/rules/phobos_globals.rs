@@ -237,6 +237,18 @@ pub struct PhobosGlobals {
     /// `no_rearm_temporal`.
     #[serde(default)]
     pub no_reload_temporal: bool,
+    /// `[General] Passengers.SyncOwner=`, default `no`
+    /// (`Ext/Rules/Body.cpp:467`, constructor `Ext/Rules/Body.h:882`): the
+    /// fallback for an unset transport-type key; `yes` re-houses the cargo
+    /// when the transport's house changes.
+    #[serde(default)]
+    pub passengers_sync_owner: bool,
+    /// `[General] Passengers.SyncOwner.RevertOnExit=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:468`, constructor `Body.h:883`): the fallback for
+    /// an unset transport-type key; `yes` puts an exiting cargo member back
+    /// on the house it held when it boarded.
+    #[serde(default = "true_bool")]
+    pub passengers_sync_owner_revert_on_exit: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -287,6 +299,8 @@ impl Default for PhobosGlobals {
             no_rearm_temporal: false,
             no_reload_under_emp: false,
             no_reload_temporal: false,
+            passengers_sync_owner: false,
+            passengers_sync_owner_revert_on_exit: true,
         }
     }
 }
@@ -428,6 +442,15 @@ impl PhobosGlobals {
             general.read_bool("NoReload.UnderEMP", globals.no_reload_under_emp);
         globals.no_reload_temporal =
             general.read_bool("NoReload.Temporal", globals.no_reload_temporal);
+        // The two `Passengers.SyncOwner` `Valueable<bool>` globals
+        // (`Ext/Rules/Body.cpp:467-468`); `Valueable` has no unset state, so
+        // these are plain `read_bool` reads from the constructor defaults.
+        globals.passengers_sync_owner =
+            general.read_bool("Passengers.SyncOwner", globals.passengers_sync_owner);
+        globals.passengers_sync_owner_revert_on_exit = general.read_bool(
+            "Passengers.SyncOwner.RevertOnExit",
+            globals.passengers_sync_owner_revert_on_exit,
+        );
         globals
     }
 }

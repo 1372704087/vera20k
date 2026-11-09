@@ -6919,6 +6919,13 @@ impl Simulation {
                 UninitContext::new(rules, registry).with_effects(effects),
             );
         }
+        // Phobos `TechnoClass_ChangeHouse_Passenger_SyncOwner @ 0x701881`
+        // (`Ext/Techno/Hooks.Transport.cpp:44-64`), 5 bytes at the join point
+        // right after the `0x0070187B` UpdateReveal call and before the
+        // Building/Foot tails: a `Passengers.SyncOwner` transport re-houses
+        // its cargo here, on every owner change including a limbo one.
+        #[cfg(feature = "phobos")]
+        self.phobos_sync_cargo_on_owner_change(stable_id, rules, registry, effects);
         if category == EntityCategory::Structure {
             // Ares ChangeOwnership_SensorArrayB10016CD0 (hook448C3E) adds the
             // array for the new owner before448C69's primary factory.

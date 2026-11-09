@@ -463,6 +463,11 @@ impl Simulation {
         voices: bool,
         context: UninitContext<'_>,
     ) -> bool {
+        // Phobos `TechnoClass_EnterTransport @ 0x71067B` records the
+        // board-time house before the Cargo add (see
+        // [`Self::phobos_record_original_passenger_owner`]).
+        #[cfg(feature = "phobos")]
+        self.phobos_record_original_passenger_owner(carrier, head_first, context.rules());
         if !self.add_cargo_passenger_chain(carrier, head_first, context) {
             return false;
         }
@@ -1894,11 +1899,194 @@ fn tick_entry_arrival(sim: &mut Simulation, rules: &RuleSet) {
     }
 }
 
+impl Simulation {
+    /// Phobos `TechnoClass_ChangeHouse_Passenger_SyncOwner @ 0x701881`
+    /// (`Ext/Techno/Hooks.Transport.cpp:44-64`), the join point right after
+    /// the Techno owner-change tail's `UpdateReveal` (`0x0070187B`) and
+    /// before the Building/Foot tails: a transport whose type has
+    /// `Passengers.SyncOwner` re-houses every cargo member with the
+    /// transport's new owner, native `SetOwningHouse(pOwner, false)`
+    /// through VERA's one owner-change path. Each member's own ChangeHouse
+    /// runs in full, so a member that is itself a loaded transport syncs
+    /// its hold the same way.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_sync_cargo_on_owner_change(
+        &mut self,
+        transport_id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let synced = self
+            .substrate
+            .entities
+            .get(transport_id)
+            .and_then(|transport| self.object_type(transport.type_ref(), rules))
+            .is_some_and(|object| {
+                object
+                    .phobos_passengers_sync
+                    .sync_owner(rules.phobos_globals.passengers_sync_owner)
+            });
+        if !synced {
+            return;
+        }
+        let (new_owner, passengers) = match self.substrate.entities.get(transport_id) {
+            Some(transport) => (
+                transport.owner(),
+                transport
+                    .passenger_role
+                    .cargo()
+                    .map(|cargo| cargo.passengers().to_vec())
+                    .unwrap_or_default(),
+            ),
+            None => return,
+        };
+        for passenger in passengers {
+            self.change_owner_with_rules(passenger, new_owner, rules, registry, effects);
+        }
+    }
+
+    /// Phobos `TechnoClass_EnterTransport @ 0x71067B` (`Ext/Techno/
+    /// Hooks.Transport.cpp:66-89`), at `TechnoClass::AddPassenger`'s head
+    /// (`0x00710670`) before the Cargo add: a `Passengers.SyncOwner` +
+    /// `.RevertOnExit` transport records each entering passenger's current
+    /// house on the passenger's FootExt. Native boarding itself changes no
+    /// house; the record is what the exit and dying-cargo arms restore.
+    #[cfg(feature = "phobos")]
+    fn phobos_record_original_passenger_owner(
+        &mut self,
+        carrier: u64,
+        head_first: &[(u64, f64)],
+        rules: &RuleSet,
+    ) {
+        let record = self
+            .substrate
+            .entities
+            .get(carrier)
+            .and_then(|carrier| self.object_type(carrier.type_ref(), rules))
+            .is_some_and(|object| {
+                let keys = object.phobos_passengers_sync;
+                let globals = &rules.phobos_globals;
+                keys.sync_owner(globals.passengers_sync_owner)
+                    && keys.sync_owner_revert_on_exit(globals.passengers_sync_owner_revert_on_exit)
+            });
+        if !record {
+            return;
+        }
+        for &(head, _) in head_first {
+            if let Some(passenger) = self.substrate.entities.get_mut(head) {
+                let owner = passenger.owner();
+                passenger.set_phobos_original_passenger_owner(Some(owner));
+            }
+        }
+    }
+
+    /// Phobos `FootClass_LeaveTransport @ 0x4DE722` (`Ext/Techno/
+    /// Hooks.Transport.cpp:91-122`), inside `FootClass::RemoveFirstPassenger`
+    /// (`0x004DE710`) past its prologue: a passenger leaving a
+    /// `Passengers.SyncOwner` + `.RevertOnExit` transport that still holds a
+    /// recorded board-time house takes it back under the
+    /// `IsOwnerChangeFromRevertOnExit` latch, which the AutoDeath
+    /// owner-change hook reads around the revert (`Ext/House/Hooks.cpp:225`).
+    /// Native leaves the record standing (`:111-118` clears only the latch).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_revert_passenger_on_exit(
+        &mut self,
+        transport_id: u64,
+        passenger: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let transport_syncs = self
+            .substrate
+            .entities
+            .get(transport_id)
+            .and_then(|transport| self.object_type(transport.type_ref(), rules))
+            .is_some_and(|object| {
+                let keys = object.phobos_passengers_sync;
+                let globals = &rules.phobos_globals;
+                keys.sync_owner(globals.passengers_sync_owner)
+                    && keys.sync_owner_revert_on_exit(globals.passengers_sync_owner_revert_on_exit)
+            });
+        if !transport_syncs {
+            return;
+        }
+        let Some(original) = self
+            .substrate
+            .entities
+            .get(passenger)
+            .and_then(GameEntity::phobos_original_passenger_owner)
+        else {
+            return;
+        };
+        if let Some(entity) = self.substrate.entities.get_mut(passenger) {
+            entity.set_phobos_revert_on_exit_latch(true);
+        }
+        self.change_owner_with_rules(passenger, original, rules, registry, effects);
+        if let Some(entity) = self.substrate.entities.get_mut(passenger) {
+            entity.set_phobos_revert_on_exit_latch(false);
+        }
+    }
+
+    /// Phobos `UnitClass_ReceiveDamage_Cargo_SyncOwner @ 0x737F80`
+    /// (`Ext/Techno/Hooks.Transport.cpp:125-149`), 6 bytes at the head of
+    /// `UnitClass::ReceiveDamage`'s passenger block
+    /// (`0x00737F80..0x007381B6`), before the stock open-topped clear
+    /// (`0x00737F80..0x00737F92`) and before Ares survivor handling: every
+    /// dying-transport passenger that still holds a recorded board-time
+    /// house takes it back, with no latch and no record clear.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_revert_cargo_on_dying_transport(
+        &mut self,
+        transport_id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let transport_syncs = self
+            .substrate
+            .entities
+            .get(transport_id)
+            .and_then(|transport| self.object_type(transport.type_ref(), rules))
+            .is_some_and(|object| {
+                let keys = object.phobos_passengers_sync;
+                let globals = &rules.phobos_globals;
+                keys.sync_owner(globals.passengers_sync_owner)
+                    && keys.sync_owner_revert_on_exit(globals.passengers_sync_owner_revert_on_exit)
+            });
+        if !transport_syncs {
+            return;
+        }
+        let passengers = match self.substrate.entities.get(transport_id) {
+            Some(transport) => transport
+                .passenger_role
+                .cargo()
+                .map(|cargo| cargo.passengers().to_vec())
+                .unwrap_or_default(),
+            None => return,
+        };
+        for passenger in passengers {
+            if let Some(original) = self
+                .substrate
+                .entities
+                .get(passenger)
+                .and_then(GameEntity::phobos_original_passenger_owner)
+            {
+                self.change_owner_with_rules(passenger, original, rules, registry, effects);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod gunner_tests;
 
 #[cfg(test)]
 mod allegiance_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+mod sync_owner_tests;
 
 #[cfg(test)]
 mod tests {

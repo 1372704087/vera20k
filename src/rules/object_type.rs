@@ -877,6 +877,11 @@ pub struct ObjectType {
     #[cfg(feature = "phobos")]
     pub phobos_passenger_deletion:
         Option<crate::rules::phobos_passenger_deletion::PassengerDeletionSettings>,
+    /// Phobos `Passengers.SyncOwner` / `.RevertOnExit`
+    /// (`Ext/TechnoType/Body.cpp:958-959`): a transport that re-houses its
+    /// cargo on its own house change and restores boarders on exit.
+    #[cfg(feature = "phobos")]
+    pub phobos_passengers_sync: crate::rules::phobos_passengers_sync::PhobosPassengersSync,
     /// Phobos `Overload.*` (`Ext/TechnoType/Body.cpp:1133-1138`).
     #[cfg(feature = "phobos")]
     pub phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings,
@@ -4822,6 +4827,9 @@ impl ObjectType {
                 crate::rules::phobos_passenger_deletion::PassengerDeletionSettings::from_section(
                     section,
                 ),
+            #[cfg(feature = "phobos")]
+            phobos_passengers_sync:
+                crate::rules::phobos_passengers_sync::PhobosPassengersSync::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_overload: crate::rules::phobos_overload::PhobosOverloadSettings::from_section(
                 section,

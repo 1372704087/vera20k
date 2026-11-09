@@ -884,6 +884,13 @@ impl Simulation {
         dying: DyingTransport,
         effects: FrameEffects<'_>,
     ) {
+        // Phobos `UnitClass_ReceiveDamage_Cargo_SyncOwner @ 0x737F80`
+        // (`Ext/Techno/Hooks.Transport.cpp:125-149`) replaces 6 bytes at the
+        // head of this block, before the stock open-topped clear below and
+        // before Ares survivor handling: every passenger that still holds a
+        // recorded board-time house takes it back.
+        #[cfg(feature = "phobos")]
+        self.phobos_revert_cargo_on_dying_transport(unit_id, rules, registry, effects);
         let Some(unit) = self.substrate.entities.get(unit_id) else {
             return;
         };

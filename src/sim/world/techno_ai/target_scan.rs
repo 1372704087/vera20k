@@ -119,8 +119,9 @@ impl PassiveScan {
 
     /// Ares TechnoClass_Fire_FSW (`10024C00`) stores the same byte (YRpp's
     /// ShouldLoseTargetNow) when a firestorm wall took the firer's bullet,
-    /// so its next passive scan may drop the target.
-    #[cfg(feature = "ares")]
+    /// so its next passive scan may drop the target. Phobos stores it from
+    /// the owner-change mission fix too.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) fn ares_lose_target_now(&mut self) {
         self.acquired = true;
     }

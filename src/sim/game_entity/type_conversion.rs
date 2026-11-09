@@ -11,6 +11,8 @@ use crate::rules::superweapon_type::DeliveryType;
 use crate::sim::components::DriveCoord;
 use crate::sim::conversion_health::ConversionHealth;
 use crate::sim::house_tracking::HouseTracking;
+use crate::sim::intern::InternedId;
+use crate::sim::mission::{MissionId, MissionType};
 use crate::sim::movement::locomotor::LocomotorState;
 use crate::sim::movement::{FacingClass, ground_pose};
 use crate::sim::world::{FrameEffects, LifecycleOutput, Simulation, UninitContext};
@@ -281,6 +283,148 @@ impl Simulation {
         };
         self.convert_techno_type(id, &target, rules, effects);
     }
+
+    /// Phobos `TechnoClass_Captured_UpdateTracking @ 0x7015C9`'s Foot arm
+    /// (`Ext/House/Hooks.cpp:203-300`): on a human<->computer owner change,
+    /// convert through the old type's `Convert.HumanToComputer` /
+    /// `Convert.ComputerToHuman`, then run the mission fix when the old
+    /// owner was computer-controlled. The caller invokes this before the
+    /// house swap, with the old owner still installed.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_convert_on_owner_change(
+        &mut self,
+        id: u64,
+        new_owner: InternedId,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.category() == EntityCategory::Structure {
+            return;
+        }
+        let old_owner = entity.owner();
+        let mode_nonzero = self.session.game_mode_nonzero();
+        let old_human = self
+            .houses
+            .get(&old_owner)
+            .is_some_and(|house| house.is_controlled_by_human(mode_nonzero));
+        let new_human = self
+            .houses
+            .get(&new_owner)
+            .is_some_and(|house| house.is_controlled_by_human(mode_nonzero));
+        if old_human == new_human {
+            return;
+        }
+        let Some(object) = self.entity_object_type(entity, rules) else {
+            return;
+        };
+        let target_name = if old_human {
+            object.phobos_convert.human_to_computer.clone()
+        } else {
+            object.phobos_convert.computer_to_human.clone()
+        };
+        // The mission fix reads the OLD type's fields, as native passes the
+        // pre-conversion `pType` (`Ext/House/Hooks.cpp:291`).
+        let old_resource_gatherer = object.resource_gatherer;
+        let old_default_to_guard_area = object.default_to_guard_area;
+        if let Some(name) = target_name
+            && let Some(target) = rules.object(&name)
+        {
+            let target = DeliveryType {
+                category: target.category,
+                id: target.id.clone(),
+            };
+            self.convert_techno_type(id, &target, rules, effects);
+        }
+        if !old_human {
+            self.phobos_change_owner_mission_fix(
+                id,
+                old_resource_gatherer,
+                old_default_to_guard_area,
+                rules,
+                registry,
+                effects,
+            );
+        }
+        self.houses.request_house_tech_tree_recheck(old_owner);
+        self.houses.request_house_tech_tree_recheck(new_owner);
+    }
+
+    /// Phobos `TechnoExt::ChangeOwnerMissionFix`
+    /// (`Ext/Techno/Body.Internal.cpp:234-260`): clear the `+0x68F`/`+0x690`
+    /// entry seeks, then unless the Foot still has a radio link or the old
+    /// type gathers resources or sits on Harvest/Sleep/Harmless/Repair,
+    /// override it to Guard, mark the next scan to drop its target and queue
+    /// `AreaGuard`/`Guard` with the immediate flag.
+    ///
+    /// RESIDUAL: native also clears `ShouldScanForTarget` and
+    /// `ShouldGarrisonStructure`; VERA has no owner for either byte.
+    #[cfg(feature = "phobos")]
+    fn phobos_change_owner_mission_fix(
+        &mut self,
+        id: u64,
+        old_resource_gatherer: bool,
+        old_default_to_guard_area: bool,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some((has_links, mission)) = self.substrate.entities.get(id).map(|entity| {
+            (
+                entity.radio_contacts.iter_live().next().is_some(),
+                entity.mission.effective().known(),
+            )
+        }) else {
+            return;
+        };
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.building_entry.clear_mission_fix_seeks();
+        }
+        if has_links || old_resource_gatherer {
+            return;
+        }
+        if matches!(
+            mission,
+            Some(
+                MissionType::Harvest
+                    | MissionType::Sleep
+                    | MissionType::Harmless
+                    | MissionType::Repair
+            )
+        ) {
+            return;
+        }
+        let now = self.session.binary_frame();
+        let _ = self.mission_override_represented(
+            id,
+            crate::sim::mission::authority::OverridePacket {
+                mission: MissionId::from_known(MissionType::Guard),
+                combat_target: None,
+                destination: None,
+            },
+            rules,
+            registry,
+            effects,
+        );
+        if let Some(entity) = self.substrate.entities.get_mut(id) {
+            entity.passive_scan.ares_lose_target_now();
+        }
+        let guard = if old_default_to_guard_area {
+            MissionType::AreaGuard
+        } else {
+            MissionType::Guard
+        };
+        let _ = self.mission_queue_exact(
+            id,
+            MissionId::from_known(guard),
+            1,
+            now,
+            &crate::sim::mission::authority::LiveReadyInputProvider { rules },
+        );
+    }
 }
 
 /// `TechnoExt::IsHealthInThreshold` (`Ext/Techno/Body.cpp:752-759`):
@@ -316,3 +460,7 @@ fn health_in_threshold(
 #[cfg(all(test, feature = "phobos"))]
 #[path = "type_conversion_health_tests.rs"]
 mod health_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "type_conversion_owner_tests.rs"]
+mod owner_tests;

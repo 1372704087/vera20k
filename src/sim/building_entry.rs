@@ -143,6 +143,15 @@ impl BuildingEntryLatches {
     pub(crate) fn clear_absorber_seek(&mut self) {
         self.should_enter_absorber = false;
     }
+
+    /// Phobos `ChangeOwnerMissionFix` (`Ext/Techno/Body.Internal.cpp:234-260`)
+    /// clears `+0x68F` and `+0x690`; the `+0x691` nearest-occupiable seek
+    /// stays set.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn clear_mission_fix_seeks(&mut self) {
+        self.should_enter_absorber = false;
+        self.should_enter_occupiable = false;
+    }
 }
 
 /// EnterBioReactor's decision (`0x004DFB87..0x004DFC81`) over its walk:

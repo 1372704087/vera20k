@@ -19,6 +19,13 @@ pub struct PhobosConvert {
     /// `Convert.Undeploy=`: the type an infantryman converts to when its
     /// Undeploy sequence completes; absent or `none` disables.
     pub undeploy: Option<String>,
+    /// `Convert.HumanToComputer=`: the type a Foot converts to when its
+    /// owner changes from a human house to a computer house
+    /// (`Ext/TechnoType/Body.cpp:1015`).
+    pub human_to_computer: Option<String>,
+    /// `Convert.ComputerToHuman=`: the same for a computer-to-human change
+    /// (`Ext/TechnoType/Body.cpp:1016`).
+    pub computer_to_human: Option<String>,
 }
 
 impl PhobosConvert {
@@ -26,6 +33,14 @@ impl PhobosConvert {
         Self {
             undeploy: section
                 .read_type_name("Convert.Undeploy", 0x800)
+                .filter(|name| !name.eq_ignore_ascii_case("none"))
+                .map(str::to_owned),
+            human_to_computer: section
+                .read_type_name("Convert.HumanToComputer", 0x800)
+                .filter(|name| !name.eq_ignore_ascii_case("none"))
+                .map(str::to_owned),
+            computer_to_human: section
+                .read_type_name("Convert.ComputerToHuman", 0x800)
                 .filter(|name| !name.eq_ignore_ascii_case("none"))
                 .map(str::to_owned),
         }

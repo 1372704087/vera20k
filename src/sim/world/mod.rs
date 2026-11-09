@@ -6759,6 +6759,11 @@ impl Simulation {
         self.check_auto_death_owner_change(stable_id, new_owner, rules);
         #[cfg(feature = "phobos")]
         self.phobos_tracking_change_owner(stable_id, new_owner);
+        // `0x7015C9`'s Foot arm runs before the caller's tracking work: a
+        // human<->computer change converts the Foot through the old type's
+        // keys and fixes its mission, with the old owner still installed.
+        #[cfg(feature = "phobos")]
+        self.phobos_convert_on_owner_change(stable_id, new_owner, rules, registry, effects);
         Self::update_house_tracking(
             &mut self.substrate,
             &mut self.houses,

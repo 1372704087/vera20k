@@ -2436,6 +2436,7 @@ impl GameEntity {
             phobos_delayed_fire_remove_anim_on_no_delay: false,
             #[cfg(feature = "phobos")]
             phobos_keep_target_on_move: false,
+            #[cfg(feature = "phobos")]
             phobos_attack_move_follower_temp_count: 0,
             emp: Default::default(),
             #[cfg(feature = "ares")]

@@ -765,6 +765,7 @@ fn an_armed_warp_waits_while_a_drive_piggyback_is_active() {
 /// Warp-in weapon rules: a CLEG/CMON pair with `WARPWH` (30) and `MINWH` (11)
 /// over one `WARPH` warhead that admits its own source, so the arrived object
 /// takes the detonation's damage.
+#[cfg(feature = "phobos")]
 fn warp_weapon_rules(
     warp_in: &str,
     min_range: &str,
@@ -800,6 +801,7 @@ fn warp_weapon_rules(
 
 /// One production object turn of a warp armed from cell 5,5 to 8,9 with the
 /// stored `LastWarpDistance`; the arrived object's health is the observable.
+#[cfg(feature = "phobos")]
 fn warp_in_health(
     warp_in: &str,
     min_range: &str,
@@ -839,6 +841,7 @@ fn warp_in_health(
 /// `WarpInMinRangeWeapon` replaces it, falling back to `WarpInWeapon` while
 /// unset.
 #[test]
+#[cfg(feature = "phobos")]
 fn warp_in_weapon_picks_the_min_range_weapon_by_last_warp_distance() {
     assert_eq!(
         warp_in_health("WARPWH", "", false, 0, 1000),
@@ -865,6 +868,7 @@ fn warp_in_weapon_picks_the_min_range_weapon_by_last_warp_distance() {
 /// `WarpInWeapon.UseDistanceAsDamage` (`Ext/TechnoType/Body.cpp:873`): the
 /// detonation's damage is `distance / 256` instead of the weapon's `Damage=`.
 #[test]
+#[cfg(feature = "phobos")]
 fn warp_in_weapon_use_distance_as_damage_divides_by_256() {
     assert_eq!(
         warp_in_health("WARPWH", "", true, 0, 1024),

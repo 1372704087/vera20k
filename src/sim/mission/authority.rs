@@ -543,6 +543,13 @@ impl Simulation {
         // every new, changed or lost target.
         #[cfg(feature = "phobos")]
         self.apply_rate_down_target_reset(receiver, rules);
+        // Phobos `TechnoClass_SetTarget_After @ 0x6FCF3E`
+        // (`src/Ext/Techno/Hooks.cpp:1175`): a null TarCom resets the
+        // `DelayedFireTimer` (and force-removes an attached no-delay anim).
+        #[cfg(feature = "phobos")]
+        if requested.is_none() {
+            crate::sim::combat::world_fire::reset_phobos_delayed_fire_timer(self, rules, receiver);
+        }
         Ok(())
     }
 

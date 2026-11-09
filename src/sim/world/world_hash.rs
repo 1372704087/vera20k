@@ -1662,6 +1662,26 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             .phobos_grinding_weapon_last_fired_frame()
             .hash(hasher);
     }
+    // Phobos `TechnoExt` delayed-fire timer/anim state gates the next shot.
+    // Only an entity with non-default state contributes, so an untouched save
+    // keeps its old hash. The RNG draw that picked a ranged Duration is already
+    // in `scenario_rng.hash_state` above.
+    #[cfg(feature = "phobos")]
+    if entity.phobos_delayed_fire_start_frame() != -1
+        || entity.phobos_delayed_fire_weapon_index() != -1
+        || entity.phobos_delayed_fire_anim().is_some()
+        || entity.phobos_delayed_fire_sequence_paused()
+    {
+        b"phobos-delayed-fire-v1".hash(hasher);
+        entity.phobos_delayed_fire_start_frame().hash(hasher);
+        entity.phobos_delayed_fire_duration().hash(hasher);
+        entity.phobos_delayed_fire_weapon_index().hash(hasher);
+        entity.phobos_delayed_fire_sequence_paused().hash(hasher);
+        entity.phobos_delayed_fire_anim().hash(hasher);
+        entity
+            .phobos_delayed_fire_remove_anim_on_no_delay()
+            .hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);

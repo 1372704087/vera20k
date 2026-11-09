@@ -99,6 +99,8 @@ mod bridge_launch_tests;
 mod bridge_live_chain_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod burst_no_delay_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_delayed_fire_tests;
 #[cfg(test)]
 mod combat_cloak_damage_tests;
 #[cfg(test)]

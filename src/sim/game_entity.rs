@@ -137,6 +137,29 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     grinding_weapon_last_fired_frame: i32,
+    /// Phobos `TechnoExt` delayed-fire state (`src/Ext/Techno/Body.h:60-63`,
+    /// serialized at `src/Ext/Techno/Body.cpp:1183-1186`). `DelayedFireTimer`
+    /// is a frame-based `CDTimerClass`: VERA keeps the absolute start frame
+    /// (`-1` = not started, matching `StartTime=-1`) and the duration. The
+    /// weapon index defaults to `-1` (`Body.h:121`), the anim pointer to null.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_start_frame: i32,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_duration: i32,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_weapon_index: i32,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_sequence_paused: bool,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_anim: Option<u64>,
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_delayed_fire_remove_anim_on_no_delay: bool,
     /// Techno+504 and Ares held sparkle. One private counter owner; stock
     /// constructor remains zero and only the feature-gated EMP producer writes it.
     #[serde(default)]
@@ -1999,6 +2022,83 @@ impl GameEntity {
     pub(crate) fn set_phobos_grinding_weapon_last_fired_frame(&mut self, frame: i32) {
         self.grinding_weapon_last_fired_frame = frame;
     }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_start_frame(&self) -> i32 {
+        self.phobos_delayed_fire_start_frame
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_duration(&self) -> i32 {
+        self.phobos_delayed_fire_duration
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_weapon_index(&self) -> i32 {
+        self.phobos_delayed_fire_weapon_index
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_sequence_paused(&self) -> bool {
+        self.phobos_delayed_fire_sequence_paused
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_anim(&self) -> Option<u64> {
+        self.phobos_delayed_fire_anim
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_delayed_fire_remove_anim_on_no_delay(&self) -> bool {
+        self.phobos_delayed_fire_remove_anim_on_no_delay
+    }
+
+    /// `timer.Start(...)` plus `DelayedFireWeaponIndex = weaponIndex`
+    /// (`src/Ext/Techno/Hooks.Firing.cpp:671-672`, `Body.cpp:719-721`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn start_phobos_delayed_fire(
+        &mut self,
+        frame: i32,
+        duration: i32,
+        weapon_index: i32,
+        paused: bool,
+    ) {
+        self.phobos_delayed_fire_start_frame = frame;
+        self.phobos_delayed_fire_duration = duration;
+        self.phobos_delayed_fire_weapon_index = weapon_index;
+        self.phobos_delayed_fire_sequence_paused = paused;
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_delayed_fire_sequence_paused(&mut self, paused: bool) {
+        self.phobos_delayed_fire_sequence_paused = paused;
+    }
+
+    /// `CurrentDelayedFireAnim` registration (`Body.cpp:691-695`): only an
+    /// attached anim is tracked, together with its stored removal flag.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_delayed_fire_anim(&mut self, id: Option<u64>, remove: bool) {
+        self.phobos_delayed_fire_anim = id;
+        self.phobos_delayed_fire_remove_anim_on_no_delay = remove;
+    }
+
+    /// `TechnoExt::ResetDelayedFireTimer` (`Body.cpp:658-669`): stop the timer,
+    /// clear the index/flag, and return the anim the caller force-destroys (only
+    /// when `DelayedFireRemoveOnNoDelay` was stored on it).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn reset_phobos_delayed_fire(&mut self) -> Option<u64> {
+        let anim = self
+            .phobos_delayed_fire_remove_anim_on_no_delay
+            .then_some(self.phobos_delayed_fire_anim)
+            .flatten();
+        self.phobos_delayed_fire_start_frame = -1;
+        self.phobos_delayed_fire_duration = 0;
+        self.phobos_delayed_fire_weapon_index = -1;
+        self.phobos_delayed_fire_sequence_paused = false;
+        self.phobos_delayed_fire_anim = None;
+        self.phobos_delayed_fire_remove_anim_on_no_delay = false;
+        anim
+    }
 }
 
 /// Fixture setup for the identity a constructor or decoder establishes.
@@ -2268,6 +2368,18 @@ impl GameEntity {
             grinding_weapon_accumulated_credits: 0,
             #[cfg(feature = "phobos")]
             grinding_weapon_last_fired_frame: 0,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_start_frame: -1,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_duration: 0,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_weapon_index: -1,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_sequence_paused: false,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_anim: None,
+            #[cfg(feature = "phobos")]
+            phobos_delayed_fire_remove_anim_on_no_delay: false,
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),

@@ -11553,6 +11553,15 @@ impl RuleSet {
             .map(|(name, _)| name.as_str())
     }
 
+    /// Whether the loaded AnimType registry declares `name` (case-insensitive)
+    /// — the membership test a consumer applies when the native reader would
+    /// have dropped an unresolvable `ValueableVector<AnimTypeClass*>` token.
+    pub fn has_anim_type(&self, name: &str) -> bool {
+        self.anim_type_art_read_states
+            .iter()
+            .any(|(candidate, _)| candidate.eq_ignore_ascii_case(name))
+    }
+
     /// Identity consumed by the shared animation/asset owners for an indexed
     /// pointer (Pickup483371, TAction6E2357, Team6EF610). Unlike the stored
     /// name, this preserves distinct slots with colliding24-byte IDs.

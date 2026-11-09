@@ -3235,9 +3235,8 @@ fn spawner_recycle_range_and_anim_control_the_dock() {
         {
             let child = sim.substrate.entities.get_mut(hornet).unwrap();
             child.position = carrier_position;
-            child
-                .position
-                .set_sub_x_for_test(SimFixed::from_num(offset));
+            let [cx, cy] = crate::sim::movement::ground_pose::position_world_xy(&carrier_position);
+            child.position.put_world_xy([cx.wrapping_add(offset), cy]);
         }
         let before = sim.substrate.anims.iter().count();
         phobos_tick(&mut sim, &rules, carrier);
@@ -3282,10 +3281,13 @@ fn spawner_recycle_range_and_anim_control_the_dock() {
 #[test]
 #[cfg(feature = "phobos")]
 fn spawner_limit_range_drops_a_target_beyond_the_weapon_range() {
-    for (keys, target_cell, dropped) in [
-        ("Spawner.LimitRange=yes", 34u16, false),
-        ("Spawner.LimitRange=yes", 36, true),
-        ("", 36, false),
+    for (keys, target_cell, height, dropped) in [
+        ("Spawner.LimitRange=yes", 34u16, 0, false),
+        ("Spawner.LimitRange=yes", 36, 0, true),
+        // `DistanceFrom` is planar: a tall target at 24 cells stays inside the
+        // 25-cell range even though its 3D distance is larger.
+        ("Spawner.LimitRange=yes", 34, 3000, false),
+        ("", 36, 0, false),
     ] {
         let rules = spawner_rules_with_carrier_keys(keys);
         let mut sim = flat_sim();
@@ -3295,6 +3297,14 @@ fn spawner_limit_range_drops_a_target_beyond_the_weapon_range() {
         let target = sim
             .spawn_object("MOBILE", "Yuri", target_cell, 10, 0, &rules)
             .unwrap();
+        if height != 0 {
+            sim.substrate
+                .entities
+                .get_mut(target)
+                .unwrap()
+                .position
+                .set_exact_z_leptons_for_test(Some(height));
+        }
         let manager = sim
             .substrate
             .entities
@@ -3304,7 +3314,12 @@ fn spawner_limit_range_drops_a_target_beyond_the_weapon_range() {
         manager.current_target = Some(TargetKind::Entity(target));
         manager.queued_target = None;
 
-        sim.apply_spawn_limit_range(carrier, &rules);
+        sim.apply_spawn_limit_range(
+            carrier,
+            &rules,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        );
 
         let manager = sim
             .substrate
@@ -3315,7 +3330,7 @@ fn spawner_limit_range_drops_a_target_beyond_the_weapon_range() {
         assert_eq!(
             manager.current_target.is_none(),
             dropped,
-            "keys {keys:?} at cell {target_cell}"
+            "keys {keys:?} at cell {target_cell} height {height}"
         );
     }
 }

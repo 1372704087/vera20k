@@ -567,7 +567,20 @@ pub(crate) fn custom_flh_coordinate(
 ) -> Option<crate::sim::components::DriveCoord> {
     let base = fire_coordinate_base(world, rules, snap, obj);
     let structure = snap.category == EntityCategory::Structure;
-    let turret_arm = on_turret && (structure || snap.barrel_facing.is_some());
+    // `isOnTurret && (pType->Turret || !isFoot)`: a building always takes the
+    // arm (its turret angle is its own heading); a foot only with a real
+    // turret type, not merely because aircraft construction gives every
+    // aircraft a SecondaryFacing.
+    let has_turret = world
+        .substrate
+        .entities
+        .get(snap.stable_id)
+        .is_some_and(|entity| {
+            entity
+                .building_upgrades()
+                .has_turret(obj, rules, &world.interner)
+        });
+    let turret_arm = on_turret && (structure || has_turret);
     let turret_offset = if turret_arm {
         base.art.map_or(0, |art| art.turret_offset)
     } else {

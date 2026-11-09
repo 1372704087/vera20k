@@ -51,9 +51,23 @@ elite — plus `ExtraLimitRange * 256`. VERA computes it on demand in
   `launch_slot` (spacing, attack, facing), `visit_slot` (hold/attack, recycle
   predicate and effects), `WorldSpawn::set_destination` (recycle destination
   cell), and `Simulation::apply_spawn_limit_range` (called from
-  `techno_ai_shell` before the mind-control range limit).
+  `techno_ai_shell` before the mind-control range limit). `LimitRange` uses
+  `AbstractClass::DistanceFrom @ 0x005F6440` — VERA's planar
+  `combat::object_distance_to` with the target foundation discount — and
+  `ResetTarget` is the shared `ClearAllTargets @ 0x6B7BB0` owner
+  (`clear_all_spawn_targets`), not a partial field clear.
 - `fire_coord::custom_flh_coordinate` is the `GetFLHAbsoluteCoords` port the
   recycle point needs (the same base and matrix owner as `fire_coordinate`).
+  Its turret arm is `isOnTurret && (structure || HasTurret)`, using the
+  `ObjectType::has_turret` / installed-upgrade owner; `launch`'s
+  `UseTurretFacing` asks the same `HasTurret()` before substituting
+  `SecondaryFacing`.
+- `recycle_effects` filters `RecycleAnim` names through
+  `RuleSet::has_anim_type` before the `RandomRanged(0, n-1)` draw (the
+  read-time drop the native `ValueableVector` applies) and stores
+  `SetLocation(GetCoords())` through `Position::put_location` (a building's
+  foundation centre). `Spawner.RecycleCoord` uses `read_int_fields`, the
+  native `Read3Integers` parsed-prefix scan.
 
 ## Phobos quirks kept
 

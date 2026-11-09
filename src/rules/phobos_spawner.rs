@@ -71,7 +71,9 @@ impl PhobosSpawner {
             use_turret_facing: section.read_phobos_nullable_bool("Spawner.UseTurretFacing", None),
             recycle_range: section.read_phobos_nullable_leptons("Spawner.RecycleRange", None),
             recycle_anim: read_valueable_type_vector(section, "Spawner.RecycleAnim", &[], keep),
-            recycle_coord: section.read_coord3("Spawner.RecycleCoord", [0; 3]),
+            // `Valueable<CoordStruct>`'s `Read3Integers` writes a parsed
+            // prefix, so a one- or two-token read updates only those axes.
+            recycle_coord: section.read_int_fields("Spawner.RecycleCoord", 64, [0; 3]),
             recycle_on_turret: section.read_phobos_nullable_bool("Spawner.RecycleOnTurret", None),
         }
     }

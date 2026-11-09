@@ -931,7 +931,7 @@ fn techno_ai_shell(
     // leaf's own steps and before the common Techno body's estimated-health
     // recover.
     #[cfg(feature = "phobos")]
-    sim.apply_spawn_limit_range(id, rules);
+    sim.apply_spawn_limit_range(id, rules, ctx.overlay_registry, ctx.effects);
     #[cfg(feature = "phobos")]
     sim.apply_mind_control_range_limit(id, rules, ctx.overlay_registry, ctx.effects);
     // Techno6F9F6E..9F precedes veterancy promotion, missions and acquisition for every

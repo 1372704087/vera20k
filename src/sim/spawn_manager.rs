@@ -458,15 +458,6 @@ impl SpawnManagerState {
         }
     }
 
-    /// `SpawnManagerClass::ResetTarget`: clear the live target without
-    /// queueing another (`Target = nullptr`). VERA drops the queued
-    /// `NewTarget` too, since promoting it would resume the same pursuit the
-    /// range limit aborted; native's own queue is only written by `SetTarget`.
-    pub(crate) fn reset_target(&mut self) {
-        self.current_target = None;
-        self.queued_target = None;
-    }
-
     /// Promote the queued target, as every state branch does before reading
     /// `current_target`: `if (NewTarget) { Target = NewTarget; NewTarget = 0; }`.
     fn promote_queued_target(&mut self) -> Option<TargetKind> {
@@ -539,31 +530,6 @@ pub fn init_spawn_manager(
 // The original's bodies
 // ---------------------------------------------------------------------------
 
-/// `House`-independent reader: the target's GetCoords for the 3D distance.
-#[cfg(feature = "phobos")]
-fn spawn_limit_target_coords(world: &Simulation, target: &TargetKind) -> Option<[i32; 3]> {
-    let terrain = world.resolved_terrain.as_ref();
-    match *target {
-        TargetKind::Entity(id) => world
-            .substrate
-            .entities
-            .get(id)
-            .map(|entity| {
-                let coord = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
-                [coord.x, coord.y, coord.z]
-            })
-            .or_else(|| {
-                world
-                    .terrain_objects
-                    .objects()
-                    .get(&id)
-                    .map(|terrain_object| terrain_object.world_coord())
-                    .map(|coord| [coord.x, coord.y, coord.z])
-            }),
-        TargetKind::Cell(rx, ry) => Some([i32::from(rx) * 256 + 128, i32::from(ry) * 256 + 128, 0]),
-    }
-}
-
 /// Phobos `TechnoTypeExt::CalculateSpawnerRange` (`Ext/TechnoType/Body.cpp:539-563`,
 /// run from `Ext/Rules/Body.cpp:77`): the largest `Range` among the type's
 /// `Spawner=yes` weapons for the asked tier, plus `Spawner.ExtraLimitRange`
@@ -602,11 +568,18 @@ impl Simulation {
     /// Phobos `TechnoExt::ApplySpawnLimitRange` (`Ext/Techno/Body.Update.cpp:445-461`,
     /// called from `OnEarlyUpdate` at the head of `TechnoClass::AI`): a
     /// spawner whose live target is beyond its strongest `Spawner=yes`
-    /// weapon's range drops it. `ResetTarget` only nulls `Target` natively;
-    /// VERA also drops the queued target, which would otherwise promote the
-    /// same object on the next AI pass and resume the aborted pursuit.
+    /// weapon's range gives the manager up. `pThis->DistanceFrom(Target)` is
+    /// `AbstractClass::DistanceFrom @ 0x005F6440`, the planar
+    /// target-foundation discount VERA owns as
+    /// [`crate::sim::combat::object_distance_to`], not a 3D root.
     #[cfg(feature = "phobos")]
-    pub(crate) fn apply_spawn_limit_range(&mut self, id: u64, rules: &RuleSet) {
+    pub(crate) fn apply_spawn_limit_range(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -622,20 +595,15 @@ impl Simulation {
         let Some(target) = manager.current_target() else {
             return;
         };
-        let Some(target_coords) = spawn_limit_target_coords(self, &target) else {
-            return;
-        };
         let elite = entity.veterancy.rank() >= crate::sim::combat::veterancy::RANK_ELITE_U16;
         let range = spawner_range(obj, elite, rules);
-        let terrain = self.resolved_terrain.as_ref();
-        let own = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
-        let distance =
-            crate::util::native_x87::distance_3d_leptons([own.x, own.y, own.z], target_coords);
-        if distance > range
-            && let Some(entity) = self.substrate.entities.get_mut(id)
-            && let Some(manager) = entity.spawn_manager.as_mut()
-        {
-            manager.reset_target();
+        let distance = crate::sim::combat::object_distance_to(id, &target, self);
+        if distance.is_some_and(|distance| distance > range) {
+            // YRpp `SpawnManagerClass::ResetTarget` is the shared
+            // `ClearAllTargets @ 0x6B7BB0` body: status Idle, NewTarget
+            // cleared, in-flight missiles released to the tracker. Reuse the
+            // oracle-verified owner rather than a second partial reset.
+            clear_all_spawn_targets(self, id, rules, registry, effects);
         }
     }
 }
@@ -1706,13 +1674,12 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             return;
         };
         let spawner = obj.phobos_spawner.clone();
-        let Some(owner_position) = self
-            .sim
-            .substrate
-            .entities
-            .get(self.owner_id)
-            .map(|owner| owner.position)
-        else {
+        let Some(owner_coords) = self.sim.substrate.entities.get(self.owner_id).map(|owner| {
+            crate::sim::movement::ground_pose::object_get_coords(
+                owner,
+                self.sim.resolved_terrain.as_ref(),
+            )
+        }) else {
             return;
         };
         let Some(spawner_coord) =
@@ -1722,17 +1689,23 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         else {
             return;
         };
-        if !spawner.recycle_anim.is_empty() {
-            // `RandomRanged(0, size - 1)` over the authored list; a name the
-            // rules never defined draws too and simply spawns nothing.
-            let pick = self
-                .sim
-                .scenario_rng
-                .next_range_i32_inclusive(0, spawner.recycle_anim.len() as i32 - 1)
-                as usize;
+        // The native reader drops an unresolvable `AnimTypeClass*` token, so
+        // the random range covers only names a type exists for.
+        let anims: Vec<&str> = spawner
+            .recycle_anim
+            .iter()
+            .map(String::as_str)
+            .filter(|name| rules.has_anim_type(name))
+            .collect();
+        if !anims.is_empty() {
+            // `RandomRanged(0, size - 1)` over the resolved list.
+            let pick =
+                self.sim
+                    .scenario_rng
+                    .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
             let _ = self.sim.spawn_named_anim(
                 rules,
-                &spawner.recycle_anim[pick],
+                anims[pick],
                 crate::sim::anim_class::AnimWorldCoord {
                     x: spawner_coord.x,
                     y: spawner_coord.y,
@@ -1744,7 +1717,9 @@ impl SpawnHost for WorldSpawn<'_, '_> {
             );
         }
         if let Some(child_entity) = self.sim.substrate.entities.get_mut(child) {
-            child_entity.position = owner_position;
+            // `SetLocation(pCarrier->GetCoords())`: a building's foundation
+            // centre, not its raw Location cell.
+            child_entity.position.put_location(owner_coords);
         }
     }
 
@@ -1761,7 +1736,12 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         // SecondaryFacing raw value when the owner has a turret and the
         // setting is on.
         #[cfg(feature = "phobos")]
-        let launch_dir = if self.use_turret_facing() {
+        let launch_dir = if self.use_turret_facing()
+            && self.owner_type().is_some_and(|obj| {
+                owner
+                    .building_upgrades()
+                    .has_turret(obj, rules, &self.sim.interner)
+            }) {
             owner.barrel_facing.as_ref().map_or_else(
                 || owner.body_facing_dir(frame),
                 |turret| crate::util::direction_tables::round_facing16_to_8(turret.current(frame)),

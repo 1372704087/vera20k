@@ -77,10 +77,11 @@ impl PhobosTurretAnim {
     ) -> i32 {
         let is_firing = state.firing_frame != -1; // Body.cpp:496
         // Four SHP blocks in order Idle, LowPowerIdle, Firing, LowPowerFiring;
-        // each block is 32 * Frames (Body.cpp:498-500).
-        let idle_block = 32 * self.idle_frames;
-        let low_power_idle_block = 32 * self.low_power_idle_frames;
-        let firing_block = 32 * self.firing_frames;
+        // each block is 32 * Frames (Body.cpp:498-500). Native integer
+        // multiplication wraps; extreme authored values must not panic.
+        let idle_block = 32_i32.wrapping_mul(self.idle_frames);
+        let low_power_idle_block = 32_i32.wrapping_mul(self.low_power_idle_frames);
+        let firing_block = 32_i32.wrapping_mul(self.firing_frames);
         let mut frames_per_facing = self.idle_frames;
         let mut base_offset = 0;
         let mut has_firing_frames = false;
@@ -130,7 +131,9 @@ impl PhobosTurretAnim {
             }
         }
         // Body.cpp:568. Rate <= 0 keeps the `>=` test true every frame.
-        base_offset + shape_facing * frames_per_facing + anim_frame
+        base_offset
+            .wrapping_add(shape_facing.wrapping_mul(frames_per_facing))
+            .wrapping_add(anim_frame)
     }
 
     /// `BuildingClass_Mission_Attack_TurretAnim` hook `0x44B6C7`

@@ -1022,14 +1022,11 @@ fn attack_arm(
         }
         // `0x0044B187` and `0x0044B1DE`: after Set_Desired, a Gattling type
         // charges (`0x0044B1C6`, `0x0044B21D`); any other keeps the count, and
-        // on REARM advances `+0x148` (`0x0044B235..0x0044B23C`).
+        // on REARM advances `+0x148` (`0x0044B235..0x0044B23C`). The TurretAnim
+        // arm hook at `0x44B6C7` is not on these arms; only the OK FireAt
+        // path and the upgrade second shot reach it.
         FireError::Facing | FireError::Rearm => {
             aim_turret(sim, id, rules, target);
-            // Phobos 0x44B6C7 is one point in Mission_Attack's OK firing
-            // tail; VERA reaches its firing tail from OK and REARM, so both
-            // arm (idempotent while a firing animation is playing).
-            #[cfg(feature = "phobos")]
-            arm_turret_anim_firing(sim, id, rules);
             if !gattling_step(sim, id, rules, StageCall::Increase, ctx.effects)
                 && code == FireError::Rearm
             {
@@ -1191,16 +1188,27 @@ fn update_turret_anim_frame(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     if object.turret_anim_is_voxel {
         return;
     }
-    // `facing = PrimaryFacing.Current().GetValue<5>()` →
-    // `ObjectClass::BodyShape[facing]` (`Body.cpp:492-493`). VERA reuses its
-    // single 32-way facing bucket (`step32_from_facing16`, the 0x007F4890
-    // reader at 0x004466BE) as shapeFacing; the BodyShape permutation is part
-    // of the unported slot-9 SHP drawing and is not replicated here.
-    let shape_facing = i32::from(crate::util::direction_tables::step32_from_facing16(
+    // `0x451238` asks `HasTurret()` (vt+0x3FC = 0x4527D0) and skips to
+    // `0x451296` when the host has none; a WallTower slot-9 anim on a
+    // `Turret=no` host never reaches GetTurretFrame.
+    if !entity
+        .building_upgrades()
+        .has_turret(object, rules, &sim.interner)
+    {
+        return;
+    }
+    // `facing = PrimaryFacing.Current().GetValue<5>()` and
+    // `shapeFacing = ObjectClass::BodyShape[facing]` (`Body.cpp:492-493`):
+    // the 0x007F4890 table, `(28 - i) & 31`, not the raw bucket.
+    let facing = crate::util::direction_tables::step32_from_facing16(
         entity.body_facing_current(sim.session.binary_frame()),
-    ));
-    // `isLowPower = !StuffEnabled || !IsPowerOnline()` (`Body.cpp:495`).
-    let is_low_power = !entity.building_art.stuff_enabled() || !entity.building_online();
+    );
+    let shape_facing = crate::util::direction_tables::DRAGON_FRAME_TABLE[usize::from(facing)];
+    // `isLowPower = !StuffEnabled || !IsPowerOnline()` (`Body.cpp:495`);
+    // `IsPowerOnline @ 0x004555D0` includes the house power ratio, EMP, zero
+    // health and Construction/Selling, which the Building+660 latch misses.
+    let is_low_power = !entity.building_art.stuff_enabled()
+        || !sim.building_operational_state(id, rules).unwrap_or(false);
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };
@@ -1240,7 +1248,8 @@ fn arm_turret_anim_firing(sim: &mut Simulation, id: u64, rules: &RuleSet) {
     {
         return;
     }
-    let is_low_power = !entity.building_art.stuff_enabled() || !entity.building_online();
+    let is_low_power = !entity.building_art.stuff_enabled()
+        || !sim.building_operational_state(id, rules).unwrap_or(false);
     let Some(entity) = sim.substrate.entities.get_mut(id) else {
         return;
     };

@@ -76,10 +76,15 @@ is deliberately left out of `world_hash`, like the voxel `TurretAnimCounter`
 `src/sim/world/techno_ai/building_missions.rs` is the owner:
 `update_animation` (the `UpdateAnimation @ 0x004509D0` path) calls
 `update_turret_anim_frame` once per frame and writes the absolute frame through
-`set_anim_frame_and_z_adjust`; `attack_arm`'s OK and REARM tails call
-`arm_turret_anim_firing`. Both helpers gate on a present slot-9 animation; the
-frame helper also skips `TurretAnimIsVoxel` types. Stock builds compile these
-paths out entirely.
+`set_anim_frame_and_z_adjust`; `attack_arm`'s OK tail calls
+`arm_turret_anim_firing` (the native `0x44B6C7` is not on the Facing or REARM
+arms). Both helpers gate on a present slot-9 animation and `HasTurret()`
+(vt+0x3FC, `0x4527D0`); the frame helper also skips `TurretAnimIsVoxel` types
+and uses `DRAGON_FRAME_TABLE` (`0x007F4890`, `(28 - i) & 31`) as
+`ObjectClass::BodyShape`. Low power is `!StuffEnabled ||
+!IsPowerOnline()`, with `Simulation::building_operational_state`
+(`0x004555D0`) supplying the power-ratio, EMP, health and mission terms.
+Stock builds compile these paths out entirely.
 
 The unused-key case yields one frame per facing (`shapeFacing * 1`), matching
 the documented default.
@@ -97,12 +102,13 @@ the documented default.
   ART declares no `TurretAnim`. Risk: low; no retail-INI or visual/GPU
   verification was possible (no `ini/`, `config.toml` or `RA2_DIR` in this
   checkout).
-- **`ObjectClass::BodyShape` permutation.** The owner uses VERA's single
-  32-way facing bucket (`step32_from_facing16`, the `0x007F4890` reader at
-  `0x004466BE`) as `shapeFacing`; the exact `BodyShape` table belongs to the
-  unported slot-9 drawing and was not independently reproduced. Only the CPU
-  frame arithmetic is pinned. Effect/risk: as above, dormant.
-- **REARM arm.** Phobos hook `0x44B6C7` is one point in Mission_Attack's OK
-  firing tail; VERA reaches its firing tail from both OK and REARM, so both
-  call the (idempotent) arm. This can start a firing block one frame earlier on
-  REARM. Trigger: a firing animation with a REARM frame; dormant in retail.
+- **No VERA path creates a slot-9 animation.** Only the WallTower identity
+  path cycles slot 9's type; the Grand_Opening `TurretAnim` creation is
+  unported, so both helpers are inert with retail data. Trigger: a mod whose
+  ART defines `TurretAnim=` for a slot-9 type. Effect: no frame is written.
+  Frequency: retail dormant. Risk: low.
+- **`Animation.Step=0` is not written.** The hook clears the slot-9 anim's
+  Step (`Hooks.cpp:1324`); VERA's AnimClass AI keeps the type's configured
+  step while advancing the frame. Trigger: an anim type with `Step` above 0.
+  Effect: the anim's own frame advance is not stopped. Frequency: only such a
+  type. Risk: visual-only.

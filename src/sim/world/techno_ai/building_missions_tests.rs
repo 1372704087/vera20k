@@ -2029,3 +2029,84 @@ fn retail_dustbowl_ore_cell_spawn_admission_matches_native_gates() {
         "overlay-free Rough ground admits a building"
     );
 }
+
+/// Phobos `GetTurretFrame`/`0x451242` production path: the frame uses the
+/// `ObjectClass::BodyShape` permutation of the facing bucket, the low-power
+/// block follows `StuffEnabled`/`IsPowerOnline`, and a `Turret=no` host never
+/// writes its slot-9 anim (`0x451238` asks vt+0x3FC first).
+#[test]
+#[cfg(feature = "phobos")]
+fn turret_anim_frame_uses_body_shape_low_power_and_requires_a_turret() {
+    use crate::sim::anim_class::AnimWorldCoord;
+    let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(
+        "[BuildingTypes]\n0=DEF\n1=NT\n2=SHED\n\
+         [DEF]\nStrength=1000\nArmor=concrete\nFoundation=1x1\nTurret=yes\n\
+         TurretAnim.IdleFrames=1\nTurretAnim.LowPowerIdleFrames=1\n\
+         [NT]\nStrength=1000\nArmor=concrete\nFoundation=1x1\nTurret=no\n\
+         TurretAnim.IdleFrames=1\nTurretAnim.LowPowerIdleFrames=1\n\
+         [SHED]\nStrength=1000\nArmor=wood\nFoundation=1x1\n\
+         [Animations]\n0=TANIM\n",
+    ))
+    .unwrap();
+    let mut rules = rules;
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::empty());
+    let (mut sim, building, _) = fixture(&rules, "DEF", (10, 10));
+    let no_turret = sim
+        .spawn_object("NT", "Americans", 7, 5, 0, &rules)
+        .unwrap();
+    let spawn_anim = |sim: &mut Simulation, host: u64| {
+        let before: BTreeSet<u64> = sim.substrate.anims.iter().map(|(id, _)| *id).collect();
+        let coord = sim
+            .substrate
+            .entities
+            .get(host)
+            .map(|entity| crate::sim::movement::ground_pose::position_world_coord(&entity.position))
+            .unwrap();
+        assert!(sim.spawn_named_anim(
+            &rules,
+            "TANIM",
+            AnimWorldCoord {
+                x: coord.x,
+                y: coord.y,
+                z: coord.z,
+            },
+            0,
+            0,
+            0,
+        ));
+        *sim.substrate
+            .anims
+            .iter()
+            .map(|(id, _)| id)
+            .find(|id| !before.contains(id))
+            .unwrap()
+    };
+    let anim = spawn_anim(&mut sim, building);
+    let other = spawn_anim(&mut sim, no_turret);
+    let east = 0x4000;
+    for (host, slot_anim) in [(building, anim), (no_turret, other)] {
+        let entity = sim.entities_mut_for_test().get_mut(host).unwrap();
+        entity.building_art.anim_slots_mut_for_test()[9] = Some(slot_anim);
+        entity.body_facing.snap(east, FRAME);
+    }
+    sim.entities_mut_for_test()
+        .get_mut(building)
+        .unwrap()
+        .building_art
+        .set_stuff_enabled_for_test(false);
+    sim.substrate.set_anim_frame_and_z_adjust(other, 7, 0);
+
+    update_turret_anim_frame(&mut sim, building, &rules);
+    // bucket 8 -> BodyShape 20; low-power idle block starts at 32 * IdleFrames.
+    assert_eq!(
+        sim.anim_stage_and_frames(anim, &rules).unwrap().0,
+        32 + 20,
+        "BodyShape permutation plus the LowPowerIdle block"
+    );
+    update_turret_anim_frame(&mut sim, no_turret, &rules);
+    assert_eq!(
+        sim.anim_stage_and_frames(other, &rules).unwrap().0,
+        7,
+        "a Turret=no host never reaches GetTurretFrame"
+    );
+}

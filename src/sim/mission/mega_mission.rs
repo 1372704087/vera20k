@@ -321,6 +321,10 @@ impl Simulation {
                 .unwrap()
                 .attack_target
                 .set(None);
+            // Phobos `FootClass_UpdateAttackMove_SetTarget` (`0x4DF3D3`):
+            // every target write restarts a `RateDown.Reset=yes` gattling.
+            #[cfg(feature = "phobos")]
+            self.apply_rate_down_target_reset(id, rules);
         }
         let found = crate::sim::world::retaliate_and_scan(
             self,
@@ -331,11 +335,18 @@ impl Simulation {
             None,
         );
         if !found {
+            let mut set_fallback = false;
             if let Some(target) = fallback
                 && let Some(entity) = self.substrate.entities.get_mut(id)
             {
                 // `0x004DF4A5`.
                 entity.attack_target.set(target);
+                set_fallback = true;
+            }
+            // `0x4DF46A`/`0x4DF4A5` reach the same reset after the write.
+            #[cfg(feature = "phobos")]
+            if set_fallback {
+                self.apply_rate_down_target_reset(id, rules);
             }
             return;
         }

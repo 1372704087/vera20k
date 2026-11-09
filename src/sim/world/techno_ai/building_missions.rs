@@ -1220,6 +1220,13 @@ pub(super) fn gattling_idle(
     let since = now.wrapping_sub(entity.last_fire_frame.frame() as i32);
     if since > rules.general.guard_area_targeting_delay.wrapping_add(5) {
         let elite = is_elite(entity);
+        #[cfg(feature = "phobos")]
+        let ammo = entity.ammo().map_or(-1, |ammo| ammo.current());
+        #[cfg(feature = "phobos")]
+        entity
+            .gattling
+            .idle_decay_phobos(&obj.gattling_stages, elite, &obj.phobos_rate_down, ammo);
+        #[cfg(not(feature = "phobos"))]
         entity.gattling.idle_decay(&obj.gattling_stages, elite);
     }
     if entity.gattling.value() > 0 {

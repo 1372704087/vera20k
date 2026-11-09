@@ -538,6 +538,11 @@ impl Simulation {
         let prepared =
             effects.preflight(self, receiver, ConcreteSetterRequest::Target { requested })?;
         effects.apply_target(self, &prepared, requested);
+        // Phobos `UpdateGattlingRateDownReset` at `TechnoClass_SetTarget_After`
+        // (`0x6FCF3E`): a `RateDown.Reset=yes` gattling restarts its value on
+        // every new, changed or lost target.
+        #[cfg(feature = "phobos")]
+        self.apply_rate_down_target_reset(receiver, rules);
         Ok(())
     }
 

@@ -721,6 +721,7 @@ pub(crate) fn emit_projectile_detonations(
                 detonations,
                 out,
                 &mut Vec::new(),
+                false,
             )
         },
     )

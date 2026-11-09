@@ -3517,6 +3517,7 @@ pub(crate) fn tick_combat(
         projectile_detonations,
         &mut emit,
         &mut under_attack_events,
+        false,
     );
 
     let live_index: std::collections::HashMap<u64, usize> = live_order

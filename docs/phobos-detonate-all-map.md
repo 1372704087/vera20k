@@ -46,15 +46,18 @@ enabled, has not fired this detonation, and both `AffectsTarget` and
 - `rules::phobos_detonate_all_map::DetonateOnAllMapObjectsRules` holds the
   keys; `WarheadType::detonate_on_all_map` carries them.
 - `sim::combat::world_receiver::detonate_on_all_map_objects` runs at the head
-  of `emit_detonation_receivers` (the `DetonateAtCoord` port), snapshots the
-  stores per category, applies the eligibility owner and calls the existing
-  nested owners (`commit_projectile_detonations_inline` for `Full`,
-  `apply_area_damage_in_run_with_target` otherwise). The nested detonations
-  commit their own receivers synchronously; their appended receiver records
-  are dropped so the outer area pass does not commit them twice. The
-  `Simulation::phobos_all_map_detonation_active` flag is the
-  `WasDetonatedOnAllMapObjects` guard.
-- The claimed detonation skips the caller's anim/debris tail
+  of `emit_detonation_receivers` (the `DetonateAtCoord` port): it snapshots
+  each class store immediately before that class's walk (so crew spawned by
+  the building walk is visited by later walks), applies the eligibility owner
+  and calls the existing nested owners (`commit_projectile_detonations_inline`
+  with `force_single_detonation` for `Full`, so one DetonateAtCoord with no
+  Explode cluster draws; `apply_area_damage_in_run_with_target` otherwise).
+  The nested detonations commit their own receivers synchronously; their
+  appended receiver records are dropped so the outer area pass does not
+  commit them twice. The `Simulation::phobos_all_map_detonation_active`
+  `Option<InternedId>` is the per-warhead `WasDetonatedOnAllMapObjects`
+  guard.
+- The claimed detonation skips the caller's shake draws, anim/debris tail
   (`all_map_claimed` in `commit_projectile_detonations_inline`) but keeps the
   outer cluster successor draws, as native's return to `0x46A2FB` does.
 - `BulletClass +0x10C` re-pointing goes through `ProjectileStore::set_target`,
@@ -64,17 +67,22 @@ enabled, has not fired this detonation, and both `AffectsTarget` and
 
 - **Array order vs id order**: native walks each class's `DynamicVectorClass`
   (construction order); VERA snapshots each category from the entity store in
-  ascending stable id. These coincide for ordinary construction; a removed
-  and reinserted object could order differently. Trigger: mid-game object
-  churn. Impact: RNG-free damage order only. Frequency: rare. Risk: low.
+  ascending stable id immediately before its walk. These coincide for
+  ordinary construction; a removed and reinserted object could order
+  differently. Trigger: mid-game object churn. Impact: RNG-free damage order
+  only. Frequency: rare. Risk: low.
 - **`AffectsTarget` bits beyond the four class flags** (`Land`, `Water`,
-  `NoContent`) are parsed but unused: the hook itself only walks Technos.
+  `NoContent`) are parsed but unused: the hook itself only walks Technos, but
+  a land-only token set still claims the detonation and hits nothing (tested).
 - **Deprecated-key debug log** is not emitted (Phobos logs a developer
   warning when both spellings exist). Trigger: both keys authored. Impact:
   log only. Frequency: broken mod data. Risk: none.
-- **Unresolved type names** in `AffectTypes`/`IgnoreTypes` are not filtered
-  at read time; the consumer compares names, so an unresolved entry can
-  never match a live type (native drops the token, which can shift nothing —
-  these lists are membership-only). Trigger: typo'd names. Frequency:
-  broken mod data. Risk: low.
+- **`AffectTypes`/`IgnoreTypes` names** are filtered through `RuleSet::object`
+  at use time, reproducing the native read-time drop (an all-invalid authored
+  list means "no type filter", as natively). A name that resolves to a
+  non-Techno type would still be compared by name; no retail list does that.
+- **`RequireVerses`** compares the truncated `GetTotalDamage(100)/100`
+  against zero, matching a Verses rate below 1%; exact rounding of the
+  warhead-versus-armor pipeline for rates with fractional percentages follows
+  `shield::warhead_versus_armor`.
 - **No retail/visual validation** in this checkout.

@@ -141,6 +141,24 @@ fn the_claim_gate_needs_both_flags_but_an_empty_class_match_still_claims() {
         "a claimed detonation with no matching class hits nothing"
     );
 
+    // A valid token set that names no Techno class still claims: the native
+    // gate only tests "not None", so the impact itself is suppressed.
+    let (mut sim, rules, firer, target, bystander, friend) = scene(
+        "DetonateOnAllMapObjects=yes\n\
+         DetonateOnAllMapObjects.AffectsTarget=land\n\
+         DetonateOnAllMapObjects.AffectsHouse=enemies\n",
+    );
+    shoot(&mut sim, &rules, firer, target, 20);
+    assert_eq!(
+        (
+            health(&sim, target),
+            health(&sim, bystander),
+            health(&sim, friend)
+        ),
+        (500, 500, 500),
+        "a land-only token set claims the detonation and walks nothing"
+    );
+
     let (mut sim, rules, firer, target, bystander, friend) = scene(
         "DetonateOnAllMapObjects=yes\n\
          DetonateOnAllMapObjects.AffectsTarget=units\n\

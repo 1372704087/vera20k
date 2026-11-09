@@ -3837,13 +3837,14 @@ fn ares_damage_occupants(
 /// Phobos `BulletClass_Logics_DetonateOnAllMapObjects @ 0x4690C1`
 /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:78-168`): a claiming warhead replaces
 /// this detonation with one pass over the live Technos of each affected class
-/// array (aircraft, buildings, infantry, units, each snapshot in ascending
-/// id) and returns from `DetonateAtCoord` before its radiation, special
-/// arms, shrapnel, area damage and anim tail. `Full` re-detonates the bullet
-/// at each target (`BulletClass::Detonate`), otherwise each target takes the
-/// bullet's `(Health * DamageMultiplier) >> 8` area damage with itself as the
-/// intended target (`DamageAreaWithTarget`). The recursion is gated exactly
-/// like `WasDetonatedOnAllMapObjects`.
+/// array (aircraft, buildings, infantry, units, each snapshot taken right
+/// before its walk) and returns from `DetonateAtCoord` before its shake,
+/// radiation, special arms, shrapnel, area damage and anim tail. `Full`
+/// re-detonates the bullet at each target (`BulletClass::Detonate`, one
+/// DetonateAtCoord with no Explode cluster draws), otherwise each target
+/// takes the bullet's `(Health * DamageMultiplier) >> 8` area damage with
+/// itself as the intended target (`DamageAreaWithTarget`).
+/// `WasDetonatedOnAllMapObjects` is per warhead type.
 #[cfg(feature = "phobos")]
 fn detonate_on_all_map_objects(
     world: &mut Simulation,
@@ -3856,7 +3857,11 @@ fn detonate_on_all_map_objects(
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) -> bool {
     let rules_ext = &warhead.detonate_on_all_map;
-    if !rules_ext.claims_detonation() || world.phobos_all_map_detonation_active {
+    if !rules_ext.claims_detonation() {
+        return false;
+    }
+    let warhead_ref = detonation.payload.warhead;
+    if world.phobos_all_map_detonation_active == Some(warhead_ref) {
         return false;
     }
     use crate::rules::phobos_crit::AffectedTarget;
@@ -3867,13 +3872,31 @@ fn detonate_on_all_map_objects(
         (AffectedTarget::INFANTRY, EntityCategory::Infantry),
         (AffectedTarget::UNIT, EntityCategory::Unit),
     ];
-    // Snapshot every class array before the first detonation can remove
-    // objects; native copies each DynamicVectorClass the same way.
-    let mut batches = Vec::new();
+    // The native reader drops unresolvable `AffectTypes` names; an all-invalid
+    // authored list is therefore empty, which means "no type filter".
+    let affect_types: Vec<&str> = rules_ext
+        .affect_types
+        .iter()
+        .map(String::as_str)
+        .filter(|name| rules.object(name).is_some())
+        .collect();
+    let ignore_types: Vec<&str> = rules_ext
+        .ignore_types
+        .iter()
+        .map(String::as_str)
+        .filter(|name| rules.object(name).is_some())
+        .collect();
+    world.phobos_all_map_detonation_active = Some(warhead_ref);
+    // The nested detonations commit their own receiver records synchronously.
+    // Drop the records they append so the caller does not commit the same
+    // receivers a second time in its own area pass.
+    let receiver_mark = out.damage_events.len();
     for (flag, category) in walks {
         if !rules_ext.affects(flag) {
             continue;
         }
+        // Each class array is copied immediately before its walk; a creature
+        // spawned by an earlier walk (crew, survivors) is therefore visited.
         let ids: Vec<u64> = world
             .substrate
             .entities
@@ -3881,71 +3904,71 @@ fn detonate_on_all_map_objects(
             .filter(|entity| entity.category() == category)
             .map(|entity| entity.stable_id())
             .collect();
-        batches.push(ids);
-    }
-    if batches.is_empty() {
-        return false;
-    }
-    // The nested detonations commit their own receiver records
-    // synchronously. Drop the records they append so the caller does not
-    // commit the same receivers a second time in its own area pass.
-    let receiver_mark = out.damage_events.len();
-    world.phobos_all_map_detonation_active = true;
-    for id in batches.into_iter().flatten() {
-        let Some(entity) = world.substrate.entities.get(id) else {
-            continue;
-        };
-        if !eligible_for_full_map_detonation(world, rules, warhead, entity, owner) {
-            continue;
-        }
-        let coord = crate::sim::movement::ground_pose::object_get_coords(
-            entity,
-            world.resolved_terrain.as_ref(),
-        );
-        let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
-        if rules_ext.full {
-            let original = detonation.target;
-            world
-                .projectiles
-                .set_target(detonation.projectile_id, ProjectileTarget::Entity(id));
-            let nested = ProjectileDetonation {
-                impact,
-                target: ProjectileTarget::Entity(id),
-                ..*detonation
+        for id in ids {
+            let Some(entity) = world.substrate.entities.get(id) else {
+                continue;
             };
-            let mut pings = Vec::new();
-            commit_projectile_detonations_inline(
+            if !eligible_for_full_map_detonation(
                 world,
-                run,
                 rules,
-                overlay_registry,
-                &[nested],
-                out,
-                &mut pings,
-            );
-            under_attack_events.append(&mut pings);
-            world
-                .projectiles
-                .set_target(detonation.projectile_id, original);
-        } else {
-            let (nested, mut pings, _, _) = apply_area_damage_in_run_with_target(
-                world,
-                run,
-                rules,
-                overlay_registry,
-                impact,
-                detonation.payload.area_damage(),
                 warhead,
-                true,
-                (detonation.source_id, owner, detonation.payload.warhead),
-                Some(id),
+                entity,
+                owner,
+                &affect_types,
+                &ignore_types,
+            ) {
+                continue;
+            }
+            let coord = crate::sim::movement::ground_pose::object_get_coords(
+                entity,
+                world.resolved_terrain.as_ref(),
             );
-            out.effects.append(nested);
-            under_attack_events.append(&mut pings);
+            let impact = ProjectileCoord::new(coord.x, coord.y, coord.z);
+            if rules_ext.full {
+                let original = detonation.target;
+                world
+                    .projectiles
+                    .set_target(detonation.projectile_id, ProjectileTarget::Entity(id));
+                let nested = ProjectileDetonation {
+                    impact,
+                    target: ProjectileTarget::Entity(id),
+                    ..*detonation
+                };
+                let mut pings = Vec::new();
+                commit_projectile_detonations_inline(
+                    world,
+                    run,
+                    rules,
+                    overlay_registry,
+                    &[nested],
+                    out,
+                    &mut pings,
+                    true,
+                );
+                under_attack_events.append(&mut pings);
+                world
+                    .projectiles
+                    .set_target(detonation.projectile_id, original);
+            } else {
+                let (nested, mut pings, _, _) = apply_area_damage_in_run_with_target(
+                    world,
+                    run,
+                    rules,
+                    overlay_registry,
+                    impact,
+                    detonation.payload.area_damage(),
+                    warhead,
+                    true,
+                    (detonation.source_id, owner, detonation.payload.warhead),
+                    Some(id),
+                );
+                out.effects.append(nested);
+                under_attack_events.append(&mut pings);
+            }
         }
     }
     out.damage_events.truncate(receiver_mark);
-    world.phobos_all_map_detonation_active = false;
+    world.phobos_all_map_detonation_active = None;
     true
 }
 
@@ -3958,6 +3981,8 @@ fn eligible_for_full_map_detonation(
     warhead: &WarheadType,
     entity: &crate::sim::game_entity::GameEntity,
     owner: Option<InternedId>,
+    affect_types: &[&str],
+    ignore_types: &[&str],
 ) -> bool {
     if !entity.lifecycle.object_alive()
         || entity.lifecycle.in_limbo()
@@ -3981,14 +4006,12 @@ fn eligible_for_full_map_detonation(
         return false;
     }
     let type_name = world.interner.resolve(entity.type_ref());
-    let in_affect = rules_ext.affect_types.is_empty()
-        || rules_ext
-            .affect_types
+    let in_affect = affect_types.is_empty()
+        || affect_types
             .iter()
             .any(|name| name.eq_ignore_ascii_case(type_name));
     if !in_affect
-        || rules_ext
-            .ignore_types
+        || ignore_types
             .iter()
             .any(|name| name.eq_ignore_ascii_case(type_name))
     {
@@ -3999,11 +4022,26 @@ fn eligible_for_full_map_detonation(
             return false;
         };
         let armor = crate::sim::shield::warhead_versus_armor(entity, rules, warhead, obj);
-        if warhead.verses_f64[armor.index()] == 0.0 {
+        // `GetWarheadVersusArmor(...) == 0.0`: `GetTotalDamage(100) / 100`
+        // truncates a nonzero-but-sub-1% rate to zero.
+        if (warhead.verses_f64[armor.index()] * 100.0) as i32 == 0 {
             return false;
         }
     }
     true
+}
+
+/// Whether this detonation will be replaced by the all-map pass, so the
+/// per-cluster shake block must not draw. The native hook sits before the
+/// shake block (`0x4690D4`, `SkipShaking = 0x469130`).
+#[cfg(feature = "phobos")]
+fn all_map_claims(
+    world: &Simulation,
+    detonation: &ProjectileDetonation,
+    warhead: &WarheadType,
+) -> bool {
+    warhead.detonate_on_all_map.claims_detonation()
+        && world.phobos_all_map_detonation_active != Some(detonation.payload.warhead)
 }
 
 fn emit_detonation_receivers<'r>(
@@ -4578,6 +4616,7 @@ pub(crate) fn commit_projectile_detonations_inline(
     projectile_detonations: &[ProjectileDetonation],
     emit: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
+    force_single_detonation: bool,
 ) {
     for request in projectile_detonations {
         let current = world.projectiles.current_detonation(*request);
@@ -4605,11 +4644,18 @@ pub(crate) fn commit_projectile_detonations_inline(
         // Phobos `BulletClass_Explodes_AirburstCheck1/2` and Ares
         // BulletClass_Fire_SplitsB (1001A810, hook 0x468FFA) make `Splits`
         // take the airburst arm: one detonation and no outer cluster draws.
-        let (clusters, cluster_draws) = match projectile_type {
-            Some(projectile) if !projectile.airburst_arm() && !single_detonation => {
-                (projectile.cluster.max(0), true)
+        let (clusters, cluster_draws) = if force_single_detonation {
+            // `BulletClass::Detonate` runs one DetonateAtCoord and no Explode
+            // wrapper, so neither the cluster count nor its successor draw
+            // applies (Phobos `0x4690C1` calls it per target).
+            (1, false)
+        } else {
+            match projectile_type {
+                Some(projectile) if !projectile.airburst_arm() && !single_detonation => {
+                    (projectile.cluster.max(0), true)
+                }
+                _ => (1, false),
             }
-            _ => (1, false),
         };
         let mut coordinate = detonation.impact;
         // Production impacts retain their Bullet until this transaction ends.
@@ -4617,20 +4663,34 @@ pub(crate) fn commit_projectile_detonations_inline(
         // the temporary Bullet packet; do not invent a second alive flag.
         let represented_bullet = world.projectiles.get(detonation.projectile_id).is_some();
         for _ in 0..clusters {
+            let clustered = world.projectiles.current_detonation(ProjectileDetonation {
+                impact: coordinate,
+                ..*detonation
+            });
             // BulletClass::DetonateAtCoord prologue @0x004690B0 reads each
             // axis pair before its special/damage chain (0x004690CE..0x0046912B).
             // The native tests either bound for nonzero, then calls the shared
             // RandomRanged @0x0065C7E0 on g_MainRng @0x00886B88, X before Y.
-            let shake_x = (warhead.shake_x_lo != 0 || warhead.shake_x_hi != 0).then(|| {
-                world
-                    .main_rng
-                    .next_range_i32_inclusive(warhead.shake_x_lo, warhead.shake_x_hi)
-            });
-            let shake_y = (warhead.shake_y_lo != 0 || warhead.shake_y_hi != 0).then(|| {
-                world
-                    .main_rng
-                    .next_range_i32_inclusive(warhead.shake_y_lo, warhead.shake_y_hi)
-            });
+            // Phobos `0x4690C1` returns to `0x46A2FB` past that whole block, so
+            // a detonation the all-map pass will claim draws no shake at all.
+            #[cfg(feature = "phobos")]
+            let shake_suppressed = all_map_claims(world, &clustered, warhead);
+            #[cfg(not(feature = "phobos"))]
+            let shake_suppressed = false;
+            let shake_x = (!shake_suppressed
+                && (warhead.shake_x_lo != 0 || warhead.shake_x_hi != 0))
+                .then(|| {
+                    world
+                        .main_rng
+                        .next_range_i32_inclusive(warhead.shake_x_lo, warhead.shake_x_hi)
+                });
+            let shake_y = (!shake_suppressed
+                && (warhead.shake_y_lo != 0 || warhead.shake_y_hi != 0))
+                .then(|| {
+                    world
+                        .main_rng
+                        .next_range_i32_inclusive(warhead.shake_y_lo, warhead.shake_y_hi)
+                });
             if shake_x.is_some() || shake_y.is_some() {
                 world
                     .screen_shake_updates
@@ -4639,10 +4699,6 @@ pub(crate) fn commit_projectile_detonations_inline(
                         y: shake_y,
                     });
             }
-            let clustered = world.projectiles.current_detonation(ProjectileDetonation {
-                impact: coordinate,
-                ..*detonation
-            });
             let damage_start = emit.damage_events.len();
             let explosion_start = emit.effects.explosion_effects.len();
             let smudge_start = emit.effects.smudge_spawn_requests.len();
@@ -4783,6 +4839,7 @@ pub(crate) fn commit_projectiles(
         detonations,
         &mut emit,
         &mut under_attack_events,
+        false,
     );
 
     debug_assert!(emit.remove_attack.is_empty());

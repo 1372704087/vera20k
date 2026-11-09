@@ -736,6 +736,14 @@ pub(crate) fn drain_common_step(
             if available < amount {
                 amount = available;
             }
+            // `Ext/Techno/Hooks.cpp:185-188`: a negative amount is a payment
+            // from the drainer, bounded by its own available money (a source
+            // already in debt caps the payment at `-available`).
+            #[cfg(feature = "phobos")]
+            if amount < 0 {
+                let source_available = available_money(&sim.houses, drainer_owner);
+                amount = amount.max(source_available.wrapping_neg());
+            }
             spend_money(&mut sim.houses, owner, amount);
             add_credits(&mut sim.houses, drainer_owner, amount);
             // `Ext/Techno/Hooks.cpp:193-194`: a zero clamped amount returns
@@ -2041,5 +2049,51 @@ mod tests {
             "the building's DisplayIncome.Houses/Offset replace the drain keys"
         );
         assert_ne!(credits(&sim, americans), 75);
+    }
+
+    /// `Ext/Techno/Hooks.cpp:185-188`: a negative `DrainMoneyAmount` makes the
+    /// drainer pay the drained building, bounded by the drainer's available
+    /// money so the transfer can take it to zero but not below.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn negative_drain_amount_is_bounded_by_the_drainers_balance() {
+        use crate::sim::world::{FrameEffects, TickLane};
+
+        let rules = rules_with_drain_display("2x2", 17, -20, "", "", "");
+        let mut sim = Simulation::with_seed(0x006F_A220);
+        let yuri = house(&mut sim, "YuriCountry", false, 10);
+        let americans = house(&mut sim, "Americans", true, 75);
+        base(&mut sim, &rules, "YuriCountry", 40, 40);
+        let refinery = sim
+            .spawn_object("NAREFN", "Americans", 20, 20, 0, &rules)
+            .expect("refinery spawns");
+        let disk = sim
+            .spawn_object("DISK", "YuriCountry", 21, 21, 0, &rules)
+            .expect("disc spawns");
+        assert!(install_drain_link(
+            &mut sim.substrate,
+            &sim.houses,
+            &mut sim.power_states,
+            disk,
+            refinery
+        ));
+        sim.session.set_binary_frame_for_test(17);
+        let grid = crate::sim::pathfinding::PathGrid::new(64, 64);
+        sim.install_fixture_path_grid(Some(&grid));
+        sim.advance_app_frame(
+            &[],
+            &rules,
+            None,
+            67,
+            TickLane::Ordinary,
+            FrameEffects::empty(),
+        )
+        .expect("drain frame completes");
+
+        assert_eq!(
+            (credits(&sim, americans), credits(&sim, yuri)),
+            (85, 0),
+            "max(-20, -10) transfers 10 from the drainer to the building"
+        );
     }
 }

@@ -7,10 +7,12 @@
 //! `ProcessedRulesLayers::ini()` is already that merged state, so one read here
 //! is equivalent.
 //!
-//! The globals are `Valueable`; all construct `false`
-//! (`Ext/Rules/Body.h:464-465`, `:968-969`) except
-//! `AutoDeath.AllowLimboed` (`:1027`) and
-//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`), which construct `true`.
+//! The globals are `Valueable`; the booleans construct `false`
+//! (`Ext/Rules/Body.h:464-465`, `:968-969`, `:729`, `:731`) except
+//! `AutoDeath.AllowLimboed` (`:1027`),
+//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`) and
+//! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`), which construct
+//! `true`; the `AffectedHouse` globals construct `All` (`:728`, `:730`).
 //! The type-level keys are `Nullable`, and their consumer passes the
 //! global through `Valueable<T>::operator const T&`, so an unset type key
 //! falls back to that global's value. A `Valueable` global has no unset state

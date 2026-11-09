@@ -6,9 +6,8 @@
 //! and never reaches into another module's private fields. It only reads;
 //! it never advances timers, draws RNG or writes state.
 //!
-//! `PassengerKill` (Phobos passenger deletion) has no owner in VERA and
-//! returns `None`. A display whose value is absent draws nothing, matching
-//! Phobos's `value <= -1 || maxValue <= 0` skip.
+//! A display whose value is absent draws nothing, matching Phobos's
+//! `value <= -1 || maxValue <= 0` skip.
 
 use crate::rules::digital_display::DigitalInfoType;
 use crate::rules::ruleset::RuleSet;
@@ -233,8 +232,16 @@ pub fn values_for_display(
             let timer = entity.auto_death_timer();
             (timer.remaining(frame), timer.duration())
         }
-        // No Phobos PassengerDeletion owner exists in VERA.
-        DigitalInfoType::PassengerKill => return None,
+        // Phobos `Body.Visuals.cpp:687-698`: a type without a
+        // PassengerDeletion config draws nothing; otherwise the deletion
+        // clock's remaining and full duration.
+        DigitalInfoType::PassengerKill => {
+            if object.phobos_passenger_deletion.is_none() {
+                return None;
+            }
+            let timer = entity.passenger_deletion_timer();
+            (timer.remaining(frame), timer.duration())
+        }
         DigitalInfoType::SuperWeapon => {
             if entity.category() != crate::map::entities::EntityCategory::Structure {
                 return None;
@@ -408,6 +415,47 @@ mod tests {
                 "{info_type:?}"
             );
         }
+    }
+
+    /// Phobos `Body.Visuals.cpp:687-698`: `PassengerKill` shows the deletion
+    /// clock when the type configures one, and nothing otherwise.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn passenger_kill_reports_the_deletion_clock() {
+        let (mut sim, rules) = fixture(
+            "[VehicleTypes]
+0=TEST
+[TEST]
+Strength=200
+PassengerDeletion.Rate=5
+",
+        );
+        sim.session_mut_for_test().set_binary_frame_for_test(12);
+        sim.substrate
+            .entities
+            .get_mut(1)
+            .unwrap()
+            .passenger_deletion_timer_mut()
+            .start(10, 5);
+        let type_ref = sim.entities().get(1).unwrap().type_ref();
+        let object = sim
+            .interner()
+            .object_type(type_ref, &rules)
+            .unwrap()
+            .clone();
+        let entity = sim.entities().get(1).unwrap();
+        assert_eq!(
+            values_for_display(
+                &sim,
+                entity,
+                &object,
+                &rules,
+                DigitalInfoType::PassengerKill,
+                0,
+                None
+            ),
+            Some((3, 5))
+        );
     }
 
     #[test]

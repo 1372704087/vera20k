@@ -2,6 +2,8 @@
 //! Source: installed Ares payout10043230..10043395 and display10044490.
 //! HouseTracking and Economy retain ownership of counts and money.
 
+use crate::sim::flying_text::BountyText;
+
 use crate::{
     map::entities::EntityCategory,
     rules::ruleset::RuleSet,
@@ -16,17 +18,6 @@ use crate::{
     },
     util::native_x87::{MaskedX87Chop53 as X87, NativeF64Bits},
 };
-
-/// A consumed signed credit label, before the client's shroud/visual-character
-/// checks. Display rejection cannot undo the wallet or requeue the amount.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BountyText {
-    pub entity_id: u64,
-    pub amount: i32,
-    /// Unraised virtual+48 point: IsShrouded586360 reads its height too.
-    pub coord: ProjectileCoord,
-    pub z_offset: i32,
-}
 
 /// TechnoExt+A8/AC, cleared by constructor10042DFE/10042E04. This queued
 /// presentation survives saves and in-place conversion, but is not gameplay CRC.
@@ -119,6 +110,9 @@ impl Simulation {
                     z: coord.z,
                 },
                 z_offset: lift,
+                #[cfg(feature = "phobos")]
+                display_to: None,
+                pixel_offset: [0, 0],
             },
         );
     }

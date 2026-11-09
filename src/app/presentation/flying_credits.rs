@@ -6,13 +6,15 @@ use crate::{
     render::{batch::SpriteInstance, bit_font::BitFont},
     rules::ruleset::RuleSet,
     sim::{
-        bounty::BountyText, cloak_disguise::VisualCharacterQuery, components::DriveCoord,
+        cloak_disguise::VisualCharacterQuery, components::DriveCoord, flying_text::BountyText,
         projectile::ProjectileCoord, world::Simulation,
     },
 };
 
 struct CreditText {
     coord: ProjectileCoord,
+    /// `FlyingStrings::Item::PixelOffset`, applied after the centred anchor.
+    pixel_offset: [i32; 2],
     text: String,
     rgb: [u8; 3],
     life: i32,
@@ -51,6 +53,22 @@ impl FlyingCredits {
         let Some(actor) = sim.entities().get(event.entity_id) else {
             return;
         };
+        // Phobos `FlyingStrings::AddMoneyString`: a non-All
+        // `DisplaySoylentToHouses` compares the paying House with the local
+        // player before the source's visual-character test.
+        #[cfg(feature = "phobos")]
+        if let Some(flags) = event.display_to
+            && !crate::sim::combat::can_target_house(
+                flags,
+                actor.owner(),
+                viewer,
+                sim.houses(),
+                sim.house_alliances(),
+                sim.interner(),
+            )
+        {
+            return;
+        }
         let observer = super::instances::observer_draw_context(
             sim,
             actor,
@@ -86,6 +104,7 @@ impl FlyingCredits {
         coord.z = coord.z.wrapping_add(event.z_offset);
         self.live.push(CreditText {
             coord,
+            pixel_offset: event.pixel_offset,
             text,
             // Native RGB literals1009E814/1009E810, packed by10015830.
             rgb: if positive { [0, 255, 0] } else { [255, 0, 0] },
@@ -139,7 +158,8 @@ impl FlyingCredits {
             let y = (y - camera[1]) * zoom;
             if x >= 0.0 && y >= 0.0 && x < viewport[0] as f32 && y < viewport[1] as f32 {
                 let rise = (record.life - 70).min(0);
-                let left = x - (font.text_width(&record.text) / 2) as f32;
+                let left =
+                    x + record.pixel_offset[0] as f32 - (font.text_width(&record.text) / 2) as f32;
                 let rgb = crate::render::native_surface_format::RGB565;
                 let tint = rgb
                     .unpack_rgb8(rgb.pack_rgb8(record.rgb))
@@ -147,7 +167,7 @@ impl FlyingCredits {
                 out.extend(font.build_text(
                     &record.text,
                     left,
-                    y + rise as f32,
+                    y + record.pixel_offset[1] as f32 + rise as f32,
                     1.0,
                     0.0,
                     tint,
@@ -187,6 +207,9 @@ mod tests {
                 z: 0,
             },
             z_offset: 256,
+            #[cfg(feature = "phobos")]
+            display_to: None,
+            pixel_offset: [0, 0],
         };
         let mut credits = FlyingCredits::default();
         credits.admit(&sim, &rules, event);
@@ -237,5 +260,60 @@ mod tests {
         credits.admit(&sim, &rules, event);
         credits.clear_on_load();
         assert!(credits.live.is_empty());
+    }
+
+    /// Phobos `FlyingStrings::AddMoneyString`'s `DisplaySoylentToHouses=`
+    /// filter: the paying House must be targetable by the local player, and
+    /// the label keeps the event's pixel offset.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn display_soylent_filters_by_the_paying_house() {
+        use crate::rules::phobos_shields::AffectedHouse;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]
+0=TANK
+[TANK]
+Strength=100
+Sight=0
+",
+        ))
+        .unwrap();
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 7);
+        *sim.fog_mut_for_test() = crate::sim::vision::FogState::new(32, 32);
+        let actor = sim
+            .spawn_object("TANK", "Americans", 16, 16, 64, &rules)
+            .unwrap();
+        let viewer = sim.entities().get(actor).unwrap().owner();
+        sim.session_mut_for_test()
+            .set_current_house_for_test(Some(viewer));
+        sim.fog_mut_for_test().reveal_all_for_owner(viewer);
+        let event = BountyText {
+            entity_id: actor,
+            amount: 40,
+            coord: ProjectileCoord {
+                x: 16 * 256,
+                y: 16 * 256,
+                z: 0,
+            },
+            z_offset: 0,
+            display_to: Some(AffectedHouse::ENEMIES),
+            pixel_offset: [5, -3],
+        };
+        let mut credits = FlyingCredits::default();
+        credits.admit(&sim, &rules, event);
+        assert!(
+            credits.live.is_empty(),
+            "the paying House is the viewer, not an enemy"
+        );
+        credits.admit(
+            &sim,
+            &rules,
+            BountyText {
+                display_to: Some(AffectedHouse::OWNER),
+                ..event
+            },
+        );
+        assert_eq!(credits.live[0].pixel_offset, [5, -3]);
+        assert_eq!(credits.live[0].text, "+$40");
     }
 }

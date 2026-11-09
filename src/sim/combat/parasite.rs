@@ -157,7 +157,7 @@ impl ParasiteState {
         &self.suppression
     }
 
-    fn suppress(&mut self, frame: u32, duration: i32) {
+    pub(crate) fn suppress(&mut self, frame: u32, duration: i32) {
         self.suppression = CdTimer::started(frame as i32, duration);
     }
 
@@ -226,6 +226,15 @@ impl FootParasite {
     /// The frame before which parasite shots at this Foot are refused.
     pub(crate) fn launch_lock(&self) -> u32 {
         self.launch_lock
+    }
+
+    /// ParasiteClass `SuppressionTimer` (`+0x2C`) for a holder outside this
+    /// module: Phobos `PassengerDeletion` suppresses it for 50 frames before
+    /// `ExitUnit`.
+    pub(crate) fn suppress_parasite(&mut self, frame: u32, duration: i32) {
+        if let Some(class) = self.class_mut() {
+            class.suppress(frame, duration);
+        }
     }
 
     /// The ParalysisTimer.

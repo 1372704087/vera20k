@@ -881,6 +881,13 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) should_be_dead: bool,
+    /// Phobos `TechnoExt::PassengerDeletionTimer` (`Ext/Techno/Body.h:40`),
+    /// started by `TechnoExt::EatPassengers` (`Ext/Techno/Body.Update.cpp:261`)
+    /// and stopped by `FootExt::UpdateTypeData` when the new type configures no
+    /// positive rate.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) passenger_deletion_timer: crate::sim::timer::CdTimer,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -1265,6 +1272,16 @@ impl GameEntity {
     #[cfg(feature = "phobos")]
     pub(crate) fn auto_death_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
         &mut self.auto_death_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn passenger_deletion_timer(&self) -> crate::sim::timer::CdTimer {
+        self.passenger_deletion_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn passenger_deletion_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
+        &mut self.passenger_deletion_timer
     }
 
     #[cfg(feature = "phobos")]
@@ -2398,6 +2415,8 @@ impl GameEntity {
             auto_death_timer: Default::default(),
             #[cfg(feature = "phobos")]
             should_be_dead: false,
+            #[cfg(feature = "phobos")]
+            passenger_deletion_timer: Default::default(),
             pending_c4_detonation: Default::default(),
             #[cfg(feature = "ares")]
             display_production_to: Default::default(),

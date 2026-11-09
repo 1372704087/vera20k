@@ -1706,13 +1706,13 @@ fn advance_one_simulation_frame(
                         .as_mut()
                         .and_then(|radar| radar.set_has_radar(available))
                 };
-                #[cfg(feature = "ares")]
+                #[cfg(any(feature = "ares", feature = "phobos"))]
                 let flying_credits = &state.match_state.match_presentation.flying_credits;
-                #[cfg(feature = "ares")]
+                #[cfg(any(feature = "ares", feature = "phobos"))]
                 let queue_bounty =
                     |sim: &crate::sim::world::Simulation,
                      rules: &crate::rules::ruleset::RuleSet,
-                     text: crate::sim::bounty::BountyText| {
+                     text: crate::sim::flying_text::BountyText| {
                         flying_credits.borrow_mut().admit(sim, rules, text);
                     };
                 let boundary = super::frame_effects::FrameClientBoundary::new(
@@ -1744,7 +1744,7 @@ fn advance_one_simulation_frame(
                     .with_network_commands(&boundary)
                     .with_production_strip(&production_visits, &clear_production_request)
                     .with_before_logic(&before_logic);
-                #[cfg(feature = "ares")]
+                #[cfg(any(feature = "ares", feature = "phobos"))]
                 let effects = effects.with_bounty_text(&queue_bounty);
                 // Recorded completion owns outcome timing during playback;
                 // a local audio wait cannot add a frame or change its hash.

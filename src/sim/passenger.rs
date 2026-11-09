@@ -1427,7 +1427,7 @@ pub fn add_garrison_occupant(
 
 /// Gunner caller dispatch to UnitClass +4D4 (746420). Temporal ownership
 /// moves first; its mode7 step precedes the final passenger IFVMode selector.
-fn receive_gunner(
+pub(crate) fn receive_gunner(
     interner: &StringInterner,
     session: &ScenarioSession,
     scenario_rng: &mut SimRng,

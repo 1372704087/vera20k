@@ -1042,7 +1042,7 @@ impl App {
                     screen_shake: Default::default(),
                     line_trails: Default::default(),
                     lasers: Default::default(),
-                    #[cfg(feature = "ares")]
+                    #[cfg(any(feature = "ares", feature = "phobos"))]
                     flying_credits: Default::default(),
                     talk_bubble: Default::default(),
                     electric_bolts: Default::default(),

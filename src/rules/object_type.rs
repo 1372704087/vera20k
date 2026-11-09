@@ -865,6 +865,11 @@ pub struct ObjectType {
     /// Phobos `HealthBar.*` (`Ext/TechnoType/Body.cpp:761-764`).
     #[cfg(feature = "phobos")]
     pub phobos_health_bar: crate::rules::phobos_health_bar::HealthBarSettings,
+    /// Phobos `PassengerDeletion.*` (`Ext/TechnoType/Body.cpp:1389-1399`);
+    /// `None` when the pass does not configure a rate.
+    #[cfg(feature = "phobos")]
+    pub phobos_passenger_deletion:
+        Option<crate::rules::phobos_passenger_deletion::PassengerDeletionSettings>,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4675,6 +4680,11 @@ impl ObjectType {
             phobos_health_bar: crate::rules::phobos_health_bar::HealthBarSettings::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_passenger_deletion:
+                crate::rules::phobos_passenger_deletion::PassengerDeletionSettings::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

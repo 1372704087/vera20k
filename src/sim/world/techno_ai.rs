@@ -1737,6 +1737,11 @@ fn techno_common_steps(
     // from the building and foot AI hooks; the shared techno phase owns it.
     #[cfg(feature = "phobos")]
     sim.update_phobos_laser_trails(id, rules);
+    // Phobos `TechnoExt::OnEarlyUpdate -> EatPassengers`
+    // (`Ext/Techno/Body.Update.cpp:19`): after `UpdateAttachEffects` and
+    // before `CheckDeathConditions`.
+    #[cfg(feature = "phobos")]
+    crate::sim::passenger_deletion::eat_passengers(sim, rules, id, effects);
     // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
     // (`Ext/Techno/Body.Update.cpp:26`): after `UpdateAttachEffects`, which this
     // body has just run, and after the Structure arm's own Update steps (they

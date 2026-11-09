@@ -147,6 +147,8 @@ pub mod phobos_globals;
 #[cfg(feature = "phobos")]
 pub mod phobos_health_bar;
 #[cfg(feature = "phobos")]
+pub mod phobos_passenger_deletion;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_laser_trail;

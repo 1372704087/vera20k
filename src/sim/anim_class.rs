@@ -1508,30 +1508,7 @@ impl Simulation {
         match self.spawn_anim_at_world(rules, descriptor, world_coord) {
             Ok(id) => {
                 if let Some(house) = owner_house {
-                    self.substrate.set_anim_owner_house(id, house);
-                    // `SetAnimOwnerHouseKind` updates LightConvert only for a
-                    // `MakeInfantry=` type or a `CreateUnit=` type with
-                    // `CreateUnit.RemapAnim=`, and not for a defeated House.
-                    #[cfg(feature = "phobos")]
-                    {
-                        let (make_infantry, create_unit) = {
-                            let name = self.interner.resolve(type_name);
-                            rules
-                                .art()
-                                .anim_runtime_config(name)
-                                .map_or((false, None), |config| {
-                                    (config.make_infantry > -1, config.phobos_create_unit)
-                                })
-                        };
-                        let remaps = make_infantry || create_unit.is_some_and(|(_, remap)| remap);
-                        let defeated = self
-                            .houses
-                            .get(&house)
-                            .is_some_and(|state| state.is_defeated());
-                        if remaps && !defeated {
-                            self.substrate.anims.set_anim_house_remap(id, house);
-                        }
-                    }
+                    self.install_anim_owner_house(rules, type_name, id, house);
                 }
                 Some(id)
             }
@@ -1547,6 +1524,67 @@ impl Simulation {
                 None
             }
         }
+    }
+
+    /// `AnimExt::CreateRandomAnim`'s construction half: a new anim at
+    /// `world_coord` with the `AnimClass` constructor defaults (`loop=1`,
+    /// flags `0x600`) and `owner_house` installed through the same
+    /// `SetAnimOwnerHouseKind(..., false, true)` tail the combat producer
+    /// `SetAnimOwnerObject` (native `ownedObject=true`). RESIDUAL: a
+    /// `MakeInfantry=`/`CreateUnit=` type re-selects its own owner kind here;
+    /// this owner keeps the invoker House, like the existing combat producer.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn spawn_owned_anim(
+        &mut self,
+        rules: &RuleSet,
+        type_name: InternedId,
+        world_coord: AnimWorldCoord,
+        owner_house: InternedId,
+        owner_object: Option<u64>,
+    ) -> Option<AnimId> {
+        let (rx, ry, sub_x, sub_y, z) = world_coord.to_cell_sub_z();
+        let descriptor = AnimClassSpawnDescriptor {
+            draw_flags: 0x600,
+            owner: owner_object,
+            ..AnimClassSpawnDescriptor::new(type_name, rx, ry, sub_x, sub_y, z)
+        };
+        let id = self
+            .spawn_anim_at_world(rules, descriptor, world_coord)
+            .ok()?;
+        self.install_anim_owner_house(rules, type_name, id, owner_house);
+        Some(id)
+    }
+
+    /// `AnimExt::SetAnimOwnerHouseKind(anim, house, None, false, true)`'s
+    /// post-construction tail: install the owner House and, for a
+    /// `MakeInfantry=` or remapping `CreateUnit=` type, its light conversion.
+    fn install_anim_owner_house(
+        &mut self,
+        rules: &RuleSet,
+        type_name: InternedId,
+        id: AnimId,
+        owner_house: InternedId,
+    ) {
+        self.substrate.set_anim_owner_house(id, owner_house);
+        #[cfg(feature = "phobos")]
+        {
+            let remaps = {
+                let name = self.interner.resolve(type_name);
+                rules.art().anim_runtime_config(name).is_some_and(|config| {
+                    config.make_infantry > -1
+                        || config.phobos_create_unit.is_some_and(|(_, remap)| remap)
+                })
+            };
+            let defeated = self
+                .houses
+                .get(&owner_house)
+                .is_some_and(|state| state.is_defeated());
+            if remaps && !defeated {
+                self.substrate.anims.set_anim_house_remap(id, owner_house);
+            }
+        }
+        #[cfg(not(feature = "phobos"))]
+        let _ = (rules, type_name);
     }
 
     pub fn spawn_anim_at_world(

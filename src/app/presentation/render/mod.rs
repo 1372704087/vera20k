@@ -404,7 +404,7 @@ pub(crate) fn render_game(
     let clock_ms = tactical_composite.clock_ms();
     // Ares DisplayCredits ages its labels in the same composite, unless the
     // chrono screen's 4F4480 interception suppresses it.
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     if !chrono_holds {
         let credits = state
             .match_state
@@ -691,7 +691,7 @@ pub(crate) fn render_game(
         || !ui.tactical_line_calls.is_empty()
         || !ui.target_line.is_empty()
         || !radials.draws.is_empty();
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     let animated = animated || !presentation.flying_credits.get_mut().is_empty();
     presentation.tactical_composite.record_contents(animated);
     let bolt_lines = presentation.electric_bolts.shown(viewport.camera);
@@ -938,7 +938,7 @@ fn upload_to_gpu(
             None => ui.software_cursor.as_slice().into(),
         };
 
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     let bounty_text = {
         let presentation = &state.match_state.match_presentation;
         if presentation.chrono_screen.overrides_tactical_draw() {

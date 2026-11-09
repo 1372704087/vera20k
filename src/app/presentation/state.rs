@@ -70,7 +70,7 @@ pub(crate) struct MatchPresentationState {
     pub(crate) lighting: super::lighting::MatchLighting,
     pub(crate) line_trails: super::line_trails::LineTrails,
     pub(crate) lasers: super::lasers::Lasers,
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) flying_credits: std::cell::RefCell<super::flying_credits::FlyingCredits>,
     pub(crate) talk_bubble: super::talk_bubble::TalkBubble,
     pub(crate) electric_bolts: super::electric_bolts::ElectricBolts,

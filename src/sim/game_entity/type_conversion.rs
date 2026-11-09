@@ -128,6 +128,19 @@ impl Simulation {
         {
             actor.auto_death_timer = crate::sim::timer::CdTimer::default();
         }
+        // Phobos `FootExt::UpdateTypeData` (`Ext/Foot/Body.cpp:223-225`): the
+        // passenger-deletion countdown stops when the new type configures a
+        // PassengerDeletion with `Rate <= 0`. A type with no config at all
+        // leaves the clock running, as native does.
+        #[cfg(feature = "phobos")]
+        if actor.passenger_deletion_timer.start_frame() != crate::sim::timer::PAUSED_START_FRAME
+            && destination
+                .phobos_passenger_deletion
+                .as_ref()
+                .is_some_and(|settings| settings.rate <= 0)
+        {
+            actor.passenger_deletion_timer = crate::sim::timer::CdTimer::default();
+        }
         // RESIDUAL: construction alone builds some Type-derived state, and
         // nothing here refreshes it: passenger capacity (PassengerCargo from
         // Passengers=/SizeLimit=), the SHP vehicle Animation component, the

@@ -154,7 +154,7 @@ pub(crate) fn install_world_presentation(
     state.match_state.match_presentation.combat_lights.clear();
     state.match_state.match_presentation.interpolation.clear();
     state.match_state.match_presentation.lasers.clear_on_load();
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     state
         .match_state
         .match_presentation

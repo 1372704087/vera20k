@@ -129,8 +129,8 @@ pub struct FrameEffects<'a> {
     overlay_registry: Option<&'a OverlayTypeRegistry>,
     before_logic: Option<&'a dyn Fn(&Simulation)>,
     command_applied: Option<&'a dyn Fn(&Simulation, &CommandRecord, bool)>,
-    #[cfg(feature = "ares")]
-    bounty_text: Option<&'a dyn Fn(&Simulation, &RuleSet, crate::sim::bounty::BountyText)>,
+    #[cfg(any(feature = "ares", feature = "phobos"))]
+    bounty_text: Option<&'a dyn Fn(&Simulation, &RuleSet, crate::sim::flying_text::BountyText)>,
     production_factories: &'a [crate::sim::production::ProductionFactoryVisit],
     production_request_cleared: Option<&'a dyn Fn(crate::sim::intern::InternedId)>,
 }
@@ -155,7 +155,7 @@ impl<'a> FrameEffects<'a> {
             overlay_registry: None,
             before_logic: None,
             command_applied: None,
-            #[cfg(feature = "ares")]
+            #[cfg(any(feature = "ares", feature = "phobos"))]
             bounty_text: None,
             production_factories: &[],
             production_request_cleared: None,
@@ -172,7 +172,7 @@ impl<'a> FrameEffects<'a> {
             overlay_registry: None,
             before_logic: None,
             command_applied: None,
-            #[cfg(feature = "ares")]
+            #[cfg(any(feature = "ares", feature = "phobos"))]
             bounty_text: None,
             production_factories: &[],
             production_request_cleared: None,
@@ -188,10 +188,10 @@ impl<'a> FrameEffects<'a> {
 
     /// Client-only display delivery at the reached native call. The core
     /// consumed its pending sum/deadline before this optional observer runs.
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub fn with_bounty_text(
         self,
-        boundary: &'a dyn Fn(&Simulation, &RuleSet, crate::sim::bounty::BountyText),
+        boundary: &'a dyn Fn(&Simulation, &RuleSet, crate::sim::flying_text::BountyText),
     ) -> Self {
         Self {
             bounty_text: Some(boundary),
@@ -199,12 +199,12 @@ impl<'a> FrameEffects<'a> {
         }
     }
 
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) fn emit_bounty_text(
         self,
         sim: &Simulation,
         rules: &RuleSet,
-        text: crate::sim::bounty::BountyText,
+        text: crate::sim::flying_text::BountyText,
     ) {
         if let Some(boundary) = self.bounty_text {
             boundary(sim, rules, text);

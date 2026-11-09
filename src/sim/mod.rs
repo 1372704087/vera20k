@@ -60,6 +60,8 @@ pub(crate) mod base_plan_generation;
 pub mod bomb;
 #[cfg(feature = "ares")]
 pub mod bounty;
+#[cfg(any(feature = "ares", feature = "phobos"))]
+pub mod flying_text;
 pub(crate) mod build_site;
 pub mod building_art;
 pub mod building_construction;
@@ -131,6 +133,8 @@ pub mod score;
 pub(crate) mod secret_lab;
 pub mod sensor_lifecycle;
 pub(crate) mod shared_ammo; // Phobos Ammo.Shared hand-out at StartReloading (0x6FB080)
+#[cfg(feature = "phobos")]
+pub(crate) mod passenger_deletion; // Phobos TechnoExt::EatPassengers (PassengerDeletion.*)
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;

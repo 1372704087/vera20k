@@ -12,7 +12,7 @@ pub(crate) mod detail;
 pub(crate) mod digital_display;
 pub(crate) mod electric_bolts;
 pub(crate) mod fire_effects;
-#[cfg(feature = "ares")]
+#[cfg(any(feature = "ares", feature = "phobos"))]
 pub(crate) mod flying_credits;
 pub(crate) mod house_ui;
 pub(crate) mod instances;

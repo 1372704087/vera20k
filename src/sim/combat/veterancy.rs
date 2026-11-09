@@ -805,7 +805,7 @@ pub fn accumulate(
     veteran_ratio: f64,
     veteran_cap: f64,
 ) -> NativeF32Bits {
-    use crate::util::native_x87::{NativeF64Bits, X87Chop53, X87Ordering};
+    use crate::util::native_x87::{NativeF64Bits, X87Chop53};
     if points <= 0 {
         return raw;
     }

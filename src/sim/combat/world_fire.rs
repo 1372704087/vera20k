@@ -257,7 +257,7 @@ fn phobos_delayed_fire_frames(
     duration: &crate::rules::ini_value::PartialIntPair,
     world: &mut Simulation,
 ) -> i32 {
-    let frames = if duration.low >= duration.high || duration.values < 2 {
+    let frames = if duration.is_single() {
         duration.low
     } else {
         world
@@ -607,17 +607,12 @@ fn admit_attacker_fire<'r>(
         (index, selected)
     };
 
-    // Phobos `TechnoClass_FireAt_BeforeTruelyFire @ 0x6FDDC0`
-    // (`src/Ext/Techno/Hooks.Firing.cpp:638-693`, `SkipFiring = 0x6FDE03`):
-    // the hook sits between weapon selection and `GetFireError`, so the gate
-    // belongs here, with the chosen weapon and its native index in hand. A
-    // suppressed frame returns `None`, i.e. native's SkipFiring.
-    #[cfg(feature = "phobos")]
-    if let Some(weapon) = selected.as_ref().map(|selected| selected.weapon)
-        && phobos_delayed_fire_suppresses_this_frame(world, rules, snap, weapon_index, weapon)
-    {
-        return None;
-    }
+    // Phobos `TechnoClass_FireAt_BeforeTruelyFire @ 0x6FDDC0` lives inside
+    // `TechnoClass::Fire_At @ 0x006FDD50`, after its InLimbo gate and before
+    // the launch, so every Fire_At caller (the class fire routines, Direct
+    // visits and the aircraft release) passes through it in
+    // `emit_admitted_fire`; a suppressed frame returns `None`, i.e. native's
+    // SkipFiring.
 
     let infantry_fire = snap.category == EntityCategory::Infantry;
     let sequences =
@@ -1759,6 +1754,14 @@ pub(super) fn emit_admitted_fire(
         if in_limbo {
             return None;
         }
+    }
+    // Phobos TechnoClass_FireAt_BeforeTruelyFire (0x6FDDC0): the delayed-fire
+    // gate runs after FireAt's InLimbo refusal and before its DiscardOn
+    // counters and launch. A suppressed frame starts nothing and fires
+    // nothing; the completed timer's fall-through fires normally.
+    #[cfg(feature = "phobos")]
+    if phobos_delayed_fire_suppresses_this_frame(world, rules, snap, selected.index, weapon) {
+        return None;
     }
     // Phobos TechnoClass_FireAt_BeforeTruelyFire (0x6FDDC0): an admitted shot
     // counts towards DiscardOn.Firing.Count, including the branches below

@@ -1,7 +1,8 @@
 //! Phobos `DelayedFire.*` (`src/Ext/WeaponType/Body.cpp:189-199`) through the
-//! production `FireVisit::UnitTarget` path: the `0x6FDDC0` gate in
-//! `admit_attacker_fire`, the saved timer on `GameEntity`, the `0x736480`
-//! firing-frame freeze, and `TechnoClass_SetTarget_After`-style anim removal.
+//! production `FireVisit::UnitTarget` path: the `0x6FDDC0` gate inside
+//! `TechnoClass::Fire_At` (`emit_admitted_fire`), the saved timer on
+//! `GameEntity`, the `0x736480` firing-frame freeze and the `0x6FABC4` Stage
+//! skip, and `TechnoClass_SetTarget_After`-style anim removal.
 use super::world_fire;
 use crate::rules::ruleset::RuleSet;
 use crate::sim::combat::TargetKind;
@@ -242,4 +243,42 @@ fn skip_in_transport_bypasses_the_delay_only_for_an_open_topped_rider() {
             "extra={extra:?}: the timer starts only when the delay runs"
         );
     }
+}
+
+/// A class fire routine refuses the shot before `TechnoClass::Fire_At`
+/// reaches `0x6FDDC0` while the weapon is still rearming, so no timer starts
+/// and no wind-up anim appears; the first admitted shot then starts the
+/// delay from its own frame.
+#[test]
+fn a_refused_shot_never_starts_the_delay() {
+    let (mut sim, rules, firer, _) =
+        arena("DelayedFire.Duration=4\nDelayedFire.Animation=DFANIM\n");
+    sim.entities_mut_for_test()
+        .get_mut(firer)
+        .unwrap()
+        .rearm_timer
+        .start(100, 10);
+    let before = anim_ids(&sim);
+    assert_eq!(visit(&mut sim, &rules, firer), 0);
+    assert_eq!(
+        start_frame(&sim, firer),
+        -1,
+        "a rearming shot starts no timer"
+    );
+    assert_eq!(
+        anim_ids(&sim).difference(&before).count(),
+        0,
+        "no wind-up anim before Fire_At is entered"
+    );
+    sim.session.set_binary_frame_for_test(105);
+    assert_eq!(visit(&mut sim, &rules, firer), 0);
+    assert_eq!(start_frame(&sim, firer), -1, "still rearming at frame 105");
+    sim.session.set_binary_frame_for_test(111);
+    assert_eq!(visit(&mut sim, &rules, firer), 0);
+    assert_eq!(
+        start_frame(&sim, firer),
+        111,
+        "the delay starts on the first admitted shot"
+    );
+    assert_eq!(anim_ids(&sim).difference(&before).count(), 1);
 }

@@ -316,9 +316,10 @@ pub struct WeaponType {
     #[cfg(feature = "phobos")]
     pub(crate) phobos_delayed_fire_skip_in_transport: bool,
     /// `DelayedFire_Animation` (`Body.cpp:191`, `Body.h:99`, `Valueable<AnimTypeClass*>`,
-    /// default null): the wind-up anim. Empty and `none` both resolve to null
-    /// in the type factory; unlike the Nullable sibling it has no `isset` flag,
-    /// so `none` cannot "clear" an inherited value.
+    /// default null): the wind-up anim. A blank value sets null; a non-type
+    /// token such as `none` fails the native parse and keeps the prior value.
+    /// VERA reads the merged section once from the constructor's null, so both
+    /// spellings end at null here.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_delayed_fire_animation: Option<String>,
     /// `DelayedFire_OpenToppedAnimation` (`Body.cpp:192`, `Body.h:100`,

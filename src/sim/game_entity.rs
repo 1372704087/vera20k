@@ -73,6 +73,13 @@ pub struct GeneratedTechnoInit {
     pub native_unique_id: i32,
 }
 
+/// `CDTimerClass`'s not-started sentinel and the delayed-fire weapon index's
+/// unset value (`Ext/Techno/Body.h:121`), for saves that predate the fields.
+#[cfg(feature = "phobos")]
+fn minus_one_i32() -> i32 {
+    -1
+}
+
 /// The two evidence-backed ways a live Techno obtains its persistent
 /// constructor word. Only `FreshScenario` is allowed to advance Scenario RNG.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,13 +150,13 @@ pub struct GameEntity {
     /// (`-1` = not started, matching `StartTime=-1`) and the duration. The
     /// weapon index defaults to `-1` (`Body.h:121`), the anim pointer to null.
     #[cfg(feature = "phobos")]
-    #[serde(default)]
+    #[serde(default = "minus_one_i32")]
     phobos_delayed_fire_start_frame: i32,
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_delayed_fire_duration: i32,
     #[cfg(feature = "phobos")]
-    #[serde(default)]
+    #[serde(default = "minus_one_i32")]
     phobos_delayed_fire_weapon_index: i32,
     #[cfg(feature = "phobos")]
     #[serde(default)]

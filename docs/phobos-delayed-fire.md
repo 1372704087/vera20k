@@ -35,7 +35,7 @@ genuinely delays the first shot.
 |---|---|---|---|
 | `DelayedFire.Duration` | `Nullable<PartialVector2D<int>>` (single value or `min,max` random interval, **game frames**) | unset | `Option<PartialIntPair>` |
 | `DelayedFire.SkipInTransport` | `Valueable<bool>` | `false` | `bool` |
-| `DelayedFire.Animation` | `Valueable<AnimTypeClass*>` (empty/`none` = null; **not** a Nullable, so `none` cannot clear an inherited value) | `null` | `Option<String>` |
+| `DelayedFire.Animation` | `Valueable<AnimTypeClass*>` (blank sets null; a non-type token such as `none` fails the native parse and keeps the prior value — VERA's single merged read starts from the constructor null either way) | `null` | `Option<String>` |
 | `DelayedFire.OpenToppedAnimation` | `Nullable<AnimTypeClass*>` (clearable with `none`/`<none>`/`<default>`) | unset | `Option<String>` (`None` = unset/fall back) |
 | `DelayedFire.AnimIsAttached` | `Valueable<bool>` | `true` | `bool` |
 | `DelayedFire.CenterAnimOnFirer` | `Valueable<bool>` | `false` | `bool` |
@@ -60,22 +60,27 @@ serialized at `Body.cpp:1183-1186`: `DelayedFireSequencePaused`,
 `DelayedFireWeaponIndex`, `DelayedFireTimer`, `CurrentDelayedFireAnim`.
 
 1. **Main gate** — `DEFINE_HOOK(0x6FDDC0, TechnoClass_FireAt_BeforeTruelyFire, 0x6)`
-   `Hooks.Firing.cpp:638-693` (`SkipFiring = 0x6FDE03`). Weapon change →
-   `ResetDelayedFireTimer()`. If `Duration.isset() && (!Transporter ||
-   !SkipInTransport)` and `Burst<=1 || !OnlyOnInitialBurst ||
-   CurrentBurstIndex==0`: `InProgress` → suppress; `!HasStarted` → record index,
-   start timer, pick anim (`Animation`, or `isset` `OpenToppedAnimation` in a
-   transport), `AnimOffset` overrides FLH, `CreateDelayedFireAnim`, suppress;
-   `Completed` → reset, fire next frame. Infantry / turretless SHP Units with
+   `Hooks.Firing.cpp:638-693` (`SkipFiring = 0x6FDE03`). The hook sits inside
+   `TechnoClass::Fire_At @ 0x006FDD50`, after the class fire-error admission
+   and Fire_At's own InLimbo refusal, so every Fire_At caller (unit, infantry,
+   aircraft, building and the Direct visit) passes it; VERA runs it in
+   `emit_admitted_fire`. Weapon change → `ResetDelayedFireTimer()`. If
+   `Duration.isset() && (!Transporter || !SkipInTransport)` and
+   `Burst<=1 || !OnlyOnInitialBurst || CurrentBurstIndex==0`: `InProgress` →
+   suppress; `!HasStarted` → record index, start timer, pick anim
+   (`Animation`, or `isset` `OpenToppedAnimation` in a transport),
+   `AnimOffset` overrides FLH, `CreateDelayedFireAnim`, suppress; `Completed`
+   → reset, fire next frame. Infantry / turretless SHP Units with
    `PauseFiringSequence` yield to the class pause hooks.
 2. **Pause-sequence path** — `TechnoExt::HandleDelayedFireWithPauseSequence`
    `Body.cpp:699-750`, callers `Unit/Hooks.Firing.cpp:89,103` (hook `0x736F61`)
    and `Infantry/Hooks.Firing.cpp:118` (hook `0x5209AF`).
 3. **"Pause" = freeze the firing-sequence frame, not ROF** — `UnitClass_AI`
-   hook `0x736480` (`Hooks.cpp:60-82`) does not decrement `CurrentFiringFrame`;
-   `TechnoClass_AI_AnimationPaused` hook `0x6FABC4` (`Hooks.cpp:1195-1207`)
-   skips the animation AI. `Fire`/`RearmTimer` are never reached during the
-   delay.
+   hook `0x736480` (`Hooks.cpp:60-82`) does not decrement `CurrentFiringFrame`
+   (`animation::tick_unit_firing_counter`); `TechnoClass_AI_AnimationPaused`
+   hook `0x6FABC4` (`Hooks.cpp:1195-1207`) skips the generic Stage block
+   (`techno_ai::techno_common_post` keeps the flash/particle/EMP tail).
+   `Fire`/`RearmTimer` are never reached during the delay.
 4. **Anim creation** — `TechnoExt::CreateDelayedFireAnim` `Body.cpp:671-697`:
    `CenterAnimOnFirer` → `GetCenterCoords()`; else
    `GetFLHAbsoluteCoords(pThis, firingCoords, AnimOnTurret)`
@@ -136,15 +141,15 @@ synthetic-INI, headless production-path tests were run.
   Trigger: `DelayedFire.CenterAnimOnFirer=yes`. Impact: the anim sits at the
   object coordinate without the native centre-height offset. Frequency: only
   that key. Risk: visual-only.
-- **`PauseFiringSequence` pause path is simplified.**
-  Trigger: `PauseFiringSequence=yes`. Native restricts the class pause hooks to
-  Infantry and turretless non-Voxel SHP Units and only freezes on the exact
-  fire frame; VERA sets the freeze flag for every Unit/Infantry whenever the
-  delay starts, and the main gate still runs the timer (native yields to the
-  class hook). Also `TechnoClass_AI_AnimationPaused @ 0x6FABC4` (skip animation
-  AI while paused) has no VERA owner. Impact: firing-frame cadence may differ
-  from native for turreted/Voxel units; the shot is still delayed correctly.
-  Frequency: only that key. Risk: low (frame timing only).
+- **`PauseFiringSequence` pause condition is broader.**
+  Trigger: `PauseFiringSequence=yes` on a turreted or Voxel Unit. Native
+  restricts the class pause hooks to Infantry and turretless non-Voxel SHP
+  Units and lets those classes own the timer; VERA starts the same timer from
+  the Fire_At gate for every Unit/Infantry and sets the freeze flag whenever
+  the delay starts, so a turreted/Voxel unit's Stage and firing counter are
+  also frozen during the delay. Impact: frame cadence may differ from native
+  for those units; the shot is still delayed correctly. Frequency: only that
+  key on turreted/Voxel units. Risk: low (frame timing only).
 - **`TechnoClass_DetachAnim @ 0x710415` natural-expiry pointer clear.**
   Trigger: the wind-up anim expires on its own before the timer completes.
   Impact: VERA keeps the tracked id but `destroy_anim` safely no-ops on a
@@ -152,11 +157,10 @@ synthetic-INI, headless production-path tests were run.
   the next reset. Frequency: when the anim is shorter than the delay. Risk:
   low (no use-after-free, no state divergence).
 - **`ExtraRange.Prefiring` integration** (`0x6F7248` `Hooks.WeaponRange.cpp:84`,
-  uses `timer.InProgress()` to extend weapon range during the delay) and the
-  **Aircraft timeout exception** are not implemented. Trigger: those keys /
-  Aircraft firers. Impact: no extra pre-firing range, no aircraft-specific
-  waiver. Frequency: only those combinations. Risk: low for the base mechanism;
-  a separate feature chain.
+  uses `timer.InProgress()` to extend weapon range during the delay) is not
+  implemented. Trigger: that key on a delayed-fire weapon. Impact: no extra
+  pre-firing range. Frequency: only that combination. Risk: low for the base
+  mechanism; a separate feature chain.
 - **Retail/visual parity untested.** Trigger: any real-map run. Impact: unknown
   visual fidelity of the wind-up anim. Frequency: always in real games. Risk:
   visual-only; mitigated by the headless production-path tests.
@@ -173,6 +177,9 @@ synthetic-INI, headless production-path tests were run.
    (the `RemoveAnimOnNoDelay` boundary).
 3. `SkipInTransport` on an open-topped rider: with the key the shot fires on
    frame 1 and no anim/timer appears; without it the same rider is delayed.
+4. A shot refused before `Fire_At` (still rearming) starts no timer and
+   spawns no wind-up anim; the first admitted shot starts the delay at its own
+   frame.
 
 `burst_no_delay_tests.rs:206` keeps the `Burst.NoDelay` compatibility gate
 regression (adapted for the now-real delay).

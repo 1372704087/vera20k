@@ -2550,7 +2550,18 @@ fn techno_common_post(sim: &mut Simulation, id: u64, rules: &RuleSet, _effects: 
     if let Some(entity) = sim.substrate.entities.get_mut(id)
         && entity.category() != EntityCategory::Structure
     {
-        entity.tick_native_stage(sim.session.binary_frame() as i32);
+        // Phobos TechnoClass_AI_AnimationPaused (`0x6FABC4`, hook size 6 ->
+        // `0x6FAC31`): a paused `DelayedFire.PauseFiringSequence` skips only
+        // this generic Stage block; the flash/particle/EMP tail below still
+        // runs. Unit's separate firing counter is frozen by
+        // `animation::tick_unit_firing_counter`.
+        #[cfg(feature = "phobos")]
+        let paused = entity.phobos_delayed_fire_sequence_paused();
+        #[cfg(not(feature = "phobos"))]
+        let paused = false;
+        if !paused {
+            entity.tick_native_stage(sim.session.binary_frame() as i32);
+        }
     }
     flash_step(&mut sim.substrate, id, sim.session.binary_frame());
 

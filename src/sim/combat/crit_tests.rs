@@ -121,6 +121,7 @@ fn detonate_once(
         source_house,
         impact,
         intended,
+        0,
         &mut effects,
     );
     run.finish();
@@ -894,5 +895,76 @@ fn crit_warhead_allocates_an_unlisted_type() {
         health(&plain, plain_target) - health(&sim, target),
         30,
         "the allocated crit warhead detonated"
+    );
+}
+
+/// Phobos `ApplyPenetratesTransport` (`Ext/WarheadType/Detonate.cpp:780-930`):
+/// a warhead level above the transport's reaches its passengers with the
+/// bullet's Health; `DamageAll=yes` hits both, `no` picks one, and a level at
+/// or below the transport's skips the arm.
+fn penetrates_scene(
+    transport_level: i32,
+    damage_all: bool,
+) -> (Simulation, RuleSet, u64, u64, u64, u64) {
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [VehicleTypes]\n0=FIRER\n1=APC\n\
+         [InfantryTypes]\n0=GI\n\
+         [WeaponTypes]\n0=GUN\n\
+         [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
+         [Warheads]\n0=WH\n\
+         [WH]\nCellSpread=0\nPenetratesTransport.Level=15\n\
+         PenetratesTransport.DamageAll={}\n\
+         [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
+         [APC]\nStrength=500\nArmor=none\nSpeed=6\nPassengers=2\n\
+         PenetratesTransport.Level={transport_level}\n\
+         [GI]\nStrength=100\nArmor=none\nSpeed=4\n",
+        if damage_all { "yes" } else { "no" }
+    )))
+    .expect("penetrates rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5A_AA_1E);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    let firer = sim
+        .spawn_object("FIRER", "Americans", 20, 20, 0, &rules)
+        .expect("firer");
+    let apc = sim
+        .spawn_object("APC", "Russians", 22, 20, 0, &rules)
+        .expect("transport");
+    let gi1 = sim
+        .spawn_object("GI", "Russians", 22, 21, 0, &rules)
+        .expect("passenger");
+    let gi2 = sim
+        .spawn_object("GI", "Russians", 22, 19, 0, &rules)
+        .expect("passenger");
+    sim.substrate
+        .entities
+        .get_mut(apc)
+        .expect("transport")
+        .passenger_role
+        .cargo_mut()
+        .expect("transport cargo")
+        .set_passengers_for_test(vec![gi1, gi2]);
+    (sim, rules, firer, apc, gi1, gi2)
+}
+
+#[test]
+fn penetrates_transport_damages_the_selected_passengers() {
+    let (mut sim, rules, firer, apc, gi1, gi2) = penetrates_scene(1, true);
+    shoot(&mut sim, &rules, "WH", firer, apc, 20);
+    assert_eq!(health(&sim, gi1), 80, "DamageAll damages every passenger");
+    assert_eq!(health(&sim, gi2), 80);
+
+    let (mut sim, rules, firer, apc, gi1, gi2) = penetrates_scene(1, false);
+    shoot(&mut sim, &rules, "WH", firer, apc, 20);
+    let hits = usize::from(health(&sim, gi1) == 80) + usize::from(health(&sim, gi2) == 80);
+    assert_eq!(hits, 1, "DamageAll=no picks exactly one passenger");
+
+    let (mut sim, rules, firer, apc, gi1, gi2) = penetrates_scene(15, true);
+    shoot(&mut sim, &rules, "WH", firer, apc, 20);
+    assert_eq!(
+        (health(&sim, gi1), health(&sim, gi2)),
+        (100, 100),
+        "a transport at the warhead's level is not penetrated"
     );
 }

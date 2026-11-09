@@ -29,6 +29,17 @@ fn the_force_weapon_globals_default_and_read_from_general() {
     assert!(set.force_aa_weapon_in_range_apply_range_modifiers);
 }
 
+/// `[CombatDamage] PenetratesTransport.Level=`, default 10
+/// (`Ext/Rules/Body.h:945`).
+#[test]
+fn the_penetrates_transport_level_defaults_and_reads() {
+    assert_eq!(PhobosGlobals::default().penetrates_transport_level, 10);
+    assert_eq!(
+        read("[CombatDamage]\nPenetratesTransport.Level=3\n").penetrates_transport_level,
+        3
+    );
+}
+
 #[test]
 fn the_shrapnel_globals_default_to_the_stock_admission() {
     // An absent section, an absent key and a later layer that names nothing all

@@ -94,6 +94,9 @@ pub(crate) fn detonate(
     source_house: Option<InternedId>,
     impact: ProjectileCoord,
     intended_target: Option<u64>,
+    // The firing bullet's Health (`WarheadTypeExt::Detonate`'s `damage`); 0
+    // for the pure `MapClass::DamageArea` call, which carries no bullet.
+    damage: i32,
     effects: &mut DeathEffects,
 ) -> bool {
     let crit = &warhead.crit;
@@ -106,9 +109,11 @@ pub(crate) fn detonate(
             .map(|source| source.owner())
     });
     let chance = get_crit_chance(world, rules, warhead, source_id);
-    // `PossibleCellSpreadDetonate`, of which VERA reads the AttachEffect lists.
+    // `PossibleCellSpreadDetonate`, of which VERA reads the AttachEffect lists
+    // and the PenetratesTransport level (`WarheadType/Body.cpp:517`).
     let attach = !warhead.attach_effect.is_empty();
-    if !(attach || chance > 0.0) {
+    let penetrates = warhead.phobos_penetrates_transport.level > 0;
+    if !(attach || penetrates || chance > 0.0) {
         return false;
     }
     let on_detonate = warhead
@@ -147,6 +152,22 @@ pub(crate) fn detonate(
         if !can_detonate_on(world, rules, warhead, house, target_id, invoker) {
             continue;
         }
+        // `DetonateOnOneUnit`'s PenetratesTransport arm (`Detonate.cpp:233`):
+        // before the shield/AE/crit blocks, the shot reaches the target's
+        // passengers.
+        super::penetrates_transport::apply(
+            world,
+            run,
+            rules,
+            overlay_registry,
+            warhead,
+            warhead_ref,
+            source_id,
+            house,
+            target_id,
+            damage,
+            effects,
+        );
         if attach {
             world.apply_warhead_attach_effects(
                 target_id,

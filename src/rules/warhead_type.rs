@@ -442,6 +442,10 @@ pub struct WarheadType {
     /// Phobos `KillWeapon.*` (`Ext/WarheadType/Body.cpp:371-390`).
     #[cfg(feature = "phobos")]
     pub phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules,
+    /// Phobos `PenetratesTransport.*` (`Ext/WarheadType/Body.cpp:437-442`).
+    #[cfg(feature = "phobos")]
+    pub phobos_penetrates_transport:
+        crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -808,6 +812,11 @@ impl WarheadType {
             phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_penetrates_transport:
+                crate::rules::phobos_penetrates_transport::PenetratesTransportWarheadRules::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

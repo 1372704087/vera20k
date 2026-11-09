@@ -39,6 +39,8 @@ pub mod combat_weapon;
 pub(crate) mod crit;
 #[cfg(all(test, feature = "phobos"))]
 mod crit_tests;
+#[cfg(feature = "phobos")]
+pub(crate) mod penetrates_transport;
 pub(crate) mod damage;
 pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;

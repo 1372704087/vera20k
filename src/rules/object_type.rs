@@ -910,6 +910,10 @@ pub struct ObjectType {
     /// Phobos `Ammo.*` deploy keys (`Ext/UnitType/Body.cpp:45-49`).
     #[cfg(feature = "phobos")]
     pub phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy,
+    /// Phobos `PenetratesTransport.*` (`Ext/TechnoType/Body.cpp:1174-1177`).
+    #[cfg(feature = "phobos")]
+    pub phobos_penetrates_transport:
+        crate::rules::phobos_penetrates_transport::PenetratesTransportTechnoRules,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -4777,6 +4781,11 @@ impl ObjectType {
             phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_penetrates_transport:
+                crate::rules::phobos_penetrates_transport::PenetratesTransportTechnoRules::from_section(
+                    section,
+                ),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

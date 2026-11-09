@@ -90,6 +90,10 @@ pub struct PhobosGlobals {
     /// `[General] ForceAAWeapon.InRange.ApplyRangeModifiers=`, default `no`
     /// (`Ext/Rules/Body.cpp:232`, constructor `Body.h:676`).
     pub force_aa_weapon_in_range_apply_range_modifiers: bool,
+    /// `[CombatDamage] PenetratesTransport.Level=`, default 10
+    /// (`Ext/Rules/Body.h:945`): the fallback for a transport type whose own
+    /// level is unset.
+    pub penetrates_transport_level: i32,
 }
 
 impl Default for PhobosGlobals {
@@ -113,6 +117,7 @@ impl Default for PhobosGlobals {
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
+            penetrates_transport_level: 10,
         }
     }
 }
@@ -202,6 +207,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         auto_death_allow_limboed: section
             .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
+        penetrates_transport_level: section.read_int(
+            "PenetratesTransport.Level",
+            defaults.penetrates_transport_level,
+        ),
         // The `[AudioVisual]` block belongs to `from_ini`; a `CombatDamage`
         // section leaves these at their constructor values.
         ..defaults

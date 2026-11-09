@@ -439,6 +439,9 @@ pub struct WarheadType {
     /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
     #[cfg(feature = "phobos")]
     pub phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules,
+    /// Phobos `KillWeapon.*` (`Ext/WarheadType/Body.cpp:371-390`).
+    #[cfg(feature = "phobos")]
+    pub phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -799,6 +802,10 @@ impl WarheadType {
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
             #[cfg(feature = "phobos")]
             phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
+                section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_kill_weapon: crate::rules::phobos_kill_weapon::PhobosKillWeaponRules::from_section(
                 section,
             ),
             #[cfg(feature = "phobos")]

@@ -2626,8 +2626,23 @@ pub(crate) fn handle_death(
                 }
             }
             // Phobos `TechnoClass_ReceiveDamage_RevengeWeapon` (`0x702672`):
-            // after the death weapon, an effect-granted revenge weapon fires
-            // at the killing source, if one exists.
+            // `ApplyKillWeapon` first (warhead `KillWeapon`/`.OnFirer`), then
+            // an effect-granted revenge weapon fires at the killing source,
+            // if one exists.
+            #[cfg(feature = "phobos")]
+            if callbacks_enabled(world)
+                && let Some(event) = damage_events
+                    .iter()
+                    .rfind(|event| event.target_id == dead_id)
+            {
+                world.apply_phobos_kill_weapons(
+                    dead_id,
+                    event,
+                    rules,
+                    overlay_registry,
+                    run.effects(),
+                );
+            }
             #[cfg(feature = "phobos")]
             if callbacks_enabled(world)
                 && let Some(attacker_id) = killing_attacker(world, damage_events, dead_id)

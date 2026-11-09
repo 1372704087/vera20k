@@ -33,8 +33,6 @@
 //!   invoker on this branch).
 //! - `Crit.SuppressWhenIntercepted` is read but VERA tracks no intercepted
 //!   bullet, so the bullet's `false` value never suppresses.
-//! - `Crit.AffectsTarget` treats every building as a plain building; native's
-//!   `IsStrange` split has no VERA reader.
 //! - `ApplyPerTargetEffectsOnDetonate=no`: native skips this prefix and runs
 //!   `DetonateOnOneUnit` from `TechnoClass::ReceiveDamage` for every target
 //!   that receives non-zero damage, with the attacker's house. VERA keeps the
@@ -429,7 +427,14 @@ fn apply_one(
     if !cell_eligible(land, crit.affects_target(), None, false) {
         return false;
     }
-    if !techno_eligible(target.category(), crit.affects_target()) {
+    if !techno_eligible(
+        target.category(),
+        crit.affects_target(),
+        world
+            .interner
+            .object_type(target.type_ref(), rules)
+            .is_some_and(|object| object.is_1x1_with_undeploy()),
+    ) {
         return false;
     }
 
@@ -645,10 +650,14 @@ pub(crate) fn cell_eligible(
 }
 
 /// `EnumFunctions::IsTechnoEligible` with `considerAircraftSeparately =
-/// false`: the content flags split by class, aircraft under the Unit bit and
-/// buildings under the Building bit.
+/// false`: the content flags split by class, aircraft under the Unit bit, and
+/// a 1x1-with-undeploy building (`IsStrange`) under the Unit bit too.
 #[cfg(feature = "phobos")]
-pub(crate) fn techno_eligible(category: EntityCategory, allowed: AffectedTarget) -> bool {
+pub(crate) fn techno_eligible(
+    category: EntityCategory,
+    allowed: AffectedTarget,
+    strange_building: bool,
+) -> bool {
     if allowed == AffectedTarget::ALL {
         return true;
     }
@@ -658,6 +667,7 @@ pub(crate) fn techno_eligible(category: EntityCategory, allowed: AffectedTarget)
             EntityCategory::Unit | EntityCategory::Aircraft => {
                 allowed.contains(AffectedTarget::UNIT)
             }
+            EntityCategory::Structure if strange_building => allowed.contains(AffectedTarget::UNIT),
             EntityCategory::Structure => allowed.contains(AffectedTarget::BUILDING),
         };
     }

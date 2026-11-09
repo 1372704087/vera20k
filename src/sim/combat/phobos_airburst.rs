@@ -1038,14 +1038,16 @@ pub(super) fn weapon_picking_allows(
         targeting.can_target,
         Some(techno_content),
         world.cell_has_bridge_head(cell),
-    ) || !super::crit::techno_eligible(entity.category(), targeting.can_target)
-        || !super::health_in_threshold(
-            entity.health.current(),
-            object.strength,
-            targeting.min_health,
-            targeting.max_health,
-        )
-        || !veterancy_allowed(targeting.veterancy, entity.veterancy.rank_kind())
+    ) || !super::crit::techno_eligible(
+        entity.category(),
+        targeting.can_target,
+        object.is_1x1_with_undeploy(),
+    ) || !super::health_in_threshold(
+        entity.health.current(),
+        object.strength,
+        targeting.min_health,
+        targeting.max_health,
+    ) || !veterancy_allowed(targeting.veterancy, entity.veterancy.rank_kind())
     {
         return false;
     }

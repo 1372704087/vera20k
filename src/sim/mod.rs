@@ -137,6 +137,8 @@ pub(crate) mod shared_ammo; // Phobos Ammo.Shared hand-out at StartReloading (0x
 pub(crate) mod passenger_deletion; // Phobos TechnoExt::EatPassengers (PassengerDeletion.*)
 #[cfg(feature = "phobos")]
 pub(crate) mod grinding; // Phobos BuildingExt CanGrindTechno / DoGrindingExtras (Grinding.*)
+#[cfg(feature = "phobos")]
+pub(crate) mod kill_weapon; // Phobos TechnoExt::ApplyKillWeapon (KillWeapon.*, 0x702672)
 pub mod spy_infiltration; // BuildingClass::Infiltrate (a spy's effects on the building it enters)
 pub(crate) mod stage;
 pub use stage::StageClass;

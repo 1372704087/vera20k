@@ -76,6 +76,18 @@ impl Default for AffectedTarget {
     }
 }
 
+/// `Valueable<AffectedTarget>` read: absent or rejected text keeps `current`.
+#[cfg(feature = "phobos")]
+pub(crate) fn read_affected_target(
+    section: &crate::rules::ini_parser::IniSection,
+    key: &str,
+    current: AffectedTarget,
+) -> AffectedTarget {
+    section.read_string_with(key, 2048, current, |current, raw| {
+        AffectedTarget::parse(raw).unwrap_or(current)
+    })
+}
+
 /// The five Phobos rank abilities (`TechnoType/Body.cpp:17..23`), parallel to
 /// the stock `AbilityFlags` read of the same two keys.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]

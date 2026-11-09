@@ -291,7 +291,7 @@ impl Miner {
     /// Ares10043740 changes the live Type without reconstructing Unit storage.
     /// Unit Harvest73E5E0 reads the new Type's Storage (+800); only VERA's
     /// derived role/capacity change, not its existing bales or unload state.
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) fn change_type_binding(slot: &mut Option<Self>, object: &ObjectType) {
         let kind = miner_kind_for_object(object);
         if slot.is_none() {
@@ -305,7 +305,14 @@ impl Miner {
         let miner = slot
             .as_mut()
             .expect("existing or newly represented storage");
-        miner.kind = kind.unwrap_or(MinerKind::Inactive);
+        #[cfg(feature = "ares")]
+        {
+            miner.kind = kind.unwrap_or(MinerKind::Inactive);
+        }
+        #[cfg(not(feature = "ares"))]
+        if let Some(kind) = kind {
+            miner.kind = kind;
+        }
         // The constructor's compatibility default is not a current-Type read:
         // a conversion to Storage=0 retains zero rather than a chassis default.
         miner.capacity_bales = object.storage.max(0) as u16;

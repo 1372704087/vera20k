@@ -38,7 +38,7 @@ mod distributed_fire;
 mod emp;
 mod foot_air;
 mod pip_fill;
-#[cfg(feature = "ares")]
+#[cfg(any(feature = "ares", feature = "phobos"))]
 mod type_conversion;
 pub(crate) use distributed_fire::DistributedFireCandidate;
 pub use pip_fill::rounded_pip_quantity;

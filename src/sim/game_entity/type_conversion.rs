@@ -20,6 +20,7 @@ impl Simulation {
     /// sample Object+8C before GetCell5F6960 and Cell+EC, then reuse the one
     /// in-place conversion owner. A self pointer must not reset health,
     /// attachments, spotlight or tracking on every AI visit.
+    #[cfg(feature = "ares")]
     pub(crate) fn update_ares_surface_conversion(
         &mut self,
         id: u64,
@@ -173,7 +174,9 @@ impl Simulation {
 
         // Ext+9D is IsOperated's no-operator fast-path cache (10045440),
         // not Deactivated or DriverKilled. VERA has no such cache to clear.
+        #[cfg(feature = "ares")]
         self.reset_self_attach_effect_for_type_change(id, old_type, rules);
+        #[cfg(feature = "ares")]
         if let Some(actor) = self.substrate.entities.get_mut(id) {
             actor.recompute_ares_attached_stats(rules, &self.interner);
         }
@@ -236,4 +239,80 @@ impl Simulation {
         }
         true
     }
+
+    /// Phobos `FootExt::HealthAutoConvertActions` (`Ext/Foot/Body.cpp:909-927`),
+    /// called from the `FootClass_AI` tail (`Ext/Techno/Hooks.cpp:42-47`):
+    /// with `Convert.Health` set and the band enabled, convert when
+    /// `IsHealthInThreshold` holds.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_health_auto_convert(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some((target_name, above, below, health, strength)) =
+            self.substrate.entities.get(id).and_then(|actor| {
+                let object = self.entity_object_type(actor, rules)?;
+                let settings = &object.phobos_convert_health;
+                if !settings.enabled() {
+                    return None;
+                }
+                Some((
+                    settings.health.clone()?,
+                    settings.above_percent,
+                    settings.below_percent,
+                    actor.health,
+                    object.strength,
+                ))
+            })
+        else {
+            return;
+        };
+        if !health_in_threshold(health, strength, above, below) {
+            return;
+        }
+        let Some(target) = rules.object(&target_name) else {
+            return;
+        };
+        let target = DeliveryType {
+            category: target.category,
+            id: target.id.clone(),
+        };
+        self.convert_techno_type(id, &target, rules, effects);
+    }
 }
+
+/// `TechnoExt::IsHealthInThreshold` (`Ext/Techno/Body.cpp:752-759`):
+/// `(hp > 0 ? hp > min : hp >= min) && hp <= max`, with a zero/zero health
+/// always inside. The ratio and its comparisons keep the native masked-x87
+/// semantics through [`crate::sim::combat::Health::compare_ratio`].
+#[cfg(feature = "phobos")]
+fn health_in_threshold(
+    health: crate::sim::combat::Health,
+    strength: i32,
+    min: f64,
+    max: f64,
+) -> bool {
+    use crate::util::native_x87::MaskedX87Ordering;
+    if health.current() == 0 && strength == 0 {
+        return true;
+    }
+    let above_ok = if health.compare_ratio(strength, 0.0) == MaskedX87Ordering::Greater {
+        health.compare_ratio(strength, min) == MaskedX87Ordering::Greater
+    } else {
+        matches!(
+            health.compare_ratio(strength, min),
+            MaskedX87Ordering::Greater | MaskedX87Ordering::Equal
+        )
+    };
+    above_ok
+        && matches!(
+            health.compare_ratio(strength, max),
+            MaskedX87Ordering::Less | MaskedX87Ordering::Equal
+        )
+}
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "type_conversion_health_tests.rs"]
+mod health_tests;

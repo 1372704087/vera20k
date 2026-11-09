@@ -927,6 +927,10 @@ pub struct ObjectType {
     /// human-owned harvester may hold Area Guard.
     #[cfg(feature = "phobos")]
     pub phobos_harvester_guard: crate::rules::phobos_harvester_guard::PhobosHarvesterGuard,
+    /// Phobos `Convert.Health*` (`Ext/TechnoType/Body.cpp:1193-1197`): a Foot
+    /// converts when its health ratio enters the band.
+    #[cfg(feature = "phobos")]
+    pub phobos_convert_health: crate::rules::phobos_convert_health::PhobosConvertHealth,
     /// Phobos `TurretAnim.*` (`Ext/BuildingType/Body.cpp:260-265`).
     #[cfg(feature = "phobos")]
     pub phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim,
@@ -3219,10 +3223,16 @@ impl ObjectType {
         self.turret_rot_override
     }
 
-    /// Ares conversion1004380E..10043839 selects the optional secondary ROT.
-    #[cfg(feature = "ares")]
+    /// Ares conversion1004380E..10043839 selects the optional secondary ROT;
+    /// builds without the Ares `TurretROT` key take the type's own `ROT`.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(crate) fn secondary_turn_rate(&self) -> i32 {
-        self.turret_rot_override.unwrap_or(self.turret_rot)
+        #[cfg(feature = "ares")]
+        {
+            return self.turret_rot_override.unwrap_or(self.turret_rot);
+        }
+        #[cfg(not(feature = "ares"))]
+        self.turret_rot
     }
 
     #[cfg(feature = "ares")]
@@ -4879,6 +4889,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_harvester_guard:
                 crate::rules::phobos_harvester_guard::PhobosHarvesterGuard::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_convert_health:
+                crate::rules::phobos_convert_health::PhobosConvertHealth::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_turret_anim: crate::rules::phobos_turret_anim::PhobosTurretAnim::from_section(
                 section,

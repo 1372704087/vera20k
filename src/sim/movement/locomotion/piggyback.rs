@@ -233,7 +233,7 @@ impl StashedLocomotor {
 
     /// Rebind the Foot's derived type caches without resuming the suspended
     /// controller or exposing its private mutable state.
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     pub(in crate::sim::movement) fn change_type_binding(
         &mut self,
         old_type_kind: LocomotorKind,

@@ -1,8 +1,9 @@
 //! Phobos warhead critical hits and the per-target warhead pass that carries
 //! them.
 //!
-//! Native identity: `WarheadTypeExt::Detonate`'s per-target prefix and pass
-//! (`src/Ext/WarheadType/Detonate.cpp:156..199`), `DetonateOnOneUnit`
+//! Native identity: `WarheadTypeExt::Detonate`'s early `TransactMoney` block
+//! (`src/Ext/WarheadType/Detonate.cpp:102..111`) followed by its per-target
+//! prefix and pass (`156..199`), `DetonateOnOneUnit`
 //! (`201..275`), `GetCritChance`/`ApplyCrit` (`525..608`, `735..778`), called
 //! from the `BulletClass_Detonate @ 0x46920B` and `MapClass_DamageArea
 //! @ 0x489286` hooks. Both hooks run at the entry of those routines, before
@@ -17,10 +18,11 @@
 //!   (`RemoveDisguise`, `Shield.*`, `Convert.*`, `ReturnWarhead`, `Taunt`, ...)
 //!   skips the two buffer draws native makes per detonation, shifting the
 //!   scenario stream; the members' own effects are not ported.
-//! - `Detonate`'s earlier per-house arms (`CreateGap`, `Reveal`,
-//!   `TransactMoney`, `SpawnsCrate.Types`' `RandomDouble`, `LaunchSW`) and
+//! - `Detonate`'s other earlier per-house arms (`CreateGap`, `Reveal`,
+//!   `SpawnsCrate.Types`' `RandomDouble`, `LaunchSW`) and
 //!   `InterceptBullets` are not ported; a warhead with `SpawnsCrate.Types`
-//!   misses one draw before this prefix.
+//!   misses one draw before this prefix. `TransactMoney` is ported here
+//!   ([`apply_transact_money`]).
 //! - `CanAffectTarget`'s `AffectsAbovePercent`/`AffectsBelowPercent`,
 //!   `AffectsVeterancy` and `AffectsInvokerOnly` gates are unread and pass.
 //! - `CellSpread.Cylinder` has no VERA reader yet, so the pass collects with
@@ -56,6 +58,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::terrain_rules::LandType;
 use crate::rules::warhead_type::WarheadType;
 use crate::sim::combat::veterancy::{VeterancyRank, has_weapon_ability};
+use crate::sim::credit_income::{add_credits, spend_money};
 use crate::sim::intern::InternedId;
 use crate::sim::projectile::{
     ProjectileCoord, ProjectileDetonation, ProjectileDetonationReason, ProjectilePayload,
@@ -72,8 +75,9 @@ pub(crate) struct CritRoll {
     per_target: bool,
 }
 
-/// `WarheadTypeExt::Detonate`'s per-target prefix and pass
-/// (`Detonate.cpp:156..199`): `Crit_CurrentChance = GetCritChance(owner)`;
+/// `WarheadTypeExt::Detonate`: the early `TransactMoney` block
+/// (`Detonate.cpp:102..111`, [`apply_transact_money`]), then the per-target
+/// prefix and pass (`Detonate.cpp:156..199`): `Crit_CurrentChance = GetCritChance(owner)`;
 /// when the warhead has a per-target effect or a chance, the crit and
 /// `ReturnWarhead` buffers and `Crit.ActiveChanceAnims`; then
 /// `DetonateOnOneUnit` on every `getCellSpreadItemsExt` item of a cell-spread
@@ -109,6 +113,18 @@ pub(crate) fn detonate(
             .get(source_id)
             .map(|source| source.owner())
     });
+    // `WarheadTypeExt::Detonate`'s `TransactMoney` block runs before the crit
+    // prefix and regardless of whether this warhead can crit
+    // (`Ext/WarheadType/Detonate.cpp:102-111`).
+    apply_transact_money(
+        world,
+        rules,
+        warhead,
+        house,
+        source_id,
+        impact,
+        run.effects(),
+    );
     let chance = get_crit_chance(world, rules, warhead, source_id);
     // `PossibleCellSpreadDetonate`, of which VERA reads the AttachEffect lists
     // and the PenetratesTransport level (`WarheadType/Body.cpp:517`).
@@ -200,6 +216,75 @@ pub(crate) fn detonate(
         }
     }
     active
+}
+
+/// Phobos `WarheadTypeExt::Detonate`'s `TransactMoney` block
+/// (`Ext/WarheadType/Detonate.cpp:102-111`): `pHouse->TransactMoney(amount)`
+/// on the decided house — the bullet owner's house, else `FirerHouse` for the
+/// `BulletClass_Detonate @ 0x46920B` hook, or the passed source house for
+/// `MapClass_DamageArea @ 0x489286`. The credits go to the firing house, not
+/// the target's: Phobos documents the key as "warheads can now give credits to
+/// its owner at impact". `HouseClass::TransactMoney` is the YRpp wrapper over
+/// `Add_Credits @ 0x004F9950` for a positive amount and `Spend_Money
+/// @ 0x004F9790` for a negative one.
+///
+/// With `TransactMoney.Display` the label is `FlyingStrings::AddMoneyString(
+/// amount, nullptr, pHouse, Houses, coords, Offset)`: `nullptr` source, so no
+/// visual-character test; `coords` is the firer's `Location` under `AtFirer`
+/// when the firer is known, otherwise the impact point.
+fn apply_transact_money(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    warhead: &WarheadType,
+    house: Option<InternedId>,
+    firer_id: u64,
+    impact: ProjectileCoord,
+    effects: crate::sim::world::FrameEffects<'_>,
+) {
+    let settings = &warhead.transact_money;
+    if settings.amount == 0 {
+        return;
+    }
+    let Some(house) = house else {
+        return;
+    };
+    if settings.amount > 0 {
+        add_credits(&mut world.houses, house, settings.amount);
+    } else {
+        // `Spend_Money(-amount)`; wrapping keeps `i32::MIN` non-fatal.
+        spend_money(&mut world.houses, house, settings.amount.wrapping_neg());
+    }
+    if !settings.display {
+        return;
+    }
+    let coord = if settings.display_at_firer && firer_id != 0 {
+        world
+            .substrate
+            .entities
+            .get(firer_id)
+            .map_or(impact, |firer| {
+                let location = crate::sim::movement::ground_pose::object_location(
+                    firer,
+                    world.resolved_terrain.as_ref(),
+                );
+                ProjectileCoord::new(location.x, location.y, location.z)
+            })
+    } else {
+        impact
+    };
+    effects.emit_bounty_text(
+        world,
+        rules,
+        crate::sim::flying_text::BountyText {
+            entity_id: None,
+            amount: settings.amount,
+            coord,
+            z_offset: 0,
+            display_to: Some(settings.display_houses),
+            display_owner: Some(house),
+            pixel_offset: settings.display_offset,
+        },
+    );
 }
 
 /// `DetonateOnOneUnit`'s target gate (`Detonate.cpp:203..207`): a live,

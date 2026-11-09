@@ -11,7 +11,11 @@ use crate::sim::projectile::ProjectileCoord;
 /// checks. Display rejection cannot undo the wallet or requeue the amount.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BountyText {
-    pub entity_id: u64,
+    /// The anchor object. `None` for a label with no source object, such as
+    /// Phobos `FlyingStrings::AddMoneyString`'s `pSource = nullptr` warhead
+    /// `TransactMoney` label: it has coordinates only and skips the source's
+    /// visual-character test.
+    pub entity_id: Option<u64>,
     pub amount: i32,
     /// Unraised virtual+48 point: IsShrouded586360 reads its height too.
     pub coord: ProjectileCoord,

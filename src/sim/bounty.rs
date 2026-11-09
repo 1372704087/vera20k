@@ -102,7 +102,7 @@ impl Simulation {
             self,
             rules,
             BountyText {
-                entity_id: id,
+                entity_id: Some(id),
                 amount,
                 coord: ProjectileCoord {
                     x: coord.x,
@@ -320,9 +320,10 @@ mod tests {
         );
         let events = RefCell::new(Vec::new());
         let observe = |sim: &Simulation, _: &RuleSet, text: BountyText| {
-            events
-                .borrow_mut()
-                .push((text, sim.entities().get(text.entity_id).unwrap().owner()));
+            events.borrow_mut().push((
+                text,
+                sim.entities().get(text.entity_id.unwrap()).unwrap().owner(),
+            ));
         };
         let effects = FrameEffects::empty().with_bounty_text(&observe);
         sim.flush_bounty_display(hunter, &rules, effects, false);

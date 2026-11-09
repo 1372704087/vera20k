@@ -340,6 +340,90 @@ fn warhead_trigger_gates_skip_the_per_target_pass() {
     );
 }
 
+/// Phobos `WarheadTypeExt::Detonate`'s `TransactMoney` block
+/// (`Ext/WarheadType/Detonate.cpp:102-111`) through the bullet detonation:
+/// a positive amount credits the firing house, a negative one debits it and a
+/// zero amount moves nothing.
+#[test]
+fn transact_money_moves_the_firing_house_by_the_signed_amount() {
+    let delta = |amount: i32| {
+        let (mut sim, rules, firer, target) =
+            scene("", &format!("TransactMoney={amount}\n"), "", "", "Russians");
+        let owner = sim.entities().get(firer).unwrap().owner();
+        sim.houses
+            .get_mut(&owner)
+            .unwrap()
+            .economy_mut_for_test()
+            .add_credits(100);
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        sim.houses.get(&owner).unwrap().economy().credits() - 100
+    };
+    assert_eq!(delta(25), 25, "a positive value credits the firing house");
+    assert_eq!(delta(-40), -40, "a negative value debits it");
+    assert_eq!(delta(0), 0, "zero moves nothing");
+}
+
+/// `TransactMoney.Display`'s label fields: `AtFirer` anchors on the firer's
+/// `Location` instead of the impact, `Houses` and `Offset` travel with the
+/// event, and the label has no source object (`pSource = nullptr`).
+#[test]
+fn transact_money_display_uses_at_firer_houses_and_offset() {
+    use crate::rules::phobos_shields::AffectedHouse;
+    use crate::sim::flying_text::BountyText;
+    use crate::sim::movement::ground_pose::object_location;
+    use crate::sim::world::FrameEffects;
+    use std::cell::RefCell;
+
+    let events = RefCell::new(Vec::new());
+    let observe = |_: &Simulation, _: &RuleSet, text: BountyText| {
+        events.borrow_mut().push(text);
+    };
+    let effects = FrameEffects::empty().with_bounty_text(&observe);
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "TransactMoney=13\nTransactMoney.Display=yes\n\
+         TransactMoney.Display.AtFirer=yes\nTransactMoney.Display.Houses=enemies\n\
+         TransactMoney.Display.Offset=6,-4\n",
+        "",
+        "",
+        "Russians",
+    );
+    let owner = sim.entities().get(firer).unwrap().owner();
+    let firer_coord = object_location(
+        sim.entities().get(firer).unwrap(),
+        sim.resolved_terrain.as_ref(),
+    );
+    let shot = detonation(&mut sim, "WH", firer, target, 0);
+    let mut run = ReceiverRun::default().with_effects(effects);
+    commit_projectiles(&mut sim, &mut run, &[shot], &rules, None);
+    run.finish();
+    let events = events.borrow();
+    assert_eq!(events.len(), 1, "Display=yes emits one label");
+    assert_eq!(events[0].entity_id, None, "FlyingStrings source is nullptr");
+    assert_eq!(events[0].amount, 13);
+    assert_eq!(
+        events[0].coord,
+        ProjectileCoord::new(firer_coord.x, firer_coord.y, firer_coord.z),
+        "AtFirer anchors on the firer's Location"
+    );
+    assert_eq!(events[0].display_to, Some(AffectedHouse::ENEMIES));
+    assert_eq!(events[0].display_owner, Some(owner));
+    assert_eq!(events[0].pixel_offset, [6, -4]);
+
+    // The same warhead without Display emits no label.
+    let hidden = RefCell::new(Vec::new());
+    let observe_hidden = |_: &Simulation, _: &RuleSet, text: BountyText| {
+        hidden.borrow_mut().push(text);
+    };
+    let hidden_effects = FrameEffects::empty().with_bounty_text(&observe_hidden);
+    let (mut sim, rules, firer, target) = scene("", "TransactMoney=13\n", "", "", "Russians");
+    let shot = detonation(&mut sim, "WH", firer, target, 0);
+    let mut run = ReceiverRun::default().with_effects(hidden_effects);
+    commit_projectiles(&mut sim, &mut run, &[shot], &rules, None);
+    run.finish();
+    assert!(hidden.borrow().is_empty(), "Display=no emits no label");
+}
+
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
 /// the warhead's own triggers refuse the victim. The gate does not set

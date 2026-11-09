@@ -8331,3 +8331,7 @@ mod radiation_overlap_tests;
 
 #[cfg(test)]
 mod building_occupant_storage_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_no_manual_move_tests.rs"]
+mod phobos_no_manual_move_tests;

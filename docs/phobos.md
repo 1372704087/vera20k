@@ -91,6 +91,7 @@ Supported extensions:
 - [Deployable-building alternate cameo](phobos-deployable-cameo.md) (Ares' `UndeploysInto` cameo arm, fixed)
 - [Animation bracket draw offsets](phobos-anim-offset.md) (`XDrawOffset.*` and `YDrawOffset.*` selection-bracket keys for owned animations)
 - [Building turret animations](phobos-turret-anim.md) (`TurretAnim.IdleFrames`, `.LowPowerIdleFrames`, `.FiringFrames`, `.LowPowerFiringFrames`, `.IdleRate` and `.FiringRate` frame selection for SHP slot-9 turrets)
+- [Build limit groups](phobos-build-limit-group.md) (`BuildLimitGroup.*` nine keys, `[General]` fallbacks, ExtraLimit quota and the queue-match gate)
 
 ## Original project and authors
 

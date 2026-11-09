@@ -567,6 +567,15 @@ fn build_limit(
     obj: &ObjectType,
     count_in_production: bool,
 ) -> CanBuild {
+    // Phobos `BuildLimitGroup.*` group cap (`HouseExt::BuildLimitGroupUpgradeCheck
+    // @ Ext/House/Body.cpp:802-1013`; gamemd entry `HouseClass_CanBuild_
+    // UpgradesInteraction @ 0x4F8361`, `Ext/BuildingType/Hooks.Upgrade.cpp:107`).
+    // Ahead of the Ares / non-Ares return blocks so both feature builds share
+    // the gate; VERA has no Ares injection point to split on PowersUp.
+    #[cfg(feature = "phobos")]
+    if build_limit_group_reached(sim, rules, owner, obj) {
+        return CanBuild::AtLimit;
+    }
     let limit = obj.build_limit;
     #[cfg(feature = "ares")]
     if sim.houses.get(&owner).is_some_and(|house| {
@@ -677,6 +686,13 @@ pub(crate) fn check_build_limit(
     owner: InternedId,
     obj: &ObjectType,
 ) -> bool {
+    // `HouseExt::ReachedBuildLimit @ Ext/House/Body.cpp:1036-1188`, reached
+    // through `HouseClass_ShouldDisableCameo_GreyCameo @ 0x50B669`
+    // (`Ext/House/Hooks.cpp:493-503`): grey the cameo / drop its queue.
+    #[cfg(feature = "phobos")]
+    if build_limit_group_reached(sim, rules, owner, obj) {
+        return true;
+    }
     let strip = match obj.category {
         ObjectCategory::Building => super::ProductionCategory::Building,
         _ => super::production_tech::production_category_for_object(obj),
@@ -726,6 +742,203 @@ pub(crate) fn check_build_limit(
         .wrapping_add(captured_vehicle_thief_count(sim, rules, owner, obj))
         .wrapping_add(queued)
         >= limit
+}
+
+/// Phobos `BuildLimitGroup.*` group cap. Native evidence: `HouseExt::
+/// BuildLimitGroupUpgradeCheck @ Ext/House/Body.cpp:802-1013` (entered from
+/// `HouseClass_CanBuild_UpgradesInteraction @ 0x4F8361`,
+/// `Ext/BuildingType/Hooks.Upgrade.cpp:93-111`) and `HouseExt::
+/// ReachedBuildLimit @ Ext/House/Body.cpp:1036-1188` (entered from
+/// `HouseClass_ShouldDisableCameo_GreyCameo @ 0x50B669`,
+/// `Ext/House/Hooks.cpp:493-503`). VERA's owners are `HouseClass::CanBuild
+/// @ 0x004F7870` / `HouseClass::CheckBuildLimit @ 0x0050B370`, with
+/// `FactoryClass::CountTotal @ 0x004CA670` for the queue. VERA has no Ares
+/// injection point, so both owners share this one gate instead of splitting
+/// on `PowersUp_Buildings`.
+#[cfg(feature = "phobos")]
+fn build_limit_group_reached(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    obj: &ObjectType,
+) -> bool {
+    let group = &obj.phobos_build_limit_group;
+    // `UpgradeCheck:806` is Buildable on empty Types; `ReachedBuildLimit
+    // :1040-1041` is stricter (either empty list -> false). The union is the
+    // only short-circuit that keeps the all-empty constructor default inert.
+    if group.types.is_empty() || group.nums.is_empty() {
+        return false;
+    }
+    let Some(house) = sim.houses.get(&owner) else {
+        return false;
+    };
+
+    // `ValueableVector` names resolve at use time; an unresolved name is a
+    // group member that contributes nothing.
+    let resolve = |name: &str| rules.object(name);
+    let owned_now = |ty: &ObjectType| -> i32 {
+        sim.interner.get(&ty.id).map_or(0, |id| {
+            house
+                .tracking()
+                .owned_count(EntityCategory::from(ty.category), id)
+        })
+    };
+    // `CountOwnedIncludeDeploy @ Ext/House/Body.cpp:774-780` = CountOwnedNow
+    // + DeploysInto + UndeploysInto. `ReachedBuildLimit:1102/1140` uses only
+    // CountOwnedNow; we follow `UpgradeCheck:858` (see the feature doc).
+    let owned_include_deploy = |ty: &ObjectType| -> i32 {
+        let mut count = owned_now(ty);
+        for converted in [ty.deploys_into.as_deref(), ty.undeploys_into.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            if let Some(other) = resolve(converted) {
+                count = count.wrapping_add(owned_now(other));
+            }
+        }
+        count
+    };
+    // `QueuedNum @ Ext/House/Body.cpp:1015-1034` = CountTotal(pType) minus the
+    // factory's held object when it is that exact type. `held_in_factory`
+    // mirrors CanBuild's held-object query over the existing factory registry;
+    // queue matches are exact TechnoType (ID), not by group or category.
+    let held_in_factory = |type_id: InternedId| {
+        sim.production
+            .factories()
+            .iter_insertion_ordered()
+            .into_iter()
+            .any(|factory| {
+                factory.owner() == owner
+                    && factory.object().is_some_and(|object| {
+                        object.type_id == type_id && object.entity_id.is_some()
+                    })
+            })
+    };
+    let queued_num = |ty: &ObjectType| -> i32 {
+        let Some(type_id) = sim.interner.get(&ty.id) else {
+            return 0;
+        };
+        let strip = match ty.category {
+            ObjectCategory::Building => super::ProductionCategory::Building,
+            _ => super::production_tech::production_category_for_object(ty),
+        };
+        let total = sim
+            .production
+            .factories()
+            .count_total(owner, strip, type_id);
+        (total - i32::from(held_in_factory(type_id))).max(0)
+    };
+
+    // ExtraLimit quota (`UpgradeCheck:809-843` / `ReachedBuildLimit:1049-1077`):
+    // a local copy of Nums. Each ExtraLimit type adds `count * Nums[i]` to
+    // every limit; `MaxCount[i]` caps the type's counted units, `MaxNum` caps
+    // each limit. Out-of-range / `<= 0` tokens are silently ignored. `count`
+    // is CountOwnedNow (`:827`), not CountOwnedIncludeDeploy.
+    let mut limits = group.nums.clone();
+    if !group.extra_limit_types.is_empty() && !group.extra_limit_nums.is_empty() {
+        for (i, name) in group.extra_limit_types.iter().enumerate() {
+            let Some(extra) = resolve(name.as_str()) else {
+                continue;
+            };
+            let mut count = owned_now(extra);
+            if let Some(&max_count) = group.extra_limit_max_count.get(i) {
+                if max_count > 0 {
+                    count = count.min(max_count);
+                }
+            }
+            let Some(&extra_num) = group.extra_limit_nums.get(i) else {
+                continue;
+            };
+            if extra_num <= 0 {
+                continue;
+            }
+            for limit in &mut limits {
+                *limit = limit.wrapping_add(count.wrapping_mul(extra_num));
+                if group.extra_limit_max_num > 0 {
+                    *limit = (*limit).min(group.extra_limit_max_num);
+                }
+            }
+        }
+    }
+
+    // Group contributions (`UpgradeCheck:845-861`): `CountOwnedIncludeDeploy *
+    // that type's OWN Factor` (not pItem's). Queued copies use the same type's
+    // Factor, as `ReachedBuildLimit:1093/1133` does.
+    let contributions: Vec<(i32, i32)> = group
+        .types
+        .iter()
+        .map(|name| {
+            let Some(ty) = resolve(name.as_str()) else {
+                return (0, 0);
+            };
+            let factor = ty.phobos_build_limit_group.factor;
+            (
+                owned_include_deploy(ty).wrapping_mul(factor),
+                queued_num(ty).wrapping_mul(factor),
+            )
+        })
+        .collect();
+
+    // `pItem`'s own Factor (`UpgradeCheck:863`); the two `Nullable` switches
+    // fall back to the `[General]` globals (`:864-865`, `.Get(global)`).
+    let factor = group.factor;
+    let not_buildable = group.not_buildable_if_queue_match.unwrap_or(
+        rules
+            .phobos_globals
+            .build_limit_group_not_buildable_if_queue_match,
+    );
+    let content_if_any = group
+        .content_if_any_match
+        .unwrap_or(rules.phobos_globals.build_limit_group_content_if_any_match);
+
+    // `UpgradeCheck:901` uses `num = contribution - limit`; `ReachedBuildLimit
+    // :1142` uses `owned * (Factor - limits[i])` — mathematically different
+    // (a Phobos defect). We follow UpgradeCheck; see the feature doc.
+    let reached = |contributions: &[(i32, i32)], use_queued: bool| -> bool {
+        let value = |index: usize| -> i32 {
+            contributions[index].0
+                + if use_queued {
+                    contributions[index].1
+                } else {
+                    0
+                }
+        };
+        if limits.len() == 1 {
+            // `UpgradeCheck:867-890`: sum every contribution,
+            // `sum >= limits[0] + 1 - factor` (equiv. `num >= 1 - factor`).
+            let sum: i32 = (0..contributions.len())
+                .map(|i| value(i))
+                .fold(0, i32::wrapping_add);
+            sum >= limits[0].wrapping_add(1).wrapping_sub(factor)
+        } else {
+            // `UpgradeCheck:892-947`: pair by index, `size = min(limits,
+            // types)`; pItem's own slot uses threshold `1 - factor`, others
+            // `0`. ContentIfAnyMatch makes it OR, otherwise AND.
+            let size = limits.len().min(group.types.len());
+            let mut met = Vec::with_capacity(size);
+            for i in 0..size {
+                let threshold = if group.types[i].eq_ignore_ascii_case(&obj.id) {
+                    1_i32.wrapping_sub(factor)
+                } else {
+                    0
+                };
+                met.push(value(i).wrapping_sub(limits[i]) >= threshold);
+            }
+            if content_if_any {
+                met.iter().any(|&m| m)
+            } else {
+                met.iter().all(|&m| m)
+            }
+        }
+    };
+
+    // `ReachedBuildLimit:1112/1180` = `reached && (realReached ||
+    // notBuildable)`: a queue-only reach is blocked only when
+    // NotBuildableIfQueueMatch is set. `includeQueued`'s second pass
+    // (`UpgradeCheck:949-1012`, FindByOwnerAndProduct) is not ported.
+    let owned_only = reached(&contributions, false);
+    let with_queued = reached(&contributions, true);
+    with_queued && (owned_only || not_buildable)
 }
 
 /// The shared Unit census in House::CanBuild4F80E6..4F8128 and

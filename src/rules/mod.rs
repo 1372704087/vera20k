@@ -153,6 +153,8 @@ pub mod phobos_overload;
 #[cfg(feature = "phobos")]
 pub mod phobos_grinding;
 #[cfg(feature = "phobos")]
+pub mod phobos_build_limit_group;
+#[cfg(feature = "phobos")]
 pub mod phobos_kill_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_rate_down;

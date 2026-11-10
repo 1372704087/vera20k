@@ -58,6 +58,10 @@ pub(crate) mod drop_pod;
 mod drop_pod_tests;
 #[cfg(feature = "phobos")]
 mod chaining;
+#[cfg(feature = "phobos")]
+mod detonate;
+#[cfg(all(test, feature = "phobos"))]
+mod detonate_tests;
 #[cfg(all(test, feature = "ares", feature = "phobos"))]
 mod drop_pod_phobos_tests;
 #[cfg(feature = "phobos")]

@@ -4889,6 +4889,11 @@ pub struct RuleSet {
     #[cfg(feature = "phobos")]
     phobos_super_weapon_chaining:
         BTreeMap<String, crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining>,
+    /// Phobos `Detonate.*` for every registered superweapon, projected from
+    /// the retained registry.
+    #[cfg(feature = "phobos")]
+    phobos_super_weapon_detonate:
+        BTreeMap<String, crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate>,
     /// Phobos `[GlobalControls] AllowParallelAIQueues=` and the
     /// `ForbidParallelAIQueues.*` category switches.
     #[cfg(feature = "phobos")]
@@ -6100,6 +6105,12 @@ impl RuleSet {
                 rules
                     .phobos_super_weapon_chaining
                     .insert(name.to_ascii_uppercase(), chaining);
+            }
+            rules.phobos_super_weapon_detonate.clear();
+            for (name, detonate) in processed.phobos_super_weapon_detonate_states() {
+                rules
+                    .phobos_super_weapon_detonate
+                    .insert(name.to_ascii_uppercase(), detonate);
             }
             for (name, gathering) in processed.ore_gathering_states() {
                 if let Some(unit) = rules.object_list.iter_mut().find(|object| {
@@ -7373,6 +7384,8 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             phobos_super_weapon_chaining: BTreeMap::new(),
             #[cfg(feature = "phobos")]
+            phobos_super_weapon_detonate: BTreeMap::new(),
+            #[cfg(feature = "phobos")]
             parallel_ai_queues:
                 crate::rules::phobos_parallel_ai_queues::ParallelAiQueueRules::from_ini(ini),
             ares_prerequisite_alternates: HashSet::new(),
@@ -8568,6 +8581,8 @@ impl RuleSet {
             self.phobos_super_weapon_metadata.hash(&mut hasher);
             b"phobos-super-chaining-v1".hash(&mut hasher);
             self.phobos_super_weapon_chaining.hash(&mut hasher);
+            b"phobos-super-detonate-v1".hash(&mut hasher);
+            self.phobos_super_weapon_detonate.hash(&mut hasher);
             self.parallel_ai_queues.hash_into(&mut hasher);
         }
         #[cfg(feature = "ares")]
@@ -11306,6 +11321,16 @@ impl RuleSet {
         id: &str,
     ) -> Option<&crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining> {
         self.phobos_super_weapon_chaining
+            .get(&id.to_ascii_uppercase())
+    }
+
+    /// Phobos `Detonate.*` for a registered superweapon.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_detonate(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate> {
+        self.phobos_super_weapon_detonate
             .get(&id.to_ascii_uppercase())
     }
 

@@ -2039,6 +2039,21 @@ impl ProcessedRulesLayers {
         })
     }
 
+    /// Phobos `Detonate.*`, one entry per registered definition.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_detonate_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &str,
+            crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate,
+        ),
+    > {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_detonate.clone()
+        })
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn additional_super_weapon_states(&self) -> impl Iterator<Item = (&str, &[String])> {
         self.member_states(RulesTypeFamily::Building, |member| {
@@ -5450,6 +5465,11 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     super_weapon_phobos_chaining: crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
+    /// Phobos `Detonate.*` (`Ext/SWType/Body.cpp:274-278`), read in the same
+    /// pass before the chaining group.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_detonate: crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors.
@@ -6068,6 +6088,9 @@ impl ProcessedType {
             #[cfg(feature = "phobos")]
             super_weapon_phobos_chaining:
                 crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining::default(),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_detonate:
+                crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
@@ -6425,6 +6448,11 @@ impl RulesPassProcessor {
         // constructs the named weapon on the same pass.
         #[cfg(feature = "phobos")]
         self.allocate_grinding_references(pass);
+        // Phobos `SWTypeExt::LoadFromINI`'s `Detonate.Weapon`/
+        // `Detonate.Warhead` `Read<true>` factories construct their types on
+        // the same pass (`Ext/SWType/Body.cpp:274-275`).
+        #[cfg(feature = "phobos")]
+        self.allocate_sw_detonate_references(pass);
         // Phobos `TechnoTypeExt::LoadFromINI`'s `WarpInWeapon.Read<true>` and
         // `WarpInMinRangeWeapon.Read<true>` construct their weapons on the
         // same pass, for every TechnoType family.
@@ -7997,6 +8025,14 @@ impl RulesPassProcessor {
                         );
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_chaining = chaining;
+                    // `SWTypeExt::LoadFromINIFile` then reads the
+                    // `Detonate.*` group (`Ext/SWType/Body.cpp:274-278`).
+                    let detonate =
+                        crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate::from_section(
+                            &raw,
+                        );
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_detonate = detonate;
                 }
                 #[cfg(feature = "ares")]
                 {
@@ -10418,6 +10454,37 @@ impl RulesPassProcessor {
             };
             if let Some(weapon) = section.read_type_name("Grinding.Weapon", 0x80) {
                 self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+            }
+        }
+    }
+
+    /// Phobos `SWTypeExt::LoadFromINI`'s `Detonate.Weapon.Read<true>` and
+    /// `Detonate.Warhead.Read<true>` (`Ext/SWType/Body.cpp:274-275`): the
+    /// named types are constructed before this pass's bodies, so a weapon or
+    /// warhead only these keys name is read in this pass.
+    #[cfg(feature = "phobos")]
+    fn allocate_sw_detonate_references(&mut self, pass: &IniFile) {
+        let Some(list) = pass.section("SuperWeaponTypes") else {
+            return;
+        };
+        for key in list.physical_keys() {
+            let Some(name) = list.read_name(key, 2048) else {
+                continue;
+            };
+            let section = pass.section(name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            if let Some(weapon) = section.read_type_name("Detonate.Weapon", 0x100) {
+                self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
+            }
+            if let Some(warhead) = section.read_type_name("Detonate.Warhead", 0x100) {
+                self.find_or_allocate(RulesTypeFamily::Warhead, warhead);
             }
         }
     }

@@ -1671,6 +1671,10 @@ pub enum ProjectileDetonationReason {
     /// Phobos `ApplyReturnWarhead`'s full arm (`Detonate.cpp:632-633`): a
     /// `DetonateAt` bullet at the original firer's coordinates.
     ReturnWarhead,
+    /// Phobos `SWTypeExt::ApplyDetonation`'s weapon or full-warhead arm
+    /// (`Ext/SWType/FireSuperWeapon.cpp:294-299`): a `BulletExt::Detonate`
+    /// bullet at the superweapon's target cell or launch building.
+    SwDetonate,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

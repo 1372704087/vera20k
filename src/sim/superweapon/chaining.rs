@@ -69,9 +69,13 @@ pub(super) fn apply_phobos_launch_tail(
     effects: FrameEffects<'_>,
 ) {
     let Some(chaining) = rules.phobos_super_weapon_chaining(&sw.id) else {
+        super::detonate::apply(sim, rules, owner, sw, cell, overlay_registry, effects);
         super::fire::apply_sw_type_conversion(sim, rules, owner, sw, effects);
         return;
     };
+    // `FireSuperWeaponExt`'s order: `ApplyDetonation` before `SW.Next`
+    // (`Ext/SWType/FireSuperWeapon.cpp:25-29`).
+    super::detonate::apply(sim, rules, owner, sw, cell, overlay_registry, effects);
     if sim.super_weapon_chain_depth >= MAX_CHAIN_DEPTH {
         log::warn!(
             "Phobos superweapon chain from \"{}\" stopped at depth {MAX_CHAIN_DEPTH}",

@@ -1258,3 +1258,56 @@ fn penetrates_transport_damages_the_selected_passengers() {
         "a transport at the warhead's level is not penetrated"
     );
 }
+
+/// Phobos `ChangeOwner` (`Ext/WarheadType/Detonate.cpp:207-211,488-522`):
+/// the firing House takes the target.
+#[cfg(feature = "phobos")]
+#[test]
+fn change_owner_moves_the_target_to_the_firing_house() {
+    let (mut sim, rules, firer, target) = scene("", "ChangeOwner=yes\n", "", "", "Russians");
+    let americans = sim.interner.get("Americans").expect("house");
+    let before = sim.entities().get(target).expect("target").owner();
+    assert_ne!(before, americans, "the target starts Russian");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        sim.entities().get(target).expect("target").owner(),
+        americans,
+        "the firing House owns it"
+    );
+}
+
+/// `ChangeOwner.SetAsMindControl` refuses a psionically immune target and an
+/// already mind-controlled one; a plain `ChangeOwner` ignores both.
+#[cfg(feature = "phobos")]
+#[test]
+fn change_owner_mind_control_respects_immunity() {
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "ChangeOwner=yes\nChangeOwner.SetAsMindControl=yes\n",
+        "ImmuneToPsionics=yes\n",
+        "",
+        "Russians",
+    );
+    let russians = sim.interner.get("Russians").expect("house");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        sim.entities().get(target).expect("target").owner(),
+        russians,
+        "a mind-control capture refuses psionic immunity"
+    );
+
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "ChangeOwner=yes\n",
+        "ImmuneToPsionics=yes\n",
+        "",
+        "Russians",
+    );
+    let americans = sim.interner.get("Americans").expect("house");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    assert_eq!(
+        sim.entities().get(target).expect("target").owner(),
+        americans,
+        "a plain owner change ignores psionic immunity"
+    );
+}

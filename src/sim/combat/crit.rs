@@ -161,12 +161,17 @@ pub(crate) fn detonate(
         .is_some_and(|name| rules.warhead(name).is_some());
     #[cfg(not(feature = "phobos"))]
     let return_warhead = false;
+    #[cfg(feature = "phobos")]
+    let change_owner = warhead.phobos_change_owner;
+    #[cfg(not(feature = "phobos"))]
+    let change_owner = false;
     if !(attach
         || penetrates
         || chance > 0.0
         || shield_modifiers
         || convert_pairs
-        || return_warhead)
+        || return_warhead
+        || change_owner)
     {
         return false;
     }
@@ -206,6 +211,23 @@ pub(crate) fn detonate(
     for target_id in detonation_targets(world, rules, warhead, impact, intended_target) {
         if !can_detonate_on(world, rules, warhead, house, target_id, invoker) {
             continue;
+        }
+        // Phobos `WarheadTypeExt::ExtData::ApplyOwnerChange`
+        // (`Detonate.cpp:207-211,488-522`): after RemoveMindControl and
+        // before ApplyConvert, the firing House takes the target; a
+        // `SetAsMindControl` capture respects psionic immunity, an existing
+        // mind-control link, and may ring the new capture.
+        #[cfg(feature = "phobos")]
+        if warhead.phobos_change_owner {
+            apply_change_owner(
+                world,
+                rules,
+                overlay_registry,
+                warhead,
+                house,
+                target_id,
+                run.effects(),
+            );
         }
         // Phobos `WarheadTypeExt::ApplyConvert` (`Detonate.cpp:215,669-678`):
         // before the PenetratesTransport arm, a Foot target converts through
@@ -639,6 +661,43 @@ fn apply_one(
     );
     run.crit_warheads.pop();
     applied
+}
+
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn apply_change_owner(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    warhead: &WarheadType,
+    house: Option<InternedId>,
+    target_id: u64,
+    effects: crate::sim::world::FrameEffects<'_>,
+) {
+    let Some(house) = house else {
+        return;
+    };
+    let is_mind_control = warhead.phobos_change_owner_set_as_mind_control;
+    let immune = {
+        let Some(target) = world.substrate.entities.get(target_id) else {
+            return;
+        };
+        let psionic = is_mind_control
+            && world
+                .object_type(target.type_ref(), rules)
+                .is_some_and(|object| object.immune_to_psionics);
+        psionic || target.mind_control.is_mind_controlled()
+    };
+    if immune {
+        return;
+    }
+    world.change_owner_with_rules(target_id, house, rules, overlay_registry, effects);
+    if is_mind_control && let Some(anim) = warhead.phobos_change_owner_mind_control_anim.as_deref()
+    {
+        // Native also raises `MindControlledByAUnit`; VERA has no consumer
+        // for that byte, the ring is the modeled capture marker.
+        world.attach_control_ring(target_id, anim, rules);
+    }
 }
 
 #[cfg(feature = "phobos")]

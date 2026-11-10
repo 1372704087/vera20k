@@ -135,6 +135,7 @@ Supported extensions:
 - [Superweapon Detonate](phobos-sw-detonate.md) (`Detonate.Warhead`/`.Weapon`/`.Damage`/`.Warhead.Full`/`.AtFirer`: a superweapon detonates a weapon or warhead at its target; 5 keys)
 - [Cloak keys](phobos-cloak.md) (`Cloak.KickOutParasite`: a cloaking host ejects its parasite; 1 key + 1 `[General]` global)
 - [OpenTransport keys](phobos-open-transport.md) (`OpenTransport.RangeBonus`/`.DamageMultiplier`/`.FireWhileMoving`: a passenger's own open-topped firepower, range and movement gate; 3 keys + 3 globals)
+- [ChangeOwner warhead](phobos-change-owner.md) (`ChangeOwner`/`.SetAsMindControl`/`.MindControlAnim`: a warhead transfers its target to the firing house, optionally as a mind-control capture; 3 keys)
 
 ## Original project and authors
 

@@ -489,6 +489,15 @@ pub struct WarheadType {
     pub phobos_remove_parasite_allow: Vec<String>,
     #[cfg(feature = "phobos")]
     pub phobos_remove_parasite_disallow: Vec<String>,
+    /// Phobos `ChangeOwner=` and its `SetAsMindControl`/`MindControlAnim`
+    /// options (`Ext/WarheadType/Body.cpp:431-433`): the warhead transfers
+    /// the target to the firing House, optionally as a mind-control capture.
+    #[cfg(feature = "phobos")]
+    pub phobos_change_owner: bool,
+    #[cfg(feature = "phobos")]
+    pub phobos_change_owner_set_as_mind_control: bool,
+    #[cfg(feature = "phobos")]
+    pub phobos_change_owner_mind_control_anim: Option<String>,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -901,6 +910,15 @@ impl WarheadType {
                 .into_iter()
                 .map(str::to_owned)
                 .collect(),
+            #[cfg(feature = "phobos")]
+            phobos_change_owner: section.read_bool("ChangeOwner", false),
+            #[cfg(feature = "phobos")]
+            phobos_change_owner_set_as_mind_control: section
+                .read_bool("ChangeOwner.SetAsMindControl", false),
+            #[cfg(feature = "phobos")]
+            phobos_change_owner_mind_control_anim: section
+                .read_type_name("ChangeOwner.MindControlAnim", 0x100)
+                .map(str::to_owned),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

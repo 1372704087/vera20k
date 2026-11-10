@@ -1344,7 +1344,7 @@ impl Simulation {
     /// `tools/spatial_oracle/capture_ring_height.py`), attached to the victim.
     /// MindControlArea builds its `PermaControlledAnimationType=` ring the
     /// same way (`0x0053B2A9..0x0053B31C`), never for a building.
-    fn attach_control_ring(&mut self, target_id: u64, anim_name: &str, rules: &RuleSet) {
+    pub(crate) fn attach_control_ring(&mut self, target_id: u64, anim_name: &str, rules: &RuleSet) {
         let Some(target) = self.substrate.entities.get(target_id) else {
             return;
         };

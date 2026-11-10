@@ -15,7 +15,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
          Primary=Gun\n{}Fighter={}\nLocomotor={{4A582746-9839-11d1-B709-00A024DDAFD1}}\n{}{}\
          [Gun]\nDamage=10\nROF=20\nRange=20\nBurst={}\nOmniFire={}\nProjectile=Shell\nWarhead=WH\n{}{}{}\
          [EliteGun]\nDamage=10\nROF=37\nRange=20\nBurst={}\nProjectile=Shell\nWarhead=WH\n\
-         [Shell]\nROT={}\nInviso={}\nAG=yes\nAA=yes\n\
+         [Shell]\nROT={}\nInviso={}\nAG=yes\nAA=yes\n{}\
          [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{}{}",
         if elite { "ElitePrimary=EliteGun\n" } else { "" },
         input["fighter"].as_bool().unwrap_or(false),
@@ -39,6 +39,7 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         input["elite_burst"].as_i64().unwrap_or(3),
         input["rot"].as_i64().unwrap_or(3),
         input["inviso"].as_bool().unwrap_or(true),
+        input["bullet_ini"].as_str().unwrap_or(""),
         if passenger {
             "[InfantryTypes]\n0=E1\n[E1]\nStrength=100\n"
         } else {
@@ -578,8 +579,45 @@ fn a_strafers_bomb_leaves_at_its_weapon_speed_toward_the_target() {
     );
 }
 
-/// `0x00415EEE..0x00415F05`: an aircraft carrying a passenger drops it
-/// (`Drop_Payload`) where it would fire, and its strike carries on as after
+/// Phobos `AircraftClass_FireAt_Vertical` (`0x415F25`,
+/// `Misc/Hooks.BugFixes.cpp:2423`): a `Vertical=` bullet whose
+/// `Vertical.AircraftFix` (else the `[General]` key, default yes) is on keeps
+/// FireAt's launch velocity instead of the ROT 1 course; the bullet type's
+/// `no` and the global's `no` each re-enable the course.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_vertical_aircraft_bomb_keeps_fire_at_velocity() {
+    let speed = |bullet_ini: &str, extra_ini: &str| {
+        let (mut sim, rules) = fixture(&serde_json::json!({
+            "burst": 1, "rot": 1, "inviso": false, "ammo": 1, "speed": 30,
+            "bullet_ini": bullet_ini,
+            "extra_ini": extra_ini
+        }));
+        let bomb = first_bullet(&mut sim, &rules);
+        let [x, y, z] = bomb
+            .velocity()
+            .native()
+            .map(|axis| f64::from_bits(axis.bits()));
+        (x * x + y * y + z * z).sqrt()
+    };
+    let fixed = speed("Vertical=yes\n", "");
+    assert!(
+        fixed < 2.0,
+        "the default-global fix keeps FireAt's launch: {fixed}"
+    );
+    let type_off = speed("Vertical=yes\nVertical.AircraftFix=no\n", "");
+    assert!(
+        (type_off - 76.0).abs() < 0.5,
+        "the bullet type's no applies the course: {type_off}"
+    );
+    let global_off = speed("Vertical=yes\n", "[General]\nVertical.AircraftFix=no\n");
+    assert!(
+        (global_off - 76.0).abs() < 0.5,
+        "the unset type key takes the global no: {global_off}"
+    );
+}
+
+/// `0x00415EEE..0x00415F05`: an aircraft carrying a passenger drops it/// (`Drop_Payload`) where it would fire, and its strike carries on as after
 /// a shot. VERA used to hold such an aircraft in state 4 with no shot.
 #[test]
 fn an_aircraft_carrying_a_passenger_drops_it_instead_of_firing() {

@@ -12,6 +12,7 @@
 //! (`Ext/Rules/Body.h:464-465`, `:968-969`, `:729`, `:731`) except
 //! `AutoDeath.AllowLimboed` (`:1027`),
 //! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`),
+//! `Shrapnel.ObeyWarheadTriggerConditions` (`:972`),
 //! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`) and both
 //! `Explodes.*` globals (`:885-886`), which construct `true`; the
 //! `AffectedHouse` globals construct `All` (`:728`, `:730`).
@@ -386,6 +387,13 @@ pub struct PhobosGlobals {
     /// lets a Unit passenger fire from the open-topped carrier's AlternateFLH.
     #[serde(default)]
     pub alternate_flh_apply_vehicle: bool,
+    /// `[General] Vertical.AircraftFix=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:581`, constructor `Ext/Rules/Body.h:990`): the
+    /// fallback for an unset BulletType `Vertical.AircraftFix`; `yes` keeps a
+    /// `Vertical=` bullet's FireAt velocity instead of the aircraft's ROT
+    /// course (`0x415F25`, `Misc/Hooks.BugFixes.cpp:2423`).
+    #[serde(default = "true_bool")]
+    pub vertical_aircraft_fix: bool,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -557,6 +565,7 @@ impl Default for PhobosGlobals {
             passengers_sync_owner_revert_on_exit: true,
             alternate_flh_on_turret: true,
             alternate_flh_apply_vehicle: false,
+            vertical_aircraft_fix: true,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -816,6 +825,8 @@ impl PhobosGlobals {
             "Passengers.SyncOwner.RevertOnExit",
             globals.passengers_sync_owner_revert_on_exit,
         );
+        globals.vertical_aircraft_fix =
+            general.read_bool("Vertical.AircraftFix", globals.vertical_aircraft_fix);
         // The `ExtendedAircraftMissions` pair (`Ext/Rules/Body.cpp:191-192`).
         // The switch is a `Valueable<bool>`; UnlandDamage a `Valueable<int>`,
         // both read with their constructor value as the default.

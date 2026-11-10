@@ -383,7 +383,21 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
         let boundary = FireCommitBoundary::capture(strike.out);
         let mut fired = None;
         if let Some((_, Some(shot))) = live_shot_for(strike.world, strike.rules, id, self.aim) {
-            let rot = bullet_type(shot.selected.weapon, strike.rules).rot;
+            // Phobos `AircraftClass_FireAt_Vertical` (`0x415F25`,
+            // `Misc/Hooks.BugFixes.cpp:2423`): a `Vertical=` bullet whose
+            // `Vertical.AircraftFix` (else the `[General]` key, default yes)
+            // is on keeps FireAt's velocity; the ROT course block is skipped.
+            let (rot, keeps_velocity) = {
+                let kind = bullet_type(shot.selected.weapon, strike.rules);
+                #[cfg(feature = "phobos")]
+                let keeps_velocity = kind.vertical
+                    && kind
+                        .vertical_aircraft_fix
+                        .unwrap_or(strike.rules.phobos_globals.vertical_aircraft_fix);
+                #[cfg(not(feature = "phobos"))]
+                let keeps_velocity = false;
+                (kind.rot, keeps_velocity)
+            };
             fired = emit_admitted_fire(
                 strike.world,
                 strike.rules,
@@ -393,7 +407,7 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
                 strike.overlay_registry,
                 strike.run.effects(),
             )
-            .map(|bullet| (bullet, rot));
+            .map(|bullet| (bullet, rot, keeps_velocity));
         }
         boundary.commit(
             strike.world,
@@ -403,14 +417,14 @@ impl FireAtHost for AircraftFireAt<'_, '_, '_, '_> {
             strike.out,
             strike.under_attack_events,
         );
-        let (bullet, rot) = fired?;
+        let (bullet, rot, keeps_velocity) = fired?;
         self.bullet = Some(bullet);
         let velocity = strike
             .world
             .projectiles
             .get(bullet)
             .map_or(ProjectileVelocity::new(0, 0, 0), |bullet| bullet.velocity());
-        Some(AircraftShot::new(rot, velocity))
+        Some(AircraftShot::new(rot, velocity).keeping_velocity(keeps_velocity))
     }
 
     /// Fly's Apparent_Speed (`0x004CFE20`). RESIDUAL: another Locomotor

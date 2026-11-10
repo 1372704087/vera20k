@@ -102,6 +102,14 @@ pub struct ProjectileType {
     pub scalable: bool,
     /// Launches vertically before turning toward target. (+0x2C0)
     pub vertical: bool,
+    /// Phobos `Vertical.AircraftFix=` (`Ext/BulletType/Body.cpp:36`,
+    /// `Body.h:36`, `Nullable`): `None` takes `[General]
+    /// Vertical.AircraftFix` (constructing **yes**, `Ext/Rules/Body.h:990`).
+    /// With `Vertical=` it keeps a fired bullet's FireAt velocity instead of
+    /// the aircraft's ROT course (`0x415F25`,
+    /// `Misc/Hooks.BugFixes.cpp:2423`).
+    #[cfg(feature = "phobos")]
+    pub vertical_aircraft_fix: Option<bool>,
     /// ART Flat (+0x2F7), retained by the per-pass native rules processor.
     /// BulletClass::GetLayer 0x00468B90 selects Surface when true, Air otherwise.
     pub flat: bool,
@@ -510,6 +518,8 @@ impl ProjectileType {
             firers_palette: section.read_bool("FirersPalette", false),
             scalable: section.read_bool("Scalable", false),
             vertical: section.read_bool("Vertical", false),
+            #[cfg(feature = "phobos")]
+            vertical_aircraft_fix: section.read_phobos_nullable_bool("Vertical.AircraftFix", None),
             flat: false,
             // Integer fields
             #[cfg(feature = "phobos")]
@@ -850,6 +860,32 @@ mod tests {
         assert_eq!(proj.anim_rate, 6);
         assert!(proj.anim_palette);
         assert_eq!(proj.trailer.as_deref(), Some("ART_TRAIL"));
+    }
+
+    /// Phobos `Vertical.AircraftFix` (`Ext/BulletType/Body.cpp:36`,
+    /// `Nullable`) and the `[General]` fallback (`Ext/Rules/Body.cpp:581`,
+    /// constructing true).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn vertical_aircraft_fix_reads_the_bullet_key_and_global() {
+        let read = |text: &str| {
+            let ini = IniFile::from_str(text);
+            ProjectileType::from_ini_section("SHELL", ini.section_or_empty("SHELL"), None)
+        };
+        let set = read("[SHELL]\nVertical=yes\nVertical.AircraftFix=no\n");
+        assert!(set.vertical);
+        assert_eq!(set.vertical_aircraft_fix, Some(false));
+        let unset = read("[SHELL]\nVertical=yes\n");
+        assert_eq!(unset.vertical_aircraft_fix, None);
+
+        let globals = crate::rules::phobos_globals::PhobosGlobals::from_ini(&IniFile::from_str(
+            "[General]\nVertical.AircraftFix=no\n",
+        ));
+        assert!(!globals.vertical_aircraft_fix);
+        assert!(
+            crate::rules::phobos_globals::PhobosGlobals::default().vertical_aircraft_fix,
+            "the constructor value is yes"
+        );
     }
 }
 

@@ -880,6 +880,17 @@ pub struct ObjectType {
     /// the vt+0xA0 predicate the player's order paths ask.
     #[cfg(feature = "phobos")]
     pub phobos_no_manual_move: bool,
+    /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
+    /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
+    /// constructors `:199-201`): the restricted-plant settings.
+    #[cfg(feature = "phobos")]
+    pub phobos_factory_plant: crate::rules::phobos_factory_plant::FactoryPlantRestrictions,
+    /// Phobos `FactoryPlant.Multiplier` (`Valueable<float>` 1.0f,
+    /// `Ext/TechnoType/Body.cpp:788`, `Body.h:48,486`). Ares reads the same
+    /// key into `ProductionTypeRules`; that owner wins when both features
+    /// are on, so this field exists only in a Phobos-only build.
+    #[cfg(all(feature = "phobos", not(feature = "ares")))]
+    pub phobos_factory_plant_multiplier: crate::util::native_x87::NativeF32Bits,
     /// Phobos `TechnoTypeExt` Iron Curtain / Force Shield overrides
     /// (`IronCurtain.*`, `ForceShield.*`).
     #[cfg(feature = "phobos")]
@@ -974,6 +985,11 @@ pub struct ObjectType {
     /// the `TechnoClass::ReceiveDamage` death arm.
     #[cfg(feature = "phobos")]
     pub phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings,
+    /// Phobos `ExtraThreat.*` / `ExtraThreatCoefficient.*`
+    /// (`Ext/TechnoType/Body.cpp:1181-1186`): the per-type threat-score
+    /// bonuses, each `None` inheriting the same-named `[General]` value.
+    #[cfg(feature = "phobos")]
+    pub phobos_extra_threat: crate::rules::phobos_extra_threat::PhobosExtraThreat,
     /// Phobos `TiberiumEater.*` (`Ext/TechnoType/Body.cpp:1402-1414`,
     /// `New/Type/Affiliated/TiberiumEaterTypeClass.cpp`); `None` when the
     /// type has no non-negative `TiberiumEater.TransDelay`.
@@ -3540,6 +3556,29 @@ impl ObjectType {
         self.production = production.clone();
     }
 
+    /// Phobos `GetRestrictedFactoryPlantMult`'s per-priced-type scale
+    /// (`Ext/House/Body.cpp:585`): `Valueable<float>` constructor 1.0f
+    /// (`Ext/TechnoType/Body.cpp:788`, `Body.h:48,486`). Both Ares and Phobos
+    /// read `FactoryPlant.Multiplier`; with both features the single Ares
+    /// owner parses it as a double and this getter narrows it once, so no
+    /// second field exists beside the Ares one.
+    #[cfg(all(feature = "phobos", feature = "ares"))]
+    pub(crate) fn factory_plant_multiplier_f32(&self) -> crate::util::native_x87::NativeF32Bits {
+        use crate::util::native_x87::MaskedX87Chop53 as X87;
+        X87::store_f32_masked_chop(X87::load_f64(
+            self.ares_production().factory_plant_multiplier(),
+        ))
+    }
+
+    /// [`Self::factory_plant_multiplier_f32`] in a Phobos-only build: the
+    /// float field is parsed by Phobos's own reader, not Ares's double one.
+    #[cfg(all(feature = "phobos", not(feature = "ares")))]
+    pub(crate) const fn factory_plant_multiplier_f32(
+        &self,
+    ) -> crate::util::native_x87::NativeF32Bits {
+        self.phobos_factory_plant_multiplier
+    }
+
     /// The type's Ares `[MouseCursors]` keys (`Cursor.Move`, `Cursor.Spy`, ...).
     #[cfg(feature = "ares")]
     pub fn ares_cursors(&self) -> &crate::rules::ares_mouse_cursor::TechnoCursors {
@@ -5017,6 +5056,9 @@ impl ObjectType {
                 category == ObjectCategory::Building,
             ),
             #[cfg(feature = "phobos")]
+            phobos_extra_threat:
+                crate::rules::phobos_extra_threat::PhobosExtraThreat::from_section(section),
+            #[cfg(feature = "phobos")]
             phobos_tiberium_eater: crate::rules::phobos_tiberium_eater::parse(section),
             #[cfg(feature = "phobos")]
             phobos_not_human_random_death_sequence: (category == ObjectCategory::Infantry)
@@ -5319,6 +5361,21 @@ impl ObjectType {
             // staging), so an absent, empty or invalid value keeps `false`.
             #[cfg(feature = "phobos")]
             phobos_no_manual_move: section.read_bool("NoManualMove", false),
+            // `BuildingTypeExt::LoadFromINI` reads these three only on a
+            // BuildingType section; VERA's ObjectType reader is shared.
+            #[cfg(feature = "phobos")]
+            phobos_factory_plant: if category == ObjectCategory::Building {
+                crate::rules::phobos_factory_plant::FactoryPlantRestrictions::from_section(section)
+            } else {
+                Default::default()
+            },
+            // `Valueable<float>`: INI_EX::ReadDouble then static_cast<float>
+            // (Utilities/TemplateDef.h:177-189), which is read_double_to_float.
+            #[cfg(all(feature = "phobos", not(feature = "ares")))]
+            phobos_factory_plant_multiplier: section.read_double_to_float(
+                "FactoryPlant.Multiplier",
+                crate::util::native_x87::NativeF32Bits::ONE,
+            ),
             #[cfg(feature = "phobos")]
             phobos_invulnerability:
                 crate::rules::invulnerability_rules::PhobosInvulnerability::parse(section),

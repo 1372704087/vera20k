@@ -34,6 +34,7 @@ pub mod burst;
 pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
 pub(crate) mod combat_targeting;
+pub(crate) mod extra_threat;
 pub mod combat_weapon;
 #[cfg(feature = "phobos")]
 pub(crate) mod crit;

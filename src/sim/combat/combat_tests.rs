@@ -2802,7 +2802,7 @@ fn stock_sniper_damage_retaliation_uses_wall_context_before_sight_fallback() {
         }
         sim.overlay_grid = Some(overlays);
         assert!(
-            combat_targeting::should_retaliate(&sim, rules, victim, source),
+            combat_targeting::should_retaliate(&sim, rules, victim, source, None),
             "the non-range refusal gates must admit this source"
         );
         let actor = sim.substrate.entities.get(victim).unwrap();
@@ -3178,7 +3178,17 @@ fn retaliation_gate_world(
 /// changes one fact of a world whose baseline retaliates.
 #[test]
 fn gsi_04_07_should_retaliate_world_refusals() {
-    use combat_targeting::should_retaliate;
+    // These gates precede the Phobos `ExtraThreat` InRange walk, which is the
+    // only consumer of the overlay registry here; a world-only call answers
+    // the same refusals.
+    fn should_retaliate(
+        sim: &crate::sim::world::Simulation,
+        rules: &crate::rules::ruleset::RuleSet,
+        victim: u64,
+        source: u64,
+    ) -> bool {
+        combat_targeting::should_retaliate(sim, rules, victim, source, None)
+    }
     let tank = |human| {
         retaliation_gate_world(
             "VICTIM",
@@ -3285,7 +3295,8 @@ fn gsi_04_07_a_garrison_retaliates_with_its_occupants_weapon() {
         &sim,
         &rules,
         GATE_VICTIM,
-        GATE_SOURCE
+        GATE_SOURCE,
+        None
     ));
     let occupant_id = 3;
     let mut occupant = GameEntity::test_default(occupant_id, "E1", "Test", 20, 5);
@@ -3306,7 +3317,8 @@ fn gsi_04_07_a_garrison_retaliates_with_its_occupants_weapon() {
         &sim,
         &rules,
         GATE_VICTIM,
-        GATE_SOURCE
+        GATE_SOURCE,
+        None
     ));
 }
 
@@ -3982,7 +3994,7 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
         entities.insert(gi);
 
         let current_score = crate::sim::combat::combat_targeting::calculate_ai_threat_score(
-            &entities, 10, current_id, &rules, &interner, None, None, None,
+            &entities, 10, current_id, &rules, &interner, None, None, None, None, None,
         )
         .map(|score| {
             i64::from(crate::util::native_x87::MaskedX87Chop53::ftol_i32_low_masked(score))
@@ -3994,6 +4006,8 @@ fn gsi_04_07_damage_ai_retaliation_keeps_higher_scored_current_target() {
             attacker_id,
             &rules,
             &interner,
+            None,
+            None,
             None,
             None,
             None,

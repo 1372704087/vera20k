@@ -2014,6 +2014,12 @@ fn techno_common_steps(
     // before `CheckDeathConditions`.
     #[cfg(feature = "phobos")]
     crate::sim::passenger_deletion::eat_passengers(sim, rules, id, effects);
+    // Phobos `TechnoExt::OnEarlyUpdate -> UpdateLastTargetCrd`
+    // (`Ext/Techno/Body.Update.cpp:24`): after the EMP/rearm passes and
+    // `EatPassengers`, before `CheckDeathConditions`; keeps the
+    // `ExtraThreatCoefficient.DistanceToLastTarget` coordinate.
+    #[cfg(feature = "phobos")]
+    sim.update_phobos_extra_threat_last_target(id, rules);
     // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
     // (`Ext/Techno/Body.Update.cpp:26`): after `UpdateAttachEffects`, which this
     // body has just run, and after the Structure arm's own Update steps (they

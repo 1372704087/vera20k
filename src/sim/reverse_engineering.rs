@@ -170,7 +170,7 @@ impl Simulation {
         };
         let (Some(house), Some(factors)) = (
             self.houses.get(&owner),
-            Simulation::house_cost_factors(&self.houses, owner),
+            Simulation::house_cost_factors_for(&self.houses, owner, hijacker),
         ) else {
             return;
         };

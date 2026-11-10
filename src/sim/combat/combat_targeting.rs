@@ -199,6 +199,8 @@ pub(crate) fn calculate_ai_threat_score(
     terrain: Option<&ResolvedTerrainGrid>,
     alliances: Option<&HouseAlliances>,
     scorer_enemy_house: Option<crate::sim::intern::InternedId>,
+    world: Option<&crate::sim::world::Simulation>,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> Option<MaskedX87Value> {
     let scorer = entities.get(scorer_id)?;
     let scorer_type = interner.object_type(scorer.type_ref(), rules)?;
@@ -207,6 +209,11 @@ pub(crate) fn calculate_ai_threat_score(
         scorer_type,
         super::greatest_threat::HOUSE_SELECTS_OWN_COEFFICIENTS,
     );
+    // Phobos `ExtraThreat` needs the world's fire-error and InRange owners;
+    // a caller with no world (the score's unit tests) keeps the stock score.
+    let bonus = world.and_then(|world| {
+        super::extra_threat::ThreatBonusContext::for_world(world, overlay_registry)
+    });
     super::greatest_threat::calculate_threat_score(
         entities,
         scorer_id,
@@ -218,6 +225,7 @@ pub(crate) fn calculate_ai_threat_score(
         coefficients,
         super::greatest_threat::ThreatReference::NullCoord,
         scorer_enemy_house,
+        bonus,
     )
 }
 
@@ -275,6 +283,7 @@ pub(crate) fn should_retaliate(
     rules: &RuleSet,
     victim_id: u64,
     source_id: u64,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
 ) -> bool {
     use crate::rules::object_type::Ability;
     let entities = &world.substrate.entities;
@@ -449,6 +458,8 @@ pub(crate) fn should_retaliate(
                 world.resolved_terrain.as_ref(),
                 Some(&world.house_alliances),
                 victim_enemy,
+                Some(world),
+                overlay_registry,
             ),
             calculate_ai_threat_score(
                 entities,
@@ -459,6 +470,8 @@ pub(crate) fn should_retaliate(
                 world.resolved_terrain.as_ref(),
                 Some(&world.house_alliances),
                 victim_enemy,
+                Some(world),
+                overlay_registry,
             ),
         )
         && retaliation_score_refuses(current_score, source_score)

@@ -171,3 +171,28 @@ fn kill_removes_matching_ids_for_accepted_houses() {
         "Counts=1 removes one of the two id-9 deliveries"
     );
 }
+
+/// `LimboCreate` (`Ext/SWType/FireSuperWeapon.cpp:87-170`, :131-142) appends
+/// a `FactoryPlant=` building to `RestrictedFactoryPlants` instead of
+/// House+140 when either type list is non-empty. Phobos writes that append by
+/// hand because `LimboCreate` bypasses Unlimbo; VERA delivers through
+/// `spawn_object_at_height_with_overlay_context` -> `try_reveal_entity_with_context`
+/// -> `append_house_base_building`, so the same `append_membership` gate
+/// decides which list receives it.
+#[test]
+fn delivered_restricted_factory_plant_uses_the_restricted_list() {
+    let rules = rules_with(
+        "[VehicleTypes]\n0=MTNK\n\
+         [MTNK]\nCost=1000\nStrength=100\nSpeed=4\n\
+         [B1]\nFactoryPlant=yes\nUnitsCostBonus=0.8\nFactoryPlant.AllowTypes=MTNK\n\
+         [RootSpecial]\nLimboDelivery.Types=B1\n",
+    );
+    let (rules, mut sim, owner) = world(rules);
+    charge_super(&mut sim, owner, ROOT);
+    click(&mut sim, &rules, owner, ROOT, TARGET);
+    let b1 = buildings(&sim, owner, "B1");
+    assert_eq!(b1.len(), 1, "one restricted plant delivered");
+    let base = sim.houses[&owner].base_projection();
+    assert!(base.factory_plants().is_empty());
+    assert_eq!(base.restricted_plants(), &[b1[0]][..]);
+}

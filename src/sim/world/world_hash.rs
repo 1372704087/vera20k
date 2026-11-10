@@ -1709,6 +1709,21 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         b"phobos-construction-start-facing-v1".hash(hasher);
         entity.phobos_construction_start_facing().hash(hasher);
     }
+    // Phobos `TechnoExt::LastTargetCrd` and its clear timer feed
+    // `ExtraThreatCoefficient.DistanceToLastTarget`; only non-default state
+    // affects a future score, so an untouched object keeps its old hash.
+    #[cfg(feature = "phobos")]
+    if entity.phobos_extra_threat_last_target_crd() != [0, 0, 0]
+        || entity
+            .phobos_extra_threat_last_target_clear_timer()
+            .in_progress()
+    {
+        b"phobos-extra-threat-last-target-v1".hash(hasher);
+        entity.phobos_extra_threat_last_target_crd().hash(hasher);
+        entity
+            .phobos_extra_threat_last_target_clear_timer()
+            .hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);

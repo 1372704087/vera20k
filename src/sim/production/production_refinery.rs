@@ -309,12 +309,14 @@ fn refund_free_unit(
     let Some(owner_id) = interner.get(owner) else {
         return 0;
     };
+    let Some(object) = rules.object(unit_type) else {
+        return 0;
+    };
     let refund = match (
-        rules.object(unit_type),
         houses.get(&owner_id),
-        Simulation::house_cost_factors(houses, owner_id),
+        Simulation::house_cost_factors_for(houses, owner_id, object),
     ) {
-        (Some(object), Some(house), Some(factors)) => super::type_refund(
+        (Some(house), Some(factors)) => super::type_refund(
             rules,
             object,
             house,

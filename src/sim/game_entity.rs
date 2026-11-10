@@ -978,6 +978,20 @@ pub struct GameEntity {
     /// stays a residual of [`crate::sim::auto_death`].
     #[cfg(feature = "phobos")]
     pub(crate) phobos_revert_on_exit_latch: bool,
+    /// Phobos `TechnoExt::LastTargetCrd` (`Ext/Techno/Body.h:82`): the retained
+    /// `GetCoords` of the object's last live target, `[0, 0, 0]`
+    /// (`CoordStruct::Empty`) while unset. Written by
+    /// [`crate::sim::combat::extra_threat::update_last_target_crd`].
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_extra_threat_last_target_crd: [i32; 3],
+    /// Phobos `TechnoExt::LastTargetCrdClearTimer` (`Ext/Techno/Body.h:83`,
+    /// `UpdateLastTargetCrd @ Ext/Techno/Body.Update.cpp:1286-1309`): starts a
+    /// 45-frame countdown when the object has no target and empties the
+    /// coordinate when it expires.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_extra_threat_last_target_clear_timer: crate::sim::timer::CdTimer,
     /// Phobos `TechnoExt::PassengerDeletionTimer` (`Ext/Techno/Body.h:40`),
     /// started by `TechnoExt::EatPassengers` (`Ext/Techno/Body.Update.cpp:261`)
     /// and stopped by `FootExt::UpdateTypeData` when the new type configures no
@@ -1446,6 +1460,30 @@ impl GameEntity {
     #[cfg(feature = "phobos")]
     pub(crate) fn set_phobos_revert_on_exit_latch(&mut self, value: bool) {
         self.phobos_revert_on_exit_latch = value;
+    }
+
+    /// `TechnoExt::LastTargetCrd` (`Ext/Techno/Body.h:82`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_extra_threat_last_target_crd(&self) -> [i32; 3] {
+        self.phobos_extra_threat_last_target_crd
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_extra_threat_last_target_crd(&mut self, crd: [i32; 3]) {
+        self.phobos_extra_threat_last_target_crd = crd;
+    }
+
+    /// `TechnoExt::LastTargetCrdClearTimer` (`Ext/Techno/Body.h:83`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_extra_threat_last_target_clear_timer(&self) -> crate::sim::timer::CdTimer {
+        self.phobos_extra_threat_last_target_clear_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_extra_threat_last_target_clear_timer_mut(
+        &mut self,
+    ) -> &mut crate::sim::timer::CdTimer {
+        &mut self.phobos_extra_threat_last_target_clear_timer
     }
 
     /// Ares BuildingClass_FireLaser (10016490) starts this clock (YRpp's
@@ -2754,6 +2792,10 @@ impl GameEntity {
             phobos_original_passenger_owner: None,
             #[cfg(feature = "phobos")]
             phobos_revert_on_exit_latch: false,
+            #[cfg(feature = "phobos")]
+            phobos_extra_threat_last_target_crd: [0; 3],
+            #[cfg(feature = "phobos")]
+            phobos_extra_threat_last_target_clear_timer: Default::default(),
             #[cfg(feature = "phobos")]
             passenger_deletion_timer: Default::default(),
             #[cfg(feature = "phobos")]

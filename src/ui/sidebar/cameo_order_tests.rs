@@ -453,6 +453,8 @@ impl Fixture {
                 factory_plant: context
                     .get("plant")
                     .map_or([NativeF32Bits::ONE; 5], factor_bits),
+                #[cfg(feature = "phobos")]
+                restricted_plant: NativeF32Bits::ONE,
             },
         }
     }

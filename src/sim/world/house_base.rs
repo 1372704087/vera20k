@@ -29,6 +29,26 @@ struct RegisteredBuilding {
     plant: Option<CostFactors>,
     /// Immutable BuildingType+16B0 projection for lifecycle list callbacks.
     secret_lab: bool,
+    /// Phobos `BuildingClass_Unlimbo_FactoryPlant @ 0x441501`
+    /// (`Ext/Building/Hooks.cpp:437-454`). `Some` only when the stock
+    /// `FactoryPlant=` gate at `0x4414F7..0x4414FF` admitted the building
+    /// and either type list is non-empty.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    restricted: Option<RestrictedPlant>,
+}
+
+/// The immutable BuildingType projection `HouseExt::GetRestrictedFactoryPlantMult`
+/// reads (`Ext/House/Body.cpp:538-588`).
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+struct RestrictedPlant {
+    /// Native groups its per-type counts by `pType->ArrayIndex`
+    /// (`Ext/House/Body.cpp:544,557`); VERA groups by the type name.
+    type_key: String,
+    allow: Vec<String>,
+    disallow: Vec<String>,
+    max_count: i32,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -42,6 +62,12 @@ pub(crate) struct HouseBaseState {
     buildings: Vec<u64>,
     /// Native House+140, whose order determines each f32 multiplication/store.
     plants: Vec<u64>,
+    /// Phobos `HouseExt::RestrictedFactoryPlants` (`Ext/House/Body.h:54`):
+    /// a restricted plant skips House+140's append (`0x441553`), so both
+    /// lists have independent lives and both are stable-removed on detach.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    restricted_plants: Vec<u64>,
     /// House+110, appended441443/44908B, stable-removed448983/4FBB8E.
     secret_labs: Vec<u64>,
     /// Historical House+5498. Constructor4F5A53 stores zero; `4FD150`
@@ -56,6 +82,11 @@ impl std::hash::Hash for RegisteredBuilding {
         if self.secret_lab {
             b"secret-lab-type-v382".hash(state);
         }
+        #[cfg(feature = "phobos")]
+        if let Some(restricted) = &self.restricted {
+            b"restricted-plant-v1".hash(state);
+            restricted.hash(state);
+        }
     }
 }
 
@@ -64,6 +95,11 @@ impl std::hash::Hash for HouseBaseState {
         self.registrations.hash(state);
         self.buildings.hash(state);
         self.plants.hash(state);
+        #[cfg(feature = "phobos")]
+        if !self.restricted_plants.is_empty() {
+            b"house-restricted-plants-v1".hash(state);
+            self.restricted_plants.hash(state);
+        }
         self.radius.hash(state);
         if !self.secret_labs.is_empty() {
             b"house-secret-labs-v382".hash(state);
@@ -164,10 +200,22 @@ fn project_geometry(
 
 impl RegisteredBuilding {
     fn new(id: u64, object: &ObjectType) -> Self {
+        #[cfg(feature = "phobos")]
+        let restricted =
+            (object.factory_plant && object.phobos_factory_plant.restricted()).then(|| {
+                RestrictedPlant {
+                    type_key: object.id.clone(),
+                    allow: object.phobos_factory_plant.allow.clone(),
+                    disallow: object.phobos_factory_plant.disallow.clone(),
+                    max_count: object.phobos_factory_plant.max_count,
+                }
+            });
         Self {
             id,
             plant: object.factory_plant.then_some(object.cost_bonuses),
             secret_lab: object.secret_lab().enabled(),
+            #[cfg(feature = "phobos")]
+            restricted,
         }
     }
 }
@@ -203,6 +251,65 @@ impl HouseBaseState {
     /// House+140 in vector order.
     pub(crate) fn factory_plants(&self) -> &[u64] {
         &self.plants
+    }
+
+    /// Phobos `HouseExt::RestrictedFactoryPlants` in vector order
+    /// (`Ext/House/Body.h:54`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn restricted_plants(&self) -> &[u64] {
+        &self.restricted_plants
+    }
+
+    /// `HouseExt::GetRestrictedFactoryPlantMult @ Ext/House/Body.cpp:538-588`.
+    /// Walk the restricted plants in vector order, count per plant
+    /// BuildingType, stop at `MaxCount`, apply allow/disallow, then fold the
+    /// priced type's cost-bonus slot. The fold and the final
+    /// `1 - (1 - mult) * FactoryPlant.Multiplier` are C++ `float` arithmetic:
+    /// SSE single-precision round-to-nearest, not the x87 masked-chop path.
+    /// `factor_slot()` is the native `WhatAmI()` switch including the
+    /// `BuildCat == Combat` -> DefensesCostBonus arm (`ObjectType::factor_slot`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn restricted_factory_plant_multiplier(&self, target: &ObjectType) -> NativeF32Bits {
+        let mut mult = 1.0f32;
+        let slot = target.factor_slot();
+        let mut counts: std::collections::BTreeMap<&str, i32> = std::collections::BTreeMap::new();
+        for &id in &self.restricted_plants {
+            let Some(entry) = self.registration(id) else {
+                continue;
+            };
+            let Some(restricted) = entry.restricted.as_ref() else {
+                continue;
+            };
+            let Some(bonuses) = entry.plant else {
+                continue;
+            };
+            let count = counts.entry(restricted.type_key.as_str()).or_insert(0);
+            if restricted.max_count > -1 && *count >= restricted.max_count {
+                continue;
+            }
+            let admitted = restricted.allow.is_empty()
+                || restricted
+                    .allow
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&target.id));
+            if !admitted {
+                continue;
+            }
+            let denied = !restricted.disallow.is_empty()
+                && restricted
+                    .disallow
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(&target.id));
+            if denied {
+                continue;
+            }
+            // Native increments the count only after both filters pass
+            // (`Ext/House/Body.cpp:556-559`).
+            *count += 1;
+            mult *= f32::from_bits(bonuses[slot].bits());
+        }
+        let multiplier = f32::from_bits(target.factory_plant_multiplier_f32().bits());
+        NativeF32Bits::from_bits((1.0f32 - ((1.0f32 - mult) * multiplier)).to_bits())
     }
 
     /// House+110 in native vector order; no health/power filter at CanBuild.
@@ -251,6 +358,13 @@ impl HouseBaseState {
         //4FB9B0 stable-removes one matching pointer, then50BF60 recomputes.
         remove_first(&mut self.secret_labs, id);
         remove_first(&mut self.plants, id);
+        // `HouseExt::OnDetach` (`Ext/House/Body.cpp:743-772`, :765-770)
+        // erases a restricted plant separately: House+140 never held it,
+        // so the ordinary removal cannot cover this list.
+        #[cfg(feature = "phobos")]
+        {
+            remove_first(&mut self.restricted_plants, id);
+        }
         remove_first(&mut self.buildings, id);
     }
 
@@ -263,6 +377,22 @@ impl HouseBaseState {
         if self.registration(id).is_some_and(|entry| entry.secret_lab) {
             self.secret_labs.push(id);
         }
+        // The stock `FactoryPlant=` test at `0x4414F7..0x4414FF` gates the
+        // whole House+140 append, so a restricted plant must be a plant too.
+        #[cfg(feature = "phobos")]
+        let restricted = self
+            .registration(id)
+            .is_some_and(|entry| entry.plant.is_some() && entry.restricted.is_some());
+        #[cfg(feature = "phobos")]
+        if restricted {
+            self.restricted_plants.push(id);
+        } else if self
+            .registration(id)
+            .is_some_and(|entry| entry.plant.is_some())
+        {
+            self.plants.push(id);
+        }
+        #[cfg(not(feature = "phobos"))]
         if self
             .registration(id)
             .is_some_and(|entry| entry.plant.is_some())
@@ -861,6 +991,32 @@ impl Simulation {
         Some(houses.get(&owner)?.cost_factors())
     }
 
+    /// Phobos `TechnoTypeClass_CostOf_FactoryPlant @ 0x711F39` and
+    /// `TechnoTypeClass_RefundAmount_FactoryPlant @ 0x711FDF`
+    /// (`Ext/TechnoType/Hooks.cpp:97-122`): fold the restricted plant product
+    /// into the plant float before `Cost_Of`'s two x87 multiplies
+    /// (`0x00711F35..0x00711F41`). The plain product keeps its own owner.
+    pub(crate) fn house_cost_factors_for(
+        houses: &Houses,
+        owner: InternedId,
+        object: &ObjectType,
+    ) -> Option<HouseCostFactors> {
+        #[cfg(feature = "phobos")]
+        let mut factors = Self::house_cost_factors(houses, owner)?;
+        #[cfg(not(feature = "phobos"))]
+        let factors = Self::house_cost_factors(houses, owner)?;
+        #[cfg(feature = "phobos")]
+        {
+            factors.restricted_plant = houses
+                .get(&owner)?
+                .base_projection()
+                .restricted_factory_plant_multiplier(object);
+        }
+        #[cfg(not(feature = "phobos"))]
+        let _ = object;
+        Some(factors)
+    }
+
     /// TechnoType virtual `+0x84` for `owner`'s House ([`RuleSet::cost_of`]).
     pub fn cost_of(&self, owner: InternedId, object: &ObjectType, rules: &RuleSet) -> i32 {
         debug_assert!(
@@ -872,7 +1028,7 @@ impl Simulation {
         );
         rules.cost_of(
             object,
-            Self::house_cost_factors(&self.houses, owner).as_ref(),
+            Self::house_cost_factors_for(&self.houses, owner, object).as_ref(),
         )
     }
 
@@ -1553,6 +1709,8 @@ mod tests {
                     id: u64::MAX,
                     plant: Some(factors),
                     secret_lab: false,
+                    #[cfg(feature = "phobos")]
+                    restricted: None,
                 });
                 house.base_projection_mut().plants.push(u64::MAX);
             }
@@ -1874,6 +2032,8 @@ mod tests {
                     id,
                     plant: Some(bonus),
                     secret_lab: false,
+                    #[cfg(feature = "phobos")]
+                    restricted: None,
                 });
                 state.append_membership(id);
             }

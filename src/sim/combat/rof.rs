@@ -206,6 +206,16 @@ pub(crate) fn get_rof(query: &RofQuery<'_>, rng: &mut SimRng) -> i32 {
         return weapon.rof;
     }
     if query.burst_index < weapon.burst {
+        // Phobos `TechnoClass_RearmDelay_BurstDelays` (`0x6FD05E`, 7 bytes
+        // replaced): `WeaponTypeExt::GetBurstDelay` answers the shot's own
+        // rearm delay and returns it at `0x6FD099`, before the stock index 0 /
+        // index 5+ guard and the unit `BurstDelay{index-1}=` table. A negative
+        // answer restores the stock instruction, so `None` continues below.
+        // Index 0 answers 0 with no draw even when the weapon authors no key.
+        #[cfg(feature = "phobos")]
+        if let Some(delay) = weapon.phobos_burst_delay(query.burst_index) {
+            return delay;
+        }
         if let Some(delays) = query.unit_burst_delays
             && (1..=4).contains(&query.burst_index)
         {
@@ -479,6 +489,13 @@ mod tests {
                     .as_array()
                     .map_or((false, false), |pair| (pair[0] != 0, pair[1] != 0))
             };
+            // Phobos `TechnoClass_RearmDelay_BurstDelays` (`0x6FD05E`):
+            // `GetBurstDelay(0)` answers 0 with no draw even for an empty
+            // list, replacing the stock `RandomRanged(3, 5)` control rows.
+            #[cfg(feature = "phobos")]
+            if int("burst_index", 1) == 0 && int("burst", 1) > 0 {
+                continue;
+            }
             let class = int("class", 15);
             let (spark, spark_live) = pair("spark");
             let (fire, fire_live) = pair("fire");
@@ -541,6 +558,129 @@ mod tests {
                 row["rng_after"].as_str().unwrap(),
                 "{input}"
             );
+        }
+    }
+
+    /// Phobos `TechnoClass_RearmDelay_BurstDelays` (`0x6FD05E`): a weapon's
+    /// `Burst.Delays` answers each mid-burst index before the unit table and
+    /// the `RandomRanged(3, 5)` fallback, with no Scenario draw.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn burst_delays_answer_each_burst_index_before_the_stock_arm() {
+        let weapon = |text: &str| {
+            let ini = IniFile::from_str(&format!("[GUN]\nROF=40\nBurst=5\n{text}"));
+            WeaponType::from_ini_section("GUN", ini.section("GUN").unwrap())
+        };
+        fn query<'a>(
+            weapon: &'a WeaponType,
+            burst_index: i32,
+            unit_burst_delays: Option<[i32; 4]>,
+        ) -> RofQuery<'a> {
+            RofQuery {
+                building_ammo: None,
+                weapon: Some(weapon),
+                live: LiveParticles::default(),
+                burst_index,
+                unit_burst_delays,
+                house_rof: NativeF64Bits::ONE,
+                ae_rof: 1.0,
+                #[cfg(feature = "ares")]
+                attached_rof: None,
+                rof_random_delay: None,
+                rof_ability: false,
+                veteran_rof: 1.0,
+                occupants: None,
+                bunkered: false,
+                occupy_rof_multiplier: 1.0,
+                bunker_rof_multiplier: 1.0,
+            }
+        }
+        let rof = |weapon: &WeaponType, burst_index: i32, unit_burst_delays: Option<[i32; 4]>| {
+            let mut rng = SimRng::new(9);
+            let value = get_rof(&query(weapon, burst_index, unit_burst_delays), &mut rng);
+            (value, rng.logical_state())
+        };
+        let undrawn = || SimRng::new(9).logical_state();
+
+        let listed = weapon("Burst.Delays=7,9\n");
+        assert_eq!(
+            rof(&listed, 1, None),
+            (7, undrawn()),
+            "the first entry, with no draw"
+        );
+        assert_eq!(rof(&listed, 2, None), (9, undrawn()), "the second entry");
+        assert_eq!(
+            rof(&listed, 4, None),
+            (9, undrawn()),
+            "an index beyond the list uses its last entry"
+        );
+        assert_eq!(
+            rof(&weapon("Burst.Delays=0\n"), 1, None),
+            (0, undrawn()),
+            "zero is a delay the hook accepts"
+        );
+
+        let negative = weapon("Burst.Delays=7,-1\n");
+        assert_eq!(
+            rof(&negative, 2, Some([3, 4, 5, 6])),
+            (4, undrawn()),
+            "a -1 entry falls back to the stock unit table"
+        );
+        let mut expected = SimRng::new(9);
+        let draw = expected.next_range_u32_inclusive(3, 5) as i32;
+        assert_eq!(
+            rof(&negative, 2, None),
+            (draw, expected.logical_state()),
+            "a -1 entry with no unit table falls back to RandomRanged(3, 5)"
+        );
+    }
+
+    /// Phobos `TechnoClass_RearmDelay_BurstDelays` (`0x6FD05E`): burst index 0
+    /// takes `GetBurstDelay(0)` = 0 without a Scenario draw even when the
+    /// weapon authors no key; the stock kernel draws 3..=5 there.
+    #[test]
+    fn burst_index_zero_short_circuits_the_stock_arm_only_under_phobos() {
+        let ini = IniFile::from_str("[GUN]\nROF=40\nBurst=5\n");
+        let weapon = WeaponType::from_ini_section("GUN", ini.section("GUN").unwrap());
+        let query = RofQuery {
+            building_ammo: None,
+            weapon: Some(&weapon),
+            live: LiveParticles::default(),
+            burst_index: 0,
+            unit_burst_delays: None,
+            house_rof: NativeF64Bits::ONE,
+            ae_rof: 1.0,
+            #[cfg(feature = "ares")]
+            attached_rof: None,
+            #[cfg(feature = "phobos")]
+            rof_random_delay: None,
+            rof_ability: false,
+            veteran_rof: 1.0,
+            occupants: None,
+            bunkered: false,
+            occupy_rof_multiplier: 1.0,
+            bunker_rof_multiplier: 1.0,
+        };
+        let mut rng = SimRng::new(9);
+        let value = get_rof(&query, &mut rng);
+        #[cfg(feature = "phobos")]
+        {
+            assert_eq!(value, 0, "GetBurstDelay(0) answers 0");
+            assert_eq!(
+                rng.logical_state(),
+                SimRng::new(9).logical_state(),
+                "no Scenario draw"
+            );
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            let mut expected = SimRng::new(9);
+            assert_eq!(
+                value,
+                expected.next_range_u32_inclusive(3, 5) as i32,
+                "the stock arm draws 3..=5 for index 0"
+            );
+            assert_eq!(rng.logical_state(), expected.logical_state());
         }
     }
 }

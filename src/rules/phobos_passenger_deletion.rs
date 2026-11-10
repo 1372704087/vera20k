@@ -117,9 +117,13 @@ impl PassengerDeletionSettings {
                 "PassengerDeletion.DisplaySoylentToHouses",
                 defaults.display_soylent_to_houses,
             ),
-            display_soylent_offset: section
-                .read_int_fields_complete::<2>("PassengerDeletion.DisplaySoylentOffset", 2048)
-                .unwrap_or(defaults.display_soylent_offset),
+            // Phobos `Valueable<Point2D>`: `INI_EX::Read2Integers` writes each
+            // converted token of `Parser<int, 2>` straight into the pair, so a
+            // one-token read changes only X and a failed first token keeps both.
+            display_soylent_offset: section.read_phobos_int_pair(
+                "PassengerDeletion.DisplaySoylentOffset",
+                defaults.display_soylent_offset,
+            ),
             report_sound: section
                 .read_name("PassengerDeletion.ReportSound", 0x80)
                 .map(str::to_owned),

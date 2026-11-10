@@ -58,6 +58,8 @@ pub(crate) mod drop_pod;
 mod drop_pod_tests;
 #[cfg(feature = "phobos")]
 mod chaining;
+#[cfg(all(test, feature = "ares", feature = "phobos"))]
+mod drop_pod_phobos_tests;
 #[cfg(feature = "ares")]
 mod emp_pulse;
 #[cfg(all(test, feature = "ares"))]

@@ -151,6 +151,8 @@ pub mod phobos_drain_money_display;
 #[cfg(feature = "phobos")]
 pub mod phobos_driver_killed;
 #[cfg(feature = "phobos")]
+pub mod phobos_droppod;
+#[cfg(feature = "phobos")]
 pub mod phobos_explodes;
 #[cfg(feature = "phobos")]
 pub mod phobos_extra_warheads;

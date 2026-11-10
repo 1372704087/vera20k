@@ -6430,6 +6430,12 @@ impl RulesPassProcessor {
         // same pass, for every TechnoType family.
         #[cfg(feature = "phobos")]
         self.allocate_warp_in_weapon_references(pass);
+        // Phobos `DroppodTypeClass::LoadFromINI`'s `DropPod.Weapon.Read<true>`
+        // (`New/Type/Affiliated/DroppodTypeClass.cpp:27`) constructs its
+        // weapon on the same pass, for every non-building TechnoType (the
+        // settings block exists for each; `Ext/TechnoType/Body.cpp:1430`).
+        #[cfg(feature = "phobos")]
+        self.allocate_droppod_weapon_references(pass);
         // Phobos `StraightTrajectoryType::Read` reads
         // `Trajectory.Straight.PassDetonateWarhead` / `ProximityWarhead` with
         // `Read<true>`: their warheads are constructed on this pass too.
@@ -10441,6 +10447,36 @@ impl RulesPassProcessor {
                 if let Some(weapon) = section.read_type_name(key, 2048) {
                     self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
                 }
+            }
+        }
+    }
+
+    /// Phobos `DroppodTypeClass::LoadFromINI`'s `DropPod.Weapon.Read<true>`:
+    /// the weapon a non-building TechnoType's drop pod names is constructed
+    /// before this pass's type bodies. `TechnoTypeExt::LoadFromINI` resets the
+    /// block for a BuildingType and never reads the key there.
+    #[cfg(feature = "phobos")]
+    fn allocate_droppod_weapon_references(&mut self, pass: &IniFile) {
+        let order = self.techno_type_order.clone();
+        for (family, index) in order {
+            if family == RulesTypeFamily::Building {
+                continue;
+            }
+            let Some(member) = self.families.get(&family).and_then(|list| list.get(index)) else {
+                continue;
+            };
+            let name = member.native_stored_id.clone();
+            let section = pass.section(&name).or_else(|| {
+                pass.section_names()
+                    .into_iter()
+                    .find(|candidate| candidate.eq_ignore_ascii_case(&name))
+                    .and_then(|candidate| pass.section(candidate))
+            });
+            let Some(section) = section else {
+                continue;
+            };
+            if let Some(weapon) = section.read_type_name("DropPod.Weapon", 2048) {
+                self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
             }
         }
     }

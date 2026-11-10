@@ -133,6 +133,49 @@ impl Simulation {
         impact: [i32; 3],
         damage: i32,
     ) -> Option<crate::sim::projectile::ProjectileDetonation> {
+        self.weapon_detonation(
+            weapon,
+            target_id,
+            crate::sim::projectile::ProjectileTarget::Entity(target_id),
+            owner_id,
+            firing_house,
+            impact,
+            damage,
+        )
+    }
+
+    /// The coordinate overload of `WeaponTypeExt::DetonateAt(weapon, coords,
+    /// owner, damage, firingHouse)`: a bullet detonating at `impact` with no
+    /// AbstractClass target (Phobos `DropPod.Weapon.HitLandOnly`).
+    pub(crate) fn weapon_detonation_at_point(
+        &mut self,
+        weapon: &crate::rules::weapon_type::WeaponType,
+        owner_id: u64,
+        firing_house: Option<crate::sim::intern::InternedId>,
+        impact: [i32; 3],
+        damage: i32,
+    ) -> Option<crate::sim::projectile::ProjectileDetonation> {
+        self.weapon_detonation(
+            weapon,
+            owner_id,
+            crate::sim::projectile::ProjectileTarget::None,
+            owner_id,
+            firing_house,
+            impact,
+            damage,
+        )
+    }
+
+    fn weapon_detonation(
+        &mut self,
+        weapon: &crate::rules::weapon_type::WeaponType,
+        projectile_id: u64,
+        target: crate::sim::projectile::ProjectileTarget,
+        owner_id: u64,
+        firing_house: Option<crate::sim::intern::InternedId>,
+        impact: [i32; 3],
+        damage: i32,
+    ) -> Option<crate::sim::projectile::ProjectileDetonation> {
         let warhead = weapon
             .warhead
             .as_deref()
@@ -143,9 +186,9 @@ impl Simulation {
             .map(|name| self.interner.intern(name));
         let weapon_ref = self.interner.intern(&weapon.id);
         Some(crate::sim::projectile::ProjectileDetonation {
-            projectile_id: target_id,
+            projectile_id,
             source_id: owner_id,
-            target: crate::sim::projectile::ProjectileTarget::Entity(target_id),
+            target,
             impact: crate::sim::projectile::ProjectileCoord::new(impact[0], impact[1], impact[2]),
             payload: crate::sim::projectile::ProjectilePayload::new(
                 damage,

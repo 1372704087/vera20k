@@ -984,6 +984,12 @@ pub struct ObjectType {
     /// rocket's cruise/takeoff keys.
     #[cfg(feature = "phobos")]
     pub phobos_missile: crate::rules::phobos_missile::PhobosMissileRules,
+    /// Phobos `DroppodTypeClass` (`Ext/TechnoType/Body.cpp:1430-1445`): the
+    /// per-type drop-pod keys its locomotor hook reads. `None` for a
+    /// BuildingType (the native reader resets it there); every other techno
+    /// owns the block, with each key unset until the INI sets it.
+    #[cfg(feature = "phobos")]
+    pub phobos_droppod: Option<crate::rules::phobos_droppod::PhobosDropPodRules>,
     /// Phobos `Promote.*` (`Ext/TechnoType/Body.cpp:800`, `:1128-1129`): the
     /// rank-crossing animations and the spawner rank lift.
     #[cfg(feature = "phobos")]
@@ -4944,6 +4950,10 @@ impl ObjectType {
                 ),
             #[cfg(feature = "phobos")]
             phobos_missile: crate::rules::phobos_missile::PhobosMissileRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_droppod: (category != ObjectCategory::Building).then(|| {
+                crate::rules::phobos_droppod::PhobosDropPodRules::from_section(section)
+            }),
             #[cfg(feature = "phobos")]
             phobos_promote: crate::rules::phobos_promote::PhobosPromote::from_section(section),
             #[cfg(feature = "phobos")]

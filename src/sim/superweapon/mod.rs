@@ -52,6 +52,8 @@ pub mod chronosphere_tests;
 pub(crate) mod drop_pod;
 #[cfg(all(test, feature = "ares"))]
 mod drop_pod_tests;
+#[cfg(all(test, feature = "ares", feature = "phobos"))]
+mod drop_pod_phobos_tests;
 #[cfg(feature = "ares")]
 mod emp_pulse;
 #[cfg(all(test, feature = "ares"))]

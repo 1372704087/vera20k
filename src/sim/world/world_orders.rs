@@ -864,6 +864,19 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return false;
         };
+        // Phobos hook `0x740015` (`Ext/Unit/Hooks.Unload.cpp:86-88`) jumps to
+        // `0x7400F0`, past the first-passenger land/height test (`0x7400A1`),
+        // for a transport whose `Deploy.*` cursor gate admits it.
+        #[cfg(feature = "phobos")]
+        {
+            let live = entity
+                .passenger_role
+                .cargo()
+                .map_or(0, |cargo| cargo.passengers().len());
+            if object.phobos_deploy.cursor_skips_passengers(live) {
+                return false;
+            }
+        }
         if object.is_simple_deployer
             || object.passengers <= 0
             || entity.bunker.link().installed_in().is_some()

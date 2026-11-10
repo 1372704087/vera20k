@@ -18,7 +18,8 @@ pub(crate) fn is_simple_deployer(sim: &Simulation, entity: &GameEntity, rules: &
             .object_type(entity.type_ref(), rules)
             .is_some_and(|object| {
                 object.is_simple_deployer
-                    && object.passengers <= 0
+                    && (object.passengers <= 0
+                        || crate::sim::deploy::phobos_unload_skips_passengers(sim, entity, rules))
                     && !object.harvester
                     && !object.weeder
                     && object.deploys_into.is_none()

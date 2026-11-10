@@ -147,6 +147,8 @@ pub mod phobos_convert_health;
 #[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
+pub mod phobos_deploy;
+#[cfg(feature = "phobos")]
 pub mod phobos_detonate_all_map;
 #[cfg(feature = "phobos")]
 pub mod phobos_drain_money_display;

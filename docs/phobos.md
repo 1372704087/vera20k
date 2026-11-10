@@ -146,6 +146,7 @@ Supported extensions:
 - [FactoryPlant restricted lists](phobos-factory-plant.md) (`FactoryPlant.AllowTypes`/`.DisallowTypes`/`.MaxCount` + `FactoryPlant.Multiplier`: per-type cost and refund discounts from a plant kept out of House+140; 3 keys + 1 type key)
 - [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
 - [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
+- [Deploy gates](phobos-deploy-gates.md) (`Deploy.SkipPassengerUnload`, `.NoPassenger`, `.NoTiberium` and `IsSimpleDeployer.ConsiderPathfinding`, `.DisallowedLandTypes`: the unload passenger skip, the harvester dump skip and the simple-deployer own-cell gate; 5 keys)
 
 ## Original project and authors
 

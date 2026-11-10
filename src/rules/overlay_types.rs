@@ -746,9 +746,7 @@ fn stock_flat_riparius_variant_index(name: &str) -> Option<usize> {
 }
 
 fn parse_land_type(value: &str) -> Option<LandType> {
-    LandType::ALL
-        .into_iter()
-        .find(|land_type| value.eq_ignore_ascii_case(land_type.section_name()))
+    LandType::from_name(value)
 }
 
 /// Exact predicate for RecalcAttributes' early overlay-Land branch.

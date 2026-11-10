@@ -106,6 +106,15 @@ pub(crate) fn mission_unload(
     };
     // A 0x0073DEE0: without any radio contact the unload is abandoned.
     if entity.radio_contacts.is_empty() {
+        // Phobos `UnitClass_Mi_Unload_SkipHarvester` (hook 0x73DEEB,
+        // `Ext/Unit/Hooks.Unload.cpp:61-75`): a non-unloading harvester with
+        // `Deploy.NoTiberium` unset or an empty hold skips the dump for the
+        // deploy path (`0x73D694`); a harvester has no deploy-fire/DeploysInto/
+        // IsSimpleDeployer arm, so that path ends at the FootUnload stub.
+        #[cfg(feature = "phobos")]
+        if sim.phobos_harvester_skips_tiberium_dump(id, rules) {
+            return crate::sim::mission::MISSION_STUB_FRAMES;
+        }
         sim.unit_enter_idle_mode(id, rules, false, effects);
         set_unload_latch(&mut sim.interner, &mut sim.substrate, rules, id, false);
         stop_if_moving(&mut sim.substrate, id);

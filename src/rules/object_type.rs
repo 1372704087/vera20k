@@ -1061,6 +1061,10 @@ pub struct ObjectType {
     /// Phobos `Ammo.*` deploy keys (`Ext/UnitType/Body.cpp:45-49`).
     #[cfg(feature = "phobos")]
     pub phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy,
+    /// Phobos `Deploy.*` / `IsSimpleDeployer.*` deploy gates
+    /// (`Ext/UnitType/Body.cpp:55-56,84-86`).
+    #[cfg(feature = "phobos")]
+    pub phobos_deploy: crate::rules::phobos_deploy::PhobosDeploy,
     /// Phobos `PenetratesTransport.*` (`Ext/TechnoType/Body.cpp:1174-1177`).
     #[cfg(feature = "phobos")]
     pub phobos_penetrates_transport:
@@ -5121,6 +5125,12 @@ impl ObjectType {
             phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_deploy: if category == ObjectCategory::Vehicle {
+                crate::rules::phobos_deploy::PhobosDeploy::from_section(section)
+            } else {
+                crate::rules::phobos_deploy::PhobosDeploy::default()
+            },
             #[cfg(feature = "phobos")]
             phobos_penetrates_transport:
                 crate::rules::phobos_penetrates_transport::PenetratesTransportTechnoRules::from_section(

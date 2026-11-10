@@ -372,7 +372,6 @@ impl Miner {
     }
 
     /// Total credit value of all bales currently in the hold.
-    #[cfg(any(test, feature = "test-support"))]
     pub fn cargo_value(&self) -> u32 {
         self.cargo.iter().map(|b| b.value as u32).sum()
     }

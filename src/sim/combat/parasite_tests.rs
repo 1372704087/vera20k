@@ -1583,3 +1583,79 @@ fn parasite_allow_water_exit_skips_land_but_not_the_building_gate() {
         "the shared tail still requires no building under the victim"
     );
 }
+
+/// Phobos `Parasite.ParticleSystem`/`.DisableParticleSystem` (`0x62A0D3`,
+/// `Ext/Techno/Hooks.cpp:921-940`): a non-culling bite spawns the warhead's
+/// system, an unknown name falls back to `[CombatDamage] DefaultSparkSystem`,
+/// and either disable key skips the construct.
+#[cfg(feature = "phobos")]
+#[test]
+fn parasite_bite_particle_system_falls_back_and_can_be_disabled() {
+    const SYSTEMS: &str = "[ParticleSystems]\n0=CUSTOMSPARK\n1=DEFAULTSPARK\n\
+        [CUSTOMSPARK]\nBehavesLike=Spark\nLifetime=200\n\
+        [DEFAULTSPARK]\nBehavesLike=Spark\nLifetime=200\n";
+    let bite_systems = |extra: &str| {
+        let mut ini = IniFile::from_str(RULES);
+        ini.merge(&IniFile::from_str(SYSTEMS));
+        ini.merge(&IniFile::from_str(extra));
+        let rules = rules_with_ini(&ini);
+        let mut arena = Arena::new(&rules);
+        let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+        let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+        crate::sim::arena_fixture::discover(&mut arena.sim, tank);
+        let owner = arena.sim.entities().get(tank).unwrap().owner();
+        arena
+            .sim
+            .houses
+            .register(crate::sim::house_state::HouseState::new(
+                owner, 0, None, true, 0, 10,
+            ));
+        arena.infect(&rules, drone, tank);
+        for _ in 0..150 {
+            if !arena.sim.particle_systems().is_empty() {
+                break;
+            }
+            arena.step(&rules);
+        }
+        let names: Vec<String> = arena
+            .sim
+            .particle_systems()
+            .iter()
+            .map(|(_, system)| rules.particle_system_type(system.type_id()).name.clone())
+            .collect();
+        (names, arena.health(tank).unwrap_or(0))
+    };
+    let (names, health) = bite_systems(
+        "[CombatDamage]\nDefaultSparkSystem=DEFAULTSPARK\n\
+         [Parasite]\nParasite.ParticleSystem=CUSTOMSPARK\n",
+    );
+    assert_eq!(
+        names,
+        ["CUSTOMSPARK"],
+        "the warhead system replaced the default"
+    );
+    assert!(health < 300, "a bite happened");
+    let (names, _) = bite_systems(
+        "[CombatDamage]\nDefaultSparkSystem=DEFAULTSPARK\n\
+         [Parasite]\nParasite.ParticleSystem=UNKNOWN\n",
+    );
+    assert_eq!(
+        names,
+        ["DEFAULTSPARK"],
+        "an unknown name fell back to the default"
+    );
+    let (names, health) = bite_systems(
+        "[CombatDamage]\nDefaultSparkSystem=DEFAULTSPARK\n\
+         [Parasite]\nParasite.ParticleSystem=CUSTOMSPARK\nParasite.DisableParticleSystem=yes\n",
+    );
+    assert!(names.is_empty(), "the warhead key disabled the construct");
+    assert!(health < 300, "a bite still happened");
+    let (names, _) = bite_systems(
+        "[CombatDamage]\nDefaultSparkSystem=DEFAULTSPARK\n\
+         Parasite.DisableParticleSystem=yes\n",
+    );
+    assert!(
+        names.is_empty(),
+        "the [CombatDamage] disable skipped the construct"
+    );
+}

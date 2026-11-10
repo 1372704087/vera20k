@@ -40,10 +40,11 @@ fn force(warhead: &WarheadType, damage: i32) -> NativeF64Bits {
         )
     };
     #[cfg(not(feature = "phobos"))]
-    let scaled = X::mul(
+    let scaled = X::store_f64(X::mul(
         X::load_i32(damage),
         X::load_f64(NativeF64Bits::from_bits(0x3f84_7ae1_47ae_147b)).unwrap(),
-    );
+    ))
+    .expect("finite area rocker force");
     let scaled = X::load_f64(scaled).unwrap();
     let cap = NativeF64Bits::from_bits(0x4010_0000_0000_0000);
     if X::compare(scaled, X::load_f64(cap).unwrap()) == X87Ordering::Less {

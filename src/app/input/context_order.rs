@@ -545,6 +545,10 @@ pub(super) fn base_action(
                         && object_target_is_legal(sim, rules, actor_id, *target_id)))
         }
         TargetKind::Cell(..) => human,
+        // A Phobos interceptor bullet is never a click target: commands and
+        // MEGAMISSION cannot encode it, so the client admits nothing.
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => false,
     };
     // TechnoClass::What_Action_OnObject's tail (`0x0070056C..0x007005E6`):
     // Select over an object the player may select that is not selected,
@@ -809,6 +813,8 @@ pub(crate) fn armed_action(
             rules,
             sim.interner(),
         ),
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => false,
     };
     armed.then(|| attack_action(sim, rules, actor_id, target, forced, overlay_registry))
 }
@@ -883,6 +889,8 @@ pub(crate) fn resolved_unit_in_range(
     let techno = match *target {
         TargetKind::Entity(id) => sim.entities().get(id),
         TargetKind::Cell(..) => None,
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => return false,
     };
     let target = match techno {
         Some(entity) => crate::sim::combat::MaplessTarget::Techno(entity),
@@ -1170,6 +1178,10 @@ fn attack_branch_orders(
                             }
                         }
                     }
+                    // A Phobos interceptor bullet is AI-only and cannot be
+                    // carried by a Command.
+                    #[cfg(feature = "phobos")]
+                    TargetKind::Bullet(..) => continue,
                 };
                 queued.push(payload);
             }
@@ -1771,6 +1783,10 @@ fn move_click_command(
             entity_id,
             target_id,
         },
+        // A bullet is never a click destination (commands cannot encode it);
+        // never fabricate one from its id.
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => Command::Stop { entity_id },
     }
 }
 

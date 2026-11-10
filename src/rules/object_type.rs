@@ -1088,6 +1088,10 @@ pub struct ObjectType {
     /// passenger pass.
     #[cfg(feature = "phobos")]
     pub phobos_driver_killed: crate::rules::phobos_driver_killed::PhobosDriverKilled,
+    /// Phobos `CombatAlert.*` (`Ext/TechnoType/Body.cpp:846-851`): the six
+    /// per-type alert keys consumed by `sim::combat::combat_alert`.
+    #[cfg(feature = "phobos")]
+    pub phobos_combat_alert: crate::rules::phobos_combat_alert::PhobosCombatAlert,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -5137,6 +5141,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_driver_killed:
                 crate::rules::phobos_driver_killed::PhobosDriverKilled::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_combat_alert:
+                crate::rules::phobos_combat_alert::PhobosCombatAlert::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

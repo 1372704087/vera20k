@@ -145,6 +145,7 @@ Supported extensions:
 - [StartFacing](phobos-start-facing.md) (`StartFacing`/`StartFacing.Random`: a building's initial facing, optionally one random draw per building; 2 keys + 2 globals)
 - [FactoryPlant restricted lists](phobos-factory-plant.md) (`FactoryPlant.AllowTypes`/`.DisallowTypes`/`.MaxCount` + `FactoryPlant.Multiplier`: per-type cost and refund discounts from a plant kept out of House+140; 3 keys + 1 type key)
 - [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
+- [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
 
 ## Original project and authors
 

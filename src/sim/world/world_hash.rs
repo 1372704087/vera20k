@@ -1274,6 +1274,15 @@ impl Simulation {
             house.repair_start_latch().hash(hasher);
             i64::from(house.repair_latch_timer().start_frame()).hash(hasher);
             house.repair_latch_timer().duration().hash(hasher);
+            // Phobos HouseExt `CombatAlertTimer` (`Ext/House/Body.h:46`): a
+            // real House field in the extension's save block. Tagged and
+            // folded only once started, so a House that never alerted keeps
+            // the native-only stream.
+            #[cfg(feature = "phobos")]
+            if *house.combat_alert_timer() != crate::sim::timer::CdTimer::default() {
+                b"phobos-house-combat-alert-timer-v1".hash(hasher);
+                house.combat_alert_timer().hash(hasher);
+            }
             // Tagged and folded only off their constructor values, so a house
             // without computer production hashes as earlier schemas did.
             let gatherers = house.tracking().resource_gatherers();

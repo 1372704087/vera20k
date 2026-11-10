@@ -399,6 +399,59 @@ pub struct PhobosGlobals {
     /// (`:539`, `:956`).
     #[serde(default = "zero_f64")]
     pub extra_threat_coefficient_distance_to_last_target: NativeF64Bits,
+    /// `[AudioVisual] CombatAlert=`, the master switch, default **`no`**
+    /// (`Ext/Rules/Body.cpp:355`, constructor `Ext/Rules/Body.h:783`).
+    #[serde(default)]
+    pub combat_alert: bool,
+    /// `[AudioVisual] CombatAlert.Default=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:356`, constructor `Body.h:784` unset): the
+    /// fallback for an unset TechnoType `CombatAlert`; unset in turn admits
+    /// `!Insignificant && !Spawned` (`Ext/Techno/Hooks.ReceiveDamage.cpp:101`).
+    #[serde(default)]
+    pub combat_alert_default: Option<bool>,
+    /// `[AudioVisual] CombatAlert.IgnoreBuilding=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:357`, constructor `Body.h:785`): an ordinary
+    /// building is skipped unless its type is vehicle-like.
+    #[serde(default = "true_bool")]
+    pub combat_alert_ignore_building: bool,
+    /// `[AudioVisual] CombatAlert.SuppressIfInScreen=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:358`, constructor `Body.h:786`). Presentation-only:
+    /// the simulation has no tactical view, so VERA cannot apply it
+    /// (`docs/phobos-combat-alert.md` records the residual).
+    #[serde(default = "true_bool")]
+    pub combat_alert_suppress_if_in_screen: bool,
+    /// `[AudioVisual] CombatAlert.Interval=`, `Valueable<int>` frames,
+    /// default 150 (`Ext/Rules/Body.cpp:359`, constructor `Body.h:787`).
+    #[serde(default = "combat_alert_interval_default")]
+    pub combat_alert_interval: i32,
+    /// `[AudioVisual] CombatAlert.SuppressIfAllyDamage=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:360`, constructor `Body.h:788`).
+    #[serde(default = "true_bool")]
+    pub combat_alert_suppress_if_ally_damage: bool,
+    /// `[AudioVisual] CombatAlert.MakeAVoice=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:361`, constructor `Body.h:789`): `no` keeps the
+    /// radar ping but plays no voice or EVA line
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:125`).
+    #[serde(default = "true_bool")]
+    pub combat_alert_make_a_voice: bool,
+    /// `[AudioVisual] CombatAlert.UseFeedbackVoice=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:362`, constructor `Body.h:790`): the fallback for
+    /// the type's key.
+    #[serde(default = "true_bool")]
+    pub combat_alert_use_feedback_voice: bool,
+    /// `[AudioVisual] CombatAlert.UseAttackVoice=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:363`, constructor `Body.h:791`).
+    #[serde(default = "true_bool")]
+    pub combat_alert_use_attack_voice: bool,
+    /// `[AudioVisual] CombatAlert.UseEVA=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:364`, constructor `Body.h:792`).
+    #[serde(default = "true_bool")]
+    pub combat_alert_use_eva: bool,
+}
+
+/// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
+fn combat_alert_interval_default() -> i32 {
+    150
 }
 
 impl Default for PhobosGlobals {
@@ -482,6 +535,16 @@ impl Default for PhobosGlobals {
             extra_threat_coefficient_in_range_distance: NativeF64Bits::POSITIVE_ZERO,
             extra_threat_coefficient_facing: NativeF64Bits::POSITIVE_ZERO,
             extra_threat_coefficient_distance_to_last_target: NativeF64Bits::POSITIVE_ZERO,
+            combat_alert: false,
+            combat_alert_default: None,
+            combat_alert_ignore_building: true,
+            combat_alert_suppress_if_in_screen: true,
+            combat_alert_interval: combat_alert_interval_default(),
+            combat_alert_suppress_if_ally_damage: true,
+            combat_alert_make_a_voice: true,
+            combat_alert_use_feedback_voice: true,
+            combat_alert_use_attack_voice: true,
+            combat_alert_use_eva: true,
         }
     }
 }
@@ -536,6 +599,40 @@ impl PhobosGlobals {
                 &globals.promote_elite_animation,
                 keep,
             );
+        // `[AudioVisual] CombatAlert*` (`Ext/Rules/Body.cpp:355-364`): the
+        // master switch, the nullable default and interval, and the three
+        // type-key fallbacks. `Valueable` reads from the constructor values;
+        // `CombatAlert.Default` is `Nullable<bool>` and stays unset until a
+        // layer names it.
+        globals.combat_alert = audio_visual.read_bool("CombatAlert", globals.combat_alert);
+        globals.combat_alert_default = audio_visual
+            .read_phobos_nullable_bool("CombatAlert.Default", globals.combat_alert_default);
+        globals.combat_alert_ignore_building = audio_visual.read_bool(
+            "CombatAlert.IgnoreBuilding",
+            globals.combat_alert_ignore_building,
+        );
+        globals.combat_alert_suppress_if_in_screen = audio_visual.read_bool(
+            "CombatAlert.SuppressIfInScreen",
+            globals.combat_alert_suppress_if_in_screen,
+        );
+        globals.combat_alert_interval =
+            audio_visual.read_ares_int("CombatAlert.Interval", globals.combat_alert_interval);
+        globals.combat_alert_suppress_if_ally_damage = audio_visual.read_bool(
+            "CombatAlert.SuppressIfAllyDamage",
+            globals.combat_alert_suppress_if_ally_damage,
+        );
+        globals.combat_alert_make_a_voice =
+            audio_visual.read_bool("CombatAlert.MakeAVoice", globals.combat_alert_make_a_voice);
+        globals.combat_alert_use_feedback_voice = audio_visual.read_bool(
+            "CombatAlert.UseFeedbackVoice",
+            globals.combat_alert_use_feedback_voice,
+        );
+        globals.combat_alert_use_attack_voice = audio_visual.read_bool(
+            "CombatAlert.UseAttackVoice",
+            globals.combat_alert_use_attack_voice,
+        );
+        globals.combat_alert_use_eva =
+            audio_visual.read_bool("CombatAlert.UseEVA", globals.combat_alert_use_eva);
         // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
         // the three sections share no key, so their order does not matter.
         let general = ini.section_or_empty("General");

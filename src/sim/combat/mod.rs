@@ -33,6 +33,8 @@ pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
 pub(crate) mod combat_aoe;
+#[cfg(feature = "phobos")]
+mod combat_alert;
 pub(crate) mod combat_targeting;
 pub(crate) mod extra_threat;
 pub mod combat_weapon;

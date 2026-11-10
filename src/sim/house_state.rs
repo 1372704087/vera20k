@@ -976,6 +976,14 @@ pub struct HouseState {
     /// until it expires. The constructor starts it at the construction frame
     /// with no time left. Persisted and hashed (schema v216).
     repair_latch_timer: CdTimer,
+    /// Phobos HouseExt `CombatAlertTimer` (`Ext/House/Body.h:46`, constructed
+    /// empty at `:102`): the throttle between two combat alerts for this
+    /// House (`Ext/Techno/Hooks.ReceiveDamage.cpp:95,121`). Native keeps it in
+    /// the House extension, so saves and the state hash carry it. Expired
+    /// until the first accepted alert starts it.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    combat_alert_timer: CdTimer,
     /// House+57E4..+15FF3: native retained 130x130 padded spatial threat map.
     /// Constructor4F61EF/4F6312 clears it. Save504093 and Load5031C9 retain
     /// it through the raw House stream; rebuilding from current objects loses
@@ -1726,6 +1734,19 @@ impl HouseState {
 
     pub const fn repair_latch_timer(&self) -> &CdTimer {
         &self.repair_latch_timer
+    }
+
+    /// Phobos HouseExt `CombatAlertTimer` (`Ext/House/Body.h:46`).
+    #[cfg(feature = "phobos")]
+    pub const fn combat_alert_timer(&self) -> &CdTimer {
+        &self.combat_alert_timer
+    }
+
+    /// `CombatAlertTimer.Start(CombatAlert.Interval)` after an accepted alert
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:121`).
+    #[cfg(feature = "phobos")]
+    pub fn start_combat_alert(&mut self, frame: i32, interval: i32) {
+        self.combat_alert_timer.start(frame, interval);
     }
 
     /// Final fresh-reader name: HouseReadINI500A62 or offline generated
@@ -3009,6 +3030,8 @@ impl HouseState {
             eva_low_power_guard: false,
             repair_start_latch: false,
             repair_latch_timer: CdTimer::started(0, 0),
+            #[cfg(feature = "phobos")]
+            combat_alert_timer: CdTimer::default(),
             spatial_threat: Default::default(),
             super_weapon_targets: HouseSuperWeaponTargets::default(),
         }

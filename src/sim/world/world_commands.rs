@@ -3013,9 +3013,23 @@ impl Simulation {
         context: super::UninitContext<'_>,
     ) -> bool {
         let requested: BTreeSet<u64> = stable_ids.iter().copied().collect();
+        let keys: Vec<u64> = self.substrate.entities.keys_sorted();
+        // Phobos `MapClass_UnselectAll_ClearLimboLaunchers @ 0x48DC90`
+        // (`Ext/WarheadType/Hooks.cpp:659-674`): the Unselect_All an empty
+        // snapshot represents also clears every remembered `UnlimboDetonate`
+        // selection, so a limbo-launched firer is not re-selected when its
+        // bullet lands. Native clears on every Unselect_All; VERA sees only
+        // this input snapshot as one.
+        #[cfg(feature = "phobos")]
+        if stable_ids.is_empty() {
+            for &id in &keys {
+                if let Some(entity) = self.substrate.entities.get_mut(id) {
+                    entity.unlimbo_detonate.clear();
+                }
+            }
+        }
         // Deselect only omitted old members. Requested old members remain set,
         // so the final-admission gates below are never reapplied to them.
-        let keys: Vec<u64> = self.substrate.entities.keys_sorted();
         for &id in &keys {
             if !requested.contains(&id)
                 && let Some(e) = self.substrate.entities.get_mut(id)

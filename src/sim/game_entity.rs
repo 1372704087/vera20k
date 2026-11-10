@@ -382,6 +382,15 @@ pub struct GameEntity {
     #[serde(default)]
     pub(crate) wh_anim_remaining_creation_interval:
         crate::sim::warhead_anim::TechnoWarheadAnimInterval,
+    /// Phobos `TechnoExt::IsSelected`, the remembered selection a
+    /// `LimboLaunch=` firer had when it fired an `UnlimboDetonate=` warhead
+    /// (`Ext/WarheadType/Hooks.cpp:613-651`, consumed at
+    /// `Ext/Bullet/Hooks.DetonateLogics.cpp:572-578`). Client-local like
+    /// `limbo_reselect`; not hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) unlimbo_detonate:
+        crate::sim::combat::phobos_unlimbo_detonate::UnlimboDetonateSelection,
     /// The raw signed type `Sight=`, a [`SightFacts`] that
     /// `sim::vision` owns.
     ///
@@ -2573,6 +2582,8 @@ impl GameEntity {
             phobos_placement: Default::default(),
             #[cfg(feature = "phobos")]
             wh_anim_remaining_creation_interval: Default::default(),
+            #[cfg(feature = "phobos")]
+            unlimbo_detonate: Default::default(),
             #[cfg(feature = "debug-tools")]
             debug_log: None,
             stable_id,
@@ -2996,6 +3007,16 @@ impl GameEntity {
     /// preserves the rate retained from any preceding fall.
     pub(crate) fn begin_parachute_fall(&mut self, z: i32) {
         self.position.put_z(z);
+        self.fall.begin_fall();
+    }
+
+    /// Phobos `BulletClass_Logics_Extras`'s airborne reappear
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:556-560`): after `Unlimbo` placed
+    /// the firer, raise `IsFallingDown` (`Object+0x8D`) alone. The Phobos
+    /// `TechnoExt::OnParachuted` pair has no VERA consumer yet
+    /// (`FallingDownDamage` is unported), so it is a recorded residual.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn raise_falling_down(&mut self) {
         self.fall.begin_fall();
     }
 

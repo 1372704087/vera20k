@@ -113,6 +113,8 @@ Supported extensions:
 - [Attack move](phobos-attack-move.md) (`AttackMove.IgnoreWeaponCheck`, `.Aggressive` and `.UpdateTarget`: the weapon check on the order, unarmed buildings as targets, and the target swap)
 - [Attack-move followers](phobos-attack-move-follow.md) (`AttackMove.Follow*`: escort the nearest friendly attack-mover, air inclusion, the mind-control-full condition and the per-leader follower count)
 - [Trajectory base and Straight](phobos-trajectory-straight.md) (`Trajectory` selection, `Trajectory.Speed` and the 30 `Trajectory.Straight.*` keys: speed flight, snap/detonation distances, pass/proximity hits, obstacles and attenuation; 32 keys)
+- [Bombard trajectory](phobos-trajectory-bombard.md) (`Trajectory.Bombard.*`: the turning-point lob, fall/scatter, early detonation, lead time and burst rotation; 21 keys)
+- [Parabola trajectory](phobos-trajectory-parabola.md) (`Trajectory.Parabola.*`: six open-fire modes, lead solve, bounce ladder and detonation gates; 18 keys)
 - [Spy-effect superweapon launches](phobos-spy-effect.md) (`SpyEffect.*` victim/infiltrator launches on a spy infiltration, with the recharge kept; 3 keys)
 - [Rearm and reload holds](phobos-no-rearm.md) (`NoRearm.*` / `NoReload.*` freeze the rearm and ammo-reload timers while EMP'd or Temporal-held; 4 keys + 4 `[General]` globals)
 - [Passenger owner sync](phobos-passengers-sync-owner.md) (`Passengers.SyncOwner` re-houses cargo on the transport's house change, `Passengers.SyncOwner.RevertOnExit` restores board-time houses on exit and on the carrier's death, and the threat-eval owner substitution skip; 2 keys + 2 `[General]` globals)

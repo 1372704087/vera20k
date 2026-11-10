@@ -41,6 +41,16 @@ fn fire(
     origin: ProjectileCoord,
     target_position: ProjectileCoord,
 ) -> u64 {
+    fire_with_weapon(scene, "GUN", target, origin, target_position)
+}
+
+fn fire_with_weapon(
+    scene: &mut Scene,
+    weapon_name: &str,
+    target: ProjectileTarget,
+    origin: ProjectileCoord,
+    target_position: ProjectileCoord,
+) -> u64 {
     let projectile_type = scene.sim.interner.intern("PROJ");
     let warhead = scene.sim.interner.intern("WH");
     let spawn = ProjectileSpawn {
@@ -65,9 +75,34 @@ fn fire(
         collision: ProjectileCollisionPolicy::NONE,
     };
     let id = scene.sim.projectiles.spawn_at(1, 0, spawn, origin);
-    let weapon = scene.rules.weapon("GUN").expect("weapon").clone();
+    let weapon = scene.rules.weapon(weapon_name).expect("weapon").clone();
     scene.sim.init_phobos_trajectory(id, &scene.rules, &weapon);
     id
+}
+
+fn state_of<'a>(scene: &'a Scene, id: u64) -> &'a super::PhobosTrajectoryState {
+    scene
+        .sim
+        .projectiles
+        .get(id)
+        .expect("bullet")
+        .phobos_trajectory()
+        .expect("trajectory state")
+}
+
+fn magnitude(velocity: ProjectileVelocity) -> f64 {
+    f64_of(velocity.x)
+        .hypot(f64_of(velocity.y))
+        .hypot(f64_of(velocity.z))
+}
+
+fn target_position(scene: &Scene, id: u64) -> ProjectileCoord {
+    let entity = scene.sim.substrate.entities.get(id).expect("target");
+    let coords = crate::sim::movement::ground_pose::object_get_coords(
+        entity,
+        scene.sim.resolved_terrain.as_ref(),
+    );
+    ProjectileCoord::new(coords.x, coords.y, coords.z)
 }
 
 fn cell_center(cell: (u16, u16)) -> ProjectileCoord {
@@ -317,6 +352,473 @@ fn subject_to_ground_detonates_below_the_floor_and_confine_lifts() {
     assert!(
         f64_of(velocity_of(&scene, id).z) > 0.0,
         "ConfineAtHeight raises the flight"
+    );
+}
+
+#[test]
+fn bombard_defaults_throw_from_the_height_and_speed() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=32\n\
+         Trajectory.Bombard.Height=200\n\
+         Trajectory.Bombard.FallSpeed=16\n",
+    );
+    let origin = cell_center((22, 10));
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        origin,
+        cell_center((28, 10)),
+    );
+    let bullet = scene.sim.projectiles.get(id).expect("bullet");
+    assert_eq!(bullet.position().z, 200, "the middle sits at Height");
+    assert!((magnitude(bullet.velocity()) - 32.0).abs() < 1e-6);
+    let state = state_of(&scene, id);
+    assert_eq!(state.kind, TrajectoryFlag::Bombard);
+    assert!((f64_of(state.bombard_fall_percent) - 1.0).abs() < 1e-12);
+    assert!(!state.is_falling);
+}
+
+#[test]
+fn bombard_cruises_then_falls_and_detonates_on_the_target() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=32\n\
+         Trajectory.Bombard.Height=100\n\
+         Trajectory.Bombard.FallSpeed=32\n\
+         Trajectory.Bombard.DetonationDistance=0.5\n",
+    );
+    let target = cell_center((28, 10));
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        target,
+    );
+    let mut detonation = None;
+    for _ in 0..200 {
+        let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+        if let Some(hit) = step.detonations.first().copied() {
+            detonation = Some(hit);
+            break;
+        }
+    }
+    let detonation = detonation.expect("the bomb reaches the target");
+    assert_eq!(
+        detonation.reason,
+        ProjectileDetonationReason::PhobosTrajectory
+    );
+    let distance_x = detonation.impact.x - target.x;
+    let distance_y = detonation.impact.y - target.y;
+    assert!(
+        (distance_x * distance_x + distance_y * distance_y) < 256 * 256,
+        "DetonationDistance ends the fall"
+    );
+}
+
+#[test]
+fn bombard_early_detonation_checks_the_source_height() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=16\n\
+         Trajectory.Bombard.Height=300\n\
+         Trajectory.Bombard.DetonationHeight=50\n\
+         Trajectory.Bombard.EarlyDetonation=yes\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((28, 10)),
+    );
+    let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    assert_eq!(step.detonations.len(), 1, "the middle is above 50 leptons");
+}
+
+#[test]
+fn bombard_fall_scatter_and_offset_shift_the_middle() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=16\n\
+         Trajectory.Bombard.Height=100\n\
+         Trajectory.Bombard.FallScatter.Min=1\n\
+         Trajectory.Bombard.FallScatter.Max=1\n",
+    );
+    let target = cell_center((28, 10));
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        target,
+    );
+    let middle = scene.sim.projectiles.get(id).expect("bullet").position();
+    let scatter = f64::from(middle.x - target.x).hypot(f64::from(middle.y - target.y));
+    assert!((scatter - 256.0).abs() < 1.0, "a one-cell radial scatter");
+
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=16\n\
+         Trajectory.Bombard.Height=100\n\
+         Trajectory.Bombard.OffsetCoord=100,0\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        target,
+    );
+    assert_eq!(state_of(&scene, id).last_target_coord.x, target.x + 100);
+}
+
+#[test]
+fn bombard_no_launch_starts_falling_at_once() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=16\n\
+         Trajectory.Bombard.Height=200\n\
+         Trajectory.Bombard.FallSpeed=16\n\
+         Trajectory.Bombard.NoLaunch=yes\n\
+         Trajectory.Bombard.FreeFallOnTarget=no\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((28, 10)),
+    );
+    let state = state_of(&scene, id);
+    assert!(state.is_falling);
+    let bullet = scene.sim.projectiles.get(id).expect("bullet");
+    assert_eq!(bullet.position().z, 200);
+    assert!((f64_of(bullet.velocity().z) + 16.0).abs() < 1e-6);
+}
+
+#[test]
+fn bombard_lead_waits_one_frame_and_predicts_a_moving_target() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=32\n\
+         Trajectory.Bombard.Height=200\n\
+         Trajectory.Bombard.NoLaunch=yes\n\
+         Trajectory.Bombard.LeadTimeCalculate=yes\n",
+    );
+    let target_id = scene
+        .sim
+        .spawn_object("TGT", "Americans", 26, 10, 0, &scene.rules)
+        .expect("target");
+    let initial = target_position(&scene, target_id);
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Entity(target_id),
+        cell_center((22, 10)),
+        initial,
+    );
+    assert_eq!(state_of(&scene, id).wait_one_frame, 2);
+
+    scene
+        .sim
+        .substrate
+        .entities
+        .get_mut(target_id)
+        .expect("target")
+        .position
+        .set_rx_for_test(27);
+    let _ = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    assert_eq!(state_of(&scene, id).wait_one_frame, 1);
+
+    scene
+        .sim
+        .substrate
+        .entities
+        .get_mut(target_id)
+        .expect("target")
+        .position
+        .set_rx_for_test(28);
+    let _ = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    let live = target_position(&scene, target_id);
+    assert!(
+        state_of(&scene, id).last_target_coord.x > live.x,
+        "the lead solve predicts the next target cell"
+    );
+}
+
+#[test]
+fn bombard_disperse_burst_rotates_the_burst() {
+    let mut scene = fixture(
+        "Trajectory=Bombard\nTrajectory.Speed=32\n\
+         Trajectory.Bombard.Height=200\n\
+         Trajectory.Bombard.RotateCoord=90\n\
+         Trajectory.Bombard.MirrorCoord=no\n\
+         [GUN3]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\n\
+         Warhead=WH\nBurst=3\n",
+    );
+    let id = fire_with_weapon(
+        &mut scene,
+        "GUN3",
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((28, 10)),
+    );
+    assert!(
+        f64_of(scene.sim.projectiles.get(id).expect("bullet").velocity().y).abs() > 1.0,
+        "a non-mirrored burst rotates the launch vector"
+    );
+}
+
+#[test]
+fn parabola_default_speed_mode_moves_horizontally_at_trajectory_speed() {
+    let mut scene = fixture("Trajectory=Parabola\nTrajectory.Speed=32\n");
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    let velocity = scene.sim.projectiles.get(id).expect("bullet").velocity();
+    let horizontal = f64_of(velocity.x).hypot(f64_of(velocity.y));
+    assert!((horizontal - 32.0).abs() < 1e-6);
+    assert!(f64_of(velocity.z) > 0.0, "Speed mode lobs to the target");
+    assert_eq!(state_of(&scene, id).throw_height, 600);
+}
+
+#[test]
+fn parabola_height_mode_throws_above_the_target_and_detonates() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.OpenFireMode=height\n\
+         Trajectory.Parabola.ThrowHeight=100\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    assert!(
+        f64_of(scene.sim.projectiles.get(id).expect("bullet").velocity().z) > 20.0,
+        "the throw rises to about ThrowHeight"
+    );
+    let mut detonated = false;
+    for _ in 0..200 {
+        let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+        if !step.detonations.is_empty() {
+            detonated = true;
+            break;
+        }
+    }
+    assert!(detonated, "the arc lands and detonates");
+}
+
+#[test]
+fn parabola_detonation_angle_ends_the_descent() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.DetonationAngle=45\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    let mut detonated = false;
+    for _ in 0..200 {
+        let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+        if !step.detonations.is_empty() {
+            detonated = true;
+            break;
+        }
+    }
+    assert!(detonated, "the flight ends on the descent angle");
+}
+
+#[test]
+fn parabola_offset_coord_shifts_the_aim() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.OffsetCoord=100,0\n",
+    );
+    let target = cell_center((26, 10));
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        target,
+    );
+    assert_eq!(state_of(&scene, id).last_target_coord.x, target.x + 100);
+}
+
+#[test]
+fn parabola_bounce_detonates_once_and_attenuates() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.OpenFireMode=height\n\
+         Trajectory.Parabola.ThrowHeight=100\n\
+         Trajectory.Parabola.DetonationDistance=-1\n\
+         Trajectory.Parabola.BounceTimes=1\n\
+         Trajectory.Parabola.BounceDetonate=yes\n\
+         Trajectory.Parabola.BounceAttenuation=0.5\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    let mut bounced = false;
+    let mut detonated = false;
+    for _ in 0..200 {
+        let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+        if !step.extra_detonations.is_empty() {
+            bounced = true;
+            assert_eq!(step.extra_detonations[0].payload.base_damage, 10);
+        }
+        if !step.detonations.is_empty() {
+            detonated = true;
+            break;
+        }
+    }
+    assert!(bounced, "BounceDetonate fires on the bounce");
+    assert!(detonated, "the second contact detonates");
+    assert_eq!(state_of(&scene, id).bounce_times, 0);
+    assert_eq!(
+        scene
+            .sim
+            .projectiles
+            .get(id)
+            .expect("bullet")
+            .payload()
+            .base_damage,
+        5,
+        "BounceAttenuation scales the remaining damage"
+    );
+}
+
+#[test]
+fn parabola_water_without_bounce_on_water_detonates() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.OpenFireMode=height\n\
+         Trajectory.Parabola.ThrowHeight=100\n\
+         Trajectory.Parabola.DetonationDistance=-1\n\
+         Trajectory.Parabola.BounceTimes=1\n\
+         Trajectory.Parabola.BounceDetonate=yes\n",
+    );
+    crate::sim::arena_fixture::flood(
+        &mut scene.sim,
+        &scene.rules,
+        32,
+        [(25, 10), (26, 10), (27, 10)],
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    let mut bounced = false;
+    let mut detonated = false;
+    for _ in 0..200 {
+        let step = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+        bounced |= !step.extra_detonations.is_empty();
+        if !step.detonations.is_empty() {
+            detonated = true;
+            break;
+        }
+    }
+    assert!(detonated, "water without BounceOnWater ends the flight");
+    assert!(!bounced, "no bounce detonation on water");
+    assert_eq!(state_of(&scene, id).bounce_times, 1);
+}
+
+#[test]
+fn parabola_lead_waits_one_frame_and_predicts_a_moving_target() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=300\n\
+         Trajectory.Parabola.LeadTimeCalculate=yes\n",
+    );
+    let target_id = scene
+        .sim
+        .spawn_object("TGT", "Americans", 26, 10, 0, &scene.rules)
+        .expect("target");
+    let initial = target_position(&scene, target_id);
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Entity(target_id),
+        cell_center((22, 10)),
+        initial,
+    );
+    assert_eq!(state_of(&scene, id).wait_one_frame, 2);
+
+    scene
+        .sim
+        .substrate
+        .entities
+        .get_mut(target_id)
+        .expect("target")
+        .position
+        .set_rx_for_test(27);
+    let _ = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    assert_eq!(state_of(&scene, id).wait_one_frame, 1);
+
+    scene
+        .sim
+        .substrate
+        .entities
+        .get_mut(target_id)
+        .expect("target")
+        .position
+        .set_rx_for_test(28);
+    let _ = scene.sim.step_phobos_trajectory(id, &scene.rules, None);
+    let live = target_position(&scene, target_id);
+    assert!(
+        state_of(&scene, id).last_target_coord.x > live.x,
+        "the lead solve aims ahead of the target"
+    );
+}
+
+#[test]
+fn parabola_disperse_burst_rotates_the_burst() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.RotateCoord=90\n\
+         Trajectory.Parabola.MirrorCoord=no\n\
+         [GUN3]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\n\
+         Warhead=WH\nBurst=3\n",
+    );
+    let id = fire_with_weapon(
+        &mut scene,
+        "GUN3",
+        ProjectileTarget::Cell { rx: 26, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((26, 10)),
+    );
+    assert!(
+        f64_of(scene.sim.projectiles.get(id).expect("bullet").velocity().y).abs() > 1.0,
+        "a non-mirrored burst rotates the launch vector"
+    );
+}
+
+#[test]
+fn parabola_without_the_flag_keeps_the_stock_arms() {
+    let mut scene = fixture(
+        "Trajectory.Parabola.ThrowHeight=100\n\
+         Trajectory.Parabola.BounceTimes=2\n",
+    );
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Cell { rx: 28, ry: 10 },
+        cell_center((22, 10)),
+        cell_center((28, 10)),
+    );
+    assert!(
+        !scene
+            .sim
+            .projectiles
+            .get(id)
+            .expect("bullet")
+            .has_phobos_trajectory()
+    );
+    assert!(
+        scene
+            .rules
+            .projectile("PROJ")
+            .expect("type")
+            .phobos_trajectory
+            .is_stock()
     );
 }
 

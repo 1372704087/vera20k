@@ -3,8 +3,8 @@
 Phobos lets a BulletType fly with its own trajectory implementation instead of
 the stock `BulletClass::AI` arms. This page covers the base selection
 (`Trajectory`, `Trajectory.Speed`) and the `Straight` type: **32 keys**.
-Parabola (20 keys) and Bombard (21 keys) are separate chains and stay dormant
-here; their flag names parse but create no instance.
+Bombard (21 keys) and Parabola (18 keys) have their own pages
+([bombard](phobos-trajectory-bombard.md), [parabola](phobos-trajectory-parabola.md)).
 
 ```ini
 [PROJECTILE]                              ; BulletType
@@ -109,6 +109,9 @@ and the `GetCellsInRectangle` proximity scan.
 - `ProximityFlight` adds airborne targets on top of the ground scan.
 - The map test is the native diamond (`MapClass::CoordinatesLegal`), not a
   rectangle.
+- `PassDetonate` and proximity hits are warhead detonations that leave the
+  bullet flying; they ride `TrajectoryStep::extra_detonations`, not the
+  terminal impact that retires it.
 
 ## Residuals (trigger · impact · frequency · risk)
 
@@ -138,6 +141,9 @@ and the `GetCellsInRectangle` proximity scan.
 - **Merged-section reads.** A later INI layer re-declaring `Trajectory=` with
   a different flag reconstructs the type natively; the merged reader sees only
   the final value. Frequency: layered re-declarations. Risk: low.
-- **Parabola/Bombard.** Flags parse and remain dormant; their arms are
-  separate chains.
+- **`Trajectory.Sample.*`.** `SampleTrajectoryType::Flag()` returns
+  `TrajectoryFlag::Invalid` (`SampleTrajectory.h:15`) and the `Trajectory`
+  reader accepts only `Straight`/`Bombard`/`Parabola`
+  (`PhobosTrajectory.cpp:27-49`), so no INI flag constructs a Sample instance;
+  `Trajectory.Sample.TargetSnapDistance` is dormant and unported.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

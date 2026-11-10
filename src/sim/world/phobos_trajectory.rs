@@ -22,6 +22,12 @@
 #[cfg(feature = "phobos")]
 #[path = "phobos_trajectory_ai.rs"]
 mod ai;
+#[cfg(feature = "phobos")]
+#[path = "phobos_trajectory_bombard.rs"]
+mod bombard;
+#[cfg(feature = "phobos")]
+#[path = "phobos_trajectory_parabola.rs"]
+mod parabola;
 
 use std::collections::BTreeMap;
 
@@ -76,13 +82,141 @@ pub(crate) struct PhobosTrajectoryState {
     pub count_of_burst: i32,
     /// `WaitOneFrame`: 2 waits for the target's first update, 1 consumed it.
     pub wait_one_frame: i32,
+    /// `BombardTrajectory::Height`, `height + TargetCoords.Z` at Unlimbo.
+    #[serde(default = "zero_bits")]
+    pub bombard_height: NativeF64Bits,
+    /// `BombardTrajectory::FallPercent`, shifted by the type value and the
+    /// one `RandomRanged(0, 200 * FallPercentShift)` draw at Unlimbo.
+    #[serde(default = "zero_bits")]
+    pub bombard_fall_percent: NativeF64Bits,
+    /// `BombardTrajectory::InitialTargetCoord`.
+    #[serde(default = "zero_coord")]
+    pub initial_target_coord: ProjectileCoord,
+    /// `BombardTrajectory::IsFalling` / `ToFalling`.
+    #[serde(default)]
+    pub is_falling: bool,
+    #[serde(default)]
+    pub to_falling: bool,
+    /// `BombardTrajectory::RotateAngle` (binary64 radians).
+    #[serde(default = "zero_bits")]
+    pub rotate_angle: NativeF64Bits,
+    /// `ParabolaTrajectory::ThrowHeight`, 600 when the type value is `<= 0`.
+    #[serde(default)]
+    pub throw_height: i32,
+    /// `ParabolaTrajectory::BounceTimes` left.
+    #[serde(default)]
+    pub bounce_times: i32,
+    /// `ParabolaTrajectory::ShouldDetonate` / `ShouldBounce` / `NeedExtraCheck`.
+    #[serde(default)]
+    pub should_detonate: bool,
+    #[serde(default)]
+    pub should_bounce: bool,
+    #[serde(default)]
+    pub need_extra_check: bool,
+    /// `ParabolaTrajectory::LastVelocity` used by the bounce reflection.
+    #[serde(default = "zero_velocity")]
+    pub last_velocity: [NativeF64Bits; 3],
+}
+
+#[cfg(feature = "phobos")]
+fn zero_bits() -> NativeF64Bits {
+    NativeF64Bits::from_bits(0)
+}
+
+#[cfg(feature = "phobos")]
+fn zero_coord() -> ProjectileCoord {
+    ProjectileCoord::new(0, 0, 0)
+}
+
+#[cfg(feature = "phobos")]
+fn zero_velocity() -> [NativeF64Bits; 3] {
+    [NativeF64Bits::from_bits(0); 3]
+}
+
+/// Deterministic fold of the per-bullet trajectory instance; only a bullet
+/// that carries one contributes.
+#[cfg(feature = "phobos")]
+impl PhobosTrajectoryState {
+    /// The instance fields a class constructor leaves at zero before
+    /// `OnUnlimbo` fills them ([`crate::sim::world::phobos_trajectory`]).
+    fn base(kind: TrajectoryFlag) -> Self {
+        Self {
+            kind,
+            detonation_distance: 0,
+            pass_detonate_damage: 0,
+            pass_detonate_timer: CdTimer::default(),
+            offset_coord: [0; 3],
+            use_disperse_burst: false,
+            proximity_impact: 0,
+            proximity_damage: 0,
+            remaining_distance: 1,
+            extra_check: None,
+            the_casualty: BTreeMap::new(),
+            firepower_mult: NativeF64Bits::ONE,
+            attenuation_range: 0,
+            last_target_coord: zero_coord(),
+            current_burst: 0,
+            count_of_burst: 0,
+            wait_one_frame: 0,
+            bombard_height: zero_bits(),
+            bombard_fall_percent: zero_bits(),
+            initial_target_coord: zero_coord(),
+            is_falling: false,
+            to_falling: false,
+            rotate_angle: zero_bits(),
+            throw_height: 0,
+            bounce_times: 0,
+            should_detonate: false,
+            should_bounce: false,
+            need_extra_check: false,
+            last_velocity: zero_velocity(),
+        }
+    }
+
+    pub(crate) fn hash_state(&self, hasher: &mut impl std::hash::Hasher) {
+        use std::hash::Hash;
+        self.kind.hash(hasher);
+        self.detonation_distance.hash(hasher);
+        self.pass_detonate_damage.hash(hasher);
+        self.pass_detonate_timer.hash(hasher);
+        self.offset_coord.hash(hasher);
+        self.use_disperse_burst.hash(hasher);
+        self.proximity_impact.hash(hasher);
+        self.proximity_damage.hash(hasher);
+        self.remaining_distance.hash(hasher);
+        self.extra_check.hash(hasher);
+        self.the_casualty.hash(hasher);
+        self.firepower_mult.hash(hasher);
+        self.attenuation_range.hash(hasher);
+        self.last_target_coord.hash(hasher);
+        self.current_burst.hash(hasher);
+        self.count_of_burst.hash(hasher);
+        self.wait_one_frame.hash(hasher);
+        self.bombard_height.hash(hasher);
+        self.bombard_fall_percent.hash(hasher);
+        self.initial_target_coord.hash(hasher);
+        self.is_falling.hash(hasher);
+        self.to_falling.hash(hasher);
+        self.rotate_angle.hash(hasher);
+        self.throw_height.hash(hasher);
+        self.bounce_times.hash(hasher);
+        self.should_detonate.hash(hasher);
+        self.should_bounce.hash(hasher);
+        self.need_extra_check.hash(hasher);
+        self.last_velocity.hash(hasher);
+    }
 }
 
 /// What one trajectory visit produced for the world to commit.
 #[cfg(feature = "phobos")]
 #[derive(Default)]
 pub(super) struct TrajectoryStep {
+    /// Detonations that end the bullet's flight (the stock detonation arm).
     pub detonations: Vec<ProjectileDetonation>,
+    /// Warhead detonations that leave the bullet flying (`PassDetonate`,
+    /// `Proximity`, `BounceDetonate`; `StraightTrajectory.cpp:739-976`,
+    /// `ParabolaTrajectory.cpp:882-887`).
+    pub extra_detonations: Vec<ProjectileDetonation>,
     pub direct_damage: Vec<EntityDamageEvent>,
     /// The bullet left the map (`left_map`): it is UnInit'ed, not detonated.
     pub expired: bool,
@@ -90,9 +224,10 @@ pub(super) struct TrajectoryStep {
 
 #[cfg(feature = "phobos")]
 impl Simulation {
-    /// `StraightTrajectory::OnUnlimbo` (`StraightTrajectory.cpp:140-180`) and
-    /// the immediate `PrepareForOpenFire` (or the one-frame lead wait), run
-    /// through [`Simulation::admit_fired_bullet`]'s spawn.
+    /// `TrajectoryTypePointer::CreateInstance` + `OnUnlimbo`
+    /// (`PhobosTrajectory.cpp:7-22,436-608`), dispatched by the `Trajectory`
+    /// flag; each class then runs its immediate `PrepareForOpenFire` or the
+    /// one-frame lead wait.
     pub(crate) fn init_phobos_trajectory(
         &mut self,
         bullet_id: u64,
@@ -109,9 +244,32 @@ impl Simulation {
         let Some(kind) = rules.projectile(&type_name) else {
             return;
         };
-        if kind.phobos_trajectory.flag != Some(TrajectoryFlag::Straight) {
-            return;
+        match kind.phobos_trajectory.flag {
+            Some(TrajectoryFlag::Straight) => {
+                self.init_straight_trajectory(bullet_id, rules, weapon)
+            }
+            Some(TrajectoryFlag::Bombard) => self.init_bombard_trajectory(bullet_id, rules, weapon),
+            Some(TrajectoryFlag::Parabola) => {
+                self.init_parabola_trajectory(bullet_id, rules, weapon)
+            }
+            None => {}
         }
+    }
+
+    /// `StraightTrajectory::OnUnlimbo` (`StraightTrajectory.cpp:140-180`) and
+    /// the immediate `PrepareForOpenFire` (or the one-frame lead wait), run
+    /// through [`Simulation::admit_fired_bullet`]'s spawn.
+    fn init_straight_trajectory(&mut self, bullet_id: u64, rules: &RuleSet, weapon: &WeaponType) {
+        let Some(projectile) = self.projectiles.get(bullet_id) else {
+            return;
+        };
+        let Some(type_id) = projectile.payload().projectile_type() else {
+            return;
+        };
+        let type_name = self.interner.resolve(type_id).to_owned();
+        let Some(kind) = rules.projectile(&type_name) else {
+            return;
+        };
         let base = &kind.phobos_trajectory;
         let t = &base.straight;
         let source_id = projectile.source_id();
@@ -137,6 +295,7 @@ impl Simulation {
             current_burst: 0,
             count_of_burst: 0,
             wait_one_frame: 0,
+            ..PhobosTrajectoryState::base(TrajectoryFlag::Straight)
         };
         state.attenuation_range = weapon.range_leptons;
         state.count_of_burst = weapon.burst;
@@ -361,49 +520,18 @@ impl Simulation {
             )
         };
         if !t.use_disperse_burst && t.rotate_coord.abs() > 1e-10 && state.count_of_burst > 1 {
-            let axis = [
-                f64::from(t.axis_of_rotation[0]) * cos_a + f64::from(t.axis_of_rotation[1]) * sin_a,
-                f64::from(t.axis_of_rotation[0]) * sin_a - f64::from(t.axis_of_rotation[1]) * cos_a,
-                f64::from(t.axis_of_rotation[2]),
-            ];
-            let axis_len_sq = dot(axis, axis);
-            if axis_len_sq.abs() > 1e-10 {
-                let len = axis_len_sq.sqrt();
-                let axis = [axis[0] / len, axis[1] / len, axis[2] / len];
-                let (axis, extra) = if t.mirror_coord {
-                    let mut axis = axis;
-                    if state.current_burst % 2 == 1 {
-                        axis = [-axis[0], -axis[1], -axis[2]];
-                    }
-                    let extra = std::f64::consts::PI
-                        * (t.rotate_coord
-                            * ((state.current_burst / 2) as f64
-                                / (f64::from(state.count_of_burst) - 1.0)
-                                - 0.5))
-                        / 180.0;
-                    (axis, extra)
-                } else {
-                    let extra = std::f64::consts::PI
-                        * (t.rotate_coord
-                            * (state.current_burst as f64
-                                / (f64::from(state.count_of_burst) - 1.0)
-                                - 0.5))
-                        / 180.0;
-                    (axis, extra)
-                };
-                let (sin_r, cos_r) = sin_cos(extra);
-                let v = [velocity[0], velocity[1], vz];
-                let dot_v = dot(v, axis);
-                let k = (1.0 - cos_r) * dot_v;
-                let c = cross_f(v, axis);
-                let rotated = [
-                    v[0] * cos_r + axis[0] * k + c[0] * sin_r,
-                    v[1] * cos_r + axis[1] * k + c[1] * sin_r,
-                    v[2] * cos_r + axis[2] * k + c[2] * sin_r,
-                ];
-                velocity = [rotated[0], rotated[1]];
-                vz = rotated[2];
-            }
+            let rotated = burst_velocity(
+                [velocity[0], velocity[1], vz],
+                rotate_angle,
+                t.axis_of_rotation,
+                t.rotate_coord,
+                t.mirror_coord,
+                state.current_burst,
+                state.count_of_burst,
+                180.0,
+            );
+            velocity = [rotated[0], rotated[1]];
+            vz = rotated[2];
         }
         let length = (velocity[0] * velocity[0] + velocity[1] * velocity[1] + vz * vz).sqrt();
         let (vx, vy, vz) = if length > 1e-10 {
@@ -530,6 +658,33 @@ impl Simulation {
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     ) -> TrajectoryStep {
+        let kind = self
+            .projectiles
+            .get(bullet_id)
+            .and_then(|projectile| projectile.phobos_trajectory().map(|state| state.kind));
+        match kind {
+            Some(TrajectoryFlag::Straight) => {
+                self.step_straight_trajectory(bullet_id, rules, overlay_registry)
+            }
+            Some(TrajectoryFlag::Bombard) => {
+                self.step_bombard_trajectory(bullet_id, rules, overlay_registry)
+            }
+            Some(TrajectoryFlag::Parabola) => {
+                self.step_parabola_trajectory(bullet_id, rules, overlay_registry)
+            }
+            None => TrajectoryStep {
+                expired: true,
+                ..TrajectoryStep::default()
+            },
+        }
+    }
+
+    fn step_straight_trajectory(
+        &mut self,
+        bullet_id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    ) -> TrajectoryStep {
         let mut step = TrajectoryStep::default();
         let _frame = self.session.binary_frame() as i32;
         let type_name = {
@@ -632,7 +787,13 @@ impl Simulation {
         // The stock body's motion: velocity with gravity cancelled
         // (`OnAIVelocity`) and the target/techno checks skipped
         // (`OnAITargetCoordCheck` / `OnAITechnoCheck`).
-        self.trajectory_move(bullet_id, rules, overlay_registry, &mut step);
+        self.trajectory_move(
+            TrajectoryFlag::Straight,
+            bullet_id,
+            rules,
+            overlay_registry,
+            &mut step,
+        );
         step
     }
 }
@@ -684,6 +845,55 @@ fn cross(a: ProjectileCoord, b: ProjectileCoord) -> ProjectileCoord {
 
 fn dot(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// `CalculateDisperseBurst`'s Rodrigues rotation, shared by Straight
+/// (`StraightTrajectory.cpp:457-471`), Bombard (`BombardTrajectory.cpp:
+/// 408-446`) and Parabola (`ParabolaTrajectory.cpp:276-310`).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn burst_velocity(
+    velocity: [f64; 3],
+    rotate_angle: f64,
+    axis_of_rotation: [i32; 3],
+    rotate_coord: f64,
+    mirror: bool,
+    current_burst: i32,
+    count_of_burst: i32,
+    divisor: f64,
+) -> [f64; 3] {
+    let (sin_a, cos_a) = sin_cos(rotate_angle);
+    let axis = [
+        f64::from(axis_of_rotation[0]) * cos_a + f64::from(axis_of_rotation[1]) * sin_a,
+        f64::from(axis_of_rotation[0]) * sin_a - f64::from(axis_of_rotation[1]) * cos_a,
+        f64::from(axis_of_rotation[2]),
+    ];
+    let axis_len_sq = dot(axis, axis);
+    if axis_len_sq.abs() <= 1e-10 {
+        return velocity;
+    }
+    let len = axis_len_sq.sqrt();
+    let mut axis = [axis[0] / len, axis[1] / len, axis[2] / len];
+    let extra = if mirror {
+        if current_burst % 2 == 1 {
+            axis = [-axis[0], -axis[1], -axis[2]];
+        }
+        std::f64::consts::PI
+            * (rotate_coord
+                * ((current_burst / 2) as f64 / (f64::from(count_of_burst) - 1.0) - 0.5))
+            / divisor
+    } else {
+        std::f64::consts::PI
+            * (rotate_coord * (current_burst as f64 / (f64::from(count_of_burst) - 1.0) - 0.5))
+            / divisor
+    };
+    let (sin_r, cos_r) = sin_cos(extra);
+    let k = (1.0 - cos_r) * dot(velocity, axis);
+    let c = cross_f(velocity, axis);
+    [
+        velocity[0] * cos_r + axis[0] * k + c[0] * sin_r,
+        velocity[1] * cos_r + axis[1] * k + c[1] * sin_r,
+        velocity[2] * cos_r + axis[2] * k + c[2] * sin_r,
+    ]
 }
 
 fn cross_f(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {

@@ -1572,6 +1572,10 @@ fn parasite_allow_water_exit_skips_land_but_not_the_building_gate() {
         "unset keeps the stock water rule"
     );
     assert!(!place(&type_no, true, false), "no refuses the release");
+    assert!(
+        !place(&type_no, false, false),
+        "no refuses even on clear land, where the stock rule admits"
+    );
     assert!(place(&type_yes, true, false), "yes skips the water check");
     assert!(place(&global_yes, true, false), "[General] is the fallback");
     assert!(

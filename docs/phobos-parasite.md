@@ -23,7 +23,7 @@ Parasite.AllowWaterExit=              ; Nullable<bool>
 ```
 
 Readers `Ext/WarheadType/Body.cpp:322-325`, `Ext/UnitType/Body.cpp:51`,
-globals `Ext/Rules/Body.cpp:424,426,495` (`Body.h:344,405`).
+globals `Ext/Rules/Body.cpp:425,426,495` (`Body.h:344,405`).
 
 ## Behavior
 
@@ -31,8 +31,8 @@ globals `Ext/Rules/Body.cpp:424,426,495` (`Body.h:344,405`).
   `Ext/Techno/Hooks.cpp:912-919`): the victim's category is tested against
   `AffectsTarget` in place of the stock Infantry-only check, so Units,
   Aircraft and Buildings cull when the filter admits them; an admitted victim
-  takes its own current Health with defenses ignored (`0x62A0AF`), a refused
-  one falls into the ordinary bite arm (`0x62A0D3`).
+  takes its own current Health with defenses ignored (`0x62A0B7`, Health at
+  `0x62A0C0`), a refused one falls into the ordinary bite arm (`0x62A0D3`).
 - `ParasiteClass_AI_ParticleSystem` (`0x62A0D3`, `:921-940`): the non-culling
   arm spawns `Parasite.ParticleSystem` (else `[CombatDamage]
   DefaultSparkSystem`) at the bite unless `Parasite.DisableParticleSystem`.
@@ -65,3 +65,9 @@ matches.
 RESIDUAL: a blank `Parasite.GrappleAnim` value maps to unset here, while the
 native `NullableIdx` read stores an invalid `-1` index; only a degenerate
 config reaches that difference.
+
+RESIDUAL: `read_type_name` retains the last non-empty rules pass. A later
+blank pass keeps the earlier name where native resets the `Nullable`/stores
+`-1`, and a later `none`/unknown name falls back where native keeps the
+earlier resolved value; only a map-layer override that blanks or invalidates
+the key reaches the difference.

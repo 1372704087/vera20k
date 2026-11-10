@@ -599,9 +599,9 @@ impl Simulation {
         let location = ground_pose::position_world_coord(&victim_entity.position);
         let raw = victim_entity.body_facing_current(frame);
         let (amount, ignore_defenses) = if culling {
-            // 0x0062A0AF: an admitted culling victim takes its own current
-            // Health, ignoring defenses: one bite kills unless ReceiveDamage
-            // refuses.
+            // ExecuteCulling `0x62A0B7`: `0x62A0BE` pushes the ignore-defenses
+            // flag and `0x62A0C0` loads the victim's own Health (+0x6C), so one
+            // bite kills unless ReceiveDamage refuses.
             (victim_entity.health.current(), true)
         } else {
             // Phobos `ParasiteClass_AI_ParticleSystem` (`0x62A0D3`,

@@ -47,3 +47,9 @@ stock superweapon kinds the launch-site range gate is open; mods that set the
 range keys on a stock kind get an unrestricted firer search.
 RESIDUAL: the at-firer coordinate uses the object's `Location` rather than
 `GetCenterCoords`'s centre-height point; cell-based area damage is unaffected.
+RESIDUAL: a phobos-only build does not read `SuperWeapons=`, so a building that
+only that list names is not a firer there (Phobos reads it in
+`Ext/BuildingType/Body.cpp:341`; VERA owns it only for Ares).
+RESIDUAL: the Ares-handler launch tail calls the detonation with no overlay
+registry and default frame effects, so its `MapClass::DamageArea` arm skips
+tiberium reduction and the frame's effect routing.

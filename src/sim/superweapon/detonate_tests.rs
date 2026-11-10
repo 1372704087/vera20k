@@ -88,6 +88,22 @@ fn detonate_warhead_hits_the_target_cell() {
     );
 }
 
+/// `Detonate.Warhead.Full=no` (`MapClass::DamageArea`, `:301`): the direct
+/// area pass still damages the impact cell.
+#[test]
+fn detonate_warhead_full_no_uses_the_area_pass() {
+    let rules = rules_with(
+        "[RootSpecial]\nDetonate.Warhead=WH\nDetonate.Damage=40\nDetonate.Warhead.Full=no\n",
+    );
+    let (rules, mut sim, owner) = world(rules);
+    charge_super(&mut sim, owner, ROOT);
+    let hit = spawn_unit(&mut sim, &rules, TARGET);
+    let far = spawn_unit(&mut sim, &rules, (33, 30));
+    click(&mut sim, &rules, owner, ROOT, TARGET);
+    assert_eq!(health(&sim, hit), 60, "DamageArea hit the cell");
+    assert_eq!(health(&sim, far), 100, "the spread stops at one cell");
+}
+
 /// `Detonate.Weapon` uses the weapon's damage when `Detonate.Damage` is
 /// unset, and the override when set.
 #[test]

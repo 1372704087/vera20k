@@ -8026,11 +8026,12 @@ impl RulesPassProcessor {
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_chaining = chaining;
                     // `SWTypeExt::LoadFromINIFile` then reads the
-                    // `Detonate.*` group (`Ext/SWType/Body.cpp:274-278`).
-                    let detonate =
-                        crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate::from_section(
-                            &raw,
-                        );
+                    // `Detonate.*` group (`Ext/SWType/Body.cpp:274-278`);
+                    // absent keys keep the earlier pass's values.
+                    let mut detonate = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_detonate
+                        .clone();
+                    detonate.read_pass(&raw);
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_detonate = detonate;
                 }

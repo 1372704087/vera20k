@@ -24,18 +24,24 @@ pub(crate) struct PhobosSuperWeaponDetonate {
 }
 
 impl PhobosSuperWeaponDetonate {
-    pub(crate) fn from_section(section: &IniSection) -> Self {
-        Self {
-            warhead: section
+    /// One reached rules pass: an absent key keeps the earlier value
+    /// (`Valueable`/`Nullable::Read` semantics); a present one replaces it.
+    pub(crate) fn read_pass(&mut self, section: &IniSection) {
+        if section.is_present("Detonate.Warhead") {
+            self.warhead = section
                 .read_type_name("Detonate.Warhead", 0x100)
-                .map(str::to_owned),
-            weapon: section
-                .read_type_name("Detonate.Weapon", 0x100)
-                .map(str::to_owned),
-            damage: section.read_phobos_nullable_int("Detonate.Damage", None),
-            warhead_full: section.read_bool("Detonate.Warhead.Full", true),
-            at_firer: section.read_bool("Detonate.AtFirer", false),
+                .map(str::to_owned);
         }
+        if section.is_present("Detonate.Weapon") {
+            self.weapon = section
+                .read_type_name("Detonate.Weapon", 0x100)
+                .map(str::to_owned);
+        }
+        if section.is_present("Detonate.Damage") {
+            self.damage = section.read_phobos_nullable_int("Detonate.Damage", None);
+        }
+        self.warhead_full = section.read_bool("Detonate.Warhead.Full", self.warhead_full);
+        self.at_firer = section.read_bool("Detonate.AtFirer", self.at_firer);
     }
 
     pub(crate) fn warhead(&self) -> Option<&str> {
@@ -60,5 +66,41 @@ impl PhobosSuperWeaponDetonate {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.warhead.is_none() && self.weapon.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::ini_parser::IniFile;
+
+    /// A later pass without the keys keeps the earlier group; a present
+    /// `Detonate.Damage=<default>` clears only the damage.
+    #[test]
+    fn pass_reads_retain_absent_keys() {
+        let first = IniFile::from_str(
+            "[SW]\nDetonate.Warhead=WH\nDetonate.Weapon=GUN\nDetonate.Damage=40\n\
+             Detonate.Warhead.Full=no\nDetonate.AtFirer=yes\n",
+        );
+        let mut rules = PhobosSuperWeaponDetonate::default();
+        rules.read_pass(first.section_or_empty("SW"));
+        assert_eq!(rules.warhead(), Some("WH"));
+        assert_eq!(rules.weapon(), Some("GUN"));
+        assert_eq!(rules.damage(), Some(40));
+        assert!(!rules.warhead_full());
+        assert!(rules.at_firer());
+
+        let absent = IniFile::from_str("[SW]\nName=unrelated\n");
+        rules.read_pass(absent.section_or_empty("SW"));
+        assert_eq!(rules.warhead(), Some("WH"), "absent keeps the warhead");
+        assert_eq!(rules.weapon(), Some("GUN"), "absent keeps the weapon");
+        assert_eq!(rules.damage(), Some(40), "absent keeps the damage");
+        assert!(!rules.warhead_full());
+        assert!(rules.at_firer());
+
+        let reset = IniFile::from_str("[SW]\nDetonate.Damage=<default>\n");
+        rules.read_pass(reset.section_or_empty("SW"));
+        assert_eq!(rules.damage(), None, "<default> clears the damage");
+        assert_eq!(rules.warhead(), Some("WH"), "other keys stay");
     }
 }

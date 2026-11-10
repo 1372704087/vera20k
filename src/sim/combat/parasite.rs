@@ -1484,7 +1484,7 @@ impl Simulation {
         // gated by `RemoveParasite` (unset keeps `damage < 0`) and its typed
         // Allow/Disallow lists filter the attached parasite type.
         #[cfg(feature = "phobos")]
-        let remove = warhead_type.is_none_or(|w| {
+        let remove = warhead_type.map_or(raw_damage < 0, |w| {
             if !w.phobos_remove_parasite.unwrap_or(raw_damage < 0) {
                 return false;
             }

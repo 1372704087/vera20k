@@ -335,6 +335,7 @@ pub(crate) fn calculate_threat_score(
     coefficients: ThreatCoefficients,
     reference: ThreatReference,
     scorer_enemy_house: Option<InternedId>,
+    bonus: Option<super::extra_threat::ThreatBonusContext<'_>>,
 ) -> Option<MaskedX87Value> {
     let scorer = entities.get(scorer_id)?;
     let candidate = entities.get(candidate_id)?;
@@ -378,6 +379,7 @@ pub(crate) fn calculate_threat_score(
         coefficients,
         reference,
         scorer_enemy_house,
+        bonus,
     )
 }
 
@@ -404,6 +406,7 @@ fn threat_score(
     coefficients: ThreatCoefficients,
     reference: ThreatReference,
     scorer_enemy_house: Option<InternedId>,
+    bonus: Option<super::extra_threat::ThreatBonusContext<'_>>,
 ) -> Option<MaskedX87Value> {
     let &ThreatPair {
         scorer,
@@ -433,7 +436,7 @@ fn threat_score(
         rules,
         interner,
     );
-    if let Some(selected) = resolve_selected_weapon(
+    let candidate_weapon = resolve_selected_weapon(
         rules,
         candidate,
         candidate_type,
@@ -441,7 +444,8 @@ fn threat_score(
         Some(&scorer_as_target),
         entities,
         interner,
-    ) {
+    );
+    if let Some(selected) = &candidate_weapon {
         let verses = ScoreX87::load_f64(
             selected
                 .warhead
@@ -482,6 +486,27 @@ fn threat_score(
     // D: live candidate health ratio (`ObjectClass::GetHealthRatio @ 0x005F5C60`).
     let health_ratio = candidate.health.ratio(candidate_type.strength);
     score = spill_threat_double(ScoreX87::add(ScoreX87::mul(health_ratio, coeff_d), score));
+
+    // Phobos `TechnoClass_ThreatCoefficient_CanAttackMeThreatBonus`
+    // (`0x70CF87`, `Ext/Techno/Hooks.TargetEvaluation.cpp:429-511`): the hook
+    // sits after the D term, at the E term's range load (`0x0070CF81`) and
+    // before its distance subtraction (`0x0070D0A9`), so the stack
+    // `totalThreat` it adds to already holds B, C, enemy, A and D.
+    #[cfg(feature = "phobos")]
+    if let Some(bonus) = bonus {
+        score = super::extra_threat::apply_extra_threat_bonus(
+            score,
+            scorer,
+            scorer_type,
+            candidate,
+            candidate_type,
+            candidate_weapon.as_ref(),
+            bonus,
+            rules,
+        );
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = bonus;
 
     // E: distance beyond the scorer's selected weapon range. With no weapon
     // selected native falls back to the scorer type's `GuardRange`
@@ -2793,6 +2818,11 @@ fn evaluate_candidate(
         candidate_type: candidate_obj,
         candidate_allies_scorer: ctx.allies_scanner(candidate.owner()),
     };
+    // The Phobos `ExtraThreat` bonus reads live fire-error/InRange state: the
+    // scan's own world when a caller supplied one (production scans do).
+    let bonus = ctx.fire_world.and_then(|world| {
+        super::extra_threat::ThreatBonusContext::for_world(world, ctx.los.overlay_registry)
+    });
     let score = threat_score(
         &pair,
         selected.as_ref(),
@@ -2803,6 +2833,7 @@ fn evaluate_candidate(
         ctx.coefficients,
         walk.reference,
         ctx.standing.enemy(),
+        bonus,
     );
     debug_assert!(
         !crate::sim::touch_log::live_read_check_enabled()
@@ -2818,6 +2849,7 @@ fn evaluate_candidate(
                     ctx.coefficients,
                     walk.reference,
                     ctx.standing.enemy(),
+                    bonus,
                 ),
         "candidate {}: the scan's threat score diverged from a fresh one",
         candidate.stable_id()
@@ -3500,6 +3532,10 @@ mod healer_guard_tests;
 #[cfg(test)]
 #[path = "greatest_threat_coefficient_tests.rs"]
 mod coefficient_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "greatest_threat_extra_threat_tests.rs"]
+mod extra_threat_tests;
 
 #[cfg(test)]
 #[path = "greatest_threat_avoidance_tests.rs"]

@@ -6156,7 +6156,27 @@ impl Simulation {
         let Some(entity) = self.substrate.entities.get(stable_id) else {
             return;
         };
-        if let Some(house) = self.houses.get_mut(&entity.owner()) {
+        let owner = entity.owner();
+        // Phobos's cost hook also prices `HouseClass::Added_To_Game`
+        // (`0x00502A80`). Resolve the type before the mutable House borrow.
+        #[cfg(feature = "phobos")]
+        let restricted_plant = self
+            .object_type(entity.type_ref(), rules)
+            .and_then(|object| {
+                self.houses
+                    .get(&owner)
+                    .map(|house| (object, house.base_projection()))
+            })
+            .map(|(object, base)| base.restricted_factory_plant_multiplier(object))
+            .unwrap_or(crate::util::native_x87::NativeF32Bits::ONE);
+        if let Some(house) = self.houses.get_mut(&owner) {
+            #[cfg(feature = "phobos")]
+            let factors = {
+                let mut folded = house.cost_factors();
+                folded.restricted_plant = restricted_plant;
+                folded
+            };
+            #[cfg(not(feature = "phobos"))]
             let factors = house.cost_factors();
             house.tracking_mut().added_to_game(entity, &factors);
             if entity.category() == EntityCategory::Structure {
@@ -6197,9 +6217,29 @@ impl Simulation {
         self.powered_center_removed(stable_id, rules, effects);
         //50277B resumes after the callback prelude. Pin the original House
         // receiver, but reborrow the live object/type at this actual phase.
+        #[cfg(feature = "phobos")]
+        let restricted_plant = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .and_then(|entity| self.object_type(entity.type_ref(), rules))
+            .and_then(|object| {
+                self.houses
+                    .get(&owner)
+                    .map(|house| (object, house.base_projection()))
+            })
+            .map(|(object, base)| base.restricted_factory_plant_multiplier(object))
+            .unwrap_or(crate::util::native_x87::NativeF32Bits::ONE);
         if let Some(entity) = self.substrate.entities.get(stable_id)
             && let Some(house) = self.houses.get_mut(&owner)
         {
+            #[cfg(feature = "phobos")]
+            let factors = {
+                let mut folded = house.cost_factors();
+                folded.restricted_plant = restricted_plant;
+                folded
+            };
+            #[cfg(not(feature = "phobos"))]
             let factors = house.cost_factors();
             house.tracking_mut().removed_from_game(entity, &factors);
         }
@@ -8412,3 +8452,7 @@ mod building_occupant_storage_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_no_manual_move_tests.rs"]
 mod phobos_no_manual_move_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_factory_plant_tests.rs"]
+mod phobos_factory_plant_tests;

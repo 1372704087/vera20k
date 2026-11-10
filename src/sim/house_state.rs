@@ -1283,6 +1283,8 @@ impl HouseState {
         crate::rules::ruleset::HouseCostFactors {
             country: self.country_cost_mults.0,
             factory_plant: self.base_projection.factory_plant_factors(),
+            #[cfg(feature = "phobos")]
+            restricted_plant: crate::util::native_x87::NativeF32Bits::ONE,
         }
     }
 

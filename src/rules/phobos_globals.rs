@@ -26,6 +26,7 @@
 
 use crate::rules::ini_parser::IniFile;
 use crate::rules::phobos_shields::AffectedHouse;
+use crate::util::native_x87::NativeF64Bits;
 
 /// `Leptons(-1)`'s constructor value for saves that predate the field.
 fn minus_one_i32() -> i32 {
@@ -40,6 +41,11 @@ fn true_bool() -> bool {
 /// A `Valueable<float>` global constructed 1.0, for serde defaults.
 fn one_f32() -> crate::util::native_x87::NativeF32Bits {
     crate::util::native_x87::NativeF32Bits::ONE
+}
+
+/// A `Valueable<double>` global constructed 0.0, for serde defaults.
+fn zero_f64() -> NativeF64Bits {
+    NativeF64Bits::POSITIVE_ZERO
 }
 
 /// `[CombatDamage]` globals this port reads.
@@ -363,6 +369,26 @@ pub struct PhobosGlobals {
     /// the release (`Ext/Aircraft/Hooks.cpp:234-235`).
     #[serde(default)]
     pub strafing_target_cell: bool,
+    /// `[General] ExtraThreat.IsThreat=`, default 0.0
+    /// (`Ext/Rules/Body.cpp:535`, constructor `Ext/Rules/Body.h:952`): the
+    /// fallback for an unset TechnoType key.
+    #[serde(default = "zero_f64")]
+    pub extra_threat_is_threat: NativeF64Bits,
+    /// `[General] ExtraThreat.InRange=`, default 0.0 (`:536`, `:953`).
+    #[serde(default = "zero_f64")]
+    pub extra_threat_in_range: NativeF64Bits,
+    /// `[General] ExtraThreatCoefficient.InRangeDistance=`, default 0.0
+    /// (`:537`, `:954`).
+    #[serde(default = "zero_f64")]
+    pub extra_threat_coefficient_in_range_distance: NativeF64Bits,
+    /// `[General] ExtraThreatCoefficient.Facing=`, default 0.0 (`:538`,
+    /// `:955`).
+    #[serde(default = "zero_f64")]
+    pub extra_threat_coefficient_facing: NativeF64Bits,
+    /// `[General] ExtraThreatCoefficient.DistanceToLastTarget=`, default 0.0
+    /// (`:539`, `:956`).
+    #[serde(default = "zero_f64")]
+    pub extra_threat_coefficient_distance_to_last_target: NativeF64Bits,
 }
 
 impl Default for PhobosGlobals {
@@ -439,6 +465,11 @@ impl Default for PhobosGlobals {
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
+            extra_threat_is_threat: NativeF64Bits::POSITIVE_ZERO,
+            extra_threat_in_range: NativeF64Bits::POSITIVE_ZERO,
+            extra_threat_coefficient_in_range_distance: NativeF64Bits::POSITIVE_ZERO,
+            extra_threat_coefficient_facing: NativeF64Bits::POSITIVE_ZERO,
+            extra_threat_coefficient_distance_to_last_target: NativeF64Bits::POSITIVE_ZERO,
         }
     }
 }
@@ -648,7 +679,50 @@ impl PhobosGlobals {
         );
         globals.strafing_target_cell =
             general.read_bool("Strafing.TargetCell", globals.strafing_target_cell);
+        // `Ext/Rules/Body.cpp:535-539`: five `Valueable<double>` fallbacks,
+        // all constructed `0.0` (`Ext/Rules/Body.h:952-956`).
+        globals.extra_threat_is_threat =
+            general.read_double_bits("ExtraThreat.IsThreat", globals.extra_threat_is_threat);
+        globals.extra_threat_in_range =
+            general.read_double_bits("ExtraThreat.InRange", globals.extra_threat_in_range);
+        globals.extra_threat_coefficient_in_range_distance = general.read_double_bits(
+            "ExtraThreatCoefficient.InRangeDistance",
+            globals.extra_threat_coefficient_in_range_distance,
+        );
+        globals.extra_threat_coefficient_facing = general.read_double_bits(
+            "ExtraThreatCoefficient.Facing",
+            globals.extra_threat_coefficient_facing,
+        );
+        globals.extra_threat_coefficient_distance_to_last_target = general.read_double_bits(
+            "ExtraThreatCoefficient.DistanceToLastTarget",
+            globals.extra_threat_coefficient_distance_to_last_target,
+        );
         globals
+    }
+
+    /// `[General] ExtraThreat.IsThreat=`.
+    pub fn extra_threat_is_threat(&self) -> f64 {
+        f64::from_bits(self.extra_threat_is_threat.bits())
+    }
+
+    /// `[General] ExtraThreat.InRange=`.
+    pub fn extra_threat_in_range(&self) -> f64 {
+        f64::from_bits(self.extra_threat_in_range.bits())
+    }
+
+    /// `[General] ExtraThreatCoefficient.InRangeDistance=`.
+    pub fn extra_threat_in_range_distance(&self) -> f64 {
+        f64::from_bits(self.extra_threat_coefficient_in_range_distance.bits())
+    }
+
+    /// `[General] ExtraThreatCoefficient.Facing=`.
+    pub fn extra_threat_coefficient_facing(&self) -> f64 {
+        f64::from_bits(self.extra_threat_coefficient_facing.bits())
+    }
+
+    /// `[General] ExtraThreatCoefficient.DistanceToLastTarget=`.
+    pub fn extra_threat_coefficient_distance_to_last_target(&self) -> f64 {
+        f64::from_bits(self.extra_threat_coefficient_distance_to_last_target.bits())
     }
 }
 

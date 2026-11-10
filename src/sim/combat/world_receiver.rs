@@ -1987,7 +1987,13 @@ pub(crate) fn commit_entities(
                 death
                     .receiver_stage_trace
                     .push(ReceiverStageTrace::ShouldRetaliate { target_id });
-                combat_targeting::should_retaliate(world, rules, target_id, attacker_id)
+                combat_targeting::should_retaliate(
+                    world,
+                    rules,
+                    target_id,
+                    attacker_id,
+                    overlay_registry,
+                )
             };
             if retaliates
                 && retaliation_reaches(world, rules, target_id, attacker_id, overlay_registry)

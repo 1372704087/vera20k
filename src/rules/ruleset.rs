@@ -185,9 +185,31 @@ pub struct CountryRules {
 pub struct HouseCostFactors {
     pub country: [NativeF32Bits; 5],
     pub factory_plant: [NativeF32Bits; 5],
+    /// Phobos `GetRestrictedFactoryPlantMult` (`Ext/House/Body.cpp:538-588`)
+    /// folded into the *plant* float before `Cost_Of`'s two x87 multiplies
+    /// (hook `0x711F39`, `Ext/TechnoType/Hooks.cpp:97-110`). One neutral
+    /// factor for the priced slot, so the plain House+140 product and
+    /// Ares's `1 - (1 - product) * multiplier` keep their native order.
+    #[cfg(feature = "phobos")]
+    pub restricted_plant: NativeF32Bits,
 }
 
 impl HouseCostFactors {
+    /// The plant float `0x00711F39` loads: `f32(plant * restricted)`.
+    pub(crate) fn plant_factor(&self, slot: usize) -> NativeF32Bits {
+        #[cfg(feature = "phobos")]
+        let factor = {
+            use crate::util::native_x87::MaskedX87Chop53 as X87;
+            X87::store_f32_masked_chop(X87::mul(
+                X87::load_f32(self.factory_plant[slot]),
+                X87::load_f32(self.restricted_plant),
+            ))
+        };
+        #[cfg(not(feature = "phobos"))]
+        let factor = self.factory_plant[slot];
+        factor
+    }
+
     /// `TechnoTypeClass::Cost_Of @ 0x00711F00` past its null-House arm:
     /// `ftol(cost * plant * country)` for factor `slot`
     /// (`0x00711F35..0x00711F41`).
@@ -195,7 +217,7 @@ impl HouseCostFactors {
     pub(crate) fn adjust(&self, cost: i32, slot: usize) -> i32 {
         use crate::util::native_x87::MaskedX87Chop53 as X87;
         X87::ftol_i32_low_masked(X87::mul(
-            X87::mul(X87::load_i32(cost), X87::load_f32(self.factory_plant[slot])),
+            X87::mul(X87::load_i32(cost), X87::load_f32(self.plant_factor(slot))),
             X87::load_f32(self.country[slot]),
         ))
     }
@@ -218,7 +240,15 @@ impl HouseCostFactors {
             one,
             X87::mul(discount, X87::load_f64(multiplier)),
         ));
-        X87::store_f32_masked_chop(X87::load_f64(factor))
+        let factor = X87::store_f32_masked_chop(X87::load_f64(factor));
+        // Phobos's cost hook multiplies the stack plant float *after* Ares's
+        // GetCostMult has produced it (`0x711F39`, `Ext/TechnoType/Hooks.cpp:97-110`).
+        #[cfg(feature = "phobos")]
+        let factor = X87::store_f32_masked_chop(X87::mul(
+            X87::load_f32(factor),
+            X87::load_f32(self.restricted_plant),
+        ));
+        factor
     }
 
     /// [`Self::adjust`] through [`Self::ares_factory_plant`].
@@ -5657,6 +5687,21 @@ impl RuleSet {
                 object.ares_production_mut().validate(factory, |source| {
                     factories.contains(&source.to_ascii_uppercase())
                 });
+            }
+        }
+        #[cfg(feature = "phobos")]
+        {
+            // `Parser<TechnoTypeClass*>::Parse` drops an unknown token before
+            // `ValueableVector::size()` is ever asked
+            // (Utilities/TemplateDef.h:1728-1742). The resolved type table is
+            // complete only after every INI pass, so filter here.
+            let known: std::collections::HashSet<String> = rules
+                .object_list
+                .iter()
+                .map(|object| object.id.to_ascii_uppercase())
+                .collect();
+            for object in &mut rules.object_list {
+                object.phobos_factory_plant.retain_known(&known);
             }
         }
         #[cfg(feature = "ares")]
@@ -13128,6 +13173,8 @@ CellSpread=0
             let factors = HouseCostFactors {
                 country: bits(&input["country"]),
                 factory_plant: bits(&input["plant"]),
+                #[cfg(feature = "phobos")]
+                restricted_plant: crate::util::native_x87::NativeF32Bits::ONE,
             };
             let house = (input["house"] == true).then_some(&factors);
             assert_eq!(

@@ -375,7 +375,8 @@ impl Simulation {
         } else {
             divisor
         };
-        let Some(factors) = Self::house_cost_factors(&self.houses, entity.owner()) else {
+        let Some(factors) = Self::house_cost_factors_for(&self.houses, entity.owner(), object)
+        else {
             return 0;
         };
         let refund = crate::sim::production::type_refund(

@@ -123,7 +123,7 @@ pub(crate) fn type_refund(
     let slot = object.factor_slot();
     let m1 = factors.country[slot];
     #[cfg(not(feature = "ares"))]
-    let m2 = factors.factory_plant[slot];
+    let m2 = factors.plant_factor(slot);
     // Ares HouseClass_GetCostMult10041780 replaces 0x0050BEB0 here too.
     #[cfg(feature = "ares")]
     let m2 = factors.ares_factory_plant(slot, object.ares_production().factory_plant_multiplier());
@@ -155,7 +155,7 @@ pub fn techno_refund(sim: &Simulation, rules: &RuleSet, id: u64) -> Option<i32> 
         rules,
         object,
         sim.houses.get(&owner)?,
-        &Simulation::house_cost_factors(&sim.houses, owner)?,
+        &Simulation::house_cost_factors_for(&sim.houses, owner, object)?,
         sim.session.game_mode_nonzero(),
         false,
     ))
@@ -374,13 +374,15 @@ pub(crate) fn sell_after_owner_change(
             .copied()
             .flatten()
             .and_then(|kind| sim.object_type(kind, rules));
-        let (Some(upgrade), Some(house), Some(factors)) = (
-            upgrade,
+        // Native dereferences a malformed top slot. Keep it intact,
+        // without refunding it or starting the host's sale.
+        let Some(upgrade) = upgrade else {
+            return;
+        };
+        let (Some(house), Some(factors)) = (
             sim.houses.get(&owner),
-            Simulation::house_cost_factors(&sim.houses, owner),
+            Simulation::house_cost_factors_for(&sim.houses, owner, upgrade),
         ) else {
-            // Native dereferences a malformed top slot. Keep it intact,
-            // without refunding it or starting the host's sale.
             return;
         };
         // 449310..44935D: type GetRefund(owner,1), GiveMoney, then

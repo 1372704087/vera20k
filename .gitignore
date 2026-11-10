@@ -139,8 +139,10 @@ Thumbs.db
 !/docs/phobos-open-transport.md
 !/docs/phobos-no-turret.md
 !/docs/phobos-powered-kill.md
+!/docs/phobos-extra-threat.md
 !/docs/phobos-change-owner.md
 !/docs/phobos-spawns-crate.md
+!/docs/phobos-burst-delays.md
 !/docs/phobos-rocker.md
 !/docs/phobos-type-convert-group.md
 !/docs/phobos-explodes.md
@@ -152,6 +154,7 @@ Thumbs.db
 !/docs/phobos-passengers-sync-owner.md
 !/docs/phobos-aircraft-strafing.md
 !/docs/phobos-interceptor.md
+!/docs/phobos-factory-plant.md
 !/docs/ares-promotion-sounds.md
 !/docs/npatch.md
 !/docs/verax.md

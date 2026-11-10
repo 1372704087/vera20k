@@ -282,6 +282,12 @@ pub struct WeaponType {
     /// range; `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub rof_random_delay: Option<crate::rules::ini_value::PartialIntPair>,
+    /// Phobos `WeaponTypeExt::Burst_Delays` (`Ext/WeaponType/Body.cpp:120`,
+    /// `ValueableVector<int>` declared at `Body.h:52`, default empty at
+    /// `Body.h:147`): one rearm delay per burst shot, consumed by
+    /// [`Self::phobos_burst_delay`] through the `0x6FD05E` GetROF hook.
+    #[cfg(feature = "phobos")]
+    pub phobos_burst_delays: Vec<i32>,
     /// Phobos `WeaponTypeExt::Burst_NoDelay` (`Ext/WeaponType/Body.cpp:122`,
     /// `Valueable<bool>`, default false): an infantry or vehicle firer empties
     /// the whole burst in one frame instead of one shot per frame. Only the
@@ -475,6 +481,29 @@ impl WeaponType {
         &self,
     ) -> crate::rules::phobos_airburst::PhobosWeaponTargeting {
         self.phobos_weapon_targeting
+    }
+
+    /// Phobos `WeaponTypeExt::GetBurstDelay`
+    /// (`Ext/WeaponType/Body.cpp:62-74`): burst index 0 answers 0 before the
+    /// list is consulted; a list longer than the index answers entry
+    /// `index - 1`; a shorter non-empty list answers its last entry; an empty
+    /// list answers -1. The length compare casts the index to `unsigned`, so a
+    /// negative index only matches the last-entry arm. The `0x6FD05E` hook
+    /// takes the answer only when it is not negative
+    /// (`Ext/Techno/Hooks.Firing.cpp:1158`), which is what `Some` mirrors.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_burst_delay(&self, burst_index: i32) -> Option<i32> {
+        let delays = &self.phobos_burst_delays;
+        let delay = if burst_index == 0 {
+            0
+        } else if delays.len() > burst_index as u32 as usize {
+            delays[burst_index as usize - 1]
+        } else if let Some(last) = delays.last() {
+            *last
+        } else {
+            -1
+        };
+        (delay >= 0).then_some(delay)
     }
 
     /// The second clause both `Burst.NoDelay` hooks test alongside the key:
@@ -800,6 +829,10 @@ impl WeaponType {
                 section,
             ),
             #[cfg(feature = "phobos")]
+            phobos_burst_delays: section
+                .read_ares_int_list("Burst.Delays")
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
             phobos_burst_no_delay: section.read_ares_bool("Burst.NoDelay", false),
             #[cfg(feature = "phobos")]
             phobos_delayed_fire_duration: {
@@ -965,6 +998,59 @@ mod tests {
         );
         let rules = RuleSet::from_rules_layers(&layers).unwrap();
         assert!(!rules.weapon("Fast").unwrap().phobos_burst_no_delay);
+    }
+
+    /// Phobos `Burst.Delays=` (`Ext/WeaponType/Body.cpp:120`): a
+    /// `ValueableVector<int>` read through the production layers. An absent key
+    /// keeps the constructor's empty list, a present value replaces it, a token
+    /// that does not convert is skipped, and a value with no usable token
+    /// replaces with empty.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn burst_delays_reads_a_sparse_int_list() {
+        use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
+        use crate::rules::ruleset::RuleSet;
+
+        let base = "[VehicleTypes]\n0=A\n1=B\n2=C\n\
+                    [A]\nPrimary=Absent\nSecondary=Set\n\
+                    [B]\nPrimary=Skip\nSecondary=Tokenless\n\
+                    [C]\nPrimary=Empty\n\
+                    [Absent]\nDamage=1\n\
+                    [Set]\nDamage=1\nBurst.Delays=4,0\n\
+                    [Skip]\nDamage=1\nBurst.Delays=4,x,0\n\
+                    [Tokenless]\nDamage=1\nBurst.Delays=,,,\n\
+                    [Empty]\nDamage=1\nBurst.Delays=\n";
+        let rules = RuleSet::from_ini(&IniFile::from_str(base)).unwrap();
+        assert_eq!(
+            rules.weapon("Absent").unwrap().phobos_burst_delays,
+            Vec::<i32>::new(),
+            "the absent key keeps the constructor's empty list"
+        );
+        assert_eq!(rules.weapon("Set").unwrap().phobos_burst_delays, vec![4, 0]);
+        assert_eq!(
+            rules.weapon("Skip").unwrap().phobos_burst_delays,
+            vec![4, 0],
+            "a token that does not convert is skipped"
+        );
+        assert_eq!(
+            rules.weapon("Tokenless").unwrap().phobos_burst_delays,
+            Vec::<i32>::new(),
+            "a present value with no usable token replaces with empty"
+        );
+        assert_eq!(
+            rules.weapon("Empty").unwrap().phobos_burst_delays,
+            Vec::<i32>::new(),
+            "an empty value read keeps the constructor's empty list"
+        );
+
+        // A later pass that authors the key replaces the base list.
+        let mut layers = RulesLayerStack::new(IniFile::from_str(base));
+        layers.push(
+            RulesLayerKind::Scenario,
+            IniFile::from_str("[Set]\nBurst.Delays=7\n"),
+        );
+        let rules = RuleSet::from_rules_layers(&layers).unwrap();
+        assert_eq!(rules.weapon("Set").unwrap().phobos_burst_delays, vec![7]);
     }
 
     /// Retail `RevealOnFire=` through the production reader: the constructor's

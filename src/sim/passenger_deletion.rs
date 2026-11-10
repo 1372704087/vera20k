@@ -399,7 +399,7 @@ fn scaled_refund(
     use crate::util::native_x87::{MaskedX87Chop53 as X, NativeF64Bits};
     let (Some(house), Some(factors)) = (
         sim.houses.get(&owner),
-        Simulation::house_cost_factors(&sim.houses, owner),
+        Simulation::house_cost_factors_for(&sim.houses, owner, object),
     ) else {
         return 0;
     };

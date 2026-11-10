@@ -79,6 +79,7 @@ Supported extensions:
 - [Type select for buildings](phobos-building-type-selectable.md) (`BuildingTypeSelectable` for every building type)
 - [Power-delta indicator](phobos-power-delta-indicator.md) (`PowerDelta.*` net-power text beside the credits counter)
 - [Burst with no delay](phobos-burst-no-delay.md) (`Burst.NoDelay=` empties a burst in one frame)
+- [Per-shot burst delays](phobos-burst-delays.md) (`Burst.Delays=` gives each burst shot its own rearm delay, on any class)
 - [Harvester counter](phobos-harvester-counter.md) (`HarvesterCounter.*` working/total harvesters, `Harvester.Counted=`)
 - [Weeds counter](phobos-weeds-counter.md) (`WeedsCounter.*` the House's stored weed total beside the credits counter)
 - [AutoDeath](phobos-auto-death.md) (`AutoDeath.Behavior=kill|vanish|sell`, the condition arms and timers, `AutoDeath.VanishAnimation`)
@@ -141,6 +142,8 @@ Supported extensions:
 - [Rocker warhead](phobos-rocker.md) (`Rocker.AmplitudeMultiplier`/`.AmplitudeOverride`: the area-damage rocker's base amplitude; 2 keys)
 - [NoTurret.TrackTarget](phobos-no-turret.md) (`NoTurret.TrackTarget`: a keyed turretless vehicle keeps checking its facing while in REARM; 1 key + 1 `[General]` global)
 - [Powered.KillSpawns](phobos-powered-kill.md) (`Powered.KillSpawns`: an offline spawner building resets its pool target and kills attacking/returning children; 1 key)
+- [FactoryPlant restricted lists](phobos-factory-plant.md) (`FactoryPlant.AllowTypes`/`.DisallowTypes`/`.MaxCount` + `FactoryPlant.Multiplier`: per-type cost and refund discounts from a plant kept out of House+140; 3 keys + 1 type key)
+- [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
 
 ## Original project and authors
 

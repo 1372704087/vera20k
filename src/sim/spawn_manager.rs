@@ -78,6 +78,9 @@ use crate::util::direction::DIRECTION_DELTAS;
 #[cfg(test)]
 #[path = "spawn_manager_oracle_tests.rs"]
 mod oracle_tests;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_powered_kill_tests.rs"]
+mod powered_kill_tests;
 #[cfg(test)]
 #[path = "spawn_manager_tests.rs"]
 mod tests;
@@ -606,6 +609,86 @@ impl Simulation {
             // cleared, in-flight missiles released to the tracker. Reuse the
             // oracle-verified owner rather than a second partial reset.
             clear_all_spawn_targets(self, id, rules, registry, effects);
+        }
+    }
+
+    /// Phobos `BuildingExt::ApplyPoweredKillSpawns`
+    /// (`Ext/Building/Body.cpp:293-311`), reached from the
+    /// `BuildingClass::AI` hook `0x43FBEF` (`Ext/Building/Hooks.cpp:30-37`)
+    /// only on a sample where the building's operational edge changed:
+    /// `Powered.KillSpawns=yes` and a now offline building reset the
+    /// manager's target, then every child whose slot is `Attacking` or
+    /// `Returning` takes its own current Health as `C4Warhead` damage with
+    /// defenses ignored (`ReceiveDamage(&child->Health, 0, C4Warhead,
+    /// nullptr, true, false, nullptr)`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_powered_kill_spawns(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: FrameEffects<'_>,
+    ) {
+        let (enabled, has_manager) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return;
+            };
+            let Some(object) = self.object_type(entity.type_ref(), rules) else {
+                return;
+            };
+            (
+                object.phobos_powered_kill_spawns,
+                entity.spawn_manager.is_some(),
+            )
+        };
+        if !enabled || !has_manager {
+            return;
+        }
+        // ResetTarget runs before the node walk.
+        clear_all_spawn_targets(self, id, rules, registry, effects);
+        let victims: Vec<(u64, i32)> = self
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|entity| entity.spawn_manager.as_ref())
+            .map(|manager| {
+                manager
+                    .slots()
+                    .iter()
+                    .filter(|slot| {
+                        matches!(
+                            slot.state(),
+                            SpawnSlotState::Attacking | SpawnSlotState::ComingHome
+                        )
+                    })
+                    .filter_map(SpawnSlot::spawn)
+                    .filter_map(|child| {
+                        self.substrate
+                            .entities
+                            .get(child)
+                            .map(|entity| (child, entity.health.current()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        if victims.is_empty() {
+            return;
+        }
+        let warhead = self.interner.intern(&rules.bridge_warheads.c4_name);
+        for (child, health) in victims {
+            let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                child,
+                health,
+                0,
+                crate::sim::combat::RAD_NO_ATTACKER,
+                None,
+                warhead,
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses: true,
+                    arg6: false,
+                },
+            );
+            self.commit_direct_damage_receiver(rules, registry, event, effects);
         }
     }
 }

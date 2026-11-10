@@ -954,6 +954,11 @@ pub struct ObjectType {
     /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
     #[cfg(feature = "phobos")]
     pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
+    /// Phobos `Powered.KillSpawns` (`Ext/BuildingType/Body.cpp:193`,
+    /// `Valueable<bool>`, default no): an offline building resets its spawn
+    /// manager and kills the children that are attacking or coming home.
+    #[cfg(feature = "phobos")]
+    pub phobos_powered_kill_spawns: bool,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -4985,6 +4990,9 @@ impl ObjectType {
             phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_powered_kill_spawns: category == ObjectCategory::Building
+                && section.read_bool("Powered.KillSpawns", false),
             #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
                 section,

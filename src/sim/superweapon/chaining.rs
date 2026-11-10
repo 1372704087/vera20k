@@ -35,8 +35,6 @@
 //!   player's sidebar (`MouseClass::AddCameo`, repaint) natively; VERA has no
 //!   sidebar owner here and leaves the grant to the ordinary availability
 //!   pass.
-//! - `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` are presentation and
-//!   not ported with this chain.
 //! - An Ares-handler launch that refuses its own activation returns before the
 //!   shared tail in VERA, so its Convert/Next/Link arms do not run; native's
 //!   refused handler falls through the stock case and still reaches
@@ -50,7 +48,7 @@ use crate::rules::ruleset::RuleSet;
 use crate::rules::superweapon_type::SuperWeaponType;
 use crate::sim::intern::InternedId;
 use crate::sim::rng::SimRng;
-use crate::sim::world::{FrameEffects, Simulation};
+use crate::sim::world::{FrameEffects, SimSoundEvent, Simulation};
 
 /// Deepest nested `SW.Next`/`SW.Link` launch VERA follows before stopping a
 /// cyclic chain (native recurses to stack exhaustion).
@@ -95,7 +93,15 @@ pub(super) fn apply_phobos_launch_tail(
         effects,
     );
     super::fire::apply_sw_type_conversion(sim, rules, owner, sw, effects);
-    apply_linked_sw(sim, rules, owner, &chaining);
+    apply_linked_sw(sim, rules, owner, sw, &chaining);
+    // Phobos `SWTypeExt::ApplyActivatedMessage`/`ApplyActivatedEva`
+    // (`Ext/SWType/FireSuperWeapon.cpp:40-42`): the launch tail's last step,
+    // after `SW.Link`. The app owns the Owner/Allies/Enemies column against
+    // the client's current player.
+    if let Some(sw_type) = sim.interner.get(&sw.id) {
+        sim.sound_events
+            .emit(SimSoundEvent::SuperWeaponActivatedMessage { owner, sw_type });
+    }
     sim.super_weapon_chain_depth -= 1;
 }
 
@@ -265,6 +271,7 @@ fn apply_linked_sw(
     sim: &mut Simulation,
     rules: &RuleSet,
     owner: InternedId,
+    sw: &SuperWeaponType,
     chaining: &crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
 ) {
     if chaining.link().is_empty() {
@@ -287,24 +294,38 @@ fn apply_linked_sw(
             &mut sim.scenario_rng,
         )
     };
+    let mut is_active = false;
     for index in selected {
         let name = chaining.link()[index].clone();
-        link_one(sim, rules, owner, chaining, &name);
+        is_active |= link_one(sim, rules, owner, chaining, &name);
     }
+    // `if (isActive && notObserver && pHouse->IsCurrentPlayer())` (`:482`).
+    // The observer half is a sim fact (`[0xAC1198]`); the current-player half
+    // is not, so the event carries the granting House and the app gates on it.
+    if !is_active || sim.session.is_observer_house(owner) {
+        return;
+    }
+    let Some(sw_type) = sim.interner.get(&sw.id) else {
+        return;
+    };
+    sim.sound_events
+        .emit(SimSoundEvent::SuperWeaponLinkedAcquired { owner, sw_type });
 }
 
+/// One `linkedSW` lambda call (`:417-456`). Answers native's `isActive`,
+/// which is `granted` unless an arm below readied or reset the Super.
 fn link_one(
     sim: &mut Simulation,
     rules: &RuleSet,
     owner: InternedId,
     chaining: &crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
     name: &str,
-) {
+) -> bool {
     let Some(next_sw) = rules.super_weapon(name) else {
-        return;
+        return false;
     };
     let Some(type_id) = sim.interner.get(name) else {
-        return;
+        return false;
     };
     let present = sim
         .super_weapons
@@ -330,12 +351,12 @@ fn link_one(
     }
     let active = granted || present;
     if !active {
-        return;
+        return false;
     }
     let frame = sim.session.binary_frame();
     if chaining.link_reset() {
         reset(sim, rules, owner, name);
-        return;
+        return true;
     }
     if chaining.link_ready() || (granted && initial_ready(rules, next_sw)) {
         if let Some(instance) = sim.super_weapons.instance_mut(&owner, &type_id) {
@@ -343,12 +364,15 @@ fn link_one(
             instance.store_charge_timer(crate::sim::timer::CdTimer::started(frame as i32, 0));
             instance.set_readiness(true);
         }
-        return;
+        return true;
     }
     if granted {
         // Reset a granted link that is neither readied nor reset above.
         reset(sim, rules, owner, name);
     }
+    // The lambda's `isActive` keeps `granted`: a present, un-granted link that
+    // nothing readied or reset did not activate.
+    granted
 }
 
 fn reset(sim: &mut Simulation, rules: &RuleSet, owner: InternedId, name: &str) {
@@ -430,3 +454,7 @@ fn choose_one_weighted(dice: f64, weights: &[i32]) -> i32 {
 #[cfg(test)]
 #[path = "chaining_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "phobos_sw_messages_tests.rs"]
+mod phobos_sw_messages_tests;

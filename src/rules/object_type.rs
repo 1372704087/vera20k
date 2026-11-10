@@ -628,6 +628,15 @@ pub struct ObjectType {
     /// `OpenTopped.*` values; see [`crate::rules::phobos_open_transport`].
     #[cfg(feature = "phobos")]
     phobos_open_transport: crate::rules::phobos_open_transport::PhobosOpenTransport,
+    /// Phobos `EVA.Sold=` (`Ext/TechnoType/Body.cpp:844`,
+    /// `NullableIdx<VoxClass>`, ctor unset): the cue a sale of this type plays
+    /// instead of the stock `EVA_UnitSold`/`EVA_StructureSold`
+    /// (`Ext/Building/Hooks.Selling.cpp:18,73`). `None` keeps the stock line;
+    /// `Some(None)` is native `isset() == true, value == -1` (silence).
+    /// `bind_type_eva_references` replaces the authored spelling with the
+    /// fixed catalog's identity.
+    #[cfg(feature = "phobos")]
+    phobos_eva_sold: Option<Option<String>>,
     /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
     /// default true. The preview also needs the rules global and the client
     /// switch.
@@ -3888,6 +3897,20 @@ impl ObjectType {
         &self.phobos_open_transport
     }
 
+    /// Phobos `EVA.Sold=`: `None` keeps the stock sale line, `Some(None)` is
+    /// an explicit none (the native `isset()`/`-1` pair, silence), and
+    /// `Some(Some(name))` names the replacement cue.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_eva_sold(&self) -> Option<Option<&str>> {
+        self.phobos_eva_sold.as_ref().map(|value| value.as_deref())
+    }
+
+    /// Bind [`Self::phobos_eva_sold`] from the fixed EVA catalog.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn bind_phobos_eva_sold(&mut self, value: Option<Option<String>>) {
+        self.phobos_eva_sold = value;
+    }
+
     /// Phobos `DigitalDisplay.Health.FakeAtDisguise=`, `None` when inheriting.
     #[cfg(feature = "phobos")]
     pub fn digital_display_health_fake_at_disguise(&self) -> Option<bool> {
@@ -5236,6 +5259,18 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_open_transport:
                 crate::rules::phobos_open_transport::PhobosOpenTransport::from_section(section),
+            // Phobos `TechnoTypeExt::LoadFromINIFile` (`:844`): an absent key
+            // leaves the ctor's unset state, a present but blank one stores
+            // native -1 (silence rather than the stock line).
+            // `bind_type_eva_references` then resolves a name.
+            #[cfg(feature = "phobos")]
+            phobos_eva_sold: section.read_string_presence("EVA.Sold", 2048).map(|name| {
+                if name.is_empty() {
+                    None
+                } else {
+                    Some(name)
+                }
+            }),
             #[cfg(feature = "phobos")]
             placement_preview: category == ObjectCategory::Building
                 && section.read_bool("PlacementPreview", true),

@@ -4928,6 +4928,11 @@ pub struct RuleSet {
     /// superweapon.
     #[cfg(feature = "phobos")]
     phobos_super_weapon_limbo: BTreeMap<String, crate::rules::phobos_limbo::PhobosSuperWeaponLimbo>,
+    /// Phobos `Message.Activated.*`/`EVA.Activated.*` and the linked pair, for
+    /// every registered superweapon.
+    #[cfg(feature = "phobos")]
+    phobos_super_weapon_messages:
+        BTreeMap<String, crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages>,
     /// Phobos `[GlobalControls] AllowParallelAIQueues=` and the
     /// `ForbidParallelAIQueues.*` category switches.
     #[cfg(feature = "phobos")]
@@ -6173,6 +6178,12 @@ impl RuleSet {
                     .phobos_super_weapon_limbo
                     .insert(name.to_ascii_uppercase(), limbo);
             }
+            rules.phobos_super_weapon_messages.clear();
+            for (name, messages) in processed.phobos_super_weapon_messages_states() {
+                rules
+                    .phobos_super_weapon_messages
+                    .insert(name.to_ascii_uppercase(), messages);
+            }
             for (name, gathering) in processed.ore_gathering_states() {
                 if let Some(unit) = rules.object_list.iter_mut().find(|object| {
                     object.category == ObjectCategory::Vehicle
@@ -6679,7 +6690,7 @@ impl RuleSet {
         ini: &IniFile,
         eva: &crate::rules::sound_ini::EvaRegistry,
     ) {
-        #[cfg(not(feature = "ares"))]
+        #[cfg(not(any(feature = "ares", feature = "phobos")))]
         let _ = (ini, eva);
         #[cfg(feature = "ares")]
         for sw in self.super_weapons.values_mut() {
@@ -6726,6 +6737,17 @@ impl RuleSet {
                     "EVA_TechBuildingLost",
                 ));
             }
+        }
+        // Phobos `TechnoTypeExt::LoadFromINIFile`'s `EVA.Sold` (`:844`): the
+        // authored spelling becomes the catalog's identity, absent and unknown
+        // keep the ctor's unset state, blank is an explicit none (silence).
+        #[cfg(feature = "phobos")]
+        for object in &mut self.object_list {
+            object.bind_phobos_eva_sold(crate::rules::phobos_sw_messages::read_eva_index(
+                ini.section(&object.id),
+                "EVA.Sold",
+                eva,
+            ));
         }
     }
 
@@ -7448,6 +7470,8 @@ impl RuleSet {
             phobos_super_weapon_detonate: BTreeMap::new(),
             #[cfg(feature = "phobos")]
             phobos_super_weapon_limbo: BTreeMap::new(),
+            #[cfg(feature = "phobos")]
+            phobos_super_weapon_messages: BTreeMap::new(),
             #[cfg(feature = "phobos")]
             parallel_ai_queues:
                 crate::rules::phobos_parallel_ai_queues::ParallelAiQueueRules::from_ini(ini),
@@ -8685,6 +8709,8 @@ impl RuleSet {
             self.phobos_super_weapon_detonate.hash(&mut hasher);
             b"phobos-super-limbo-v1".hash(&mut hasher);
             self.phobos_super_weapon_limbo.hash(&mut hasher);
+            b"phobos-super-messages-v1".hash(&mut hasher);
+            self.phobos_super_weapon_messages.hash(&mut hasher);
             self.parallel_ai_queues.hash_into(&mut hasher);
         }
         #[cfg(feature = "ares")]
@@ -11506,6 +11532,17 @@ impl RuleSet {
         id: &str,
     ) -> Option<&crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate> {
         self.phobos_super_weapon_detonate
+            .get(&id.to_ascii_uppercase())
+    }
+
+    /// Phobos `Message.Activated.*`/`EVA.Activated.*` and the linked pair for
+    /// a registered superweapon.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_messages(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages> {
+        self.phobos_super_weapon_messages
             .get(&id.to_ascii_uppercase())
     }
 

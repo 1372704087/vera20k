@@ -4835,6 +4835,21 @@ pub(crate) fn commit_projectile_detonations_inline(
                 // The ordinary outer cluster successor still follows that return.
                 if area_continuation.is_none() || area_result != AreaDamageResult::IronCurtain {
                     emit_warhead_debris(world, rules, &live_tail, warhead, emit);
+                    // Phobos `BulletClass_Logics_Extras` (`0x469AA4`,
+                    // `Ext/Bullet/Hooks.DetonateLogics.cpp:367-470`): after
+                    // this cluster's detonation, the weapon's
+                    // `ExtraWarheads=` fire at the same impact, before the
+                    // airburst tail (`0x469EBA`).
+                    #[cfg(feature = "phobos")]
+                    super::phobos_extra_warheads::emit(
+                        world,
+                        run,
+                        rules,
+                        overlay_registry,
+                        &live_tail,
+                        emit,
+                        under_attack_events,
+                    );
                     #[cfg(feature = "phobos")]
                     super::phobos_airburst::emit(world, rules, &live_tail);
                     #[cfg(not(feature = "phobos"))]
@@ -5028,7 +5043,7 @@ pub(super) fn radiation_enabled(_world: &Simulation) -> bool {
 /// detonated (`WarheadType/Hooks.cpp:17`). A simulated detonation never has a
 /// projectile, so `BulletExt::Detonate`'s `pFiringHouse` travels on its
 /// payload instead.
-fn detonation_source_house(
+pub(crate) fn detonation_source_house(
     world: &Simulation,
     detonation: &ProjectileDetonation,
 ) -> Option<InternedId> {

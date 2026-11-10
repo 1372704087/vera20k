@@ -59,6 +59,8 @@ pub(crate) mod parasite;
 pub(crate) mod penetrates_transport;
 #[cfg(feature = "phobos")]
 mod phobos_airburst;
+#[cfg(feature = "phobos")]
+mod phobos_extra_warheads;
 mod projectile_delivery;
 pub mod radiation_beam;
 pub(crate) mod railgun;
@@ -123,6 +125,8 @@ mod homing_shipyard_tests;
 mod phobos_delayed_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_detonate_all_map_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_extra_warheads_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_topped_fire_tests;
 // Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so

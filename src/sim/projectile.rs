@@ -1664,6 +1664,10 @@ pub enum ProjectileDetonationReason {
     /// `WarheadTypeExt::DetonateAt` builds a bullet with no weapon type and
     /// explodes it at the target (`Ext/WarheadType/Body.cpp:102..110`).
     CritWarhead,
+    /// Phobos ExtraWarheads' full-detonation arm
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:418-419`): the same
+    /// `WarheadTypeExt::DetonateAt` bullet, at the parent's impact.
+    ExtraWarhead,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

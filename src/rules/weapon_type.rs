@@ -391,6 +391,10 @@ pub struct WeaponType {
     /// `[AudioVisual]`.
     #[cfg(feature = "phobos")]
     pub laser_position_update_stop_on_firer_convert: Option<bool>,
+    /// Phobos `WeaponTypeExt` ExtraWarheads (`Ext/WeaponType/Body.cpp:139-166`):
+    /// warheads detonated after this weapon's own at the same impact.
+    #[cfg(feature = "phobos")]
+    pub phobos_extra_warheads: crate::rules::phobos_extra_warheads::PhobosExtraWarheads,
 }
 
 impl WeaponType {
@@ -747,6 +751,9 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             laser_position_update_stop_on_firer_convert: section
                 .read_phobos_nullable_bool("LaserPositionUpdate.StopOnFirerConvert", None),
+            #[cfg(feature = "phobos")]
+            phobos_extra_warheads:
+                crate::rules::phobos_extra_warheads::PhobosExtraWarheads::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_burst_no_delay: section.read_ares_bool("Burst.NoDelay", false),
             #[cfg(feature = "phobos")]

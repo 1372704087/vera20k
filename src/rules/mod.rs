@@ -153,6 +153,8 @@ pub mod phobos_driver_killed;
 #[cfg(feature = "phobos")]
 pub mod phobos_explodes;
 #[cfg(feature = "phobos")]
+pub mod phobos_extra_warheads;
+#[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
 pub mod phobos_force_weapon;

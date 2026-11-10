@@ -351,7 +351,7 @@ fn can_detonate_on(
 /// (`0x005F6B90`) and a non-zero `GetWarheadVersusArmor`. Under Ares that is
 /// the raw Verses; without it `GetTotalDamage(100, WH, armor, 0) / 100`.
 #[cfg(feature = "phobos")]
-fn can_affect_target(
+pub(crate) fn can_affect_target(
     world: &Simulation,
     rules: &RuleSet,
     warhead: &WarheadType,

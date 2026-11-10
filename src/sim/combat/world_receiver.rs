@@ -4128,11 +4128,6 @@ fn emit_detonation_receivers<'r>(
     out: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) -> (Option<AreaDamageContinuation<'r>>, bool, bool) {
-    // Phobos `WarheadTypeExt::Detonate` (`Ext/WarheadType/Detonate.cpp:38-48`):
-    // the detonating bullet's interceptor head resolves its prey before the
-    // create-gap and per-target effects below.
-    #[cfg(feature = "phobos")]
-    world.intercept_bullets(rules, overlay_registry, detonation, warhead, run.effects());
     // Phobos `0x4690C1` replaces the whole DetonateAtCoord, tail included.
     #[cfg(feature = "phobos")]
     if detonate_on_all_map_objects(
@@ -4150,12 +4145,18 @@ fn emit_detonation_receivers<'r>(
     // Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`,
     // `Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`): a Techno target failing
     // the warhead's health/veterancy/neutral/invoker conditions jumps to the
-    // extras (`0x469AA4`), past radiation, the per-target pass, the stock
-    // damage arms and the area damage. Interception and the all-map claim
-    // above already ran (they precede `0x4690D4`).
+    // extras (`0x469AA4`), past the interceptor head (`0x46920B`), radiation,
+    // the per-target pass, the stock damage arms and the area damage. Only
+    // the all-map claim above precedes the gate.
     if trigger_skip {
         return (None, false, false);
     }
+    // Phobos `WarheadTypeExt::Detonate` (`Ext/WarheadType/Detonate.cpp:38-48`):
+    // the detonating bullet's interceptor head resolves its prey before the
+    // create-gap and per-target effects below; the hook is `0x46920B`, after
+    // the trigger gate.
+    #[cfg(feature = "phobos")]
+    world.intercept_bullets(rules, overlay_registry, detonation, warhead, run.effects());
     let effects = run.effects();
     let (impact_rx, impact_ry, ..) = projectile_impact_cell(detonation.impact);
 
@@ -4980,6 +4981,36 @@ pub(crate) fn commit_projectiles(
     }
 }
 
+/// The warhead trigger refusal shared by the bullet `0x4690D4` gate and the
+/// `TechnoClass::ReceiveDamage` gate: health and veterancy thresholds, the
+/// neutral filter and `IsInvokerAllowed`.
+#[cfg(feature = "phobos")]
+fn warhead_trigger_refuses(
+    world: &Simulation,
+    rules: &RuleSet,
+    warhead: &WarheadType,
+    target: &crate::sim::game_entity::GameEntity,
+    invoker: Option<u64>,
+) -> bool {
+    let object = world.interner.object_type(target.type_ref(), rules);
+    if !super::super::combat::warhead_triggers_allow(
+        warhead,
+        target,
+        object,
+        invoker,
+        rules
+            .phobos_globals
+            .affects_invoker_only_ignore_invoker_state,
+    ) {
+        return true;
+    }
+    !warhead.affects_neutral
+        && world
+            .houses
+            .get(&target.owner())
+            .is_some_and(|house| house.multiplay_passive())
+}
+
 /// Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`,
 /// `Ext/Bullet/Hooks.DetonateLogics.cpp:9-41`): a bullet whose type (else the
 /// `[CombatDamage]` global, default yes) obeys warhead trigger conditions
@@ -5012,28 +5043,17 @@ fn warhead_trigger_skips(
     let Some(target) = world.substrate.entities.get(target_id) else {
         return false;
     };
-    let object = world.interner.object_type(target.type_ref(), rules);
-    if !super::super::combat::warhead_triggers_allow(
+    warhead_trigger_refuses(
+        world,
+        rules,
         warhead,
         target,
-        object,
         (detonation.source_id != 0).then_some(detonation.source_id),
-        rules
-            .phobos_globals
-            .affects_invoker_only_ignore_invoker_state,
-    ) {
-        return true;
-    }
-    !warhead.affects_neutral
-        && world
-            .houses
-            .get(&target.owner())
-            .is_some_and(|house| house.multiplay_passive())
+    )
 }
 
-/// `Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`'s gate: the warhead's health and
-/// veterancy thresholds, its neutral filter and `IsInvokerAllowed` with the
-/// damaging techno as invoker.
+/// `Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`'s gate, with the damaging
+/// techno as invoker.
 #[cfg(feature = "phobos")]
 fn receive_damage_trigger_refuses(
     world: &Simulation,
@@ -5044,23 +5064,13 @@ fn receive_damage_trigger_refuses(
     let Some(warhead) = rules.warhead(world.interner.resolve(event.warhead_ref)) else {
         return false;
     };
-    let object = world.interner.object_type(target.type_ref(), rules);
-    if !super::super::combat::warhead_triggers_allow(
+    warhead_trigger_refuses(
+        world,
+        rules,
         warhead,
         target,
-        object,
         (event.attacker_id != 0).then_some(event.attacker_id),
-        rules
-            .phobos_globals
-            .affects_invoker_only_ignore_invoker_state,
-    ) {
-        return true;
-    }
-    !warhead.affects_neutral
-        && world
-            .houses
-            .get(&target.owner())
-            .is_some_and(|house| house.multiplay_passive())
+    )
 }
 
 #[inline]

@@ -34,9 +34,11 @@ where a refused packet is zeroed, and `BulletClass_Logics`'s detonation entry
 (`0x4690D4`, `Ext/Bullet/Hooks.DetonateLogics.cpp:9-41`). The receive site runs
 before the shield and does not set `SkipLowDamageCheck`, so native's
 `0x7019D8` floor still turns that zero packet into one point of damage; the
-bullet site, however, skips the whole body first, so a refused bullet
-detonation never produces a packet and the floor does not apply. A target is
-skipped unless it passes, in native order:
+bullet site, however, skips the whole body first while its key is on, so a
+refused bullet detonation produces no packet and the floor does not apply.
+With the bullet key off the body runs and the receive site's zero-and-floor
+path still gives one point. A target is skipped unless it passes, in native
+order:
 
 - **Health**: only checked when `AffectsAbovePercent > 0` or
   `AffectsBelowPercent < 1` (Phobos's derived `HealthCheck`); the target's
@@ -61,9 +63,11 @@ veterancy, the `AffectsNeutral` filter or `IsInvokerAllowed`, the hook jumps to
 `GoToExtras 0x469AA4`: the shake RNG draws, radiation, the Phobos per-target
 pass (crit, convert, return warhead, ...), the stock damage arms and the area
 damage are all skipped, while the impact extras (the warhead `AnimList` and
-its smudge, debris and `ExtraWarheads`) still run. Interception and the
-`DetonateOnAllMapObjects` claim precede `0x4690D4` and are not skipped. A cell,
-terrain or null target never takes the gate; only an entity target does.
+its smudge, debris and `ExtraWarheads`) still run. Only the
+`DetonateOnAllMapObjects` claim precedes `0x4690D4`; the interceptor head
+(`0x46920B`), radiation and the 0x46920B per-target pass follow the gate and
+are skipped with the body. A cell, terrain or null target never takes the
+gate; only an entity target does.
 
 ## Where VERA20K owns it
 

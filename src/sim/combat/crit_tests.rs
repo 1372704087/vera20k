@@ -697,6 +697,45 @@ fn warhead_trigger_gates_zero_the_received_damage() {
     );
 }
 
+/// With the bullet's `Shrapnel.ObeyWarheadTriggerConditions=no` the whole-body
+/// skip does not run, so a trigger-refusing target still reaches
+/// `TechnoClass::ReceiveDamage`'s zeroing gate and its `0x7019D8` one-point
+/// floor.
+#[test]
+fn the_receive_damage_gate_floors_a_key_off_bullet() {
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "AffectsAbovePercent=0.9\n",
+        "Secondary=GUNB\n",
+        "[GUNB]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\nProjectile=SHELL\n\
+         [SHELL]\nShrapnel.ObeyWarheadTriggerConditions=no\n",
+        "Russians",
+    );
+    sim.substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .health
+        .set_for_test(50);
+    assert!(
+        rules.projectile("SHELL").is_some(),
+        "GUNB's Projectile allocates the bullet type"
+    );
+    let bullet = sim.interner.intern("SHELL");
+    let mut detonation = detonation(&mut sim, "WH", firer, target, 100);
+    detonation.payload =
+        ProjectilePayload::new(100, sim.interner.intern("WH"), Some(bullet), false);
+    let before = health(&sim, target);
+    let mut run = ReceiverRun::default();
+    commit_projectiles(&mut sim, &mut run, &[detonation], &rules, None);
+    run.finish();
+    assert_eq!(
+        before - health(&sim, target),
+        1,
+        "the receive gate zeroes the packet and the floor leaves one point"
+    );
+}
+
 /// `Crit.Warhead` with `Crit.Warhead.FullDetonation` runs a real detonation of
 /// the named warhead at the target, whose own `AnimList` shows in the tail.
 #[test]

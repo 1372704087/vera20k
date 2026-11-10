@@ -74,8 +74,7 @@ visits, deletion, refunds and the gunner/parasite calls. `DigitalDisplay`'s
   kind in native; this port installs the transport's House and applies the
   remap, the same limitation the existing combat-explosion anim owner records.
   The anim does attach to the transport through `SetOwnerObject`
-  (`ownedObject=true`) and the `SetInvoker` call remains unported with the
-  rest of the anim-invoker state.
+  (`ownedObject=true`) and carries it as its invoker.
 - The building-transport `RecheckPower` write is modelled as
   `PowerState::invalidate(false)`, the existing House+5778 reassessment flag.
 - The flying label's `DisplaySoylentToHouses` check runs per client against the

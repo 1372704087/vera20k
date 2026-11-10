@@ -347,18 +347,26 @@ impl Simulation {
                 .art()
                 .anim_runtime_config(self.interner.resolve(type_id))
                 .and_then(|config| config.phobos_create_unit.clone());
-            if let Some(settings) = settings
-                && let Some(house) = self.house_kind(
+            if let Some(settings) = settings {
+                // RESIDUAL: native's `pInvoker` here is the killer House
+                // (`ProcessDestroyAnims` takes it from `TakeDamage`), which
+                // `unit_death_explosion` does not receive; Invoker/Killer
+                // selectors fall back to the victim House.
+                let random_house = (settings.owner
+                    == crate::rules::ares_warhead::HouseSelector::Random)
+                    .then(|| self.random_house())
+                    .flatten();
+                if let Some(house) = self.house_kind(
                     settings.owner,
                     None,
                     spawn.invoker.map(|(_, house)| house),
                     None,
                     spawn.victim_house,
                     rules,
-                    None,
-                )
-            {
-                self.substrate.set_anim_owner_house(anim, house);
+                    random_house,
+                ) {
+                    self.substrate.set_anim_owner_house(anim, house);
+                }
             }
             if let Some((invoker, house)) = spawn.invoker {
                 self.substrate
@@ -401,21 +409,12 @@ impl Simulation {
             .map_or((HouseSelector::Invoker, -1), |config| {
                 (config.ares_make_infantry_owner, config.make_infantry)
             });
-        let order = self.houses.order();
-        let random_house = (selector == HouseSelector::Random && !order.is_empty()).then(|| {
-            let last = order.len() as i32 - 1;
-            let index = self.scenario_rng.next_range_i32_inclusive(0, last);
-            order.get(index as usize).copied()
-        });
-        let Some(house) = self.house_kind(
-            selector,
-            None,
-            invoker,
-            killer,
-            victim,
-            rules,
-            random_house.flatten(),
-        ) else {
+        let random_house = (selector == HouseSelector::Random)
+            .then(|| self.random_house())
+            .flatten();
+        let Some(house) =
+            self.house_kind(selector, None, invoker, killer, victim, rules, random_house)
+        else {
             return selector;
         };
         self.substrate.set_anim_owner_house(anim, house);

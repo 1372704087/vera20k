@@ -476,6 +476,10 @@ pub struct AnimObject {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     death_unit_turret_facing: Option<u8>,
+    /// VERA-internal: the `CreateUnit` actual-effects arm already ran.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    create_unit_fired: bool,
     /// `AnimClass+0xCC` when it names a `TerrainClass`: a tree's fire, which
     /// only the Ares terrain fire attaches (`sim::terrain_fire`). VERA keeps
     /// a terrain owner apart from `owner_entity` and its stored coordinate
@@ -803,13 +807,15 @@ impl AnimObject {
             death_unit_has_turret: false,
             #[cfg(feature = "phobos")]
             death_unit_turret_facing: None,
+            #[cfg(feature = "phobos")]
+            create_unit_fired: false,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         }
     }
 
     /// The owning House (`AnimClass+0x180`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "phobos"))]
     pub fn owner_house(&self) -> Option<InternedId> {
         self.owner_house
     }
@@ -848,6 +854,18 @@ impl AnimObject {
     #[cfg(feature = "phobos")]
     pub fn death_unit_turret_facing(&self) -> Option<u8> {
         self.death_unit_turret_facing
+    }
+
+    /// VERA-internal one-shot latch for the `CreateUnit` actual-effects arm
+    /// (native reaches it once per anim).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn create_unit_fired(&self) -> bool {
+        self.create_unit_fired
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_create_unit_fired(&mut self) {
+        self.create_unit_fired = true;
     }
 
     /// The bullet whose expiry ends this anim (`AnimClass+0x17C`).
@@ -1339,7 +1357,7 @@ enum VisitAction {
 const MAKE_INFANTRY_UNLIMBO_FACING: u8 = 0x60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnimOccupationOperation {
+pub(crate) enum AnimOccupationOperation {
     Mark,
     Clear,
 }
@@ -1350,7 +1368,7 @@ enum AnimOccupationOperation {
 /// index, -1 (vtable `+0x38` = `0x00410490`, stored at `0x004262D0` /
 /// `0x004262F5`); Clear resets it once `0x1C` is clear (`0x0042634F` /
 /// `0x00426378`).
-fn apply_anim_raw_occupation(
+pub(crate) fn apply_anim_raw_occupation(
     grid: &mut RawCellOccupationGrid,
     key: RawCellKey,
     mask: u8,
@@ -1368,6 +1386,27 @@ fn apply_anim_raw_occupation(
         AnimOccupationOperation::Clear => reaches_deck,
     };
     let layer = if use_deck {
+        MovementLayer::Bridge
+    } else {
+        MovementLayer::Ground
+    };
+    let put = operation == AnimOccupationOperation::Mark;
+    grid.write_occupant(key, layer, mask, None, put);
+}
+
+/// `AnimClass::MarkAllOccupationBits` / `UnmarkAllOccupationBits` with the
+/// constructor's and actual-effects' `GetCell()->GetCoordsWithBridge()`
+/// argument (`Ext/Anim/Hooks.AnimCreateUnit.cpp:36-80`): the coordinate's
+/// plane follows the cell's live structural bridge flag alone; the anim's
+/// height does not select a layer.
+pub(crate) fn apply_anim_coords_occupation(
+    grid: &mut RawCellOccupationGrid,
+    key: RawCellKey,
+    mask: u8,
+    live_structural_bridge: bool,
+    operation: AnimOccupationOperation,
+) {
+    let layer = if live_structural_bridge {
         MovementLayer::Bridge
     } else {
         MovementLayer::Ground
@@ -2116,6 +2155,8 @@ impl Simulation {
             death_unit_has_turret: false,
             #[cfg(feature = "phobos")]
             death_unit_turret_facing: None,
+            #[cfg(feature = "phobos")]
+            create_unit_fired: false,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         };
@@ -2124,6 +2165,15 @@ impl Simulation {
         // scheduler anim ever existed in a shipped build.
         let previous = self.substrate.anims.insert(object);
         debug_assert!(previous.is_none());
+        // Phobos `AnimClass_CTOR_CreateUnit_MarkOccupationBits @ 0x4226F0`.
+        #[cfg(feature = "phobos")]
+        if config.phobos_create_unit.is_some() {
+            Self::anim_mark_all_occupation_bits(
+                &mut self.substrate,
+                &self.resolved_terrain,
+                world_coord,
+            );
+        }
         let draws = match constructor {
             AnimConstructorInput::Preconsumed(draws) => draws,
             AnimConstructorInput::Runtime | AnimConstructorInput::AssignedIdentity(_) => {
@@ -2587,6 +2637,16 @@ impl Simulation {
                 random_loop_delay = config.random_loop_delay;
             }
             AnimBoundary::Complete => {
+                // Phobos `AnimClass_AI_CreateUnit_ActualEffects @ 0x424932`.
+                #[cfg(feature = "phobos")]
+                if let Some(settings) = config.phobos_create_unit.clone()
+                    && !self.anim(id).is_some_and(|anim| anim.create_unit_fired())
+                {
+                    if let Some(anim) = self.substrate.anims.get_mut(id) {
+                        anim.set_create_unit_fired();
+                    }
+                    self.anim_create_unit(id, &settings, rules, overlay_registry, frame_effects);
+                }
                 action = if let Some(next) = config.next.clone() {
                     VisitAction::Next(next)
                 } else if config.make_infantry != -1 {

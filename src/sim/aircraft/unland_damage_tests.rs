@@ -1,8 +1,9 @@
 //! Phobos `AircraftClass_Update_UnlandableDamage` (`Ext/Aircraft/Hooks.cpp:
-//! 735-790`, hook `0x414DA8`): an airport-bound aircraft that stays in the air
-//! takes `ExtendedAircraftMissions.UnlandDamage` every fourth frame, and a
-//! negative value crashes it while the master switch is on. The frames the
-//! step visits are the production `advance_tick` AI pass.
+//! 735-794`, hook `0x414DA8`): an airport-bound aircraft that stays in the air
+//! takes `ExtendedAircraftMissions.UnlandDamage` every fourth frame unless it
+//! is already heading to a dock, and a negative value crashes it while the
+//! master switch is on. The frames the step visits are the production
+//! `advance_tick` AI pass.
 
 #![cfg(all(test, feature = "phobos"))]
 
@@ -26,7 +27,7 @@ fn rules(keys: &str) -> RuleSet {
 
 /// A human house's ORCA high in the air with its airfield far away, so it
 /// neither lands nor idles on the ground during the measured frames.
-fn airborne_orca(keys: &str) -> (Simulation, RuleSet, u64) {
+fn airborne_orca(keys: &str) -> (Simulation, RuleSet, u64, u64) {
     let rules = rules(keys);
     let mut sim = Simulation::new();
     let owner = sim.interner.intern("Americans");
@@ -34,7 +35,8 @@ fn airborne_orca(keys: &str) -> (Simulation, RuleSet, u64) {
         .register(crate::sim::house_state::HouseState::new(
             owner, 0, None, true, 0, 10,
         ));
-    sim.spawn_object("GAAIRC", "Americans", 55, 55, 0, &rules)
+    let pad = sim
+        .spawn_object("GAAIRC", "Americans", 55, 55, 0, &rules)
         .expect("airfield");
     let orca = sim
         .spawn_object("ORCA", "Americans", 5, 5, 0, &rules)
@@ -45,7 +47,7 @@ fn airborne_orca(keys: &str) -> (Simulation, RuleSet, u64) {
         .unwrap()
         .position
         .put_z(1500);
-    (sim, rules, orca)
+    (sim, rules, orca, pad)
 }
 
 fn health(sim: &Simulation, id: u64) -> i32 {
@@ -54,7 +56,7 @@ fn health(sim: &Simulation, id: u64) -> i32 {
 
 #[test]
 fn a_positive_unland_damage_hurts_an_airborne_aircraft_every_fourth_frame() {
-    let (mut sim, rules, orca) = airborne_orca("ExtendedAircraftMissions.UnlandDamage=5\n");
+    let (mut sim, rules, orca, _) = airborne_orca("ExtendedAircraftMissions.UnlandDamage=5\n");
     let initial = health(&sim, orca);
     for _ in 0..40 {
         let _ = sim.advance_tick(&[], Some(&rules), None, None, 33);
@@ -67,8 +69,26 @@ fn a_positive_unland_damage_hurts_an_airborne_aircraft_every_fourth_frame() {
 }
 
 #[test]
+fn a_docked_aircraft_takes_no_unland_damage() {
+    // Phobos `AircraftClass_Update_UnlandableDamage` (`Ext/Aircraft/Hooks.cpp:
+    // 762-770`): an aircraft that already holds a `DockNowHeadingTo` takes
+    // neither damage arm.
+    let (mut sim, rules, orca, pad) = airborne_orca("ExtendedAircraftMissions.UnlandDamage=5\n");
+    sim.substrate.set_aircraft_dock(orca, Some(pad));
+    let initial = health(&sim, orca);
+    for _ in 0..40 {
+        let _ = sim.advance_tick(&[], Some(&rules), None, None, 33);
+    }
+    assert_eq!(
+        health(&sim, orca),
+        initial,
+        "a docked aircraft takes no hits"
+    );
+}
+
+#[test]
 fn a_negative_unland_damage_crashes_an_airborne_aircraft_with_the_master_on() {
-    let (mut sim, rules, orca) =
+    let (mut sim, rules, orca, _) =
         airborne_orca("ExtendedAircraftMissions=yes\nExtendedAircraftMissions.UnlandDamage=-1\n");
     let mut crashed = false;
     for _ in 0..240 {

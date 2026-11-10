@@ -450,7 +450,7 @@ fn a_fast_scramble_aircraft_takes_off_instead_of_dying_with_its_helipad() {
     use crate::sim::world::FrameEffects;
 
     // Phobos `BuildingClass_ReceiveDamage_NoDestroyLink`
-    // (`Ext/Aircraft/Hooks.cpp:1084-1093`, hook `0x4425B6`): the type's
+    // (`Ext/Aircraft/Hooks.cpp:1072-1093`, hook `0x4425B6`): the type's
     // `ExtendedAircraftMissions.FastScramble` sends the RUN_AWAY arm instead
     // of the `Strength * 10` kill for a helipad's linked aircraft.
     let mut ini = IniFile::from_str(RULES);

@@ -9449,6 +9449,17 @@ impl RuleSet {
                     targeting.hash_state(&mut hasher);
                 }
             }
+            // Phobos `Strafing.*` weapon keys: only an authored key changes a
+            // save's configuration identity; all-unset leaves stock hashes.
+            let strafing = Self::by_upper_id(
+                self.weapon_entries()
+                    .filter(|(_, weapon)| !weapon.phobos_strafing().is_default())
+                    .map(|(id, weapon)| (id, weapon.phobos_strafing())),
+            );
+            if !strafing.is_empty() {
+                b"phobos-weapon-strafing-v1".hash(&mut hasher);
+                strafing.hash(&mut hasher);
+            }
         }
         Self::by_upper_id(self.super_weapons.iter().map(|(id, super_weapon)| {
             (id, (&super_weapon.weapon_type, &super_weapon.aux_building))

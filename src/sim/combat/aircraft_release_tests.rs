@@ -12,8 +12,8 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
     let passenger = input["passenger"].as_bool().unwrap_or(false);
     let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
         "[AircraftTypes]\n0=ORCA\n[ORCA]\nStrength=150\nSpeed=8\nAmmo=2\nROT=5\n\
-         Primary=Gun\n{}Fighter={}\nLocomotor={{4A582746-9839-11d1-B709-00A024DDAFD1}}\n{}\
-         [Gun]\nDamage=10\nROF=20\nRange=20\nBurst={}\nOmniFire={}\nProjectile=Shell\nWarhead=WH\n{}{}\
+         Primary=Gun\n{}Fighter={}\nLocomotor={{4A582746-9839-11d1-B709-00A024DDAFD1}}\n{}{}\
+         [Gun]\nDamage=10\nROF=20\nRange=20\nBurst={}\nOmniFire={}\nProjectile=Shell\nWarhead=WH\n{}{}{}\
          [EliteGun]\nDamage=10\nROF=37\nRange=20\nBurst={}\nProjectile=Shell\nWarhead=WH\n\
          [Shell]\nROT={}\nInviso={}\nAG=yes\nAA=yes\n\
          [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{}{}",
@@ -24,8 +24,10 @@ fn fixture(input: &Value) -> (Simulation, RuleSet) {
         } else {
             ""
         },
+        input["aircraft_ini"].as_str().unwrap_or(""),
         input["burst"].as_i64().unwrap_or(2),
         input["omni_fire"].as_bool().unwrap_or(false),
+        input["gun_ini"].as_str().unwrap_or(""),
         input["speed"]
             .as_i64()
             .map_or(String::new(), |speed| format!("Speed={speed}\n")),
@@ -756,5 +758,230 @@ fn an_aircraft_strike_scatters_the_target_cell_away_from_the_aircraft() {
     assert_eq!(
         tank.mission.queued(),
         MissionId::from_known(MissionType::Move)
+    );
+}
+
+/// Phobos `Strafing.Shots` (`Ext/WeaponType/Body.cpp:109`) caps the round
+/// (`Ext/Aircraft/Hooks.cpp:37-51`) and the ending shot takes
+/// `Strafing.EndDelay` (`:221`) or, unset, `(Range + 4 * LeptonsPerCell) /
+/// Speed`. Production dispatch: one shot per visit, the release first.
+#[cfg(feature = "phobos")]
+#[test]
+fn strafing_shots_cap_the_round_and_end_delay_overrides_the_derived_value() {
+    let cap = serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false,
+        "gun_ini": "Strafing.Shots=3\n",
+    });
+    let (mut sim, rules) = fixture(&cap);
+    assert_eq!(dispatch(&mut sim, &rules).len(), 1, "the release");
+    assert_eq!(
+        crate::sim::aircraft::attack_state(sim.substrate.entities.get(1).unwrap()),
+        Some(6)
+    );
+    sim.session.set_binary_frame_for_test(100);
+    assert_eq!(dispatch(&mut sim, &rules).len(), 1, "state 6's shot");
+    sim.session.set_binary_frame_for_test(200);
+    assert_eq!(dispatch(&mut sim, &rules).len(), 1, "state 7's shot");
+    let entity = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(
+        crate::sim::aircraft::attack_state(entity),
+        Some(3),
+        "the third bomb reaches Strafing.Shots and the round ends"
+    );
+    assert_eq!(
+        entity
+            .mission_leaf
+            .aircraft_strafe_bombs_dropped_this_round(),
+        3
+    );
+    let weapon = rules.weapon("Gun").unwrap();
+    let speed = crate::util::fixed_math::ra2_speed_to_leptons_per_frame(
+        rules.object("ORCA").unwrap().speed,
+    );
+    let derived = (weapon.range_leptons + 4 * 256) / speed;
+    assert_eq!(entity.mission.dispatch_timer().delay(), derived);
+
+    // `Strafing.EndDelay=17` replaces the derived value on the same arm.
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false,
+        "gun_ini": "Strafing.Shots=3\nStrafing.EndDelay=17\n",
+    }));
+    for frame in [0, 100, 200] {
+        sim.session.set_binary_frame_for_test(frame);
+        dispatch(&mut sim, &rules);
+    }
+    let entity = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(crate::sim::aircraft::attack_state(entity), Some(3));
+    assert_eq!(entity.mission.dispatch_timer().delay(), 17, "EndDelay");
+}
+
+/// Phobos `Strafing.UseAmmoPerShot` (`Ext/Aircraft/Body.cpp:36-45`): one Ammo
+/// per shot, `ShouldLoseAmmo` (`+0x6C8`) cleared, and Ammo 0 clears the
+/// Target and Destination; `GetDelay` then ends the round (`Hooks.cpp:218`).
+#[cfg(feature = "phobos")]
+#[test]
+fn strafing_ammo_per_shot_debits_each_shot_and_ends_the_round_at_zero() {
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false, "ammo": 2,
+        "gun_ini": "Strafing.UseAmmoPerShot=yes\n",
+    }));
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    assert_eq!(dispatch(&mut sim, &rules).len(), 1);
+    let entity = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(entity.ammo().unwrap().current(), 1);
+    assert!(
+        !entity.ammo().unwrap().release_pending(),
+        "ShouldLoseAmmo cleared: no round debit later"
+    );
+    assert_eq!(crate::sim::aircraft::attack_state(entity), Some(6));
+
+    sim.session.set_binary_frame_for_test(100);
+    assert_eq!(dispatch(&mut sim, &rules).len(), 1);
+    let entity = sim.substrate.entities.get(1).unwrap();
+    assert_eq!(entity.ammo().unwrap().current(), 0);
+    assert_eq!(entity.attack_target.target(), None, "SetTarget(nullptr)");
+    assert_eq!(
+        crate::sim::aircraft::attack_state(entity),
+        Some(3),
+        "UseAmmoPerShot with Ammo 0 ends the round"
+    );
+}
+
+/// Phobos `Strafing.TargetCell` (`Ext/Aircraft/Hooks.cpp:233-235`) stores the
+/// Target's cell on the state-4 suffix, and states 6..9 fire at it
+/// (`:245-266`). `Strafing.SimulateBurst` writes `CurrentBurstIndex =
+/// bombDropCount % 2 == 0` across the single-shot passes
+/// (`Ext/Aircraft/Body.cpp:26-27`); a shot FireAt refuses leaves that write
+/// in the retained index.
+#[cfg(feature = "phobos")]
+#[test]
+fn strafing_target_cell_and_simulate_burst_change_the_shots() {
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false,
+        "gun_ini": "Strafing.TargetCell=yes\n",
+        "extra_ini": "[VehicleTypes]\n0=TARGET\n[TARGET]\nStrength=100\n",
+    }));
+    crate::sim::arena_fixture::flat_ground(&mut sim, &rules);
+    let mut target = GameEntity::test_default(2, "TARGET", "Russians", 10, 9);
+    target.set_type_ref_for_test(sim.interner.intern("TARGET"));
+    target.set_category_for_test(EntityCategory::Unit);
+    target.lifecycle.set_in_limbo_for_test(false);
+    sim.substrate.entities.insert(target);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
+
+    let release = dispatch(&mut sim, &rules);
+    assert_eq!(release.len(), 1);
+    assert_eq!(
+        release[0].target,
+        TargetKind::Entity(2),
+        "the release still aims at the Target"
+    );
+    sim.session.set_binary_frame_for_test(100);
+    let stored = dispatch(&mut sim, &rules);
+    assert_eq!(stored.len(), 1, "state 6's shot");
+    assert_eq!(
+        stored[0].target,
+        TargetKind::Cell(10, 9),
+        "the round fires at the Target's stored cell"
+    );
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().navigation.nav_com(),
+        Some(crate::sim::components::NavTargetRef::cell(10, 9)),
+        "SetDestination(target cell, 1)"
+    );
+
+    // SimulateBurst: the first pass reads bomb count 0 and stores index 1.
+    // FireAt refuses a Limbo Object before launch, so the write stays visible.
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false,
+        "gun_ini": "Strafing.SimulateBurst=yes\n",
+        "extra_ini": "[TerrainTypes]\n0=TREE01\n[TREE01]\nStrength=100\n",
+    }));
+    let type_ref = sim.interner.intern("TREE01");
+    sim.terrain_objects.objects_mut_for_test().insert(
+        2,
+        crate::sim::terrain_object::TerrainObjectState::for_test(2, type_ref, 10, 9),
+    );
+    let tree = sim
+        .terrain_objects
+        .objects_mut_for_test()
+        .get_mut(&2)
+        .unwrap();
+    tree.set_lifecycle_for_test(crate::sim::terrain_object::TerrainObjectLifecycle::Limbo);
+    sim.substrate
+        .entities
+        .get_mut(1)
+        .unwrap()
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(2)));
+    assert!(
+        dispatch(&mut sim, &rules).is_empty(),
+        "Limbo refuses FireAt"
+    );
+    assert_eq!(
+        sim.substrate.entities.get(1).unwrap().weapon_burst.index(),
+        1,
+        "bombDropCount 0 stores CurrentBurstIndex 1"
+    );
+}
+
+/// Phobos `AircraftClass_Mission_Attack_StrafeShots`'s re-entry
+/// (`Ext/Aircraft/Hooks.cpp:39-48`): above five shots, FireAtTarget3_Strafe
+/// (7) goes back to FireAtTarget2_Strafe (6) while
+/// `Strafing.Shots - 3 - counter > 0`, so the round fires the extra bombs
+/// from state 6. Production dispatch: one shot per visit.
+#[cfg(feature = "phobos")]
+#[test]
+fn strafing_shots_above_five_reenter_state_six_until_the_bombs_run_out() {
+    let (mut sim, rules) = fixture(&serde_json::json!({
+        "burst": 1, "rot": 1, "inviso": false,
+        "gun_ini": "Strafing.Shots=7\n",
+    }));
+    let mut bombs = 0;
+    let mut visits = Vec::new();
+    for frame in [0, 100, 200, 300, 400, 500, 600] {
+        sim.session.set_binary_frame_for_test(frame);
+        bombs += dispatch(&mut sim, &rules).len();
+        let entity = sim.substrate.entities.get(1).unwrap();
+        visits.push((
+            crate::sim::aircraft::attack_state(entity),
+            entity
+                .mission_leaf
+                .aircraft_strafe_bombs_dropped_this_round(),
+        ));
+    }
+    assert_eq!(bombs, 7, "release plus six bombs");
+    assert_eq!(
+        visits,
+        [
+            (Some(6), 1),
+            (Some(7), 2),
+            (Some(7), 3),
+            (Some(7), 4),
+            (Some(8), 5),
+            (Some(9), 6),
+            (Some(3), 7),
+        ],
+        "two state-7 visits re-enter state 6, then 7, 8 and 9 end the run"
+    );
+    let weapon = rules.weapon("Gun").unwrap();
+    let speed = crate::util::fixed_math::ra2_speed_to_leptons_per_frame(
+        rules.object("ORCA").unwrap().speed,
+    );
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(1)
+            .unwrap()
+            .mission
+            .dispatch_timer()
+            .delay(),
+        (weapon.range_leptons + 4 * 256) / speed,
+        "the last shot takes the derived end delay"
     );
 }

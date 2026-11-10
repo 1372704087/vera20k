@@ -194,6 +194,14 @@ impl TechnoAmmo {
         self.pending_release = true;
     }
 
+    /// Phobos `AircraftExt::FireWeapon` clears `ShouldLoseAmmo` after a
+    /// `Strafing.UseAmmoPerShot` debit (`Ext/Aircraft/Body.cpp:39`): that flag
+    /// is Aircraft `+0x6C8`, VERA's pending release, so the per-shot debit
+    /// replaces the round's one release debit.
+    pub(crate) fn cancel_release(&mut self) {
+        self.pending_release = false;
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) const fn release_pending(&self) -> bool {
         self.pending_release

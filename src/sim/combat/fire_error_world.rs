@@ -507,6 +507,10 @@ impl<'a> FireSubject<'a> {
             can_occupy_fire: obj.can_occupy_fire,
             emp_pulse_cannon: obj.emp_pulse_cannon,
             turret_anim_is_voxel: obj.turret_anim_is_voxel,
+            #[cfg(feature = "phobos")]
+            no_turret_track_target: obj
+                .phobos_no_turret_track_target
+                .unwrap_or(self.rules.phobos_globals.no_turret_track_target),
             ..FirerTypeFacts::default()
         };
         FirerPart {

@@ -130,6 +130,8 @@ mod phobos_detonate_all_map_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_extra_warheads_tests;
 #[cfg(all(test, feature = "phobos"))]
+mod phobos_no_turret_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod phobos_open_topped_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_transport_tests;

@@ -985,6 +985,12 @@ pub struct ObjectType {
     /// Strength damage; unset takes `[General]`. Read only for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_sinkable_squid_grab: Option<bool>,
+    /// Phobos `NoTurret.TrackTarget=` (`Ext/UnitType/Body.cpp:77`,
+    /// `Nullable<bool>`): whether a turretless Unit in REARM still checks its
+    /// facing and turns toward the target; unset takes `[General]`. Read only
+    /// for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_no_turret_track_target: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4996,6 +5002,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_sinkable_squid_grab: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("Sinkable.SquidGrab", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_no_turret_track_target: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("NoTurret.TrackTarget", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(

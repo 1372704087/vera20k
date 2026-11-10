@@ -313,6 +313,12 @@ pub struct PhobosGlobals {
     /// `no_rearm_temporal`.
     #[serde(default)]
     pub no_reload_temporal: bool,
+    /// `[General] NoTurret.TrackTarget=`, default `no`
+    /// (`Ext/Rules/Body.cpp:393`, constructor `Body.h:812`): the fallback for
+    /// an unset UnitType key; `yes` lets a turretless Unit in REARM keep
+    /// checking its facing and turn toward the target while cooling down.
+    #[serde(default)]
+    pub no_turret_track_target: bool,
     /// `[General] Passengers.SyncOwner=`, default `no`
     /// (`Ext/Rules/Body.cpp:467`, constructor `Ext/Rules/Body.h:882`): the
     /// fallback for an unset transport-type key; `yes` re-houses the cargo
@@ -411,6 +417,7 @@ impl Default for PhobosGlobals {
             no_rearm_temporal: false,
             no_reload_under_emp: false,
             no_reload_temporal: false,
+            no_turret_track_target: false,
             passengers_sync_owner: false,
             passengers_sync_owner_revert_on_exit: true,
             strafing_simulate_burst: false,
@@ -592,6 +599,9 @@ impl PhobosGlobals {
             general.read_bool("NoReload.UnderEMP", globals.no_reload_under_emp);
         globals.no_reload_temporal =
             general.read_bool("NoReload.Temporal", globals.no_reload_temporal);
+        // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
+        globals.no_turret_track_target =
+            general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
         // The two `Passengers.SyncOwner` `Valueable<bool>` globals
         // (`Ext/Rules/Body.cpp:467-468`); `Valueable` has no unset state, so
         // these are plain `read_bool` reads from the constructor defaults.

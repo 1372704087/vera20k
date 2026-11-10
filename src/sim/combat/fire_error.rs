@@ -503,6 +503,11 @@ pub(crate) struct FirerTypeFacts {
     pub can_occupy_fire: bool, // +0x157C
     pub emp_pulse_cannon: bool, // +0x16C3
     pub turret_anim_is_voxel: bool, // +0x16C5
+    /// Phobos `NoTurret.TrackTarget` resolved against `[General]`
+    /// (`Ext/UnitType/Body.cpp:77`, `Ext/Rules/Body.cpp:393`), read by the
+    /// `0x7410BB` hook; true only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub no_turret_track_target: bool,
 }
 
 impl Default for FirerTypeFacts {
@@ -530,6 +535,8 @@ impl Default for FirerTypeFacts {
             can_occupy_fire: false,
             emp_pulse_cannon: false,
             turret_anim_is_voxel: false,
+            #[cfg(feature = "phobos")]
+            no_turret_track_target: false,
         }
     }
 }
@@ -754,18 +761,32 @@ fn unit(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> Fir
         return FireError::Illegal;
     }
     let base = techno(facts, query, check_range);
-    // `0x0074104B`: the base has no producer of Facing, so only 0 goes on.
-    if base != FireError::Ok && base != FireError::Facing {
-        return base;
-    }
-    // U4 `0x00741050..0x007410A8`: the cell is asked first, on every call.
-    // vt+0x4E4 (`0x00736D50`) answers true at once for DeployToFire.
-    let cell_ok = query.deploy_cell_ok();
-    if firer_type.deploy_to_fire && !cell_ok {
-        return FireError::MustDeploy;
-    }
-    if base != FireError::Ok {
-        return base;
+    // Phobos `UnitClass_GetFireError_CheckFacingError` (`0x7410BB`, 8 bytes,
+    // `Ext/Techno/Hooks.Misc.cpp:752-769`): a keyed turretless unit that is
+    // not warping in continues its REARM at U5 (`0x7410C3`), skipping U4, so
+    // the facing check below turns it toward the target while it cools down.
+    #[cfg(feature = "phobos")]
+    let track_rearm = base == FireError::Rearm
+        && !firer_type.turret
+        && !firer.warping_in
+        && firer_type.no_turret_track_target;
+    #[cfg(not(feature = "phobos"))]
+    let track_rearm = false;
+    // `0x0074104B`: only OK and Facing enter U4; every other error reaches
+    // the `0x007410BB` gate, where the Phobos REARM arm above continues.
+    if !track_rearm {
+        if base != FireError::Ok && base != FireError::Facing {
+            return base;
+        }
+        // U4 `0x00741050..0x007410A8`: the cell is asked first, on every call.
+        // vt+0x4E4 (`0x00736D50`) answers true at once for DeployToFire.
+        let cell_ok = query.deploy_cell_ok();
+        if firer_type.deploy_to_fire && !cell_ok {
+            return FireError::MustDeploy;
+        }
+        if base != FireError::Ok {
+            return base;
+        }
     }
     // U5 `0x007410C3`: docked at a building.
     if firer.tethered && firer.radio_link == RadioLink::Building {
@@ -844,8 +865,15 @@ fn unit(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> Fir
             return FireError::Facing;
         }
     }
-    // U13 `0x00741300`.
-    query.locomotor_can_fire()
+    // U13 `0x00741300..0x00741323`: a nonzero Can_Fire wins; otherwise the
+    // routine returns the base held at `[esp+0x28]`. The base is OK for every
+    // stock route that reaches here; the Phobos REARM continuation above is
+    // the only way it is not.
+    let locomotor = query.locomotor_can_fire();
+    if locomotor != FireError::Ok {
+        return locomotor;
+    }
+    base
 }
 
 /// `InfantryClass::GetFireError @ 0x0051C8B0`.

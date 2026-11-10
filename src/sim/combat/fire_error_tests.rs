@@ -347,6 +347,10 @@ fn facts(input: &Value) -> FireFacts {
             can_occupy_fire: flag(&ft["can_occupy_fire"]),
             emp_pulse_cannon: flag(&ft["emp_pulse_cannon"]),
             turret_anim_is_voxel: flag(&ft["turret_anim_is_voxel"]),
+            // The native corpus has no `NoTurret.TrackTarget`; false keeps
+            // the `0x7410BB` hook at its stock gate.
+            #[cfg(feature = "phobos")]
+            no_turret_track_target: false,
         },
         target: TargetFacts {
             kind: target_kind(t["kind"].as_str().unwrap()),

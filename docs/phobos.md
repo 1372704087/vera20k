@@ -138,6 +138,7 @@ Supported extensions:
 - [ChangeOwner warhead](phobos-change-owner.md) (`ChangeOwner`/`.SetAsMindControl`/`.MindControlAnim`: a warhead transfers its target to the firing house, optionally as a mind-control capture; 3 keys)
 - [SpawnsCrate warhead](phobos-spawns-crate.md) (`SpawnsCrate{i}.Type`/`.Weight` and their entry-0 aliases: a detonation places one weighted powerup crate; 2 numbered keys + 2 aliases)
 - [Rocker warhead](phobos-rocker.md) (`Rocker.AmplitudeMultiplier`/`.AmplitudeOverride`: the area-damage rocker's base amplitude; 2 keys)
+- [NoTurret.TrackTarget](phobos-no-turret.md) (`NoTurret.TrackTarget`: a keyed turretless vehicle keeps checking its facing while in REARM; 1 key + 1 `[General]` global)
 
 ## Original project and authors
 

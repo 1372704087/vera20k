@@ -128,7 +128,7 @@ Supported extensions:
 - [LaunchSW](phobos-launch-sw.md) (`LaunchSW` and its real-launch, inhibitor/designator and display-money options: a warhead launches superweapons at its impact; 7 keys)
 - [NotHuman death sequences](phobos-not-human.md) (`NotHuman.DeathSequence` / `NotHuman.RandomDeathSequence`: a NotHuman infantryman's Die1..Die5 selection and the paradrop fix; 2 keys + 1 `[General]` global)
 - [KeepRange](phobos-keep-range.md) (`KeepRange` and its AllowAI/AllowPlayer/EarlyStopFrame gates: an Infantry/Unit holds a distance while rearming; 4 keys + 3 `[General]` globals)
-- [Parasite keys](phobos-parasite.md) (`Parasite.ParticleSystem`/`.DisableParticleSystem`/`.CullingTarget`/`.GrappleAnim`/`.AllowWaterExit`: the bite and grapple customizations; 5 keys + 3 globals)
+- [Parasite keys](phobos-parasite.md) (`Parasite.ParticleSystem`/`.DisableParticleSystem`/`.CullingTarget`/`.GrappleAnim`/`.AllowWaterExit`, `RemoveParasite`/`.Allow`/`.Disallow`: the bite, grapple and removal customizations; 8 keys + 3 globals)
 - [Superweapon Detonate](phobos-sw-detonate.md) (`Detonate.Warhead`/`.Weapon`/`.Damage`/`.Warhead.Full`/`.AtFirer`: a superweapon detonates a weapon or warhead at its target; 5 keys)
 - [Cloak keys](phobos-cloak.md) (`Cloak.KickOutParasite`: a cloaking host ejects its parasite; 1 key + 1 `[General]` global)
 

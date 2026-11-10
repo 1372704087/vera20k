@@ -8,6 +8,9 @@ Parasite.ParticleSystem=              ; Nullable<ParticleSystemType>
 Parasite.DisableParticleSystem=       ; Nullable<bool>, unset -> [CombatDamage]
 Parasite.CullingTarget=infantry       ; AffectedTarget
 Parasite.GrappleAnim=                 ; Nullable AnimType name
+RemoveParasite=                       ; Nullable<bool>, unset -> damage < 0
+RemoveParasite.Allow=                 ; TechnoType list
+RemoveParasite.Disallow=              ; TechnoType list
 
 [VehicleType]                         ; a parasitic Unit
 Parasite.AllowWaterExit=              ; Nullable<bool>, unset -> [General]
@@ -22,7 +25,7 @@ Parasite.GrappleAnim=                 ; Nullable AnimType name
 Parasite.AllowWaterExit=              ; Nullable<bool>
 ```
 
-Readers `Ext/WarheadType/Body.cpp:322-325`, `Ext/UnitType/Body.cpp:51`,
+Readers `Ext/WarheadType/Body.cpp:181-182,322-325`, `Ext/UnitType/Body.cpp:51`,
 globals `Ext/Rules/Body.cpp:425,426,495` (`Body.h:344,405`).
 
 ## Behavior
@@ -49,13 +52,20 @@ globals `Ext/Rules/Body.cpp:425,426,495` (`Body.h:344,405`).
   `SkipChecks` tail (`0x62AC0F`) and requires no building under the victim
   cell. Unset keeps the stock naval/land rule.
 
+- `FootClass_ReceiveDamage_RemoveParasite` (`0x4D73DE`,
+  `Ext/WarheadType/Hooks.cpp:589-606`): the stock heal-only removal arm is
+  gated by `RemoveParasite` (unset keeps `damage < 0`), and
+  `RemoveParasite.Allow`/`.Disallow` filter the attached parasite's type
+  before the release.
+
 ## Where VERA20K owns it
 
 `rules::phobos_parasite::PhobosParasiteWarhead` on the warhead and
 `ObjectType::phobos_parasite_allow_water_exit` on a Unit feed
-`sim::combat::parasite` (culling gate, spark spawn), `parasite_grapple`
-(the grapple animation name resolved against the declared AnimType list) and
-`parasite_can_place_at_victim` (the water-exit override).
+`sim::combat::parasite` (culling gate, spark spawn),
+`parasite_grapple` (the grapple animation name resolved against the declared
+AnimType list), `parasite_can_place_at_victim` (the water-exit override) and
+`foot_receive_damage_parasite_prefix` (the RemoveParasite gate and lists).
 
 RESIDUAL: the culling gate reuses the shared `AffectedTarget` test with the
 victim's class and 1x1-undeploy flag; native's `IsTechnoEligible` uses

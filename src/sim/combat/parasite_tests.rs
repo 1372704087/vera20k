@@ -1482,6 +1482,60 @@ fn phobos_cloak_kick_out_parasite_ejects_only_when_configured() {
     );
 }
 
+/// Phobos `FootClass_ReceiveDamage_RemoveParasite` (`0x4D73DE`,
+/// `Ext/WarheadType/Hooks.cpp:589-606`): the key replaces the heal-only gate
+/// and the typed Allow/Disallow lists filter the attached parasite type.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_remove_parasite_gates_and_filters_the_removal() {
+    let run = |warhead_keys: &str, damage: i32| {
+        let ini = IniFile::from_str(&RULES.replace(
+            "[AP]\nVerses=25%,25%,25%,75%,100%,100%,65%,65%,35%,100%,100%\n",
+            &format!(
+                "[AP]\nVerses=25%,25%,25%,75%,100%,100%,65%,65%,35%,100%,100%\n{warhead_keys}"
+            ),
+        ));
+        let rules = rules_with_ini(&ini);
+        let mut arena = Arena::new(&rules);
+        let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+        let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+        arena.infect(&rules, drone, tank);
+        arena.hit(&rules, tank, None, damage, "AP");
+        arena.eater_of(tank)
+    };
+    assert!(
+        run("", 10).is_some(),
+        "positive damage keeps the parasite by default"
+    );
+    assert_eq!(
+        run("RemoveParasite=yes\n", 10),
+        None,
+        "yes removes on any damage"
+    );
+    assert!(
+        run("RemoveParasite=no\n", -10).is_some(),
+        "no keeps it even on a heal"
+    );
+    assert_eq!(
+        run("RemoveParasite=yes\n", -10),
+        None,
+        "yes removes on a heal"
+    );
+    assert!(
+        run("RemoveParasite=yes\nRemoveParasite.Disallow=DRON\n", 10).is_some(),
+        "the disallow list holds the removal"
+    );
+    assert_eq!(
+        run("RemoveParasite=yes\nRemoveParasite.Allow=DRON\n", 10),
+        None,
+        "the allow list admits the removal"
+    );
+    assert!(
+        run("RemoveParasite=yes\nRemoveParasite.Allow=E1\n", 10).is_some(),
+        "a parasite outside the allow list stays"
+    );
+}
+
 /// Phobos `Parasite.CullingTarget` (`Ext/WarheadType/Body.cpp:324`,
 /// `ParasiteClass_AI_CullingTarget @ 0x62A0AA`): a victim outside the filter
 /// skips the culling arm, so an Infantry victim takes the ordinary bite

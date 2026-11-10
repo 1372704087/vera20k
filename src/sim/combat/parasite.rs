@@ -1454,9 +1454,8 @@ impl Simulation {
         else {
             return;
         };
-        let sonic = rules
-            .warhead(self.interner.resolve(warhead))
-            .is_some_and(|w| w.sonic);
+        let warhead_type = rules.warhead(self.interner.resolve(warhead));
+        let sonic = warhead_type.is_some_and(|w| w.sonic);
         if sonic {
             self.parasite_exit_unit(eater, rules, effects);
             if let Some(source) = source.and_then(|id| self.substrate.entities.get_mut(id)) {
@@ -1480,7 +1479,35 @@ impl Simulation {
         {
             state.suppress(frame, raw_damage.wrapping_mul(2).wrapping_sub(threshold));
         }
-        if raw_damage < 0 {
+        // Phobos `FootClass_ReceiveDamage_RemoveParasite` (`0x4D73DE`,
+        // `Ext/WarheadType/Hooks.cpp:589-606`): the stock heal-only arm is
+        // gated by `RemoveParasite` (unset keeps `damage < 0`) and its typed
+        // Allow/Disallow lists filter the attached parasite type.
+        #[cfg(feature = "phobos")]
+        let remove = warhead_type.is_none_or(|w| {
+            if !w.phobos_remove_parasite.unwrap_or(raw_damage < 0) {
+                return false;
+            }
+            let Some(parasite_id) = self
+                .substrate
+                .entities
+                .get(eater)
+                .and_then(|e| self.object_type(e.type_ref(), rules))
+                .map(|o| o.id.as_str())
+            else {
+                return false;
+            };
+            !w.phobos_remove_parasite_disallow
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(parasite_id))
+                && (w.phobos_remove_parasite_allow.is_empty()
+                    || w.phobos_remove_parasite_allow
+                        .iter()
+                        .any(|name| name.eq_ignore_ascii_case(parasite_id)))
+        });
+        #[cfg(not(feature = "phobos"))]
+        let remove = raw_damage < 0;
+        if remove {
             self.parasite_force_release(eater, FORCED_RELEASE_SUPPRESSION_FRAMES, rules, effects);
         }
     }

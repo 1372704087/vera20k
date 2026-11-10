@@ -480,6 +480,15 @@ pub struct WarheadType {
     /// `.CullingTarget`/`.GrappleAnim` (`Ext/WarheadType/Body.cpp:322-325`).
     #[cfg(feature = "phobos")]
     pub phobos_parasite: crate::rules::phobos_parasite::PhobosParasiteWarhead,
+    /// Phobos `RemoveParasite=` (`Nullable<bool>`) and its typed Allow/
+    /// Disallow lists (`Ext/WarheadType/Body.cpp:181-182`): which parasites a
+    /// damage removes, defaulting to negative (healing) damage.
+    #[cfg(feature = "phobos")]
+    pub phobos_remove_parasite: Option<bool>,
+    #[cfg(feature = "phobos")]
+    pub phobos_remove_parasite_allow: Vec<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_remove_parasite_disallow: Vec<String>,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -876,6 +885,22 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             phobos_parasite:
                 crate::rules::phobos_parasite::PhobosParasiteWarhead::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_remove_parasite: section.read_phobos_nullable_bool("RemoveParasite", None),
+            #[cfg(feature = "phobos")]
+            phobos_remove_parasite_allow: section
+                .read_list("RemoveParasite.Allow", 0x80)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
+            #[cfg(feature = "phobos")]
+            phobos_remove_parasite_disallow: section
+                .read_list("RemoveParasite.Disallow", 0x80)
+                .unwrap_or_default()
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

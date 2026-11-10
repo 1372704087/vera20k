@@ -65,6 +65,18 @@ RESIDUAL: `GetFLHAbsoluteCoords(..., false)` reuses the shared body-matrix
 FLH port; a building/voxel-weapon pivot chain is not re-projected here (the
 eater runs on Foot types only).
 
-RESIDUAL: the cash expression is native `int * int * f32` with
-`std::round`; VERA evaluates it in `f32` and casts, which can differ on
-values outside the exact integer range of `f32`.
+RESIDUAL: `Cell{i}` values are cell offsets in the INI; native stores them
+multiplied by `LeptonsPerCell` (256), which VERA reproduces. A `<default>`
+`Anims.Tiberium{i}` clears the per-index list so the general `Anims` applies;
+unknown anim names are dropped from both before the 1/8/random arms count
+them, as the native type vectors only hold resolvable entries.
+
+RESIDUAL: VERA reads the merged section once. Native keeps the eater object
+across INI layers, so a later pass that repeats
+`TiberiumEater.TransDelay=<default>` (presence cleared) keeps the earlier
+positive delay, and a negative pass destroys the settings while a later
+positive one recreates constructor defaults before reading only that pass's
+keys. VERA sees only the merged value: a cleared delay disables the eater and
+a remove/re-add sequence keeps earlier key values. Trigger: layered rules
+that clear or toggle `TiberiumEater.TransDelay`; effect: the delay/settings
+native retains can differ.

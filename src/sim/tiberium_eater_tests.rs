@@ -116,3 +116,69 @@ fn a_negative_trans_delay_disables_the_eater() {
         0
     );
 }
+
+/// `Cell{i}=` stores `x * LeptonsPerCell` (`TiberiumEaterTypeClass.cpp`).
+#[test]
+fn cell_offsets_are_stored_in_leptons() {
+    let (_sim, rules, _id, _owner) = scene("TiberiumEater.TransDelay=0\nTiberiumEater.Cell0=1,0\n");
+    let settings = rules
+        .object("EATER")
+        .and_then(|object| object.phobos_tiberium_eater.as_ref())
+        .expect("eater settings");
+    assert_eq!(settings.cells, vec![(256, 0)]);
+}
+
+/// A `TransDelay` timer defers the next scan, and a limbo'd object extends
+/// the running timer by one frame (`StartTime++`).
+#[test]
+fn trans_delay_defers_and_limbo_holds_the_timer() {
+    let (mut sim, rules, id, owner) =
+        scene("TiberiumEater.TransDelay=3\nTiberiumEater.AmountPerCell=2\n");
+    let effects = FrameEffects::empty;
+    sim.phobos_update_tiberium_eater(id, &rules, Some(overlay_registry()), effects());
+    assert_eq!(bales_at(&sim, 5, 5), 4);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .phobos_tiberium_eater_timer()
+            .duration(),
+        3
+    );
+    sim.phobos_update_tiberium_eater(id, &rules, Some(overlay_registry()), effects());
+    assert_eq!(bales_at(&sim, 5, 5), 4, "the timer defers the second scan");
+    {
+        let entity = sim.substrate.entities.get_mut(id).unwrap();
+        entity.lifecycle.set_in_limbo_for_test(true);
+    }
+    sim.phobos_update_tiberium_eater(id, &rules, Some(overlay_registry()), effects());
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(id)
+            .unwrap()
+            .phobos_tiberium_eater_timer()
+            .start_frame(),
+        1,
+        "limbo extended the running timer by one frame"
+    );
+    assert_eq!(
+        sim.houses.get(&owner).unwrap().economy().available_money(),
+        50
+    );
+}
+
+/// `AmountPerCell=0` takes the whole cell; the credits use the full amount
+/// even when the removal clamps.
+#[test]
+fn amount_per_cell_zero_takes_the_whole_cell() {
+    let (mut sim, rules, id, owner) = scene("TiberiumEater.TransDelay=0\n");
+    sim.phobos_update_tiberium_eater(id, &rules, Some(overlay_registry()), FrameEffects::empty());
+    assert_eq!(bales_at(&sim, 5, 5), 0, "the whole cell was taken");
+    assert_eq!(
+        sim.houses.get(&owner).unwrap().economy().available_money(),
+        175,
+        "7 bales x 25 credits"
+    );
+}

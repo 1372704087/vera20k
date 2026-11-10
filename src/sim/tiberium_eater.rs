@@ -49,7 +49,10 @@ impl Simulation {
             || (!settings.under_emp
                 && (entity.deactivated.is_offline() || entity.emp_remaining() > 0));
         if frozen {
-            if settings.trans_delay != 0 && entity.phobos_tiberium_eater_timer().in_progress() {
+            // `CDTimerClass::InProgress` holds only while time remains: the
+            // one-frame-later anchor keeps an active delay from expiring.
+            if settings.trans_delay != 0 && entity.phobos_tiberium_eater_timer().remaining(now) > 0
+            {
                 if let Some(entity) = self.substrate.entities.get_mut(id) {
                     entity.phobos_tiberium_eater_timer_mut().delay_one_frame();
                 }
@@ -57,11 +60,16 @@ impl Simulation {
             return;
         }
         let timer = entity.phobos_tiberium_eater_timer();
-        if settings.trans_delay != 0 && timer.in_progress() && timer.remaining(now) > 0 {
+        if settings.trans_delay != 0 && timer.remaining(now) > 0 {
             return;
         }
         let owner = entity.owner();
-        let facing = entity.body_facing_dir(self.session.binary_frame());
+        // `PrimaryFacing.Current().GetFacing<8>()`, then the native
+        // `facing >= 7 ? 0 : facing + 1` list index.
+        let facing8 = crate::util::direction_tables::dir_from_facing16(
+            entity.body_facing_current(self.session.binary_frame()),
+        );
+        let anim_facing = if facing8 >= 7 { 0 } else { facing8 + 1 };
         let location = crate::sim::movement::ground_pose::object_location(
             entity,
             self.resolved_terrain.as_ref(),
@@ -175,15 +183,22 @@ impl Simulation {
                 .get(index)
                 .and_then(|slot| slot.as_ref())
                 .unwrap_or(&settings.anims);
-            let picked = match list.len() {
+            // The native vector holds only resolvable AnimTypes; unknown
+            // tokens are dropped before the 1/8/random arms count them.
+            let resolved: Vec<&str> = list
+                .iter()
+                .map(String::as_str)
+                .filter(|name| rules.has_anim_type(name))
+                .collect();
+            let picked = match resolved.len() {
                 0 => None,
-                1 => Some(list[0].clone()),
-                8 => Some(list[usize::from(facing.min(7))].clone()),
+                1 => Some(resolved[0].to_owned()),
+                8 => Some(resolved[usize::from(anim_facing)].to_owned()),
                 count => {
                     let index = self
                         .scenario_rng
                         .next_range_i32_inclusive(0, count as i32 - 1);
-                    Some(list[index as usize].clone())
+                    Some(resolved[index as usize].to_owned())
                 }
             };
             if let Some(name) = picked {

@@ -61,7 +61,18 @@ fn from_section(section: &IniSection, trans_delay: i32) -> PhobosTiberiumEater {
             cells[index] = pair;
         }
     }
+    // `TiberiumEaterTypeClass::LoadFromINI` stores `x * LeptonsPerCell`.
+    for cell in &mut cells {
+        cell.0 = cell.0.wrapping_mul(256);
+        cell.1 = cell.1.wrapping_mul(256);
+    }
     let list = |key: &str| -> Option<Vec<String>> {
+        // `NullableVector<T>::Read`: `<default>` clears the presence so
+        // `GetElements` falls back to the general list.
+        let raw = section.read_name(key, 0x800)?;
+        if raw.trim().eq_ignore_ascii_case("<default>") {
+            return None;
+        }
         section
             .read_list(key, 0x800)
             .map(|tokens| tokens.into_iter().map(str::to_owned).collect())

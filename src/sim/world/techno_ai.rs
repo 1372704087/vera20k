@@ -791,8 +791,10 @@ impl Simulation {
         let category = entity.category();
         techno_ai_shell(self, id, category, rules, ctx, &mut outcome);
         // Phobos `FootClass_AI`'s tail (`src/Ext/Techno/Hooks.cpp:42-47`,
-        // hook `0x4DA54E`): `UpdateTiberiumEater`, then the ammo auto-convert
-        // and `HealthAutoConvertActions`, before the follower count ages.
+        // hook `0x4DA54E`): `UpdateTiberiumEater`, then the
+        // `HealthAutoConvertActions` this port reads, before the follower
+        // count ages (`AmmoAutoConvertActions` and `UpdateWarpInDelay` are
+        // not ported).
         #[cfg(feature = "phobos")]
         if category != EntityCategory::Structure {
             self.phobos_update_tiberium_eater(id, rules, ctx.overlay_registry, ctx.effects);

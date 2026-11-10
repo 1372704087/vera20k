@@ -948,7 +948,7 @@ pub struct ObjectType {
     pub phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings,
     /// Phobos `TiberiumEater.*` (`Ext/TechnoType/Body.cpp:1402-1414`,
     /// `New/Type/Affiliated/TiberiumEaterTypeClass.cpp`); `None` when the
-    /// type has no positive `TiberiumEater.TransDelay`.
+    /// type has no non-negative `TiberiumEater.TransDelay`.
     #[cfg(feature = "phobos")]
     pub phobos_tiberium_eater: Option<crate::rules::phobos_tiberium_eater::PhobosTiberiumEater>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,

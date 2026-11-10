@@ -57,6 +57,10 @@ pub mod attach_effect;
 pub(crate) mod auto_death;
 #[cfg(feature = "phobos")]
 pub(crate) mod phobos_no_rearm;
+#[cfg(feature = "phobos")]
+pub(crate) mod tiberium_eater;
+#[cfg(all(test, feature = "phobos"))]
+mod tiberium_eater_tests;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;

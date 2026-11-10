@@ -979,6 +979,12 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) passenger_deletion_timer: crate::sim::timer::CdTimer,
+    /// Phobos `FootExt::TiberiumEater_Timer` (`Ext/Foot/Body.h:23`): armed
+    /// with the type's `TiberiumEater.TransDelay` after a cell was eaten;
+    /// `StartTime++` holds it while the object is limbo'd or EMP'd.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_tiberium_eater_timer: crate::sim::timer::CdTimer,
     /// Shared Building C4/PostMortem detonation latch: the marker `+0x6DF`
     /// with its C4Timer (`+0x528`) and C4AppliedBy (`+0x540`). The C4 plant
     /// (`sim::c4_plant`) owns one producer; qualifying delayed-death receiver
@@ -1387,6 +1393,16 @@ impl GameEntity {
     #[cfg(feature = "phobos")]
     pub(crate) fn passenger_deletion_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
         &mut self.passenger_deletion_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_tiberium_eater_timer(&self) -> crate::sim::timer::CdTimer {
+        self.phobos_tiberium_eater_timer
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_tiberium_eater_timer_mut(&mut self) -> &mut crate::sim::timer::CdTimer {
+        &mut self.phobos_tiberium_eater_timer
     }
 
     #[cfg(feature = "phobos")]
@@ -2720,6 +2736,8 @@ impl GameEntity {
             phobos_revert_on_exit_latch: false,
             #[cfg(feature = "phobos")]
             passenger_deletion_timer: Default::default(),
+            #[cfg(feature = "phobos")]
+            phobos_tiberium_eater_timer: Default::default(),
             pending_c4_detonation: Default::default(),
             #[cfg(feature = "ares")]
             display_production_to: Default::default(),

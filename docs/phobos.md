@@ -121,6 +121,8 @@ Supported extensions:
 
 - [Return warhead](phobos-return-warhead.md) (`ReturnWarhead` and its damage, chance, full-detonation, target and house filters: the per-target strike back at the firer; 5 keys)
 
+- [Tiberium eater](phobos-tiberium-eater.md) (`TiberiumEater.*`: FLH-cell tiberium eating with cash, delay, per-tiberium anims and EMP/limbo holds; 9 keys)
+
 ## Original project and authors
 
 VERA20K implements the behavior in Rust. It does not load `Phobos.dll`, import

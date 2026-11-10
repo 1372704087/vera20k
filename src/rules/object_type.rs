@@ -946,6 +946,11 @@ pub struct ObjectType {
     /// the `TechnoClass::ReceiveDamage` death arm.
     #[cfg(feature = "phobos")]
     pub phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings,
+    /// Phobos `TiberiumEater.*` (`Ext/TechnoType/Body.cpp:1402-1414`,
+    /// `New/Type/Affiliated/TiberiumEaterTypeClass.cpp`); `None` when the
+    /// type has no positive `TiberiumEater.TransDelay`.
+    #[cfg(feature = "phobos")]
+    pub phobos_tiberium_eater: Option<crate::rules::phobos_tiberium_eater::PhobosTiberiumEater>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4916,6 +4921,8 @@ impl ObjectType {
                 section,
                 category == ObjectCategory::Building,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_tiberium_eater: crate::rules::phobos_tiberium_eater::parse(section),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

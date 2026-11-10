@@ -31,6 +31,20 @@ use crate::sim::touch_log::live_read_check_enabled;
 use crate::sim::vision::FireFog;
 use crate::sim::world::Simulation;
 
+/// The passenger's `OpenTransport.FireWhileMoving` (else `[General]`), the
+/// second term of the 5b gate (`Ext/Techno/Hooks.Firing.cpp:466`).
+#[cfg(feature = "phobos")]
+pub(crate) fn passenger_fire_while_moving(
+    firer: &GameEntity,
+    rules: &RuleSet,
+    interner: &crate::sim::intern::StringInterner,
+) -> bool {
+    interner
+        .object_type(firer.type_ref(), rules)
+        .map(|kind| kind.phobos_open_transport().fire_while_moving(rules))
+        .unwrap_or(rules.phobos_globals.open_transport_fire_while_moving)
+}
+
 /// One firer, target and weapon slot, as GetFireError sees them.
 pub(crate) struct FireSubject<'a> {
     pub world: &'a Simulation,
@@ -467,11 +481,11 @@ impl<'a> FireSubject<'a> {
             #[cfg(feature = "phobos")]
             transport_fire_while_moving: open_topped.fire_while_moving(self.rules),
             #[cfg(feature = "phobos")]
-            passenger_fire_while_moving: self
-                .world
-                .object_type(firer.type_ref(), self.rules)
-                .map(|kind| kind.phobos_open_transport().fire_while_moving(self.rules))
-                .unwrap_or(self.rules.phobos_globals.open_transport_fire_while_moving),
+            passenger_fire_while_moving: passenger_fire_while_moving(
+                firer,
+                self.rules,
+                &self.world.interner,
+            ),
             #[cfg(feature = "phobos")]
             transport_decloak_to_fire: open_topped.decloak_to_fire(self.rules),
             ..FirerFacts::default()

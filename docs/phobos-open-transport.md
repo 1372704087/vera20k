@@ -45,6 +45,9 @@ defaults `Ext/Rules/Body.h:878-880`.
 `sim::combat::world_fire::open_topped_damage_multiplier` and the
 `FirerFacts::passenger_fire_while_moving` term in `sim::combat::fire_error`.
 
-RESIDUAL: the second native firing-gate use (`Ext/Techno/Hooks.Transport.cpp:915`)
-belongs to the transport order's passenger-fire drive, which VERA does not
-model; the GetFireError gate above is the modeled path.
+RESIDUAL — `FireWhileMoving` transport-order gate `0x4D9510`: trigger = an
+open-topped carrier whose passenger rushes a target while the carrier,
+passenger or weapon `FireWhileMoving` AND is false; impact = the passenger's
+stale `LocomotorTarget`/`TemporalImUsing` locks are not released; frequency =
+rare (chrono/magnetron passenger on a moving carrier); risk = low, no wrong
+damage or range. The `0x6FC5C7` GetFireError gate above is modeled.

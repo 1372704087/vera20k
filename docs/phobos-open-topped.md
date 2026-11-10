@@ -47,7 +47,8 @@ keys later; the fallback is evaluated at the hook at runtime by `.Get(...)`.
    them. There are **no numeric keys among the eight new globals**, and the
    numeric keys must not fall back to them. `OpenTransport.FireWhileMoving`
    is a three-key AND with the carrier and weapon keys; the passenger-side
-   companion keys (`Rules/Body.cpp:463-465`) are not ported (residual).
+   companion keys (`Rules/Body.cpp:463-465`) are read by
+   [`rules::phobos_open_transport`](phobos-open-transport.md).
 3. **`DamageMultiplier` is `Nullable<float>`, not double**
    (`TechnoType/Body.h:150`). VERA reads with
    `read_phobos_nullable_double` (f64) then narrows to `f32`.
@@ -194,12 +195,10 @@ unchanged).
   firing is disallowed); risk = low, no wrong damage/range, only stale
   locomotion/temporal locks. The key is still consumed by the `0x6FC5C7`
   firing gate (5b).
-- **`OpenTransport.*` companion keys not ported** (`RangeBonus`,
-  `DamageMultiplier`, `FireWhileMoving`; `Rules/Body.cpp:463-465`): trigger =
-  a map sets a passenger-side key; impact = VERA uses the Phobos global
-  defaults (0 / 1.0 / true) so only the carrier-side override applies;
-  frequency = low (companion keys are uncommon); risk = low, bounded to
-  open-topped passengers.
+- **`OpenTransport.*` companion keys**: ported by
+  [`phobos-open-transport.md`](phobos-open-transport.md) (range, damage and
+  the passenger `FireWhileMoving` term); the `0x4D9510` row above is the
+  remaining transport-order gate they also feed.
 - **`BalloonHover` `Is_Moving_Now()` variant approximated by `NavCom`** in
   the 5b moving check: trigger = a `BalloonHover=yes` open-topped carrier;
   impact = the moving check reads `Destination` rather than

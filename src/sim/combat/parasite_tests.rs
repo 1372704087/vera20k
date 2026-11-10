@@ -1434,6 +1434,54 @@ fn ares_a_cloaking_host_keeps_its_drone() {
     assert_eq!(arena.eater_of(tank), Some(drone));
 }
 
+/// Phobos `Cloak.KickOutParasite` (`0x4D9992`,
+/// `Ext/Techno/Hooks.cpp:1415-1445`): a cloak's `Detach_All(false)` control
+/// falls back to the host type's key, else `[General]`; without either the
+/// Phobos hook keeps the parasite like Ares.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_cloak_kick_out_parasite_ejects_only_when_configured() {
+    let eject = |extra: &str| {
+        let ini = IniFile::from_str(&RULES.replace("[MTNK]\n", &format!("[MTNK]\n{extra}")));
+        let rules = rules_with_ini(&ini);
+        let mut arena = Arena::new(&rules);
+        let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+        let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+        arena.infect(&rules, drone, tank);
+        arena.sim.detach_all(
+            tank,
+            false,
+            crate::sim::world::UninitContext::with_rules(&rules),
+        );
+        arena.eater_of(tank)
+    };
+    let drone_kept = eject("");
+    assert!(drone_kept.is_some(), "the default keeps the parasite");
+    assert_eq!(
+        eject("Cloak.KickOutParasite=yes\n"),
+        None,
+        "the type key ejects"
+    );
+
+    let ini =
+        IniFile::from_str(&RULES.replace("[General]\n", "[General]\nCloak.KickOutParasite=yes\n"));
+    let rules = rules_with_ini(&ini);
+    let mut arena = Arena::new(&rules);
+    let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+    let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    arena.infect(&rules, drone, tank);
+    arena.sim.detach_all(
+        tank,
+        false,
+        crate::sim::world::UninitContext::with_rules(&rules),
+    );
+    assert_eq!(
+        arena.eater_of(tank),
+        None,
+        "the [General] key is the fallback"
+    );
+}
+
 /// Phobos `Parasite.CullingTarget` (`Ext/WarheadType/Body.cpp:324`,
 /// `ParasiteClass_AI_CullingTarget @ 0x62A0AA`): a victim outside the filter
 /// skips the culling arm, so an Infantry victim takes the ordinary bite

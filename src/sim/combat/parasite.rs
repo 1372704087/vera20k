@@ -1359,6 +1359,11 @@ impl Simulation {
     /// ParasiteClass_PointerGotInvalid_Cloak100482D0 (hook62A283) releases
     /// the victim only when it was removed; the victim clears its own link
     /// only then too. A victim that cloaks keeps its parasite.
+    ///
+    /// Phobos `FootClass_PointerGotInvalid_Parasite` (`0x4D9992`,
+    /// `Ext/Techno/Hooks.cpp:1415-1445`) replaces that constant with the real
+    /// control too, then a false control falls back to the host type's
+    /// `Cloak.KickOutParasite` else `[General]`.
     pub(crate) fn foot_parasite_pointer_expired(
         &mut self,
         listener: u64,
@@ -1367,7 +1372,21 @@ impl Simulation {
         rules: &RuleSet,
         effects: FrameEffects<'_>,
     ) {
-        let removed = !crate::rules::ARES_ENABLED || removed;
+        #[cfg(feature = "phobos")]
+        let removed = if removed {
+            true
+        } else {
+            self.substrate
+                .entities
+                .get(listener)
+                .and_then(|victim| self.object_type(victim.type_ref(), rules))
+                .and_then(|object| object.phobos_cloak_kick_out_parasite)
+                .unwrap_or(rules.phobos_globals.cloak_kick_out_parasite)
+        };
+        #[cfg(all(not(feature = "phobos"), feature = "ares"))]
+        let removed = removed;
+        #[cfg(not(any(feature = "phobos", feature = "ares")))]
+        let removed = true;
         let Some(eater) = self
             .substrate
             .entities

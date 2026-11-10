@@ -130,6 +130,7 @@ Supported extensions:
 - [KeepRange](phobos-keep-range.md) (`KeepRange` and its AllowAI/AllowPlayer/EarlyStopFrame gates: an Infantry/Unit holds a distance while rearming; 4 keys + 3 `[General]` globals)
 - [Parasite keys](phobos-parasite.md) (`Parasite.ParticleSystem`/`.DisableParticleSystem`/`.CullingTarget`/`.GrappleAnim`/`.AllowWaterExit`: the bite and grapple customizations; 5 keys + 3 globals)
 - [Superweapon Detonate](phobos-sw-detonate.md) (`Detonate.Warhead`/`.Weapon`/`.Damage`/`.Warhead.Full`/`.AtFirer`: a superweapon detonates a weapon or warhead at its target; 5 keys)
+- [Cloak keys](phobos-cloak.md) (`Cloak.KickOutParasite`: a cloaking host ejects its parasite; 1 key + 1 `[General]` global)
 
 ## Original project and authors
 

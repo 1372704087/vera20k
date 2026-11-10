@@ -111,6 +111,10 @@ pub struct PhobosGlobals {
     /// `[CombatDamage] Parasite.DisableParticleSystem=`, default `no`
     /// (`Ext/Rules/Body.cpp:495`, constructor `Ext/Rules/Body.h:405`).
     pub parasite_disable_particle_system: bool,
+    /// `[General] Cloak.KickOutParasite=`, default `no`
+    /// (`Ext/Rules/Body.cpp:289`, constructor `Ext/Rules/Body.h:1056`): the
+    /// fallback for a TechnoType's key.
+    pub cloak_kick_out_parasite: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -313,6 +317,7 @@ impl Default for PhobosGlobals {
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
             parasite_disable_particle_system: false,
+            cloak_kick_out_parasite: false,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -425,6 +430,8 @@ impl PhobosGlobals {
             "NotHuman.RandomDeathSequence",
             globals.not_human_random_death_sequence,
         );
+        globals.cloak_kick_out_parasite =
+            general.read_bool("Cloak.KickOutParasite", globals.cloak_kick_out_parasite);
         globals.keep_range_allow_ai =
             general.read_bool("KeepRange.AllowAI", globals.keep_range_allow_ai);
         globals.keep_range_allow_player =

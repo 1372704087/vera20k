@@ -282,3 +282,87 @@ fn extra_threat_global_fallbacks_and_zero_values() {
         "all-zero values keep the score"
     );
 }
+
+/// `TechnoExt::UpdateLastTargetCrd` (`Ext/Techno/Body.Update.cpp:1286-1309`):
+/// with a target the retained coordinate follows it and the timer stops;
+/// without one the timer runs 45 frames and then empties the coordinate.
+/// Types whose keys all resolve to zero never run the body.
+#[test]
+fn the_last_target_crd_follows_the_target_and_clears_after_45_frames() {
+    let ini = IniFile::from_str(
+        "[VehicleTypes]\n0=MTNK\n1=SCAN\n\
+         [MTNK]\nStrength=100\nSpeed=4\nSight=8\n\
+         [SCAN]\nStrength=100\nSpeed=4\nSight=8\nExtraThreat.IsThreat=1\n",
+    );
+    let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &IniFile::empty())
+        .expect("extra threat rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 1);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    sim.session.set_binary_frame_for_test(0);
+    let scanner = sim
+        .spawn_object("SCAN", "Americans", 10, 10, 0, &rules)
+        .expect("scanner");
+    let target = sim
+        .spawn_object("MTNK", "Russians", 12, 10, 0, &rules)
+        .expect("target");
+    sim.substrate
+        .entities
+        .get_mut(scanner)
+        .expect("scanner")
+        .attack_target
+        .set_for_test(Some(TargetKind::Entity(target)));
+    sim.update_phobos_extra_threat_last_target(scanner, &rules);
+    let retained = sim
+        .substrate
+        .entities
+        .get(scanner)
+        .expect("scanner")
+        .phobos_extra_threat_last_target_crd();
+    assert_ne!(retained, [0, 0, 0], "the target coordinate is stored");
+
+    // Clearing the target starts the 45-frame timer and keeps the value.
+    sim.substrate
+        .entities
+        .get_mut(scanner)
+        .expect("scanner")
+        .attack_target
+        .set_for_test(None);
+    sim.update_phobos_extra_threat_last_target(scanner, &rules);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(scanner)
+            .expect("scanner")
+            .phobos_extra_threat_last_target_crd(),
+        retained
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(scanner)
+            .expect("scanner")
+            .phobos_extra_threat_last_target_clear_timer()
+            .in_progress()
+    );
+
+    // The timer's expiry empties the coordinate and stops.
+    sim.session.set_binary_frame_for_test(45);
+    sim.update_phobos_extra_threat_last_target(scanner, &rules);
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(scanner)
+            .expect("scanner")
+            .phobos_extra_threat_last_target_crd(),
+        [0, 0, 0]
+    );
+    assert!(
+        !sim.substrate
+            .entities
+            .get(scanner)
+            .expect("scanner")
+            .phobos_extra_threat_last_target_clear_timer()
+            .in_progress()
+    );
+}

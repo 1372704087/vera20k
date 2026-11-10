@@ -32,11 +32,10 @@ mod attack_target;
 pub(crate) mod base_defense_response;
 pub mod burst;
 pub(crate) mod cell_spread;
-pub(crate) mod combat_aoe;
 #[cfg(feature = "phobos")]
 mod combat_alert;
+pub(crate) mod combat_aoe;
 pub(crate) mod combat_targeting;
-pub(crate) mod extra_threat;
 pub mod combat_weapon;
 #[cfg(feature = "phobos")]
 pub(crate) mod crit;
@@ -47,6 +46,7 @@ pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;
 mod effects;
 pub mod electric_bolt;
+pub(crate) mod extra_threat;
 pub mod fire_coord;
 pub mod fire_error;
 pub(crate) mod fire_error_world;
@@ -214,7 +214,7 @@ pub use threat_range::ScanMission;
 pub(crate) use world_fire::estimated_damage_on;
 
 // Shared between combat's children, which reach them through `super::`.
-use attack_target::{attack_world_z_leptons, cell_center_coords, target_coords};
+pub(crate) use attack_target::{attack_world_z_leptons, cell_center_coords, target_coords};
 use projectile_delivery::{
     ProjectileDelivery, bullet_type, classify_projectile_delivery, projectile_arm_delay,
 };

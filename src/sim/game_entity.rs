@@ -981,7 +981,7 @@ pub struct GameEntity {
     /// Phobos `TechnoExt::LastTargetCrd` (`Ext/Techno/Body.h:82`): the retained
     /// `GetCoords` of the object's last live target, `[0, 0, 0]`
     /// (`CoordStruct::Empty`) while unset. Written by
-    /// [`crate::sim::combat::extra_threat::update_last_target_crd`].
+    /// [`crate::sim::combat::extra_threat::Simulation::update_phobos_extra_threat_last_target`].
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) phobos_extra_threat_last_target_crd: [i32; 3],

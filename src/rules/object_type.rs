@@ -3568,10 +3568,12 @@ impl ObjectType {
     /// second field exists beside the Ares one.
     #[cfg(all(feature = "phobos", feature = "ares"))]
     pub(crate) fn factory_plant_multiplier_f32(&self) -> crate::util::native_x87::NativeF32Bits {
-        use crate::util::native_x87::MaskedX87Chop53 as X87;
-        X87::store_f32_masked_chop(X87::load_f64(
-            self.ares_production().factory_plant_multiplier(),
-        ))
+        // Phobos's field is `Valueable<float>`: the Ares double narrowed by
+        // C++ `static_cast<float>` (round-to-nearest).
+        crate::util::native_x87::NativeF32Bits::from_bits(
+            (f64::from_bits(self.ares_production().factory_plant_multiplier().bits()) as f32)
+                .to_bits(),
+        )
     }
 
     /// [`Self::factory_plant_multiplier_f32`] in a Phobos-only build: the
@@ -5376,12 +5378,19 @@ impl ObjectType {
             } else {
                 Default::default()
             },
-            // `Valueable<float>`: INI_EX::ReadDouble then static_cast<float>
-            // (Utilities/TemplateDef.h:177-189), which is read_double_to_float.
+            // `Valueable<float>`: INI_EX::ReadDouble (the Ares Parser<double>)
+            // then `static_cast<float>` (round-to-nearest), not a chop.
             #[cfg(all(feature = "phobos", not(feature = "ares")))]
-            phobos_factory_plant_multiplier: section.read_double_to_float(
-                "FactoryPlant.Multiplier",
-                crate::util::native_x87::NativeF32Bits::ONE,
+            phobos_factory_plant_multiplier: crate::util::native_x87::NativeF32Bits::from_bits(
+                (f64::from_bits(
+                    section
+                        .read_ares_double_bits(
+                            "FactoryPlant.Multiplier",
+                            crate::util::native_x87::NativeF64Bits::ONE,
+                        )
+                        .bits(),
+                ) as f32)
+                    .to_bits(),
             ),
             #[cfg(feature = "phobos")]
             phobos_invulnerability:

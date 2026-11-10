@@ -44,12 +44,28 @@ fn award_kill_experience(
     killer_id: u64,
     victim_id: u64,
     points: i32,
-    victim_house: Option<&HouseCostFactors>,
+    victim_house: Option<&crate::sim::house_state::HouseState>,
 ) {
     if killer_id == RAD_NO_ATTACKER || killer_id == victim_id {
         return;
     }
-    let cost_of = |object: &ObjectType| rules.cost_of(object, victim_house);
+    let cost_of = |object: &ObjectType| match victim_house {
+        Some(house) => {
+            let factors = house.cost_factors_for(object);
+            rules.cost_of_with_restricted(object, Some(&factors), |priced| {
+                #[cfg(feature = "phobos")]
+                {
+                    house.cost_factors_for(priced).restricted_plant
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    let _ = priced;
+                    crate::util::native_x87::NativeF32Bits::ONE
+                }
+            })
+        }
+        None => rules.cost_of(object, None),
+    };
     let Some(killer) = entities.get(killer_id) else {
         return;
     };
@@ -257,10 +273,24 @@ fn award_ares_kill_experience(
             return;
         };
         // GetActualCost(pTechno->Owner): the recipient's own House.
-        let factors = houses
-            .get(&entity.owner())
-            .map(crate::sim::house_state::HouseState::cost_factors);
-        let cost = rules.cost_of(object, factors.as_ref());
+        let recipient_house = houses.get(&entity.owner());
+        let cost = match recipient_house {
+            Some(house) => {
+                let factors = house.cost_factors_for(object);
+                rules.cost_of_with_restricted(object, Some(&factors), |priced| {
+                    #[cfg(feature = "phobos")]
+                    {
+                        house.cost_factors_for(priced).restricted_plant
+                    }
+                    #[cfg(not(feature = "phobos"))]
+                    {
+                        let _ = priced;
+                        crate::util::native_x87::NativeF32Bits::ONE
+                    }
+                })
+            }
+            None => rules.cost_of(object, None),
+        };
         let weighted =
             X87::ftol_i32_low_masked(X87::mul(X87::load_i32(points), X87::load_f64(factor)));
         if let Some(entity) = entities.get_mut(id) {
@@ -412,9 +442,7 @@ fn record_the_kill(
     };
     let victim_owner = victim.owner();
     #[cfg(not(feature = "ares"))]
-    let victim_house = houses
-        .get(&victim_owner)
-        .map(crate::sim::house_state::HouseState::cost_factors);
+    let victim_house = houses.get(&victim_owner);
     let victim_type = interner.object_type(victim.type_ref(), rules);
     let insignificant_building = victim.category() == EntityCategory::Structure
         && victim_type.is_some_and(|object| object.insignificant);
@@ -437,7 +465,7 @@ fn record_the_kill(
                 killer_id,
                 victim_id,
                 points,
-                victim_house.as_ref(),
+                victim_house,
             );
         }
         None
@@ -529,14 +557,26 @@ impl crate::sim::world::Simulation {
         };
         //702D50..61 /70323E..51 retain this base in EBP. Neither the House
         //nor rank is captured here: callback-driven changes are reread below.
-        let victim_house = self
-            .houses
-            .get(&victim.owner())
-            .map(HouseState::cost_factors);
-        let victim_cost = self
-            .interner
-            .object_type(victim.type_ref(), rules)
-            .map_or(0, |object| rules.cost_of(object, victim_house.as_ref()));
+        let victim_object = self.interner.object_type(victim.type_ref(), rules);
+        let victim_house_state = self.houses.get(&victim.owner());
+        let victim_cost = match (victim_house_state, victim_object) {
+            (Some(house), Some(object)) => {
+                let factors = house.cost_factors_for(object);
+                rules.cost_of_with_restricted(object, Some(&factors), |priced| {
+                    #[cfg(feature = "phobos")]
+                    {
+                        house.cost_factors_for(priced).restricted_plant
+                    }
+                    #[cfg(not(feature = "phobos"))]
+                    {
+                        let _ = priced;
+                        crate::util::native_x87::NativeF32Bits::ONE
+                    }
+                })
+            }
+            (_, Some(object)) => rules.cost_of(object, None),
+            (_, None) => 0,
+        };
         self.record_kill_tag_prefix(victim_id, source, context);
         let promote_now = record_the_kill(
             &mut self.substrate.entities,

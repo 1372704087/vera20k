@@ -47,7 +47,8 @@ impl FactoryPlantRestrictions {
         if let Some(tokens) = section.read_list("FactoryPlant.DisallowTypes", 0x800) {
             value.disallow = tokens.into_iter().map(str::to_owned).collect();
         }
-        value.max_count = section.read_int("FactoryPlant.MaxCount", value.max_count);
+        // `Valueable<int>`: a failed Parser<int> keeps the constructor -1.
+        value.max_count = section.read_ares_int("FactoryPlant.MaxCount", value.max_count);
         value
     }
 

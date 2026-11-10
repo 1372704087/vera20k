@@ -82,15 +82,15 @@ The two cost hooks `TechnoTypeClass_CostOf_FactoryPlant @ 0x711F39` and
 that result. The surrounding instructions are
 `fild cost; fmul [esp+8]; fmul [esp+0xc]; call ftol`
 (`0x00711F35..0x00711F41`), so the fold is
-`f32(plant * restricted)` **before** the two x87 multiplies; the x87
-steps are not reordered.
+`plant * restricted` in C++ `float` (SSE `mulss`, round-to-nearest)
+**before** the two x87 multiplies; the x87 steps are not reordered.
 
 ## In VERA
 
 - `rules::phobos_factory_plant::FactoryPlantRestrictions` reads the three
-  BuildingType keys with the existing `read_list` / `read_int` readers. A
-  post-read pass in `RuleSet` drops unknown type tokens before any list is
-  asked for its size.
+  BuildingType keys with the existing `read_list` / `read_ares_int` readers
+  (a failed `Parser<int>` keeps the constructor's -1). A post-read pass in
+  `RuleSet` drops unknown type tokens before any list is asked for its size.
 - `HouseBaseState` keeps `restricted_plants: Vec<u64>` beside the plain
   `plants` (House+140), and each `RegisteredBuilding` retains the plant's
   bonuses, both lists, `max_count` and its BuildingType identity for the
@@ -105,6 +105,11 @@ steps are not reordered.
   sale and `HouseClass::Added_To_Game` / `Removed_From_Game` all use the
   folded factors. `ForceValueFacts` needs no change: its `priced` receiver
   calls the same `adjust` / `ares_adjust`.
+- `RuleSet::cost_of_with_restricted` resolves the factor per priced type:
+  native `Cost_Of` re-enters the hooked base for a BuildingType's bundled
+  PadAircraft and FreeUnit, so `Simulation::cost_of` and the kill-experience
+  pricing (`sim::combat::record_kill`) recompute it for each sub-type instead
+  of reusing the building's value.
 - Keeping the factor on `HouseCostFactors` rather than overwriting
   `factory_plant[slot]` preserves native order when Ares is also enabled:
   Ares's `1 - (1 - product) * multiplier` must be computed from the
@@ -115,17 +120,14 @@ steps are not reordered.
 ## Ares and Phobos both read `FactoryPlant.Multiplier`
 
 Ares stores a `double` (`ProductionTypeRules`, `read_ares_double_bits`);
-Phobos stores a `float` (`INI_EX::ReadDouble` then `static_cast<float>`,
-`Utilities/TemplateDef.h:177-189`, which is VERA's
-`read_double_to_float`). VERA keeps one field in `ares,phobos` builds:
-Ares's retained reader parses the key into `NativeF64Bits` and
-`ObjectType::factory_plant_multiplier_f32` narrows it once for Phobos. In a
-Phobos-only build a dedicated `NativeF32Bits` field is read with
-`read_double_to_float`. There is never a second field beside the Ares one.
-Both readers start from `ReadDouble` and Phobos then narrows to float, so
-`0.1` and other ordinary decimals give the same f32 bits either way. A
-difference would require a malformed or overflowing token, or a second
-stored field next to the Ares one; see [Residuals](#residuals).
+Phobos stores a `float` (`INI_EX::ReadDouble`, the same Ares
+`Parser<double>`, then C++ `static_cast<float>`, i.e. round-to-nearest,
+`Utilities/TemplateDef.h:177-189`). VERA keeps one field in `ares,phobos`
+builds: Ares's retained reader parses the key into `NativeF64Bits` and
+`ObjectType::factory_plant_multiplier_f32` narrows it once with a Rust
+`as f32`. In a Phobos-only build a dedicated `NativeF32Bits` field is read
+with the same parser and narrowed the same way. There is never a second
+field beside the Ares one.
 
 ## Residuals
 

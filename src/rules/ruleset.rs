@@ -195,16 +195,15 @@ pub struct HouseCostFactors {
 }
 
 impl HouseCostFactors {
-    /// The plant float `0x00711F39` loads: `f32(plant * restricted)`.
+    /// The plant float `0x00711F39` loads: `plant * restricted` in C++
+    /// `float` (SSE `mulss`, round-to-nearest), matching the Phobos hook.
     pub(crate) fn plant_factor(&self, slot: usize) -> NativeF32Bits {
         #[cfg(feature = "phobos")]
-        let factor = {
-            use crate::util::native_x87::MaskedX87Chop53 as X87;
-            X87::store_f32_masked_chop(X87::mul(
-                X87::load_f32(self.factory_plant[slot]),
-                X87::load_f32(self.restricted_plant),
-            ))
-        };
+        let factor = NativeF32Bits::from_bits(
+            (f32::from_bits(self.factory_plant[slot].bits())
+                * f32::from_bits(self.restricted_plant.bits()))
+            .to_bits(),
+        );
         #[cfg(not(feature = "phobos"))]
         let factor = self.factory_plant[slot];
         factor
@@ -242,12 +241,13 @@ impl HouseCostFactors {
         ));
         let factor = X87::store_f32_masked_chop(X87::load_f64(factor));
         // Phobos's cost hook multiplies the stack plant float *after* Ares's
-        // GetCostMult has produced it (`0x711F39`, `Ext/TechnoType/Hooks.cpp:97-110`).
+        // GetCostMult has produced it (`0x711F39`, `Ext/TechnoType/Hooks.cpp:
+        // 97-110`); that multiply is C++ `float` (SSE round-to-nearest).
         #[cfg(feature = "phobos")]
-        let factor = X87::store_f32_masked_chop(X87::mul(
-            X87::load_f32(factor),
-            X87::load_f32(self.restricted_plant),
-        ));
+        let factor = NativeF32Bits::from_bits(
+            (f32::from_bits(factor.bits()) * f32::from_bits(self.restricted_plant.bits()))
+                .to_bits(),
+        );
         factor
     }
 
@@ -7921,15 +7921,36 @@ impl RuleSet {
     /// cost, clamping only that arm at zero (`0x0045EE47..0x0045EE50`).
     /// Native comparison: `tools/spatial_oracle/cost_of`.
     pub fn cost_of(&self, object: &ObjectType, house: Option<&HouseCostFactors>) -> i32 {
-        let cost = self.adjusted_cost(object, house);
+        #[cfg(feature = "phobos")]
+        let restricted = house.map_or(crate::util::native_x87::NativeF32Bits::ONE, |house| {
+            house.restricted_plant
+        });
+        #[cfg(not(feature = "phobos"))]
+        let restricted = crate::util::native_x87::NativeF32Bits::ONE;
+        self.cost_of_with_restricted(object, house, |_| restricted)
+    }
+
+    /// [`Self::cost_of`] with the Phobos restricted-plant factor resolved for
+    /// each priced type. Native `Cost_Of` re-enters the hooked base for a
+    /// BuildingType's bundled PadAircraft and FreeUnit (`0x45EDDA`,
+    /// `0x45EE0C..0x45EE3F`), and `GetRestrictedFactoryPlantMult` tests the
+    /// priced type's allow/disallow lists, so the building's factor cannot
+    /// stand for its sub-types.
+    pub fn cost_of_with_restricted(
+        &self,
+        object: &ObjectType,
+        house: Option<&HouseCostFactors>,
+        restricted_for: impl Fn(&ObjectType) -> crate::util::native_x87::NativeF32Bits,
+    ) -> i32 {
+        let cost = self.adjusted_cost(object, house, restricted_for(object));
         if object.category != ObjectCategory::Building {
             return cost;
         }
         let mut cost = cost;
         if let Some((first, second)) = self.bundled_pad_aircraft(object) {
             let pads = self
-                .adjusted_cost(second, house)
-                .wrapping_add(self.adjusted_cost(first, house));
+                .adjusted_cost(second, house, restricted_for(second))
+                .wrapping_add(self.adjusted_cost(first, house, restricted_for(first)));
             cost = cost.wrapping_add(pads / 2);
         }
         match object
@@ -7937,24 +7958,40 @@ impl RuleSet {
             .as_deref()
             .and_then(|name| self.object(name))
         {
-            Some(free) => cost.wrapping_add(self.adjusted_cost(free, house)).max(0),
+            Some(free) => cost
+                .wrapping_add(self.adjusted_cost(free, house, restricted_for(free)))
+                .max(0),
             None => cost,
         }
     }
 
     /// `0x00711F00` over the type's virtual `+0xAC` cost ([`Self::type_cost`]).
-    fn adjusted_cost(&self, object: &ObjectType, house: Option<&HouseCostFactors>) -> i32 {
+    fn adjusted_cost(
+        &self,
+        object: &ObjectType,
+        house: Option<&HouseCostFactors>,
+        restricted: crate::util::native_x87::NativeF32Bits,
+    ) -> i32 {
         let cost = self.type_cost(object);
+        let Some(house) = house else {
+            return cost;
+        };
+        #[cfg(feature = "phobos")]
+        let house = {
+            let mut folded = *house;
+            folded.restricted_plant = restricted;
+            folded
+        };
+        #[cfg(not(feature = "phobos"))]
+        let _ = restricted;
         #[cfg(feature = "ares")]
-        return house.map_or(cost, |house| {
-            house.ares_adjust(
-                cost,
-                object.factor_slot(),
-                object.ares_production().factory_plant_multiplier(),
-            )
-        });
+        return house.ares_adjust(
+            cost,
+            object.factor_slot(),
+            object.ares_production().factory_plant_multiplier(),
+        );
         #[cfg(not(feature = "ares"))]
-        house.map_or(cost, |house| house.adjust(cost, object.factor_slot()))
+        house.adjust(cost, object.factor_slot())
     }
 
     /// The two PadAircraft a BuildingType bundles into its price: with

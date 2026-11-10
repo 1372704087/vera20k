@@ -156,15 +156,6 @@ mod implementation {
         }
     }
 
-    /// `pThis->GetTargetDirection(&dir, pTarget)` from both objects' GetCoords
-    /// (`ObjectClass::DirectionToTarget 0x005F3DB0`, the same helper the fire
-    /// error's facing test reads).
-    fn target_direction(scorer: &GameEntity, candidate: &GameEntity) -> u16 {
-        let (fx, fy, fsx, fsy) = crate::sim::combat::attack_target::target_coords(scorer);
-        let (tx, ty, tsx, tsy) = crate::sim::combat::attack_target::target_coords(candidate);
-        crate::sim::movement::turret::facing_toward_lepton(fx, fy, fsx, fsy, tx, ty, tsx, tsy)
-    }
-
     /// `IsCloseEnoughToAttack(pTarget)` through the shared InRange owner
     /// (`CanFireAtTarget 0x006F7780`). A world without resolved terrain
     /// answers the map-less policy like [`in_range::mapless_in_range`].
@@ -275,7 +266,12 @@ mod implementation {
         if let Some(fire_facing) = fire_facing(scorer, scorer_type, world.session.binary_frame()) {
             let bonus = settings.facing(rules);
             if bonus != 0.0 {
-                let target = target_direction(scorer, candidate);
+                let target = crate::sim::movement::turret::facing_toward_target(
+                    scorer,
+                    &TargetKind::Entity(candidate.stable_id()),
+                    world,
+                )
+                .unwrap_or(0);
                 let delta_facing = 32768
                     - ((i32::from(target) - i32::from(fire_facing))
                         .abs()

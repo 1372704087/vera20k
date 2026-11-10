@@ -20,15 +20,20 @@ const OWNER: &str = "Americans";
 const OTHER_OWNER: &str = "Russians";
 
 fn make_rules(plant_keys: &str) -> RuleSet {
+    make_rules_bonuses(plant_keys, "0.8", "0.8")
+}
+
+fn make_rules_bonuses(plant_keys: &str, buildings_bonus: &str, defenses_bonus: &str) -> RuleSet {
     RuleSet::from_ini(&IniFile::from_str(&format!(
         "[InfantryTypes]\n0=E1\n[VehicleTypes]\n0=MTNK\n[AircraftTypes]\n\
-         [BuildingTypes]\n0=PLANT\n1=PLAIN\n\
+         [BuildingTypes]\n0=PLANT\n1=PLAIN\n2=DEFB\n\
          [E1]\nCost=1000\nStrength=100\n\
          [MTNK]\nCost=1000\nStrength=100\nSpeed=4\n\
          [PLANT]\nFactoryPlant=yes\nCost=100\nStrength=1000\nFoundation=1x1\n\
          InfantryCostBonus=0.8\nUnitsCostBonus=0.8\nAircraftCostBonus=0.8\n\
-         BuildingsCostBonus=0.8\nDefensesCostBonus=0.8\n{plant_keys}\
-         [PLAIN]\nCost=100\nStrength=1000\nFoundation=1x1\n"
+         BuildingsCostBonus={buildings_bonus}\nDefensesCostBonus={defenses_bonus}\n{plant_keys}\
+         [PLAIN]\nCost=100\nStrength=1000\nFoundation=1x1\n\
+         [DEFB]\nCost=1000\nStrength=1000\nFoundation=1x1\nBuildCat=Combat\n"
     )))
     .unwrap()
 }
@@ -42,7 +47,10 @@ struct Scene {
 }
 
 fn make_scene(plant_keys: &str, count: usize) -> Scene {
-    let rules = make_rules(plant_keys);
+    make_scene_with_rules(make_rules(plant_keys), count)
+}
+
+fn make_scene_with_rules(rules: RuleSet, count: usize) -> Scene {
     let mut sim = Simulation::with_seed(0x143);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
@@ -211,4 +219,38 @@ fn capture_moves_the_restricted_plant_and_death_removes_it() {
             .is_empty()
     );
     assert_eq!(priced(&scene, scene.other, "MTNK"), 1000);
+}
+
+/// `FactoryPlant.Multiplier` (`Ext/House/Body.cpp:585`): the restricted
+/// product is folded as `1 - (1 - product) * multiplier` before the cost
+/// multiplies. One 0.8 plant with a multiplier of 2 discounts to 0.6.
+#[test]
+fn factory_plant_multiplier_scales_the_restricted_discount() {
+    // `GetRestrictedFactoryPlantMult` multiplies by the *priced* type's
+    // `FactoryPlant.Multiplier` (`Ext/House/Body.cpp:585`).
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[InfantryTypes]\n[VehicleTypes]\n0=MTNK\n[AircraftTypes]\n\
+         [BuildingTypes]\n0=PLANT\n1=PLAIN\n\
+         [MTNK]\nCost=1000\nStrength=100\nSpeed=4\nFactoryPlant.Multiplier=2\n\
+         [PLANT]\nFactoryPlant=yes\nCost=100\nStrength=1000\nFoundation=1x1\n\
+         UnitsCostBonus=0.8\nFactoryPlant.AllowTypes=MTNK\n\
+         [PLAIN]\nCost=100\nStrength=1000\nFoundation=1x1\n",
+    ))
+    .unwrap();
+    let scene = make_scene_with_rules(rules, 1);
+    assert_eq!(priced(&scene, scene.owner, "MTNK"), 600);
+}
+
+/// The priced type's `WhatAmI`/`BuildCat` slot picks the plant bonus
+/// (`Ext/House/Body.cpp:565-583`): a `BuildCat=Combat` building reads
+/// `DefensesCostBonus`, an ordinary building `BuildingsCostBonus`.
+#[test]
+fn a_combat_building_reads_the_defenses_bonus_slot() {
+    let scene = make_scene_with_rules(
+        make_rules_bonuses("FactoryPlant.AllowTypes=PLAIN,DEFB\n", "0.9", "0.5"),
+        1,
+    );
+    // C++ float: 100 * 0.9f truncates to 89.
+    assert_eq!(priced(&scene, scene.owner, "PLAIN"), 89);
+    assert_eq!(priced(&scene, scene.owner, "DEFB"), 500);
 }

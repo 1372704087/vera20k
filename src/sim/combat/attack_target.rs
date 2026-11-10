@@ -203,7 +203,7 @@ impl TarCom {
 /// that distinction.
 ///
 /// [`object_center_xy`]: crate::sim::movement::ground_pose::object_center_xy
-pub(super) fn target_coords(entity: &GameEntity) -> (u16, u16, SimFixed, SimFixed) {
+pub(crate) fn target_coords(entity: &GameEntity) -> (u16, u16, SimFixed, SimFixed) {
     target_xy_coords(crate::sim::movement::ground_pose::object_center_xy(entity))
 }
 
@@ -222,7 +222,7 @@ fn target_xy_coords([x, y]: [i32; 2]) -> (u16, u16, SimFixed, SimFixed) {
 /// shape `target_coords` returns for entities (rx, ry, sub_x, sub_y) so
 /// callers can branch on `TargetKind` and feed the result into the same
 /// projectile-spawn pipeline.
-pub(super) fn cell_center_coords(rx: u16, ry: u16) -> (u16, u16, SimFixed, SimFixed) {
+pub(crate) fn cell_center_coords(rx: u16, ry: u16) -> (u16, u16, SimFixed, SimFixed) {
     (rx, ry, SimFixed::from_num(128), SimFixed::from_num(128))
 }
 
@@ -419,7 +419,7 @@ pub fn install_cell_attack_target_for_test(
     true
 }
 
-pub(super) fn attack_world_z_leptons(
+pub(crate) fn attack_world_z_leptons(
     target: TargetKind,
     world: &crate::sim::world::Simulation,
     terrain: Option<&crate::map::resolved_terrain::ResolvedTerrainGrid>,

@@ -798,19 +798,21 @@ impl PhobosGlobals {
             general.read_bool("Strafing.TargetCell", globals.strafing_target_cell);
         // `Ext/Rules/Body.cpp:535-539`: five `Valueable<double>` fallbacks,
         // all constructed `0.0` (`Ext/Rules/Body.h:952-956`).
+        // `Valueable<double>` through `parser.ReadDouble` (the installed Ares
+        // Parser<double>), not the stock `%f` ReadDouble.
         globals.extra_threat_is_threat =
-            general.read_double_bits("ExtraThreat.IsThreat", globals.extra_threat_is_threat);
+            general.read_ares_double_bits("ExtraThreat.IsThreat", globals.extra_threat_is_threat);
         globals.extra_threat_in_range =
-            general.read_double_bits("ExtraThreat.InRange", globals.extra_threat_in_range);
-        globals.extra_threat_coefficient_in_range_distance = general.read_double_bits(
+            general.read_ares_double_bits("ExtraThreat.InRange", globals.extra_threat_in_range);
+        globals.extra_threat_coefficient_in_range_distance = general.read_ares_double_bits(
             "ExtraThreatCoefficient.InRangeDistance",
             globals.extra_threat_coefficient_in_range_distance,
         );
-        globals.extra_threat_coefficient_facing = general.read_double_bits(
+        globals.extra_threat_coefficient_facing = general.read_ares_double_bits(
             "ExtraThreatCoefficient.Facing",
             globals.extra_threat_coefficient_facing,
         );
-        globals.extra_threat_coefficient_distance_to_last_target = general.read_double_bits(
+        globals.extra_threat_coefficient_distance_to_last_target = general.read_ares_double_bits(
             "ExtraThreatCoefficient.DistanceToLastTarget",
             globals.extra_threat_coefficient_distance_to_last_target,
         );

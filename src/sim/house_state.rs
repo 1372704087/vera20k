@@ -1296,6 +1296,25 @@ impl HouseState {
         }
     }
 
+    /// [`Self::cost_factors`] with the Phobos restricted-plant product for
+    /// `object` (`HouseExt::GetRestrictedFactoryPlantMult`), as the price of
+    /// that type's `Cost_Of` call.
+    pub(crate) fn cost_factors_for(
+        &self,
+        object: &crate::rules::object_type::ObjectType,
+    ) -> crate::rules::ruleset::HouseCostFactors {
+        let mut factors = self.cost_factors();
+        #[cfg(feature = "phobos")]
+        {
+            factors.restricted_plant = self
+                .base_projection()
+                .restricted_factory_plant_multiplier(object);
+        }
+        #[cfg(not(feature = "phobos"))]
+        let _ = object;
+        factors
+    }
+
     // ---- Sub-owners: their own operations carry the rules ----------------
 
     pub(crate) fn tracking_mut(&mut self) -> &mut crate::sim::house_tracking::HouseTracking {

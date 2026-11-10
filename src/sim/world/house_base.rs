@@ -1026,10 +1026,34 @@ impl Simulation {
             }),
             "a House's `Cost*Mult=` copy differs from its type's: project it at creation"
         );
-        rules.cost_of(
-            object,
-            Self::house_cost_factors_for(&self.houses, owner, object).as_ref(),
-        )
+        let mut factors = Self::house_cost_factors(&self.houses, owner);
+        // Native `Cost_Of` re-enters the hooked base for the bundled
+        // PadAircraft and the FreeUnit (`0x45EDDA`, `0x45EE0C..0x45EE3F`), so
+        // the Phobos restricted factor is resolved for each priced type.
+        #[cfg(feature = "phobos")]
+        let base = self.houses.get(&owner).map(|house| house.base_projection());
+        #[cfg(feature = "phobos")]
+        if let Some(factors) = factors.as_mut() {
+            factors.restricted_plant = base
+                .as_ref()
+                .map_or(crate::util::native_x87::NativeF32Bits::ONE, |base| {
+                    base.restricted_factory_plant_multiplier(object)
+                });
+        }
+        rules.cost_of_with_restricted(object, factors.as_ref(), |priced| {
+            #[cfg(feature = "phobos")]
+            {
+                base.as_ref()
+                    .map_or(crate::util::native_x87::NativeF32Bits::ONE, |base| {
+                        base.restricted_factory_plant_multiplier(priced)
+                    })
+            }
+            #[cfg(not(feature = "phobos"))]
+            {
+                let _ = priced;
+                crate::util::native_x87::NativeF32Bits::ONE
+            }
+        })
     }
 
     /// House+0x98, the grinders, in registration order. Grinding+16AD

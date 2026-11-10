@@ -68,15 +68,11 @@ pub fn facing_toward_target(
     world: &crate::sim::world::Simulation,
 ) -> Option<u16> {
     let (trx, try_, tsx, tsy) = crate::sim::combat::resolve_target_coords(target, world)?;
+    // 0x005F3DB0 calls GetCoords (vtable +0x48) on both objects; a Building
+    // answers its foundation centre, not the position anchor.
+    let (frx, fry, fsx, fsy) = crate::sim::combat::target_coords(entity);
     Some(facing_toward_lepton(
-        entity.position.rx(),
-        entity.position.ry(),
-        entity.position.sub_x(),
-        entity.position.sub_y(),
-        trx,
-        try_,
-        tsx,
-        tsy,
+        frx, fry, fsx, fsy, trx, try_, tsx, tsy,
     ))
 }
 

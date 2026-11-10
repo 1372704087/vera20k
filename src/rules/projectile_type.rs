@@ -138,6 +138,26 @@ pub struct ProjectileType {
     pub anim_high: i32,
     /// Animation rate (frames between animation steps). (+0x2F6)
     pub anim_rate: i32,
+    /// `Strength=` (ObjectTypeClass::Strength on a BulletType): the bullet's
+    /// interception hit points, default 0. Phobos `BulletExt::InitializeState`
+    /// copies it to `CurrentStrength`.
+    #[cfg(feature = "phobos")]
+    pub strength: i32,
+    /// Phobos `BulletTypeExt::Armor` (`Nullable<ArmorType>`): unset leaves
+    /// the bullet without interception armor.
+    #[cfg(feature = "phobos")]
+    pub armor: Option<crate::rules::armor::ArmorId>,
+    /// Phobos `BulletTypeExt::Interceptable` (`Nullable<bool>`), falling back
+    /// to `[CombatDamage] ProjectileInterceptable`.
+    #[cfg(feature = "phobos")]
+    pub interceptable: Option<bool>,
+    /// Phobos `Interceptable.DeleteOnIntercept=`.
+    #[cfg(feature = "phobos")]
+    pub interceptable_delete_on_intercept: bool,
+    /// Phobos `Interceptable.WeaponOverride=` (`Valueable<WeaponTypeClass*>`
+    /// read with allocate semantics).
+    #[cfg(feature = "phobos")]
+    pub interceptable_weapon_override: Option<String>,
 
     // --- Float fields ---
     /// Bounce elasticity coefficient (0.0 = no bounce, 1.0 = perfect bounce). (+0x2C8)
@@ -483,6 +503,23 @@ impl ProjectileType {
             vertical: section.read_bool("Vertical", false),
             flat: false,
             // Integer fields
+            #[cfg(feature = "phobos")]
+            strength: section.read_int("Strength", 0),
+            #[cfg(feature = "phobos")]
+            armor: section.read_phobos_nullable_with("Armor", None, |raw| {
+                crate::rules::armor::try_armor_index(raw)
+            }),
+            #[cfg(feature = "phobos")]
+            interceptable: section.read_phobos_nullable_bool("Interceptable", None),
+            #[cfg(feature = "phobos")]
+            interceptable_delete_on_intercept: section
+                .read_bool("Interceptable.DeleteOnIntercept", false),
+            #[cfg(feature = "phobos")]
+            interceptable_weapon_override: section.read_phobos_nullable_with(
+                "Interceptable.WeaponOverride",
+                None,
+                |raw| Some(raw.to_owned()),
+            ),
             cluster: section.read_int("Cluster", 1),
             #[cfg(feature = "phobos")]
             cluster_scatter_min: section.read_phobos_leptons("ClusterScatter.Min", 256),

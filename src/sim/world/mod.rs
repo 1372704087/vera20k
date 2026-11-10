@@ -2607,6 +2607,10 @@ impl Simulation {
                 )?
             }
             crate::sim::combat::TargetKind::Cell(rx, ry) => self.wave_cell_target_position(rx, ry),
+            #[cfg(feature = "phobos")]
+            crate::sim::combat::TargetKind::Bullet(id) => {
+                self.projectiles.get(id).map(|projectile| projectile.position())?
+            }
         };
         // Sonic 0x006FF465 and Magnetic 0x006FF63C pass the constructor
         // &[ESP+0x88], this target coordinate (0x006FE204), first and
@@ -5587,6 +5591,14 @@ impl Simulation {
             .then(|| substrate.entities.get(source_id))
             .flatten()
             .map(|owner| owner.owner());
+        // `BulletExt::InitializeState`: `CurrentStrength = pType->Strength`
+        // (`Ext/Bullet/Hooks.cpp:30`).
+        #[cfg(feature = "phobos")]
+        let strength = projectile
+            .payload()
+            .projectile_type()
+            .and_then(|id| rules.projectile(interner.resolve(id)))
+            .map_or(0, |kind| kind.strength);
         projectiles.set_firer_house(bullet, house);
         #[cfg(feature = "phobos")]
         {
@@ -5598,6 +5610,7 @@ impl Simulation {
             if retained.is_some() {
                 projectiles.set_phobos_firer_house(bullet, retained);
             }
+            projectiles.set_phobos_current_strength(bullet, strength);
             if let Some(multiplier) =
                 crate::sim::combat::world_fire::bullet_init_firepower_multiplier(
                     interner, substrate, houses, rules, source_id,

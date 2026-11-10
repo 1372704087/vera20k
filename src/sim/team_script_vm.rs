@@ -546,6 +546,10 @@ impl From<crate::sim::combat::TargetKind> for TeamTarget {
                 y: y as i16,
             },
             crate::sim::combat::TargetKind::Entity(id) => Self::Object(id),
+            // A bullet target has no team-object identity; the id names no
+            // entity for any team consumer.
+            #[cfg(feature = "phobos")]
+            crate::sim::combat::TargetKind::Bullet(id) => Self::Object(id),
         }
     }
 }

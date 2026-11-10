@@ -733,6 +733,8 @@ fn retail_battle_fortress_permitted_stock_riders_emit_their_weapons() {
                 target_rx: rx,
                 target_ry: ry,
             },
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(..) => unreachable!("no bullet command"),
         };
         let envelope = order(&fortress, command);
         let mut output = retail_frame(&mut fortress.scenario, vec![envelope]);

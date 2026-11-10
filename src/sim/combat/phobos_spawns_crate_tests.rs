@@ -47,6 +47,7 @@ fn fire(
         impact,
         None,
         0,
+        false,
         &mut effects,
     );
     run.finish();
@@ -148,6 +149,7 @@ fn a_house_less_detonation_draws_nothing() {
         impact,
         None,
         0,
+        false,
         &mut effects,
     );
     run.finish();

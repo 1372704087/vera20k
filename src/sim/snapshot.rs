@@ -1628,6 +1628,17 @@ fn restore_object_references(
                 anim_id,
             )?;
         }
+        #[cfg(feature = "phobos")]
+        if let Some(target_id) = projectile.interceptor_target() {
+            require_resolved_reference(
+                sim.projectiles.get(target_id).is_some(),
+                "ProjectileStore",
+                projectile_id,
+                "interceptor_target",
+                "ProjectileStore",
+                target_id,
+            )?;
+        }
         if projectile.source_id() != crate::sim::combat::RAD_NO_ATTACKER {
             require_resolved_reference(
                 entity_ids.contains(&projectile.source_id()),

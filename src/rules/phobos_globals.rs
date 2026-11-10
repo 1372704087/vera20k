@@ -261,6 +261,19 @@ pub struct PhobosGlobals {
     /// (`Body.cpp:458`, `Body.h:873`).
     #[serde(default = "true_bool")]
     pub open_topped_share_transport_target: bool,
+    /// `[CombatDamage] ProjectileInterceptable=`, default `no`
+    /// (`Ext/Rules/Body.cpp:497`, `Body.h:912`): the fallback for a bullet
+    /// type's `Interceptable`.
+    #[serde(default)]
+    pub projectile_interceptable: bool,
+    /// `[CombatDamage] Interceptor.GuardRange.IsCylindrical=`, default `no`
+    /// (`Ext/Rules/Body.cpp:498`, `Body.h:913`).
+    #[serde(default)]
+    pub interceptor_guard_range_is_cylindrical: bool,
+    /// `[CombatDamage] Interceptor.ApplyFirepowerMult=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:499`, `Body.h:914`).
+    #[serde(default = "true_bool")]
+    pub interceptor_apply_firepower_mult: bool,
     /// `[General] OpenTopped.UseTransportRangeModifiers=`, default `no`
     /// (`Body.cpp:459`, `Body.h:874`). Also read into `AttachEffectGlobals`.
     #[serde(default)]
@@ -361,6 +374,9 @@ impl Default for PhobosGlobals {
             auto_death_technos_dont_exist_allow_limboed: false,
             shrapnel_ignore_hit_buildings: false,
             shrapnel_use_weapon_targeting: false,
+            projectile_interceptable: false,
+            interceptor_guard_range_is_cylindrical: false,
+            interceptor_apply_firepower_mult: true,
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
@@ -660,6 +676,16 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         shrapnel_use_weapon_targeting: section.read_bool(
             "Shrapnel.UseWeaponTargeting",
             defaults.shrapnel_use_weapon_targeting,
+        ),
+        projectile_interceptable: section
+            .read_bool("ProjectileInterceptable", defaults.projectile_interceptable),
+        interceptor_guard_range_is_cylindrical: section.read_bool(
+            "Interceptor.GuardRange.IsCylindrical",
+            defaults.interceptor_guard_range_is_cylindrical,
+        ),
+        interceptor_apply_firepower_mult: section.read_bool(
+            "Interceptor.ApplyFirepowerMult",
+            defaults.interceptor_apply_firepower_mult,
         ),
         overload_particle_sys_count: section.read_int(
             "Overload.ParticleSysCount",

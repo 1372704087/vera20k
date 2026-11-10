@@ -64,6 +64,10 @@ fn live_shot_for<'r>(
         Some(target @ TargetKind::Cell(..)) => {
             resolve_target_coords(&target, world).map(|coords| (coords, entity.type_ref()))
         }
+        #[cfg(feature = "phobos")]
+        Some(target @ TargetKind::Bullet(..)) => {
+            resolve_target_coords(&target, world).map(|coords| (coords, entity.type_ref()))
+        }
         None => None,
     };
     let shot = coordinates.map(|(target_coords, target_type_ref)| AdmittedFire {

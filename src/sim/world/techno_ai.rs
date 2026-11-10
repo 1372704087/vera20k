@@ -19,6 +19,8 @@ mod building_missile;
 mod building_missions;
 mod building_retaliation;
 mod foot_patrol;
+#[cfg(feature = "phobos")]
+mod interceptor;
 #[cfg(feature = "ares")]
 pub(crate) use building_missions::AresPrismForwarding;
 #[cfg(any(test, feature = "test-support"))]
@@ -172,6 +174,15 @@ impl Simulation {
                 .map(|coords| ProjectileCoord::new(coords.x, coords.y, coords.z))
             }
             Some(TargetKind::Cell(rx, ry)) => Some(self.wave_cell_target_position(rx, ry)),
+            #[cfg(feature = "phobos")]
+            Some(target @ TargetKind::Bullet(..)) => {
+                crate::sim::movement::ground_pose::target_get_target_coords(
+                    target,
+                    self,
+                    self.resolved_terrain.as_ref(),
+                )
+                .map(|coords| ProjectileCoord::new(coords.x, coords.y, coords.z))
+            }
             None => None,
         };
         let target_is_unit = match wave.target_ref() {
@@ -379,6 +390,12 @@ impl Simulation {
         ctx: ObjectAiCtx<'_>,
     ) -> ObjectAiOutcome {
         let mut outcome = ObjectAiOutcome::visited();
+        // Phobos `BulletClass_AI` 0x4666F7 interceptor block and the
+        // 0x4668BD Inviso skip, before the stock AI prefix.
+        #[cfg(feature = "phobos")]
+        if self.bullet_interceptor_pretick(id, rules, ctx) {
+            return outcome;
+        }
         // Ares hook 46670F (1001AC10), at the wait test (0x0046670F).
         #[cfg(feature = "ares")]
         if let Some(bullet) = self.projectiles.get(id)
@@ -2000,10 +2017,16 @@ fn techno_common_steps(
     // Phobos `TechnoExt::OnEarlyUpdate -> CheckDeathConditions`
     // (`Ext/Techno/Body.Update.cpp:26`): after `UpdateAttachEffects`, which this
     // body has just run, and after the Structure arm's own Update steps (they
-    // precede this shared body). Native's early return skips only the unported
-    // `ApplyInterceptor`, so the rest of the visit continues.
+    // precede this shared body). Native's early return skips the
+    // `ApplyInterceptor` step that follows.
     #[cfg(feature = "phobos")]
-    sim.check_auto_death(id, rules, overlay_registry, effects);
+    let check_death_returns = sim.check_auto_death(id, rules, overlay_registry, effects);
+    // Phobos `TechnoExt::OnEarlyUpdate -> ApplyInterceptor`
+    // (`Ext/Techno/Body.Update.cpp:33`), the last early-update step.
+    #[cfg(feature = "phobos")]
+    if !check_death_returns {
+        sim.apply_interceptor(id, rules, overlay_registry, effects);
+    }
     #[cfg(feature = "ares")]
     sim.update_ares_operator_operability(id, rules, effects);
     // Installed6F9E50 ->1004B320 owns delayed Building reactivation before

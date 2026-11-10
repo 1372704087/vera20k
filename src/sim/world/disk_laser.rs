@@ -507,6 +507,8 @@ impl Simulation {
                             || self.terrain_objects.objects().contains_key(&target)
                     }
                     TargetKind::Cell(_, _) => true,
+                    #[cfg(feature = "phobos")]
+                    TargetKind::Bullet(target) => self.projectiles.get(target).is_some(),
                 }) {
                     return Err((id, "missing active target"));
                 }

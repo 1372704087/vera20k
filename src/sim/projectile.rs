@@ -287,6 +287,21 @@ pub enum ProjectileTarget {
     Terrain(u64),
 }
 
+/// Phobos `InterceptedStatus` flags (`Utilities/Enum.h:217-223`).
+#[cfg(feature = "phobos")]
+pub mod intercepted_status {
+    pub const NONE: u8 = 0x0;
+    pub const TARGETED: u8 = 0x1;
+    pub const INTERCEPTED: u8 = 0x2;
+    pub const LOCKED: u8 = 0x4;
+}
+
+/// Serde default for the Phobos `DetonateOnInterception` constructor value.
+#[cfg(feature = "phobos")]
+fn default_true() -> bool {
+    true
+}
+
 impl ProjectileTarget {
     /// The cell `MapClass::Get_CellClass` (`0x005657A0`) gives for `(rx, ry)`
     /// as a target ([`Self::of_cell`]); the lookup stamps a miss with the
@@ -1279,6 +1294,31 @@ pub struct Projectile {
     /// Bullet `+0x154`: the anim the impact constructed (`0x00467F36`).
     #[serde(default)]
     awaited_anim: Option<AnimId>,
+    /// Phobos `BulletExt::CurrentStrength`: the bullet's interception hit
+    /// points, initialized from the BulletType's `Strength=` (`Ext/Bullet/
+    /// Hooks.cpp:30`) and reduced by `BulletExt::InterceptBullet`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    current_strength: i32,
+    /// Phobos `BulletExt::InterceptedStatus` (`InterceptedStatus` flags:
+    /// Targeted `0x1`, Intercepted `0x2`, Locked `0x4`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    intercepted_status: u8,
+    /// Phobos `BulletExt::DetonateOnInterception`, constructor `true`.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "default_true")]
+    detonate_on_interception: bool,
+    /// Phobos `BulletExt::InterceptorTechnoType`: the interceptor bullet's
+    /// firing TechnoType, kept as its interned rules identity.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    interceptor_type: Option<InternedId>,
+    /// The bullet an interceptor is aimed at (native `BulletClass::Target`
+    /// when it names a Bullet); `None` otherwise.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    interceptor_target: Option<u64>,
 }
 
 impl Projectile {
@@ -1524,11 +1564,16 @@ impl Projectile {
     /// `RAD_NO_ATTACKER` stays so, which changes nothing. VERA-only: feeds the
     /// pointer-expiry listener index (`ExpiryListeners`); a field that
     /// callback compares must be named here too.
-    pub(crate) fn expiry_names(&self) -> [Option<u64>; 3] {
+    pub(crate) fn expiry_names(&self) -> [Option<u64>; 4] {
+        #[cfg(feature = "phobos")]
+        let interceptor_target = self.interceptor_target;
+        #[cfg(not(feature = "phobos"))]
+        let interceptor_target = None;
         [
             (self.source_id != crate::sim::combat::RAD_NO_ATTACKER).then_some(self.source_id),
             self.target.object_id(),
             self.awaited_anim,
+            interceptor_target,
         ]
     }
 
@@ -1560,6 +1605,36 @@ impl Projectile {
     /// The anim a waiting bullet holds (`+0x154`).
     pub fn awaited_anim(&self) -> Option<AnimId> {
         self.awaited_anim
+    }
+
+    /// Phobos `BulletExt::CurrentStrength`: the interception hit points.
+    #[cfg(feature = "phobos")]
+    pub fn current_strength(&self) -> i32 {
+        self.current_strength
+    }
+
+    /// Phobos `BulletExt::InterceptedStatus` flags.
+    #[cfg(feature = "phobos")]
+    pub fn intercepted_status(&self) -> u8 {
+        self.intercepted_status
+    }
+
+    /// Phobos `BulletExt::DetonateOnInterception`.
+    #[cfg(feature = "phobos")]
+    pub fn detonate_on_interception(&self) -> bool {
+        self.detonate_on_interception
+    }
+
+    /// Phobos `BulletExt::InterceptorTechnoType`, as its interned rules id.
+    #[cfg(feature = "phobos")]
+    pub fn interceptor_type(&self) -> Option<InternedId> {
+        self.interceptor_type
+    }
+
+    /// The enemy bullet this interceptor is aimed at.
+    #[cfg(feature = "phobos")]
+    pub fn interceptor_target(&self) -> Option<u64> {
+        self.interceptor_target
     }
 
     /// `BulletClass::AI`'s `NUKE` block (`0x00467E53..0x00467F99`) for the
@@ -2084,6 +2159,13 @@ impl ProjectileStore {
             projectile.awaited_anim = None;
             changed = true;
         }
+        // Phobos interceptor target (`BulletClass::Target` naming a Bullet):
+        // the same PointerExpired broadcast clears it.
+        #[cfg(feature = "phobos")]
+        if projectile.interceptor_target == Some(expired_id) {
+            projectile.interceptor_target = None;
+            changed = true;
+        }
         //4685CC..46865D: only a PRESENT Bullet subscriber, control!=0,
         // expired RTTI8/current type.Scalable removes its FIRST matching
         // process-vector entry. Each subscriber can remove another duplicate;
@@ -2172,6 +2254,16 @@ impl ProjectileStore {
                 awaited_anim: None,
                 #[cfg(feature = "phobos")]
                 phobos_trajectory: None,
+                #[cfg(feature = "phobos")]
+                current_strength: 0,
+                #[cfg(feature = "phobos")]
+                intercepted_status: intercepted_status::NONE,
+                #[cfg(feature = "phobos")]
+                detonate_on_interception: true,
+                #[cfg(feature = "phobos")]
+                interceptor_type: None,
+                #[cfg(feature = "phobos")]
+                interceptor_target: None,
             },
         );
         id
@@ -2282,6 +2374,92 @@ impl ProjectileStore {
                 == crate::util::native_x87::NativeF64Bits::ONE
         {
             projectile.payload.firepower_multiplier = value;
+        }
+    }
+
+    /// Phobos `BulletExt::CurrentStrength` at `BulletExt::InitializeState`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_current_strength(&mut self, id: u64, value: i32) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.current_strength = value;
+        }
+    }
+
+    /// Replace the Phobos `InterceptedStatus` flag byte.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_intercepted_status(&mut self, id: u64, value: u8) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.intercepted_status = value;
+        }
+    }
+
+    /// OR one Phobos `InterceptedStatus` flag.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn add_phobos_intercepted_status(&mut self, id: u64, bits: u8) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.intercepted_status |= bits;
+        }
+    }
+
+    /// Clear the given Phobos `InterceptedStatus` flags.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn clear_phobos_intercepted_status(&mut self, id: u64, bits: u8) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.intercepted_status &= !bits;
+        }
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_detonate_on_interception(&mut self, id: u64, value: bool) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.detonate_on_interception = value;
+        }
+    }
+
+    /// Phobos `BulletExt::InterceptBullet`'s WeaponOverride tail
+    /// (`Ext/Bullet/Body.cpp:52-77`): the bullet takes the override weapon's
+    /// damage, warhead, brightness and installed weapon; a projectile
+    /// replacement also swaps its BulletType and speed field.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn apply_phobos_weapon_override(
+        &mut self,
+        id: u64,
+        base_damage: i32,
+        warhead: Option<InternedId>,
+        bright: bool,
+        installed_weapon: InternedId,
+        projectile_type: Option<InternedId>,
+        speed: Option<u16>,
+    ) {
+        let Some(projectile) = self.get_mut(id) else {
+            return;
+        };
+        projectile.payload.base_damage = base_damage;
+        if let Some(warhead) = warhead {
+            projectile.payload.warhead = warhead;
+        }
+        projectile.payload.bright = bright;
+        projectile.payload.installed_weapon = Some(installed_weapon);
+        if let Some(projectile_type) = projectile_type {
+            projectile.payload.projectile_type = Some(projectile_type);
+        }
+        if let Some(speed) = speed {
+            projectile.speed_leptons_per_frame = speed;
+        }
+    }
+
+    /// Phobos `InterceptorTechnoType` written by the FireAt late logic.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_interceptor_type(&mut self, id: u64, value: Option<InternedId>) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.interceptor_type = value;
+        }
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_interceptor_target(&mut self, id: u64, value: Option<u64>) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.interceptor_target = value;
         }
     }
 

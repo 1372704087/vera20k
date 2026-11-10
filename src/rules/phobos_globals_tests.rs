@@ -162,3 +162,31 @@ fn the_general_convert_and_explodes_globals_read_from_general() {
     assert!(wrong.explodes_kill_passengers);
     assert!(wrong.explodes_during_buildup);
 }
+
+/// `[CombatDamage]` interceptor globals (`Ext/Rules/Body.cpp:497-499`,
+/// `Body.h:912-914`): two construct `false`, `ApplyFirepowerMult` constructs
+/// `true`.
+#[test]
+fn the_interceptor_globals_default_and_read_from_combat_damage() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.projectile_interceptable);
+    assert!(!defaults.interceptor_guard_range_is_cylindrical);
+    assert!(defaults.interceptor_apply_firepower_mult);
+
+    let set = read(
+        "[CombatDamage]\nProjectileInterceptable=yes\n\
+         Interceptor.GuardRange.IsCylindrical=yes\n\
+         Interceptor.ApplyFirepowerMult=no\n",
+    );
+    assert!(set.projectile_interceptable);
+    assert!(set.interceptor_guard_range_is_cylindrical);
+    assert!(!set.interceptor_apply_firepower_mult);
+
+    let wrong = read(
+        "[General]\nProjectileInterceptable=yes\n\
+         Interceptor.GuardRange.IsCylindrical=yes\n\
+         Interceptor.ApplyFirepowerMult=no\n",
+    );
+    assert!(!wrong.projectile_interceptable);
+    assert!(wrong.interceptor_apply_firepower_mult);
+}

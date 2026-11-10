@@ -309,6 +309,8 @@ fn align_attackers_to_targets(store: &mut EntityStore) {
                     .get(target)
                     .map(crate::sim::combat::attack_target::target_coords),
                 TargetKind::Cell(rx, ry) => Some(cell_center_coords(rx, ry)),
+                #[cfg(feature = "phobos")]
+                TargetKind::Bullet(..) => None,
             };
             let Some((rx, ry, sub_x, sub_y)) = coords else {
                 continue;

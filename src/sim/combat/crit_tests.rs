@@ -122,6 +122,7 @@ fn detonate_once(
         impact,
         intended,
         0,
+        false,
         &mut effects,
     );
     run.finish();

@@ -609,6 +609,8 @@ impl Simulation {
         };
         let terrain_fire = weapon.terrain_fire;
         match *target {
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(..) => false,
             TargetKind::Entity(target_id) if self.terrain_objects().get(target_id).is_some() => {
                 rules.general.tree_targeting || terrain_fire
             }

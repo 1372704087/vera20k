@@ -846,6 +846,7 @@ pub(crate) fn apply_area_damage_in_run_with_target(
         impact,
         area_target,
         0,
+        false,
         &mut effects,
     );
     #[cfg(not(feature = "phobos"))]
@@ -4109,6 +4110,11 @@ fn emit_detonation_receivers<'r>(
     out: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) -> (Option<AreaDamageContinuation<'r>>, bool, bool) {
+    // Phobos `WarheadTypeExt::Detonate` (`Ext/WarheadType/Detonate.cpp:38-48`):
+    // the detonating bullet's interceptor head resolves its prey before the
+    // create-gap and per-target effects below.
+    #[cfg(feature = "phobos")]
+    world.intercept_bullets(rules, overlay_registry, detonation, warhead, run.effects());
     // Phobos `0x4690C1` replaces the whole DetonateAtCoord, tail included.
     #[cfg(feature = "phobos")]
     if detonate_on_all_map_objects(
@@ -4269,6 +4275,7 @@ fn emit_detonation_receivers<'r>(
             _ => None,
         },
         detonation.payload.base_damage,
+        bullet_was_intercepted(world, detonation),
         &mut out.effects,
     );
     #[cfg(not(feature = "phobos"))]
@@ -4367,6 +4374,19 @@ fn emit_detonation_receivers<'r>(
 /// never placed: Fire_Death_Weapon creates it, Limbos it and detonates it at
 /// its firer's GetCoords (`0x0070D756..0x0070D782`), so its Location is still
 /// the constructor's zero coordinate (`0x005F3993` copies `0x00AC1380`, which
+/// Phobos `WarheadTypeExt::Detonate`'s `bulletWasIntercepted`: the detonating
+/// bullet's Intercepted status bit.
+#[cfg(feature = "phobos")]
+fn bullet_was_intercepted(world: &Simulation, detonation: &ProjectileDetonation) -> bool {
+    world
+        .projectiles
+        .get(detonation.projectile_id)
+        .is_some_and(|bullet| {
+            bullet.intercepted_status() & crate::sim::projectile::intercepted_status::INTERCEPTED
+                != 0
+        })
+}
+
 /// `0x005F38A0` zeroes), off any bridge. A detonation with no live bullet (a
 /// test fixture) stands at its own coordinate.
 fn bullet_location(

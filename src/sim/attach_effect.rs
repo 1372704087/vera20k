@@ -1496,6 +1496,16 @@ impl Simulation {
         let target = if needs_range {
             entity.attack_target.target().and_then(|target| {
                 let target_coords = match target {
+                    #[cfg(feature = "phobos")]
+                    crate::sim::combat::TargetKind::Bullet(id) => {
+                        use crate::sim::projectile::ProjectileCoord;
+                        let position = self
+                            .projectiles
+                            .get(id)
+                            .map(|projectile| projectile.position())
+                            .unwrap_or(ProjectileCoord::new(0, 0, 0));
+                        [position.x, position.y, position.z]
+                    }
                     crate::sim::combat::TargetKind::Entity(id) => {
                         let target = self.substrate.entities.get(id)?;
                         let coord = crate::sim::movement::ground_pose::position_world_coord(

@@ -328,6 +328,8 @@ impl SpawnManagerState {
             .filter_map(|target| match target {
                 Some(TargetKind::Entity(id)) => Some(id),
                 Some(TargetKind::Cell(..)) | None => None,
+                #[cfg(feature = "phobos")]
+                Some(TargetKind::Bullet(..)) => None,
             })
             .chain(self.slots.iter().filter_map(SpawnSlot::spawn))
     }

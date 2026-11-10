@@ -460,6 +460,9 @@ impl Simulation {
                     self.substrate.entities.contains(target)
                         || self.terrain_objects.objects().contains_key(&target)
                 }
+                // An interceptor does not walk to its bullet target.
+                #[cfg(feature = "phobos")]
+                TargetKind::Bullet(..) => false,
             }
             && self.resolved_terrain.is_some()
             && self.zone_grid.is_some()
@@ -702,6 +705,8 @@ impl Simulation {
                     (i32::from(width), i32::from(height))
                 }),
             TargetKind::Cell(..) => None,
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(..) => None,
         };
         let mut radius = approach_search_radius(range, actor.category(), foundation);
         let own = self.approach_nav_center(target_reference, &cells)?;
@@ -716,6 +721,8 @@ impl Simulation {
             TargetKind::Entity(id) => self.substrate.entities.get(id).is_some_and(|target| {
                 target.category() != EntityCategory::Structure && target.on_bridge()
             }),
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(..) => false,
         };
         let category = actor.category();
         //4D5909..590D: a mover whose locomotor is Jumpjet flies there, so
@@ -1072,6 +1079,25 @@ impl Simulation {
                     .ok_or("Approach Cell Target")?,
                 &cells,
             ),
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(id) => {
+                let point = self
+                    .projectiles
+                    .get(id)
+                    .ok_or("Approach Bullet Target")?
+                    .position();
+                native_cell_own_xy(
+                    query_object_cell(
+                        &cells,
+                        crate::sim::components::DriveCoord {
+                            x: point.x,
+                            y: point.y,
+                            z: point.z,
+                        },
+                    ),
+                    &cells,
+                )
+            }
         };
         //4D5DF2..5E80: each centre's Cell again (Map 565730), then the XY
         // distance between their centres through Sqrt_Approx and ftol.

@@ -590,6 +590,10 @@ pub(crate) fn assign_target_commits(
             }
         }
         Some(TargetKind::Cell(..)) | None => true,
+        // An engine-internal bullet target is not a command target; the
+        // interceptor scan sets only live bullets, so admission keeps it.
+        #[cfg(feature = "phobos")]
+        Some(TargetKind::Bullet(..)) => true,
     }
 }
 

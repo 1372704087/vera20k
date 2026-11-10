@@ -1636,6 +1636,8 @@ fn hunt_infantry_arm(sim: &mut Simulation, id: u64, rules: &RuleSet, ctx: super:
             .get(target)
             .is_some_and(|target| target.category() == EntityCategory::Structure),
         crate::sim::combat::TargetKind::Cell(..) => false,
+        #[cfg(feature = "phobos")]
+        crate::sim::combat::TargetKind::Bullet(..) => false,
     };
     let mission = if object.engineer && !c4 {
         MissionType::Capture

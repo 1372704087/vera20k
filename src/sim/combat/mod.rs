@@ -133,6 +133,8 @@ mod phobos_extra_warheads_tests;
 mod phobos_open_topped_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_open_transport_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_spawns_crate_tests;
 // Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
 // this stock golden only holds without the capability.
 #[cfg(all(test, not(feature = "phobos")))]
@@ -179,6 +181,10 @@ pub use effects::{
 pub use in_range::can_fire_at_target;
 pub use in_range::{MaplessTarget, can_fire_at_target_in_query, mapless_in_range};
 pub use object_health::{Health, health_category};
+/// Phobos' `Helpers::Alex::getCellSpreadItemsExt` walk with the `includeInAir`
+/// switch exposed, shared with `sim::mission`'s `AttackMove.Follow` search.
+#[cfg(feature = "phobos")]
+pub(crate) use phobos_airburst::cell_spread_technos_with_air;
 pub(crate) use projectile_delivery::{FiredBullet, admit_fired_bullet, admit_techno_fired_bullet};
 pub(crate) use receiver_call::{
     BaseDefenseResponseCallSite, EntityDamageEvent, RAD_NO_ATTACKER, ReceiverCallFlags,
@@ -198,10 +204,6 @@ pub(crate) use threat_posed::live_threat_posed;
 /// `TechnoClass::Greatest_Threat @ 0x006F8DF0`. Re-exported because the mask
 /// is chosen by the mission handlers in `sim/world/`, not inside `combat/`.
 pub use threat_range::ScanMission;
-/// Phobos' `Helpers::Alex::getCellSpreadItemsExt` walk with the `includeInAir`
-/// switch exposed, shared with `sim::mission`'s `AttackMove.Follow` search.
-#[cfg(feature = "phobos")]
-pub(crate) use phobos_airburst::cell_spread_technos_with_air;
 pub(crate) use world_fire::estimated_damage_on;
 
 // Shared between combat's children, which reach them through `super::`.

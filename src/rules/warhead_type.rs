@@ -498,6 +498,10 @@ pub struct WarheadType {
     pub phobos_change_owner_set_as_mind_control: bool,
     #[cfg(feature = "phobos")]
     pub phobos_change_owner_mind_control_anim: Option<String>,
+    /// Phobos `SpawnsCrate{i}.Type`/`.Weight` (`Ext/WarheadType/Body.cpp:520-560`):
+    /// the weighted powerup crates one detonation places.
+    #[cfg(feature = "phobos")]
+    pub phobos_spawns_crate: crate::rules::phobos_spawns_crate::PhobosSpawnsCrate,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -916,9 +920,14 @@ impl WarheadType {
             phobos_change_owner_set_as_mind_control: section
                 .read_bool("ChangeOwner.SetAsMindControl", false),
             #[cfg(feature = "phobos")]
-            phobos_change_owner_mind_control_anim: section
-                .read_type_name("ChangeOwner.MindControlAnim", 0x100)
-                .map(str::to_owned),
+            phobos_change_owner_mind_control_anim: section.read_phobos_nullable_with(
+                "ChangeOwner.MindControlAnim",
+                None,
+                |raw| Some(raw.to_owned()),
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_spawns_crate:
+                crate::rules::phobos_spawns_crate::PhobosSpawnsCrate::from_section(section),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

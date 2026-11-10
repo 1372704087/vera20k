@@ -1311,3 +1311,29 @@ fn change_owner_mind_control_respects_immunity() {
         "a plain owner change ignores psionic immunity"
     );
 }
+
+/// A `ChangeOwner.SetAsMindControl` capture writes `MindControlledByAUnit`
+/// (Techno+0x2C4, VERA's `MindControlLink::permanent`).
+#[cfg(feature = "phobos")]
+#[test]
+fn change_owner_mind_control_marks_the_capture() {
+    let (mut sim, rules, firer, target) = scene(
+        "",
+        "ChangeOwner=yes\nChangeOwner.SetAsMindControl=yes\n",
+        "",
+        "",
+        "Russians",
+    );
+    let americans = sim.interner.get("Americans").expect("house");
+    shoot(&mut sim, &rules, "WH", firer, target, 0);
+    let entity = sim.entities().get(target).expect("target");
+    assert_eq!(entity.owner(), americans, "the firing House owns it");
+    assert!(
+        entity.mind_control.is_mind_controlled(),
+        "the capture counts as mind-controlled"
+    );
+    assert!(
+        entity.mind_control.permanent(),
+        "MindControlledByAUnit is +0x2C4"
+    );
+}

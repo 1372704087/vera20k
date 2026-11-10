@@ -137,7 +137,7 @@ pub(super) fn emit(
 
 /// `GeneralUtils::ChooseOneWeighted` (`Utilities/GeneralUtils.cpp:108-127`):
 /// single-precision running sums; `dice < sum2 / sum` picks the first match.
-fn choose_one_weighted(dice: f64, weights: &[i32]) -> Option<usize> {
+pub(crate) fn choose_one_weighted(dice: f64, weights: &[i32]) -> Option<usize> {
     let mut sum = 0.0_f32;
     for &weight in weights {
         sum += weight as f32;

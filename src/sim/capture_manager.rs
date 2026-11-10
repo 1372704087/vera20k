@@ -440,6 +440,12 @@ impl MindControlLink {
         self.permanent
     }
 
+    /// Phobos `WarheadTypeExt::ApplyOwnerChange`'s `MindControlledByAUnit`
+    /// (Techno+0x2C4) write on a `ChangeOwner.SetAsMindControl` capture.
+    pub(crate) fn mark_permanent_control(&mut self) {
+        self.permanent = true;
+    }
+
     pub(crate) fn house_controller(&self) -> Option<InternedId> {
         self.house_controller
     }

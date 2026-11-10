@@ -230,6 +230,8 @@ pub mod phobos_sidebar_indicators;
 #[cfg(feature = "phobos")]
 pub mod phobos_spawner;
 #[cfg(feature = "phobos")]
+pub mod phobos_spawns_crate;
+#[cfg(feature = "phobos")]
 pub mod phobos_limbo;
 #[cfg(feature = "phobos")]
 pub mod phobos_spy_effect;

@@ -136,6 +136,7 @@ Supported extensions:
 - [Cloak keys](phobos-cloak.md) (`Cloak.KickOutParasite`: a cloaking host ejects its parasite; 1 key + 1 `[General]` global)
 - [OpenTransport keys](phobos-open-transport.md) (`OpenTransport.RangeBonus`/`.DamageMultiplier`/`.FireWhileMoving`: a passenger's own open-topped firepower, range and movement gate; 3 keys + 3 globals)
 - [ChangeOwner warhead](phobos-change-owner.md) (`ChangeOwner`/`.SetAsMindControl`/`.MindControlAnim`: a warhead transfers its target to the firing house, optionally as a mind-control capture; 3 keys)
+- [SpawnsCrate warhead](phobos-spawns-crate.md) (`SpawnsCrate{i}.Type`/`.Weight` and their entry-0 aliases: a detonation places one weighted powerup crate; 2 numbered keys + 2 aliases)
 
 ## Original project and authors
 

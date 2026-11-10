@@ -130,6 +130,18 @@ pub(crate) fn detonate(
         impact,
         run.effects(),
     );
+    // `WarheadTypeExt::Detonate`'s SpawnsCrate block (`Detonate.cpp:113-118`):
+    // after TransactMoney and before LaunchSW, one Scenario draw picks a
+    // weighted crate and `PlacePowerupCrate` drops it at the impact cell.
+    #[cfg(feature = "phobos")]
+    apply_spawns_crate(
+        world,
+        rules,
+        overlay_registry,
+        warhead,
+        impact,
+        run.effects(),
+    );
     // `WarheadTypeExt::Detonate`'s LaunchSW block (`Detonate.cpp:121-150`):
     // after the TransactMoney block and before the crit prefix.
     #[cfg(feature = "phobos")]
@@ -664,6 +676,43 @@ fn apply_one(
 }
 
 #[cfg(feature = "phobos")]
+fn apply_spawns_crate(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    warhead: &WarheadType,
+    impact: ProjectileCoord,
+    effects: crate::sim::world::FrameEffects<'_>,
+) {
+    let settings = &warhead.phobos_spawns_crate;
+    if settings.types.is_empty() {
+        return;
+    }
+    let dice = world.scenario_rng.random_double();
+    let Some(index) = super::phobos_extra_warheads::choose_one_weighted(dice, &settings.weights)
+    else {
+        return;
+    };
+    let Some(&powerup) = settings.types.get(index) else {
+        return;
+    };
+    let Some(registry) = overlay_registry else {
+        return;
+    };
+    let cell = (
+        crate::util::lepton::lepton_to_cell(impact.x)
+            .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+        crate::util::lepton::lepton_to_cell(impact.y)
+            .clamp(i32::from(i16::MIN), i32::from(i16::MAX)) as i16,
+    );
+    if let Err(error) =
+        crate::sim::crates::place_crate(world, rules, registry, cell, Some(powerup as u8), effects)
+    {
+        log::debug!("SpawnsCrate placement failed: {error}");
+    }
+}
+
+#[cfg(feature = "phobos")]
 #[allow(clippy::too_many_arguments)]
 fn apply_change_owner(
     world: &mut Simulation,
@@ -692,11 +741,16 @@ fn apply_change_owner(
         return;
     }
     world.change_owner_with_rules(target_id, house, rules, overlay_registry, effects);
-    if is_mind_control && let Some(anim) = warhead.phobos_change_owner_mind_control_anim.as_deref()
-    {
-        // Native also raises `MindControlledByAUnit`; VERA has no consumer
-        // for that byte, the ring is the modeled capture marker.
-        world.attach_control_ring(target_id, anim, rules);
+    if is_mind_control {
+        // `MindControlledByAUnit` is Techno+0x2C4, VERA's
+        // `MindControlLink::permanent`; `IsMindControlled` and the capture
+        // admission read it, so a second `SetAsMindControl` hit refuses.
+        if let Some(target) = world.substrate.entities.get_mut(target_id) {
+            target.mind_control.mark_permanent_control();
+        }
+        if let Some(anim) = warhead.phobos_change_owner_mind_control_anim.as_deref() {
+            world.attach_control_ring(target_id, anim, rules);
+        }
     }
 }
 

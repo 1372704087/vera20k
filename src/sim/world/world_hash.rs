@@ -951,6 +951,18 @@ impl Simulation {
                 b"prism-damage-multiplier-v1".hash(hasher);
                 projectile.payload().damage_multiplier().hash(hasher);
             }
+            #[cfg(feature = "phobos")]
+            {
+                b"phobos-interceptor-state-v1".hash(hasher);
+                projectile.current_strength().hash(hasher);
+                projectile.intercepted_status().hash(hasher);
+                projectile.detonate_on_interception().hash(hasher);
+                projectile
+                    .interceptor_type()
+                    .map(|id| id.index())
+                    .hash(hasher);
+                projectile.interceptor_target().hash(hasher);
+            }
 
             projectile.speed_leptons_per_frame().hash(hasher);
             projectile.velocity().hash(hasher);

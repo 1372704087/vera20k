@@ -657,6 +657,15 @@ pub fn target_get_coords(
         crate::sim::combat::TargetKind::Cell(rx, ry) => {
             Some(super::navcom::retained_cell_coord(rx, ry, cells))
         }
+        #[cfg(feature = "phobos")]
+        crate::sim::combat::TargetKind::Bullet(id) => {
+            let point = world.projectiles.get(id)?.position();
+            Some(DriveCoord {
+                x: point.x,
+                y: point.y,
+                z: point.z,
+            })
+        }
         crate::sim::combat::TargetKind::Entity(id) => {
             if let Some(entity) = world.substrate.entities.get(id) {
                 Some(object_get_coords(
@@ -697,6 +706,8 @@ pub(crate) fn target_get_target_coords(
             world,
             terrain.map(NativeCellQuery::canonical).as_ref(),
         ),
+        #[cfg(feature = "phobos")]
+        crate::sim::combat::TargetKind::Bullet(_) => target_get_coords(target, world, None),
     }
 }
 
@@ -758,6 +769,8 @@ impl Simulation {
                     (i32::from(width), i32::from(height))
                 }),
             crate::sim::combat::TargetKind::Cell(..) => None,
+            #[cfg(feature = "phobos")]
+            crate::sim::combat::TargetKind::Bullet(..) => None,
         };
         Some(crate::util::native_x87::object_distance(
             [from.x, from.y, from.z],

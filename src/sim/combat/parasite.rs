@@ -1279,6 +1279,8 @@ impl Simulation {
         let target_id = match target {
             super::TargetKind::Entity(id) => Some(id),
             super::TargetKind::Cell(..) => None,
+            #[cfg(feature = "phobos")]
+            super::TargetKind::Bullet(..) => None,
         };
         let target_entity = target_id.and_then(|id| self.substrate.entities.get(id));
         let target_infantry =

@@ -637,6 +637,15 @@ impl Simulation {
                     z: coord.z,
                 })
             }
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(id) => {
+                let coord = self.projectiles.get(id)?.position();
+                Some(crate::sim::components::DriveCoord {
+                    x: coord.x,
+                    y: coord.y,
+                    z: coord.z,
+                })
+            }
         }
     }
 

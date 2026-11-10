@@ -50,6 +50,8 @@ pub(crate) mod fire_error_world;
 pub mod gattling;
 pub(crate) mod greatest_threat;
 pub mod in_range;
+#[cfg(feature = "phobos")]
+mod interceptor;
 pub(crate) mod inviso_scatter;
 pub mod laser;
 pub mod line_of_fire;

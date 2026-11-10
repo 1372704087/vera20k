@@ -107,10 +107,19 @@ pub(crate) fn detonate(
     // The firing bullet's Health (`WarheadTypeExt::Detonate`'s `damage`); 0
     // for the pure `MapClass::DamageArea` call, which carries no bullet.
     damage: i32,
+    // `bulletWasIntercepted`: the detonating bullet has the Intercepted
+    // status, which `Crit.SuppressWhenIntercepted` can veto.
+    intercepted: bool,
     effects: &mut DeathEffects,
 ) -> bool {
     let crit = &warhead.crit;
     let globals = rules.crit_globals();
+    // `DetonateOnOneUnit`'s crit gate: `Crit_CurrentChance > 0 &&
+    // (!Crit_SuppressWhenIntercepted.Get(global) || !bulletWasIntercepted)`.
+    let suppress_crit = intercepted
+        && crit
+            .suppress_when_intercepted
+            .unwrap_or(globals.suppress_when_intercepted());
     let house = source_house.or_else(|| {
         world
             .substrate
@@ -281,6 +290,7 @@ pub(crate) fn detonate(
             );
         }
         if chance > 0.0
+            && !suppress_crit
             && apply_one(
                 world,
                 run,

@@ -1271,6 +1271,15 @@ pub(crate) fn select_weapon_index_against_in_query(
 ) -> Option<i32> {
     let terrain = cells.map(NativeCellQuery::terrain);
     let target_facts = match target.copied() {
+        // Phobos 0x6F3339: a Bullet target answers the interceptor weapon
+        // slot before the stock ladder; another type keeps the normal path.
+        #[cfg(feature = "phobos")]
+        Some(TargetKind::Bullet(_)) => {
+            return attacker_obj
+                .phobos_interceptor
+                .as_ref()
+                .map(|interceptor| interceptor.weapon);
+        }
         Some(TargetKind::Entity(target_id)) => {
             // SelectWeapon6F3330 distinguishes Techno bit0 from Terrain
             // WhatAmI24 before its shared ladder. The Object-ID arm retains
@@ -1369,6 +1378,8 @@ fn phobos_force_weapon_index(
     let target_entity = match *target {
         TargetKind::Entity(id) => world.substrate.entities.get(id),
         TargetKind::Cell(..) => None,
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => None,
     };
     let target_obj =
         target_entity.and_then(|entity| interner.object_type(entity.type_ref(), rules));

@@ -1933,6 +1933,8 @@ fn native_depot_arrival_uses_the_original_terminal_handoff() {
             None => Value::Null,
             Some(TargetKind::Cell(rx, ry)) => json!([rx, ry]),
             Some(TargetKind::Entity(id)) => name(Some(id)),
+            #[cfg(feature = "phobos")]
+            Some(TargetKind::Bullet(..)) => Value::Null,
         };
         let at = super::super::ground_pose::object_get_coords(unit, sim.resolved_terrain.as_ref());
         let destination = unit

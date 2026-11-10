@@ -636,6 +636,9 @@ impl Simulation {
                 Some(combat::TargetKind::Entity(id)) => MegaMissionTarget::Object {
                     id: i32::try_from(id).ok()?,
                 },
+                // A bullet target is engine-internal and never encoded.
+                #[cfg(feature = "phobos")]
+                Some(combat::TargetKind::Bullet(..)) => return None,
             })
         };
         let (source_id, order) = match *command {
@@ -1180,6 +1183,8 @@ impl Simulation {
                             target_ry,
                         }
                     }
+                    #[cfg(feature = "phobos")]
+                    Some(combat::TargetKind::Bullet(..)) => return None,
                     None => return None,
                 },
                 MegaMissionOrder::AttackMove {
@@ -3462,6 +3467,9 @@ impl Simulation {
                 );
                 token
             }
+            // No event token names a Bullet.
+            #[cfg(feature = "phobos")]
+            combat::TargetKind::Bullet(..) => None,
         }
     }
 

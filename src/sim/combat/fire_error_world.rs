@@ -515,6 +515,20 @@ impl<'a> FireSubject<'a> {
         let frame = self.frame();
         let (target, target_type) = match self.target {
             None => (TargetFacts::default(), TargetTypeFacts::default()),
+            #[cfg(feature = "phobos")]
+            Some(TargetKind::Bullet(id)) => (
+                TargetFacts {
+                    kind: FireTargetKind::Object,
+                    z: self
+                        .world
+                        .projectiles
+                        .get(id)
+                        .map_or(0, |projectile| projectile.position().z),
+                    health: super::Health::new(1),
+                    ..TargetFacts::default()
+                },
+                TargetTypeFacts::default(),
+            ),
             Some(TargetKind::Cell(..)) => (
                 TargetFacts {
                     kind: FireTargetKind::Cell,
@@ -676,6 +690,14 @@ impl FireQuery for WorldQuery<'_, '_> {
                 } else {
                     return;
                 }
+            }
+            #[cfg(feature = "phobos")]
+            Some(TargetKind::Bullet(id)) => {
+                let Some(projectile) = self.subject.world.projectiles.get(id) else {
+                    return;
+                };
+                let position = projectile.position();
+                (position.x, position.y)
             }
             Some(TargetKind::Cell(..)) => {
                 let Some(cell) = self.subject.cell_target_identity() else {

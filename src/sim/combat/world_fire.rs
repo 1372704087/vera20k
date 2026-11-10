@@ -537,6 +537,9 @@ fn admit_attacker_fire<'r>(
             }),
         TargetKind::Cell(..) => resolve_target_coords(&snap.target, world)
             .map(|(trx, try_, tsx, tsy)| (trx, try_, tsx, tsy, 1i32, snap.type_id)),
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(..) => resolve_target_coords(&snap.target, world)
+            .map(|(trx, try_, tsx, tsy)| (trx, try_, tsx, tsy, 1i32, snap.type_id)),
     };
 
     let (target_rx, target_ry, target_sub_x, target_sub_y, target_type_ref) = match target_data {
@@ -967,6 +970,8 @@ fn admit_attacker_fire<'r>(
                 (coords, type_ref)
             }
             TargetKind::Cell(..) => (resolve_target_coords(&snap.target, world)?, snap.type_id),
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(..) => (resolve_target_coords(&snap.target, world)?, snap.type_id),
         }
     } else {
         (
@@ -2040,6 +2045,20 @@ pub(super) fn emit_admitted_fire(
     let damage_stages = fire_damage_stages(world, rules, snap, obj, is_garrison);
     let base_damage =
         damage::attacker::fire_damage(weapon.damage, weapon.fire_damage_zeroed(), &damage_stages);
+    // Phobos `TechnoClass_FireAt_LateLogic` (`0x6FF660`): an interceptor
+    // firing at a Bullet with ApplyFirepowerMult=no stores the weapon's raw
+    // Damage as the bullet's Health.
+    #[cfg(feature = "phobos")]
+    let base_damage = if matches!(snap.target, TargetKind::Bullet(..))
+        && obj.phobos_interceptor.as_ref().is_some_and(|interceptor| {
+            !interceptor
+                .apply_firepower_mult
+                .unwrap_or(rules.phobos_globals.interceptor_apply_firepower_mult)
+        }) {
+        weapon.damage
+    } else {
+        base_damage
+    };
     // FireAt6FE460..6FE4EF constructs a retained DiskLaser before GetROF,
     // advances the burst, stores the unhalved rearm, then calls Fire4A71A0
     // and returns NULL. Disk AI owns the later range/crash gate, discharge
@@ -2202,6 +2221,11 @@ pub(super) fn emit_admitted_fire(
         let target_location = |target: TargetKind| -> Option<ProjectileCoord> {
             match target {
                 TargetKind::Entity(id) => object_get_coords(world, id),
+                #[cfg(feature = "phobos")]
+                TargetKind::Bullet(id) => world
+                    .projectiles
+                    .get(id)
+                    .map(|projectile| projectile.position()),
                 TargetKind::Cell(rx, ry) => {
                     use crate::sim::cell_rect::{CellRef, get_cellclass_fallback};
                     let cell = get_cellclass_fallback(
@@ -2286,6 +2310,8 @@ pub(super) fn emit_admitted_fire(
             .and_then(|target| match target {
                 TargetKind::Entity(id) => world.substrate.entities.get(id),
                 TargetKind::Cell(_, _) => None,
+                #[cfg(feature = "phobos")]
+                TargetKind::Bullet(..) => None,
             })
             .filter(|target| target.category() == EntityCategory::Structure)
             .and_then(|target| world.interner.object_type(target.type_ref(), rules))
@@ -2424,6 +2450,37 @@ pub(super) fn emit_admitted_fire(
     if !launched {
         fireat_tail(world, rules, snap, weapon, None, overlay_registry, effects);
         return None;
+    }
+
+    // Phobos `TechnoClass_FireAt_LateLogic` (`0x6FF660`): the fired bullet
+    // remembers the interceptor TechnoType and is Targeted; an armorless
+    // target bullet becomes Locked.
+    #[cfg(feature = "phobos")]
+    if let Some(interceptor) = obj.phobos_interceptor.as_ref()
+        && let TargetKind::Bullet(target_bullet) = snap.target
+    {
+        use crate::sim::projectile::intercepted_status;
+        let target_has_armor = world
+            .projectiles
+            .get(target_bullet)
+            .and_then(|bullet| bullet.payload().projectile_type())
+            .and_then(|type_id| rules.projectile(world.interner.resolve(type_id)))
+            .is_some_and(|kind| kind.armor.is_some());
+        if !target_has_armor {
+            world
+                .projectiles
+                .add_phobos_intercepted_status(target_bullet, intercepted_status::LOCKED);
+        }
+        let _ = interceptor;
+        world
+            .projectiles
+            .set_phobos_interceptor_type(bullet_id, Some(snap.type_id));
+        world
+            .projectiles
+            .add_phobos_intercepted_status(bullet_id, intercepted_status::TARGETED);
+        world
+            .projectiles
+            .set_phobos_interceptor_target(bullet_id, Some(target_bullet));
     }
 
     let sequence = world
@@ -3411,6 +3468,8 @@ pub(crate) fn visit_fire(
                                 .map(|target| target.type_ref())
                         })?,
                     TargetKind::Cell(..) => actor.type_ref(),
+                    #[cfg(feature = "phobos")]
+                    TargetKind::Bullet(..) => actor.type_ref(),
                 };
                 Some(AdmittedFire {
                     snap: build_attacker_snapshot(actor, target, None),

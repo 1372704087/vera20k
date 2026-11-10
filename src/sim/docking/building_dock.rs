@@ -1019,6 +1019,14 @@ fn depot_rally_cell(
             );
             Some((u16::try_from(x / 256).ok()?, u16::try_from(y / 256).ok()?))
         }
+        #[cfg(feature = "phobos")]
+        TargetKind::Bullet(id) => {
+            let point = sim.projectiles.get(id)?.position();
+            Some((
+                u16::try_from(point.x / 256).ok()?,
+                u16::try_from(point.y / 256).ok()?,
+            ))
+        }
     }
 }
 

@@ -328,6 +328,11 @@ fn elevation_bonus_leptons(
             }
             crate::sim::cell_kernel::native_cell_own_xy(cell, cells)
         }
+        #[cfg(feature = "phobos")]
+        RangeTarget::Bullet(target) => {
+            let point = target.position();
+            [point.x, point.y]
+        }
         RangeTarget::Missing => return 0,
     };
     let height = |[x, y]: [i32; 2]| {
@@ -530,6 +535,10 @@ pub(crate) enum RangeTarget<'a> {
     Techno(&'a GameEntity),
     Terrain(&'a TerrainObjectState),
     Cell(NativeCellIdentity),
+    /// Phobos interceptor Bullet target: its retained Location is the target
+    /// point (`BulletClass::GetCoords` inherits Object5F65A0).
+    #[cfg(feature = "phobos")]
+    Bullet(&'a crate::sim::projectile::Projectile),
     // InRange6F724E's -512 sentinel precedes even a missing target read.
     Missing,
 }
@@ -551,6 +560,12 @@ impl<'a> RangeTarget<'a> {
             TargetKind::Cell(..) => target
                 .cell_identity(terrain)
                 .map_or(Self::Missing, Self::Cell),
+            #[cfg(feature = "phobos")]
+            TargetKind::Bullet(id) => world
+                .projectiles
+                .get(id)
+                .map(Self::Bullet)
+                .unwrap_or(Self::Missing),
         }
     }
 }
@@ -640,6 +655,10 @@ pub(crate) fn compute_range_target(
             is_high_flying_in_query(target, cells, Some((rules, interner)))
         }
         RangeTarget::Terrain(target) => target.is_high_flying_in_query(Some(cells)),
+        // `ObjectClass::IsHighFlying`'s Techno override; a Bullet is not a
+        // Techno and answers false.
+        #[cfg(feature = "phobos")]
+        RangeTarget::Bullet(_) => false,
         RangeTarget::Cell(_) | RangeTarget::Missing => false,
     };
     let initial_range_lep = reach_leptons(
@@ -838,6 +857,11 @@ fn range_target_coords_3d(
             Some((i64::from(point.x), i64::from(point.y), z))
         }
         RangeTarget::Cell(cell) => native_cell_range_coords(cell, cells),
+        #[cfg(feature = "phobos")]
+        RangeTarget::Bullet(target) => {
+            let point = target.position();
+            Some((i64::from(point.x), i64::from(point.y), i64::from(point.z)))
+        }
         RangeTarget::Missing => None,
     }
 }
@@ -908,6 +932,8 @@ fn target_own_z_leptons(target: RangeTarget<'_>, cells: &NativeCellQuery<'_>) ->
         ))),
         RangeTarget::Terrain(target) => Some(i64::from(target.world_coord().z)),
         RangeTarget::Cell(cell) => native_cell_own_coords(cell, cells).map(|(_, _, z)| z),
+        #[cfg(feature = "phobos")]
+        RangeTarget::Bullet(target) => Some(i64::from(target.position().z)),
         RangeTarget::Missing => None,
     }
 }

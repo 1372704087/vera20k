@@ -68,6 +68,8 @@ mod phobos_airburst;
 mod phobos_extra_warheads;
 #[cfg(feature = "phobos")]
 mod phobos_return_warhead;
+#[cfg(feature = "phobos")]
+pub(crate) mod phobos_unlimbo_detonate;
 mod projectile_delivery;
 pub mod radiation_beam;
 pub(crate) mod railgun;
@@ -136,6 +138,8 @@ mod phobos_delayed_fire_tests;
 mod phobos_detonate_all_map_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_extra_warheads_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_unlimbo_detonate_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_no_turret_tests;
 #[cfg(all(test, feature = "phobos"))]

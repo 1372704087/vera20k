@@ -946,7 +946,42 @@ fn launch(
     if redirect_refused {
         return false;
     }
+    // Phobos `SWTypeExt::Activate`'s tail (`Ext/SWType/FireSuperWeapon.cpp:32`):
+    // an accepted activation applies the type's Convert pairs to every Foot.
+    #[cfg(feature = "phobos")]
+    apply_sw_type_conversion(sim, rules, owner, sw, frame_effects);
     true
+}
+
+/// Phobos `SWTypeExt::ApplyTypeConversion` (`Ext/SWType/FireSuperWeapon.cpp:350-354`):
+/// every Foot in the global array converts through the SW's pairs with the
+/// launching house as the source.
+#[cfg(feature = "phobos")]
+pub(super) fn apply_sw_type_conversion(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    sw: &crate::rules::superweapon_type::SuperWeaponType,
+    effects: FrameEffects<'_>,
+) {
+    if sw.phobos_convert_pairs.is_empty() {
+        return;
+    }
+    let ids: Vec<u64> = sim
+        .substrate
+        .entities
+        .values_sorted()
+        .map(|entity| entity.stable_id())
+        .collect();
+    for id in ids {
+        sim.phobos_apply_type_convert_pairs(
+            id,
+            &sw.phobos_convert_pairs,
+            Some(owner),
+            rules,
+            effects,
+        );
+    }
 }
 
 /// Phobos `BuildingExt::HandleInfiltrate`'s `launchTheSWHere`

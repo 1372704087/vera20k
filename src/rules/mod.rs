@@ -226,6 +226,8 @@ pub mod phobos_warhead_anim;
 #[cfg(feature = "phobos")]
 pub mod phobos_warp_in_weapon;
 pub(crate) mod threat_coefficients;
+#[cfg(feature = "phobos")]
+pub mod type_convert_group;
 /// Whether this binary includes the supported Ares extensions. INIs cannot change it.
 pub const ARES_ENABLED: bool = cfg!(feature = "ares");
 /// Whether this binary includes the supported Phobos extensions. INIs cannot change it.

@@ -688,6 +688,11 @@ pub struct SuperWeaponType {
     /// charges from the owner's house weed store instead of its recharge clock.
     #[cfg(feature = "phobos")]
     pub use_weeds: bool,
+    /// Phobos `Convert{i}.From`/`.To`/`.AffectsHouse` pairs
+    /// (`Ext/SWType/Body.cpp:281`, `New/Type/Affiliated/TypeConvertGroup.cpp`);
+    /// the default source-house filter is `Owner`.
+    #[cfg(feature = "phobos")]
+    pub phobos_convert_pairs: Vec<crate::rules::type_convert_group::TypeConvertGroup>,
     /// Phobos `UseWeeds.Amount=` (`:297`); `None` keeps the constructor
     /// default `[General] WeedCapacity`.
     #[cfg(feature = "phobos")]
@@ -964,6 +969,11 @@ impl SuperWeaponType {
             show_timer: section.read_bool("ShowTimer", false),
             #[cfg(feature = "phobos")]
             use_weeds: section.read_bool("UseWeeds", false),
+            #[cfg(feature = "phobos")]
+            phobos_convert_pairs: crate::rules::type_convert_group::parse(
+                section,
+                crate::rules::phobos_shields::AffectedHouse::OWNER,
+            ),
             #[cfg(feature = "phobos")]
             use_weeds_amount: section.read_phobos_nullable_int("UseWeeds.Amount", None),
             #[cfg(feature = "phobos")]

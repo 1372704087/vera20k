@@ -456,6 +456,11 @@ pub struct WarheadType {
     /// credit label (`Ext/WarheadType/Detonate.cpp:102-111`).
     #[cfg(feature = "phobos")]
     pub transact_money: crate::rules::phobos_transact_money::TransactMoneyRules,
+    /// Phobos `Convert{i}.From`/`.To`/`.AffectsHouse` pairs
+    /// (`New/Type/Affiliated/TypeConvertGroup.cpp`); the default source-house
+    /// filter is `All`.
+    #[cfg(feature = "phobos")]
+    pub phobos_convert_pairs: Vec<crate::rules::type_convert_group::TypeConvertGroup>,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -835,6 +840,11 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             transact_money:
                 crate::rules::phobos_transact_money::TransactMoneyRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_convert_pairs: crate::rules::type_convert_group::parse(
+                section,
+                crate::rules::phobos_shields::AffectedHouse::ALL,
+            ),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

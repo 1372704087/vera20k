@@ -89,6 +89,11 @@ impl Simulation {
         let Some(source) = self.entity_object_type(actor, rules) else {
             return false;
         };
+        // `TechnoExt::ConvertToType` (`Ext/Techno/Body.cpp:355-362`) refuses a
+        // same-type or cross-class conversion before it writes anything.
+        if std::ptr::eq(source, destination) {
+            return false;
+        }
         let old_locomotor = source.locomotor;
         // Phobos `FootExt::UpdateTypeData`'s capture-manager arm
         // (`Ext/Foot/Body.cpp:470-540`) is gated by the OLD type's
@@ -438,6 +443,81 @@ impl Simulation {
             now,
             &crate::sim::mission::authority::LiveReadyInputProvider { rules },
         );
+    }
+
+    /// Phobos `TypeConvertGroup::Convert`
+    /// (`New/Type/Affiliated/TypeConvertGroup.cpp:5-40`): the Foot `id`
+    /// converts through the first applicable pair. A pair without `To` is
+    /// skipped; with a source house, `AffectsHouse` must admit the target's
+    /// owner; an empty `From` list converts any Foot, otherwise the first
+    /// matching source type does. The scan stops after a conversion.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_apply_type_convert_pairs(
+        &mut self,
+        id: u64,
+        pairs: &[crate::rules::type_convert_group::TypeConvertGroup],
+        house: Option<InternedId>,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        if pairs.is_empty() {
+            return;
+        }
+        let Some(entity) = self.substrate.entities.get(id) else {
+            return;
+        };
+        if entity.category() == EntityCategory::Structure {
+            return;
+        }
+        let target_owner = entity.owner();
+        let target_name = self.interner.resolve(entity.type_ref()).to_owned();
+        for pair in pairs {
+            let Some(to) = &pair.to else {
+                continue;
+            };
+            // Native resolves `To` at parse time; an unknown name leaves the
+            // `Nullable` unset and ends the numbered loop
+            // (`Utilities/TemplateDef.h:1834-1849`, `Template.h:172-195`).
+            if rules.object(to).is_none() {
+                break;
+            }
+            if let Some(house) = house
+                && !crate::sim::combat::can_target_house(
+                    pair.affected_houses,
+                    house,
+                    target_owner,
+                    self.houses(),
+                    self.house_alliances(),
+                    self.interner(),
+                )
+            {
+                continue;
+            }
+            // `ValueableVector<TechnoTypeClass*>` drops unresolvable tokens, so
+            // an all-unknown `From` list is empty and converts any Foot
+            // (`TemplateDef.h:1728-1744`); a partly resolvable list matches
+            // only its known names.
+            let mut from = pair.from.iter().filter(|from| rules.object(from).is_some());
+            let convert = match from.next() {
+                None => true,
+                Some(first) => {
+                    first.eq_ignore_ascii_case(&target_name)
+                        || from.any(|from| from.eq_ignore_ascii_case(&target_name))
+                }
+            };
+            if !convert {
+                continue;
+            }
+            let Some(target) = rules.object(to) else {
+                continue;
+            };
+            let target = DeliveryType {
+                category: target.category,
+                id: target.id.clone(),
+            };
+            self.convert_techno_type(id, &target, rules, effects);
+            break;
+        }
     }
 
     /// Phobos `FootExt::UpdateTypeData`'s capture-manager arm

@@ -48,6 +48,10 @@ mod charge_native_tests;
 mod chronosphere_lunar_retail_tests;
 #[cfg(any(test, feature = "test-support"))]
 pub mod chronosphere_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "phobos_convert_pairs_tests.rs"]
+mod phobos_convert_pairs_tests;
 #[cfg(feature = "ares")]
 pub(crate) mod drop_pod;
 #[cfg(all(test, feature = "ares"))]
@@ -2488,6 +2492,18 @@ fn finish_ares_launch(
     if !flags.has(F::NO_EVA) {
         sim.sound_events
             .emit(SimSoundEvent::AresSuperWeaponActivatedEva { sw_type: data });
+    }
+    // Phobos `SWTypeExt::Activate`'s tail also runs for Ares-handler kinds,
+    // whose launch arms returned before the common conversion tail.
+    #[cfg(feature = "phobos")]
+    if let Some(sw) = rules.super_weapon(sim.interner.resolve(data)) {
+        fire::apply_sw_type_conversion(
+            sim,
+            rules,
+            owner,
+            sw,
+            crate::sim::world::FrameEffects::default(),
+        );
     }
 }
 

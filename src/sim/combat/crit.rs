@@ -132,7 +132,11 @@ pub(crate) fn detonate(
     let attach = !warhead.attach_effect.is_empty();
     let penetrates = warhead.phobos_penetrates_transport.level > 0;
     let shield_modifiers = warhead.shield.has_per_target_modifier();
-    if !(attach || penetrates || chance > 0.0 || shield_modifiers) {
+    #[cfg(feature = "phobos")]
+    let convert_pairs = !warhead.phobos_convert_pairs.is_empty();
+    #[cfg(not(feature = "phobos"))]
+    let convert_pairs = false;
+    if !(attach || penetrates || chance > 0.0 || shield_modifiers || convert_pairs) {
         return false;
     }
     let on_detonate = warhead
@@ -171,6 +175,17 @@ pub(crate) fn detonate(
         if !can_detonate_on(world, rules, warhead, house, target_id, invoker) {
             continue;
         }
+        // Phobos `WarheadTypeExt::ApplyConvert` (`Detonate.cpp:215,669-678`):
+        // before the PenetratesTransport arm, a Foot target converts through
+        // the first applicable pair.
+        #[cfg(feature = "phobos")]
+        world.phobos_apply_type_convert_pairs(
+            target_id,
+            &warhead.phobos_convert_pairs,
+            house,
+            rules,
+            run.effects(),
+        );
         // `DetonateOnOneUnit`'s PenetratesTransport arm (`Detonate.cpp:233`):
         // before the attach-effect and crit blocks, the shot reaches the
         // target's passengers. Shields resolve inside the passenger receiver.

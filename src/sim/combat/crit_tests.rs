@@ -499,6 +499,97 @@ fn transact_money_gates_the_shot_on_the_firing_house_wallet() {
     );
 }
 
+/// Phobos `WarheadTypeExt::ApplyConvert`
+/// (`Ext/WarheadType/Detonate.cpp:215,669-678`): the per-target pass converts
+/// a Foot through the first applicable `Convert{i}` pair, with `All` as a
+/// warhead's default source-house filter.
+#[cfg(feature = "phobos")]
+#[test]
+fn warhead_convert_pairs_convert_the_target_foot() {
+    let converted = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        sim.interner
+            .resolve(sim.entities().get(target).unwrap().type_ref())
+            .to_owned()
+    };
+    assert_eq!(
+        converted("Convert0.From=TARGET\nConvert0.To=FIRER\n"),
+        "FIRER"
+    );
+    assert_eq!(
+        converted("Convert.From=TARGET\nConvert.To=FIRER\n"),
+        "FIRER",
+        "the unnumbered pair fills an empty list"
+    );
+    assert_eq!(
+        converted("Convert0.From=TARGET\nConvert0.To=FIRER\nConvert0.AffectsHouse=owner\n"),
+        "TARGET",
+        "owner-only refuses the enemy target"
+    );
+    assert_eq!(
+        converted("Convert0.From=TARGET\nConvert0.To=FIRER\nConvert0.AffectsHouse=enemies\n"),
+        "FIRER",
+        "enemies accepts the enemy target"
+    );
+    assert_eq!(
+        converted("Convert0.From=FIRER\nConvert0.To=FIRER\n"),
+        "TARGET",
+        "a known non-matching From skips the pair"
+    );
+    assert_eq!(
+        converted("Convert0.From=NOSUCH\nConvert0.To=FIRER\n"),
+        "FIRER",
+        "an all-unknown From is an empty list and converts any Foot"
+    );
+    assert_eq!(
+        converted("Convert0.To=NOSUCH\nConvert1.To=FIRER\n"),
+        "TARGET",
+        "an unknown To ends the numbered list instead of skipping the row"
+    );
+    assert_eq!(
+        converted(
+            "Convert0.From=TARGET\nConvert0.To=FIRER\nConvert.From=TARGET\nConvert.To=TARGET\n"
+        ),
+        "TARGET",
+        "the unnumbered pair replaces row 0, so no FIRER row applies"
+    );
+    assert_eq!(
+        converted("Convert0.From=TARGET\nConvert0.To=FIRER\nConvert0.AffectedHouses=owner\n"),
+        "TARGET",
+        "the deprecated AffectedHouses key is read"
+    );
+    assert_eq!(
+        converted(
+            "Convert0.From=TARGET\nConvert0.To=FIRER\nConvert0.AffectedHouses=owner\nConvert0.AffectsHouse=enemies\n"
+        ),
+        "FIRER",
+        "a set AffectsHouse overrides AffectedHouses"
+    );
+    assert_eq!(
+        converted("Convert0.To=FIRER\nConvert1.From=TARGET\nConvert1.To=TARGET\n"),
+        "FIRER",
+        "the first converting row stops the list"
+    );
+    assert_eq!(converted(""), "TARGET", "no pairs, no conversion");
+    let after = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set_for_test(100);
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        health(&sim, target)
+    };
+    assert_eq!(
+        after("Convert0.From=TARGET\nConvert0.To=TARGET\n"),
+        after(""),
+        "a same-type pair is a no-op, not a full-health reset"
+    );
+}
+
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
 /// the warhead's own triggers refuse the victim. The gate does not set

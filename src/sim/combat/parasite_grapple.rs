@@ -214,7 +214,51 @@ impl Simulation {
         match phase {
             0 => {
                 self.substrate.write_grapple_roll(victim, SimFixed::ZERO);
-                let name = crate::rules::effect_asset_catalog::SQUID_GRAPPLE_ANIM;
+                // Phobos `ParasiteClass_AI_GrippleAnim` (`0x6298CC`,
+                // `Ext/Techno/Hooks.cpp:942-953`): the warhead's
+                // `Parasite.GrappleAnim` name (else the `[AudioVisual]`
+                // fallback, else `SQDG`) selects the held grapple animation.
+                // Both keys are `NullableIdx` reads, so an unknown declared
+                // name leaves the value unset and the next fallback applies.
+                #[cfg(feature = "phobos")]
+                let grapple_name = {
+                    let declared = |name: &str| {
+                        rules
+                            .anim_type_names
+                            .iter()
+                            .find(|valid| valid.eq_ignore_ascii_case(name))
+                            .map(String::as_str)
+                    };
+                    self.substrate
+                        .entities
+                        .get(owner)
+                        .and_then(|entity| {
+                            let object = self.object_type(entity.type_ref(), rules)?;
+                            let weapon = weapon_zero(rules, object, entity.veterancy.rank())?;
+                            rules.weapon_warhead(weapon).and_then(|warhead| {
+                                warhead
+                                    .phobos_parasite
+                                    .grapple_anim
+                                    .as_deref()
+                                    .and_then(declared)
+                            })
+                        })
+                        .or_else(|| {
+                            rules
+                                .phobos_globals
+                                .parasite_grapple_anim
+                                .as_deref()
+                                .and_then(declared)
+                        })
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| {
+                            crate::rules::effect_asset_catalog::SQUID_GRAPPLE_ANIM.to_string()
+                        })
+                };
+                #[cfg(not(feature = "phobos"))]
+                let grapple_name =
+                    crate::rules::effect_asset_catalog::SQUID_GRAPPLE_ANIM.to_string();
+                let name = grapple_name.as_str();
                 // Lookup-only427CB0, not a factory creating an unknown type.
                 let anim = if rules.anim_type_names.contains(name) {
                     let type_id = self.interner.intern(name);

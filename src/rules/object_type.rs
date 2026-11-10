@@ -957,6 +957,11 @@ pub struct ObjectType {
     /// InfantryType.
     #[cfg(feature = "phobos")]
     pub phobos_not_human_random_death_sequence: Option<bool>,
+    /// Phobos `Parasite.AllowWaterExit=` (`Ext/UnitType/Body.cpp:51`,
+    /// `Nullable<bool>`): whether a parasitic Unit may leave its host on
+    /// water; unset takes `[General]`. Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_parasite_allow_water_exit: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4938,6 +4943,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_not_human_random_death_sequence: (category == ObjectCategory::Infantry)
                 .then(|| section.read_phobos_nullable_bool("NotHuman.RandomDeathSequence", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_parasite_allow_water_exit: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("Parasite.AllowWaterExit", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(

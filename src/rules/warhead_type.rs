@@ -476,6 +476,10 @@ pub struct WarheadType {
     /// infantryman plays when this warhead kills it.
     #[cfg(feature = "phobos")]
     pub phobos_not_human_death_sequence: i32,
+    /// Phobos `Parasite.ParticleSystem`/`.DisableParticleSystem`/
+    /// `.CullingTarget`/`.GrappleAnim` (`Ext/WarheadType/Body.cpp:322-325`).
+    #[cfg(feature = "phobos")]
+    pub phobos_parasite: crate::rules::phobos_parasite::PhobosParasiteWarhead,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -869,6 +873,9 @@ impl WarheadType {
             ),
             #[cfg(feature = "phobos")]
             phobos_not_human_death_sequence: section.read_int("NotHuman.DeathSequence", -1),
+            #[cfg(feature = "phobos")]
+            phobos_parasite:
+                crate::rules::phobos_parasite::PhobosParasiteWarhead::from_section(section),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

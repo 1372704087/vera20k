@@ -101,6 +101,16 @@ pub struct PhobosGlobals {
     pub keep_range_allow_player: bool,
     /// `[General] KeepRange.EarlyStopFrame=`, default 0 (`:271`, `Body.h:189`).
     pub keep_range_early_stop: i32,
+    /// `[AudioVisual] Parasite.GrappleAnim=`, `NullableIdx<AnimTypeClass>`
+    /// read by declared-name `FindIndex` (`Ext/Rules/Body.cpp:425`): the
+    /// fallback for a warhead's key; `SQDG` applies when both are unset.
+    pub parasite_grapple_anim: Option<String>,
+    /// `[General] Parasite.AllowWaterExit=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:426`): the fallback for a UnitType's key.
+    pub parasite_allow_water_exit: Option<bool>,
+    /// `[CombatDamage] Parasite.DisableParticleSystem=`, default `no`
+    /// (`Ext/Rules/Body.cpp:495`, constructor `Ext/Rules/Body.h:405`).
+    pub parasite_disable_particle_system: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -300,6 +310,9 @@ impl Default for PhobosGlobals {
             keep_range_allow_ai: false,
             keep_range_allow_player: false,
             keep_range_early_stop: 0,
+            parasite_grapple_anim: None,
+            parasite_allow_water_exit: None,
+            parasite_disable_particle_system: false,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -348,6 +361,9 @@ impl PhobosGlobals {
         // (`Ext/Rules/Body.cpp:291-304`); the two sections share no key, so
         // their relative order does not matter.
         let audio_visual = ini.section_or_empty("AudioVisual");
+        globals.parasite_grapple_anim = audio_visual
+            .read_type_name("Parasite.GrappleAnim", 0x100)
+            .map(str::to_owned);
         globals.drain_money_display =
             audio_visual.read_bool("DrainMoneyDisplay", globals.drain_money_display);
         globals.drain_money_display_houses = crate::rules::phobos_shields::read_affected_house(
@@ -415,6 +431,10 @@ impl PhobosGlobals {
             general.read_bool("KeepRange.AllowPlayer", globals.keep_range_allow_player);
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
+        globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(
+            "Parasite.AllowWaterExit",
+            globals.parasite_allow_water_exit,
+        );
         globals.force_weapon_in_range_apply_range_modifiers = general.read_bool(
             "ForceWeapon.InRange.ApplyRangeModifiers",
             globals.force_weapon_in_range_apply_range_modifiers,
@@ -557,6 +577,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         driver_killed_kept_passengers: section.read_bool(
             "DriverKilled.KeptPassengers",
             defaults.driver_killed_kept_passengers,
+        ),
+        parasite_disable_particle_system: section.read_bool(
+            "Parasite.DisableParticleSystem",
+            defaults.parasite_disable_particle_system,
         ),
         driver_killed_kill_passengers: section.read_bool(
             "DriverKilled.KillPassengers",

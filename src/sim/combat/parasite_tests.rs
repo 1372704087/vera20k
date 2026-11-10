@@ -1433,3 +1433,149 @@ fn ares_a_cloaking_host_keeps_its_drone() {
     );
     assert_eq!(arena.eater_of(tank), Some(drone));
 }
+
+/// Phobos `Parasite.CullingTarget` (`Ext/WarheadType/Body.cpp:324`,
+/// `ParasiteClass_AI_CullingTarget @ 0x62A0AA`): a victim outside the filter
+/// skips the culling arm, so an Infantry victim takes the ordinary bite
+/// damage instead of its whole Health.
+#[cfg(feature = "phobos")]
+#[test]
+fn parasite_culling_target_off_downgrades_the_infantry_bite() {
+    let ini = IniFile::from_str(&RULES.replace(
+        "[ParasiteDog]\nVerses=100%,100%,100%,0%,0%,0%,0%,0%,0%,0%,0%\nParasite=yes\n",
+        "[ParasiteDog]\nParasite.CullingTarget=none\n\
+             Verses=100%,100%,100%,0%,0%,0%,0%,0%,0%,0%,0%\nParasite=yes\n",
+    ));
+    let rules = rules_with_ini(&ini);
+    let mut arena = Arena::new(&rules);
+    // The Attack command below only runs for a human House.
+    for (name, side) in [("Americans", 0), ("Russians", 1)] {
+        let id = arena.sim.intern(name);
+        arena
+            .sim
+            .houses
+            .register(crate::sim::house_state::HouseState::new(
+                id, side, None, true, 0, 10,
+            ));
+    }
+    let dog = arena.spawn(&rules, "DOG", "Russians", (10, 10));
+    let gi = arena.spawn(&rules, "E1", "Americans", (11, 10));
+    arena.infect(&rules, dog, gi);
+    arena.until(&rules, 100, |sim| {
+        sim.substrate
+            .entities
+            .get(gi)
+            .is_some_and(|victim| victim.health.current() < 125)
+    });
+    let victim = arena.sim.substrate.entities.get(gi).unwrap();
+    assert!(
+        victim.health.current() > 0,
+        "the ordinary bite deals the weapon's damage, not the victim's Health"
+    );
+    assert_eq!(
+        arena.eater_of(gi),
+        Some(dog),
+        "the refused cull leaves the dog attached"
+    );
+}
+
+/// `Parasite.CullingTarget=units` (`0x62A0AA`): the filter replaces the stock
+/// Infantry-only test, so a Vehicle victim is culled and takes its whole
+/// Health in the first bite.
+#[cfg(feature = "phobos")]
+#[test]
+fn parasite_culling_target_units_one_hit_kills_a_vehicle() {
+    let ini = IniFile::from_str(
+        &RULES.replace(
+            "[Parasite]\nVerses=100%,100%,100%,100%,100%,100%,0%,0%,0%,0%,0%\nParasite=yes\nInfDeath=1\nRocker=yes\n",
+            "[Parasite]\nParasite.CullingTarget=units\n\
+             Verses=100%,100%,100%,100%,100%,100%,0%,0%,0%,0%,0%\nParasite=yes\nInfDeath=1\nRocker=yes\n",
+        ),
+    );
+    let rules = rules_with_ini(&ini);
+    let mut arena = Arena::new(&rules);
+    let drone = arena.spawn(&rules, "DRON", "Russians", (10, 10));
+    let tank = arena.spawn(&rules, "MTNK", "Americans", (11, 10));
+    crate::sim::arena_fixture::discover(&mut arena.sim, tank);
+    let owner = arena.sim.entities().get(tank).unwrap().owner();
+    arena
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            owner, 0, None, true, 0, 10,
+        ));
+    arena.infect(&rules, drone, tank);
+    let mut bites = Vec::new();
+    let mut last = arena.health(tank).unwrap();
+    arena.until(&rules, 100, |sim| {
+        let hp = sim
+            .substrate
+            .entities
+            .get(tank)
+            .map_or(0, |t| t.health.current());
+        if hp != last {
+            bites.push(hp);
+            last = hp;
+        }
+        hp == 0
+    });
+    assert_eq!(
+        bites,
+        [0],
+        "the culling bite takes the whole 300 Health at once"
+    );
+}
+
+/// Phobos `Parasite.AllowWaterExit` (`0x62AB69`,
+/// `Ext/Techno/Hooks.cpp:955-968`): `yes` skips the water/land checks but
+/// still reaches the shared no-building tail (`0x62AC0F`); `no` refuses;
+/// `[General]` is the type key's fallback.
+#[cfg(feature = "phobos")]
+#[test]
+fn parasite_allow_water_exit_skips_land_but_not_the_building_gate() {
+    use crate::rules::terrain_rules::LandType;
+    let place = |ini: &str, water: bool, yard: bool| {
+        let rules = rules_with_ini(&IniFile::from_str(ini));
+        let mut arena = Arena::new(&rules);
+        let victim = arena.spawn(&rules, "MTNK", "Americans", (5, 2));
+        let owner = arena.spawn(&rules, "DRON", "Russians", (9, 9));
+        if water {
+            arena
+                .sim
+                .resolved_terrain
+                .as_mut()
+                .unwrap()
+                .cell_mut_for_test(5, 2)
+                .unwrap()
+                .land_type = LandType::Water.as_index();
+        }
+        if yard {
+            let building = arena.spawn(&rules, "YARD", "Americans", (24, 12));
+            arena.sim.substrate.occupancy.add(
+                5,
+                2,
+                building,
+                crate::sim::movement::locomotor::MovementLayer::Ground,
+                None,
+                crate::sim::occupancy::CellListInsertion::AppendBuilding,
+            );
+        }
+        arena
+            .sim
+            .parasite_can_place_at_victim(owner, victim, &rules)
+    };
+    let type_yes = RULES.replace("[DRON]\n", "[DRON]\nParasite.AllowWaterExit=yes\n");
+    let type_no = RULES.replace("[DRON]\n", "[DRON]\nParasite.AllowWaterExit=no\n");
+    let global_yes = RULES.replace("[General]\n", "[General]\nParasite.AllowWaterExit=yes\n");
+    assert!(
+        !place(RULES, true, false),
+        "unset keeps the stock water rule"
+    );
+    assert!(!place(&type_no, true, false), "no refuses the release");
+    assert!(place(&type_yes, true, false), "yes skips the water check");
+    assert!(place(&global_yes, true, false), "[General] is the fallback");
+    assert!(
+        !place(&type_yes, true, true),
+        "the shared tail still requires no building under the victim"
+    );
+}

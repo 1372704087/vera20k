@@ -567,23 +567,67 @@ impl Simulation {
             .class_mut()
             .unwrap()
             .damage = CdTimer::started(frame as i32, rof);
+        // Phobos `ParasiteClass_AI_CullingTarget` (`0x62A0AA`,
+        // `Ext/Techno/Hooks.cpp:912-919`): the victim's category is tested
+        // against the warhead's `AffectsTarget` filter in place of the stock
+        // Infantry-only check, so Units/Aircraft/Buildings cull when the
+        // filter admits them; a refused victim falls into the ordinary bite
+        // arm below (0x62A0D3).
+        #[cfg(feature = "phobos")]
+        let culling = self
+            .substrate
+            .entities
+            .get(victim)
+            .is_some_and(|victim_entity| {
+                crate::sim::combat::crit::techno_eligible(
+                    victim_entity.category(),
+                    warhead.phobos_parasite.culling_target,
+                    self.object_type(victim_entity.type_ref(), rules)
+                        .is_some_and(|object| object.is_1x1_with_undeploy()),
+                )
+            });
+        #[cfg(not(feature = "phobos"))]
+        let culling = self
+            .substrate
+            .entities
+            .get(victim)
+            .is_some_and(|victim_entity| victim_entity.category() == EntityCategory::Infantry);
         let Some(victim_entity) = self.substrate.entities.get_mut(victim) else {
             return;
         };
         victim_entity.parasite.paralysis = CdTimer::started(frame as i32, paralyzes);
-        let infantry = victim_entity.category() == EntityCategory::Infantry;
         let location = ground_pose::position_world_coord(&victim_entity.position);
         let raw = victim_entity.body_facing_current(frame);
-        let (amount, ignore_defenses) = if infantry {
-            // 0x0062A0AF: an Infantry victim takes its own current Health,
-            // ignoring defenses: one bite kills unless ReceiveDamage refuses.
+        let (amount, ignore_defenses) = if culling {
+            // 0x0062A0AF: an admitted culling victim takes its own current
+            // Health, ignoring defenses: one bite kills unless ReceiveDamage
+            // refuses.
             (victim_entity.health.current(), true)
         } else {
-            if let Some(system) = rules
-                .combat_damage
-                .default_spark_system
-                .as_deref()
-                .and_then(|name| rules.ps_type_id_by_name(name))
+            // Phobos `ParasiteClass_AI_ParticleSystem` (`0x62A0D3`,
+            // `Ext/Techno/Hooks.cpp:921-940`): the warhead's
+            // `Parasite.ParticleSystem` replaces the default spark system and
+            // `Parasite.DisableParticleSystem` skips the construct entirely.
+            #[cfg(feature = "phobos")]
+            let (particle_name, particle_disabled) = (
+                warhead.phobos_parasite.particle_system.as_deref(),
+                warhead
+                    .phobos_parasite
+                    .disable_particle_system
+                    .unwrap_or(rules.phobos_globals.parasite_disable_particle_system),
+            );
+            #[cfg(not(feature = "phobos"))]
+            let (particle_name, particle_disabled) = (None::<&str>, false);
+            if !particle_disabled
+                && let Some(system) = particle_name
+                    .and_then(|name| rules.ps_type_id_by_name(name))
+                    .or_else(|| {
+                        rules
+                            .combat_damage
+                            .default_spark_system
+                            .as_deref()
+                            .and_then(|name| rules.ps_type_id_by_name(name))
+                    })
             {
                 self.spawn_particle_system(
                     system,
@@ -1045,10 +1089,23 @@ impl Simulation {
             victim_entity.position.ry() as i16,
         );
         let owner_entity = self.substrate.entities.get(owner);
-        let naval = owner_entity
-            .and_then(|o| self.object_type(o.type_ref(), rules))
-            .is_some_and(|o| o.naval);
-        if !naval {
+        let owner_object = owner_entity.and_then(|o| self.object_type(o.type_ref(), rules));
+        let naval = owner_object.is_some_and(|o| o.naval);
+        // Phobos `ParasiteClass_CanExistOnVictimCell_AllowWaterExit`
+        // (`0x62AB69`, `Ext/Techno/Hooks.cpp:955-968`): an explicit type or
+        // `[General]` key refuses the release (`no`); `yes` jumps to the
+        // shared `SkipChecks` tail (`0x62AC0F`), which still requires no
+        // building below; unset keeps the naval/land rule.
+        #[cfg(feature = "phobos")]
+        let allow_water_exit = owner_object
+            .and_then(|object| object.phobos_parasite_allow_water_exit)
+            .or(rules.phobos_globals.parasite_allow_water_exit);
+        #[cfg(not(feature = "phobos"))]
+        let allow_water_exit = None::<bool>;
+        if allow_water_exit == Some(false) {
+            return false;
+        }
+        if allow_water_exit.is_none() && !naval {
             if owner_entity.is_some_and(|o| o.category() == EntityCategory::Unit)
                 && self
                     .terrain_objects

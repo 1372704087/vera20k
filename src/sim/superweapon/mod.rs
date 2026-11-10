@@ -56,6 +56,8 @@ mod phobos_convert_pairs_tests;
 pub(crate) mod drop_pod;
 #[cfg(all(test, feature = "ares"))]
 mod drop_pod_tests;
+#[cfg(feature = "phobos")]
+mod chaining;
 #[cfg(feature = "ares")]
 mod emp_pulse;
 #[cfg(all(test, feature = "ares"))]
@@ -2497,11 +2499,13 @@ fn finish_ares_launch(
     // whose launch arms returned before the common conversion tail.
     #[cfg(feature = "phobos")]
     if let Some(sw) = rules.super_weapon(sim.interner.resolve(data)) {
-        fire::apply_sw_type_conversion(
+        chaining::apply_phobos_launch_tail(
             sim,
             rules,
             owner,
             sw,
+            cell,
+            None,
             crate::sim::world::FrameEffects::default(),
         );
     }

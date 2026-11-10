@@ -946,10 +946,18 @@ fn launch(
     if redirect_refused {
         return false;
     }
-    // Phobos `SWTypeExt::Activate`'s tail (`Ext/SWType/FireSuperWeapon.cpp:32`):
-    // an accepted activation applies the type's Convert pairs to every Foot.
+    // Phobos `SWTypeExt::FireSuperWeaponExt`'s tail (`Ext/SWType/FireSuperWeapon.cpp:32`):
+    // `SW.Next` chained launches, the type's Convert pairs, then `SW.Link`.
     #[cfg(feature = "phobos")]
-    apply_sw_type_conversion(sim, rules, owner, sw, frame_effects);
+    super::chaining::apply_phobos_launch_tail(
+        sim,
+        rules,
+        owner,
+        sw,
+        (rx, ry),
+        overlay_registry,
+        frame_effects,
+    );
     true
 }
 
@@ -1038,6 +1046,63 @@ pub(crate) fn launch_super_preserving_charge(
     if let Some(instance) = super_instance(sim, owner, sw_type_id) {
         instance.store_charge_timer(crate::sim::timer::CdTimer::from_raw(saved.0, saved.1));
     }
+}
+
+/// One Phobos `SW.Next` launch (`Ext/SWType/FireSuperWeapon.cpp:307-335`):
+/// `pSuper->SetReadiness(true); pSuper->Launch(cell, isPlayer); pSuper->Reset()`.
+/// With `SW.Next.RealLaunch=no` the arm runs through
+/// [`launch_super_preserving_charge`] instead, which writes the saved timer
+/// back after the Reset.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn launch_chained_super(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    sw_type_id: InternedId,
+    sw: &crate::rules::superweapon_type::SuperWeaponType,
+    cell: (u16, u16),
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    frame_effects: FrameEffects<'_>,
+    real_launch: bool,
+) {
+    if !real_launch {
+        launch_super_preserving_charge(
+            sim,
+            rules,
+            owner,
+            sw_type_id,
+            cell,
+            overlay_registry,
+            frame_effects,
+        );
+        return;
+    }
+    let Some(instance) = super_instance(sim, owner, sw_type_id) else {
+        return;
+    };
+    instance.set_readiness(true);
+    launch(
+        sim,
+        rules,
+        owner,
+        sw_type_id,
+        sw,
+        cell,
+        overlay_registry,
+        frame_effects,
+    );
+    let name = sim.interner.resolve(sw_type_id).to_owned();
+    super::reset_super(
+        &sim.interner,
+        &sim.session,
+        &mut sim.substrate,
+        &mut sim.sound_events,
+        &mut sim.super_weapons,
+        rules,
+        owner,
+        &name,
+    );
 }
 
 /// The retained Super constructed by the scenario House owner. Native valid

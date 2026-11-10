@@ -220,6 +220,8 @@ pub mod phobos_spawner;
 #[cfg(feature = "phobos")]
 pub mod phobos_spy_effect;
 #[cfg(feature = "phobos")]
+pub mod phobos_sw_chaining;
+#[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
 pub mod phobos_trajectory;

@@ -4884,6 +4884,11 @@ pub struct RuleSet {
     #[cfg(feature = "phobos")]
     phobos_super_weapon_metadata:
         BTreeMap<String, crate::rules::superweapon_type::PhobosSuperWeaponAvailability>,
+    /// Phobos `SW.Next*`/`SW.Link*` for every registered superweapon,
+    /// projected from the retained registry.
+    #[cfg(feature = "phobos")]
+    phobos_super_weapon_chaining:
+        BTreeMap<String, crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining>,
     /// Phobos `[GlobalControls] AllowParallelAIQueues=` and the
     /// `ForbidParallelAIQueues.*` category switches.
     #[cfg(feature = "phobos")]
@@ -6089,6 +6094,12 @@ impl RuleSet {
                 rules
                     .phobos_super_weapon_metadata
                     .insert(name.to_ascii_uppercase(), availability);
+            }
+            rules.phobos_super_weapon_chaining.clear();
+            for (name, chaining) in processed.phobos_super_weapon_chaining_states() {
+                rules
+                    .phobos_super_weapon_chaining
+                    .insert(name.to_ascii_uppercase(), chaining);
             }
             for (name, gathering) in processed.ore_gathering_states() {
                 if let Some(unit) = rules.object_list.iter_mut().find(|object| {
@@ -7360,6 +7371,8 @@ impl RuleSet {
             #[cfg(feature = "phobos")]
             phobos_super_weapon_metadata: BTreeMap::new(),
             #[cfg(feature = "phobos")]
+            phobos_super_weapon_chaining: BTreeMap::new(),
+            #[cfg(feature = "phobos")]
             parallel_ai_queues:
                 crate::rules::phobos_parallel_ai_queues::ParallelAiQueueRules::from_ini(ini),
             ares_prerequisite_alternates: HashSet::new(),
@@ -8553,6 +8566,8 @@ impl RuleSet {
         {
             b"phobos-super-availability-v1".hash(&mut hasher);
             self.phobos_super_weapon_metadata.hash(&mut hasher);
+            b"phobos-super-chaining-v1".hash(&mut hasher);
+            self.phobos_super_weapon_chaining.hash(&mut hasher);
             self.parallel_ai_queues.hash_into(&mut hasher);
         }
         #[cfg(feature = "ares")]
@@ -11281,6 +11296,16 @@ impl RuleSet {
         id: &str,
     ) -> Option<&crate::rules::superweapon_type::PhobosSuperWeaponAvailability> {
         self.phobos_super_weapon_metadata
+            .get(&id.to_ascii_uppercase())
+    }
+
+    /// Phobos `SW.Next`/`SW.Link` chaining for a registered superweapon.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_chaining(
+        &self,
+        id: &str,
+    ) -> Option<&crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining> {
+        self.phobos_super_weapon_chaining
             .get(&id.to_ascii_uppercase())
     }
 

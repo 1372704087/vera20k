@@ -252,6 +252,8 @@ pub mod phobos_sw_chaining;
 #[cfg(feature = "phobos")]
 pub mod phobos_sw_detonate;
 #[cfg(feature = "phobos")]
+pub mod phobos_sw_messages;
+#[cfg(feature = "phobos")]
 pub mod phobos_sw_sidebar;
 #[cfg(feature = "phobos")]
 pub mod phobos_trajectory;

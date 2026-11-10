@@ -2065,6 +2065,22 @@ impl ProcessedRulesLayers {
         })
     }
 
+    /// Phobos `Message.Activated.*`/`EVA.Activated.*` and the linked pair, one
+    /// entry per registered definition.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_messages_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &str,
+            crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages,
+        ),
+    > {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_messages.clone()
+        })
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn additional_super_weapon_states(&self) -> impl Iterator<Item = (&str, &[String])> {
         self.member_states(RulesTypeFamily::Building, |member| {
@@ -5485,6 +5501,11 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     super_weapon_phobos_limbo: crate::rules::phobos_limbo::PhobosSuperWeaponLimbo,
+    /// Phobos `Message.Activated.*`/`EVA.Activated.*` and the linked pair
+    /// (`Ext/SWType/Body.cpp:241-250`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_messages: crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors.
@@ -6128,6 +6149,9 @@ impl ProcessedType {
             #[cfg(feature = "phobos")]
             super_weapon_phobos_limbo: crate::rules::phobos_limbo::PhobosSuperWeaponLimbo::default(
             ),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_messages:
+                crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
@@ -8083,6 +8107,17 @@ impl RulesPassProcessor {
                     );
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_limbo = limbo;
+                    // Phobos `SWTypeExt::LoadFromINIFile`'s
+                    // `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair
+                    // then the six `Message.Activated.*`/`EVA.Activated.*`
+                    // keys (`Ext/SWType/Body.cpp:241-250`), read after the
+                    // `SW.Link` group and before `Detonate.*`.
+                    let messages =
+                        crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages::from_section(
+                            &raw, _fixed_eva,
+                        );
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_messages = messages;
                     let mut detonate = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_detonate
                         .clone();

@@ -520,6 +520,12 @@ impl Simulation {
             outcome.bridge_state_changed |= self.commit_logic_projectile_detonations(
                 rules,
                 ctx.overlay_registry,
+                &trajectory.extra_detonations,
+                ctx.effects,
+            );
+            outcome.bridge_state_changed |= self.commit_logic_projectile_detonations(
+                rules,
+                ctx.overlay_registry,
                 &trajectory.detonations,
                 ctx.effects,
             );

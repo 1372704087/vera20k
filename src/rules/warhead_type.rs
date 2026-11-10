@@ -527,6 +527,28 @@ pub struct WarheadType {
     pub phobos_rocker_amplitude_multiplier: f64,
     #[cfg(feature = "phobos")]
     pub phobos_rocker_amplitude_override: Option<i32>,
+    /// Phobos `UnlimboDetonate=` (`Ext/WarheadType/Body.cpp:420`,
+    /// `Valueable<bool>`, constructor default `no` `Body.h:550`): a
+    /// `LimboLaunch=` firer whose bullet detonates with this warhead
+    /// reappears there instead of staying off the map
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:507-592`).
+    #[cfg(feature = "phobos")]
+    pub unlimbo_detonate: bool,
+    /// `UnlimboDetonate.ForceLocation=` (`Body.cpp:421`, default `no`): the
+    /// firer reappears at the detonation coordinate itself, without the
+    /// nearby passable-cell search (`Hooks.DetonateLogics.cpp:514-550`).
+    #[cfg(feature = "phobos")]
+    pub unlimbo_detonate_force_location: bool,
+    /// `UnlimboDetonate.KeepTarget=` (`Body.cpp:422`, default `yes`): the
+    /// firer keeps the target its detonating bullet aimed at
+    /// (`Hooks.DetonateLogics.cpp:562-570`).
+    #[cfg(feature = "phobos")]
+    pub unlimbo_detonate_keep_target: bool,
+    /// `UnlimboDetonate.KeepSelected=` (`Body.cpp:423`, default `yes`): the
+    /// firer is re-selected on reappear if it was selected when it fired
+    /// (`Ext/WarheadType/Hooks.cpp:641-651`, `Hooks.DetonateLogics.cpp:572-578`).
+    #[cfg(feature = "phobos")]
+    pub unlimbo_detonate_keep_selected: bool,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -926,6 +948,19 @@ impl WarheadType {
             nonprovocative: section.read_bool("Nonprovocative", false),
             #[cfg(feature = "phobos")]
             combat_alert_suppress: section.read_phobos_nullable_bool("CombatAlert.Suppress", None),
+            // `WarheadTypeExt::LoadFromINI` reads the four `UnlimboDetonate`
+            // keys in this order (`Ext/WarheadType/Body.cpp:420-423`); their
+            // constructor defaults are no/no/yes/yes (`Body.h:550-553`).
+            #[cfg(feature = "phobos")]
+            unlimbo_detonate: section.read_bool("UnlimboDetonate", false),
+            #[cfg(feature = "phobos")]
+            unlimbo_detonate_force_location: section
+                .read_bool("UnlimboDetonate.ForceLocation", false),
+            #[cfg(feature = "phobos")]
+            unlimbo_detonate_keep_target: section.read_bool("UnlimboDetonate.KeepTarget", true),
+            #[cfg(feature = "phobos")]
+            unlimbo_detonate_keep_selected: section
+                .read_bool("UnlimboDetonate.KeepSelected", true),
             #[cfg(feature = "phobos")]
             phobos_parasite:
                 crate::rules::phobos_parasite::PhobosParasiteWarhead::from_section(section),

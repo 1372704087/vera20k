@@ -280,6 +280,21 @@ pub(crate) enum HudMessage {
         label: &'static str,
         type_id: crate::sim::intern::InternedId,
     },
+    /// Phobos `SWTypeExt::ApplyActivatedMessage`'s selected column
+    /// (`Ext/SWType/FireSuperWeapon.cpp:495-509`): the label lives on the
+    /// `[SuperWeaponTypes]` entry, prints in the launching House's colour
+    /// (`:507`) with `MessageDelay`, style/silent 0.
+    #[cfg(feature = "phobos")]
+    PhobosSuperWeaponMessage {
+        sw_type: crate::sim::intern::InternedId,
+        audience: crate::rules::phobos_sw_messages::PhobosActivatedAudience,
+        firer: crate::sim::intern::InternedId,
+    },
+    /// Phobos `SWTypeExt::ApplyLinkedSW`'s `Message.LinkedSWAcquired`
+    /// (`Ext/SWType/FireSuperWeapon.cpp:487`): printed in the *current
+    /// player's* colour, with `MessageDelay`.
+    #[cfg(feature = "phobos")]
+    PhobosSuperWeaponLinkedAcquired(crate::sim::intern::InternedId),
 }
 
 impl HudMessage {
@@ -289,6 +304,10 @@ impl HudMessage {
             Self::AresSuperWeaponRefused(_)
             | Self::AresSuperWeaponMessage { .. }
             | Self::AresTechCaptureLabel(_) => return None,
+            #[cfg(feature = "phobos")]
+            Self::PhobosSuperWeaponMessage { .. } | Self::PhobosSuperWeaponLinkedAcquired(_) => {
+                return None;
+            }
             Self::LowPower => "TXT_LOW_POWER", // original House4F8D4A
             Self::SuperWeapon(key) | Self::BeaconHelp(key) => key,
             Self::PlayerDefeated(_) => "TXT_PLAYER_DEFEATED",
@@ -311,6 +330,12 @@ impl HudMessage {
             | Self::AresSuperWeaponMessage { .. }
             | Self::AresTechCaptureLabel(_) => {
                 ares_message_delay_timeout_ms(rules.general.message_delay_minutes)
+            }
+            // `MessageListClass::PrintMessage` with `RulesClass::MessageDelay`,
+            // the same stock conversion as the low-power line.
+            #[cfg(feature = "phobos")]
+            Self::PhobosSuperWeaponMessage { .. } | Self::PhobosSuperWeaponLinkedAcquired(_) => {
+                message_delay_timeout_ms(rules.general.message_delay_minutes)
             }
             Self::BeaconHelp(_) => Some(BEACON_HELP_TIMEOUT_MS),
             // `post_hud_message` posts these through `post_eva_text`.
@@ -449,6 +474,52 @@ pub(crate) fn post_ares_superweapon_message(
     post_localized_message(state, &post);
 }
 
+/// Phobos `SWTypeExt::ApplyActivatedMessage` (`Ext/SWType/FireSuperWeapon.cpp:491-510`):
+/// `MessageListClass::PrintMessage(label, RulesClass::MessageDelay,
+/// pHouse->ColorSchemeIndex, true)` of the column the launching House selects.
+/// An empty label was filtered by the caller.
+#[cfg(feature = "phobos")]
+pub(crate) fn post_phobos_superweapon_message(
+    state: &mut AppState,
+    section: &str,
+    audience: crate::rules::phobos_sw_messages::PhobosActivatedAudience,
+    firer: Option<&str>,
+) {
+    let text = state
+        .rules()
+        .and_then(|rules| rules.phobos_super_weapon_messages(section))
+        .map(|messages| messages.activated_message(audience).to_owned());
+    if let Some(text) = text {
+        post_phobos_superweapon_line(state, text, firer);
+    }
+}
+
+/// The `MessageListClass::PrintMessage` transport shared by the two Phobos
+/// superweapon labels: `color_owner` supplies the scheme the row draws with,
+/// `MessageDelay` supplies its wall-clock life, style/silent 0.
+#[cfg(feature = "phobos")]
+fn post_phobos_superweapon_line(state: &mut AppState, text: String, color_owner: Option<&str>) {
+    if text.is_empty() {
+        return;
+    }
+    let Some(rules) = state.rules() else {
+        return;
+    };
+    let rgb = house_message_rgb(
+        color_owner,
+        &state.match_state.match_presentation.house_color_map,
+        Some(&rules.color_schemes),
+    );
+    let post = crate::ui::messages::MessagePost {
+        prefix: None,
+        text: &text,
+        rgb,
+        timeout_ms: message_delay_timeout_ms(rules.general.message_delay_minutes),
+        silent: false,
+    };
+    post_localized_message(state, &post);
+}
+
 /// House4F8D5C and the Super print callers use MessageList5D3BA0 with
 /// PlayerPtr's color, no sender, and silent0. Keep the existing list/clock,
 /// localization and IncomingMessage owners; no warning timer/guard lives here.
@@ -489,6 +560,47 @@ pub(crate) fn post_hud_message(state: &mut AppState, message: HudMessage) {
         });
         if let Some((section, firer)) = names {
             post_ares_superweapon_message(state, &section, message, firer.as_deref());
+        }
+        return;
+    }
+    #[cfg(feature = "phobos")]
+    if let HudMessage::PhobosSuperWeaponMessage {
+        sw_type,
+        audience,
+        firer,
+    } = message
+    {
+        let names = state.match_state.sim_runtime.as_ref().and_then(|runtime| {
+            let interner = runtime.simulation.interner();
+            Some((
+                interner.try_resolve(sw_type)?.to_owned(),
+                interner.try_resolve(firer)?.to_owned(),
+            ))
+        });
+        if let Some((section, firer)) = names {
+            post_phobos_superweapon_message(state, &section, audience, Some(&firer));
+        }
+        return;
+    }
+    #[cfg(feature = "phobos")]
+    if let HudMessage::PhobosSuperWeaponLinkedAcquired(sw_type) = message {
+        let section = state.match_state.sim_runtime.as_ref().and_then(|runtime| {
+            runtime
+                .simulation
+                .interner()
+                .try_resolve(sw_type)
+                .map(str::to_owned)
+        });
+        if let Some(section) = section {
+            let text = state
+                .rules()
+                .and_then(|rules| rules.phobos_super_weapon_messages(&section))
+                .map(|messages| messages.linked_acquired_message().to_owned());
+            if let Some(text) = text {
+                // `HouseClass::CurrentPlayer->ColorSchemeIndex` (`:487`).
+                let player = crate::app::input::commands::preferred_local_owner_name(state);
+                post_phobos_superweapon_line(state, text, player.as_deref());
+            }
         }
         return;
     }

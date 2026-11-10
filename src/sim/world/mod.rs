@@ -902,6 +902,11 @@ pub enum SimSoundEvent {
         owner: InternedId,
         event: &'static str,
     },
+    /// The same `PlayEVA` sites with a cue the *type* authored (`EVA.Sold=`,
+    /// Phobos `Ext/Building/Hooks.Selling.cpp:18,73`): the name is a
+    /// `[DialogList]` identity resolved at rules-read time, so it cannot be a
+    /// `&'static str`. The app applies the same local-owner test.
+    HouseEvaNamed { owner: InternedId, event: String },
     /// `BuildingClass::Mission_Selling @ 0x00449C30`'s completing stage-2 visit
     /// (`0x00449CC1..0x00449CE5`, once the pack-up animation has set
     /// `+0x6DD`): `TechnoClass+0x41A` (owner is the local player) and no
@@ -1058,6 +1063,27 @@ pub enum SimSoundEvent {
         /// launch case names its own coordinate. Cases with no positional
         /// cue carry the target cell's centre at Z 0, which nothing reads.
         world: crate::sim::anim_class::AnimWorldCoord,
+    },
+    /// Phobos `SWTypeExt::ApplyActivatedMessage`/`ApplyActivatedEva`
+    /// (`Ext/SWType/FireSuperWeapon.cpp:491-526`), the last step of
+    /// `FireSuperWeaponExt` (`:40-42`): the launching House's relation to the
+    /// listening client picks the `Message.Activated.*` / `EVA.Activated.*`
+    /// column. Which House a client owns is client-local, so the simulation
+    /// emits only the launcher and the launched type; the app resolves
+    /// Owner/Allies/Enemies and prints with the *launching* House's colour
+    /// (`:507`). A blank label or native `-1` says nothing on that channel.
+    SuperWeaponActivatedMessage {
+        owner: InternedId,
+        sw_type: InternedId,
+    },
+    /// Phobos `SWTypeExt::ApplyLinkedSW`'s tail (`:482-488`): the launch
+    /// granted, readied or reset at least one `SW.Link` type. Native speaks
+    /// `EVA.LinkedSWAcquired` and prints `Message.LinkedSWAcquired` only on
+    /// the granting House's own client (`pHouse->IsCurrentPlayer()`), in the
+    /// current player's colour (`:487`); the app applies that local test.
+    SuperWeaponLinkedAcquired {
+        owner: InternedId,
+        sw_type: InternedId,
     },
     /// A `CreateRadarEvent` with no local-player test and no sound, on every
     /// client: each admits it on its own radar. Type 13 from

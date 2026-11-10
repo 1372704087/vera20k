@@ -3,8 +3,8 @@
 Phobos lets a BulletType fly with its own trajectory implementation instead of
 the stock `BulletClass::AI` arms. This page covers the base selection
 (`Trajectory`, `Trajectory.Speed`) and the `Straight` type: **32 keys**.
-Parabola (20 keys) and Bombard (21 keys) are separate chains and stay dormant
-here; their flag names parse but create no instance.
+Bombard (21 keys) and Parabola (18 keys) have their own pages
+([bombard](phobos-trajectory-bombard.md), [parabola](phobos-trajectory-parabola.md)).
 
 ```ini
 [PROJECTILE]                              ; BulletType
@@ -109,6 +109,11 @@ and the `GetCellsInRectangle` proximity scan.
 - `ProximityFlight` adds airborne targets on top of the ground scan.
 - The map test is the native diamond (`MapClass::CoordinatesLegal`), not a
   rectangle.
+- `PassDetonate` and proximity hits are warhead detonations that leave the
+  bullet flying; they ride `TrajectoryStep::extra_detonations`, not the
+  terminal impact that retires it.
+- A snapping pre-detonation sets `PhobosTrajectoryState::snapped_to_target`,
+  the retained `BulletExt::SnappedToTarget` byte.
 
 ## Residuals (trigger · impact · frequency · risk)
 
@@ -128,16 +133,17 @@ and the `GetCellsInRectangle` proximity scan.
   and Trailer construction instead of before them (`0x4666F7` precedes
   `0x466826`). Impact: a detonation frame's anim spawn order. Frequency: rare.
   Risk: presentation only.
-- **`SnappedToTarget` byte.** The impact coordinate snaps, but the retained
-  byte other Phobos code may read is not modeled. Frequency: snapping shots.
-  Risk: low.
-- **LaserTrails on bullets.** `BulletClass_AI_Position_Trajectories`'s
-  future-coordinate trail update (`PhobosTrajectory.cpp:515-531`) is not
-  modeled; VERA's bullet trail owner is the shared line-trail receipt.
+- **LaserTrails on bullets.** Bullet `LaserTrail.Types` parsing, the
+  per-bullet `LaserTrailClass` list and the `0x46745C` future-coordinate
+  update (`PhobosTrajectory.cpp:515-531`) are one separate bullet-trail
+  chain; VERA models only the stock `UseLineTrail` receipt.
   Frequency: none in retail. Risk: visual.
 - **Merged-section reads.** A later INI layer re-declaring `Trajectory=` with
   a different flag reconstructs the type natively; the merged reader sees only
   the final value. Frequency: layered re-declarations. Risk: low.
-- **Parabola/Bombard.** Flags parse and remain dormant; their arms are
-  separate chains.
+- **`Trajectory.Sample.*`.** `SampleTrajectoryType::Flag()` returns
+  `TrajectoryFlag::Invalid` (`SampleTrajectory.h:15`) and the `Trajectory`
+  reader accepts only `Straight`/`Bombard`/`Parabola`
+  (`PhobosTrajectory.cpp:27-49`), so no INI flag constructs a Sample instance;
+  `Trajectory.Sample.TargetSnapDistance` is dormant and unported.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

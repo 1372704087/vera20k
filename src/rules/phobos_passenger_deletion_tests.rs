@@ -72,3 +72,32 @@ fn every_key_reads_on_its_own() {
     assert_eq!(set.anim, ["YELLOW", "SPARK"]);
     assert!(set.under_emp);
 }
+
+/// `PassengerDeletion.DisplaySoylentOffset=` is a Phobos `Valueable<Point2D>`:
+/// `INI_EX::Read2Integers` (`Parser<int, 2>`) trims each comma-separated
+/// token, writes every converted token straight into the pair, stops at the
+/// first token that does not convert, and accepts the `$`/`h` integer
+/// spellings. A one-token read therefore changes X and leaves Y.
+#[test]
+fn display_soylent_offset_follows_read2integers() {
+    let offset = |value: &str| {
+        read(&format!(
+            "[TRUCK]\nPassengerDeletion.Rate=1\n\
+             PassengerDeletion.DisplaySoylentOffset={value}\n"
+        ))
+        .expect("the rate creates the type")
+        .display_soylent_offset
+    };
+    assert_eq!(offset("5,-7"), [5, -7]);
+    assert_eq!(offset("5 , -7"), [5, -7], "Parser<int, 2> trims each token");
+    assert_eq!(offset("5"), [5, 0], "a one-token read changes only X");
+    assert_eq!(offset("5,"), [5, 0]);
+    assert_eq!(offset("5,x"), [5, 0], "a failed second token keeps Y");
+    assert_eq!(
+        offset("x,7"),
+        [0, 0],
+        "the scan stops at the first failed token"
+    );
+    assert_eq!(offset("$10,0Ah"), [10, 10], "the Parser<int> spellings");
+    assert_eq!(offset(",,,"), [0, 0]);
+}

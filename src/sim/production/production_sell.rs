@@ -220,10 +220,30 @@ pub(crate) fn foot_on_sold(
         return false;
     };
     if sim.house_is_human_player(owner) {
-        sim.sound_events.emit(SimSoundEvent::HouseEva {
-            owner,
-            event: "EVA_UnitSold",
-        });
+        // Phobos `FootClass_Sell` hook 0x4D9F7B
+        // (`Ext/Building/Hooks.Selling.cpp:18-21`) replaces the stock
+        // `EVA_UnitSold` with the type's `EVA.Sold` when set: a named cue, or
+        // native's -1 (silence) for an explicit none.
+        #[cfg(feature = "phobos")]
+        let sold_eva = sim
+            .substrate
+            .entities
+            .get(id)
+            .and_then(|entity| sim.object_type(entity.type_ref(), rules))
+            .and_then(|object| object.phobos_eva_sold())
+            .map(|cue| cue.map(str::to_owned));
+        #[cfg(not(feature = "phobos"))]
+        let sold_eva: Option<Option<String>> = None;
+        match sold_eva {
+            Some(Some(cue)) => sim
+                .sound_events
+                .emit(SimSoundEvent::HouseEvaNamed { owner, event: cue }),
+            Some(None) => {}
+            None => sim.sound_events.emit(SimSoundEvent::HouseEva {
+                owner,
+                event: "EVA_UnitSold",
+            }),
+        }
         if rules.general.sell_sound.is_some() {
             // VocClass::PlayGlobal(SellSound) for that player: the same
             // global cue a wall sale plays.

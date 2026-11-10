@@ -39,6 +39,7 @@ Supported extensions:
 - [Superweapon techno gates](phobos-superweapon-technos.md)
 - [Superweapon chaining and link groups](phobos-sw-chaining.md) (`SW.Next*` chained launches with weights/rolls and the two ignore flags, and `SW.Link*` grant/ready/reset groups)
 - [Limbo-delivered buildings](phobos-limbo-delivery.md) (`LimboDelivery.*` buildings created on launch with a `LimboID`, and `LimboKill.*` removing them by id and house mask)
+- [Unlimbo detonation](phobos-unlimbo-detonate.md) (`UnlimboDetonate` brings back a `LimboLaunch=` firer at its bullet's detonation, with `.ForceLocation`, `.KeepTarget` and `.KeepSelected`; 4 keys)
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Health-bar switches](health-bars.md#phobos-type-switches) (`HealthBar.Hide=`, `.HidePips=`, `.Permanent=` and `.Permanent.PipScale=`)
 - [Shared transport ammo](phobos-shared-ammo.md) (`Ammo.Shared=` and `Ammo.Shared.Group=` feed a reloading open-topped transport's rounds to its passengers)
@@ -116,6 +117,8 @@ Supported extensions:
 - [Attack-move followers](phobos-attack-move-follow.md) (`AttackMove.Follow*`: escort the nearest friendly attack-mover, air inclusion, the mind-control-full condition and the per-leader follower count)
 - [Approach termination](phobos-approach-target.md) (`ApproachTarget.StopWhenInRange` stops a close, moving foot; `.PursuitTarget` sets the target as the destination; 2 type keys + 1 `[General]` fallback)
 - [Trajectory base and Straight](phobos-trajectory-straight.md) (`Trajectory` selection, `Trajectory.Speed` and the 30 `Trajectory.Straight.*` keys: speed flight, snap/detonation distances, pass/proximity hits, obstacles and attenuation; 32 keys)
+- [Bombard trajectory](phobos-trajectory-bombard.md) (`Trajectory.Bombard.*`: the turning-point lob, fall/scatter, early detonation, lead time and burst rotation; 21 keys)
+- [Parabola trajectory](phobos-trajectory-parabola.md) (`Trajectory.Parabola.*`: six open-fire modes, lead solve, bounce ladder and detonation gates; 18 keys)
 - [Spy-effect superweapon launches](phobos-spy-effect.md) (`SpyEffect.*` victim/infiltrator launches on a spy infiltration, with the recharge kept; 3 keys)
 - [Rearm and reload holds](phobos-no-rearm.md) (`NoRearm.*` / `NoReload.*` freeze the rearm and ammo-reload timers while EMP'd or Temporal-held; 4 keys + 4 `[General]` globals)
 - [Passenger owner sync](phobos-passengers-sync-owner.md) (`Passengers.SyncOwner` re-houses cargo on the transport's house change, `Passengers.SyncOwner.RevertOnExit` restores board-time houses on exit and on the carrier's death, and the threat-eval owner substitution skip; 2 keys + 2 `[General]` globals)
@@ -153,6 +156,7 @@ Supported extensions:
 - [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
 - [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
 - [EMPulse extensions](phobos-empulse.md) (`EMPulse.WeaponIndex`/`.SuspendOthers`/`.Cannons`/`.TargetSelf`: Ares EMPulse cannon weapon slot, suspended superweapons and the self-target arm; 4 keys)
+- [Superweapon activation messages and sold EVA](phobos-sw-messages.md) (`Message.Activated.{Owner,Allies,Enemies}`, `EVA.Activated.*`, the `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair and `EVA.Sold`: launch and linked-grant announcements picked by the launching House's relation to the current player, plus a type's replacement sale line; 9 keys)
 
 ## Original project and authors
 

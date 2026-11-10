@@ -154,9 +154,12 @@ Thumbs.db
 !/docs/phobos-explodes.md
 !/docs/phobos-extra-warheads.md
 !/docs/phobos-return-warhead.md
+!/docs/phobos-unlimbo-detonate.md
 !/docs/phobos-tiberium-eater.md
 !/docs/phobos-no-manual-move.md
 !/docs/phobos-trajectory-straight.md
+!/docs/phobos-trajectory-bombard.md
+!/docs/phobos-trajectory-parabola.md
 !/docs/phobos-passengers-sync-owner.md
 !/docs/phobos-aircraft-strafing.md
 !/docs/phobos-interceptor.md
@@ -164,6 +167,7 @@ Thumbs.db
 !/docs/phobos-combat-alert.md
 !/docs/phobos-empulse.md
 !/docs/phobos-overpower.md
+!/docs/phobos-sw-messages.md
 !/docs/ares-promotion-sounds.md
 !/docs/npatch.md
 !/docs/verax.md

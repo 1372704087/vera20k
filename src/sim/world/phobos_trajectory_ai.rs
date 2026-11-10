@@ -114,6 +114,9 @@ impl Simulation {
             location = target;
             if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
                 projectile.set_position(location);
+                if let Some(state) = projectile.phobos_trajectory_mut() {
+                    state.snapped_to_target = true;
+                }
             }
         }
         if let Some(detonation) =
@@ -137,6 +140,21 @@ impl Simulation {
             false,
             ProjectileDetonationReason::PhobosTrajectory,
         ))
+    }
+
+    /// The shared `0x467E53` impact for the Bombard and Parabola arms.
+    pub(super) fn trajectory_ladder_push(
+        &self,
+        bullet_id: u64,
+        rules: &RuleSet,
+        overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        step: &mut TrajectoryStep,
+    ) {
+        if let Some(detonation) =
+            self.trajectory_ladder_detonation(bullet_id, rules, overlay_registry)
+        {
+            step.detonations.push(detonation);
+        }
     }
 
     /// `BulletDetonateVelocityCheck` (`StraightTrajectory.cpp:540-610`).
@@ -316,7 +334,7 @@ impl Simulation {
         {
             state.pass_detonate_timer = CdTimer::started(frame, delay);
         }
-        step.detonations.push(ProjectileDetonation {
+        step.extra_detonations.push(ProjectileDetonation {
             projectile_id: bullet_id,
             source_id,
             target: ProjectileTarget::None,
@@ -531,7 +549,7 @@ impl Simulation {
                 ));
             } else if t.proximity_medial {
                 let _ = coords;
-                step.detonations.push(ProjectileDetonation {
+                step.extra_detonations.push(ProjectileDetonation {
                     projectile_id: bullet_id,
                     source_id,
                     target: ProjectileTarget::None,
@@ -540,7 +558,7 @@ impl Simulation {
                     reason: ProjectileDetonationReason::PhobosTrajectory,
                 });
             } else {
-                step.detonations.push(ProjectileDetonation {
+                step.extra_detonations.push(ProjectileDetonation {
                     projectile_id: bullet_id,
                     source_id,
                     target: ProjectileTarget::Entity(id),
@@ -707,7 +725,7 @@ impl Simulation {
                     },
                 ));
             } else if t.proximity_medial {
-                step.detonations.push(ProjectileDetonation {
+                step.extra_detonations.push(ProjectileDetonation {
                     projectile_id: bullet_id,
                     source_id,
                     target: ProjectileTarget::None,
@@ -716,7 +734,7 @@ impl Simulation {
                     reason: ProjectileDetonationReason::PhobosTrajectory,
                 });
             } else {
-                step.detonations.push(ProjectileDetonation {
+                step.extra_detonations.push(ProjectileDetonation {
                     projectile_id: bullet_id,
                     source_id,
                     target: ProjectileTarget::Entity(extra),
@@ -734,6 +752,7 @@ impl Simulation {
     /// (`OnAIVelocity` / `OnAITargetCoordCheck` / `OnAITechnoCheck`).
     pub(super) fn trajectory_move(
         &mut self,
+        kind: TrajectoryFlag,
         bullet_id: u64,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
@@ -764,10 +783,21 @@ impl Simulation {
             if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
                 projectile.set_position(moved.candidate);
             }
-            let done = self.trajectory_detonate(bullet_id, rules, overlay_registry, step);
-            step.detonations.extend(done.detonations);
-            step.direct_damage.extend(done.direct_damage);
-            step.expired |= done.expired;
+            match kind {
+                TrajectoryFlag::Straight => {
+                    let done = self.trajectory_detonate(bullet_id, rules, overlay_registry, step);
+                    step.detonations.extend(done.detonations);
+                    step.extra_detonations.extend(done.extra_detonations);
+                    step.direct_damage.extend(done.direct_damage);
+                    step.expired |= done.expired;
+                }
+                TrajectoryFlag::Bombard => {
+                    self.bombard_finish(bullet_id, rules, overlay_registry, step);
+                }
+                TrajectoryFlag::Parabola => {
+                    self.parabola_finish(bullet_id, rules, overlay_registry, step);
+                }
+            }
             return;
         }
         if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
@@ -871,7 +901,10 @@ fn projectile_position(sim: &Simulation, id: u64) -> ProjectileCoord {
         .unwrap_or(ProjectileCoord::new(0, 0, 0))
 }
 
-fn trajectory_target_coords(sim: &Simulation, target: ProjectileTarget) -> Option<ProjectileCoord> {
+pub(super) fn trajectory_target_coords(
+    sim: &Simulation,
+    target: ProjectileTarget,
+) -> Option<ProjectileCoord> {
     match target {
         ProjectileTarget::Entity(id) => {
             let entity = sim.substrate.entities.get(id)?;
@@ -946,18 +979,18 @@ fn extra_damage_multiplier(
     multiplier
 }
 
-fn distance_f64(a: ProjectileCoord, b: ProjectileCoord) -> f64 {
+pub(super) fn distance_f64(a: ProjectileCoord, b: ProjectileCoord) -> f64 {
     let x = f64::from(a.x.wrapping_sub(b.x));
     let y = f64::from(a.y.wrapping_sub(b.y));
     let z = f64::from(a.z.wrapping_sub(b.z));
     (x * x + y * y + z * z).sqrt()
 }
 
-fn scale_velocity(velocity: ProjectileVelocity, scale: f64) -> ProjectileVelocity {
+pub(super) fn scale_velocity(velocity: ProjectileVelocity, scale: f64) -> ProjectileVelocity {
     scale_velocity_f(velocity, scale)
 }
 
-fn scale_velocity_f(velocity: ProjectileVelocity, scale: f64) -> ProjectileVelocity {
+pub(super) fn scale_velocity_f(velocity: ProjectileVelocity, scale: f64) -> ProjectileVelocity {
     let scale_bits = NativeF64Bits::from_bits(scale.to_bits());
     let component = |bits: NativeF64Bits| {
         NativeF64Bits::from_bits(

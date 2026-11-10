@@ -1919,6 +1919,21 @@ pub(super) fn emit_admitted_fire(
     } = shot;
     let snap = &snap;
     let weapon = selected.weapon;
+    // Phobos `TechnoClass_FireAt_UpdateWeaponType @ 0x6FDD7D`
+    // (`Ext/Techno/Hooks.Firing.cpp:588-607`), ahead of FireAt's own InLimbo
+    // refusal below: a `LimboLaunch=` weapon whose warhead is
+    // `UnlimboDetonate` and not `Parasite` cannot fire while the firer's
+    // locomotor is really moving.
+    #[cfg(feature = "phobos")]
+    if super::phobos_unlimbo_detonate::refuses_moving_limbo_launch(
+        world,
+        rules,
+        weapon,
+        snap.stable_id,
+        snap.category,
+    ) {
+        return None;
+    }
     // ObjectCtor5F3B37 sets Abstract flag0x2 (Object, not Foot0x4).
     // FireAt6FDD88..6FDDBE refuses any Object with +81 InLimbo before
     // Suicide or launch work. Cells bypass this gate; missing IDs represent

@@ -1285,6 +1285,11 @@ impl Simulation {
         let target_entity = target_id.and_then(|id| self.substrate.entities.get(id));
         let target_infantry =
             target_entity.is_some_and(|target| target.category() == EntityCategory::Infantry);
+        // Phobos `TechnoClass_Fire_SetContext @ 0x6FE562`: the pre-Limbo
+        // `InSelected`/`InLimbo` the hook at `0x6FF7FF` reads back after the
+        // Limbo below (`Ext/WarheadType/Hooks.cpp:613-620`).
+        #[cfg(feature = "phobos")]
+        let fired = super::phobos_unlimbo_detonate::fire_context(self, firer);
         // 0x006FF763..0x006FF79C: ReselectIfLimboed memo for a selected firer
         // of a human player's house (IsHumanPlayer 0x0050B6F0, 0x006FF786)
         // jumping an Infantry target.
@@ -1311,6 +1316,12 @@ impl Simulation {
             firer,
             UninitContext::new(rules, registry).with_effects(effects),
         );
+        // Phobos `TechnoClass_Fire_UnlimboDetonate @ 0x6FF7FF`
+        // (`Ext/WarheadType/Hooks.cpp:630-657`), after the Limbo: restore the
+        // bullet Owner the Limbo detached and, with `KeepSelected`, remember
+        // the pre-Limbo selection for the detonation hook.
+        #[cfg(feature = "phobos")]
+        super::phobos_unlimbo_detonate::fire_hook(self, firer, weapon, bullet, fired, rules);
         let parasite = rules
             .weapon_warhead(weapon)
             .is_some_and(|warhead| warhead.parasite);

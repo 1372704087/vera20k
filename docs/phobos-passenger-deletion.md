@@ -48,7 +48,9 @@ clock runs out the passenger leaves the cargo list and:
   parasite and its hijacker, each times `SoylentMultiplier`; zero pays nothing.
   `DisplaySoylent` then queues the flying money label, filtered per client by
   `DisplaySoylentToHouses`, the transport's visibility and
-  `DisplaySoylentOffset` (see `sim::flying_text`);
+  `DisplaySoylentOffset` (see `sim::flying_text`). The offset is a Phobos
+  `Valueable<Point2D>`: `Parser<int, 2>` trims each token, accepts the
+  `$`/`h` spellings and writes a one-token read into X only;
 - a parasite eating the passenger is suppressed for 50 frames and released;
 - a `Gunner=yes` transport re-picks its list tail as the gunner;
 - the passenger's own cargo dies with `DontScore` choosing no credited

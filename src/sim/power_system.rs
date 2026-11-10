@@ -558,6 +558,15 @@ pub(crate) struct OperationalFacts {
     /// The charger count that bypasses power (`0x004555D5` EDI = 2). Ares's
     /// hook there (100140B0) passes 0 for a `Battery.KeepOnline` type.
     pub charger_bypass: i32,
+    /// The summed `ElectricAssaultLevel` of the retained chargers
+    /// (`Ext/Building/Hooks.cpp:970-981`); with the defaults (one level per
+    /// charger) it equals the stock count.
+    #[cfg(feature = "phobos")]
+    pub tesla_charge_levels: i32,
+    /// Phobos `Overpower.KeepOnline`; a negative value fails the power arm
+    /// and produces the building offline (`:964-974`).
+    #[cfg(feature = "phobos")]
+    pub overpower_keep_online: i32,
     /// `+0x504` EMP time and `+0x6C` Health.
     pub emp_remaining: i32,
     pub health: i32,
@@ -583,17 +592,30 @@ pub(crate) fn is_operational_for_output(
     facts: &OperationalFacts,
     power_below_full: impl FnOnce() -> bool,
 ) -> bool {
-    if !facts.online && facts.tesla_chargers < facts.charger_bypass {
+    // `0x4555E4`/`0x45563B` (`Ext/Building/Hooks.cpp:951-981`): an Ares
+    // `Battery.KeepOnline` threshold of 0 keeps the stock Continue; otherwise
+    // the summed charger levels are compared with `Overpower.KeepOnline`
+    // instead of the stock count with 2.
+    let charge_passes = if facts.charger_bypass == 0 {
+        true
+    } else {
+        #[cfg(feature = "phobos")]
+        {
+            facts.overpower_keep_online >= 0
+                && facts.tesla_charge_levels >= facts.overpower_keep_online
+        }
+        #[cfg(not(feature = "phobos"))]
+        {
+            facts.tesla_chargers >= facts.charger_bypass
+        }
+    };
+    if !facts.online && !charge_passes {
         return false;
     }
     if facts.emp_remaining > 0 || facts.health == 0 {
         return false;
     }
-    if facts.powered
-        && facts.power_drain > 0
-        && power_below_full()
-        && facts.tesla_chargers < facts.charger_bypass
-    {
+    if facts.powered && facts.power_drain > 0 && power_below_full() && !charge_passes {
         return false;
     }
     if facts.powered_special && facts.owner_outage {

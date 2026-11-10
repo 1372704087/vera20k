@@ -306,6 +306,12 @@ pub struct WarheadType {
     /// `TechnoClass::What_Weapon_Should_I_Use @ 0x006F361F` and tested by the
     /// detonation chain at `BulletClass::DetonateAtCoord @ 0x0046937a`.
     pub electric_assault: bool,
+    /// Phobos `ElectricAssaultLevel=` (`Ext/WarheadType/Body.cpp:398`,
+    /// `Body.h:221`, `Valueable<int>` constructed 1 `:493`): the level one
+    /// charger adds to a building's overpower sum
+    /// (`Ext/Building/Hooks.cpp:932,978`).
+    #[cfg(feature = "phobos")]
+    pub electric_assault_level: i32,
     /// Engineer defuse kit. `WarheadTypeClass+0x16E` (ReadINI `0x0075D91B`,
     /// key string `0x00847D24`), tested by the detonation chain at
     /// `BulletClass::DetonateAtCoord @ 0x004699ca`.
@@ -831,6 +837,8 @@ impl WarheadType {
             sonic: section.read_bool("Sonic", false),
             makes_disguise: section.read_bool("MakesDisguise", false),
             electric_assault: section.read_bool("ElectricAssault", false),
+            #[cfg(feature = "phobos")]
+            electric_assault_level: section.read_int("ElectricAssaultLevel", 1),
             bomb_disarm: section.read_bool("BombDisarm", false),
             nuke_maker: section.read_bool("NukeMaker", false),
             em_effect: false,

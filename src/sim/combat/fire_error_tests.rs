@@ -505,6 +505,10 @@ impl FireQuery for RowQuery<'_> {
         let facts = crate::sim::power_system::OperationalFacts {
             online: flag(&f["online"]),
             tesla_chargers: int(&f["tesla_chargers"]),
+            #[cfg(feature = "phobos")]
+            tesla_charge_levels: int(&f["tesla_chargers"]),
+            #[cfg(feature = "phobos")]
+            overpower_keep_online: 2,
             charger_bypass: 2,
             emp_remaining: int(&f["emp_remaining"]),
             health: int(&f["health"]),

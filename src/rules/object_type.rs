@@ -2548,6 +2548,20 @@ pub struct ObjectType {
     /// `Overpowerable=` (`BuildingTypeClass+0x1575`, ReadINI `0x00460029`).
     /// Constructor default UNCHECKED; every stock author writes it explicitly.
     pub overpowerable: bool,
+    /// Phobos `Overpower.KeepOnline=` (`Ext/BuildingType/Body.cpp:242`,
+    /// `Body.h:92`, constructed 2 `:216`): the summed
+    /// `ElectricAssaultLevel` that keeps an overpowerable building online and
+    /// is added to `Overpower.ChargeWeapon` for `IsOverpowered`
+    /// (`Ext/Building/Hooks.cpp:902-956`). A negative value keeps the
+    /// building offline from this arm and disables the overpower latch.
+    #[cfg(feature = "phobos")]
+    pub overpower_keep_online: i32,
+    /// Phobos `Overpower.ChargeWeapon=` (`Ext/BuildingType/Body.cpp:243`,
+    /// `Body.h:93`, constructed 1): the summed level needed on top of
+    /// `Overpower.KeepOnline`, or alone at full house power, for the
+    /// overpowered weapon; negative disables it (`Hooks.cpp:936-955`).
+    #[cfg(feature = "phobos")]
+    pub overpower_charge_weapon: i32,
 
     /// TechnoType+6C0: ctor71117B=false, ReadBool71523D reads
     /// `AttackFriendlies` with the retained byte as default, no clamp.
@@ -6092,6 +6106,10 @@ impl ObjectType {
             produce_cash_amount: section.read_int("ProduceCashAmount", 0),
             produce_cash_delay: section.read_int("ProduceCashDelay", 0),
             overpowerable: section.read_bool("Overpowerable", false),
+            #[cfg(feature = "phobos")]
+            overpower_keep_online: section.read_int("Overpower.KeepOnline", 2),
+            #[cfg(feature = "phobos")]
+            overpower_charge_weapon: section.read_int("Overpower.ChargeWeapon", 1),
             attack_friendlies: section.read_bool("AttackFriendlies", false),
             attack_cursor_on_friendlies: section.read_bool("AttackCursorOnFriendlies", false),
             sabotage_cursor: section.read_bool("SabotageCursor", false),

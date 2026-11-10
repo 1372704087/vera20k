@@ -4145,18 +4145,12 @@ fn emit_detonation_receivers<'r>(
     // Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`,
     // `Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`): a Techno target failing
     // the warhead's health/veterancy/neutral/invoker conditions jumps to the
-    // extras (`0x469AA4`), past the interceptor head (`0x46920B`), radiation,
-    // the per-target pass, the stock damage arms and the area damage. Only
-    // the all-map claim above precedes the gate.
+    // extras (`0x469AA4`), past radiation (`0x469150`), the interceptor head
+    // (`0x46920B`), the per-target pass, the stock damage arms and the area
+    // damage. Only the all-map claim above precedes the gate.
     if trigger_skip {
         return (None, false, false);
     }
-    // Phobos `WarheadTypeExt::Detonate` (`Ext/WarheadType/Detonate.cpp:38-48`):
-    // the detonating bullet's interceptor head resolves its prey before the
-    // create-gap and per-target effects below; the hook is `0x46920B`, after
-    // the trigger gate.
-    #[cfg(feature = "phobos")]
-    world.intercept_bullets(rules, overlay_registry, detonation, warhead, run.effects());
     let effects = run.effects();
     let (impact_rx, impact_ry, ..) = projectile_impact_cell(detonation.impact);
 
@@ -4190,6 +4184,13 @@ fn emit_detonation_receivers<'r>(
                 invoker: (detonation.source_id != 0).then_some(detonation.source_id),
             });
     }
+
+    // Phobos `WarheadTypeExt::Detonate` (`Ext/WarheadType/Detonate.cpp:38-48`):
+    // the detonating bullet's interceptor head resolves its prey after the
+    // stock radiation block and before the create-gap and per-target effects;
+    // the hook is `0x46920B`, after `0x4690D4` and radiation.
+    #[cfg(feature = "phobos")]
+    world.intercept_bullets(rules, overlay_registry, detonation, warhead, run.effects());
 
     // Installed Ares46920B ->100536E0/10052870 runs after radiation,
     // before the exclusive special/ordinary damage arms (including Damage=0).

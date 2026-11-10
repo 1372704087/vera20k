@@ -602,8 +602,8 @@ fn a_vertical_aircraft_bomb_keeps_fire_at_velocity() {
     };
     let fixed = speed("Vertical=yes\n", "");
     assert!(
-        fixed < 2.0,
-        "the default-global fix keeps FireAt's launch: {fixed}"
+        (fixed - 1.0).abs() < 0.1,
+        "the default-global fix keeps FireAt's unit launch: {fixed}"
     );
     let type_off = speed("Vertical=yes\nVertical.AircraftFix=no\n", "");
     assert!(

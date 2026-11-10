@@ -64,10 +64,10 @@ veterancy, the `AffectsNeutral` filter or `IsInvokerAllowed`, the hook jumps to
 pass (crit, convert, return warhead, ...), the stock damage arms and the area
 damage are all skipped, while the impact extras (the warhead `AnimList` and
 its smudge, debris and `ExtraWarheads`) still run. Only the
-`DetonateOnAllMapObjects` claim precedes `0x4690D4`; the interceptor head
-(`0x46920B`), radiation and the 0x46920B per-target pass follow the gate and
-are skipped with the body. A cell, terrain or null target never takes the
-gate; only an entity target does.
+`DetonateOnAllMapObjects` claim precedes `0x4690D4`; radiation (`0x469150`),
+the interceptor head (`0x46920B`) and the 0x46920B per-target pass follow the
+gate and are skipped with the body. A cell, terrain or null target never takes
+the gate; only an entity target does.
 
 ## Where VERA20K owns it
 

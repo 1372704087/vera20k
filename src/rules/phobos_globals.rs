@@ -13,6 +13,7 @@
 //! `AutoDeath.AllowLimboed` (`:1027`),
 //! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`),
 //! `Shrapnel.ObeyWarheadTriggerConditions` (`:972`),
+//! `Vertical.AircraftFix` (`:990`),
 //! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`) and both
 //! `Explodes.*` globals (`:885-886`), which construct `true`; the
 //! `AffectedHouse` globals construct `All` (`:728`, `:730`).

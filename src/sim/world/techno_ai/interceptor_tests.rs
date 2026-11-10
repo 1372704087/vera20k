@@ -21,10 +21,11 @@ const RULES: &str = "[VehicleTypes]\n0=INT\n1=ENEMY\n2=ALLY\n\
     [TGUN]\nDamage=5\nRange=8\nWarhead=IWH\nProjectile=TBULLET\n\
     [AGUN]\nDamage=5\nRange=8\nWarhead=IWH\nProjectile=ABULLET\n\
     [OGUN]\nDamage=30\nRange=8\nWarhead=EWH\nProjectile=OBULLET\nSpeed=100\nBright=yes\n\
-    [Warheads]\n0=IWH\n1=EWH\n2=ZWH\n\
+    [Warheads]\n0=IWH\n1=EWH\n2=ZWH\n3=RWH\n\
     [IWH]\nVerses=100%,100%,100%,50%,50%,50%,100%,100%,100%,0%,0%\n\
     [EWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
     [ZWH]\nVerses=0%,0%,0%,0%,0%,0%,0%,0%,0%,0%,0%\n\
+    [RWH]\nAffectsAbovePercent=0.9\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
     [IBULLET]\nInviso=yes\n\
     [OBULLET]\nInterceptable=yes\n\
     [ABULLET]\nInterceptable=yes\n\
@@ -135,6 +136,109 @@ fn make_interceptor_bullet(
     sim.projectiles
         .set_phobos_interceptor_target(bullet, Some(target));
     bullet
+}
+
+/// `0x4690D4` runs before the interceptor head `0x46920B`: a detonation whose
+/// warhead trigger conditions refuse the Techno target must not intercept a
+/// nearby prey, while the same shot against an admitted target does.
+#[test]
+fn a_trigger_refusing_target_skips_the_interceptor_head() {
+    use crate::sim::combat::world_receiver::{ReceiverRun, commit_projectiles};
+
+    let (mut sim, rules) = scene("Interceptor=yes\n");
+    let interceptor = unit(&mut sim, &rules, "INT", "Americans", 10);
+    let enemy = unit(&mut sim, &rules, "ENEMY", "Russians", 20);
+    sim.substrate
+        .entities
+        .get_mut(enemy)
+        .unwrap()
+        .health
+        .set_for_test(50);
+    let prey = spawn_bullet(
+        &mut sim,
+        &rules,
+        enemy,
+        "ABULLET",
+        [10 * 256 + 128, 10 * 256 + 128, 0],
+    );
+    let bullet = make_interceptor_bullet(
+        &mut sim,
+        &rules,
+        interceptor,
+        prey,
+        [10 * 256 + 128, 10 * 256 + 128, 0],
+    );
+    let warhead = sim.interner.intern("RWH");
+    let projectile_type = sim.interner.intern("IBULLET");
+    sim.projectiles
+        .set_target(bullet, ProjectileTarget::Entity(enemy));
+    sim.projectiles
+        .get_mut(bullet)
+        .unwrap()
+        .payload_mut()
+        .warhead = warhead;
+    let position = sim.projectiles.get(bullet).unwrap().position();
+    let detonation = crate::sim::projectile::ProjectileDetonation {
+        projectile_id: bullet,
+        source_id: interceptor,
+        target: ProjectileTarget::Entity(enemy),
+        impact: position,
+        payload: ProjectilePayload::new(40, warhead, Some(projectile_type), false),
+        reason: ProjectileDetonationReason::ReachedTarget,
+    };
+    let mut run = ReceiverRun::default();
+    commit_projectiles(&mut sim, &mut run, &[detonation], &rules, None);
+    run.finish();
+    assert_eq!(
+        sim.projectiles.get(prey).unwrap().intercepted_status() & intercepted_status::INTERCEPTED,
+        0,
+        "the refused target skips interception"
+    );
+
+    // Control: the same shot at an admitted (full-health) target intercepts.
+    let (mut sim, rules) = scene("Interceptor=yes\n");
+    let interceptor = unit(&mut sim, &rules, "INT", "Americans", 10);
+    let enemy = unit(&mut sim, &rules, "ENEMY", "Russians", 20);
+    let prey = spawn_bullet(
+        &mut sim,
+        &rules,
+        enemy,
+        "ABULLET",
+        [10 * 256 + 128, 10 * 256 + 128, 0],
+    );
+    let bullet = make_interceptor_bullet(
+        &mut sim,
+        &rules,
+        interceptor,
+        prey,
+        [10 * 256 + 128, 10 * 256 + 128, 0],
+    );
+    let warhead = sim.interner.intern("RWH");
+    let projectile_type = sim.interner.intern("IBULLET");
+    sim.projectiles
+        .set_target(bullet, ProjectileTarget::Entity(enemy));
+    sim.projectiles
+        .get_mut(bullet)
+        .unwrap()
+        .payload_mut()
+        .warhead = warhead;
+    let position = sim.projectiles.get(bullet).unwrap().position();
+    let detonation = crate::sim::projectile::ProjectileDetonation {
+        projectile_id: bullet,
+        source_id: interceptor,
+        target: ProjectileTarget::Entity(enemy),
+        impact: position,
+        payload: ProjectilePayload::new(40, warhead, Some(projectile_type), false),
+        reason: ProjectileDetonationReason::ReachedTarget,
+    };
+    let mut run = ReceiverRun::default();
+    commit_projectiles(&mut sim, &mut run, &[detonation], &rules, None);
+    run.finish();
+    assert_ne!(
+        sim.projectiles.get(prey).unwrap().intercepted_status() & intercepted_status::INTERCEPTED,
+        0,
+        "an admitted target still intercepts"
+    );
 }
 
 #[test]

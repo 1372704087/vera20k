@@ -22,7 +22,7 @@ unset `:103`) and `Ext/Rules/Body.cpp:581` (`Body.h:492`, constructed true
 `AircraftClass::Fire_At @ 0x00415EE0` normally rewrites the bullet's velocity
 by its type's `ROT=`: ROT 0 to the aircraft's Apparent_Speed and
 SecondaryFacing (`0x00415F39..0x004160B5`), ROT 1 toward the target at weapon
-0's `Speed=` (`0x004160CF..0x00416318`). Phobos hooks the ROT-0 arm at
+0's `Speed=` (`0x004160CF..0x00416318`). Phobos hooks the ROT dispatch head at
 `0x415F25` (`Misc/Hooks.BugFixes.cpp:2423`): a bullet with `HasParachute` or
 with `Vertical=yes` and an effective `Vertical.AircraftFix` jumps to
 `0x41631F`, skipping both ROT arms, so it leaves at FireAt's own velocity and

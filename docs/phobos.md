@@ -150,6 +150,7 @@ Supported extensions:
 - [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
 - [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
 - [EMPulse extensions](phobos-empulse.md) (`EMPulse.WeaponIndex`/`.SuspendOthers`/`.Cannons`/`.TargetSelf`: Ares EMPulse cannon weapon slot, suspended superweapons and the self-target arm; 4 keys)
+- [Superweapon activation messages and sold EVA](phobos-sw-messages.md) (`Message.Activated.{Owner,Allies,Enemies}`, `EVA.Activated.*`, the `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair and `EVA.Sold`: launch and linked-grant announcements picked by the launching House's relation to the current player, plus a type's replacement sale line; 9 keys)
 
 ## Original project and authors
 

@@ -1161,6 +1161,19 @@ impl IniSection {
         })
     }
 
+    /// `ReadString` presence over the merged section, for readers whose native
+    /// template distinguishes "key absent" (keep the field) from "key present
+    /// and blank" (write the blank/`-1`). [`Self::read_string_with`] cannot
+    /// express the second arm because it keeps `current` on empty text.
+    /// Answers the trimmed, `capacity - 1`-bounded text, `Some("")` included.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn read_string_presence(&self, key: &str, capacity: usize) -> Option<String> {
+        let payload = capacity.checked_sub(1)?;
+        self.fold_rules_values(key, None, |_, raw| {
+            Some(strtrim_ascii(truncate_native_bytes(raw, payload)).to_owned())
+        })
+    }
+
     /// ReadString into `char[capacity]`, then one `sscanf("%d,%d,...")`
     /// over `current`: each converted field replaces its slot and the scan
     /// stops at the first it cannot convert (a comma must follow each number

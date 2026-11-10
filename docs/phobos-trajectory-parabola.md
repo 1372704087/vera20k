@@ -75,10 +75,6 @@ when the geometry has no solution. The bounce ladder is
 
 ## Residuals (trigger · impact · frequency · risk)
 
-- **`GetGroundNormalVector` cliff probe.** It uses the terrain owner's cell
-  level and map bounds; a shared-dummy lookup sees no real cell, where native
-  `TryGetCellAt` can answer a neighboring cell. Frequency: cliff-edge
-  bounces. Risk: one bounce's normal.
 - **Water bounce.** `BounceOnWater` reads the landing cell's `LandType`; no
   mixed shore handling beyond the native cell test. Frequency: shore cells.
   Risk: low.

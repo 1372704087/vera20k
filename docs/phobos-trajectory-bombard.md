@@ -74,14 +74,15 @@ for `FreeFallOnTarget`, `NoLaunch` and the straight fall speed.
    `RandomDouble` (radial) or one `RandomRanged(0, 1)` (linear).
 3. `Inaccurate=` scatter: the shared retail-table polar draw.
 
+`TurningPointAnims` picks one resolvable name with the native
+`RandomRanged(0, size - 1)` draw and constructs it at the turning point
+through `spawn_random_owned_anim` with the firer House (or the retained
+`BulletExt::FirerHouse`) and no owner object (`:241-243`, `:565-569`).
+
 ## Residuals (trigger · impact · frequency · risk)
 
-- **`TurningPointAnims`.** The turning-point animation spawn is
-  presentation-only and not modeled. Frequency: data with a list. Risk:
-  none to simulation.
-- **Laser-trail reset.** The native `LaserTrails` `LastLocation` reset is the
-  presentation trail owner's. Frequency: data with trails. Risk: visual.
-- **Unsolvable lead arm.** `PreviousTarget`-style degenerate geometry can make
-  the native `sqrt` negative; VERA clamps the horizon square to `>= 0.0`.
-  Frequency: malformed data. Risk: low.
+- **Bullet `LaserTrails` reset.** The native `LaserTrails` `LastLocation`
+  reset is the presentation trail owner's; VERA models the stock `UseLineTrail`
+  line trail, not bullet laser trails. Frequency: data with trails. Risk:
+  visual.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

@@ -13,15 +13,15 @@
 //!   retail-table polar helper.
 //!
 //! ## Residuals
-//! - `TurningPointAnims`: the turning-point animation spawn
-//!   (`:243`, `:569`) is presentation-only and not modeled.
-//! - Laser trail resets (`:231-238`, `:556-564`) belong to the presentation
-//!   trail owner.
+//! - `BulletExt::LaserTrails` (not the stock `UseLineTrail` line trail) are
+//!   not modeled on bullets; the reset at `:231-238`, `:556-564` belongs to
+//!   that presentation owner.
 //!
 //! ## Dependency rules
 //! - Part of sim/; no render/ui/audio/net.
 
 use super::*;
+use crate::rules::phobos_trajectory::BombardTrajectoryRules;
 
 impl Simulation {
     /// `BombardTrajectory::OnUnlimbo` (`BombardTrajectory.cpp:115-144`).
@@ -55,7 +55,7 @@ impl Simulation {
         state.bombard_height =
             NativeF64Bits::from_bits((t.height + f64::from(target_coords.z)).to_bits());
         // `FallPercent += RandomRanged(0, int(200 * FallPercentShift)) / 100.0`.
-        let shift = (200.0 * t.fall_percent_shift) as i32;
+        let shift = sse_i32(200.0 * t.fall_percent_shift);
         let draw = self.scenario_rng.next_range_i32_inclusive(0, shift);
         state.bombard_fall_percent = NativeF64Bits::from_bits(
             (t.fall_percent - t.fall_percent_shift + f64::from(draw) / 100.0).to_bits(),
@@ -253,10 +253,11 @@ impl Simulation {
                 middle = ProjectileCoord::new(
                     state.last_target_coord.x,
                     state.last_target_coord.y,
-                    f64::from_bits(state.bombard_height.bits()) as i32,
+                    sse_i32(f64::from_bits(state.bombard_height.bits())),
                 );
             }
             position = middle;
+            self.bombard_spawn_turning_point_anims(rules, t, bullet_id, source_id, middle);
         }
 
         if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
@@ -266,6 +267,41 @@ impl Simulation {
             ));
             projectile.set_phobos_trajectory(Some(state));
         }
+    }
+
+    /// `AnimExt::CreateRandomAnim` at the turning point
+    /// (`BombardTrajectory.cpp:241-243`, `:565-569`): one `RandomRanged` pick
+    /// from the resolvable names, the firer House (or the retained
+    /// `BulletExt::FirerHouse`) and no owner object.
+    fn bombard_spawn_turning_point_anims(
+        &mut self,
+        rules: &RuleSet,
+        t: &BombardTrajectoryRules,
+        bullet_id: u64,
+        source_id: u64,
+        location: ProjectileCoord,
+    ) {
+        if t.turning_point_anims.is_empty() {
+            return;
+        }
+        let Some(name) = self.resolve_random_anim_name(rules, &t.turning_point_anims) else {
+            return;
+        };
+        let house = self
+            .substrate
+            .entities
+            .get(source_id)
+            .map(|entity| entity.owner())
+            .or_else(|| {
+                self.projectiles
+                    .get(bullet_id)
+                    .and_then(|projectile| projectile.phobos_firer_house())
+            });
+        let Some(house) = house else {
+            return;
+        };
+        let type_name = self.interner.intern(name);
+        let _ = self.spawn_owned_anim(rules, type_name, location.into(), house, None);
     }
 
     /// `CalculateTargetCoords` (`:283-323`): optional lead, coordinate-system
@@ -313,10 +349,10 @@ impl Simulation {
             let [ox, oy, oz] = state.offset_coord;
             target_coords.x = target_coords
                 .x
-                .wrapping_add((f64::from(ox) * cos_a + f64::from(oy) * sin_a) as i32);
+                .wrapping_add(sse_i32(f64::from(ox) * cos_a + f64::from(oy) * sin_a));
             target_coords.y = target_coords
                 .y
-                .wrapping_add((f64::from(ox) * sin_a - f64::from(oy) * cos_a) as i32);
+                .wrapping_add(sse_i32(f64::from(ox) * sin_a - f64::from(oy) * cos_a));
             target_coords.z = target_coords.z.wrapping_add(oz);
         }
 
@@ -373,9 +409,9 @@ impl Simulation {
             }
         }
         ProjectileCoord::new(
-            source_coords.x.wrapping_add((vector_x + scatter_x) as i32),
-            source_coords.y.wrapping_add((vector_y + scatter_y) as i32),
-            f64::from_bits(state.bombard_height.bits()) as i32,
+            source_coords.x.wrapping_add(sse_i32(vector_x + scatter_x)),
+            source_coords.y.wrapping_add(sse_i32(vector_y + scatter_y)),
+            sse_i32(f64::from_bits(state.bombard_height.bits())),
         )
     }
 
@@ -424,13 +460,11 @@ impl Simulation {
 
         if t.free_fall_on_target {
             let gravity = self.bombard_gravity(bullet_id, rules);
-            if gravity > 0.0 {
-                travel_time +=
-                    (((2.0 * (height - f64::from(target_coords.z))) / gravity).sqrt()) as i32;
-                coords = add(coords, scale(extra, travel_time.wrapping_add(1)));
-            }
+            travel_time +=
+                sse_i32(((2.0 * (height - f64::from(target_coords.z))) / gravity).sqrt());
+            coords = add(coords, scale(extra, travel_time.wrapping_add(1)));
         } else if t.no_launch {
-            travel_time += ((height - f64::from(target_coords.z)) / t.fall_speed) as i32;
+            travel_time += sse_i32((height - f64::from(target_coords.z)) / t.fall_speed);
             coords = add(coords, scale(extra, travel_time.wrapping_add(1)));
         } else {
             let distance_sq = mag_sq(target_source);
@@ -439,7 +473,7 @@ impl Simulation {
             let cross = cross(target_source, last_source);
             let vertical_sq = mag_sq(cross) as f64 / target_speed_sq as f64;
             let horizon_sq = distance_sq as f64 - vertical_sq;
-            let horizon = horizon_sq.max(0.0).sqrt();
+            let horizon = horizon_sq.sqrt();
             let straight_sq = t.fall_speed * t.fall_speed;
             let base_factor = straight_sq - target_speed_sq as f64;
             let square_factor = base_factor * vertical_sq + straight_sq * horizon_sq;
@@ -447,14 +481,13 @@ impl Simulation {
                 let minus = -(horizon * target_speed);
                 if base_factor.abs() < 1e-10 {
                     travel_time = if horizon.abs() > 1e-10 {
-                        ((distance_sq as f64 / (2.0 * horizon * target_speed)) as i32)
-                            .wrapping_add(1)
+                        sse_i32(distance_sq as f64 / (2.0 * horizon * target_speed)).wrapping_add(1)
                     } else {
                         0
                     };
                 } else {
-                    let travel_m = ((minus - square_factor.sqrt()) / base_factor) as i32;
-                    let travel_p = ((minus + square_factor.sqrt()) / base_factor) as i32;
+                    let travel_m = sse_i32((minus - square_factor.sqrt()) / base_factor);
+                    let travel_p = sse_i32((minus + square_factor.sqrt()) / base_factor);
                     if travel_m > 0 && travel_p > 0 {
                         travel_time = travel_m.min(travel_p);
                     } else if travel_m > 0 {
@@ -524,12 +557,13 @@ impl Simulation {
         };
         let location = projectile.position();
         let target_ref = projectile.target();
+        let source_id = projectile.source_id();
         let mut velocity = velocity_f64(projectile.velocity());
         let mut position = location;
 
         if !state.is_falling {
-            state.remaining_distance = state.remaining_distance.wrapping_sub(base.speed as i32);
-            if state.remaining_distance < base.speed as i32 {
+            state.remaining_distance = state.remaining_distance.wrapping_sub(sse_i32(base.speed));
+            if state.remaining_distance < sse_i32(base.speed) {
                 if state.to_falling {
                     state.is_falling = true;
                     state.remaining_distance = 1;
@@ -605,6 +639,9 @@ impl Simulation {
                         );
                         velocity = [0.0, 0.0, 0.0];
                     }
+                    self.bombard_spawn_turning_point_anims(
+                        rules, t, bullet_id, source_id, position,
+                    );
                 } else {
                     state.to_falling = true;
                     if t.lead_time_calculate
@@ -658,7 +695,7 @@ impl Simulation {
         if !(state.is_falling && !t.free_fall_on_target) {
             return false;
         }
-        state.remaining_distance = state.remaining_distance.wrapping_sub(t.fall_speed as i32);
+        state.remaining_distance = state.remaining_distance.wrapping_sub(sse_i32(t.fall_speed));
         if state.remaining_distance < 0 {
             if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
                 projectile.set_phobos_trajectory(Some(state));
@@ -740,6 +777,33 @@ impl Simulation {
             )
             .bits(),
         )
+    }
+}
+
+/// `static_cast<int>` in Phobos' `/arch:SSE2` build: `cvttsd2si` truncates
+/// toward zero and returns `INT_MIN` for NaN, infinity and out-of-range values.
+fn sse_i32(value: f64) -> i32 {
+    if value >= -2_147_483_648.0 && value < 2_147_483_648.0 {
+        value as i32
+    } else {
+        i32::MIN
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::sse_i32;
+
+    /// `static_cast<int>` in the SSE2 build (`cvttsd2si`).
+    #[test]
+    fn sse_cast_returns_the_integer_indefinite_out_of_range() {
+        assert_eq!(sse_i32(f64::NAN), i32::MIN);
+        assert_eq!(sse_i32(f64::INFINITY), i32::MIN);
+        assert_eq!(sse_i32(-f64::INFINITY), i32::MIN);
+        assert_eq!(sse_i32(2_147_483_648.0), i32::MIN);
+        assert_eq!(sse_i32(-2_147_483_648.0), i32::MIN);
+        assert_eq!(sse_i32(-4.9), -4);
+        assert_eq!(sse_i32(4.9), 4);
     }
 }
 

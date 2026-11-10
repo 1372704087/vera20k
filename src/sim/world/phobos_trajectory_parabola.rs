@@ -12,9 +12,6 @@
 //! - `BounceDetonate`'s extra warhead is the bullet's own warhead and damage,
 //!   detonated through the shared projectile detonation boundary
 //!   (`:882-887`); the native `DetonateAt` owner adds no other effect.
-//! - `GetGroundNormalVector`'s cliff probe uses the terrain owner's cell level
-//!   and map bounds (`:951-1023`); the shared dummy fallback reaches no real
-//!   cell there.
 //!
 //! ## Dependency rules
 //! - Part of sim/; no render/ui/audio/net.
@@ -78,7 +75,7 @@ impl Simulation {
                     entity,
                     self.resolved_terrain.as_ref(),
                 );
-                if self.map_coordinates_legal(coords.x, coords.y) {
+                if self.parabola_cell_exists(ProjectileCoord::new(coords.x, coords.y, coords.z)) {
                     let rx = (coords.x / 256) as u16;
                     let ry = (coords.y / 256) as u16;
                     let cell_coords = crate::sim::projectile::cell_ground_coord(
@@ -177,7 +174,7 @@ impl Simulation {
                 return step;
             }
         };
-        if !self.trajectory_inside_map(position) {
+        if !self.parabola_cell_exists(position) {
             self.parabola_finish(bullet_id, rules, overlay_registry, &mut step);
             return step;
         }
@@ -1075,6 +1072,19 @@ impl Simulation {
         [0.0, 0.0, 1.0]
     }
 
+    /// `MapClass::TryGetCellAt`'s non-null answer for the coordinate's cell:
+    /// the shared dummy means the lookup found no real cell.
+    fn parabola_cell_exists(&self, coord: ProjectileCoord) -> bool {
+        matches!(
+            crate::sim::cell_rect::get_cellclass_fallback(
+                self.resolved_terrain.as_ref(),
+                coord.x / 256,
+                coord.y / 256,
+            ),
+            crate::sim::cell_rect::CellRef::Real(_)
+        )
+    }
+
     /// `CheckBulletHitCliff` (`:1011-1023`).
     fn parabola_hit_cliff(
         &self,
@@ -1083,11 +1093,11 @@ impl Simulation {
         bullet_height: i32,
         last_cell_height: i32,
     ) -> bool {
-        if !self.map_coordinates_legal(x.wrapping_mul(256), y.wrapping_mul(256)) {
-            return false;
-        }
         let cell =
             crate::sim::cell_rect::get_cellclass_fallback(self.resolved_terrain.as_ref(), x, y);
+        if matches!(cell, crate::sim::cell_rect::CellRef::Dummy { .. }) {
+            return false;
+        }
         let cell_height =
             i32::from(cell.signed_level()) * crate::util::lepton::GROUND_LEVEL_HEIGHT_LEPTONS;
         bullet_height < cell_height && cell_height.wrapping_sub(last_cell_height) > 384

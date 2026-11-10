@@ -460,9 +460,8 @@ impl Simulation {
                     self.substrate.entities.contains(target)
                         || self.terrain_objects.objects().contains_key(&target)
                 }
-                // An interceptor does not walk to its bullet target.
                 #[cfg(feature = "phobos")]
-                TargetKind::Bullet(..) => false,
+                TargetKind::Bullet(id) => self.projectiles.get(id).is_some(),
             }
             && self.resolved_terrain.is_some()
             && self.zone_grid.is_some()
@@ -505,6 +504,27 @@ impl Simulation {
         };
         let Some(target) = actor.attack_target.target() else {
             return Ok(None);
+        };
+        // A Bullet target is approached at its current cell: native
+        // Approach_Target reads the target object's GetCoords, and a
+        // BulletClass answers its Location. The conversion runs every visit,
+        // so the destination follows the projectile.
+        #[cfg(feature = "phobos")]
+        let target = match target {
+            TargetKind::Bullet(bullet) => {
+                let point = self.projectiles.get(bullet).map(|bullet| bullet.position());
+                let Some(point) = point else {
+                    return Ok(None);
+                };
+                let (Ok(rx), Ok(ry)) = (
+                    u16::try_from(point.x.div_euclid(256)),
+                    u16::try_from(point.y.div_euclid(256)),
+                ) else {
+                    return Ok(None);
+                };
+                TargetKind::Cell(rx, ry)
+            }
+            other => other,
         };
         // 4D56A1..56B1: a Magnetron holding its target (+2AC == TarCom)
         // does not approach it.

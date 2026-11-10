@@ -109,16 +109,22 @@ Armor=                                      ; Nullable<ArmorType>, unknown retai
 
 ## RNG draws
 
-None. TargetingDelay's phase is the frame counter alone (see residuals);
-range, armor, house and crit checks read state only.
+None in the scan. TargetingDelay's phase is the frame counter alone (see
+residuals); range, armor, house and crit checks read state only.
 
 ## Residuals (trigger · impact · frequency · risk)
 
-- **RandomFactor phase.** Native adds the techno's construction-time
-  `RandomFactor` byte to the TargetingDelay phase; VERA does not store that
-  byte, so every interceptor with delay > 1 scans on the same frame phase.
-  Trigger: `TargetingDelay` > 1. Frequency: authored mods. Risk: bursty scans,
-  no gameplay-rule change.
+- **RandomFactor phase and draw.** Phobos `TechnoClass_Init` (`0x6F42F7` →
+  `TechnoExt::InitializeState`, `Ext/Techno/Hooks.cpp:292`) draws
+  `RandomRanged(0, 15)` for every techno and adds it to the TargetingDelay
+  phase. VERA stores neither the byte nor the draw, so (a) every interceptor
+  with delay > 1 scans on the same frame phase, and (b) with Phobos gameplay
+  VERA's Scenario stream is one draw per techno ahead of a Phobos game, and
+  every later Phobos RNG consumer diverges. Trigger: any techno construction
+  under Phobos. Frequency: always. Risk: RNG-stream divergence; the scan
+  itself stays deterministic. A complete fix needs a per-techno field and the
+  init draw, which re-bases every native-golden Scenario assertion; tracked as
+  its own chain.
 - **Bullet target pointer.** Native keeps the prey in `BulletClass::Target`
   (a real Object pointer) and the bullet flies/homes at its live coordinate.
   VERA keeps the prey id in `Projectile::interceptor_target` and leaves
@@ -146,7 +152,16 @@ range, armor, house and crit checks read state only.
   its C++ remainder semantics. VERA uses an `i64` remainder with the same
   sign rule, but the RandomFactor term is missing as above.
 - **Wire and snapshots.** `TargetKind::Bullet` is engine-internal: commands
-  and MEGAMISSION refuse to encode it, and it is never a nav destination.
-  A saved projectile's `interceptor_target` must resolve in the projectile
-  store; the pointer-expiry broadcast clears it on removal.
+  and MEGAMISSION refuse to encode it, and it is never a nav destination. A
+  Foot approach converts it to the projectile's current cell each visit
+  (`FootClass::Approach_Target` reads the target's GetCoords); a non-Foot
+  destination built from a bullet id is not reachable, and the target model
+  keeps the conversion only as an object-comparison key. A saved projectile's
+  `interceptor_target` must resolve in the projectile store; the
+  pointer-expiry broadcast clears it on removal.
+- **Bullet Health in GetFireError.** Native reads a bullet target's real
+  Health (the carried damage); VERA's projectile has no Health field yet, so
+  the Bullet `TargetFacts` use 1. Trigger: a health-gated fire-error arm
+  against a bullet target (healing, damaged-target gates). Frequency: authored
+  mods. Risk: a refused/admitted shot differs only there.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

@@ -611,3 +611,48 @@ fn the_bullet_ai_retires_intercepted_bullets_and_inviso_interceptors_detonate() 
         "the interceptor's warhead intercepted the prey"
     );
 }
+
+/// `FootClass::Approach_Target` on a Bullet target reads the target object's
+/// GetCoords, so an interceptor whose GuardRange exceeds its weapon Range
+/// drives toward the projectile's current cell. VERA owns it by converting
+/// the Bullet target to that cell each approach visit.
+#[test]
+fn a_foot_interceptor_approaches_the_bullets_cell() {
+    let (mut sim, rules) = scene("Interceptor=yes\nInterceptor.GuardRange=12\n");
+    let interceptor = unit(&mut sim, &rules, "INT", "Americans", 12);
+    let enemy = unit(&mut sim, &rules, "ENEMY", "Russians", 20);
+    let bullet = spawn_bullet(
+        &mut sim,
+        &rules,
+        enemy,
+        "OBULLET",
+        [25 * 256 + 128, 10 * 256 + 128, 0],
+    );
+    let entity = sim
+        .substrate
+        .entities
+        .get_mut(interceptor)
+        .expect("interceptor");
+    entity
+        .attack_target
+        .set_for_test(Some(TargetKind::Bullet(bullet)));
+    entity.locomotor = Some(
+        crate::sim::movement::locomotor::LocomotorState::for_test_kind(
+            crate::rules::locomotor_type::LocomotorKind::Drive,
+        ),
+    );
+    assert!(
+        sim.owns_foot_approach(interceptor, &rules),
+        "a live bullet target is approachable"
+    );
+    let destination = sim
+        .approach_foot_target(interceptor, &rules, None, FrameEffects::empty())
+        .expect("approach runs");
+    assert!(
+        matches!(
+            destination,
+            Some(crate::sim::components::NavTargetRef::Cell { rx, .. }) if rx > 12
+        ),
+        "the destination is a cell toward the projectile, got {destination:?}"
+    );
+}

@@ -204,9 +204,13 @@ impl Simulation {
         let mut replacement_type = None;
         let mut replacement_speed = None;
         let mut new_kind = None;
+        // The native compare is between BulletType pointers resolved by the
+        // case-insensitive INI lookup, so compare the names that way too.
         if settings.weapon_replace_projectile
             && let Some(projectile) = rules.weapon_projectile(weapon)
-            && current_type.as_deref() != Some(projectile.id.as_str())
+            && current_type
+                .as_deref()
+                .is_none_or(|current| !current.eq_ignore_ascii_case(&projectile.id))
         {
             replacement_type = Some(self.interner.intern(&projectile.id));
             replacement_speed = Some(weapon.speed.clamp(0, i32::from(u16::MAX)) as u16);

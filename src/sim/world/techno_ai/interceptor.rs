@@ -5,10 +5,13 @@
 //! its target.
 //!
 //! ## RNG draws
-//! - None: the scan reads the frame counter, range, armor versus and house
-//!   filters only. Native's TargetingDelay phase adds the techno's
-//!   `RandomFactor` (a construction-time byte VERA does not model); VERA uses
-//!   the frame alone, recorded as a residual in the doc.
+//! - None in the scan: it reads the frame counter, range, armor versus and
+//!   house filters only. Native's TargetingDelay phase adds the techno's
+//!   `RandomFactor`, itself drawn once per techno by
+//!   `TechnoExt::InitializeState` (`Ext/Techno/Hooks.cpp:292`,
+//!   `RandomRanged(0, 15)`). VERA models neither, so the phase is fixed and
+//!   the Phobos Scenario stream is one construction draw ahead; recorded as
+//!   a residual in the doc.
 //!
 //! ## Dependency rules
 //! - Part of sim/; uses the shared projectile store, target setter, house
@@ -58,11 +61,17 @@ impl Simulation {
         }) {
             return;
         }
-        // `IsArmed()`: the interceptor weapon slot resolves.
-        let Some(weapon) = object
-            .weapon_at(settings.weapon.max(0) as usize)
-            .and_then(|weapon| rules.weapon(weapon))
-        else {
+        // `IsArmed()`: the interceptor weapon slot resolves through the
+        // shared GetWeapon owner, so a building answers an armed upgrade's or
+        // its firing occupant's record exactly as its FireAt call will.
+        let Some(weapon) = crate::sim::combat::combat_weapon::get_weapon(
+            entity,
+            object,
+            settings.weapon.max(0),
+            &self.substrate.entities,
+            rules,
+            &self.interner,
+        ) else {
             return;
         };
         let Some(warhead) = rules.weapon_warhead(weapon) else {

@@ -404,13 +404,25 @@ fn mission_construction(
             entity.begin_building_body(BuildingBodyMode::Idle, now as i32);
         }
         sim.grand_opening(id, false, false, rules, ctx.overlay_registry, ctx.effects);
-        let facing = sim
+        let wants_facing = sim
             .substrate
             .entities
             .get(id)
             .and_then(|entity| sim.object_type(entity.type_ref(), rules))
-            .filter(|object| !object.laser_fence)
-            .map(|_| crate::rules::object_type::ObjectType::BUILDING_FACING);
+            .is_some_and(|object| !object.laser_fence);
+        // `0x449AFE` (`mov ch, [type+0xED8]`): the construction turn uses the
+        // building's start facing. Phobos `BuildingClass_Mission_Construction_
+        // StartFacing` (`Ext/Building/Hooks.cpp:1506-1513`) replaces the stock
+        // zero with `GetBuildingStartFacing`.
+        #[cfg(feature = "phobos")]
+        let facing = wants_facing.then(|| {
+            sim.phobos_building_start_facing(id, rules).map_or(
+                crate::rules::object_type::ObjectType::BUILDING_FACING,
+                |facing| facing as u8,
+            )
+        });
+        #[cfg(not(feature = "phobos"))]
+        let facing = wants_facing.then_some(crate::rules::object_type::ObjectType::BUILDING_FACING);
         if let Some(entity) = sim.substrate.entities.get_mut(id) {
             crate::sim::mission::authority::queue_entity_mission_deferred(
                 entity,

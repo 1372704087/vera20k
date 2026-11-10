@@ -194,6 +194,12 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_attack_move_follower_temp_count: i32,
+    /// Phobos `BuildingExt::ConstructionStartFacing`
+    /// (`Ext/Building/Body.h:31`, constructed -1 at `:50`): the one random
+    /// `StartFacing.Random` draw, kept for the building's lifetime.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "minus_one_i32")]
+    phobos_construction_start_facing: i32,
     /// Techno+504 and Ares held sparkle. One private counter owner; stock
     /// constructor remains zero and only the feature-gated EMP producer writes it.
     #[serde(default)]
@@ -2259,6 +2265,18 @@ impl GameEntity {
     pub(crate) fn set_phobos_attack_move_follower_temp_count(&mut self, count: i32) {
         self.phobos_attack_move_follower_temp_count = count;
     }
+
+    /// `BuildingExt::ConstructionStartFacing` (`Ext/Building/Body.h:31`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_construction_start_facing(&self) -> i32 {
+        self.phobos_construction_start_facing
+    }
+
+    /// Stores the one random start facing drawn for this building.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_construction_start_facing(&mut self, facing: i32) {
+        self.phobos_construction_start_facing = facing;
+    }
 }
 
 /// Fixture setup for the identity a constructor or decoder establishes.
@@ -2548,6 +2566,8 @@ impl GameEntity {
             phobos_infantry_deploy_converted: false,
             #[cfg(feature = "phobos")]
             phobos_attack_move_follower_temp_count: 0,
+            #[cfg(feature = "phobos")]
+            phobos_construction_start_facing: -1,
             emp: Default::default(),
             #[cfg(feature = "ares")]
             attach_effects: Default::default(),

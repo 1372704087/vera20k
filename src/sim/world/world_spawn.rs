@@ -2204,6 +2204,25 @@ impl Simulation {
                 RevealOutcome::Failed(super::lifecycle::RevealFailure::RejectedEarly),
             );
         };
+        // Phobos `TechnoClass_Unlimbo_BuildingStartFacing` (`0x6F6D9E`,
+        // `Ext/Building/Hooks.cpp:1530-1543`): a runtime-created building that
+        // is not a LaserFence takes the configured start facing instead of
+        // the constructor's byte, ahead of the Unlimbo facing application.
+        #[cfg(feature = "phobos")]
+        if !scenario_initialization
+            && self
+                .substrate
+                .entities
+                .get(stable_id)
+                .is_some_and(|entity| {
+                    entity.category() == EntityCategory::Structure
+                        && self
+                            .object_type(entity.type_ref(), rules)
+                            .is_some_and(|object| !object.laser_fence)
+                })
+        {
+            self.apply_phobos_building_start_facing(stable_id, rules);
+        }
         let facing = self
             .substrate
             .entities

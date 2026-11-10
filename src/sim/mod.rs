@@ -55,12 +55,6 @@ pub(crate) mod ares_veterancy; // Ares UpdateVeterancy 10046AF0 and academies
 pub mod attach_effect;
 #[cfg(feature = "phobos")]
 pub(crate) mod auto_death;
-#[cfg(feature = "phobos")]
-pub(crate) mod phobos_no_rearm;
-#[cfg(feature = "phobos")]
-pub(crate) mod tiberium_eater;
-#[cfg(all(test, feature = "phobos"))]
-mod tiberium_eater_tests;
 pub(crate) mod base_plan;
 pub(crate) mod base_plan_generation;
 pub mod bomb;
@@ -110,6 +104,10 @@ pub(crate) mod locomotor_lift; // the Magnetron's IsLocomotor= lift (ImbueLocomo
 pub mod multiplayer_checksum;
 pub mod native_identity;
 pub(crate) mod object_fall;
+#[cfg(feature = "phobos")]
+pub(crate) mod phobos_no_rearm;
+#[cfg(feature = "phobos")]
+pub(crate) mod phobos_start_facing;
 #[cfg(feature = "ares")]
 pub(crate) mod powered_by; // Ares PoweredBy= power sources (PoweredUnitClass 1006A6F0)
 pub(crate) mod powered_unit; // Robot Tanks offline without a PowersUnit= building (Deactivate 0x0070FC90)
@@ -119,6 +117,10 @@ pub(crate) mod radar_jammer; // Ares RadarJamRadius= jammers (JammerClass 100685
 pub(crate) mod reverse_engineering; // Ares grinder reverse engineering (10022360)
 #[cfg(feature = "telemetry")]
 pub mod telemetry;
+#[cfg(feature = "phobos")]
+pub(crate) mod tiberium_eater;
+#[cfg(all(test, feature = "phobos"))]
+mod tiberium_eater_tests;
 #[cfg(feature = "ares")]
 pub(crate) mod vehicle_theft;
 // A wasm build has no threads (the browser package, the headless WASI run)

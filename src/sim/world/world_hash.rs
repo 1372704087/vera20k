@@ -1702,6 +1702,13 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
         entity.phobos_infantry_undeploy_converted().hash(hasher);
         entity.phobos_infantry_deploy_converted().hash(hasher);
     }
+    // Phobos `BuildingExt::ConstructionStartFacing`: the cached random facing
+    // decides later construction/selling turns, so it is simulation state.
+    #[cfg(feature = "phobos")]
+    if entity.phobos_construction_start_facing() != -1 {
+        b"phobos-construction-start-facing-v1".hash(hasher);
+        entity.phobos_construction_start_facing().hash(hasher);
+    }
     // Shared count presence and the raw Techno reload clock affect future
     // firing/reload, including a signed -1 reached from InitialAmmo=-2.
     b"techno-ammo-reload-v1".hash(hasher);

@@ -959,6 +959,16 @@ pub struct ObjectType {
     /// manager and kills the children that are attacking or coming home.
     #[cfg(feature = "phobos")]
     pub phobos_powered_kill_spawns: bool,
+    /// Phobos `StartFacing=` (`Ext/BuildingType/Body.cpp:267`,
+    /// `Nullable<int>`, 256-point circle): the building's initial facing;
+    /// unset takes `[General] BuildingStartFacing`. Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_start_facing: Option<i32>,
+    /// Phobos `StartFacing.Random=` (`Ext/BuildingType/Body.cpp:268`,
+    /// `Nullable<bool>`): draw one `RandomRanged(0, 255)` per building; unset
+    /// takes `[General] BuildingStartFacing.Random`. Building types only.
+    #[cfg(feature = "phobos")]
+    pub phobos_start_facing_random: Option<bool>,
     /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
     /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
     /// the `TechnoClass::ReceiveDamage` death arm.
@@ -4993,6 +5003,14 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_powered_kill_spawns: category == ObjectCategory::Building
                 && section.read_bool("Powered.KillSpawns", false),
+            #[cfg(feature = "phobos")]
+            phobos_start_facing: (category == ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_int("StartFacing", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_start_facing_random: (category == ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_bool("StartFacing.Random", None))
+                .flatten(),
             #[cfg(feature = "phobos")]
             phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
                 section,

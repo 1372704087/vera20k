@@ -332,6 +332,16 @@ pub struct PhobosGlobals {
     /// checking its facing and turn toward the target while cooling down.
     #[serde(default)]
     pub no_turret_track_target: bool,
+    /// `[General] BuildingStartFacing=`, default 0
+    /// (`Ext/Rules/Body.cpp:626`, constructor `Body.h:1024`): the fallback for
+    /// an unset BuildingType `StartFacing`, on a 256-point circle.
+    #[serde(default)]
+    pub building_start_facing: i32,
+    /// `[General] BuildingStartFacing.Random=`, default `no`
+    /// (`Ext/Rules/Body.cpp:627`, constructor `Body.h:1025`): the fallback for
+    /// an unset BuildingType `StartFacing.Random`.
+    #[serde(default)]
+    pub building_start_facing_random: bool,
     /// `[General] Passengers.SyncOwner=`, default `no`
     /// (`Ext/Rules/Body.cpp:467`, constructor `Ext/Rules/Body.h:882`): the
     /// fallback for an unset transport-type key; `yes` re-houses the cargo
@@ -434,6 +444,8 @@ impl Default for PhobosGlobals {
             no_reload_under_emp: false,
             no_reload_temporal: false,
             no_turret_track_target: false,
+            building_start_facing: 0,
+            building_start_facing_random: false,
             passengers_sync_owner: false,
             passengers_sync_owner_revert_on_exit: true,
             strafing_simulate_burst: false,
@@ -618,6 +630,14 @@ impl PhobosGlobals {
         // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
         globals.no_turret_track_target =
             general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
+        // The StartFacing pair (`Ext/Rules/Body.cpp:626-627`): a Valueable<int>
+        // and a Valueable<bool>, both read with their constructor value.
+        globals.building_start_facing =
+            general.read_int("BuildingStartFacing", globals.building_start_facing);
+        globals.building_start_facing_random = general.read_bool(
+            "BuildingStartFacing.Random",
+            globals.building_start_facing_random,
+        );
         // The two `Passengers.SyncOwner` `Valueable<bool>` globals
         // (`Ext/Rules/Body.cpp:467-468`); `Valueable` has no unset state, so
         // these are plain `read_bool` reads from the constructor defaults.

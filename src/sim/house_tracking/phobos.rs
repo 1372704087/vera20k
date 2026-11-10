@@ -55,10 +55,71 @@ impl HouseTracking {
         if entity.tracking_facts.insignificant || entity.tracking_facts.dont_score() {
             return;
         }
-        let count = self.phobos_limbo_counts[category_index(entity.category())]
-            .entry(entity.type_ref())
+        self.change_phobos_limbo_count_by(entity.category(), entity.type_ref(), delta);
+    }
+
+    fn change_phobos_limbo_count_by(
+        &mut self,
+        category: EntityCategory,
+        type_id: InternedId,
+        delta: i32,
+    ) {
+        let count = self.phobos_limbo_counts[category_index(category)]
+            .entry(type_id)
             .or_default();
         *count = count.wrapping_add(delta);
+    }
+
+    /// `HouseExt::OwnedLimboDeliveredBuildings.push_back` and its
+    /// `AddToLimboTracking`: the delivered building joins the list in delivery
+    /// order and the separate limbo counter, unless Insignificant/DontScore.
+    pub(crate) fn add_limbo_delivered(
+        &mut self,
+        building: u64,
+        limbo_id: i32,
+        category: EntityCategory,
+        type_id: InternedId,
+        counts_toward_limbo: bool,
+    ) {
+        self.limbo_delivered.push((building, limbo_id));
+        if counts_toward_limbo {
+            self.change_phobos_limbo_count_by(category, type_id, 1);
+        }
+    }
+
+    /// `RemoveFromLimboTracking` for one delivered building: its type's
+    /// separate limbo counter drops by one.
+    pub(crate) fn remove_limbo_delivered_tracking(
+        &mut self,
+        category: EntityCategory,
+        type_id: InternedId,
+    ) {
+        self.change_phobos_limbo_count_by(category, type_id, -1);
+    }
+
+    /// The delivered-building list, oldest first.
+    pub(crate) fn limbo_delivered(&self) -> &[(u64, i32)] {
+        &self.limbo_delivered
+    }
+
+    /// `Helpers::Alex::for_each_if_n` over `limbo_id`: take up to `max`
+    /// matching buildings in delivery order and drop them from the list.
+    pub(crate) fn take_limbo_delivered(&mut self, limbo_id: i32, max: i32) -> Vec<u64> {
+        let limit = usize::try_from(max).unwrap_or(0);
+        let mut taken = Vec::new();
+        if limit == 0 {
+            return taken;
+        }
+        let mut kept = Vec::with_capacity(self.limbo_delivered.len());
+        for &(building, id) in &self.limbo_delivered {
+            if taken.len() < limit && id == limbo_id {
+                taken.push(building);
+            } else {
+                kept.push((building, id));
+            }
+        }
+        self.limbo_delivered = kept;
+        taken
     }
 }
 

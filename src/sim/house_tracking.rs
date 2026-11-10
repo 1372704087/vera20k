@@ -263,6 +263,14 @@ impl TrackingFacts {
         self.dont_score
     }
 
+    /// The `!Insignificant && !DontScore` gate Phobos' limbo tracking shares
+    /// with the native tracking writers (`AddToLimboTracking` /
+    /// `RemoveFromLimboTracking`, `Ext/House/Body.cpp`).
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn counts_toward_limbo_tracking(self) -> bool {
+        !self.insignificant && !self.dont_score
+    }
+
     /// The retained type admission used by both tracking writers and hashing.
     pub(crate) const fn naval_combatant(self) -> bool {
         self.naval_combatant
@@ -462,6 +470,12 @@ pub struct HouseTracking {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_limbo_counts: [BTreeMap<InternedId, i32>; 4],
+    /// Phobos `HouseExt::OwnedLimboDeliveredBuildings`: the buildings
+    /// LimboDelivery created (alive and on the map, not in limbo) with their
+    /// `BuildingExt::LimboID`, in delivery order.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    limbo_delivered: Vec<(u64, i32)>,
     /// `HouseClass+0x2F0`.
     buildings: i32,
     /// `HouseClass+0x2E8`: the tracked vehicles and the buildings tracked
@@ -740,6 +754,8 @@ impl HouseTracking {
         {
             b"phobos-house-limbo-v1".hash(hasher);
             self.phobos_limbo_counts.hash(hasher);
+            b"phobos-house-limbo-delivered-v1".hash(hasher);
+            self.limbo_delivered.hash(hasher);
         }
         self.buildings.hash(hasher);
         self.unit_types.hash(hasher);

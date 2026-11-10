@@ -4124,6 +4124,7 @@ fn emit_detonation_receivers<'r>(
     overlay_registry: Option<&OverlayTypeRegistry>,
     detonation: &ProjectileDetonation,
     warhead: &'r WarheadType,
+    trigger_skip: bool,
     out: &mut CombatEmit,
     under_attack_events: &mut Vec<UnderAttackEvent>,
 ) -> (Option<AreaDamageContinuation<'r>>, bool, bool) {
@@ -4145,6 +4146,15 @@ fn emit_detonation_receivers<'r>(
         under_attack_events,
     ) {
         return (None, false, true);
+    }
+    // Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`,
+    // `Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`): a Techno target failing
+    // the warhead's health/veterancy/neutral/invoker conditions jumps to the
+    // extras (`0x469AA4`), past radiation, the per-target pass, the stock
+    // damage arms and the area damage. Interception and the all-map claim
+    // above already ran (they precede `0x4690D4`).
+    if trigger_skip {
+        return (None, false, false);
     }
     let effects = run.effects();
     let (impact_rx, impact_ry, ..) = projectile_impact_cell(detonation.impact);
@@ -4769,14 +4779,23 @@ pub(crate) fn commit_projectile_detonations_inline(
             let shake_suppressed = all_map_claims(world, &clustered, warhead);
             #[cfg(not(feature = "phobos"))]
             let shake_suppressed = false;
-            let shake_x = (!shake_suppressed
+            // Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`): a target
+            // failing the warhead's trigger conditions lands at the extras
+            // (`0x469AA4`) without the shake draws or the whole body.
+            #[cfg(feature = "phobos")]
+            let trigger_skip = warhead_trigger_skips(world, rules, &clustered, warhead);
+            #[cfg(not(feature = "phobos"))]
+            let trigger_skip = false;
+            let shake_x = (!trigger_skip
+                && !shake_suppressed
                 && (warhead.shake_x_lo != 0 || warhead.shake_x_hi != 0))
                 .then(|| {
                     world
                         .main_rng
                         .next_range_i32_inclusive(warhead.shake_x_lo, warhead.shake_x_hi)
                 });
-            let shake_y = (!shake_suppressed
+            let shake_y = (!trigger_skip
+                && !shake_suppressed
                 && (warhead.shake_y_lo != 0 || warhead.shake_y_hi != 0))
                 .then(|| {
                     world
@@ -4801,6 +4820,7 @@ pub(crate) fn commit_projectile_detonations_inline(
                 overlay_registry,
                 &clustered,
                 warhead,
+                trigger_skip,
                 emit,
                 under_attack_events,
             );
@@ -4958,6 +4978,57 @@ pub(crate) fn commit_projectiles(
         effects: emit.effects,
         under_attack_events,
     }
+}
+
+/// Phobos `BulletClass_Logics_NewChecks` (`0x4690D4`,
+/// `Ext/Bullet/Hooks.DetonateLogics.cpp:9-41`): a bullet whose type (else the
+/// `[CombatDamage]` global, default yes) obeys warhead trigger conditions
+/// applies the health, veterancy, neutral and invoker tests to a Techno
+/// target; failing any sends the detonation to the impact extras
+/// (`GoToExtras 0x469AA4`) without the shake draws or the warhead body.
+#[cfg(feature = "phobos")]
+fn warhead_trigger_skips(
+    world: &Simulation,
+    rules: &RuleSet,
+    detonation: &ProjectileDetonation,
+    warhead: &WarheadType,
+) -> bool {
+    let obey = detonation
+        .payload
+        .projectile_type()
+        .and_then(|projectile| rules.projectile(world.interner.resolve(projectile)))
+        .and_then(|kind| kind.shrapnel_obey_warhead_trigger_conditions)
+        .unwrap_or(
+            rules
+                .phobos_globals
+                .shrapnel_obey_warhead_trigger_conditions,
+        );
+    if !obey {
+        return false;
+    }
+    let ProjectileTarget::Entity(target_id) = detonation.target else {
+        return false;
+    };
+    let Some(target) = world.substrate.entities.get(target_id) else {
+        return false;
+    };
+    let object = world.interner.object_type(target.type_ref(), rules);
+    if !super::super::combat::warhead_triggers_allow(
+        warhead,
+        target,
+        object,
+        (detonation.source_id != 0).then_some(detonation.source_id),
+        rules
+            .phobos_globals
+            .affects_invoker_only_ignore_invoker_state,
+    ) {
+        return true;
+    }
+    !warhead.affects_neutral
+        && world
+            .houses
+            .get(&target.owner())
+            .is_some_and(|house| house.multiplay_passive())
 }
 
 /// `Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`'s gate: the warhead's health and

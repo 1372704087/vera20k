@@ -61,7 +61,9 @@ the early refusal differs.
 - `SkipWeaponPicking` (Ares) is not modelled; the shared admission evaluates the
   all-default case, matching `sim::combat::phobos_airburst`'s recorded choice.
 - `Shrapnel.ObeyWarheadTriggerConditions`
-  (`Ext/Bullet/Hooks.DetonateLogics.cpp:22`) gates the detonation logic list.
+  (`Ext/Bullet/Hooks.DetonateLogics.cpp:22`) is consumed at the detonation
+  entry (`0x4690D4`); see the [warhead trigger conditions]
+  (phobos-warhead-triggers.md#bullet-detonation-gate) page.
 - The `[CombatDamage]` globals are read once from the merged layer state
   (`rules::phobos_globals`), which equals Phobos re-reading them on every
   `Process` for scalar keys. A later layer naming only one key keeps the other.

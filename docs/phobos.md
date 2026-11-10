@@ -44,7 +44,7 @@ Supported extensions:
 - [Shared transport ammo](phobos-shared-ammo.md) (`Ammo.Shared=` and `Ammo.Shared.Group=` feed a reloading open-topped transport's rounds to its passengers)
 - [Credits indicator step limit](phobos-credits-indicator.md) (`CreditsIndicator.MaxStep=` and `.Smooth=` shape the sidebar balance roll)
 - [Passenger deletion](phobos-passenger-deletion.md) (`PassengerDeletion.*` counts down and deletes a transport's passenger, optionally paying Soylent)
-- [Warhead trigger conditions](phobos-warhead-triggers.md) (`AffectsAbovePercent`, `AffectsBelowPercent`, `AffectsVeterancy` and `AffectsInvokerOnly.*` on a detonation's targets)
+- [Warhead trigger conditions](phobos-warhead-triggers.md) (`AffectsAbovePercent`, `AffectsBelowPercent`, `AffectsVeterancy` and `AffectsInvokerOnly.*` on a detonation's targets; `Shrapnel.ObeyWarheadTriggerConditions` gates a bullet's whole detonation body, default yes)
 - [Overload tables](phobos-overload.md) (`Overload.Count`, `.Damage`, `.Frames`, `.DeathSound`, `.ParticleSys` and `.ParticleSysCount` for mind-control managers)
 - [Grinding gates](phobos-grinding.md) (`Grinding.AllowAllies`, `.AllowOwner`, `.AllowTypes`, `.DisallowTypes`, `.Sound`, `.PlayDieSound`, `.Weapon` and `.Weapon.RequiredCredits`)
 - [Harvester area guard](phobos-harvester-guard.md) (`Harvester.CanGuardArea` and `.RequireTarget`: a human harvester holds Area Guard, optionally only with a threat in range)

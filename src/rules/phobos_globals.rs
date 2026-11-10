@@ -71,6 +71,14 @@ pub struct PhobosGlobals {
     /// `Shrapnel.UseWeaponTargeting=`, default `no`: replace the ally test with
     /// the child weapon's own target eligibility (`:309-342`).
     pub shrapnel_use_weapon_targeting: bool,
+    /// `Shrapnel.ObeyWarheadTriggerConditions=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:557`, constructor `Ext/Rules/Body.h:972`): a
+    /// bullet whose type leaves the key unset applies the warhead's health,
+    /// veterancy, neutral and invoker conditions before its whole body
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`); failing them keeps only
+    /// the impact extras.
+    #[serde(default = "true_bool")]
+    pub shrapnel_obey_warhead_trigger_conditions: bool,
     /// `Overload.ParticleSysCount=`, default 5 (`Ext/Rules/Body.h:670`):
     /// the number of spark systems a damaging overload row throws.
     pub overload_particle_sys_count: i32,
@@ -481,6 +489,7 @@ impl Default for PhobosGlobals {
             auto_death_technos_dont_exist_allow_limboed: false,
             shrapnel_ignore_hit_buildings: false,
             shrapnel_use_weapon_targeting: false,
+            shrapnel_obey_warhead_trigger_conditions: true,
             projectile_interceptable: false,
             interceptor_guard_range_is_cylindrical: false,
             interceptor_apply_firepower_mult: true,
@@ -901,6 +910,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         shrapnel_use_weapon_targeting: section.read_bool(
             "Shrapnel.UseWeaponTargeting",
             defaults.shrapnel_use_weapon_targeting,
+        ),
+        shrapnel_obey_warhead_trigger_conditions: section.read_bool(
+            "Shrapnel.ObeyWarheadTriggerConditions",
+            defaults.shrapnel_obey_warhead_trigger_conditions,
         ),
         projectile_interceptable: section
             .read_bool("ProjectileInterceptable", defaults.projectile_interceptable),

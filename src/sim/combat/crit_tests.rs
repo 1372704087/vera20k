@@ -633,9 +633,12 @@ fn return_warhead_strikes_the_firer_back() {
 
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
-/// the warhead's own triggers refuse the victim. The gate does not set
-/// `SkipLowDamageCheck`, so native's `0x7019D8` floor turns that zero packet
-/// into one point of damage.
+/// the warhead's own triggers refuse the victim. Under Phobos' default
+/// `Shrapnel.ObeyWarheadTriggerConditions=yes` the earlier
+/// `BulletClass_Logics_NewChecks` gate (`0x4690D4`,
+/// `Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`) skips the whole body first, so
+/// no packet reaches ReceiveDamage and its `0x7019D8` low-damage floor never
+/// applies: a refused bullet detonation deals nothing.
 #[test]
 fn warhead_trigger_gates_zero_the_received_damage() {
     let damage = |wh_ini: &str, no_invoker: bool, set_health: Option<i32>| {
@@ -657,8 +660,8 @@ fn warhead_trigger_gates_zero_the_received_damage() {
     assert_eq!(damage("", false, None), 100, "control");
     assert_eq!(
         damage("AffectsAbovePercent=0.9\n", false, Some(50)),
-        1,
-        "10% health refuses the packet, leaving the low-damage floor"
+        0,
+        "10% health refuses the whole bullet body before any packet"
     );
     assert_eq!(
         damage("AffectsAbovePercent=0.9\n", false, None),
@@ -667,8 +670,8 @@ fn warhead_trigger_gates_zero_the_received_damage() {
     );
     assert_eq!(
         damage("AffectsInvokerOnly=yes\n", false, None),
-        1,
-        "the firer is not the victim"
+        0,
+        "the firer is not the victim, so the body is skipped"
     );
     assert_eq!(
         damage(
@@ -680,7 +683,7 @@ fn warhead_trigger_gates_zero_the_received_damage() {
     );
     assert_eq!(
         damage("AffectsInvokerOnly=yes\n", true, None),
-        1,
+        0,
         "no invoker and the default global true refuses"
     );
     assert_eq!(

@@ -190,6 +190,15 @@ pub struct ProjectileType {
     /// by `sim::combat::shrapnel`'s ring walk.
     #[cfg(feature = "phobos")]
     pub shrapnel_use_weapon_targeting: Option<bool>,
+    /// Phobos `Shrapnel.ObeyWarheadTriggerConditions=` (`Ext/BulletType/Body.cpp:45`,
+    /// `Body.h:45`, `Nullable`): `None` takes the `[CombatDamage]` global
+    /// (default **yes**). An effective `yes` applies the warhead's health,
+    /// veterancy, neutral and invoker conditions to a Techno target before
+    /// its whole detonation body; failing them keeps only the impact extras
+    /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:22-29`, hook `0x4690D4`,
+    /// `GoToExtras` `0x469AA4`).
+    #[cfg(feature = "phobos")]
+    pub shrapnel_obey_warhead_trigger_conditions: Option<bool>,
     /// `ShrapnelWeapon=` (+2B4), the WeaponType fired for each shrapnel
     /// fragment, as the ordered Rules processor resolved it.
     pub shrapnel_weapon: Option<String>,
@@ -538,6 +547,9 @@ impl ProjectileType {
             #[cfg(feature = "phobos")]
             shrapnel_use_weapon_targeting: section
                 .read_phobos_nullable_bool("Shrapnel.UseWeaponTargeting", None),
+            #[cfg(feature = "phobos")]
+            shrapnel_obey_warhead_trigger_conditions: section
+                .read_phobos_nullable_bool("Shrapnel.ObeyWarheadTriggerConditions", None),
             detonation_altitude: section.read_int("DetonationAltitude", 0),
             acceleration: section.read_int("Acceleration", 3),
             course_lock_duration: section.read_int("CourseLockDuration", 0),

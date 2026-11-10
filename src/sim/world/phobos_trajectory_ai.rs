@@ -114,6 +114,9 @@ impl Simulation {
             location = target;
             if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
                 projectile.set_position(location);
+                if let Some(state) = projectile.phobos_trajectory_mut() {
+                    state.snapped_to_target = true;
+                }
             }
         }
         if let Some(detonation) =

@@ -82,6 +82,10 @@ pub(crate) struct PhobosTrajectoryState {
     pub count_of_burst: i32,
     /// `WaitOneFrame`: 2 waits for the target's first update, 1 consumed it.
     pub wait_one_frame: i32,
+    /// Phobos `BulletExt::SnappedToTarget`: set by `OnAIPreDetonate` when the
+    /// impact coordinate snapped onto the target.
+    #[serde(default)]
+    pub snapped_to_target: bool,
     /// `BombardTrajectory::Height`, `height + TargetCoords.Z` at Unlimbo.
     #[serde(default = "zero_bits")]
     pub bombard_height: NativeF64Bits,
@@ -158,6 +162,7 @@ impl PhobosTrajectoryState {
             current_burst: 0,
             count_of_burst: 0,
             wait_one_frame: 0,
+            snapped_to_target: false,
             bombard_height: zero_bits(),
             bombard_fall_percent: zero_bits(),
             initial_target_coord: zero_coord(),
@@ -192,6 +197,7 @@ impl PhobosTrajectoryState {
         self.current_burst.hash(hasher);
         self.count_of_burst.hash(hasher);
         self.wait_one_frame.hash(hasher);
+        self.snapped_to_target.hash(hasher);
         self.bombard_height.hash(hasher);
         self.bombard_fall_percent.hash(hasher);
         self.initial_target_coord.hash(hasher);
@@ -295,6 +301,7 @@ impl Simulation {
             current_burst: 0,
             count_of_burst: 0,
             wait_one_frame: 0,
+            snapped_to_target: false,
             ..PhobosTrajectoryState::base(TrajectoryFlag::Straight)
         };
         state.attenuation_range = weapon.range_leptons;

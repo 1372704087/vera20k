@@ -200,6 +200,10 @@ fn detonation_distance_detonates_and_snaps_to_the_target() {
         (target_coords.x, target_coords.y, target_coords.z),
         "TargetSnapDistance snaps the impact onto the target"
     );
+    assert!(
+        state_of(&scene, id).snapped_to_target,
+        "the retained BulletExt::SnappedToTarget byte"
+    );
 }
 
 #[test]

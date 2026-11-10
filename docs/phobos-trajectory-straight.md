@@ -112,6 +112,8 @@ and the `GetCellsInRectangle` proximity scan.
 - `PassDetonate` and proximity hits are warhead detonations that leave the
   bullet flying; they ride `TrajectoryStep::extra_detonations`, not the
   terminal impact that retires it.
+- A snapping pre-detonation sets `PhobosTrajectoryState::snapped_to_target`,
+  the retained `BulletExt::SnappedToTarget` byte.
 
 ## Residuals (trigger · impact · frequency · risk)
 
@@ -131,12 +133,10 @@ and the `GetCellsInRectangle` proximity scan.
   and Trailer construction instead of before them (`0x4666F7` precedes
   `0x466826`). Impact: a detonation frame's anim spawn order. Frequency: rare.
   Risk: presentation only.
-- **`SnappedToTarget` byte.** The impact coordinate snaps, but the retained
-  byte other Phobos code may read is not modeled. Frequency: snapping shots.
-  Risk: low.
-- **LaserTrails on bullets.** `BulletClass_AI_Position_Trajectories`'s
-  future-coordinate trail update (`PhobosTrajectory.cpp:515-531`) is not
-  modeled; VERA's bullet trail owner is the shared line-trail receipt.
+- **LaserTrails on bullets.** Bullet `LaserTrail.Types` parsing, the
+  per-bullet `LaserTrailClass` list and the `0x46745C` future-coordinate
+  update (`PhobosTrajectory.cpp:515-531`) are one separate bullet-trail
+  chain; VERA models only the stock `UseLineTrail` receipt.
   Frequency: none in retail. Risk: visual.
 - **Merged-section reads.** A later INI layer re-declaring `Trajectory=` with
   a different flag reconstructs the type natively; the merged reader sees only

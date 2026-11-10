@@ -75,7 +75,4 @@ when the geometry has no solution. The bounce ladder is
 
 ## Residuals (trigger · impact · frequency · risk)
 
-- **Water bounce.** `BounceOnWater` reads the landing cell's `LandType`; no
-  mixed shore handling beyond the native cell test. Frequency: shore cells.
-  Risk: low.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

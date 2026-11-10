@@ -1338,3 +1338,300 @@ fn change_owner_mind_control_marks_the_capture() {
         "MindControlledByAUnit is +0x2C4"
     );
 }
+
+/// `ApplyCrit`'s `IsTechnoEligible` gate (`Detonate.cpp:562`,
+/// `EnumFunctions.cpp:59-94` with `considerAircraftSeparately=false`): a
+/// spreading always-crit warhead crits only the classes its
+/// `Crit.AffectsTarget` lists; `all` and the unset default admit every class.
+#[test]
+fn crit_affects_target_filter_admits_only_the_listed_classes() {
+    // (unit, infantry, building) crit damage of one detonation at the unit.
+    fn victims(wh_ini: &str) -> [i32; 3] {
+        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[Countries]\n0=Americans\n1=Russians\n\
+             [VehicleTypes]\n0=FIRER\n1=TANK\n\
+             [InfantryTypes]\n0=GI\n\
+             [BuildingTypes]\n0=BLDG\n\
+             [WeaponTypes]\n0=GUN\n\
+             [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
+             [Warheads]\n0=WH\n\
+             [WH]\nCellSpread=3\nCrit.Chance=1.0\nCrit.ExtraDamage=50\n{wh_ini}\
+             [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
+             [TANK]\nStrength=500\nArmor=none\nSpeed=6\n\
+             [GI]\nStrength=500\nArmor=none\nSpeed=4\n\
+             [BLDG]\nStrength=500\nArmor=none\n"
+        )))
+        .expect("rules");
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5A_AA_1E);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let firer = sim
+            .spawn_object("FIRER", "Americans", 20, 20, 0, &rules)
+            .expect("firer");
+        let tank = sim
+            .spawn_object("TANK", "Russians", 22, 20, 0, &rules)
+            .expect("unit");
+        let gi = sim
+            .spawn_object("GI", "Russians", 23, 20, 0, &rules)
+            .expect("infantry");
+        let bldg = sim
+            .spawn_object("BLDG", "Russians", 24, 20, 0, &rules)
+            .expect("building");
+        shoot(&mut sim, &rules, "WH", firer, tank, 0);
+        [
+            500 - health(&sim, tank),
+            500 - health(&sim, gi),
+            500 - health(&sim, bldg),
+        ]
+    }
+    assert_eq!(
+        victims("Crit.AffectsTarget=units\n"),
+        [50, 0, 0],
+        "units admits the vehicle and refuses infantry and buildings"
+    );
+    assert_eq!(victims("Crit.AffectsTarget=infantry\n"), [0, 50, 0]);
+    assert_eq!(victims("Crit.AffectsTarget=buildings\n"), [0, 0, 50]);
+    assert_eq!(
+        victims("Crit.AffectsTarget=all\n"),
+        [50, 50, 50],
+        "all admits every class"
+    );
+    assert_eq!(victims(""), [50, 50, 50], "the unset default is All");
+}
+
+/// `ApplyCrit`'s `CanTargetHouse` gate (`Detonate.cpp:556`,
+/// `EnumFunctions.cpp:5-16`): the owner, ally and enemy buckets, and the
+/// deprecated `Crit.AffectsHouses`/`Crit.Affects` aliases, which the current
+/// keys overwrite in reader order regardless of INI order
+/// (`WarheadType/Body.cpp:200-211`).
+#[test]
+fn crit_affects_house_buckets_and_alias_precedence() {
+    let crit_damage = |wh_ini: &str, target_house: &str, allied: bool| {
+        let (mut sim, rules, firer, target) = scene(
+            "",
+            &format!("Crit.Chance=1.0\nCrit.ExtraDamage=50\n{wh_ini}"),
+            "",
+            "",
+            target_house,
+        );
+        if allied {
+            for (house, ally) in [("AMERICANS", "RUSSIANS"), ("RUSSIANS", "AMERICANS")] {
+                sim.house_alliances_mut_for_test()
+                    .entry(house.to_owned())
+                    .or_default()
+                    .insert(ally.to_owned());
+            }
+        }
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        500 - health(&sim, target)
+    };
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=enemies\n", "Russians", false),
+        50,
+        "enemies admits the enemy target"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=enemies\n", "Americans", false),
+        0,
+        "enemies refuses the firing house's own unit"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=owner\n", "Americans", false),
+        50
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=owner\n", "Russians", false),
+        0
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=enemies\n", "Russians", true),
+        0,
+        "an allied target leaves the enemy bucket"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=allies\n", "Russians", true),
+        50,
+        "allies admits the allied target"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouse=allies\n", "Russians", false),
+        0,
+        "without an alliance the target stays an enemy"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouses=enemies\n", "Russians", false),
+        50,
+        "the deprecated alias alone maps to the same field"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectsHouses=owner\n", "Russians", false),
+        0
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.AffectsHouses=owner\nCrit.AffectsHouse=enemies\n",
+            "Russians",
+            false
+        ),
+        50,
+        "the current key overwrites the alias"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.AffectsHouse=enemies\nCrit.AffectsHouses=owner\n",
+            "Russians",
+            false
+        ),
+        50,
+        "reader order wins even when the alias comes later in the INI"
+    );
+    assert_eq!(
+        crit_damage("Crit.Affects=infantry\n", "Russians", false),
+        0,
+        "the target alias alone refuses the vehicle"
+    );
+    assert_eq!(
+        crit_damage(
+            "Crit.Affects=infantry\nCrit.AffectsTarget=units\n",
+            "Russians",
+            false
+        ),
+        50,
+        "Crit.AffectsTarget overwrites Crit.Affects"
+    );
+}
+
+/// `ApplyCrit`'s `TechnoExt::IsHealthInThreshold` gate
+/// (`Detonate.cpp:553`, `Ext/Techno/Body.cpp:752-759`): the band is
+/// `(above, below]` — strict above, inclusive below — and the deprecated
+/// percent aliases map to the same bounds with the same overwrite rule
+/// (`WarheadType/Body.cpp:217-228`).
+#[test]
+fn crit_health_band_boundaries_are_open_above_closed_below() {
+    let crit_damage = |wh_ini: &str, hp: i32| {
+        let (mut sim, rules, firer, target) = scene(
+            "",
+            &format!("Crit.Chance=1.0\nCrit.ExtraDamage=50\n{wh_ini}"),
+            "",
+            "",
+            "Russians",
+        );
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .health
+            .set_for_test(hp);
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        hp - health(&sim, target)
+    };
+    assert_eq!(
+        crit_damage("Crit.AffectsAbovePercent=0.5\n", 250),
+        0,
+        "exactly half health misses the strict above bound"
+    );
+    assert_eq!(crit_damage("Crit.AffectsAbovePercent=0.5\n", 251), 50);
+    assert_eq!(
+        crit_damage("Crit.AffectsBelowPercent=0.5\n", 250),
+        50,
+        "exactly half health satisfies the inclusive below bound"
+    );
+    assert_eq!(crit_damage("Crit.AffectsBelowPercent=0.5\n", 251), 0);
+    assert_eq!(
+        crit_damage(
+            "Crit.AffectsAbovePercent=0.25\nCrit.AffectsBelowPercent=0.5\n",
+            250
+        ),
+        50,
+        "half health sits inside (0.25, 0.5]"
+    );
+    assert_eq!(
+        crit_damage("Crit.AffectAbovePercent=0.5\n", 250),
+        0,
+        "the deprecated above alias reads the same bound"
+    );
+    assert_eq!(crit_damage("Crit.AffectBelowPercent=0.5\n", 250), 50);
+    assert_eq!(
+        crit_damage(
+            "Crit.AffectBelowPercent=0.1\nCrit.AffectsBelowPercent=0.5\n",
+            250
+        ),
+        50,
+        "the current percent key overwrites the alias"
+    );
+    assert_eq!(
+        crit_damage("", 100),
+        50,
+        "the unset (0.0, 1.0] band admits every live target"
+    );
+}
+
+/// A refused target costs no extra Scenario draw and plays no per-target
+/// crit animation: the default shared dice is drawn once in the prefix
+/// (`Detonate.cpp:161-168`), `ApplyCrit` reads the buffer before its filters
+/// (`537-563`), and `Crit.ActiveChanceAnims` plays at the detonation point
+/// even when every target is refused, while `Crit.AnimList` under
+/// `Crit.AnimOnAffectedTargets` plays only on admitted targets (`567-587`).
+#[test]
+fn refused_crit_targets_draw_no_dice_and_play_no_target_anim() {
+    let outcome = |wh_ini: &str| {
+        let (mut sim, mut rules, firer, target) = scene(
+            "",
+            &format!(
+                "Crit.Chance=1.0\nCrit.ExtraDamage=50\n\
+                 Crit.ActiveChanceAnims=ONE,TWO\nCrit.AnimList=CRITFX\n\
+                 Crit.AnimOnAffectedTargets=yes\n{wh_ini}"
+            ),
+            "",
+            "[Animations]\n0=ONE\n1=TWO\n2=CRITFX\n",
+            "Russians",
+        );
+        let mut art = crate::rules::art_data::ArtRegistry::from_ini(&IniFile::from_str(
+            "[ONE]\nRate=900\n[TWO]\nRate=900\n[CRITFX]\nRate=900\n",
+        ));
+        for name in ["ONE", "TWO", "CRITFX"] {
+            art.bind_anim_frame_count_for_test(name, 6);
+        }
+        rules.install_art_fixture(art);
+        // The two prefix buffers, then the ActiveChanceAnims pick.
+        let mut expected = sim.scenario_rng.clone();
+        expected.random_double();
+        expected.random_double();
+        expected.next_range_i32_inclusive(0, 1);
+        shoot(&mut sim, &rules, "WH", firer, target, 0);
+        let anims: Vec<String> = sim
+            .anims()
+            .map(|(_, anim)| sim.resolve(anim.type_id()).to_owned())
+            .collect();
+        (
+            500 - health(&sim, target),
+            sim.scenario_rng.logical_state() == expected.logical_state(),
+            anims,
+        )
+    };
+    let (damage, stream_unchanged, anims) = outcome("Crit.AffectsTarget=infantry\n");
+    assert_eq!(damage, 0, "the class filter refuses the vehicle");
+    assert!(
+        stream_unchanged,
+        "a refused target reads the shared buffer without drawing"
+    );
+    assert!(
+        !anims.iter().any(|name| name == "CRITFX"),
+        "no per-target crit animation on a refused target"
+    );
+    assert_eq!(
+        anims
+            .iter()
+            .filter(|name| *name == "ONE" || *name == "TWO")
+            .count(),
+        1,
+        "the detonation-point chance anim plays regardless of admission"
+    );
+    let (damage, stream_unchanged, anims) = outcome("");
+    assert_eq!(damage, 50, "an admitted target keeps the crit behavior");
+    assert!(stream_unchanged, "the shared dice draws no per-target roll");
+    assert!(
+        anims.iter().any(|name| name == "CRITFX"),
+        "the admitted target plays the crit animation"
+    );
+}

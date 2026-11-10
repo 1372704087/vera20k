@@ -851,8 +851,17 @@ fn techno_what_weapon_should_i_use<'r>(
     multi: impl FnOnce() -> Option<i32>,
 ) -> i32 {
     // A @ 0x006F333B: turreted non-gattling types fire the gunner slot,
-    // unconditionally (`-1` collapses to 0).
-    if obj.turret_count > 0 && !obj.is_gattling {
+    // unconditionally (`-1` collapses to 0). Phobos
+    // `TechnoClass_WhatWeaponShouldIUse_MultiWeapon` (`0x6F3360`,
+    // `Ext/Techno/Hooks.Firing.cpp:41-53`) skips this arm's return for a
+    // `MultiWeapon` type unless it is a Unit with a Gunner, so the ladder
+    // continues toward the `0x6F3428` hook.
+    #[cfg(feature = "phobos")]
+    let multi_skips_turret_slot =
+        obj.phobos_multi_weapon.enabled && !(attacker.kind == TechnoKind::Unit && obj.gunner);
+    #[cfg(not(feature = "phobos"))]
+    let multi_skips_turret_slot = false;
+    if obj.turret_count > 0 && !obj.is_gattling && !multi_skips_turret_slot {
         return if attacker.current_weapon_number == -1 {
             0
         } else {

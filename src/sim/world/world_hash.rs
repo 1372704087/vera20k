@@ -1684,6 +1684,14 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
             .phobos_grinding_weapon_last_fired_frame()
             .hash(hasher);
     }
+    // Phobos `BuildingExt::CurrentEMPulseSW` (`Ext/Building/Hooks.cpp:132-189`)
+    // survives ticks until Mission_Missile selects and clears it; a different
+    // latch changes the weapon slot and the resumed Super set.
+    #[cfg(feature = "phobos")]
+    if let Some(sw) = entity.phobos_current_empulse_sw() {
+        b"phobos-empulse-sw-v1".hash(hasher);
+        sw.hash(hasher);
+    }
     // Phobos `TechnoExt` delayed-fire timer/anim state gates the next shot.
     // Only an entity with non-default state contributes, so an untouched save
     // keeps its old hash. The RNG draw that picked a ranged Duration is already

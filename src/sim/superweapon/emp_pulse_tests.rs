@@ -463,3 +463,58 @@ fn stock_empulse_keys_keep_the_ares_launch() {
     assert!(!sim.super_weapons[&owner][&volley].is_suspended());
     assert!(sim.houses[&owner].suspended_emp_pulse_sws().is_empty());
 }
+
+/// `BuildingExt::CurrentEMPulseSW` (`Ext/Building/Hooks.cpp:132-189`) is real
+/// state across ticks: two otherwise identical worlds that differ only in the
+/// latch take different weapon slots and resume sets, so the state hash must
+/// tell them apart.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_empulse_cannon_latch_changes_the_state_hash() {
+    let rules = rules("");
+    let (mut first, _) = scene(&rules);
+    let cannon = building(&mut first, &rules, "CANNON", (20, 20));
+    let (mut second, _) = scene(&rules);
+    building(&mut second, &rules, "CANNON", (20, 20));
+    assert_eq!(
+        first.state_hash(),
+        second.state_hash(),
+        "identical worlds start with the same hash"
+    );
+    let pulse = first.interner.intern("Pulse");
+    first
+        .substrate
+        .entities
+        .get_mut(cannon)
+        .unwrap()
+        .set_phobos_current_empulse_sw(pulse);
+    let second_pulse = second.interner.intern("Pulse");
+    assert_eq!(pulse, second_pulse);
+    assert_ne!(
+        first.state_hash(),
+        second.state_hash(),
+        "the latch is hashed"
+    );
+}
+
+/// `FireSuperWeapon.cpp:400-403` pushes a second hold into the existing entry;
+/// the map must keep both lists until the resume hook clears them.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_second_empulse_hold_appends_to_the_house_entry() {
+    let (mut sim, owner) = scene(&rules(""));
+    let pulse = sim.interner.intern("Pulse");
+    let first = sim.interner.intern("Volley");
+    let second = sim.interner.intern("Pulse2");
+    let house = sim.houses.get(&owner).unwrap();
+    let mut house = house.clone();
+    house.hold_emp_pulse_sws(pulse, vec![first]);
+    house.hold_emp_pulse_sws(pulse, vec![second]);
+    assert_eq!(
+        house.suspended_emp_pulse_sws()[&pulse],
+        [first, second],
+        "the later hold is appended, not replacing the earlier one"
+    );
+    assert_eq!(house.release_emp_pulse_sws(pulse), [first, second]);
+    assert!(house.suspended_emp_pulse_sws().is_empty());
+}

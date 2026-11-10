@@ -39,9 +39,12 @@ keeps its odd non-zero slot rule.
 
 `SelectMultiWeapon` runs at the `0x6F3428` hook after `SelectForceWeapon` and
 after every native ladder arm that returns earlier (class deploy overrides,
-turreted non-gattling slot, occupied building, weapon resolution, `NeverUse`,
-null target, open-topped slot, Ares `NoAmmoWeapon`, gattling stage). It needs
-the switch and a target and refuses gattling types and
+occupied building, weapon resolution, `NeverUse`, null target, open-topped
+slot, Ares `NoAmmoWeapon`, gattling stage). The turreted non-gattling slot arm
+(`0x6F333B`) returns earlier **unless** the type is `MultiWeapon` and not a
+Unit with `Gunner`: the `0x6F3360` hook then skips that return
+(`Ext/Techno/Hooks.Firing.cpp:41-53`) and the ladder continues. It needs the
+switch and a target and refuses gattling types and
 `HasMultipleTurrets() && Gunner` types.
 
 `count = min(WeaponCount, SelectCount)`; below 2 it forces slot 0, exactly 2

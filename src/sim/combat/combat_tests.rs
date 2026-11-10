@@ -7250,7 +7250,7 @@ fn phobos_multi_weapon_cycles_only_the_admitted_slots() {
     let ini = crate::sim::arena_fixture::clear_ground_ini(
         "[Countries]\n0=Americans\n1=Russians\n\
          [InfantryTypes]\n\
-         [VehicleTypes]\n0=MULTI\n1=MULTI2\n2=MULTI99\n3=NOMULTI\n4=HTNK\n\
+         [VehicleTypes]\n0=MULTI\n1=MULTI2\n2=MULTI99\n3=NOMULTI\n4=HTNK\n5=MULTITURRET\n6=GUNNERMULTI\n\
          [AircraftTypes]\n0=PLANE\n\
          [MULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
          WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
@@ -7265,6 +7265,12 @@ fn phobos_multi_weapon_cycles_only_the_admitted_slots() {
          WeaponCount=3\nPrimary=Gun\nSecondary=Gun\nWeapon3=AA\n\
          MultiWeapon=no\nMultiWeapon.SelectCount=99\nMultiWeapon.IsSecondary=2\n\
          [HTNK]\nStrength=400\nArmor=heavy\n\
+         [MULTITURRET]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\nTurretCount=1\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\n\
+         [GUNNERMULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\nTurretCount=1\n\
+         Gunner=yes\nWeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\n\
          [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\n\
          [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=GroundShot\nWarhead=WH\n\
          [AA]\nDamage=10\nROF=50\nRange=8\nProjectile=AirShot\nWarhead=WH\n\
@@ -7295,6 +7301,12 @@ fn phobos_multi_weapon_cycles_only_the_admitted_slots() {
     let stock = sim
         .spawn_object("NOMULTI", "Americans", 16, 10, 0, &rules)
         .expect("stock attacker spawns");
+    let turreted = sim
+        .spawn_object("MULTITURRET", "Americans", 18, 12, 0, &rules)
+        .expect("turreted attacker spawns");
+    let gunner = sim
+        .spawn_object("GUNNERMULTI", "Americans", 20, 12, 0, &rules)
+        .expect("gunner attacker spawns");
     fn select(
         sim: &crate::sim::world::Simulation,
         rules: &RuleSet,
@@ -7337,6 +7349,16 @@ fn phobos_multi_weapon_cycles_only_the_admitted_slots() {
         select(&sim, &rules, stock, plane, "NOMULTI"),
         0,
         "MultiWeapon=no keeps the stock two-slot answer despite the other keys"
+    );
+    assert_eq!(
+        select(&sim, &rules, turreted, plane, "MULTITURRET"),
+        2,
+        "0x6F3360 skips the turreted slot arm so SelectMultiWeapon answers"
+    );
+    assert_eq!(
+        select(&sim, &rules, gunner, plane, "GUNNERMULTI"),
+        0,
+        "a Unit with Gunner keeps the 0x6F333B turreted slot arm"
     );
     assert_eq!(
         rules

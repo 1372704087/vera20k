@@ -2537,7 +2537,12 @@ impl HouseState {
 
     #[cfg(feature = "phobos")]
     pub(crate) fn hold_emp_pulse_sws(&mut self, firing: InternedId, held: Vec<InternedId>) {
-        self.suspended_emp_pulse_sws.insert(firing, held);
+        // `FireSuperWeapon.cpp:400-403` pushes into an existing entry, so a
+        // second launch keeps the earlier hold list.
+        self.suspended_emp_pulse_sws
+            .entry(firing)
+            .or_default()
+            .extend(held);
     }
 
     #[cfg(feature = "phobos")]

@@ -1314,6 +1314,13 @@ impl GameEntity {
         self.phobos_current_empulse_sw.take()
     }
 
+    /// The latch read for the state hash; a cannon holding it will later take
+    /// a different weapon slot and resume a different held set.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_current_empulse_sw(&self) -> Option<crate::sim::intern::InternedId> {
+        self.phobos_current_empulse_sw
+    }
+
     /// SW_EMPulse::Activate's two stores (10071245..1007126C).
     #[cfg(feature = "ares")]
     pub(crate) fn attach_ares_super_target(

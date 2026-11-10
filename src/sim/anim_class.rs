@@ -459,6 +459,23 @@ pub struct AnimObject {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     invoker_house: Option<InternedId>,
+    /// Phobos `AnimExt::FromDeathUnit` (`Ext/Anim/Body.h`): the anim came
+    /// from `AnimTypeExt::ProcessDestroyAnims` (`Ext/AnimType/Body.cpp:55`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    from_death_unit: bool,
+    /// Phobos `AnimExt::DeathUnitFacing`: the destroyed unit's body direction.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_facing: Option<u8>,
+    /// Phobos `AnimExt::DeathUnitHasTurret`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_has_turret: bool,
+    /// Phobos `AnimExt::DeathUnitTurretFacing`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_turret_facing: Option<u8>,
     /// `AnimClass+0xCC` when it names a `TerrainClass`: a tree's fire, which
     /// only the Ares terrain fire attaches (`sim::terrain_fire`). VERA keeps
     /// a terrain owner apart from `owner_entity` and its stored coordinate
@@ -778,6 +795,14 @@ impl AnimObject {
             invoker: None,
             #[cfg(feature = "phobos")]
             invoker_house: None,
+            #[cfg(feature = "phobos")]
+            from_death_unit: false,
+            #[cfg(feature = "phobos")]
+            death_unit_facing: None,
+            #[cfg(feature = "phobos")]
+            death_unit_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_unit_turret_facing: None,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         }
@@ -799,6 +824,30 @@ impl AnimObject {
     #[cfg(feature = "phobos")]
     pub fn invoker_house(&self) -> Option<InternedId> {
         self.invoker_house
+    }
+
+    /// Phobos `AnimExt::FromDeathUnit`: a destruction-animation receipt.
+    #[cfg(feature = "phobos")]
+    pub fn from_death_unit(&self) -> bool {
+        self.from_death_unit
+    }
+
+    /// Phobos `AnimExt::DeathUnitFacing`: the destroyed unit's body DirType.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_facing(&self) -> Option<u8> {
+        self.death_unit_facing
+    }
+
+    /// Phobos `AnimExt::DeathUnitHasTurret`.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_has_turret(&self) -> bool {
+        self.death_unit_has_turret
+    }
+
+    /// Phobos `AnimExt::DeathUnitTurretFacing`.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_turret_facing(&self) -> Option<u8> {
+        self.death_unit_turret_facing
     }
 
     /// The bullet whose expiry ends this anim (`AnimClass+0x17C`).
@@ -869,6 +918,18 @@ impl AnimObject {
             b"anim-invoker-v1".hash(hasher);
             self.invoker.hash(hasher);
             self.invoker_house.hash(hasher);
+        }
+        #[cfg(feature = "phobos")]
+        if self.from_death_unit
+            || self.death_unit_facing.is_some()
+            || self.death_unit_has_turret
+            || self.death_unit_turret_facing.is_some()
+        {
+            b"anim-death-unit-v1".hash(hasher);
+            self.from_death_unit.hash(hasher);
+            self.death_unit_facing.hash(hasher);
+            self.death_unit_has_turret.hash(hasher);
+            self.death_unit_turret_facing.hash(hasher);
         }
         if let Some(state) = &self.flaming_guy {
             b"anim-flaming-guy-v1".hash(hasher);
@@ -2047,6 +2108,14 @@ impl Simulation {
             invoker: None,
             #[cfg(feature = "phobos")]
             invoker_house: None,
+            #[cfg(feature = "phobos")]
+            from_death_unit: false,
+            #[cfg(feature = "phobos")]
+            death_unit_facing: None,
+            #[cfg(feature = "phobos")]
+            death_unit_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_unit_turret_facing: None,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         };
@@ -4500,6 +4569,28 @@ impl crate::sim::world::ObjectSubstrate {
             return false;
         };
         anim.owner_house = Some(house);
+        true
+    }
+
+    /// Phobos `AnimTypeExt::ProcessDestroyAnims`' death-unit facts
+    /// (`Ext/AnimType/Body.cpp:55-70`): `FromDeathUnit` and the inherited
+    /// facing/turret facts a `CreateUnit` anim consumes.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_anim_death_facts(
+        &mut self,
+        id: AnimId,
+        from_death_unit: bool,
+        facing: Option<u8>,
+        has_turret: bool,
+        turret_facing: Option<u8>,
+    ) -> bool {
+        let Some(anim) = self.anims.get_mut(id) else {
+            return false;
+        };
+        anim.from_death_unit = from_death_unit;
+        anim.death_unit_facing = facing;
+        anim.death_unit_has_turret = has_turret;
+        anim.death_unit_turret_facing = turret_facing;
         true
     }
 

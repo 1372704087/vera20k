@@ -101,6 +101,17 @@ pub struct DeathAnimSpawn {
     /// `DestroyAnim=` producer sets it.
     #[cfg(feature = "phobos")]
     pub invoker: Option<(u64, InternedId)>,
+    /// `ProcessDestroyAnims`' death-unit facts: the victim House the anim's
+    /// `CreateUnit.Owner` selector reads, the body DirType and the turret
+    /// facts (`Ext/AnimType/Body.cpp:52-70`).
+    #[cfg(feature = "phobos")]
+    pub victim_house: Option<InternedId>,
+    #[cfg(feature = "phobos")]
+    pub death_facing: Option<u8>,
+    #[cfg(feature = "phobos")]
+    pub death_has_turret: bool,
+    #[cfg(feature = "phobos")]
+    pub death_turret_facing: Option<u8>,
 }
 
 impl DeathAnimSpawn {
@@ -113,6 +124,14 @@ impl DeathAnimSpawn {
             follow_up: None,
             #[cfg(feature = "phobos")]
             invoker: None,
+            #[cfg(feature = "phobos")]
+            victim_house: None,
+            #[cfg(feature = "phobos")]
+            death_facing: None,
+            #[cfg(feature = "phobos")]
+            death_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_turret_facing: None,
         }
     }
 }
@@ -321,9 +340,39 @@ impl Simulation {
             }
         }
         #[cfg(feature = "phobos")]
-        if let Some((invoker, house)) = spawn.invoker {
-            self.substrate
-                .set_anim_invoker(anim, Some(invoker), Some(house));
+        {
+            // `AnimExt::SetAnimOwnerHouseKind` with the type's
+            // `CreateUnit.Owner` kind (`Ext/Anim/Body.cpp:108-145`).
+            let settings = rules
+                .art()
+                .anim_runtime_config(self.interner.resolve(type_id))
+                .and_then(|config| config.phobos_create_unit.clone());
+            if let Some(settings) = settings
+                && let Some(house) = self.house_kind(
+                    settings.owner,
+                    None,
+                    spawn.invoker.map(|(_, house)| house),
+                    None,
+                    spawn.victim_house,
+                    rules,
+                    None,
+                )
+            {
+                self.substrate.set_anim_owner_house(anim, house);
+            }
+            if let Some((invoker, house)) = spawn.invoker {
+                self.substrate
+                    .set_anim_invoker(anim, Some(invoker), Some(house));
+            }
+            if spawn.invoker.is_some() {
+                self.substrate.set_anim_death_facts(
+                    anim,
+                    true,
+                    spawn.death_facing,
+                    spawn.death_has_turret,
+                    spawn.death_turret_facing,
+                );
+            }
         }
         Some(anim)
     }
@@ -492,6 +541,18 @@ impl Simulation {
         };
         #[cfg(feature = "phobos")]
         let owner_house = entity.owner();
+        #[cfg(feature = "phobos")]
+        let death_facing = Some(entity.body_facing_dir(self.session.binary_frame()));
+        #[cfg(feature = "phobos")]
+        let death_turret_facing = if object.has_turret {
+            entity.barrel_facing.as_ref().map(|facing| {
+                crate::util::direction_tables::round_facing16_to_8(
+                    facing.current(self.session.binary_frame()),
+                )
+            })
+        } else {
+            None
+        };
         let location = position_world_coord(&entity.position);
         let coord = AnimWorldCoord {
             x: location.x,
@@ -534,6 +595,14 @@ impl Simulation {
                 DeathAnimSpawn {
                     #[cfg(feature = "phobos")]
                     invoker: Some((unit_id, owner_house)),
+                    #[cfg(feature = "phobos")]
+                    victim_house: Some(owner_house),
+                    #[cfg(feature = "phobos")]
+                    death_facing,
+                    #[cfg(feature = "phobos")]
+                    death_has_turret: object.has_turret,
+                    #[cfg(feature = "phobos")]
+                    death_turret_facing,
                     ..DeathAnimSpawn::at(coord, 0)
                 },
             );

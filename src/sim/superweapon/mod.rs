@@ -62,6 +62,8 @@ mod chaining;
 mod detonate;
 #[cfg(all(test, feature = "phobos"))]
 mod detonate_tests;
+#[cfg(feature = "phobos")]
+mod limbo;
 #[cfg(all(test, feature = "ares", feature = "phobos"))]
 mod drop_pod_phobos_tests;
 #[cfg(feature = "phobos")]

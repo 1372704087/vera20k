@@ -68,14 +68,6 @@ pub(super) fn apply_phobos_launch_tail(
     overlay_registry: Option<&OverlayTypeRegistry>,
     effects: FrameEffects<'_>,
 ) {
-    let Some(chaining) = rules.phobos_super_weapon_chaining(&sw.id) else {
-        super::detonate::apply(sim, rules, owner, sw, cell, overlay_registry, effects);
-        super::fire::apply_sw_type_conversion(sim, rules, owner, sw, effects);
-        return;
-    };
-    // `FireSuperWeaponExt`'s order: `ApplyDetonation` before `SW.Next`
-    // (`Ext/SWType/FireSuperWeapon.cpp:25-29`).
-    super::detonate::apply(sim, rules, owner, sw, cell, overlay_registry, effects);
     if sim.super_weapon_chain_depth >= MAX_CHAIN_DEPTH {
         log::warn!(
             "Phobos superweapon chain from \"{}\" stopped at depth {MAX_CHAIN_DEPTH}",
@@ -84,9 +76,26 @@ pub(super) fn apply_phobos_launch_tail(
         return;
     }
     sim.super_weapon_chain_depth += 1;
-    apply_sw_next(sim, rules, owner, chaining, cell, overlay_registry, effects);
+    // Native order: LimboDelivery, LimboKill, Detonate, SW.Next, Convert,
+    // SW.Link (`Ext/SWType/FireSuperWeapon.cpp:13-40`).
+    super::limbo::apply_limbo_delivery(sim, rules, owner, sw, overlay_registry, effects);
+    super::limbo::apply_limbo_kill(sim, rules, owner, sw, overlay_registry, effects);
+    super::detonate::apply(sim, rules, owner, sw, cell, overlay_registry, effects);
+    let chaining = rules
+        .phobos_super_weapon_chaining(&sw.id)
+        .cloned()
+        .unwrap_or_default();
+    apply_sw_next(
+        sim,
+        rules,
+        owner,
+        &chaining,
+        cell,
+        overlay_registry,
+        effects,
+    );
     super::fire::apply_sw_type_conversion(sim, rules, owner, sw, effects);
-    apply_linked_sw(sim, rules, owner, chaining);
+    apply_linked_sw(sim, rules, owner, &chaining);
     sim.super_weapon_chain_depth -= 1;
 }
 
@@ -373,7 +382,7 @@ fn initial_ready(rules: &RuleSet, next_sw: &SuperWeaponType) -> bool {
 }
 
 /// `SWTypeExt::WeightedRollsHandler` (`Ext/SWType/SWHelpers.cpp:6-44`).
-fn weighted_rolls(
+pub(super) fn weighted_rolls(
     chances: &[f64],
     weights: &[Vec<i32>],
     size: usize,

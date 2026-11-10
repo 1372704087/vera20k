@@ -38,6 +38,7 @@ Supported extensions:
 - [Ore-stage animation hiding](phobos-hide-if-no-ore-threshold.md)
 - [Superweapon techno gates](phobos-superweapon-technos.md)
 - [Superweapon chaining and link groups](phobos-sw-chaining.md) (`SW.Next*` chained launches with weights/rolls and the two ignore flags, and `SW.Link*` grant/ready/reset groups)
+- [Limbo-delivered buildings](phobos-limbo-delivery.md) (`LimboDelivery.*` buildings created on launch with a `LimboID`, and `LimboKill.*` removing them by id and house mask)
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Health-bar switches](health-bars.md#phobos-type-switches) (`HealthBar.Hide=`, `.HidePips=`, `.Permanent=` and `.Permanent.PipScale=`)
 - [Shared transport ammo](phobos-shared-ammo.md) (`Ammo.Shared=` and `Ammo.Shared.Group=` feed a reloading open-topped transport's rounds to its passengers)

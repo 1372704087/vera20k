@@ -2054,6 +2054,17 @@ impl ProcessedRulesLayers {
         })
     }
 
+    /// Phobos `LimboDelivery.*`/`LimboKill.*`, one entry per registered
+    /// definition.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_limbo_states(
+        &self,
+    ) -> impl Iterator<Item = (&str, crate::rules::phobos_limbo::PhobosSuperWeaponLimbo)> {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_limbo.clone()
+        })
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn additional_super_weapon_states(&self) -> impl Iterator<Item = (&str, &[String])> {
         self.member_states(RulesTypeFamily::Building, |member| {
@@ -5470,6 +5481,10 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     super_weapon_phobos_detonate: crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate,
+    /// Phobos `LimboDelivery.*`/`LimboKill.*` (`Ext/SWType/Body.cpp:159-169`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_limbo: crate::rules::phobos_limbo::PhobosSuperWeaponLimbo,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors.
@@ -6091,6 +6106,9 @@ impl ProcessedType {
             #[cfg(feature = "phobos")]
             super_weapon_phobos_detonate:
                 crate::rules::phobos_sw_detonate::PhobosSuperWeaponDetonate::default(),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_limbo: crate::rules::phobos_limbo::PhobosSuperWeaponLimbo::default(
+            ),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
@@ -6966,6 +6984,17 @@ impl RulesPassProcessor {
     /// `SuperWeaponTypeClass::FindIndex` over the registered
     /// `[SuperWeaponTypes]` entries: the canonical section name for a
     /// case-insensitive token, or `None` for an unknown one.
+    /// `BuildingTypeClass::Find` over the registered `[BuildingTypes]` for
+    /// the limbo-delivery type list.
+    #[cfg(feature = "phobos")]
+    fn find_existing_building_name(&self, token: &str) -> Option<String> {
+        self.families
+            .get(&RulesTypeFamily::Building)?
+            .iter()
+            .find(|member| member.native_stored_id.eq_ignore_ascii_case(token))
+            .map(|member| member.native_stored_id.clone())
+    }
+
     #[cfg(feature = "phobos")]
     fn find_existing_super_weapon_name(&self, token: &str) -> Option<String> {
         self.families
@@ -8025,9 +8054,16 @@ impl RulesPassProcessor {
                         );
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_chaining = chaining;
-                    // `SWTypeExt::LoadFromINIFile` then reads the
-                    // `Detonate.*` group (`Ext/SWType/Body.cpp:274-278`);
-                    // absent keys keep the earlier pass's values.
+                    // Phobos `SWTypeExt::LoadFromINIFile`'s LimboDelivery and
+                    // LimboKill block (`Ext/SWType/Body.cpp:159-169`), then
+                    // the `Detonate.*` group (`:274-278`); absent Detonate
+                    // keys keep the earlier pass's values.
+                    let limbo = crate::rules::phobos_limbo::PhobosSuperWeaponLimbo::from_section(
+                        &raw,
+                        |token| self.find_existing_building_name(token),
+                    );
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_limbo = limbo;
                     let mut detonate = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_detonate
                         .clone();

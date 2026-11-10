@@ -124,6 +124,7 @@ Supported extensions:
 - [Return warhead](phobos-return-warhead.md) (`ReturnWarhead` and its damage, chance, full-detonation, target and house filters: the per-target strike back at the firer; 5 keys)
 
 - [Tiberium eater](phobos-tiberium-eater.md) (`TiberiumEater.*`: FLH-cell tiberium eating with cash, delay, per-tiberium anims and EMP/limbo holds; 11 keys)
+- [Ammo auto-convert](phobos-convert-ammo.md) (`Ammo.AutoConvertType`/`.MinimumAmount`/`.MaximumAmount`: a Foot converts when its ammo enters the band; 3 keys)
 
 ## Original project and authors
 

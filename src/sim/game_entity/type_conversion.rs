@@ -303,6 +303,54 @@ impl Simulation {
         self.convert_techno_type(id, &target, rules, effects);
     }
 
+    /// Phobos `FootExt::AmmoAutoConvertActions` (`Ext/Foot/Body.cpp:888-909`),
+    /// called from the `FootClass_AI` tail before the health-band arm: with
+    /// `Ammo.AutoConvertType` set and a non-empty band, a Foot whose type has
+    /// `Ammo=` above zero and whose instance ammo is inside the band converts.
+    /// Both bounds default to -1 (unbounded); a reversed pair is an empty band.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_ammo_auto_convert(
+        &mut self,
+        id: u64,
+        rules: &RuleSet,
+        effects: FrameEffects<'_>,
+    ) {
+        let Some((target_name, min, max, type_ammo, ammo)) =
+            self.substrate.entities.get(id).and_then(|actor| {
+                let object = self.entity_object_type(actor, rules)?;
+                let convert = &object.phobos_convert;
+                let target = convert.ammo_target.clone()?;
+                Some((
+                    target,
+                    convert.ammo_min,
+                    convert.ammo_max,
+                    object.ammo,
+                    actor.ammo().map_or(0, |ammo| ammo.current()),
+                ))
+            })
+        else {
+            return;
+        };
+        if min < 0 && max < 0 {
+            return;
+        }
+        // `pTypeExt->OwnerObject()->Ammo <= 0`: the TYPE's ammo capacity.
+        if type_ammo <= 0 {
+            return;
+        }
+        if !((min < 0 || ammo >= min) && (max < 0 || ammo <= max)) {
+            return;
+        }
+        let Some(target) = rules.object(&target_name) else {
+            return;
+        };
+        let target = DeliveryType {
+            category: target.category,
+            id: target.id.clone(),
+        };
+        self.convert_techno_type(id, &target, rules, effects);
+    }
+
     /// Phobos `TechnoClass_Captured_UpdateTracking @ 0x7015C9`'s Foot arm
     /// (`Ext/House/Hooks.cpp:203-300`): on a human<->computer owner change,
     /// convert through the old type's `Convert.HumanToComputer` /
@@ -616,6 +664,9 @@ fn health_in_threshold(
         )
 }
 
+#[cfg(all(test, feature = "phobos"))]
+#[path = "type_conversion_ammo_tests.rs"]
+mod ammo_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "type_conversion_health_tests.rs"]
 mod health_tests;

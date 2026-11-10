@@ -34,6 +34,13 @@ pub struct PhobosConvert {
     /// `[General]` key; rebuilds the capture-manager limits from the new
     /// type's weapons on conversion (`Ext/TechnoType/Body.cpp:1017`).
     pub reset_mind_control: Option<bool>,
+    /// `Ammo.AutoConvertType=`: the type a Foot converts to when its ammo
+    /// enters the band (`Ext/TechnoType/Body.cpp:1155`, `Nullable<TechnoType*>`).
+    pub ammo_target: Option<String>,
+    /// `Ammo.AutoConvertMinimumAmount=`, default -1 (`Body.h:794`).
+    pub ammo_min: i32,
+    /// `Ammo.AutoConvertMaximumAmount=`, default -1 (`Body.h:795`).
+    pub ammo_max: i32,
 }
 
 impl PhobosConvert {
@@ -56,6 +63,12 @@ impl PhobosConvert {
                 .filter(|name| !name.eq_ignore_ascii_case("none"))
                 .map(str::to_owned),
             reset_mind_control: section.read_phobos_nullable_bool("Convert.ResetMindControl", None),
+            ammo_target: section
+                .read_type_name("Ammo.AutoConvertType", 0x800)
+                .filter(|name| !name.eq_ignore_ascii_case("none"))
+                .map(str::to_owned),
+            ammo_min: section.read_ares_int("Ammo.AutoConvertMinimumAmount", -1),
+            ammo_max: section.read_ares_int("Ammo.AutoConvertMaximumAmount", -1),
         }
     }
 }

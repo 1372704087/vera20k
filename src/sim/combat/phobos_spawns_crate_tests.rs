@@ -1,5 +1,5 @@
 //! Phobos `SpawnsCrate*` through `WarheadTypeExt::Detonate`: one weighted
-//! powerup crate at the impact, one Scenario draw per detonation.
+//! powerup crate at the impact (one pick draw, then the crate-timer draw).
 
 use super::{crit, world_receiver};
 use crate::rules::ini_parser::IniFile;
@@ -20,6 +20,7 @@ fn rules(keys: &str) -> RuleSet {
 fn fire(
     sim: &mut crate::sim::world::Simulation,
     rules: &RuleSet,
+    owner: crate::sim::intern::InternedId,
     impact: ProjectileCoord,
     with_registry: bool,
 ) {
@@ -42,7 +43,7 @@ fn fire(
         warhead,
         warhead_ref,
         0,
-        None,
+        Some(owner),
         impact,
         None,
         0,
@@ -51,17 +52,27 @@ fn fire(
     run.finish();
 }
 
+fn register_owner(sim: &mut crate::sim::world::Simulation) -> crate::sim::intern::InternedId {
+    let id = sim.interner.intern("Americans");
+    sim.houses
+        .register(crate::sim::house_state::HouseState::new(
+            id, 0, None, true, 0, 10,
+        ));
+    id
+}
+
 #[test]
 fn a_spawns_crate_powerup_is_placed_with_one_draw() {
     let rules = rules("SpawnsCrate0.Type=Money\nSpawnsCrate0.Weight=1\n");
     let registry = crate_registry();
     let mut sim = sim_with_grid(11);
+    let owner = register_owner(&mut sim);
     let mut expected = sim.scenario_rng.clone();
     expected.random_double();
     // The placement's own crate-timer draw follows the weighted pick.
     expected.random_double();
     let impact = ProjectileCoord::new(20 * 256 + 128, 20 * 256 + 128, 0);
-    fire(&mut sim, &rules, impact, true);
+    fire(&mut sim, &rules, owner, impact, true);
     let cells = crate_cells(&sim, &registry);
     assert_eq!(cells.len(), 1, "one crate was placed");
     let grid = sim.overlay_grid.as_ref().expect("overlay grid");
@@ -85,8 +96,9 @@ fn weights_pick_the_second_powerup_and_a_missing_registry_still_draws() {
     );
     let registry = crate_registry();
     let mut sim = sim_with_grid(22);
+    let owner = register_owner(&mut sim);
     let impact = ProjectileCoord::new(20 * 256 + 128, 20 * 256 + 128, 0);
-    fire(&mut sim, &rules, impact, true);
+    fire(&mut sim, &rules, owner, impact, true);
     let cells = crate_cells(&sim, &registry);
     assert_eq!(cells.len(), 1);
     let grid = sim.overlay_grid.as_ref().expect("overlay grid");
@@ -97,9 +109,10 @@ fn weights_pick_the_second_powerup_and_a_missing_registry_still_draws() {
     );
 
     let mut sim = sim_with_grid(22);
+    let owner = register_owner(&mut sim);
     let mut expected = sim.scenario_rng.clone();
     expected.random_double();
-    fire(&mut sim, &rules, impact, false);
+    fire(&mut sim, &rules, owner, impact, false);
     assert!(
         crate_cells(&sim, &registry).is_empty(),
         "no overlay registry means no crate"
@@ -108,5 +121,43 @@ fn weights_pick_the_second_powerup_and_a_missing_registry_still_draws() {
         sim.scenario_rng.logical_state(),
         expected.logical_state(),
         "the pick still drew before the placement was refused"
+    );
+}
+
+/// `Detonate.cpp:49` encloses the block in `if (pHouse)`: no House, no draw.
+#[test]
+fn a_house_less_detonation_draws_nothing() {
+    let rules = rules("SpawnsCrate0.Type=Money\n");
+    let registry = crate_registry();
+    let mut sim = sim_with_grid(33);
+    let before = sim.scenario_rng.logical_state();
+    let warhead = rules.warhead("WH").expect("warhead");
+    let warhead_ref = sim.interner.intern("WH");
+    let impact = ProjectileCoord::new(20 * 256 + 128, 20 * 256 + 128, 0);
+    let mut run = world_receiver::ReceiverRun::default();
+    let mut effects = crate::sim::combat::DeathEffects::default();
+    crit::detonate(
+        &mut sim,
+        &mut run,
+        &rules,
+        Some(&registry),
+        warhead,
+        warhead_ref,
+        0,
+        None,
+        impact,
+        None,
+        0,
+        &mut effects,
+    );
+    run.finish();
+    assert!(
+        crate_cells(&sim, &registry).is_empty(),
+        "a house-less detonation places nothing"
+    );
+    assert_eq!(
+        sim.scenario_rng.logical_state(),
+        before,
+        "and consumes no draw"
     );
 }

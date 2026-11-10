@@ -21,11 +21,12 @@ Reader `WarheadTypeExt::LoadFromINIFile`
   numbered entry ends the list. Entry 0 also tries the unnumbered aliases.
 - The parallel weight list uses `Nullable<int>`; entry 0 also tries
   `SpawnsCrate.Weight`; an unset weight is 1.
-- At detonation, one Scenario `RandomDouble` feeds
+- At detonation with a firing House (native's `if (pHouse)` encloses the
+  block), one Scenario `RandomDouble` feeds
   `GeneralUtils::ChooseOneWeighted` over the weights; an index inside the type
   list calls `MapClass::PlacePowerupCrate(Cell(Coord2Cell(coords)), type)`.
   The crate's overlay data byte stores the powerup slot, which the pickup
-  reads as its selection.
+  reads as its selection. A house-less detonation draws nothing.
 - Ordering: after the `TransactMoney` block and before `LaunchSW`
   (`Detonate.cpp:102-150`).
 
@@ -40,3 +41,9 @@ exact draw order (pick, then the crate-timer draw).
 
 RESIDUAL: with no overlay registry (mapless fixtures only) the pick is still
 drawn and the placement is skipped; native always has a registry.
+RESIDUAL — cross-layer aliases: VERA reads the merged warhead section once, so
+a later layer's `SpawnsCrate.Type` alias is ignored when an earlier layer set
+`SpawnsCrate0.Type`, and a later invalid/`<default>` value yields the merged
+value native's per-pass reads would retain. Trigger = a mode/map layer that
+overrides individual SpawnsCrate keys; frequency = rare; risk = a different
+crate list, not a crash.

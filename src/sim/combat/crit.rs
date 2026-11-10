@@ -139,6 +139,7 @@ pub(crate) fn detonate(
         rules,
         overlay_registry,
         warhead,
+        house,
         impact,
         run.effects(),
     );
@@ -681,9 +682,15 @@ fn apply_spawns_crate(
     rules: &RuleSet,
     overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     warhead: &WarheadType,
+    house: Option<InternedId>,
     impact: ProjectileCoord,
     effects: crate::sim::world::FrameEffects<'_>,
 ) {
+    // `Detonate.cpp:49` encloses the SpawnsCrate block in `if (pHouse)`: a
+    // house-less detonation draws nothing and places nothing.
+    let Some(_house) = house else {
+        return;
+    };
     let settings = &warhead.phobos_spawns_crate;
     if settings.types.is_empty() {
         return;

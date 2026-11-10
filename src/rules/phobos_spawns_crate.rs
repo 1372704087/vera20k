@@ -21,11 +21,10 @@ use crate::rules::ini_parser::IniSection;
 use crate::rules::powerups::powerup_index_from_name;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PhobosSpawnsCrate {
+pub struct PhobosSpawnsCrate {
     pub types: Vec<usize>,
     pub weights: Vec<i32>,
 }
-
 impl PhobosSpawnsCrate {
     pub(crate) fn from_section(section: &IniSection) -> Self {
         let mut value = Self::default();

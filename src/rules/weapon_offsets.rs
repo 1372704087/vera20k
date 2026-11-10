@@ -124,7 +124,27 @@ pub(crate) struct WeaponOffsets {
     // TechnoType710AF0, clears7116E6..71173A: both WeaponStruct arrays.
     base: [[i32; 3]; WEAPON_SLOT_COUNT],
     elite: [[i32; 3]; WEAPON_SLOT_COUNT],
-    alternate: [[i32; 3]; 5],
+    /// GetFLH6F3AF5's `AlternateFLH0..4`, plus Phobos's sixth
+    /// `AlternateFLH5` entry (`Ext/TechnoType/Body.cpp:1368-1384`): ports 0..4
+    /// default to `Weapon[0].FLH`, and the sixth is appended only when
+    /// authored, otherwise the stock negative-index read stays at zero.
+    alternate: [[i32; 3]; 6],
+    /// Phobos `TechnoTypeExt::AlternateFLH_OnTurret` (`Ext/TechnoType/Body.h:142`,
+    /// `Nullable<bool>`, constructor unset): ART `AlternateFLH.OnTurret=`
+    /// (`Ext/TechnoType/Body.cpp:1365`), with `[General]` as the fallback. False
+    /// keeps an alternate FLH hull-relative even while a turret fires
+    /// (`Ext/Techno/Hooks.Firing.cpp:1069-1070`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    alternate_flh_on_turret: Option<bool>,
+    /// Phobos `TechnoTypeExt::AlternateFLH_ApplyVehicle`
+    /// (`Ext/TechnoType/Body.h:143`, `Nullable<bool>`, constructor unset): ART
+    /// `AlternateFLH.ApplyVehicle=` (`Ext/TechnoType/Body.cpp:1366`), with
+    /// `[General]` as the fallback. Read on an open-topped carrier's type
+    /// (`Ext/Techno/Hooks.Firing.cpp:1012`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    alternate_flh_apply_vehicle: Option<bool>,
     /// Phobos `TechnoTypeExt::ParseBurstFLHs` rows, one per weapon slot:
     /// `(Elite)(PrimaryFire|SecondaryFire|WeaponN)FLH.BurstN`. Each reached
     /// ART read appends that pass's contiguous run; an authored elite value
@@ -196,11 +216,43 @@ impl WeaponOffsets {
         }
         //715F9E..716005 always reads all five ports after either arm, with
         // the current base Weapon[0] coordinate as each default.
-        for (port, offset) in self.alternate.iter_mut().enumerate() {
+        for (port, offset) in self.alternate.iter_mut().enumerate().take(5) {
             *offset = art.read_coord3(&format!("AlternateFLH{port}"), self.base[0]);
+        }
+        // Phobos's loop appends a sixth entry only when `AlternateFLH5` is
+        // present and valid; an absent or rejected key leaves no entry, which
+        // the negative-index read answers as the zero FLH
+        // (`Ext/TechnoType/Body.cpp:1368-1384`).
+        #[cfg(feature = "phobos")]
+        if let Some(fifth) = nullable_flh(art, "AlternateFLH5") {
+            self.alternate[5] = fifth;
         }
         #[cfg(feature = "phobos")]
         read_burst_rows(art, turret_count, weapon_count, "", &mut self.burst);
+        // Phobos `TechnoTypeExt::LoadFromINIFile`
+        // (`Ext/TechnoType/Body.cpp:1365-1366`): two ART `Nullable<bool>`
+        // reads; absent or invalid keeps the retained value.
+        #[cfg(feature = "phobos")]
+        {
+            self.alternate_flh_on_turret = art
+                .read_phobos_nullable_bool("AlternateFLH.OnTurret", self.alternate_flh_on_turret);
+            self.alternate_flh_apply_vehicle = art.read_phobos_nullable_bool(
+                "AlternateFLH.ApplyVehicle",
+                self.alternate_flh_apply_vehicle,
+            );
+        }
+    }
+
+    /// ART `AlternateFLH.OnTurret=`; `None` asks the `[General]` fallback.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn alternate_flh_on_turret(&self) -> Option<bool> {
+        self.alternate_flh_on_turret
+    }
+
+    /// ART `AlternateFLH.ApplyVehicle=`; `None` asks the `[General]` fallback.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn alternate_flh_apply_vehicle(&self) -> Option<bool> {
+        self.alternate_flh_apply_vehicle
     }
 
     /// Phobos `InfantryTypeExt::LoadFromINIFile`'s ART reads, reached only for

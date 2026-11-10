@@ -1050,6 +1050,12 @@ pub struct ObjectType {
     /// (`Ext/TechnoType/Body.cpp:905-936`), the forced SelectWeapon slot.
     #[cfg(feature = "phobos")]
     pub phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon,
+    /// Phobos `MultiWeapon`, `MultiWeapon.SelectCount` and
+    /// `MultiWeapon.IsSecondary` (`Ext/TechnoType/Body.h:387-390`), read on
+    /// every reached TechnoType pass by the ordered reader (`0x7128B2`). The
+    /// consumer is `sim::combat::combat_weapon::select_weapon_index_against_in_query`.
+    #[cfg(feature = "phobos")]
+    pub phobos_multi_weapon: crate::rules::phobos_multi_weapon::PhobosMultiWeapon,
     /// Phobos `Interceptor.*` (`Ext/TechnoType/Body.cpp:1415-1433`): present
     /// only when the type's `Interceptor=` read as `yes`.
     #[cfg(feature = "phobos")]
@@ -3023,6 +3029,20 @@ impl ObjectType {
         self.weapon_offsets.alternate(port)
     }
 
+    /// Phobos ART `AlternateFLH.OnTurret=` (`Ext/TechnoType/Body.cpp:1365`);
+    /// `None` asks `[General]`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn alternate_flh_on_turret(&self) -> Option<bool> {
+        self.weapon_offsets.alternate_flh_on_turret()
+    }
+
+    /// Phobos ART `AlternateFLH.ApplyVehicle=` (`Ext/TechnoType/Body.cpp:1366`);
+    /// `None` asks `[General]`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn alternate_flh_apply_vehicle(&self) -> Option<bool> {
+        self.weapon_offsets.alternate_flh_apply_vehicle()
+    }
+
     /// Native TechnoType `PitchSpeed` double used by the normal Fly draw gate.
     pub fn fly_pitch_speed(&self) -> f64 {
         f64::from_bits(self.pitch_speed.bits())
@@ -4299,8 +4319,28 @@ impl ObjectType {
     /// VoiceAttack7090F8..70914A reads primary for index0, otherwise
     /// secondary; its caller supplies the raw750010 elite predicate.
     pub fn voice_attack_override(&self, weapon_index: i32, elite: bool) -> Option<&str> {
-        self.voice_attack_overrides[usize::from(weapon_index != 0) * 2 + usize::from(elite)]
-            .as_deref()
+        self.voice_attack_override_secondary(weapon_index != 0, elite)
+    }
+
+    /// [`Self::voice_attack_override`] with the slot's secondary flag supplied
+    /// directly: Phobos `TechnoTypeExt::IsSecondary` (`Body.cpp:166-173`)
+    /// replaces the `index != 0` rule when `MultiWeapon` names the slot.
+    pub fn voice_attack_override_secondary(&self, secondary: bool, elite: bool) -> Option<&str> {
+        self.voice_attack_overrides[usize::from(secondary) * 2 + usize::from(elite)].as_deref()
+    }
+
+    /// Phobos `TechnoTypeExt::VoiceIFVRepair` (`Ext/TechnoType/Body.h:394`),
+    /// the type's repairing-weapon voice, else `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_voice_ifv_repair(&self) -> Option<&str> {
+        self.phobos_multi_weapon.voice_ifv_repair.as_deref()
+    }
+
+    /// Phobos per-slot `VoiceWeapon%dAttack` / `VoiceEliteWeapon%dAttack`
+    /// (`Ext/TechnoType/Body.cpp:421-462`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_voice_weapon_attack(&self, slot: i32, elite: bool) -> Option<&str> {
+        self.phobos_multi_weapon.voice_weapon_attack(slot, elite)
     }
 
     /// Bind the existing native type reader's list and scalar slots against
@@ -4327,6 +4367,19 @@ impl ObjectType {
             "VoiceSecondaryEliteWeaponAttack",
         ]
         .map(|key| section.and_then(|section| sounds.read_rules_reference(section, key, None)));
+        // Phobos `TechnoTypeExt::LoadFromINIFile`'s voice block
+        // (`Ext/TechnoType/Body.cpp:1448-1450`): the type repair voice and the
+        // per-slot attack voices, the latter gated by the MultiWeapon latch.
+        #[cfg(feature = "phobos")]
+        {
+            let (turret_count, weapon_count) = (self.turret_count, self.weapon_count);
+            self.phobos_multi_weapon.bind_voice_references(
+                section,
+                sounds,
+                turret_count,
+                weapon_count,
+            );
+        }
         #[cfg(feature = "ares")]
         {
             self.ares_voice_repair = section
@@ -5109,6 +5162,10 @@ impl ObjectType {
             phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon::from_section(
                 section,
             ),
+            // Constructor values; the ordered per-pass TechnoType reader owns
+            // every read (`0x7128B2`).
+            #[cfg(feature = "phobos")]
+            phobos_multi_weapon: crate::rules::phobos_multi_weapon::PhobosMultiWeapon::default(),
             #[cfg(feature = "phobos")]
             phobos_interceptor: section
                 .read_phobos_nullable_bool("Interceptor", None)

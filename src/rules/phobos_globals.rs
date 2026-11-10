@@ -360,6 +360,18 @@ pub struct PhobosGlobals {
     /// on the house it held when it boarded.
     #[serde(default = "true_bool")]
     pub passengers_sync_owner_revert_on_exit: bool,
+    /// `[General] AlternateFLH.OnTurret=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:218`, constructor `Ext/Rules/Body.h:662`): the
+    /// fallback for an unset TechnoType ART `AlternateFLH.OnTurret`; `no`
+    /// keeps an alternate FLH hull-relative while a turret fires.
+    #[serde(default = "true_bool")]
+    pub alternate_flh_on_turret: bool,
+    /// `[General] AlternateFLH.ApplyVehicle=`, default `no`
+    /// (`Ext/Rules/Body.cpp:219`, constructor `Ext/Rules/Body.h:663`): the
+    /// fallback for an unset carrier ART `AlternateFLH.ApplyVehicle`; `yes`
+    /// lets a Unit passenger fire from the open-topped carrier's AlternateFLH.
+    #[serde(default)]
+    pub alternate_flh_apply_vehicle: bool,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -527,6 +539,8 @@ impl Default for PhobosGlobals {
             building_start_facing_random: false,
             passengers_sync_owner: false,
             passengers_sync_owner_revert_on_exit: true,
+            alternate_flh_on_turret: true,
+            alternate_flh_apply_vehicle: false,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -649,6 +663,13 @@ impl PhobosGlobals {
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
+        );
+        // `Ext/Rules/Body.cpp:218-219`, `yes`/`no` constructor defaults.
+        globals.alternate_flh_on_turret =
+            general.read_bool("AlternateFLH.OnTurret", globals.alternate_flh_on_turret);
+        globals.alternate_flh_apply_vehicle = general.read_bool(
+            "AlternateFLH.ApplyVehicle",
+            globals.alternate_flh_apply_vehicle,
         );
         globals.not_human_random_death_sequence = general.read_bool(
             "NotHuman.RandomDeathSequence",

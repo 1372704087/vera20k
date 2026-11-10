@@ -684,6 +684,14 @@ pub struct GameEntity {
     /// the grid. Only written with [`Self::ares_super_weapon`].
     #[serde(default)]
     ares_super_target: Option<(u16, u16)>,
+    /// Phobos `BuildingExt::CurrentEMPulseSW`
+    /// (`Ext/SWType/FireSuperWeapon.cpp:365`, `Ext/Building/Hooks.cpp:132-189`):
+    /// the firing EMPulse SW type this cannon's Mission_Missile must use when
+    /// choosing its weapon and resuming suspended superweapons. A separate
+    /// latch from Ares's TechnoExt::SuperWeapon, which other owners read.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_current_empulse_sw: Option<crate::sim::intern::InternedId>,
     /// Building+66C charger pointers and +661 weapon latch, owned by
     /// `sim::tesla_charging` independently of House power accounting.
     #[serde(default)]
@@ -1288,6 +1296,22 @@ impl GameEntity {
 
     pub(crate) fn ares_super_target(&self) -> Option<(u16, u16)> {
         self.ares_super_target
+    }
+
+    /// `HandleEMPulseLaunch`'s `pExt->CurrentEMPulseSW = pSW`
+    /// (`Ext/SWType/FireSuperWeapon.cpp:365`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_current_empulse_sw(&mut self, sw: crate::sim::intern::InternedId) {
+        self.phobos_current_empulse_sw = Some(sw);
+    }
+
+    /// Mission_Missile consumes and clears the latch
+    /// (`Ext/Building/Hooks.cpp:182`, the hook's `CurrentEMPulseSW = nullptr`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn take_phobos_current_empulse_sw(
+        &mut self,
+    ) -> Option<crate::sim::intern::InternedId> {
+        self.phobos_current_empulse_sw.take()
     }
 
     /// SW_EMPulse::Activate's two stores (10071245..1007126C).
@@ -2713,6 +2737,8 @@ impl GameEntity {
             ares_drop_pod: None,
             ares_super_weapon: None,
             ares_super_target: None,
+            #[cfg(feature = "phobos")]
+            phobos_current_empulse_sw: None,
             tesla_charge: Default::default(),
             tesla_charger: Default::default(),
             building_last_operational: Default::default(),

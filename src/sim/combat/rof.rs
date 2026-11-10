@@ -154,6 +154,11 @@ pub(crate) struct RofQuery<'a> {
     /// controls; Phobos gameplay always supplies Some.
     #[cfg(feature = "phobos")]
     pub rof_random_delay: Option<crate::rules::ini_value::PartialIntPair>,
+    /// Phobos `TechnoExt::ForceFullRearmDelay`: the `0x6FD054` hook leaves the
+    /// mid-burst branch for the ordinary full-rearm arm (`0x6FD09E`) while it
+    /// is set. `Burst.FireWithinSequence`'s overrun arm sets it.
+    #[cfg(feature = "phobos")]
+    pub force_full_rearm: bool,
     /// The rank holds the ROF ability: a veteran with the type's veteran byte
     /// (`+0x2A0`), or an elite with either byte (`+0x2A0`, `+0x2B2`).
     pub rof_ability: bool,
@@ -205,7 +210,13 @@ pub(crate) fn get_rof(query: &RofQuery<'_>, rng: &mut SimRng) -> i32 {
     {
         return weapon.rof;
     }
-    if query.burst_index < weapon.burst {
+    let mid_burst = query.burst_index < weapon.burst;
+    // Phobos `TechnoClass_RearmDelay_ForceFullDelay` (`0x6FD054`, 6 bytes
+    // replaced): a forced full rearm skips the mid-burst branch and joins the
+    // ordinary arm below at `0x6FD09E`.
+    #[cfg(feature = "phobos")]
+    let mid_burst = mid_burst && !query.force_full_rearm;
+    if mid_burst {
         // Phobos `TechnoClass_RearmDelay_BurstDelays` (`0x6FD05E`, 7 bytes
         // replaced): `WeaponTypeExt::GetBurstDelay` answers the shot's own
         // rearm delay and returns it at `0x6FD099`, before the stock index 0 /
@@ -309,6 +320,7 @@ mod tests {
                 #[cfg(feature = "ares")]
                 attached_rof: None,
                 rof_random_delay: Some(range),
+                force_full_rearm: false,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -364,6 +376,8 @@ mod tests {
                 attached_rof: None,
                 #[cfg(feature = "phobos")]
                 rof_random_delay: None,
+                #[cfg(feature = "phobos")]
+                force_full_rearm: false,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -446,6 +460,8 @@ mod tests {
                 attached_rof: Some(NativeF64Bits::from_bits(_factor)),
                 #[cfg(feature = "phobos")]
                 rof_random_delay: None,
+                #[cfg(feature = "phobos")]
+                force_full_rearm: false,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -535,6 +551,8 @@ mod tests {
                 attached_rof: None,
                 #[cfg(feature = "phobos")]
                 rof_random_delay: None,
+                #[cfg(feature = "phobos")]
+                force_full_rearm: false,
                 rof_ability: (veteran && veteran_byte) || (elite && (veteran_byte || elite_byte)),
                 veteran_rof: f64::from_bits(hex("veteran_bits", "3fe3333340000000")),
                 occupants: (int("garrison", 0) != 0).then(|| int("occupants", 0)),
@@ -587,6 +605,7 @@ mod tests {
                 #[cfg(feature = "ares")]
                 attached_rof: None,
                 rof_random_delay: None,
+                force_full_rearm: false,
                 rof_ability: false,
                 veteran_rof: 1.0,
                 occupants: None,
@@ -654,6 +673,8 @@ mod tests {
             attached_rof: None,
             #[cfg(feature = "phobos")]
             rof_random_delay: None,
+            #[cfg(feature = "phobos")]
+            force_full_rearm: false,
             rof_ability: false,
             veteran_rof: 1.0,
             occupants: None,

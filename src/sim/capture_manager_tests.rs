@@ -3101,3 +3101,124 @@ fn phobos_overload_tables_sound_and_particle_count_override_the_rules() {
     assert_eq!(voices, ["MasterMindOverloadVoice"]);
     assert!(drew, "the lean sign draw still runs");
 }
+
+/// Phobos `CaptureManagerClass_Overload_AI` (`Ext/CaptureManager/Hooks.cpp:
+/// 139-143`): a row is selected only while the link count strictly exceeds
+/// its `Overload.Count` bound, so `Overload.Count=2` stays on the quiet row
+/// with two captives and overloads on the third.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_overload_count_needs_more_links_than_the_bound() {
+    let run = |captives: usize| {
+        let text = RULES.replace(
+            "[MIND]\nStrength=500",
+            "[MIND]\nStrength=50000\nOverload.Count=2\nOverload.Damage=0,25\n\
+             Overload.Frames=7",
+        );
+        let rules = RuleSet::from_ini_with_fixed_art_and_sounds_for_test(
+            &IniFile::from_str(&text),
+            &IniFile::from_str(ART),
+            &["YuriMindControl", "MindCleared", "MasterMindOverloadVoice"],
+        )
+        .expect("overload rules");
+        let mut sim = sim(1);
+        let mind = spawn(&mut sim, &rules, "MIND", "YuriCountry", 10, 10);
+        let mut manager = CaptureManagerState::with_victims_for_test(10, true, &[]);
+        manager.nodes = (0..captives as u64)
+            .map(|index| ControlNode {
+                victim: 1_000_000 + index,
+                original_owner: InternedId::default(),
+                line_timer: Default::default(),
+            })
+            .collect();
+        manager.overload_countdown = 0;
+        sim.substrate
+            .entities
+            .get_mut(mind)
+            .unwrap()
+            .capture_manager = Some(manager);
+        let before = sim.entities().get(mind).unwrap().health.current();
+        sim.sound_events.clear_for_test();
+        sim.capture_manager_update(mind, &rules, None, FrameEffects::default());
+        let entity = sim.entities().get(mind).unwrap();
+        (
+            before - entity.health.current(),
+            entity.capture_manager.as_ref().unwrap().overload_countdown,
+            voc_sounds(&sim),
+        )
+    };
+
+    // Two links do not exceed the bound: row zero's 0 damage re-arms the
+    // voice, and the frames row still reloads the countdown.
+    let (damaged, countdown, voices) = run(2);
+    assert_eq!((damaged, countdown), (0, 7));
+    assert!(voices.is_empty());
+
+    // The third link selects row one and plays the stock voice.
+    let (damaged, countdown, voices) = run(3);
+    assert_eq!((damaged, countdown), (25, 7));
+    assert_eq!(voices, ["MasterMindOverloadVoice"]);
+}
+
+/// A full overload episode on type rows (`Ext/CaptureManager/Hooks.cpp:
+/// 150-169`): `Overload.Frames=2` checks every third visit and
+/// `Overload.Damage=25` kills a 75-health controller on the third check. The
+/// type's death sound plays once for the whole episode, and the death frees
+/// the captives with the release voice.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_overload_episode_kills_on_the_type_rows_with_one_voice() {
+    let text = RULES.replace(
+        "[MIND]\nStrength=500",
+        "[MIND]\nStrength=50000\nOverload.Count=1\nOverload.Damage=25\n\
+         Overload.Frames=2\nOverload.DeathSound=TypeVoice",
+    );
+    let rules = RuleSet::from_ini_with_fixed_art_and_sounds_for_test(
+        &IniFile::from_str(&text),
+        &IniFile::from_str(ART),
+        &[
+            "YuriMindControl",
+            "MindCleared",
+            "MasterMindOverloadVoice",
+            "TypeVoice",
+        ],
+    )
+    .expect("overload rules");
+    let mut sim = sim(1);
+    let mind = spawn(&mut sim, &rules, "MIND", "YuriCountry", 10, 10);
+    let captives = [
+        spawn(&mut sim, &rules, "E1", "Russians", 12, 10),
+        spawn(&mut sim, &rules, "E1", "Russians", 13, 10),
+    ];
+    for &gi in &captives {
+        assert!(sim.capture_unit(mind, gi, &rules, None, FrameEffects::default()));
+    }
+    let entity = sim.substrate.entities.get_mut(mind).unwrap();
+    entity.health.set_for_test(75);
+    entity.capture_manager.as_mut().unwrap().overload_countdown = 0;
+
+    let mut voices = Vec::new();
+    let mut health = Vec::new();
+    for _ in 0..7 {
+        sim.sound_events.clear_for_test();
+        sim.capture_manager_update(mind, &rules, None, FrameEffects::default());
+        voices.extend(voc_sounds(&sim));
+        health.push(sim.entities().get(mind).map_or(0, |e| e.health.current()));
+    }
+    // Checks land on visits 1, 4 and 7; the two visits between them only
+    // decrement the type's two-frame countdown.
+    assert_eq!(health, [50, 50, 50, 25, 25, 25, 0]);
+    assert_eq!(
+        voices,
+        ["TypeVoice", "MindCleared", "MindCleared"],
+        "the overload voice latches for the episode; the death frees each captive"
+    );
+    assert!(
+        sim.substrate
+            .entities
+            .get(mind)
+            .is_none_or(|entity| !entity.lifecycle.object_alive()),
+        "the third check kills"
+    );
+    assert!(captives.iter().all(|&gi| owner(&sim, gi) == "Russians"));
+}

@@ -434,8 +434,9 @@ fn attack_control_rules(corpus: &serde_json::Value, input: &serde_json::Value) -
 }
 
 // Ares replaces VoiceAttack's choice (TechnoClass_SelectFiringVoice
-// 1004B1D0, hook 0x7090A8): `ares_firing_voice_tiers_fall_through`.
-#[cfg(not(feature = "ares"))]
+// 1004B1D0, hook 0x7090A8): `ares_firing_voice_tiers_fall_through`. Phobos
+// replaces it again at 0x7090A0, so this stock corpus only runs without it.
+#[cfg(all(not(feature = "ares"), not(feature = "phobos")))]
 #[test]
 fn attack_voice_matches_native_target_slots_rng_and_queue_admission() {
     use crate::map::entities::EntityCategory;
@@ -906,4 +907,65 @@ fn ares_firing_voice_tiers_fall_through() {
         Some("Special")
     );
     assert_eq!(sim.main_rng.native_state_hex(), main);
+}
+
+/// Phobos `TechnoClass_VoiceAttack`
+/// (`Ext/TechnoType/Hooks.MultiWeapon.cpp:82-142`, hook `0x7090A0`): the
+/// selected multi-weapon slot uses its per-slot `VoiceWeapon%dAttack`; without
+/// one, `IsSecondary(slot)` chooses the `VoiceSecondaryWeaponAttack` slot
+/// voice instead of the stock `index != 0` rule.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_multi_weapon_voice_uses_the_slot_and_is_secondary() {
+    use crate::sim::combat::TargetKind;
+
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [InfantryTypes]\n\
+         [VehicleTypes]\n0=MULTI\n1=SECOND\n\
+         [AircraftTypes]\n0=PLANE\n\
+         [MULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\nVoiceWeapon3Attack=Slot3\n\
+         [SECOND]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\nMultiWeapon.IsSecondary=2\n\
+         VoicePrimaryWeaponAttack=Primary\nVoiceSecondaryWeaponAttack=Secondary\n\
+         [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\n\
+         [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=GroundShot\nWarhead=WH\n\
+         [AA]\nDamage=10\nROF=50\nRange=8\nProjectile=AirShot\nWarhead=WH\n\
+         [GroundShot]\nAA=no\nAG=yes\n[AirShot]\nAA=yes\nAG=no\n\
+         [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let sounds = SoundRegistry::from_ini(&IniFile::from_str(
+        "[SoundList]\n0=Slot3\n1=Primary\n2=Secondary\n",
+    ));
+    let mut rules = RuleSet::from_ini(&ini).unwrap();
+    rules.bind_type_sound_references(&ini, &sounds);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 23);
+    let multi = sim
+        .spawn_object("MULTI", "Americans", 8, 10, 0, &rules)
+        .unwrap();
+    let secondary = sim
+        .spawn_object("SECOND", "Americans", 6, 10, 0, &rules)
+        .unwrap();
+    let plane = sim
+        .spawn_object("PLANE", "Russians", 12, 10, 0, &rules)
+        .unwrap();
+    sim.substrate
+        .entities
+        .get_mut(plane)
+        .unwrap()
+        .position
+        .set_exact_z_leptons_for_test(Some(1024));
+    assert_eq!(
+        sim.attack_voice_request(&rules, multi, Some(TargetKind::Entity(plane)), true),
+        Some("Slot3"),
+        "slot 2 answers VoiceWeapon3Attack"
+    );
+    assert_eq!(
+        sim.attack_voice_request(&rules, secondary, Some(TargetKind::Entity(plane)), true),
+        Some("Secondary"),
+        "IsSecondary(slot 2) chooses VoiceSecondaryWeaponAttack"
+    );
 }

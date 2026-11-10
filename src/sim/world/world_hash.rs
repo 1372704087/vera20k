@@ -1265,6 +1265,7 @@ impl Simulation {
             house.hash_spy_gains(hasher);
             house.hash_powered_unit_centers(hasher);
             house.hash_ares_last_super(hasher);
+            house.hash_suspended_emp_pulse_sws(hasher);
             house.hash_native_construction(hasher);
             house.hash_difficulty_biases(hasher);
             house.hash_scenario_parameters(hasher);

@@ -288,6 +288,14 @@ pub struct WeaponType {
     /// [`Self::phobos_burst_delay`] through the `0x6FD05E` GetROF hook.
     #[cfg(feature = "phobos")]
     pub phobos_burst_delays: Vec<i32>,
+    /// Phobos `WeaponTypeExt::Burst_FireWithinSequence`
+    /// (`Ext/WeaponType/Body.cpp:121`, declared `Body.h:53`, default false
+    /// `Body.h:148`): an infantry firing sequence fires the burst's later shots
+    /// at cumulative-delay frames (`world_fire`'s admission) instead of one per
+    /// frame. The unit arm of the same hook is gated on `UnitTypeExt::FireUp`,
+    /// which VERA does not read yet.
+    #[cfg(feature = "phobos")]
+    pub phobos_burst_fire_within_sequence: bool,
     /// Phobos `WeaponTypeExt::Burst_NoDelay` (`Ext/WeaponType/Body.cpp:122`,
     /// `Valueable<bool>`, default false): an infantry or vehicle firer empties
     /// the whole burst in one frame instead of one shot per frame. Only the
@@ -832,6 +840,9 @@ impl WeaponType {
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")
                 .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            phobos_burst_fire_within_sequence: section
+                .read_ares_bool("Burst.FireWithinSequence", false),
             #[cfg(feature = "phobos")]
             phobos_burst_no_delay: section.read_ares_bool("Burst.NoDelay", false),
             #[cfg(feature = "phobos")]

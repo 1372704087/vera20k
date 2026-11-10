@@ -374,7 +374,17 @@ pub(crate) fn fire_coordinate(
     burst_index: u8,
     base_coords: Flh,
 ) -> FireCoordinate {
-    if snap.category == EntityCategory::Infantry
+    // Phobos's UnitClass GetFLH override (`Ext/Techno/Hooks.Firing.cpp:1004-1028`,
+    // vtable `0x7F5D20`) lets a Unit passenger fire from its open-topped
+    // carrier's AlternateFLH when the carrier type's
+    // `AlternateFLH.ApplyVehicle` (else `[General]`, default no) is on. An
+    // Infantry rider keeps the stock unconditional port
+    // (`InfantryClass::GetFLH @ 0x00523250`).
+    #[cfg(feature = "phobos")]
+    let unit_port = snap.category == EntityCategory::Unit;
+    #[cfg(not(feature = "phobos"))]
+    let unit_port = false;
+    if (snap.category == EntityCategory::Infantry || unit_port)
         && let Some(fire) = open_topped_port_coordinate(world, rules, snap)
     {
         return fire;
@@ -466,10 +476,41 @@ pub(crate) fn fire_coordinate(
         lateral: mirrored_lateral.wrapping_add(base_coords.lateral),
         height: flh.height.wrapping_add(base_coords.height),
     };
+    // Phobos `allowOnTurret` (`Ext/Techno/Hooks.Firing.cpp:1069-1070`) is read
+    // from the firing type's ART `AlternateFLH.OnTurret`, else `[General]`
+    // (default yes), and only the alternate arm (`weaponIndex < 0`) changes
+    // it. `GetFLHAbsoluteCoords` then applies the turret matrix only when
+    // `isOnTurret && (pType->Turret || !isFoot)` (`Ext/Techno/Body.Internal.cpp:54`);
+    // otherwise the FLH stays hull-relative: no `TurretOffset` and the body
+    // facing instead of the turret aim. The regular arm keeps
+    // `isOnTurret = true` and still needs the type's `Turret`.
+    #[cfg(feature = "phobos")]
+    let allow_on_turret = if weapon_index < 0 {
+        obj.alternate_flh_on_turret()
+            .unwrap_or(rules.phobos_globals.alternate_flh_on_turret)
+    } else {
+        true
+    };
+    #[cfg(feature = "phobos")]
+    let hull_space =
+        !(allow_on_turret && (snap.category == EntityCategory::Structure || obj.has_turret));
+    #[cfg(not(feature = "phobos"))]
+    let hull_space = false;
+    let (turret_offset, flh_facings) = if hull_space {
+        (
+            0,
+            crate::util::flh_transform::FlhFacings {
+                aim: base.facings.body,
+                ..base.facings
+            },
+        )
+    } else {
+        (art.map_or(0, |art| art.turret_offset), base.facings)
+    };
     let flh_delta = flh_world_delta(
-        art.map_or(0, |art| art.turret_offset),
+        turret_offset,
         flh,
-        base.facings,
+        flh_facings,
         burst_parity,
         base.locomotor_basis,
     )
@@ -1011,6 +1052,13 @@ fn flh_world_delta(
 /// parity (`+0x3B8`), from the transport's coordinate. The shot keeps the
 /// rider's aim facing for its muzzle animation (`Fire_At` picks it from the
 /// firer).
+///
+/// Phobos also installs the UnitClass GetFLH override
+/// (`Ext/Techno/Hooks.Firing.cpp:1004-1028`, vtable `0x7F5D20`): a Unit
+/// passenger takes the same carrier port only while the carrier type's ART
+/// `AlternateFLH.ApplyVehicle` (else `[General]`, default no) is on. The
+/// carrier's ART `AlternateFLH.OnTurret` (else `[General]`, default yes)
+/// decides whether the port is transformed in turret space or hull space.
 fn open_topped_port_coordinate(
     world: &Simulation,
     rules: &RuleSet,
@@ -1027,6 +1075,16 @@ fn open_topped_port_coordinate(
         .iter()
         .position(|&id| id == snap.stable_id)?;
     let transport_obj = world.interner.object_type(transport.type_ref(), rules)?;
+    // `_GetFLH` tests the carrier's extension, not the passenger's
+    // (`Ext/Techno/Hooks.Firing.cpp:1012`).
+    #[cfg(feature = "phobos")]
+    if rider.category() == EntityCategory::Unit
+        && !transport_obj
+            .alternate_flh_apply_vehicle()
+            .unwrap_or(rules.phobos_globals.alternate_flh_apply_vehicle)
+    {
+        return None;
+    }
     let source = FireSource::of_entity(transport);
     let base = fire_coordinate_base(world, rules, &source, transport_obj);
     let flh = transport_obj.alternate_fire_flh(port);
@@ -1037,10 +1095,32 @@ fn open_topped_port_coordinate(
     let burst_parity = 0;
     #[cfg(not(feature = "phobos"))]
     let burst_parity = transport.weapon_burst.index() as u8;
+    // `allowOnTurret` (`Hooks.Firing.cpp:1069-1070`) with false keeps the port
+    // hull-relative: no `TurretOffset` and the body facing, not the turret aim.
+    // The consolidated transform also needs the carrier type's `Turret`
+    // (`Ext/Techno/Body.Internal.cpp:54`).
+    #[cfg(feature = "phobos")]
+    let turret_space = transport_obj
+        .alternate_flh_on_turret()
+        .unwrap_or(rules.phobos_globals.alternate_flh_on_turret)
+        && (source.category == EntityCategory::Structure || transport_obj.has_turret);
+    #[cfg(not(feature = "phobos"))]
+    let turret_space = true;
+    let (turret_offset, facings) = if turret_space {
+        (base.art.map_or(0, |art| art.turret_offset), base.facings)
+    } else {
+        (
+            0,
+            crate::util::flh_transform::FlhFacings {
+                aim: base.facings.body,
+                ..base.facings
+            },
+        )
+    };
     let delta = flh_world_delta(
-        base.art.map_or(0, |art| art.turret_offset),
+        turret_offset,
         flh,
-        base.facings,
+        facings,
         burst_parity,
         base.locomotor_basis,
     )
@@ -1539,6 +1619,199 @@ mod tests {
             shot(-1, 0),
             shot(-1, 1),
             "the alternate arm takes no parity shift"
+        );
+    }
+
+    /// Rules and ART for the two `AlternateFLH.*` gates. `global_on_turret`
+    /// supplies `[General] AlternateFLH.OnTurret`; `None` keeps the default
+    /// yes. `SHIP_*` are Unit types with and without `Turret=`, whose alternate
+    /// FLH and `TurretOffset` differ between hull and turret space; `CARRY_*`
+    /// are open-topped transports; `RIDE` is a Unit passenger with its own ART
+    /// `AlternateFLH.ApplyVehicle=yes`, which must be ignored.
+    #[cfg(feature = "phobos")]
+    fn alternate_flh_rules(global_on_turret: Option<bool>) -> RuleSet {
+        let general = global_on_turret
+            .map(|on| {
+                format!(
+                    "[General]\nAlternateFLH.OnTurret={}\n",
+                    if on { "yes" } else { "no" }
+                )
+            })
+            .unwrap_or_default();
+        let ini = IniFile::from_str(&format!(
+            "{general}[InfantryTypes]\n0=GI\n\
+             [VehicleTypes]\n0=SHIP_OFF\n1=SHIP_YES\n2=RIDE\n3=CARRY_YES\n4=CARRY_NO\n5=CARRY_DEF\n\
+             6=SHIP_NOTURRET\n\
+             [AircraftTypes]\n[BuildingTypes]\n\
+             [GI]\nStrength=100\nArmor=none\n\
+             [SHIP_OFF]\nStrength=300\nTurret=yes\nPrimary=CANNON\n\
+             [SHIP_YES]\nStrength=300\nTurret=yes\nPrimary=CANNON\n\
+             [SHIP_NOTURRET]\nStrength=300\nTurret=no\nPrimary=CANNON\n\
+             [RIDE]\nStrength=100\nArmor=none\nPrimary=CANNON\n\
+             [CARRY_YES]\nStrength=500\nArmor=none\nTurret=yes\nOpenTopped=yes\nPassengers=1\n\
+             [CARRY_NO]\nStrength=500\nArmor=none\nTurret=yes\nOpenTopped=yes\nPassengers=1\n\
+             [CARRY_DEF]\nStrength=500\nArmor=none\nTurret=yes\nOpenTopped=yes\nPassengers=1\n\
+             [CANNON]\nDamage=10\nROF=20\nRange=5\nWarhead=SA\n\
+             [SA]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
+        ));
+        let art = IniFile::from_str(
+            "[SHIP_OFF]\nAlternateFLH0=100,0,0\nTurretOffset=50\n\
+             [SHIP_YES]\nAlternateFLH0=100,0,0\nTurretOffset=50\nAlternateFLH.OnTurret=yes\n\
+             [SHIP_NOTURRET]\nAlternateFLH0=100,0,0\nTurretOffset=50\nAlternateFLH.OnTurret=yes\n\
+             [RIDE]\nPrimaryFireFLH=0,0,7\nAlternateFLH.ApplyVehicle=yes\n\
+             [CARRY_YES]\nAlternateFLH0=100,0,0\nTurretOffset=50\nAlternateFLH.ApplyVehicle=yes\n\
+             [CARRY_NO]\nAlternateFLH0=100,0,0\nTurretOffset=50\nAlternateFLH.ApplyVehicle=no\n\
+             [CARRY_DEF]\nAlternateFLH0=100,0,0\nTurretOffset=50\n",
+        );
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+        rules.replace_art_registry_for_test(ArtRegistry::from_ini(&art));
+        rules
+    }
+
+    /// A carrier at (10,10) with one rider at the same cell, so the port
+    /// coordinate (carrier base) and the rider's own FLH (same base, +7 Z)
+    /// differ without moving either object.
+    #[cfg(feature = "phobos")]
+    fn carried_world(
+        carrier_type: &str,
+        rider_type: &str,
+        rider_category: EntityCategory,
+    ) -> (Simulation, u64) {
+        use crate::sim::passenger::{PassengerCargo, PassengerRole};
+        const CARRIER_ID: u64 = 1;
+        const RIDER_ID: u64 = 2;
+        let mut world = Simulation::new();
+        world
+            .substrate
+            .entities
+            .insert(crate::sim::game_entity::GameEntity::test_default(
+                CARRIER_ID,
+                carrier_type,
+                "Americans",
+                10,
+                10,
+            ));
+        world.substrate.entities.insert(
+            crate::sim::game_entity::GameEntity::test_default_of_category(
+                RIDER_ID,
+                rider_type,
+                "Americans",
+                10,
+                10,
+                rider_category,
+            ),
+        );
+        let mut cargo = PassengerCargo::new(1, 0.0);
+        cargo.set_passengers_for_test(vec![RIDER_ID]);
+        {
+            let carrier = world.substrate.entities.get_mut(CARRIER_ID).unwrap();
+            carrier.passenger_role = PassengerRole::transport(cargo);
+            carrier.body_facing = crate::sim::movement::FacingClass::new(0x3FFF, 0);
+            carrier.barrel_facing = Some(crate::sim::movement::FacingClass::new(0xBE00, 0));
+        }
+        world
+            .substrate
+            .entities
+            .get_mut(RIDER_ID)
+            .unwrap()
+            .passenger_role = PassengerRole::boarded_for_test(CARRIER_ID, true);
+        world.interner = crate::sim::intern::test_interner();
+        (world, RIDER_ID)
+    }
+
+    #[cfg(feature = "phobos")]
+    fn carried_shot(rules: &RuleSet, carrier_type: &str, rider_type: &str) -> ProjectileCoord {
+        let rider_category = if rider_type == "GI" {
+            EntityCategory::Infantry
+        } else {
+            EntityCategory::Unit
+        };
+        let (world, rider_id) = carried_world(carrier_type, rider_type, rider_category);
+        let rider = world.substrate.entities.get(rider_id).unwrap();
+        let obj = world.interner.object_type(rider.type_ref(), rules).unwrap();
+        let snap = FireSource::of_entity(rider);
+        fire_coordinate(&world, rules, &snap, obj, 0, 0, Flh::default()).coord
+    }
+
+    /// `AlternateFLH.OnTurret` (`Ext/Techno/Hooks.Firing.cpp:1069-1070`) is the
+    /// type's ART `Nullable<bool>`, else `[General]` (default yes). The negative
+    /// weapon index is the alternate arm: with a turreted Unit whose body is
+    /// 0x3FFF (matrix identity) and barrel 0xBE00 (180 degrees), turret space
+    /// rotates `TurretOffset=50` onto -X and leaves `AlternateFLH0=100,0,0`
+    /// at +50 X; hull space drops the offset and the turret rotation, +100 X.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn alternate_flh_on_turret_gates_hull_and_turret_space() {
+        let shot = |rules: &RuleSet, type_id: &str, index: i32| {
+            let world = Simulation::new();
+            let mut snap = source(EntityCategory::Unit);
+            snap.exact_z_leptons = Some(0);
+            snap.hull_facing = crate::sim::movement::FacingClass::new(0x3FFF, 0);
+            snap.barrel_facing = Some(crate::sim::movement::FacingClass::new(0xBE00, 0));
+            let obj = rules.object(type_id).unwrap();
+            fire_coordinate(&world, rules, &snap, obj, index, 0, Flh::default()).coord
+        };
+        let global_no = alternate_flh_rules(Some(false));
+        assert_eq!(
+            shot(&global_no, "SHIP_OFF", -1),
+            ProjectileCoord::new(X + 100, Y, 0),
+            "the unset type key takes the global no and stays hull-relative"
+        );
+        assert_eq!(
+            shot(&global_no, "SHIP_YES", -1),
+            ProjectileCoord::new(X + 50, Y, 0),
+            "the type yes overrides the global no and uses turret space"
+        );
+        assert_eq!(
+            shot(&global_no, "SHIP_NOTURRET", -1),
+            ProjectileCoord::new(X + 100, Y, 0),
+            "GetFLHAbsoluteCoords needs pType->Turret as well as the key"
+        );
+        let stock = alternate_flh_rules(None);
+        assert_eq!(
+            shot(&stock, "SHIP_OFF", -1),
+            ProjectileCoord::new(X + 50, Y, 0),
+            "the constructor default yes keeps the existing turret-space FLH"
+        );
+        assert_eq!(
+            shot(&stock, "SHIP_NOTURRET", 0),
+            ProjectileCoord::new(X, Y, 0),
+            "a regular weapon FLH on a turretless Foot also skips TurretOffset"
+        );
+    }
+
+    /// `AlternateFLH.ApplyVehicle` (`Ext/Techno/Hooks.Firing.cpp:1012`) is read
+    /// from the open-topped carrier's type: yes lets a Unit passenger fire from
+    /// the carrier's `AlternateFLH0`, no (the global default, and also the
+    /// `CARRY_DEF` unset key) keeps the Unit's own `PrimaryFireFLH`. The
+    /// passenger's own ART says yes in every case and must not matter. An
+    /// Infantry rider keeps the stock unconditional port
+    /// (`InfantryClass::GetFLH @ 0x00523250`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn alternate_flh_apply_vehicle_gates_the_open_topped_port() {
+        let rules = alternate_flh_rules(None);
+        let port = ProjectileCoord::new(2688 + 50, 2688, 0);
+        let own = ProjectileCoord::new(2688, 2688, 7);
+        assert_eq!(
+            carried_shot(&rules, "CARRY_YES", "RIDE"),
+            port,
+            "the carrier's yes lends AlternateFLH0 in turret space"
+        );
+        assert_eq!(
+            carried_shot(&rules, "CARRY_NO", "RIDE"),
+            own,
+            "the carrier's no keeps the Unit's own weapon FLH"
+        );
+        assert_eq!(
+            carried_shot(&rules, "CARRY_DEF", "RIDE"),
+            own,
+            "the global default (no) keeps the stock Unit path"
+        );
+        assert_eq!(
+            carried_shot(&rules, "CARRY_NO", "GI"),
+            port,
+            "an Infantry rider keeps the stock unconditional port"
         );
     }
 

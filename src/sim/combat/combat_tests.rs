@@ -7239,6 +7239,243 @@ fn phobos_force_weapon_replaces_the_native_selection() {
     );
 }
 
+/// Phobos `MultiWeapon.*` under the `0x7128B2` reader and the `0x6F3428`
+/// hook (`Ext/TechnoType/Body.cpp:175-291`,
+/// `Ext/Techno/Hooks.Firing.cpp:100-116`): `SelectCount=2` never leaves the
+/// stock two slots, `SelectCount` above `WeaponCount` clamps, and the switch
+/// off keeps the stock answer even with the other keys authored.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_multi_weapon_cycles_only_the_admitted_slots() {
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [InfantryTypes]\n\
+         [VehicleTypes]\n0=MULTI\n1=MULTI2\n2=MULTI99\n3=NOMULTI\n4=HTNK\n\
+         [AircraftTypes]\n0=PLANE\n\
+         [MULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\n\
+         [MULTI2]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=2\n\
+         [MULTI99]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=99\n\
+         [NOMULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nPrimary=Gun\nSecondary=Gun\nWeapon3=AA\n\
+         MultiWeapon=no\nMultiWeapon.SelectCount=99\nMultiWeapon.IsSecondary=2\n\
+         [HTNK]\nStrength=400\nArmor=heavy\n\
+         [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\n\
+         [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=GroundShot\nWarhead=WH\n\
+         [AA]\nDamage=10\nROF=50\nRange=8\nProjectile=AirShot\nWarhead=WH\n\
+         [GroundShot]\nAA=no\nAG=yes\n\
+         [AirShot]\nAA=yes\nAG=no\n\
+         [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("multi weapon rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 11);
+    let plane = sim
+        .spawn_object("PLANE", "Russians", 12, 10, 0, &rules)
+        .expect("plane spawns");
+    sim.substrate
+        .entities
+        .get_mut(plane)
+        .unwrap()
+        .position
+        .set_exact_z_leptons_for_test(Some(1024));
+    let multi = sim
+        .spawn_object("MULTI", "Americans", 8, 10, 0, &rules)
+        .expect("multi weapon attacker spawns");
+    let two_slots = sim
+        .spawn_object("MULTI2", "Americans", 10, 10, 0, &rules)
+        .expect("two-slot attacker spawns");
+    let clamped = sim
+        .spawn_object("MULTI99", "Americans", 14, 10, 0, &rules)
+        .expect("clamped attacker spawns");
+    let stock = sim
+        .spawn_object("NOMULTI", "Americans", 16, 10, 0, &rules)
+        .expect("stock attacker spawns");
+    fn select(
+        sim: &crate::sim::world::Simulation,
+        rules: &RuleSet,
+        attacker: u64,
+        target: u64,
+        type_id: &str,
+    ) -> i32 {
+        let entity = sim.entities().get(attacker).unwrap();
+        let object = rules.object(type_id).unwrap();
+        combat_weapon::select_weapon_against(
+            rules,
+            entity,
+            object,
+            &combat_weapon::attacker_facts(entity, object),
+            Some(&TargetKind::Entity(target)),
+            sim,
+            &sim.interner,
+            sim.resolved_terrain.as_ref(),
+            Some(&sim.house_alliances),
+        )
+        .unwrap()
+        .0
+    }
+    assert_eq!(
+        select(&sim, &rules, multi, plane, "MULTI"),
+        2,
+        "SelectCount=3 admits the AA third slot before the stock ladder returns 0"
+    );
+    assert_eq!(
+        select(&sim, &rules, two_slots, plane, "MULTI2"),
+        0,
+        "SelectCount=2 keeps the stock two-slot answer"
+    );
+    assert_eq!(
+        select(&sim, &rules, clamped, plane, "MULTI99"),
+        2,
+        "SelectCount above WeaponCount clamps to the three authored slots"
+    );
+    assert_eq!(
+        select(&sim, &rules, stock, plane, "NOMULTI"),
+        0,
+        "MultiWeapon=no keeps the stock two-slot answer despite the other keys"
+    );
+    assert_eq!(
+        rules
+            .object("NOMULTI")
+            .unwrap()
+            .phobos_multi_weapon
+            .is_secondary
+            .len(),
+        0,
+        "the IsSecondary list is cleared while the switch is off"
+    );
+}
+
+/// `NoSecondaryWeaponFallback` (`Ext/TechnoType/Body.cpp:186,223-238`): with
+/// the key on, a two-weapon `SelectMultiWeapon` continues instead of falling
+/// through, and the drain priority is disabled, so the primary answers. The
+/// same type without the key keeps the stock drain arm's secondary.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_no_secondary_weapon_fallback_disables_the_drain_priority() {
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [InfantryTypes]\n\
+         [VehicleTypes]\n0=FALLBACK\n1=STOCK\n2=DRAIN\n\
+         [FALLBACK]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=2\nWeapon1=Gun\nWeapon2=Drain\n\
+         MultiWeapon=yes\nNoSecondaryWeaponFallback=yes\n\
+         [STOCK]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=2\nPrimary=Gun\nSecondary=Drain\nMultiWeapon=no\n\
+         [DRAIN]\nStrength=400\nArmor=heavy\nDrainable=yes\n\
+         [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=GroundShot\nWarhead=WH\n\
+         [Drain]\nDamage=0\nROF=50\nRange=6\nDrainWeapon=yes\n\
+         Projectile=GroundShot\nWarhead=WH\n\
+         [GroundShot]\nAA=no\nAG=yes\n\
+         [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("fallback rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 13);
+    let fallback = sim
+        .spawn_object("FALLBACK", "Americans", 8, 10, 0, &rules)
+        .expect("fallback spawns");
+    let stock = sim
+        .spawn_object("STOCK", "Americans", 10, 10, 0, &rules)
+        .expect("stock spawns");
+    let target = sim
+        .spawn_object("DRAIN", "Russians", 12, 10, 0, &rules)
+        .expect("drainable target spawns");
+    fn select(
+        sim: &crate::sim::world::Simulation,
+        rules: &RuleSet,
+        attacker: u64,
+        target: u64,
+        type_id: &str,
+    ) -> i32 {
+        let entity = sim.entities().get(attacker).unwrap();
+        let object = rules.object(type_id).unwrap();
+        combat_weapon::select_weapon_against(
+            rules,
+            entity,
+            object,
+            &combat_weapon::attacker_facts(entity, object),
+            Some(&TargetKind::Entity(target)),
+            sim,
+            &sim.interner,
+            sim.resolved_terrain.as_ref(),
+            Some(&sim.house_alliances),
+        )
+        .unwrap()
+        .0
+    }
+    assert_eq!(
+        select(&sim, &rules, fallback, target, "FALLBACK"),
+        0,
+        "the fallback key runs SelectMultiWeapon and drops the drain priority"
+    );
+    assert_eq!(
+        select(&sim, &rules, stock, target, "STOCK"),
+        1,
+        "without the key the stock ladder takes the drain secondary"
+    );
+}
+
+/// `MultiWeaponCanFire` does not read `LegalTarget`
+/// (`Ext/Techno/WeaponHelpers.cpp:419-434`), unlike shrapnel's
+/// `IsAllowedSplitsTarget` (`Ext/Bullet/Hooks.cpp:314`): a `LegalTarget=no`
+/// airborne target still admits the AA third slot.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_multi_weapon_can_fire_ignores_legal_target() {
+    let ini = crate::sim::arena_fixture::clear_ground_ini(
+        "[Countries]\n0=Americans\n1=Russians\n\
+         [InfantryTypes]\n\
+         [VehicleTypes]\n0=MULTI\n1=HTNK\n\
+         [AircraftTypes]\n0=PLANE\n\
+         [MULTI]\nStrength=300\nCost=300\nSpeed=6\nArmor=none\n\
+         WeaponCount=3\nWeapon1=Gun\nWeapon2=Gun\nWeapon3=AA\n\
+         MultiWeapon=yes\nMultiWeapon.SelectCount=3\n\
+         [HTNK]\nStrength=400\nArmor=heavy\n\
+         [PLANE]\nStrength=200\nArmor=light\nSpeed=10\nSight=8\nLegalTarget=no\n\
+         [Gun]\nDamage=10\nROF=50\nRange=6\nProjectile=GroundShot\nWarhead=WH\n\
+         [AA]\nDamage=10\nROF=50\nRange=8\nProjectile=AirShot\nWarhead=WH\n\
+         [GroundShot]\nAA=no\nAG=yes\n[AirShot]\nAA=yes\nAG=no\n\
+         [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+    );
+    let rules = RuleSet::from_ini(&ini).expect("legal-target rules");
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
+    let attacker = sim
+        .spawn_object("MULTI", "Americans", 8, 10, 0, &rules)
+        .expect("attacker spawns");
+    let plane = sim
+        .spawn_object("PLANE", "Russians", 12, 10, 0, &rules)
+        .expect("plane spawns");
+    sim.substrate
+        .entities
+        .get_mut(plane)
+        .unwrap()
+        .position
+        .set_exact_z_leptons_for_test(Some(1024));
+    let entity = sim.entities().get(attacker).unwrap();
+    let object = rules.object("MULTI").unwrap();
+    let index = combat_weapon::select_weapon_against(
+        &rules,
+        entity,
+        object,
+        &combat_weapon::attacker_facts(entity, object),
+        Some(&TargetKind::Entity(plane)),
+        &sim,
+        &sim.interner,
+        sim.resolved_terrain.as_ref(),
+        Some(&sim.house_alliances),
+    )
+    .unwrap()
+    .0;
+    assert_eq!(
+        index, 2,
+        "the AA slot admits a LegalTarget=no target in SelectMultiWeapon"
+    );
+}
+
 /// `TechnoClass::CanFireAtTarget @ 0x006F7780` is `CanFireAt(target,
 /// SelectWeapon(target))` (`0x006F77B0`, then `InRange @ 0x006F7220`), and
 /// `FootClass::Approach_Target @ 0x004D5690` measures the same way: neither

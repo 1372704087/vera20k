@@ -992,6 +992,14 @@ pub struct HouseState {
     spatial_threat: crate::sim::house_threat::HouseSpatialThreat,
     #[serde(default)]
     super_weapon_targets: HouseSuperWeaponTargets,
+    /// Phobos `HouseExt::SuspendedEMPulseSWs`
+    /// (`Ext/House/Body.h:66`, `Ext/SWType/FireSuperWeapon.cpp:384-404`):
+    /// keyed by the firing EMPulse SW type, the other SW types this House
+    /// suspended for it. Real save state, resumed and erased by
+    /// `BuildingClass_Mission_Missile_EMPulseSelectWeapon` (`0x44CEEC`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    suspended_emp_pulse_sws: std::collections::BTreeMap<InternedId, Vec<InternedId>>,
 }
 
 /// The super weapon targeting state a House keeps: where its nuclear missile flies
@@ -2512,6 +2520,38 @@ impl HouseState {
             std::hash::Hash::hash(b"ares-house-last-super-v1", hasher);
             std::hash::Hash::hash(&self.ares_last_super, hasher);
         }
+    }
+
+    /// `HouseExt::SuspendedEMPulseSWs` stays empty until a Phobos EMPulse
+    /// launch suspends other superweapons, so only a holder changes the
+    /// state hash.
+    pub(crate) fn hash_suspended_emp_pulse_sws(&self, hasher: &mut impl std::hash::Hasher) {
+        #[cfg(not(feature = "phobos"))]
+        let _ = hasher;
+        #[cfg(feature = "phobos")]
+        if !self.suspended_emp_pulse_sws.is_empty() {
+            std::hash::Hash::hash(b"house-suspended-emp-pulse-v1", hasher);
+            std::hash::Hash::hash(&self.suspended_emp_pulse_sws, hasher);
+        }
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn hold_emp_pulse_sws(&mut self, firing: InternedId, held: Vec<InternedId>) {
+        self.suspended_emp_pulse_sws.insert(firing, held);
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn release_emp_pulse_sws(&mut self, firing: InternedId) -> Vec<InternedId> {
+        self.suspended_emp_pulse_sws
+            .remove(&firing)
+            .unwrap_or_default()
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn suspended_emp_pulse_sws(
+        &self,
+    ) -> &std::collections::BTreeMap<InternedId, Vec<InternedId>> {
+        &self.suspended_emp_pulse_sws
     }
 
     /// Folded only while set, so a house that never lost a building hashes as

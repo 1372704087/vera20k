@@ -22,6 +22,16 @@ pub struct WeaponBurst {
     /// it. Assign_Target and the ordinary burst's remainder do not reset it.
     #[serde(default)]
     radial_index: i32,
+    /// Phobos `TechnoExt::ForceFullRearmDelay` (`Ext/Techno/Body.h:47`,
+    /// constructor false at `Body.h:108`): the `Burst.FireWithinSequence`
+    /// overrun arm sets it (`Ext/Infantry/Hooks.Firing.cpp:129`) so the current
+    /// shot arms the full rearm (`0x6FD054` skips the mid-burst branch) and the
+    /// shot's burst step clears it and resets the index (`0x6FF660` logic).
+    /// The matching `LastRearmWasFullDelay` reader stays with the charge-turret
+    /// residual in `sim::attach_effect`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    force_full_rearm: bool,
 }
 
 impl Hash for WeaponBurst {
@@ -32,6 +42,10 @@ impl Hash for WeaponBurst {
         if self.radial_index != 0 {
             b"radial-fire-index".hash(state);
             self.radial_index.hash(state);
+        }
+        #[cfg(feature = "phobos")]
+        if self.force_full_rearm {
+            b"force-full-rearm".hash(state);
         }
     }
 }
@@ -88,6 +102,27 @@ impl WeaponBurst {
         // Native faults on Burst=0. Aircraft never calls FireAt for that
         // value; the ordinary caller retains its existing max(1) policy.
         self.index = self.advance().wrapping_rem(burst);
+        // Phobos `TechnoClass_FireAt_LateLogic` (`0x6FF660`,
+        // `Ext/Techno/Hooks.Firing.cpp:902-910`): a forced full rearm also
+        // restarts the burst, so the next cycle begins at its first shot.
+        #[cfg(feature = "phobos")]
+        if self.force_full_rearm {
+            self.force_full_rearm = false;
+            self.index = 0;
+        }
+    }
+
+    /// Phobos `TechnoExt::ForceFullRearmDelay`; read by GetROF's `0x6FD054`
+    /// full-rearm bypass.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn force_full_rearm(self) -> bool {
+        self.force_full_rearm
+    }
+
+    /// The `Burst.FireWithinSequence` overrun arm's set.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_force_full_rearm(&mut self) {
+        self.force_full_rearm = true;
     }
 }
 

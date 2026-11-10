@@ -1452,6 +1452,22 @@ pub(crate) struct AresEMPulseRules {
     pub(crate) pulse_ball: Option<Option<String>>,
     pub(crate) cannons: Vec<String>,
     pub(crate) max_count: i32,
+    /// Phobos `EMPulse.WeaponIndex` (`Ext/SWType/Body.cpp:179`,
+    /// `Body.h:109`, constructor `:196` 0): `>= 0` fixes Mission_Missile's
+    /// weapon slot, a negative value calls SelectWeapon on the EMPTarget.
+    #[cfg(feature = "phobos")]
+    #[serde(default = "default_empulse_weapon_index")]
+    pub(crate) empulse_weapon_index: i32,
+    /// Phobos `EMPulse.SuspendOthers` (`Ext/SWType/Body.cpp:180`,
+    /// `Body.h:110`, constructor `:197` false).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) empulse_suspend_others: bool,
+}
+
+#[cfg(feature = "phobos")]
+fn default_empulse_weapon_index() -> i32 {
+    0
 }
 
 #[cfg(feature = "ares")]
@@ -1464,6 +1480,10 @@ impl Default for AresEMPulseRules {
             pulse_ball: None,
             cannons: Vec::new(),
             max_count: -1,
+            #[cfg(feature = "phobos")]
+            empulse_weapon_index: 0,
+            #[cfg(feature = "phobos")]
+            empulse_suspend_others: false,
         }
     }
 }
@@ -1483,6 +1503,16 @@ impl AresEMPulseRules {
         self.linked = section.read_ares_bool("EMPulse.Linked", self.linked);
         self.target_self = section.read_ares_bool("EMPulse.TargetSelf", self.target_self);
         self.pulse_delay = section.read_ares_int("EMPulse.PulseDelay", self.pulse_delay);
+        // Phobos reads the same section after Ares (`Body.cpp:179-182`).
+        // `Valueable<int>` is INI_EX::ReadInteger and `Valueable<bool>` a
+        // plain ReadBool, both retaining the constructor value on a failure.
+        #[cfg(feature = "phobos")]
+        {
+            self.empulse_weapon_index =
+                section.read_int("EMPulse.WeaponIndex", self.empulse_weapon_index);
+            self.empulse_suspend_others =
+                section.read_bool("EMPulse.SuspendOthers", self.empulse_suspend_others);
+        }
         if pulse_ball.is_some() {
             self.pulse_ball = pulse_ball;
         }

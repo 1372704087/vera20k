@@ -1016,13 +1016,41 @@ pub(super) fn weapon_picking_allows(
     warhead: &crate::rules::warhead_type::WarheadType,
     target: u64,
 ) -> bool {
+    weapon_picking_allows_with(
+        world,
+        rules,
+        source_id,
+        owner_house,
+        weapon,
+        warhead,
+        target,
+        true,
+    )
+}
+
+/// [`weapon_picking_allows`] with the two gates a caller may not read:
+/// `include_stock_gates` covers `LegalTarget` (`Ext/Bullet/Hooks.cpp:314`) and
+/// `CanTargetVeterancy` (`:328`), which shrapnel's `IsAllowedSplitsTarget`
+/// reads but `MultiWeaponCanFire` (`Ext/Techno/WeaponHelpers.cpp:419-434`)
+/// does not.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn weapon_picking_allows_with(
+    world: &Simulation,
+    rules: &RuleSet,
+    source_id: u64,
+    owner_house: InternedId,
+    weapon: &WeaponType,
+    warhead: &crate::rules::warhead_type::WarheadType,
+    target: u64,
+    include_stock_gates: bool,
+) -> bool {
     let Some(entity) = world.substrate.entities.get(target) else {
         return false;
     };
     let Some(object) = world.interner.object_type(entity.type_ref(), rules) else {
         return false;
     };
-    if !object.legal_target {
+    if include_stock_gates && !object.legal_target {
         return false;
     }
     let armor = crate::sim::shield::warhead_armor_for_target(world, rules, entity, warhead);
@@ -1068,7 +1096,8 @@ pub(super) fn weapon_picking_allows(
         object.strength,
         targeting.min_health,
         targeting.max_health,
-    ) || !veterancy_allowed(targeting.veterancy, entity.veterancy.rank_kind())
+    ) || (include_stock_gates
+        && !veterancy_allowed(targeting.veterancy, entity.veterancy.rank_kind()))
     {
         return false;
     }

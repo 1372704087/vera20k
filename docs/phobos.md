@@ -57,6 +57,8 @@ Supported extensions:
 - [TransactMoney warhead keys](phobos-transact-money.md) (`TransactMoney`, its `Display.*` label and the `0x6FC339` insufficient-funds fire gate)
 - [Jumpjet tilt](phobos-jumpjet-tilt.md) (`JumpjetTilt` and the four `JumpjetTilt.*` factors pitch and roll an airborne jumpjet body)
 - [Forced weapon selection](phobos-force-weapon.md) (`ForceWeapon.*` / `ForceAAWeapon.*` force the SelectWeapon slot by target state, range and class)
+- [Multi-weapon selection](phobos-multiweapon.md) (`MultiWeapon`, `.SelectCount` and `.IsSecondary` admit and order weapon slots past the stock two)
+- [Alternate FLH gating](phobos-alternate-flh.md) (`AlternateFLH.OnTurret` and `.ApplyVehicle` choose hull/turret space and the open-topped carrier port)
 - [Deploy ammo](phobos-ammo-deploy.md) (`Ammo.AddOnDeploy`, `.DeployUnlock*` and `.AutoDeploy*` shape a vehicle deployer's ammo and deploy admission)
 - [Penetrates transport](phobos-penetrates-transport.md) (`PenetratesTransport.*` lets a warhead damage a transport's passengers)
 - [Warp-in weapon](phobos-warp-in-weapon.md) (`WarpInWeapon`, `WarpInMinRangeWeapon` and `.UseDistanceAsDamage` detonate at a teleport's arrival)
@@ -80,6 +82,7 @@ Supported extensions:
 - [Power-delta indicator](phobos-power-delta-indicator.md) (`PowerDelta.*` net-power text beside the credits counter)
 - [Burst with no delay](phobos-burst-no-delay.md) (`Burst.NoDelay=` empties a burst in one frame)
 - [Per-shot burst delays](phobos-burst-delays.md) (`Burst.Delays=` gives each burst shot its own rearm delay, on any class)
+- [Burst within the firing sequence](phobos-burst-sequence.md) (`Burst.FireWithinSequence=` fires an infantry burst's later shots at cumulative-delay frames and arms a full rearm past the sequence; 1 key)
 - [Harvester counter](phobos-harvester-counter.md) (`HarvesterCounter.*` working/total harvesters, `Harvester.Counted=`)
 - [Weeds counter](phobos-weeds-counter.md) (`WeedsCounter.*` the House's stored weed total beside the credits counter)
 - [AutoDeath](phobos-auto-death.md) (`AutoDeath.Behavior=kill|vanish|sell`, the condition arms and timers, `AutoDeath.VanishAnimation`)
@@ -146,6 +149,7 @@ Supported extensions:
 - [FactoryPlant restricted lists](phobos-factory-plant.md) (`FactoryPlant.AllowTypes`/`.DisallowTypes`/`.MaxCount` + `FactoryPlant.Multiplier`: per-type cost and refund discounts from a plant kept out of House+140; 3 keys + 1 type key)
 - [Extra threat bonuses](phobos-extra-threat.md) (`ExtraThreat.*` / `ExtraThreatCoefficient.*` and `AlwaysConsideredThreat`: five type keys with `[General]` fallbacks added to the AI's candidate threat score; 6 keys + 5 globals)
 - [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
+- [EMPulse extensions](phobos-empulse.md) (`EMPulse.WeaponIndex`/`.SuspendOthers`/`.Cannons`/`.TargetSelf`: Ares EMPulse cannon weapon slot, suspended superweapons and the self-target arm; 4 keys)
 
 ## Original project and authors
 

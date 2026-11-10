@@ -672,11 +672,47 @@ fn admit_attacker_fire<'r>(
             .infantry
             .as_ref()
             .is_some_and(|infantry| infantry.is_prone());
+        let fire_up = infantry_fire_frame(obj, sequences, weapon_index, prone);
+        // Phobos `InfantryClass_FiringAI @ 0x5209AF`
+        // (`Ext/Infantry/Hooks.Firing.cpp:83-137`): `Burst.FireWithinSequence`
+        // moves the expected stage to `fireUp + cumulativeDelay`; the loop
+        // draws one `RandomRanged(3, 5)` per index with no `Burst.Delays`
+        // entry, before the equality test.
+        #[cfg(feature = "phobos")]
+        let (firing_frame, overrun) = if let Some(weapon) =
+            selected.as_ref().map(|selected| selected.weapon)
+            && weapon.phobos_burst_fire_within_sequence
+        {
+            let (cumulative, projected) = phobos_burst_sequence_delays(
+                weapon,
+                entity.weapon_burst.index(),
+                &mut world.scenario_rng,
+            );
+            (
+                fire_up.wrapping_add(cumulative),
+                fire_up.wrapping_add(projected)
+                    > phobos_infantry_sequence_frames(entity, sequences),
+            )
+        } else {
+            (fire_up, false)
+        };
+        #[cfg(not(feature = "phobos"))]
+        let firing_frame = fire_up;
         //5206DE skips the first GetFireError.5209AF asks the second only
         // at exact equality, including signed/out-of-range retained stages.
-        if entity.native_stage().value() != infantry_fire_frame(obj, sequences, weapon_index, prone)
-        {
+        if entity.native_stage().value() != firing_frame {
             return None;
+        }
+        // Overrun: the next shot would fall past the sequence, so this shot
+        // arms the full rearm and the burst step restarts the index.
+        #[cfg(feature = "phobos")]
+        if overrun {
+            world
+                .substrate
+                .entities
+                .get_mut(snap.stable_id)?
+                .weapon_burst
+                .set_force_full_rearm();
         }
         reach.infantry_fire_frame = true;
     }
@@ -933,15 +969,46 @@ fn admit_attacker_fire<'r>(
             .infantry
             .as_ref()
             .is_some_and(|infantry| infantry.is_prone());
-        if actor.native_stage().value() != infantry_fire_frame(obj, sequences, weapon_index, prone)
+        let fire_up = infantry_fire_frame(obj, sequences, weapon_index, prone);
+        // The same Phobos `0x5209AF` comparison on the path that just started
+        // the firing action; the loop draws in index order before the test.
+        #[cfg(feature = "phobos")]
+        let (firing_frame, overrun) = if let Some(weapon) =
+            selected.as_ref().map(|selected| selected.weapon)
+            && weapon.phobos_burst_fire_within_sequence
         {
+            let (cumulative, projected) = phobos_burst_sequence_delays(
+                weapon,
+                actor.weapon_burst.index(),
+                &mut world.scenario_rng,
+            );
+            (
+                fire_up.wrapping_add(cumulative),
+                fire_up.wrapping_add(projected) > phobos_infantry_sequence_frames(actor, sequences),
+            )
+        } else {
+            (fire_up, false)
+        };
+        #[cfg(not(feature = "phobos"))]
+        let firing_frame = fire_up;
+        if actor.native_stage().value() != firing_frame {
             return None;
+        }
+        #[cfg(feature = "phobos")]
+        if overrun {
+            world
+                .substrate
+                .entities
+                .get_mut(snap.stable_id)?
+                .weapon_burst
+                .set_force_full_rearm();
         }
         reach.infantry_fire_frame = true;
         //5209C7/5209DE reselect and query live state after action/facing/Stop,
         // even when a frame-zero action can shoot in this same call.
         // Both actor and target are live reads after the synchronous callbacks.
         // Native5209BB/5209D2 reloads Target for SelectWeapon/GetFireError.
+        let actor = world.substrate.entities.get(snap.stable_id)?;
         let target = actor.attack_target.target();
         (weapon_index, selected) = combat_weapon::select_weapon_against(
             rules,
@@ -1766,6 +1833,11 @@ pub(crate) fn snapshot_get_rof(
                     .and_then(|weapon| weapon.rof_random_delay)
                     .unwrap_or(rules.general.rof_random_delay),
             ),
+            // Phobos `0x6FD054` reads `TechnoExt::ForceFullRearmDelay` before
+            // the mid-burst branch; `Burst.FireWithinSequence`'s overrun arm
+            // sets it on this firer.
+            #[cfg(feature = "phobos")]
+            force_full_rearm: firer.is_some_and(|entity| entity.weapon_burst.force_full_rearm()),
             rof_ability: self::veterancy::has_weapon_ability(
                 self::veterancy::rank_from_u16(snap.veterancy),
                 obj,
@@ -4155,6 +4227,54 @@ fn infantry_fire_frame(
         }
     }
     frame
+}
+
+/// Phobos `Burst.FireWithinSequence`'s cumulative delay
+/// (`Ext/Infantry/Hooks.Firing.cpp:97-113`, `Ext/Unit/Hooks.Firing.cpp:67-84`):
+/// walk the burst's indices up to the current one, taking
+/// `WeaponTypeExt::GetBurstDelay(i)` and drawing `RandomRanged(3, 5)` for each
+/// index it leaves unset. Index 0 always answers 0 without a draw; another
+/// index's delay is clamped to one frame because the sequence advances once per
+/// frame. Returns the cumulative delay up to the current shot and the projected
+/// delay after it (the current index's delay counted twice).
+#[cfg(feature = "phobos")]
+fn phobos_burst_sequence_delays(
+    weapon: &WeaponType,
+    burst_index: i32,
+    rng: &mut SimRng,
+) -> (i32, i32) {
+    let mut cumulative = 0_i32;
+    let mut projected = 0_i32;
+    for i in 0..=burst_index {
+        let mut delay = match weapon.phobos_burst_delay(i) {
+            Some(delay) => delay,
+            None => rng.next_range_u32_inclusive(3, 5) as i32,
+        };
+        if i != 0 {
+            delay = delay.max(1);
+        }
+        cumulative = cumulative.wrapping_add(delay);
+        if i == burst_index {
+            projected = cumulative.wrapping_add(delay);
+        }
+    }
+    (cumulative, projected)
+}
+
+/// `pThis->Type->Sequence->GetSequence(pThis->SequenceAnim).CountFrames`: the
+/// live firing action's frames per facing, 0 without a record.
+#[cfg(feature = "phobos")]
+fn phobos_infantry_sequence_frames(
+    entity: &crate::sim::game_entity::GameEntity,
+    sequences: Option<&SequenceSet>,
+) -> i32 {
+    let doing = entity
+        .mission_leaf
+        .as_infantry()
+        .map_or(-1, |leaf| leaf.doing());
+    sequences
+        .and_then(|set| set.infantry_action(doing))
+        .map_or(0, |record| record.frames_per_facing)
 }
 
 /// `TechnoClass::EstimateDamage @ 0x006FDB80` for `attacker_id` shooting

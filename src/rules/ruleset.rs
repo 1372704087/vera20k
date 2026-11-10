@@ -5423,6 +5423,12 @@ impl RuleSet {
                 object.weapon_list = slots.base();
                 object.elite_weapon_list = slots.elite();
                 object.bind_weapon_offsets(slots.offsets());
+                // Phobos `MultiWeapon.*` is read per pass by the same owner
+                // that retains the slot arrays (`0x7128B2`).
+                #[cfg(feature = "phobos")]
+                {
+                    object.phobos_multi_weapon = slots.multi_weapon().clone();
+                }
             }
         }
         // Phobos TechnoTypeExt reads insignia keys on every reached pass, so

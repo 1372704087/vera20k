@@ -65,5 +65,6 @@ stock-kernel corpus `get_rof_matches_the_original` runs without this feature
 
 - The two `Burst.FireWithinSequence` hooks (`src/Ext/Unit/Hooks.Firing.cpp:72`,
   `src/Ext/Infantry/Hooks.Firing.cpp:101`) also call `GetBurstDelay`, for the
-  cumulative firing-sequence delay. That is a separate key and chain; nothing
-  from it is ported here.
+  cumulative firing-sequence delay; they are ported on the
+  [burst sequence](phobos-burst-sequence.md) page. The unit half there still
+  waits for the `UnitTypeExt::FireUp` art key.

@@ -188,12 +188,50 @@ impl Simulation {
             rules,
             &self.interner,
         );
+        // Phobos `TechnoClass_VoiceAttack` (`Ext/TechnoType/Hooks.MultiWeapon.cpp:82-142`,
+        // hook `0x7090A0`): `GetVoiceAttack` runs before the stock list, and
+        // when it answers, the whole stock/Ares selection is skipped. Order:
+        // repairing weapon (`VoiceIFVRepair`, then the literal `FV` global),
+        // the multi-weapon slot voices, then the `IsSecondary`-chosen
+        // primary/secondary slot overrides, then `VoiceAttack`.
+        #[cfg(feature = "phobos")]
+        {
+            let elite = veterancy::raw_is_elite(entity.veterancy.raw());
+            let repair = weapon
+                .is_some_and(|weapon| weapon.damage < 0)
+                .then(|| {
+                    object.phobos_voice_ifv_repair().or_else(|| {
+                        (object.id == "FV")
+                            .then(|| rules.general.voice_ifv_repair())
+                            .flatten()
+                    })
+                })
+                .flatten();
+            if let Some(sound) = repair {
+                return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+            }
+            if let Some(sound) = object.phobos_voice_weapon_attack(index, elite) {
+                return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+            }
+            let secondary = object
+                .phobos_multi_weapon
+                .is_secondary(index, object.is_gattling);
+            if let Some(sound) = object.voice_attack_override_secondary(secondary, elite) {
+                return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
+            }
+            //70918D..7091C4: unsigned raw draw/modulo, including a singleton.
+            return self.voice_request_from_list(
+                object.voice_attack(),
+                voices_enabled,
+                human_player,
+            );
+        }
         // Ares 3.0 TechnoClass_SelectFiringVoice (1004B1D0, hook 0x7090A8):
         // a repairing weapon takes `VoiceRepair`, else the case-sensitive
         // `FV` VoiceIFVRepair; then the rank's slot override, an elite one
         // falling back to the rookie one; then a `RandomRanged(0, n - 1)`
         // Main draw over VoiceAttack. Each unset tier falls through.
-        #[cfg(feature = "ares")]
+        #[cfg(all(not(feature = "phobos"), feature = "ares"))]
         {
             let set = |voice: Option<&'a str>| voice.filter(|voice| !voice.is_empty());
             let repair = weapon.is_some_and(|weapon| weapon.damage < 0);
@@ -228,7 +266,7 @@ impl Simulation {
                 human_player,
             );
         }
-        #[cfg(not(feature = "ares"))]
+        #[cfg(all(not(feature = "phobos"), not(feature = "ares")))]
         let scalar = if weapon.is_some_and(|weapon| weapon.damage < 0)
             && object.id.eq_ignore_ascii_case("FV")
         {
@@ -238,12 +276,12 @@ impl Simulation {
         } else {
             object.voice_attack_override(index, veterancy::raw_is_elite(entity.veterancy.raw()))
         };
-        #[cfg(not(feature = "ares"))]
+        #[cfg(all(not(feature = "phobos"), not(feature = "ares")))]
         if let Some(sound) = scalar {
             return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
         }
         //70918D..7091C4: unsigned raw draw/modulo, including a singleton.
-        #[cfg(not(feature = "ares"))]
+        #[cfg(all(not(feature = "phobos"), not(feature = "ares")))]
         return self.voice_request_from_list(object.voice_attack(), voices_enabled, human_player);
     }
 

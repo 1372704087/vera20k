@@ -104,6 +104,8 @@ Thumbs.db
 !/docs/phobos-warp-in-weapon.md
 !/docs/phobos-jumpjet-tilt.md
 !/docs/phobos-force-weapon.md
+!/docs/phobos-multiweapon.md
+!/docs/phobos-alternate-flh.md
 !/docs/phobos-ammo-deploy.md
 !/docs/phobos-penetrates-transport.md
 !/docs/phobos-missile.md
@@ -144,6 +146,7 @@ Thumbs.db
 !/docs/phobos-change-owner.md
 !/docs/phobos-spawns-crate.md
 !/docs/phobos-burst-delays.md
+!/docs/phobos-burst-sequence.md
 !/docs/phobos-rocker.md
 !/docs/phobos-type-convert-group.md
 !/docs/phobos-explodes.md
@@ -157,6 +160,7 @@ Thumbs.db
 !/docs/phobos-interceptor.md
 !/docs/phobos-factory-plant.md
 !/docs/phobos-combat-alert.md
+!/docs/phobos-empulse.md
 !/docs/ares-promotion-sounds.md
 !/docs/npatch.md
 !/docs/verax.md

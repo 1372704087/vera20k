@@ -177,6 +177,8 @@ pub mod phobos_tiberium_eater;
 #[cfg(feature = "phobos")]
 pub mod phobos_force_weapon;
 #[cfg(feature = "phobos")]
+pub mod phobos_multi_weapon;
+#[cfg(feature = "phobos")]
 pub mod phobos_globals;
 #[cfg(feature = "phobos")]
 pub mod phobos_strafing;

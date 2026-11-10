@@ -5806,6 +5806,18 @@ pub(crate) struct WeaponSlots {
     extra_elite: Vec<Option<String>>,
     #[serde(default)]
     offsets: crate::rules::weapon_offsets::WeaponOffsets,
+    /// Phobos `MultiWeapon.*`, read on every reached TechnoType pass by the
+    /// same ordered reader that owns the slot arrays
+    /// (`Ext/TechnoType/Hooks.MultiWeapon.cpp:3-66`, hook `0x7128B2`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    multi_weapon: crate::rules::phobos_multi_weapon::PhobosMultiWeapon,
+    /// Phobos `TechnoTypeExt::ReadMultiWeapon` (constructor false,
+    /// `Body.h:812`): the latch the numbered weapon read branches on. It lives
+    /// beside the slots it clears, not in the projected type.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    multi_weapon_read: bool,
 }
 
 impl WeaponSlots {
@@ -5819,6 +5831,13 @@ impl WeaponSlots {
 
     pub(crate) fn weapon_count(&self) -> i32 {
         self.weapon_count
+    }
+
+    /// Phobos `MultiWeapon.*` after every reached pass; the projected type's
+    /// `SelectMultiWeapon` reads it.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn multi_weapon(&self) -> &crate::rules::phobos_multi_weapon::PhobosMultiWeapon {
+        &self.multi_weapon
     }
 
     pub(crate) fn base(&self) -> Vec<Option<String>> {
@@ -9386,7 +9405,30 @@ impl RulesPassProcessor {
         slots.turret_count = raw.read_int("TurretCount", slots.turret_count);
         slots.weapon_count = raw.read_int("WeaponCount", slots.weapon_count);
         slots.clear_all_weapons = raw.read_bool("ClearAllWeapons", slots.clear_all_weapons);
-        if slots.turret_count > 0 {
+        // Phobos TechnoTypeClass_ReadINI_MultiWeapon (0x7128B2): read the
+        // `MultiWeapon.*` group before the weapon list and clear base/elite
+        // slots 0/1 whenever the `TurretCount > 0 || MultiWeapon` latch
+        // changes (`Ext/TechnoType/Hooks.MultiWeapon.cpp:13-31`). The numbered
+        // `WeaponN` read runs while that latch is on, so `MultiWeapon=yes`
+        // reaches it with `TurretCount=0`; the second read gate `0x715B10`
+        // keeps the same condition.
+        #[cfg(feature = "phobos")]
+        let read_numbered_weapons = {
+            let multi = slots
+                .multi_weapon
+                .read_pass(raw, slots.turret_count, slots.weapon_count);
+            if slots.multi_weapon_read != multi {
+                for array in [&mut slots.base, &mut slots.elite] {
+                    array[0] = None;
+                    array[1] = None;
+                }
+                slots.multi_weapon_read = multi;
+            }
+            multi
+        };
+        #[cfg(not(feature = "phobos"))]
+        let read_numbered_weapons = slots.turret_count > 0;
+        if read_numbered_weapons {
             #[cfg(feature = "ares")]
             {
                 self.family_mut(family)[index]

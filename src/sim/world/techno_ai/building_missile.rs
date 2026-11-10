@@ -456,15 +456,98 @@ fn weapon_zero<'r>(
     rules: &'r RuleSet,
     entity: &crate::sim::game_entity::GameEntity,
 ) -> Option<&'r crate::rules::weapon_type::WeaponType> {
+    weapon_at(sim, rules, entity, 0)
+}
+
+/// `pThis->GetWeapon(weaponIndex)` from the EMPulse select-weapon hook
+/// (`Ext/Building/Hooks.cpp:186`); stock and Ares-only shots keep slot 0.
+fn weapon_at<'r>(
+    sim: &Simulation,
+    rules: &'r RuleSet,
+    entity: &crate::sim::game_entity::GameEntity,
+    index: i32,
+) -> Option<&'r crate::rules::weapon_type::WeaponType> {
     let object = sim.object_type(entity.type_ref(), rules)?;
     crate::sim::combat::combat_weapon::get_weapon(
         entity,
         object,
-        0,
+        index,
         &sim.substrate.entities,
         rules,
         &sim.interner,
     )
+}
+
+/// `BuildingClass_Mission_Missile_EMPulseSelectWeapon @ 0x44CEEC`
+/// (`Ext/Building/Hooks.cpp:132-189`). Consumes and clears
+/// `CurrentEMPulseSW`, resumes the SWs suspended for this firing type and
+/// erases that residue (`Ext/House/Body.h:66`), then answers the weapon slot:
+/// a non-negative `EMPulse.WeaponIndex`, else SelectWeapon against the
+/// EMPTarget cell. No latch means the stock/Ares slot 0.
+#[cfg(all(feature = "ares", feature = "phobos"))]
+fn phobos_empulse_weapon_index(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    id: u64,
+    cell: (u16, u16),
+) -> i32 {
+    let Some(sw_type) = sim
+        .substrate
+        .entities
+        .get_mut(id)
+        .and_then(|entity| entity.take_phobos_current_empulse_sw())
+    else {
+        return 0;
+    };
+    let owner = sim.substrate.entities.get(id).map(|entity| entity.owner());
+    let name = sim.interner.resolve(sw_type).to_owned();
+    let Some(emp) = rules
+        .super_weapon_metadata(&name)
+        .map(|metadata| metadata.launch().emp_pulse().clone())
+    else {
+        return 0;
+    };
+    if emp.empulse_suspend_others {
+        if let Some(owner) = owner {
+            let held = sim
+                .houses
+                .get_mut(&owner)
+                .map(|house| house.release_emp_pulse_sws(sw_type))
+                .unwrap_or_default();
+            let frame = sim.session.binary_frame() as u32;
+            for ty in held {
+                if let Some(instance) = sim.super_weapons.instance_mut(&owner, &ty) {
+                    instance.suspend(false, false, frame);
+                }
+            }
+        }
+    }
+    if emp.empulse_weapon_index >= 0 {
+        return emp.empulse_weapon_index;
+    }
+    // Native asks SelectWeapon on the cell's content, else the cell itself
+    // (`Ext/Building/Hooks.cpp:143-158`). VERA's SelectWeapon owner takes the
+    // cell target; the content-first ordering is a documented residual.
+    let world: &Simulation = sim;
+    let Some(entity) = world.substrate.entities.get(id) else {
+        return 0;
+    };
+    let Some(object) = world.object_type(entity.type_ref(), rules) else {
+        return 0;
+    };
+    let target = TargetKind::Cell(cell.0, cell.1);
+    let picked = crate::sim::combat::combat_weapon::select_weapon_against(
+        rules,
+        entity,
+        object,
+        &crate::sim::combat::combat_weapon::attacker_facts(entity, object),
+        Some(&target),
+        world,
+        &world.interner,
+        world.resolved_terrain.as_ref(),
+        Some(&world.house_alliances),
+    );
+    picked.map_or(0, |(slot, _)| slot.max(0))
 }
 
 /// BuildingClass vt+0x2C8 (`0x0043E940`) for an EMP cannon whose weapon 0 is
@@ -493,11 +576,18 @@ fn emp_barrel_pitch(sim: &Simulation, rules: &RuleSet, id: u64, cell: (u16, u16)
 /// (`0x0044D4D4..0x0044D51A`); status 3, returns 1. A refused shot is deleted
 /// and the cannon parks.
 fn emp_shot(sim: &mut Simulation, rules: &RuleSet, id: u64, cell: (u16, u16)) -> i32 {
+    // `BuildingClass_Mission_Missile_EMPulseSelectWeapon @ 0x44CEEC`
+    // (`Ext/Building/Hooks.cpp:132-189`): the Phobos latch owns the weapon
+    // slot, the suspended-SW resume and the clear, all before the shot.
+    #[cfg(all(feature = "ares", feature = "phobos"))]
+    let weapon_index = phobos_empulse_weapon_index(sim, rules, id, cell);
+    #[cfg(not(all(feature = "ares", feature = "phobos")))]
+    let weapon_index = 0_i32;
     let Some(entity) = sim.substrate.entities.get(id) else {
         return 1;
     };
     let (Some(weapon), Some(object)) = (
-        weapon_zero(sim, rules, entity),
+        weapon_at(sim, rules, entity, weapon_index),
         sim.object_type(entity.type_ref(), rules),
     ) else {
         // Native dereferences the missing WeaponType (`0x0044D08A`).
@@ -520,7 +610,7 @@ fn emp_shot(sim: &mut Simulation, rules: &RuleSet, id: u64, cell: (u16, u16)) ->
         rules,
         &FireSource::of_entity(entity),
         object,
-        0,
+        weapon_index,
         0,
         Flh::default(),
     )

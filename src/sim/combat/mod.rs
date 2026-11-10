@@ -129,6 +129,8 @@ mod garrison_oracle_tests;
 #[cfg(test)]
 mod homing_shipyard_tests;
 #[cfg(all(test, feature = "phobos"))]
+mod phobos_burst_sequence_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod phobos_delayed_fire_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_detonate_all_map_tests;

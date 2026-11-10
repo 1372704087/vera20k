@@ -774,7 +774,7 @@ pub(crate) fn what_weapon_should_i_use<'r>(
     target: Option<&TargetFacts>,
     get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
 ) -> i32 {
-    what_weapon_should_i_use_with_force(rules, obj, attacker, target, get_weapon, None)
+    what_weapon_should_i_use_with_force(rules, obj, attacker, target, get_weapon, None, || None)
 }
 
 /// [`what_weapon_should_i_use`] with the Phobos forced slot handed to the
@@ -786,6 +786,9 @@ pub(crate) fn what_weapon_should_i_use_with_force<'r>(
     target: Option<&TargetFacts>,
     get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
     forced: Option<i32>,
+    // Phobos `SelectMultiWeapon`, asked after `SelectForceWeapon` at the same
+    // hook; lazy so a ladder arm returning before `0x6F3428` never queries it.
+    multi: impl FnOnce() -> Option<i32>,
 ) -> i32 {
     match attacker.kind {
         TechnoKind::Infantry if obj.deploy_fire => {
@@ -799,7 +802,7 @@ pub(crate) fn what_weapon_should_i_use_with_force<'r>(
         }
         _ => {}
     }
-    techno_what_weapon_should_i_use(rules, obj, attacker, target, get_weapon, forced)
+    techno_what_weapon_should_i_use(rules, obj, attacker, target, get_weapon, forced, multi)
 }
 
 /// Whether the airstrike secondary is selected for a techno target.
@@ -845,6 +848,7 @@ fn techno_what_weapon_should_i_use<'r>(
     target: Option<&TargetFacts>,
     get_weapon: impl Fn(i32) -> Option<&'r WeaponType>,
     forced: Option<i32>,
+    multi: impl FnOnce() -> Option<i32>,
 ) -> i32 {
     // A @ 0x006F333B: turreted non-gattling types fire the gunner slot,
     // unconditionally (`-1` collapses to 0).
@@ -903,12 +907,17 @@ fn techno_what_weapon_should_i_use<'r>(
         return stage.wrapping_mul(2);
     }
     // Phobos `TechnoClass_WhatWeaponShouldIUse_ForceWeapon` hook at
-    // `0x6F3428`: the forced slot replaces the rest of the ladder. Every arm
-    // above (class overrides, turreted slot, occupied building, weapon
-    // resolution, NeverUse, null target/force fire, open-topped, Ares
-    // NoAmmoWeapon and the gattling stage) returns before this point, as it
-    // does natively; `MultiWeapon` at the same hook is a separate chain.
+    // `0x6F3428`: the forced slot replaces the rest of the ladder, then
+    // `SelectMultiWeapon` is asked at the same point
+    // (`Ext/Techno/Hooks.Firing.cpp:100-116`). Every arm above (class
+    // overrides, turreted slot, occupied building, weapon resolution,
+    // NeverUse, null target/force fire, open-topped and Ares NoAmmoWeapon)
+    // returns before this point, as it does natively; so does the gattling
+    // stage below it.
     if let Some(index) = forced {
+        return index;
+    }
+    if let Some(index) = multi() {
         return index;
     }
     // I @ 0x006F3477: Airstrike secondary. Phobos adds two gates here
@@ -1332,6 +1341,23 @@ pub(crate) fn select_weapon_index_against_in_query(
     );
     #[cfg(not(feature = "phobos"))]
     let forced = None;
+    // Phobos `SelectMultiWeapon` at the same `0x6F3428` hook, after the forced
+    // slot. Lazy: the ladder arms that return before the hook never ask it.
+    #[cfg(feature = "phobos")]
+    let multi = || {
+        phobos_multi_weapon_index(
+            rules,
+            attacker_entity,
+            attacker_obj,
+            attacker,
+            target,
+            target_facts.as_ref(),
+            world,
+            interner,
+        )
+    };
+    #[cfg(not(feature = "phobos"))]
+    let multi = || -> Option<i32> { None };
     Some(what_weapon_should_i_use_with_force(
         rules,
         attacker_obj,
@@ -1348,6 +1374,7 @@ pub(crate) fn select_weapon_index_against_in_query(
             )
         },
         forced,
+        multi,
     ))
 }
 
@@ -1532,6 +1559,319 @@ fn phobos_force_weapon_index(
         }
     }
     (force >= 0).then_some(force)
+}
+
+/// Phobos `TechnoTypeExt::SelectMultiWeapon` (`Ext/TechnoType/Body.cpp:175-291`),
+/// asked by the `0x6F3428` hook after `SelectForceWeapon`
+/// (`Ext/Techno/Hooks.Firing.cpp:100-116`). `None` is the native `-1`: the
+/// caller keeps the rest of the ladder.
+///
+/// `NoSecondaryWeaponFallback` and `NoSecondaryWeaponFallback.AllowAA` are
+/// separate Phobos keys (`Body.h`) that VERA does not port; both constructor
+/// defaults (false) are used here.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn phobos_multi_weapon_index(
+    rules: &RuleSet,
+    attacker_entity: &GameEntity,
+    attacker_obj: &ObjectType,
+    attacker: &AttackerFacts,
+    target: Option<&TargetKind>,
+    target_facts: Option<&TargetFacts<'_>>,
+    world: &Simulation,
+    interner: &StringInterner,
+) -> Option<i32> {
+    let settings = &attacker_obj.phobos_multi_weapon;
+    let target = target?;
+    if !settings.enabled {
+        return None;
+    }
+    if attacker_obj.is_gattling || (attacker_obj.turret_count > 0 && attacker_obj.gunner) {
+        return None;
+    }
+    let weapon_count = attacker_obj.weapon_count.min(settings.select_count);
+    let no_secondary = settings.no_secondary_weapon_fallback;
+    let allow_aa = settings.no_secondary_weapon_fallback_allow_aa;
+    if weapon_count < 2 {
+        return Some(0);
+    }
+    if weapon_count == 2 && !no_secondary {
+        return None;
+    }
+    // `TechnoTypeExt::GetWeaponType(pType, index, isElite)`: the elite slot when
+    // the attacker is elite and that slot names a weapon, else the normal one.
+    fn weapon_at<'r>(
+        rules: &'r RuleSet,
+        obj: &ObjectType,
+        veterancy: u16,
+        index: i32,
+    ) -> Option<&'r WeaponType> {
+        weapon_for_index(obj, veterancy, index).and_then(|record| record.weapon(rules))
+    }
+    let (is_building, is_ally, target_obj) = match target_facts {
+        Some(TargetFacts::Techno {
+            obj, kind, is_ally, ..
+        }) => (*kind == TechnoKind::Building, *is_ally, Some(*obj)),
+        _ => (false, false, None),
+    };
+    // `secondaryCanTargets.resize(weaponCount, false)`: slots that the
+    // secondary-priority walk rejected are skipped by the final walk.
+    let mut secondary_can_targets = vec![false; weapon_count as usize];
+
+    if matches!(target_facts, Some(TargetFacts::Techno { .. })) {
+        let mut get_naval_targeting = false;
+        if let Some(TargetFacts::Techno {
+            on_bridge,
+            cell_land_type,
+            flight,
+            ..
+        }) = target_facts
+        {
+            let on_water = *cell_land_type == LandType::Water.as_index()
+                || *cell_land_type == LandType::Beach.as_index();
+            if !*on_bridge && on_water && !flight.high() {
+                let result = select_naval_targeting_weapon(attacker_obj, target_facts);
+                if result != -1 {
+                    get_naval_targeting = result == 1;
+                }
+            }
+        }
+        let get_secondary_list = !settings.is_secondary.is_empty();
+        let first = if get_secondary_list { 0 } else { 1 };
+        for index in first..weapon_count {
+            let slot = index as usize;
+            if get_secondary_list && !settings.is_secondary.get(slot).copied().unwrap_or(false) {
+                continue;
+            }
+            let Some(weapon) = weapon_at(rules, attacker_obj, attacker.veterancy, index) else {
+                secondary_can_targets[slot] = true;
+                continue;
+            };
+            if weapon.never_use {
+                secondary_can_targets[slot] = true;
+                continue;
+            }
+            let in_air = target_facts.is_some_and(TargetFacts::is_high_flying);
+            let warhead = rules.weapon_warhead(weapon);
+            let mut secondary_priority = get_naval_targeting;
+            if !get_naval_targeting {
+                if warhead.is_some_and(|warhead| warhead.airstrike) {
+                    // Can this weapon attack the air force now?
+                    secondary_priority = if in_air { !allow_aa } else { !no_secondary };
+                } else if in_air {
+                    secondary_priority = !allow_aa;
+                } else if weapon.drain_weapon
+                    && target_obj.is_some_and(|obj| obj.drainable)
+                    && !attacker.drain_target_active
+                    && !is_ally
+                {
+                    secondary_priority = !no_secondary;
+                } else if warhead.is_some_and(|warhead| warhead.electric_assault)
+                    && is_ally
+                    && is_building
+                    && target_obj.is_some_and(|obj| obj.overpowerable)
+                {
+                    secondary_priority = !no_secondary;
+                }
+            }
+            if secondary_priority {
+                if multi_weapon_can_fire(
+                    rules,
+                    world,
+                    interner,
+                    attacker_entity,
+                    target,
+                    target_facts,
+                    Some(weapon),
+                ) {
+                    return Some(index);
+                }
+                secondary_can_targets[slot] = true;
+            }
+        }
+    } else if no_secondary {
+        return Some(0);
+    }
+
+    for index in 0..weapon_count {
+        if secondary_can_targets
+            .get(index as usize)
+            .copied()
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        if multi_weapon_can_fire(
+            rules,
+            world,
+            interner,
+            attacker_entity,
+            target,
+            target_facts,
+            weapon_at(rules, attacker_obj, attacker.veterancy, index),
+        ) {
+            return Some(index);
+        }
+    }
+    Some(0)
+}
+
+/// Phobos `TechnoExt::MultiWeaponCanFire` (`Ext/Techno/WeaponHelpers.cpp:360-503`):
+/// whether `SelectMultiWeapon` may answer this slot. The target-eligibility
+/// and warhead-versus gates reuse the shared weapon-picking owner
+/// (`weapon_picking_allows`), which also applies `LegalTarget` and
+/// `CanTargetVeterancy`; this native body does not read those two, a residual
+/// the default target flags keep dormant.
+///
+/// RESIDUAL: `WeaponTypeExt::SkipWeaponPicking` (default false) and the
+/// `CanTarget` cell/overlay Wall/Armor=Wood gate for a force-fire cell are not
+/// ported; `AllowAirstrike` and the warhead gates follow Phobos.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn multi_weapon_can_fire(
+    rules: &RuleSet,
+    world: &Simulation,
+    interner: &StringInterner,
+    attacker_entity: &GameEntity,
+    target: &TargetKind,
+    target_facts: Option<&TargetFacts<'_>>,
+    weapon: Option<&WeaponType>,
+) -> bool {
+    let Some(weapon) = weapon else {
+        return false;
+    };
+    if weapon.never_use {
+        return false;
+    }
+    if attacker_entity.passenger_role.in_open_transport() && !weapon.fire_in_transport {
+        return false;
+    }
+
+    let in_air = target_facts.is_some_and(TargetFacts::is_high_flying);
+    let projectile = rules.weapon_projectile(weapon);
+    let warhead = rules.weapon_warhead(weapon);
+    let target_kind = target_facts.and_then(TargetFacts::kind);
+    let is_building = target_kind == Some(TechnoKind::Building);
+    let is_ally = matches!(
+        target_facts,
+        Some(TargetFacts::Techno { is_ally: true, .. })
+    );
+    if in_air {
+        if !projectile.is_some_and(|projectile| projectile.aa) {
+            return false;
+        }
+    } else if projectile.is_some_and(|projectile| projectile.phobos_airburst.aa_only) {
+        return false;
+    } else if warhead.is_some_and(|warhead| warhead.electric_assault) {
+        if !matches!(
+            target_facts,
+            Some(TargetFacts::Techno {
+                obj,
+                kind: TechnoKind::Building,
+                is_ally: true,
+                ..
+            }) if obj.overpowerable
+        ) {
+            return false;
+        }
+    } else if warhead.is_some_and(|warhead| warhead.is_locomotor) && is_building {
+        return false;
+    }
+
+    if matches!(target_facts, Some(TargetFacts::Terrain)) {
+        // `WeaponHelpers.cpp:496-500`: a Terrain object needs a Wood warhead.
+        return warhead.is_some_and(|warhead| warhead.wood);
+    }
+
+    let TargetKind::Entity(target_id) = target else {
+        // A force-fire cell: `WeaponHelpers.cpp:486-495`. `IsCellEligible`
+        // reads `explicitEmptyCells` and `considerBridgesLand` true.
+        if let (TargetKind::Cell(rx, ry), Some(TargetFacts::Cell { .. })) = (target, target_facts) {
+            let techno_content = matches!(
+                world.native_cell_content((*rx, *ry)).next(),
+                Some(crate::sim::occupancy::CellObjectMember::Entity(_))
+            );
+            let land = world
+                .resolved_terrain
+                .as_ref()
+                .and_then(|terrain| terrain.cell(*rx, *ry))
+                .and_then(|cell| LandType::from_index(cell.land_type));
+            return super::crit::cell_eligible(
+                land,
+                weapon.weapon_targeting().can_target,
+                Some(techno_content),
+                world.cell_has_bridge_head((*rx, *ry)),
+            );
+        }
+        return false;
+    };
+    let Some(target_entity) = world.substrate.entities.get(*target_id) else {
+        return false;
+    };
+    let Some(target_obj) = interner.object_type(target_entity.type_ref(), rules) else {
+        return false;
+    };
+    let Some(warhead) = warhead else {
+        return false;
+    };
+    if !super::phobos_airburst::weapon_picking_allows_with(
+        world,
+        rules,
+        attacker_entity.stable_id(),
+        attacker_entity.owner(),
+        weapon,
+        warhead,
+        *target_id,
+        // `MultiWeaponCanFire` does not read `LegalTarget` or
+        // `CanTargetVeterancy` (`Ext/Techno/WeaponHelpers.cpp:419-434`);
+        // shrapnel's `IsAllowedSplitsTarget` does
+        // (`Ext/Bullet/Hooks.cpp:314,328`).
+        false,
+    ) {
+        return false;
+    }
+    // `WeaponHelpers.cpp:436-485`, in native order.
+    let attached_bomb_gate = if target_entity.bomb.is_some() {
+        warhead.ivan_bomb
+    } else {
+        warhead.bomb_disarm
+    };
+    if attached_bomb_gate
+        || (!warhead.temporal && target_entity.is_warped_out())
+        || (warhead.parasite && (is_building || target_entity.parasite.eater().is_some()))
+        || (warhead.mind_control
+            && (target_obj.immune_to_psionics
+                || target_entity.mind_control.is_mind_controlled()
+                || attacker_entity.owner() == target_entity.owner()))
+        || (weapon.drain_weapon
+            && (!target_obj.drainable || target_entity.drain.draining_me().is_some() || is_ally))
+    {
+        return false;
+    }
+    if warhead.airstrike {
+        use crate::rules::airstrike_targets::AirstrikeKind;
+        let kind = match target_kind {
+            Some(TechnoKind::Infantry) => AirstrikeKind::Infantry,
+            Some(TechnoKind::Unit) => AirstrikeKind::Unit,
+            Some(TechnoKind::Aircraft) => AirstrikeKind::Aircraft,
+            _ => AirstrikeKind::Building,
+        };
+        if !warhead.airstrike_targets.allows(kind) {
+            return false;
+        }
+        if is_building {
+            // `AllowAirstrike.Get(CanC4) && (!ResourceDestination ||
+            // !ResourceGatherer)` rejects the slot.
+            if target_obj.allows_airstrike(true)
+                && (!target_obj.resource_destination || !target_obj.resource_gatherer)
+            {
+                return false;
+            }
+        } else if !target_obj.allows_airstrike(false) {
+            return false;
+        }
+    }
+    true
 }
 
 /// The occupied arm of `BuildingClass::GetWeapon @ 0x004526F0`, which answers

@@ -1048,9 +1048,10 @@ pub(crate) fn launch_super_preserving_charge(
     }
 }
 
-/// One Phobos `SW.Next` launch (`Ext/SWType/FireSuperWeapon.cpp:307-335`):
+/// One Phobos chained launch — `SW.Next` (`Ext/SWType/FireSuperWeapon.cpp:307-335`)
+/// and warhead `LaunchSW` (`Ext/WarheadType/Detonate.cpp:121-150`):
 /// `pSuper->SetReadiness(true); pSuper->Launch(cell, isPlayer); pSuper->Reset()`.
-/// With `SW.Next.RealLaunch=no` the arm runs through
+/// With `RealLaunch=no` the arm runs through
 /// [`launch_super_preserving_charge`] instead, which writes the saved timer
 /// back after the Reset.
 #[cfg(feature = "phobos")]

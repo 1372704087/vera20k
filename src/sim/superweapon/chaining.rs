@@ -174,7 +174,7 @@ fn launch_next(
 /// `pHouse->CanTransactMoney(pNextTypeExt->Money_Amount)`: Ares' wallet
 /// inline. Without the Ares capability the key is unread (0), which always
 /// passes.
-fn affordable(sim: &Simulation, owner: InternedId, next_sw: &SuperWeaponType) -> bool {
+pub(super) fn affordable(sim: &Simulation, owner: InternedId, next_sw: &SuperWeaponType) -> bool {
     #[cfg(feature = "ares")]
     {
         super::money::can_transact(&sim.houses, owner, next_sw.money_amount)
@@ -186,9 +186,9 @@ fn affordable(sim: &Simulation, owner: InternedId, next_sw: &SuperWeaponType) ->
     }
 }
 
-/// The next type's `HasInhibitor`/`HasDesignator` around the launch cell.
-/// The two lists are the Ares-owned `SW.Inhibitors`/`SW.Designators`; without
-/// the Ares capability they are unread, so the inhibitor gate is open and the
+/// The type's `HasInhibitor`/`HasDesignator` around the launch cell. The two
+/// lists are the Ares-owned `SW.Inhibitors`/`SW.Designators`; without the
+/// Ares capability they are unread, so the inhibitor gate is open and the
 /// designator gate needs none.
 fn next_gates_pass(
     sim: &Simulation,
@@ -198,23 +198,51 @@ fn next_gates_pass(
     chaining: &crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
     cell: (u16, u16),
 ) -> bool {
+    influence_gates_pass(
+        sim,
+        rules,
+        owner,
+        next_sw,
+        cell,
+        chaining.next_ignore_inhibitors(),
+        chaining.next_ignore_designators(),
+    )
+}
+
+/// The shared inhibitor/designator gate for a launch at `cell`.
+pub(super) fn influence_gates_pass(
+    sim: &Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    sw: &SuperWeaponType,
+    cell: (u16, u16),
+    ignore_inhibitors: bool,
+    ignore_designators: bool,
+) -> bool {
     #[cfg(feature = "ares")]
     {
         let influence = rules
-            .super_weapon_metadata(&next_sw.id)
+            .super_weapon_metadata(&sw.id)
             .map(|metadata| metadata.influence())
             .cloned()
             .unwrap_or_default();
-        (chaining.next_ignore_inhibitors()
-            || !super::targeting::has_inhibitor(sim, rules, owner, &influence, cell))
-            && (chaining.next_ignore_designators()
+        (ignore_inhibitors || !super::targeting::has_inhibitor(sim, rules, owner, &influence, cell))
+            && (ignore_designators
                 || super::targeting::has_designator(sim, rules, owner, &influence, cell))
     }
     #[cfg(not(feature = "ares"))]
     {
         // The lists are unread without Ares: no inhibitor exists and no
         // designator is required.
-        let _ = (sim, rules, owner, next_sw, cell, chaining);
+        let _ = (
+            sim,
+            rules,
+            owner,
+            sw,
+            cell,
+            ignore_inhibitors,
+            ignore_designators,
+        );
         true
     }
 }

@@ -2,7 +2,8 @@
 //! them.
 //!
 //! Native identity: `WarheadTypeExt::Detonate`'s early `TransactMoney` block
-//! (`src/Ext/WarheadType/Detonate.cpp:102..111`) followed by its per-target
+//! (`src/Ext/WarheadType/Detonate.cpp:102..111`), its `LaunchSW` block
+//! (`:121..150`, `superweapon::launch_sw`) and its per-target
 //! prefix and pass (`156..199`), `DetonateOnOneUnit`
 //! (`201..275`), `GetCritChance`/`ApplyCrit` (`525..608`, `735..778`), called
 //! from the `BulletClass_Detonate @ 0x46920B` and `MapClass_DamageArea
@@ -20,10 +21,10 @@
 //!   effects are not ported. `Convert.*` and `ReturnWarhead` are ported and
 //!   count in the gate below.
 //! - `Detonate`'s other earlier per-house arms (`CreateGap`, `Reveal`,
-//!   `SpawnsCrate.Types`' `RandomDouble`, `LaunchSW`) and
-//!   `InterceptBullets` are not ported; a warhead with `SpawnsCrate.Types`
-//!   misses one draw before this prefix. `TransactMoney` is ported here
-//!   ([`apply_transact_money`]).
+//!   `SpawnsCrate.Types`' `RandomDouble`) and `InterceptBullets` are not
+//!   ported; a warhead with `SpawnsCrate.Types` misses one draw before this
+//!   prefix. `TransactMoney` ([`apply_transact_money`]) and `LaunchSW`
+//!   (`superweapon::launch_sw`) are ported here.
 //! - `CanAffectTarget`'s `AffectsAbovePercent`/`AffectsBelowPercent`,
 //!   `AffectsVeterancy` and `AffectsInvokerOnly` gates are unread and pass.
 //! - `CellSpread.Cylinder` has no VERA reader yet, so the pass collects with
@@ -127,6 +128,18 @@ pub(crate) fn detonate(
         house,
         source_id,
         impact,
+        run.effects(),
+    );
+    // `WarheadTypeExt::Detonate`'s LaunchSW block (`Detonate.cpp:121-150`):
+    // after the TransactMoney block and before the crit prefix.
+    #[cfg(feature = "phobos")]
+    crate::sim::superweapon::launch_sw::apply_on_detonation(
+        world,
+        rules,
+        house,
+        impact,
+        warhead,
+        overlay_registry,
         run.effects(),
     );
     let chance = get_crit_chance(world, rules, warhead, source_id);

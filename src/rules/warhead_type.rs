@@ -466,6 +466,11 @@ pub struct WarheadType {
     /// consumer `Detonate.cpp:610-636`).
     #[cfg(feature = "phobos")]
     pub phobos_return_warhead: crate::rules::phobos_return_warhead::PhobosReturnWarhead,
+    /// Phobos `LaunchSW=` and its `.RealLaunch`/`.IgnoreInhibitors`/
+    /// `.IgnoreDesignators`/`.DisplayMoney.*` (`Ext/WarheadType/Body.cpp:290-296`,
+    /// consumer `Detonate.cpp:121-150`).
+    #[cfg(feature = "phobos")]
+    pub phobos_launch_sw: crate::rules::phobos_launch_sw::PhobosLaunchSw,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -853,6 +858,10 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             phobos_return_warhead:
                 crate::rules::phobos_return_warhead::PhobosReturnWarhead::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_launch_sw: crate::rules::phobos_launch_sw::PhobosLaunchSw::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

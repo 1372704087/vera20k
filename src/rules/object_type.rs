@@ -967,6 +967,11 @@ pub struct ObjectType {
     /// takes `[General]`.
     #[cfg(feature = "phobos")]
     pub phobos_cloak_kick_out_parasite: Option<bool>,
+    /// Phobos `Sinkable.SquidGrab=` (`Ext/UnitType/Body.cpp:31`,
+    /// `Nullable<bool>`): whether a grabbed Unit sinks instead of taking
+    /// Strength damage; unset takes `[General]`. Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_sinkable_squid_grab: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4956,6 +4961,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_cloak_kick_out_parasite: section
                 .read_phobos_nullable_bool("Cloak.KickOutParasite", None),
+            #[cfg(feature = "phobos")]
+            phobos_sinkable_squid_grab: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("Sinkable.SquidGrab", None))
+                .flatten(),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

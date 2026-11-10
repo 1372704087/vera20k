@@ -14,6 +14,7 @@ RemoveParasite.Disallow=              ; TechnoType list
 
 [VehicleType]                         ; a parasitic Unit
 Parasite.AllowWaterExit=              ; Nullable<bool>, unset -> [General]
+Sinkable.SquidGrab=                   ; Nullable<bool>, unset -> [General]
 
 [CombatDamage]
 Parasite.DisableParticleSystem=no     ; Valueable<bool>
@@ -23,6 +24,7 @@ Parasite.GrappleAnim=                 ; Nullable AnimType name
 
 [General]
 Parasite.AllowWaterExit=              ; Nullable<bool>
+Sinkable.SquidGrab=yes                ; Valueable<bool>
 ```
 
 Readers `Ext/WarheadType/Body.cpp:181-182,322-325`, `Ext/UnitType/Body.cpp:51`,
@@ -57,6 +59,11 @@ globals `Ext/Rules/Body.cpp:425,426,495` (`Body.h:344,405`).
   gated by `RemoveParasite` (unset keeps `damage < 0`), and
   `RemoveParasite.Allow`/`.Disallow` filter the attached parasite's type
   before the release.
+- `ParasiteClass_UpdateSquid_SinkableBySquid` (`0x629C67`,
+  `Ext/Unit/Hooks.Sinking.cpp:21-45`): a Unit victim of the Squid cull sinks
+  only when its `Sinkable.SquidGrab` (else `[General]`) admits it; otherwise
+  it takes its own Strength as C4Warhead damage with defenses ignored.
+  Non-units always sink.
 
 ## Where VERA20K owns it
 
@@ -64,7 +71,8 @@ globals `Ext/Rules/Body.cpp:425,426,495` (`Body.h:344,405`).
 `ObjectType::phobos_parasite_allow_water_exit` on a Unit feed
 `sim::combat::parasite` (culling gate, spark spawn),
 `parasite_grapple` (the grapple animation name resolved against the declared
-AnimType list), `parasite_can_place_at_victim` (the water-exit override) and
+AnimType list and the cull's sink-or-damage arm),
+`parasite_can_place_at_victim` (the water-exit override) and
 `foot_receive_damage_parasite_prefix` (the RemoveParasite gate and lists).
 
 RESIDUAL: the culling gate reuses the shared `AffectedTarget` test with the

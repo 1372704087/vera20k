@@ -1536,6 +1536,72 @@ fn phobos_remove_parasite_gates_and_filters_the_removal() {
     );
 }
 
+/// Phobos `ParasiteClass_UpdateSquid_SinkableBySquid` (`0x629C67`,
+/// `Ext/Unit/Hooks.Sinking.cpp:21-45`): a grabbed Unit sinks only when its
+/// `Sinkable.SquidGrab` (else `[General]`) admits it; otherwise it takes its
+/// Strength as C4 damage.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_sinkable_squid_grab_switches_between_sinking_and_strength_damage() {
+    let run = |key: &str| {
+        let ini = IniFile::from_str(
+            &(RULES
+                .replace(
+                    "[DLPH]\nStrength=200\nArmor=light\nSpeed=8\nSight=4\nOrganic=yes\nNaval=yes\n",
+                    &format!(
+                        "[DLPH]\n{key}Strength=200\nArmor=light\nSpeed=8\nSight=4\n\
+                         Organic=yes\nNaval=yes\nPrimary=SquidGrab\n"
+                    ),
+                )
+                .replace(
+                    "[Warheads]\n0=ParasiteDog\n1=Parasite\n2=SA\n3=AP\n4=Super\n5=SonicWarhead\n",
+                    "[Warheads]\n0=ParasiteDog\n1=Parasite\n2=SA\n3=AP\n4=Super\n\
+                     5=SonicWarhead\n6=SquidCull\n",
+                )
+                + "[SquidGrab]\nDamage=50\nROF=60\nRange=1.83\nProjectile=JUMP\nSpeed=30\n\
+                   Warhead=SquidCull\nLimboLaunch=yes\n\
+                   [SquidCull]\nParasite=yes\nCulling=yes\n\
+                   Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"),
+        );
+        let rules = rules_with_ini(&ini);
+        let mut arena = Arena::new(&rules);
+        let owner = arena.spawn(&rules, "DLPH", "Russians", (10, 10));
+        let victim = arena.spawn(&rules, "DLPH", "Americans", (11, 10));
+        {
+            let terrain = arena.sim.resolved_terrain.as_mut().unwrap();
+            terrain.set_projectile_water_set_base(0);
+            for cell in [(10u16, 10u16), (11, 10)] {
+                terrain
+                    .cell_mut_for_test(cell.0, cell.1)
+                    .unwrap()
+                    .final_tile_index = 0;
+            }
+        }
+        arena.hit(&rules, victim, None, 190, "Super");
+        arena.infect(&rules, owner, victim);
+        for _ in 0..2000 {
+            let state = arena.sim.entities().get(victim);
+            if state.is_none_or(|entity| entity.sinking.is_active() || entity.health.current() == 0)
+            {
+                break;
+            }
+            arena.step(&rules);
+        }
+        let sinking = arena
+            .sim
+            .entities()
+            .get(victim)
+            .is_some_and(|entity| entity.sinking.is_active());
+        (sinking, arena.gone(victim))
+    };
+    let (sinking, gone) = run("");
+    assert!(sinking, "the default sinks the grabbed Unit");
+    assert!(!gone, "a sinking hull stays until its descent ends");
+    let (sinking, gone) = run("Sinkable.SquidGrab=no\n");
+    assert!(!sinking, "the key switched the cull to direct damage");
+    assert!(gone, "Strength damage killed the victim");
+}
+
 /// Phobos `Parasite.CullingTarget` (`Ext/WarheadType/Body.cpp:324`,
 /// `ParasiteClass_AI_CullingTarget @ 0x62A0AA`): a victim outside the filter
 /// skips the culling arm, so an Infantry victim takes the ordinary bite

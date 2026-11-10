@@ -320,7 +320,7 @@ impl Simulation {
                 self.substrate.write_grapple_roll(victim, SimFixed::ZERO);
                 self.grapple_splashes(victim, origin, rules);
                 if warhead.culling && self.grapple_cull_admitted(owner, victim, warhead, rules) {
-                    self.grapple_cull(owner, victim, rules, effects);
+                    self.grapple_cull(owner, victim, rules, registry, effects);
                     return;
                 }
                 let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
@@ -515,6 +515,7 @@ impl Simulation {
         owner: u64,
         victim: u64,
         rules: &RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
     ) {
         let Some(source) = self.substrate.entities.get(owner) else {
@@ -529,6 +530,20 @@ impl Simulation {
         let Some(target_type) = self.object_type(target.type_ref(), rules) else {
             return;
         };
+        // Phobos `ParasiteClass_UpdateSquid_SinkableBySquid` (`0x629C67`,
+        // `Ext/Unit/Hooks.Sinking.cpp:21-45`): a Unit victim sinks only under
+        // its `Sinkable.SquidGrab` (else `[General]`); otherwise it takes its
+        // own Strength as C4Warhead damage with defenses ignored. Non-units
+        // always sink.
+        let target_is_unit = target.category() == EntityCategory::Unit;
+        let target_strength = target_type.strength;
+        #[cfg(feature = "phobos")]
+        let sink = !target_is_unit
+            || target_type
+                .phobos_sinkable_squid_grab
+                .unwrap_or(rules.phobos_globals.sinkable_squid_grab);
+        #[cfg(not(feature = "phobos"))]
+        let sink = true;
         let source_cost = self.cost_of(source.owner(), source_type, rules);
         let target_cost = self.cost_of(target.owner(), target_type, rules);
         // Ares 10053AC0 resumes past this experience block (0x629C5D) when
@@ -554,13 +569,35 @@ impl Simulation {
                     rules.general.veteran_cap,
                 );
         }
+        // Phobos `ParasiteClass_UpdateSquid_SinkableBySquid` (`0x629C67`,
+        // `Ext/Unit/Hooks.Sinking.cpp:21-45`): a Unit victim sinks only under
+        // its `Sinkable.SquidGrab` (else `[General]`); otherwise it takes its
+        // own Strength as C4Warhead damage with defenses ignored. Non-units
+        // always sink.
         self.parasite_exit_unit(owner, rules, effects);
-        self.begin_living_ship_sinking(
-            victim,
-            crate::sim::world::LivingSinkTrigger::ParasiteCull,
-            rules,
-            effects,
-        );
+        if sink {
+            self.begin_living_ship_sinking(
+                victim,
+                crate::sim::world::LivingSinkTrigger::ParasiteCull,
+                rules,
+                effects,
+            );
+        } else {
+            let warhead_ref = self.interner.intern(&rules.bridge_warheads.c4_name);
+            let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+                victim,
+                target_strength,
+                0,
+                owner,
+                None,
+                warhead_ref,
+                crate::sim::combat::ReceiverCallFlags {
+                    ignore_defenses: true,
+                    arg6: false,
+                },
+            );
+            self.commit_direct_damage_receiver(rules, registry, event, effects);
+        }
         self.reset_parasite_grapple(owner, rules);
         if let Some(source) = self.substrate.entities.get_mut(owner) {
             source.parasite.end_paralysis(self.session.binary_frame());

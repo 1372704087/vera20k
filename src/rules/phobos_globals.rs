@@ -115,6 +115,10 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:289`, constructor `Ext/Rules/Body.h:1056`): the
     /// fallback for a TechnoType's key.
     pub cloak_kick_out_parasite: bool,
+    /// `[General] Sinkable.SquidGrab=`, default `yes`
+    /// (`Ext/Rules/Body.cpp:485`, constructor `Ext/Rules/Body.h:900`): the
+    /// fallback for a UnitType's key.
+    pub sinkable_squid_grab: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -318,6 +322,7 @@ impl Default for PhobosGlobals {
             parasite_allow_water_exit: None,
             parasite_disable_particle_system: false,
             cloak_kick_out_parasite: false,
+            sinkable_squid_grab: true,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -432,6 +437,8 @@ impl PhobosGlobals {
         );
         globals.cloak_kick_out_parasite =
             general.read_bool("Cloak.KickOutParasite", globals.cloak_kick_out_parasite);
+        globals.sinkable_squid_grab =
+            general.read_bool("Sinkable.SquidGrab", globals.sinkable_squid_grab);
         globals.keep_range_allow_ai =
             general.read_bool("KeepRange.AllowAI", globals.keep_range_allow_ai);
         globals.keep_range_allow_player =

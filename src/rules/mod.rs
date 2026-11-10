@@ -167,6 +167,8 @@ pub mod phobos_force_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_globals;
 #[cfg(feature = "phobos")]
+pub mod phobos_strafing;
+#[cfg(feature = "phobos")]
 pub mod phobos_grinding;
 #[cfg(feature = "phobos")]
 pub mod phobos_harvester_guard;

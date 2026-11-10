@@ -76,6 +76,14 @@ impl WeaponBurst {
         self.index = 0;
     }
 
+    /// A plain store of `TechnoClass+3B8`, without the increment: Phobos
+    /// `AircraftExt::FireWeapon` writes `CurrentBurstIndex = bombDropCount % 2
+    /// == 0` before a single-shot strafing shot
+    /// (`Ext/Aircraft/Body.cpp:26-27`).
+    pub(crate) fn set_index(&mut self, index: i32) {
+        self.index = index;
+    }
+
     pub(crate) fn complete_shot(&mut self, burst: i32) {
         // Native faults on Burst=0. Aircraft never calls FireAt for that
         // value; the ordinary caller retains its existing max(1) policy.

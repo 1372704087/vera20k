@@ -267,6 +267,25 @@ pub struct PhobosGlobals {
     /// on the house it held when it boarded.
     #[serde(default = "true_bool")]
     pub passengers_sync_owner_revert_on_exit: bool,
+    /// `[General] Strafing.SimulateBurst=`, default `no`
+    /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
+    /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
+    /// the firing offset across a strafing round's single shots
+    /// (`Ext/Aircraft/Body.cpp:22,26-27`).
+    #[serde(default)]
+    pub strafing_simulate_burst: bool,
+    /// `[General] Strafing.UseAmmoPerShot=`, default `no`
+    /// (`Ext/Rules/Body.cpp:265`, constructor `Body.h:707`): the fallback for
+    /// an unset weapon key; `yes` debits one Ammo after every strafing shot
+    /// instead of once per round (`Ext/Aircraft/Body.cpp:36-45`).
+    #[serde(default)]
+    pub strafing_use_ammo_per_shot: bool,
+    /// `[General] Strafing.TargetCell=`, default `no`
+    /// (`Ext/Rules/Body.cpp:266`, constructor `Body.h:708`): the fallback for
+    /// an unset weapon key; `yes` turns the round's Target into its cell after
+    /// the release (`Ext/Aircraft/Hooks.cpp:234-235`).
+    #[serde(default)]
+    pub strafing_target_cell: bool,
 }
 
 impl Default for PhobosGlobals {
@@ -322,6 +341,9 @@ impl Default for PhobosGlobals {
             no_reload_temporal: false,
             passengers_sync_owner: false,
             passengers_sync_owner_revert_on_exit: true,
+            strafing_simulate_burst: false,
+            strafing_use_ammo_per_shot: false,
+            strafing_target_cell: false,
         }
     }
 }
@@ -482,6 +504,16 @@ impl PhobosGlobals {
             "Passengers.SyncOwner.RevertOnExit",
             globals.passengers_sync_owner_revert_on_exit,
         );
+        // The three `[General] Strafing.*` `Valueable<bool>` fallbacks
+        // (`Ext/Rules/Body.cpp:264-266`, constructor `Body.h:706-708`).
+        globals.strafing_simulate_burst =
+            general.read_bool("Strafing.SimulateBurst", globals.strafing_simulate_burst);
+        globals.strafing_use_ammo_per_shot = general.read_bool(
+            "Strafing.UseAmmoPerShot",
+            globals.strafing_use_ammo_per_shot,
+        );
+        globals.strafing_target_cell =
+            general.read_bool("Strafing.TargetCell", globals.strafing_target_cell);
         globals
     }
 }

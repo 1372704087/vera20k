@@ -130,6 +130,24 @@ impl StrikeHost for Replay<'_> {
     fn ammo(&mut self) -> i32 {
         self.ammo
     }
+    fn strafe_counter(&mut self) -> i32 {
+        0
+    }
+    fn set_strafe_counter(&mut self, _value: i32) {}
+    fn strafe_cell(&mut self) -> Option<(u16, u16)> {
+        None
+    }
+    fn set_strafe_cell(&mut self, _cell: Option<(u16, u16)>) {}
+    fn store_target_cell(&mut self) {}
+    fn cell_fire_error(&mut self, _cell: (u16, u16)) -> FireError {
+        self.code
+    }
+    fn fire_at_cell(&mut self, _cell: (u16, u16)) {
+        self.events.push("fire_at");
+    }
+    fn assign_cell_destination(&mut self, _cell: (u16, u16)) {
+        self.events.push("assign_dest");
+    }
 }
 
 /// The oracle's calls, less the reads the facts already hold.
@@ -202,6 +220,7 @@ fn original_attack_state_rows() {
                 weapon0_rof: get("rof")[0].as_i64().unwrap() as i32,
                 weapon0_range: get("range")[0].as_i64().unwrap() as i32,
                 speed: get("speed").as_i64().unwrap() as i32,
+                strafing: StrafeKeys::STOCK,
             };
             let mut host = Replay {
                 code,

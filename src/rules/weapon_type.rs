@@ -395,6 +395,13 @@ pub struct WeaponType {
     /// warheads detonated after this weapon's own at the same impact.
     #[cfg(feature = "phobos")]
     pub phobos_extra_warheads: crate::rules::phobos_extra_warheads::PhobosExtraWarheads,
+    /// Phobos `WeaponTypeExt` strafing keys (`Ext/WeaponType/Body.cpp:108-112`,
+    /// declarations `Body.h:40-44`): the round's shot count, burst simulation,
+    /// per-shot ammo, Target-to-cell switch and end delay. Read by the
+    /// `AircraftClass::Mission_Attack` hooks and `AircraftExt::FireWeapon`;
+    /// unset booleans fall back to `[General] Strafing.*`.
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules,
 }
 
 impl WeaponType {
@@ -436,6 +443,14 @@ impl WeaponType {
     #[cfg(feature = "phobos")]
     pub(crate) const fn can_target_houses(&self) -> crate::rules::phobos_shields::AffectedHouse {
         self.phobos_can_target_houses
+    }
+
+    /// Phobos `WeaponTypeExt`'s five `Strafing.*` keys.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_strafing(
+        &self,
+    ) -> &crate::rules::phobos_strafing::PhobosStrafingRules {
+        &self.phobos_strafing
     }
 
     /// Phobos `CanTarget`, health range and `CanTargetVeterancy`, defaults
@@ -754,6 +769,10 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_extra_warheads:
                 crate::rules::phobos_extra_warheads::PhobosExtraWarheads::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             phobos_burst_no_delay: section.read_ares_bool("Burst.NoDelay", false),
             #[cfg(feature = "phobos")]

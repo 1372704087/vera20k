@@ -320,6 +320,27 @@ fn write_state(substrate: &mut crate::sim::world::ObjectSubstrate, id: u64, read
     }
 }
 
+/// Weapon 0's `Strafing.Shots.Get(5)` for the entry hook; the key only exists
+/// under `phobos`.
+#[cfg(feature = "phobos")]
+fn strafe_shots(sim: &Simulation, id: u64, rules: &RuleSet) -> i32 {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return 5;
+    };
+    sim.interner
+        .object_type(entity.type_ref(), rules)
+        .and_then(|obj| {
+            crate::sim::combat::combat_weapon::primary_for_tier(obj, entity.veterancy.rank())
+        })
+        .and_then(|name| rules.weapon(name))
+        .map_or(5, |weapon| weapon.phobos_strafing().shots())
+}
+
+#[cfg(not(feature = "phobos"))]
+fn strafe_shots(_sim: &Simulation, _id: u64, _rules: &RuleSet) -> i32 {
+    5
+}
+
 /// One Mission_Attack visit in the aircraft's dispatch: its state and delay,
 /// or `None` for a strike visit (states 4..9), which fires through the
 /// receiver, where VERA's FireAt lives (`combat::aircraft_release`).
@@ -331,6 +352,30 @@ fn attack_visit(
     registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
     frame_effects: FrameEffects<'_>,
 ) -> Option<(u8, i32)> {
+    // Phobos `AircraftClass_Mission_Attack_StrafeShots` (`0x417FF1`,
+    // `Ext/Aircraft/Hooks.cpp:25-50`) runs at the handler entry, before the
+    // state body: it resets the round counter outside the strafe states and
+    // sends FireAtTarget3_Strafe back to FireAtTarget2_Strafe.
+    let mut state = state;
+    let strafe_shots = strafe_shots(sim, id, rules);
+    if let Some(entity) = sim.substrate.entities.get_mut(id) {
+        let (next, counter) = attack_mission::strafe_entry(
+            state,
+            entity
+                .mission_leaf
+                .aircraft_strafe_bombs_dropped_this_round(),
+            strafe_shots,
+        );
+        if entity.mission_leaf.as_aircraft().is_some() {
+            entity
+                .mission_leaf
+                .set_aircraft_strafe_bombs_dropped_this_round(counter);
+        }
+        if next != state {
+            entity.mission.set_handler_state(u32::from(next));
+            state = next;
+        }
+    }
     if let Some(entity) = sim.substrate.entities.get_mut(id) {
         attack_mission::enter_attack_state(entity, state);
     }

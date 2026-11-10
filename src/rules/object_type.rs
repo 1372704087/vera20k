@@ -2552,8 +2552,9 @@ pub struct ObjectType {
     /// `Body.h:92`, constructed 2 `:216`): the summed
     /// `ElectricAssaultLevel` that keeps an overpowerable building online and
     /// is added to `Overpower.ChargeWeapon` for `IsOverpowered`
-    /// (`Ext/Building/Hooks.cpp:902-956`). A negative value keeps the
-    /// building offline from this arm and disables the overpower latch.
+    /// (`Ext/Building/Hooks.cpp:902-956`). The latch has no negative guard, so
+    /// a negative value only lowers its sum; the power gate returns low power
+    /// for any negative value (`:964-974`).
     #[cfg(feature = "phobos")]
     pub overpower_keep_online: i32,
     /// Phobos `Overpower.ChargeWeapon=` (`Ext/BuildingType/Body.cpp:243`,

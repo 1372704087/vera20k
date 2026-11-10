@@ -897,6 +897,16 @@ fn retail_fireat_charges_low_power_coil_and_pruning_disables_it_again() {
 /// gate: the summed level replaces the stock charger count.
 #[cfg(feature = "phobos")]
 fn overpower_scene(keep: i32, charge: i32, level: i32) -> (Simulation, RuleSet, u64) {
+    overpower_scene_ini(keep, charge, level, true)
+}
+
+#[cfg(feature = "phobos")]
+fn overpower_scene_ini(
+    keep: i32,
+    charge: i32,
+    level: i32,
+    assault: bool,
+) -> (Simulation, RuleSet, u64) {
     use crate::rules::ini_parser::IniFile;
     let ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[InfantryTypes]\n0=SHK\n\
@@ -907,7 +917,7 @@ fn overpower_scene(keep: i32, charge: i32, level: i32) -> (Simulation, RuleSet, 
          [WeaponTypes]\n0=Zap\n\
          [Zap]\nDamage=0\nROF=100\nRange=5\nWarhead=EZap\n\
          [Warheads]\n0=EZap\n\
-         [EZap]\nElectricAssault=yes\nElectricAssaultLevel={level}\n\
+         [EZap]\nElectricAssault={assault}\nElectricAssaultLevel={level}\n\
          Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
          [General]\n"
     ));
@@ -1010,5 +1020,36 @@ fn the_power_gate_uses_the_summed_level_against_keep_online() {
         sim.building_operational_state(coil, &rules),
         Some(false),
         "3 levels stay below KeepOnline 5"
+    );
+}
+
+#[cfg(feature = "phobos")]
+#[test]
+fn the_power_gate_sums_any_warhead_and_rejects_negative_keep_online() {
+    // The 0x4555E4/0x45563B gate takes any slot-1 warhead's level
+    // (`Ext/Building/Hooks.cpp:970-981`); only the AI sample checks
+    // `ElectricAssault`.
+    let (mut sim, rules, coil) = overpower_scene_ini(2, 1, 2, false);
+    sim.substrate
+        .entities
+        .get_mut(coil)
+        .unwrap()
+        .set_building_online_for_test(false);
+    assert_eq!(
+        sim.building_operational_state(coil, &rules),
+        Some(true),
+        "a level-2 warhead without ElectricAssault still counts in the gate"
+    );
+
+    let (mut sim, rules, coil) = overpower_scene(-1, 1, 3);
+    sim.substrate
+        .entities
+        .get_mut(coil)
+        .unwrap()
+        .set_building_online_for_test(false);
+    assert_eq!(
+        sim.building_operational_state(coil, &rules),
+        Some(false),
+        "a negative KeepOnline is low power"
     );
 }

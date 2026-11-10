@@ -138,8 +138,9 @@ impl Simulation {
     /// chargers, then sample +661 with the Phobos
     /// `Overpower.KeepOnline`/`.ChargeWeapon` thresholds
     /// (`Ext/Building/Hooks.cpp:914-955`) over the summed
-    /// `ElectricAssaultLevel`s. Without the feature the stock thresholds
-    /// (2, 1) hold and every charger counts as one level.
+    /// `ElectricAssaultLevel`s. Without the feature the stock target-only
+    /// prune, thresholds (2, 1) and one level per charger hold.
+    #[cfg_attr(not(feature = "phobos"), allow(unused_variables))]
     fn sample_tesla_charge(
         interner: &StringInterner,
         substrate: &mut ObjectSubstrate,
@@ -157,9 +158,15 @@ impl Simulation {
             let valid_target = substrate.entities.get(charger).is_some_and(|entity| {
                 entity.attack_target.target() == Some(TargetKind::Entity(id))
             });
+            // Phobos (`Ext/Building/Hooks.cpp:924-930`) also drops a charger
+            // whose slot-1 weapon, warhead or `ElectricAssault` is missing;
+            // the stock body's compare at 0x44011F tests only the target.
+            #[cfg(feature = "phobos")]
             let level = valid_target
                 .then(|| Self::electric_assault_level(interner, substrate, rules, charger))
                 .flatten();
+            #[cfg(not(feature = "phobos"))]
+            let level = valid_target.then_some(1_i32);
             match level {
                 Some(level) => over_power = over_power.wrapping_add(level),
                 None => {
@@ -211,6 +218,7 @@ impl Simulation {
     /// The slot-1 weapon's `ElectricAssaultLevel` when the charger validates for
     /// the overpower sample (`Ext/Building/Hooks.cpp:914-932`): the weapon, its
     /// warhead and `ElectricAssault` must all exist.
+    #[cfg(feature = "phobos")]
     pub(crate) fn electric_assault_level(
         interner: &StringInterner,
         substrate: &ObjectSubstrate,
@@ -228,17 +236,9 @@ impl Simulation {
             interner,
         )?;
         let warhead = rules.weapon_warhead(weapon)?;
-        if !warhead.electric_assault {
-            return None;
-        }
-        #[cfg(feature = "phobos")]
-        {
-            Some(warhead.electric_assault_level)
-        }
-        #[cfg(not(feature = "phobos"))]
-        {
-            Some(1)
-        }
+        warhead
+            .electric_assault
+            .then_some(warhead.electric_assault_level)
     }
 
     /// The power gate's laxer sum (`Ext/Building/Hooks.cpp:970-981`): every

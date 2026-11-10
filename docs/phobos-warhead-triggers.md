@@ -86,5 +86,8 @@ returns to the existing extras block.
 - The receive hook's `ApplyPerTargetEffectsOnDetonate` arm (which calls
   `DetonateOnOneUnit` from ReceiveDamage) is not modelled; only the trigger
   gate of that hook is.
+- Radiation is queued on `CombatEmit` while interception resolves its prey
+  immediately, so the radiation/interceptor order has no observable case; the
+  interceptor regression guards the gate skip itself, not that order.
 - `CanAffectTarget`'s later `EffectsRequireVerses`, `AffectsAir`/`AffectsGround`
   gates are already modelled separately and keep their own owner.

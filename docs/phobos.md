@@ -134,6 +134,7 @@ Supported extensions:
 - [Parasite keys](phobos-parasite.md) (`Parasite.ParticleSystem`/`.DisableParticleSystem`/`.CullingTarget`/`.GrappleAnim`/`.AllowWaterExit`, `RemoveParasite`/`.Allow`/`.Disallow`, `Sinkable.SquidGrab`: the bite, grapple, removal and squid-cull customizations; 9 keys + 4 globals)
 - [Superweapon Detonate](phobos-sw-detonate.md) (`Detonate.Warhead`/`.Weapon`/`.Damage`/`.Warhead.Full`/`.AtFirer`: a superweapon detonates a weapon or warhead at its target; 5 keys)
 - [Cloak keys](phobos-cloak.md) (`Cloak.KickOutParasite`: a cloaking host ejects its parasite; 1 key + 1 `[General]` global)
+- [OpenTransport keys](phobos-open-transport.md) (`OpenTransport.RangeBonus`/`.DamageMultiplier`/`.FireWhileMoving`: a passenger's own open-topped firepower, range and movement gate; 3 keys + 3 globals)
 
 ## Original project and authors
 

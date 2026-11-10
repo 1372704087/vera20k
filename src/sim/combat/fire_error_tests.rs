@@ -318,6 +318,8 @@ fn facts(input: &Value) -> FireFacts {
             #[cfg(feature = "phobos")]
             transport_fire_while_moving: false,
             #[cfg(feature = "phobos")]
+            passenger_fire_while_moving: true,
+            #[cfg(feature = "phobos")]
             transport_decloak_to_fire: false,
         },
         firer_type: FirerTypeFacts {

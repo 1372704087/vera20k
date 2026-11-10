@@ -18,6 +18,44 @@ use crate::sim::world::{FrameEffects, Simulation};
 #[path = "aircraft_release.rs"]
 mod aircraft_release;
 
+/// The open-topped firepower factor for a shot (`0x6FE43B`,
+/// `Ext/Techno/Hooks.Firing.cpp:714-741` and `Ext/Techno/Body.cpp:228-232`):
+/// the carrier's `OpenTopped.DamageMultiplier` (else the YR
+/// `[CombatDamage]` global) times the passenger's
+/// `OpenTransport.DamageMultiplier` (else the Phobos `[CombatDamage]` global).
+/// A firer that is not inside an `OpenTopped` carrier keeps the YR global.
+pub(crate) fn open_topped_damage_multiplier(
+    firer: Option<&crate::sim::game_entity::GameEntity>,
+    rules: &RuleSet,
+    entities: &crate::sim::entity_store::EntityStore,
+    interner: &crate::sim::intern::StringInterner,
+) -> f32 {
+    #[cfg(feature = "phobos")]
+    {
+        let Some(firer) = firer else {
+            return rules.garrison_rules.open_topped_damage_multiplier;
+        };
+        let Some(carrier) =
+            crate::sim::attach_effect::open_topped_transport_type(firer, entities, rules, interner)
+        else {
+            return rules.garrison_rules.open_topped_damage_multiplier;
+        };
+        let carrier_mult = carrier.phobos_open_topped().damage_multiplier(rules);
+        let rider_mult = interner
+            .object_type(firer.type_ref(), rules)
+            .map(|kind| kind.phobos_open_transport().damage_multiplier(rules))
+            .unwrap_or(f32::from_bits(
+                rules.phobos_globals.open_transport_damage_multiplier.bits(),
+            ));
+        carrier_mult * rider_mult
+    }
+    #[cfg(not(feature = "phobos"))]
+    {
+        let _ = (firer, entities, interner);
+        rules.garrison_rules.open_topped_damage_multiplier
+    }
+}
+
 /// FireAt6FF4CC..6FF647 has one exclusive effect ladder. Sonic's earlier
 /// Wave creation is independent; these flags select the later alternative.
 /// Retail's only `IsRadEruption=` key, on `RadEruptionWeapon`, is `no`, so
@@ -1347,29 +1385,10 @@ fn fire_damage_stages(
     // Phobos `TechnoClass_FireAt_OpenToppedDmgMult @ 0x6FE43B`
     // (`Ext/Techno/Hooks.Firing.cpp:714-741`) and the separate
     // `GetCurrentFirepowerMultiplier` (`Ext/Techno/Body.cpp:228-232`): the
-    // transport type's `Nullable<float> OpenTopped.DamageMultiplier` replaces
-    // the YR `[CombatDamage]` global. Resolving it here feeds the shared
-    // `firepower_stages`, so both the FireAt and Bullet-init paths see it.
-    let open_topped_multiplier = {
-        #[cfg(feature = "phobos")]
-        {
-            firer
-                .and_then(|f| {
-                    crate::sim::attach_effect::open_topped_transport_type(
-                        f,
-                        &world.substrate.entities,
-                        rules,
-                        &world.interner,
-                    )
-                })
-                .map(|kind| kind.phobos_open_topped().damage_multiplier(rules))
-                .unwrap_or(rules.garrison_rules.open_topped_damage_multiplier)
-        }
-        #[cfg(not(feature = "phobos"))]
-        {
-            rules.garrison_rules.open_topped_damage_multiplier
-        }
-    };
+    // carrier's `OpenTopped.DamageMultiplier` (else the YR global) times the
+    // passenger's `OpenTransport.DamageMultiplier` (else `[CombatDamage]`).
+    let open_topped_multiplier =
+        open_topped_damage_multiplier(firer, rules, &world.substrate.entities, &world.interner);
     firepower_stages(
         firer,
         &world.houses,
@@ -1492,14 +1511,8 @@ pub(crate) fn bullet_init_firepower_multiplier(
         && object.is_some_and(|object| {
             object.can_be_occupied && object.can_occupy_fire && object.max_number_occupants > 0
         });
-    let open_topped_multiplier = crate::sim::attach_effect::open_topped_transport_type(
-        firer,
-        &substrate.entities,
-        rules,
-        interner,
-    )
-    .map(|kind| kind.phobos_open_topped().damage_multiplier(rules))
-    .unwrap_or(rules.garrison_rules.open_topped_damage_multiplier);
+    let open_topped_multiplier =
+        open_topped_damage_multiplier(Some(firer), rules, &substrate.entities, interner);
     let stages = firepower_stages(
         Some(firer),
         houses,

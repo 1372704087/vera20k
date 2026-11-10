@@ -373,6 +373,9 @@ pub(crate) struct FirerFacts {
     pub transport_check_disable_weapons: bool,
     #[cfg(feature = "phobos")]
     pub transport_fire_while_moving: bool,
+    /// The passenger's `OpenTransport.FireWhileMoving` (else `[General]`).
+    #[cfg(feature = "phobos")]
+    pub passenger_fire_while_moving: bool,
     #[cfg(feature = "phobos")]
     pub transport_decloak_to_fire: bool,
 }
@@ -458,6 +461,8 @@ impl Default for FirerFacts {
             transport_check_disable_weapons: false,
             #[cfg(feature = "phobos")]
             transport_fire_while_moving: false,
+            #[cfg(feature = "phobos")]
+            passenger_fire_while_moving: true,
             #[cfg(feature = "phobos")]
             transport_decloak_to_fire: false,
         }
@@ -1178,11 +1183,13 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
                 return Illegal;
             }
             // 5b three-way AND: carrier `OpenTopped.FireWhileMoving`, the
-            // passenger `OpenTransport.FireWhileMoving` (unported companion
-            // key, Phobos global default `true`) and the weapon's YR
+            // passenger `OpenTransport.FireWhileMoving` and the weapon's YR
             // `FireWhileMoving`. Any false runs the carrier moving check
             // (`BalloonHover` Is_Moving_Now / else Destination != nullptr).
-            if !firer.transport_fire_while_moving || !weapon.fire_while_moving {
+            if !firer.transport_fire_while_moving
+                || !firer.passenger_fire_while_moving
+                || !weapon.fire_while_moving
+            {
                 if firer.transport_moving {
                     return Illegal;
                 }

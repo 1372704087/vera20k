@@ -37,6 +37,11 @@ fn true_bool() -> bool {
     true
 }
 
+/// A `Valueable<float>` global constructed 1.0, for serde defaults.
+fn one_f32() -> crate::util::native_x87::NativeF32Bits {
+    crate::util::native_x87::NativeF32Bits::ONE
+}
+
 /// `[CombatDamage]` globals this port reads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct PhobosGlobals {
@@ -274,6 +279,19 @@ pub struct PhobosGlobals {
     /// (`Body.cpp:462`, `Body.h:877`).
     #[serde(default = "true_bool")]
     pub open_topped_fire_while_moving: bool,
+    /// `[CombatDamage] OpenTransport.RangeBonus=`, default 0
+    /// (`Ext/Rules/Body.cpp:463`, constructor `Ext/Rules/Body.h:878`): the
+    /// rider-side fallback, added to the carrier's bonus.
+    #[serde(default)]
+    pub open_transport_range_bonus: i32,
+    /// `[CombatDamage] OpenTransport.DamageMultiplier=`, default 1.0
+    /// (`:464`, `Body.h:879`), a `Valueable<float>`.
+    #[serde(default = "one_f32")]
+    pub open_transport_damage_multiplier: crate::util::native_x87::NativeF32Bits,
+    /// `[General] OpenTransport.FireWhileMoving=`, default `yes`
+    /// (`:465`, `Body.h:880`).
+    #[serde(default = "true_bool")]
+    pub open_transport_fire_while_moving: bool,
     /// `[General] NoRearm.UnderEMP=`, default `no` (`Ext/Rules/Body.cpp:383`,
     /// constructor `Ext/Rules/Body.h:804`): the fallback for an unset type key;
     /// `yes` holds a running rearm timer while the techno is EMP'd or
@@ -386,6 +404,9 @@ impl Default for PhobosGlobals {
             open_topped_check_transport_disable_weapons: false,
             open_topped_decloak_to_fire: false,
             open_topped_fire_while_moving: true,
+            open_transport_range_bonus: 0,
+            open_transport_damage_multiplier: crate::util::native_x87::NativeF32Bits::ONE,
+            open_transport_fire_while_moving: true,
             no_rearm_under_emp: false,
             no_rearm_temporal: false,
             no_reload_under_emp: false,
@@ -556,6 +577,10 @@ impl PhobosGlobals {
             "OpenTopped.FireWhileMoving",
             globals.open_topped_fire_while_moving,
         );
+        globals.open_transport_fire_while_moving = general.read_bool(
+            "OpenTransport.FireWhileMoving",
+            globals.open_transport_fire_while_moving,
+        );
         // The four `NoRearm.*` / `NoReload.*` `Valueable<bool>` globals
         // (`Ext/Rules/Body.cpp:383-386`); `Valueable` has no unset state, so
         // these are plain `read_bool` reads from the constructor defaults.
@@ -651,6 +676,18 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         parasite_disable_particle_system: section.read_bool(
             "Parasite.DisableParticleSystem",
             defaults.parasite_disable_particle_system,
+        ),
+        open_transport_range_bonus: section.read_int(
+            "OpenTransport.RangeBonus",
+            defaults.open_transport_range_bonus,
+        ),
+        open_transport_damage_multiplier: crate::util::native_x87::NativeF32Bits::from_bits(
+            section
+                .read_float(
+                    "OpenTransport.DamageMultiplier",
+                    f32::from_bits(defaults.open_transport_damage_multiplier.bits()),
+                )
+                .to_bits(),
         ),
         driver_killed_kill_passengers: section.read_bool(
             "DriverKilled.KillPassengers",

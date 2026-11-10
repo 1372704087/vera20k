@@ -623,6 +623,11 @@ pub struct ObjectType {
     /// [`crate::rules::phobos_open_topped`].
     #[cfg(feature = "phobos")]
     phobos_open_topped: crate::rules::phobos_open_topped::PhobosOpenTopped,
+    /// The three Phobos `TechnoTypeExt` `OpenTransport.*` `Nullable` keys
+    /// (`Ext/TechnoType/Body.cpp:890-892`) a passenger adds to its carrier's
+    /// `OpenTopped.*` values; see [`crate::rules::phobos_open_transport`].
+    #[cfg(feature = "phobos")]
+    phobos_open_transport: crate::rules::phobos_open_transport::PhobosOpenTransport,
     /// Phobos `BuildingTypeExt::PlacementPreview` (`PlacementPreview=`),
     /// default true. The preview also needs the rules global and the client
     /// switch.
@@ -3784,6 +3789,15 @@ impl ObjectType {
         &self.phobos_open_topped
     }
 
+    /// The rider-side `OpenTransport.*` values (see
+    /// [`crate::rules::phobos_open_transport`]).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_open_transport(
+        &self,
+    ) -> &crate::rules::phobos_open_transport::PhobosOpenTransport {
+        &self.phobos_open_transport
+    }
+
     /// Phobos `DigitalDisplay.Health.FakeAtDisguise=`, `None` when inheriting.
     #[cfg(feature = "phobos")]
     pub fn digital_display_health_fake_at_disguise(&self) -> Option<bool> {
@@ -5049,6 +5063,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_open_topped:
                 crate::rules::phobos_open_topped::PhobosOpenTopped::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_open_transport:
+                crate::rules::phobos_open_transport::PhobosOpenTransport::from_section(section),
             #[cfg(feature = "phobos")]
             placement_preview: category == ObjectCategory::Building
                 && section.read_bool("PlacementPreview", true),

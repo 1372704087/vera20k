@@ -239,7 +239,7 @@ fn occupied_range_leptons(
 /// (`Ext/Techno/Hooks.Transport.cpp:167-183`): the transport type's
 /// `Nullable<int> OpenTopped.RangeBonus` replaces the YR global via
 /// `.Get(RulesClass::Instance->OpenToppedRangeBonus)`. Stock keeps the global.
-fn open_topped_range_bonus_leptons(
+pub(crate) fn open_topped_range_bonus_leptons(
     attacker: &GameEntity,
     rules: &RuleSet,
     entities: Option<&crate::sim::entity_store::EntityStore>,
@@ -251,14 +251,21 @@ fn open_topped_range_bonus_leptons(
     let bonus = {
         #[cfg(feature = "phobos")]
         {
-            entities
+            let carrier = entities
                 .and_then(|store| {
                     crate::sim::attach_effect::open_topped_transport_type(
                         attacker, store, rules, interner,
                     )
                 })
                 .map(|kind| kind.phobos_open_topped().range_bonus(rules))
-                .unwrap_or(rules.garrison_rules.open_topped_range_bonus)
+                .unwrap_or(rules.garrison_rules.open_topped_range_bonus);
+            // `0x6F72D2` adds the passenger's `OpenTransport.RangeBonus`
+            // (`Ext/Techno/Hooks.Transport.cpp:178`).
+            let rider = interner
+                .object_type(attacker.type_ref(), rules)
+                .map(|kind| kind.phobos_open_transport().range_bonus(rules))
+                .unwrap_or(rules.phobos_globals.open_transport_range_bonus);
+            carrier.wrapping_add(rider)
         }
         #[cfg(not(feature = "phobos"))]
         {

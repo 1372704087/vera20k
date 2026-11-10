@@ -196,6 +196,8 @@ pub mod phobos_missile;
 #[cfg(feature = "phobos")]
 pub mod phobos_open_topped;
 #[cfg(feature = "phobos")]
+pub mod phobos_open_transport;
+#[cfg(feature = "phobos")]
 pub mod phobos_overload;
 pub mod phobos_parallel_ai_queues;
 #[cfg(feature = "phobos")]

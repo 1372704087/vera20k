@@ -467,6 +467,12 @@ impl<'a> FireSubject<'a> {
             #[cfg(feature = "phobos")]
             transport_fire_while_moving: open_topped.fire_while_moving(self.rules),
             #[cfg(feature = "phobos")]
+            passenger_fire_while_moving: self
+                .world
+                .object_type(firer.type_ref(), self.rules)
+                .map(|kind| kind.phobos_open_transport().fire_while_moving(self.rules))
+                .unwrap_or(self.rules.phobos_globals.open_transport_fire_while_moving),
+            #[cfg(feature = "phobos")]
             transport_decloak_to_fire: open_topped.decloak_to_fire(self.rules),
             ..FirerFacts::default()
         };

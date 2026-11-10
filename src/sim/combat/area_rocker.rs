@@ -27,11 +27,24 @@ pub(super) struct AreaRockerInput {
 }
 
 //489B49..81: signed damage, original0.01 double, cap4, binary64 spill.
-fn force(damage: i32) -> NativeF64Bits {
+// Phobos `MapClass_DamageArea_Rocker` (`0x489B49`,
+// `Ext/WarheadType/Hooks.cpp:395-410`) replaces the base amplitude with
+// `Rocker.AmplitudeOverride.Get(damage) * (0.01 * Rocker.AmplitudeMultiplier)`
+// in C++ double arithmetic before the native cap.
+fn force(warhead: &WarheadType, damage: i32) -> NativeF64Bits {
+    #[cfg(feature = "phobos")]
+    let scaled = {
+        let base = f64::from(warhead.phobos_rocker_amplitude_override.unwrap_or(damage));
+        NativeF64Bits::from_bits(
+            (base * (0.01_f64 * warhead.phobos_rocker_amplitude_multiplier)).to_bits(),
+        )
+    };
+    #[cfg(not(feature = "phobos"))]
     let scaled = X::mul(
         X::load_i32(damage),
         X::load_f64(NativeF64Bits::from_bits(0x3f84_7ae1_47ae_147b)).unwrap(),
     );
+    let scaled = X::load_f64(scaled).unwrap();
     let cap = NativeF64Bits::from_bits(0x4010_0000_0000_0000);
     if X::compare(scaled, X::load_f64(cap).unwrap()) == X87Ordering::Less {
         X::store_f64(scaled).expect("finite area rocker force")
@@ -74,7 +87,7 @@ pub(super) fn apply(
     warhead: &WarheadType,
     input: AreaRockerInput,
 ) {
-    let force = force(input.damage);
+    let force = force(warhead, input.damage);
     if !warhead.rocker
         || X::compare(
             X::load_f64(force).unwrap(),
@@ -374,7 +387,7 @@ mod tests {
                 list_layer: ListLayer::Ground,
             };
             assert_eq!(
-                format!("{:016x}", force(request.damage).bits()),
+                format!("{:016x}", force(&warhead, request.damage).bits()),
                 row["force_f64_bits"].as_str().unwrap()
             );
             apply(&mut world, &rules, &warhead, request);
@@ -692,4 +705,43 @@ mod tests {
                 .is_none()
         );
     }
+}
+
+#[cfg(feature = "phobos")]
+#[test]
+fn rocker_amplitude_keys_scale_the_area_force() {
+    use crate::rules::ini_parser::IniFile;
+    let Some(fixture) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let default = fixture.rules.warhead("BlimpHE").unwrap();
+    assert_eq!(
+        f64::from_bits(force(default, 400).bits()),
+        4.0,
+        "the stock damage amplitude stays capped"
+    );
+
+    let patch = IniFile::from_str(
+        "[BlimpHE]\nRocker.AmplitudeOverride=200\nRocker.AmplitudeMultiplier=0.5\n",
+    );
+    let patched = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
+        .unwrap()
+        .rules;
+    let warhead = patched.warhead("BlimpHE").unwrap();
+    assert_eq!(
+        f64::from_bits(force(warhead, 400).bits()),
+        1.0,
+        "override 200 * 0.01 * multiplier 0.5"
+    );
+
+    let patch = IniFile::from_str("[BlimpHE]\nRocker.AmplitudeMultiplier=2\n");
+    let patched = crate::rules::retail_ini_fixture::retail_battle_rules_with_map_patch(&patch)
+        .unwrap()
+        .rules;
+    let warhead = patched.warhead("BlimpHE").unwrap();
+    assert_eq!(
+        f64::from_bits(force(warhead, 100).bits()),
+        2.0,
+        "the multiplier alone doubles 100 * 0.01"
+    );
 }

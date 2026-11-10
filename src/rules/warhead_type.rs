@@ -502,6 +502,13 @@ pub struct WarheadType {
     /// the weighted powerup crates one detonation places.
     #[cfg(feature = "phobos")]
     pub phobos_spawns_crate: crate::rules::phobos_spawns_crate::PhobosSpawnsCrate,
+    /// Phobos `Rocker.AmplitudeMultiplier=` (`Valueable<double>`, default
+    /// 1.0) and `.AmplitudeOverride=` (`Nullable<int>`): the area rocker's
+    /// base amplitude (`Ext/WarheadType/Hooks.cpp:395-410`).
+    #[cfg(feature = "phobos")]
+    pub phobos_rocker_amplitude_multiplier: f64,
+    #[cfg(feature = "phobos")]
+    pub phobos_rocker_amplitude_override: Option<i32>,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -928,6 +935,12 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             phobos_spawns_crate:
                 crate::rules::phobos_spawns_crate::PhobosSpawnsCrate::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_rocker_amplitude_multiplier: section
+                .read_double("Rocker.AmplitudeMultiplier", 1.0),
+            #[cfg(feature = "phobos")]
+            phobos_rocker_amplitude_override: section
+                .read_phobos_nullable_int("Rocker.AmplitudeOverride", None),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

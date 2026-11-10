@@ -941,6 +941,11 @@ pub struct ObjectType {
     /// Phobos `Units.*` (`Ext/BuildingType/Body.cpp:228-231`).
     #[cfg(feature = "phobos")]
     pub phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair,
+    /// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`) and
+    /// `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`), consumed by
+    /// the `TechnoClass::ReceiveDamage` death arm.
+    #[cfg(feature = "phobos")]
+    pub phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4905,6 +4910,11 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_units_repair: crate::rules::phobos_units::PhobosUnitsRepair::from_section(
                 section,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_explodes: crate::rules::phobos_explodes::PhobosExplodesSettings::from_section(
+                section,
+                category == ObjectCategory::Building,
             ),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(

@@ -114,6 +114,7 @@ Supported extensions:
 - [Owner-change conversion](phobos-convert-owner-change.md) (`Convert.HumanToComputer` / `Convert.ComputerToHuman`: a Foot converts on a human/computer owner change and the computer-to-human arm repairs its mission; 2 keys)
 - [Mind-control reset on conversion](phobos-convert-reset-mind-control.md) (`Convert.ResetMindControl`: the capture-manager limits are rebuilt from the new type's weapons, trimming or deleting the manager; 1 key + 1 `[General]` global)
 - [Convert pairs](phobos-type-convert-group.md) (`Convert{i}.From`/`.To`/`.AffectsHouse` on a warhead or superweapon: the per-target and whole-array Foot conversions)
+- [Explodes keys](phobos-explodes.md) (`Explodes.KillPassengers` / `Explodes.DuringBuildup`: the death arm's passenger kill and a building's death weapon under Construction/Selling; 2 keys + 2 `[General]` globals)
 - [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)
 - [Warhead shield modifiers](phobos-shield-warhead.md) (`Shield.*` on a warhead: attach/remove/replace, break, respawn/self-healing modifiers, the absorb/pass split and penetration; 39 keys)
 

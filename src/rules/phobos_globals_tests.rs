@@ -133,3 +133,32 @@ fn the_drain_display_globals_default_to_phobos_constructor_values() {
     assert!(audio_only.drain_money_display);
     assert!(!audio_only.shrapnel_affects_ground);
 }
+
+/// `[General] Convert.ResetMindControl=` (`Ext/Rules/Body.cpp:222`) and the
+/// two `[General] Explodes.*` globals (`:470-471`, constructors
+/// `Ext/Rules/Body.h:885-886`): all three read from General, and the two
+/// Explodes booleans construct `true`.
+#[test]
+fn the_general_convert_and_explodes_globals_read_from_general() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.convert_reset_mind_control);
+    assert!(defaults.explodes_kill_passengers);
+    assert!(defaults.explodes_during_buildup);
+
+    let set = read(
+        "[General]\nConvert.ResetMindControl=yes\n\
+         Explodes.KillPassengers=no\nExplodes.DuringBuildup=no\n",
+    );
+    assert!(set.convert_reset_mind_control);
+    assert!(!set.explodes_kill_passengers);
+    assert!(!set.explodes_during_buildup);
+
+    // The keys belong to General; a CombatDamage read does not see them.
+    let wrong = read(
+        "[CombatDamage]\nConvert.ResetMindControl=yes\n\
+         Explodes.KillPassengers=no\nExplodes.DuringBuildup=no\n",
+    );
+    assert!(!wrong.convert_reset_mind_control);
+    assert!(wrong.explodes_kill_passengers);
+    assert!(wrong.explodes_during_buildup);
+}

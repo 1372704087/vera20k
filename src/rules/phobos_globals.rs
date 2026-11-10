@@ -1,7 +1,7 @@
 //! Phobos `RulesExt::LoadFromINI` globals, read from `[CombatDamage]`,
 //! `[AudioVisual]` and `[General]` on every rules pass
-//! (`Ext/Rules/Body.cpp:230-232`, `:291-304`, `:629-632` and the shrapnel
-//! block).
+//! (`Ext/Rules/Body.cpp:230-232`, `:291-304`, `:470-471`, `:629-632` and the
+//! shrapnel block).
 //!
 //! Phobos reads these in its own extension reader, once per `Process`, with the
 //! current field as the default; a later layer changes only the keys it names.
@@ -11,9 +11,10 @@
 //! The globals are `Valueable`; the booleans construct `false`
 //! (`Ext/Rules/Body.h:464-465`, `:968-969`, `:729`, `:731`) except
 //! `AutoDeath.AllowLimboed` (`:1027`),
-//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`) and
-//! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`), which construct
-//! `true`; the `AffectedHouse` globals construct `All` (`:728`, `:730`).
+//! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`),
+//! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`) and both
+//! `Explodes.*` globals (`:885-886`), which construct `true`; the
+//! `AffectedHouse` globals construct `All` (`:728`, `:730`).
 //! The type-level keys are `Nullable`, and their consumer passes the
 //! global through `Valueable<T>::operator const T&`, so an unset type key
 //! falls back to that global's value. A `Valueable` global has no unset state
@@ -76,6 +77,19 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:222`, constructor `Ext/Rules/Body.h:666`): the
     /// fallback for a type's `Convert.ResetMindControl` when it is unset.
     pub convert_reset_mind_control: bool,
+    /// `[General] Explodes.KillPassengers=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:470`, constructor `Ext/Rules/Body.h:885`): the
+    /// fallback for a type's key; `no` leaves a destroyed object's passengers
+    /// out of the death arm's kill.
+    #[serde(default = "true_bool")]
+    pub explodes_kill_passengers: bool,
+    /// `[General] Explodes.DuringBuildup=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:471`, constructor `Ext/Rules/Body.h:886`): the
+    /// fallback for a BuildingType's key; `no` makes a building destroyed
+    /// while under Construction or Selling behave as if `Explodes=` were
+    /// false.
+    #[serde(default = "true_bool")]
+    pub explodes_during_buildup: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -269,6 +283,8 @@ impl Default for PhobosGlobals {
             auto_death_on_owner_change_ignore_revert_on_exit: false,
             auto_death_allow_limboed: true,
             convert_reset_mind_control: false,
+            explodes_kill_passengers: true,
+            explodes_during_buildup: true,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -360,6 +376,16 @@ impl PhobosGlobals {
         // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
         // the three sections share no key, so their order does not matter.
         let general = ini.section_or_empty("General");
+        // `Ext/Rules/Body.cpp:222`: a `[General]` read, not CombatDamage.
+        globals.convert_reset_mind_control = general.read_bool(
+            "Convert.ResetMindControl",
+            globals.convert_reset_mind_control,
+        );
+        // `Ext/Rules/Body.cpp:470-471`, both constructed `true`.
+        globals.explodes_kill_passengers =
+            general.read_bool("Explodes.KillPassengers", globals.explodes_kill_passengers);
+        globals.explodes_during_buildup =
+            general.read_bool("Explodes.DuringBuildup", globals.explodes_during_buildup);
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
@@ -499,10 +525,6 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         ),
         auto_death_allow_limboed: section
             .read_bool("AutoDeath.AllowLimboed", defaults.auto_death_allow_limboed),
-        convert_reset_mind_control: section.read_bool(
-            "Convert.ResetMindControl",
-            defaults.convert_reset_mind_control,
-        ),
         penetrates_transport_level: section.read_ares_int(
             "PenetratesTransport.Level",
             defaults.penetrates_transport_level,

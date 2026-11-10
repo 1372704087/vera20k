@@ -2611,7 +2611,35 @@ pub(crate) fn handle_death(
                 });
                 let explodes =
                     !low_water_bomb && death_arm_explodes(obj, veterancy, numbered_weapon);
-                if explodes && callbacks_enabled(world) {
+                // Phobos `TechnoClass_ReceiveDamage_Explodes`
+                // (`Ext/Techno/Hooks.ReceiveDamage.cpp:242-258`, hook
+                // `0x702603`): a building destroyed while its CurrentMission
+                // is Construction or Selling behaves as `Explodes=false` when
+                // `Explodes.DuringBuildup` is off, skipping the passenger
+                // kill and the death weapon (`0x702672`).
+                #[cfg(feature = "phobos")]
+                let explodes = explodes
+                    && !(obj.category == crate::rules::object_type::ObjectCategory::Building
+                        && world.substrate.entities.get(dead_id).is_some_and(|entity| {
+                            matches!(
+                                entity.mission.current().known(),
+                                Some(MissionType::Construction | MissionType::Selling)
+                            )
+                        })
+                        && !obj
+                            .phobos_explodes
+                            .during_buildup
+                            .unwrap_or(rules.phobos_globals.explodes_during_buildup));
+                // `Explodes.KillPassengers=false` keeps the same arm's death
+                // weapon but skips only the passenger kill (`0x702669`).
+                #[cfg(feature = "phobos")]
+                let kill_passengers = obj
+                    .phobos_explodes
+                    .kill_passengers
+                    .unwrap_or(rules.phobos_globals.explodes_kill_passengers);
+                #[cfg(not(feature = "phobos"))]
+                let kill_passengers = true;
+                if explodes && kill_passengers && callbacks_enabled(world) {
                     let attacker = killing_attacker(world, damage_events, dead_id);
                     world.kill_passengers(
                         dead_id,

@@ -2044,3 +2044,157 @@ fn destroy_anim_retains_each_loaded_palette_and_house_fallback_after_save() {
         "the frozen palette enters simulation hashing"
     );
 }
+
+/// Phobos `Explodes.KillPassengers` (`Ext/TechnoType/Body.cpp:968`, global
+/// `Ext/Rules/Body.cpp:470`, hook `Ext/Techno/Hooks.ReceiveDamage.cpp:253-254`
+/// at `0x702603`): a destroyed `Explodes=yes` vehicle kills its passengers by
+/// default; a type or `[General]` `no` skips only that kill.
+#[cfg(feature = "phobos")]
+#[test]
+fn explodes_kill_passengers_off_spares_the_rider() {
+    let outcome = |type_key: &str, general_key: &str| {
+        let text = RULES
+            .replace("1=ENGINEER\n", "1=ENGINEER\n2=BYSTANDER\n")
+            .replace(
+                "[APOC]\nStrength=100\nExplodes=yes\n",
+                &format!(
+                    "[APOC]\nStrength=100\nExplodes=yes\nDeathWeapon=BOOMW\nPassengers=1\n{type_key}"
+                ),
+            )
+            .replace("[General]\n", &format!("[General]\n{general_key}"))
+            + "\n[BYSTANDER]\nStrength=125\nSpeed=4\n\
+               Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}\n\
+               [BOOMW]\nDamage=50\nWarhead=BOOMWH\n\
+               [BOOMWH]\nCellSpread=2\nPercentAtMax=100%\n\
+               Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
+        let rules = rules_from(&text);
+        let mut sim = water_cell_sim(&rules, false);
+        let apoc = spawn(&mut sim, &rules, "APOC", 12, 12);
+        let rider = spawn(&mut sim, &rules, "E1", 11, 12);
+        let bystander = spawn(&mut sim, &rules, "BYSTANDER", 13, 12);
+        assert!(crate::sim::passenger::board_passenger(
+            &mut sim,
+            &rules,
+            rider,
+            apoc,
+            crate::sim::passenger::BoardingArm::InfantryTransport,
+            None,
+            crate::sim::world::FrameEffects::default(),
+        ));
+        kill(&mut sim, &rules, apoc);
+        (
+            sim.substrate
+                .entities
+                .get(rider)
+                .is_some_and(|rider| rider.lifecycle.object_alive()),
+            sim.substrate
+                .entities
+                .get(bystander)
+                .is_some_and(|bystander| bystander.health.current() < 125),
+        )
+    };
+    let control = outcome("", "");
+    assert!(!control.0, "control: the exploding vehicle kills its rider");
+    assert!(control.1, "control: the death weapon fires");
+    let type_off = outcome("Explodes.KillPassengers=no\n", "");
+    assert!(type_off.0, "the type key skips the kill");
+    assert!(type_off.1, "the `0x702669` arm keeps the death weapon");
+    let global_off = outcome("", "Explodes.KillPassengers=no\n");
+    assert!(global_off.0, "the [General] global is the fallback");
+    assert!(global_off.1, "the death weapon still fires");
+}
+
+/// Phobos `Explodes.DuringBuildup` (`Ext/BuildingType/Body.cpp:222`, global
+/// `Ext/Rules/Body.cpp:471`, `Ext/Techno/Hooks.ReceiveDamage.cpp:247-251`):
+/// a building destroyed while its CurrentMission is Construction or Selling
+/// behaves as `Explodes=false` when the key is off, so its death weapon does
+/// not fire.
+#[cfg(feature = "phobos")]
+#[test]
+fn explodes_during_buildup_off_suppresses_the_death_weapon_under_construction() {
+    use crate::rules::mission_data::MissionType;
+    use crate::sim::mission::MissionId;
+    let base = RULES
+        .replace("1=ENGINEER\n", "1=ENGINEER\n2=BYSTANDER\n")
+        .replace(
+            "[PLANT]\nStrength=100\n",
+            "[PLANT]\nStrength=100\nExplodes=yes\nDeathWeapon=BOOMW\n",
+        )
+        .replace(
+            "[APOC]\nStrength=100\nExplodes=yes\n",
+            "[APOC]\nStrength=100\nExplodes=yes\nDeathWeapon=BOOMW\n",
+        )
+        + "\n[BYSTANDER]\nStrength=125\nSpeed=4\n\
+           Locomotor={4A582744-9839-11D1-B709-00A024DDAFD1}\n\
+           [BOOMW]\nDamage=50\nWarhead=BOOMWH\n\
+           [BOOMWH]\nCellSpread=2\nPercentAtMax=100%\n\
+           Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n";
+    let fires = |kind: &str, type_key: &str, general_key: &str, mission: Option<MissionType>| {
+        let anchor = if kind == "PLANT" {
+            "[PLANT]\nStrength=100\nExplodes=yes\nDeathWeapon=BOOMW\n"
+        } else {
+            "[APOC]\nStrength=100\nExplodes=yes\nDeathWeapon=BOOMW\n"
+        };
+        let text = base
+            .replace(anchor, &format!("{anchor}{type_key}"))
+            .replace("[General]\n", &format!("[General]\n{general_key}"));
+        let rules = rules_from(&text);
+        let mut sim = sim(13);
+        let (rx, ry) = if kind == "PLANT" { (10, 10) } else { (11, 10) };
+        let dead = spawn(&mut sim, &rules, kind, rx, ry);
+        let bystander = spawn(&mut sim, &rules, "BYSTANDER", 12, 10);
+        if let Some(mission) = mission {
+            sim.substrate
+                .entities
+                .get_mut(dead)
+                .unwrap()
+                .mission
+                .set_current_for_test(MissionId::from_known(mission), 0);
+        }
+        kill(&mut sim, &rules, dead);
+        sim.substrate
+            .entities
+            .get(bystander)
+            .is_some_and(|bystander| bystander.health.current() < 125)
+    };
+    assert!(
+        fires("PLANT", "", "", Some(MissionType::Construction)),
+        "control: a building under construction still explodes"
+    );
+    assert!(
+        !fires(
+            "PLANT",
+            "Explodes.DuringBuildup=no\n",
+            "",
+            Some(MissionType::Construction)
+        ),
+        "the type key suppresses the death weapon"
+    );
+    assert!(
+        !fires(
+            "PLANT",
+            "",
+            "Explodes.DuringBuildup=no\n",
+            Some(MissionType::Selling)
+        ),
+        "the [General] fallback also covers Selling"
+    );
+    assert!(
+        fires(
+            "PLANT",
+            "Explodes.DuringBuildup=no\n",
+            "",
+            Some(MissionType::Guard)
+        ),
+        "only Construction and Selling are suppressed"
+    );
+    assert!(
+        fires(
+            "APOC",
+            "Explodes.DuringBuildup=no\n",
+            "",
+            Some(MissionType::Construction)
+        ),
+        "a vehicle does not read the building key"
+    );
+}

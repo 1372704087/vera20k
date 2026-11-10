@@ -990,6 +990,10 @@ pub struct ObjectType {
     /// (`Ext/TechnoType/Body.cpp:905-936`), the forced SelectWeapon slot.
     #[cfg(feature = "phobos")]
     pub phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon,
+    /// Phobos `Interceptor.*` (`Ext/TechnoType/Body.cpp:1415-1433`): present
+    /// only when the type's `Interceptor=` read as `yes`.
+    #[cfg(feature = "phobos")]
+    pub phobos_interceptor: Option<crate::rules::phobos_interceptor::InterceptorSettings>,
     /// Phobos `WarpInWeapon.*` (`Ext/TechnoType/Body.cpp:870-873`): the weapon
     /// a teleporting techno detonates at itself on warp-in.
     #[cfg(feature = "phobos")]
@@ -4972,6 +4976,13 @@ impl ObjectType {
             phobos_force_weapon: crate::rules::phobos_force_weapon::PhobosForceWeapon::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_interceptor: section
+                .read_phobos_nullable_bool("Interceptor", None)
+                .filter(|enabled| *enabled)
+                .map(|_| {
+                    crate::rules::phobos_interceptor::InterceptorSettings::from_section(section)
+                }),
             #[cfg(feature = "phobos")]
             phobos_warp_in_weapon:
                 crate::rules::phobos_warp_in_weapon::WarpInWeaponRules::from_section(section),

@@ -119,6 +119,8 @@ Supported extensions:
 - [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)
 - [Warhead shield modifiers](phobos-shield-warhead.md) (`Shield.*` on a warhead: attach/remove/replace, break, respawn/self-healing modifiers, the absorb/pass split and penetration; 39 keys)
 
+- [Return warhead](phobos-return-warhead.md) (`ReturnWarhead` and its damage, chance, full-detonation, target and house filters: the per-target strike back at the firer; 5 keys)
+
 ## Original project and authors
 
 VERA20K implements the behavior in Rust. It does not load `Phobos.dll`, import

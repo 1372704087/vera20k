@@ -61,6 +61,8 @@ pub(crate) mod penetrates_transport;
 mod phobos_airburst;
 #[cfg(feature = "phobos")]
 mod phobos_extra_warheads;
+#[cfg(feature = "phobos")]
+mod phobos_return_warhead;
 mod projectile_delivery;
 pub mod radiation_beam;
 pub(crate) mod railgun;

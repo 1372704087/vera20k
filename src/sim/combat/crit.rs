@@ -15,9 +15,10 @@
 //! RESIDUALS:
 //! - Of `PossibleCellSpreadDetonate`'s members VERA reads only the
 //!   AttachEffect lists. A warhead that sets only an unread member
-//!   (`RemoveDisguise`, `Shield.*`, `Convert.*`, `ReturnWarhead`, `Taunt`, ...)
-//!   skips the two buffer draws native makes per detonation, shifting the
-//!   scenario stream; the members' own effects are not ported.
+//!   (`RemoveDisguise`, `Taunt`, ...) skips the two buffer draws native
+//!   makes per detonation, shifting the scenario stream; the members' own
+//!   effects are not ported. `Convert.*` and `ReturnWarhead` are ported and
+//!   count in the gate below.
 //! - `Detonate`'s other earlier per-house arms (`CreateGap`, `Reveal`,
 //!   `SpawnsCrate.Types`' `RandomDouble`, `LaunchSW`) and
 //!   `InterceptBullets` are not ported; a warhead with `SpawnsCrate.Types`
@@ -73,6 +74,9 @@ pub(crate) struct CritRoll {
     chance: f64,
     buffer: f64,
     per_target: bool,
+    /// `ReturnWarhead_RandomBuffer`: drawn once per detonation unless
+    /// `ReturnWarhead.ApplyChancePerTarget` is set.
+    return_buffer: f64,
 }
 
 /// `WarheadTypeExt::Detonate`: the early `TransactMoney` block
@@ -136,7 +140,21 @@ pub(crate) fn detonate(
     let convert_pairs = !warhead.phobos_convert_pairs.is_empty();
     #[cfg(not(feature = "phobos"))]
     let convert_pairs = false;
-    if !(attach || penetrates || chance > 0.0 || shield_modifiers || convert_pairs) {
+    #[cfg(feature = "phobos")]
+    let return_warhead = warhead
+        .phobos_return_warhead
+        .warhead
+        .as_deref()
+        .is_some_and(|name| rules.warhead(name).is_some());
+    #[cfg(not(feature = "phobos"))]
+    let return_warhead = false;
+    if !(attach
+        || penetrates
+        || chance > 0.0
+        || shield_modifiers
+        || convert_pairs
+        || return_warhead)
+    {
         return false;
     }
     let on_detonate = warhead
@@ -146,16 +164,17 @@ pub(crate) fn detonate(
         chance,
         buffer: 0.0,
         per_target: true,
+        return_buffer: 0.0,
     };
     if on_detonate {
         roll.per_target = crit.apply_chance_per_target(globals);
         if !roll.per_target {
             roll.buffer = world.scenario_rng.random_double();
         }
-        // `ReturnWarhead_RandomBuffer`: drawn for every such detonation, read
-        // only by the unported `ApplyReturnWarhead`.
+        // `ReturnWarhead_RandomBuffer`: drawn for every such detonation and
+        // read by [`apply_return_warhead`]'s shared-dice arm.
         if !crit.return_warhead_apply_chance_per_target(globals) {
-            world.scenario_rng.random_double();
+            roll.return_buffer = world.scenario_rng.random_double();
         }
         // One random pick per detonation, even when every target later fails a
         // gate: `CreateRandomAnim` draws before it constructs.
@@ -185,6 +204,23 @@ pub(crate) fn detonate(
             house,
             rules,
             run.effects(),
+        );
+        // `DetonateOnOneUnit`'s `ApplyReturnWarhead(pHouse, pTarget, pOwner)`
+        // (`Detonate.cpp:229-231`): after the displacement arms and before
+        // `PenetratesTransport`.
+        #[cfg(feature = "phobos")]
+        super::phobos_return_warhead::apply(
+            world,
+            run,
+            rules,
+            overlay_registry,
+            warhead,
+            roll.return_buffer,
+            on_detonate,
+            house,
+            source_id,
+            target_id,
+            effects,
         );
         // `DetonateOnOneUnit`'s PenetratesTransport arm (`Detonate.cpp:233`):
         // before the attach-effect and crit blocks, the shot reaches the

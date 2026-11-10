@@ -157,6 +157,8 @@ pub mod phobos_extra_warheads;
 #[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
+pub mod phobos_return_warhead;
+#[cfg(feature = "phobos")]
 pub mod phobos_force_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_globals;

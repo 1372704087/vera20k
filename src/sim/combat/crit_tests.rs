@@ -590,6 +590,46 @@ fn warhead_convert_pairs_convert_the_target_foot() {
     );
 }
 
+/// Phobos `WarheadTypeExt::ApplyReturnWarhead`
+/// (`Ext/WarheadType/Detonate.cpp:610-636`): the per-target pass sends the
+/// `ReturnWarhead=` warhead back at the techno that fired the bullet, gated
+/// by the shared chance buffer, the source house and the victim filters.
+#[cfg(feature = "phobos")]
+#[test]
+fn return_warhead_strikes_the_firer_back() {
+    let outcome = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) =
+            scene("1=RH\n", wh_ini, "", "[RH]\nCellSpread=0\n", "Russians");
+        let mut expected = sim.scenario_rng.clone();
+        // The per-detonation crit and ReturnWarhead buffers.
+        expected.random_double();
+        expected.random_double();
+        let before = health(&sim, firer);
+        shoot(&mut sim, &rules, "WH", firer, target, 10);
+        (
+            before - health(&sim, firer),
+            sim.scenario_rng.logical_state() == expected.logical_state(),
+        )
+    };
+    let (damage, _) = outcome("ReturnWarhead=RH\nReturnWarhead.Damage=30\n");
+    assert_eq!(damage, 30, "the firer takes the return warhead");
+    let (damage, one_draw) = outcome(
+        "ReturnWarhead=RH\nReturnWarhead.Damage=30\nReturnWarhead.AffectsTarget=infantry\n",
+    );
+    assert_eq!(damage, 0, "the victim class filter refuses the vehicle");
+    assert!(one_draw, "a refused return only draws the shared buffer");
+    let (damage, one_draw) =
+        outcome("ReturnWarhead=RH\nReturnWarhead.Damage=30\nReturnWarhead.AffectsHouse=owner\n");
+    assert_eq!(damage, 0, "owner-only refuses the enemy source house");
+    assert!(one_draw, "a refused return only draws the shared buffer");
+    let (damage, _) =
+        outcome("ReturnWarhead=RH\nReturnWarhead.Damage=30\nReturnWarhead.FullDetonation=no\n");
+    assert_eq!(
+        damage, 30,
+        "the direct ReceiveDamage arm also hits the firer"
+    );
+}
+
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
 /// the warhead's own triggers refuse the victim. The gate does not set

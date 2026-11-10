@@ -158,7 +158,7 @@ pub struct CritGlobals {
     pub(crate) apply_per_target_effects_on_detonate: bool,
     /// `[CombatDamage] ReturnWarhead.ApplyChancePerTarget`, default false.
     /// Only its effect on `Detonate`'s per-detonation buffer draw is ported;
-    /// `ReturnWarhead` itself has no VERA owner.
+    /// `ReturnWarhead` and its typed fields live in `rules::phobos_return_warhead`.
     pub(crate) return_warhead_apply_chance_per_target: bool,
     /// `[General] VeteranCritChance`, default 1.0.
     pub(crate) veteran_crit_chance: f64,

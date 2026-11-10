@@ -461,6 +461,11 @@ pub struct WarheadType {
     /// filter is `All`.
     #[cfg(feature = "phobos")]
     pub phobos_convert_pairs: Vec<crate::rules::type_convert_group::TypeConvertGroup>,
+    /// Phobos `ReturnWarhead=` and its `.Damage`/`.Chance`/`.FullDetonation`/
+    /// `.AffectsTarget`/`.AffectsHouse` (`Ext/WarheadType/Body.cpp:235-241`,
+    /// consumer `Detonate.cpp:610-636`).
+    #[cfg(feature = "phobos")]
+    pub phobos_return_warhead: crate::rules::phobos_return_warhead::PhobosReturnWarhead,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -845,6 +850,9 @@ impl WarheadType {
                 section,
                 crate::rules::phobos_shields::AffectedHouse::ALL,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_return_warhead:
+                crate::rules::phobos_return_warhead::PhobosReturnWarhead::from_section(section),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

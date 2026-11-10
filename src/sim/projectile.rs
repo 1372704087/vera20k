@@ -1668,6 +1668,9 @@ pub enum ProjectileDetonationReason {
     /// (`Ext/Bullet/Hooks.DetonateLogics.cpp:418-419`): the same
     /// `WarheadTypeExt::DetonateAt` bullet, at the parent's impact.
     ExtraWarhead,
+    /// Phobos `ApplyReturnWarhead`'s full arm (`Detonate.cpp:632-633`): a
+    /// `DetonateAt` bullet at the original firer's coordinates.
+    ReturnWarhead,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

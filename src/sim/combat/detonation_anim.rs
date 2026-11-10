@@ -329,14 +329,14 @@ fn anim_owner_house(
             .map_or((None, None), |config| {
                 (
                     (config.make_infantry > -1).then_some(config.phobos_make_infantry_owner),
-                    config.phobos_create_unit,
+                    config
+                        .phobos_create_unit
+                        .as_ref()
+                        .map(|settings| settings.owner),
                 )
             })
     };
-    let kind = create_unit
-        .map(|(owner, _)| owner)
-        .or(make_owner)
-        .unwrap_or(HouseSelector::Default);
+    let kind = create_unit.or(make_owner).unwrap_or(HouseSelector::Default);
     let random_house = if kind == HouseSelector::Random {
         let order = world.houses.order();
         if order.is_empty() {

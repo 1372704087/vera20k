@@ -1661,7 +1661,10 @@ impl Simulation {
                 let name = self.interner.resolve(type_name);
                 rules.art().anim_runtime_config(name).is_some_and(|config| {
                     config.make_infantry > -1
-                        || config.phobos_create_unit.is_some_and(|(_, remap)| remap)
+                        || config
+                            .phobos_create_unit
+                            .as_ref()
+                            .is_some_and(|settings| settings.remap_anim)
                 })
             };
             let defeated = self

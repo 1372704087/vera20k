@@ -139,6 +139,8 @@ pub mod phobos_auto_death;
 #[cfg(feature = "phobos")]
 pub mod phobos_build_limit_group;
 #[cfg(feature = "phobos")]
+pub mod phobos_create_unit;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_detonate_all_map;

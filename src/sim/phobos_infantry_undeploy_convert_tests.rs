@@ -8,10 +8,12 @@ use crate::sim::world::{FrameEffects, Simulation};
 
 fn rules(a_extra: &str) -> RuleSet {
     RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
-        "[InfantryTypes]\n0=A\n1=B\n2=C\n\
+        "[InfantryTypes]\n0=A\n1=B\n2=C\n3=D\n4=D2\n\
          [A]\nStrength=100\nSpeed=4\n{a_extra}\
          [B]\nStrength=100\nSpeed=4\nConvert.Undeploy=C\n\
-         [C]\nStrength=100\nSpeed=4\n"
+         [C]\nStrength=100\nSpeed=4\n\
+         [D]\nStrength=100\nSpeed=4\nConvert.Deploy=D2\n\
+         [D2]\nStrength=100\nSpeed=4\n"
     )))
     .expect("convert undeploy rules")
 }
@@ -59,6 +61,25 @@ fn an_undeploy_completion_converts_once_per_sequence() {
     sim.infantry_deploy_completion(id, 31, &rules, FrameEffects::default())
         .unwrap();
     assert_eq!(kind(&sim, id), "C", "the reset re-arms the next Undeploy");
+}
+
+/// `InfantryClass_DoingAI_DeployConvert_Deploy @ 0x520B3E`: the completed
+/// Deploy sequence converts once, re-armed by the same DoingAI reset.
+#[test]
+fn a_deploy_completion_converts_once_per_sequence() {
+    let rules = rules("Convert.Deploy=D\n");
+    let (mut sim, id) = world(&rules);
+    sim.infantry_deploy_completion(id, 27, &rules, FrameEffects::default())
+        .unwrap();
+    assert_eq!(kind(&sim, id), "D");
+    // D's own `Convert.Deploy=D2` is what a missing latch would reach.
+    sim.infantry_deploy_completion(id, 27, &rules, FrameEffects::default())
+        .unwrap();
+    assert_eq!(kind(&sim, id), "D", "the latch allows one conversion");
+    let _ = sim.infantry_sequencer(id, &rules, FrameEffects::default());
+    sim.infantry_deploy_completion(id, 27, &rules, FrameEffects::default())
+        .unwrap();
+    assert_eq!(kind(&sim, id), "D2", "the reset re-arms the next Deploy");
 }
 
 /// A type without `Convert.Undeploy` keeps its type on completion.

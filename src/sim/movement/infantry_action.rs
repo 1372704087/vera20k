@@ -672,6 +672,7 @@ impl Simulation {
             && let Some(actor) = self.substrate.entities.get_mut(id)
         {
             actor.set_phobos_infantry_undeploy_converted(false);
+            actor.set_phobos_infantry_deploy_converted(false);
         }
         //520E52: the landing tail runs even below the sequence's count.
         if self.substrate.entities.get(id).is_some_and(|actor| {

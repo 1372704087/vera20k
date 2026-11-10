@@ -1,26 +1,30 @@
-# Convert.Undeploy
+# Convert.Deploy / Convert.Undeploy
 
-An infantryman that finishes its Undeploy sequence can convert to another
-type once per sequence.
+An infantryman that finishes its Deploy or Undeploy sequence can convert to
+another type once per sequence.
 
 ```ini
 [A]                                ; InfantryType
+Convert.Deploy=                    ; Valueable<TechnoTypeClass*>, absent/none = off
 Convert.Undeploy=                  ; Valueable<TechnoTypeClass*>, absent/none = off
 ```
 
-Reader `Ext/TechnoType/Body.cpp:1014`, declaration
-`Ext/TechnoType/Body.h:249`, constructor null at `:681`.
+Readers `Ext/TechnoType/Body.cpp:1230` (`Convert.Deploy`) and `:1014`
+(`Convert.Undeploy`), declarations `Ext/TechnoType/Body.h:249-250`,
+constructors null at `:681-682`. The Unit simple-deployer arm reads the same
+`Convert.Deploy` key through its Ares owner.
 
 ## Behavior
 
+`InfantryClass_DoingAI_DeployConvert_Deploy @ 0x520B3E` and
 `InfantryClass_DoingAI_DeployConvert_Undeploy @ 0x520B99`
-(`Ext/Infantry/Hooks.cpp:36-50`), in the DoingAI Undeploy completion case:
-when the type sets `Convert.Undeploy` and `HasUndeployConverted` is false,
-set the latch, clear `HasDeployConverted`, and call
-`TechnoExt::ConvertToType`. The latch is reset by
+(`Ext/Infantry/Hooks.cpp:18-50`), in the DoingAI completion case: when the
+type sets the matching key and its latch (`HasDeployConverted` /
+`HasUndeployConverted`) is false, set that latch, clear the other, and call
+`TechnoExt::ConvertToType`. Both latches are reset by
 `InfantryClass_DoingAI_DeployConvert_ResetFlags @ 0x520E75`
 (`:52-66`) whenever the current `SequenceAnim` is neither Deploy nor
-Undeploy, so the next Undeploy converts again.
+Undeploy, so the next matching sequence converts again.
 
 ## Where VERA20K owns it
 
@@ -34,12 +38,5 @@ when set). `infantry_sequencer` (`sim/movement/infantry_action.rs`) runs the
 `0x520E75` reset after its action dispatch whenever the current sequence is
 not Deploy (27) or Undeploy (31).
 
-RESIDUAL: the deploy-side twin `InfantryClass_DoingAI_DeployConvert_Deploy
-@ 0x520B3E` reads `Convert.Deploy`, the Ares key VERA already consumes for
-Unit simple deployers. Porting the infantry arm would need that key under
-`phobos` builds without Ares; it is a separate chain, so VERA stores only
-the undeploy latch (the deploy latch would gate nothing).
-
-RESIDUAL: native sets `HasUndeployConverted = false` inside the deploy arm;
-without that arm the latch is only reset by the `0x520E75` rule, which
-clears it on the first non-Deploy/Undeploy visit anyway.
+The two latches are separate persisted phobos fields; each arm sets its own
+and clears the other, and the `0x520E75` reset clears both.

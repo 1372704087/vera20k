@@ -16,6 +16,10 @@ use crate::rules::ini_parser::IniSection;
 /// The `Convert.*` self-conversion triggers this chain reads.
 #[derive(Debug, Clone, PartialEq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PhobosConvert {
+    /// `Convert.Deploy=`: the type an infantryman converts to when its
+    /// Deploy sequence completes (`Ext/TechnoType/Body.cpp:1230`); absent or
+    /// `none` disables. The same key feeds the Ares Unit simple-deployer arm.
+    pub deploy: Option<String>,
     /// `Convert.Undeploy=`: the type an infantryman converts to when its
     /// Undeploy sequence completes; absent or `none` disables.
     pub undeploy: Option<String>,
@@ -35,6 +39,10 @@ pub struct PhobosConvert {
 impl PhobosConvert {
     pub fn from_section(section: &IniSection) -> Self {
         Self {
+            deploy: section
+                .read_type_name("Convert.Deploy", 0x800)
+                .filter(|name| !name.eq_ignore_ascii_case("none"))
+                .map(str::to_owned),
             undeploy: section
                 .read_type_name("Convert.Undeploy", 0x800)
                 .filter(|name| !name.eq_ignore_ascii_case("none"))

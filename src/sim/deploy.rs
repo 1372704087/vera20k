@@ -462,26 +462,34 @@ impl Simulation {
 
     /// Infantry vtable+54C = Stop callback521B40. Clear6E4 BEFORE calling
     /// unforced Do_Action27: a zero-health action may re-enter Stop_Driver.
-    /// Phobos `InfantryClass_DoingAI_DeployConvert_Undeploy @ 0x520B99`: when
-    /// the Undeploy sequence completes and the type sets `Convert.Undeploy`,
-    /// set `HasUndeployConverted` and convert once. The latch clears in the
-    /// DoingAI reset while the current sequence is neither Deploy nor
-    /// Undeploy (`0x520E75`).
+    /// Phobos `InfantryClass_DoingAI_DeployConvert_Deploy @ 0x520B3E` and
+    /// `_Undeploy @ 0x520B99`: the completed sequence converts a type that
+    /// sets `Convert.Deploy`/`Convert.Undeploy`, setting its own latch and
+    /// clearing the other. Both latches clear in the DoingAI reset while the
+    /// current sequence is neither Deploy nor Undeploy (`0x520E75`).
     #[cfg(feature = "phobos")]
-    fn phobos_infantry_undeploy_convert(
+    fn phobos_infantry_deploy_convert(
         &mut self,
         id: u64,
+        deploying: bool,
         rules: &RuleSet,
         effects: FrameEffects<'_>,
     ) {
         let Some(target_name) = self.substrate.entities.get(id).and_then(|actor| {
-            if actor.category() != EntityCategory::Infantry
-                || actor.phobos_infantry_undeploy_converted()
+            if actor.category() != EntityCategory::Infantry {
+                return None;
+            }
+            if deploying && actor.phobos_infantry_deploy_converted()
+                || !deploying && actor.phobos_infantry_undeploy_converted()
             {
                 return None;
             }
             let object = self.entity_object_type(actor, rules)?;
-            object.phobos_convert.undeploy.clone()
+            if deploying {
+                object.phobos_convert.deploy.clone()
+            } else {
+                object.phobos_convert.undeploy.clone()
+            }
         }) else {
             return;
         };
@@ -489,7 +497,8 @@ impl Simulation {
             return;
         };
         if let Some(actor) = self.substrate.entities.get_mut(id) {
-            actor.set_phobos_infantry_undeploy_converted(true);
+            actor.set_phobos_infantry_deploy_converted(deploying);
+            actor.set_phobos_infantry_undeploy_converted(!deploying);
         }
         let target = crate::rules::superweapon_type::DeliveryType {
             category: target.category,
@@ -542,13 +551,13 @@ impl Simulation {
             31 => 0,
             other => return Err(format!("deployment completion received Doing{other}")),
         };
-        // Phobos `InfantryClass_DoingAI_DeployConvert_Undeploy @ 0x520B99`
-        // (`Ext/Infantry/Hooks.cpp:36-50`): the completed Undeploy sequence
-        // converts a type that sets `Convert.Undeploy`, latching first. The
-        // deploy-side twin reads `Convert.Deploy` and is a separate chain.
+        // Phobos `InfantryClass_DoingAI_DeployConvert_Deploy @ 0x520B3E` and
+        // `_Undeploy @ 0x520B99` (`Ext/Infantry/Hooks.cpp:18-50`): the
+        // completed Deploy/Undeploy sequence converts a type that sets
+        // `Convert.Deploy`/`Convert.Undeploy`, latching first.
         #[cfg(feature = "phobos")]
-        if completed_doing == 31 {
-            self.phobos_infantry_undeploy_convert(id, rules, effects);
+        if completed_doing == 27 || completed_doing == 31 {
+            self.phobos_infantry_deploy_convert(id, completed_doing == 27, rules, effects);
         }
         self.infantry_do_action(id, next, true, rules, effects)?;
         //520B3B/520B9A re-read the type AFTER the concrete action receiver.

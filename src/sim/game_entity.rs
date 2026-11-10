@@ -179,6 +179,12 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     phobos_infantry_undeploy_converted: bool,
+    /// Phobos `InfantryExt::HasDeployConverted`: this Deploy sequence already
+    /// converted the infantryman; the DoingAI reset clears it outside the
+    /// Deploy/Undeploy sequences (`0x520E75`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_infantry_deploy_converted: bool,
     /// Phobos `FootExt::AttackMoveFollowerTempCount` (`src/Ext/Foot/Body.h:26`,
     /// constructed `0` at `:44`, serialized at `src/Ext/Foot/Body.cpp:951`).
     /// A per-frame transient: `FootClass_AI`'s tail decrements it
@@ -2189,6 +2195,16 @@ impl GameEntity {
         self.phobos_infantry_undeploy_converted = converted;
     }
 
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_infantry_deploy_converted(&self) -> bool {
+        self.phobos_infantry_deploy_converted
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_phobos_infantry_deploy_converted(&mut self, converted: bool) {
+        self.phobos_infantry_deploy_converted = converted;
+    }
+
     /// `CurrentDelayedFireAnim` registration (`Body.cpp:691-695`): only an
     /// attached anim is tracked, together with its stored removal flag.
     #[cfg(feature = "phobos")]
@@ -2512,6 +2528,8 @@ impl GameEntity {
             phobos_keep_target_on_move: false,
             #[cfg(feature = "phobos")]
             phobos_infantry_undeploy_converted: false,
+            #[cfg(feature = "phobos")]
+            phobos_infantry_deploy_converted: false,
             #[cfg(feature = "phobos")]
             phobos_attack_move_follower_temp_count: 0,
             emp: Default::default(),

@@ -110,7 +110,7 @@ Supported extensions:
 - [Driver-killed passengers](phobos-driver-killed.md) (`DriverKilled.KeptPassengers` and `.KillPassengers` choose keep-aboard, kill or the stock ejection for a driverless vehicle's passengers; 2 keys + 2 globals)
 - [No manual move](phobos-no-manual-move.md) (`NoManualMove`: the shared player-control answer refuses the type while its AI keeps moving it)
 - [Health-band conversion](phobos-convert-health.md) (`Convert.Health` and its `AbovePercent`/`BelowPercent` band: a Foot converts when its health ratio enters the range; 3 keys)
-- [Undeploy conversion](phobos-convert-undeploy.md) (`Convert.Undeploy`: an infantryman converts once per completed Undeploy sequence, with the DoingAI latch reset; 1 key)
+- [Deploy/Undeploy conversion](phobos-convert-undeploy.md) (`Convert.Deploy` / `Convert.Undeploy`: an infantryman converts once per completed Deploy or Undeploy sequence, with the DoingAI latch reset; 2 keys)
 - [Owner-change conversion](phobos-convert-owner-change.md) (`Convert.HumanToComputer` / `Convert.ComputerToHuman`: a Foot converts on a human/computer owner change and the computer-to-human arm repairs its mission; 2 keys)
 - [Mind-control reset on conversion](phobos-convert-reset-mind-control.md) (`Convert.ResetMindControl`: the capture-manager limits are rebuilt from the new type's weapons, trimming or deleting the manager; 1 key + 1 `[General]` global)
 - [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)

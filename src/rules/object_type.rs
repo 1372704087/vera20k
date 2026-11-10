@@ -706,6 +706,14 @@ pub struct ObjectType {
     /// retail rule; `rules::phobos_fly_wobble` owns the resolution.
     #[cfg(feature = "phobos")]
     pub(crate) fly_no_wobbles: Option<bool>,
+    /// Phobos `AircraftTypeExt::ExtendedAircraftMissions.*`
+    /// (`Ext/AircraftType/Body.cpp:30-35`): the aircraft mission rework
+    /// switches and the unland damage. Every field is `Nullable`, so an unset
+    /// key inherits the type's/global master switch at the hook that reads it
+    /// (`rules::phobos_extended_aircraft_missions`).
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_extended_aircraft_missions:
+        crate::rules::phobos_extended_aircraft_missions::PhobosExtendedAircraftMissions,
     /// Phobos `TechnoTypeExt::LaserTargetColor` (`Nullable<int>`): the
     /// `[ColorAdd]` index whose word tints a building this type's airstrike
     /// targets. Unset takes `[AudioVisual] LaserTargetColor`
@@ -3859,6 +3867,16 @@ impl ObjectType {
         self.fly_no_wobbles
     }
 
+    /// Phobos `AircraftTypeExt::ExtendedAircraftMissions.*`
+    /// (`Ext/AircraftType/Body.cpp:30-35`), unset fields when the keys are
+    /// absent.
+    #[cfg(feature = "phobos")]
+    pub(crate) const fn phobos_extended_aircraft_missions(
+        &self,
+    ) -> &crate::rules::phobos_extended_aircraft_missions::PhobosExtendedAircraftMissions {
+        &self.phobos_extended_aircraft_missions
+    }
+
     /// Phobos `TechnoTypeExt::LaserTargetColor`, unset when the key is absent.
     #[cfg(feature = "phobos")]
     pub(crate) const fn laser_target_color(&self) -> Option<i32> {
@@ -5110,6 +5128,17 @@ impl ObjectType {
                 section.read_phobos_nullable_bool("FlyNoWobbles", None)
             } else {
                 None
+            },
+            // Phobos reads these in AircraftTypeExt::LoadFromINIFile
+            // (`Ext/AircraftType/Body.cpp:30-35`), so only an
+            // `[AircraftTypes]` section carries them.
+            #[cfg(feature = "phobos")]
+            phobos_extended_aircraft_missions: if category == ObjectCategory::Aircraft {
+                crate::rules::phobos_extended_aircraft_missions::PhobosExtendedAircraftMissions::from_section(
+                    section,
+                )
+            } else {
+                Default::default()
             },
             #[cfg(feature = "phobos")]
             laser_target_color: section.read_phobos_nullable_int("LaserTargetColor", None),

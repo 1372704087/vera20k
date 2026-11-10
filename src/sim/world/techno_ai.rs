@@ -1306,6 +1306,11 @@ fn techno_ai_shell(
                 return;
             }
             techno_common_post(sim, id, rules, ctx.effects);
+            // Phobos `AircraftClass_Update_UnlandableDamage`
+            // (`Ext/Aircraft/Hooks.cpp:735-794`, hook `0x414DA8`, after
+            // FootClass_Update).
+            #[cfg(feature = "phobos")]
+            aircraft_unlandable_damage_step(sim, id, rules, ctx);
         }
     }
 }
@@ -1662,6 +1667,116 @@ fn self_heal_step(
         id,
         rules,
     );
+}
+
+/// Phobos `AircraftClass_Update_UnlandableDamage`
+/// (`Ext/Aircraft/Hooks.cpp:735-794`, hook `0x414DA8`, after
+/// `FootClass::Update`): an alive, AirportBound aircraft that is no airstrike
+/// loses health while it is in the air and cannot land.
+///
+/// The hook reads `ExtendedAircraftMissions_UnlandDamage.Get(Global())` on
+/// every frame:
+/// - `> 0`: every fourth frame, chosen by
+///   `(CurrentFrame - LastFireBulletFrame + UniqueID) & 3 == 0`, it takes that
+///   much damage from the `[CombatDamage] C4Warhead=` at itself with no
+///   attacker (`ReceiveDamage(&damage, 0, C4Warhead, nullptr, true, false,
+///   nullptr)`; VERA's receiver flags keep `ignore_defenses` and clear the
+///   second call flag to match those arguments);
+/// - `< 0` **and** the master switch resolved on: `Crash(nullptr)`, which is
+///   the kill-while-unlandable arm. A negative value with the master off is
+///   stock behaviour (nothing here).
+///
+/// An aircraft holding a `DockNowHeadingTo` (`Aircraft+0x6CC`, VERA's
+/// [`TechnoAmmo::dock`](crate::sim::ammo::TechnoAmmo::dock)) takes neither
+/// damage arm (`:762`).
+///
+/// RESIDUAL: the hook's other arms are not ported. With the master switch on
+/// it first re-targets an aircraft whose `ArchiveTarget` lies farther than
+/// `GetGuardRange(1) * 1.1` from it (clear Target, set destination to the
+/// archive) and calls `TryNearestDockBuilding(&Type->Dock, 0, 0)`; with the
+/// switch off, the positive-damage arm refuses the damage when that dock search
+/// answers; and an Area-Guarding aircraft holding a `DockNowHeadingTo` with a
+/// `MissionStatus` clears its archive and enters idle mode. Trigger:
+/// `ExtendedAircraftMissions=yes` (or a positive UnlandDamage with the switch
+/// off) for an AirportBound aircraft in the air. Effect: the guard-return
+/// redirect, the dock-search refusal and the Area-Guard idle exit are missing,
+/// so VERA can damage an aircraft Phobos would send to a dock first, and does
+/// not pull a distant Area-Guard aircraft back to its archive cell. Frequency:
+/// only for a mod that turns the switch on or sets a positive UnlandDamage;
+/// the retail defaults (switch `no`, damage `0`) are dormant.
+#[cfg(feature = "phobos")]
+fn aircraft_unlandable_damage_step(
+    sim: &mut Simulation,
+    id: u64,
+    rules: &RuleSet,
+    ctx: ObjectAiCtx<'_>,
+) {
+    let Some(entity) = sim.substrate.entities.get(id) else {
+        return;
+    };
+    if entity.health.current() <= 0 || entity.airstrike_link().is_some() {
+        return;
+    }
+    let Some(object) = sim.entity_object_type(entity, rules) else {
+        return;
+    };
+    // `pType->AirportBound`, and `!pThis->IsALoaner` (VERA has no IsALoaner
+    // writer: the Phobos `IsALoaner=` type key is a separate key and the
+    // native field stays false).
+    if !object.airport_bound {
+        return;
+    }
+    // `if (pThis->DockNowHeadingTo)` (`:762-770`): an aircraft already heading
+    // to a dock (`Aircraft+0x6CC`, `TechnoAmmo::dock`) takes neither damage
+    // arm. Only an Area-Guarding one with a `MissionStatus` clears its
+    // archive and enters idle mode there; VERA lacks that arm (residual).
+    if entity.ammo().and_then(|ammo| ammo.dock()).is_some() {
+        return;
+    }
+    let flags = rules.extended_aircraft_missions_for(object);
+    if flags.unland_damage == 0 {
+        return;
+    }
+    if !crate::sim::movement::air_movement::is_high_flying(
+        entity,
+        sim.resolved_terrain.as_ref(),
+        Some((rules, &sim.interner)),
+    ) {
+        return;
+    }
+    let frame = sim.session.binary_frame() as i32;
+    let damage = flags.unland_damage;
+    if damage > 0 {
+        // `(Unsorted::CurrentFrame - LastFireBulletFrame + UniqueID) & 0x3`.
+        let entity = sim.substrate.entities.get(id).unwrap();
+        let last_fire = entity.last_fire_frame.frame() as i32;
+        let tick = frame
+            .wrapping_sub(last_fire)
+            .wrapping_add(entity.native_unique_id());
+        if tick & 0x3 != 0 {
+            return;
+        }
+        let Some(warhead) = rules.warhead(&rules.bridge_warheads.c4_name) else {
+            return;
+        };
+        let warhead = sim.interner.intern(&warhead.id);
+        let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+            id,
+            damage,
+            0,
+            crate::sim::combat::RAD_NO_ATTACKER,
+            None,
+            warhead,
+            crate::sim::combat::ReceiverCallFlags {
+                ignore_defenses: true,
+                arg6: false,
+            },
+        );
+        sim.commit_direct_damage_receiver(rules, ctx.overlay_registry, event, ctx.effects);
+    } else if flags.master {
+        // `pThis->Crash(nullptr)`, guarded by the master switch.
+        sim.foot_crash(id, None, rules, ctx.overlay_registry, ctx.effects);
+    }
 }
 
 /// `AircraftClass::AI @ 0x00414D2C..0x00414D4B`: a Target whose vt+0x54

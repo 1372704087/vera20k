@@ -33,6 +33,9 @@ pub(crate) mod spyplane_mission;
 mod ai_head_tests;
 #[cfg(test)]
 mod dock_cycle_tests;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "unland_damage_tests.rs"]
+mod unland_damage_tests;
 #[cfg(test)]
 mod release_tests;
 #[cfg(test)]
@@ -161,6 +164,23 @@ pub(crate) fn restart_patrol_after_restore(entity: &mut GameEntity) {
         && entity.mission.current() == MissionId::from_known(MissionType::Patrol)
     {
         restart_patrol(entity);
+    }
+}
+
+/// Phobos `GetTurningRadius` (`Ext/Aircraft/Hooks.cpp:485-492`): the
+/// `Aircraft`'s turn radius in leptons, `Speed / |ROT.Raw * 2pi / 65536|`
+/// truncated, or 0 for a rotation too small to divide by. `ROT.Raw` is the
+/// raw `DirStruct` word, so a negative rate appears as its unsigned
+/// complement (Phobos casts the `unsigned short` straight to `double`). Both
+/// callers are Phobos hooks: `AircraftClass_Mission_Move_SmoothMoving`
+/// (`:520`) and `FlyLocomotionClass_FlightUpdate_SetPrimaryFacing` (`:617`).
+pub(crate) fn turning_radius(entity: &GameEntity, speed: i32) -> i32 {
+    let rot = i32::from(entity.body_facing.rot_per_frame());
+    let radians = (f64::from(rot) * (std::f64::consts::TAU / 65536.0)).abs();
+    if radians > 1e-10 {
+        (f64::from(speed) / radians) as i32
+    } else {
+        0
     }
 }
 

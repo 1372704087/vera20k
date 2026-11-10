@@ -155,6 +155,8 @@ pub mod phobos_droppod;
 #[cfg(feature = "phobos")]
 pub mod phobos_explodes;
 #[cfg(feature = "phobos")]
+pub mod phobos_extended_aircraft_missions;
+#[cfg(feature = "phobos")]
 pub mod phobos_extra_warheads;
 #[cfg(feature = "phobos")]
 pub mod phobos_launch_sw;

@@ -2024,6 +2024,21 @@ impl ProcessedRulesLayers {
         })
     }
 
+    /// Phobos `SW.Next*`/`SW.Link*`, one entry per registered definition.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn phobos_super_weapon_chaining_states(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &str,
+            crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
+        ),
+    > {
+        self.member_states(RulesTypeFamily::SuperWeapon, |member| {
+            member.super_weapon_phobos_chaining.clone()
+        })
+    }
+
     #[cfg(feature = "ares")]
     pub(crate) fn additional_super_weapon_states(&self) -> impl Iterator<Item = (&str, &[String])> {
         self.member_states(RulesTypeFamily::Building, |member| {
@@ -5430,6 +5445,11 @@ struct ProcessedType {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     super_weapon_phobos_availability: PhobosSuperWeaponAvailability,
+    /// Phobos `SW.Next*`/`SW.Link*` (`Ext/SWType/Body.cpp:170-265`), read by
+    /// the same ordered Process owner as the availability gates.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    super_weapon_phobos_chaining: crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining,
     #[cfg(feature = "ares")]
     additional_super_weapons: Vec<String>,
     /// Phobos `UnitTypeExt`'s three `OreGathering.*` vectors.
@@ -6045,6 +6065,9 @@ impl ProcessedType {
             super_weapon_launch: Default::default(),
             #[cfg(feature = "phobos")]
             super_weapon_phobos_availability: PhobosSuperWeaponAvailability::default(),
+            #[cfg(feature = "phobos")]
+            super_weapon_phobos_chaining:
+                crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining::default(),
             #[cfg(feature = "ares")]
             additional_super_weapons: Vec::new(),
             #[cfg(feature = "phobos")]
@@ -6904,6 +6927,18 @@ impl RulesPassProcessor {
                 .filter_map(|token| self.find_existing_techno_type(token))
                 .collect(),
         )
+    }
+
+    /// `SuperWeaponTypeClass::FindIndex` over the registered
+    /// `[SuperWeaponTypes]` entries: the canonical section name for a
+    /// case-insensitive token, or `None` for an unknown one.
+    #[cfg(feature = "phobos")]
+    fn find_existing_super_weapon_name(&self, token: &str) -> Option<String> {
+        self.families
+            .get(&RulesTypeFamily::SuperWeapon)?
+            .iter()
+            .find(|member| member.native_stored_id.eq_ignore_ascii_case(token))
+            .map(|member| member.native_stored_id.clone())
     }
 
     /// Installed Ares typed pointers: Anim Parser1000C9C0/Find1000D3E0,
@@ -7946,6 +7981,16 @@ impl RulesPassProcessor {
                     }
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_availability = availability;
+                    // Phobos `SWTypeExt::LoadFromINIFile` then reads
+                    // `SW.Next`, its flags/rolls/weights, and the `SW.Link`
+                    // group (`Ext/SWType/Body.cpp:170-243`).
+                    let chaining =
+                        crate::rules::phobos_sw_chaining::PhobosSuperWeaponChaining::from_section(
+                            &raw,
+                            |token| self.find_existing_super_weapon_name(token),
+                        );
+                    self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_chaining = chaining;
                 }
                 #[cfg(feature = "ares")]
                 {

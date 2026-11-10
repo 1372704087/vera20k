@@ -37,6 +37,7 @@ Supported extensions:
 - [Custom gather animations](phobos-harvester-gather-animations.md)
 - [Ore-stage animation hiding](phobos-hide-if-no-ore-threshold.md)
 - [Superweapon techno gates](phobos-superweapon-technos.md)
+- [Superweapon chaining and link groups](phobos-sw-chaining.md) (`SW.Next*` chained launches with weights/rolls and the two ignore flags, and `SW.Link*` grant/ready/reset groups)
 - [Digital display](phobos-digital-display.md) (numeric health/ammo/cargo/timer values near the health bar)
 - [Health-bar switches](health-bars.md#phobos-type-switches) (`HealthBar.Hide=`, `.HidePips=`, `.Permanent=` and `.Permanent.PipScale=`)
 - [Shared transport ammo](phobos-shared-ammo.md) (`Ammo.Shared=` and `Ammo.Shared.Group=` feed a reloading open-topped transport's rounds to its passengers)

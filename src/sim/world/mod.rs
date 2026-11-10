@@ -1863,6 +1863,12 @@ pub struct Simulation {
     /// events. Transient admission context, not gameplay or saved state.
     #[serde(skip)]
     replaying_recorded_commands: bool,
+    /// Phobos `SW.Next`/`SW.Link` tail recursion depth. Transient: it only
+    /// stops a cyclic chain (native would recurse to stack exhaustion) and is
+    /// zero outside a launch. Not saved or hashed.
+    #[cfg(feature = "phobos")]
+    #[serde(skip)]
+    pub(crate) super_weapon_chain_depth: u32,
     /// Serialized map trigger state, initialized and mutated by trigger_runtime.
     /// Remains installed while actions call other Simulation mechanisms.
     pub(crate) trigger_runtime: TriggerRuntime,
@@ -4779,6 +4785,8 @@ impl Simulation {
             frame_continuation: None,
             planning: planning::PlanningState::default(),
             replaying_recorded_commands: false,
+            #[cfg(feature = "phobos")]
+            super_weapon_chain_depth: 0,
             trigger_runtime: TriggerRuntime::default(),
         };
         debug_assert_eq!(out.scenario_rng.state(), out.main_rng.state());

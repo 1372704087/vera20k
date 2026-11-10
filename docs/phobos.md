@@ -139,6 +139,7 @@ Supported extensions:
 - [SpawnsCrate warhead](phobos-spawns-crate.md) (`SpawnsCrate{i}.Type`/`.Weight` and their entry-0 aliases: a detonation places one weighted powerup crate; 2 numbered keys + 2 aliases)
 - [Rocker warhead](phobos-rocker.md) (`Rocker.AmplitudeMultiplier`/`.AmplitudeOverride`: the area-damage rocker's base amplitude; 2 keys)
 - [NoTurret.TrackTarget](phobos-no-turret.md) (`NoTurret.TrackTarget`: a keyed turretless vehicle keeps checking its facing while in REARM; 1 key + 1 `[General]` global)
+- [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
 
 ## Original project and authors
 

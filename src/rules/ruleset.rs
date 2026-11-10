@@ -9564,6 +9564,43 @@ impl RuleSet {
                     overrides.hash_state(&mut hasher);
                 }
             }
+            // Phobos `Nonprovocative=` / `CombatAlert.Suppress=`
+            // (`Ext/WarheadType/Body.cpp:337,367`). Retail warheads author
+            // neither, so the tagged fold leaves the stock hash unchanged.
+            let combat_alert_warheads = Self::by_upper_id(
+                self.warhead_entries()
+                    .filter(|(_, warhead)| {
+                        warhead.nonprovocative || warhead.combat_alert_suppress.is_some()
+                    })
+                    .map(|(id, warhead)| {
+                        (id, (warhead.nonprovocative, warhead.combat_alert_suppress))
+                    }),
+            );
+            if !combat_alert_warheads.is_empty() {
+                b"phobos-warhead-combat-alert-v1".hash(&mut hasher);
+                combat_alert_warheads.hash(&mut hasher);
+            }
+            // Phobos `CombatAlert.*` TechnoType keys
+            // (`Ext/TechnoType/Body.cpp:846-851`). The constructor state is
+            // every key unset, so untagged retail rules keep the stream.
+            let combat_alert_types = self
+                .object_list
+                .iter()
+                .filter(|object| {
+                    object.phobos_combat_alert
+                        != crate::rules::phobos_combat_alert::PhobosCombatAlert::default()
+                })
+                .map(|object| {
+                    (
+                        (object.category, object.id.to_ascii_uppercase()),
+                        &object.phobos_combat_alert,
+                    )
+                })
+                .collect::<BTreeMap<_, _>>();
+            if !combat_alert_types.is_empty() {
+                b"phobos-type-combat-alert-v1".hash(&mut hasher);
+                combat_alert_types.hash(&mut hasher);
+            }
         }
         for particle in &self.particle_types {
             (&particle.name, &particle.warhead).hash(&mut hasher);

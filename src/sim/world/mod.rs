@@ -570,6 +570,22 @@ pub struct AresTechCaptureLines {
     pub message_capture: Option<InternedId>,
 }
 
+/// The one global line a Phobos combat alert chooses
+/// (`Ext/Techno/Hooks.ReceiveDamage.cpp:123-135`). The client resolves each
+/// name against the process audio catalogs; simulation never loads them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CombatAlertVoice {
+    /// `VocClass::PlayGlobal(VoiceFeedback[0], 0x2000, 1.0f)` (`:128`).
+    Feedback { sound_id: String },
+    /// `VocClass::PlayGlobal(VoiceAttack[0], 0x2000, 1.0f)` (`:130`).
+    Attack { sound_id: String },
+    /// `VoxClass::PlayIndex(CombatAlert.EVA ...)` (`:132-135`): the
+    /// `evamd.ini` event name, `EVA_UnitsInCombat` when the type key is unset.
+    Eva { event: String },
+    /// `MakeAVoice=no`, or the chosen list/index resolved to no line.
+    None,
+}
+
 /// A sound event produced during simulation (combat, death, production).
 /// Pure data — no audio library dependency. Drained by the app layer each frame.
 #[derive(Debug, Clone)]
@@ -842,6 +858,21 @@ pub enum SimSoundEvent {
     AllyUnderAttack {
         owner: InternedId,
         radar: RadarEventRequest,
+    },
+    /// Phobos `CombatAlert` raised inside `TechnoClass_ReceiveDamage_Shield @
+    /// 0x701900` (`Ext/Techno/Hooks.ReceiveDamage.cpp:86-140`): the victim
+    /// House's alert timer started, `RadarEventType::Combat` at the object's
+    /// `Coord2Cell(GetCoords())`, and at most one global voice line.
+    ///
+    /// The sim approximates `pTargetHouse->IsControlledByCurrentPlayer()`
+    /// with "a human controls the House"; this event carries the owner so the
+    /// client keeps only its own player's ping and line (a native peer runs
+    /// the block only for its own House). The type is used by non-Phobos
+    /// builds too; only the Phobos hook emits it.
+    CombatAlert {
+        owner: InternedId,
+        radar: RadarEventRequest,
+        voice: CombatAlertVoice,
     },
     /// `TechnoClass::Death_Announcement @ 0x004D98C0` fired for a unit of
     /// `owner` (a human house) that is not `Spawned=`. The app plays

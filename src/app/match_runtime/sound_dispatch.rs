@@ -737,6 +737,44 @@ pub(super) fn dispatch_sim_sound_events(
                     eva_event,
                 }
             }
+            SimSoundEvent::CombatAlert {
+                owner,
+                radar,
+                voice,
+            } => {
+                // Phobos `Ext/Techno/Hooks.ReceiveDamage.cpp:90` gates on
+                // `HouseClass::IsControlledByCurrentPlayer`; a native peer
+                // raises the ping only for its own player's House. The sim
+                // publishes any human-controlled House, so the client keeps
+                // the local-owner test here.
+                if !owner_is_local(sim.interner(), owner, local_owner_name) {
+                    continue;
+                }
+                // `:122` `CreateRadarEvent(RadarEventType::Combat, cell)`
+                // precedes the voice and never gates it.
+                let _ = admit_radar(radar);
+                match voice {
+                    // `:128,130` `VocClass::PlayGlobal(index, 0x2000, 1.0f)`:
+                    // centred, full volume, no owner handle.
+                    crate::sim::world::CombatAlertVoice::Feedback { sound_id }
+                    | crate::sim::world::CombatAlertVoice::Attack { sound_id } => {
+                        output.push(GameSoundEvent::VocAt {
+                            sound_id,
+                            source: None,
+                        });
+                    }
+                    // `:135` `VoxClass::PlayIndex(index)`: the `evamd.ini`
+                    // event name resolved by the EVA owner.
+                    crate::sim::world::CombatAlertVoice::Eva { event } => {
+                        output.push(GameSoundEvent::Eva {
+                            event,
+                            type_override: None,
+                        });
+                    }
+                    crate::sim::world::CombatAlertVoice::None => {}
+                }
+                continue;
+            }
             SimSoundEvent::UnderAttack {
                 owner,
                 miner,

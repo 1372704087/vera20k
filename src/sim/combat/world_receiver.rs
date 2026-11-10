@@ -1479,6 +1479,17 @@ pub(crate) fn commit_entities(
             receiver_event.damage = 0;
         }
         let event = &receiver_event;
+        // Phobos `Ext/Techno/Hooks.ReceiveDamage.cpp:86-140`, inside
+        // `TechnoClass_ReceiveDamage_Shield @ 0x701900`: the combat alert
+        // runs after the damage multipliers and before the shield stage.
+        #[cfg(feature = "phobos")]
+        super::combat_alert::raise_combat_alert(
+            world,
+            rules,
+            event,
+            receiver_event.damage,
+            current_tick as u32 as i32,
+        );
         // Phobos `TechnoClass_ReceiveDamage @ 0x701900+0x6` runs the shield
         // before gamemd's receiver body and replaces `args->Damage` with the
         // surviving damage. The stage owns the mutation here, before the

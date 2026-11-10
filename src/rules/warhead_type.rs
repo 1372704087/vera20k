@@ -476,6 +476,18 @@ pub struct WarheadType {
     /// infantryman plays when this warhead kills it.
     #[cfg(feature = "phobos")]
     pub phobos_not_human_death_sequence: i32,
+    /// Phobos `Nonprovocative=` (`Ext/WarheadType/Body.cpp:337`,
+    /// `Valueable<bool>` default `no`, `Body.h:461`): a non-provocative hit
+    /// suppresses the victim House's combat alert when the warhead does not
+    /// also override `CombatAlert.Suppress`
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:95`).
+    #[cfg(feature = "phobos")]
+    pub nonprovocative: bool,
+    /// Phobos `CombatAlert.Suppress=` (`Ext/WarheadType/Body.cpp:367`,
+    /// `Nullable<bool>`, `Body.h:212` unset): when set, decides the alert
+    /// suppression directly; unset uses `!Malicious || Nonprovocative`.
+    #[cfg(feature = "phobos")]
+    pub combat_alert_suppress: Option<bool>,
     /// Phobos `Parasite.ParticleSystem`/`.DisableParticleSystem`/
     /// `.CullingTarget`/`.GrappleAnim` (`Ext/WarheadType/Body.cpp:322-325`).
     #[cfg(feature = "phobos")]
@@ -902,6 +914,10 @@ impl WarheadType {
             ),
             #[cfg(feature = "phobos")]
             phobos_not_human_death_sequence: section.read_int("NotHuman.DeathSequence", -1),
+            #[cfg(feature = "phobos")]
+            nonprovocative: section.read_bool("Nonprovocative", false),
+            #[cfg(feature = "phobos")]
+            combat_alert_suppress: section.read_phobos_nullable_bool("CombatAlert.Suppress", None),
             #[cfg(feature = "phobos")]
             phobos_parasite:
                 crate::rules::phobos_parasite::PhobosParasiteWarhead::from_section(section),

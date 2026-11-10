@@ -938,6 +938,11 @@ pub struct ObjectType {
     /// a teleporting techno detonates at itself on warp-in.
     #[cfg(feature = "phobos")]
     pub phobos_warp_in_weapon: crate::rules::phobos_warp_in_weapon::WarpInWeaponRules,
+    /// Phobos `WarpIn`/`WarpOut`/`Chronoshift.WarpIn`/`Chronoshift.WarpOut`
+    /// (`Ext/TechnoType/Body.cpp:857-860`): the random warp endpoint
+    /// animations.
+    #[cfg(feature = "phobos")]
+    pub phobos_warp_anim: crate::rules::phobos_warp_anim::WarpAnimRules,
     /// Phobos `Ammo.*` deploy keys (`Ext/UnitType/Body.cpp:45-49`).
     #[cfg(feature = "phobos")]
     pub phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy,
@@ -4869,6 +4874,8 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_warp_in_weapon:
                 crate::rules::phobos_warp_in_weapon::WarpInWeaponRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_warp_anim: crate::rules::phobos_warp_anim::WarpAnimRules::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy::from_section(
                 section,

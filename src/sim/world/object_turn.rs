@@ -423,7 +423,11 @@ impl Simulation {
             // Mark(UP), or relocation changes the target's original pose.
             sim.lose_projectile_targets(stable_id, rules);
             // `0x00719442`: the departure WarpOut at its Location.
-            sim.teleport_warp_out(stable_id, rules);
+            sim.teleport_warp_anim(
+                stable_id,
+                rules,
+                teleport_movement::WarpAnimKind::OrdinaryOut,
+            );
             // 0x007195BF..0x007195CF: a parasite is ejected (ExitUnit, no
             // suppression).
             if let Some(eater) = sim
@@ -509,7 +513,11 @@ impl Simulation {
             // again.
             sim.assign_null_destination(stable_id, rules, overlay_registry, ctx.effects);
             // 0x00719742..0x00719791: the arrival WarpOut at the Location.
-            sim.teleport_warp_out(stable_id, rules);
+            sim.teleport_warp_anim(
+                stable_id,
+                rules,
+                teleport_movement::WarpAnimKind::OrdinaryIn,
+            );
             // Phobos `TeleportLocomotionClass_ILocomotion_Process_WarpInAnim
             // @ 0x719742` fires the type's warp-in weapon after that animation.
             #[cfg(feature = "phobos")]

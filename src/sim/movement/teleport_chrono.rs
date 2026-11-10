@@ -300,7 +300,11 @@ impl Simulation {
                 self.teleport_timer_check(id, rules, ctx);
             }
             2 => {
-                self.teleport_warp_out(id, rules);
+                self.teleport_warp_anim(
+                    id,
+                    rules,
+                    super::teleport_movement::WarpAnimKind::ChronoOut,
+                );
                 self.foot_mark_remove(id, rules, registry, ctx.effects);
                 Self::teleport_warp_sound(
                     &mut self.interner,
@@ -405,7 +409,11 @@ impl Simulation {
                 if let Some(warp) = self.substrate.chrono_warp_mut(id) {
                     warp.start_timer(frame, delay);
                 }
-                self.teleport_warp_out(id, rules);
+                self.teleport_warp_anim(
+                    id,
+                    rules,
+                    super::teleport_movement::WarpAnimKind::ChronoIn,
+                );
                 if let Some(warp) = self.substrate.chrono_warp_mut(id) {
                     warp.set_state(6);
                 }

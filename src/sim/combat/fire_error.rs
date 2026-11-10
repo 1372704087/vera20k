@@ -505,7 +505,8 @@ pub(crate) struct FirerTypeFacts {
     pub turret_anim_is_voxel: bool, // +0x16C5
     /// Phobos `NoTurret.TrackTarget` resolved against `[General]`
     /// (`Ext/UnitType/Body.cpp:77`, `Ext/Rules/Body.cpp:393`), read by the
-    /// `0x7410BB` hook; true only for a UnitType.
+    /// `0x7410BB` hook in [`unit`] only (the type key exists on UnitTypes;
+    /// the world fills the global fallback for every class).
     #[cfg(feature = "phobos")]
     pub no_turret_track_target: bool,
 }

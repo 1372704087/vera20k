@@ -22,10 +22,12 @@ deploy-cell block `0x741050`; every other base error returns at the
 (`0x7410BB`, 8 bytes, `Ext/Techno/Hooks.Misc.cpp:752-769`) lets a unit whose
 type key is on (else `[General]`), which has no raw `Turret=`, and which is
 not warping in keep going at `0x7410C3` (U5) when the base error is `REARM`.
-The deploy-cell block is skipped; the rest of the routine, including the
-`0x74125C` facing check, runs. An off-facing hull then answers `FACING`, so
-the firing update turns it; an aligned one reaches the `0x741300` tail and
-returns the retained base `REARM`, so the ROF gate still holds.
+The deploy-cell block is skipped; the rest of the routine runs. For a
+non-`OmniFire` weapon an off-facing hull then answers `FACING` at
+`0x74125C`, so the firing update turns it; an aligned one reaches the
+`0x741300` tail and returns the retained base `REARM`, so the ROF gate still
+holds. An `OmniFire` weapon skips the facing check (`0x741264`), so a keyed
+unit does not turn through this hook on its own.
 
 ## Where VERA20K owns it
 
@@ -39,6 +41,8 @@ RESIDUAL — `UnitClass_UpdateFiring_OmniFireTurnToTarget` (`0x736E6E`,
 `Ext/Unit/Hooks.Jumpjet.cpp:51-103`): that hook also reads this key, as the
 REARM guard for an `OmniFire` weapon with `OmniFire.TurnToTarget`. Trigger =
 a jumpjet or other unit firing an omni-fire weapon during rearm; impact = the
-turn-to-target before the stock firing switch is absent; frequency = low
-(needs the OmniFire chain); risk = low, the `0x7410BB` facing check above
-still turns the hull. That hook belongs to the `OmniFire.TurnToTarget` chain.
+turn-to-target before the stock firing switch is absent, and the `0x7410BB`
+facing check above cannot stand in for it because U12 skips `OmniFire`
+weapons; frequency = low (needs the OmniFire chain); risk = low, the shot
+still waits for the rearm. That hook belongs to the
+`OmniFire.TurnToTarget` chain.

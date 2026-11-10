@@ -108,6 +108,17 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.h:728`): fallback for a building's own
     /// `DisplayIncome.Houses` in the drain target label.
     pub display_income_houses: AffectedHouse,
+    /// `[General] ExtendedAircraftMissions=`, default `no`
+    /// (`Ext/Rules/Body.cpp:191`, constructor `Ext/Rules/Body.h:97`): the
+    /// master switch an AircraftType's own `ExtendedAircraftMissions=`
+    /// overrides, and the fallback for its `SmoothMoving`, `EarlyDescend`,
+    /// `RearApproach` and `FastScramble` keys
+    /// (`rules::phobos_extended_aircraft_missions`).
+    pub extended_aircraft_missions: bool,
+    /// `[General] ExtendedAircraftMissions.UnlandDamage=`, default `0`
+    /// (`Ext/Rules/Body.cpp:192`, `Ext/Rules/Body.h:98`): the damage an
+    /// aircraft that cannot land takes, or the kill threshold when negative.
+    pub extended_aircraft_missions_unland_damage: i32,
     /// `[General] ForceWeapon.InRange.TechnoOnly=`, default **`yes`**
     /// (`Ext/Rules/Body.h:674`): the per-type fallback for the in-range
     /// force-weapon gate.
@@ -290,6 +301,8 @@ impl Default for PhobosGlobals {
             drain_money_display_on_target: false,
             drain_money_display_on_target_use_display_income: true,
             display_income_houses: AffectedHouse::ALL,
+            extended_aircraft_missions: false,
+            extended_aircraft_missions_unland_damage: 0,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
@@ -481,6 +494,17 @@ impl PhobosGlobals {
         globals.passengers_sync_owner_revert_on_exit = general.read_bool(
             "Passengers.SyncOwner.RevertOnExit",
             globals.passengers_sync_owner_revert_on_exit,
+        );
+        // The `ExtendedAircraftMissions` pair (`Ext/Rules/Body.cpp:191-192`).
+        // The switch is a `Valueable<bool>`; UnlandDamage a `Valueable<int>`,
+        // both read with their constructor value as the default.
+        globals.extended_aircraft_missions = general.read_bool(
+            "ExtendedAircraftMissions",
+            globals.extended_aircraft_missions,
+        );
+        globals.extended_aircraft_missions_unland_damage = general.read_int(
+            "ExtendedAircraftMissions.UnlandDamage",
+            globals.extended_aircraft_missions_unland_damage,
         );
         globals
     }

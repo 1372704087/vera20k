@@ -61,6 +61,7 @@ Supported extensions:
 - [Warp-in weapon](phobos-warp-in-weapon.md) (`WarpInWeapon`, `WarpInMinRangeWeapon` and `.UseDistanceAsDamage` detonate at a teleport's arrival)
 - [Missile cruise and takeoff](phobos-missile.md) (`Missile.Cruise`, `.TakeOffSeparation` and `.TakeOffAnim` on a rocket-flying AircraftType)
 - [Drop pods](phobos-drop-pod.md) (`DropPod.*` twelve per-type keys: descent angle/speed/height, trailer cadence and attachment, air/landing weapon, puff and ground anims)
+- [Extended aircraft missions](phobos-extended-aircraft-missions.md) (`ExtendedAircraftMissions` master switch and `.UnlandDamage`/`.FastScramble` per-type keys; damage for an airport-bound aircraft that cannot land and a helipad's released aircraft)
 - [Powers-up host list](phobos-powers-up.md) (`PowersUp.Buildings` lets one upgrade serve several hosts and `PowersUp.Owner` filters the installer)
 - [Placement preview](phobos-placement-preview.md) (building artwork and grid translucency while placing)
 - [Sidebar positions](phobos-sidebar-gdi.md) (per-side GDI/NOD sidebar coordinates)

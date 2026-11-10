@@ -33,6 +33,9 @@ pub(crate) mod spyplane_mission;
 mod ai_head_tests;
 #[cfg(test)]
 mod dock_cycle_tests;
+#[cfg(all(test, feature = "phobos"))]
+#[path = "unland_damage_tests.rs"]
+mod unland_damage_tests;
 #[cfg(test)]
 mod release_tests;
 #[cfg(test)]

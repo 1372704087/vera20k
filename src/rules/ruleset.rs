@@ -10827,6 +10827,22 @@ impl RuleSet {
         )
     }
 
+    /// Phobos `AircraftTypeExt::ExtendedAircraftMissions.*`, resolved the way
+    /// every consumer does (`Ext/Aircraft/Hooks.cpp:496-513`, `:596`, `:701`,
+    /// `:671`, `:1090`, `:773`, `:1049`): the type's master or the
+    /// `[General]` switch, each type key or that master, and the type's
+    /// `UnlandDamage` or the `[General]` one.
+    #[cfg(feature = "phobos")]
+    pub fn extended_aircraft_missions_for(
+        &self,
+        ty: &ObjectType,
+    ) -> crate::rules::phobos_extended_aircraft_missions::ExtendedAircraftMissionFlags {
+        ty.phobos_extended_aircraft_missions().resolve(
+            self.phobos_globals.extended_aircraft_missions,
+            self.phobos_globals.extended_aircraft_missions_unland_damage,
+        )
+    }
+
     /// Phobos `[SIDE] SuperWeaponSidebar.*PCX=` for a native side index.
     /// Missing sides have no artwork, which is valid.
     #[cfg(feature = "phobos")]

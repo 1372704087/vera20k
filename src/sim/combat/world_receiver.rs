@@ -3018,6 +3018,10 @@ fn finish_concrete_death(
             inf_death,
             anim_house,
             inf_death_anim,
+            #[cfg(feature = "phobos")]
+            killing_warhead
+                .as_ref()
+                .map_or(-1, |(warhead, _)| warhead.phobos_not_human_death_sequence),
             rules,
             overlay_registry,
             frame_effects,

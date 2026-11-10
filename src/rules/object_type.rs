@@ -951,6 +951,12 @@ pub struct ObjectType {
     /// type has no non-negative `TiberiumEater.TransDelay`.
     #[cfg(feature = "phobos")]
     pub phobos_tiberium_eater: Option<crate::rules::phobos_tiberium_eater::PhobosTiberiumEater>,
+    /// Phobos `NotHuman.RandomDeathSequence=` (`Ext/InfantryType/Body.cpp:20`,
+    /// `Nullable<bool>`): a `NotHuman=` infantryman plays a random Die1..Die5
+    /// on a default death; unset inherits `[General]`. Read only for an
+    /// InfantryType.
+    #[cfg(feature = "phobos")]
+    pub phobos_not_human_random_death_sequence: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -4929,6 +4935,10 @@ impl ObjectType {
             ),
             #[cfg(feature = "phobos")]
             phobos_tiberium_eater: crate::rules::phobos_tiberium_eater::parse(section),
+            #[cfg(feature = "phobos")]
+            phobos_not_human_random_death_sequence: (category == ObjectCategory::Infantry)
+                .then(|| section.read_phobos_nullable_bool("NotHuman.RandomDeathSequence", None))
+                .flatten(),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

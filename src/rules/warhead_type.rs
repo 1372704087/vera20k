@@ -471,6 +471,11 @@ pub struct WarheadType {
     /// consumer `Detonate.cpp:121-150`).
     #[cfg(feature = "phobos")]
     pub phobos_launch_sw: crate::rules::phobos_launch_sw::PhobosLaunchSw,
+    /// Phobos `NotHuman.DeathSequence=` (`Ext/WarheadType/Body.cpp:289`,
+    /// `Valueable<int>` default -1): the Die1..Die5 sequence a `NotHuman=`
+    /// infantryman plays when this warhead kills it.
+    #[cfg(feature = "phobos")]
+    pub phobos_not_human_death_sequence: i32,
 }
 
 /// Phobos `AEAttachInfoTypeClass` as a warhead carries it: the AE lists a
@@ -862,6 +867,8 @@ impl WarheadType {
             phobos_launch_sw: crate::rules::phobos_launch_sw::PhobosLaunchSw::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_not_human_death_sequence: section.read_int("NotHuman.DeathSequence", -1),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

@@ -126,6 +126,7 @@ Supported extensions:
 - [Tiberium eater](phobos-tiberium-eater.md) (`TiberiumEater.*`: FLH-cell tiberium eating with cash, delay, per-tiberium anims and EMP/limbo holds; 11 keys)
 - [Ammo auto-convert](phobos-convert-ammo.md) (`Ammo.AutoConvertType`/`.MinimumAmount`/`.MaximumAmount`: a Foot converts when its ammo enters the band; 3 keys)
 - [LaunchSW](phobos-launch-sw.md) (`LaunchSW` and its real-launch, inhibitor/designator and display-money options: a warhead launches superweapons at its impact; 7 keys)
+- [NotHuman death sequences](phobos-not-human.md) (`NotHuman.DeathSequence` / `NotHuman.RandomDeathSequence`: a NotHuman infantryman's Die1..Die5 selection and the paradrop fix; 2 keys + 1 `[General]` global)
 
 ## Original project and authors
 

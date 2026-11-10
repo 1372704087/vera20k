@@ -90,6 +90,10 @@ pub struct PhobosGlobals {
     /// false.
     #[serde(default = "true_bool")]
     pub explodes_during_buildup: bool,
+    /// `[General] NotHuman.RandomDeathSequence=`, default `no`
+    /// (`Ext/Rules/Body.cpp:621`, constructor `Ext/Rules/Body.h:1016`): the
+    /// fallback for an InfantryType's key.
+    pub not_human_random_death_sequence: bool,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -285,6 +289,7 @@ impl Default for PhobosGlobals {
             convert_reset_mind_control: false,
             explodes_kill_passengers: true,
             explodes_during_buildup: true,
+            not_human_random_death_sequence: false,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -389,6 +394,10 @@ impl PhobosGlobals {
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
+        );
+        globals.not_human_random_death_sequence = general.read_bool(
+            "NotHuman.RandomDeathSequence",
+            globals.not_human_random_death_sequence,
         );
         globals.force_weapon_in_range_apply_range_modifiers = general.read_bool(
             "ForceWeapon.InRange.ApplyRangeModifiers",

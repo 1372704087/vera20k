@@ -75,6 +75,23 @@ impl CellRef<'_> {
         }
     }
 
+    /// `CellClass+0x11A`, the unsigned slope byte of the real cell or of the
+    /// shared dummy (`ParabolaTrajectory.cpp:901-949` bounce normal).
+    pub(crate) fn slope_type(&self) -> u8 {
+        match self {
+            CellRef::Real(cell) => cell.slope_type,
+            CellRef::Dummy { cell } => cell.snapshot().slope_type,
+        }
+    }
+
+    /// `CellClass+0x?` land type (`LandType` index) of the same cell.
+    pub(crate) fn land_type(&self) -> u8 {
+        match self {
+            CellRef::Real(cell) => cell.land_type,
+            CellRef::Dummy { cell } => cell.snapshot().land_type,
+        }
+    }
+
     /// Live `CellClass+0x140 & 0x1180` view for consumers that must inspect
     /// the same real-or-dummy result selected by the stamping lookup.
     pub(crate) fn bridge_flags_0x1180(&self) -> u32 {

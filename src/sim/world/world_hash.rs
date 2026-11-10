@@ -1007,6 +1007,11 @@ impl Simulation {
                 b"phobos-bullet-firer-house-v1".hash(hasher);
                 house.index().hash(hasher);
             }
+            #[cfg(feature = "phobos")]
+            if let Some(state) = projectile.phobos_trajectory() {
+                b"phobos-trajectory-state-v1".hash(hasher);
+                state.hash_state(hasher);
+            }
             #[cfg(feature = "ares")]
             if let Some(sw_type) = projectile.ares_nuke_sw() {
                 b"ares-bullet-nuke-sw-v1".hash(hasher);

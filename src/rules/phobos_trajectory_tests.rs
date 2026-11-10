@@ -1,7 +1,10 @@
 //! `Trajectory` + `Trajectory.Straight.*` reads
 //! (`Ext/Bullet/Trajectories/PhobosTrajectory.cpp:24-68`,
 //! `StraightTrajectory.cpp:66-102`).
-use super::{PhobosTrajectoryRules, StraightTrajectoryRules, TrajectoryFlag};
+use super::{
+    ParabolaFireMode, ParabolaTrajectoryRules, PhobosTrajectoryRules, StraightTrajectoryRules,
+    TrajectoryFlag,
+};
 use crate::rules::ini_parser::IniFile;
 
 fn read(text: &str) -> PhobosTrajectoryRules {
@@ -134,4 +137,137 @@ fn straight_keys_read_with_defaults_and_clamps() {
         unknown.straight.proximity_warhead.as_deref(),
         Some("NOTAWH")
     );
+}
+
+#[test]
+fn bombard_keys_read_with_defaults_and_clamps() {
+    let defaults = read("[Q]\nTrajectory=Bombard\n");
+    let b = &defaults.bombard;
+    assert_eq!(b.fall_speed, 100.0, "zero defaults to Trajectory.Speed");
+    assert_eq!((b.height, b.fall_percent), (0.0, 1.0));
+    assert_eq!((b.fall_scatter_min, b.fall_scatter_max), (0, 0));
+    assert_eq!((b.detonation_distance, b.detonation_height), (102, -1));
+    assert!(b.free_fall_on_target);
+    assert!(b.mirror_coord);
+    assert_eq!(b.axis_of_rotation, [0, 0, 1]);
+
+    let rules = read(
+        "[Q]\nTrajectory=Bombard\nTrajectory.Speed=20\n\
+         Trajectory.Bombard.Height=-5\n\
+         Trajectory.Bombard.FallPercent=2\n\
+         Trajectory.Bombard.FallPercentShift=0.5\n\
+         Trajectory.Bombard.FallScatter.Min=0.5\n\
+         Trajectory.Bombard.FallScatter.Max=1\n\
+         Trajectory.Bombard.FallScatter.Linear=yes\n\
+         Trajectory.Bombard.FallSpeed=0\n\
+         Trajectory.Bombard.DetonationDistance=0.25\n\
+         Trajectory.Bombard.DetonationHeight=33\n\
+         Trajectory.Bombard.EarlyDetonation=yes\n\
+         Trajectory.Bombard.TargetSnapDistance=1\n\
+         Trajectory.Bombard.FreeFallOnTarget=no\n\
+         Trajectory.Bombard.LeadTimeCalculate=yes\n\
+         Trajectory.Bombard.NoLaunch=yes\n\
+         Trajectory.Bombard.TurningPointAnims=A,B\n\
+         Trajectory.Bombard.OffsetCoord=1,2\n\
+         Trajectory.Bombard.RotateCoord=45\n\
+         Trajectory.Bombard.MirrorCoord=no\n\
+         Trajectory.Bombard.UseDisperseBurst=yes\n\
+         Trajectory.Bombard.AxisOfRotation=0,1\n\
+         Trajectory.Bombard.SubjectToGround=yes\n",
+    );
+    let b = &rules.bombard;
+    assert_eq!(b.height, 0.0, "clamped to max(0.0, x)");
+    assert_eq!(b.fall_percent, 2.0);
+    assert_eq!(b.fall_percent_shift, 0.5);
+    assert_eq!((b.fall_scatter_min, b.fall_scatter_max), (128, 256));
+    assert!(b.fall_scatter_linear);
+    assert_eq!(b.fall_speed, 20.0, "zero falls back to Trajectory.Speed");
+    assert_eq!(b.detonation_distance, 64);
+    assert_eq!(b.detonation_height, 33);
+    assert!(b.early_detonation);
+    assert_eq!(b.target_snap_distance, 256);
+    assert!(!b.free_fall_on_target);
+    assert!(b.lead_time_calculate);
+    assert!(b.no_launch);
+    assert_eq!(b.turning_point_anims, vec!["A".to_owned(), "B".to_owned()]);
+    assert_eq!(b.offset_coord, [1, 2, 0]);
+    assert_eq!(b.rotate_coord, 45.0);
+    assert!(!b.mirror_coord);
+    assert!(b.use_disperse_burst);
+    assert_eq!(b.axis_of_rotation, [0, 1, 1]);
+    assert!(b.subject_to_ground);
+}
+
+#[test]
+fn parabola_keys_read_with_defaults_and_modes() {
+    let defaults = read("[Q]\nTrajectory=Parabola\n");
+    assert_eq!(defaults.parabola, ParabolaTrajectoryRules::default());
+    let p = &defaults.parabola;
+    assert_eq!(p.open_fire_mode, ParabolaFireMode::Speed);
+    assert_eq!((p.throw_height, p.launch_angle), (600, 30.0));
+    assert_eq!(p.detonation_angle, -90.0);
+    assert_eq!((p.bounce_times, p.detonation_height), (0, -1));
+    assert_eq!((p.bounce_attenuation, p.bounce_coefficient), (0.8, 0.8));
+    assert!(p.mirror_coord);
+    assert_eq!(p.axis_of_rotation, [0, 0, 1]);
+
+    let rules = read(
+        "[Q]\nTrajectory=Parabola\n\
+         Trajectory.Parabola.DetonationDistance=1\n\
+         Trajectory.Parabola.TargetSnapDistance=2\n\
+         Trajectory.Parabola.OpenFireMode=HeightAndAngle\n\
+         Trajectory.Parabola.ThrowHeight=700\n\
+         Trajectory.Parabola.LaunchAngle=45\n\
+         Trajectory.Parabola.LeadTimeCalculate=yes\n\
+         Trajectory.Parabola.DetonationAngle=30\n\
+         Trajectory.Parabola.DetonationHeight=100\n\
+         Trajectory.Parabola.BounceTimes=3\n\
+         Trajectory.Parabola.BounceOnWater=yes\n\
+         Trajectory.Parabola.BounceDetonate=yes\n\
+         Trajectory.Parabola.BounceAttenuation=0.4\n\
+         Trajectory.Parabola.BounceCoefficient=0.6\n\
+         Trajectory.Parabola.OffsetCoord=3,4\n\
+         Trajectory.Parabola.RotateCoord=90\n\
+         Trajectory.Parabola.MirrorCoord=no\n\
+         Trajectory.Parabola.UseDisperseBurst=yes\n\
+         Trajectory.Parabola.AxisOfRotation=1,1\n",
+    );
+    let p = &rules.parabola;
+    assert_eq!(p.detonation_distance, 256);
+    assert_eq!(p.target_snap_distance, 512);
+    assert_eq!(p.open_fire_mode, ParabolaFireMode::HeightAndAngle);
+    assert_eq!(p.throw_height, 700);
+    assert_eq!(p.launch_angle, 45.0);
+    assert!(p.lead_time_calculate);
+    assert_eq!(p.detonation_angle, 30.0);
+    assert_eq!(p.detonation_height, 100);
+    assert_eq!(p.bounce_times, 3);
+    assert!(p.bounce_on_water);
+    assert!(p.bounce_detonate);
+    assert_eq!(p.bounce_attenuation, 0.4);
+    assert_eq!(p.bounce_coefficient, 0.6);
+    assert_eq!(p.offset_coord, [3, 4, 0]);
+    assert_eq!(p.rotate_coord, 90.0);
+    assert!(!p.mirror_coord);
+    assert!(p.use_disperse_burst);
+    assert_eq!(p.axis_of_rotation, [1, 1, 1]);
+
+    for (text, mode) in [
+        ("speed", ParabolaFireMode::Speed),
+        ("height", ParabolaFireMode::Height),
+        ("angle", ParabolaFireMode::Angle),
+        ("speedandheight", ParabolaFireMode::SpeedAndHeight),
+        ("speedandangle", ParabolaFireMode::SpeedAndAngle),
+        ("unknown", ParabolaFireMode::Speed),
+    ] {
+        assert_eq!(
+            read(&format!(
+                "[Q]\nTrajectory=Parabola\nTrajectory.Parabola.OpenFireMode={text}\n"
+            ))
+            .parabola
+            .open_fire_mode,
+            mode,
+            "{text}"
+        );
+    }
 }

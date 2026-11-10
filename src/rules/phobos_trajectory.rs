@@ -1,7 +1,9 @@
-//! Phobos `Trajectory` base and `Trajectory.Straight.*` readers
-//! (`Ext/Bullet/Trajectories/PhobosTrajectory.cpp:24-68`,
-//! `StraightTrajectory.cpp:66-102`; constructor defaults
-//! `StraightTrajectory.h:5-39`, base speed default `PhobosTrajectory.h:38`).
+//! Phobos `Trajectory` base and the `Straight`, `Bombard` and `Parabola`
+//! readers (`Ext/Bullet/Trajectories/PhobosTrajectory.cpp:24-68`,
+//! `StraightTrajectory.cpp:66-102`, `BombardTrajectory.cpp:53-80`,
+//! `ParabolaTrajectory.cpp:50-88`; constructor defaults
+//! `StraightTrajectory.h:5-39`, `BombardTrajectory.h:8-30`,
+//! `ParabolaTrajectory.h:18-37`, base speed default `PhobosTrajectory.h:38`).
 //!
 //! `TrajectoryTypePointer::LoadFromINI` reads the `Trajectory` flag as a
 //! `Nullable<TrajectoryFlag>`: an absent or unknown name keeps the previous
@@ -35,6 +37,10 @@ pub struct PhobosTrajectoryRules {
     pub speed: f64,
     /// `Trajectory.Straight.*`; dormant unless `flag` is `Straight`.
     pub straight: StraightTrajectoryRules,
+    /// `Trajectory.Bombard.*`; dormant unless `flag` is `Bombard`.
+    pub bombard: BombardTrajectoryRules,
+    /// `Trajectory.Parabola.*`; dormant unless `flag` is `Parabola`.
+    pub parabola: ParabolaTrajectoryRules,
 }
 
 impl Default for PhobosTrajectoryRules {
@@ -43,6 +49,8 @@ impl Default for PhobosTrajectoryRules {
             flag: None,
             speed: 100.0,
             straight: StraightTrajectoryRules::default(),
+            bombard: BombardTrajectoryRules::default(),
+            parabola: ParabolaTrajectoryRules::default(),
         }
     }
 }
@@ -57,8 +65,17 @@ impl PhobosTrajectoryRules {
         rules.speed = section
             .read_phobos_double("Trajectory.Speed", rules.speed)
             .max(0.001);
-        if rules.flag == Some(TrajectoryFlag::Straight) {
-            rules.straight = StraightTrajectoryRules::from_section(section);
+        match rules.flag {
+            Some(TrajectoryFlag::Straight) => {
+                rules.straight = StraightTrajectoryRules::from_section(section);
+            }
+            Some(TrajectoryFlag::Bombard) => {
+                rules.bombard = BombardTrajectoryRules::from_section(section, rules.speed);
+            }
+            Some(TrajectoryFlag::Parabola) => {
+                rules.parabola = ParabolaTrajectoryRules::from_section(section);
+            }
+            None => {}
         }
         rules
     }
@@ -273,6 +290,287 @@ impl StraightTrajectoryRules {
         s.count_attenuation =
             section.read_phobos_double("Trajectory.Straight.CountAttenuation", s.count_attenuation);
         s.count_attenuation = s.count_attenuation.max(0.0);
+        rules
+    }
+}
+
+/// `BombardTrajectoryType` (`BombardTrajectory.h:5-63`,
+/// `BombardTrajectory.cpp:53-80`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct BombardTrajectoryRules {
+    /// `Trajectory.Bombard.Height=`, `Valueable<double>` in leptons above the
+    /// target, default 0.0, clamped to `>= 0.0` after the read.
+    pub height: f64,
+    /// `Trajectory.Bombard.FallPercent=`, default 1.0.
+    pub fall_percent: f64,
+    /// `Trajectory.Bombard.FallPercentShift=`, default 0.0.
+    pub fall_percent_shift: f64,
+    /// `Trajectory.Bombard.FallScatter.Max=`, `Leptons`, default 0.
+    pub fall_scatter_max: i32,
+    /// `Trajectory.Bombard.FallScatter.Min=`, `Leptons`, default 0.
+    pub fall_scatter_min: i32,
+    /// `Trajectory.Bombard.FallScatter.Linear=`, default `no`.
+    pub fall_scatter_linear: bool,
+    /// `Trajectory.Bombard.FallSpeed=`, default `Trajectory.Speed` when the
+    /// read value is `|x| < 1e-10` (`BombardTrajectory.cpp:65`).
+    pub fall_speed: f64,
+    /// `Trajectory.Bombard.DetonationDistance=`, `Leptons`, default 102.
+    pub detonation_distance: i32,
+    /// `Trajectory.Bombard.DetonationHeight=`, default -1 (disabled).
+    pub detonation_height: i32,
+    /// `Trajectory.Bombard.EarlyDetonation=`, default `no`.
+    pub early_detonation: bool,
+    /// `Trajectory.Bombard.TargetSnapDistance=`, `Leptons`, default 128.
+    pub target_snap_distance: i32,
+    /// `Trajectory.Bombard.FreeFallOnTarget=`, default **`yes`**.
+    pub free_fall_on_target: bool,
+    /// `Trajectory.Bombard.LeadTimeCalculate=`, default `no`.
+    pub lead_time_calculate: bool,
+    /// `Trajectory.Bombard.NoLaunch=`, default `no`.
+    pub no_launch: bool,
+    /// `Trajectory.Bombard.TurningPointAnims=`, `ValueableVector`; the
+    /// turning-point animation spawn is presentation-only and stays unported.
+    pub turning_point_anims: Vec<String>,
+    /// `Trajectory.Bombard.OffsetCoord=`, default `0,0,0`.
+    pub offset_coord: [i32; 3],
+    /// `Trajectory.Bombard.RotateCoord=`, default 0.
+    pub rotate_coord: f64,
+    /// `Trajectory.Bombard.MirrorCoord=`, default **`yes`**.
+    pub mirror_coord: bool,
+    /// `Trajectory.Bombard.UseDisperseBurst=`, default `no`.
+    pub use_disperse_burst: bool,
+    /// `Trajectory.Bombard.AxisOfRotation=`, default `0,0,1`.
+    pub axis_of_rotation: [i32; 3],
+    /// `Trajectory.Bombard.SubjectToGround=`, default `no`.
+    pub subject_to_ground: bool,
+}
+
+impl Default for BombardTrajectoryRules {
+    fn default() -> Self {
+        Self {
+            height: 0.0,
+            fall_percent: 1.0,
+            fall_percent_shift: 0.0,
+            fall_scatter_max: 0,
+            fall_scatter_min: 0,
+            fall_scatter_linear: false,
+            fall_speed: 0.0,
+            detonation_distance: 102,
+            detonation_height: -1,
+            early_detonation: false,
+            target_snap_distance: 128,
+            free_fall_on_target: true,
+            lead_time_calculate: false,
+            no_launch: false,
+            turning_point_anims: Vec::new(),
+            offset_coord: [0; 3],
+            rotate_coord: 0.0,
+            mirror_coord: true,
+            use_disperse_burst: false,
+            axis_of_rotation: [0, 0, 1],
+            subject_to_ground: false,
+        }
+    }
+}
+
+impl BombardTrajectoryRules {
+    fn from_section(section: &IniSection, trajectory_speed: f64) -> Self {
+        let mut rules = Self::default();
+        let r = &mut rules;
+        r.height = section
+            .read_phobos_double("Trajectory.Bombard.Height", r.height)
+            .max(0.0);
+        r.fall_percent =
+            section.read_phobos_double("Trajectory.Bombard.FallPercent", r.fall_percent);
+        r.fall_percent_shift =
+            section.read_phobos_double("Trajectory.Bombard.FallPercentShift", r.fall_percent_shift);
+        r.fall_scatter_max =
+            section.read_phobos_leptons("Trajectory.Bombard.FallScatter.Max", r.fall_scatter_max);
+        r.fall_scatter_min =
+            section.read_phobos_leptons("Trajectory.Bombard.FallScatter.Min", r.fall_scatter_min);
+        r.fall_scatter_linear = section.read_bool(
+            "Trajectory.Bombard.FallScatter.Linear",
+            r.fall_scatter_linear,
+        );
+        r.fall_speed = section.read_phobos_double("Trajectory.Bombard.FallSpeed", r.fall_speed);
+        if r.fall_speed.abs() < 1e-10 {
+            r.fall_speed = trajectory_speed;
+        }
+        r.detonation_distance = section.read_phobos_leptons(
+            "Trajectory.Bombard.DetonationDistance",
+            r.detonation_distance,
+        );
+        r.detonation_height =
+            section.read_int("Trajectory.Bombard.DetonationHeight", r.detonation_height);
+        r.early_detonation =
+            section.read_bool("Trajectory.Bombard.EarlyDetonation", r.early_detonation);
+        r.target_snap_distance = section.read_phobos_leptons(
+            "Trajectory.Bombard.TargetSnapDistance",
+            r.target_snap_distance,
+        );
+        r.free_fall_on_target =
+            section.read_bool("Trajectory.Bombard.FreeFallOnTarget", r.free_fall_on_target);
+        r.lead_time_calculate = section.read_bool(
+            "Trajectory.Bombard.LeadTimeCalculate",
+            r.lead_time_calculate,
+        );
+        r.no_launch = section.read_bool("Trajectory.Bombard.NoLaunch", r.no_launch);
+        if let Some(list) = section.read_list("Trajectory.Bombard.TurningPointAnims", 0x100) {
+            r.turning_point_anims = list.into_iter().map(str::to_owned).collect();
+        }
+        r.offset_coord =
+            section.read_int_fields("Trajectory.Bombard.OffsetCoord", 64, r.offset_coord);
+        r.rotate_coord =
+            section.read_phobos_double("Trajectory.Bombard.RotateCoord", r.rotate_coord);
+        r.mirror_coord = section.read_bool("Trajectory.Bombard.MirrorCoord", r.mirror_coord);
+        r.use_disperse_burst =
+            section.read_bool("Trajectory.Bombard.UseDisperseBurst", r.use_disperse_burst);
+        r.axis_of_rotation =
+            section.read_int_fields("Trajectory.Bombard.AxisOfRotation", 64, r.axis_of_rotation);
+        r.subject_to_ground =
+            section.read_bool("Trajectory.Bombard.SubjectToGround", r.subject_to_ground);
+        rules
+    }
+}
+
+/// `enum class ParabolaFireMode` (`ParabolaTrajectory.h:5-13`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ParabolaFireMode {
+    Speed,
+    Height,
+    Angle,
+    SpeedAndHeight,
+    HeightAndAngle,
+    SpeedAndAngle,
+}
+
+/// `ParabolaTrajectoryType` (`ParabolaTrajectory.h:15-67`,
+/// `ParabolaTrajectory.cpp:50-88`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ParabolaTrajectoryRules {
+    /// `Trajectory.Parabola.DetonationDistance=`, `Leptons`, default 102.
+    pub detonation_distance: i32,
+    /// `Trajectory.Parabola.TargetSnapDistance=`, `Leptons`, default 128.
+    pub target_snap_distance: i32,
+    /// `Trajectory.Parabola.OpenFireMode=`, default `Speed`; unknown names
+    /// also fall back to `Speed`.
+    pub open_fire_mode: ParabolaFireMode,
+    /// `Trajectory.Parabola.ThrowHeight=`, default 600.
+    pub throw_height: i32,
+    /// `Trajectory.Parabola.LaunchAngle=`, default 30.0.
+    pub launch_angle: f64,
+    /// `Trajectory.Parabola.LeadTimeCalculate=`, default `no`.
+    pub lead_time_calculate: bool,
+    /// `Trajectory.Parabola.DetonationAngle=`, default -90.0.
+    pub detonation_angle: f64,
+    /// `Trajectory.Parabola.DetonationHeight=`, default -1 (disabled).
+    pub detonation_height: i32,
+    /// `Trajectory.Parabola.BounceTimes=`, default 0.
+    pub bounce_times: i32,
+    /// `Trajectory.Parabola.BounceOnWater=`, default `no`.
+    pub bounce_on_water: bool,
+    /// `Trajectory.Parabola.BounceDetonate=`, default `no`.
+    pub bounce_detonate: bool,
+    /// `Trajectory.Parabola.BounceAttenuation=`, default 0.8.
+    pub bounce_attenuation: f64,
+    /// `Trajectory.Parabola.BounceCoefficient=`, default 0.8.
+    pub bounce_coefficient: f64,
+    /// `Trajectory.Parabola.OffsetCoord=`, default `0,0,0`.
+    pub offset_coord: [i32; 3],
+    /// `Trajectory.Parabola.RotateCoord=`, default 0.
+    pub rotate_coord: f64,
+    /// `Trajectory.Parabola.MirrorCoord=`, default **`yes`**.
+    pub mirror_coord: bool,
+    /// `Trajectory.Parabola.UseDisperseBurst=`, default `no`.
+    pub use_disperse_burst: bool,
+    /// `Trajectory.Parabola.AxisOfRotation=`, default `0,0,1`.
+    pub axis_of_rotation: [i32; 3],
+}
+
+impl Default for ParabolaTrajectoryRules {
+    fn default() -> Self {
+        Self {
+            detonation_distance: 102,
+            target_snap_distance: 128,
+            open_fire_mode: ParabolaFireMode::Speed,
+            throw_height: 600,
+            launch_angle: 30.0,
+            lead_time_calculate: false,
+            detonation_angle: -90.0,
+            detonation_height: -1,
+            bounce_times: 0,
+            bounce_on_water: false,
+            bounce_detonate: false,
+            bounce_attenuation: 0.8,
+            bounce_coefficient: 0.8,
+            offset_coord: [0; 3],
+            rotate_coord: 0.0,
+            mirror_coord: true,
+            use_disperse_burst: false,
+            axis_of_rotation: [0, 0, 1],
+        }
+    }
+}
+
+impl ParabolaTrajectoryRules {
+    fn from_section(section: &IniSection) -> Self {
+        let mut rules = Self::default();
+        let r = &mut rules;
+        r.detonation_distance = section.read_phobos_leptons(
+            "Trajectory.Parabola.DetonationDistance",
+            r.detonation_distance,
+        );
+        r.target_snap_distance = section.read_phobos_leptons(
+            "Trajectory.Parabola.TargetSnapDistance",
+            r.target_snap_distance,
+        );
+        r.open_fire_mode = match section.read_name("Trajectory.Parabola.OpenFireMode", 0x800) {
+            Some(name) if name.eq_ignore_ascii_case("height") => ParabolaFireMode::Height,
+            Some(name) if name.eq_ignore_ascii_case("angle") => ParabolaFireMode::Angle,
+            Some(name) if name.eq_ignore_ascii_case("speedandheight") => {
+                ParabolaFireMode::SpeedAndHeight
+            }
+            Some(name) if name.eq_ignore_ascii_case("heightandangle") => {
+                ParabolaFireMode::HeightAndAngle
+            }
+            Some(name) if name.eq_ignore_ascii_case("speedandangle") => {
+                ParabolaFireMode::SpeedAndAngle
+            }
+            _ => ParabolaFireMode::Speed,
+        };
+        r.throw_height = section.read_int("Trajectory.Parabola.ThrowHeight", r.throw_height);
+        r.launch_angle =
+            section.read_phobos_double("Trajectory.Parabola.LaunchAngle", r.launch_angle);
+        r.lead_time_calculate = section.read_bool(
+            "Trajectory.Parabola.LeadTimeCalculate",
+            r.lead_time_calculate,
+        );
+        r.detonation_angle =
+            section.read_phobos_double("Trajectory.Parabola.DetonationAngle", r.detonation_angle);
+        r.detonation_height =
+            section.read_int("Trajectory.Parabola.DetonationHeight", r.detonation_height);
+        r.bounce_times = section.read_int("Trajectory.Parabola.BounceTimes", r.bounce_times);
+        r.bounce_on_water =
+            section.read_bool("Trajectory.Parabola.BounceOnWater", r.bounce_on_water);
+        r.bounce_detonate =
+            section.read_bool("Trajectory.Parabola.BounceDetonate", r.bounce_detonate);
+        r.bounce_attenuation = section.read_phobos_double(
+            "Trajectory.Parabola.BounceAttenuation",
+            r.bounce_attenuation,
+        );
+        r.bounce_coefficient = section.read_phobos_double(
+            "Trajectory.Parabola.BounceCoefficient",
+            r.bounce_coefficient,
+        );
+        r.offset_coord =
+            section.read_int_fields("Trajectory.Parabola.OffsetCoord", 64, r.offset_coord);
+        r.rotate_coord =
+            section.read_phobos_double("Trajectory.Parabola.RotateCoord", r.rotate_coord);
+        r.mirror_coord = section.read_bool("Trajectory.Parabola.MirrorCoord", r.mirror_coord);
+        r.use_disperse_burst =
+            section.read_bool("Trajectory.Parabola.UseDisperseBurst", r.use_disperse_burst);
+        r.axis_of_rotation =
+            section.read_int_fields("Trajectory.Parabola.AxisOfRotation", 64, r.axis_of_rotation);
         rules
     }
 }

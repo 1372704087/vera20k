@@ -392,6 +392,79 @@ fn minimum_range_blocks(weapon: &WeaponType, src: (i64, i64, i64), tgt: (i64, i6
     ) < weapon.minimum_range_leptons
 }
 
+/// Phobos `WeaponTypeExt::GetTechnoKeepRange` (`Ext/WeaponType/Body.cpp:445-507`):
+/// while an Infantry/Unit is rearming, a non-zero `KeepRange=` replaces the
+/// weapon's minimum range (positive) or maximum range (negative). Gates:
+/// weapon set, firer not transported, category, the house's human/AI key,
+/// and the rearm remainder against `EarlyStopFrame`.
+///
+/// Returns the `(minimum, maximum)` overrides to apply to a local weapon copy.
+#[cfg(feature = "phobos")]
+pub(crate) fn keep_range_overrides(
+    world: &Simulation,
+    rules: &RuleSet,
+    attacker: &GameEntity,
+    weapon: &WeaponType,
+    target_entity: Option<u64>,
+) -> (Option<i32>, Option<i32>) {
+    let keep = weapon.phobos_keep_range;
+    if keep == 0 || attacker.passenger_role.transporter().is_some() {
+        return (None, None);
+    }
+    if !matches!(
+        attacker.category(),
+        EntityCategory::Infantry | EntityCategory::Unit
+    ) {
+        return (None, None);
+    }
+    let house = attacker.owner();
+    let human = world
+        .houses
+        .get(&house)
+        .is_some_and(|house| house.is_controlled_by_human(world.session.game_mode_nonzero()));
+    let allowed = if human {
+        weapon
+            .phobos_keep_range_allow_player
+            .unwrap_or(rules.phobos_globals.keep_range_allow_player)
+    } else {
+        weapon
+            .phobos_keep_range_allow_ai
+            .unwrap_or(rules.phobos_globals.keep_range_allow_ai)
+    };
+    if !allowed {
+        return (None, None);
+    }
+    let now = world.session.binary_frame() as i32;
+    let timer = attacker.rearm_timer.timer();
+    let early_stop = weapon
+        .phobos_keep_range_early_stop
+        .unwrap_or(rules.phobos_globals.keep_range_early_stop);
+    let remaining = timer.remaining(now);
+    if remaining < early_stop {
+        return (None, None);
+    }
+    // `RearmTimer.InProgress()`: only a live countdown raises KeepRange. The
+    // native SpawnManager cooldown exception is a residual.
+    if remaining <= 0 {
+        return (None, None);
+    }
+    if keep > 0 {
+        return (Some(keep), None);
+    }
+    // Negative: a maximum range; when the target is already closer than
+    // `-keep - 128` the getter returns at least 443 leptons so the firer keeps
+    // its distance instead of closing in.
+    let check = keep.wrapping_neg().wrapping_sub(128);
+    let close = target_entity.is_some_and(|id| {
+        crate::sim::combat::object_distance_to(attacker.stable_id(), &TargetKind::Entity(id), world)
+            .is_some_and(|distance| i64::from(distance) >= i64::from(check))
+    });
+    if close {
+        return (None, Some(if check > 443 { check } else { 443 }));
+    }
+    (None, Some(keep.wrapping_neg()))
+}
+
 /// Full 3D range check. Returns true if `attacker` (firing from `src`) can
 /// hit `target` with `weapon`, through every ported gate.
 ///
@@ -445,6 +518,7 @@ pub(crate) fn compute_in_range_in_query(
         cells,
         los,
         Some(&world.substrate.entities),
+        Some(world),
     )
 }
 
@@ -500,7 +574,7 @@ pub(crate) fn cell_target_in_range(
     let target = RangeTarget::Cell(target);
     let source = fire_source_for_target(attacker, target, weapon, &cells, (rules, interner))?;
     Some(compute_range_target(
-        attacker, source, target, weapon, rules, interner, &cells, los, entities,
+        attacker, source, target, weapon, rules, interner, &cells, los, entities, None,
     ))
 }
 
@@ -514,7 +588,38 @@ pub(crate) fn compute_range_target(
     cells: &NativeCellQuery<'_>,
     los: &LineOfFireInputs<'_>,
     entities: Option<&crate::sim::entity_store::EntityStore>,
+    world: Option<&Simulation>,
 ) -> bool {
+    // Phobos `TechnoClass_InRange_WeaponRange`/`_WeaponMinimumRange`
+    // (`Ext/Techno/Hooks.WeaponRange.cpp:134-145`, `Ext/Bullet/
+    // Hooks.Obstacles.cpp:209-215`): a rearming firer's KeepRange replaces the
+    // local weapon's maximum or minimum range before every gate below.
+    #[cfg(feature = "phobos")]
+    let keep_weapon = {
+        let target_entity = match target {
+            RangeTarget::Techno(entity) => Some(entity.stable_id()),
+            _ => None,
+        };
+        world.and_then(|world| {
+            let (keep_min, keep_max) =
+                keep_range_overrides(world, rules, attacker, weapon, target_entity);
+            if keep_min.is_none() && keep_max.is_none() {
+                return None;
+            }
+            let mut copy = weapon.clone();
+            if let Some(minimum) = keep_min {
+                copy.minimum_range_leptons = minimum;
+            }
+            if let Some(maximum) = keep_max {
+                copy.range_leptons = maximum;
+            }
+            Some(copy)
+        })
+    };
+    #[cfg(feature = "phobos")]
+    let weapon: &WeaponType = keep_weapon.as_ref().unwrap_or(weapon);
+    #[cfg(not(feature = "phobos"))]
+    let _ = world;
     let source =
         crate::sim::attach_effect::range_modifier_source(attacker, entities, rules, interner);
     let weapon_range_lep: i64 = i64::from(crate::sim::attach_effect::range_with_attach_effects(
@@ -1130,6 +1235,7 @@ fn in_range_at_slot(
         cells,
         los,
         Some(&world.substrate.entities),
+        Some(world),
     )
 }
 
@@ -3030,5 +3136,122 @@ mod tests {
             let entities = &sim.substrate.entities;
             assert!(!reaches(entities.get(2).unwrap(), entities));
         }
+    }
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod keep_range_tests {
+    use super::keep_range_overrides;
+
+    use crate::rules::ruleset::RuleSet;
+    use crate::sim::timer::CdTimer;
+    use crate::sim::world::Simulation;
+
+    fn scene(weapon_keys: &str, general: &str) -> (Simulation, RuleSet, u64, u64) {
+        let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
+            "[InfantryTypes]\n0=E1\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+             [E1]\nStrength=100\nSpeed=4\nPrimary=GUN\n\
+             [WeaponTypes]\n0=GUN\n[GUN]\nDamage=10\nRange=5\nROF=100\nWarhead=WH\n{weapon_keys}\
+             [Warheads]\n0=WH\n[WH]\nCellSpread=0\n\
+             [General]\n{general}"
+        )))
+        .expect("keep range rules");
+        let mut sim = Simulation::new();
+        crate::sim::arena_fixture::flat_arena(&mut sim, &rules);
+        let attacker = sim
+            .spawn_object("E1", "Americans", 5, 5, 0, &rules)
+            .expect("attacker");
+        let target = sim
+            .spawn_object("E1", "Americans", 12, 5, 0, &rules)
+            .expect("target");
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        sim.substrate
+            .entities
+            .get_mut(attacker)
+            .unwrap()
+            .rearm_timer
+            .set_for_test(CdTimer::started(0, 100));
+        (sim, rules, attacker, target)
+    }
+
+    fn overrides(weapon_keys: &str, general: &str) -> (Option<i32>, Option<i32>) {
+        let (sim, rules, attacker, target) = scene(weapon_keys, general);
+        let weapon = rules.weapon("GUN").expect("GUN");
+        let entity = sim.entities().get(attacker).unwrap();
+        keep_range_overrides(&sim, &rules, entity, weapon, Some(target))
+    }
+
+    /// A positive `KeepRange` raises the minimum range while rearming; the
+    /// AI gate falls back to the `[General]` key.
+    #[test]
+    fn positive_keep_range_is_a_minimum_range() {
+        let typed = overrides("KeepRange=3\nKeepRange.AllowAI=yes\n", "");
+        assert_eq!(typed, (Some(768), None));
+        let global = overrides("KeepRange=3\n", "KeepRange.AllowAI=yes\n");
+        assert_eq!(global, (Some(768), None));
+        let denied = overrides("KeepRange=3\n", "");
+        assert_eq!(denied, (None, None));
+    }
+
+    /// A negative `KeepRange` is a maximum range; a target at or beyond
+    /// `-keep - 128` gets the clamped `max(check, 443)` value instead.
+    #[test]
+    fn negative_keep_range_is_a_maximum_range() {
+        // The scene's target sits 7 cells away.
+        let far = overrides("KeepRange=-2\nKeepRange.AllowAI=yes\n", "");
+        assert_eq!(far, (None, Some(443)), "check 384 is below 443");
+        let far = overrides("KeepRange=-6\nKeepRange.AllowAI=yes\n", "");
+        assert_eq!(far, (None, Some(1408)), "check 1408 is the result");
+        let (mut sim, rules, attacker, _) = scene("KeepRange=-6\nKeepRange.AllowAI=yes\n", "");
+        let near = sim
+            .spawn_object("E1", "Americans", 5, 6, 0, &rules)
+            .expect("near target");
+        let entity = sim.entities().get(attacker).unwrap();
+        assert_eq!(
+            keep_range_overrides(
+                &sim,
+                &rules,
+                entity,
+                rules.weapon("GUN").unwrap(),
+                Some(near)
+            ),
+            (None, Some(1536)),
+            "inside check: the plain -keep maximum"
+        );
+    }
+
+    /// `EarlyStopFrame` and an expired rearm stop the override.
+    #[test]
+    fn early_stop_and_expired_rearm_disable_it() {
+        let (mut sim, rules, attacker, _) = scene(
+            "KeepRange=3\nKeepRange.AllowAI=yes\nKeepRange.EarlyStopFrame=60\n",
+            "",
+        );
+        sim.substrate
+            .entities
+            .get_mut(attacker)
+            .unwrap()
+            .rearm_timer
+            .set_for_test(CdTimer::started(0, 50));
+        let entity = sim.entities().get(attacker).unwrap();
+        assert_eq!(
+            keep_range_overrides(&sim, &rules, entity, rules.weapon("GUN").unwrap(), None),
+            (None, None),
+            "50 frames left is below 60"
+        );
+        let (mut sim, rules, attacker, _) = scene("KeepRange=3\nKeepRange.AllowAI=yes\n", "");
+        sim.substrate
+            .entities
+            .get_mut(attacker)
+            .unwrap()
+            .rearm_timer
+            .set_for_test(CdTimer::started(0, 0));
+        let entity = sim.entities().get(attacker).unwrap();
+        assert_eq!(
+            keep_range_overrides(&sim, &rules, entity, rules.weapon("GUN").unwrap(), None),
+            (None, None),
+            "no running rearm, no override"
+        );
     }
 }

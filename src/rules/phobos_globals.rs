@@ -94,6 +94,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:621`, constructor `Ext/Rules/Body.h:1016`): the
     /// fallback for an InfantryType's key.
     pub not_human_random_death_sequence: bool,
+    /// `[General] KeepRange.AllowAI=`, default `no` (`Ext/Rules/Body.cpp:269`,
+    /// constructor `Ext/Rules/Body.h:187`): the fallback for a weapon's key.
+    pub keep_range_allow_ai: bool,
+    /// `[General] KeepRange.AllowPlayer=`, default `no` (`:270`, `Body.h:188`).
+    pub keep_range_allow_player: bool,
+    /// `[General] KeepRange.EarlyStopFrame=`, default 0 (`:271`, `Body.h:189`).
+    pub keep_range_early_stop: i32,
     /// `[AudioVisual] DrainMoneyDisplay=`, default `no`: the drainer-side
     /// flying credit label (`Ext/Rules/Body.cpp:301`, consumed at
     /// `Ext/Techno/Hooks.cpp:199`).
@@ -290,6 +297,9 @@ impl Default for PhobosGlobals {
             explodes_kill_passengers: true,
             explodes_during_buildup: true,
             not_human_random_death_sequence: false,
+            keep_range_allow_ai: false,
+            keep_range_allow_player: false,
+            keep_range_early_stop: 0,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
             drain_money_display_on_target: false,
@@ -399,6 +409,12 @@ impl PhobosGlobals {
             "NotHuman.RandomDeathSequence",
             globals.not_human_random_death_sequence,
         );
+        globals.keep_range_allow_ai =
+            general.read_bool("KeepRange.AllowAI", globals.keep_range_allow_ai);
+        globals.keep_range_allow_player =
+            general.read_bool("KeepRange.AllowPlayer", globals.keep_range_allow_player);
+        globals.keep_range_early_stop =
+            general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.force_weapon_in_range_apply_range_modifiers = general.read_bool(
             "ForceWeapon.InRange.ApplyRangeModifiers",
             globals.force_weapon_in_range_apply_range_modifiers,

@@ -395,6 +395,21 @@ pub struct WeaponType {
     /// warheads detonated after this weapon's own at the same impact.
     #[cfg(feature = "phobos")]
     pub phobos_extra_warheads: crate::rules::phobos_extra_warheads::PhobosExtraWarheads,
+    /// Phobos `KeepRange=` (`Valueable<Leptons>`, `Ext/WeaponType/Body.cpp:179`):
+    /// the distance a rearming Infantry/Unit keeps; positive is a minimum
+    /// range, negative a maximum one.
+    #[cfg(feature = "phobos")]
+    pub phobos_keep_range: i32,
+    /// `KeepRange.AllowAI=` (`Nullable<bool>`): AI-house gate, else `[General]`.
+    #[cfg(feature = "phobos")]
+    pub phobos_keep_range_allow_ai: Option<bool>,
+    /// `KeepRange.AllowPlayer=` (`Nullable<bool>`): human-house gate.
+    #[cfg(feature = "phobos")]
+    pub phobos_keep_range_allow_player: Option<bool>,
+    /// `KeepRange.EarlyStopFrame=` (`Nullable<int>`): the rearm remainder
+    /// below which KeepRange stops applying.
+    #[cfg(feature = "phobos")]
+    pub phobos_keep_range_early_stop: Option<i32>,
 }
 
 impl WeaponType {
@@ -754,6 +769,17 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_extra_warheads:
                 crate::rules::phobos_extra_warheads::PhobosExtraWarheads::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_keep_range: section.read_phobos_leptons("KeepRange", 0),
+            #[cfg(feature = "phobos")]
+            phobos_keep_range_allow_ai: section
+                .read_phobos_nullable_bool("KeepRange.AllowAI", None),
+            #[cfg(feature = "phobos")]
+            phobos_keep_range_allow_player: section
+                .read_phobos_nullable_bool("KeepRange.AllowPlayer", None),
+            #[cfg(feature = "phobos")]
+            phobos_keep_range_early_stop: section
+                .read_phobos_nullable_int("KeepRange.EarlyStopFrame", None),
             #[cfg(feature = "phobos")]
             phobos_burst_no_delay: section.read_ares_bool("Burst.NoDelay", false),
             #[cfg(feature = "phobos")]

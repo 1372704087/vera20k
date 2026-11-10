@@ -127,6 +127,7 @@ Supported extensions:
 - [Ammo auto-convert](phobos-convert-ammo.md) (`Ammo.AutoConvertType`/`.MinimumAmount`/`.MaximumAmount`: a Foot converts when its ammo enters the band; 3 keys)
 - [LaunchSW](phobos-launch-sw.md) (`LaunchSW` and its real-launch, inhibitor/designator and display-money options: a warhead launches superweapons at its impact; 7 keys)
 - [NotHuman death sequences](phobos-not-human.md) (`NotHuman.DeathSequence` / `NotHuman.RandomDeathSequence`: a NotHuman infantryman's Die1..Die5 selection and the paradrop fix; 2 keys + 1 `[General]` global)
+- [KeepRange](phobos-keep-range.md) (`KeepRange` and its AllowAI/AllowPlayer/EarlyStopFrame gates: an Infantry/Unit holds a distance while rearming; 4 keys + 3 `[General]` globals)
 
 ## Original project and authors
 

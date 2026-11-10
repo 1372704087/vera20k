@@ -2507,6 +2507,7 @@ fn evaluate_candidate(
                         &cells,
                         &ctx.los,
                         Some(ctx.entities),
+                        ctx.fire_world,
                     )
                 }
                 None => super::in_range::mapless_in_range(

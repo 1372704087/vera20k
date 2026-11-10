@@ -517,7 +517,7 @@ fn phobos_empulse_weapon_index(
             let frame = sim.session.binary_frame() as u32;
             for ty in held {
                 if let Some(instance) = sim.super_weapons.instance_mut(&owner, &ty) {
-                    instance.suspend(false, false, frame);
+                    instance.phobos_set_suspended(false, frame);
                 }
             }
         }

@@ -981,6 +981,26 @@ impl SuperWeaponInstance {
     /// a running recharge keeping the time left; releasing restarts a stopped
     /// one. A charged Super holds too, and ClickFire refuses a stopped timer.
     /// Returns whether the hold changed.
+    /// Phobos's direct `SuperClass::IsSuspended` write
+    /// (`Ext/SWType/FireSuperWeapon.cpp:396`,
+    /// `Ext/Building/Hooks.cpp:180`). Unlike Ares's hold primitive this does
+    /// not check the Super's active/one-time/lose flags and leaves the paid
+    /// selection alone; the charge timer is paused/resumed to keep the
+    /// charge skip `IsSuspended` gives native.
+    pub(crate) fn phobos_set_suspended(&mut self, on: bool, current_frame: u32) {
+        if on == self.is_suspended {
+            return;
+        }
+        let mut timer = self.charge_timer();
+        if on {
+            timer.pause(current_frame as i32);
+        } else {
+            timer.resume(current_frame as i32);
+        }
+        self.store_charge_timer(timer);
+        self.is_suspended = on;
+    }
+
     pub(crate) fn suspend(&mut self, on: bool, manual_control: bool, current_frame: u32) -> bool {
         if !self.is_active || self.one_time || !self.can_lose || on == self.is_suspended {
             return false;

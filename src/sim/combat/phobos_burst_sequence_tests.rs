@@ -19,8 +19,6 @@ fn infantry_arena(weapon: &str) -> (Simulation, RuleSet, u64) {
     let ini = crate::sim::arena_fixture::clear_ground_ini(&format!(
         "[InfantryTypes]\n0=FIRER\n\
          [FIRER]\nStrength=1000\nArmor=light\nPrimary=GUN\nCanPassiveAquire=no\n\
-         Sequence=FIRERSequence\nFireUp=2\n\
-         [FIRERSequence]\nFireUp=164,6,6\n\
          [Warheads]\n0=HIT\n\
          [BuildingTypes]\n0=DUMMY\n\
          [DUMMY]\nStrength=10000\nArmor=heavy\nCanPassiveAquire=no\n\
@@ -29,9 +27,16 @@ fn infantry_arena(weapon: &str) -> (Simulation, RuleSet, u64) {
          Projectile=INVIS\nWarhead=HIT\nBurst=3\n{weapon}\
          [INVIS]\nInviso=yes\nAG=yes\n\
          [HIT]\nCellSpread=0\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
-         [CombatDamage]\nROF.RandomDelay=0\n"
+         [General]\nBuildSpeed=.75\n[CombatDamage]\nROF.RandomDelay=0\n"
     ));
-    let rules = RuleSet::from_ini(&ini).expect("rules read");
+    // `FireUp=` and the sequence records are ART keys; installing the registry
+    // makes `infantry_fire_frame` and the overrun's frame count read them.
+    let art = crate::rules::ini_parser::IniFile::from_str(
+        "[FIRER]\nSequence=FIRERSequence\nFireUp=2\n\
+         [FIRERSequence]\nFireUp=164,6,6\n",
+    );
+    let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("rules read");
+    rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
     let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 17);
     sim.intern_rule_type_ids(&rules);
     sim.resolve_type_handles(&rules);
@@ -157,14 +162,22 @@ fn listed_delays_move_the_admission_frames_without_draws() {
         "still no draw for the listed indices"
     );
 
-    // 2 + 2 + max(0, 1) = 5 admits the last shot; the completed burst arms the
-    // full rearm (40 with the draw-free single jitter).
+    // 2 + 2 + max(0, 1) = 5 admits the last shot. Its GetROF joins the full
+    // rearm arm, which draws the stock RandomRanged(0, 2) before Phobos
+    // replaces the jitter; ROF.RandomDelay=0 makes the value 0 without a
+    // second draw, so the rearm is the plain 40.
     sim.session.set_binary_frame_for_test(103);
     set_firing_frame(&mut sim, firer, 5);
     assert_eq!(visit(&mut sim, &rules, firer), 1);
     assert_eq!(index(&sim, firer), 0, "the burst wrapped");
     assert_eq!(rearm(&sim, firer), 40);
-    assert_eq!(sim.scenario_rng.logical_state(), before);
+    let mut expected = SimRng::new(9);
+    expected.next_range_u32_inclusive(0, 2);
+    assert_eq!(
+        sim.scenario_rng.logical_state(),
+        expected.logical_state(),
+        "the full arm's stock jitter draw is consumed; the key replaces only its value"
+    );
 }
 
 /// No `Burst.Delays` entries: the loop draws `RandomRanged(3, 5)` once per
@@ -204,8 +217,12 @@ fn unset_entries_draw_one_value_per_index_in_order() {
     assert_eq!(sim.scenario_rng.logical_state(), expected.logical_state());
     let first = expected.next_range_u32_inclusive(3, 5) as i32;
     let second = expected.next_range_u32_inclusive(3, 5) as i32;
-    let after = expected.logical_state();
     let frame = 2 + first.max(1) + second.max(1);
+    // The completed burst's GetROF joins the full arm, whose unconditional
+    // stock RandomRanged(0, 2) draw is consumed before ROF.RandomDelay=0
+    // replaces the value.
+    expected.next_range_u32_inclusive(0, 2);
+    let after = expected.logical_state();
     set_firing_frame(&mut sim, firer, frame);
     assert_eq!(visit(&mut sim, &rules, firer), 1);
     assert_eq!(sim.scenario_rng.logical_state(), after);

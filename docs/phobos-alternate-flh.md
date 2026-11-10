@@ -56,3 +56,17 @@ vtable override; Aircraft passengers keep their own FLH as in the unhooked
 game. The regular (`weaponIndex >= 0`) weapon FLH is gated by the same
 `pType->Turret` check as the alternate arms, because Phobos's consolidated
 hook routes every arm through `GetFLHAbsoluteCoords`.
+
+## Residuals
+
+- `UnitTypeExt::BurstPerTurret` (`Ext/UnitType/Body.cpp`, unported) supplies
+  the turret index `GetFLHAbsoluteCoords` passes to `ApplyTurretOffset`:
+  `turIdx = ((CurrentBurstIndex / BurstPerTurret) % (BurstPerTurret + 1)) - 1`
+  for a Unit whose key is > 0. VERA always uses turret index -1 (the native
+  default), so a type authoring both `BurstPerTurret` and a multi-turret
+  `TurretOffset` uses the first turret for every shot. Retail sets no
+  `BurstPerTurret`.
+- The carrier-port arm uses the rider's cargo position for
+  `AlternateFLH[k-1]`; a rider beyond the carrier's sixth port gets a zero FLH
+  in both native and VERA. The port's burst-parity mirror is skipped under
+  Phobos (`Hooks.Firing.cpp:1062-1071`), as in the consolidated hook.

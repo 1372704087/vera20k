@@ -4329,6 +4329,21 @@ impl ObjectType {
         self.voice_attack_overrides[usize::from(secondary) * 2 + usize::from(elite)].as_deref()
     }
 
+    /// Phobos `GetVoiceAttack`'s slot-voice fallback
+    /// (`Ext/TechnoType/Hooks.MultiWeapon.cpp:103-112`): an elite slot
+    /// without its `VoiceEliteWeaponAttack` answers the normal slot voice,
+    /// then the caller draws from `VoiceAttack`.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_voice_attack_override(&self, secondary: bool, elite: bool) -> Option<&str> {
+        let index = usize::from(secondary) * 2;
+        let normal = self.voice_attack_overrides[index].as_deref();
+        if elite {
+            self.voice_attack_overrides[index + 1].as_deref().or(normal)
+        } else {
+            normal
+        }
+    }
+
     /// Phobos `TechnoTypeExt::VoiceIFVRepair` (`Ext/TechnoType/Body.h:394`),
     /// the type's repairing-weapon voice, else `[AudioVisual]`.
     #[cfg(feature = "phobos")]

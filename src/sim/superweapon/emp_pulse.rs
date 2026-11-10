@@ -181,7 +181,7 @@ fn suspend_phobos_others(
     let frame = sim.session.binary_frame() as u32;
     for &ty in &held {
         if let Some(instance) = sim.super_weapons.instance_mut(&owner, &ty) {
-            instance.suspend(true, false, frame);
+            instance.phobos_set_suspended(true, frame);
         }
     }
     if let Some(house) = sim.houses.get_mut(&owner) {

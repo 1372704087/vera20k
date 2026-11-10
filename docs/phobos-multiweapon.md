@@ -103,6 +103,13 @@ for the target-eligibility and warhead-versus gates.
 - The force-fire cell overlay Wall/`Armor=Wood` gate is not ported: the overlay
   registry lives outside `Simulation`, so the selection owner cannot read the
   cell's wall flags without new plumbing.
+- Airborne target cell gate: native `MultiWeaponCanFire` leaves `pTargetCell`
+  null for an airborne target and therefore skips `IsCellEligible`; VERA's
+  shared weapon-picking owner (`sim::combat::phobos_airburst::
+  weapon_picking_allows_with`) always applies the target cell's `CanTarget`
+  land/water bits. Trigger: a multi-weapon type whose slot weapon authors ART
+  `CanTarget=` and the target is airborne; effect: a land/water-only `CanTarget`
+  can reject a slot native admits. No retail weapon authors `CanTarget=`.
 - Other `What_Weapon_Should_I_Use` callers (threat evaluation, temporal,
   GetFireError slot queries) keep the stock/force arms like `ForceWeapon`;
   only the SelectWeapon owner passes the multi context.

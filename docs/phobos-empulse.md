@@ -113,5 +113,17 @@ bullet that weapon.
   but the other SW's index on the first insert, and the resume hook indexes
   `pHouse->Supers` with those values. VERA stores interned SW type IDs, which
   is the intended identity without that ambiguity.
+- **Tail order for an Ares-handler EMPulse.** Native
+  `FireSuperWeaponExt` runs LimboDelivery/LimboKill/Detonate, `SW.Next`,
+  Convert and `SW.Link` before `HandleEMPulseLaunch`, and the activated
+  message/EVA after it. VERA's Ares handler arm launches the cannons and the
+  `SuspendOthers` hold from `emp_pulse::launch` before
+  `finish_ares_launch`'s Phobos tail and EVA event. Trigger: an EMPulse SW
+  authoring another Phobos launch-tail key; no retail SW does. Effect: a
+  chained Super or conversion sees the hold one step earlier.
+- **`SW.MaxCount=0`.** Native's stamp loop breaks only at `i + 1 == count`,
+  so a zero count stamps every cannon; VERA's Ares loop stops at `fired >=
+  count` and stamps none. Pre-existing Ares activation behavior, unchanged
+  here.
 - **Retail data.** No retail SW type sets these four keys; the assertions use
   the synthetic EMPulse arena.

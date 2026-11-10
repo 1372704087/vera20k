@@ -87,3 +87,15 @@ option; `a_unit_with_the_key_stays_stock` pins the dormant unit arm.
 - `LastRearmWasFullDelay` (the other Phobos rearm flag, read by charge-turret
   AttachEffect) is not kept by VERA; `sim::attach_effect` records that residual
   with the charge timer.
+- `DelayedFire.PauseFiringSequence` ordering: native calls
+  `HandleDelayedFireWithPauseSequence` inside the `0x5209AF` hook before the
+  `frame == firingFrame` test and hands it this cumulative frame. VERA's
+  DelayedFire suppression lives in `admit_attacker_fire` after the stage test,
+  so with both keys armed the timer's completed-arm reset can happen one
+  matching frame later than native. Trigger: a weapon authoring both
+  `DelayedFire.PauseFiringSequence=yes` and `Burst.FireWithinSequence=yes`;
+  effect: a delayed burst shot may skip or repeat one pause step. Retail sets
+  neither key.
+- The completed burst's full rearm still consumes the stock
+  `RandomRanged(0, 2)` GetROF draw; `ROF.RandomDelay` only replaces the value
+  (native `0x6FD0B5` runs after that draw). The tests pin that draw.

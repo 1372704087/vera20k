@@ -1565,10 +1565,6 @@ fn phobos_force_weapon_index(
 /// asked by the `0x6F3428` hook after `SelectForceWeapon`
 /// (`Ext/Techno/Hooks.Firing.cpp:100-116`). `None` is the native `-1`: the
 /// caller keeps the rest of the ladder.
-///
-/// `NoSecondaryWeaponFallback` and `NoSecondaryWeaponFallback.AllowAA` are
-/// separate Phobos keys (`Body.h`) that VERA does not port; both constructor
-/// defaults (false) are used here.
 #[cfg(feature = "phobos")]
 #[allow(clippy::too_many_arguments)]
 fn phobos_multi_weapon_index(

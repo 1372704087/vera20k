@@ -316,13 +316,13 @@ fn ares_drop_pod_reads_its_handler_keys() {
 #[cfg(feature = "phobos")]
 #[test]
 fn phobos_empulse_weapon_index_selects_the_indexed_weapon() {
-    let rules =
+    let slot1 =
         rules("[Pulse]\nSW.MaxCount=1\nEMPulse.WeaponIndex=1\n[CANNON]\nSecondary=GunShot\n");
-    let (mut sim, _) = scene(&rules);
-    building(&mut sim, &rules, "CANNON", (20, 20));
-    assert!(launch(&mut sim, &rules, "Pulse", (26, 26)));
+    let (mut sim, _) = scene(&slot1);
+    building(&mut sim, &slot1, "CANNON", (20, 20));
+    assert!(launch(&mut sim, &slot1, "Pulse", (26, 26)));
     for _ in 0..200 {
-        step(&mut sim, &rules);
+        step(&mut sim, &slot1);
         if sim.projectiles.iter().next().is_some() {
             break;
         }
@@ -336,12 +336,12 @@ fn phobos_empulse_weapon_index_selects_the_indexed_weapon() {
         SimSoundEvent::VocAt { sound_id, .. } if sound_id == "PulseSound"
     )));
 
-    let rules = rules("[Pulse]\nSW.MaxCount=1\nEMPulse.WeaponIndex=-1\n");
-    let (mut sim, _) = scene(&rules);
-    building(&mut sim, &rules, "CANNON", (20, 20));
-    assert!(launch(&mut sim, &rules, "Pulse", (26, 26)));
+    let reverse = rules("[Pulse]\nSW.MaxCount=1\nEMPulse.WeaponIndex=-1\n");
+    let (mut sim, _) = scene(&reverse);
+    building(&mut sim, &reverse, "CANNON", (20, 20));
+    assert!(launch(&mut sim, &reverse, "Pulse", (26, 26)));
     for _ in 0..200 {
-        step(&mut sim, &rules);
+        step(&mut sim, &reverse);
         if sim.projectiles.iter().next().is_some() {
             break;
         }
@@ -358,26 +358,26 @@ fn phobos_empulse_weapon_index_selects_the_indexed_weapon() {
 #[cfg(feature = "phobos")]
 #[test]
 fn phobos_empulse_cannons_restrict_the_firing_source() {
-    let rules = rules("");
-    let (mut sim, _) = scene(&rules);
-    let gun = building(&mut sim, &rules, "GUN", (20, 20));
-    let depot = building(&mut sim, &rules, "DEPOT", (22, 22));
-    let cannon = building(&mut sim, &rules, "CANNON", (24, 24));
-    assert!(launch(&mut sim, &rules, "Volley", (26, 26)));
+    let listed = rules("");
+    let (mut sim, _) = scene(&listed);
+    let gun = building(&mut sim, &listed, "GUN", (20, 20));
+    let depot = building(&mut sim, &listed, "DEPOT", (22, 22));
+    let cannon = building(&mut sim, &listed, "CANNON", (24, 24));
+    assert!(launch(&mut sim, &listed, "Volley", (26, 26)));
     assert_eq!(mission(&sim, gun), Some(MissionType::Missile));
     assert_ne!(mission(&sim, depot), Some(MissionType::Missile));
     assert_ne!(mission(&sim, cannon), Some(MissionType::Missile));
 
-    let rules = rules("");
-    let pulse = rules
+    let unrestricted = rules("");
+    let pulse = unrestricted
         .super_weapon_metadata("Pulse")
         .unwrap()
         .launch()
         .emp_pulse();
     assert!(pulse.cannons.is_empty(), "an empty list is no restriction");
-    let (mut sim, _) = scene(&rules);
-    let cannon = building(&mut sim, &rules, "CANNON", (20, 20));
-    assert!(launch(&mut sim, &rules, "Pulse", (26, 26)));
+    let (mut sim, _) = scene(&unrestricted);
+    let cannon = building(&mut sim, &unrestricted, "CANNON", (20, 20));
+    assert!(launch(&mut sim, &unrestricted, "Pulse", (26, 26)));
     assert_eq!(mission(&sim, cannon), Some(MissionType::Missile));
 }
 
@@ -390,9 +390,13 @@ fn phobos_empulse_cannons_restrict_the_firing_source() {
 fn phobos_empulse_suspend_others_holds_then_resumes() {
     // The two SW types share a cannon type, which is Phobos's intersection
     // condition for holding the other Super (`FireSuperWeapon.cpp:384-392`).
+    // GUN is also an `EMPulseCannon=`: Mission_Missile only runs the cannon
+    // statuses (and so the `0x44CEEC` select-weapon hook that resumes the
+    // held Supers) for such a type; a merely listed non-cannon fires weapon 0
+    // and queues Guard without reaching the hook.
     let rules = rules(
         "[Pulse]\nSW.MaxCount=1\nEMPulse.SuspendOthers=yes\nEMPulse.Cannons=GUN\n\
-         [Volley]\nEMPulse.Cannons=GUN\n",
+         [Volley]\nEMPulse.Cannons=GUN\n[GUN]\nEMPulseCannon=yes\n",
     );
     let (mut sim, owner) = scene(&rules);
     building(&mut sim, &rules, "GUN", (20, 20));

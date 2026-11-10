@@ -3091,6 +3091,8 @@ impl HouseState {
             repair_latch_timer: CdTimer::started(0, 0),
             #[cfg(feature = "phobos")]
             combat_alert_timer: CdTimer::default(),
+            #[cfg(feature = "phobos")]
+            suspended_emp_pulse_sws: Default::default(),
             spatial_threat: Default::default(),
             super_weapon_targets: HouseSuperWeaponTargets::default(),
         }

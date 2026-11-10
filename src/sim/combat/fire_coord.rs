@@ -1663,7 +1663,7 @@ mod tests {
              [CARRY_NO]\nAlternateFLH0=100,0,0\nTurretOffset=50\nAlternateFLH.ApplyVehicle=no\n\
              [CARRY_DEF]\nAlternateFLH0=100,0,0\nTurretOffset=50\n",
         );
-        let rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
         rules.replace_art_registry_for_test(ArtRegistry::from_ini(&art));
         rules
     }
@@ -1737,8 +1737,9 @@ mod tests {
     /// type's ART `Nullable<bool>`, else `[General]` (default yes). The negative
     /// weapon index is the alternate arm: with a turreted Unit whose body is
     /// 0x3FFF (matrix identity) and barrel 0xBE00 (180 degrees), turret space
-    /// rotates `TurretOffset=50` onto -X and leaves `AlternateFLH0=100,0,0`
-    /// at +50 X; hull space drops the offset and the turret rotation, +100 X.
+    /// keeps `TurretOffset=50` in hull space and rotates `AlternateFLH0=100,0,0`
+    /// by the barrel's half turn to -100 (native sine/cosine table, so the sum
+    /// -49.99999 truncates to -49); hull space drops both, +100 X.
     #[cfg(feature = "phobos")]
     #[test]
     fn alternate_flh_on_turret_gates_hull_and_turret_space() {
@@ -1759,7 +1760,7 @@ mod tests {
         );
         assert_eq!(
             shot(&global_no, "SHIP_YES", -1),
-            ProjectileCoord::new(X + 50, Y, 0),
+            ProjectileCoord::new(X - 49, Y, 0),
             "the type yes overrides the global no and uses turret space"
         );
         assert_eq!(
@@ -1770,7 +1771,7 @@ mod tests {
         let stock = alternate_flh_rules(None);
         assert_eq!(
             shot(&stock, "SHIP_OFF", -1),
-            ProjectileCoord::new(X + 50, Y, 0),
+            ProjectileCoord::new(X - 49, Y, 0),
             "the constructor default yes keeps the existing turret-space FLH"
         );
         assert_eq!(
@@ -1791,7 +1792,10 @@ mod tests {
     #[test]
     fn alternate_flh_apply_vehicle_gates_the_open_topped_port() {
         let rules = alternate_flh_rules(None);
-        let port = ProjectileCoord::new(2688 + 50, 2688, 0);
+        // Turret space: the carrier's TurretOffset +50 (hull space) plus the
+        // half-turn-rotated port -100 truncates to -49 from the carrier's cell
+        // centre (2688).
+        let port = ProjectileCoord::new(2639, 2688, 0);
         let own = ProjectileCoord::new(2688, 2688, 7);
         assert_eq!(
             carried_shot(&rules, "CARRY_YES", "RIDE"),

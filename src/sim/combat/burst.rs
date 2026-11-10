@@ -144,6 +144,8 @@ mod tests {
             let mut state = WeaponBurst {
                 index: 7,
                 radial_index: index,
+                #[cfg(feature = "phobos")]
+                force_full_rearm: false,
             };
             assert_eq!(
                 state.take_radial_index(row["radial_segments"].as_i64().unwrap() as i32),

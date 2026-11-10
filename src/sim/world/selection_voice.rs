@@ -216,7 +216,7 @@ impl Simulation {
             let secondary = object
                 .phobos_multi_weapon
                 .is_secondary(index, object.is_gattling);
-            if let Some(sound) = object.voice_attack_override_secondary(secondary, elite) {
+            if let Some(sound) = object.phobos_voice_attack_override(secondary, elite) {
                 return Self::queue_voice_request(Some(sound), voices_enabled, human_player);
             }
             //70918D..7091C4: unsigned raw draw/modulo, including a singleton.

@@ -54,12 +54,39 @@ pub struct PhobosAttackMove {
     /// object has a capture manager with no free control slot
     /// (`Ext/Techno/Hooks.cpp:1297`).
     pub follow_if_mind_control_is_full: bool,
+    /// `ApproachTarget.StopWhenInRange=` (`Ext/TechnoType/Body.cpp:1093-1094`,
+    /// `Body.h:316`, constructed unset `:750`): the deprecated
+    /// `AttackMove.StopWhenTargetAcquired` is read first and the new key
+    /// overwrites it. `None` inherits `[General] ApproachTarget.StopWhenInRange`
+    /// (`Ext/Rules/Body.cpp:642-643`, constructor `Ext/Rules/Body.h:1036`
+    /// false). A close-enough foot that is really moving stops both its
+    /// locomotor and its motion (`Ext/Techno/Hooks.Firing.cpp:1311-1340`).
+    pub approach_target_stop_when_in_range: Option<bool>,
+    /// `ApproachTarget.PursuitTarget=` (`Ext/TechnoType/Body.cpp:1100-1101`,
+    /// `Body.h:317`, constructed false `:751`): the deprecated
+    /// `AttackMove.PursuitTarget` is read first and the new key overwrites it.
+    /// On the Foot approach, a pursue type sets its Target as the destination
+    /// and skips the nav recalc and the existing-path/close-enough gate
+    /// (`Ext/Techno/Hooks.Firing.cpp:1343-1362`).
+    pub approach_target_pursuit_target: bool,
 }
 
 impl PhobosAttackMove {
     /// The two `Nullable<bool>` type keys. `None` stays "unset" so the
     /// consumer can see the `[General]` fallback.
     pub fn from_section(section: &IniSection) -> Self {
+        let mut approach_target_stop_when_in_range =
+            section.read_phobos_nullable_bool("AttackMove.StopWhenTargetAcquired", None);
+        approach_target_stop_when_in_range = section.read_phobos_nullable_bool(
+            "ApproachTarget.StopWhenInRange",
+            approach_target_stop_when_in_range,
+        );
+        let mut approach_target_pursuit_target =
+            section.read_bool("AttackMove.PursuitTarget", false);
+        approach_target_pursuit_target = section.read_bool(
+            "ApproachTarget.PursuitTarget",
+            approach_target_pursuit_target,
+        );
         Self {
             aggressive: section.read_phobos_nullable_bool("AttackMove.Aggressive", None),
             update_target: section.read_phobos_nullable_bool("AttackMove.UpdateTarget", None),
@@ -67,6 +94,8 @@ impl PhobosAttackMove {
             follow_include_air: section.read_bool("AttackMove.Follow.IncludeAir", false),
             follow_if_mind_control_is_full: section
                 .read_bool("AttackMove.Follow.IfMindControlIsFull", false),
+            approach_target_stop_when_in_range,
+            approach_target_pursuit_target,
         }
     }
 
@@ -81,6 +110,12 @@ impl PhobosAttackMove {
     pub fn update_target(&self, globals: &PhobosGlobals) -> bool {
         self.update_target
             .unwrap_or(globals.attack_move_update_target)
+    }
+
+    /// `ApproachTarget_StopWhenInRange.Get(global)` (`Ext/Techno/Hooks.Firing.cpp:1326-1329`).
+    pub fn stop_when_in_range(&self, globals: &PhobosGlobals) -> bool {
+        self.approach_target_stop_when_in_range
+            .unwrap_or(globals.approach_target_stop_when_in_range)
     }
 }
 

@@ -625,6 +625,34 @@ impl Simulation {
             return Ok(None);
         }
 
+        // Phobos `FootClass_ApproachTarget_PursuitTarget` (`0x4D57EA`,
+        // `Ext/Techno/Hooks.Firing.cpp:1343-1362`): a pursue type sets its
+        // Target as the destination with vt+0x480's mode 1, clears EDI and
+        // stack[-0x130], and jumps to `0x4D5A34`. The zeroed pointer there
+        // takes the original `cmp eax, edi / je` return, so native runs no
+        // nav recalc, queued-destination arm or search. InLimbo keeps the
+        // original body; a close-enough foot that StopWhenInRange will stop
+        // also keeps it (hook B returns 0).
+        #[cfg(feature = "phobos")]
+        let phobos_stop_when_in_range = object
+            .phobos_attack_move
+            .stop_when_in_range(&rules.phobos_globals);
+        #[cfg(feature = "phobos")]
+        if !actor.in_limbo()
+            && !(can_fire && phobos_stop_when_in_range)
+            && object.phobos_attack_move.approach_target_pursuit_target
+        {
+            self.assign_destination_represented(
+                id,
+                Some(target_reference),
+                rules,
+                registry,
+                frame_effects,
+            )
+            .map_err(|e| format!("Approach pursuit destination: {e}"))?;
+            return Ok(None);
+        }
+
         // Read target+48 before NavCom+48. Neither retained Cell receiver is a
         // fresh coord-to-Cell query: a Dummy may already have been restamped.
         let cells = NativeCellQuery::canonical(terrain);
@@ -651,16 +679,47 @@ impl Simulation {
         let actor = self.substrate.entities.get(id).unwrap();
         let terrain = self.resolved_terrain.as_ref().unwrap();
         let cells = NativeCellQuery::canonical(terrain);
+        // 4D5A1A runs before the existing-path arm: a close-enough foot takes
+        // the 4D5A34 tail even while it still holds a destination, so the
+        // Phobos stop hook below must sit ahead of the NavCom return.
+        if can_fire && actor.in_playfield() {
+            // Phobos `FootClass_ApproachTarget_StopWhenInRange` (`0x4D5A34`,
+            // `Ext/Techno/Hooks.Firing.cpp:1303-1340`): this in-range return
+            // runs the hook. A close-enough foot that is not in limbo and is
+            // really moving stops both its locomotor and its motion.
+            #[cfg(feature = "phobos")]
+            if phobos_stop_when_in_range {
+                let really_moving = !actor.in_limbo()
+                    && crate::sim::movement::motion_query::is_really_moving_now(
+                        actor,
+                        crate::sim::movement::SpeedRules::new(rules, &self.interner, &self.houses),
+                        self.session.binary_frame(),
+                    );
+                if really_moving {
+                    if let Err(cause) =
+                        self.locomotor_stop_moving(id, rules, registry, frame_effects)
+                    {
+                        log::debug!("Approach StopWhenInRange stop: {cause}");
+                    }
+                    if let Some(actor) = self.substrate.entities.get_mut(id) {
+                        actor.navigation.stop_moving();
+                    }
+                }
+            }
+            return Ok(None);
+        }
         if actor.navigation.nav_com().is_some()
             && !super::air_movement::is_high_flying_in_query(
                 actor,
                 &cells,
                 Some((rules, &self.interner)),
             )
-            || can_fire && actor.in_playfield()
         {
             return Ok(None);
         }
+        let actor = self.substrate.entities.get(id).unwrap();
+        let terrain = self.resolved_terrain.as_ref().unwrap();
+        let cells = NativeCellQuery::canonical(terrain);
         //4D5A4D..5ABB: the first queued destination (+0x58C, a Cell or an
         // object) is taken (vt+0x480 with 0), leaves the queue and is the
         // answer.

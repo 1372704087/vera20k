@@ -117,3 +117,41 @@ fn attack_move_general_keys_read_the_three_flags() {
     assert!(!empty.attack_move_update_target);
     assert!(!empty.attack_move_ignore_weapon_check);
 }
+
+/// `ApproachTarget.*` (`Ext/TechnoType/Body.cpp:1093-1101`,
+/// `Ext/Rules/Body.cpp:642-643`): the deprecated `AttackMove.*` alias is read
+/// first and the new key overwrites it, the deprecated pursuit alias is a
+/// plain bool, and an unset stop key takes the `[General]` fallback.
+#[test]
+fn approach_target_keys_prefer_the_new_name_over_the_deprecated_alias() {
+    let read = |text: &str| {
+        PhobosAttackMove::from_section(IniFile::from_str(text).section_or_empty("MTNK"))
+    };
+    let deprecated =
+        read("[MTNK]\nAttackMove.StopWhenTargetAcquired=yes\nAttackMove.PursuitTarget=yes\n");
+    assert_eq!(
+        deprecated.approach_target_stop_when_in_range,
+        Some(true),
+        "the deprecated stop alias fills the field"
+    );
+    assert!(
+        deprecated.approach_target_pursuit_target,
+        "the deprecated pursuit alias fills the field"
+    );
+
+    let overridden = read(
+        "[MTNK]\nAttackMove.StopWhenTargetAcquired=yes\nAttackMove.PursuitTarget=yes\n\
+         ApproachTarget.StopWhenInRange=no\nApproachTarget.PursuitTarget=no\n",
+    );
+    assert_eq!(overridden.approach_target_stop_when_in_range, Some(false));
+    assert!(!overridden.approach_target_pursuit_target);
+
+    let globals = PhobosGlobals::from_ini(&IniFile::from_str(
+        "[General]\nApproachTarget.StopWhenInRange=yes\n",
+    ));
+    assert!(globals.approach_target_stop_when_in_range);
+    let unset = read("[MTNK]\n");
+    assert!(unset.stop_when_in_range(&globals), "the global answers");
+    assert!(!unset.approach_target_pursuit_target);
+    assert!(!PhobosGlobals::default().approach_target_stop_when_in_range);
+}

@@ -209,6 +209,12 @@ pub struct PhobosGlobals {
     /// drop an unusable held target and rescan.
     #[serde(default)]
     pub attack_move_update_target: bool,
+    /// `[General] ApproachTarget.StopWhenInRange=`, default `no`
+    /// (`Ext/Rules/Body.cpp:642-643`, `Body.h:537,1036`): fallback for an
+    /// unset `TechnoType` `ApproachTarget.StopWhenInRange`; `yes` stops a
+    /// close-enough, really moving foot on its approach.
+    #[serde(default)]
+    pub approach_target_stop_when_in_range: bool,
     /// `[General] AttackMove.IgnoreWeaponCheck=`, default `no`
     /// (`Ext/Rules/Body.cpp:423`, `Body.h:341,853`): global only — drops the
     /// native "`Primary=` must name a weapon" test from
@@ -511,6 +517,7 @@ impl Default for PhobosGlobals {
             build_limit_group_not_buildable_if_queue_match: false,
             attack_move_aggressive: false,
             attack_move_update_target: false,
+            approach_target_stop_when_in_range: false,
             attack_move_ignore_weapon_check: false,
             spawner_attack_immediately: false,
             spawner_use_turret_facing: false,
@@ -709,6 +716,10 @@ impl PhobosGlobals {
             general.read_bool("AttackMove.Aggressive", globals.attack_move_aggressive);
         globals.attack_move_update_target =
             general.read_bool("AttackMove.UpdateTarget", globals.attack_move_update_target);
+        globals.approach_target_stop_when_in_range = general.read_bool(
+            "ApproachTarget.StopWhenInRange",
+            globals.approach_target_stop_when_in_range,
+        );
         globals.attack_move_ignore_weapon_check = general.read_bool(
             "AttackMove.IgnoreWeaponCheck",
             globals.attack_move_ignore_weapon_check,

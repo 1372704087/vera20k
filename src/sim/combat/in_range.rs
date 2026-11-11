@@ -204,9 +204,19 @@ fn direct_reaches(src: (i64, i64, i64), target: (i64, i64, i64), range: i64, pla
     i64::from(distance) <= range
 }
 
-/// The `planar` argument of [`direct_reaches`] for `attacker`.
-fn direct_reach_is_planar(attacker: &GameEntity) -> bool {
-    crate::rules::ARES_ENABLED && attacker.category() == EntityCategory::Aircraft
+/// The `planar` argument of [`direct_reaches`] for `attacker`
+/// (`0x006F755A`, `Ext/Techno/Hooks.Firing.cpp:1265-1274`): the weapon's
+/// `CylinderRangefinding` or the `[General]` fallback takes the planar
+/// `dx²+dy²` arm for every techno; the stock aircraft arm remains.
+fn direct_reach_is_planar(attacker: &GameEntity, weapon: &WeaponType, rules: &RuleSet) -> bool {
+    #[cfg(feature = "phobos")]
+    let cylinder = weapon
+        .phobos_cylinder_rangefinding
+        .unwrap_or(rules.phobos_globals.cylinder_rangefinding);
+    #[cfg(not(feature = "phobos"))]
+    let cylinder = false;
+    let _ = (weapon, rules);
+    cylinder || (crate::rules::ARES_ENABLED && attacker.category() == EntityCategory::Aircraft)
 }
 
 /// `0x006F727E..0x006F729F`: an occupied building
@@ -748,7 +758,7 @@ pub(crate) fn compute_range_target(
         src,
         (tx, ty, tz),
         max_range_lep,
-        direct_reach_is_planar(attacker),
+        direct_reach_is_planar(attacker, weapon, rules),
     ) {
         return false;
     }
@@ -1367,7 +1377,7 @@ pub fn mapless_in_range(
         src,
         target,
         range + foundation,
-        direct_reach_is_planar(attacker),
+        direct_reach_is_planar(attacker, weapon, rules),
     )
 }
 
@@ -1406,6 +1416,49 @@ mod tests {
         loco.set_movement_zone_for_test(MovementZone::Fly);
         e.locomotor = Some(loco);
         e
+    }
+
+    /// Phobos `CylinderRangefinding` (`0x6F755A`,
+    /// `Ext/Techno/Hooks.Firing.cpp:1265-1274`): the weapon's value wins,
+    /// an unset weapon falls back to `[General]`, and the stock aircraft
+    /// planar arm remains.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn weapon_and_global_cylinder_rangefinding_pick_the_planar_arm() {
+        let ini = IniFile::from_str(
+            "[GUN_YES]\nCylinderRangefinding=yes\n\
+             [GUN_NO]\nCylinderRangefinding=no\n\
+             [GUN_UNSET]\n",
+        );
+        let weapon = |name: &str| {
+            crate::rules::weapon_type::WeaponType::from_ini_section(
+                name,
+                ini.section(name).unwrap(),
+            )
+        };
+        let yes = weapon("GUN_YES");
+        let no = weapon("GUN_NO");
+        let unset = weapon("GUN_UNSET");
+        let global = |value: &str| {
+            RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\nCylinderRangefinding={value}\n"
+            )))
+            .unwrap()
+        };
+        let off = global("no");
+        let on = global("yes");
+        let unit = ground_entity_at_level(0);
+        let aircraft = aircraft_at_altitude(100);
+        assert!(super::direct_reach_is_planar(&unit, &yes, &off));
+        assert!(!super::direct_reach_is_planar(&unit, &no, &off));
+        assert!(!super::direct_reach_is_planar(&unit, &unset, &off));
+        assert!(super::direct_reach_is_planar(&unit, &unset, &on));
+        if crate::rules::ARES_ENABLED {
+            assert!(
+                super::direct_reach_is_planar(&aircraft, &no, &off),
+                "the stock aircraft planar arm is unchanged"
+            );
+        }
     }
 
     #[test]

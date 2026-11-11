@@ -463,6 +463,13 @@ pub struct PhobosGlobals {
     /// (`Hooks.Firing.cpp:1246`, `Hooks.Targeting.cpp:63`).
     #[serde(default = "true_bool")]
     pub auto_target_iron_curtained: bool,
+    /// `[General] CylinderRangefinding=`, default `no`
+    /// (`Ext/Rules/Body.cpp:525`, constructor `Body.h:442`): the fallback for
+    /// an unset weapon `CylinderRangefinding`; `yes` measures direct range in
+    /// the plan (dx²+dy²) for every techno, not only aircraft
+    /// (`Ext/Techno/Hooks.Firing.cpp:1265-1274`).
+    #[serde(default)]
+    pub cylinder_rangefinding: bool,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -815,6 +822,7 @@ impl Default for PhobosGlobals {
             can_target_iron_curtained: true,
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
+            cylinder_rangefinding: false,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -1366,6 +1374,8 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "AutoTarget.IronCurtained",
             defaults.auto_target_iron_curtained,
         ),
+        cylinder_rangefinding: section
+            .read_bool("CylinderRangefinding", defaults.cylinder_rangefinding),
         overload_particle_sys_count: section.read_int(
             "Overload.ParticleSysCount",
             defaults.overload_particle_sys_count,

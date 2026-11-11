@@ -107,6 +107,7 @@ Supported extensions:
 - [Crater tiberium destroy](phobos-crater-destroy-tiberium.md) (`Crater.DestroyTiberium` / `[General] AnimCraterDestroyTiberium` keep a crater animation from reducing its cell's ore at the middle frame; 2 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)
+- [Cylinder rangefinding](phobos-cylinder-rangefinding.md) (`CylinderRangefinding` per weapon and globally: direct range uses `dx²+dy²`)
 - [Ambient damage warhead](phobos-ambient-damage.md) (`AmbientDamage.Warhead` / `.IgnoreTarget` per weapon plus the `[General]` fallback: railgun and blast-wave ambient damage use an override warhead and can skip the primary target; 3 keys)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)

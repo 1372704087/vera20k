@@ -458,6 +458,12 @@ pub struct WeaponType {
     /// `:206`); see [`crate::rules::phobos_weapon_extras`].
     #[cfg(feature = "phobos")]
     pub(crate) phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras,
+    /// Phobos `CylinderRangefinding=` (`Nullable<bool>`,
+    /// `Ext/WeaponType/Body.cpp:207`): this weapon's direct range is measured
+    /// in the plan; an unset value falls back to `[General]`
+    /// (`Ext/Techno/Hooks.Firing.cpp:1265-1274`).
+    #[cfg(feature = "phobos")]
+    pub phobos_cylinder_rangefinding: Option<bool>,
 }
 
 impl WeaponType {
@@ -906,6 +912,9 @@ impl WeaponType {
             phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_cylinder_rangefinding: section
+                .read_phobos_nullable_bool("CylinderRangefinding", None),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")

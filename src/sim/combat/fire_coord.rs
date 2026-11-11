@@ -83,6 +83,39 @@ pub(crate) fn effect_target_coordinate(
     }
 }
 
+/// Phobos `TechnoClass_DrawSth_DrawToInvisoFlakScatterLocation`
+/// (`Ext/Techno/Hooks.WeaponEffects.cpp:220-248`, hooks `0x6FD38D`
+/// CreateLaser, `0x6FD514` CreateEBolt and `0x6FD70D` CreateRBeam): a
+/// `VisualScatter=` weapon's *drawn* effect ends at a random point near the
+/// bullet's firing coordinate while the shot keeps its real target. The
+/// radius is one `RandomRanged([AudioVisual] VisualScatter.Min, .Max)`; the
+/// point is `MapClass::GetRandomCoordsNear(firingCoords, radius, false)`.
+/// Both draws come from the Scenario RNG, so the jitter stays synchronized
+/// across peers. The hooks only fire while `FireAtTemp::FireBullet` is set,
+/// i.e. inside `FireAt`, never for a shrapnel or split-child draw.
+///
+/// RESIDUAL: `GetRandomCoordsNear` itself is not ported; this reuses
+/// [`crate::sim::projectile::launch::random_coords_near`], whose single
+/// angle draw is the same approximation the `Inaccurate=` trajectory arm
+/// already records.
+#[cfg(feature = "phobos")]
+pub(crate) fn visual_scatter_target(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    target: ProjectileTarget,
+) -> Option<ProjectileCoord> {
+    let point = effect_target_coordinate(world, rules, target)?;
+    let radius = world.scenario_rng.next_range_i32_inclusive(
+        rules.phobos_globals.visual_scatter_min,
+        rules.phobos_globals.visual_scatter_max,
+    );
+    Some(crate::sim::projectile::launch::random_coords_near(
+        point,
+        radius,
+        &mut world.scenario_rng,
+    ))
+}
+
 /// Native policies sharing the effect source/anchor projection. RadBeam's
 /// raw-Y test and unclamped delta6FD696 differ from laser/bolt6FD210/6FD460.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

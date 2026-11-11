@@ -1440,6 +1440,30 @@ impl Simulation {
         registry: Option<&OverlayTypeRegistry>,
         frame_effects: FrameEffects<'_>,
     ) -> bool {
+        self.free_unit_with_sound(
+            controller_id,
+            victim_id,
+            rules,
+            registry,
+            frame_effects,
+            true,
+        )
+    }
+
+    /// [`Self::free_unit`] with Phobos's `silent` argument
+    /// (`CaptureManagerExt::FreeUnit`, `Ext/CaptureManager/Body.cpp:141`):
+    /// `play_sound = false` skips the `MindClearedSound` the type or
+    /// `[AudioVisual] MindClearedSound` names, which is the only thing the
+    /// flag changes here.
+    pub(crate) fn free_unit_with_sound(
+        &mut self,
+        controller_id: u64,
+        victim_id: u64,
+        rules: &RuleSet,
+        registry: Option<&OverlayTypeRegistry>,
+        frame_effects: FrameEffects<'_>,
+        play_sound: bool,
+    ) -> bool {
         let Some(manager) = self
             .substrate
             .entities
@@ -1472,7 +1496,9 @@ impl Simulation {
                     .object_type(victim.type_ref(), rules)
                     .and_then(|object| object.mind_cleared_sound.clone())
                     .or_else(|| rules.mind_control.mind_cleared_sound.clone());
-                if let Some(sound) = sound {
+                if let Some(sound) = sound
+                    && play_sound
+                {
                     let event = SimSoundEvent::voc_at(sound, &victim.position);
                     self.sound_events.emit(event);
                 }

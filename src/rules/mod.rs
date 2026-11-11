@@ -149,6 +149,10 @@ pub mod phobos_create_unit;
 #[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
+pub mod phobos_damage_multiplier;
+#[cfg(feature = "phobos")]
+pub mod phobos_damaged_image;
+#[cfg(feature = "phobos")]
 pub mod phobos_detonate_all_map;
 #[cfg(feature = "phobos")]
 pub mod phobos_drain_money_display;
@@ -169,11 +173,21 @@ pub mod phobos_factory_plant;
 #[cfg(feature = "phobos")]
 pub mod phobos_launch_sw;
 #[cfg(feature = "phobos")]
+pub mod phobos_parabomb;
+#[cfg(feature = "phobos")]
+pub mod phobos_exit_through_roof;
+#[cfg(feature = "phobos")]
+pub mod phobos_land_sequences;
+#[cfg(feature = "phobos")]
+pub mod phobos_sw_tab_index;
+#[cfg(feature = "phobos")]
 pub mod phobos_parasite;
 #[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
 pub mod phobos_return_warhead;
+#[cfg(feature = "phobos")]
+pub mod phobos_return_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_tiberium_eater;
 #[cfg(feature = "phobos")]
@@ -190,6 +204,8 @@ pub mod phobos_grinding;
 pub mod phobos_harvester_guard;
 #[cfg(feature = "phobos")]
 pub mod phobos_health_bar;
+#[cfg(feature = "phobos")]
+pub mod phobos_hover_drown;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "phobos_infantry_deploy_tests.rs"]
 mod phobos_infantry_deploy_tests;
@@ -266,9 +282,17 @@ pub mod phobos_transact_money;
 #[cfg(feature = "phobos")]
 pub mod phobos_turret_anim;
 #[cfg(feature = "phobos")]
+pub mod phobos_turret_barrel;
+#[cfg(feature = "phobos")]
 pub mod phobos_units;
 #[cfg(feature = "phobos")]
 pub mod phobos_warhead_anim;
+#[cfg(feature = "phobos")]
+pub mod phobos_warhead_extras;
+#[cfg(feature = "phobos")]
+pub mod phobos_techno_extras;
+#[cfg(feature = "phobos")]
+pub mod phobos_weapon_extras;
 #[cfg(feature = "phobos")]
 pub mod phobos_warp_anim;
 #[cfg(feature = "phobos")]

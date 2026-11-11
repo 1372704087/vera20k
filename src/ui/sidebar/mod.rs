@@ -119,6 +119,19 @@ impl SidebarTab {
             Self::Vehicle => 3,
         }
     }
+
+    /// Phobos `TabIndex` (`Ext/SWType/Body.cpp:285-286`): the tab a super
+    /// weapon's cameo occupies. The reader has already reset any out-of-range
+    /// value to `1`, so `index` is always `0..=3`.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn for_sw_tab_index(index: usize) -> Self {
+        match index {
+            0 => Self::Building,
+            2 => Self::Infantry,
+            3 => Self::Vehicle,
+            _ => Self::Defense,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

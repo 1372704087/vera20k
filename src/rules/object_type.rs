@@ -956,6 +956,26 @@ pub struct ObjectType {
     /// whether a Move order keeps an in-range target.
     #[cfg(feature = "phobos")]
     pub phobos_keep_target: crate::rules::phobos_keep_target::PhobosKeepTargetOnMove,
+    /// Phobos `RadarJam*`, `VoiceCreated`, `UseDisguiseMovementSpeed`,
+    /// `AutoTargetOwnPosition*`, `NoQueueUpToEnter*`, `VeteranReload*`,
+    /// `Spawns.Queue` and `DropCrate` (`Ext/TechnoType/Body.cpp:780-783`,
+    /// `:853`, `:877`, `:898-905`, `:1045-1046`, `:1062-1063`, `:1118`,
+    /// `:1446`).
+    #[cfg(feature = "phobos")]
+    pub phobos_techno_extras: crate::rules::phobos_techno_extras::PhobosTechnoExtras,
+    /// Phobos `Image.ConditionYellow/Red` and `WaterImage.ConditionYellow/Red`
+    /// (`Ext/TechnoType/Body.cpp:1112-1113`, `Ext/UnitType/Body.cpp:78-79`):
+    /// the replacement images a damaged type draws.
+    #[cfg(feature = "phobos")]
+    pub phobos_damaged_image: crate::rules::phobos_damaged_image::PhobosDamagedImage,
+    /// Phobos `HoverDrownable` (`Ext/UnitType/Body.cpp:87`): whether a hover
+    /// Unit that shut down over water dies when it lands.
+    #[cfg(feature = "phobos")]
+    pub phobos_hover_drown: crate::rules::phobos_hover_drown::PhobosHoverDrown,
+    /// Phobos RA1 multi-barrel / multi-turret block
+    /// (`Ext/UnitType/Body.cpp:100-134`, art section).
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_barrel: crate::rules::phobos_turret_barrel::PhobosTurretBarrel,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -1132,6 +1152,14 @@ pub struct ObjectType {
     /// per-type alert keys consumed by `sim::combat::combat_alert`.
     #[cfg(feature = "phobos")]
     pub phobos_combat_alert: crate::rules::phobos_combat_alert::PhobosCombatAlert,
+    /// Phobos `ExitThroughRoof=` (`Ext/TechnoType/Body.cpp:1200`): a produced
+    /// unit leaves its factory through the roof animation.
+    #[cfg(feature = "phobos")]
+    pub phobos_exit_through_roof: crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof,
+    /// Phobos `OnlyUseLandSequences=` (`Ext/InfantryType/Body.cpp:32`, read
+    /// from the **art** section): land sequences even in water.
+    #[cfg(feature = "phobos")]
+    pub phobos_land_sequences: crate::rules::phobos_land_sequences::PhobosLandSequences,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -5183,6 +5211,18 @@ impl ObjectType {
             phobos_keep_target:
                 crate::rules::phobos_keep_target::PhobosKeepTargetOnMove::from_section(section),
             #[cfg(feature = "phobos")]
+            phobos_techno_extras:
+                crate::rules::phobos_techno_extras::PhobosTechnoExtras::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_damaged_image:
+                crate::rules::phobos_damaged_image::PhobosDamagedImage::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_hover_drown:
+                crate::rules::phobos_hover_drown::PhobosHoverDrown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_turret_barrel:
+                crate::rules::phobos_turret_barrel::PhobosTurretBarrel::from_section(section),
+            #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),
             #[cfg(feature = "phobos")]
@@ -5317,6 +5357,14 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_combat_alert:
                 crate::rules::phobos_combat_alert::PhobosCombatAlert::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_exit_through_roof:
+                crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof::from_section(
+                    section,
+                ),
+            #[cfg(feature = "phobos")]
+            phobos_land_sequences:
+                crate::rules::phobos_land_sequences::PhobosLandSequences::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

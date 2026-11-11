@@ -146,6 +146,7 @@ pub(super) fn advance(
     entity: &mut GameEntity,
     object: Option<&ObjectType>,
     rules: &RuleSet,
+    interner: &crate::sim::intern::StringInterner,
     houses: &crate::sim::houses::Houses,
     terrain: Option<&ResolvedTerrainGrid>,
     grid: Option<&PathGrid>,
@@ -157,8 +158,14 @@ pub(super) fn advance(
     if !matches!(kind, LocomotorKind::Drive | LocomotorKind::Ship) {
         return 0;
     }
-    let speed =
-        super::foot_speed::adjusted_speed(entity, object, rules.general.veteran_speed, houses);
+    let speed = super::foot_speed::adjusted_speed(
+        entity,
+        object,
+        rules,
+        interner,
+        rules.general.veteran_speed,
+        houses,
+    );
     let family = TrackFamily::from_kind(kind).unwrap();
     let destination = loco.track_destination(family);
     let selector = loco.track_progress(family).map_or(-1, |p| p.turn_index());
@@ -242,6 +249,7 @@ mod tests {
                     Some(object),
                     &rules,
                     &Default::default(),
+                    &Default::default(),
                     None,
                     None
                 ),
@@ -255,6 +263,7 @@ mod tests {
                     &mut mover,
                     Some(object),
                     &rules,
+                    &Default::default(),
                     &Default::default(),
                     None,
                     None
@@ -278,6 +287,7 @@ mod tests {
                     &mut mover,
                     rules.object("MTNK"),
                     &rules,
+                    &Default::default(),
                     &Default::default(),
                     None,
                     None
@@ -334,6 +344,7 @@ mod tests {
                 &mut entity,
                 rules.object("MTNK"),
                 &rules,
+                &Default::default(),
                 &Default::default(),
                 None,
                 None,

@@ -738,6 +738,13 @@ impl ProjectileCollisionWorld<'_> {
                 shot: LineOfFireShot {
                     subject_to_cliffs: projectile.collision().subject_to_cliffs,
                     subject_to_walls: projectile.collision().subject_to_walls,
+                    // Phobos `BulletType SubjectToGround=` lives on the type,
+                    // which the collision policy does not carry.
+                    subject_to_ground: projectile
+                        .payload()
+                        .projectile_type()
+                        .and_then(|id| self.rules.projectile(self.interner.resolve(id)))
+                        .is_some_and(|kind| kind.phobos_subject_to_ground()),
                     #[cfg(feature = "ares")]
                     subject_to_solid: projectile.collision().subject_to_solid,
                     parties: LineOfFireParties {

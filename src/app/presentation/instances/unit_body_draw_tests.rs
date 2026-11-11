@@ -184,6 +184,7 @@ fn normal_fly_pose_uses_strict_pitch_speed_gate_and_secondary_turn_sign() {
             EntityDrawBand::Top,
             sim.session().binary_frame(),
             crate::render::draw_state::ObserverDrawContext::default(),
+            false,
         )
         .expect("stock Spy Plane passes production body admission");
         assert_eq!(model, "SPYP");
@@ -279,6 +280,7 @@ fn body_draw_against_seed(
         EntityDrawBand::Ground,
         sim.session().binary_frame(),
         crate::render::draw_state::ObserverDrawContext::default(),
+        false,
     ) else {
         return Ok(None);
     };
@@ -382,6 +384,7 @@ Turret=yes
         ground,
         frame,
         crate::render::draw_state::ObserverDrawContext::default(),
+        false,
     )
     .expect("the miner is not in a deploy transition");
     let hull = entity.body_facing_current(frame);
@@ -734,6 +737,7 @@ fn retail_spy_plane_flight_counter_reaches_both_physical_hva_frames_on_gpu() {
                 *band,
                 *binary_frame,
                 crate::render::draw_state::ObserverDrawContext::default(),
+                false,
             )
             .unwrap();
             assert_eq!(model, "SPYP");
@@ -914,6 +918,7 @@ fn deployed_model_overrides_disguise_no_spawn_alt_and_miner_display_hints() {
                 disguise_cell_present: true,
                 ..Default::default()
             },
+            false,
         )
         .into_owned()
     };
@@ -1115,7 +1120,7 @@ fn retail_mirage_unit_route_matches_original_observer_dispatch() {
             ..Default::default()
         };
         let actor = sim.entities().get(id).unwrap();
-        let model = drawn_model_id(actor, sim.interner(), Some(rules), frame, observer);
+        let model = drawn_model_id(actor, sim.interner(), Some(rules), frame, observer, false);
         let pointer = |field: &str| {
             u64::from_str_radix(row[field].as_str().unwrap().strip_prefix("0x").unwrap(), 16)
                 .unwrap()
@@ -1147,7 +1152,8 @@ fn retail_mirage_unit_route_matches_original_observer_dispatch() {
                 Some(rules),
                 EntityDrawBand::Ground,
                 frame,
-                observer
+                observer,
+                false,
             )
             .is_some(),
             voxel,

@@ -2818,10 +2818,13 @@ pub(super) fn emit_admitted_fire(
     // Logic vector behind this shot's bullet.
     if let Some(event) = out.fire_events.last().cloned() {
         crate::sim::world::damage_consequences::admit_muzzle_anim(world, rules, &event);
-        // Sonic6FF470 precedes the independent later-effect ladder.
-        if weapon.is_sonic && callbacks_enabled(world) {
-            world.commit_fired_wave(rules, &event, 0, selected.index, overlay_registry);
-        }
+    }
+    // Sonic6FF470 precedes the independent later-effect ladder.
+    if let Some(event) = out.fire_events.last().cloned()
+        && weapon.is_sonic
+        && callbacks_enabled(world)
+    {
+        world.commit_fired_wave(rules, &event, 0, selected.index, overlay_registry);
     }
     // 6FF4CC..6FF54B: successful FireAt only, after burst advance and before
     // ammo/RevealOnFire. SpawnLaser recomputes its own current GetFLH.

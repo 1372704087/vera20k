@@ -2773,9 +2773,33 @@ fn evaluate_candidate(
     //
     // An Engineer (Infantry vt+330,5224D0) instead falls through to its own
     // building gate below, including from the human reject (6F85F0..85F6).
+    // Phobos `TechnoClass_CanAutoTarget_AttackNoThreatBuildings` (`0x6F85CF`,
+    // `Ext/Techno/Hooks.cpp:1848-1858`): the weapon's nullable
+    // `AttackNoThreatBuildings=` (else the human/AI `[General]` pair) jumps
+    // past the whole reject below, straight to the accept tail at
+    // `0x006F8604`. The hook sits before the weapon test, so it also admits a
+    // building with no current weapon at all.
+    #[cfg(feature = "phobos")]
+    let attack_no_threat_buildings = selected.as_ref().map_or_else(
+        || {
+            if ctx.standing.human {
+                ctx.rules.phobos_globals.auto_target_no_threat_buildings
+            } else {
+                ctx.rules.phobos_globals.auto_target_ai_no_threat_buildings
+            }
+        },
+        |selected| {
+            selected
+                .weapon
+                .phobos_attack_no_threat_buildings(ctx.rules, ctx.standing.human)
+        },
+    );
+    #[cfg(not(feature = "phobos"))]
+    let attack_no_threat_buildings = false;
     if !aggressive_attack_move(ctx)
         && ctx.standing.team.is_none()
         && ctx.standing.human
+        && !attack_no_threat_buildings
         && !vehicle_like(ctx, candidate, candidate_obj)
         && building
         && !ctx.engineer
@@ -3577,6 +3601,10 @@ mod extra_threat_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "greatest_threat_iron_curtain_tests.rs"]
 mod iron_curtain_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "greatest_threat_attack_no_threat_tests.rs"]
+mod attack_no_threat_tests;
 
 #[cfg(test)]
 #[path = "greatest_threat_avoidance_tests.rs"]

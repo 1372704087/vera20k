@@ -388,6 +388,57 @@ pub(crate) fn place_production_with_overlays(
                             ),
                         });
                 }
+                // Phobos `Ext/House/Hooks.UnitFromFactory.cpp:15-23`: the
+                // completed techno's own `VoiceCreated=`, latched on the object
+                // through `QueueVoice` when `[AudioVisual] IsVoiceCreatedGlobal=`
+                // is yes and played positionally (`VocClass::PlayAt`) when it is
+                // not. Both arms sit inside the same current-player gate as the
+                // EVA line above (`IsControlledByCurrentPlayer`).
+                #[cfg(feature = "phobos")]
+                let voice_created = sim
+                    .substrate
+                    .entities
+                    .get(entity_id)
+                    .and_then(|entity| sim.entity_object_type(entity, rules))
+                    .and_then(|object| object.phobos_techno_extras.voice_created.clone());
+                #[cfg(feature = "phobos")]
+                if sim.owner_is_human(owner_id)
+                    && let Some(voice) = voice_created
+                {
+                    if rules.phobos_globals.is_voice_created_global {
+                        sim.sound_events.emit(
+                            crate::sim::world::SimSoundEvent::UnitVoiceRequested {
+                                owner: entity_id,
+                                sound_id: voice,
+                            },
+                        );
+                    } else {
+                        let location = sim.substrate.entities.get(entity_id).map(|entity| {
+                            let coords = crate::sim::movement::ground_pose::object_get_coords(
+                                entity,
+                                sim.resolved_terrain.as_ref(),
+                            );
+                            crate::sim::anim_class::AnimWorldCoord {
+                                x: coords.x,
+                                y: coords.y,
+                                z: coords.z,
+                            }
+                        });
+                        if let Some(location) = location {
+                            let (rx, ry, sub_x, sub_y, _) = location.to_cell_sub_z();
+                            sim.sound_events
+                                .emit(crate::sim::world::SimSoundEvent::VocAt {
+                                    sound_id: voice,
+                                    audible_to: Some([owner_id, owner_id]),
+                                    rx,
+                                    ry,
+                                    sub_x,
+                                    sub_y,
+                                    world_z_leptons: location.z,
+                                });
+                        }
+                    }
+                }
                 super::factory_lifecycle::release_delivered_mobile(
                     sim,
                     rules,

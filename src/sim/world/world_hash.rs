@@ -2689,16 +2689,24 @@ fn hash_entity(entity: &GameEntity, frame: u32, hasher: &mut StateHasher) {
     }
     // Preserve the idle hash while retaining every nonzero fall word.
     // Landing retains the rate/+84/+8F for a later DropAsBomb.
-    if entity.is_falling_down()
+    let fall_live = entity.is_falling_down()
         || entity.fall_rate() != 0
         || entity.is_parachuted()
-        || entity.was_dropped_as_bomb()
-    {
+        || entity.was_dropped_as_bomb();
+    // Phobos `TechnoExt::HoverShutdown` gates the landing damage, so it is
+    // live state; hashed only while set, like the canopy identity above.
+    #[cfg(feature = "phobos")]
+    let fall_live = fall_live || entity.hover_shutdown();
+    if fall_live {
         1u8.hash(hasher);
         entity.is_falling_down().hash(hasher);
         entity.fall_rate().hash(hasher);
         entity.is_parachuted().hash(hasher);
         entity.was_dropped_as_bomb().hash(hasher);
+        #[cfg(feature = "phobos")]
+        if entity.hover_shutdown() {
+            entity.hover_shutdown().hash(hasher);
+        }
     } else {
         0u8.hash(hasher);
     }

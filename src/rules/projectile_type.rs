@@ -110,6 +110,24 @@ pub struct ProjectileType {
     /// `Misc/Hooks.BugFixes.cpp:2423`).
     #[cfg(feature = "phobos")]
     pub vertical_aircraft_fix: Option<bool>,
+    /// Phobos `SubjectToGround=` (`Ext/BulletType/Body.cpp:56`, declared
+    /// `Ext/BulletType/Body.h:59`, constructed `no` `:123`): the firing
+    /// techno's pre-shot obstacle scan also refuses a line that passes below
+    /// the cell floor (`Ext/Bullet/Hooks.Obstacles.cpp:49`, hook
+    /// `0x6F7647`). Distinct from the per-trajectory
+    /// `Trajectory.Straight/Bombard.SubjectToGround`, which detonates a
+    /// flying projectile.
+    #[cfg(feature = "phobos")]
+    pub phobos_subject_to_ground: bool,
+    /// Phobos parabombs (`Ext/BulletType/Body.cpp:79-82`, declared
+    /// `Ext/BulletType/Body.h:83-86`): `Parachuted=`, `Parachuted.FallRate=`,
+    /// `Parachuted.MaxFallRate=` and `BombParachute=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb,
+    /// Phobos `ReturnWeapon=` / `ReturnWeapon.ApplyFirepowerMult=`
+    /// (`Ext/BulletType/Body.cpp:54-55`, declared `Ext/BulletType/Body.h:56-57`).
+    #[cfg(feature = "phobos")]
+    pub phobos_return_weapon: crate::rules::phobos_return_weapon::PhobosReturnWeapon,
     /// ART Flat (+0x2F7), retained by the per-pass native rules processor.
     /// BulletClass::GetLayer 0x00468B90 selects Surface when true, Air otherwise.
     pub flat: bool,
@@ -450,6 +468,18 @@ impl ProjectileType {
         self.gravity
     }
 
+    /// Phobos `SubjectToGround=` (`Ext/BulletType/Body.cpp:56`).
+    #[cfg(feature = "phobos")]
+    pub fn phobos_subject_to_ground(&self) -> bool {
+        self.phobos_subject_to_ground
+    }
+
+    /// Phobos is compiled out: the line-of-fire walk keeps the stock gates.
+    #[cfg(not(feature = "phobos"))]
+    pub fn phobos_subject_to_ground(&self) -> bool {
+        false
+    }
+
     /// Phobos is compiled out: every shot uses the Rules gravity.
     #[cfg(not(feature = "phobos"))]
     pub fn gravity(&self) -> Option<NativeF64Bits> {
@@ -587,6 +617,13 @@ impl ProjectileType {
             phobos_trajectory: crate::rules::phobos_trajectory::PhobosTrajectoryRules::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_subject_to_ground: section.read_ares_bool("SubjectToGround", false),
+            #[cfg(feature = "phobos")]
+            phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_return_weapon:
+                crate::rules::phobos_return_weapon::PhobosReturnWeapon::from_section(section),
             #[cfg(feature = "ares")]
             bullet_type_ext: crate::rules::ares_bullet_type::BulletTypeExtRules::from_section(
                 section,

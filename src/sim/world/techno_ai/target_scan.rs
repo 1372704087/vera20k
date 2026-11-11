@@ -912,6 +912,7 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
             target.estimated_health.debit(amount);
         }
     }
+
 }
 
 impl Simulation {
@@ -1721,3 +1722,4 @@ mod tests {
         }
     }
 }
+

@@ -190,3 +190,189 @@ fn the_interceptor_globals_default_and_read_from_combat_damage() {
     assert!(!wrong.projectile_interceptable);
     assert!(wrong.interceptor_apply_firepower_mult);
 }
+
+/// `[AudioVisual] VisualScatter.Min/Max` (`Ext/Rules/Body.cpp:325-326`),
+/// constructed 8/32 leptons (`Ext/Rules/Body.h:758-759`).
+#[test]
+fn the_visual_scatter_bounds_default_and_read_from_audio_visual() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.visual_scatter_min, 8);
+    assert_eq!(defaults.visual_scatter_max, 32);
+
+    let set = read("[AudioVisual]\nVisualScatter.Min=2\nVisualScatter.Max=5\n");
+    assert_eq!(set.visual_scatter_min, 2);
+    assert_eq!(set.visual_scatter_max, 5);
+
+    // A later layer naming only one keeps the other at its constructor value.
+    let half = read("[AudioVisual]\nVisualScatter.Max=5\n");
+    assert_eq!(half.visual_scatter_min, 8);
+    assert_eq!(half.visual_scatter_max, 5);
+}
+
+/// `[CombatDamage] Damage*Multiplier` (`Ext/Rules/Body.cpp:340-347`): the
+/// three plain columns construct 1.0 and the five `.NotAffectsEnemies`/
+/// `.Berzerk` columns construct unset (`Ext/Rules/Body.h:770-777`).
+#[test]
+fn the_damage_multiplier_globals_default_and_read_from_combat_damage() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.damage_owner_multiplier(), 1.0);
+    assert_eq!(defaults.damage_allies_multiplier(), 1.0);
+    assert_eq!(defaults.damage_enemies_multiplier(), 1.0);
+    assert_eq!(defaults.damage_owner_multiplier_not_affects_enemies(), None);
+    assert_eq!(defaults.damage_allies_multiplier_not_affects_enemies(), None);
+    assert_eq!(defaults.damage_owner_multiplier_berzerk(), None);
+    assert_eq!(defaults.damage_allies_multiplier_berzerk(), None);
+    assert_eq!(defaults.damage_enemies_multiplier_berzerk(), None);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[CombatDamage]\nDamageOwnerMultiplier=0.5\nDamageAlliesMultiplier=0.25\n\
+         DamageEnemiesMultiplier=2\nDamageOwnerMultiplier.NotAffectsEnemies=0.1\n\
+         DamageAlliesMultiplier.NotAffectsEnemies=0.2\nDamageOwnerMultiplier.Berzerk=3\n\
+         DamageAlliesMultiplier.Berzerk=4\nDamageEnemiesMultiplier.Berzerk=5\n",
+    );
+    assert_eq!(set.damage_owner_multiplier(), 0.5);
+    assert_eq!(set.damage_allies_multiplier(), 0.25);
+    assert_eq!(set.damage_enemies_multiplier(), 2.0);
+    // Phobos `Parser<double>` stores `static_cast<float>(value)` widened back
+    // to double (`Utilities/Parser.h:261-283`).
+    assert_eq!(
+        set.damage_owner_multiplier_not_affects_enemies(),
+        Some(f64::from(0.1_f32))
+    );
+    assert_eq!(
+        set.damage_allies_multiplier_not_affects_enemies(),
+        Some(f64::from(0.2_f32))
+    );
+    assert_eq!(set.damage_owner_multiplier_berzerk(), Some(3.0));
+    assert_eq!(set.damage_allies_multiplier_berzerk(), Some(4.0));
+    assert_eq!(set.damage_enemies_multiplier_berzerk(), Some(5.0));
+
+    // The keys belong to `[CombatDamage]`, not `[General]`.
+    let wrong = read("[General]\nDamageEnemiesMultiplier=9\n");
+    assert_eq!(wrong.damage_enemies_multiplier(), 1.0);
+}
+
+/// `[AudioVisual] RemoveMindControl.Silent=` and
+/// `[CombatDamage] MergeBuildingDamage=` (`Ext/Rules/Body.cpp:597`, `:503`),
+/// both constructed `no` (`Ext/Rules/Body.h:998`, `:918`).
+#[test]
+fn the_mind_control_silent_and_merge_building_damage_globals() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.remove_mind_control_silent);
+    assert!(!defaults.merge_building_damage);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[AudioVisual]\nRemoveMindControl.Silent=yes\n[CombatDamage]\nMergeBuildingDamage=yes\n",
+    );
+    assert!(set.remove_mind_control_silent);
+    assert!(set.merge_building_damage);
+
+    // Each key belongs to its own section.
+    let wrong = read(
+        "[CombatDamage]\nRemoveMindControl.Silent=yes\n[AudioVisual]\nMergeBuildingDamage=yes\n",
+    );
+    assert!(!wrong.remove_mind_control_silent);
+    assert!(!wrong.merge_building_damage);
+}
+
+/// `[General] RadarJamHouses=` / `RadarJamDelay=` (`Ext/Rules/Body.cpp:213-214`,
+/// constructors `Ext/Rules/Body.h:657-658`) default `Enemies` and `30`, which
+/// is the Ares scan interval they replace.
+#[test]
+fn the_radar_jam_globals_default_and_read_from_general() {
+    use crate::rules::phobos_shields::AffectedHouse;
+
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.radar_jam_houses, AffectedHouse::ENEMIES);
+    assert_eq!(defaults.radar_jam_delay, 30);
+    assert_eq!(read(""), defaults);
+
+    let set = read("[General]\nRadarJamHouses=all\nRadarJamDelay=7\n");
+    assert_eq!(set.radar_jam_houses, AffectedHouse::ALL);
+    assert_eq!(set.radar_jam_delay, 7);
+
+    // `RadarJamHouses` is a `Valueable<AffectedHouse>` here: an unknown token
+    // keeps the live value instead of clearing it.
+    assert_eq!(
+        read("[General]\nRadarJamHouses=bogus\n").radar_jam_houses,
+        AffectedHouse::ENEMIES
+    );
+
+    // The keys belong to `[General]`, not `[AudioVisual]`.
+    assert_eq!(read("[AudioVisual]\nRadarJamDelay=7\n").radar_jam_delay, 30);
+}
+
+/// `[General] NoQueueUpToEnter*` (`Ext/Rules/Body.cpp:197-200`) and
+/// `[General] VeteranReload*` (`:388-389`), constructors `Ext/Rules/Body.h:640-643`
+/// and `:808-809`.
+#[test]
+fn the_board_queue_and_veteran_reload_globals() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.no_queue_up_to_enter);
+    assert_eq!(defaults.no_queue_up_to_enter_board_distance, 384);
+    assert_eq!(defaults.no_queue_up_to_enter_buildings, None);
+    assert_eq!(defaults.veteran_reload(), 1.0);
+    assert_eq!(defaults.veteran_empty_reload(), None);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[General]\nNoQueueUpToEnter=yes\nNoQueueUpToEnter.BoardDistance=512\n\
+         NoQueueUpToEnter.Buildings=yes\nVeteranReload=0.5\nVeteranEmptyReload=2\n",
+    );
+    assert!(set.no_queue_up_to_enter);
+    assert_eq!(set.no_queue_up_to_enter_board_distance, 512);
+    assert_eq!(set.no_queue_up_to_enter_buildings, Some(true));
+    assert_eq!(set.veteran_reload(), 0.5);
+    assert_eq!(set.veteran_empty_reload(), Some(2.0));
+}
+
+/// `[General] UseDisguiseMovementSpeed=` (`Ext/Rules/Body.cpp:221`) and
+/// `[AudioVisual] IsVoiceCreatedGlobal=` (`:306`) default `no`, and
+/// `[General] HoverDrownable=` (`:475`, constructor `Ext/Rules/Body.h:890`)
+/// defaults `yes`.
+#[test]
+fn the_disguise_voice_and_hover_globals() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.use_disguise_movement_speed, None);
+    assert!(!defaults.is_voice_created_global);
+    assert!(defaults.hover_drownable, "HoverDrownable constructs yes");
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[General]\nUseDisguiseMovementSpeed=yes\nHoverDrownable=no\n\
+         [AudioVisual]\nIsVoiceCreatedGlobal=yes\n",
+    );
+    assert_eq!(set.use_disguise_movement_speed, Some(true));
+    assert!(!set.hover_drownable);
+    assert!(set.is_voice_created_global);
+
+    // `IsVoiceCreatedGlobal` is an `[AudioVisual]` read, not a `[General]` one.
+    assert!(!read("[General]\nIsVoiceCreatedGlobal=yes\n").is_voice_created_global);
+}
+
+/// `[CombatDamage] ReturnWeapon.ApplyFirepowerMult=` (`Ext/Rules/Body.cpp:559`,
+/// constructor `Ext/Rules/Body.h:973`) defaults `no`, and
+/// `[General] OnlyUseLandSequences=` (`:622`, `Body.h:1017`) too.
+#[test]
+fn the_return_weapon_and_land_sequence_globals() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.return_weapon_apply_firepower_mult);
+    assert!(!defaults.only_use_land_sequences);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[CombatDamage]\nReturnWeapon.ApplyFirepowerMult=yes\n\
+         [General]\nOnlyUseLandSequences=yes\n",
+    );
+    assert!(set.return_weapon_apply_firepower_mult);
+    assert!(set.only_use_land_sequences);
+
+    // Each key lives in its own section; a read from the other one is a no-op.
+    assert!(
+        !read("[General]\nReturnWeapon.ApplyFirepowerMult=yes\n")
+            .return_weapon_apply_firepower_mult
+    );
+    assert!(!read("[CombatDamage]\nOnlyUseLandSequences=yes\n").only_use_land_sequences);
+}

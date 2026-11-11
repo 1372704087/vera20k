@@ -134,10 +134,27 @@ impl crate::sim::world::Simulation {
             .map(|e| e.health.current())
         {
             //5F402B copies current Health+6C into a local packet (not Strength).
+            //
+            // Phobos `ObjectClass_Update_FallingDown_ToDead` (hook `0x5F4021`,
+            // `Ext/Techno/Hooks.cpp:1014-1043`) reads and clears
+            // `TechnoExt::HoverShutdown` inside this arm and lets the
+            // `HoverDrownable` answer pick the damage. The drowning arm takes
+            // the whole current health (`:1033-1036`); the other arm is the
+            // `FallingDownDamage` model, whose default ratio of `1.0` packets
+            // the whole `Strength` (`:1074-1082`). VERA has not ported
+            // `FallingDownDamage`, so the default ratio is the one it applies.
+            #[cfg(feature = "phobos")]
+            let damage = if self.take_hover_shutdown(id) && !self.hover_drowns(id, rules) {
+                self.object_strength(id, rules).unwrap_or(health)
+            } else {
+                health
+            };
+            #[cfg(not(feature = "phobos"))]
+            let damage = health;
             let c4 = self.interner.intern(&rules.bridge_warheads.c4_name);
             let hit = crate::sim::combat::EntityDamageEvent::direct_receiver(
                 id,
-                health,
+                damage,
                 0,
                 crate::sim::combat::RAD_NO_ATTACKER,
                 None,
@@ -150,6 +167,49 @@ impl crate::sim::world::Simulation {
             self.commit_direct_damage_receiver(rules, registry, hit, effects);
         }
         Ok((landed, changed))
+    }
+
+    /// Phobos `TechnoExt::HoverShutdown`: the landing arm owns the single read
+    /// and the clear (`Ext/Techno/Hooks.cpp:1026-1027`).
+    #[cfg(feature = "phobos")]
+    fn take_hover_shutdown(&mut self, id: u64) -> bool {
+        self.substrate
+            .entities
+            .get_mut(id)
+            .is_some_and(|entity| entity.take_hover_shutdown())
+    }
+
+    /// `HoverDrownable.Get(RulesExt::Global()->HoverDrownable)`
+    /// (`Ext/Techno/Hooks.cpp:1031`): the type's own value, else
+    /// `[General] HoverDrownable`.
+    #[cfg(feature = "phobos")]
+    fn hover_drowns(&self, id: u64, rules: &crate::rules::ruleset::RuleSet) -> bool {
+        self.substrate
+            .entities
+            .get(id)
+            .and_then(|entity| {
+                self.interner.try_resolve(entity.type_ref())?;
+                self.interner.object_type(entity.type_ref(), rules)
+            })
+            .is_none_or(|object| {
+                object
+                    .phobos_hover_drown
+                    .drowns(rules.phobos_globals.hover_drownable)
+            })
+    }
+
+    /// The type's `Strength=`, the not-drownable arm's whole-health packet
+    /// (`Ext/Techno/Hooks.cpp:1082`).
+    #[cfg(feature = "phobos")]
+    fn object_strength(&self, id: u64, rules: &crate::rules::ruleset::RuleSet) -> Option<i32> {
+        self.substrate
+            .entities
+            .get(id)
+            .and_then(|entity| {
+                self.interner.try_resolve(entity.type_ref())?;
+                self.interner.object_type(entity.type_ref(), rules)
+            })
+            .map(|object| object.strength)
     }
 
     /// Construct the falling object's canopy.
@@ -346,6 +406,31 @@ fn parachute_anim_name<'r>(
             .as_deref()
             .or(rules.general.parachute_shp.as_deref())
     }
+}
+
+/// Phobos parabombs' descent rate (`Ext/Bullet/Hooks.cpp:128-137`).
+///
+/// ```text
+/// fallRate = ParabombFallRate - Parachuted.FallRate
+/// if (fallRate < Parachuted.MaxFallRate.Get([General] ParachuteMaxFallRate))
+///     fallRate = that cap
+/// ParabombFallRate = fallRate      // persisted on BulletExt
+/// ```
+///
+/// `Parachuted.FallRate=` is therefore the per-frame **acceleration** (a
+/// positive step subtracted from a rate that is negative while descending)
+/// and `Parachuted.MaxFallRate=` / `[General] ParachuteMaxFallRate` the
+/// **terminal** rate — a lower bound in signed terms, i.e. the fastest the
+/// canopy is allowed to fall. This is the same step/cap shape
+/// [`crate::sim::object_fall::ObjectFallState::advance_rate`] uses for a
+/// parachuting object; only the owners of `step` and `cap` differ.
+///
+/// The bullet's accumulated rate starts at `0` (`BulletExt::ParabombFallRate`
+/// `Ext/Bullet/Body.h:61`), so the first frame computes `0 - step` and the
+/// cap brings it up to the terminal rate whenever the step is positive.
+#[cfg(feature = "phobos")]
+pub fn parachuted_bullet_rate(current: i32, step: i32, cap: i32) -> i32 {
+    current.wrapping_sub(step).max(cap)
 }
 
 impl crate::sim::world::Simulation {
@@ -741,5 +826,113 @@ mod canopy_tests {
         );
         let rules = RuleSet::from_rules_layers(&layers).unwrap();
         assert_eq!(rules.general.vehicle_parachute, None);
+    }
+
+    /// Phobos `ObjectClass_Update_FallingDown_ToDead` (hook `0x5F4021`,
+    /// `Ext/Techno/Hooks.cpp:1014-1043`): only the `IsABomb` arm reads and
+    /// clears `TechnoExt::HoverShutdown`, and `HoverDrownable` then picks the
+    /// damage packet.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn only_the_bomb_landing_arm_takes_the_hover_shutdown() {
+        fn land(bomb: bool) -> bool {
+            let rules = RuleSet::from_ini(&IniFile::from_str(
+                "[General]\nHoverDrownable=no\n[InfantryTypes]\n0=E1\n[E1]\nStrength=125\n",
+            ))
+            .expect("rules");
+            let mut sim = Simulation::new();
+            sim.interner = crate::sim::intern::test_interner();
+            let id = sim.substrate.allocate_stable_id();
+            let mut entity = GameEntity::test_default(id, "E1", "Americans", 10, 11);
+            entity.lifecycle.set_in_limbo_for_test(false);
+            entity.health.set_for_test(5000);
+            // Grounded, so the first frame is the landing frame.
+            entity.position.set_exact_z_leptons_for_test(Some(0));
+            if bomb {
+                entity.begin_bomb_fall();
+            } else {
+                entity.begin_parachute_fall(0);
+            }
+            entity.mark_hover_shutdown();
+            sim.substrate.entities.insert(entity);
+            sim.object_ai_fall(id, &rules, None, FrameEffects::default())
+                .expect("landing arm");
+            sim.substrate
+                .entities
+                .get(id)
+                .expect("bomb landing retains the member")
+                .hover_shutdown()
+        }
+
+        assert!(!land(true), "the bomb arm reads and clears the flag");
+        assert!(
+            land(false),
+            "a canopy landing is not a bomb and never reads it"
+        );
+    }
+}
+
+/// `Ext/Bullet/Hooks.cpp:128-137`: the parabomb rate is the step/cap shape,
+/// with the step subtracted and the cap a signed lower bound.
+#[cfg(all(test, feature = "phobos"))]
+mod parabomb_rate_tests {
+    use super::parachuted_bullet_rate;
+
+    /// `ParabombFallRate` starts at `0` (`Ext/Bullet/Body.h:61`), so the
+    /// first frame computes `0 - step` and the cap holds the descent at the
+    /// terminal rate for as long as the step is positive.
+    #[test]
+    fn the_accumulated_rate_reaches_the_cap_and_stays_there() {
+        let mut rate = 0;
+        let frames: Vec<i32> = (0..4)
+            .map(|_| {
+                rate = parachuted_bullet_rate(rate, 1, -7);
+                rate
+            })
+            .collect();
+        assert_eq!(frames, [-7, -7, -7, -7]);
+    }
+
+    /// A slower step walks the rate down to the cap one frame at a time.
+    #[test]
+    fn a_small_step_reaches_the_cap_late() {
+        let mut rate = 0;
+        let frames: Vec<i32> = (0..5)
+            .map(|_| {
+                rate = parachuted_bullet_rate(rate, 3, -7);
+                rate
+            })
+            .collect();
+        assert_eq!(frames, [-3, -6, -7, -7, -7]);
+    }
+
+    /// `Parachuted.MaxFallRate=` (`Nullable`) overrides the general cap; a
+    /// shallower cap lets the rate keep accelerating past the old bound.
+    #[test]
+    fn the_cap_is_the_only_brake() {
+        assert_eq!(
+            parachuted_bullet_rate(-4, 1, -7),
+            -7,
+            "the cap raises a rate below it"
+        );
+        assert_eq!(parachuted_bullet_rate(-6, 1, -7), -7);
+        assert_eq!(
+            parachuted_bullet_rate(-8, 1, -7),
+            -9,
+            "above the cap the step still applies"
+        );
+        assert_eq!(
+            parachuted_bullet_rate(-8, 1, -100),
+            -9,
+            "a shallower cap lets it fall faster"
+        );
+    }
+
+    /// The native expression is `ParabombFallRate - Parachuted.FallRate` in
+    /// `int` arithmetic; `wrapping_sub` keeps that overflow behaviour.
+    #[test]
+    fn the_step_subtracts_with_native_int_overflow() {
+        assert_eq!(parachuted_bullet_rate(i32::MIN, 1, i32::MIN), i32::MIN);
+        assert_eq!(parachuted_bullet_rate(0, i32::MIN, i32::MIN), i32::MIN);
     }
 }

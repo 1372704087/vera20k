@@ -124,6 +124,10 @@ pub(crate) fn fired(
         unit: source_id,
         weapon_index: index,
     });
+    #[cfg(feature = "phobos")]
+    let visual_scatter = selected.weapon.phobos_visual_scatter();
+    #[cfg(not(feature = "phobos"))]
+    let visual_scatter = false;
     create(
         world,
         rules,
@@ -132,12 +136,16 @@ pub(crate) fn fired(
         selected.weapon,
         from,
         owner,
+        visual_scatter,
     );
 }
 
 /// TechnoClass::CreateElectricBolt6FD460 shared by FireAt's reselecting
 /// wrapper and direct SpawnShrapnel46A8CC/46ADB9 calls. The caller owns
 /// IsElectricBolt/IsLaser gating; this body uses its explicit weapon/source.
+/// `visual_scatter` is Phobos `VisualScatter=`: only `FireAt`'s own
+/// CreateEBolt call sets it, because the hook is gated on
+/// `FireAtTemp::FireBullet`, which a shrapnel or split-child draw lacks.
 pub(crate) fn create(
     world: &mut crate::sim::world::Simulation,
     rules: &crate::rules::ruleset::RuleSet,
@@ -146,19 +154,32 @@ pub(crate) fn create(
     weapon: &crate::rules::weapon_type::WeaponType,
     from: ProjectileCoord,
     owner: Option<ElectricBoltOwner>,
+    visual_scatter: bool,
 ) {
     let Some(source) = world.substrate.entities.get(source_id) else {
         return;
     };
+    #[cfg(not(feature = "phobos"))]
+    let _ = visual_scatter;
     let z_adjust = super::fire_coord::effect_z_adjust(
         world,
         source,
         from,
         super::fire_coord::EffectDepthProjection::ClampedBuilding,
     );
-    let Some(to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
+    let Some(mut to) = super::fire_coord::effect_target_coordinate(world, rules, target) else {
         return;
     };
+    // Phobos `TechnoClass_DrawSth_DrawToInvisoFlakScatterLocation`
+    // (`0x6FD514`, `Ext/Techno/Hooks.WeaponEffects.cpp:220-248`). CreateEBolt
+    // hands the same coordinate to the bolt and to its spark system, so the
+    // replacement has to happen before `emit`.
+    #[cfg(feature = "phobos")]
+    if visual_scatter
+        && let Some(scattered) = super::fire_coord::visual_scatter_target(world, rules, target)
+    {
+        to = scattered;
+    }
     // Ares TechnoClass_FireEBolt (Ares.dll 10056350, hook 0x6FD469) creates
     // this body's bolt through CreateBolt, which registers the weapon's
     // WeaponTypeExt for the bolt hooks.

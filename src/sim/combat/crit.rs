@@ -120,7 +120,10 @@ pub(crate) fn detonate(
         && crit
             .suppress_when_intercepted
             .unwrap_or(globals.suppress_when_intercepted());
-    let house = source_house.or_else(|| {
+    // `RemoveMindControl` can hand the detonation a different House for the
+    // arms that follow (`Detonate.cpp:206-208`), so the local is mutable.
+    #[cfg_attr(not(feature = "phobos"), allow(unused_mut))]
+    let mut house = source_house.or_else(|| {
         world
             .substrate
             .entities
@@ -187,13 +190,20 @@ pub(crate) fn detonate(
     let change_owner = warhead.phobos_change_owner;
     #[cfg(not(feature = "phobos"))]
     let change_owner = false;
+    // `RemoveMindControl` and the two sell/undeploy arms
+    // (`Ext/WarheadType/Detonate.cpp:207-208,213-214`).
+    #[cfg(feature = "phobos")]
+    let warhead_extras = warhead.phobos_extras.has_per_target_effect();
+    #[cfg(not(feature = "phobos"))]
+    let warhead_extras = false;
     if !(attach
         || penetrates
         || chance > 0.0
         || shield_modifiers
         || convert_pairs
         || return_warhead
-        || change_owner)
+        || change_owner
+        || warhead_extras)
     {
         return false;
     }
@@ -234,6 +244,35 @@ pub(crate) fn detonate(
         if !can_detonate_on(world, rules, warhead, house, target_id, invoker) {
             continue;
         }
+        // Phobos `WarheadTypeExt::ExtData::ApplyRemoveMindControl`
+        // (`Detonate.cpp:207-208,477-486`): first, because it changes the
+        // target's House for every arm below. The freed target keeps the owner
+        // `FreeUnit` restored, and that House replaces the detonation's own.
+        #[cfg(feature = "phobos")]
+        if warhead.phobos_extras.remove_mind_control
+            && let Some(controller) = world
+                .substrate
+                .entities
+                .get(target_id)
+                .and_then(|target| target.mind_control.controller())
+        {
+            let silent = warhead
+                .phobos_extras
+                .mind_control_silent(rules.phobos_globals.remove_mind_control_silent);
+            world.free_unit_with_sound(
+                controller,
+                target_id,
+                rules,
+                overlay_registry,
+                run.effects(),
+                !silent,
+            );
+            house = world
+                .substrate
+                .entities
+                .get(target_id)
+                .map(|target| target.owner());
+        }
         // Phobos `WarheadTypeExt::ExtData::ApplyOwnerChange`
         // (`Detonate.cpp:207-211,488-522`): after RemoveMindControl and
         // before ApplyConvert, the firing House takes the target; a
@@ -262,6 +301,21 @@ pub(crate) fn detonate(
             rules,
             run.effects(),
         );
+        // Phobos `WarheadTypeExt::ExtData::ApplyBuildingUndeploy`
+        // (`Detonate.cpp:213-214,266-352`): after `RemoveMindControl`,
+        // `ChangeOwner` and `ApplyConvert`, a hit building is sold, else
+        // packed up into its `UndeploysInto=` unit.
+        #[cfg(feature = "phobos")]
+        if warhead.phobos_extras.building_sell || warhead.phobos_extras.building_undeploy {
+            super::building_sell::apply(
+                world,
+                rules,
+                overlay_registry,
+                warhead,
+                target_id,
+                run.effects(),
+            );
+        }
         // `DetonateOnOneUnit`'s `ApplyReturnWarhead(pHouse, pTarget, pOwner)`
         // (`Detonate.cpp:229-231`): after the displacement arms and before
         // `PenetratesTransport`.
@@ -1069,3 +1123,7 @@ fn detonation_targets(
         .into_iter()
         .collect()
 }
+
+#[cfg(test)]
+#[path = "remove_mind_control_tests.rs"]
+mod tests;

@@ -9785,6 +9785,17 @@ impl RulesPassProcessor {
                 if let Some(warhead) = warhead {
                     state.warhead = warhead;
                 }
+                // Phobos `FeedbackWeapon=` is `Read<true>`, i.e.
+                // `WeaponTypeClass::FindOrAllocate` (`Ext/WeaponType/Body.cpp:124`);
+                // the referenced weapon joins the family even when no stock
+                // key names it.
+                #[cfg(feature = "phobos")]
+                {
+                    let incoming = raw.read_string("FeedbackWeapon", "", 0x100);
+                    if !incoming.is_empty() {
+                        self.find_or_allocate(RulesTypeFamily::Weapon, &incoming);
+                    }
+                }
                 // Ares WeaponTypeExt::LoadFromINIFile 10055520 follows the
                 // whole ReadINI (hooks 0x7729B0/0x7729C7/0x7729D6). Its
                 // Nullable<ParticleSystemTypeClass*> read finds only a type

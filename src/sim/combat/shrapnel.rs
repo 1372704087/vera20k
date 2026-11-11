@@ -336,6 +336,7 @@ pub(super) fn emit_projectile_shrapnel(
                 child_weapon,
                 location,
                 None,
+                false,
             );
         }
     };

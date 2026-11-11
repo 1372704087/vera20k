@@ -637,6 +637,15 @@ pub(super) fn dispatch_sim_sound_events(
                 if !admit_radar(radar) {
                     continue;
                 }
+                // Phobos `Ext/House/Hooks.UnitFromFactory.cpp:7-13`: with
+                // `[AudioVisual] IsVoiceCreatedGlobal=yes` the hook replaces
+                // the `VoxClass::Play(EVA_UnitReady)` call outright, so the
+                // line is dropped even when the produced type names no
+                // `VoiceCreated=`. The radar accept above still ran.
+                #[cfg(feature = "phobos")]
+                if rules.phobos_globals.is_voice_created_global {
+                    continue;
+                }
                 collect_eva_object(&mut hud_text, "VERA:EvaUnitReady", type_id);
                 GameSoundEvent::Eva {
                     event: "EVA_UnitReady".to_string(),

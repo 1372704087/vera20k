@@ -1479,6 +1479,20 @@ pub(crate) fn commit_entities(
         {
             receiver_event.damage = 0;
         }
+        // Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s second block
+        // (`Ext/Techno/Hooks.ReceiveDamage.cpp:48-82`): the damage multiplier
+        // rewrites `args->Damage` after the per-target effects and before the
+        // combat alert and the shield stage.
+        #[cfg(feature = "phobos")]
+        {
+            let scaled = super::damage_multiplier::apply(
+                world,
+                rules,
+                &receiver_event,
+                receiver_event.damage,
+            );
+            receiver_event.damage = scaled;
+        }
         let event = &receiver_event;
         // Phobos `Ext/Techno/Hooks.ReceiveDamage.cpp:86-140`, inside
         // `TechnoClass_ReceiveDamage_Shield @ 0x701900`: the combat alert
@@ -4913,6 +4927,13 @@ pub(crate) fn commit_projectile_detonations_inline(
                         emit,
                         under_attack_events,
                     );
+                    // Phobos `BulletClass_Logics_Extras`'s "Return to sender"
+                    // arm (`0x469AA4`, `Ext/Bullet/Hooks.DetonateLogics.cpp:480-500`):
+                    // after the extra warheads and before `UnlimboDetonate`,
+                    // a `BulletType`'s `ReturnWeapon=` fires back at the firer
+                    // from this impact.
+                    #[cfg(feature = "phobos")]
+                    super::phobos_return_weapon::emit(world, rules, &live_tail);
                     // Phobos `BulletClass_Logics_Extras`'s `UnlimboDetonate`
                     // arm (`0x469AA4`, `Ext/Bullet/Hooks.DetonateLogics.cpp:502-592`):
                     // after the weapon's own warhead, the same hook replays a

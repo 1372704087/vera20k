@@ -146,11 +146,10 @@ admitted hit; throttled and rejected hits write nothing. It passes one
   only such mods; risk: an extra alert.
 - **Damage multipliers are the receiver's chain, not this one.** The alert
   reads whatever `world_receiver` computed; the surrounding Phobos
-  `Damage*Multiplier` block (`Hooks.ReceiveDamage.cpp:49-85`) is unported, so
-  on mods that author it the `damage > 1` threshold and the later shield and
-  health damage see the unmultiplied value. Trigger: `Damage*Multiplier`
-  keys; effect: possibly a missing or extra alert at the boundary; frequency:
-  mods only; risk: low, and it disappears when that chain lands.
+  `Damage*Multiplier` block (`Hooks.ReceiveDamage.cpp:49-85`) was unported when
+  this page was written and now lives in
+  [`docs/phobos-damage-multiplier.md`](phobos-damage-multiplier.md), so the
+  `damage > 1` threshold already sees the scaled packet.
 - **Unknown `CombatAlert.EVA` names.** Native resolves the name during the
   rules read and retains the previous index for an unknown one; VERA stores
   the authored name and the client plays nothing when its Vox catalog does

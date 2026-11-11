@@ -218,6 +218,17 @@ pub(crate) fn fired(
     } else {
         (thickness, thickness > 3)
     };
+    // Phobos `TechnoClass_DrawSth_DrawToInvisoFlakScatterLocation`
+    // (`0x6FD38D`, `Ext/Techno/Hooks.WeaponEffects.cpp:220-248`): a
+    // `VisualScatter=` weapon's draw replaces the endpoint inside SpawnLaser,
+    // so the returned birth carries it; assigning after `create` stores the
+    // same value the constructor would have.
+    #[cfg(feature = "phobos")]
+    let scattered = if weapon.phobos_visual_scatter() {
+        super::fire_coord::visual_scatter_target(world, rules, target.projectile_target(world))
+    } else {
+        None
+    };
     if let Some(laser) = create(
         world,
         rules,
@@ -232,6 +243,10 @@ pub(crate) fn fired(
         // shared SpawnLaser constructor. Direct shrapnel calls omit this.
         laser.width = width;
         laser.supported = supported;
+        #[cfg(feature = "phobos")]
+        if let Some(to) = scattered {
+            laser.to = to;
+        }
     }
 }
 

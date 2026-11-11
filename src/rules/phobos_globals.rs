@@ -28,7 +28,7 @@
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
-use crate::rules::ini_parser::IniFile;
+use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::phobos_shields::AffectedHouse;
 use crate::util::native_x87::NativeF64Bits;
 
@@ -50,6 +50,27 @@ fn one_f32() -> crate::util::native_x87::NativeF32Bits {
 /// A `Valueable<double>` global constructed 0.0, for serde defaults.
 fn zero_f64() -> NativeF64Bits {
     NativeF64Bits::POSITIVE_ZERO
+}
+
+/// `section.read_phobos_double` kept as raw bits so `PhobosGlobals` stays
+/// `Eq + Hash`; the parser and its failed-read fallback are unchanged.
+fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> NativeF64Bits {
+    NativeF64Bits::from_bits(
+        section
+            .read_phobos_double(key, f64::from_bits(current.bits()))
+            .to_bits(),
+    )
+}
+
+/// The `Nullable<double>` counterpart of [`read_double_bits`].
+fn read_nullable_double_bits(
+    section: &IniSection,
+    key: &str,
+    current: Option<NativeF64Bits>,
+) -> Option<NativeF64Bits> {
+    section
+        .read_phobos_nullable_double(key, current.map(|value| f64::from_bits(value.bits())))
+        .map(|value| NativeF64Bits::from_bits(value.to_bits()))
 }
 
 /// `[CombatDamage]` globals this port reads.
@@ -304,6 +325,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:499`, `Body.h:914`).
     #[serde(default = "true_bool")]
     pub interceptor_apply_firepower_mult: bool,
+    /// `[CombatDamage] ReturnWeapon.ApplyFirepowerMult=`, default `no`
+    /// (`Ext/Rules/Body.cpp:559`, constructor `Ext/Rules/Body.h:973`): the
+    /// fallback a `BulletType`'s unset `ReturnWeapon.ApplyFirepowerMult=`
+    /// keeps, scaling the returned shot's `Damage=` by the dying bullet's
+    /// `FirepowerMult` (`Ext/Bullet/Hooks.DetonateLogics.cpp:490`).
+    #[serde(default)]
+    pub return_weapon_apply_firepower_mult: bool,
     /// `[General] OpenTopped.UseTransportRangeModifiers=`, default `no`
     /// (`Body.cpp:459`, `Body.h:874`). Also read into `AttachEffectGlobals`.
     #[serde(default)]
@@ -514,11 +542,170 @@ pub struct PhobosGlobals {
     /// the facing-based entry (`Ext/AnimType/Body.cpp:21-43`).
     #[serde(default = "true_bool")]
     pub destroy_anim_random: bool,
+    /// `[AudioVisual] VisualScatter.Min=`, `Valueable<Leptons>` default
+    /// **`8`** (`Ext/Rules/Body.cpp:325`, constructor `Ext/Rules/Body.h:758`):
+    /// the low end of the radius a `VisualScatter=` weapon's drawn laser, bolt
+    /// or beam may end away from its real target
+    /// (`Ext/Techno/Hooks.WeaponEffects.cpp:234-235`).
+    #[serde(default = "visual_scatter_min_default")]
+    pub visual_scatter_min: i32,
+    /// `[AudioVisual] VisualScatter.Max=`, `Valueable<Leptons>` default
+    /// **`32`** (`Ext/Rules/Body.cpp:326`, constructor `Ext/Rules/Body.h:759`).
+    #[serde(default = "visual_scatter_max_default")]
+    pub visual_scatter_max: i32,
+    /// `[General] AutoTarget.NoThreatBuildings=`, default `no`
+    /// (`Ext/Rules/Body.cpp:517`, constructor `Ext/Rules/Body.h:931`): whether
+    /// a **human** scanner may auto-target an enemy building that is unarmed
+    /// or poses no threat (`Ext/Techno/Hooks.cpp:1850-1852`). A weapon's own
+    /// `AttackNoThreatBuildings=` overrides it.
+    #[serde(default)]
+    pub auto_target_no_threat_buildings: bool,
+    /// `[General] AutoTargetAI.NoThreatBuildings=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:518`, constructor `Ext/Rules/Body.h:932`): the
+    /// computer's half of the same gate.
+    #[serde(default = "true_bool")]
+    pub auto_target_ai_no_threat_buildings: bool,
+    /// `[CombatDamage] DamageOwnerMultiplier=`, `Valueable<double>` default
+    /// **`1.0`** (`Ext/Rules/Body.cpp:340`, constructor `Ext/Rules/Body.h:770`):
+    /// the fallback for a warhead's own `DamageOwnerMultiplier=`
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:73-74`).
+    #[serde(default = "one_f64")]
+    pub damage_owner_multiplier: NativeF64Bits,
+    /// `[CombatDamage] DamageAlliesMultiplier=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:341`, constructor `Ext/Rules/Body.h:771`).
+    #[serde(default = "one_f64")]
+    pub damage_allies_multiplier: NativeF64Bits,
+    /// `[CombatDamage] DamageEnemiesMultiplier=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:342`, constructor `Ext/Rules/Body.h:772`); also
+    /// the last fallback of the two berserk chains.
+    #[serde(default = "one_f64")]
+    pub damage_enemies_multiplier: NativeF64Bits,
+    /// `[CombatDamage] DamageOwnerMultiplier.NotAffectsEnemies=`,
+    /// `Nullable<double>` (`Ext/Rules/Body.cpp:343`, `Body.h:773`): the owner
+    /// column of a warhead whose `AffectsEnemies=no` when the warhead names
+    /// no owner multiplier of its own.
+    #[serde(default)]
+    pub damage_owner_multiplier_not_affects_enemies: Option<NativeF64Bits>,
+    /// `[CombatDamage] DamageAlliesMultiplier.NotAffectsEnemies=`
+    /// (`Ext/Rules/Body.cpp:344`, `Body.h:774`).
+    #[serde(default)]
+    pub damage_allies_multiplier_not_affects_enemies: Option<NativeF64Bits>,
+    /// `[CombatDamage] DamageOwnerMultiplier.Berzerk=`,
+    /// `Nullable<double>` (`Ext/Rules/Body.cpp:345`, `Body.h:775`).
+    #[serde(default)]
+    pub damage_owner_multiplier_berzerk: Option<NativeF64Bits>,
+    /// `[CombatDamage] DamageAlliesMultiplier.Berzerk=`
+    /// (`Ext/Rules/Body.cpp:346`, `Body.h:776`).
+    #[serde(default)]
+    pub damage_allies_multiplier_berzerk: Option<NativeF64Bits>,
+    /// `[CombatDamage] DamageEnemiesMultiplier.Berzerk=`
+    /// (`Ext/Rules/Body.cpp:347`, `Body.h:777`).
+    #[serde(default)]
+    pub damage_enemies_multiplier_berzerk: Option<NativeF64Bits>,
+    /// `[AudioVisual] RemoveMindControl.Silent=`, default `no`
+    /// (`Ext/Rules/Body.cpp:597`, constructor `Ext/Rules/Body.h:998`): a
+    /// warhead's `RemoveMindControl=` frees its victims without the
+    /// `MindClearedSound` (`Ext/CaptureManager/Body.cpp:141`).
+    #[serde(default)]
+    pub remove_mind_control_silent: bool,
+    /// `[CombatDamage] MergeBuildingDamage=`, default `no`
+    /// (`Ext/Rules/Body.cpp:503`, constructor `Ext/Rules/Body.h:918`): one
+    /// area detonation damages a building once, with its per-cell distance
+    /// multipliers summed (`Ext/WarheadType/Hooks.cpp:412-487`).
+    #[serde(default)]
+    pub merge_building_damage: bool,
+    /// `[General] RadarJamHouses=`, `Nullable<AffectedHouse>` default
+    /// **`Enemies`** (`Ext/Rules/Body.cpp:213`, constructor
+    /// `Ext/Rules/Body.h:657`): which Houses a `RadarJamRadius=` jammer may
+    /// jam (`New/Entity/Ares/RadarJammerClass.cpp:17-18`).
+    #[serde(default = "radar_jam_houses_default")]
+    pub radar_jam_houses: crate::rules::phobos_shields::AffectedHouse,
+    /// `[General] RadarJamDelay=`, `Valueable<int>` default **`30`**
+    /// (`Ext/Rules/Body.cpp:214`, constructor `Ext/Rules/Body.h:658`): frames
+    /// between two jammer scans (`RadarJammerClass.cpp:10`).
+    #[serde(default = "radar_jam_delay_default")]
+    pub radar_jam_delay: i32,
+    /// `[General] NoQueueUpToEnter=`, default `no`
+    /// (`Ext/Rules/Body.cpp:197`, constructor `Ext/Rules/Body.h:640`).
+    #[serde(default)]
+    pub no_queue_up_to_enter: bool,
+    /// `[General] NoQueueUpToEnter.BoardDistance=`, `Valueable<int>` default
+    /// **`384`** leptons (`Ext/Rules/Body.cpp:198`, constructor
+    /// `Ext/Rules/Body.h:641`).
+    #[serde(default = "no_queue_board_distance_default")]
+    pub no_queue_up_to_enter_board_distance: i32,
+    /// `[General] NoQueueUpToEnter.Buildings=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:200`, constructor `Ext/Rules/Body.h:643`).
+    #[serde(default)]
+    pub no_queue_up_to_enter_buildings: Option<bool>,
+    /// `[General] VeteranReload=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
+    #[serde(default = "one_f64")]
+    pub veteran_reload: NativeF64Bits,
+    /// `[General] VeteranEmptyReload=`, `Nullable<double>`
+    /// (`Ext/Rules/Body.cpp:389`, constructor `Ext/Rules/Body.h:809`).
+    #[serde(default)]
+    pub veteran_empty_reload: Option<NativeF64Bits>,
+    /// `[AudioVisual] IsVoiceCreatedGlobal=`, default `no`
+    /// (`Ext/Rules/Body.cpp:306`, constructor `Ext/Rules/Body.h:738`): every
+    /// produced object plays its `VoiceCreated=`.
+    #[serde(default)]
+    pub is_voice_created_global: bool,
+    /// `[General] UseDisguiseMovementSpeed=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:221`): a disguised object that names no own
+    /// answer moves at its disguise's speed.
+    #[serde(default)]
+    pub use_disguise_movement_speed: Option<bool>,
+    /// `[General] HoverDrownable=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:475`, constructor `Ext/Rules/Body.h:890`): a hover
+    /// vehicle over deep water drowns unless its type says otherwise.
+    #[serde(default = "true_bool")]
+    pub hover_drownable: bool,
+    /// `[General] OnlyUseLandSequences=`, default `no`
+    /// (`Ext/Rules/Body.cpp:622`, constructor `Ext/Rules/Body.h:1017`): the
+    /// fallback an `InfantryType`'s unset art `OnlyUseLandSequences=` keeps,
+    /// making infantry play their land sequences while in water
+    /// (`Ext/Techno/Hooks.Misc.cpp:890`).
+    #[serde(default)]
+    pub only_use_land_sequences: bool,
+}
+
+/// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
+fn radar_jam_houses_default() -> crate::rules::phobos_shields::AffectedHouse {
+    crate::rules::phobos_shields::AffectedHouse::ENEMIES
+}
+
+/// `RadarJamDelay=`'s constructor value (`Ext/Rules/Body.h:658`).
+fn radar_jam_delay_default() -> i32 {
+    30
+}
+
+/// `NoQueueUpToEnter.BoardDistance=`'s constructor value
+/// (`Ext/Rules/Body.h:641`).
+fn no_queue_board_distance_default() -> i32 {
+    384
+}
+
+/// `1.0`, the constructor value of the three plain `[CombatDamage]` damage
+/// multipliers (`Ext/Rules/Body.h:770-772`) and `[General] VeteranReload=`
+/// (`Ext/Rules/Body.h:808`), stored as bits so `PhobosGlobals` keeps `Eq`.
+fn one_f64() -> NativeF64Bits {
+    NativeF64Bits::ONE
 }
 
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
 fn combat_alert_interval_default() -> i32 {
     150
+}
+
+/// `VisualScatter.Min=`'s constructor value (`Ext/Rules/Body.h:758`).
+fn visual_scatter_min_default() -> i32 {
+    8
+}
+
+/// `VisualScatter.Max=`'s constructor value (`Ext/Rules/Body.h:759`).
+fn visual_scatter_max_default() -> i32 {
+    32
 }
 
 impl Default for PhobosGlobals {
@@ -534,6 +721,7 @@ impl Default for PhobosGlobals {
             projectile_interceptable: false,
             interceptor_guard_range_is_cylindrical: false,
             interceptor_apply_firepower_mult: true,
+            return_weapon_apply_firepower_mult: false,
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
@@ -622,6 +810,31 @@ impl Default for PhobosGlobals {
             combat_alert_use_attack_voice: true,
             combat_alert_use_eva: true,
             destroy_anim_random: true,
+            visual_scatter_min: visual_scatter_min_default(),
+            visual_scatter_max: visual_scatter_max_default(),
+            auto_target_no_threat_buildings: false,
+            auto_target_ai_no_threat_buildings: true,
+            damage_owner_multiplier: NativeF64Bits::ONE,
+            damage_allies_multiplier: NativeF64Bits::ONE,
+            damage_enemies_multiplier: NativeF64Bits::ONE,
+            damage_owner_multiplier_not_affects_enemies: None,
+            damage_allies_multiplier_not_affects_enemies: None,
+            damage_owner_multiplier_berzerk: None,
+            damage_allies_multiplier_berzerk: None,
+            damage_enemies_multiplier_berzerk: None,
+            remove_mind_control_silent: false,
+            merge_building_damage: false,
+            radar_jam_houses: radar_jam_houses_default(),
+            radar_jam_delay: radar_jam_delay_default(),
+            no_queue_up_to_enter: false,
+            no_queue_up_to_enter_board_distance: no_queue_board_distance_default(),
+            no_queue_up_to_enter_buildings: None,
+            veteran_reload: NativeF64Bits::ONE,
+            veteran_empty_reload: None,
+            is_voice_created_global: false,
+            use_disguise_movement_speed: None,
+            hover_drownable: true,
+            only_use_land_sequences: false,
         }
     }
 }
@@ -676,6 +889,17 @@ impl PhobosGlobals {
                 &globals.promote_elite_animation,
                 keep,
             );
+        // `Ext/Rules/Body.cpp:325-326`: the `VisualScatter=` radius pair,
+        // read just ahead of the `CombatAlert*` block (`:355-364`).
+        // `Ext/Rules/Body.cpp:597`: an `[AudioVisual]` read, not CombatDamage.
+        globals.remove_mind_control_silent = audio_visual.read_bool(
+            "RemoveMindControl.Silent",
+            globals.remove_mind_control_silent,
+        );
+        globals.visual_scatter_min =
+            audio_visual.read_int("VisualScatter.Min", globals.visual_scatter_min);
+        globals.visual_scatter_max =
+            audio_visual.read_int("VisualScatter.Max", globals.visual_scatter_max);
         // `[AudioVisual] CombatAlert*` (`Ext/Rules/Body.cpp:355-364`): the
         // master switch, the nullable default and interval, and the three
         // type-key fallbacks. `Valueable` reads from the constructor values;
@@ -710,6 +934,9 @@ impl PhobosGlobals {
         );
         globals.combat_alert_use_eva =
             audio_visual.read_bool("CombatAlert.UseEVA", globals.combat_alert_use_eva);
+        // `Ext/Rules/Body.cpp:306`: an `[AudioVisual]` read, not General.
+        globals.is_voice_created_global =
+            audio_visual.read_bool("IsVoiceCreatedGlobal", globals.is_voice_created_global);
         // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
         // the three sections share no key, so their order does not matter.
         let general = ini.section_or_empty("General");
@@ -731,6 +958,43 @@ impl PhobosGlobals {
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
         );
+        // `Ext/Rules/Body.cpp:197-200`: the boarding-queue pair and its
+        // Building override, all `[General]`.
+        globals.no_queue_up_to_enter =
+            general.read_bool("NoQueueUpToEnter", globals.no_queue_up_to_enter);
+        globals.no_queue_up_to_enter_board_distance = general.read_int(
+            "NoQueueUpToEnter.BoardDistance",
+            globals.no_queue_up_to_enter_board_distance,
+        );
+        globals.no_queue_up_to_enter_buildings = general.read_phobos_nullable_bool(
+            "NoQueueUpToEnter.Buildings",
+            globals.no_queue_up_to_enter_buildings,
+        );
+        // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
+        // (`Valueable<AffectedHouse>`, default Enemies) and interval.
+        globals.radar_jam_houses = crate::rules::phobos_shields::read_affected_house(
+            general,
+            "RadarJamHouses",
+            globals.radar_jam_houses,
+        );
+        globals.radar_jam_delay = general.read_int("RadarJamDelay", globals.radar_jam_delay);
+        // `Ext/Rules/Body.cpp:221`: a nullable `[General]` read.
+        globals.use_disguise_movement_speed = general.read_phobos_nullable_bool(
+            "UseDisguiseMovementSpeed",
+            globals.use_disguise_movement_speed,
+        );
+        // `Ext/Rules/Body.cpp:388-389`.
+        globals.veteran_reload =
+            read_double_bits(general, "VeteranReload", globals.veteran_reload);
+        globals.veteran_empty_reload = read_nullable_double_bits(
+            general,
+            "VeteranEmptyReload",
+            globals.veteran_empty_reload,
+        );
+        // `Ext/Rules/Body.cpp:475`, a `Valueable<bool>` default `yes`.
+        globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
+        globals.only_use_land_sequences =
+            general.read_bool("OnlyUseLandSequences", globals.only_use_land_sequences);
         // `Ext/Rules/Body.cpp:218-219`, `yes`/`no` constructor defaults.
         globals.alternate_flh_on_turret =
             general.read_bool("AlternateFLH.OnTurret", globals.alternate_flh_on_turret);
@@ -871,6 +1135,16 @@ impl PhobosGlobals {
         );
         globals.vertical_aircraft_fix =
             general.read_bool("Vertical.AircraftFix", globals.vertical_aircraft_fix);
+        // `Ext/Rules/Body.cpp:517-518`, both `[General]` `Valueable<bool>`:
+        // a human scanner keeps `no`, the computer's scanners keep `yes`.
+        globals.auto_target_no_threat_buildings = general.read_bool(
+            "AutoTarget.NoThreatBuildings",
+            globals.auto_target_no_threat_buildings,
+        );
+        globals.auto_target_ai_no_threat_buildings = general.read_bool(
+            "AutoTargetAI.NoThreatBuildings",
+            globals.auto_target_ai_no_threat_buildings,
+        );
         // The `ExtendedAircraftMissions` pair (`Ext/Rules/Body.cpp:191-192`).
         // The switch is a `Valueable<bool>`; UnlandDamage a `Valueable<int>`,
         // both read with their constructor value as the default.
@@ -939,6 +1213,62 @@ impl PhobosGlobals {
     pub fn extra_threat_coefficient_distance_to_last_target(&self) -> f64 {
         f64::from_bits(self.extra_threat_coefficient_distance_to_last_target.bits())
     }
+
+    /// `[CombatDamage] DamageOwnerMultiplier=`.
+    pub fn damage_owner_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_owner_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier=`.
+    pub fn damage_allies_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_allies_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageEnemiesMultiplier=`.
+    pub fn damage_enemies_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_enemies_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageOwnerMultiplier.NotAffectsEnemies=`.
+    pub fn damage_owner_multiplier_not_affects_enemies(&self) -> Option<f64> {
+        self.damage_owner_multiplier_not_affects_enemies
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier.NotAffectsEnemies=`.
+    pub fn damage_allies_multiplier_not_affects_enemies(&self) -> Option<f64> {
+        self.damage_allies_multiplier_not_affects_enemies
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageOwnerMultiplier.Berzerk=`.
+    pub fn damage_owner_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_owner_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier.Berzerk=`.
+    pub fn damage_allies_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_allies_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageEnemiesMultiplier.Berzerk=`.
+    pub fn damage_enemies_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_enemies_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[General] VeteranReload=`.
+    pub fn veteran_reload(&self) -> f64 {
+        f64::from_bits(self.veteran_reload.bits())
+    }
+
+    /// `[General] VeteranEmptyReload=`.
+    pub fn veteran_empty_reload(&self) -> Option<f64> {
+        self.veteran_empty_reload
+            .map(|value| f64::from_bits(value.bits()))
+    }
 }
 
 fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlobals {
@@ -979,6 +1309,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         interceptor_apply_firepower_mult: section.read_bool(
             "Interceptor.ApplyFirepowerMult",
             defaults.interceptor_apply_firepower_mult,
+        ),
+        return_weapon_apply_firepower_mult: section.read_bool(
+            "ReturnWeapon.ApplyFirepowerMult",
+            defaults.return_weapon_apply_firepower_mult,
         ),
         can_target_iron_curtained: section.read_bool(
             "CanTarget.IronCurtained",
@@ -1034,6 +1368,54 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "DriverKilled.KillPassengers",
             defaults.driver_killed_kill_passengers,
         ),
+        // `Ext/Rules/Body.cpp:340-347`: the eight `[CombatDamage]` damage
+        // multipliers, read in this order. The three plain values are
+        // `Valueable<double>` 1.0; the five nullable columns stay unset until
+        // a layer names them.
+        damage_owner_multiplier: read_double_bits(
+            section,
+            "DamageOwnerMultiplier",
+            defaults.damage_owner_multiplier,
+        ),
+        damage_allies_multiplier: read_double_bits(
+            section,
+            "DamageAlliesMultiplier",
+            defaults.damage_allies_multiplier,
+        ),
+        damage_enemies_multiplier: read_double_bits(
+            section,
+            "DamageEnemiesMultiplier",
+            defaults.damage_enemies_multiplier,
+        ),
+        damage_owner_multiplier_not_affects_enemies: read_nullable_double_bits(
+            section,
+            "DamageOwnerMultiplier.NotAffectsEnemies",
+            defaults.damage_owner_multiplier_not_affects_enemies,
+        ),
+        damage_allies_multiplier_not_affects_enemies: read_nullable_double_bits(
+            section,
+            "DamageAlliesMultiplier.NotAffectsEnemies",
+            defaults.damage_allies_multiplier_not_affects_enemies,
+        ),
+        damage_owner_multiplier_berzerk: read_nullable_double_bits(
+            section,
+            "DamageOwnerMultiplier.Berzerk",
+            defaults.damage_owner_multiplier_berzerk,
+        ),
+        damage_allies_multiplier_berzerk: read_nullable_double_bits(
+            section,
+            "DamageAlliesMultiplier.Berzerk",
+            defaults.damage_allies_multiplier_berzerk,
+        ),
+        damage_enemies_multiplier_berzerk: read_nullable_double_bits(
+            section,
+            "DamageEnemiesMultiplier.Berzerk",
+            defaults.damage_enemies_multiplier_berzerk,
+        ),
+        // `Ext/Rules/Body.cpp:503`: the merge switch, a `Valueable<bool>`
+        // default `no`.
+        merge_building_damage: section
+            .read_bool("MergeBuildingDamage", defaults.merge_building_damage),
         // The `[AudioVisual]` block belongs to `from_ini`; a `CombatDamage`
         // section leaves these at their constructor values.
         ..defaults

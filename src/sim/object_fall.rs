@@ -20,6 +20,13 @@ pub(crate) struct ObjectFallState {
     #[serde(default)]
     was_falling: bool,
     dropped_as_bomb: bool,
+    /// Phobos `TechnoExt::HoverShutdown` (`Ext/Techno/Body.h:81`, saved at
+    /// `Ext/Techno/Body.cpp:1200`): the hover locomotor's shutdown dropped
+    /// this object as a bomb (`Ext/Techno/Hooks.cpp:997-1006`). The landing arm
+    /// reads and clears it once (`:1026-1027`), so it never outlives that arm.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    hover_shutdown: bool,
 }
 
 impl ObjectFallState {
@@ -52,6 +59,26 @@ impl ObjectFallState {
     }
     pub(crate) fn dropped_as_bomb(&self) -> bool {
         self.dropped_as_bomb
+    }
+
+    /// Phobos `TechnoExt::HoverShutdown`, part of the saved fall words.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn hover_shutdown(&self) -> bool {
+        self.hover_shutdown
+    }
+
+    /// `0x514C07` marks the shutdown drop once it has happened
+    /// (`Ext/Techno/Hooks.cpp:1002-1005`: `DropAsBomb()` then the flag).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn mark_hover_shutdown(&mut self) {
+        self.hover_shutdown = true;
+    }
+
+    /// `Ext/Techno/Hooks.cpp:1026-1027`: the landing arm copies the flag out
+    /// and clears it before it picks the damage.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn take_hover_shutdown(&mut self) -> bool {
+        std::mem::take(&mut self.hover_shutdown)
     }
 
     pub(crate) fn begin_bomb(&mut self) {

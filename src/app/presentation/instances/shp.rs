@@ -239,6 +239,12 @@ pub(crate) fn shp_visitor<'a>(
             disguise.is_disguised()
                 && DrawState::draws_disguise(entity, sim.session().binary_frame(), observer)
         });
+        // `GetCell()->LandType == Water && !OnBridge` for the Phobos water
+        // damaged-image pair; an Aircraft never asks it.
+        #[cfg(feature = "phobos")]
+        let water = super::damaged_image::unit_on_water(entity, cells.as_ref());
+        #[cfg(not(feature = "phobos"))]
+        let water = false;
         let type_name = if entity.category() == EntityCategory::Unit {
             if entity.unit_deploying() {
                 return;
@@ -249,14 +255,25 @@ pub(crate) fn shp_visitor<'a>(
                 rules,
                 sim.session().binary_frame(),
                 observer,
+                water,
             )
         } else {
-            std::borrow::Cow::Borrowed(
-                active_disguise
-                    .and_then(|state| state.type_id())
-                    .map(|id| sim.interner().resolve(id))
-                    .unwrap_or_else(|| sim.interner().resolve(entity.type_ref())),
-            )
+            let base = active_disguise
+                .and_then(|state| state.type_id())
+                .map(|id| sim.interner().resolve(id))
+                .unwrap_or_else(|| sim.interner().resolve(entity.type_ref()));
+            // Phobos `AircraftExt::GetAircraftTypeExtra`
+            // (`Ext/Aircraft/Body.cpp:195-220`): an Aircraft's damaged bands
+            // swap its SHP type; no class other than Unit and Aircraft reads
+            // the keys (`0x414987`).
+            #[cfg(feature = "phobos")]
+            let base = rules
+                .and_then(|rules| rules.object(base).map(|object| (rules, object)))
+                .and_then(|(rules, object)| {
+                    super::damaged_image::swap(entity, object, rules, false)
+                })
+                .unwrap_or(base);
+            std::borrow::Cow::Borrowed(base)
         };
         let type_str = type_name.as_ref();
         if super::helpers::drawn_type_uses_voxel(entity, type_str, sim.interner(), rules) {

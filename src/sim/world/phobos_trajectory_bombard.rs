@@ -301,7 +301,7 @@ impl Simulation {
             return;
         };
         let type_name = self.interner.intern(name);
-        let _ = self.spawn_owned_anim(rules, type_name, location.into(), house, None);
+        let _ = self.spawn_owned_anim(rules, type_name, location.into(), house, None, None);
     }
 
     /// `CalculateTargetCoords` (`:283-323`): optional lead, coordinate-system

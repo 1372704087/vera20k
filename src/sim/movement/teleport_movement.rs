@@ -163,7 +163,7 @@ impl crate::sim::world::Simulation {
         };
         // `pLinked` is the house owner only: `CreateRandomAnim` passes a null
         // invoker and no owner object.
-        self.spawn_owned_anim(rules, type_name, world, owner_house, None);
+        self.spawn_owned_anim(rules, type_name, world, owner_house, None, None);
         true
     }
 

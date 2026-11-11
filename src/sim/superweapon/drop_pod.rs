@@ -411,6 +411,7 @@ fn spawn_pod_anim(
         crate::sim::anim_class::AnimWorldCoord { x, y, z },
         owner_house,
         owner_object,
+        None,
     )
 }
 

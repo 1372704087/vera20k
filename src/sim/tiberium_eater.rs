@@ -213,6 +213,7 @@ impl Simulation {
                     },
                     owner,
                     settings.anim_move.then_some(id),
+                    None,
                 );
             }
         }

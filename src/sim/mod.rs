@@ -107,6 +107,8 @@ pub mod multiplayer_checksum;
 pub mod native_identity;
 pub(crate) mod object_fall;
 #[cfg(all(test, feature = "phobos"))]
+mod affects_underground_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod cloak_anim_tests;
 #[cfg(feature = "phobos")]
 pub(crate) mod phobos_no_rearm;

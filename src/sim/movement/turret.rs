@@ -255,7 +255,22 @@ pub(crate) fn facing_update(
             // Native controls: turret_cadence.json idle_navcom_magnetron.
             let lifted_with_destination =
                 entity.lift.swap_active() && entity.navigation.nav_com().is_some();
-            if dwell_elapsed && !bunkered && !deployed_simple_deployer && !lifted_with_destination {
+            // Phobos `0x736B60` (`Ext/Unit/Hooks.DisallowMoving.cpp:69-75`):
+            // an unset `TurretResponse` falls back to `UnitExt::CannotMove`;
+            // `yes` keeps the idle return, `no` always skips it.
+            #[cfg(feature = "phobos")]
+            let skip_idle_return = match obj.and_then(|obj| obj.phobos_turret_response) {
+                Some(response) => !response,
+                None => cannot_move(entity, obj, world),
+            };
+            #[cfg(not(feature = "phobos"))]
+            let skip_idle_return = false;
+            if dwell_elapsed
+                && !bunkered
+                && !deployed_simple_deployer
+                && !lifted_with_destination
+                && !skip_idle_return
+            {
                 out.turret_destination = Some(match nav_destination_facing(entity, world) {
                     Some(nav) => nav,
                     None => entity.body_facing_current(binary_frame),
@@ -285,6 +300,44 @@ pub(crate) fn turret_spin_destination(current: u16) -> u16 {
 /// The `+5` the idle-return comparison adds to `GuardAreaTargetingDelay`
 /// (`ADD EDX,0x5` at `0x00736B4B`), giving 41 frames in stock.
 const NATIVE_IDLE_TURRET_DWELL_BIAS: i64 = 5;
+
+/// Phobos `UnitExt::CannotMove` (`Ext/Unit/Body.cpp:193-220`): a Unit that
+/// cannot move, i.e. `Speed == 0`, or a `MovementRestrictedTo=` land that
+/// differs from its cell's (Tunnel is exempt, and a bridge's Water/Beach
+/// answers Road). A sourced locomotor answers false natively; VERA has no
+/// `LocomotorSource` state, and no path sets one.
+#[cfg(feature = "phobos")]
+fn cannot_move(
+    entity: &GameEntity,
+    obj: Option<&crate::rules::object_type::ObjectType>,
+    world: &crate::sim::world::Simulation,
+) -> bool {
+    use crate::rules::terrain_rules::LandType;
+    let Some(obj) = obj else {
+        return false;
+    };
+    if obj.speed == 0 {
+        return true;
+    }
+    let Some(required) = obj.movement_restricted_to else {
+        return false;
+    };
+    let cell = crate::sim::cell_rect::get_cellclass_fallback(
+        world.resolved_terrain.as_ref(),
+        i32::from(entity.position.rx()),
+        i32::from(entity.position.ry()),
+    );
+    let Some(mut land) = LandType::from_index(cell.land_type()) else {
+        return true;
+    };
+    if land == LandType::Tunnel {
+        return false;
+    }
+    if entity.on_bridge() && matches!(land, LandType::Water | LandType::Beach) {
+        land = LandType::Road;
+    }
+    land != required
+}
 
 /// The idle turret's aim when a move order is live: the NavCom (`+0x5A4`,
 /// read at `0x00736BA3`) through `DirectionToTarget @ 0x005F3DB0`
@@ -352,6 +405,44 @@ mod tests {
                 "selected mode {mode} must govern facing without a previous shot",
             );
         }
+    }
+
+    /// Phobos `UnitClass_Rotation_AI_DisallowMoving` (`0x00736B60`,
+    /// `Ext/Unit/Hooks.DisallowMoving.cpp:69-75`): `TurretResponse=yes` keeps
+    /// the idle return for a unit `CannotMove` would skip it on; `no` always
+    /// skips; unset falls back to `CannotMove` (`Speed == 0` /
+    /// `MovementRestrictedTo`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn turret_response_gates_the_idle_return_on_cannot_move() {
+        use crate::rules::ini_parser::IniFile;
+        let idle = |type_keys: &str| {
+            let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=TANK\n[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n\
+                 [TANK]\nStrength=300\nArmor=none\nTurret=yes\nPrimary=Gun\n{type_keys}\
+                 [Gun]\nDamage=10\nROF=20\nRange=6\nWarhead=WH\n\
+                 [WH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n"
+            )))
+            .unwrap();
+            let mut entity = GameEntity::test_default(1, "TANK", "Americans", 5, 5);
+            entity.barrel_facing = Some(crate::sim::movement::FacingClass::new(0, 5));
+            let mut sim = crate::sim::world::Simulation::new();
+            sim.interner = crate::sim::intern::test_interner();
+            facing_update(&entity, &sim, &rules, &sim.interner, 100).turret_destination
+        };
+        assert!(idle("Speed=6\n").is_some(), "a movable unit returns");
+        assert!(
+            idle("Speed=0\n").is_none(),
+            "CannotMove skips the idle return"
+        );
+        assert!(
+            idle("Speed=0\nTurretResponse=yes\n").is_some(),
+            "yes keeps the return on a unit that cannot move"
+        );
+        assert!(
+            idle("Speed=6\nTurretResponse=no\n").is_none(),
+            "no always skips the idle return"
+        );
     }
 
     #[test]

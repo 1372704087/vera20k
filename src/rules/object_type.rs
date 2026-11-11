@@ -1047,6 +1047,13 @@ pub struct ObjectType {
     /// for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_no_turret_track_target: Option<bool>,
+    /// Phobos `TurretResponse=` (`Ext/UnitType/Body.cpp:83`,
+    /// `Nullable<bool>`, constructor `Body.h:68`): unset falls back to
+    /// `UnitExt::CannotMove`; `yes` returns the idle turret even for a unit
+    /// that cannot move, `no` never does (`Ext/Unit/Hooks.DisallowMoving.cpp:69-75`).
+    /// Read only for a UnitType.
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_response: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -5252,6 +5259,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_no_turret_track_target: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("NoTurret.TrackTarget", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_turret_response: (category == ObjectCategory::Vehicle)
+                .then(|| section.read_phobos_nullable_bool("TurretResponse", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(

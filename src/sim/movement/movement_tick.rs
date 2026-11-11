@@ -539,8 +539,14 @@ fn advance_ordinary_mover(
         return;
     }
     let object = interner.object_type(entity.type_ref(), rules);
-    let adjusted_speed =
-        super::foot_speed::adjusted_speed(entity, object, rules.general.veteran_speed, houses);
+    let adjusted_speed = super::foot_speed::adjusted_speed(
+        entity,
+        object,
+        rules,
+        interner,
+        rules.general.veteran_speed,
+        houses,
+    );
     super::walk_step::advance(
         entity,
         adjusted_speed,

@@ -171,6 +171,14 @@ Supported extensions:
 - [Break mind control on impact](phobos-remove-mind-control.md) (`RemoveMindControl`/`.Silent`: a detonation frees its mind-controlled victims before every other per-target arm, so `ChangeOwner`/`Convert` see the real House; 2 warhead keys + 1 `[AudioVisual]` global)
 - [Sell or undeploy a building on impact](phobos-building-sell.md) (`BuildingSell`/`.IgnoreUnsellable` and `BuildingUndeploy`/`.Leave`: a hit building is sold, else packed up into its `UndeploysInto=` unit; 4 warhead keys)
 - [Merge area damage on a building](phobos-merge-building-damage.md) (`MergeBuildingDamage`: one detonation damages a building once with its per-cell distance multipliers summed, instead of once per foundation cell; 1 warhead key + 1 `[CombatDamage]` global)
+- [Custom Ares radar-jam](phobos-radar-jam.md) (`RadarJamHouses`/`RadarJamDelay`/`RadarJamAffect`/`RadarJamIgnore`: the jammer scan's House filter, its interval and the two building-type lists; 4 type keys + 2 `[General]` globals)
+- [Auto-firing at the object's own position](phobos-auto-target-own-position.md) (`AutoTargetOwnPosition`/`.Self` plus the deprecated `AutoFire`/`AutoFire.TargetSelf` aliases: a type replaces target acquisition with itself or its own cell; 2 type keys)
+- [Reload speed on promotion](phobos-veteran-reload.md) (`VeteranReload`/`VeteranEmptyReload`: both `StartReloading` durations scaled by the type's key when the rank holds `RELOAD`/`EMPTY_RELOAD`; 2 type keys + 3 `[General]` globals)
+- [Disguise movement speed](phobos-disguise-movement-speed.md) (`UseDisguiseMovementSpeed`: a disguised object takes its disguise's `Speed=`; 1 type key + 1 `[General]` global)
+- [Sound on unit creation](phobos-voice-created.md) (`VoiceCreated` and `[AudioVisual] IsVoiceCreatedGlobal`: a factory product speaks its own line and the EVA "unit ready" line is dropped; 1 type key + 1 `[AudioVisual]` global)
+- [Customizable spawns queue](phobos-spawns-queue.md) (`Spawns.Queue`: a spawn manager's per-slot and regeneration type order — read, not yet consumed; 1 type key)
+- [Fast access to a vehicle or structure](phobos-no-queue-up-to-enter.md) (`NoQueueUpToEnter`/`.BoardDistance` plus `[General] NoQueueUpToEnter.Buildings`: boarding without the queue when close enough — read, not yet consumed; 2 type keys + 3 `[General]` globals)
+- [Drop a crate on death](phobos-drop-crate.md) (`DropCrate`: the `[Powerups]` slot a dying object leaves behind — read, not yet consumed; 1 type key)
 
 ## Original project and authors
 

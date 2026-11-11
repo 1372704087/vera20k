@@ -940,6 +940,13 @@ pub struct ObjectType {
     /// whether a Move order keeps an in-range target.
     #[cfg(feature = "phobos")]
     pub phobos_keep_target: crate::rules::phobos_keep_target::PhobosKeepTargetOnMove,
+    /// Phobos `RadarJam*`, `VoiceCreated`, `UseDisguiseMovementSpeed`,
+    /// `AutoTargetOwnPosition*`, `NoQueueUpToEnter*`, `VeteranReload*`,
+    /// `Spawns.Queue` and `DropCrate` (`Ext/TechnoType/Body.cpp:780-783`,
+    /// `:853`, `:877`, `:898-905`, `:1045-1046`, `:1062-1063`, `:1118`,
+    /// `:1446`).
+    #[cfg(feature = "phobos")]
+    pub phobos_techno_extras: crate::rules::phobos_techno_extras::PhobosTechnoExtras,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -5141,6 +5148,9 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_keep_target:
                 crate::rules::phobos_keep_target::PhobosKeepTargetOnMove::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_techno_extras:
+                crate::rules::phobos_techno_extras::PhobosTechnoExtras::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),

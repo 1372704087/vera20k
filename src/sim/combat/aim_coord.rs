@@ -81,6 +81,8 @@ pub fn led_target_coordinate(
     let target_speed = owner_current_speed(
         target,
         target_type,
+        rules,
+        &world.interner,
         rules.general.veteran_speed,
         &world.houses,
     );

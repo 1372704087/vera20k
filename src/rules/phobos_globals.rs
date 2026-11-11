@@ -580,6 +580,69 @@ pub struct PhobosGlobals {
     /// multipliers summed (`Ext/WarheadType/Hooks.cpp:412-487`).
     #[serde(default)]
     pub merge_building_damage: bool,
+    /// `[General] RadarJamHouses=`, `Nullable<AffectedHouse>` default
+    /// **`Enemies`** (`Ext/Rules/Body.cpp:213`, constructor
+    /// `Ext/Rules/Body.h:657`): which Houses a `RadarJamRadius=` jammer may
+    /// jam (`New/Entity/Ares/RadarJammerClass.cpp:17-18`).
+    #[serde(default = "radar_jam_houses_default")]
+    pub radar_jam_houses: crate::rules::phobos_shields::AffectedHouse,
+    /// `[General] RadarJamDelay=`, `Valueable<int>` default **`30`**
+    /// (`Ext/Rules/Body.cpp:214`, constructor `Ext/Rules/Body.h:658`): frames
+    /// between two jammer scans (`RadarJammerClass.cpp:10`).
+    #[serde(default = "radar_jam_delay_default")]
+    pub radar_jam_delay: i32,
+    /// `[General] NoQueueUpToEnter=`, default `no`
+    /// (`Ext/Rules/Body.cpp:197`, constructor `Ext/Rules/Body.h:640`).
+    #[serde(default)]
+    pub no_queue_up_to_enter: bool,
+    /// `[General] NoQueueUpToEnter.BoardDistance=`, `Valueable<int>` default
+    /// **`384`** leptons (`Ext/Rules/Body.cpp:198`, constructor
+    /// `Ext/Rules/Body.h:641`).
+    #[serde(default = "no_queue_board_distance_default")]
+    pub no_queue_up_to_enter_board_distance: i32,
+    /// `[General] NoQueueUpToEnter.Buildings=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:200`, constructor `Ext/Rules/Body.h:643`).
+    #[serde(default)]
+    pub no_queue_up_to_enter_buildings: Option<bool>,
+    /// `[General] VeteranReload=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
+    #[serde(default = "one_f64")]
+    pub veteran_reload: f64,
+    /// `[General] VeteranEmptyReload=`, `Nullable<double>`
+    /// (`Ext/Rules/Body.cpp:389`, constructor `Ext/Rules/Body.h:809`).
+    #[serde(default)]
+    pub veteran_empty_reload: Option<f64>,
+    /// `[AudioVisual] IsVoiceCreatedGlobal=`, default `no`
+    /// (`Ext/Rules/Body.cpp:306`, constructor `Ext/Rules/Body.h:738`): every
+    /// produced object plays its `VoiceCreated=`.
+    #[serde(default)]
+    pub is_voice_created_global: bool,
+    /// `[General] UseDisguiseMovementSpeed=`, `Nullable<bool>`
+    /// (`Ext/Rules/Body.cpp:221`): a disguised object that names no own
+    /// answer moves at its disguise's speed.
+    #[serde(default)]
+    pub use_disguise_movement_speed: Option<bool>,
+    /// `[General] HoverDrownable=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:475`, constructor `Ext/Rules/Body.h:890`): a hover
+    /// vehicle over deep water drowns unless its type says otherwise.
+    #[serde(default = "true_bool")]
+    pub hover_drownable: bool,
+}
+
+/// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
+fn radar_jam_houses_default() -> crate::rules::phobos_shields::AffectedHouse {
+    crate::rules::phobos_shields::AffectedHouse::ENEMIES
+}
+
+/// `RadarJamDelay=`'s constructor value (`Ext/Rules/Body.h:658`).
+fn radar_jam_delay_default() -> i32 {
+    30
+}
+
+/// `NoQueueUpToEnter.BoardDistance=`'s constructor value
+/// (`Ext/Rules/Body.h:641`).
+fn no_queue_board_distance_default() -> i32 {
+    384
 }
 
 /// `1.0`, the constructor value of the three plain `[CombatDamage]` damage
@@ -717,6 +780,16 @@ impl Default for PhobosGlobals {
             damage_enemies_multiplier_berzerk: None,
             remove_mind_control_silent: false,
             merge_building_damage: false,
+            radar_jam_houses: radar_jam_houses_default(),
+            radar_jam_delay: radar_jam_delay_default(),
+            no_queue_up_to_enter: false,
+            no_queue_up_to_enter_board_distance: no_queue_board_distance_default(),
+            no_queue_up_to_enter_buildings: None,
+            veteran_reload: 1.0,
+            veteran_empty_reload: None,
+            is_voice_created_global: false,
+            use_disguise_movement_speed: None,
+            hover_drownable: true,
         }
     }
 }
@@ -816,6 +889,9 @@ impl PhobosGlobals {
         );
         globals.combat_alert_use_eva =
             audio_visual.read_bool("CombatAlert.UseEVA", globals.combat_alert_use_eva);
+        // `Ext/Rules/Body.cpp:306`: an `[AudioVisual]` read, not General.
+        globals.is_voice_created_global =
+            audio_visual.read_bool("IsVoiceCreatedGlobal", globals.is_voice_created_global);
         // `[General]` force-weapon defaults (`Ext/Rules/Body.cpp:230-232`);
         // the three sections share no key, so their order does not matter.
         let general = ini.section_or_empty("General");
@@ -837,6 +913,38 @@ impl PhobosGlobals {
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
         );
+        // `Ext/Rules/Body.cpp:197-200`: the boarding-queue pair and its
+        // Building override, all `[General]`.
+        globals.no_queue_up_to_enter =
+            general.read_bool("NoQueueUpToEnter", globals.no_queue_up_to_enter);
+        globals.no_queue_up_to_enter_board_distance = general.read_int(
+            "NoQueueUpToEnter.BoardDistance",
+            globals.no_queue_up_to_enter_board_distance,
+        );
+        globals.no_queue_up_to_enter_buildings = general.read_phobos_nullable_bool(
+            "NoQueueUpToEnter.Buildings",
+            globals.no_queue_up_to_enter_buildings,
+        );
+        // `Ext/Rules/Body.cpp:213-214`: the Ares radar-jam scan's House filter
+        // (`Valueable<AffectedHouse>`, default Enemies) and interval.
+        globals.radar_jam_houses = crate::rules::phobos_shields::read_affected_house(
+            general,
+            "RadarJamHouses",
+            globals.radar_jam_houses,
+        );
+        globals.radar_jam_delay = general.read_int("RadarJamDelay", globals.radar_jam_delay);
+        // `Ext/Rules/Body.cpp:221`: a nullable `[General]` read.
+        globals.use_disguise_movement_speed = general.read_phobos_nullable_bool(
+            "UseDisguiseMovementSpeed",
+            globals.use_disguise_movement_speed,
+        );
+        // `Ext/Rules/Body.cpp:388-389`.
+        globals.veteran_reload =
+            general.read_phobos_double("VeteranReload", globals.veteran_reload);
+        globals.veteran_empty_reload =
+            general.read_phobos_nullable_double("VeteranEmptyReload", globals.veteran_empty_reload);
+        // `Ext/Rules/Body.cpp:475`, a `Valueable<bool>` default `yes`.
+        globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
         // `Ext/Rules/Body.cpp:218-219`, `yes`/`no` constructor defaults.
         globals.alternate_flh_on_turret =
             general.read_bool("AlternateFLH.OnTurret", globals.alternate_flh_on_turret);

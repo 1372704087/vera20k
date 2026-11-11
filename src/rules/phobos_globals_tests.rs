@@ -268,3 +268,78 @@ fn the_mind_control_silent_and_merge_building_damage_globals() {
     assert!(!wrong.remove_mind_control_silent);
     assert!(!wrong.merge_building_damage);
 }
+
+/// `[General] RadarJamHouses=` / `RadarJamDelay=` (`Ext/Rules/Body.cpp:213-214`,
+/// constructors `Ext/Rules/Body.h:657-658`) default `Enemies` and `30`, which
+/// is the Ares scan interval they replace.
+#[test]
+fn the_radar_jam_globals_default_and_read_from_general() {
+    use crate::rules::phobos_shields::AffectedHouse;
+
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.radar_jam_houses, AffectedHouse::ENEMIES);
+    assert_eq!(defaults.radar_jam_delay, 30);
+    assert_eq!(read(""), defaults);
+
+    let set = read("[General]\nRadarJamHouses=all\nRadarJamDelay=7\n");
+    assert_eq!(set.radar_jam_houses, AffectedHouse::ALL);
+    assert_eq!(set.radar_jam_delay, 7);
+
+    // `RadarJamHouses` is a `Valueable<AffectedHouse>` here: an unknown token
+    // keeps the live value instead of clearing it.
+    assert_eq!(
+        read("[General]\nRadarJamHouses=bogus\n").radar_jam_houses,
+        AffectedHouse::ENEMIES
+    );
+
+    // The keys belong to `[General]`, not `[AudioVisual]`.
+    assert_eq!(read("[AudioVisual]\nRadarJamDelay=7\n").radar_jam_delay, 30);
+}
+
+/// `[General] NoQueueUpToEnter*` (`Ext/Rules/Body.cpp:197-200`) and
+/// `[General] VeteranReload*` (`:388-389`), constructors `Ext/Rules/Body.h:640-643`
+/// and `:808-809`.
+#[test]
+fn the_board_queue_and_veteran_reload_globals() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.no_queue_up_to_enter);
+    assert_eq!(defaults.no_queue_up_to_enter_board_distance, 384);
+    assert_eq!(defaults.no_queue_up_to_enter_buildings, None);
+    assert_eq!(defaults.veteran_reload, 1.0);
+    assert_eq!(defaults.veteran_empty_reload, None);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[General]\nNoQueueUpToEnter=yes\nNoQueueUpToEnter.BoardDistance=512\n\
+         NoQueueUpToEnter.Buildings=yes\nVeteranReload=0.5\nVeteranEmptyReload=2\n",
+    );
+    assert!(set.no_queue_up_to_enter);
+    assert_eq!(set.no_queue_up_to_enter_board_distance, 512);
+    assert_eq!(set.no_queue_up_to_enter_buildings, Some(true));
+    assert_eq!(set.veteran_reload, 0.5);
+    assert_eq!(set.veteran_empty_reload, Some(2.0));
+}
+
+/// `[General] UseDisguiseMovementSpeed=` (`Ext/Rules/Body.cpp:221`) and
+/// `[AudioVisual] IsVoiceCreatedGlobal=` (`:306`) default `no`, and
+/// `[General] HoverDrownable=` (`:475`, constructor `Ext/Rules/Body.h:890`)
+/// defaults `yes`.
+#[test]
+fn the_disguise_voice_and_hover_globals() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.use_disguise_movement_speed, None);
+    assert!(!defaults.is_voice_created_global);
+    assert!(defaults.hover_drownable, "HoverDrownable constructs yes");
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[General]\nUseDisguiseMovementSpeed=yes\nHoverDrownable=no\n\
+         [AudioVisual]\nIsVoiceCreatedGlobal=yes\n",
+    );
+    assert_eq!(set.use_disguise_movement_speed, Some(true));
+    assert!(!set.hover_drownable);
+    assert!(set.is_voice_created_global);
+
+    // `IsVoiceCreatedGlobal` is an `[AudioVisual]` read, not a `[General]` one.
+    assert!(!read("[General]\nIsVoiceCreatedGlobal=yes\n").is_voice_created_global);
+}

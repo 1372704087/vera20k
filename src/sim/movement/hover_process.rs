@@ -322,6 +322,8 @@ impl Simulation {
         super::super::foot_speed::owner_current_speed(
             entity,
             self.object_type(entity.type_ref(), rules),
+            rules,
+            &self.interner,
             rules.general.veteran_speed,
             &self.houses,
         )

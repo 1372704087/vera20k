@@ -1562,6 +1562,7 @@ impl GameEntity {
     pub(crate) fn start_reloading_ammo(
         &mut self,
         object: &crate::rules::object_type::ObjectType,
+        rules: &crate::rules::ruleset::RuleSet,
         now: i32,
     ) {
         let Some(ammo) = self.ammo() else {
@@ -1571,7 +1572,10 @@ impl GameEntity {
         if current >= object.ammo {
             return;
         }
-        let duration = if current == 0 && object.empty_reload != -1 {
+        #[cfg(not(feature = "phobos"))]
+        let _ = rules;
+        let empty = current == 0 && object.empty_reload != -1;
+        let duration = if empty {
             object.empty_reload
         } else {
             let quotient = if object.pip_wrap() == 0 {
@@ -1588,6 +1592,12 @@ impl GameEntity {
                     .wrapping_mul(quotient),
             )
         };
+        // Phobos hooks the two `StartReloading` duration hand-offs
+        // (`0x6FB0CF` for the empty-clip arm, `0x6FB14C` for the ordinary
+        // one) with `ScaleReloadDurationForVeterancy`
+        // (`Ext/Techno/Hooks.Firing.cpp:1180-1193,1196-1218`).
+        #[cfg(feature = "phobos")]
+        let duration = scale_reload_for_veterancy(self, object, rules, duration, empty);
         self.ammo_reload_timer.start(now, duration);
     }
 
@@ -3683,4 +3693,66 @@ impl GameEntity {
             false
         }
     }
+}
+
+/// Phobos `ScaleReloadDurationForVeterancy`
+/// (`Ext/Techno/Hooks.Firing.cpp:1180-1193`): a non-positive duration and a
+/// rank without the matching additional ability both leave it untouched, and
+/// an accepted scale is `max(1, SafeMultiply(duration, multiplier))` with the
+/// product clamped into `i32` before the truncating conversion.
+///
+/// The multiplier is the type's own key falling back to `[General]`; the
+/// empty-clip arm falls back one step further, from `VeteranEmptyReload=` to
+/// `VeteranReload=` (`:1188-1191`).
+#[cfg(feature = "phobos")]
+fn scale_reload_for_veterancy(
+    entity: &GameEntity,
+    object: &crate::rules::object_type::ObjectType,
+    rules: &crate::rules::ruleset::RuleSet,
+    duration: i32,
+    empty: bool,
+) -> i32 {
+    use crate::rules::phobos_crit::PhobosAbilityFlags;
+    use crate::sim::combat::veterancy::VeterancyRank;
+
+    if duration <= 0 {
+        return duration;
+    }
+    let rank = entity.veterancy.rank_kind();
+    let elite = matches!(rank, VeterancyRank::Elite);
+    if matches!(rank, VeterancyRank::Rookie) {
+        return duration;
+    }
+    let slot = if empty {
+        PhobosAbilityFlags::EMPTY_RELOAD
+    } else {
+        PhobosAbilityFlags::RELOAD
+    };
+    if !object.phobos_abilities.has(slot, elite) {
+        return duration;
+    }
+    let globals = &rules.phobos_globals;
+    let multiplier = if empty {
+        object.phobos_techno_extras.veteran_empty_reload.unwrap_or(
+            globals
+                .veteran_empty_reload
+                .unwrap_or(globals.veteran_reload),
+        )
+    } else {
+        object
+            .phobos_techno_extras
+            .veteran_reload
+            .unwrap_or(globals.veteran_reload)
+    };
+    // `GeneralUtils::SafeMultiply(int, double)`: the double product clamped to
+    // the `i32` range, then `static_cast<int>` (truncation toward zero).
+    let product = f64::from(duration) * multiplier;
+    let clamped = if product > f64::from(i32::MAX) {
+        i32::MAX
+    } else if product < f64::from(i32::MIN) {
+        i32::MIN
+    } else {
+        product as i32
+    };
+    clamped.max(1)
 }

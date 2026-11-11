@@ -274,6 +274,8 @@ pub mod phobos_warhead_anim;
 #[cfg(feature = "phobos")]
 pub mod phobos_warhead_extras;
 #[cfg(feature = "phobos")]
+pub mod phobos_techno_extras;
+#[cfg(feature = "phobos")]
 pub mod phobos_weapon_extras;
 #[cfg(feature = "phobos")]
 pub mod phobos_warp_anim;

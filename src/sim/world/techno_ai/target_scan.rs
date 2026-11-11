@@ -204,6 +204,16 @@ pub(super) trait ScanHost {
     fn estimated_damage(&mut self, target: TargetKind, weapon: Self::Weapon) -> i32;
     /// `SUB [target+0x70], amount` (`0x007099B5`).
     fn debit(&mut self, target: TargetKind, amount: i32);
+    /// Phobos `AutoTargetOwnPosition=` / `.Self=` (`Ext/TechnoType/Body.cpp:
+    /// 898-905`): `None` when the type does not ask for it, otherwise
+    /// `Some(self_target)`.
+    #[cfg(feature = "phobos")]
+    fn auto_target_own_position(&self) -> Option<bool>;
+    /// The target `TechnoClass::TargetSomethingNearby`'s Phobos replacement
+    /// installs: the object itself for `.Self=yes`, otherwise its own cell
+    /// (`Ext/Techno/Hooks.TargetEvaluation.cpp:14-18`).
+    #[cfg(feature = "phobos")]
+    fn own_position_target(&self, self_target: bool) -> TargetKind;
 }
 
 /// `TechnoClass::Retaliate_And_Scan @ 0x00709820(coords, mask)`:
@@ -226,6 +236,18 @@ pub(super) fn retaliate_and_scan<H: ScanHost>(host: &mut H, mask: ScanMission) -
     let draw = host.random_ranged(0, 2);
     let duration = host.targeting_delay(area_guard).wrapping_add(draw);
     host.arm_targeting_timer(frame, duration);
+
+    // Phobos `Ext/Techno/Hooks.TargetEvaluation.cpp:8-23` (`0x7098B9`, size
+    // 6): `AutoTargetOwnPosition=yes` replaces the whole drop-and-acquire
+    // block — the object targets itself or its own cell and jumps straight to
+    // the "is a target held" tail, so no `Greatest_Threat`, no
+    // `DistributedFire` handoff and no damage estimate.
+    #[cfg(feature = "phobos")]
+    if let Some(self_target) = host.auto_target_own_position() {
+        let pick = host.own_position_target(self_target);
+        host.assign_target(Some(pick));
+        return host.target().is_some();
+    }
 
     if host.target().is_some() && host.passively_acquired() {
         let weapon = host.select_weapon(host.target());
@@ -876,6 +898,36 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
             target.estimated_health.debit(amount);
         }
     }
+
+    #[cfg(feature = "phobos")]
+    fn auto_target_own_position(&self) -> Option<bool> {
+        let extras = &self
+            .sim
+            .entity_object_type(self.entity(), self.rules)?
+            .phobos_techno_extras;
+        extras
+            .auto_target_own_position
+            .then_some(extras.auto_target_own_position_self)
+    }
+
+    /// `pThis->GetCell()` for the plain form and `pThis` for `.Self=yes`
+    /// (`Ext/Techno/Hooks.TargetEvaluation.cpp:16-18`). `GetCell` reduces
+    /// `GetCoords()` to its cell, which is the same projection the radar
+    /// request above the placement uses.
+    #[cfg(feature = "phobos")]
+    fn own_position_target(&self, self_target: bool) -> TargetKind {
+        if self_target {
+            return TargetKind::Entity(self.id);
+        }
+        let coords = crate::sim::movement::ground_pose::object_get_coords(
+            self.entity(),
+            self.sim.resolved_terrain.as_ref(),
+        );
+        TargetKind::Cell(
+            crate::util::lepton::lepton_to_cell_packed(coords.x) as u16,
+            crate::util::lepton::lepton_to_cell_packed(coords.y) as u16,
+        )
+    }
 }
 
 impl Simulation {
@@ -1349,6 +1401,16 @@ mod tests {
             let slot = usize::from(target == TargetKind::Entity(2));
             self.health[slot] = i64::from((self.health[slot] as i32).wrapping_sub(amount));
         }
+        /// The oracle rows are the stock scan, which never takes the Phobos
+        /// branch: an unset `AutoTargetOwnPosition=` answers `None`.
+        #[cfg(feature = "phobos")]
+        fn auto_target_own_position(&self) -> Option<bool> {
+            None
+        }
+        #[cfg(feature = "phobos")]
+        fn own_position_target(&self, _self_target: bool) -> TargetKind {
+            unreachable!("the oracle rows never install an own-position target")
+        }
     }
 
     /// Every `techno_target_scan.json` row: the callee sequence with its
@@ -1603,3 +1665,9 @@ mod tests {
         assert_eq!(compared.len(), 35, "{compared:?}");
     }
 }
+
+/// Phobos `AutoTargetOwnPosition=` through the shared scan
+/// (`Ext/Techno/Hooks.TargetEvaluation.cpp:8-23`, hook `0x7098B9`).
+#[cfg(all(test, feature = "phobos"))]
+#[path = "auto_target_own_position_tests.rs"]
+mod auto_target_own_position_tests;

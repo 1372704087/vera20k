@@ -107,6 +107,7 @@ Supported extensions:
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
 - [Warhead remove disguise](phobos-warhead-remove-disguise.md) (`RemoveDisguise=yes` strips a hit target's disguise)
 - [Warhead ammo](phobos-warhead-ammo.md) (`Ammo=N` adjusts each hit target's ammo with the native clamp)
+- [Warhead taunt](phobos-warhead-taunt.md) (`Taunt=yes` forces each hit target onto Attack against the firer)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)
 - [AttachEffect](phobos-attach-effect.md) (`[AttachEffectTypes]` catalog, warhead and TechnoType attach lists, stat multipliers, tint, discard conditions, expire/revenge/reflect weapons and the weapon-side gates)
 - [Critical hits](phobos-critical-hit.md) (per-warhead `Crit.*` chance, extra damage, second warhead and animations, `ImmuneToCrit`, rank abilities)

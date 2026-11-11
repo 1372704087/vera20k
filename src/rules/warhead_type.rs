@@ -446,6 +446,11 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `Taunt=` (`Body.cpp:444`, default false): each hit target is
+    /// forced into `Mission::Attack` against the detonation's owner
+    /// (`Ext/WarheadType/Detonate.cpp:236-237`).
+    #[cfg(feature = "phobos")]
+    pub taunt: bool,
     /// Phobos `Ammo=` (`Body.cpp:452`, default 0): the per-target ammo delta,
     /// clamped to `0..type->Ammo` (`Ext/WarheadType/Detonate.cpp:221-222,
     /// 923-932`).
@@ -924,6 +929,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            taunt: section.read_bool("Taunt", false),
             #[cfg(feature = "phobos")]
             ammo: section.read_int("Ammo", 0),
             #[cfg(feature = "phobos")]

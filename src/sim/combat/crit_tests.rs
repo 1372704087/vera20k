@@ -631,6 +631,35 @@ fn return_warhead_strikes_the_firer_back() {
     );
 }
 
+/// Phobos `DetonateOnOneUnit`'s Taunt arm
+/// (`Ext/WarheadType/Detonate.cpp:236-237`): every hit target is forced onto
+/// `Mission::Attack` against the firing techno; the default is off.
+#[cfg(feature = "phobos")]
+#[test]
+fn taunt_forces_the_hit_targets_mission_onto_the_firer() {
+    use crate::sim::mission::{MissionId, MissionType};
+    let mission = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .mission
+            .current()
+    };
+    assert_eq!(
+        mission("Taunt=yes\n"),
+        MissionId::from_known(MissionType::Attack),
+        "Taunt overrides the target's mission"
+    );
+    assert_ne!(
+        mission(""),
+        MissionId::from_known(MissionType::Attack),
+        "Taunt defaults to no"
+    );
+}
+
 /// Phobos `WarheadTypeExt::ApplyAmmoModifier`
 /// (`Ext/WarheadType/Detonate.cpp:221-222,923-932`): `Ammo` adds to the
 /// target and clamps into `0..type->Ammo`; the default 0 leaves it alone.

@@ -336,6 +336,19 @@ pub(crate) fn detonate(
             impact,
             effects,
         );
+        // `DetonateOnOneUnit`'s Taunt arm (`Detonate.cpp:236-237`): after the
+        // penetrate/displacement effects and before the shield modifiers, a
+        // hit target is ordered to `Mission::Attack` the firing techno.
+        #[cfg(feature = "phobos")]
+        if warhead.taunt && source_id != 0 {
+            let _ = world.override_mission_on_damage_response(
+                target_id,
+                source_id,
+                rules,
+                overlay_registry,
+                run.effects(),
+            );
+        }
         // `DetonateOnOneUnit`'s `ApplyShieldModifiers(pTarget)`
         // (`Detonate.cpp:240`): after the PenetratesTransport arm and before
         // the attach-effect and crit blocks, so the receiver's damage hits

@@ -446,6 +446,12 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `CreateGap=` (`Body.cpp:158`, default 0, cells): a positive
+    /// value shrouds that radius for enemies of the firing house; negative
+    /// reshrouds the whole map for every non-allied house
+    /// (`Ext/WarheadType/Detonate.cpp:51-80`).
+    #[cfg(feature = "phobos")]
+    pub create_gap: i32,
     /// Phobos `Reveal=` (`Body.cpp:157`, default 0, cells): a positive value
     /// reveals that radius to the firing house; negative reveals the whole
     /// map for it (`Ext/WarheadType/Detonate.cpp:82-100`).
@@ -939,6 +945,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            create_gap: section.read_int("CreateGap", 0),
             #[cfg(feature = "phobos")]
             reveal: section.read_int("Reveal", 0),
             #[cfg(feature = "phobos")]

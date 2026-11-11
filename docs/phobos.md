@@ -110,6 +110,7 @@ Supported extensions:
 - [Warhead taunt](phobos-warhead-taunt.md) (`Taunt=yes` forces each hit target onto Attack against the firer)
 - [Warhead CanKill](phobos-warhead-can-kill.md) (`CanKill=no` leaves a lethal victim at 1 HP)
 - [Warhead Reveal](phobos-warhead-reveal.md) (`Reveal=N` reveals a radius, or the whole map when negative, to the firing house)
+- [Warhead CreateGap](phobos-warhead-create-gap.md) (`CreateGap=N` shrouds a radius, or the whole map when negative, for enemies)
 - [Initial spawns number](phobos-initial-spawns-number.md) (`InitialSpawnsNumber=N` starts only N pool nodes live; the rest regenerate)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)
 - [AttachEffect](phobos-attach-effect.md) (`[AttachEffectTypes]` catalog, warhead and TechnoType attach lists, stat multipliers, tint, discard conditions, expire/revenge/reflect weapons and the weapon-side gates)

@@ -655,6 +655,34 @@ fn reveal_warhead_reveals_the_map_for_its_owner() {
     );
 }
 
+/// Phobos `WarheadTypeExt::Detonate`'s CreateGap block
+/// (`Ext/WarheadType/Detonate.cpp:51-80`): a negative value reshrouds the
+/// whole map for every non-allied house while the firing house keeps its
+/// map; the default 0 does nothing.
+#[cfg(feature = "phobos")]
+#[test]
+fn create_gap_reshrouds_the_map_for_non_allies() {
+    let maps = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let americans = sim.interner.intern("Americans");
+        let russians = sim.interner.intern("Russians");
+        sim.reveal_map_for_owner(americans, &rules);
+        sim.reveal_map_for_owner(russians, &rules);
+        assert!(sim.fog.is_cell_revealed(russians, 0, 0));
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        (
+            sim.fog.is_cell_revealed(americans, 0, 0),
+            sim.fog.is_cell_revealed(russians, 0, 0),
+        )
+    };
+    assert_eq!(maps(""), (true, true), "CreateGap defaults to 0");
+    assert_eq!(
+        maps("CreateGap=-1\n"),
+        (true, false),
+        "the non-allied house is reshrouded, the owner keeps its map"
+    );
+}
+
 /// Phobos `DetonateOnOneUnit`'s Taunt arm
 /// (`Ext/WarheadType/Detonate.cpp:236-237`): every hit target is forced onto
 /// `Mission::Attack` against the firing techno; the default is off.

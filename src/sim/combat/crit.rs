@@ -127,6 +127,22 @@ pub(crate) fn detonate(
             .get(source_id)
             .map(|source| source.owner())
     });
+    // `WarheadTypeExt::Detonate`'s CreateGap block (`Detonate.cpp:51-80`):
+    // before Reveal, a positive radius conceals for enemies of the firing
+    // house; a negative value reshrouds every non-allied house.
+    #[cfg(feature = "phobos")]
+    if warhead.create_gap != 0
+        && let Some(owner) = house
+    {
+        let context = crate::sim::world::UninitContext::new(rules, overlay_registry);
+        let _ = world.apply_warhead_create_gap(
+            owner,
+            [impact.x, impact.y, impact.z],
+            warhead.create_gap,
+            rules,
+            context,
+        );
+    }
     // `WarheadTypeExt::Detonate`'s Reveal block (`Detonate.cpp:82-100`): a
     // positive radius reveals for the firing house on the client maps its
     // RevealArea gate admits; a negative value reveals the whole map for that

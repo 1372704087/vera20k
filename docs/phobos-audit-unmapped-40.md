@@ -62,7 +62,79 @@ Classification rule used here:
 | 34 | Warheads | Spawn powerup crate | `[WarheadType] SpawnsCrate{N}.Type` / `.Weight` parsed as a composite-key loop in `WarheadTypeExt::LoadFromINIFile` `Ext/WarheadType/Body.cpp:520-560`, with the unnumbered aliases `SpawnsCrate.Type` (`:535`) and `SpawnsCrate.Weight` (`:549`) for entry 0, weight defaulting to 1; the first absent/invalid type ends the list. Consumer `Ext/WarheadType/Detonate.cpp:113-118`: one `Random.RandomDouble()` per detonation with a non-empty list, `GeneralUtils::ChooseOneWeighted`, then `MapClass::Instance.PlacePowerupCrate(Coord2Cell(coords), type)`. | Read at `rules/phobos_spawns_crate.rs:24-65` (`types`/`weights`, aliases, first-absent end, weight 1) with tests `rules/phobos_spawns_crate_tests.rs`; consumed at `sim/combat/crit.rs:690` `apply_spawns_crate` (one `scenario_rng.random_double` → `phobos_extra_warheads::choose_one_weighted` `:140` → `crates::place_crate(..., Some(powerup))`), called from `detonate` `:145-156` between TransactMoney and LaunchSW, exactly Phobos' order. `MapClass::Place_Crate @ 0x0056BEC0` is `sim/crates.rs:347`; the powerup enum is `rules/powerups.rs:43-74`. | implemented | `Ext/WarheadType/Body.cpp:531`, `Ext/WarheadType/Detonate.cpp:113` → `rules/phobos_spawns_crate.rs:29`, `sim/combat/crit.rs:690`, `sim/crates.rs:347` |
 | 35 | Warheads | Taunt warhead | `[WarheadType] Taunt` (bool, default false; declared `Body.h:265`, default `:567`) read `Ext/WarheadType/Body.cpp:444`. Consumer `Ext/WarheadType/Detonate.cpp:236-237` inside `DetonateOnOneUnit`: `if (this->Taunt && pOwner) pTarget->Override_Mission(Mission::Attack, pOwner, nullptr)` — after the disguise/reverse-engineer/return-warhead/penetrate arms and before the shield and AttachEffect passes, one target at a time, no source means no taunt. | Key absent. `TechnoClass::Override_Mission @ 0x007013A0` has one owner (`sim/mission/authority.rs:50-67`, `:663 override_mission_on_damage_response`) and its damage-retaliation caller already forces `Mission::Attack` on the attacker (`sim/combat/world_receiver.rs:1980-2012`); the warhead site would only call that same override with the detonation's owner. | key-missed | `Ext/WarheadType/Body.cpp:444`, `Ext/WarheadType/Detonate.cpp:236` → absent; owner `sim/mission/authority.rs:663`, caller `sim/combat/world_receiver.rs:2012` |
 | 36 | Warheads | Trigger specific NotHuman infantry Death anim sequence | `[WarheadType] NotHuman.DeathSequence` (int 1..5, default -1 = unused; declared `Body.h:138`, default `:417`) read `Ext/WarheadType/Body.cpp:289`. Consumer `InfantryClass_ReceiveDamage_NotHuman` hook `0x518505` (`Ext/Techno/Hooks.ReceiveDamage.cpp:310-343`): the sequence starts at `Die1`, the type/global `NotHuman.RandomDeathSequence` may pick `Die1..Die5`, then a warhead value `> 0` overrides it with `min(Die(whSequence), Die(5))`; applied regardless of `NotHuman=` because the hook only looks at the incoming warhead. | Type/global random arm ported at `sim/world/infantry_death.rs:605-625` (facts read at `:613-623`, one RNG draw); the warhead value is never read — `WarheadType` has no `not_human_death_sequence` field and the death path sees only the killing warhead's `InfDeath` (`sim/combat/world_receiver.rs:2994`). | key-missed | `Ext/WarheadType/Body.cpp:289`, `Ext/Techno/Hooks.ReceiveDamage.cpp:336` → absent; owner `sim/world/infantry_death.rs:613` |
-| 37 | Warheads | Warhead that can not kill | TODO — not audited | TODO — not audited | TODO — not audited | TODO — not audited |
-| 38 | Warheads | Customize whether warhead can prevent crew escape from techno | TODO — not audited | TODO — not audited | TODO — not audited | TODO — not audited |
-| 39 | Weapons | Radiation enhancements | TODO — not audited | TODO — not audited | TODO — not audited | TODO — not audited |
-| 40 | Weapons | Range finding in cylinder | TODO — not audited | TODO — not audited | TODO — not audited | TODO — not audited |
+| 37 | Warheads | Warhead that can not kill | `[WarheadType] CanKill` (bool, default **true**, so the no-kill arm is opt-in; declared `Body.h:239`, default `:539`) read `Ext/WarheadType/Body.cpp:369`. Consumer inside the `TechnoClass_ReceiveDamage_Shield` hook `0x701900` (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-190`): `(!CanKill \|\| AE.Unkillable) && Health > 0 && nDamageLeft != 0 && CanTargetHouse(...) && MapClass::GetTotalDamage(nDamageLeft, ...) >= Health` zeroes the remaining damage, leaves `Health` and `EstimatedHealth` at 1 and sets `SkipLowDamageCheck`. | Key absent. The identical clamp is `Simulation::apply_unkillable_clamp` (`sim/attach_effect.rs:2672-2720`: total-damage recompute, house gate, `health.set(1)` + `estimated_health.reset(1)`), called from the receive-damage path at `sim/combat/world_receiver.rs:1572`, but it opens only for the AttachEffect `Unkillable` flag; its own doc records that `WarheadTypeExt::CanKill` is unported (`sim/attach_effect.rs:2669-2671`). | key-missed | `Ext/WarheadType/Body.cpp:369`, `Ext/Techno/Hooks.ReceiveDamage.cpp:178` → absent; owner `sim/attach_effect.rs:2672`, caller `sim/combat/world_receiver.rs:1572` |
+| 38 | Warheads | Customize whether warhead can prevent crew escape from techno | Three keys, all default false (`Body.h:269` + defaults `:571`): `[WarheadType] PreventCrewEscape`, `PreventPassengerEscape`, `PreventOccupantEscape`, read `Ext/WarheadType/Body.cpp:448-450`. Consumers: the `0x702672` killing-blow hook (`Ext/Techno/Hooks.ReceiveDamage.cpp:259-280`) latches `TechnoExt::PreventCrewEscape` so the class `GetCrewCount` vtable wrappers answer 0 (`Ext/Techno/Hooks.cpp:2470-2491`, jumps `0x7E2574`/`0x7EB328`/`0x7F5F40`/`0x7E418C`), and calls `KillPassengers(pSource)` for the passenger key; the `BuildingClass_ReceiveDamage` hook `0x442635` (`:282-295`) calls `KillOccupants(pSource)` and skips `ClearOccupants` for the occupant key. | All three keys absent. The gates they feed are ported: the killing call's receiver flag 6 reaches `spawn_vehicle_crew(..., prevent_crew_escape, ...)` (`sim/combat/world_receiver.rs:2889-2895` → `sim/crew_survival.rs:755`), dying-unit passengers release at `sim/crew_survival.rs:880`, and a dead building's absorbed occupants leave in `SpawnSurvivors` Phase A (`sim/crew_survival.rs:436-438` → `:580`). No per-techno latch, no `KillPassengers`/`KillOccupants` kill-instead-of-release arm, no warhead read. | key-missed | `Ext/WarheadType/Body.cpp:448-450`, `Ext/Techno/Hooks.ReceiveDamage.cpp:273`, `:288` → absent; owners `sim/crew_survival.rs:755`, `:580`, `sim/combat/world_receiver.rs:2893` |
+| 39 | Weapons | Radiation enhancements | The section defers to Custom Radiation Types: `[Radiation] UseGlobalRadApplicationDelay` (default true), `RadApplicationDelay.Building` (0), `RadBuildingDamageMaxCount` (-1), `RadHasOwner` (false), `RadHasInvoker` (false) read `Ext/Rules/Body.cpp:128-134`; per-type copies plus `RadSiteWarhead.Detonate` / `.Detonate.Full` read `New/Type/RadTypeClass.cpp:27-40`. Consumers: the `BuildingClass_AI_Radiation` hook `0x43FB23` (`Ext/RadSite/Hooks.cpp:107-196`) applies the building delay and the per-site `BuildingDamageMaxCount` cap (`:145-147`) with the type's level sort/factor; the Foot AI hook `0x4DA59F` (`:199+`) applies the foot delay; `RadSiteExt::CreateInstance` copies owner/invoker only when the flags ask. | Mostly ported: catalog `rules/phobos_radiation.rs:24-65`, per-type reads `:339-398`, effective projection `:107-160`; `UseGlobalRadApplicationDelay` + `RadApplicationDelay.Building` enforced in the building loop (`sim/combat/world_receiver.rs:395-421`), `RadSiteWarhead.Detonate(.Full)` in `:210-240`, `RadHasOwner`/`RadHasInvoker` copied onto the site (`sim/radiation.rs:810-816`), `RadType=` binding `rules/weapon_type.rs:578`. `RadBuildingDamageMaxCount` is read (`rules/ruleset.rs:3497`, `rules/phobos_radiation.rs:251-255`) but never consumed: the building loop has no per-site damage counter, so a positive cap does nothing. Tests `sim/combat/combat_tests.rs:12860`, `:13006`. | partial | `New/Type/RadTypeClass.cpp:27-40`, `Ext/RadSite/Hooks.cpp:145` → `rules/phobos_radiation.rs:339`, `sim/combat/world_receiver.rs:421`, `sim/radiation.rs:810`; max-count cap absent |
+| 40 | Weapons | Range finding in cylinder | `[General] CylinderRangefinding` (bool, default false; `Ext/Rules/Body.h:442`, default `:943`) read `Ext/Rules/Body.cpp:525`; `[WeaponType] CylinderRangefinding` (`Nullable<bool>`, `Ext/WeaponType/Body.h:120`, default `:211`) read `Ext/WeaponType/Body.cpp:207`. Hook `0x6F755A` `TechnoClass_IsCloseEnough_CylinderRangefinding` (`Ext/Techno/Hooks.Firing.cpp:1265-1274`): `WeaponTypeExt::CylinderRangefinding.Get(RulesExt::Global()->CylinderRangefinding)` OR the vanilla `WhatAmI() == Aircraft` test takes `0x6F75B2` (planar `dx² + dy²`), else `0x6F7568` (3-D distance). A false type value falls back to the global, so `false` means "use default", not "disable". | Keys absent. The branch they choose is ported: `direct_reach_is_planar` (`sim/combat/in_range.rs:207-210`) answers `ARES_ENABLED && category == Aircraft` for both reach callers (`:747-751`, `:1366-1370`), the module doc names the same `0x006F75B2` planar branch and the Ares `Arcing_Aircraft` substitution (`:187-191`). No `CylinderRangefinding` reader anywhere, so a ground unit never takes the planar arm. | key-missed | `Ext/Techno/Hooks.Firing.cpp:1270`, `Ext/WeaponType/Body.cpp:207` → absent; owner `sim/combat/in_range.rs:207` |
+
+## Summary (all 40)
+
+| Classification | Count | Rows |
+|----------------|-------|------|
+| implemented | 14 | 2, 3, 6, 9, 12, 15, 16, 17, 18, 19, 20, 22, 23, 34 |
+| partial | 3 | 8, 28, 39 |
+| behaviour-only | 1 | 26 |
+| key-missed | 21 | 1, 4, 5, 7, 10, 13, 14, 21, 24, 25, 27, 29, 30, 31, 32, 33, 35, 36, 37, 38, 40 |
+| not-started | 1 | 11 |
+
+Thirty-eight of the forty sections should leave "unmapped". Only two stay
+design-tracked: 26 (`behaviour-only` — a `TUR.SHP` asset binding and SHP turret
+draw layer) and 11 (`not-started` — `HouseClass::RecalcCenter` and the
+display's start-position techno scan are both unported).
+
+### Already implemented — remove from unmapped (14)
+
+2, 3, 6, 9, 12, 15, 16, 17, 18, 19, 20, 22, 23, 34. Each row names the VERA
+reader and consumer; 34 (`SpawnsCrate{N}.Type/.Weight`, `SpawnsCrate.Type/.Weight`)
+is fully ported at `rules/phobos_spawns_crate.rs:29` and
+`sim/combat/crit.rs:690`.
+
+### Partial — remove from unmapped, record the missing key (3)
+
+- 8 Cloak Enhancement: `[TechnoType] CloakAnims`, `[TechnoType] DecloakAnims`,
+  `[AudioVisual] CloakAnims`, `[AudioVisual] DecloakAnims`
+  (`Cloak.KickOutParasite` is ported).
+- 28 Damage technos underground: `[WarheadType] AffectsUnderground`
+  (`PlayAnimUnderground`, `PlayAnimAboveSurface` are ported).
+- 39 Radiation enhancements: `[RadType] RadBuildingDamageMaxCount` (read, not
+  enforced; every other key in the section is ported and consumed).
+
+### Key-missed — the scanner should extract these keys (21)
+
+| # | Keys to extract |
+|---|-----------------|
+| 1 | `[BuildingType] IsDestroyableObstacle` |
+| 4 | `[Projectile] AU` |
+| 5 | `[General] AISuperWeaponDelay` |
+| 7 | `[General] AutoTarget.NoThreatBuildings`, `AutoTargetAI.NoThreatBuildings`; `[WeaponType] AttackNoThreatBuildings` |
+| 10 | `[AudioVisual] RevealHouses`; `[Country] RevealHouses`; `[TechnoType] RevealHouses` |
+| 13 | `[TechnoType] InitialSpawnsNumber` |
+| 14 | `[TechnoType] LowDeployPriority`; client `[Phobos] PriorityDeployFiltering` |
+| 21 | `[General] RecountBurst`; `[TechnoType] RecountBurst` |
+| 24 | `[CombatDamage] BerzerkTargeting` |
+| 25 | `[General] AmphibiousEnter`, `AmphibiousUnload`; both as `[TechnoType]` Nulleables |
+| 27 | `[VehicleType] TurretResponse` |
+| 29 | `[WarheadType] Ammo` |
+| 30 | `[WarheadType] RemoveDisguise` |
+| 31 | `[WarheadType] Reveal` |
+| 32 | `[WarheadType] ReverseEngineer` |
+| 33 | `[WarheadType] CreateGap` |
+| 35 | `[WarheadType] Taunt` |
+| 36 | `[WarheadType] NotHuman.DeathSequence` |
+| 37 | `[WarheadType] CanKill` |
+| 38 | `[WarheadType] PreventCrewEscape`, `PreventPassengerEscape`, `PreventOccupantEscape` |
+| 40 | `[General] CylinderRangefinding`; `[WeaponType] CylinderRangefinding` |
+
+## Premise issues found
+
+- `sim/combat/crit.rs:23` still says `SpawnsCrate.Types` is unported and that
+  its `RandomDouble` is missed. The arm exists (`:690`, called at `:145-156`),
+  in Phobos' order after TransactMoney. Only `CreateGap`, `Reveal` and
+  `InterceptBullets` remain unported in that residual.
+- `rules/phobos_radiation.rs:19-26` says the per-type `RadSiteWarhead.Detonate
+  (.Full)`, `RadHasOwner` and `RadHasInvoker` are "read … but not consumed".
+  They are consumed (`sim/radiation.rs:810-816`,
+  `sim/combat/world_receiver.rs:210-240`); only `RadBuildingDamageMaxCount` is
+  read and unused.
+- Row 1's section body spells the key `IsDestroyableBlockage`; the reader is
+  `IsDestroyableObstacle` (`Ext/BuildingType/Body.cpp:221`).

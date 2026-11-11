@@ -3034,6 +3034,38 @@ fn ares_own_detach_all_keeps_the_docked_missile() {
     );
 }
 
+/// Phobos `InitialSpawnsNumber=` (`Ext/TechnoType/Body.cpp:1117`,
+/// `Ext/Techno/Hooks.Misc.cpp:162-178`): only the first N nodes start live;
+/// the tail waits `SpawnRegenRate` before regenerating; unset uses
+/// `SpawnsNumber`.
+#[cfg(feature = "phobos")]
+#[test]
+fn initial_spawns_number_leaves_the_tail_dead_until_regen() {
+    let initial = |keys: &str| {
+        let rules = spawner_rules_with_carrier_keys(keys);
+        let mut interner = crate::sim::intern::test_interner();
+        let obj = rules.object("CARRIER").expect("carrier");
+        crate::sim::spawn_manager::init_spawn_manager(obj, &rules, &mut interner, 100)
+            .expect("spawn pool")
+    };
+    let manager = initial("InitialSpawnsNumber=2");
+    assert_eq!(manager.slots().len(), 3);
+    assert!(manager.slots()[0].timer.expired(100));
+    assert!(manager.slots()[1].timer.expired(100));
+    assert!(
+        !manager.slots()[2].timer.expired(100),
+        "the dead tail waits for its regeneration timer"
+    );
+    assert!(!manager.slots()[2].timer.expired(699));
+    assert!(manager.slots()[2].timer.expired(700), "SpawnRegenRate=600");
+
+    let manager = initial("");
+    assert!(
+        manager.slots().iter().all(|slot| slot.timer.expired(100)),
+        "an unset key starts every SpawnsNumber node live"
+    );
+}
+
 /// Rules with extra `Spawner.*` keys on `[CARRIER]`.
 #[cfg(feature = "phobos")]
 fn spawner_rules_with_carrier_keys(keys: &str) -> RuleSet {

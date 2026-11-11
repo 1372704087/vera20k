@@ -1791,6 +1791,11 @@ pub struct ObjectType {
     pub spawns: Option<String>,
     /// Spawn pool capacity (`SpawnsNumber=`). Default 0.
     pub spawns_number: i32,
+    /// Phobos `InitialSpawnsNumber=` (`Ext/TechnoType/Body.cpp:1117`,
+    /// `Nullable<int>`): how many nodes start live, else `SpawnsNumber=`. The
+    /// rest start dead and regenerate (`Ext/Techno/Hooks.Misc.cpp:162-178`).
+    #[cfg(feature = "phobos")]
+    pub initial_spawns_number: Option<i32>,
     /// Frames before a destroyed spawn child is rebuilt (`SpawnRegenRate=`).
     pub spawn_regen_rate: u32,
     /// Frames a docked child spends reloading after landing (`SpawnReloadRate=`).
@@ -5858,6 +5863,8 @@ impl ObjectType {
             // owner reads `Spawns=`.
             spawns: None,
             spawns_number: section.read_int("SpawnsNumber", 0),
+            #[cfg(feature = "phobos")]
+            initial_spawns_number: section.read_phobos_nullable_int("InitialSpawnsNumber", None),
             spawn_regen_rate: section.read_int("SpawnRegenRate", 0).max(0) as u32,
             spawn_reload_rate: section.read_int("SpawnReloadRate", 0).max(0) as u32,
             missile_spawn: section.read_bool("MissileSpawn", false),

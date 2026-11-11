@@ -82,6 +82,12 @@ pub struct CountryRules {
     pub multiplay_passive: bool,
     /// `WallOwner=` allows this house type's buildings to claim nearby map walls.
     pub wall_owner: bool,
+    /// Phobos `[Country] RevealHouses=` (`Ext/HouseType/Body.cpp:30`,
+    /// `Nullable<AffectedHouse>`): which players a techno of this country's
+    /// sight reveals to; `None` inherits `[AudioVisual]`
+    /// (`Ext/Techno/Hooks.cpp:2578`).
+    #[cfg(feature = "phobos")]
+    pub reveal_houses: Option<crate::rules::phobos_shields::AffectedHouse>,
     /// Phobos `AttachEffect.AttachTypes` on a country.
     ///
     /// RESIDUAL: read but not attached. Phobos `TechnoExt::InitializeAttachEffects`
@@ -281,6 +287,8 @@ impl Default for CountryRules {
             multiplay_passive: false,
             wall_owner: true,
             #[cfg(feature = "phobos")]
+            reveal_houses: None,
+            #[cfg(feature = "phobos")]
             attach_effect_attach_types: Vec::new(),
             #[cfg(feature = "phobos")]
             attach_effect_duration_overrides: Vec::new(),
@@ -332,6 +340,12 @@ impl CountryRules {
             multiplay: section.read_bool("Multiplay", Self::default().multiplay),
             multiplay_passive: section.read_bool("MultiplayPassive", false),
             wall_owner: section.read_bool("WallOwner", true),
+            #[cfg(feature = "phobos")]
+            reveal_houses: section.read_phobos_nullable_with(
+                "RevealHouses",
+                None,
+                crate::rules::phobos_shields::AffectedHouse::parse,
+            ),
             #[cfg(feature = "phobos")]
             attach_effect_attach_types: section
                 .read_list("AttachEffect.AttachTypes", 0x800)
@@ -10691,6 +10705,17 @@ impl RuleSet {
     pub fn country_wall_owner(&self, id: &str) -> bool {
         self.country_rules(id)
             .is_none_or(|country| country.wall_owner)
+    }
+
+    /// Phobos `[Country] RevealHouses=` (`Ext/HouseType/Body.cpp:30`): the
+    /// country override, `None` when unset.
+    #[cfg(feature = "phobos")]
+    pub fn country_reveal_houses(
+        &self,
+        id: &str,
+    ) -> Option<crate::rules::phobos_shields::AffectedHouse> {
+        self.country_rules(id)
+            .and_then(|country| country.reveal_houses)
     }
 
     /// HouseType+148 income float; an unknown country has the neutral default.

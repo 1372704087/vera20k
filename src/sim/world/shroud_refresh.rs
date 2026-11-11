@@ -2043,12 +2043,48 @@ impl Simulation {
         // Each logical PlayerPtr has its own native Techno +250/+254/+260.
         // Publish all source state before any RevealArea receiver can reenter;
         // a client whose +250 is already set takes no part.
+        // Phobos `TechnoClass_RevealHouses` (`0x70AF22`/`0x70B15A`/`0x70B1F2`,
+        // `Ext/Techno/Hooks.cpp:2562-2596`): the reveal reaches the current
+        // player only when the techno's resolved `RevealHouses` (type, then
+        // country, then `[AudioVisual]`) admits the owner against it. Each
+        // logical client here is one such player.
+        #[cfg(feature = "phobos")]
+        let reveal_houses = {
+            let rules = context.rules();
+            let country = self
+                .houses
+                .get(&owner)
+                .and_then(|house| house.country())
+                .map(|country| self.interner.resolve(country));
+            self.interner
+                .object_type(entity.type_ref(), rules)
+                .and_then(|object| object.phobos_reveal_houses)
+                .or_else(|| country.and_then(|country| rules.country_reveal_houses(country)))
+                .unwrap_or(rules.phobos_globals.reveal_houses)
+        };
         let admitted: Vec<_> = requested_viewers
             .iter()
             .copied()
             .filter(|&viewer| self.fog.retain_source_sight(id, viewer, owner, &admission))
             .filter(|&viewer| {
                 vision::reveal_admits(&self.house_alliances, owner, viewer, config, &self.interner)
+            })
+            .filter(|&viewer| {
+                #[cfg(feature = "phobos")]
+                {
+                    crate::sim::combat::can_target_house(
+                        reveal_houses,
+                        owner,
+                        viewer,
+                        &self.houses,
+                        &self.house_alliances,
+                        &self.interner,
+                    )
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    true
+                }
             })
             .collect();
         // Register each accepted map contribution before walking any cells.

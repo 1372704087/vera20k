@@ -42,6 +42,11 @@ fn true_bool() -> bool {
     true
 }
 
+/// The `Team` constructor default for `[AudioVisual] RevealHouses=`.
+fn reveal_houses_default() -> AffectedHouse {
+    AffectedHouse::TEAM
+}
+
 /// A `Valueable<float>` global constructed 1.0, for serde defaults.
 fn one_f32() -> crate::util::native_x87::NativeF32Bits {
     crate::util::native_x87::NativeF32Bits::ONE
@@ -447,6 +452,12 @@ pub struct PhobosGlobals {
     /// (`Ext/House/Hooks.cpp:508-541`). Unset keeps the stock cadence.
     #[serde(default)]
     pub ai_superweapon_delay: Option<i32>,
+    /// `[AudioVisual] RevealHouses=` (`Valueable<AffectedHouse>`, default
+    /// `Team`, `Ext/Rules/Body.cpp:711`, constructor `Body.h:1063`): which
+    /// players a techno's sight reveals to when neither its type nor its
+    /// country overrides (`Ext/Techno/Hooks.cpp:2562-2596`).
+    #[serde(default = "reveal_houses_default")]
+    pub reveal_houses: AffectedHouse,
     /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
     /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
     /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
@@ -638,6 +649,7 @@ impl Default for PhobosGlobals {
             auto_target_ai_no_threat_buildings: true,
             recount_burst: false,
             ai_superweapon_delay: None,
+            reveal_houses: AffectedHouse::TEAM,
             berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
@@ -691,6 +703,11 @@ impl PhobosGlobals {
             audio_visual,
             "DisplayIncome.Houses",
             globals.display_income_houses,
+        );
+        globals.reveal_houses = crate::rules::phobos_shields::read_affected_house(
+            audio_visual,
+            "RevealHouses",
+            globals.reveal_houses,
         );
         // `[AudioVisual] Promote.VeteranAnimation=` / `.EliteAnimation=`
         // (`Ext/Rules/Body.cpp:316-317`): `ValueableVector<AnimTypeClass*>`

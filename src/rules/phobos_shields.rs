@@ -42,6 +42,8 @@ impl AffectedHouse {
     pub const ALLIES: Self = Self(0x2);
     pub const ENEMIES: Self = Self(0x4);
     pub const NEUTRAL: Self = Self(0x8);
+    /// `Team` = Owner | Allies (`Utilities/Enum.h`, the `RevealHouses` default).
+    pub const TEAM: Self = Self(Self::OWNER.0 | Self::ALLIES.0);
     pub const ALL: Self = Self(Self::OWNER.0 | Self::ALLIES.0 | Self::ENEMIES.0 | Self::NEUTRAL.0);
 
     pub fn bits(self) -> u8 {
@@ -65,7 +67,7 @@ impl AffectedHouse {
                 "enemies" | "enemy" => Self::ENEMIES,
                 "neutral" => Self::NEUTRAL,
                 // Team = Owner | Allies, Others = NotOwner.
-                "team" => Self(Self::OWNER.0 | Self::ALLIES.0),
+                "team" => Self::TEAM,
                 "others" => Self(Self::ALLIES.0 | Self::ENEMIES.0),
                 "all" => Self::ALL,
                 "none" => Self::NONE,

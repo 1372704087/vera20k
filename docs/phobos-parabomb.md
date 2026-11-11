@@ -114,4 +114,8 @@ owner as `RuleSet::general.bomb_parachute`; an unset type key reads it.
   ground detonation.
 - `src/sim/combat/phobos_bullet_init_tests.rs`
   `a_parachuted_bullet_type_starts_its_descent_at_the_general_cap` — the Fire
-  admission state and the `Parachuted.MaxFallRate=` fallback.
+  admission state and the `Parachuted.MaxFallRate=` fallback, and
+  `a_parachuted_bullet_spawns_its_bomb_parachute_canopy` — the
+  `BombParachute=` canopy at the spawn coordinate with the firing House's
+  remap; `an_unset_parachuted_type_keeps_the_straight_trajectory` — an unset
+  `Parachuted=` admits no descent state and no canopy.

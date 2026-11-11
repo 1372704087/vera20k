@@ -842,13 +842,15 @@ pub(super) fn choose_unit_crate_type<'r>(
     let human = house.is_controlled_by_human(session.game_mode_nonzero());
     let bases = session.game_options().bases;
     let ids = rules.type_array_ids(ObjectCategory::Vehicle);
-    let eligible = |candidate: &crate::rules::object_type::ObjectType| {
-        let is_base_unit = rules
+    let is_base_unit = |candidate: &crate::rules::object_type::ObjectType| {
+        rules
             .general
             .base_unit_types
             .iter()
-            .any(|base| base.eq_ignore_ascii_case(&candidate.id));
-        candidate.crate_goodie && (!is_base_unit || (bases && (human || preempted)))
+            .any(|base| base.eq_ignore_ascii_case(&candidate.id))
+    };
+    let eligible = |candidate: &crate::rules::object_type::ObjectType| {
+        candidate.crate_goodie && (!is_base_unit(candidate) || (bases && (human || preempted)))
     };
     let any_eligible = ids.iter().any(|id| {
         rules
@@ -868,7 +870,20 @@ pub(super) fn choose_unit_crate_type<'r>(
         else {
             continue;
         };
-        if eligible(candidate) {
+        // Phobos `CellClass_GoodieCheck_CrateGoodie` (`0x4821BD`,
+        // `Misc/Hooks.Crates.cpp:80-92`): after the type's `CrateGoodie=`
+        // passes, a positive reroll chance rejects it when the draw is above
+        // the chance, before the base-unit gates read the same boolean.
+        #[cfg(feature = "phobos")]
+        let goodie = candidate.crate_goodie
+            && {
+                let chance =
+                    f64::from_bits(candidate.phobos_crate_goodie_reroll_chance.bits());
+                chance <= 0.0 || chance >= scenario_rng.random_double()
+            };
+        #[cfg(not(feature = "phobos"))]
+        let goodie = candidate.crate_goodie;
+        if goodie && (!is_base_unit(candidate) || (bases && (human || preempted))) {
             return Some(candidate);
         }
     }

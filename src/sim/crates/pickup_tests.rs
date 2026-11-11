@@ -1302,6 +1302,52 @@ fn random_unit_crate_still_allows_a_human_mcv_with_bases() {
     );
 }
 
+/// Phobos `CrateGoodie.RerollChance` (`0x4821BD`,
+/// `Misc/Hooks.Crates.cpp:80-92`): after a drawn type passes `CrateGoodie=`,
+/// a `RandomDouble()` above its chance rejects it and the pick retries.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_crate_goodie_reroll_chance_rejects_a_drawn_goodie() {
+    let (mut sim, _, _, owner, _) = arena();
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\n[VehicleTypes]\n0=AMCV\n1=TNK\n\
+         [AMCV]\nStrength=1000\nCrateGoodie=yes\nCrateGoodie.RerollChance=0.5\n\
+         [TNK]\nStrength=300\nCrateGoodie=yes\n",
+    ))
+    .unwrap();
+    let expected = (0..200)
+        .find_map(|_| {
+            let mut probe = sim.scenario_rng.clone();
+            if probe.next_range_i32_inclusive(0, 1) == 0
+                && probe.random_double() > 0.5
+                && probe.next_range_i32_inclusive(0, 1) == 1
+            {
+                Some(probe)
+            } else {
+                sim.scenario_rng.next_range_i32_inclusive(0, 1);
+                None
+            }
+        })
+        .expect("a deterministic rejected-goodie then accepted-tank draw triple");
+    assert_eq!(
+        effects::choose_unit_crate_type(
+            &sim.interner,
+            &sim.session,
+            &mut sim.scenario_rng,
+            &sim.houses,
+            &rules,
+            owner,
+            false
+        )
+        .map(|object| object.id.as_str()),
+        Some("TNK")
+    );
+    assert_eq!(
+        sim.scenario_rng.native_state_hex(),
+        expected.native_state_hex()
+    );
+}
+
 /// A rejected MCV draw must still be spent when another type is eligible.
 /// Filtering the draw pool would change both the result and the RNG stream.
 #[test]

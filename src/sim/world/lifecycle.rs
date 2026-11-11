@@ -2355,6 +2355,32 @@ impl Simulation {
         }
     }
 
+    /// Phobos `IsDestroyableObstacle`: `BuildingClass::Unlimbo` (`0x440D01`)
+    /// and `Limbo` (`0x445D87`) recompute the foundation cell classes and
+    /// zones of a type that sets the key. Navigation caches publish the same
+    /// result; during an initial load with no installed views the first full
+    /// rebuild derives it instead.
+    #[cfg(feature = "phobos")]
+    fn republish_destroyable_obstacle_navigation(&mut self, stable_id: u64, rules: &RuleSet) {
+        if self.path_grid.is_none() && self.zone_grid.is_none() {
+            return;
+        }
+        let flagged = self
+            .substrate
+            .entities
+            .get(stable_id)
+            .is_some_and(|entity| {
+                entity.category() == EntityCategory::Structure
+                    && self
+                        .interner
+                        .object_type(entity.type_ref(), rules)
+                        .is_some_and(|object| object.phobos_destroyable_obstacle)
+            });
+        if flagged {
+            let _ = self.rebuild_dynamic_navigation(rules);
+        }
+    }
+
     /// Mark(PUT) through the object's vt+0x124: `FootClass::Mark`
     /// ([`Simulation::foot_mark_put`]) for Infantry, Unit and Aircraft, the
     /// building transaction below for a Structure.
@@ -2439,6 +2465,8 @@ impl Simulation {
         // Cell Recalc47D2B0 before returning. Keep the derived path view at
         // that boundary too; the marked structures remain its authority.
         self.publish_recalculated_cells(context.rules(), &cells);
+        #[cfg(feature = "phobos")]
+        self.republish_destroyable_obstacle_navigation(stable_id, context.rules());
         self.substrate
             .entities
             .get(stable_id)
@@ -2787,6 +2815,8 @@ impl Simulation {
         // This projects current marked owners, retaining overlapping or
         // still-marked dying structures; it adds no RNG/timer/detach work.
         self.publish_recalculated_cells(context.rules(), &cells);
+        #[cfg(feature = "phobos")]
+        self.republish_destroyable_obstacle_navigation(stable_id, context.rules());
         true
     }
 

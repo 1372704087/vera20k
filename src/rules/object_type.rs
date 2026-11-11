@@ -1075,6 +1075,14 @@ pub struct ObjectType {
     /// (`Ext/Techno/Hooks.Misc.cpp:931-956`, hook `0x730D0F`).
     #[cfg(feature = "phobos")]
     pub phobos_low_deploy_priority: bool,
+    /// Phobos `IsDestroyableObstacle=` (`Ext/BuildingType/Body.cpp:221`,
+    /// `Valueable<bool>` field `Body.h:66`, default `false`): a marked
+    /// building's foundation cells answer the Destroyable cell class (`2`) in
+    /// `CellClass::RecalcZoneType`, and their zones are recomputed on
+    /// unlimbo/limbo (`Ext/Building/Hooks.cpp:568-576`: hooks `0x483D8E` ->
+    /// `0x483CD4`, `0x440D01` and `0x445D87`). Read only for a BuildingType.
+    #[cfg(feature = "phobos")]
+    pub phobos_destroyable_obstacle: bool,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -5295,6 +5303,9 @@ impl ObjectType {
             ),
             #[cfg(feature = "phobos")]
             phobos_low_deploy_priority: section.read_bool("LowDeployPriority", false),
+            #[cfg(feature = "phobos")]
+            phobos_destroyable_obstacle: category == ObjectCategory::Building
+                && section.read_bool("IsDestroyableObstacle", false),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

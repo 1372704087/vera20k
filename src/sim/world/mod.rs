@@ -1719,6 +1719,12 @@ pub struct Simulation {
     /// the current one, skipping cells already current.
     #[serde(skip)]
     structure_navigation_cells: BTreeSet<(u16, u16)>,
+    /// Derived cache: the base foundation cells of marked Phobos
+    /// `IsDestroyableObstacle` buildings, whose cell class is Destroyable.
+    /// Source of truth is the marked structures; a full navigation rebuild
+    /// derives it and reconciles the terrain classes against this set.
+    #[serde(skip)]
+    destroyable_obstacle_cells: BTreeSet<(u16, u16)>,
     #[serde(skip)]
     pub(crate) resolved_terrain: Option<ResolvedTerrainGrid>,
     /// Process-global MapClass fallback CellClass identity. Native owns this at
@@ -4841,6 +4847,7 @@ impl Simulation {
             zone_grid: None,
             path_grid: None,
             structure_navigation_cells: BTreeSet::new(),
+            destroyable_obstacle_cells: BTreeSet::new(),
             resolved_terrain: None,
             shared_cell_dummy: SharedCellDummy::fresh(),
             native_local_cell_cursor: None,
@@ -7603,6 +7610,20 @@ impl Simulation {
     /// Rebuild dynamic structure blockers, zones, and the canonical PathGrid
     /// as one simulation-owned projection.
     pub fn rebuild_dynamic_navigation(&mut self, rules: &RuleSet) -> bool {
+        if self.resolved_terrain.is_none() {
+            return false;
+        }
+        // Phobos `IsDestroyableObstacle`: the marked building's foundation
+        // cells answer the Destroyable cell class (hook `0x483D8E` ->
+        // `0x483CD4`), and unlimbo/limbo recompute their zones (`0x440D01`,
+        // `0x445D87`). Reconcile before the zone flood reads the classes.
+        let current =
+            navigation::destroyable_obstacle_cells(&self.substrate.entities, &self.interner, rules);
+        self.resolved_terrain
+            .as_mut()
+            .expect("checked terrain")
+            .reconcile_destroyable_obstacle_cells(&self.destroyable_obstacle_cells, &current);
+        self.destroyable_obstacle_cells = current;
         let Some(terrain) = self.resolved_terrain.as_ref() else {
             return false;
         };
@@ -7632,8 +7653,16 @@ impl Simulation {
     /// Publish marked-structure footprint changes into the path view only.
     /// Native cell occupation marks are read live by the pathfinder, and the
     /// zone map is built from terrain movement classes, which structures do
-    /// not change; zone IDs therefore stay as they are.
+    /// not change; zone IDs therefore stay as they are. A Phobos
+    /// `IsDestroyableObstacle` mark is the exception: it writes the cell's
+    /// Destroyable class, so a changed obstacle set rebuilds the zones too.
     fn publish_structure_navigation(&mut self, rules: &RuleSet) {
+        let obstacles =
+            navigation::destroyable_obstacle_cells(&self.substrate.entities, &self.interner, rules);
+        if self.resolved_terrain.is_some() && obstacles != self.destroyable_obstacle_cells {
+            let _ = self.rebuild_dynamic_navigation(rules);
+            return;
+        }
         let current =
             navigation::structure_movement_cells(&self.substrate.entities, &self.interner, rules);
         let candidates: Vec<_> = current

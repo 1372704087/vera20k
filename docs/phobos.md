@@ -172,6 +172,7 @@ Supported extensions:
 - [OpenTransport keys](phobos-open-transport.md) (`OpenTransport.RangeBonus`/`.DamageMultiplier`/`.FireWhileMoving`: a passenger's own open-topped firepower, range and movement gate; 3 keys + 3 globals)
 - [ChangeOwner warhead](phobos-change-owner.md) (`ChangeOwner`/`.SetAsMindControl`/`.MindControlAnim`: a warhead transfers its target to the firing house, optionally as a mind-control capture; 3 keys)
 - [Low deploy priority](phobos-low-deploy-priority.md) (`LowDeployPriority` per TechnoType behind `[Phobos] PriorityDeployFiltering`: the deploy key drops a low-priority object from a multi-object selection that holds a normal one)
+- [Destroyable pathfinding obstacles](phobos-destroyable-obstacle.md) (`IsDestroyableObstacle` per BuildingType: the foundation answers cell class Destroyable, so only movement rows that admit that class zone into it, and the class clears on limbo)
 - [SpawnsCrate warhead](phobos-spawns-crate.md) (`SpawnsCrate{i}.Type`/`.Weight` and their entry-0 aliases: a detonation places one weighted powerup crate; 2 numbered keys + 2 aliases)
 - [Rocker warhead](phobos-rocker.md) (`Rocker.AmplitudeMultiplier`/`.AmplitudeOverride`: the area-damage rocker's base amplitude; 2 keys)
 - [NoTurret.TrackTarget](phobos-no-turret.md) (`NoTurret.TrackTarget`: a keyed turretless vehicle keeps checking its facing while in REARM; 1 key + 1 `[General]` global)

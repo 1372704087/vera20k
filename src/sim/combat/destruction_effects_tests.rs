@@ -2366,58 +2366,70 @@ fn destroy_anim_pick_rules(global: &str, type_keys: &str) -> RuleSet {
 fn phobos_destroy_anim_random_and_facing_pick_follow_process_destroy_anims() {
     use crate::sim::movement::FacingClass;
 
-    fn die(rules: &RuleSet, kind: &str, dir: u8) -> (String, bool) {
+    fn die(rules: &RuleSet, kind: &str, raw_facing: u16) -> (String, bool) {
         let mut sim = sim(0x0D5A);
         let unit = spawn(&mut sim, rules, kind, 12, 12);
-        sim.substrate.entities.get_mut(unit).unwrap().body_facing =
-            FacingClass::new(u16::from(dir) * 256, 0);
+        sim.substrate.entities.get_mut(unit).unwrap().body_facing = FacingClass::new(raw_facing, 0);
         let before = sim.scenario_rng.state();
         let mut recorded = Vec::new();
         sim.unit_death_explosion(rules, unit, &mut recorded, None, FrameEffects::empty());
         (anims(&sim)[0].0.clone(), sim.scenario_rng.state() == before)
     }
+    let at = |dir: u8| u16::from(dir) * 256;
 
     let no_random = destroy_anim_pick_rules("DestroyAnim.Random=no\n", "");
     assert_eq!(
-        die(&no_random, "SINGLE", 17),
+        die(&no_random, "SINGLE", at(17)),
         ("S0".to_string(), true),
         "a one-entry list draws nothing"
     );
     assert_eq!(
-        die(&no_random, "PAIR", 200),
+        die(&no_random, "PAIR", at(200)),
         ("P0".to_string(), true),
         "below eight entries the first is taken"
     );
     assert_eq!(
-        die(&no_random, "ODD", 0),
+        die(&no_random, "ODD", at(0)),
         ("O8".to_string(), true),
         "an odd count of eight or more takes the last entry"
     );
     assert_eq!(
-        die(&no_random, "EVEN", 64),
+        die(&no_random, "EVEN", at(64)),
         ("E1".to_string(), true),
         "an even count scales the facing into the list"
     );
     assert_eq!(
-        die(&no_random, "EVEN", 255),
+        die(&no_random, "EVEN", at(255)),
         ("E6".to_string(), true),
         "the even-count scale never reaches the last entry"
+    );
+    // `GetDir()` truncates `Raw / 256`; the rounded direction byte would pick
+    // index 1 here and wrap 0xFF80 to 0.
+    assert_eq!(
+        die(&no_random, "EVEN", 0x2480),
+        ("E0".to_string(), true),
+        "a low-byte heading truncates before scaling"
+    );
+    assert_eq!(
+        die(&no_random, "EVEN", 0xFF80),
+        ("E6".to_string(), true),
+        "the truncating byte does not wrap below 255"
     );
 
     let type_override = destroy_anim_pick_rules("", "DestroyAnim.Random=no\n");
     assert_eq!(
-        die(&type_override, "EVEN", 64),
+        die(&type_override, "EVEN", at(64)),
         ("E1".to_string(), true),
         "the type key overrides the default-yes global"
     );
 
     let override_yes =
         destroy_anim_pick_rules("DestroyAnim.Random=no\n", "DestroyAnim.Random=yes\n");
-    let mut sim = sim(0x0D5B);
-    let unit = spawn(&mut sim, &override_yes, "EVEN", 12, 12);
-    let mut replay = sim.scenario_rng.clone();
+    let mut override_sim = sim(0x0D5B);
+    let unit = spawn(&mut override_sim, &override_yes, "EVEN", 12, 12);
+    let mut replay = override_sim.scenario_rng.clone();
     let mut recorded = Vec::new();
-    sim.unit_death_explosion(
+    override_sim.unit_death_explosion(
         &override_yes,
         unit,
         &mut recorded,
@@ -2425,10 +2437,28 @@ fn phobos_destroy_anim_random_and_facing_pick_follow_process_destroy_anims() {
         FrameEffects::empty(),
     );
     let index = replay.next_range_i32_inclusive(0, 7) as usize;
-    assert_eq!(anims(&sim)[0].0, format!("E{index}"));
+    assert_eq!(anims(&override_sim)[0].0, format!("E{index}"));
     assert_eq!(
-        sim.scenario_rng.state(),
+        override_sim.scenario_rng.state(),
         replay.state(),
         "the random arm draws RandomRanged(0, count-1)"
+    );
+
+    let defaults = destroy_anim_pick_rules("", "");
+    assert!(
+        crate::rules::phobos_globals::PhobosGlobals::default().destroy_anim_random,
+        "the constructor default is yes"
+    );
+    let mut default_sim = sim(0x0D5C);
+    let unit = spawn(&mut default_sim, &defaults, "PAIR", 12, 12);
+    let mut replay = default_sim.scenario_rng.clone();
+    let mut recorded = Vec::new();
+    default_sim.unit_death_explosion(&defaults, unit, &mut recorded, None, FrameEffects::empty());
+    let index = replay.next_range_i32_inclusive(0, 1) as usize;
+    assert_eq!(anims(&default_sim)[0].0, format!("P{index}"));
+    assert_eq!(
+        default_sim.scenario_rng.state(),
+        replay.state(),
+        "the unset key takes the random arm"
     );
 }

@@ -13,7 +13,7 @@ DestroyAnim=D0,D1,D2,D3,D4,D5,D6,D7
 ```
 
 Readers: `Ext/Rules/Body.cpp:220` (`Body.h:664`) and
-`Ext/TechnoType/Body.cpp:875` (`Body.h:542`).
+`Ext/TechnoType/Body.cpp:875` (`Body.h:145`).
 
 ## Native body
 
@@ -30,7 +30,7 @@ Phobos `UnitClass_Destroy_DestroyAnim` (`0x738807`,
 - `no`: below eight entries index 0; an odd count of eight or more takes the
   last entry; an even count of eight or more takes
   `int(GetDir() / 256.0 * (count-1))`, where `GetDir()` is the unit's current
-  primary facing in `0..255`.
+  primary facing as `Raw >> 8` (truncation, not the rounded direction byte).
 
 ## VERA
 
@@ -45,5 +45,6 @@ the original pick. The random arm draws through the shared
 
 - Only the Unit `DestroyAnim` arm is replaced. Buildings, aircraft and
   infantry keep their stock producers, which match the hook's caller.
-- The facing is sampled at the death frame (`body_facing_dir`), as
-  `PrimaryFacing.Current()` does.
+- The facing is sampled at the death frame as the body heading's high byte
+  (`body_facing_byte`, `Raw >> 8`), the same `DirType` `GetDir()` returns; it
+  also feeds `CreateUnit.InheritDeathFacings`.

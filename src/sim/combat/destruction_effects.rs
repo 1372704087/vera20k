@@ -545,7 +545,7 @@ impl Simulation {
         #[cfg(feature = "phobos")]
         let owner_house = entity.owner();
         #[cfg(feature = "phobos")]
-        let death_facing = Some(entity.body_facing_dir(self.session.binary_frame()));
+        let death_facing = Some(entity.body_facing_byte(self.session.binary_frame()));
         #[cfg(feature = "phobos")]
         let death_turret_facing = if object.has_turret {
             entity.barrel_facing.as_ref().map(|facing| {

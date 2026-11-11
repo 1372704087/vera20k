@@ -10,13 +10,7 @@ impl Simulation {
         slot: u8,
         rules: &RuleSet,
     ) -> BuildingAnimPowerFlags {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return Default::default();
-        };
-        let name = self.interner.resolve(entity.type_ref());
-        rules
-            .object(name)
-            .and_then(|object| rules.art().resolve_metadata_entry(name, &object.image))
+        self.building_art_entry(id, rules)
             .map_or_else(Default::default, |entry| {
                 entry.building_anim_power[usize::from(slot)]
             })

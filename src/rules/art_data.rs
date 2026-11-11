@@ -159,6 +159,12 @@ pub struct ArtEntry {
     pub is_anim_delayed_fire: bool,
     /// BuildingType+16A8, ART ReadBool461169, constructor45E0BA false.
     pub silo_damage: bool,
+    /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
+    /// `Ext/BuildingType/Body.h:106`, constructor false `:227`): a refinery
+    /// skips the storage-fill ActiveAnim3..6 arms at `0x00445FE4` and
+    /// `0x00450DAA` and resolves the normal opening anims instead.
+    #[cfg(feature = "phobos")]
+    pub refinery_use_normal_active_anim: bool,
     /// Signed number of Building AI visits used by the delayed-fire latch.
     pub delayed_fire_delay: i32,
     /// SHP vehicle: walk animation frame count per facing (from `WalkFrames=`).
@@ -1364,6 +1370,9 @@ impl ArtRegistry {
                     primary_fire_dual_offset,
                     is_anim_delayed_fire,
                     silo_damage: section.read_bool("SiloDamage", false),
+                    #[cfg(feature = "phobos")]
+                    refinery_use_normal_active_anim: section
+                        .read_bool("Refinery.UseNormalActiveAnim", false),
                     delayed_fire_delay,
                     walk_frames,
                     firing_frames,

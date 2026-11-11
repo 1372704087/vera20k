@@ -1369,6 +1369,22 @@ fn can_be_hidden_reads_the_type_id_section() {
     assert!(reg.can_be_hidden("MISSING"));
 }
 
+/// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
+/// `Body.h:227`) is an ART ReadBool from the ImageFile's section, default
+/// false.
+#[cfg(feature = "phobos")]
+#[test]
+fn refinery_use_normal_active_anim_reads_its_art_section() {
+    let ini = IniFile::from_str(
+        "[GAREFN]\nRefinery.UseNormalActiveAnim=yes\n\
+         [PLAIN]\nRefinery.UseNormalActiveAnim=no\n[OTHER]\nCameo=X\n",
+    );
+    let reg = ArtRegistry::from_ini(&ini);
+    assert!(reg.get("GAREFN").unwrap().refinery_use_normal_active_anim);
+    assert!(!reg.get("PLAIN").unwrap().refinery_use_normal_active_anim);
+    assert!(!reg.get("OTHER").unwrap().refinery_use_normal_active_anim);
+}
+
 /// ReadINI reads `Palette=` with ReadString (capacity 0x20) from the ART
 /// section its ImageFile names (`0x0071582B`, `ESI = this+0x1F8`); an ART
 /// `Image=` is not followed, and an empty value names nothing.

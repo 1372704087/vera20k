@@ -146,6 +146,9 @@ impl Simulation {
             return;
         };
         let (capacity, refinery) = (object.storage, object.refinery);
+        // 0x00450DAA jumps past the storage-tier arm for a keyed refinery.
+        #[cfg(feature = "phobos")]
+        let refinery = refinery && !self.refinery_uses_normal_active_anim(id, rules);
         // The type's ART resolved from its own ID, which names it as the
         // entity's type reference does.
         if object.silo_damage(rules) {
@@ -354,5 +357,118 @@ mod tests {
             );
         }
         assert_eq!(faults, 120);
+    }
+
+    #[cfg(feature = "phobos")]
+    fn phobos_refinery_rules(use_normal: bool) -> RuleSet {
+        let ini = IniFile::from_str(
+            "[BuildingTypes]\n0=B\n[B]\nStrength=100\nStorage=1000\nRefinery=true\n\
+             [Animations]\n0=N\n1=D\n2=I\n",
+        );
+        let art = IniFile::from_str(&format!(
+            "[B]\nRefinery.UseNormalActiveAnim={}\nSiloDamage=yes\n\
+             ActiveAnim=N\nActiveAnimDamaged=D\nActiveAnimTwo=N\nActiveAnimTwoDamaged=D\n\
+             ActiveAnimThree=N\nActiveAnimThreeDamaged=D\nActiveAnimFour=N\nActiveAnimFourDamaged=D\n\
+             SpecialAnim=N\nSpecialAnimDamaged=D\nIdleAnim=I\n\
+             [N]\nRate=300\nLoopCount=-1\n[D]\nRate=300\nLoopCount=-1\n[I]\nRate=300\nLoopCount=-1\n",
+            if use_normal { "yes" } else { "no" }
+        ));
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).unwrap();
+        let mut registry = ArtRegistry::from_ini(&art);
+        for name in ["N", "D", "I"] {
+            registry.bind_anim_frame_count_for_test(name, 100);
+        }
+        rules.install_art_data(registry);
+        rules
+    }
+
+    #[cfg(feature = "phobos")]
+    fn phobos_refinery_entity(
+        sim: &mut Simulation,
+        capacity_amount: f32,
+    ) -> u64 {
+        let id = sim.substrate.allocate_stable_id();
+        let mut entity = GameEntity::test_default_of_category(
+            id,
+            "B",
+            "A",
+            2,
+            2,
+            crate::map::entities::EntityCategory::Structure,
+        );
+        entity.set_type_ref_for_test(sim.interner.intern("B"));
+        entity.set_owner_for_test(sim.interner.intern("A"));
+        entity.health.set_for_test(100);
+        entity.lifecycle.set_in_limbo_for_test(false);
+        entity.building_art.storage.set_amounts_for_test([
+            NativeF32Bits::from_bits(capacity_amount.to_bits()),
+            NativeF32Bits::from_bits(0.0f32.to_bits()),
+            NativeF32Bits::from_bits(0.0f32.to_bits()),
+            NativeF32Bits::from_bits(0.0f32.to_bits()),
+        ]);
+        sim.substrate.entities.insert(entity);
+        id
+    }
+
+    /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/Building/Hooks.Refinery.cpp:63`):
+    /// a set key sends `0x00445FE4` to the normal opening path, so the storage
+    /// tier stays unwritten and slots 3..6/18 allocate normally.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_refinery_use_normal_active_anim_skips_the_place_storage_arm() {
+        for use_normal in [false, true] {
+            let rules = phobos_refinery_rules(use_normal);
+            let mut sim = Simulation::new();
+            let id = phobos_refinery_entity(&mut sim, 1000.0);
+            sim.grand_opening(
+                id,
+                false,
+                true,
+                &rules,
+                None,
+                crate::sim::world::FrameEffects::default(),
+            );
+            let art = &sim.entities().get(id).unwrap().building_art;
+            if use_normal {
+                assert_eq!(art.storage.refinery_tier, 0);
+                for slot in [18, 3, 4, 5, 6] {
+                    assert!(art.anim_slots[slot].is_some(), "slot {slot}");
+                }
+            } else {
+                assert_eq!(art.storage.refinery_tier, 4);
+                assert!(art.anim_slots[6].is_some());
+                for slot in [18, 3, 4, 5] {
+                    assert!(art.anim_slots[slot].is_none(), "slot {slot}");
+                }
+            }
+        }
+    }
+
+    /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/Building/Hooks.Refinery.cpp:70`):
+    /// a set key makes `0x00450DAA` jump past the tier comparison, so storage
+    /// changes allocate no anim.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_refinery_use_normal_active_anim_skips_the_update_tier_arm() {
+        for use_normal in [false, true] {
+            let rules = phobos_refinery_rules(use_normal);
+            let mut sim = Simulation::new();
+            let id = phobos_refinery_entity(&mut sim, 1000.0);
+            sim.update_building_storage_anims(id, &rules);
+            let art = &sim.entities().get(id).unwrap().building_art;
+            // 0x450D50..0x450D91 runs before both arms: the key does not
+            // disable SiloDamage.
+            assert!(art.anim_slots[10].is_some(), "silo slot");
+            if use_normal {
+                assert_eq!(art.storage.refinery_tier, 0);
+                for slot in [18, 3, 4, 5, 6] {
+                    assert!(art.anim_slots[slot].is_none(), "slot {slot}");
+                }
+            } else {
+                assert_eq!(art.storage.refinery_tier, 4);
+                assert!(art.anim_slots[6].is_some());
+                assert!(art.anim_slots[18].is_none());
+            }
+        }
     }
 }

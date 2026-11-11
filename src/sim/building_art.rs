@@ -394,6 +394,10 @@ impl Simulation {
         let owner = entity.owner();
         let cell = (entity.position.rx(), entity.position.ry());
         let refinery = object.refinery;
+        // 0x00445FE4 redirects a keyed refinery to 0x00446183, the normal
+        // opening-anim path.
+        #[cfg(feature = "phobos")]
+        let refinery = refinery && !self.refinery_uses_normal_active_anim(id, rules);
         let powered = Self::anim_power_policy(object, entity);
         let damaged = requested_damage_state(
             entity.health,
@@ -855,15 +859,31 @@ impl Simulation {
         }
     }
 
-    fn building_anim_delayed_fire(&self, id: u64, rules: &RuleSet) -> bool {
-        let Some(entity) = self.substrate.entities.get(id) else {
-            return false;
-        };
+    /// The type's ART entry under its ImageFile section, the section Phobos's
+    /// BuildingTypeExt reads.
+    fn building_art_entry<'a>(
+        &self,
+        id: u64,
+        rules: &'a RuleSet,
+    ) -> Option<&'a crate::rules::art_data::ArtEntry> {
+        let entity = self.substrate.entities.get(id)?;
         let name = self.interner.resolve(entity.type_ref());
-        rules
-            .object(name)
-            .and_then(|object| rules.art().resolve_metadata_entry(name, &object.image))
+        let object = rules.object(name)?;
+        rules.art().resolve_metadata_entry(name, &object.image)
+    }
+
+    fn building_anim_delayed_fire(&self, id: u64, rules: &RuleSet) -> bool {
+        self.building_art_entry(id, rules)
             .is_some_and(|entry| entry.is_anim_delayed_fire)
+    }
+
+    /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/Building/Hooks.Refinery.cpp:63,70`):
+    /// a set key sends the refinery past the storage-tier arms at `0x00445FE4`
+    /// and `0x00450DAA`.
+    #[cfg(feature = "phobos")]
+    fn refinery_uses_normal_active_anim(&self, id: u64, rules: &RuleSet) -> bool {
+        self.building_art_entry(id, rules)
+            .is_some_and(|entry| entry.refinery_use_normal_active_anim)
     }
 
     /// Anim arm of Building PointerExpired44E8F0. Production8 restores Idle18;

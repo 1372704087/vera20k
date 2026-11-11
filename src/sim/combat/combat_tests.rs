@@ -13069,7 +13069,8 @@ fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
              [SAFE]\nStrength=500\nArmor=wood\nCanC4=yes\n{allow}\
              [Warheads]\n0=HITWH\n1=ZEROWH\n\
              [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
-             [ZEROWH]\nVerses=0%,0%,0%,0%,0%,0%,0%,0%,0%,0%,0%\n",
+             [ZEROWH]\nVerses=0%,0%,0%,0%,0%,0%,0%,0%,0%,0%,0%\n\
+             [VoxelAnims]\n0=BOUNCE\n[BOUNCE]\nDamage=7\n",
         ));
         let art = IniFile::from_str("[BRKS]\nFoundation=1x1\n[SAFE]\nFoundation=1x1\n");
         RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("CanC4 zero-damage rules")
@@ -13079,8 +13080,9 @@ fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
                source: u64,
                target: u64,
                warhead: &str,
-               damage: i32| {
-        let event = EntityDamageEvent::direct_receiver(
+               damage: i32,
+               writeback: bool| {
+        let mut event = EntityDamageEvent::direct_receiver(
             target,
             damage,
             0,
@@ -13092,6 +13094,11 @@ fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
                 arg6: false,
             },
         );
+        if writeback {
+            event = event.with_damage_writeback(Some(DamageWriteback::VoxelType(
+                crate::rules::voxel_anim_type::VoxelAnimTypeId(0),
+            )));
+        }
         let _ = sim.commit_direct_damage_receiver(
             rules,
             None,
@@ -13111,11 +13118,21 @@ fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
                 .expect("building spawns");
             // Raw damage 10 is non-zero, but Verses lowers it to 0, the
             // packet the Object minimum actually sees.
-            hit(&mut sim, &rules, source, target, "ZEROWH", 10);
+            hit(&mut sim, &rules, source, target, "ZEROWH", 10, true);
             assert_eq!(
                 sim.substrate.entities.get(target).unwrap().health.current(),
                 expected,
                 "allow_zero={allow} {type_name}: a Verses-zeroed packet"
+            );
+            let floored = type_name == "BRKS" && !allow;
+            let written: Vec<_> = sim.voxel_type_damage_entries().collect();
+            assert_eq!(
+                written,
+                vec![(
+                    crate::rules::voxel_anim_type::VoxelAnimTypeId(0),
+                    i32::from(floored)
+                )],
+                "allow_zero={allow} {type_name}: the caller-owned packet field"
             );
         }
     }
@@ -13135,7 +13152,7 @@ fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
         .unwrap()
         .health
         .set_for_test(400);
-    hit(&mut sim, &rules, source, target, "HITWH", -50);
+    hit(&mut sim, &rules, source, target, "HITWH", -50, false);
     assert_eq!(
         sim.substrate.entities.get(target).unwrap().health.current(),
         450,

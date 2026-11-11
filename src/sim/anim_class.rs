@@ -448,6 +448,38 @@ pub struct AnimObject {
     /// rides its missile this way.
     #[serde(default)]
     attached_bullet: Option<u64>,
+    /// Phobos `AnimExt::Invoker` (`Ext/Anim/Body.h:28`): the Techno whose
+    /// `SetInvoker` named this anim. `InvalidateTechnoPointers`
+    /// (`Body.cpp:497`) clears it when that Techno is destroyed; VERA keeps
+    /// the identity and a stable-id lookup answers absent instead.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    invoker: Option<u64>,
+    /// Phobos `AnimExt::InvokerHouse` (`Ext/Anim/Body.h:29`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    invoker_house: Option<InternedId>,
+    /// Phobos `AnimExt::FromDeathUnit` (`Ext/Anim/Body.h`): the anim came
+    /// from `AnimTypeExt::ProcessDestroyAnims` (`Ext/AnimType/Body.cpp:55`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    from_death_unit: bool,
+    /// Phobos `AnimExt::DeathUnitFacing`: the destroyed unit's body direction.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_facing: Option<u8>,
+    /// Phobos `AnimExt::DeathUnitHasTurret`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_has_turret: bool,
+    /// Phobos `AnimExt::DeathUnitTurretFacing`.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    death_unit_turret_facing: Option<u8>,
+    /// VERA-internal: the `CreateUnit` actual-effects arm already ran.
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    create_unit_fired: bool,
     /// `AnimClass+0xCC` when it names a `TerrainClass`: a tree's fire, which
     /// only the Ares terrain fire attaches (`sim::terrain_fire`). VERA keeps
     /// a terrain owner apart from `owner_entity` and its stored coordinate
@@ -763,15 +795,77 @@ impl AnimObject {
             flaming_guy: None,
             owner_house: None,
             attached_bullet: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
+            #[cfg(feature = "phobos")]
+            invoker_house: None,
+            #[cfg(feature = "phobos")]
+            from_death_unit: false,
+            #[cfg(feature = "phobos")]
+            death_unit_facing: None,
+            #[cfg(feature = "phobos")]
+            death_unit_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_unit_turret_facing: None,
+            #[cfg(feature = "phobos")]
+            create_unit_fired: false,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         }
     }
 
     /// The owning House (`AnimClass+0x180`).
-    #[cfg(test)]
+    #[cfg(any(test, feature = "phobos"))]
     pub fn owner_house(&self) -> Option<InternedId> {
         self.owner_house
+    }
+
+    /// The invoker Techno (`AnimExt::Invoker`).
+    #[cfg(feature = "phobos")]
+    pub fn invoker(&self) -> Option<u64> {
+        self.invoker
+    }
+
+    /// The invoker House (`AnimExt::InvokerHouse`).
+    #[cfg(feature = "phobos")]
+    pub fn invoker_house(&self) -> Option<InternedId> {
+        self.invoker_house
+    }
+
+    /// Phobos `AnimExt::FromDeathUnit`: a destruction-animation receipt.
+    #[cfg(feature = "phobos")]
+    pub fn from_death_unit(&self) -> bool {
+        self.from_death_unit
+    }
+
+    /// Phobos `AnimExt::DeathUnitFacing`: the destroyed unit's body DirType.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_facing(&self) -> Option<u8> {
+        self.death_unit_facing
+    }
+
+    /// Phobos `AnimExt::DeathUnitHasTurret`.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_has_turret(&self) -> bool {
+        self.death_unit_has_turret
+    }
+
+    /// Phobos `AnimExt::DeathUnitTurretFacing`.
+    #[cfg(feature = "phobos")]
+    pub fn death_unit_turret_facing(&self) -> Option<u8> {
+        self.death_unit_turret_facing
+    }
+
+    /// VERA-internal one-shot latch for the `CreateUnit` actual-effects arm
+    /// (native reaches it once per anim).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn create_unit_fired(&self) -> bool {
+        self.create_unit_fired
+    }
+
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_create_unit_fired(&mut self) {
+        self.create_unit_fired = true;
     }
 
     /// The bullet whose expiry ends this anim (`AnimClass+0x17C`).
@@ -836,6 +930,24 @@ impl AnimObject {
             b"anim-owner-house-bullet-v1".hash(hasher);
             self.owner_house.hash(hasher);
             self.attached_bullet.hash(hasher);
+        }
+        #[cfg(feature = "phobos")]
+        if self.invoker.is_some() || self.invoker_house.is_some() {
+            b"anim-invoker-v1".hash(hasher);
+            self.invoker.hash(hasher);
+            self.invoker_house.hash(hasher);
+        }
+        #[cfg(feature = "phobos")]
+        if self.from_death_unit
+            || self.death_unit_facing.is_some()
+            || self.death_unit_has_turret
+            || self.death_unit_turret_facing.is_some()
+        {
+            b"anim-death-unit-v1".hash(hasher);
+            self.from_death_unit.hash(hasher);
+            self.death_unit_facing.hash(hasher);
+            self.death_unit_has_turret.hash(hasher);
+            self.death_unit_turret_facing.hash(hasher);
         }
         if let Some(state) = &self.flaming_guy {
             b"anim-flaming-guy-v1".hash(hasher);
@@ -1245,7 +1357,7 @@ enum VisitAction {
 const MAKE_INFANTRY_UNLIMBO_FACING: u8 = 0x60;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum AnimOccupationOperation {
+pub(crate) enum AnimOccupationOperation {
     Mark,
     Clear,
 }
@@ -1256,7 +1368,7 @@ enum AnimOccupationOperation {
 /// index, -1 (vtable `+0x38` = `0x00410490`, stored at `0x004262D0` /
 /// `0x004262F5`); Clear resets it once `0x1C` is clear (`0x0042634F` /
 /// `0x00426378`).
-fn apply_anim_raw_occupation(
+pub(crate) fn apply_anim_raw_occupation(
     grid: &mut RawCellOccupationGrid,
     key: RawCellKey,
     mask: u8,
@@ -1274,6 +1386,27 @@ fn apply_anim_raw_occupation(
         AnimOccupationOperation::Clear => reaches_deck,
     };
     let layer = if use_deck {
+        MovementLayer::Bridge
+    } else {
+        MovementLayer::Ground
+    };
+    let put = operation == AnimOccupationOperation::Mark;
+    grid.write_occupant(key, layer, mask, None, put);
+}
+
+/// `AnimClass::MarkAllOccupationBits` / `UnmarkAllOccupationBits` with the
+/// constructor's and actual-effects' `GetCell()->GetCoordsWithBridge()`
+/// argument (`Ext/Anim/Hooks.AnimCreateUnit.cpp:36-80`): the coordinate's
+/// plane follows the cell's live structural bridge flag alone; the anim's
+/// height does not select a layer.
+pub(crate) fn apply_anim_coords_occupation(
+    grid: &mut RawCellOccupationGrid,
+    key: RawCellKey,
+    mask: u8,
+    live_structural_bridge: bool,
+    operation: AnimOccupationOperation,
+) {
+    let layer = if live_structural_bridge {
         MovementLayer::Bridge
     } else {
         MovementLayer::Ground
@@ -1533,6 +1666,8 @@ impl Simulation {
     /// `SetAnimOwnerObject` (native `ownedObject=true`). RESIDUAL: a
     /// `MakeInfantry=`/`CreateUnit=` type re-selects its own owner kind here;
     /// this owner keeps the invoker House, like the existing combat producer.
+    /// `invoker` is `CreateRandomAnim`'s `pTechno` under its `invoker` flag
+    /// (the same object may or may not also be the `ownedObject`).
     #[cfg(feature = "phobos")]
     pub(crate) fn spawn_owned_anim(
         &mut self,
@@ -1541,6 +1676,7 @@ impl Simulation {
         world_coord: AnimWorldCoord,
         owner_house: InternedId,
         owner_object: Option<u64>,
+        invoker: Option<u64>,
     ) -> Option<AnimId> {
         let (rx, ry, sub_x, sub_y, z) = world_coord.to_cell_sub_z();
         let descriptor = AnimClassSpawnDescriptor {
@@ -1552,6 +1688,10 @@ impl Simulation {
             .spawn_anim_at_world(rules, descriptor, world_coord)
             .ok()?;
         self.install_anim_owner_house(rules, type_name, id, owner_house);
+        if let Some(invoker) = invoker {
+            self.substrate
+                .set_anim_invoker(id, Some(invoker), Some(owner_house));
+        }
         Some(id)
     }
 
@@ -1590,10 +1730,18 @@ impl Simulation {
         world_coord: AnimWorldCoord,
         owner_house: InternedId,
         owner_object: Option<u64>,
+        invoker: Option<u64>,
     ) -> Option<AnimId> {
         let name = self.resolve_random_anim_name(rules, names)?;
         let type_name = self.interner.intern(name);
-        self.spawn_owned_anim(rules, type_name, world_coord, owner_house, owner_object)
+        self.spawn_owned_anim(
+            rules,
+            type_name,
+            world_coord,
+            owner_house,
+            owner_object,
+            invoker,
+        )
     }
 
     /// `AnimExt::SetAnimOwnerHouseKind(anim, house, None, false, true)`'s
@@ -1613,7 +1761,10 @@ impl Simulation {
                 let name = self.interner.resolve(type_name);
                 rules.art().anim_runtime_config(name).is_some_and(|config| {
                     config.make_infantry > -1
-                        || config.phobos_create_unit.is_some_and(|(_, remap)| remap)
+                        || config
+                            .phobos_create_unit
+                            .as_ref()
+                            .is_some_and(|settings| settings.remap_anim)
                 })
             };
             let defeated = self
@@ -1992,6 +2143,20 @@ impl Simulation {
             flaming_guy: None,
             owner_house: None,
             attached_bullet: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
+            #[cfg(feature = "phobos")]
+            invoker_house: None,
+            #[cfg(feature = "phobos")]
+            from_death_unit: false,
+            #[cfg(feature = "phobos")]
+            death_unit_facing: None,
+            #[cfg(feature = "phobos")]
+            death_unit_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_unit_turret_facing: None,
+            #[cfg(feature = "phobos")]
+            create_unit_fired: false,
             #[cfg(feature = "ares")]
             owner_terrain: None,
         };
@@ -2000,6 +2165,15 @@ impl Simulation {
         // scheduler anim ever existed in a shipped build.
         let previous = self.substrate.anims.insert(object);
         debug_assert!(previous.is_none());
+        // Phobos `AnimClass_CTOR_CreateUnit_MarkOccupationBits @ 0x4226F0`.
+        #[cfg(feature = "phobos")]
+        if config.phobos_create_unit.is_some() {
+            Self::anim_mark_all_occupation_bits(
+                &mut self.substrate,
+                &self.resolved_terrain,
+                world_coord,
+            );
+        }
         let draws = match constructor {
             AnimConstructorInput::Preconsumed(draws) => draws,
             AnimConstructorInput::Runtime | AnimConstructorInput::AssignedIdentity(_) => {
@@ -2463,6 +2637,16 @@ impl Simulation {
                 random_loop_delay = config.random_loop_delay;
             }
             AnimBoundary::Complete => {
+                // Phobos `AnimClass_AI_CreateUnit_ActualEffects @ 0x424932`.
+                #[cfg(feature = "phobos")]
+                if let Some(settings) = config.phobos_create_unit.clone()
+                    && !self.anim(id).is_some_and(|anim| anim.create_unit_fired())
+                {
+                    if let Some(anim) = self.substrate.anims.get_mut(id) {
+                        anim.set_create_unit_fired();
+                    }
+                    self.anim_create_unit(id, &settings, rules, overlay_registry, frame_effects);
+                }
                 action = if let Some(next) = config.next.clone() {
                     VisitAction::Next(next)
                 } else if config.make_infantry != -1 {
@@ -4445,6 +4629,47 @@ impl crate::sim::world::ObjectSubstrate {
             return false;
         };
         anim.owner_house = Some(house);
+        true
+    }
+
+    /// Phobos `AnimTypeExt::ProcessDestroyAnims`' death-unit facts
+    /// (`Ext/AnimType/Body.cpp:55-70`): `FromDeathUnit` and the inherited
+    /// facing/turret facts a `CreateUnit` anim consumes.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_anim_death_facts(
+        &mut self,
+        id: AnimId,
+        from_death_unit: bool,
+        facing: Option<u8>,
+        has_turret: bool,
+        turret_facing: Option<u8>,
+    ) -> bool {
+        let Some(anim) = self.anims.get_mut(id) else {
+            return false;
+        };
+        anim.from_death_unit = from_death_unit;
+        anim.death_unit_facing = facing;
+        anim.death_unit_has_turret = has_turret;
+        anim.death_unit_turret_facing = turret_facing;
+        true
+    }
+
+    /// Phobos `AnimExt::SetInvoker` (`Ext/Anim/Body.cpp:28-45`): store the
+    /// invoker Techno and its House. RESIDUAL: the native per-Techno
+    /// `AnimRefCount` and `InvalidateTechnoPointers` (clearing a destroyed
+    /// invoker) are not modeled; a stable-id lookup answers absent instead.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn set_anim_invoker(
+        &mut self,
+        id: AnimId,
+        invoker: Option<u64>,
+        house: Option<InternedId>,
+    ) -> bool {
+        let Some(anim) = self.anims.get_mut(id) else {
+            return false;
+        };
+        anim.invoker = invoker;
+        anim.invoker_house = house;
         true
     }
     /// `0x00424C90`: store `+0x17C`, the bullet whose expiry ends the anim.

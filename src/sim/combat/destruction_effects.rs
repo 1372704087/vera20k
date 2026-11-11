@@ -96,6 +96,22 @@ pub struct DeathAnimSpawn {
     pub draws: Option<crate::sim::anim_class::AnimConstructorDraws>,
     /// What the producer writes on the anim right after its constructor.
     pub follow_up: Option<DeathAnimFollowUp>,
+    /// `ProcessDestroyAnims`' `SetInvoker(pThis)` (`Ext/AnimType/
+    /// Body.cpp:54`): the destroyed unit and its House. Only the Unit
+    /// `DestroyAnim=` producer sets it.
+    #[cfg(feature = "phobos")]
+    pub invoker: Option<(u64, InternedId)>,
+    /// `ProcessDestroyAnims`' death-unit facts: the victim House the anim's
+    /// `CreateUnit.Owner` selector reads, the body DirType and the turret
+    /// facts (`Ext/AnimType/Body.cpp:52-70`).
+    #[cfg(feature = "phobos")]
+    pub victim_house: Option<InternedId>,
+    #[cfg(feature = "phobos")]
+    pub death_facing: Option<u8>,
+    #[cfg(feature = "phobos")]
+    pub death_has_turret: bool,
+    #[cfg(feature = "phobos")]
+    pub death_turret_facing: Option<u8>,
 }
 
 impl DeathAnimSpawn {
@@ -106,6 +122,16 @@ impl DeathAnimSpawn {
             delay,
             draws: None,
             follow_up: None,
+            #[cfg(feature = "phobos")]
+            invoker: None,
+            #[cfg(feature = "phobos")]
+            victim_house: None,
+            #[cfg(feature = "phobos")]
+            death_facing: None,
+            #[cfg(feature = "phobos")]
+            death_has_turret: false,
+            #[cfg(feature = "phobos")]
+            death_turret_facing: None,
         }
     }
 }
@@ -313,6 +339,49 @@ impl Simulation {
                 }
             }
         }
+        #[cfg(feature = "phobos")]
+        {
+            // `AnimExt::SetAnimOwnerHouseKind` with the type's
+            // `CreateUnit.Owner` kind (`Ext/Anim/Body.cpp:108-145`).
+            let settings = rules
+                .art()
+                .anim_runtime_config(self.interner.resolve(type_id))
+                .and_then(|config| config.phobos_create_unit.clone());
+            if let Some(settings) = settings {
+                // RESIDUAL: native's `pInvoker` here is the killer House
+                // (`ProcessDestroyAnims` takes it from `TakeDamage`), which
+                // `unit_death_explosion` does not receive; Invoker/Killer
+                // selectors fall back to the victim House.
+                let random_house = (settings.owner
+                    == crate::rules::ares_warhead::HouseSelector::Random)
+                    .then(|| self.random_house())
+                    .flatten();
+                if let Some(house) = self.house_kind(
+                    settings.owner,
+                    None,
+                    spawn.invoker.map(|(_, house)| house),
+                    None,
+                    spawn.victim_house,
+                    rules,
+                    random_house,
+                ) {
+                    self.substrate.set_anim_owner_house(anim, house);
+                }
+            }
+            if let Some((invoker, house)) = spawn.invoker {
+                self.substrate
+                    .set_anim_invoker(anim, Some(invoker), Some(house));
+            }
+            if spawn.invoker.is_some() {
+                self.substrate.set_anim_death_facts(
+                    anim,
+                    true,
+                    spawn.death_facing,
+                    spawn.death_has_turret,
+                    spawn.death_turret_facing,
+                );
+            }
+        }
         Some(anim)
     }
 
@@ -340,21 +409,12 @@ impl Simulation {
             .map_or((HouseSelector::Invoker, -1), |config| {
                 (config.ares_make_infantry_owner, config.make_infantry)
             });
-        let order = self.houses.order();
-        let random_house = (selector == HouseSelector::Random && !order.is_empty()).then(|| {
-            let last = order.len() as i32 - 1;
-            let index = self.scenario_rng.next_range_i32_inclusive(0, last);
-            order.get(index as usize).copied()
-        });
-        let Some(house) = self.house_kind(
-            selector,
-            None,
-            invoker,
-            killer,
-            victim,
-            rules,
-            random_house.flatten(),
-        ) else {
+        let random_house = (selector == HouseSelector::Random)
+            .then(|| self.random_house())
+            .flatten();
+        let Some(house) =
+            self.house_kind(selector, None, invoker, killer, victim, rules, random_house)
+        else {
             return selector;
         };
         self.substrate.set_anim_owner_house(anim, house);
@@ -478,6 +538,20 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return;
         };
+        #[cfg(feature = "phobos")]
+        let owner_house = entity.owner();
+        #[cfg(feature = "phobos")]
+        let death_facing = Some(entity.body_facing_dir(self.session.binary_frame()));
+        #[cfg(feature = "phobos")]
+        let death_turret_facing = if object.has_turret {
+            entity.barrel_facing.as_ref().map(|facing| {
+                crate::util::direction_tables::round_facing16_to_8(
+                    facing.current(self.session.binary_frame()),
+                )
+            })
+        } else {
+            None
+        };
         let location = position_world_coord(&entity.position);
         let coord = AnimWorldCoord {
             x: location.x,
@@ -513,7 +587,24 @@ impl Simulation {
         self.ares_unit_tiberium_explosive(unit_id, rules, registry, effects);
         if !object.destroy_anims.is_empty() {
             let anim = pick_death_anim(&mut self.scenario_rng, &object.destroy_anims);
-            self.emit_death_anim(rules, anims, anim, DeathAnimSpawn::at(coord, 0));
+            self.emit_death_anim(
+                rules,
+                anims,
+                anim,
+                DeathAnimSpawn {
+                    #[cfg(feature = "phobos")]
+                    invoker: Some((unit_id, owner_house)),
+                    #[cfg(feature = "phobos")]
+                    victim_house: Some(owner_house),
+                    #[cfg(feature = "phobos")]
+                    death_facing,
+                    #[cfg(feature = "phobos")]
+                    death_has_turret: object.has_turret,
+                    #[cfg(feature = "phobos")]
+                    death_turret_facing,
+                    ..DeathAnimSpawn::at(coord, 0)
+                },
+            );
         }
     }
 

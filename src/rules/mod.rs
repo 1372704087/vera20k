@@ -145,6 +145,8 @@ pub mod phobos_convert;
 #[cfg(feature = "phobos")]
 pub mod phobos_convert_health;
 #[cfg(feature = "phobos")]
+pub mod phobos_create_unit;
+#[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
 pub mod phobos_detonate_all_map;

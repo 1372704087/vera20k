@@ -366,11 +366,11 @@ pub struct AnimTypeRuntimeConfig {
     /// has no per-type palette, so nothing reads it yet.
     #[cfg(feature = "ares")]
     pub(crate) ares_custom_palette: Option<String>,
-    /// Phobos `CreateUnit=` + `CreateUnit.Owner` (default `Victim`) +
-    /// `CreateUnit.RemapAnim` (default no): `Some` when the animation names a
-    /// unit type, which overrides the owner kind and permits remap.
+    /// Phobos `CreateUnit.*` (`Ext/AnimType/Body.cpp:130-149`): every key of
+    /// the animation's `CreateUnitTypeClass`. `Some` only while the
+    /// `Nullable<TechnoTypeClass*>` `CreateUnit=` is set.
     #[cfg(feature = "phobos")]
-    pub(crate) phobos_create_unit: Option<(crate::rules::ares_warhead::HouseSelector, bool)>,
+    pub(crate) phobos_create_unit: Option<crate::rules::phobos_create_unit::CreateUnitSettings>,
     pub bouncer: bool,
     pub spawns: Option<String>,
     pub spawn_count: i32,
@@ -823,11 +823,10 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         phobos_create_unit: section
             .read_name("CreateUnit", 0x80)
             .filter(|name| !crate::rules::ini_parser::is_native_none_type_name(name))
-            .map(|_| {
-                (
-                    crate::rules::ares_warhead::HouseSelector::Victim
-                        .read(section, "CreateUnit.Owner"),
-                    section.read_ares_bool("CreateUnit.RemapAnim", false),
+            .map(|name| {
+                crate::rules::phobos_create_unit::CreateUnitSettings::from_section(
+                    section,
+                    name.to_owned(),
                 )
             }),
         bouncer: section.read_bool("Bouncer", false),

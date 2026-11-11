@@ -339,6 +339,27 @@ fn a_dying_vehicle_plays_its_explosion_then_its_destroy_anim() {
     }
 }
 
+/// Phobos `AnimTypeExt::ProcessDestroyAnims` records the destroyed unit as
+/// its `DestroyAnim=` anim's invoker (`Ext/AnimType/Body.cpp:54`).
+#[test]
+#[cfg(feature = "phobos")]
+fn a_units_destroy_anim_records_the_unit_as_its_invoker() {
+    let rules = rules();
+    let mut sim = sim(1);
+    let unit = spawn(&mut sim, &rules, "PLAIN", 12, 12);
+    let owner = sim.substrate.entities.get(unit).unwrap().owner();
+    let mut recorded = Vec::new();
+    sim.unit_death_explosion(&rules, unit, &mut recorded, None, FrameEffects::empty());
+    let destroy = sim
+        .substrate
+        .anims
+        .iter()
+        .find(|(_, anim)| sim.interner.resolve(anim.type_id()) == "DESTA")
+        .expect("the DestroyAnim was constructed");
+    assert_eq!(destroy.1.invoker(), Some(unit));
+    assert_eq!(destroy.1.invoker_house(), Some(owner));
+}
+
 /// `0x007386C3..0x007386FF`: an `Explodes=` vehicle (the Apocalypse, the
 /// Demolition Truck) or one with the EXPLODES veteran ability dies with its
 /// last `Explosion=` entry when it has ammo left; the pick is still drawn.

@@ -112,9 +112,6 @@ the shared `spawn_random_owned_anim` owner and break weapons the shared
   reads the key but the flash is a render-side mechanism and stays unported.
 - `ShieldClass::WeaponNullifyAnim`'s `AreAnimsHidden` gate has no VERA reader;
   VERA always draws the absorbed-hit animation.
-- `BreakShield`/`RespawnShield`'s `AnimExt::CreateRandomAnim` stores an
-  invoker; VERA's shared anim spawn sets the owner house and owner object but
-  no invoker, like the other Phobos consumers of that owner.
 - The break/respawn weapon detonates as a `DetonateAt` self shot. `DamageArea`'s
   self exclusion (`Explosion_Damage_DamageSelf @ 0x004896EC`) keeps the owner
   out of its own weapon's ground list, so an ordinary warhead's damage reaches

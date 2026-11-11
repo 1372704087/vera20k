@@ -390,7 +390,8 @@ fn create_phobos_delayed_fire_anim(
     let type_id = world.interner.intern(anim_name);
     let attached = weapon.phobos_delayed_fire_anim_is_attached;
     let owner = attached.then_some(snap.stable_id);
-    let Some(anim_id) = world.spawn_owned_anim(rules, type_id, coord, snap.owner, owner) else {
+    let Some(anim_id) = world.spawn_owned_anim(rules, type_id, coord, snap.owner, owner, None)
+    else {
         return;
     };
     if attached && let Some(firer) = world.substrate.entities.get_mut(snap.stable_id) {

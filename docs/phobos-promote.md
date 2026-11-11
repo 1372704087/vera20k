@@ -103,8 +103,4 @@ sound/flash path.
   bounds are equal. Trigger: a one-element veteran/elite list. Impact: one
   Scenario RNG draw may be missing. Frequency: any single-anim list. Risk:
   determinism only; same residual as `Spawner.RecycleAnim`.
-- **Anim invoker.** `CreateRandomAnim`'s `SetInvoker` half is not attached
-  (the shared `spawn_owned_anim` residual). Trigger: anims whose
-  `MakeInfantry`/`CreateUnit` handling consults the invoker. Frequency:
-  authored mods. Risk: low.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

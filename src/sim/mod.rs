@@ -28,6 +28,8 @@ pub(crate) mod ai_base_defense;
 pub(crate) mod ai_base_site;
 pub mod ammo;
 pub mod anim_class;
+#[cfg(feature = "phobos")]
+pub mod anim_create_unit;
 #[cfg(any(test, feature = "test-support"))]
 pub mod arena_fixture;
 #[cfg(feature = "ares")]

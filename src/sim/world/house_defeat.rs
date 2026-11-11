@@ -1104,6 +1104,22 @@ impl Simulation {
         }
     }
 
+    /// `HouseClass::Array[RandomRanged(0, Count - 1)]`, the `random` arm of
+    /// `HouseExt::GetHouseKind` (`Ext/House/Body.cpp:386-389`). VERA answers
+    /// absent for an empty array; native's draw and `GetItem` are out of
+    /// domain there.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
+    pub(crate) fn random_house(&mut self) -> Option<InternedId> {
+        let order = self.houses.order();
+        if order.is_empty() {
+            return None;
+        }
+        let index = self
+            .scenario_rng
+            .next_range_i32_inclusive(0, order.len() as i32 - 1);
+        order.get(index as usize).copied()
+    }
+
     /// `CaptureManagerClass::SetOriginalOwnerToCivilian @ 0x00472330`: the
     /// first house in HouseClass::Array order whose side is `Civilian`
     /// (`0x006A46D0`) becomes the victim's original owner in every node of

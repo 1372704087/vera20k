@@ -96,6 +96,12 @@ fn promote_animation_type_lists_replace_the_global_tiers() {
             "the anim sits at the promoted object's GetCoords"
         );
         assert_eq!(anim.owner_house(), Some(american));
+        assert_eq!(
+            anim.invoker(),
+            Some(owner),
+            "CreateRandomAnim's invoker is the promoted object"
+        );
+        assert_eq!(anim.invoker_house(), Some(american));
     }
 
     // Elite: `[HERO]` has no elite list, so both units take the global elite

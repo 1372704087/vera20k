@@ -1,0 +1,412 @@
+//! `CreateUnit.*` through the production anim AI and spawn owners.
+use super::*;
+use crate::rules::art_data::ArtRegistry;
+use crate::rules::ini_parser::IniFile;
+use crate::rules::mission_data::MissionType;
+use crate::sim::anim_class::AnimWorldCoord;
+use crate::sim::components::AnimClassSpawnDescriptor;
+use crate::sim::mission::MissionId;
+
+const RULES: &str = "[Countries]\n0=Americans\n1=Russians\n2=Civilians\n\
+    [Sides]\nCivilian=Civilians\n\
+    [VehicleTypes]\n0=MTNK\n[InfantryTypes]\n[AircraftTypes]\n[BuildingTypes]\n0=LAB\n\
+    [Animations]\n0=MAKE\n1=SPAWN\n\
+    [MTNK]\nStrength=100\nSpeed=4\nSight=4\nPrimary=GUN\n\
+    [LAB]\nStrength=1000\nFoundation=1x1\n\
+    [Weapons]\n0=GUN\n[GUN]\nDamage=5\nROF=20\nRange=5\nWarhead=WH\nProjectile=PIFF\n\
+    [Warheads]\n0=WH\n[WH]\n\
+    [PIFF]\nInviso=yes\n\
+    [Clear]\nBuildable=yes\nFoot=100%\nTrack=100%\nWheel=100%\n";
+fn scene(make_lines: &str) -> (Simulation, RuleSet) {
+    let art_text = format!(
+        "[MAKE]\nRate=900\nEnd=1\nLoopCount=1\n{make_lines}\n\
+         [SPAWN]\nRate=900\nEnd=1\nLoopCount=1\n"
+    );
+    let art = IniFile::from_str(&art_text);
+    let rules_text = crate::sim::arena_fixture::clear_ground_ini(RULES);
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&rules_text, &art).expect("create-unit rules");
+    let mut registry = ArtRegistry::from_ini(&art);
+    registry.bind_anim_frame_count_for_test("MAKE", 1);
+    registry.bind_anim_frame_count_for_test("SPAWN", 1);
+    rules.install_art_data(registry);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x424932);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    sim.session.set_binary_frame_for_test(0);
+    (sim, rules)
+}
+
+fn spawn_make(sim: &mut Simulation, rules: &RuleSet, owner: Option<&str>) -> AnimId {
+    spawn_make_at_z(sim, rules, owner, 0)
+}
+
+fn spawn_make_at_z(sim: &mut Simulation, rules: &RuleSet, owner: Option<&str>, z: i32) -> AnimId {
+    let type_name = sim.interner.intern("MAKE");
+    let id = sim
+        .spawn_anim_at_world(
+            rules,
+            AnimClassSpawnDescriptor {
+                draw_flags: 0x600,
+                ..AnimClassSpawnDescriptor::new(
+                    type_name,
+                    20,
+                    10,
+                    crate::util::fixed_math::SimFixed::from_num(128),
+                    crate::util::fixed_math::SimFixed::from_num(128),
+                    0,
+                )
+            },
+            AnimWorldCoord {
+                x: 20 * 256 + 128,
+                y: 10 * 256 + 128,
+                z,
+            },
+        )
+        .expect("the MAKE anim constructs");
+    if let Some(owner) = owner {
+        sim.substrate
+            .set_anim_owner_house(id, sim.interner.intern(owner));
+    }
+    id
+}
+
+fn draws_until(mut rng: crate::sim::rng::SimRng, target: u64) -> usize {
+    for count in 0..8 {
+        if rng.state() == target {
+            return count;
+        }
+        rng.next_u32();
+    }
+    panic!("the post-drive RNG state is not on the pre-drive stream");
+}
+
+fn draws_during_drive(sim: &mut Simulation, rules: &RuleSet, id: AnimId) -> usize {
+    let checkpoint = sim.scenario_rng.clone();
+    drive(sim, rules, id);
+    draws_until(checkpoint, sim.scenario_rng.state())
+}
+
+fn add_civilian_house(sim: &mut Simulation) {
+    let id = sim.interner.intern("Civilians");
+    let house = crate::sim::house_state::HouseState::new(id, 0, None, false, 0, 10);
+    sim.houses.register(house);
+}
+
+fn drive(sim: &mut Simulation, rules: &RuleSet, id: AnimId) {
+    for frame in 0..12 {
+        sim.session.set_binary_frame_for_test(frame);
+        let _ = sim.visit_anim(id, rules, None, FrameEffects::default());
+        if sim.anim(id).is_none() {
+            break;
+        }
+    }
+}
+
+fn units(sim: &Simulation, rules: &RuleSet) -> Vec<u64> {
+    sim.substrate
+        .entities
+        .values()
+        .filter(|entity| entity.category() == crate::map::entities::EntityCategory::Unit)
+        .filter(|entity| sim.interner.resolve(entity.type_ref()) == "MTNK")
+        .map(|entity| entity.stable_id())
+        .filter(|id| {
+            sim.object_type(sim.substrate.entities.get(*id).unwrap().type_ref(), rules)
+                .is_some()
+        })
+        .collect()
+}
+
+#[test]
+fn create_unit_spawns_one_unit_for_the_anim_owner() {
+    for (keys, expect) in [("CreateUnit=MTNK\n", 1), ("", 0), ("CreateUnit=none\n", 0)] {
+        let (mut sim, rules) = scene(keys);
+        let id = spawn_make(&mut sim, &rules, Some("Americans"));
+        drive(&mut sim, &rules, id);
+        let spawned = units(&sim, &rules);
+        assert_eq!(spawned.len(), expect, "keys {keys:?}");
+        if expect == 1 {
+            let unit = sim
+                .substrate
+                .entities
+                .get(spawned[0])
+                .expect("spawned unit");
+            assert_eq!(
+                sim.interner.resolve(unit.owner()),
+                "Americans",
+                "CreateUnit.Owner defaults to the anim's house (Victim)"
+            );
+            assert_eq!(
+                (unit.position.rx(), unit.position.ry()),
+                (20, 10),
+                "spawned at the anim's cell"
+            );
+        }
+    }
+}
+
+#[test]
+fn create_unit_facing_random_flag_and_death_inheritance() {
+    // RandomFacing=no: the configured facing; body_facing_dir round-trips.
+    let (mut sim, rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.Facing=64\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    let frame = sim.session.binary_frame();
+    assert_eq!(unit.body_facing_dir(frame), 64, "CreateUnit.Facing");
+
+    // InheritFacings + FromDeathUnit uses the stored death facing.
+    let (mut sim, rules) = scene(
+        "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n\
+         CreateUnit.InheritFacings=yes\n",
+    );
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    sim.substrate
+        .set_anim_death_facts(id, true, Some(100), false, None);
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    assert_eq!(unit.body_facing_dir(frame), 100, "death-unit facing");
+}
+
+#[test]
+fn create_unit_spawn_height_and_ground_gate() {
+    let (mut sim, rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.SpawnHeight=100\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    let coords =
+        crate::sim::movement::ground_pose::object_get_coords(unit, sim.resolved_terrain.as_ref());
+    assert_eq!(coords.z, 100, "cell floor 0 + SpawnHeight");
+
+    let (mut sim, rules) = scene(
+        "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n\
+         CreateUnit.SpawnHeight=100\nCreateUnit.AlwaysSpawnOnGround=yes\n",
+    );
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    let coords =
+        crate::sim::movement::ground_pose::object_get_coords(unit, sim.resolved_terrain.as_ref());
+    assert_eq!(coords.z, 0, "AlwaysSpawnOnGround uses the cell floor");
+}
+
+#[test]
+fn create_unit_refuses_a_building_type() {
+    let (mut sim, rules) = scene("CreateUnit=LAB\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    assert!(
+        units(&sim, &rules).is_empty()
+            && sim
+                .substrate
+                .entities
+                .values()
+                .all(|entity| sim.interner.resolve(entity.type_ref()) != "LAB"),
+        "a TechnoType Building spawns nothing"
+    );
+}
+
+#[test]
+fn create_unit_plays_its_spawn_anim_with_the_anim_house() {
+    let (mut sim, rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.SpawnAnim=SPAWN\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    let spawn = sim
+        .substrate
+        .anims
+        .iter()
+        .find(|(_, anim)| sim.interner.resolve(anim.type_id()) == "SPAWN")
+        .map(|(_, anim)| anim.owner_house());
+    assert_eq!(
+        spawn,
+        Some(Some(sim.interner.intern("Americans"))),
+        "SpawnAnim plays with the invoker/anim house"
+    );
+}
+
+#[test]
+fn create_unit_random_facing_draws_one_scenario_value() {
+    let (mut sim, rules) = scene("CreateUnit=MTNK\nCreateUnit.Facing=64\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    let checkpoint = sim.scenario_rng.clone();
+    let mut reference = checkpoint.clone();
+    let expected = reference.next_range_i32_inclusive(0, 255) as u8;
+    drive(&mut sim, &rules, id);
+    let draws = draws_until(checkpoint, sim.scenario_rng.state());
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    assert_eq!(
+        unit.body_facing_dir(sim.session.binary_frame()),
+        expected,
+        "RandomFacing constructs yes, overriding CreateUnit.Facing"
+    );
+    // The unit constructor takes one draw of its own on this shared owner;
+    // RandomFacing adds exactly one more.
+    let (mut control, control_rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.Facing=64\n");
+    let control_id = spawn_make(&mut control, &control_rules, Some("Americans"));
+    let control_draws = draws_during_drive(&mut control, &control_rules, control_id);
+    assert_eq!(
+        draws,
+        control_draws + 1,
+        "one RandomRanged(0, 255) draw for RandomFacing"
+    );
+}
+
+#[test]
+fn create_unit_mission_and_ai_mission_follow_the_owner() {
+    let keys = "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n\
+                CreateUnit.Mission=Move\nCreateUnit.AIMission=Hunt\n";
+    // rival_arena: Americans is human, Russians is the computer.
+    let (mut sim, rules) = scene(keys);
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    assert_eq!(
+        unit.mission.queued(),
+        MissionId::from_known(MissionType::Move),
+        "a human owner queues CreateUnit.Mission (current {:?}, queued {:?})",
+        unit.mission.current(),
+        unit.mission.queued()
+    );
+
+    let (mut sim, rules) = scene(keys);
+    let id = spawn_make(&mut sim, &rules, Some("Russians"));
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("spawn");
+    assert_eq!(
+        unit.mission.queued(),
+        MissionId::from_known(MissionType::Hunt),
+        "a computer owner queues CreateUnit.AIMission"
+    );
+}
+
+#[test]
+fn create_unit_require_owner_and_civilian_fallback() {
+    let (mut sim, rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.RequireOwner=yes\n");
+    let id = spawn_make(&mut sim, &rules, None);
+    drive(&mut sim, &rules, id);
+    assert!(
+        units(&sim, &rules).is_empty(),
+        "RequireOwner refuses a missing anim house"
+    );
+
+    let (mut sim, rules) = scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n");
+    add_civilian_house(&mut sim);
+    let id = spawn_make(&mut sim, &rules, None);
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("civilian-owned spawn");
+    assert_eq!(
+        sim.interner.resolve(unit.owner()),
+        "Civilians",
+        "without RequireOwner a missing owner falls to the civilian side"
+    );
+
+    let (mut sim, rules) =
+        scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.RequireOwner=yes\n");
+    add_civilian_house(&mut sim);
+    let americans = sim.interner.intern("Americans");
+    sim.houses
+        .get_mut(&americans)
+        .expect("Americans house")
+        .set_is_defeated_for_test(true);
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    assert!(
+        units(&sim, &rules).is_empty(),
+        "a defeated anim house counts as missing"
+    );
+}
+
+#[test]
+fn create_unit_spawn_parachuted_in_air_uses_the_paradrop_path() {
+    let keys = "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n\
+                CreateUnit.SpawnParachutedInAir=yes\n";
+    let (mut sim, rules) = scene(keys);
+    let id = spawn_make_at_z(&mut sim, &rules, Some("Americans"), 900);
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("parachuted spawn");
+    assert!(
+        unit.is_falling_down(),
+        "2 CellHeights up with SpawnParachutedInAir uses SpawnParachuted"
+    );
+    assert_eq!(
+        (unit.position.rx(), unit.position.ry()),
+        (20, 10),
+        "the paradrop lands on the anim's cell"
+    );
+
+    let keys = "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n\
+                CreateUnit.SpawnParachutedInAir=yes\nCreateUnit.AlwaysSpawnOnGround=yes\n";
+    let (mut sim, rules) = scene(keys);
+    let id = spawn_make_at_z(&mut sim, &rules, Some("Americans"), 900);
+    drive(&mut sim, &rules, id);
+    let unit = sim
+        .substrate
+        .entities
+        .get(units(&sim, &rules)[0])
+        .expect("grounded spawn");
+    assert!(
+        !unit.is_falling_down(),
+        "AlwaysSpawnOnGround overrides SpawnParachutedInAir"
+    );
+    let coords =
+        crate::sim::movement::ground_pose::object_get_coords(unit, sim.resolved_terrain.as_ref());
+    assert_eq!(coords.z, 0, "the cell floor");
+}
+
+#[test]
+fn create_unit_marks_all_infantry_bits_until_the_actual_effects() {
+    let (mut sim, rules) = scene("CreateUnit=MTNK\n");
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    assert_eq!(
+        sim.substrate.raw_cell_occupation.ground_bits(20, 10) & 0x1C,
+        0x1C,
+        "the constructor marks all three infantry sub-cells"
+    );
+    drive(&mut sim, &rules, id);
+    assert_eq!(
+        sim.substrate.raw_cell_occupation.ground_bits(20, 10) & 0x1C,
+        0,
+        "the actual-effects frame releases them"
+    );
+}

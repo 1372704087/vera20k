@@ -134,10 +134,11 @@ clock has a zero maximum, which the renderer skips.
 - `FootExt::IsOwnerChangeFromRevertOnExit` is unported — the AttachEffect
   discard chain also reads it as `false` — so `IgnoreRevertOnExit` cannot fire
   and the owner-change transporter gate has no revert term.
-- The vanish animation's `invoker=true` (`AnimExt::SetInvoker(pThis)`) has no
-  VERA anim field; the animation keeps its owner house (`ownedObject` stays at
-  its `false` default, so there is no owner object), and a later reader of the
-  vanish anim's invoker sees none.
+- The vanish animation's `invoker=true` attaches the dying object as the
+  anim's invoker through the shared spawn owner; native also sets it as the
+  owner object, which VERA still leaves empty (`ownedObject` stays at its
+  `false` default). Trigger: a reader of the vanish anim's owner object.
+  Frequency: authored mods. Risk: low.
 - `AutoDeath.AllowLimboed` is read for the owner-change transporter gate, but
   `KillSelf`'s limbo arm (`:721-766`) is unported, so a limboed object still
   never dies here and the object-level limbo gate refuses regardless of the key.

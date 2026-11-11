@@ -2664,11 +2664,12 @@ impl Simulation {
         multiplier
     }
 
-    /// Phobos' `Unkillable` arm of the ReceiveDamage wrapper:
+    /// Phobos' `Unkillable`/`!CanKill` arm of the ReceiveDamage wrapper
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-188`):
     /// `MapClass::GetTotalDamage(input, WH, target armor, distance)` reaching
     /// the target's health leaves `Health` and `EstimatedHealth` at 1 and the
-    /// receiver packet at 0. `WarheadTypeExt::CanKill` is not ported, so only
-    /// the effect's flag opens the arm. Returns whether it applied.
+    /// receiver packet at 0. Either the AttachEffect flag or a false
+    /// `WarheadType CanKill` opens the arm. Returns whether it applied.
     pub(crate) fn apply_unkillable_clamp(
         &mut self,
         target_id: u64,
@@ -2679,12 +2680,15 @@ impl Simulation {
         let Some(target) = self.substrate.entities.get(target_id) else {
             return false;
         };
-        if !target.phobos_unkillable() || target.health.current() <= 0 || input == 0 {
-            return false;
-        }
         let Some(warhead) = rules.warhead(self.interner.resolve(event.warhead_ref)) else {
             return false;
         };
+        if !(target.phobos_unkillable() || !warhead.can_kill)
+            || target.health.current() <= 0
+            || input == 0
+        {
+            return false;
+        }
         let Some(object) = self.interner.object_type(target.type_ref(), rules) else {
             return false;
         };
@@ -4330,8 +4334,10 @@ mod tests {
         use crate::rules::ini_parser::IniFile;
         let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(
             "[Countries]\n0=Americans\n[VehicleTypes]\n0=TARGET\n1=PLAIN\n\
-             [Warheads]\n0=HIT\n\
+             [Warheads]\n0=HIT\n1=HIT_NOKILL\n\
              [HIT]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [HIT_NOKILL]\nCanKill=no\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
              [TARGET]\nStrength=500\nSpeed=6\nArmor=light\n\
              AttachEffect.AttachTypes=AE_UK\n\
              [PLAIN]\nStrength=500\nSpeed=6\nArmor=light\n\
@@ -4396,6 +4402,26 @@ mod tests {
             !sim.apply_unkillable_clamp(plain, &event, 100, &rules),
             "an object without the effect takes the lethal hit"
         );
+
+        // Phobos `WarheadTypeExt::CanKill=no` opens the same clamp without the
+        // AttachEffect (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-188`).
+        let no_kill = sim.interner.intern("HIT_NOKILL");
+        sim.substrate
+            .entities
+            .get_mut(plain)
+            .unwrap()
+            .health
+            .set(50);
+        let event = crate::sim::combat::EntityDamageEvent::area(
+            plain,
+            100,
+            0,
+            crate::sim::combat::RAD_NO_ATTACKER,
+            None,
+            no_kill,
+        );
+        assert!(sim.apply_unkillable_clamp(plain, &event, 100, &rules));
+        assert_eq!(sim.entities().get(plain).unwrap().health.current(), 1);
     }
 
     /// `GetRangeWithModifiers`: multipliers apply in attach order, summed

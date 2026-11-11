@@ -446,6 +446,11 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `CanKill=` (`Body.cpp:369`, default **true**): when false, a
+    /// lethal hit leaves `Health`/`EstimatedHealth` at 1
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-188`).
+    #[cfg(feature = "phobos")]
+    pub can_kill: bool,
     /// Phobos `Taunt=` (`Body.cpp:444`, default false): each hit target is
     /// forced into `Mission::Attack` against the detonation's owner
     /// (`Ext/WarheadType/Detonate.cpp:236-237`).
@@ -929,6 +934,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            can_kill: section.read_bool("CanKill", true),
             #[cfg(feature = "phobos")]
             taunt: section.read_bool("Taunt", false),
             #[cfg(feature = "phobos")]

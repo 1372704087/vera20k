@@ -179,6 +179,9 @@ Supported extensions:
 - [Customizable spawns queue](phobos-spawns-queue.md) (`Spawns.Queue`: a spawn manager's per-slot and regeneration type order — read, not yet consumed; 1 type key)
 - [Fast access to a vehicle or structure](phobos-no-queue-up-to-enter.md) (`NoQueueUpToEnter`/`.BoardDistance` plus `[General] NoQueueUpToEnter.Buildings`: boarding without the queue when close enough — read, not yet consumed; 2 type keys + 3 `[General]` globals)
 - [Drop a crate on death](phobos-drop-crate.md) (`DropCrate`: the `[Powerups]` slot a dying object leaves behind — read, not yet consumed; 1 type key)
+- [Damaged image changes](phobos-damaged-image.md) (`Image.ConditionRed`/`.ConditionYellow` and `WaterImage.*`: a Unit or Aircraft draws a replacement type in the yellow and red bands, with the water pair replacing the land pair on water; 4 type keys)
+- [Hover vehicle drown death](phobos-hover-drown.md) (`HoverDrownable`: a hover Unit that shut down over water takes the whole-health packet when it lands, and the type's key overrides `[General] HoverDrownable`; 1 type key + 1 `[General]` global)
+- [RA1 multi-turret / multi-barrel](phobos-turret-barrel.md) (`BarrelOverTurret`/`BarrelOffset`/`ExtraBarrelCount`/`ExtraTurretCount`/`BurstPerTurret` and the indexed offsets: per-turret and per-barrel draw transforms, recoil slots and burst cycling — read, not yet consumed; 5 type keys + 2 indexed lists)
 
 ## Original project and authors
 

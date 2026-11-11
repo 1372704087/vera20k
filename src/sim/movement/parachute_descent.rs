@@ -134,10 +134,27 @@ impl crate::sim::world::Simulation {
             .map(|e| e.health.current())
         {
             //5F402B copies current Health+6C into a local packet (not Strength).
+            //
+            // Phobos `ObjectClass_Update_FallingDown_ToDead` (hook `0x5F4021`,
+            // `Ext/Techno/Hooks.cpp:1014-1043`) reads and clears
+            // `TechnoExt::HoverShutdown` inside this arm and lets the
+            // `HoverDrownable` answer pick the damage. The drowning arm takes
+            // the whole current health (`:1033-1036`); the other arm is the
+            // `FallingDownDamage` model, whose default ratio of `1.0` packets
+            // the whole `Strength` (`:1074-1082`). VERA has not ported
+            // `FallingDownDamage`, so the default ratio is the one it applies.
+            #[cfg(feature = "phobos")]
+            let damage = if self.take_hover_shutdown(id) && !self.hover_drowns(id, rules) {
+                self.object_strength(id, rules).unwrap_or(health)
+            } else {
+                health
+            };
+            #[cfg(not(feature = "phobos"))]
+            let damage = health;
             let c4 = self.interner.intern(&rules.bridge_warheads.c4_name);
             let hit = crate::sim::combat::EntityDamageEvent::direct_receiver(
                 id,
-                health,
+                damage,
                 0,
                 crate::sim::combat::RAD_NO_ATTACKER,
                 None,
@@ -150,6 +167,49 @@ impl crate::sim::world::Simulation {
             self.commit_direct_damage_receiver(rules, registry, hit, effects);
         }
         Ok((landed, changed))
+    }
+
+    /// Phobos `TechnoExt::HoverShutdown`: the landing arm owns the single read
+    /// and the clear (`Ext/Techno/Hooks.cpp:1026-1027`).
+    #[cfg(feature = "phobos")]
+    fn take_hover_shutdown(&mut self, id: u64) -> bool {
+        self.substrate
+            .entities
+            .get_mut(id)
+            .is_some_and(|entity| entity.take_hover_shutdown())
+    }
+
+    /// `HoverDrownable.Get(RulesExt::Global()->HoverDrownable)`
+    /// (`Ext/Techno/Hooks.cpp:1031`): the type's own value, else
+    /// `[General] HoverDrownable`.
+    #[cfg(feature = "phobos")]
+    fn hover_drowns(&self, id: u64, rules: &crate::rules::ruleset::RuleSet) -> bool {
+        self.substrate
+            .entities
+            .get(id)
+            .and_then(|entity| {
+                self.interner.try_resolve(entity.type_ref())?;
+                self.interner.object_type(entity.type_ref(), rules)
+            })
+            .is_none_or(|object| {
+                object
+                    .phobos_hover_drown
+                    .drowns(rules.phobos_globals.hover_drownable)
+            })
+    }
+
+    /// The type's `Strength=`, the not-drownable arm's whole-health packet
+    /// (`Ext/Techno/Hooks.cpp:1082`).
+    #[cfg(feature = "phobos")]
+    fn object_strength(&self, id: u64, rules: &crate::rules::ruleset::RuleSet) -> Option<i32> {
+        self.substrate
+            .entities
+            .get(id)
+            .and_then(|entity| {
+                self.interner.try_resolve(entity.type_ref())?;
+                self.interner.object_type(entity.type_ref(), rules)
+            })
+            .map(|object| object.strength)
     }
 
     /// Construct the falling object's canopy.
@@ -741,5 +801,48 @@ mod canopy_tests {
         );
         let rules = RuleSet::from_rules_layers(&layers).unwrap();
         assert_eq!(rules.general.vehicle_parachute, None);
+    }
+
+    /// Phobos `ObjectClass_Update_FallingDown_ToDead` (hook `0x5F4021`,
+    /// `Ext/Techno/Hooks.cpp:1014-1043`): only the `IsABomb` arm reads and
+    /// clears `TechnoExt::HoverShutdown`, and `HoverDrownable` then picks the
+    /// damage packet.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn only_the_bomb_landing_arm_takes_the_hover_shutdown() {
+        fn land(bomb: bool) -> bool {
+            let rules = RuleSet::from_ini(&IniFile::from_str(
+                "[General]\nHoverDrownable=no\n[InfantryTypes]\n0=E1\n[E1]\nStrength=125\n",
+            ))
+            .expect("rules");
+            let mut sim = Simulation::new();
+            sim.interner = crate::sim::intern::test_interner();
+            let id = sim.substrate.allocate_stable_id();
+            let mut entity = GameEntity::test_default(id, "E1", "Americans", 10, 11);
+            entity.lifecycle.set_in_limbo_for_test(false);
+            entity.health.set_for_test(5000);
+            // Grounded, so the first frame is the landing frame.
+            entity.position.set_exact_z_leptons_for_test(Some(0));
+            if bomb {
+                entity.begin_bomb_fall();
+            } else {
+                entity.begin_parachute_fall(0);
+            }
+            entity.mark_hover_shutdown();
+            sim.substrate.entities.insert(entity);
+            sim.object_ai_fall(id, &rules, None, FrameEffects::default())
+                .expect("landing arm");
+            sim.substrate
+                .entities
+                .get(id)
+                .expect("bomb landing retains the member")
+                .hover_shutdown()
+        }
+
+        assert!(!land(true), "the bomb arm reads and clears the flag");
+        assert!(
+            land(false),
+            "a canopy landing is not a bomb and never reads it"
+        );
     }
 }

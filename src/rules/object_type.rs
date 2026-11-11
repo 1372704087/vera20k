@@ -947,6 +947,19 @@ pub struct ObjectType {
     /// `:1446`).
     #[cfg(feature = "phobos")]
     pub phobos_techno_extras: crate::rules::phobos_techno_extras::PhobosTechnoExtras,
+    /// Phobos `Image.ConditionYellow/Red` and `WaterImage.ConditionYellow/Red`
+    /// (`Ext/TechnoType/Body.cpp:1112-1113`, `Ext/UnitType/Body.cpp:78-79`):
+    /// the replacement images a damaged type draws.
+    #[cfg(feature = "phobos")]
+    pub phobos_damaged_image: crate::rules::phobos_damaged_image::PhobosDamagedImage,
+    /// Phobos `HoverDrownable` (`Ext/UnitType/Body.cpp:87`): whether a hover
+    /// Unit that shut down over water dies when it lands.
+    #[cfg(feature = "phobos")]
+    pub phobos_hover_drown: crate::rules::phobos_hover_drown::PhobosHoverDrown,
+    /// Phobos RA1 multi-barrel / multi-turret block
+    /// (`Ext/UnitType/Body.cpp:100-134`, art section).
+    #[cfg(feature = "phobos")]
+    pub phobos_turret_barrel: crate::rules::phobos_turret_barrel::PhobosTurretBarrel,
     /// Phobos `SuppressKillWeapons` / `.Types`
     /// (`Ext/TechnoType/Body.cpp:1125-1126`).
     #[cfg(feature = "phobos")]
@@ -5151,6 +5164,15 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_techno_extras:
                 crate::rules::phobos_techno_extras::PhobosTechnoExtras::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_damaged_image:
+                crate::rules::phobos_damaged_image::PhobosDamagedImage::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_hover_drown:
+                crate::rules::phobos_hover_drown::PhobosHoverDrown::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_turret_barrel:
+                crate::rules::phobos_turret_barrel::PhobosTurretBarrel::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_kill_weapon_suppress:
                 crate::rules::phobos_kill_weapon::PhobosKillWeaponSuppress::from_section(section),

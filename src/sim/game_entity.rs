@@ -2978,6 +2978,26 @@ impl GameEntity {
         self.fall.dropped_as_bomb()
     }
 
+    /// Phobos `TechnoExt::HoverShutdown` (`Ext/Techno/Body.h:81`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn hover_shutdown(&self) -> bool {
+        self.fall.hover_shutdown()
+    }
+
+    /// The hover locomotor's shutdown dropped this object as a bomb (Phobos
+    /// hook `0x514C07`, `Ext/Techno/Hooks.cpp:997-1006`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn mark_hover_shutdown(&mut self) {
+        self.fall.mark_hover_shutdown();
+    }
+
+    /// Read and clear the hover-shutdown provenance, as the Phobos landing arm
+    /// does once (`Ext/Techno/Hooks.cpp:1026-1027`).
+    #[cfg(feature = "phobos")]
+    pub(crate) fn take_hover_shutdown(&mut self) -> bool {
+        self.fall.take_hover_shutdown()
+    }
+
     pub(crate) fn fall_rate(&self) -> i32 {
         self.fall.rate()
     }

@@ -822,6 +822,19 @@ impl IniSection {
         })
     }
 
+    /// Phobos `Valueable<CoordStruct>`: `INI_EX::Read3Integers` (ReadString(2048),
+    /// then `Parser<int, 3>`, the same [`scan_partial_int_fields`] scan the
+    /// pair reader uses) converts each token straight into the value, so a
+    /// shorter read changes only the leading fields and a read that converts
+    /// nothing keeps all three.
+    pub fn read_phobos_int_triple(&self, key: &str, current: [i32; 3]) -> [i32; 3] {
+        self.read_string_with(key, 2048, current, |current, raw| {
+            let mut fields = current;
+            scan_partial_int_fields(raw, &mut fields);
+            fields
+        })
+    }
+
     /// Phobos `Nullable<Point2D>`: the clearing tokens of
     /// [`Self::read_phobos_nullable_with`], then the same in-place
     /// `Read2Integers` scan. Only a read that converts both tokens sets the

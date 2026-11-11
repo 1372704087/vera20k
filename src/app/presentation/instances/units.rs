@@ -569,6 +569,12 @@ pub(crate) fn unit_visitor<'a>(
                 local_owner_id,
                 state.rules(),
             );
+            // `GetCell()->LandType == Water && !OnBridge` for the Phobos water
+            // damaged-image pair; an Aircraft never asks it.
+            #[cfg(feature = "phobos")]
+            let water = super::damaged_image::unit_on_water(entity, cells.as_ref());
+            #[cfg(not(feature = "phobos"))]
+            let water = false;
             let Some((type_name, mut body)) = unit_body_draw(
                 entity,
                 sim.interner(),
@@ -576,6 +582,7 @@ pub(crate) fn unit_visitor<'a>(
                 band,
                 sim.session().binary_frame(),
                 observer,
+                water,
             ) else {
                 return;
             };
@@ -1147,12 +1154,18 @@ fn unit_animation_frames(
 /// Otherwise disguise precedes `NoSpawnAlt`, selected from the current
 /// docked slot count at draw time. The serialized override remains solely
 /// the miner dock sub-FSM's UnloadingClass (HORV/CMON) hint.
+///
+/// Phobos `Image.Condition*=`/`WaterImage.Condition*=` precede every one of
+/// those arms: the draw hooks replace the type the image, the voxel and the
+/// turret split come from, after the disguise and the deploy pointer have
+/// already chosen one (`0x73B4DA`, `0x73C602`).
 pub(crate) fn drawn_model_id<'a>(
     entity: &'a crate::sim::game_entity::GameEntity,
     interner: &'a crate::sim::intern::StringInterner,
     rules: Option<&'a crate::rules::ruleset::RuleSet>,
     binary_frame: u32,
     observer: crate::render::draw_state::ObserverDrawContext,
+    water: bool,
 ) -> Cow<'a, str> {
     let base_type = interner.resolve(entity.type_ref());
     let object = rules.and_then(|rules| rules.object(base_type));
@@ -1162,6 +1175,17 @@ pub(crate) fn drawn_model_id<'a>(
     {
         return Cow::Borrowed(unloading_type);
     }
+    // Phobos `Image.Condition*=`/`WaterImage.Condition*=` override the type the
+    // draw hooks below select, disguise and `NoSpawnAlt` included; a fully
+    // deployed Unit already left through `UnloadingClass=`.
+    #[cfg(feature = "phobos")]
+    if let (Some(rules), Some(object)) = (rules, object)
+        && let Some(damaged) = super::damaged_image::swap(entity, object, rules, water)
+    {
+        return Cow::Borrowed(damaged);
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = water;
     let no_spawn_alt = object.is_some_and(|object| object.no_spawn_alt);
     if let Some(disguise_type) = entity
         .disguise
@@ -1196,11 +1220,12 @@ fn unit_body_draw<'a>(
     band: EntityDrawBand,
     binary_frame: u32,
     observer: crate::render::draw_state::ObserverDrawContext,
+    water: bool,
 ) -> Option<(Cow<'a, str>, BodyDraw)> {
     if entity.category() == EntityCategory::Unit && entity.unit_deploying() {
         return None;
     }
-    let model = drawn_model_id(entity, interner, rules, binary_frame, observer);
+    let model = drawn_model_id(entity, interner, rules, binary_frame, observer, water);
     if !super::helpers::drawn_type_uses_voxel(entity, &model, interner, rules) {
         return None;
     }

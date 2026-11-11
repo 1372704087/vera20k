@@ -2151,12 +2151,21 @@ fn disguise_inputs(
             local_id,
             state.rules(),
         );
+        // The Phobos water damaged-image pair reads the object's cell.
+        #[cfg(feature = "phobos")]
+        let water = sim.resolved_terrain().is_some_and(|terrain| {
+            let cells = crate::map::resolved_terrain::NativeCellQuery::isolated(terrain);
+            instances::unit_on_water(entity, Some(&cells))
+        });
+        #[cfg(not(feature = "phobos"))]
+        let water = false;
         let chosen = instances::drawn_model_id(
             entity,
             sim.interner(),
             state.rules(),
             sim.session().binary_frame(),
             observer,
+            water,
         );
         let voxel =
             instances::drawn_type_uses_voxel(entity, &chosen, sim.interner(), state.rules());

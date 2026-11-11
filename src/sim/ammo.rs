@@ -90,6 +90,16 @@ impl TechnoAmmo {
         self.current
     }
 
+    /// Phobos `WarheadTypeExt::ApplyAmmoModifier`
+    /// (`Ext/WarheadType/Detonate.cpp:923-932`): `clamp(Ammo + delta, 0,
+    /// type->Ammo)`. The maximum is the target type's live `Ammo=`, not the
+    /// constructor copy. Returns the new count.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn apply_warhead_delta(&mut self, delta: i32, max_ammo: i32) -> i32 {
+        self.current = self.current.wrapping_add(delta).clamp(0, max_ammo);
+        self.current
+    }
+
     /// Phobos `UnitExt::HandleOnDeployAmmoChange` (`Ext/Unit/Body.cpp:249`):
     /// the clamped deploy rewrite, followed by StartReloading at the caller.
     #[cfg(feature = "phobos")]

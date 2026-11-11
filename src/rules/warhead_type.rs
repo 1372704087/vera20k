@@ -446,6 +446,11 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `Ammo=` (`Body.cpp:452`, default 0): the per-target ammo delta,
+    /// clamped to `0..type->Ammo` (`Ext/WarheadType/Detonate.cpp:221-222,
+    /// 923-932`).
+    #[cfg(feature = "phobos")]
+    pub ammo: i32,
     /// Phobos `RemoveDisguise=` (`Body.cpp:177`, default false): a disguised
     /// target loses its disguise on impact
     /// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`).
@@ -919,6 +924,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            ammo: section.read_int("Ammo", 0),
             #[cfg(feature = "phobos")]
             remove_disguise: section.read_bool("RemoveDisguise", false),
             #[cfg(feature = "phobos")]

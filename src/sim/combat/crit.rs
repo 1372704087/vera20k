@@ -262,6 +262,26 @@ pub(crate) fn detonate(
             rules,
             run.effects(),
         );
+        // `DetonateOnOneUnit`'s `ApplyAmmoModifier(pTarget)`
+        // (`Detonate.cpp:221-222,923-932`): before RemoveDisguise, the delta
+        // clamps into `0..type->Ammo`.
+        #[cfg(feature = "phobos")]
+        if warhead.ammo != 0 {
+            let max_ammo = world
+                .substrate
+                .entities
+                .get(target_id)
+                .and_then(|target| world.interner.object_type(target.type_ref(), rules))
+                .map_or(0, |object| object.ammo);
+            if let Some(ammo) = world
+                .substrate
+                .entities
+                .get_mut(target_id)
+                .and_then(|target| target.ammo_mut())
+            {
+                ammo.apply_warhead_delta(warhead.ammo, max_ammo);
+            }
+        }
         // `DetonateOnOneUnit`'s `ApplyRemoveDisguise(pTarget)`
         // (`Detonate.cpp:224-225,466-475`): after the one-time Ammo arm and
         // before ReverseEngineer/ReturnWarhead. Infantry clears the `Disguised`

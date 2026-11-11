@@ -631,6 +631,37 @@ fn return_warhead_strikes_the_firer_back() {
     );
 }
 
+/// Phobos `WarheadTypeExt::ApplyAmmoModifier`
+/// (`Ext/WarheadType/Detonate.cpp:221-222,923-932`): `Ammo` adds to the
+/// target and clamps into `0..type->Ammo`; the default 0 leaves it alone.
+#[cfg(feature = "phobos")]
+#[test]
+fn warhead_ammo_modifies_the_target_ammo_with_the_native_clamp() {
+    let after = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "Ammo=5\n", "", "Russians");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .ammo_mut()
+            .unwrap()
+            .set_current_for_test(2);
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .ammo()
+            .unwrap()
+            .current()
+    };
+    assert_eq!(after("Ammo=2\n"), 4);
+    assert_eq!(after("Ammo=-1\n"), 1);
+    assert_eq!(after("Ammo=-9\n"), 0, "negative clamps to zero");
+    assert_eq!(after("Ammo=9\n"), 5, "clamped to the type's Ammo");
+    assert_eq!(after(""), 2, "the default 0 is a no-op");
+}
+
 /// Phobos `WarheadTypeExt::ApplyRemoveDisguise`
 /// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`): the per-target pass
 /// strips a Unit's disguise even when the shot deals no damage; a Unit also

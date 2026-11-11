@@ -631,6 +631,30 @@ fn return_warhead_strikes_the_firer_back() {
     );
 }
 
+/// Phobos `WarheadTypeExt::Detonate`'s Reveal block
+/// (`Ext/WarheadType/Detonate.cpp:82-100`): a negative value reveals the
+/// whole map for the firing house; the default 0 does nothing.
+#[cfg(feature = "phobos")]
+#[test]
+fn reveal_warhead_reveals_the_map_for_its_owner() {
+    let revealed = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let house = sim.interner.intern("Americans");
+        sim.reset_shroud_for_owner(house, &rules);
+        assert!(
+            !sim.fog.is_cell_revealed(house, 0, 0),
+            "the shroud starts closed"
+        );
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.fog.is_cell_revealed(house, 0, 0)
+    };
+    assert!(!revealed(""), "Reveal defaults to 0");
+    assert!(
+        revealed("Reveal=-1\n"),
+        "a negative value reveals the whole map for the firing house"
+    );
+}
+
 /// Phobos `DetonateOnOneUnit`'s Taunt arm
 /// (`Ext/WarheadType/Detonate.cpp:236-237`): every hit target is forced onto
 /// `Mission::Attack` against the firing techno; the default is off.

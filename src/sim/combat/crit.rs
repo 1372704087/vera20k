@@ -127,6 +127,47 @@ pub(crate) fn detonate(
             .get(source_id)
             .map(|source| source.owner())
     });
+    // `WarheadTypeExt::Detonate`'s Reveal block (`Detonate.cpp:82-100`): a
+    // positive radius reveals for the firing house on the client maps its
+    // RevealArea gate admits; a negative value reveals the whole map for that
+    // house. It runs before TransactMoney.
+    #[cfg(feature = "phobos")]
+    if warhead.reveal != 0
+        && let Some(owner) = house
+    {
+        if warhead.reveal < 0 {
+            world.reveal_map_for_owner(owner, rules);
+        } else {
+            let config = world.sight_reveal_config(rules);
+            let viewers = crate::sim::vision::direct_reveal_viewers(
+                world.house_alliances.as_map(),
+                owner,
+                &config,
+                &world.interner,
+                &world.fog_viewers(),
+            );
+            if !viewers.is_empty() {
+                let radius = warhead.reveal.clamp(0, i32::from(u16::MAX)) as u16;
+                let cell = ((impact.x / 256) as u16, (impact.y / 256) as u16);
+                let context = crate::sim::world::UninitContext::new(rules, overlay_registry);
+                let notification = world.session.current_house();
+                for final_pass in [false, true] {
+                    let _ = world.reveal_area(
+                        &viewers,
+                        cell,
+                        impact.z,
+                        radius,
+                        None,
+                        final_pass,
+                        &config,
+                        context,
+                        crate::sim::vision::MapRevealProjection::Transient,
+                        notification,
+                    );
+                }
+            }
+        }
+    }
     // `WarheadTypeExt::Detonate`'s `TransactMoney` block runs before the crit
     // prefix and regardless of whether this warhead can crit
     // (`Ext/WarheadType/Detonate.cpp:102-111`).

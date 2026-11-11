@@ -109,6 +109,7 @@ Supported extensions:
 - [Warhead ammo](phobos-warhead-ammo.md) (`Ammo=N` adjusts each hit target's ammo with the native clamp)
 - [Warhead taunt](phobos-warhead-taunt.md) (`Taunt=yes` forces each hit target onto Attack against the firer)
 - [Warhead CanKill](phobos-warhead-can-kill.md) (`CanKill=no` leaves a lethal victim at 1 HP)
+- [Warhead Reveal](phobos-warhead-reveal.md) (`Reveal=N` reveals a radius, or the whole map when negative, to the firing house)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)
 - [AttachEffect](phobos-attach-effect.md) (`[AttachEffectTypes]` catalog, warhead and TechnoType attach lists, stat multipliers, tint, discard conditions, expire/revenge/reflect weapons and the weapon-side gates)
 - [Critical hits](phobos-critical-hit.md) (per-warhead `Crit.*` chance, extra damage, second warhead and animations, `ImmuneToCrit`, rank abilities)

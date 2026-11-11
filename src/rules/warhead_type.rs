@@ -446,6 +446,11 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `Reveal=` (`Body.cpp:157`, default 0, cells): a positive value
+    /// reveals that radius to the firing house; negative reveals the whole
+    /// map for it (`Ext/WarheadType/Detonate.cpp:82-100`).
+    #[cfg(feature = "phobos")]
+    pub reveal: i32,
     /// Phobos `CanKill=` (`Body.cpp:369`, default **true**): when false, a
     /// lethal hit leaves `Health`/`EstimatedHealth` at 1
     /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:178-188`).
@@ -934,6 +939,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            reveal: section.read_int("Reveal", 0),
             #[cfg(feature = "phobos")]
             can_kill: section.read_bool("CanKill", true),
             #[cfg(feature = "phobos")]

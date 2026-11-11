@@ -182,6 +182,8 @@ Supported extensions:
 - [Damaged image changes](phobos-damaged-image.md) (`Image.ConditionRed`/`.ConditionYellow` and `WaterImage.*`: a Unit or Aircraft draws a replacement type in the yellow and red bands, with the water pair replacing the land pair on water; 4 type keys)
 - [Hover vehicle drown death](phobos-hover-drown.md) (`HoverDrownable`: a hover Unit that shut down over water takes the whole-health packet when it lands, and the type's key overrides `[General] HoverDrownable`; 1 type key + 1 `[General]` global)
 - [RA1 multi-turret / multi-barrel](phobos-turret-barrel.md) (`BarrelOverTurret`/`BarrelOffset`/`ExtraBarrelCount`/`ExtraTurretCount`/`BurstPerTurret` and the indexed offsets: per-turret and per-barrel draw transforms, recoil slots and burst cycling — read, not yet consumed; 5 type keys + 2 indexed lists)
+- [Parabombs](phobos-parabomb.md) (`Parachuted`/`.FallRate`/`.MaxFallRate` and `BombParachute`: a projectile that descends under a canopy at a step/cap fall rate — the keys and the rate model are in, the bullet's parachute state is not yet wired; 4 type keys)
+- [Return weapon](phobos-return-weapon.md) (`ReturnWeapon` and `ReturnWeapon.ApplyFirepowerMult`: a detonating bullet fires the named weapon back at its firer from the impact, with the firepower multiplier scaling `Damage=`; 2 type keys + 1 `[CombatDamage]` global)
 
 ## Original project and authors
 

@@ -173,11 +173,15 @@ pub mod phobos_factory_plant;
 #[cfg(feature = "phobos")]
 pub mod phobos_launch_sw;
 #[cfg(feature = "phobos")]
+pub mod phobos_parabomb;
+#[cfg(feature = "phobos")]
 pub mod phobos_parasite;
 #[cfg(feature = "phobos")]
 pub mod phobos_fly_wobble;
 #[cfg(feature = "phobos")]
 pub mod phobos_return_warhead;
+#[cfg(feature = "phobos")]
+pub mod phobos_return_weapon;
 #[cfg(feature = "phobos")]
 pub mod phobos_tiberium_eater;
 #[cfg(feature = "phobos")]

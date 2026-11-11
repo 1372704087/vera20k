@@ -73,6 +73,8 @@ mod phobos_extra_warheads;
 #[cfg(feature = "phobos")]
 mod phobos_return_warhead;
 #[cfg(feature = "phobos")]
+mod phobos_return_weapon;
+#[cfg(feature = "phobos")]
 pub(crate) mod phobos_unlimbo_detonate;
 mod projectile_delivery;
 pub mod radiation_beam;

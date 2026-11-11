@@ -408,6 +408,31 @@ fn parachute_anim_name<'r>(
     }
 }
 
+/// Phobos parabombs' descent rate (`Ext/Bullet/Hooks.cpp:128-137`).
+///
+/// ```text
+/// fallRate = ParabombFallRate - Parachuted.FallRate
+/// if (fallRate < Parachuted.MaxFallRate.Get([General] ParachuteMaxFallRate))
+///     fallRate = that cap
+/// ParabombFallRate = fallRate      // persisted on BulletExt
+/// ```
+///
+/// `Parachuted.FallRate=` is therefore the per-frame **acceleration** (a
+/// positive step subtracted from a rate that is negative while descending)
+/// and `Parachuted.MaxFallRate=` / `[General] ParachuteMaxFallRate` the
+/// **terminal** rate — a lower bound in signed terms, i.e. the fastest the
+/// canopy is allowed to fall. This is the same step/cap shape
+/// [`crate::sim::object_fall::ObjectFallState::advance_rate`] uses for a
+/// parachuting object; only the owners of `step` and `cap` differ.
+///
+/// The bullet's accumulated rate starts at `0` (`BulletExt::ParabombFallRate`
+/// `Ext/Bullet/Body.h:61`), so the first frame computes `0 - step` and the
+/// cap brings it up to the terminal rate whenever the step is positive.
+#[cfg(feature = "phobos")]
+pub fn parachuted_bullet_rate(current: i32, step: i32, cap: i32) -> i32 {
+    current.wrapping_sub(step).max(cap)
+}
+
 impl crate::sim::world::Simulation {
     /// `ObjectClass::AI`'s falling block (`0x005F3F11..0x005F3FFA`) for one
     /// object. Answers whether the fall grounded this frame.
@@ -844,5 +869,70 @@ mod canopy_tests {
             land(false),
             "a canopy landing is not a bomb and never reads it"
         );
+    }
+}
+
+/// `Ext/Bullet/Hooks.cpp:128-137`: the parabomb rate is the step/cap shape,
+/// with the step subtracted and the cap a signed lower bound.
+#[cfg(all(test, feature = "phobos"))]
+mod parabomb_rate_tests {
+    use super::parachuted_bullet_rate;
+
+    /// `ParabombFallRate` starts at `0` (`Ext/Bullet/Body.h:61`), so the
+    /// first frame computes `0 - step` and the cap holds the descent at the
+    /// terminal rate for as long as the step is positive.
+    #[test]
+    fn the_accumulated_rate_reaches_the_cap_and_stays_there() {
+        let mut rate = 0;
+        let frames: Vec<i32> = (0..4)
+            .map(|_| {
+                rate = parachuted_bullet_rate(rate, 1, -7);
+                rate
+            })
+            .collect();
+        assert_eq!(frames, [-7, -7, -7, -7]);
+    }
+
+    /// A slower step walks the rate down to the cap one frame at a time.
+    #[test]
+    fn a_small_step_reaches_the_cap_late() {
+        let mut rate = 0;
+        let frames: Vec<i32> = (0..5)
+            .map(|_| {
+                rate = parachuted_bullet_rate(rate, 3, -7);
+                rate
+            })
+            .collect();
+        assert_eq!(frames, [-3, -6, -7, -7, -7]);
+    }
+
+    /// `Parachuted.MaxFallRate=` (`Nullable`) overrides the general cap; a
+    /// shallower cap lets the rate keep accelerating past the old bound.
+    #[test]
+    fn the_cap_is_the_only_brake() {
+        assert_eq!(
+            parachuted_bullet_rate(-4, 1, -7),
+            -7,
+            "the cap raises a rate below it"
+        );
+        assert_eq!(parachuted_bullet_rate(-6, 1, -7), -7);
+        assert_eq!(
+            parachuted_bullet_rate(-8, 1, -7),
+            -9,
+            "above the cap the step still applies"
+        );
+        assert_eq!(
+            parachuted_bullet_rate(-8, 1, -100),
+            -9,
+            "a shallower cap lets it fall faster"
+        );
+    }
+
+    /// The native expression is `ParabombFallRate - Parachuted.FallRate` in
+    /// `int` arithmetic; `wrapping_sub` keeps that overflow behaviour.
+    #[test]
+    fn the_step_subtracts_with_native_int_overflow() {
+        assert_eq!(parachuted_bullet_rate(i32::MIN, 1, i32::MIN), i32::MIN);
+        assert_eq!(parachuted_bullet_rate(0, i32::MIN, i32::MIN), i32::MIN);
     }
 }

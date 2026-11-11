@@ -304,6 +304,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:499`, `Body.h:914`).
     #[serde(default = "true_bool")]
     pub interceptor_apply_firepower_mult: bool,
+    /// `[CombatDamage] ReturnWeapon.ApplyFirepowerMult=`, default `no`
+    /// (`Ext/Rules/Body.cpp:559`, constructor `Ext/Rules/Body.h:973`): the
+    /// fallback a `BulletType`'s unset `ReturnWeapon.ApplyFirepowerMult=`
+    /// keeps, scaling the returned shot's `Damage=` by the dying bullet's
+    /// `FirepowerMult` (`Ext/Bullet/Hooks.DetonateLogics.cpp:490`).
+    #[serde(default)]
+    pub return_weapon_apply_firepower_mult: bool,
     /// `[General] OpenTopped.UseTransportRangeModifiers=`, default `no`
     /// (`Body.cpp:459`, `Body.h:874`). Also read into `AttachEffectGlobals`.
     #[serde(default)]
@@ -679,6 +686,7 @@ impl Default for PhobosGlobals {
             projectile_interceptable: false,
             interceptor_guard_range_is_cylindrical: false,
             interceptor_apply_firepower_mult: true,
+            return_weapon_apply_firepower_mult: false,
             overload_particle_sys_count: 5,
             affects_invoker_only_ignore_invoker_state: true,
             auto_death_on_owner_change_ignore_revert_on_exit: false,
@@ -1201,6 +1209,10 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         interceptor_apply_firepower_mult: section.read_bool(
             "Interceptor.ApplyFirepowerMult",
             defaults.interceptor_apply_firepower_mult,
+        ),
+        return_weapon_apply_firepower_mult: section.read_bool(
+            "ReturnWeapon.ApplyFirepowerMult",
+            defaults.return_weapon_apply_firepower_mult,
         ),
         can_target_iron_curtained: section.read_bool(
             "CanTarget.IronCurtained",

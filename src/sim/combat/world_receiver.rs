@@ -4927,6 +4927,13 @@ pub(crate) fn commit_projectile_detonations_inline(
                         emit,
                         under_attack_events,
                     );
+                    // Phobos `BulletClass_Logics_Extras`'s "Return to sender"
+                    // arm (`0x469AA4`, `Ext/Bullet/Hooks.DetonateLogics.cpp:480-500`):
+                    // after the extra warheads and before `UnlimboDetonate`,
+                    // a `BulletType`'s `ReturnWeapon=` fires back at the firer
+                    // from this impact.
+                    #[cfg(feature = "phobos")]
+                    super::phobos_return_weapon::emit(world, rules, &live_tail);
                     // Phobos `BulletClass_Logics_Extras`'s `UnlimboDetonate`
                     // arm (`0x469AA4`, `Ext/Bullet/Hooks.DetonateLogics.cpp:502-592`):
                     // after the weapon's own warhead, the same hook replays a

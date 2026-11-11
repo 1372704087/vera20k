@@ -119,6 +119,15 @@ pub struct ProjectileType {
     /// flying projectile.
     #[cfg(feature = "phobos")]
     pub phobos_subject_to_ground: bool,
+    /// Phobos parabombs (`Ext/BulletType/Body.cpp:79-82`, declared
+    /// `Ext/BulletType/Body.h:83-86`): `Parachuted=`, `Parachuted.FallRate=`,
+    /// `Parachuted.MaxFallRate=` and `BombParachute=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb,
+    /// Phobos `ReturnWeapon=` / `ReturnWeapon.ApplyFirepowerMult=`
+    /// (`Ext/BulletType/Body.cpp:54-55`, declared `Ext/BulletType/Body.h:56-57`).
+    #[cfg(feature = "phobos")]
+    pub phobos_return_weapon: crate::rules::phobos_return_weapon::PhobosReturnWeapon,
     /// ART Flat (+0x2F7), retained by the per-pass native rules processor.
     /// BulletClass::GetLayer 0x00468B90 selects Surface when true, Air otherwise.
     pub flat: bool,
@@ -610,6 +619,11 @@ impl ProjectileType {
             ),
             #[cfg(feature = "phobos")]
             phobos_subject_to_ground: section.read_ares_bool("SubjectToGround", false),
+            #[cfg(feature = "phobos")]
+            phobos_parabomb: crate::rules::phobos_parabomb::PhobosParabomb::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_return_weapon:
+                crate::rules::phobos_return_weapon::PhobosReturnWeapon::from_section(section),
             #[cfg(feature = "ares")]
             bullet_type_ext: crate::rules::ares_bullet_type::BulletTypeExtRules::from_section(
                 section,

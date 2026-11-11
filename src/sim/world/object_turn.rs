@@ -422,6 +422,11 @@ impl Simulation {
             // 7193CC..7193F4: walk the Bullet array backwards before WarpOut,
             // Mark(UP), or relocation changes the target's original pose.
             sim.lose_projectile_targets(stable_id, rules);
+            // Phobos `..._WarpOutWeapon @ 0x7193F6` detonates the type's
+            // warp-out weapon at the departing object before the departure
+            // WarpOut (`0x00719442`).
+            #[cfg(feature = "phobos")]
+            sim.apply_warp_out_weapon(stable_id, rules, overlay_registry, ctx.effects);
             // `0x00719442`: the departure WarpOut at its Location.
             sim.teleport_warp_anim(
                 stable_id,

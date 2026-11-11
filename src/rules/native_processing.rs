@@ -5729,8 +5729,9 @@ pub(crate) struct AnimTypeReferences {
     spawns_particle: Option<String>,
     /// Ares AnimTypeExt `Weapon` (1000A590 -> 1000A370: WeaponType Find,
     /// no allocation), read last by the LoadFromINI hook (0x4287DC/0x4287E9).
-    /// `none` clears it; an unknown name keeps it.
-    #[cfg(feature = "ares")]
+    /// `none` clears it; an unknown name keeps it. Phobos's replaced anim
+    /// damage body reads the same reference.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     #[serde(default)]
     weapon: Option<String>,
 }
@@ -5748,7 +5749,7 @@ impl AnimTypeReferences {
         config.trailer_anim = upper(&self.trailer_anim);
         config.warhead = upper(&self.warhead);
         config.spawns_particle = upper(&self.spawns_particle);
-        #[cfg(feature = "ares")]
+        #[cfg(any(feature = "ares", feature = "phobos"))]
         {
             config.ares_weapon = self.weapon.clone();
         }
@@ -10636,7 +10637,7 @@ impl RulesPassProcessor {
             let Some(section) = section else {
                 continue;
             };
-            for key in ["WarpInWeapon", "WarpInMinRangeWeapon"] {
+            for key in ["WarpInWeapon", "WarpInMinRangeWeapon", "WarpOutWeapon"] {
                 if let Some(weapon) = section.read_type_name(key, 2048) {
                     self.find_or_allocate(RulesTypeFamily::Weapon, weapon);
                 }

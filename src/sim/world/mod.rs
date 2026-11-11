@@ -4112,6 +4112,7 @@ impl Simulation {
             &self.interner,
             &mut self.substrate,
             &self.houses,
+            &self.house_alliances,
             &self.resolved_terrain,
             &mut self.bombs,
             &mut self.sound_events,
@@ -7264,13 +7265,33 @@ impl Simulation {
                 effects,
             ) == RadioResponse::Roger;
             if roger && (weapons_factory || self.docked_at_dock_coord(building, contact, rules)) {
-                let tethered = self
+                // Phobos `BuildingRadioLink.SyncOwner` (hook `0x4485DB`,
+                // `Ext/Building/Hooks.cpp:1013-1018`): a `no` answer
+                // SkipGameCodes straight to the loop end (`0x4486C8`), so the
+                // docked Foot keeps its owner and stays docked. The dismiss
+                // arm sits before the hook address and is not affected.
+                #[cfg(feature = "phobos")]
+                let sync_owner = self
                     .substrate
                     .entities
-                    .get(contact)
-                    .is_some_and(|entity| entity.tether.partner().is_some());
-                self.change_owner_impl(contact, new_owner, rules, registry, effects);
-                taken.push((contact, tethered));
+                    .get(building)
+                    .and_then(|entity| self.object_type(entity.type_ref(), rules))
+                    .is_none_or(|object| {
+                        object
+                            .phobos_building_radio_link_sync_owner
+                            .unwrap_or(rules.phobos_globals.building_radio_link_sync_owner)
+                    });
+                #[cfg(not(feature = "phobos"))]
+                let sync_owner = true;
+                if sync_owner {
+                    let tethered = self
+                        .substrate
+                        .entities
+                        .get(contact)
+                        .is_some_and(|entity| entity.tether.partner().is_some());
+                    self.change_owner_impl(contact, new_owner, rules, registry, effects);
+                    taken.push((contact, tethered));
+                }
             } else {
                 for message in [RadioMessage::RunAway, RadioMessage::Break] {
                     transmit(

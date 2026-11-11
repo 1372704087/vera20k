@@ -445,6 +445,20 @@ pub struct PhobosGlobals {
     /// course (`0x415F25`, `Misc/Hooks.BugFixes.cpp:2423`).
     #[serde(default = "true_bool")]
     pub vertical_aircraft_fix: bool,
+    /// `[General] BuildingRadioLink.SyncOwner=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:509`, constructor `Ext/Rules/Body.h:413,920`):
+    /// whether `BuildingClass::ChangeOwner`'s docked take-along segment
+    /// (`0x00448559..0x004486C8`) swaps a docked Foot to the building's new
+    /// owner; the type key overrides it per building
+    /// (`Ext/Building/Hooks.cpp:1013-1018`, hook `0x4485DB`).
+    #[serde(default = "true_bool")]
+    pub building_radio_link_sync_owner: bool,
+    /// `[AudioVisual] IvanIconVisibility=` (`AffectedHouse`, default
+    /// `Owner`, `Ext/Rules/Body.cpp:448`, `Ext/Rules/Body.h:358,863`): the
+    /// bomb-icon visibility gate (`Ext/WeaponType/Hooks.Bomb.cpp:38-77`,
+    /// hook `0x438D44`); a weapon's `IvanBomb.Visibility=` overrides it.
+    #[serde(default)]
+    pub ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse,
     /// `[CombatDamage] CanTarget.IronCurtained=`, default **`yes`**
     /// (`Ext/Rules/Body.cpp:438`, constructor `Ext/Rules/Body.h:833`): the
     /// human fallback for an unset WeaponType `CanTarget.IronCurtained`; `no`
@@ -819,6 +833,8 @@ impl Default for PhobosGlobals {
             alternate_flh_on_turret: true,
             alternate_flh_apply_vehicle: false,
             vertical_aircraft_fix: true,
+            building_radio_link_sync_owner: true,
+            ivan_icon_visibility: crate::rules::phobos_shields::AffectedHouse::OWNER,
             can_target_iron_curtained: true,
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
@@ -1023,13 +1039,9 @@ impl PhobosGlobals {
             globals.use_disguise_movement_speed,
         );
         // `Ext/Rules/Body.cpp:388-389`.
-        globals.veteran_reload =
-            read_double_bits(general, "VeteranReload", globals.veteran_reload);
-        globals.veteran_empty_reload = read_nullable_double_bits(
-            general,
-            "VeteranEmptyReload",
-            globals.veteran_empty_reload,
-        );
+        globals.veteran_reload = read_double_bits(general, "VeteranReload", globals.veteran_reload);
+        globals.veteran_empty_reload =
+            read_nullable_double_bits(general, "VeteranEmptyReload", globals.veteran_empty_reload);
         // `Ext/Rules/Body.cpp:475`, a `Valueable<bool>` default `yes`.
         globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
         globals.only_use_land_sequences =
@@ -1183,6 +1195,14 @@ impl PhobosGlobals {
         );
         globals.vertical_aircraft_fix =
             general.read_bool("Vertical.AircraftFix", globals.vertical_aircraft_fix);
+        globals.building_radio_link_sync_owner = general.read_bool(
+            "BuildingRadioLink.SyncOwner",
+            globals.building_radio_link_sync_owner,
+        );
+        globals.ivan_icon_visibility = audio_visual
+            .read_name("IvanIconVisibility", 0x20)
+            .and_then(crate::rules::phobos_shields::AffectedHouse::parse)
+            .unwrap_or(globals.ivan_icon_visibility);
         // `Ext/Rules/Body.cpp:517-518`, both `[General]` `Valueable<bool>`:
         // a human scanner keeps `no`, the computer's scanners keep `yes`.
         globals.auto_target_no_threat_buildings = general.read_bool(

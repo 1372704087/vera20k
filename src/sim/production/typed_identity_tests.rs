@@ -994,3 +994,64 @@ fn initial_cloning_single_value_spellings_draw_nothing() {
         assert_eq!(state, &states[0], "a no-draw spelling draws nothing");
     }
 }
+
+/// Phobos `Cloning.Powered` (`Ext/Building/Body.cpp:476-486`): a dead,
+/// limboed, warping-out or (default `Powered=yes`) powered-down vat exits no
+/// clone; `Powered=no` restores the vanilla unconditioned exit.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_powered_down_vat_exits_no_clone_unless_powered_is_no() {
+    let copies_with_offline_vat = |vat_key: &str| -> usize {
+        let (mut runtime, owner) = world_with(false, true, vat_key);
+        let vat_type = runtime.simulation.interner.get("VAT").unwrap();
+        let vat = runtime
+            .simulation
+            .entities()
+            .values()
+            .find(|entity| entity.type_ref() == vat_type)
+            .map(|entity| entity.stable_id())
+            .expect("the fixture places a VAT");
+        runtime
+            .simulation
+            .substrate
+            .entities
+            .get_mut(vat)
+            .unwrap()
+            .set_building_online_for_test(false);
+        let command = produce(&runtime, owner, ObjectCategory::Infantry, "E1", None);
+        frame(&mut runtime, owner, &[command]);
+        let source = held(&runtime.simulation, owner, ProductionCategory::Infantry).unwrap();
+        for _ in 0..2048 {
+            frame(&mut runtime, owner, &[]);
+            if !runtime
+                .simulation
+                .entities()
+                .get(source)
+                .unwrap()
+                .lifecycle
+                .in_limbo()
+            {
+                break;
+            }
+        }
+        let type_id = runtime.simulation.interner.get("E1").unwrap();
+        runtime
+            .simulation
+            .entities()
+            .values()
+            .filter(|entity| {
+                entity.type_ref() == type_id && entity.category() == EntityCategory::Infantry
+            })
+            .count()
+    };
+    assert_eq!(
+        copies_with_offline_vat(""),
+        1,
+        "the powered-down vat exits no copy"
+    );
+    assert_eq!(
+        copies_with_offline_vat("Cloning.Powered=no\n"),
+        2,
+        "Powered=no restores the vanilla copy"
+    );
+}

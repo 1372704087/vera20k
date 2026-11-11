@@ -839,17 +839,51 @@ impl Simulation {
             .ares_warp_warhead(head, rules)
             .and_then(WarheadType::ares_combat);
         #[cfg(feature = "ares")]
-        let warp_away = match warp_combat {
-            Some(combat) => combat.temporal_warp_away(&rules.general.warp_away.name),
-            None => Some(rules.general.warp_away.name.as_str()),
+        let warp_away: Option<String> = match warp_combat {
+            Some(combat) => combat
+                .temporal_warp_away(&rules.general.warp_away.name)
+                .map(str::to_owned),
+            None => Some(rules.general.warp_away.name.clone()),
         };
         #[cfg(not(feature = "ares"))]
-        let warp_away = Some(rules.general.warp_away.name.as_str());
+        let warp_away: Option<String> = Some(rules.general.warp_away.name.clone());
+        // Phobos TechnoType `WarpAway=` (hook `0x71A8BD`,
+        // `Ext/Techno/Hooks.cpp:1476-1490`): a non-empty list replaces the
+        // erase anim with `CreateRandomAnim`'s one Scenario pick
+        // (`RandomRanged(0, n-1)`) over the known names, ahead of the
+        // vanilla/Ares arm. RESIDUAL: the hook's anim owner house
+        // (`pTarget->Owner`) has no VERA spawn path parameter, and an
+        // all-unknown list falls back instead of drawing a null pick.
+        #[cfg(feature = "phobos")]
+        let warp_away = self
+            .substrate
+            .entities
+            .get(target)
+            .and_then(|entity| self.entity_object_type(entity, rules))
+            .and_then(|object| Some(&object.phobos_warp_away))
+            .map(|list| {
+                list.iter()
+                    .filter(|name| {
+                        rules
+                            .anim_type_names
+                            .contains(name.to_ascii_uppercase().as_str())
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .filter(|list| !list.is_empty())
+            .map(|list| {
+                let index = self
+                    .scenario_rng
+                    .next_range_i32_inclusive(0, list.len() as i32 - 1);
+                list[index as usize].clone()
+            })
+            .or(warp_away);
         if let Some(entity) = self.substrate.entities.get(target)
             && let Some(warp_away) = warp_away
         {
             let location = location_coord(entity);
-            self.spawn_temporal_anim(warp_away, location, None, rules);
+            self.spawn_temporal_anim(&warp_away, location, None, rules);
         }
         // 0x0071A917..0x0071A978: a Trainable attacker gains
         // `VeterancyStruct::Add(ownerCost, targetCost)` here, and again in

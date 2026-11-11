@@ -2726,3 +2726,37 @@ fn campaign_player_controlled_house_hears_voice_crashing() {
         super::SimSoundEvent::VocAt { sound_id, audible_to: None, .. } if sound_id == "OrcaFalls"
     )));
 }
+
+/// Phobos `CrashSpin.Multiplier` (hook `0x4DECBB`,
+/// `Ext/Techno/Hooks.Misc.cpp:978-999`): a value `<= 0` replaces the whole
+/// block, so the three draws do not happen.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_crash_spin_zero_multiplier_skips_the_spin_and_its_draws() {
+    let row = oracle()["crash"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|row| {
+            row["draws"].as_array().unwrap().len() == 3 && int(&row["input"], "i_know", 0) == 0
+        })
+        .unwrap();
+    let mut input = row["input"].clone();
+    input["crashing"] = serde_json::json!(0);
+    input["type_extra"] = serde_json::json!("CrashSpin.Multiplier=0.0");
+    let (mut sim, rules) = fixture(&input);
+    let before = sim.scenario_rng.state();
+    assert!(sim.foot_crash(
+        1,
+        None,
+        &rules,
+        None,
+        crate::sim::world::FrameEffects::default()
+    ));
+    assert!(sim.substrate.entities.get(1).unwrap().rocking.is_none());
+    assert_eq!(
+        sim.scenario_rng.state(),
+        before,
+        "the skipped block spends no draws"
+    );
+}

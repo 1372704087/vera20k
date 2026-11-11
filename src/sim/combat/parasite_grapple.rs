@@ -144,7 +144,7 @@ impl Simulation {
             state.grapple.delay = 0;
         }
         Self::advance_grapple_stage(&self.session, &mut self.substrate, owner, victim);
-        self.grapple_wakes(victim, origin, rules);
+        self.grapple_wakes(owner, victim, origin, rules);
     }
 
     pub(super) fn parasite_grapple(
@@ -384,13 +384,41 @@ impl Simulation {
         }
     }
 
-    fn grapple_wakes(&mut self, victim: u64, origin: AnimWorldCoord, rules: &RuleSet) {
+    fn grapple_wakes(&mut self, owner: u64, victim: u64, origin: AnimWorldCoord, rules: &RuleSet) {
         let facing = self
             .substrate
             .entities
             .get(victim)
             .unwrap()
             .body_facing_current(self.session.binary_frame());
+        // Phobos `Wake.Grapple` (hook `0x629FA3`, `Ext/Techno/
+        // Hooks.Misc.cpp:395-400`) reads the predator's type, falling back
+        // through its native `Wake=` to `[General] Wake=`; an unknown name is
+        // a null pointer and takes the same fallback.
+        let wake_name = self
+            .substrate
+            .entities
+            .get(owner)
+            .and_then(|entity| self.entity_object_type(entity, rules))
+            .and_then(|object| {
+                #[cfg(feature = "phobos")]
+                {
+                    object
+                        .phobos_wake_grapple
+                        .clone()
+                        .or_else(|| object.wake.clone())
+                }
+                #[cfg(not(feature = "phobos"))]
+                {
+                    object.wake.clone()
+                }
+            })
+            .filter(|name| {
+                rules
+                    .anim_type_names
+                    .contains(name.to_ascii_uppercase().as_str())
+            })
+            .unwrap_or_else(|| rules.general.wake.name.clone());
         for _ in 0..3 {
             let offset = [
                 self.scenario_rng.next_range_i32_inclusive(-180, 180),
@@ -402,7 +430,7 @@ impl Simulation {
                 y: origin.y.wrapping_add(y),
                 z: origin.z,
             };
-            self.spawn_grapple_effect(&rules.general.wake.name, position, 0, 0, rules);
+            self.spawn_grapple_effect(&wake_name, position, 0, 0, rules);
         }
     }
 

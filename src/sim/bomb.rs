@@ -158,10 +158,11 @@ pub struct Bomb {
     /// `bomb_list_update`; saved like `+0x68`, but not hashed.
     #[serde(default)]
     seen_by: u64,
-    /// Ares `WeaponTypeExt::BombExt`: the weapon whose `PlantBomb`
-    /// (10055AE0) planted it, whose `IvanBomb.*` settings every bomb hook
-    /// reads. Saved like the extension map; native's CRC omits it.
-    #[cfg(feature = "ares")]
+    /// Ares `WeaponTypeExt::BombExt` and the Phobos `BombExtMap` hook
+    /// (`0x469363`): the weapon whose `PlantBomb` (10055AE0) planted it,
+    /// whose `IvanBomb.*` settings every bomb hook reads. Saved like the
+    /// extension map; native's CRC omits it.
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     #[serde(default)]
     weapon: Option<InternedId>,
     /// `+0x30`, the kind: a death bomb (1) has no fuse (`IsTimerExpired`)
@@ -407,6 +408,7 @@ impl Simulation {
         interner: &StringInterner,
         substrate: &mut ObjectSubstrate,
         houses: &Houses,
+        alliances: &crate::sim::house_diplomacy::HouseAlliances,
         resolved_terrain: &Option<ResolvedTerrainGrid>,
         bombs: &mut BombList,
         sound_events: &mut FrameChannel<SimSoundEvent>,
@@ -457,6 +459,7 @@ impl Simulation {
             };
             if object.bomb_sight != 0 {
                 detectors.push((
+                    entity.owner(),
                     house_bit(order, entity.owner()),
                     object_get_coords(entity, resolved_terrain.as_ref()),
                     object.bomb_sight.wrapping_shl(8),
@@ -472,8 +475,45 @@ impl Simulation {
                 continue;
             };
             let center = object_get_coords(entity, resolved_terrain.as_ref());
+            // Phobos `BombListClass_AI_Visibility` (hook `0x438D44`,
+            // `Ext/WeaponType/Hooks.Bomb.cpp:38-77`): a weapon's
+            // `IvanBomb.Visibility=` else the `[AudioVisual]
+            // IvanIconVisibility` (default `Owner`) gates each house's view —
+            // the planter's relation matches, or a `BombSight` detector whose
+            // owner's relation matches stands within sight. RESIDUAL: the
+            // hook's `IsObserver` spectator arm has no VERA model.
+            #[cfg(feature = "phobos")]
+            let seen_by = {
+                let visibility = bomb
+                    .weapon
+                    .and_then(|weapon| rules.weapon(interner.resolve(weapon)))
+                    .and_then(|weapon| weapon.phobos_ivan_bomb_visibility)
+                    .unwrap_or(rules.phobos_globals.ivan_icon_visibility);
+                let mut mask = 0u64;
+                for (index, &house) in order.iter().enumerate() {
+                    let bit = 1u64 << index;
+                    let seen = crate::sim::combat::can_target_house(
+                        visibility,
+                        bomb.planter_house,
+                        house,
+                        houses,
+                        alliances,
+                        interner,
+                    ) || detectors.iter().any(|&(owner, _, detector, range)| {
+                        crate::sim::combat::can_target_house(
+                            visibility, owner, house, houses, alliances, interner,
+                        ) && within_bomb_sight(detector, center, range)
+                    });
+                    if seen {
+                        mask |= bit;
+                    }
+                }
+                mask
+            };
+            #[cfg(not(feature = "phobos"))]
             let mut seen_by = house_bit(order, bomb.planter_house);
-            for &(house, detector, range) in &detectors {
+            #[cfg(not(feature = "phobos"))]
+            for &(_, house, detector, range) in &detectors {
                 if seen_by & house == 0 && within_bomb_sight(detector, center, range) {
                     seen_by |= house;
                 }
@@ -518,7 +558,7 @@ impl Simulation {
         weapon: Option<InternedId>,
         rules: &RuleSet,
     ) {
-        #[cfg(not(feature = "ares"))]
+        #[cfg(not(any(feature = "ares", feature = "phobos")))]
         let _ = weapon;
         // An object UnInit has passed reads as the null pointer its expiry
         // left natively.
@@ -596,7 +636,7 @@ impl Simulation {
             end_frame,
             ticking_sound,
             seen_by: 0,
-            #[cfg(feature = "ares")]
+            #[cfg(any(feature = "ares", feature = "phobos"))]
             weapon,
             #[cfg(feature = "ares")]
             death_bomb,

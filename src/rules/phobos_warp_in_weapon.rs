@@ -28,6 +28,12 @@ pub struct WarpInWeaponRules {
     /// `false`: the copy deals `distance / 256` instead of the weapon's
     /// `Damage=`.
     pub use_distance_as_damage: bool,
+    /// `WarpOutWeapon=` (`Valueable<WeaponTypeClass*>`, `Read<true>`,
+    /// `Ext/TechnoType/Body.cpp:872`), default null: the departure of an
+    /// ordinary self-teleport detonates it at the departing object
+    /// (`Ext/TechnoType/Hooks.Teleport.cpp:22-32`, hook `0x7193F6`); the
+    /// Chronosphere's chronoshift departure fires nothing.
+    pub warp_out_weapon: Option<String>,
 }
 
 impl WarpInWeaponRules {
@@ -47,6 +53,9 @@ impl WarpInWeaponRules {
             // verdict; an absent or invalid value keeps the default.
             use_distance_as_damage: section
                 .read_ares_bool("WarpInWeapon.UseDistanceAsDamage", false),
+            warp_out_weapon: section
+                .read_type_name("WarpOutWeapon", 2048)
+                .map(str::to_owned),
         }
     }
 }

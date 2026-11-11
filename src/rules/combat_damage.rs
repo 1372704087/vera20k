@@ -117,6 +117,23 @@ pub struct CombatDamageDefaults {
     /// constructor 1): that damage starts from the dropped Unit's current
     /// Health rather than its type's `Strength=` (`0x0074621D`).
     pub current_strength_damage: bool,
+    /// Phobos `[CombatDamage] AnimDamage.DealtByInvoker=`
+    /// (`Ext/Rules/Body.cpp:570`, constructor `false`, `Ext/Rules/Body.h:481`,
+    /// `:982`): the global fallback of the AnimType
+    /// `Damage.DealtByInvoker=` key.
+    #[cfg(feature = "phobos")]
+    pub anim_damage_dealt_by_invoker: bool,
+    /// Phobos `[CombatDamage] FallingDownDamage=` (`Ext/Rules/Body.cpp:227`,
+    /// constructor `1.0`, `Ext/Rules/Body.h:671`): the landing-damage ratio
+    /// fallback of the TechnoType `FallingDownDamage=` key.
+    #[cfg(feature = "phobos")]
+    pub falling_down_damage: f64,
+    /// Phobos `[CombatDamage] FallingDownDamage.AllowEMP=`
+    /// (`Ext/Rules/Body.cpp:228`, constructor `true`, `Ext/Rules/Body.h:672`):
+    /// `no` lets an EMP-locked unit take the ratio packet instead of the
+    /// vanilla full-Health kill on landing.
+    #[cfg(feature = "phobos")]
+    pub falling_down_damage_allow_emp: bool,
     /// `TiberiumExplosive=` (`RulesClass+0x17E5`, ReadBool over the current
     /// value at `0x0066CE7E`; constructor false). Stock UnitClass::
     /// Death_Explosion only sums a dead local with it; Ares 1004BD90 (hook
@@ -202,6 +219,12 @@ impl CombatDamageDefaults {
             drain_animation_type: None,
             falling_damage_multiplier: section.read_float("FallingDamageMultiplier", 1.0),
             current_strength_damage: section.read_bool("CurrentStrengthDamage", true),
+            #[cfg(feature = "phobos")]
+            anim_damage_dealt_by_invoker: section.read_bool("AnimDamage.DealtByInvoker", false),
+            #[cfg(feature = "phobos")]
+            falling_down_damage: section.read_double("FallingDownDamage", 1.0),
+            #[cfg(feature = "phobos")]
+            falling_down_damage_allow_emp: section.read_bool("FallingDownDamage.AllowEMP", true),
             #[cfg(feature = "ares")]
             tiberium_explosive: section.read_bool("TiberiumExplosive", false),
             ivan_warhead: None,
@@ -243,6 +266,12 @@ impl Default for CombatDamageDefaults {
             drain_animation_type: None,
             falling_damage_multiplier: 1.0,
             current_strength_damage: true,
+            #[cfg(feature = "phobos")]
+            anim_damage_dealt_by_invoker: false,
+            #[cfg(feature = "phobos")]
+            falling_down_damage: 1.0,
+            #[cfg(feature = "phobos")]
+            falling_down_damage_allow_emp: true,
             #[cfg(feature = "ares")]
             tiberium_explosive: false,
             ivan_warhead: None,

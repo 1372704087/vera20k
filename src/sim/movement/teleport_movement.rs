@@ -285,6 +285,49 @@ impl crate::sim::world::Simulation {
         };
         self.commit_attach_effect_detonations(&[detonation], rules, registry, effects);
     }
+
+    /// Phobos `TeleportLocomotionClass_ILocomotion_Process_WarpOutWeapon`
+    /// (hook `0x7193F6`, `Ext/TechnoType/Hooks.Teleport.cpp:22-32`): the
+    /// departure of an ordinary self-teleport detonates the type's
+    /// `WarpOutWeapon=` at the departing object with itself as both target
+    /// and owner (`WeaponTypeExt::DetonateAt(weapon, pLinked, pLinked)`), at
+    /// the pre-relocation Location, before the departure WarpOut. The
+    /// Chronosphere's chronoshift departure (`0x719827`) plays no weapon.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn apply_warp_out_weapon(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+        effects: crate::sim::world::FrameEffects<'_>,
+    ) {
+        let (name, coords) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return;
+            };
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return;
+            };
+            (
+                object.phobos_warp_in_weapon.warp_out_weapon.clone(),
+                super::ground_pose::object_get_coords(entity, self.resolved_terrain.as_ref()),
+            )
+        };
+        let Some(weapon) = name.as_deref().and_then(|name| rules.weapon(name)) else {
+            return;
+        };
+        let Some(detonation) = self.weapon_detonation_at(
+            weapon,
+            id,
+            id,
+            None,
+            [coords.x, coords.y, coords.z],
+            weapon.damage,
+        ) else {
+            return;
+        };
+        self.commit_attach_effect_detonations(&[detonation], rules, registry, effects);
+    }
 }
 
 /// Phase within the teleport state machine.

@@ -458,6 +458,12 @@ pub struct WeaponType {
     /// `:206`); see [`crate::rules::phobos_weapon_extras`].
     #[cfg(feature = "phobos")]
     pub(crate) phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras,
+    /// Phobos `IvanBomb.Visibility=` (`Nullable<AffectedHouse>`,
+    /// `Ext/WeaponType/Body.cpp:103`): the per-weapon override of the
+    /// `[AudioVisual] IvanIconVisibility` icon gate
+    /// (`Ext/WeaponType/Hooks.Bomb.cpp:38-77`, hook `0x438D44`).
+    #[cfg(feature = "phobos")]
+    pub phobos_ivan_bomb_visibility: Option<crate::rules::phobos_shields::AffectedHouse>,
     /// Phobos `CylinderRangefinding=` (`Nullable<bool>`,
     /// `Ext/WeaponType/Body.cpp:207`): this weapon's direct range is measured
     /// in the plan; an unset value falls back to `[General]`
@@ -912,6 +918,10 @@ impl WeaponType {
             phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_ivan_bomb_visibility: section
+                .read_name("IvanBomb.Visibility", 0x20)
+                .and_then(crate::rules::phobos_shields::AffectedHouse::parse),
             #[cfg(feature = "phobos")]
             phobos_cylinder_rangefinding: section
                 .read_phobos_nullable_bool("CylinderRangefinding", None),

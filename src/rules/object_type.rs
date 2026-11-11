@@ -1082,6 +1082,13 @@ pub struct ObjectType {
     /// for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_no_turret_track_target: Option<bool>,
+    /// Phobos `CrashSpin.Multiplier=` (`Valueable<float>`, constructor
+    /// `1.0f`, `Ext/TechnoType/Body.cpp:1072`, `Body.h:303`): scales both
+    /// crash spin rates (`Ext/Techno/Hooks.Misc.cpp:980`); a value `<= 0`
+    /// skips the spin and its three RNG draws entirely. Read only for a
+    /// non-building techno.
+    #[cfg(feature = "phobos")]
+    pub phobos_crash_spin_multiplier: f32,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -1089,6 +1096,50 @@ pub struct ObjectType {
     /// installs as the copy's starting `Health`/`EstimatedHealth`.
     #[cfg(feature = "phobos")]
     pub phobos_initial_cloning: crate::rules::ini_value::PartialDoublePair,
+    /// Phobos `Cloning.Powered=` (`Ext/BuildingType/Body.cpp:197`,
+    /// `Valueable<bool>`, constructor `true`, `Body.h:34,170`): a
+    /// powered-down cloning vat exits no clone (`Ext/Building/Body.cpp:479`,
+    /// `BuildingExt::KickOutClone`); the vanilla exit loop has no checks.
+    #[cfg(feature = "phobos")]
+    pub phobos_cloning_powered: bool,
+    /// Phobos `BuildingRadioLink.SyncOwner=` (`Ext/BuildingType/Body.cpp:257`,
+    /// `Nullable<bool>`, default unset with the `[General]` global defaulting
+    /// `true`): when `no`, `BuildingClass::ChangeOwner` skips the docked
+    /// take-along segment (`Ext/Building/Hooks.cpp:1013-1018`, hook
+    /// `0x4485DB`) and a docked Foot keeps its old owner.
+    #[cfg(feature = "phobos")]
+    pub phobos_building_radio_link_sync_owner: Option<bool>,
+    /// Phobos `FallingDownDamage=` / `.Water=` / `.AllowEMP=` (TechnoType
+    /// `Nullable`s, `Ext/TechnoType/Body.cpp:1140-1142`, `Body.h:368-370`),
+    /// consumed by the landing arm (`Ext/Techno/Hooks.cpp:1062-1084`) with
+    /// the `[CombatDamage]` globals as fallbacks.
+    #[cfg(feature = "phobos")]
+    pub phobos_falling_down_damage: Option<f64>,
+    #[cfg(feature = "phobos")]
+    pub phobos_falling_down_damage_water: Option<f64>,
+    #[cfg(feature = "phobos")]
+    pub phobos_falling_down_damage_allow_emp: Option<bool>,
+    /// Native TechnoType `Wake=` (`AnimTypeClass*` Find): the wake anim the
+    /// type's water paths use; an unset or unknown name takes `[General]
+    /// Wake=`. Read for a non-building techno.
+    #[cfg_attr(not(feature = "phobos"), allow(dead_code))]
+    pub wake: Option<String>,
+    /// Phobos `Wake.Grapple=` / `Wake.Sinking=` (`Ext/TechnoType/
+    /// Body.cpp:1068-1069`, `Nullable<AnimTypeClass*>`): the wake anim on the
+    /// parasite grapple pull and the two sinking paths
+    /// (`Ext/Techno/Hooks.Misc.cpp:393-422`), falling back through the
+    /// native `Wake=` to `[General] Wake=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_wake_grapple: Option<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_wake_sinking: Option<String>,
+    /// Phobos TechnoType `WarpAway=` (`ValueableVector<AnimTypeClass*>`,
+    /// `Ext/TechnoType/Body.cpp:861`, `Body.h:125`): the time-erase anim list
+    /// (`Ext/Techno/Hooks.cpp:1476-1490`, hook `0x71A8BD`) replacing the
+    /// `[General] WarpAway=` single anim; a random pick owns the target's
+    /// house. Not the teleport departure anim (that is `[General] WarpOut`).
+    #[cfg(feature = "phobos")]
+    pub phobos_warp_away: Vec<String>,
     /// Phobos `Adjacent.*` (`Ext/BuildingType/Body.cpp:235-238`).
     #[cfg(feature = "phobos")]
     pub phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent,
@@ -5314,10 +5365,62 @@ impl ObjectType {
                 .then(|| section.read_phobos_nullable_bool("NoTurret.TrackTarget", None))
                 .flatten(),
             #[cfg(feature = "phobos")]
+            phobos_crash_spin_multiplier: if category == ObjectCategory::Building {
+                1.0
+            } else {
+                section.read_float("CrashSpin.Multiplier", 1.0)
+            },
+            #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",
                 crate::rules::ini_value::PartialDoublePair::single(1.0),
             ),
+            #[cfg(feature = "phobos")]
+            phobos_cloning_powered: if category == ObjectCategory::Building {
+                section.read_bool("Cloning.Powered", true)
+            } else {
+                true
+            },
+            #[cfg(feature = "phobos")]
+            phobos_building_radio_link_sync_owner: (category == ObjectCategory::Building)
+                .then(|| {
+                    section.read_phobos_nullable_bool("BuildingRadioLink.SyncOwner", None)
+                })
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_falling_down_damage: (category != ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_double("FallingDownDamage", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_falling_down_damage_water: (category != ObjectCategory::Building)
+                .then(|| section.read_phobos_nullable_double("FallingDownDamage.Water", None))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_falling_down_damage_allow_emp: (category != ObjectCategory::Building)
+                .then(|| {
+                    section.read_phobos_nullable_bool("FallingDownDamage.AllowEMP", None)
+                })
+                .flatten(),
+            wake: (category != ObjectCategory::Building)
+                .then(|| section.read_name("Wake", 0x31).map(str::to_owned))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_wake_grapple: (category != ObjectCategory::Building)
+                .then(|| section.read_name("Wake.Grapple", 0x31).map(str::to_owned))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_wake_sinking: (category != ObjectCategory::Building)
+                .then(|| section.read_name("Wake.Sinking", 0x31).map(str::to_owned))
+                .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_warp_away: if category == ObjectCategory::Building {
+                Vec::new()
+            } else {
+                section
+                    .read_list("WarpAway", 0x800)
+                    .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                    .unwrap_or_default()
+            },
             #[cfg(feature = "phobos")]
             phobos_adjacent: crate::rules::phobos_adjacent::PhobosAdjacent::from_section(section),
             #[cfg(feature = "phobos")]

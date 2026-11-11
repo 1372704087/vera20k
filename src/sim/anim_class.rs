@@ -2725,7 +2725,8 @@ impl Simulation {
             .is_some_and(|owner| self.terrain_objects.get(owner).is_some());
         // Ares AnimClass_Update_DamageDelay1000B1AF..1000B1E7 passes the
         // animation's House, falling back to an attached Techno's owner.
-        // Neither owner is an attacking object; keep RAD_NO_ATTACKER below.
+        // Neither owner is an attacking object; keep RAD_NO_ATTACKER below
+        // unless `DealtByInvoker` fires.
         #[cfg(feature = "ares")]
         let source_house = anim.owner_house.or_else(|| {
             anim.owner_entity
@@ -2737,6 +2738,16 @@ impl Simulation {
         let no_effects = anim.no_effects;
         let type_id = anim.type_id;
         let accumulator = f64::from_bits(anim.damage_accumulator.bits());
+        #[cfg(feature = "phobos")]
+        let anim_invoker = anim.invoker();
+        #[cfg(feature = "phobos")]
+        let anim_invoker_house = anim.invoker_house();
+        #[cfg(feature = "phobos")]
+        let anim_owner_entity = anim.owner_entity;
+        #[cfg(feature = "phobos")]
+        let anim_owner_house = anim.owner_house;
+        #[cfg(feature = "phobos")]
+        let anim_frame = anim.runtime.current_frame;
         // Rust does not specify arithmetic NaN payloads across platforms.
         let store = |sim: &mut Self, value: f64| {
             let bits = if value.is_nan() {
@@ -2747,63 +2758,73 @@ impl Simulation {
             sim.substrate.anims.get_mut(id).unwrap().damage_accumulator =
                 NativeF64Bits::from_bits(bits);
         };
-        #[cfg(not(feature = "ares"))]
-        let whole = {
-            let increment = if terrain_owner { damage * 5.0 } else { damage };
-            let accumulated = accumulator + increment;
-            store(self, accumulated);
-            if !(accumulated >= 1.0) || no_effects {
-                return false;
+        // Phobos `Damage.DealtByInvoker` (`Ext/Anim/Hooks.cpp:101-135`): with
+        // the type key or the `[CombatDamage] AnimDamage.DealtByInvoker`
+        // global, the attacker becomes the stored invoker (a techno
+        // `OwnerObject` when unset) and the damage house the invoker house or
+        // the invoker's owner. RESIDUAL: the hook's `IsBuildingAnim ->
+        // ParentBuilding` fallback has no VERA model, and the
+        // `Damage.ApplyFirepowerMult` fold inside the same block is unported.
+        #[cfg(feature = "phobos")]
+        let dealt_by_invoker = config
+            .damage_dealt_by_invoker
+            .unwrap_or(rules.combat_damage.anim_damage_dealt_by_invoker);
+        #[cfg(feature = "phobos")]
+        let anim_attacker = if dealt_by_invoker {
+            let mut invoker = anim_invoker;
+            if invoker.is_none() {
+                // `abstract_cast<TechnoClass*, true>(pOwnerObject)`: the owner
+                // object when it is a techno — a Terrain owner lives in the
+                // terrain store and does not qualify.
+                invoker = anim_owner_entity.and_then(|owner| {
+                    self.terrain_objects
+                        .get(owner)
+                        .is_none()
+                        .then_some(owner)
+                        .filter(|&owner| self.substrate.entities.contains(owner))
+                });
             }
-            //4245AC..4245D5 consumes Math7C5F00's low signed32 result, including
-            // masked conversion/overflow, and subtracts that signed integer.
-            let whole = X87Chop53::ftol_f64_low_masked(accumulated);
-            store(self, accumulated - f64::from(whole));
-            whole
+            invoker.unwrap_or(crate::sim::combat::RAD_NO_ATTACKER)
+        } else {
+            crate::sim::combat::RAD_NO_ATTACKER
         };
-        // Ares 3.0 AnimClass_Update_DamageDelay (1000AFE0, hook 0x424538,
-        // resuming at 0x42464C or 0x42465D): with `Damage.Delay=` above zero
-        // and `Damage=` at least 1, +0x188 counts frames and the whole Damage
-        // (truncated, times 5 on a terrain owner) lands once the count reaches
-        // the delay, which then restarts from zero. Otherwise the original
-        // fraction accumulates. Its conversion (100772B0) truncates and gives
-        // the integer indefinite out of range; a result below 1 or a
-        // no-effects anim delivers nothing and keeps the count.
-        #[cfg(feature = "ares")]
-        let whole = {
-            let multiplier = if terrain_owner { 5 } else { 1 };
+        #[cfg(not(feature = "phobos"))]
+        let anim_attacker = crate::sim::combat::RAD_NO_ATTACKER;
+        #[cfg(feature = "phobos")]
+        let anim_source_house = if dealt_by_invoker {
+            match anim_invoker_house {
+                Some(house) => Some(house),
+                None => anim_invoker
+                    .and_then(|invoker| self.substrate.entities.get(invoker).map(|e| e.owner())),
+            }
+            .or(anim_owner_house)
+            .or_else(|| {
+                anim_owner_entity
+                    .and_then(|owner| self.substrate.entities.get(owner))
+                    .map(|owner| owner.owner())
+            })
+        } else {
+            source_house
+        };
+        #[cfg(not(feature = "phobos"))]
+        let anim_source_house = source_house;
+        // Phobos `Damage.ApplyOncePerLoop` (`Ext/Anim/Hooks.cpp:56-66`): the
+        // damage lands only on the loop's first frame —
+        // `Animation.Value == max(Damage.Delay-1, 1)` — as
+        // `round(Damage)` times the terrain multiplier, bypassing the
+        // accumulator and the delay counter. RESIDUAL: Phobos's replaced body
+        // would also fold the stock branches through `std::round`; VERA keeps
+        // the native/Ares conversion for the stock paths.
+        #[cfg(feature = "phobos")]
+        let once_per_loop = if config.damage_apply_once_per_loop {
             let delay = config.ares_damage_delay;
-            let delayed = delay >= 1 && !(damage < 1.0);
-            let counted = if delayed {
-                accumulator + 1.0
-            } else {
-                f64::from(multiplier) * damage + accumulator
-            };
-            store(self, counted);
-            let short = if delayed {
-                counted < f64::from(delay)
-            } else {
-                counted < 1.0
-            };
-            if short {
+            if anim_frame != std::cmp::max(delay.wrapping_sub(1), 1) {
                 return false;
             }
-            let whole = if delayed {
-                ares_truncate(damage).wrapping_mul(multiplier)
-            } else {
-                ares_truncate(counted)
-            };
-            if whole < 1 || no_effects {
+            let applied = phobos_anim_round(damage).wrapping_mul(if terrain_owner { 5 } else { 1 });
+            if applied <= 0 {
                 return false;
             }
-            store(
-                self,
-                if delayed {
-                    0.0
-                } else {
-                    counted - f64::from(whole)
-                },
-            );
             // Weapon= detonates a bullet of that weapon instead (0x42464C).
             if let Some(weapon) = config
                 .ares_weapon
@@ -2813,13 +2834,89 @@ impl Simulation {
                 return self.ares_anim_weapon_detonation(
                     id,
                     weapon,
-                    whole,
+                    applied,
+                    anim_attacker,
                     rules,
                     overlay_registry,
                     effects,
                 );
             }
-            whole
+            Some(applied)
+        } else {
+            None
+        };
+        #[cfg(not(feature = "phobos"))]
+        let once_per_loop: Option<i32> = None;
+        let whole = if let Some(applied) = once_per_loop {
+            applied
+        } else {
+            #[cfg(not(feature = "ares"))]
+            {
+                let increment = if terrain_owner { damage * 5.0 } else { damage };
+                let accumulated = accumulator + increment;
+                store(self, accumulated);
+                if !(accumulated >= 1.0) || no_effects {
+                    return false;
+                }
+                //4245AC..4245D5 consumes Math7C5F00's low signed32 result, including
+                // masked conversion/overflow, and subtracts that signed integer.
+                let whole = X87Chop53::ftol_f64_low_masked(accumulated);
+                store(self, accumulated - f64::from(whole));
+                whole
+            }
+            #[cfg(feature = "ares")]
+            {
+                let multiplier = if terrain_owner { 5 } else { 1 };
+                let delay = config.ares_damage_delay;
+                let delayed = delay >= 1 && !(damage < 1.0);
+                let counted = if delayed {
+                    accumulator + 1.0
+                } else {
+                    f64::from(multiplier) * damage + accumulator
+                };
+                store(self, counted);
+                let short = if delayed {
+                    counted < f64::from(delay)
+                } else {
+                    counted < 1.0
+                };
+                if short {
+                    return false;
+                }
+                let whole = if delayed {
+                    ares_truncate(damage).wrapping_mul(multiplier)
+                } else {
+                    ares_truncate(counted)
+                };
+                if whole < 1 || no_effects {
+                    return false;
+                }
+                store(
+                    self,
+                    if delayed {
+                        0.0
+                    } else {
+                        counted - f64::from(whole)
+                    },
+                );
+                // Weapon= detonates a bullet of that weapon instead (0x42464C).
+                if let Some(weapon) = config
+                    .ares_weapon
+                    .as_deref()
+                    .and_then(|name| rules.weapon(name))
+                {
+                    return self.ares_anim_weapon_detonation(
+                        id,
+                        weapon,
+                        whole,
+                        crate::sim::combat::RAD_NO_ATTACKER,
+                        rules,
+                        overlay_registry,
+                        effects,
+                    );
+                }
+                whole
+            }
         };
         //4245C3..424630 compares the own stored ID exactly, not Image.
         let warhead_name = if self.interner.resolve(type_id) == "INVISO" {
@@ -2829,8 +2926,9 @@ impl Simulation {
         };
         // Ares1000B179 first reads AnimType+330 (the existing art Warhead
         // reader); only a null pointer uses the stock INVISO/FlameDamage2
-        // fallback.
-        #[cfg(feature = "ares")]
+        // fallback. Phobos's replaced body keeps the native `pType->Warhead`
+        // read, which the ART registry resolves the same way.
+        #[cfg(any(feature = "ares", feature = "phobos"))]
         let warhead_name = config.warhead.as_deref().or(warhead_name);
         let Some((name, warhead)) =
             warhead_name.and_then(|name| rules.warhead(name).map(|warhead| (name, warhead)))
@@ -2849,11 +2947,7 @@ impl Simulation {
             whole,
             warhead,
             true,
-            (
-                crate::sim::combat::RAD_NO_ATTACKER,
-                source_house,
-                warhead_ref,
-            ),
+            (anim_attacker, anim_source_house, warhead_ref),
             effects,
         )
         .bridge_state_changed
@@ -2866,12 +2960,13 @@ impl Simulation {
     /// GetCoords and Released. That is the bare `DetonateAtCoord`
     /// Fire_Death_Weapon makes (`ProjectileDetonationReason::DeathWeapon`).
     /// Returns whether a bridge changed.
-    #[cfg(feature = "ares")]
+    #[cfg(any(feature = "ares", feature = "phobos"))]
     fn ares_anim_weapon_detonation(
         &mut self,
         id: AnimId,
         weapon: &crate::rules::weapon_type::WeaponType,
         damage: i32,
+        attacker: u64,
         rules: &RuleSet,
         overlay_registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
         effects: FrameEffects<'_>,
@@ -2903,7 +2998,7 @@ impl Simulation {
         .with_installed_weapon(Some(self.interner.intern(&weapon.id)));
         let detonation = crate::sim::projectile::ProjectileDetonation {
             projectile_id: id,
-            source_id: crate::sim::combat::RAD_NO_ATTACKER,
+            source_id: attacker,
             target,
             impact,
             payload,
@@ -4906,6 +5001,19 @@ fn native_loop_remaining(loop_count: i32, constructor_loop: i32) -> u8 {
 fn ares_truncate(value: f64) -> i32 {
     X87Chop53::load_f64(NativeF64Bits::from_bits(value.to_bits()))
         .map_or(i32::MIN, ares_truncate_x87)
+}
+
+/// C++ `static_cast<int>(std::round(value))` in Phobos's replaced anim
+/// damage body (`Ext/Anim/Hooks.cpp:60,75,91`): round half away from zero,
+/// then the x87 masked conversion (the integer indefinite out of range).
+#[cfg(feature = "phobos")]
+fn phobos_anim_round(value: f64) -> i32 {
+    let rounded = if value.is_nan() {
+        value
+    } else {
+        (value.abs() + 0.5).floor().copysign(value)
+    };
+    X87Chop53::ftol_f64_low_masked(rounded)
 }
 
 #[cfg(feature = "ares")]
@@ -7395,8 +7503,7 @@ mod tests {
                     "[SmudgeTypes]\n0=CR1\n\
                      [CR1]\nCrater=yes\nWidth=1\nHeight=1\n",
                 ));
-            let overlays =
-                crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
+            let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
 
             let mut sim = Simulation::new();
             let mut terrain = crate::map::resolved_terrain::test_flat_ground_grid(8);

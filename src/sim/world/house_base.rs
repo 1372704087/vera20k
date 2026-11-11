@@ -467,7 +467,19 @@ impl Simulation {
             .rev()
             .find_map(|&id| {
                 let building = self.substrate.entities.get(id)?;
-                (!building.lifecycle.in_limbo() && building.type_facts.build_const_eligible())
+                // Phobos `HouseClass_RecalcCenter_LimboDelivery`
+                // (`Ext/House/Hooks.cpp:94-105`, `0x4FD1CD`/`0x4FD463`):
+                // an `IgnoreForBaseCenter=yes` building does not count toward
+                // the House's base center, so it cannot anchor this one.
+                #[cfg(feature = "phobos")]
+                let ignored = self
+                    .object_type(building.type_ref(), rules)
+                    .is_some_and(|object| object.phobos_ignore_for_base_center);
+                #[cfg(not(feature = "phobos"))]
+                let ignored = false;
+                (!building.lifecycle.in_limbo()
+                    && building.type_facts.build_const_eligible()
+                    && !ignored)
                     .then_some(id)
             });
         let Some(cell) = candidate.and_then(|id| self.raw_building_base_cell(id)) else {
@@ -2256,6 +2268,68 @@ mod tests {
             assert_ne!(current, move_mission, "Move is queued, not commenced");
         }
         assert_eq!(after[2..], before[2..]);
+    }
+
+    fn build_const_anchor_rules(ignore_second: bool) -> RuleSet {
+        RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&format!(
+            "[Countries]
+0=Americans
+1=Russians
+             [AI]
+BuildConst=FIRST,SECOND
+             [BuildingTypes]
+0=FIRST
+1=SECOND
+             [FIRST]
+Cost=2000
+Strength=1000
+Foundation=1x1
+             [SECOND]
+Cost=1000
+Strength=1000
+Foundation=1x1
+             IgnoreForBaseCenter={}
+",
+            if ignore_second { "yes" } else { "no" }
+        )))
+        .unwrap()
+    }
+
+    /// Phobos `HouseClass_RecalcCenter_LimboDelivery` (`Ext/House/Hooks.cpp:
+    /// 94-105`, `0x4FD1CD`/`0x4FD463`): a building with
+    /// `IgnoreForBaseCenter=yes` does not count toward the House's base
+    /// center, so the last BuildConst anchor skips it.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn ignore_for_base_center_skips_the_build_const_anchor() {
+        for (ignore, expected) in [(true, (5, 5)), (false, (9, 9))] {
+            let rules = build_const_anchor_rules(ignore);
+            let mut sim = native_map_fixture();
+            let owner = add_house(&mut sim, "Americans", &rules);
+            sim.spawn_object("FIRST", "Americans", 5, 5, 0, &rules)
+                .unwrap();
+            sim.spawn_object("SECOND", "Americans", 9, 9, 0, &rules)
+                .unwrap();
+            assert_eq!(
+                rules
+                    .object("SECOND")
+                    .unwrap()
+                    .phobos_ignore_for_base_center,
+                ignore
+            );
+            assert!(!rules.object("FIRST").unwrap().phobos_ignore_for_base_center);
+            let _ = sim.initialize_house_base_from_build_const(
+                owner,
+                &rules,
+                None,
+                FrameEffects::empty(),
+            );
+            assert_eq!(
+                sim.houses[&owner].base_center(),
+                Some(expected),
+                "ignore={ignore}"
+            );
+        }
     }
 }
 

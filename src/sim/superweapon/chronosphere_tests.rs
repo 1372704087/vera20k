@@ -1606,4 +1606,9 @@ fn chronoshift_warp_lists_replace_the_general_animation_at_both_ends() {
         vec!["WARPOUT".to_owned(), "WARPOUT".to_owned()],
         "with every list empty the stock general animation still plays"
     );
+    assert_eq!(
+        run_chrono_warp_endpoints("TYPEOUT", "TYPEIN", "BOGUS", "BOGUS"),
+        vec!["TYPEOUT".to_owned(), "TYPEIN".to_owned()],
+        "a Chronoshift list resolving to nothing falls through to the type list"
+    );
 }

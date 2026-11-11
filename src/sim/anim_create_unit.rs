@@ -56,6 +56,12 @@ impl Simulation {
         let death_has_turret = anim.death_unit_has_turret();
         let death_turret_facing = anim.death_unit_turret_facing();
         let frame = self.session.binary_frame();
+        // A `CreateUnit=` naming no loaded unit type is null at load natively
+        // (`Nullable<CreateUnitTypeClass*>::Read`, Find only), so it neither
+        // marks the cell bits nor draws a facing.
+        if rules.object(&settings.unit_type).is_none() {
+            return false;
+        }
         // `UnmarkAllOccupationBits(GetCell()->GetCoordsWithBridge())`.
         Self::anim_unmark_all_occupation_bits(
             &mut self.substrate,
@@ -233,7 +239,7 @@ impl Simulation {
 
         // `CreateRandomAnim(SpawnAnim, location, pInvoker, pInvokerHouse, true)`:
         // the owner house is the invoker house, else the invoker's owner; the
-        // owner object (`ownedObject`) is the invoker Techno.
+        // invoker flag stores pInvoker, while `ownedObject` stays false.
         // RESIDUAL: native leaves the anim unowned when both are absent, while
         // the shared spawn owner requires a house and falls back to the
         // spawned unit's owner.
@@ -256,7 +262,7 @@ impl Simulation {
                 z: placement.z,
             },
             anim_house,
-            invoker,
+            None,
             invoker,
         );
 

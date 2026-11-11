@@ -54,6 +54,9 @@ house). It is called from the ordinary Process sites in
   existing `[General] WarpOut` animation. Native's last fallback there is
   `[General] WarpIn` (`Hooks.Teleport.cpp:82,133`); switching it would change
   stock builds too, so it is left for the stock warp-in animation chain.
+- List priority walks resolved names: a Chronoshift list whose authored names
+  all fail to resolve behaves like the load-time-empty vector and falls
+  through to the type's `WarpIn`/`WarpOut` list, then to `[General]`.
 - Chronosphere state 5 has no separate `[General]` `WarpIn` pick; with all
   four lists empty both Chronosphere endpoints play `[General] WarpOut` as
   before.

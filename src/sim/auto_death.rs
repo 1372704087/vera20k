@@ -452,10 +452,6 @@ impl Simulation {
     /// house, then the bunker unload, `KillPassengers(pThis)` (the object is
     /// its own killer), `Stun`, `Limbo`, `RegisterKill(pThis->Owner)` and
     /// `UnInit`.
-    ///
-    /// RESIDUAL: the native call also passes `invoker=true`
-    /// (`AnimExt::SetInvoker(pThis)`); VERA's anims store only the owner house
-    /// and object, so a later reader of the vanish anim's invoker sees none.
     fn vanish_self(
         &mut self,
         id: u64,

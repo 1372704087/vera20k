@@ -301,7 +301,17 @@ impl Simulation {
             return;
         };
         let type_name = self.interner.intern(name);
-        let _ = self.spawn_owned_anim(rules, type_name, location.into(), house, None, None);
+        // `CreateRandomAnim(TurningPointAnims, middle, pBullet->Owner,
+        // pOwner, true)`: the bullet owner is the invoker, not an owned
+        // object.
+        let _ = self.spawn_owned_anim(
+            rules,
+            type_name,
+            location.into(),
+            house,
+            None,
+            (source_id != 0).then_some(source_id),
+        );
     }
 
     /// `CalculateTargetCoords` (`:283-323`): optional lead, coordinate-system

@@ -76,9 +76,10 @@ spawn callers pass their own house.
   records them from the destroyed Unit's body/turret facing and the Unit's
   House.
 - `CreateUnit.SpawnAnim` uses the shared `spawn_random_owned_anim`
-  (`CreateRandomAnim`'s random pick and construction owner) with the anim's
-  invoker as both invoker and owner object; the house is the invoker house,
-  else the invoker's owner.
+  (`CreateRandomAnim`'s random pick and construction owner). The invoker flag
+  stores the anim's invoker; `ownedObject` stays false, so the SpawnAnim is
+  not owner-attached. The house is the invoker house, else the invoker's
+  owner.
 
 ## Phobos quirks kept
 
@@ -168,4 +169,13 @@ spawn callers pass their own house.
   `SetInvoker(pThis)` with no house; VERA stores the victim House beside the
   invoker. Consumers that need the owner read it from the entity. Trigger:
   destroy-anim consumers. Frequency: authored mods. Risk: none observed.
+- **Unresolvable `CreateUnit=`.** Native nulls the reference at load, so the
+  type marks no sub-cell bits and draws no facing. VERA keeps the authored
+  name and applies the same null result at use (constructor mark gate and
+  actual-effects early-out). Same observable state; one fewer load-time
+  validation. Trigger: a `CreateUnit=` naming no loaded unit type. Frequency:
+  invalid mod data. Risk: none.
+- **`Next=` chain.** The one-shot CreateUnit latch resets when `Next=` switches
+  the instance's type, so a chain of two `CreateUnit=` types spawns each; the
+  reset matches the per-type arm, which native re-evaluates after the switch.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

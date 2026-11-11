@@ -41,6 +41,29 @@ fn spawn_make(sim: &mut Simulation, rules: &RuleSet, owner: Option<&str>) -> Ani
     spawn_make_at_z(sim, rules, owner, 0)
 }
 
+/// [`scene`] with a second anim type `NEXT` whose ART body is `next_lines`.
+fn scene_chain(make_lines: &str, next_lines: &str) -> (Simulation, RuleSet) {
+    let art_text = format!(
+        "[MAKE]\nRate=900\nEnd=1\nLoopCount=1\n{make_lines}\n\
+         [NEXT]\nRate=900\nEnd=1\nLoopCount=1\n{next_lines}\n\
+         [SPAWN]\nRate=900\nEnd=1\nLoopCount=1\n"
+    );
+    let art = IniFile::from_str(&art_text);
+    let rules_text = crate::sim::arena_fixture::clear_ground_ini(RULES);
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&rules_text, &art).expect("create-unit rules");
+    let mut registry = ArtRegistry::from_ini(&art);
+    for name in ["MAKE", "NEXT", "SPAWN"] {
+        registry.bind_anim_frame_count_for_test(name, 1);
+    }
+    rules.install_art_data(registry);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x424932);
+    sim.intern_rule_type_ids(&rules);
+    sim.resolve_type_handles(&rules);
+    sim.session.set_binary_frame_for_test(0);
+    (sim, rules)
+}
+
 fn spawn_make_at_z(sim: &mut Simulation, rules: &RuleSet, owner: Option<&str>, z: i32) -> AnimId {
     let type_name = sim.interner.intern("MAKE");
     let id = sim
@@ -229,18 +252,71 @@ fn create_unit_plays_its_spawn_anim_with_the_anim_house() {
     let (mut sim, rules) =
         scene("CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nCreateUnit.SpawnAnim=SPAWN\n");
     let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    let invoker = sim
+        .spawn_object("MTNK", "Americans", 22, 10, 0, &rules)
+        .expect("live invoker");
+    sim.substrate
+        .set_anim_invoker(id, Some(invoker), Some(sim.interner.intern("Americans")));
     drive(&mut sim, &rules, id);
     let spawn = sim
         .substrate
         .anims
         .iter()
         .find(|(_, anim)| sim.interner.resolve(anim.type_id()) == "SPAWN")
-        .map(|(_, anim)| anim.owner_house());
+        .map(|(_, anim)| (anim.owner_house(), anim.owner_entity(), anim.invoker()));
     assert_eq!(
-        spawn,
+        spawn.as_ref().map(|(house, ..)| *house),
         Some(Some(sim.interner.intern("Americans"))),
         "SpawnAnim plays with the invoker/anim house"
     );
+    assert_eq!(
+        spawn.as_ref().map(|(_, owner, _)| *owner),
+        Some(None),
+        "CreateRandomAnim passes no owned object for SpawnAnim"
+    );
+    assert_eq!(
+        spawn.as_ref().map(|(_, _, invoker)| *invoker),
+        Some(Some(invoker)),
+        "the invoker itself is stored"
+    );
+}
+
+#[test]
+fn a_next_chain_of_two_create_unit_anims_spawns_both() {
+    let (mut sim, rules) = scene_chain(
+        "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\nNext=NEXT\n",
+        "CreateUnit=MTNK\nCreateUnit.RandomFacing=no\n",
+    );
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    drive(&mut sim, &rules, id);
+    assert_eq!(
+        units(&sim, &rules).len(),
+        2,
+        "the one-shot latch resets on the Next type switch"
+    );
+}
+
+#[test]
+fn an_unresolvable_create_unit_type_marks_and_draws_nothing() {
+    use crate::sim::movement::locomotor::MovementLayer;
+    use crate::sim::occupancy::RawCellKey;
+    let (mut sim, rules) = scene("CreateUnit=NOSUCH\n");
+    let before = sim.scenario_rng.state();
+    let id = spawn_make(&mut sim, &rules, Some("Americans"));
+    assert_eq!(
+        sim.substrate
+            .raw_cell_occupation
+            .bits_at(RawCellKey::Real(20, 10), MovementLayer::Ground),
+        0,
+        "the constructor marks no sub-cell bits for a null unit type"
+    );
+    drive(&mut sim, &rules, id);
+    assert_eq!(
+        sim.scenario_rng.state(),
+        before,
+        "a null unit type draws no facing"
+    );
+    assert!(units(&sim, &rules).is_empty());
 }
 
 #[test]

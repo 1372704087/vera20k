@@ -342,30 +342,34 @@ impl Simulation {
         #[cfg(feature = "phobos")]
         {
             // `AnimExt::SetAnimOwnerHouseKind` with the type's
-            // `CreateUnit.Owner` kind (`Ext/Anim/Body.cpp:108-145`).
-            let settings = rules
-                .art()
-                .anim_runtime_config(self.interner.resolve(type_id))
-                .and_then(|config| config.phobos_create_unit.clone());
-            if let Some(settings) = settings {
-                // RESIDUAL: native's `pInvoker` here is the killer House
-                // (`ProcessDestroyAnims` takes it from `TakeDamage`), which
-                // `unit_death_explosion` does not receive; Invoker/Killer
-                // selectors fall back to the victim House.
-                let random_house = (settings.owner
-                    == crate::rules::ares_warhead::HouseSelector::Random)
-                    .then(|| self.random_house())
-                    .flatten();
-                if let Some(house) = self.house_kind(
-                    settings.owner,
-                    None,
-                    spawn.invoker.map(|(_, house)| house),
-                    None,
-                    spawn.victim_house,
-                    rules,
-                    random_house,
-                ) {
-                    self.substrate.set_anim_owner_house(anim, house);
+            // `CreateUnit.Owner` kind (`Ext/Anim/Body.cpp:108-145`); this arm
+            // belongs to `ProcessDestroyAnims`, so a generic `Explosion=`/
+            // wake/splash anim never spends its random-owner draw.
+            if spawn.invoker.is_some() {
+                let settings = rules
+                    .art()
+                    .anim_runtime_config(self.interner.resolve(type_id))
+                    .and_then(|config| config.phobos_create_unit.clone());
+                if let Some(settings) = settings {
+                    // RESIDUAL: native's `pInvoker` here is the killer House
+                    // (`ProcessDestroyAnims` takes it from `TakeDamage`), which
+                    // `unit_death_explosion` does not receive; Invoker/Killer
+                    // selectors fall back to the victim House.
+                    let random_house = (settings.owner
+                        == crate::rules::ares_warhead::HouseSelector::Random)
+                        .then(|| self.random_house())
+                        .flatten();
+                    if let Some(house) = self.house_kind(
+                        settings.owner,
+                        None,
+                        spawn.invoker.map(|(_, house)| house),
+                        None,
+                        spawn.victim_house,
+                        rules,
+                        random_house,
+                    ) {
+                        self.install_anim_owner_house(rules, type_id, anim, house);
+                    }
                 }
             }
             if let Some((invoker, house)) = spawn.invoker {

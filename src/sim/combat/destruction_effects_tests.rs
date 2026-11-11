@@ -360,6 +360,99 @@ fn a_units_destroy_anim_records_the_unit_as_its_invoker() {
     assert_eq!(destroy.1.invoker_house(), Some(owner));
 }
 
+/// `AnimExt::SetAnimOwnerHouseKind` (`Ext/Anim/Body.cpp:127-141`): the
+/// `CreateUnit.Owner` install also writes the light conversion when
+/// `CreateUnit.RemapAnim=yes` and the owner is not defeated.
+#[test]
+#[cfg(feature = "phobos")]
+fn a_units_destroy_anim_takes_the_create_unit_owner_remap() {
+    let art_text = ART.replace(
+        "[DESTA]\nEnd=10",
+        "[DESTA]\nEnd=10\nCreateUnit=PLAIN\nCreateUnit.Owner=Invoker\nCreateUnit.RemapAnim=yes",
+    );
+    let art_ini = IniFile::from_str(&art_text);
+    let rules_text = format!("{RULES}\n[Animations]\n0=DESTA\n1=EXPA\n2=EXPB\n3=EXPC\n");
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(&rules_text), &art_ini)
+            .expect("remap death anim rules");
+    let mut art = crate::rules::art_data::ArtRegistry::from_ini(&art_ini);
+    for name in ["EXPA", "EXPB", "EXPC", "DESTA"] {
+        art.bind_anim_frame_count_for_test(name, 10);
+    }
+    rules.install_art_data(art);
+    let mut sim = sim(1);
+    let unit = spawn(&mut sim, &rules, "PLAIN", 12, 12);
+    let owner = sim.substrate.entities.get(unit).unwrap().owner();
+    let mut recorded = Vec::new();
+    sim.unit_death_explosion(&rules, unit, &mut recorded, None, FrameEffects::empty());
+    let destroy = sim
+        .substrate
+        .anims
+        .iter()
+        .find(|(_, anim)| sim.interner.resolve(anim.type_id()) == "DESTA")
+        .expect("the DestroyAnim was constructed");
+    assert_eq!(
+        destroy.1.remap(),
+        Some(crate::sim::anim_class::AnimRemap::House(owner)),
+        "the CreateUnit owner install also remaps"
+    );
+}
+
+/// Only `ProcessDestroyAnims` (the unit DestroyAnim arm) spends the
+/// `CreateUnit.Owner=Random` draw; a generic `Explosion=` anim with the same
+/// anim-type keys must not shift the Scenario stream.
+#[test]
+#[cfg(feature = "phobos")]
+fn a_generic_explosion_anim_does_not_spend_the_create_unit_owner_draw() {
+    let art_text = ART.replace(
+        "[DESTA]\nEnd=10",
+        "[DESTA]\nEnd=10\nCreateUnit=PLAIN\nCreateUnit.Owner=Random",
+    );
+    let art_ini = IniFile::from_str(&art_text);
+    let rules_text = format!("{RULES}\n[Animations]\n0=DESTA\n1=EXPA\n2=EXPB\n3=EXPC\n");
+    let mut rules =
+        RuleSet::from_ini_with_fixed_art_for_test(&IniFile::from_str(&rules_text), &art_ini)
+            .expect("generic explosion rules");
+    let mut art = crate::rules::art_data::ArtRegistry::from_ini(&art_ini);
+    for name in ["EXPA", "EXPB", "EXPC", "DESTA"] {
+        art.bind_anim_frame_count_for_test(name, 10);
+    }
+    rules.install_art_data(art);
+    let mut sim = sim(3);
+    // Two houses so the `RandomRanged(0, 1)` owner draw is not the
+    // lo == hi no-draw shortcut.
+    let russians = sim.interner.intern("Russians");
+    sim.houses
+        .register(HouseState::new(russians, 1, None, false, 0, 10));
+    let unit = spawn(&mut sim, &rules, "PLAIN", 12, 12);
+    let owner = sim.substrate.entities.get(unit).unwrap().owner();
+    let type_id = sim.interner.intern("DESTA");
+    let coord = AnimWorldCoord {
+        x: 12 * 256 + 128,
+        y: 12 * 256 + 128,
+        z: 0,
+    };
+    // Without `ProcessDestroyAnims`' invoker the random-owner arm is not
+    // reached: the generic producer spends no draw.
+    let before = sim.scenario_rng.state();
+    sim.admit_death_anim(&rules, type_id, DeathAnimSpawn::at(coord, 0));
+    assert_eq!(
+        sim.scenario_rng.state(),
+        before,
+        "a no-invoker death anim spends no random-owner draw"
+    );
+    // The Unit DestroyAnim producer sets the invoker and does draw.
+    let mut spawn = DeathAnimSpawn::at(coord, 0);
+    spawn.invoker = Some((unit, owner));
+    spawn.victim_house = Some(owner);
+    sim.admit_death_anim(&rules, type_id, spawn);
+    assert_ne!(
+        sim.scenario_rng.state(),
+        before,
+        "the ProcessDestroyAnims arm draws its random owner"
+    );
+}
+
 /// `0x007386C3..0x007386FF`: an `Explodes=` vehicle (the Apocalypse, the
 /// Demolition Truck) or one with the EXPLODES veteran ability dies with its
 /// last `Explosion=` entry when it has ammo left; the pick is still drawn.

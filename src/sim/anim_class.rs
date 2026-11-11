@@ -1747,7 +1747,7 @@ impl Simulation {
     /// `AnimExt::SetAnimOwnerHouseKind(anim, house, None, false, true)`'s
     /// post-construction tail: install the owner House and, for a
     /// `MakeInfantry=` or remapping `CreateUnit=` type, its light conversion.
-    fn install_anim_owner_house(
+    pub(crate) fn install_anim_owner_house(
         &mut self,
         rules: &RuleSet,
         type_name: InternedId,
@@ -2166,8 +2166,14 @@ impl Simulation {
         let previous = self.substrate.anims.insert(object);
         debug_assert!(previous.is_none());
         // Phobos `AnimClass_CTOR_CreateUnit_MarkOccupationBits @ 0x4226F0`.
+        // A `CreateUnit=` naming no loaded unit type is null at load natively,
+        // so it marks nothing.
         #[cfg(feature = "phobos")]
-        if config.phobos_create_unit.is_some() {
+        if config
+            .phobos_create_unit
+            .as_ref()
+            .is_some_and(|settings| rules.object(&settings.unit_type).is_some())
+        {
             Self::anim_mark_all_occupation_bits(
                 &mut self.substrate,
                 &self.resolved_terrain,
@@ -4508,6 +4514,12 @@ impl Simulation {
             anim.runtime.loop_remaining = native_loop_remaining(config.loop_count, 1);
             anim.runtime.first_ai_guard = false;
             anim.runtime.inactive = false;
+            #[cfg(feature = "phobos")]
+            {
+                // The one-shot CreateUnit latch belongs to the current type:
+                // a `Next=` chain of two CreateUnit= types spawns each.
+                anim.create_unit_fired = false;
+            }
         }
         self.anim_start(id, &config, rules, overlay_registry, frame_effects)
     }

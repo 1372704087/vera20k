@@ -111,7 +111,7 @@ impl crate::sim::world::Simulation {
         rules: &crate::rules::ruleset::RuleSet,
         kind: WarpAnimKind,
     ) -> bool {
-        let (owner_house, location, names) = {
+        let (owner_house, location, mut candidates) = {
             let Some(entity) = self.substrate.entities.get(id) else {
                 return false;
             };
@@ -119,43 +119,48 @@ impl crate::sim::world::Simulation {
                 return false;
             };
             let lists = &object.phobos_warp_anim;
-            let names = match kind {
-                WarpAnimKind::OrdinaryOut => &lists.warp_out,
-                WarpAnimKind::OrdinaryIn => &lists.warp_in,
+            let mut candidates: Vec<&Vec<String>> = Vec::with_capacity(2);
+            match kind {
+                WarpAnimKind::OrdinaryOut => candidates.push(&lists.warp_out),
+                WarpAnimKind::OrdinaryIn => candidates.push(&lists.warp_in),
                 WarpAnimKind::ChronoOut => {
-                    if lists.chronoshift_warp_out.is_empty() {
-                        &lists.warp_out
-                    } else {
-                        &lists.chronoshift_warp_out
-                    }
+                    candidates.push(&lists.chronoshift_warp_out);
+                    candidates.push(&lists.warp_out);
                 }
                 WarpAnimKind::ChronoIn => {
-                    if lists.chronoshift_warp_in.is_empty() {
-                        &lists.warp_in
-                    } else {
-                        &lists.chronoshift_warp_in
-                    }
+                    candidates.push(&lists.chronoshift_warp_in);
+                    candidates.push(&lists.warp_in);
                 }
             }
-            .clone();
             (
                 entity.owner(),
                 super::ground_pose::object_location(entity, self.resolved_terrain.as_ref()),
-                names,
+                std::mem::take(&mut candidates),
             )
         };
-        let anims: Vec<&str> = names
-            .iter()
-            .map(String::as_str)
-            .filter(|name| rules.has_anim_type(name))
-            .collect();
-        if anims.is_empty() {
-            return false;
+        // A load-time `ValueableVector` drops unresolvable names, so an
+        // authored list that resolves to nothing leaves the next list of the
+        // priority chain in charge; only a non-empty resolved list draws.
+        let mut picked = None;
+        for names in candidates.drain(..) {
+            let anims: Vec<&str> = names
+                .iter()
+                .map(String::as_str)
+                .filter(|name| rules.has_anim_type(name))
+                .collect();
+            if anims.is_empty() {
+                continue;
+            }
+            let index =
+                self.scenario_rng
+                    .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
+            picked = Some(anims[index]);
+            break;
         }
-        let pick = self
-            .scenario_rng
-            .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
-        let type_name = self.interner.intern(anims[pick]);
+        let Some(name) = picked else {
+            return false;
+        };
+        let type_name = self.interner.intern(name);
         let world = crate::sim::anim_class::AnimWorldCoord {
             x: location.x,
             y: location.y,

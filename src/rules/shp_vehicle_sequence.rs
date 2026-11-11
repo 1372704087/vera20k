@@ -146,6 +146,7 @@ fn implicit_standing_frames(firing_frames: u16) -> u16 {
 pub(crate) fn build_shp_vehicle_sequences(
     art: &ArtEntry,
     cadence: FootBodyCadence,
+    has_turret: bool,
     retained: Option<&UnitShpReadState>,
 ) -> SequenceSet {
     let mut set = SequenceSet::new();
@@ -280,6 +281,24 @@ pub(crate) fn build_shp_vehicle_sequences(
         );
     }
 
+    // Phobos `UnitTypeClass_ReadINI_TurretShape` (`0x747A2E`) only reads the
+    // separate turret file for a non-voxel turreted UnitType; the draw starts
+    // its body-slice fallback at `WalkFrames * Facings`
+    // (`Ext/Unit/Hooks.DrawIt.cpp:29-33`, `0x73C7AC`).
+    if retained.is_some() && has_turret && !art.voxel {
+        set.set_shp_vehicle_turret(SequenceDef {
+            start_frame: walk_frames.wrapping_mul(u16::from(facings)),
+            frame_count: u16::from(facings),
+            facings,
+            facing_multiplier: 1,
+            frame_delay: 1,
+            normalized: false,
+            completion_facing: None,
+            loop_mode: LoopMode::Loop,
+            facing_slots: FacingSlots::VehicleOctant,
+        });
+    }
+
     set
 }
 
@@ -291,7 +310,7 @@ mod tests {
     use crate::rules::native_processing::{RulesLayerKind, RulesLayerStack};
     use crate::rules::ruleset::RuleSet;
 
-    const TEST_CADENCE: FootBodyCadence = FootBodyCadence {
+    pub(super) const TEST_CADENCE: FootBodyCadence = FootBodyCadence {
         walk_rate: 3,
         idle_rate: 1,
     };
@@ -411,10 +430,10 @@ mod tests {
         let ini = IniFile::from_str(&source);
         let mut native = UnitShpReadState::default();
         native.read_pass(ini.section_or_empty("IMAGE"), false);
-        build_shp_vehicle_sequences(art, TEST_CADENCE, Some(&native))
+        build_shp_vehicle_sequences(art, TEST_CADENCE, false, Some(&native))
     }
 
-    fn make_art_entry(walk: Option<u16>, firing: Option<u16>) -> ArtEntry {
+    pub(super) fn make_art_entry(walk: Option<u16>, firing: Option<u16>) -> ArtEntry {
         ArtEntry {
             image: None,
             cameo: None,
@@ -582,5 +601,102 @@ mod tests {
             set.get(&SequenceKind::Attack).expect("Attack").start_frame,
             104
         );
+    }
+}
+
+#[cfg(test)]
+mod turret_shape_tests {
+    use super::tests::{TEST_CADENCE, make_art_entry};
+    use super::*;
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::native_processing::RulesLayerStack;
+    use crate::rules::ruleset::RuleSet;
+
+    fn rules(global: &str) -> RuleSet {
+        let text = format!(
+            "[General]\n{global}\n\
+             [VehicleTypes]\n0=TANK\n1=TRUCK\n2=VOX\n\
+             [TANK]\nStrength=100\nTurret=yes\n\
+             [TRUCK]\nStrength=100\n\
+             [VOX]\nStrength=100\nTurret=yes\n"
+        );
+        let art = IniFile::from_str("[TANK]\nImage=HULL\n[TRUCK]\n[VOX]\nVoxel=yes\n");
+        let processed = RulesLayerStack::new(IniFile::from_str(&text))
+            .process_with_fixed_art(&art)
+            .unwrap();
+        let mut rules = RuleSet::from_processed_rules(&processed).unwrap();
+        rules.install_art_data(crate::rules::art_data::ArtRegistry::from_ini(&art));
+        rules
+    }
+
+    /// Phobos `UnitTypeClass_ReadINI_TurretShape` (`Ext/TechnoType/Hooks.cpp:
+    /// 142-168`): `<image>TUR.SHP` for a non-voxel turreted Vehicle; the base
+    /// tracks the body's effective image (the ART `Image=` redirect is already
+    /// applied by VERA's SHP source resolution, so `ArtImageSwap` changes no
+    /// name).
+    #[test]
+    fn the_turret_shp_name_tracks_the_body_image_and_gates_non_voxel_turrets() {
+        for global in ["", "ArtImageSwap=yes", "ArtImageSwap=no"] {
+            let rules = rules(global);
+            assert_eq!(
+                rules.unit_turret_shp_id("TANK").as_deref(),
+                Some("HULLTUR"),
+                "{global:?}"
+            );
+            assert_eq!(
+                rules.unit_turret_shp_file("TANK").as_deref(),
+                Some("HULLTUR.SHP"),
+                "{global:?}"
+            );
+            assert_eq!(rules.unit_turret_shp_file("TRUCK"), None, "no Turret=");
+            assert_eq!(rules.unit_turret_shp_file("VOX"), None, "Voxel=yes");
+        }
+    }
+
+    fn turret_set(walk: u16, facings: u8, voxel: bool, has_turret: bool) -> SequenceSet {
+        let mut native = UnitShpReadState::default();
+        let source = format!("[IMAGE]\nWalkFrames={walk}\nFacings={facings}\n");
+        native.read_pass(
+            IniFile::from_str(&source).section_or_empty("IMAGE"),
+            has_turret,
+        );
+        let mut art = make_art_entry(Some(walk), None);
+        art.voxel = voxel;
+        build_shp_vehicle_sequences(&art, TEST_CADENCE, has_turret, Some(&native))
+    }
+
+    /// The turret block starts at `WalkFrames * Facings`, one image per
+    /// facing, and only exists for a non-voxel turret type.
+    #[test]
+    fn the_turret_sequence_starts_at_walk_frames_times_facings() {
+        let set = turret_set(4, 8, false, true);
+        let turret = set.shp_vehicle_turret().expect("turret layout");
+        assert_eq!(turret.start_frame, 32);
+        assert_eq!(turret.frame_count, 8);
+        assert_eq!(turret.facings, 8);
+        assert_eq!(turret.facing_multiplier, 1);
+
+        assert!(
+            turret_set(4, 8, false, false)
+                .shp_vehicle_turret()
+                .is_none(),
+            "a type without Turret= has no turret layout"
+        );
+        assert!(
+            turret_set(4, 8, true, true).shp_vehicle_turret().is_none(),
+            "a voxel unit draws its VXL turret instead"
+        );
+    }
+
+    /// Facings from the body still drive one turret image per facing; a body
+    /// with six facings keeps a six-image block and the resolver uses slot 0
+    /// (the same rule the body frame resolver applies off eight facings).
+    #[test]
+    fn a_non_octant_body_keeps_one_turret_image_per_body_facing() {
+        let set = turret_set(4, 6, false, true);
+        let turret = set.shp_vehicle_turret().expect("turret layout");
+        assert_eq!(turret.start_frame, 24);
+        assert_eq!(turret.frame_count, 6);
+        assert_eq!(turret.facings, 6);
     }
 }

@@ -1854,6 +1854,41 @@ fn insert_new_object_keys(
                 );
             }
         }
+
+        // Phobos `UnitTypeClass_ReadINI_TurretShape` (`0x747A2E`): a non-voxel
+        // turreted UnitType may carry `<image>TUR.SHP`. Bind its frames under
+        // the derived stem; an absent file leaves the body-slice fallback.
+        if category == EntityCategory::Unit
+            && let Some(rules) = rules
+            && let Some(turret_id) = rules.unit_turret_shp_id(type_str)
+            && let Some(file) = rules.unit_turret_shp_file(type_str)
+            && let Some(data) = asset_manager.get_shared(&file)
+        {
+            let frame_count = rules
+                .animation_sequence_in_category(
+                    crate::rules::object_type::ObjectCategory::Vehicle,
+                    type_str,
+                )
+                .and_then(|set| set.shp_vehicle_turret())
+                .map_or(0, |def| def.frame_count);
+            if frame_count > 0 {
+                match ShpSource::decode(data, file.clone(), (0, 0)) {
+                    Ok(source) => {
+                        sources.insert((ShpImageKind::Object, turret_id.clone()), Some(source));
+                        for frame in 0..frame_count {
+                            needed.insert(ShpSpriteKey {
+                                palette_context: ShpPaletteContext::Legacy,
+                                type_id: turret_id.clone(),
+                                facing: 0,
+                                frame,
+                                house_color: *color_idx,
+                            });
+                        }
+                    }
+                    Err(error) => log::warn!("Failed to parse {file}: {error}"),
+                }
+            }
+        }
     }
     sources
 }

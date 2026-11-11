@@ -190,3 +190,15 @@ fn the_interceptor_globals_default_and_read_from_combat_damage() {
     assert!(!wrong.projectile_interceptable);
     assert!(wrong.interceptor_apply_firepower_mult);
 }
+
+/// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`). VERA's
+/// body image already applies the ART `Image=` redirect; the flag is read for
+/// parity and changes no SHP UnitType turret name (see
+/// `docs/phobos-shp-turret.md`).
+#[test]
+fn art_image_swap_defaults_off_and_reads_from_general() {
+    assert!(!PhobosGlobals::default().art_image_swap);
+    assert!(read("[General]\nArtImageSwap=yes\n").art_image_swap);
+    assert!(!read("[CombatDamage]\nArtImageSwap=yes\n").art_image_swap);
+    assert!(!read("[General]\nArtImageSwap=no\n").art_image_swap);
+}

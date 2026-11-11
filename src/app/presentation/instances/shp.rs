@@ -815,6 +815,82 @@ pub(crate) fn shp_visitor<'a>(
             {
                 pieces.push(shadow);
             }
+            // Phobos `UnitClass_DrawAsSHP_DrawTurret` (`Ext/Unit/Hooks.DrawIt.cpp:
+            // 21-52`, `0x73C7AC`): a non-voxel turreted Unit draws a second
+            // image at the turret facing. With `<image>TUR.SHP` bound the
+            // sequence starts at frame 0; otherwise the body SHP supplies the
+            // `WalkFrames * Facings` block. TurretOffset and the native -32
+            // Z adjust are not modeled (see `docs/phobos-shp-turret.md`).
+            if entity.category() == EntityCategory::Unit
+                && !entity.death.is_dying()
+                && !entity
+                    .disguise
+                    .as_ref()
+                    .is_some_and(|disguise| disguise.is_disguised())
+                && let Some(rules) = rules
+                && let Some(set) = rules.animation_sequence_in_category(
+                    crate::rules::object_type::ObjectCategory::Vehicle,
+                    type_str,
+                )
+                && set.shp_vehicle_turret().is_some()
+            {
+                let turret_facing = (render_pose.turret >> 8) as u8;
+                let turret_id = rules.unit_turret_shp_id(type_str);
+                let turret_shape_present = turret_id.as_ref().is_some_and(|id| {
+                    atlas
+                        .get(&ShpSpriteKey {
+                            palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
+                            type_id: id.clone(),
+                            facing: 0,
+                            frame: 0,
+                            house_color: hc,
+                        })
+                        .is_some()
+                });
+                if let Some(frame) = animation::resolve_shp_vehicle_turret_frame(
+                    set,
+                    turret_facing,
+                    turret_shape_present,
+                ) {
+                    let key = ShpSpriteKey {
+                        palette_context: crate::render::sprite_atlas::ShpPaletteContext::Legacy,
+                        type_id: match turret_id {
+                            Some(id) if turret_shape_present => id,
+                            _ => body_key.type_id.clone(),
+                        },
+                        facing: 0,
+                        frame,
+                        house_color: hc,
+                    };
+                    if let Some(turret_entry) = atlas.get(&key) {
+                        pieces.push(ObjectPieceInstance {
+                            target: ObjectTexture::ShpPage(turret_entry.page as usize),
+                            render_z: parent.policy.render_z,
+                            instance: SpriteInstance {
+                                position: [sx + turret_entry.offset_x, sy + turret_entry.offset_y],
+                                size: turret_entry.pixel_size,
+                                uv_origin: turret_entry.uv_origin,
+                                uv_size: turret_entry.uv_size,
+                                source_palette: turret_entry.source_palette,
+                                depth,
+                                tint: body_tint,
+                                palette_light: palette_light.with_colour_word(
+                                    if parent.policy.ors_colour_word(turret_entry.extended) {
+                                        colour_word
+                                    } else {
+                                        0
+                                    },
+                                ),
+                                alpha: 1.0,
+                                draw_state,
+                                z_adjust,
+                                z_gradient,
+                                zshape_origin,
+                            },
+                        });
+                    }
+                }
+            }
             ground_objects.push(PlannedObjectInstance::object(parent, pieces));
         }
 

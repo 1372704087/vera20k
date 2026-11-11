@@ -1806,3 +1806,72 @@ fn ares_air_rate_alone_steps_an_airborne_foot() {
     }
     assert_eq!(entity.body_frame_counter.get(), 4);
 }
+
+/// Phobos `UnitClass_DrawAsSHP_DrawTurret` (`0x73C7AC`): a bound
+/// `<image>TUR.SHP` starts the turret at frame 0; without it the body SHP's
+/// `WalkFrames * Facings` block supplies one image per body facing.
+#[test]
+fn shp_vehicle_turret_frame_switches_between_the_turret_shape_and_the_body_slice() {
+    let mut set = SequenceSet::new();
+    set.set_shp_vehicle_turret(SequenceDef {
+        start_frame: 96,
+        frame_count: 8,
+        facings: 8,
+        facing_multiplier: 1,
+        frame_delay: 1,
+        normalized: false,
+        completion_facing: None,
+        loop_mode: LoopMode::Loop,
+        facing_slots: FacingSlots::VehicleOctant,
+    });
+    let body_slot = super::vehicle_facing_slot(0);
+    assert_eq!(
+        resolve_shp_vehicle_turret_frame(&set, 0, false),
+        Some(96 + body_slot)
+    );
+    assert_eq!(
+        resolve_shp_vehicle_turret_frame(&set, 0, true),
+        Some(body_slot),
+        "the separate turret shape starts at frame 0"
+    );
+    let east = super::vehicle_facing_slot(64);
+    assert_ne!(east, body_slot, "the facing selects another turret image");
+    assert_eq!(resolve_shp_vehicle_turret_frame(&set, 64, true), Some(east));
+    assert_eq!(
+        resolve_shp_vehicle_turret_frame(&set, 64, false),
+        Some(96 + east)
+    );
+    let mut without = SequenceSet::new();
+    without.set_shp_vehicle_turret(SequenceDef {
+        start_frame: 0,
+        frame_count: 0,
+        facings: 8,
+        facing_multiplier: 1,
+        frame_delay: 1,
+        normalized: false,
+        completion_facing: None,
+        loop_mode: LoopMode::Loop,
+        facing_slots: FacingSlots::VehicleOctant,
+    });
+    assert_eq!(
+        resolve_shp_vehicle_turret_frame(&without, 0, true),
+        None,
+        "no turret frames"
+    );
+    // A non-octant body keeps one image per body facing; the facing selects
+    // no sub-slot, so the turret shape still starts at its frame-0 block.
+    let mut six = SequenceSet::new();
+    six.set_shp_vehicle_turret(SequenceDef {
+        start_frame: 24,
+        frame_count: 6,
+        facings: 6,
+        facing_multiplier: 1,
+        frame_delay: 1,
+        normalized: false,
+        completion_facing: None,
+        loop_mode: LoopMode::Loop,
+        facing_slots: FacingSlots::VehicleOctant,
+    });
+    assert_eq!(resolve_shp_vehicle_turret_frame(&six, 64, true), Some(0));
+    assert_eq!(resolve_shp_vehicle_turret_frame(&six, 64, false), Some(24));
+}

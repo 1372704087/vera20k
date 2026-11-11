@@ -122,6 +122,13 @@ pub struct PhobosGlobals {
     pub keep_range_allow_ai: bool,
     /// `[General] KeepRange.AllowPlayer=`, default `no` (`:270`, `Body.h:188`).
     pub keep_range_allow_player: bool,
+    /// `[General] ArtImageSwap=`, default `no` (`Phobos.INI.cpp:262`):
+    /// Phobos' ART `Image=` redirect for TechnoTypes. VERA's body SHP source
+    /// already applies that redirect, so the SHP UnitType turret file name
+    /// (`RuleSet::unit_turret_shp_id`) tracks the same base and this flag
+    /// changes no name; it is read for parity only.
+    #[serde(default)]
+    pub art_image_swap: bool,
     /// `[General] KeepRange.EarlyStopFrame=`, default 0 (`:271`, `Body.h:189`).
     pub keep_range_early_stop: i32,
     /// `[AudioVisual] Parasite.GrappleAnim=`, `NullableIdx<AnimTypeClass>`
@@ -544,6 +551,7 @@ impl Default for PhobosGlobals {
             not_human_random_death_sequence: false,
             keep_range_allow_ai: false,
             keep_range_allow_player: false,
+            art_image_swap: false,
             keep_range_early_stop: 0,
             parasite_grapple_anim: None,
             parasite_allow_water_exit: None,
@@ -752,6 +760,7 @@ impl PhobosGlobals {
             general.read_bool("KeepRange.AllowAI", globals.keep_range_allow_ai);
         globals.keep_range_allow_player =
             general.read_bool("KeepRange.AllowPlayer", globals.keep_range_allow_player);
+        globals.art_image_swap = general.read_bool("ArtImageSwap", globals.art_image_swap);
         globals.keep_range_early_stop =
             general.read_ares_int("KeepRange.EarlyStopFrame", globals.keep_range_early_stop);
         globals.parasite_allow_water_exit = general.read_phobos_nullable_bool(

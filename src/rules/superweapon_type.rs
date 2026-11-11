@@ -693,6 +693,11 @@ pub struct SuperWeaponType {
     /// the default source-house filter is `Owner`.
     #[cfg(feature = "phobos")]
     pub phobos_convert_pairs: Vec<crate::rules::type_convert_group::TypeConvertGroup>,
+    /// Phobos `TabIndex=` (`Ext/SWType/Body.cpp:285-286`): the sidebar tab
+    /// this cameo occupies, `0..=3` with an out-of-range value resetting to
+    /// `1` (`GeneralUtils::IntValidCheck`).
+    #[cfg(feature = "phobos")]
+    pub phobos_tab_index: crate::rules::phobos_sw_tab_index::PhobosSwTabIndex,
     /// Phobos `UseWeeds.Amount=` (`:297`); `None` keeps the constructor
     /// default `[General] WeedCapacity`.
     #[cfg(feature = "phobos")]
@@ -973,6 +978,10 @@ impl SuperWeaponType {
             phobos_convert_pairs: crate::rules::type_convert_group::parse(
                 section,
                 crate::rules::phobos_shields::AffectedHouse::OWNER,
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_tab_index: crate::rules::phobos_sw_tab_index::PhobosSwTabIndex::from_section(
+                section,
             ),
             #[cfg(feature = "phobos")]
             use_weeds_amount: section.read_phobos_nullable_int("UseWeeds.Amount", None),

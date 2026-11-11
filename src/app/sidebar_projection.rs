@@ -1397,9 +1397,15 @@ fn super_cameo(
     id: InternedId,
 ) -> Option<Cameo> {
     let kind = rules.super_weapon(sim.interner().try_resolve(id)?)?;
+    // Phobos `TabIndex` (`Ext/SWType/Hooks.cpp:245-258`, `0x6ABC9D`): the
+    // cameo goes to the tab its type names, which defaults to strip 1.
+    #[cfg(feature = "phobos")]
+    let tab = crate::ui::sidebar::SidebarTab::for_sw_tab_index(kind.phobos_tab_index.index());
+    #[cfg(not(feature = "phobos"))]
+    let tab = crate::ui::sidebar::SidebarTab::Defense;
     Some(Cameo {
         id: CameoId::SuperWeapon(id),
-        tab: crate::ui::sidebar::SidebarTab::Defense,
+        tab,
         available: true,
         key: super_weapon_cameo_key(kind, csf),
     })

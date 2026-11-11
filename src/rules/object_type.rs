@@ -1136,6 +1136,18 @@ pub struct ObjectType {
     /// per-type alert keys consumed by `sim::combat::combat_alert`.
     #[cfg(feature = "phobos")]
     pub phobos_combat_alert: crate::rules::phobos_combat_alert::PhobosCombatAlert,
+    /// Phobos `ExitThroughRoof=` (`Ext/TechnoType/Body.cpp:1200`): a produced
+    /// unit leaves its factory through the roof animation.
+    #[cfg(feature = "phobos")]
+    pub phobos_exit_through_roof: crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof,
+    /// Phobos `Slaved.OwnerWhenMasterKilled=` (`Ext/InfantryType/Body.cpp:18`):
+    /// who a slave miner belongs to once its master dies.
+    #[cfg(feature = "phobos")]
+    pub phobos_slaved: crate::rules::phobos_slaved::PhobosSlaved,
+    /// Phobos `OnlyUseLandSequences=` (`Ext/InfantryType/Body.cpp:32`, read
+    /// from the **art** section): land sequences even in water.
+    #[cfg(feature = "phobos")]
+    pub phobos_land_sequences: crate::rules::phobos_land_sequences::PhobosLandSequences,
     /// Rules LeptonMindControlOffset: Type+3DC ctor710D28=70, read714145.
     pub lepton_mind_control_offset: i32,
     /// Sidebar/build tab grouping for structures.
@@ -5308,6 +5320,16 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_combat_alert:
                 crate::rules::phobos_combat_alert::PhobosCombatAlert::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_exit_through_roof:
+                crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof::from_section(
+                    section,
+                ),
+            #[cfg(feature = "phobos")]
+            phobos_slaved: crate::rules::phobos_slaved::PhobosSlaved::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_land_sequences:
+                crate::rules::phobos_land_sequences::PhobosLandSequences::from_section(section),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

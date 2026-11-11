@@ -634,6 +634,13 @@ pub struct PhobosGlobals {
     /// vehicle over deep water drowns unless its type says otherwise.
     #[serde(default = "true_bool")]
     pub hover_drownable: bool,
+    /// `[General] OnlyUseLandSequences=`, default `no`
+    /// (`Ext/Rules/Body.cpp:622`, constructor `Ext/Rules/Body.h:1017`): the
+    /// fallback an `InfantryType`'s unset art `OnlyUseLandSequences=` keeps,
+    /// making infantry play their land sequences while in water
+    /// (`Ext/Techno/Hooks.Misc.cpp:890`).
+    #[serde(default)]
+    pub only_use_land_sequences: bool,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -798,6 +805,7 @@ impl Default for PhobosGlobals {
             is_voice_created_global: false,
             use_disguise_movement_speed: None,
             hover_drownable: true,
+            only_use_land_sequences: false,
         }
     }
 }
@@ -953,6 +961,8 @@ impl PhobosGlobals {
             general.read_phobos_nullable_double("VeteranEmptyReload", globals.veteran_empty_reload);
         // `Ext/Rules/Body.cpp:475`, a `Valueable<bool>` default `yes`.
         globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
+        globals.only_use_land_sequences =
+            general.read_bool("OnlyUseLandSequences", globals.only_use_land_sequences);
         // `Ext/Rules/Body.cpp:218-219`, `yes`/`no` constructor defaults.
         globals.alternate_flh_on_turret =
             general.read_bool("AlternateFLH.OnTurret", globals.alternate_flh_on_turret);

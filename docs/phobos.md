@@ -184,6 +184,11 @@ Supported extensions:
 - [RA1 multi-turret / multi-barrel](phobos-turret-barrel.md) (`BarrelOverTurret`/`BarrelOffset`/`ExtraBarrelCount`/`ExtraTurretCount`/`BurstPerTurret` and the indexed offsets: per-turret and per-barrel draw transforms, recoil slots and burst cycling — read, not yet consumed; 5 type keys + 2 indexed lists)
 - [Parabombs](phobos-parabomb.md) (`Parachuted`/`.FallRate`/`.MaxFallRate` and `BombParachute`: a projectile that descends under a canopy at a step/cap fall rate — the keys and the rate model are in, the bullet's parachute state is not yet wired; 4 type keys)
 - [Return weapon](phobos-return-weapon.md) (`ReturnWeapon` and `ReturnWeapon.ApplyFirepowerMult`: a detonating bullet fires the named weapon back at its firer from the impact, with the firepower multiplier scaling `Damage=`; 2 type keys + 1 `[CombatDamage]` global)
+- [Damaged aircraft image changes](phobos-damaged-image.md) is shared by the Unit (`Image.Condition*`) and Aircraft (`WaterImage.Condition*`) readers — see that page.
+- [Roof production exit](phobos-exit-through-roof.md) (`ExitThroughRoof`: a produced unit leaves through the roof anim instead of the gate — read, not yet consumed; 1 type key)
+- [Slaves on master-killed](phobos-slaved.md) (`Slaved.OwnerWhenMasterKilled`: killer / master / suicide / neutral for a freed slave miner — read, not yet consumed; 1 type key)
+- [Land sequences in water](phobos-land-sequences.md) (`OnlyUseLandSequences` on the art section plus `[General]`: infantry keep land sequences in water — read, not yet consumed; 1 type key + 1 `[General]` global)
+- [Super-weapon sidebar tab](phobos-sw-tab-index.md) (`TabIndex`: which of the four sidebar tabs a super weapon cameo occupies, out-of-range resetting to `1`; 1 type key)
 
 ## Original project and authors
 

@@ -343,3 +343,28 @@ fn the_disguise_voice_and_hover_globals() {
     // `IsVoiceCreatedGlobal` is an `[AudioVisual]` read, not a `[General]` one.
     assert!(!read("[General]\nIsVoiceCreatedGlobal=yes\n").is_voice_created_global);
 }
+
+/// `[CombatDamage] ReturnWeapon.ApplyFirepowerMult=` (`Ext/Rules/Body.cpp:559`,
+/// constructor `Ext/Rules/Body.h:973`) defaults `no`, and
+/// `[General] OnlyUseLandSequences=` (`:622`, `Body.h:1017`) too.
+#[test]
+fn the_return_weapon_and_land_sequence_globals() {
+    let defaults = PhobosGlobals::default();
+    assert!(!defaults.return_weapon_apply_firepower_mult);
+    assert!(!defaults.only_use_land_sequences);
+    assert_eq!(read(""), defaults);
+
+    let set = read(
+        "[CombatDamage]\nReturnWeapon.ApplyFirepowerMult=yes\n\
+         [General]\nOnlyUseLandSequences=yes\n",
+    );
+    assert!(set.return_weapon_apply_firepower_mult);
+    assert!(set.only_use_land_sequences);
+
+    // Each key lives in its own section; a read from the other one is a no-op.
+    assert!(
+        !read("[General]\nReturnWeapon.ApplyFirepowerMult=yes\n")
+            .return_weapon_apply_firepower_mult
+    );
+    assert!(!read("[CombatDamage]\nOnlyUseLandSequences=yes\n").only_use_land_sequences);
+}

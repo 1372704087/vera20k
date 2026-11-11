@@ -174,3 +174,49 @@ fn an_inviso_detonation_takes_no_vanilla_scatter_draw() {
     );
     assert_eq!(world.scenario_rng.state(), before.state());
 }
+
+/// Phobos `ObjectClass_Unlimbo_Parachuted_Wrapper` (`Ext/Bullet/Hooks.cpp:
+/// 573-583`) with `BulletClass_AI_Parabomb`'s terminal-rate resolution
+/// (`:130-131`): a `Parachuted=yes` type starts its accumulated rate at 0
+/// (`Ext/Bullet/Body.h:61`) and takes `Parachuted.MaxFallRate=`, else
+/// `[General] ParachuteMaxFallRate`.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_parachuted_bullet_type_starts_its_descent_at_the_general_cap() {
+    let rules = RuleSet::from_ini(&IniFile::from_str(
+        "[General]\nParachuteMaxFallRate=-4\n\
+         [VehicleTypes]\n0=SOURCE\n[SOURCE]\nPrimary=GUN\n\
+         [GUN]\nProjectile=SHOT\nWarhead=WH\nDamage=10\n\
+         [Warheads]\n0=WH\n[WH]\n\
+         [SHOT]\nParachuted=yes\nParachuted.FallRate=2\n",
+    ))
+    .unwrap();
+    let mut world = Simulation::with_seed(7);
+    world.intern_rule_type_ids(&rules);
+    world.resolve_type_handles(&rules);
+    let source = world
+        .spawn_object("SOURCE", "Americans", 5, 5, 0, &rules)
+        .unwrap();
+    let kind = world.interner.intern("SHOT");
+    let payload = ProjectilePayload::new(10, world.interner.intern("WH"), Some(kind), false);
+    let bullet = world.construct_projectile(source, ProjectileTarget::None, payload, &rules);
+    assert_eq!(
+        world.projectiles.get(bullet).unwrap().parabomb(),
+        None,
+        "a bullet is unlimboed before its type is read"
+    );
+
+    world.init_parabomb(bullet, &rules);
+    let state = world
+        .projectiles
+        .get(bullet)
+        .unwrap()
+        .parabomb()
+        .expect("Parachuted=yes starts the descent");
+    assert_eq!(state.accumulated_rate, 0);
+    assert_eq!(state.fall_rate_step, 2);
+    assert_eq!(
+        state.max_fall_rate, -4,
+        "an unset Parachuted.MaxFallRate= keeps [General] ParachuteMaxFallRate"
+    );
+}

@@ -997,6 +997,11 @@ pub struct GeneralRules {
     /// "PARACH"), `None` if unset or empty: the canopy the simulation attaches
     /// to a dropped object. Its timing is the AnimType's own art.
     pub parachute_shp: Option<String>,
+    /// Parsed `[General] BombParachute=` value (uppercased AnimType name),
+    /// `None` if unset or empty: the canopy a `Parachuted=` bullet is born
+    /// under (`Ext/Bullet/Hooks.cpp:594` reads `RulesClass+0xBB8`). Bound by
+    /// the ordered Rules type-reference owner like `Parachute=`.
+    pub bomb_parachute: Option<String>,
     /// Parsed `[General] VehicleParachute=` value (uppercased AnimType name),
     /// read only with the explicit NPatch capability.
     /// `None` if unset or empty: the NPSE canopy an airdropped non-infantry
@@ -2772,6 +2777,9 @@ impl Default for GeneralRules {
             no_parachute_max_fall_rate: -100,
             paradrop_radius: 1024,
             parachute_shp: None,
+            // RulesClass +0xBB8 starts null; the ordered type-reference
+            // reader publishes `[General] BombParachute=`.
+            bomb_parachute: None,
             vehicle_parachute: None,
             amer_paradrop: ParadropList::default(),
             ally_paradrop: ParadropList::default(),
@@ -4018,6 +4026,7 @@ impl GeneralRules {
             hover_dampen: general.read_double_bits("HoverDampen", defaults.hover_dampen),
             paradrop_radius: general.read_int("ParadropRadius", 1024),
             parachute_shp: defaults.parachute_shp.clone(),
+            bomb_parachute: defaults.bomb_parachute.clone(),
             // The ordered RulesTypeReferences owner publishes the retained
             // NPSE ReadGeneral pointer (C31005..C31017), like Parachute.
             vehicle_parachute: defaults.vehicle_parachute.clone(),
@@ -9830,6 +9839,7 @@ impl RuleSet {
             }
         }
         let general = &self.general;
+        general.bomb_parachute.hash(&mut hasher);
         if crate::rules::NPATCH_ENABLED {
             general.vehicle_parachute.hash(&mut hasher);
         }

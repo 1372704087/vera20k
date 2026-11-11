@@ -962,6 +962,12 @@ impl Simulation {
                     .map(|id| id.index())
                     .hash(hasher);
                 projectile.interceptor_target().hash(hasher);
+                if let Some(parabomb) = projectile.parabomb() {
+                    b"phobos-parabomb-v1".hash(hasher);
+                    parabomb.accumulated_rate.hash(hasher);
+                    parabomb.fall_rate_step.hash(hasher);
+                    parabomb.max_fall_rate.hash(hasher);
+                }
             }
 
             projectile.speed_leptons_per_frame().hash(hasher);

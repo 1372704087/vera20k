@@ -410,6 +410,11 @@ fn admit_bullet(
     );
     let spawn = delivery.spawn(&world.substrate.entities, rules, projectile_type, bullet);
     world.admit_projectile(bullet_id, spawn);
+    // Phobos `ObjectClass_Unlimbo_Parachuted_Wrapper` (`Ext/Bullet/Hooks.cpp:
+    // 573-583`): the Unlimbo replacement and its canopy run inside Fire's
+    // placement, before `BulletClass_Unlimbo_Trajectories @ 0x468B72`.
+    #[cfg(feature = "phobos")]
+    world.init_parabomb(bullet_id, rules);
     // Phobos `BulletClass_Unlimbo_Trajectories @ 0x468B72`: a trajectory
     // instance is created and `OnUnlimbo` runs during Fire's placement.
     #[cfg(feature = "phobos")]

@@ -1091,28 +1091,31 @@ fn fill_slot(host: &mut impl SpawnHost, index: usize, initial: bool) {
     // Trigger: a `Spawns=` type VERA cannot construct (none in retail).
     #[cfg(feature = "phobos")]
     let spawn_type = {
-        let manager = host.manager_ref();
-        if manager.spawn_queue.is_empty() {
-            manager.spawn_type
+        let (default, queue, children) = {
+            let manager = host.manager_ref();
+            (
+                manager.spawn_type,
+                manager.spawn_queue.clone(),
+                manager
+                    .slots
+                    .iter()
+                    .filter_map(|slot| slot.spawn)
+                    .collect::<Vec<_>>(),
+            )
+        };
+        if queue.is_empty() {
+            default
         } else if initial {
-            manager
-                .spawn_queue
-                .get(index)
-                .copied()
-                .unwrap_or(manager.spawn_type)
+            queue.get(index).copied().unwrap_or(default)
         } else {
-            manager
-                .spawn_queue
+            let alive: Vec<InternedId> = children
                 .iter()
-                .copied()
-                .find(|&queued| {
-                    !manager.slots.iter().any(|slot| {
-                        slot.spawn
-                            .and_then(|child| host.child_type_id(child))
-                            .is_some_and(|kind| kind == queued)
-                    })
-                })
-                .unwrap_or(manager.spawn_type)
+                .filter_map(|&child| host.child_type_id(child))
+                .collect();
+            queue
+                .into_iter()
+                .find(|queued| !alive.contains(queued))
+                .unwrap_or(default)
         }
     };
     #[cfg(not(feature = "phobos"))]

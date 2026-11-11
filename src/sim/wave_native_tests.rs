@@ -343,10 +343,16 @@ fn sonic_damage_request_uses_the_native_b4_bridge_plane() {
         let (request, _) = store
             .advance_one(7, context(&row["input"]), Some(&terrain))
             .unwrap();
+        let request = request.unwrap();
         assert_eq!(
-            request.unwrap().wave_z,
+            request.wave_z,
             coord(&row["after"]["source"]).z,
             "native bridge-plane input comes from B4, independently of C0+50"
+        );
+        assert_eq!(
+            request.target,
+            Some(TargetKind::Entity(2)),
+            "the request carries Wave+0xAC for the Phobos target skip"
         );
     }
 }

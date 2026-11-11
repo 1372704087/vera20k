@@ -9825,3 +9825,148 @@ fn phobos_wave_ambient_damage_reads_the_warhead_and_ignore_target() {
         assert_eq!(health(&sim, target), target_health);
     }
 }
+
+/// Phobos `AmbientDamage.IgnoreTarget` (`0x75F415`) compares the same
+/// ObjectClass pointer, so a Terrain target is skipped like a Techno one.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_wave_ambient_damage_ignore_target_skips_a_terrain_target() {
+    fn wave_terrain_rules(ignore: bool) -> RuleSet {
+        let ignore = if ignore {
+            "AmbientDamage.IgnoreTarget=yes\n"
+        } else {
+            ""
+        };
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=DLPH\n\n\
+             [DLPH]\nStrength=200\nArmor=light\nSpeed=8\nPrimary=SonicZap\n\n\
+             [TerrainTypes]\n0=TREE\n\n\
+             [TREE]\nStrength=100\nArmor=wood\n\n\
+             [SonicZap]\nDamage=4\nROF=20\nRange=10\nProjectile=Sonic\nSpeed=100\n\
+             Warhead=SonicWH\nIsSonic=yes\nAmbientDamage=10\n\
+             AmbientDamage.Warhead=AltWH\n{ignore}\n\n\
+             [Sonic]\nLevel=yes\n\n\
+             [SonicWH]\nWood=yes\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n\n\
+             [AltWH]\nWood=yes\n\
+             Verses=50%,50%,50%,50%,50%,50%,50%,50%,50%,50%,50%\n\n\
+             [Warheads]\n0=SonicWH\n1=AltWH\n",
+        )))
+        .expect("Phobos wave Terrain fixture")
+    }
+    for (ignore, terrain_health) in [(false, 95), (true, 100)] {
+        let rules = wave_terrain_rules(ignore);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5EED_A2E8);
+        let dolphin = sim
+            .spawn_object("DLPH", "Americans", 6, 10, 64, &rules)
+            .expect("dolphin");
+        let terrain_id = sim.substrate.allocate_stable_id();
+        let state = crate::sim::terrain_object::TerrainObjectState::for_test(
+            terrain_id,
+            sim.interner.intern("TREE"),
+            12,
+            10,
+        );
+        {
+            let store = sim.terrain_objects_mut_for_test();
+            store.insert_constructed(state, false);
+            store.add_to_cell(terrain_id, (12, 10));
+        }
+        let aim = sim
+            .spawn_object("DLPH", "Americans", 20, 20, 64, &rules)
+            .expect("aim");
+        let event = sonic_fire_event(&mut sim, &rules, dolphin, aim);
+        admit_test_wave(&mut sim, &rules, &event);
+        let wave_id = sim.active_wave_links[&dolphin];
+        sim.waves
+            .get_mut(wave_id)
+            .expect("admitted wave")
+            .set_target_ref_for_test(Some(TargetKind::Entity(terrain_id)));
+        let request = crate::sim::wave::WaveDamageRequest {
+            wave_id,
+            firer_id: dolphin,
+            recorded_cells: vec![crate::sim::wave::WaveRecordedCell::real(12, 10)],
+            wave_z: 0,
+            target: Some(TargetKind::Entity(terrain_id)),
+            ares_weapon: None,
+        };
+        sim.commit_logic_wave_damage_request(&rules, None, &request, FrameEffects::default());
+        assert_eq!(
+            sim.terrain_objects.objects()[&terrain_id].health(),
+            terrain_health,
+            "the wave skip compares the Terrain target pointer too"
+        );
+    }
+}
+
+/// Ares `WaveClass_DamageCell_Wall` (1005D7A0, hook `0x75F46E`) gates the
+/// wall hit on the weapon's own `Warhead=`, which the Phobos ambient override
+/// (`0x75F39D`) must not replace.
+#[cfg(all(feature = "ares", feature = "phobos"))]
+#[test]
+fn phobos_wave_wall_damage_gate_reads_the_weapon_warhead() {
+    fn wall_rules(weapon_warhead: &str) -> RuleSet {
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=DLPH\n1=AIM\n\n\
+             [DLPH]\nStrength=200\nArmor=light\nSpeed=8\nPrimary=SonicZap\n\n\
+             [AIM]\nStrength=100\nArmor=wood\n\n\
+             [SonicZap]\nDamage=4\nROF=20\nRange=10\nProjectile=Sonic\nSpeed=100\n\
+             Warhead={weapon_warhead}\nIsSonic=yes\nAmbientDamage=10\n\
+             AmbientDamage.Warhead={override_warhead}\n\n\
+             [Sonic]\nLevel=yes\n\n\
+             [RAILWH]\nWood=yes\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n\n\
+             [ALTWH]\nWood=yes\nWall=yes\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n\n\
+             [Warheads]\n0=RAILWH\n1=ALTWH\n",
+            override_warhead = if weapon_warhead == "RAILWH" {
+                "ALTWH"
+            } else {
+                "RAILWH"
+            },
+        )))
+        .expect("Phobos wave wall fixture")
+    }
+    for (weapon_warhead, wall_destroyed) in [("RAILWH", false), ("ALTWH", true)] {
+        let rules = wall_rules(weapon_warhead);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5EED_A2E9);
+        let dolphin = sim
+            .spawn_object("DLPH", "Americans", 6, 10, 64, &rules)
+            .expect("dolphin");
+        let aim = sim
+            .spawn_object("AIM", "Americans", 20, 20, 0, &rules)
+            .expect("aim");
+        let overlays = crate::rules::overlay_types::OverlayTypeRegistry::from_ini(
+            &IniFile::from_str("[OverlayTypes]\n0=FENCE\n[FENCE]\nWall=yes\nStrength=4\n"),
+            None,
+        );
+        let wall = overlays.id_for_name("FENCE").expect("wall overlay");
+        sim.overlay_grid = Some(crate::sim::overlay_grid::OverlayGrid::new(32, 32));
+        sim.overlay_grid
+            .as_mut()
+            .unwrap()
+            .place_overlay(12, 10, wall, 0);
+        let event = sonic_fire_event(&mut sim, &rules, dolphin, aim);
+        admit_test_wave(&mut sim, &rules, &event);
+        let request = crate::sim::wave::WaveDamageRequest {
+            wave_id: sim.active_wave_links[&dolphin],
+            firer_id: dolphin,
+            recorded_cells: vec![crate::sim::wave::WaveRecordedCell::real(12, 10)],
+            wave_z: 0,
+            target: None,
+            ares_weapon: None,
+        };
+        sim.commit_logic_wave_damage_request(
+            &rules,
+            Some(&overlays),
+            &request,
+            FrameEffects::default(),
+        );
+        let intact = sim.overlay_grid.as_ref().unwrap().cell(12, 10).overlay_id;
+        assert_eq!(
+            intact.is_none(),
+            wall_destroyed,
+            "weapon Warhead={weapon_warhead} gates the wall hit"
+        );
+    }
+}

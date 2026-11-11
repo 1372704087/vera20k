@@ -411,4 +411,13 @@ fn phobos_railgun_ambient_damage_reads_the_warhead_and_ignore_target() {
         (1000, 850),
         "the [General] fallback skips the target with the weapon warhead"
     );
+    let explicit = phobos_railgun_rules(
+        "AmbientDamage.Warhead=ALTWH\nAmbientDamage.IgnoreTarget=no\n",
+        "AmbientDamage.IgnoreTarget=yes\n",
+    );
+    assert_eq!(
+        phobos_railgun_health(&explicit),
+        (925, 925),
+        "the weapon's explicit no overrides the [General] yes"
+    );
 }

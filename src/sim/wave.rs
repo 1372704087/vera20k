@@ -103,7 +103,7 @@ pub struct WaveDamageRequest {
     pub firer_id: u64,
     pub recorded_cells: Vec<WaveRecordedCell>,
     pub wave_z: i32,
-    /// `WaveClass+0x10C` Target: Phobos `AmbientDamage.IgnoreTarget`
+    /// `WaveClass+0xAC` Target: Phobos `AmbientDamage.IgnoreTarget`
     /// (`0x75F415`, `Ext/Techno/Hooks.WeaponEffects.cpp:175-186`) skips this
     /// object in the ambient-damage walk.
     pub target: Option<TargetKind>,

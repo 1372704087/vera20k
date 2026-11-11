@@ -32,8 +32,8 @@ warhead is `AmbientDamage.Warhead` else `Warhead=`.
 
 `WaveClass_DamageAI` hooks `0x75F39D` and `0x75F415`
 (`Ext/Techno/Hooks.WeaponEffects.cpp:173-186`) select the ambient warhead and
-skip the wave's Target object on each `DamageArea` walk. VERA's
-`WaveDamageRequest` now carries the wave's `Target`, and
+skip the wave's Target object, Techno or Terrain, on each `DamageArea` walk.
+VERA's `WaveDamageRequest` now carries the wave's `Target`, and
 `commit_logic_wave_damage_request` reads the weapon's override and skips that
 object in every recorded cell.
 
@@ -42,9 +42,12 @@ object in every recorded cell.
 - The railgun target exclusion is applied after the line walk, which is the
   same set the native hooks leave; a terrain-object target remains the
   existing undamaged residual.
-- An override warhead name that resolves to no loaded warhead is retained as
-  the interned name and the receiver drops it; native's `Nullable` reference
-  would keep the weapon warhead. Trigger: invalid mod data. Frequency: authored
-  mods. Risk: that ambient hit does nothing.
+- An unresolvable override warhead name is kept as the interned name and the
+  receiver drops the hit. Native reads the key with `Read<true>`
+  (`Ext/WeaponType/Body.cpp:167`), i.e. `WarheadTypeClass::FindOrAllocate`, so
+  an unknown name allocates a blank warhead type; its constructor defaults
+  apply to that ambient hit, and a blank value stores a null warhead pointer.
+  Trigger: invalid mod data. Frequency: authored mods. Risk: that ambient hit
+  does nothing instead of using the blank warhead's defaults.
 - Retail rules author none of these keys; the defaults reproduce the stock
   weapon warhead and no target skip.

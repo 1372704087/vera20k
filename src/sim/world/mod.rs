@@ -2986,6 +2986,24 @@ impl Simulation {
                             crate::sim::combat::combat_aoe::AreaDamageReceiver::Entity(event)
                         }
                         CellObject::Terrain(stable_id) => {
+                            // 0x75F415 compares the same ObjectClass pointer,
+                            // so a Terrain the wave targets is skipped too.
+                            if ambient_ignored_target
+                                == Some(crate::sim::combat::TargetKind::Entity(stable_id))
+                            {
+                                let order = current_order(
+                                    &self.substrate.occupancy,
+                                    &self.terrain_objects,
+                                    rx,
+                                    ry,
+                                    layer,
+                                );
+                                current = order
+                                    .iter()
+                                    .position(|&item| item == receiver_object)
+                                    .and_then(|index| order.get(index + 1).copied());
+                                continue;
+                            }
                             #[cfg(any(test, feature = "test-support"))]
                             self.trace_lifecycle_for_test(
                                 LifecycleTestEvent::WaveDamageReceiverSelected {
@@ -3048,12 +3066,15 @@ impl Simulation {
                 {
                     let _chain_reaction_no_op = flags.chain_reaction;
                     // Ares 3.0 WaveClass_DamageCell_Wall (1005D7A0, hook
-                    // 0x75F46E): only a weapon whose Warhead is `Wall=yes`
-                    // damages the wall.
+                    // 0x75F46E) reads the weapon's own `Warhead=`, not the
+                    // Phobos ambient override applied at 0x75F39D, and only a
+                    // `Wall=yes` one damages the wall.
                     if flags.wall
                         && (!crate::rules::ARES_ENABLED
-                            || rules
-                                .warhead(warhead_name)
+                            || weapon
+                                .warhead
+                                .as_deref()
+                                .and_then(|name| rules.warhead(name))
                                 .is_some_and(|warhead| warhead.wall))
                     {
                         let _wall = {

@@ -477,6 +477,11 @@ pub struct WarheadType {
     /// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`).
     #[cfg(feature = "phobos")]
     pub remove_disguise: bool,
+    /// Phobos `ReverseEngineer=` (`Body.cpp:418`, default false): each hit
+    /// target's type is recorded for the firing house through Ares'
+    /// `ReverseEngineer` (`Ext/WarheadType/Detonate.cpp:227-228,260-264`).
+    #[cfg(feature = "phobos")]
+    pub reverse_engineer: bool,
     /// Phobos animation-list enhancement settings (`AnimList.*`,
     /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
     #[cfg(feature = "phobos")]
@@ -957,6 +962,8 @@ impl WarheadType {
             ammo: section.read_int("Ammo", 0),
             #[cfg(feature = "phobos")]
             remove_disguise: section.read_bool("RemoveDisguise", false),
+            #[cfg(feature = "phobos")]
+            reverse_engineer: section.read_bool("ReverseEngineer", false),
             #[cfg(feature = "phobos")]
             phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
                 section,

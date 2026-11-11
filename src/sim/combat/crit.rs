@@ -359,6 +359,28 @@ pub(crate) fn detonate(
                 }
             }
         }
+        // `DetonateOnOneUnit`'s `ApplyReverseEngineer(pHouse, pTarget)`
+        // (`Detonate.cpp:227-228,260-264`): after the one-time Ammo and
+        // RemoveDisguise arms and before ReturnWarhead. A firing house that is
+        // not `MultiplayPassive` records the victim's type through Ares'
+        // HouseExt::ExtData::ReverseEngineer (10022360), which only exists
+        // with Ares.
+        #[cfg(all(feature = "phobos", feature = "ares"))]
+        if warhead.reverse_engineer
+            && let Some(owner) = house
+            && !world
+                .houses
+                .get(&owner)
+                .is_some_and(|house| house.multiplay_passive())
+            && let Some(type_ref) = world
+                .substrate
+                .entities
+                .get(target_id)
+                .map(|target| target.type_ref())
+            && let Some(victim_type) = world.object_type(type_ref, rules)
+        {
+            world.ares_reverse_engineer_house(owner, victim_type, rules);
+        }
         // `DetonateOnOneUnit`'s `ApplyReturnWarhead(pHouse, pTarget, pOwner)`
         // (`Detonate.cpp:229-231`): after the displacement arms and before
         // `PenetratesTransport`.

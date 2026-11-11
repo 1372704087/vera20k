@@ -683,6 +683,30 @@ fn create_gap_reshrouds_the_map_for_non_allies() {
     );
 }
 
+/// Phobos `DetonateOnOneUnit`'s `ApplyReverseEngineer`
+/// (`Ext/WarheadType/Detonate.cpp:227-228,260-264`): with Ares present, the
+/// firing house records each hit victim's type; the default skips.
+#[cfg(all(feature = "phobos", feature = "ares"))]
+#[test]
+fn reverse_engineer_warhead_records_the_victim_type() {
+    let recorded = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let owner = sim.entities().get(firer).expect("firer").owner();
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        sim.houses.get(&owner).is_some_and(|house| {
+            house.has_ares_reverse_engineered(
+                crate::rules::object_type::ObjectCategory::Vehicle,
+                "TARGET",
+            )
+        })
+    };
+    assert!(!recorded(""), "ReverseEngineer defaults to no");
+    assert!(
+        recorded("ReverseEngineer=yes\n"),
+        "the victim type is recorded for the firing house"
+    );
+}
+
 /// Phobos `DetonateOnOneUnit`'s Taunt arm
 /// (`Ext/WarheadType/Detonate.cpp:236-237`): every hit target is forced onto
 /// `Mission::Attack` against the firing techno; the default is off.

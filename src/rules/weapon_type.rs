@@ -453,6 +453,12 @@ pub struct WeaponType {
     /// `Hooks.Targeting.cpp:63`).
     #[cfg(feature = "phobos")]
     pub phobos_auto_target_iron_curtained: Option<bool>,
+    /// Phobos `CylinderRangefinding=` (`Nullable<bool>`,
+    /// `Ext/WeaponType/Body.cpp:207`): this weapon's direct range is measured
+    /// in the plan; an unset value falls back to `[General]`
+    /// (`Ext/Techno/Hooks.Firing.cpp:1265-1274`).
+    #[cfg(feature = "phobos")]
+    pub phobos_cylinder_rangefinding: Option<bool>,
 }
 
 impl WeaponType {
@@ -873,6 +879,9 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_auto_target_iron_curtained: section
                 .read_phobos_nullable_bool("AutoTarget.IronCurtained", None),
+            #[cfg(feature = "phobos")]
+            phobos_cylinder_rangefinding: section
+                .read_phobos_nullable_bool("CylinderRangefinding", None),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")

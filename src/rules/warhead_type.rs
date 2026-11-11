@@ -482,6 +482,21 @@ pub struct WarheadType {
     /// `ReverseEngineer` (`Ext/WarheadType/Detonate.cpp:227-228,260-264`).
     #[cfg(feature = "phobos")]
     pub reverse_engineer: bool,
+    /// Phobos `PreventCrewEscape=` (`Body.cpp:448`, default false): a killing
+    /// hit latches the victim's crew count to 0
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:259-280`).
+    #[cfg(feature = "phobos")]
+    pub prevent_crew_escape: bool,
+    /// Phobos `PreventPassengerEscape=` (`Body.cpp:449`, default false): a
+    /// killing hit kills the victim's passengers
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:276-277`).
+    #[cfg(feature = "phobos")]
+    pub prevent_passenger_escape: bool,
+    /// Phobos `PreventOccupantEscape=` (`Body.cpp:450`, default false): a
+    /// killing hit kills a building's occupants instead of releasing them
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:282-297`).
+    #[cfg(feature = "phobos")]
+    pub prevent_occupant_escape: bool,
     /// Phobos animation-list enhancement settings (`AnimList.*`,
     /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
     #[cfg(feature = "phobos")]
@@ -964,6 +979,12 @@ impl WarheadType {
             remove_disguise: section.read_bool("RemoveDisguise", false),
             #[cfg(feature = "phobos")]
             reverse_engineer: section.read_bool("ReverseEngineer", false),
+            #[cfg(feature = "phobos")]
+            prevent_crew_escape: section.read_bool("PreventCrewEscape", false),
+            #[cfg(feature = "phobos")]
+            prevent_passenger_escape: section.read_bool("PreventPassengerEscape", false),
+            #[cfg(feature = "phobos")]
+            prevent_occupant_escape: section.read_bool("PreventOccupantEscape", false),
             #[cfg(feature = "phobos")]
             phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
                 section,

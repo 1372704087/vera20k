@@ -349,7 +349,11 @@ impl Simulation {
         let Some(object) = self.object_type(entity.type_ref(), rules) else {
             return 0;
         };
-        if entity.no_survivor.is_set() || !object.crewed {
+        #[cfg(feature = "phobos")]
+        let prevent_crew_escape = entity.phobos_prevent_crew_escape;
+        #[cfg(not(feature = "phobos"))]
+        let prevent_crew_escape = false;
+        if entity.no_survivor.is_set() || !object.crewed || prevent_crew_escape {
             return 0;
         }
         let Some(house) = self.houses.get(&entity.owner()) else {
@@ -768,7 +772,11 @@ impl Simulation {
             return;
         };
         let captor_type = entity.capture_infantry_type_index.get();
-        if captor_type == -1 && (prevent_escape || !object.crewed || object.passengers != 0) {
+        #[cfg(feature = "phobos")]
+        let prevent_crew_escape = prevent_escape || entity.phobos_prevent_crew_escape;
+        #[cfg(not(feature = "phobos"))]
+        let prevent_crew_escape = prevent_escape;
+        if captor_type == -1 && (prevent_crew_escape || !object.crewed || object.passengers != 0) {
             return;
         }
         let owner = entity.owner();

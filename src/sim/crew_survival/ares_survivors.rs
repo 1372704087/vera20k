@@ -239,6 +239,9 @@ impl Simulation {
             return;
         };
         let crew_rules = object.crew_rules();
+        #[cfg(feature = "phobos")]
+        let crewed = object.crewed && !unit.phobos_prevent_crew_escape;
+        #[cfg(not(feature = "phobos"))]
         let crewed = object.crewed;
         let open_topped = object.open_topped;
         let original_owner = unit.owner();

@@ -114,6 +114,7 @@ Supported extensions:
 - [Warhead Reveal](phobos-warhead-reveal.md) (`Reveal=N` reveals a radius, or the whole map when negative, to the firing house)
 - [Warhead CreateGap](phobos-warhead-create-gap.md) (`CreateGap=N` shrouds a radius, or the whole map when negative, for enemies)
 - [Warhead reverse engineer](phobos-warhead-reverse-engineer.md) (`ReverseEngineer=yes` records a hit target's type for the firing house through Ares)
+- [Prevent escape](phobos-prevent-escape.md) (`PreventCrewEscape` / `PreventPassengerEscape` / `PreventOccupantEscape` deny survivors on a killing hit)
 - [Turret response](phobos-turret-response.md) (`TurretResponse=` picks between the idle turret return and `CannotMove`)
 - [Initial spawns number](phobos-initial-spawns-number.md) (`InitialSpawnsNumber=N` starts only N pool nodes live; the rest regenerate)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)

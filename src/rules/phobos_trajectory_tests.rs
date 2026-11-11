@@ -244,8 +244,8 @@ fn parabola_keys_read_with_defaults_and_modes() {
     assert_eq!(p.bounce_times, 3);
     assert!(p.bounce_on_water);
     assert!(p.bounce_detonate);
-    assert_eq!(p.bounce_attenuation, 0.4);
-    assert_eq!(p.bounce_coefficient, 0.6);
+    assert_eq!(p.bounce_attenuation, f64::from(0.4_f32));
+    assert_eq!(p.bounce_coefficient, f64::from(0.6_f32));
     assert_eq!(p.offset_coord, [3, 4, 0]);
     assert_eq!(p.rotate_coord, 90.0);
     assert!(!p.mirror_coord);

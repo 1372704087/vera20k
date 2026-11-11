@@ -14,8 +14,8 @@ const HEAD: &str = "[General]\n[Countries]\n0=Americans\n1=Russians\n\
     [TGT]\nStrength=100\nArmor=light\nSpeed=4\nPrimary=GUN\n\
     Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
     [BLOCK]\nStrength=100\nArmor=light\nSpeed=4\nPrimary=GUN\n\
-    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n\
-    [GUN]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\nWarhead=WH\nBurst=1\n";
+    Locomotor={4A582741-9839-11d1-B709-00A024DDAFD1}\n";
+const GUN: &str = "[GUN]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\nWarhead=WH\n";
 const TAIL: &str = "";
 
 struct Scene {
@@ -24,7 +24,11 @@ struct Scene {
 }
 
 fn fixture(proj_keys: &str) -> Scene {
-    let text = format!("{HEAD}[PROJ]\n{proj_keys}{TAIL}");
+    fixture_burst(proj_keys, 1)
+}
+
+fn fixture_burst(proj_keys: &str, burst: i32) -> Scene {
+    let text = format!("{HEAD}{GUN}Burst={burst}\n[PROJ]\n{proj_keys}{TAIL}");
     let rules = RuleSet::from_ini(&crate::sim::arena_fixture::clear_ground_ini(&text))
         .expect("trajectory rules");
     let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x0046_66E0);
@@ -37,16 +41,6 @@ fn fixture(proj_keys: &str) -> Scene {
 /// Fire the fixture bullet at `origin`, aimed at `target_position`.
 fn fire(
     scene: &mut Scene,
-    target: ProjectileTarget,
-    origin: ProjectileCoord,
-    target_position: ProjectileCoord,
-) -> u64 {
-    fire_with_weapon(scene, "GUN", target, origin, target_position)
-}
-
-fn fire_with_weapon(
-    scene: &mut Scene,
-    weapon_name: &str,
     target: ProjectileTarget,
     origin: ProjectileCoord,
     target_position: ProjectileCoord,
@@ -75,7 +69,7 @@ fn fire_with_weapon(
         collision: ProjectileCollisionPolicy::NONE,
     };
     let id = scene.sim.projectiles.spawn_at(1, 0, spawn, origin);
-    let weapon = scene.rules.weapon(weapon_name).expect("weapon").clone();
+    let weapon = scene.rules.weapon("GUN").expect("weapon").clone();
     scene.sim.init_phobos_trajectory(id, &scene.rules, &weapon);
     id
 }
@@ -229,6 +223,7 @@ fn pass_detonate_hits_with_its_warhead_and_damage_on_the_delay() {
     let detonation = step
         .detonations
         .iter()
+        .chain(&step.extra_detonations)
         .find(|detonation| detonation.payload.warhead == psst)
         .expect("a pass-through detonation on the first frame");
     assert_eq!(detonation.payload.base_damage, 7);
@@ -240,6 +235,7 @@ fn pass_detonate_hits_with_its_warhead_and_damage_on_the_delay() {
         !quiet
             .detonations
             .iter()
+            .chain(&quiet.extra_detonations)
             .any(|detonation| detonation.payload.warhead == psst),
         "the delay spaces the pass hits"
     );
@@ -273,6 +269,7 @@ fn proximity_hits_an_enemy_along_the_flight_path() {
         if let Some(detonation) = step
             .detonations
             .iter()
+            .chain(&step.extra_detonations)
             .find(|detonation| detonation.payload.warhead == psst)
         {
             hit = Some(*detonation);
@@ -541,17 +538,15 @@ fn bombard_lead_waits_one_frame_and_predicts_a_moving_target() {
 
 #[test]
 fn bombard_disperse_burst_rotates_the_burst() {
-    let mut scene = fixture(
+    let mut scene = fixture_burst(
         "Trajectory=Bombard\nTrajectory.Speed=32\n\
          Trajectory.Bombard.Height=200\n\
          Trajectory.Bombard.RotateCoord=90\n\
-         Trajectory.Bombard.MirrorCoord=no\n\
-         [GUN3]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\n\
-         Warhead=WH\nBurst=3\n",
+         Trajectory.Bombard.MirrorCoord=no\n",
+        3,
     );
-    let id = fire_with_weapon(
+    let id = fire(
         &mut scene,
-        "GUN3",
         ProjectileTarget::Cell { rx: 28, ry: 10 },
         cell_center((22, 10)),
         cell_center((28, 10)),
@@ -776,16 +771,14 @@ fn parabola_lead_waits_one_frame_and_predicts_a_moving_target() {
 
 #[test]
 fn parabola_disperse_burst_rotates_the_burst() {
-    let mut scene = fixture(
+    let mut scene = fixture_burst(
         "Trajectory=Parabola\nTrajectory.Speed=32\n\
          Trajectory.Parabola.RotateCoord=90\n\
-         Trajectory.Parabola.MirrorCoord=no\n\
-         [GUN3]\nDamage=10\nROF=20\nRange=8\nProjectile=PROJ\nSpeed=20\n\
-         Warhead=WH\nBurst=3\n",
+         Trajectory.Parabola.MirrorCoord=no\n",
+        3,
     );
-    let id = fire_with_weapon(
+    let id = fire(
         &mut scene,
-        "GUN3",
         ProjectileTarget::Cell { rx: 26, ry: 10 },
         cell_center((22, 10)),
         cell_center((26, 10)),

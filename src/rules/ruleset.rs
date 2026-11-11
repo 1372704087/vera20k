@@ -6744,7 +6744,7 @@ impl RuleSet {
         #[cfg(feature = "phobos")]
         for object in &mut self.object_list {
             object.bind_phobos_eva_sold(crate::rules::phobos_sw_messages::read_eva_index(
-                ini.section(&object.id),
+                ini.section_or_empty(&object.id),
                 "EVA.Sold",
                 eva,
             ));
@@ -11538,7 +11538,7 @@ impl RuleSet {
     /// Phobos `Message.Activated.*`/`EVA.Activated.*` and the linked pair for
     /// a registered superweapon.
     #[cfg(feature = "phobos")]
-    pub(crate) fn phobos_super_weapon_messages(
+    pub fn phobos_super_weapon_messages(
         &self,
         id: &str,
     ) -> Option<&crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages> {

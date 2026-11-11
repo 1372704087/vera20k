@@ -49,7 +49,7 @@ pub enum PhobosActivatedAudience {
 
 /// One superweapon type's Phobos activation/link presentation labels.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub(crate) struct PhobosSuperWeaponMessages {
+pub struct PhobosSuperWeaponMessages {
     /// `Message.LinkedSWAcquired=`, constructor-empty.
     linked_acquired: String,
     /// `EVA.LinkedSWAcquired=`, unset by default (`NullableIdx`).

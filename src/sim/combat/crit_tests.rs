@@ -1389,20 +1389,22 @@ fn change_owner_mind_control_marks_the_capture() {
 fn crit_affects_target_filter_admits_only_the_listed_classes() {
     // (unit, infantry, building) crit damage of one detonation at the unit.
     fn victims(wh_ini: &str) -> [i32; 3] {
-        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
-            "[Countries]\n0=Americans\n1=Russians\n\
-             [VehicleTypes]\n0=FIRER\n1=TANK\n\
-             [InfantryTypes]\n0=GI\n\
-             [BuildingTypes]\n0=BLDG\n\
-             [WeaponTypes]\n0=GUN\n\
-             [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
-             [Warheads]\n0=WH\n\
-             [WH]\nCellSpread=3\nCrit.Chance=1.0\nCrit.ExtraDamage=50\n{wh_ini}\
-             [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
-             [TANK]\nStrength=500\nArmor=none\nSpeed=6\n\
-             [GI]\nStrength=500\nArmor=none\nSpeed=4\n\
-             [BLDG]\nStrength=500\nArmor=none\n"
-        )))
+        let rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &crate::sim::arena_fixture::clear_ground_ini(&format!(
+                "[Countries]\n0=Americans\n1=Russians\n\
+                 [VehicleTypes]\n0=FIRER\n1=TANK\n\
+                 [InfantryTypes]\n0=GI\n\
+                 [BuildingTypes]\n0=BLDG\n\
+                 [GUN]\nDamage=0\nRange=5\nROF=20\nWarhead=WH\n\
+                 [Warheads]\n0=WH\n\
+                 [WH]\nCellSpread=3\nCrit.Chance=1.0\nCrit.ExtraDamage=50\n{wh_ini}\
+                 [FIRER]\nStrength=500\nArmor=none\nSpeed=6\nPrimary=GUN\n\
+                 [TANK]\nStrength=500\nArmor=none\nSpeed=6\n\
+                 [GI]\nStrength=500\nArmor=none\nSpeed=4\n\
+                 [BLDG]\nStrength=500\nArmor=none\n"
+            )),
+            &IniFile::from_str("[BLDG]\nFoundation=1x1\n"),
+        )
         .expect("rules");
         let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5A_AA_1E);
         sim.intern_rule_type_ids(&rules);

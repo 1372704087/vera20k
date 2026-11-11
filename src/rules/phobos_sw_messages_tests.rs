@@ -113,11 +113,13 @@ fn labels_are_cut_to_the_native_fixed_string() {
 }
 
 /// `TechnoTypeExt::LoadFromINIFile`'s `EVA.Sold` (`:844`,
-/// `NullableIdx<VoxClass>`): absent keeps the ctor's unset state, blank is an
-/// explicit none, and a name is retained for
-/// `RuleSet::bind_type_eva_references` to resolve against the catalog.
+/// `NullableIdx<VoxClass>`): an absent key keeps the ctor's unset state and a
+/// name is retained for `RuleSet::bind_type_eva_references`, which resolves
+/// it against the catalog. The text parser drops `Key=` (gamemd's parser
+/// shape), so a file-authored blank coincides with absent; the reader's
+/// explicit-none arm serves retained projections that keep empty values.
 #[test]
-fn techno_eva_sold_distinguishes_absent_blank_and_named() {
+fn techno_eva_sold_reads_named_and_treats_blank_as_absent() {
     let ini = IniFile::from_str(&format!(
         "{CATALOG}\
          [ABSENT]\nStrength=1\n\
@@ -132,7 +134,7 @@ fn techno_eva_sold_distinguishes_absent_blank_and_named() {
         )
     };
     assert_eq!(object("ABSENT").phobos_eva_sold(), None);
-    assert_eq!(object("BLANK").phobos_eva_sold(), Some(None));
+    assert_eq!(object("BLANK").phobos_eva_sold(), None);
     assert_eq!(
         object("NAMED").phobos_eva_sold(),
         Some(Some("EVA_StructureSold"))

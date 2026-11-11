@@ -31,12 +31,15 @@ declaration `src/Ext/TechnoType/Body.h:110`.
   keeps at most 31 bytes.
 - A present `EVA.Activated.*` key resolves through `VoxClass::FindIndex`. A
   blank value stores `-1` (silence); an unknown name is rejected and the field
-  keeps its constructor `-1`.
+  keeps its constructor `-1`. VERA's text parser drops `Key=` (gamemd's parser
+  shape), so a file-authored blank reads as absent; the `-1` arm serves
+  retained projections that keep empty values.
 - `EVA.LinkedSWAcquired` is nullable: only a set value plays. A blank value is
   still "set" with `-1`, which is silence, so both collapse to "no cue".
-- `EVA.Sold` is nullable in the same way, and three states stay distinct:
-  absent keeps the stock `EVA_UnitSold`/`EVA_StructureSold`, blank silences the
-  sale, and a name replaces the line.
+- `EVA.Sold` is nullable in the same way: absent keeps the stock
+  `EVA_UnitSold`/`EVA_StructureSold` and a name replaces the line. A
+  file-authored blank is dropped by the text parser and so also keeps the
+  stock line.
 
 ## Activation announcement
 
@@ -97,9 +100,10 @@ Phobos replaces the stock sale lines with the sold type's `EVA.Sold`:
 
 VERA keeps the existing owners: `production::foot_on_sold` emits
 `SimSoundEvent::HouseEvaNamed` when the type names a cue and `HouseEva` with
-`EVA_UnitSold` when the key is absent; a blank key emits neither. The building
-path already carries its type in `SimSoundEvent::StructureSold`, so the app
-picks the type's cue or `EVA_StructureSold` there.
+`EVA_UnitSold` when the key is absent or blank (the text parser drops the
+empty value). The building path already carries its type in
+`SimSoundEvent::StructureSold`, so the app picks the type's cue or
+`EVA_StructureSold` there.
 
 ## Residuals
 

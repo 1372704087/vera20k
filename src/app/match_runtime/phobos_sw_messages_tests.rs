@@ -7,14 +7,13 @@ use super::dispatch_sim_sound_events;
 use crate::app::input::messages::HudMessage;
 use crate::audio::events::{GameSoundEvent, SoundEventQueue};
 use crate::rules::ini_parser::IniFile;
-use crate::rules::native_processing::{
-    NativeRulesRegistryState, RulesLayerStack, RulesProcessContext,
-};
+use crate::rules::process_owner::{NativeRulesProcessOwner, NativeScenarioRulesPrefix};
 use crate::rules::ruleset::RuleSet;
 use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 use crate::sim::house_state::HouseState;
 use crate::sim::intern::InternedId;
 use crate::sim::world::{SimSoundEvent, Simulation};
+use std::sync::Arc;
 
 const RULES: &str = "[InfantryTypes]\n0=E1\n[AircraftTypes]\n[VehicleTypes]\n\
 [BuildingTypes]\n0=STRUCT\n1=PLAIN\n\
@@ -41,28 +40,24 @@ struct World {
 }
 
 fn world() -> World {
-    let eva = EvaRegistry::from_ini(&IniFile::from_str(EVAMD));
-    let processed = RulesLayerStack::new(IniFile::from_str(RULES))
-        .process_with_fixed_art_and_registry_state_recovering(
-            &IniFile::empty(),
-            NativeRulesRegistryState::default(),
-            RulesProcessContext::Ordinary,
-            &eva,
-            &SoundRegistry::default(),
-        )
-        .expect("rules parse");
-    let mut rules = RuleSet::from_processed_rules(&processed).expect("rules project");
-    // `EVA.Sold` is an app-bound catalog identity (like `EVA.Lost`), not a
-    // process-time one.
-    rules.bind_type_eva_references(processed.ini(), &eva);
+    let mut owner = NativeRulesProcessOwner::from_cold_start_sources(
+        IniFile::from_str(RULES),
+        None,
+        IniFile::empty().clone(),
+        Arc::new(SoundRegistry::default()),
+        Arc::new(EvaRegistry::from_ini(&IniFile::from_str(EVAMD))),
+    )
+    .expect("rules parse");
+    let (rules, ..) = owner
+        .load_scenario(NativeScenarioRulesPrefix::Campaign(None), &IniFile::empty())
+        .expect("rules load")
+        .into_parts();
     let mut sim = Simulation::new();
-    let americans = sim.interner.intern("Americans");
-    let russians = sim.interner.intern("Russians");
-    sim.houses
-        .register(HouseState::new(americans, 0, None, true, 0, 10));
-    sim.houses
-        .register(HouseState::new(russians, 1, None, false, 0, 10));
-    let sw = sim.interner.intern("RootSpecial");
+    let americans = sim.interner_mut_for_test().intern("Americans");
+    let russians = sim.interner_mut_for_test().intern("Russians");
+    sim.register_house(HouseState::new(americans, 0, None, true, 0, 10));
+    sim.register_house(HouseState::new(russians, 1, None, false, 0, 10));
+    let sw = sim.interner_mut_for_test().intern("RootSpecial");
     World {
         sim,
         rules,
@@ -172,7 +167,7 @@ fn a_linked_grant_is_gated_on_the_current_player() {
 #[test]
 fn a_sold_building_prefers_the_types_eva_sold() {
     let mut world = world();
-    let typed = world.sim.interner.intern("STRUCT");
+    let typed = world.sim.interner_mut_for_test().intern("STRUCT");
     let (events, _) = dispatch(
         &world,
         SimSoundEvent::StructureSold {
@@ -185,7 +180,7 @@ fn a_sold_building_prefers_the_types_eva_sold() {
         "the type's EVA.Sold replaced the stock structure line"
     );
 
-    let plain = world.sim.interner.intern("PLAIN");
+    let plain = world.sim.interner_mut_for_test().intern("PLAIN");
     let (events, _) = dispatch(
         &world,
         SimSoundEvent::StructureSold {

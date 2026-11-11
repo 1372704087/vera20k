@@ -131,6 +131,7 @@ fn linked_announcement_needs_an_activated_link() {
 }
 
 /// Every EVA cue a sale emitted, whichever `PlayEVA` owner carried it.
+#[cfg(feature = "ares")]
 fn sold_eva(sim: &Simulation) -> Vec<String> {
     sim.sound_events
         .iter()
@@ -144,7 +145,10 @@ fn sold_eva(sim: &Simulation) -> Vec<String> {
 
 /// Phobos `FootClass_Sell` hook 0x4D9F7B (`Ext/Building/Hooks.Selling.cpp:18-21`):
 /// the unit's `EVA.Sold` replaces the stock `EVA_UnitSold`; an absent key
-/// keeps the stock line and an explicit none silences it.
+/// keeps the stock line. A blank key is dropped by the text parser, so it
+/// reads as absent; the reader's explicit-none arm serves retained
+/// projections that keep empty values.
+#[cfg(feature = "ares")]
 #[test]
 fn a_sold_unit_uses_the_types_eva_sold_override() {
     let named = rules_with("[E1]\nEVA.Sold=EVA_LinkedSW\n");
@@ -188,8 +192,9 @@ fn a_sold_unit_uses_the_types_eva_sold_override() {
         id,
         crate::sim::world::UninitContext::new(&blank, None),
     ));
-    assert!(
-        sold_eva(&sim).is_empty(),
-        "an explicit none is silent rather than the stock line"
+    assert_eq!(
+        sold_eva(&sim),
+        vec!["EVA_UnitSold".to_string()],
+        "the text parser drops `EVA.Sold=`, so a blank key keeps the stock line"
     );
 }

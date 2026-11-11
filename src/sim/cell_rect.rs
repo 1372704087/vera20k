@@ -84,11 +84,11 @@ impl CellRef<'_> {
         }
     }
 
-    /// `CellClass+0x?` land type (`LandType` index) of the same cell.
+    /// `CellClass+0xEC` land type (`LandType` index) of the same cell.
     pub(crate) fn land_type(&self) -> u8 {
         match self {
             CellRef::Real(cell) => cell.land_type,
-            CellRef::Dummy { cell } => cell.snapshot().land_type,
+            CellRef::Dummy { cell } => cell.land_type() as u8,
         }
     }
 

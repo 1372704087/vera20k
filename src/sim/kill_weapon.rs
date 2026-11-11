@@ -176,6 +176,33 @@ impl Simulation {
         impact: [i32; 3],
         damage: i32,
     ) -> Option<crate::sim::projectile::ProjectileDetonation> {
+        self.weapon_detonation_with_target(
+            weapon,
+            projectile_id,
+            target,
+            owner_id,
+            firing_house,
+            impact,
+            damage,
+            crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
+        )
+    }
+
+    /// The same `WeaponTypeExt::DetonateAt` bullet with an explicit
+    /// AbstractClass target and reason, for a caller outside this module
+    /// (Phobos `FeedbackWeapon`, which detonates on the firer).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn weapon_detonation_with_target(
+        &mut self,
+        weapon: &crate::rules::weapon_type::WeaponType,
+        projectile_id: u64,
+        target: crate::sim::projectile::ProjectileTarget,
+        owner_id: u64,
+        firing_house: Option<crate::sim::intern::InternedId>,
+        impact: [i32; 3],
+        damage: i32,
+        reason: crate::sim::projectile::ProjectileDetonationReason,
+    ) -> Option<crate::sim::projectile::ProjectileDetonation> {
         let warhead = weapon
             .warhead
             .as_deref()
@@ -198,7 +225,7 @@ impl Simulation {
             )
             .with_installed_weapon(Some(weapon_ref))
             .with_source_house(firing_house),
-            reason: crate::sim::projectile::ProjectileDetonationReason::AttachEffectShot,
+            reason,
         })
     }
 }

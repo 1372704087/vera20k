@@ -508,6 +508,17 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:364`, constructor `Body.h:792`).
     #[serde(default = "true_bool")]
     pub combat_alert_use_eva: bool,
+    /// `[AudioVisual] VisualScatter.Min=`, `Valueable<Leptons>` default
+    /// **`8`** (`Ext/Rules/Body.cpp:325`, constructor `Ext/Rules/Body.h:758`):
+    /// the low end of the radius a `VisualScatter=` weapon's drawn laser, bolt
+    /// or beam may end away from its real target
+    /// (`Ext/Techno/Hooks.WeaponEffects.cpp:234-235`).
+    #[serde(default = "visual_scatter_min_default")]
+    pub visual_scatter_min: i32,
+    /// `[AudioVisual] VisualScatter.Max=`, `Valueable<Leptons>` default
+    /// **`32`** (`Ext/Rules/Body.cpp:326`, constructor `Ext/Rules/Body.h:759`).
+    #[serde(default = "visual_scatter_max_default")]
+    pub visual_scatter_max: i32,
     /// `[General] AutoTarget.NoThreatBuildings=`, default `no`
     /// (`Ext/Rules/Body.cpp:517`, constructor `Ext/Rules/Body.h:931`): whether
     /// a **human** scanner may auto-target an enemy building that is unarmed
@@ -525,6 +536,16 @@ pub struct PhobosGlobals {
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
 fn combat_alert_interval_default() -> i32 {
     150
+}
+
+/// `VisualScatter.Min=`'s constructor value (`Ext/Rules/Body.h:758`).
+fn visual_scatter_min_default() -> i32 {
+    8
+}
+
+/// `VisualScatter.Max=`'s constructor value (`Ext/Rules/Body.h:759`).
+fn visual_scatter_max_default() -> i32 {
+    32
 }
 
 impl Default for PhobosGlobals {
@@ -627,6 +648,8 @@ impl Default for PhobosGlobals {
             combat_alert_use_feedback_voice: true,
             combat_alert_use_attack_voice: true,
             combat_alert_use_eva: true,
+            visual_scatter_min: visual_scatter_min_default(),
+            visual_scatter_max: visual_scatter_max_default(),
             auto_target_no_threat_buildings: false,
             auto_target_ai_no_threat_buildings: true,
         }
@@ -683,6 +706,12 @@ impl PhobosGlobals {
                 &globals.promote_elite_animation,
                 keep,
             );
+        // `Ext/Rules/Body.cpp:325-326`: the `VisualScatter=` radius pair,
+        // read just ahead of the `CombatAlert*` block (`:355-364`).
+        globals.visual_scatter_min =
+            audio_visual.read_int("VisualScatter.Min", globals.visual_scatter_min);
+        globals.visual_scatter_max =
+            audio_visual.read_int("VisualScatter.Max", globals.visual_scatter_max);
         // `[AudioVisual] CombatAlert*` (`Ext/Rules/Body.cpp:355-364`): the
         // master switch, the nullable default and interval, and the three
         // type-key fallbacks. `Valueable` reads from the constructor values;

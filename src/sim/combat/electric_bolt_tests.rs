@@ -355,6 +355,7 @@ fn direct_bolt_uses_explicit_weapon_source_and_existing_rng_constructor() {
         rules.weapon("CoilBolt").unwrap(),
         from,
         None,
+        false,
     );
     let births: Vec<_> = sim
         .lifecycle_outputs
@@ -1064,6 +1065,7 @@ fn ares_bolt_keys_choose_colors_and_spark_system() {
             rules.weapon(weapon).unwrap(),
             ProjectileCoord::new(4096, 4096, 0),
             None,
+            false,
         );
         let [LifecycleOutput::ElectricBoltCreated(birth)] = sim.lifecycle_outputs.as_slice() else {
             panic!("one bolt");

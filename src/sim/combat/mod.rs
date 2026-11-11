@@ -150,6 +150,8 @@ mod phobos_open_transport_tests;
 mod phobos_spawns_crate_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_shrapnel_trigger_tests;
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_visual_scatter_tests;
 // Phobos `ROF.RandomDelay` (`0x006FD0B5`) redraws the full-rearm jitter, so
 // this stock golden only holds without the capability.
 #[cfg(all(test, not(feature = "phobos")))]

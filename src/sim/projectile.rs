@@ -1750,6 +1750,11 @@ pub enum ProjectileDetonationReason {
     /// (`Ext/SWType/FireSuperWeapon.cpp:294-299`): a `BulletExt::Detonate`
     /// bullet at the superweapon's target cell or launch building.
     SwDetonate,
+    /// Phobos `TechnoClass_FireAt_FeedbackWeapon` (`0x6FF43F`,
+    /// `Ext/Techno/Hooks.Firing.cpp:809`): a `FeedbackWeapon=` detonating on
+    /// its own firer right after that shot, through the same
+    /// `WeaponTypeExt::DetonateAt` bullet.
+    FeedbackWeapon,
 }
 
 /// One deferred `BulletClass::Detonate` handoff for combat to apply.

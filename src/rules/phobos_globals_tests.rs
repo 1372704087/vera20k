@@ -190,3 +190,21 @@ fn the_interceptor_globals_default_and_read_from_combat_damage() {
     assert!(!wrong.projectile_interceptable);
     assert!(wrong.interceptor_apply_firepower_mult);
 }
+
+/// `[AudioVisual] VisualScatter.Min/Max` (`Ext/Rules/Body.cpp:325-326`),
+/// constructed 8/32 leptons (`Ext/Rules/Body.h:758-759`).
+#[test]
+fn the_visual_scatter_bounds_default_and_read_from_audio_visual() {
+    let defaults = PhobosGlobals::default();
+    assert_eq!(defaults.visual_scatter_min, 8);
+    assert_eq!(defaults.visual_scatter_max, 32);
+
+    let set = read("[AudioVisual]\nVisualScatter.Min=2\nVisualScatter.Max=5\n");
+    assert_eq!(set.visual_scatter_min, 2);
+    assert_eq!(set.visual_scatter_max, 5);
+
+    // A later layer naming only one keeps the other at its constructor value.
+    let half = read("[AudioVisual]\nVisualScatter.Max=5\n");
+    assert_eq!(half.visual_scatter_min, 8);
+    assert_eq!(half.visual_scatter_max, 5);
+}

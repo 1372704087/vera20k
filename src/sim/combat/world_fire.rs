@@ -1894,6 +1894,55 @@ fn fireat_attached_system(
     )
 }
 
+/// Phobos `TechnoClass_FireAt_FeedbackWeapon` (`0x6FF43F`,
+/// `Ext/Techno/Hooks.Firing.cpp:802-812`): a weapon that names a
+/// `FeedbackWeapon=` also detonates that weapon at the firer, through
+/// `WeaponTypeExt::DetonateAt(feedback, pThis, pThis)` — the firer's own
+/// `GetCoords`, the firer as owner *and* target, and no explicit firing
+/// house (so the bullet takes the owner's). An open-topped passenger skips
+/// it when the feedback weapon has `FireInTransport=no`.
+///
+/// The hook sits at the end of `FireAt`'s muzzle block (`0x6FF394..0x6FF43F`),
+/// so the shot's own bullet and muzzle anim already exist; the feedback
+/// detonation is a second, immediate one and never replaces them.
+#[cfg(feature = "phobos")]
+fn phobos_feedback_weapon(
+    world: &mut Simulation,
+    rules: &RuleSet,
+    snap: &AttackerSnapshot,
+    weapon: &crate::rules::weapon_type::WeaponType,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    effects: FrameEffects<'_>,
+) {
+    let Some(feedback) = weapon
+        .phobos_feedback_weapon()
+        .and_then(|id| rules.weapon(id))
+    else {
+        return;
+    };
+    if let Some(firer) = world.substrate.entities.get(snap.stable_id)
+        && firer.passenger_role.in_open_transport()
+        && !feedback.fire_in_transport
+    {
+        return;
+    }
+    let Some(impact) = object_get_coords(world, snap.stable_id) else {
+        return;
+    };
+    if let Some(detonation) = world.weapon_detonation_with_target(
+        feedback,
+        snap.stable_id,
+        crate::sim::projectile::ProjectileTarget::Entity(snap.stable_id),
+        snap.stable_id,
+        Some(snap.owner),
+        [impact.x, impact.y, impact.z],
+        feedback.damage,
+        crate::sim::projectile::ProjectileDetonationReason::FeedbackWeapon,
+    ) {
+        world.commit_attach_effect_detonations(&[detonation], rules, overlay_registry, effects);
+    }
+}
+
 pub(super) fn emit_admitted_fire(
     world: &mut Simulation,
     rules: &RuleSet,
@@ -2818,10 +2867,17 @@ pub(super) fn emit_admitted_fire(
     // Logic vector behind this shot's bullet.
     if let Some(event) = out.fire_events.last().cloned() {
         crate::sim::world::damage_consequences::admit_muzzle_anim(world, rules, &event);
-        // Sonic6FF470 precedes the independent later-effect ladder.
-        if weapon.is_sonic && callbacks_enabled(world) {
-            world.commit_fired_wave(rules, &event, 0, selected.index, overlay_registry);
-        }
+    }
+    // Phobos TechnoClass_FireAt_FeedbackWeapon (0x6FF43F): the feedback
+    // detonation follows the muzzle anim and precedes Sonic6FF470.
+    #[cfg(feature = "phobos")]
+    phobos_feedback_weapon(world, rules, snap, weapon, overlay_registry, effects);
+    // Sonic6FF470 precedes the independent later-effect ladder.
+    if let Some(event) = out.fire_events.last().cloned()
+        && weapon.is_sonic
+        && callbacks_enabled(world)
+    {
+        world.commit_fired_wave(rules, &event, 0, selected.index, overlay_registry);
     }
     // 6FF4CC..6FF54B: successful FireAt only, after burst advance and before
     // ammo/RevealOnFire. SpawnLaser recomputes its own current GetFLH.

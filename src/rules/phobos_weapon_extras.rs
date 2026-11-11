@@ -34,7 +34,7 @@ pub struct PhobosWeaponExtras {
     pub feedback_weapon: Option<String>,
     /// `VisualScatter=` (`Body.cpp:133`), default `no`: the drawn laser, bolt
     /// or beam ends at a random point near the bullet target
-    /// (`Ext/Techno/Hooks.WeaponEffects.cpp:231-244`).
+    /// (`Ext/Techno/Hooks.WeaponEffects.cpp:220-248`).
     pub visual_scatter: bool,
     /// `AttackNoThreatBuildings=` (`Body.cpp:206`), `Nullable`: whether the
     /// scanner may auto-target an enemy building that is unarmed or poses no

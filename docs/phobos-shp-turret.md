@@ -69,8 +69,10 @@ splits.
 - `[General] ArtImageSwap` is a `Valueable<bool>` (default no), so a later
   layer can turn it off again.
 - Detection is asset-gated: rules only derive the name; the atlas binds it
-  when the file exists, and an absent file leaves the previous body-slice
-  behaviour.
+  when the file exists, and an absent file falls back to the body slice.
+- VERA previously drew no separate SHP unit turret at all; this chain adds
+  the native body-slice turret piece for every non-voxel `Turret=yes` Unit,
+  so existing SHP turret types gain the turret the original engine draws.
 
 ## RNG draws
 

@@ -3403,3 +3403,93 @@ fn promote_include_spawns_lifts_children_to_the_owner_rank() {
         }
     }
 }
+
+/// Phobos `SpawnManagerClass_Init_Spawns @ 0x6B6D44`
+/// (`Ext/Techno/Hooks.Misc.cpp:162-185`): slot `i` is built as
+/// `Spawns_Queue[i]` while the queue has that index; later slots keep the
+/// pool's `Spawns=` type.
+#[test]
+#[cfg(feature = "phobos")]
+fn spawns_queue_seeds_the_constructor_slots_in_order() {
+    let rules = spawner_rules_with_carrier_keys("Spawns.Queue=V3ROCKET,DMISL");
+    let mut sim = flat_sim();
+    let carrier = sim
+        .spawn_object("CARRIER", "Americans", 10, 10, 0, &rules)
+        .expect("spawn CARRIER");
+
+    assert_eq!(
+        spawn_slot_type_names(&sim, carrier),
+        ["V3ROCKET", "DMISL", "HORNET"]
+    );
+}
+
+/// Phobos `SpawnManagerClass_Update_Spawns @ 0x6B78D3`
+/// (`Ext/Techno/Hooks.Misc.cpp:187-214`): a regenerating slot takes the first
+/// queued type that no live node currently carries; once every queued type is
+/// alive it falls back to the pool's `Spawns=` type.
+#[test]
+#[cfg(feature = "phobos")]
+fn spawns_queue_regeneration_skips_types_that_are_still_alive() {
+    let rules = spawner_rules_with_carrier_keys("Spawns.Queue=V3ROCKET,V3ROCKET");
+    let mut sim = flat_sim();
+    let carrier = sim
+        .spawn_object("CARRIER", "Americans", 10, 10, 0, &rules)
+        .expect("spawn CARRIER");
+    assert_eq!(
+        spawn_slot_type_names(&sim, carrier),
+        ["V3ROCKET", "V3ROCKET", "HORNET"]
+    );
+
+    // Slot 0 lost its child while slot 1 still carries V3ROCKET: both queue
+    // entries are alive, so the regeneration uses the pool type.
+    let manager = sim
+        .substrate
+        .entities
+        .get_mut(carrier)
+        .and_then(|entity| entity.spawn_manager.as_mut())
+        .expect("carrier manager");
+    manager.slots[0].spawn = None;
+    manager.slots[0].state = SpawnSlotState::Regenerating;
+    manager.slots[0].timer = CdTimer::default();
+    phobos_tick(&mut sim, &rules, carrier);
+    assert_eq!(
+        spawn_slot_type_names(&sim, carrier),
+        ["HORNET", "V3ROCKET", "HORNET"]
+    );
+
+    // With no V3ROCKET left, the next regeneration takes the queue again.
+    let manager = sim
+        .substrate
+        .entities
+        .get_mut(carrier)
+        .and_then(|entity| entity.spawn_manager.as_mut())
+        .expect("carrier manager");
+    manager.slots[1].spawn = None;
+    manager.slots[1].state = SpawnSlotState::Regenerating;
+    manager.slots[1].timer = CdTimer::default();
+    phobos_tick(&mut sim, &rules, carrier);
+    assert_eq!(
+        spawn_slot_type_names(&sim, carrier),
+        ["HORNET", "V3ROCKET", "HORNET"]
+    );
+}
+
+#[cfg(feature = "phobos")]
+fn spawn_slot_type_names(sim: &Simulation, owner: u64) -> Vec<String> {
+    let manager = sim
+        .substrate
+        .entities
+        .get(owner)
+        .and_then(|entity| entity.spawn_manager.as_ref())
+        .expect("spawn manager");
+    manager
+        .slots
+        .iter()
+        .map(|slot| {
+            let child = slot.spawn.expect("every slot is filled");
+            sim.interner
+                .resolve(sim.substrate.entities.get(child).expect("child").type_ref())
+                .to_string()
+        })
+        .collect()
+}

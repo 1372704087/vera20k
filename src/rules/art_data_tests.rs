@@ -1369,6 +1369,31 @@ fn can_be_hidden_reads_the_type_id_section() {
     assert!(reg.can_be_hidden("MISSING"));
 }
 
+/// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`) is a
+/// `NullableVector<AnimTypeClass*>`: absent or `<default>` keeps the stock
+/// list; `SplashAnims.PickRandom=` (`:103`) is a bool, default false.
+#[cfg(feature = "phobos")]
+#[test]
+fn splash_anims_reads_the_type_list_and_pick_random() {
+    let ini = IniFile::from_str(
+        "[A]\nSplashAnims=SPLASH1,SPLASH2\nSplashAnims.PickRandom=yes\n\
+         [B]\nSplashAnims=<default>\n[C]\nStart=1\n",
+    );
+    let reg = ArtRegistry::from_ini(&ini);
+    let a = reg.anim_runtime_config("A").unwrap();
+    assert_eq!(
+        a.splash_anims.as_deref(),
+        Some(&["SPLASH1".to_string(), "SPLASH2".to_string()][..])
+    );
+    assert!(a.splash_anims_pick_random);
+    let b = reg.anim_runtime_config("B").unwrap();
+    assert_eq!(b.splash_anims, None, "<default> restores the stock list");
+    assert!(!b.splash_anims_pick_random);
+    let c = reg.anim_runtime_config("C").unwrap();
+    assert_eq!(c.splash_anims, None);
+    assert!(!c.splash_anims_pick_random);
+}
+
 /// Phobos `Refinery.UseNormalActiveAnim=` (`Ext/BuildingType/Body.cpp:309`,
 /// `Body.h:227`) is an ART ReadBool from the ImageFile's section, default
 /// false.

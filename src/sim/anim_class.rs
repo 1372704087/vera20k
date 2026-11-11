@@ -3851,15 +3851,61 @@ impl Simulation {
         let above_deck = position.z >= ground.wrapping_add(BRIDGE_DECK_HEIGHT_LEPTONS);
         if self.bounce_cell_is_water(position, rules) && !above_deck {
             //423CDB..423DE2: a meteor uses the LAST splash, without a Wake.
+            //Phobos `SplashAnims=`/`SplashAnims.PickRandom=`
+            //(`Ext/AnimType/Body.cpp:102-103`, `Ext/Anim/Hooks.cpp:236-241`):
+            //the type's list, filtered by the animation registry, replaces
+            //the stock `SplashList=`, and PickRandom draws
+            //`RandomRanged(0, last)` before the Wake is created.
+            #[cfg(feature = "phobos")]
+            let splash_names: Vec<&str> = match config.splash_anims.as_deref() {
+                Some(names) => names
+                    .iter()
+                    .filter(|name| {
+                        rules
+                            .anim_type_names
+                            .iter()
+                            .any(|valid| valid.eq_ignore_ascii_case(name))
+                    })
+                    .map(String::as_str)
+                    .collect(),
+                None => rules
+                    .combat_damage
+                    .splash_list
+                    .iter()
+                    .map(String::as_str)
+                    .collect(),
+            };
+            #[cfg(not(feature = "phobos"))]
+            let splash_names: Vec<&str> = rules
+                .combat_damage
+                .splash_list
+                .iter()
+                .map(String::as_str)
+                .collect();
+            #[cfg(feature = "phobos")]
+            let splash = if splash_names.is_empty() {
+                None
+            } else if config.splash_anims_pick_random {
+                let index = self
+                    .scenario_rng
+                    .next_range_u32_inclusive(0, (splash_names.len() - 1) as u32)
+                    as usize;
+                splash_names.get(index).copied()
+            } else if config.is_meteor {
+                splash_names.last().copied()
+            } else {
+                splash_names.first().copied()
+            };
+            #[cfg(not(feature = "phobos"))]
+            let splash = if config.is_meteor {
+                splash_names.last().copied()
+            } else {
+                splash_names.first().copied()
+            };
             if !config.is_meteor {
                 let wake = rules.general.wake.name.clone();
                 self.spawn_named_anim(rules, &wake, location, 0, BOUNCE_CONTACT_DRAW_FLAGS, 0);
             }
-            let splash = if config.is_meteor {
-                rules.combat_damage.splash_list.last()
-            } else {
-                rules.combat_damage.splash_list.first()
-            };
             if let Some(splash) = splash {
                 let splash_coord = AnimWorldCoord {
                     z: location.z.wrapping_add(BOUNCE_SPLASH_LIFT_LEPTONS),

@@ -434,6 +434,17 @@ pub struct AnimTypeRuntimeConfig {
     /// art.ini `ForceBigCraters=`, `AnimTypeClass+0x36E`, read by
     /// `AnimClass::Middle @ 0x00424F00`.
     pub force_big_craters: bool,
+    /// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`,
+    /// `Ext/AnimType/Body.h:57`, a `NullableVector<AnimTypeClass*>`): the
+    /// entries replace the stock `[CombatDamage] SplashList=` on a water
+    /// landing; `None` for an absent or `<default>` read.
+    #[cfg(feature = "phobos")]
+    pub splash_anims: Option<Vec<String>>,
+    /// Phobos `SplashAnims.PickRandom=` (`Ext/AnimType/Body.cpp:103`,
+    /// `Body.h:58`, constructor false): the water landing draws
+    /// `RandomRanged(0, last)` instead of the meteor/first default.
+    #[cfg(feature = "phobos")]
+    pub splash_anims_pick_random: bool,
     /// Phobos `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`,
     /// `Ext/AnimType/Body.h:81`, a `Nullable<bool>`): unset keeps the
     /// `[General] AnimCraterDestroyTiberium=` fallback; false makes
@@ -860,6 +871,10 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         scorch: section.read_bool("Scorch", false),
         crater: section.read_bool("Crater", false),
         force_big_craters: section.read_bool("ForceBigCraters", false),
+        #[cfg(feature = "phobos")]
+        splash_anims: section.read_phobos_nullable_type_list("SplashAnims"),
+        #[cfg(feature = "phobos")]
+        splash_anims_pick_random: section.read_bool("SplashAnims.PickRandom", false),
         #[cfg(feature = "phobos")]
         crater_destroy_tiberium: section
             .read_phobos_nullable_bool("Crater.DestroyTiberium", None),

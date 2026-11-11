@@ -238,6 +238,95 @@ fn meteor_landing_runs_children_without_expire_and_uses_last_water_splash() {
     );
 }
 
+/// Phobos `SplashAnims=` (`Ext/AnimType/Body.cpp:102`,
+/// `Ext/Anim/Hooks.cpp:236-241`): the AnimType's list replaces the stock
+/// `SplashList=`, a meteor still takes its last entry, and no draw is spent.
+#[cfg(feature = "phobos")]
+#[test]
+fn custom_splash_anims_replace_the_stock_water_splash() {
+    let rules = formed_rules("[METSMALL]\nIsMeteor=yes\nSplashAnims=CHILD,SPLASH1\n");
+    let config = rules.art().anim_runtime_config("METSMALL").unwrap();
+    assert_eq!(
+        config.splash_anims.as_deref(),
+        Some(&["CHILD".to_string(), "SPLASH1".to_string()][..])
+    );
+    let mut water = formed_sim(31, 0);
+    water
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut_for_test(40, 40)
+        .unwrap()
+        .land_type = 2;
+    let before = water.scenario_rng.clone();
+    assert!(
+        !water
+            .anim_bounce_landing(
+                config,
+                &rules,
+                None,
+                glam::IVec3::new(10368, 10368, 0),
+                FrameEffects::empty()
+            )
+            .unwrap()
+    );
+    let anims: Vec<_> = water.anims().map(|(_, a)| a).collect();
+    assert_eq!(anims.len(), 1);
+    assert_eq!(
+        water.interner.resolve(anims[0].type_id),
+        "SPLASH1",
+        "the meteor default is the last custom entry"
+    );
+    assert_eq!(
+        water.scenario_rng.native_state_hex(),
+        before.native_state_hex()
+    );
+}
+
+/// Phobos `SplashAnims.PickRandom=` (`Ext/AnimType/Body.cpp:103`): one
+/// `RandomRanged(0, last)` picks the entry before the Wake is created.
+#[cfg(feature = "phobos")]
+#[test]
+fn splash_pick_random_draws_one_index() {
+    let rules = formed_rules(
+        "[METSMALL]\nIsMeteor=yes\nSplashAnims=CHILD,SPLASH1\nSplashAnims.PickRandom=yes\n",
+    );
+    let config = rules.art().anim_runtime_config("METSMALL").unwrap();
+    assert!(config.splash_anims_pick_random);
+    let mut water = formed_sim(31, 0);
+    water
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .cell_mut_for_test(40, 40)
+        .unwrap()
+        .land_type = 2;
+    let mut expected = water.scenario_rng.clone();
+    let index = expected.next_range_u32_inclusive(0, 1) as usize;
+    assert!(
+        !water
+            .anim_bounce_landing(
+                config,
+                &rules,
+                None,
+                glam::IVec3::new(10368, 10368, 0),
+                FrameEffects::empty()
+            )
+            .unwrap()
+    );
+    let anims: Vec<_> = water.anims().map(|(_, a)| a).collect();
+    assert_eq!(anims.len(), 1);
+    assert_eq!(
+        water.interner.resolve(anims[0].type_id),
+        ["CHILD", "SPLASH1"][index]
+    );
+    assert_eq!(
+        water.scenario_rng.native_state_hex(),
+        expected.native_state_hex(),
+        "exactly one draw"
+    );
+}
+
 #[test]
 fn retail_meteor_profiles_keep_missing_stock_images_explicit() {
     let Some((rules_ini, art)) = crate::rules::retail_ini_fixture::retail_rules_and_art() else {

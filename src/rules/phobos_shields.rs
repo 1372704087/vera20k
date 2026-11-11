@@ -740,7 +740,7 @@ impl ShieldWarheadRules {
         rules.respawn_weapon = section
             .read_type_name("Shield.Respawn.Weapon", 2048)
             .map(str::to_owned);
-        rules.respawn_types = read_nullable_shield_type_list(section, "Shield.Respawn.Types");
+        rules.respawn_types = section.read_phobos_nullable_type_list("Shield.Respawn.Types");
         rules.self_healing_duration =
             section.read_int("Shield.SelfHealing.Duration", rules.self_healing_duration);
         rules.self_healing_amount = section
@@ -775,10 +775,10 @@ impl ShieldWarheadRules {
         rules.minimum_replace_delay =
             section.read_int("Shield.MinimumReplaceDelay", rules.minimum_replace_delay);
         rules.affect_types = read_phobos_name_list(section, "Shield.AffectTypes");
-        rules.penetrate_types = read_nullable_shield_type_list(section, "Shield.Penetrate.Types");
-        rules.break_types = read_nullable_shield_type_list(section, "Shield.Break.Types");
+        rules.penetrate_types = section.read_phobos_nullable_type_list("Shield.Penetrate.Types");
+        rules.break_types = section.read_phobos_nullable_type_list("Shield.Break.Types");
         rules.self_healing_types =
-            read_nullable_shield_type_list(section, "Shield.SelfHealing.Types");
+            section.read_phobos_nullable_type_list("Shield.SelfHealing.Types");
         rules
     }
 
@@ -812,21 +812,6 @@ pub(crate) fn read_phobos_name_list(
         .read_list(key, 2048)
         .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
         .unwrap_or_default()
-}
-
-/// `NullableVector<T*>::Read` (`Utilities/TemplateDef.h:2135..2147`): a
-/// reached read sets the vector unless the value is `<default>`, which
-/// restores the unset state. Empty text never reaches the template because
-/// `ReadString` returns zero, so an absent and an empty key are both unset.
-pub(crate) fn read_nullable_shield_type_list(
-    section: &crate::rules::ini_parser::IniSection,
-    key: &str,
-) -> Option<Vec<String>> {
-    let tokens = section.read_list(key, 2048)?;
-    if tokens.len() == 1 && tokens[0].eq_ignore_ascii_case("<default>") {
-        return None;
-    }
-    Some(tokens.into_iter().map(str::to_owned).collect())
 }
 
 /// `Vector3D<int>` read: the first three tokens replace the defaults; an

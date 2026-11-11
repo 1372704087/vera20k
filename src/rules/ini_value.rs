@@ -810,6 +810,19 @@ impl IniSection {
         })
     }
 
+    /// Phobos `NullableVector<T*>::Read` (`Utilities/TemplateDef.h:2135..2147`):
+    /// a reached read sets the vector unless the value is `<default>`, which
+    /// restores the unset state. Empty text never reaches the template because
+    /// `ReadString` returns zero, so an absent and an empty key are both unset.
+    /// Raw tokens; the catalog filter runs at the use site.
+    pub(crate) fn read_phobos_nullable_type_list(&self, key: &str) -> Option<Vec<String>> {
+        let tokens = self.read_list(key, 2048)?;
+        if tokens.len() == 1 && tokens[0].eq_ignore_ascii_case("<default>") {
+            return None;
+        }
+        Some(tokens.into_iter().map(str::to_owned).collect())
+    }
+
     /// Phobos `Valueable<Point2D>`: `INI_EX::Read2Integers` (ReadString(2048),
     /// then `Parser<int, 2>`, the [`scan_partial_int_fields`] scan) converts
     /// each token straight into the value, so a one-token read changes only X

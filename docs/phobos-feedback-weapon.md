@@ -39,13 +39,23 @@ The key is retained in `src/rules/phobos_weapon_extras.rs`
 (`WeaponType::phobos_feedback_weapon`) and its reference is allocated by the
 ordered rules processor.
 
+`emit_admitted_fire` (`src/sim/combat/world_fire.rs`) fires it at the end of
+the muzzle block, before Sonic and the later-effect ladder. The shot is a
+`weapon_detonation_with_target` packet committed through the shared
+`Simulation::commit_attach_effect_detonations` receiver path used by
+`WeaponTypeExt::DetonateAt` callers, with the firer's coordinates and the
+firer as owner and target. `ProjectileDetonationReason::FeedbackWeapon` marks
+it as the instant `BulletExt::Detonate` shot, so it takes a single detonation
+and no cluster loop. An open-topped passenger is skipped when the *feedback*
+weapon's `FireInTransport=` is no.
+
 ## Residuals
 
-- The sim consumer is not wired: VERA's synthetic projectile detonation for
-  this self target produces no receivers, so a `FeedbackWeapon=` shot has no
-  second detonation. Trigger: any weapon with the key. Frequency: mod-authored
-  weapons. Risk: the feedback damage is missing. Next owner: a direct
-  self-detonation commit in `world_fire`, or a represented temporary bullet.
-- `FireInTransport` is the stock key; its open-topped gate belongs to the same
-  unwired consumer.
+- Native `BulletExt::Detonate` creates a real `BulletType` bullet at
+  `Speed=100`, places it at the firer, explodes it and uninitializes it in one
+  call. VERA represents that as a receiver packet at the firer's coordinates,
+  so BulletType keys that only a flying bullet consumes (trajectory, laser
+  trails) have no effect; the type's impact keys still apply. Trigger: a
+  feedback weapon naming a `Projectile=` with such keys. Frequency:
+  mod-authored. Risk: missing presentation-only flight effects.
 - Retail rules author no `FeedbackWeapon=`.

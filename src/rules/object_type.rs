@@ -1978,6 +1978,12 @@ pub struct ObjectType {
     pub deploy_facing: u8,
     /// Whether this building is a construction yard. Enables ConYard-only MCV repack gates.
     pub construction_yard: bool,
+    /// Phobos `UndeploysInto.Sellable=` (`Valueable<bool>`,
+    /// `Ext/BuildingType/Body.cpp:256`, `Body.h:110`, constructor false): a
+    /// non-ConYard `UndeploysInto=` building sells instead of packing up when
+    /// it has no ArchiveTarget (`Ext/Building/Hooks.Selling.cpp:33-58`).
+    #[cfg(feature = "phobos")]
+    pub phobos_undeploys_into_sellable: bool,
     /// Immutable membership in the resolved `[AI] BuildConst=` BuildingType
     /// pointer vector (`RulesClass__ReadAI @ 0x00672AE0`, binding
     /// `0x00672B14..0x00672C01`). `RuleSet` stamps this after all type
@@ -6023,6 +6029,9 @@ impl ObjectType {
             // `ReadInt(DeployFacing, field >> 5) << 5` (`0x00460C6C..0x00460C86`).
             deploy_facing: (section.read_int("DeployFacing", 0x80 >> 5).clamp(0, 7) as u8) << 5,
             construction_yard: section.read_bool("ConstructionYard", false),
+            #[cfg(feature = "phobos")]
+            phobos_undeploys_into_sellable: category == ObjectCategory::Building
+                && section.read_bool("UndeploysInto.Sellable", false),
             build_const_eligible: false,
             base_plan_type_index: -1,
             // BuildingTypeClass__ReadINI 0x00460FFC..0x00461010 writes

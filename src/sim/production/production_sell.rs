@@ -621,6 +621,12 @@ fn qualifying_undeploy(sim: &Simulation, rules: &RuleSet, id: u64) -> bool {
         return false;
     }
     if !object.construction_yard {
+        // Phobos `UndeploysInto_Sellable` (`Ext/Building/Hooks.Selling.cpp:48-54`):
+        // a repack building asks for a sell unless it holds an ArchiveTarget.
+        #[cfg(feature = "phobos")]
+        if object.phobos_undeploys_into_sellable {
+            return sale_archive(entity);
+        }
         return true;
     }
     sim.session.game_mode_nonzero()
@@ -1061,4 +1067,65 @@ pub fn sell_building_now_for_test(sim: &mut Simulation, rules: &RuleSet, id: u64
         crate::sim::world::FrameEffects::default(),
     );
     true
+}
+
+#[cfg(all(test, feature = "phobos"))]
+mod phobos_sellable_tests {
+    use super::*;
+
+    fn rules(sellable: bool) -> RuleSet {
+        let sellable = if sellable {
+            "UndeploysInto.Sellable=yes\n"
+        } else {
+            ""
+        };
+        RuleSet::from_ini(&crate::rules::ini_parser::IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=MCV\n\
+             [BuildingTypes]\n0=FACTORY\n\
+             [FACTORY]\nStrength=1000\nUndeploysInto=MCV\n{sellable}\
+             [MCV]\nStrength=600\nSpeed=4\n"
+        )))
+        .expect("sellable repack rules")
+    }
+
+    fn scene(sellable: bool) -> (Simulation, RuleSet, u64) {
+        let rules = rules(sellable);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5E11);
+        sim.intern_rule_type_ids(&rules);
+        sim.resolve_type_handles(&rules);
+        let id = sim.substrate.allocate_stable_id();
+        let mut entity =
+            crate::sim::game_entity::GameEntity::test_default(id, "FACTORY", "Americans", 10, 10);
+        entity.set_owner_for_test(sim.interner.intern("Americans"));
+        entity.set_type_ref_for_test(sim.interner.intern("FACTORY"));
+        sim.substrate.entities.insert(entity);
+        (sim, rules, id)
+    }
+
+    /// Phobos `UndeploysInto_Sellable` (`Ext/Building/Hooks.Selling.cpp:48-54`):
+    /// a non-ConYard repack building sells when it has no ArchiveTarget and
+    /// still packs up when one is held; the default always packs up.
+    #[test]
+    fn phobos_undeploys_into_sellable_changes_only_the_archive_less_repack() {
+        let (mut sim, rules, id) = scene(true);
+        assert!(
+            !qualifying_undeploy(&sim, &rules, id),
+            "Sellable without an ArchiveTarget sells"
+        );
+        sim.substrate
+            .entities
+            .get_mut(id)
+            .unwrap()
+            .set_archive_target(Some(crate::sim::combat::TargetKind::Cell(4, 4)));
+        assert!(
+            qualifying_undeploy(&sim, &rules, id),
+            "a held ArchiveTarget still packs up"
+        );
+
+        let (sim, rules, id) = scene(false);
+        assert!(
+            qualifying_undeploy(&sim, &rules, id),
+            "the default repack always packs up"
+        );
+    }
 }

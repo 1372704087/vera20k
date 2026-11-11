@@ -440,6 +440,13 @@ pub struct PhobosGlobals {
     /// `Ext/Techno/Hooks.Firing.cpp:609-633`).
     #[serde(default)]
     pub recount_burst: bool,
+    /// `[General] AISuperWeaponDelay=` (`Nullable<int>`, game frames,
+    /// `Ext/Rules/Body.cpp:127`, decl `Ext/Rules/Body.h:45`): when set, the
+    /// strategy-side `AI_TryFireSW` call is skipped and a per-house timer
+    /// gates the per-frame call; `<= 0` tries every frame
+    /// (`Ext/House/Hooks.cpp:508-541`). Unset keeps the stock cadence.
+    #[serde(default)]
+    pub ai_superweapon_delay: Option<i32>,
     /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
     /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
     /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
@@ -630,6 +637,7 @@ impl Default for PhobosGlobals {
             auto_target_no_threat_buildings: false,
             auto_target_ai_no_threat_buildings: true,
             recount_burst: false,
+            ai_superweapon_delay: None,
             berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
@@ -889,6 +897,8 @@ impl PhobosGlobals {
             globals.auto_target_ai_no_threat_buildings,
         );
         globals.recount_burst = general.read_bool("RecountBurst", globals.recount_burst);
+        globals.ai_superweapon_delay =
+            general.read_phobos_nullable_int("AISuperWeaponDelay", globals.ai_superweapon_delay);
         // The StartFacing pair (`Ext/Rules/Body.cpp:626-627`): a Valueable<int>
         // and a Valueable<bool>, both read with their constructor value.
         globals.building_start_facing =

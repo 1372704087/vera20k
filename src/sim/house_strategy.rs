@@ -102,6 +102,54 @@ pub(crate) fn update_strategy(
     }
 }
 
+/// Phobos `HouseClass_AI_Superweapons` (`0x4F9038`,
+/// `Ext/House/Hooks.cpp:518-541`): with `[General] AISuperWeaponDelay=`, an
+/// AI house's per-frame `AI_TryFireSW` runs behind a per-house timer; a
+/// non-positive delay tries every frame. The campaign/`IQ` gate matches the
+/// vanilla call the hook returns to. An unset key, a human house or a
+/// neutral one leaves the existing owners untouched.
+pub(crate) fn update_ai_superweapon_delay(
+    sim: &mut Simulation,
+    rules: &RuleSet,
+    owner: InternedId,
+    registry: Option<&crate::rules::overlay_types::OverlayTypeRegistry>,
+    frame_effects: FrameEffects<'_>,
+) {
+    #[cfg(feature = "phobos")]
+    {
+        let Some(delay) = rules.phobos_globals.ai_superweapon_delay else {
+            return;
+        };
+        let frame = sim.session.binary_frame() as i32;
+        let Some(house) = sim.houses.get(&owner) else {
+            return;
+        };
+        if house.is_controlled_by_human(sim.session.game_mode_nonzero())
+            || house.multiplay_passive()
+        {
+            return;
+        }
+        if delay > 0 {
+            if house.ai_superweapon_delay_remaining(frame) > 0 {
+                return;
+            }
+            if let Some(house) = sim.houses.get_mut(&owner) {
+                house.start_ai_superweapon_delay(frame, delay);
+            }
+        }
+        if sim.session.game_mode_nonzero()
+            || sim
+                .houses
+                .get(&owner)
+                .is_some_and(|house| house.current_iq() >= rules.general.iq_super_weapons)
+        {
+            crate::sim::superweapon::ai_fire::try_fire(sim, rules, owner, registry, frame_effects);
+        }
+    }
+    #[cfg(not(feature = "phobos"))]
+    let _ = (sim, rules, owner, registry, frame_effects);
+}
+
 /// `HouseClass::AI_Building_Strategy @ 0x004FD500` for an existing house:
 /// the module doc's steps; returns the timer's next delay.
 fn building_strategy(
@@ -125,12 +173,21 @@ fn building_strategy(
         owner,
         sim.session.game_mode_nonzero(),
     );
-    // `0x004FD77C..0x004FD79B`: a signed IQ (`+0x24C`) compare.
-    if sim.session.game_mode_nonzero()
-        || sim
-            .houses
-            .get(&owner)
-            .is_some_and(|house| house.current_iq() >= rules.general.iq_super_weapons)
+    // `0x004FD77C..0x004FD79B`: a signed IQ (`+0x24C`) compare. Phobos
+    // `HouseClass_ExpertAI_Superweapons` (`0x4FD77C`,
+    // `Ext/House/Hooks.cpp:508-516`) skips this strategy-side call when
+    // `[General] AISuperWeaponDelay=` is set; the per-frame owner below then
+    // gates the same `AI_TryFireSW` behind its timer.
+    #[cfg(feature = "phobos")]
+    let strategy_side_sw = rules.phobos_globals.ai_superweapon_delay.is_none();
+    #[cfg(not(feature = "phobos"))]
+    let strategy_side_sw = true;
+    if strategy_side_sw
+        && (sim.session.game_mode_nonzero()
+            || sim
+                .houses
+                .get(&owner)
+                .is_some_and(|house| house.current_iq() >= rules.general.iq_super_weapons))
     {
         crate::sim::superweapon::ai_fire::try_fire(sim, rules, owner, registry, frame_effects);
     }

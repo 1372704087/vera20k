@@ -60,6 +60,13 @@ fn destroy(sim: &mut Simulation, rules: &RuleSet, registry: &OverlayTypeRegistry
 fn drop_crate_places_its_powerup_on_the_death_cell() {
     let rules = rules("DropCrate=Money");
     let registry = registry();
+    let object = rules
+        .object_in_category(crate::rules::object_type::ObjectCategory::Vehicle, "GIFT")
+        .expect("GIFT type");
+    assert!(
+        object.phobos_techno_extras.drop_crate.is_some(),
+        "the rules reader saw DropCrate=Money"
+    );
     let mut sim = sim(&rules);
     let victim = sim
         .spawn_object("GIFT", "Americans", 10, 10, 0, &rules)
@@ -67,12 +74,25 @@ fn drop_crate_places_its_powerup_on_the_death_cell() {
 
     destroy(&mut sim, &rules, &registry, victim);
 
-    let cell = sim.overlay_grid.as_ref().unwrap().cell(10, 10);
-    assert!(cell.overlay_id.is_some(), "the death cell carries a crate");
-    assert_eq!(
-        cell.overlay_data,
-        crate::rules::powerups::POWERUP_MONEY as u8,
-        "the fixed [Powerups] slot is written to the crate's data byte"
+    // `TryToCreateCrate` scans outward because the dying object can still
+    // occupy its cell, so the first accepted cell is the death cell or a
+    // nearby ring. Exactly one crate is placed, within the 10-cell range.
+    let grid = sim.overlay_grid.as_ref().unwrap();
+    let mut crates = Vec::new();
+    for x in 0..32u16 {
+        for y in 0..32u16 {
+            let cell = grid.cell(x, y);
+            if cell.overlay_id.is_some()
+                && cell.overlay_data == crate::rules::powerups::POWERUP_MONEY as u8
+            {
+                crates.push((x, y));
+            }
+        }
+    }
+    assert_eq!(crates.len(), 1, "one crate is placed: {crates:?}");
+    assert!(
+        crates[0].0.abs_diff(10) <= 10 && crates[0].1.abs_diff(10) <= 10,
+        "the crate lands within the scan range of the death cell: {crates:?}"
     );
 }
 

@@ -2407,7 +2407,23 @@ fn evaluate_candidate(
     // object more than 20 leptons under the ground under it — one riding the
     // Tunnel locomotor, which VERA does not port and no retail type uses, so
     // the gate is dormant until that locomotor exists.
-    if crate::sim::movement::air_movement::current_fly_height(candidate, ctx.terrain) < -20 {
+    // Phobos `WeaponTypeClass_AllowedThreats_AU` (`0x772AB3`,
+    // `Ext/Techno/Hooks.cpp:1537-1545`) ORs `0x20000` into the allowed
+    // threats when the selected weapon's projectile has `AU=yes`; the
+    // auto-target gate then admits the underground candidate
+    // (`SelectAutoTarget_Start_AU`, 0x6F8DF0).
+    #[cfg(feature = "phobos")]
+    let au = selected.as_ref().is_some_and(|selected| {
+        selected
+            .weapon
+            .projectile
+            .as_deref()
+            .and_then(|name| ctx.rules.projectile(name))
+            .is_some_and(|projectile| projectile.au)
+    });
+    #[cfg(not(feature = "phobos"))]
+    let au = false;
+    if !au && crate::sim::movement::air_movement::current_fly_height(candidate, ctx.terrain) < -20 {
         return None;
     }
 

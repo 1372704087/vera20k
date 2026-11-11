@@ -45,6 +45,12 @@ pub struct ProjectileType {
     pub aa: bool,
     /// Can hit ground units and buildings. True by default for most projectiles.
     pub ag: bool,
+    /// Phobos `AU` (`Ext/BulletType/Body.cpp:83`): this projectile may attack
+    /// a techno that is underground. Auto-target ORs `0x20000` into the
+    /// weapon's allowed threats (`Ext/Techno/Hooks.cpp:1537-1545`) and the
+    /// mouse-over fire gate accepts it (`:1497-1510`).
+    #[cfg(feature = "phobos")]
+    pub au: bool,
 
     // --- Flight behavior ---
     /// Ballistic arc trajectory (e.g., artillery shells). Cannot be intercepted.
@@ -523,6 +529,8 @@ impl ProjectileType {
             // Targeting
             aa: section.read_bool("AA", false),
             ag: section.read_bool("AG", true),
+            #[cfg(feature = "phobos")]
+            au: section.read_bool("AU", false),
             // Flight behavior
             arcing: section.read_bool("Arcing", false),
             rot: section.read_int("ROT", 0),
@@ -773,6 +781,20 @@ mod tests {
         );
         assert_eq!(gravity("Q"), None);
         assert_eq!(gravity("R"), None);
+    }
+
+    /// Phobos `AU` (`Ext/BulletType/Body.cpp:83`): the two-letter key is read
+    /// as a plain bool, absent false.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_au_reads_as_a_bool() {
+        let ini = IniFile::from_str("[P]\nAU=yes\n[Q]\nAU=no\n[R]\n");
+        let read = |name: &str| {
+            ProjectileType::from_ini_section(name, ini.section(name).unwrap(), None).au
+        };
+        assert!(read("P"));
+        assert!(!read("Q"));
+        assert!(!read("R"));
     }
 
     /// Phobos `ClusterScatter.Min=`/`Max=` (`Valueable<Leptons>`): absent

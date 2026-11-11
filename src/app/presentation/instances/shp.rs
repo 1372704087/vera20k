@@ -1342,6 +1342,22 @@ fn factory_unload_art<'a>(
     if entity.mission.effective().known() != Some(crate::sim::mission::MissionType::Unload) {
         return None;
     }
+    #[cfg(feature = "phobos")]
+    let roof = entity
+        .radio_contacts
+        .slot(0)
+        .and_then(|id| sim.entities().get(id))
+        .and_then(|product| sim.interner().object_type(product.type_ref(), rules))
+        .is_some_and(|object| {
+            // Phobos `BuildingClass_DrawUnderDoorAnim_ExitThroughRoof`
+            // @ 0x43D363 (`Ext/Building/Hooks.cpp:1051-1075`): the produced
+            // unit's `ExitThroughRoof=` overrides the vanilla
+            // `JumpJet || BalloonHover` gate for the roof art pair.
+            object
+                .phobos_exit_through_roof
+                .exits_through_roof(object.jumpjet, object.balloon_hover)
+        });
+    #[cfg(not(feature = "phobos"))]
     let roof = entity
         .radio_contacts
         .slot(0)

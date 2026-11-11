@@ -446,6 +446,11 @@ pub struct WarheadType {
     /// `Nullable<bool>`); `None` inherits `[CombatDamage]`.
     #[cfg(feature = "phobos")]
     pub apply_per_target_effects_on_detonate: Option<bool>,
+    /// Phobos `RemoveDisguise=` (`Body.cpp:177`, default false): a disguised
+    /// target loses its disguise on impact
+    /// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`).
+    #[cfg(feature = "phobos")]
+    pub remove_disguise: bool,
     /// Phobos animation-list enhancement settings (`AnimList.*`,
     /// `SplashList.*`, `CreateAnimsOnZeroDamage`, `Conventional.IgnoreUnits`).
     #[cfg(feature = "phobos")]
@@ -914,6 +919,8 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             apply_per_target_effects_on_detonate: section
                 .read_phobos_nullable_bool("ApplyPerTargetEffectsOnDetonate", None),
+            #[cfg(feature = "phobos")]
+            remove_disguise: section.read_bool("RemoveDisguise", false),
             #[cfg(feature = "phobos")]
             phobos_anim: crate::rules::phobos_warhead_anim::PhobosWarheadAnimRules::from_section(
                 section,

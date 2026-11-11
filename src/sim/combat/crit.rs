@@ -262,6 +262,26 @@ pub(crate) fn detonate(
             rules,
             run.effects(),
         );
+        // `DetonateOnOneUnit`'s `ApplyRemoveDisguise(pTarget)`
+        // (`Detonate.cpp:224-225,466-475`): after the one-time Ammo arm and
+        // before ReverseEngineer/ReturnWarhead. Infantry clears the `Disguised`
+        // flag only; a Unit also clears the recorded identity.
+        #[cfg(feature = "phobos")]
+        if warhead.remove_disguise {
+            let frame = world.session.binary_frame() as u32;
+            if let Some(target) = world.substrate.entities.get_mut(target_id)
+                && target
+                    .disguise
+                    .as_ref()
+                    .is_some_and(|disguise| disguise.is_disguised())
+            {
+                if target.category() == EntityCategory::Unit {
+                    target.disguise_mut(frame).clear_unit();
+                } else {
+                    target.disguise_mut(frame).clear_flag();
+                }
+            }
+        }
         // `DetonateOnOneUnit`'s `ApplyReturnWarhead(pHouse, pTarget, pOwner)`
         // (`Detonate.cpp:229-231`): after the displacement arms and before
         // `PenetratesTransport`.

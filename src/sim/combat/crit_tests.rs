@@ -631,6 +631,53 @@ fn return_warhead_strikes_the_firer_back() {
     );
 }
 
+/// Phobos `WarheadTypeExt::ApplyRemoveDisguise`
+/// (`Ext/WarheadType/Detonate.cpp:224-225,466-475`): the per-target pass
+/// strips a Unit's disguise even when the shot deals no damage; a Unit also
+/// clears its recorded identity, and the flag defaults to off.
+#[cfg(feature = "phobos")]
+#[test]
+fn remove_disguise_strips_a_target_on_impact() {
+    let setup = |wh_ini: &str| {
+        let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
+        let type_id = sim.interner.intern("TARGET");
+        let house = sim.interner.intern("Russians");
+        sim.substrate
+            .entities
+            .get_mut(target)
+            .unwrap()
+            .disguise
+            .get_or_insert_with(Default::default)
+            .acquire(0, Some(type_id), Some(house));
+        detonate_once(&mut sim, &rules, firer, target, Some(target));
+        (sim, target)
+    };
+    let (sim, target) = setup("RemoveDisguise=yes\n");
+    let disguise = sim
+        .substrate
+        .entities
+        .get(target)
+        .unwrap()
+        .disguise
+        .as_ref()
+        .unwrap();
+    assert!(!disguise.is_disguised(), "the warhead strips the disguise");
+    assert_eq!(disguise.type_id(), None, "a Unit clears identity too");
+    assert_eq!(disguise.house(), None);
+    let (sim, target) = setup("");
+    assert!(
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .disguise
+            .as_ref()
+            .unwrap()
+            .is_disguised(),
+        "RemoveDisguise defaults to no"
+    );
+}
+
 /// Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s first block
 /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:26-34`) zeroes the whole packet when
 /// the warhead's own triggers refuse the victim. Under Phobos' default

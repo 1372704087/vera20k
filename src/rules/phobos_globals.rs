@@ -14,6 +14,8 @@
 //! `AffectsInvokerOnly.IgnoreInvokerState` (`:923`),
 //! `Shrapnel.ObeyWarheadTriggerConditions` (`:972`),
 //! `Vertical.AircraftFix` (`:990`),
+//! `CanTarget.IronCurtained` (`Ext/Rules/Body.h:833`),
+//! `AutoTarget.IronCurtained` (`:834`),
 //! `DrainMoneyDisplay.OnTarget.UseDisplayIncome` (`:732`) and both
 //! `Explodes.*` globals (`:885-886`), which construct `true`; the
 //! `AffectedHouse` globals construct `All` (`:728`, `:730`).
@@ -395,6 +397,24 @@ pub struct PhobosGlobals {
     /// course (`0x415F25`, `Misc/Hooks.BugFixes.cpp:2423`).
     #[serde(default = "true_bool")]
     pub vertical_aircraft_fix: bool,
+    /// `[CombatDamage] CanTarget.IronCurtained=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:438`, constructor `Ext/Rules/Body.h:833`): the
+    /// human fallback for an unset WeaponType `CanTarget.IronCurtained`; `no`
+    /// refuses a shot at an iron-curtained target
+    /// (`Ext/Techno/Hooks.Firing.cpp:367`).
+    #[serde(default = "true_bool")]
+    pub can_target_iron_curtained: bool,
+    /// `[CombatDamage] CanTargetAI.IronCurtained=`, default `no` (`:437`,
+    /// constructor `Body.h:832`): the computer-house fallback, preserving the
+    /// stock AI refusal.
+    #[serde(default)]
+    pub can_target_ai_iron_curtained: bool,
+    /// `[CombatDamage] AutoTarget.IronCurtained=`, default **`yes`** (`:439`,
+    /// constructor `Body.h:834`): the human fallback for an unset WeaponType
+    /// `AutoTarget.IronCurtained` in retaliation and auto-target
+    /// (`Hooks.Firing.cpp:1246`, `Hooks.Targeting.cpp:63`).
+    #[serde(default = "true_bool")]
+    pub auto_target_iron_curtained: bool,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -567,6 +587,9 @@ impl Default for PhobosGlobals {
             alternate_flh_on_turret: true,
             alternate_flh_apply_vehicle: false,
             vertical_aircraft_fix: true,
+            can_target_iron_curtained: true,
+            can_target_ai_iron_curtained: false,
+            auto_target_iron_curtained: true,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -936,6 +959,18 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         interceptor_apply_firepower_mult: section.read_bool(
             "Interceptor.ApplyFirepowerMult",
             defaults.interceptor_apply_firepower_mult,
+        ),
+        can_target_iron_curtained: section.read_bool(
+            "CanTarget.IronCurtained",
+            defaults.can_target_iron_curtained,
+        ),
+        can_target_ai_iron_curtained: section.read_bool(
+            "CanTargetAI.IronCurtained",
+            defaults.can_target_ai_iron_curtained,
+        ),
+        auto_target_iron_curtained: section.read_bool(
+            "AutoTarget.IronCurtained",
+            defaults.auto_target_iron_curtained,
         ),
         overload_particle_sys_count: section.read_int(
             "Overload.ParticleSysCount",

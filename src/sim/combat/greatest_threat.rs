@@ -2264,6 +2264,24 @@ fn evaluate_candidate(
         ctx.entities,
         ctx.interner,
     );
+    // Phobos `TechnoClass_CanAutoTargetObject_IronCurtain` (`0x6F7CE2`,
+    // `Ext/Techno/Hooks.Targeting.cpp:57-76`): a human's weapon override,
+    // else the global, can refuse an iron-curtained candidate before the
+    // fire-error probe.
+    #[cfg(feature = "phobos")]
+    if ctx.standing.human
+        && let Some(world) = ctx.fire_world
+        && crate::sim::superweapon::invulnerability::is_invulnerable(
+            candidate.invulnerability.as_ref(),
+            world.session.binary_frame(),
+        )
+        && !selected
+            .as_ref()
+            .and_then(|weapon| weapon.weapon.phobos_auto_target_iron_curtained)
+            .unwrap_or(ctx.rules.phobos_globals.auto_target_iron_curtained)
+    {
+        return None;
+    }
     // G2b — GetFireError without range, immediately after SelectWeapon
     // (6F7CDB..6F7CF1). Its native cell getters can move the shared dummy even
     // when a later eligibility gate rejects this candidate. It is not a pure
@@ -3536,6 +3554,10 @@ mod coefficient_tests;
 #[cfg(all(test, feature = "phobos"))]
 #[path = "greatest_threat_extra_threat_tests.rs"]
 mod extra_threat_tests;
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "greatest_threat_iron_curtain_tests.rs"]
+mod iron_curtain_tests;
 
 #[cfg(test)]
 #[path = "greatest_threat_avoidance_tests.rs"]

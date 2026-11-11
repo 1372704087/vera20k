@@ -157,6 +157,10 @@ fn weapon(slot: &Value, input: &Value) -> Option<WeaponFacts> {
             ag: flag(&projectile["ag"]),
             rot: int(&projectile["rot"]),
         },
+        #[cfg(feature = "phobos")]
+        can_target_iron_curtained: None,
+        #[cfg(feature = "phobos")]
+        auto_target_iron_curtained: None,
     })
 }
 
@@ -391,6 +395,10 @@ fn facts(input: &Value) -> FireFacts {
             is_1x1_with_undeploy: false,
             ..TargetTypeFacts::default()
         },
+        #[cfg(feature = "phobos")]
+        can_target_iron_curtained: true,
+        #[cfg(feature = "phobos")]
+        can_target_ai_iron_curtained: false,
     }
 }
 

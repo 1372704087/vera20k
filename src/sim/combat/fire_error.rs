@@ -207,6 +207,12 @@ pub(crate) struct WeaponFacts {
     /// `+0xA0`. Never NULL natively (read unchecked at T38, T39, T41, U11 and
     /// U12).
     pub projectile: ProjectileFacts,
+    /// Phobos `CanTarget.IronCurtained=`; `None` uses the owner's global.
+    #[cfg(feature = "phobos")]
+    pub can_target_iron_curtained: Option<bool>,
+    /// Phobos `AutoTarget.IronCurtained=`; `None` uses the global.
+    #[cfg(feature = "phobos")]
+    pub auto_target_iron_curtained: Option<bool>,
 }
 
 /// A WarheadTypeClass, as the tests read it against this target.
@@ -657,6 +663,12 @@ pub(crate) struct FireFacts {
     pub firer_type: FirerTypeFacts,
     pub target: TargetFacts,
     pub target_type: TargetTypeFacts,
+    /// Phobos `[CombatDamage] CanTarget.IronCurtained=` (human owners).
+    #[cfg(feature = "phobos")]
+    pub can_target_iron_curtained: bool,
+    /// Phobos `[CombatDamage] CanTargetAI.IronCurtained=` (computer owners).
+    #[cfg(feature = "phobos")]
+    pub can_target_ai_iron_curtained: bool,
 }
 
 /// The questions GetFireError asks other owners. Each is asked only where,
@@ -1066,12 +1078,29 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
 
     // T12..T18 `0x006FC1B6`: a techno target only.
     if kind.is_techno() {
+        // Phobos `TechnoClass_CanFire` (`0x6FC339`,
+        // `Ext/Techno/Hooks.Firing.cpp:340-369`) skips the stock T16
+        // iron-curtain check (`0x6FC22A` -> `0x6FC24D`) and applies the
+        // weapon/global gate instead. Defaults (human yes, AI no) preserve the
+        // stock split.
+        #[cfg(feature = "phobos")]
+        let iron_curtain_refuses = target.iron_curtained
+            && !query
+                .weapon(facts.weapon_index)
+                .and_then(|weapon| weapon.can_target_iron_curtained)
+                .unwrap_or(if firer.owner_is_human {
+                    facts.can_target_iron_curtained
+                } else {
+                    facts.can_target_ai_iron_curtained
+                });
+        // T16: a computer house never fires at the Iron Curtain.
+        #[cfg(not(feature = "phobos"))]
+        let iron_curtain_refuses = !firer.owner_is_human && target.iron_curtained;
         if target.in_limbo
             || (firer.berserk && target_type.berserk_friendly)
             || (firer_type.natural && target_type.unnatural)
             || target.chrono_warp_latch
-            // T16: a computer house never fires at the Iron Curtain.
-            || (!firer.owner_is_human && target.iron_curtained)
+            || iron_curtain_refuses
         {
             return Illegal;
         }

@@ -268,3 +268,90 @@ fn a_cargo_rider_is_not_bound_to_its_carrier_as_transporter() {
         "a rider's Transporter is the target whatever +0x82 says"
     );
 }
+
+/// Phobos `TechnoClass_CanFire` (`0x6FC339`,
+/// `Ext/Techno/Hooks.Firing.cpp:340-369`) removes the stock T16 AI-only
+/// iron-curtain refusal and reads the weapon override, else the human/AI
+/// globals; the defaults preserve the stock split.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_iron_curtained_target_reads_the_weapon_and_owner_globals() {
+    use crate::sim::combat::fire_error::FireError;
+    use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
+    use crate::sim::timer::CdTimer;
+    let error = |weapon_key: &str, global: Option<bool>, ai_global: Option<bool>, human: bool| {
+        let mut combat = String::from("[CombatDamage]\n");
+        if let Some(value) = global {
+            combat.push_str(&format!(
+                "CanTarget.IronCurtained={}\n",
+                if value { "yes" } else { "no" }
+            ));
+        }
+        if let Some(value) = ai_global {
+            combat.push_str(&format!(
+                "CanTargetAI.IronCurtained={}\n",
+                if value { "yes" } else { "no" }
+            ));
+        }
+        let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=TANK\n1=DECOY\n[InfantryTypes]\n[BuildingTypes]\n[AircraftTypes]\n\
+             [TANK]\nStrength=300\nArmor=heavy\nPrimary=Gun\n\
+             [DECOY]\nStrength=300\nArmor=heavy\n\
+             [Gun]\nDamage=50\nROF=30\nRange=6\nWarhead=AP\nOmniFire=yes\n{weapon_key}\
+             [AP]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n{combat}"
+        )))
+        .expect("curtain fire fixture rules");
+        let mut sim = crate::sim::world::Simulation::new();
+        spawn(
+            &mut sim.substrate.entities,
+            1,
+            "TANK",
+            EntityCategory::Unit,
+            "Americans",
+            (5, 5),
+        );
+        spawn(
+            &mut sim.substrate.entities,
+            2,
+            "DECOY",
+            EntityCategory::Unit,
+            "Soviet",
+            (7, 5),
+        );
+        sim.interner = test_interner();
+        let americans = sim.interner_mut_for_test().intern("Americans");
+        sim.register_house(crate::sim::house_state::HouseState::new(
+            americans, 0, None, human, 0, 10,
+        ));
+        sim.substrate.entities.get_mut(2).unwrap().invulnerability = Some(
+            InvulnerabilityState::new(CdTimer::started(0, 100), InvulnKind::IronCurtain),
+        );
+        crate::sim::combat::fire_error_world::FireSubject {
+            world: &sim,
+            rules: &rules,
+            overlay_registry: None,
+            fog: None,
+            firer: sim.substrate.entities.get(1).unwrap(),
+            obj: rules.object("TANK").unwrap(),
+            target: Some(crate::sim::combat::TargetKind::Entity(2)),
+            weapon_index: 0,
+        }
+        .fire_error(true)
+    };
+    // The stock split: AI refused, human allowed.
+    assert_eq!(error("", None, None, false), FireError::Illegal);
+    assert_ne!(error("", None, None, true), FireError::Illegal);
+    // The AI global admits the shot.
+    assert_ne!(error("", None, Some(true), false), FireError::Illegal);
+    // The human global refuses it.
+    assert_eq!(error("", Some(false), None, true), FireError::Illegal);
+    // The weapon override beats either global.
+    assert_ne!(
+        error("CanTarget.IronCurtained=yes\n", Some(false), None, true),
+        FireError::Illegal
+    );
+    assert_eq!(
+        error("CanTarget.IronCurtained=no\n", None, Some(true), false),
+        FireError::Illegal
+    );
+}

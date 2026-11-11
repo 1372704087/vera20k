@@ -482,6 +482,22 @@ pub(crate) fn should_retaliate(
     if victim.parasite.eater() == Some(source_id) {
         return false;
     }
+    // Phobos `TechnoClass_ShouldRetaliate_IronCurtain` (`0x708AD0`,
+    // `Ext/Techno/Hooks.Firing.cpp:1226-1264`): a human's weapon override,
+    // else the global, can suppress retaliation at an iron-curtained source.
+    #[cfg(feature = "phobos")]
+    if human
+        && crate::sim::superweapon::invulnerability::is_invulnerable(
+            source.invulnerability.as_ref(),
+            world.session.binary_frame(),
+        )
+        && !subject
+            .weapon_at(subject.weapon_index)
+            .and_then(|weapon| weapon.phobos_auto_target_iron_curtained)
+            .unwrap_or(rules.phobos_globals.auto_target_iron_curtained)
+    {
+        return false;
+    }
     // `0x00708AC5..0x00708B09`: the selected weapon's Verses against the
     // source's armour must exceed the single 0.01 (`0x007F4E34`), so a 1%
     // warhead does retaliate and 0% (or NaN) does not. A missing weapon or

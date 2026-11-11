@@ -431,6 +431,18 @@ pub struct WeaponType {
     /// unset booleans fall back to `[General] Strafing.*`.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules,
+    /// Phobos `CanTarget.IronCurtained=` (`Nullable<bool>`,
+    /// `Ext/WeaponType/Body.cpp:118`): this weapon's override for shooting an
+    /// iron-curtained target; `None` falls back to the human/AI
+    /// `[CombatDamage]` global (`Ext/Techno/Hooks.Firing.cpp:367`).
+    #[cfg(feature = "phobos")]
+    pub phobos_can_target_iron_curtained: Option<bool>,
+    /// Phobos `AutoTarget.IronCurtained=` (`Nullable<bool>`, `:119`): this
+    /// weapon's override for retaliating at or auto-acquiring an
+    /// iron-curtained target (`Hooks.Firing.cpp:1246`,
+    /// `Hooks.Targeting.cpp:63`).
+    #[cfg(feature = "phobos")]
+    pub phobos_auto_target_iron_curtained: Option<bool>,
 }
 
 impl WeaponType {
@@ -836,6 +848,12 @@ impl WeaponType {
             phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_can_target_iron_curtained: section
+                .read_phobos_nullable_bool("CanTarget.IronCurtained", None),
+            #[cfg(feature = "phobos")]
+            phobos_auto_target_iron_curtained: section
+                .read_phobos_nullable_bool("AutoTarget.IronCurtained", None),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")
@@ -1608,5 +1626,42 @@ mod tests {
         assert_eq!(rules.weapon("NoKey").unwrap().minimum_range_leptons, 0);
         assert_eq!(range("Unset"), 0, "-1 keeps the constructor zero");
         assert_eq!(range("Kept"), 3 * 256, "-1 keeps the earlier pass's range");
+    }
+
+    /// Phobos `CanTarget.IronCurtained`/`AutoTarget.IronCurtained` on a
+    /// weapon (`Nullable<bool>`) and their `[CombatDamage]` fallbacks
+    /// (`Ext/WeaponType/Body.cpp:118-119`, `Ext/Rules/Body.cpp:437-439`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn iron_curtained_targeting_keys_read_with_their_fallbacks() {
+        use crate::rules::ruleset::RuleSet;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n\
+             [UNIT]\nStrength=100\nPrimary=Plain\nSecondary=Locked\n\
+             [Plain]\nDamage=1\n\
+             [Locked]\nDamage=1\nCanTarget.IronCurtained=no\nAutoTarget.IronCurtained=yes\n\
+             [CombatDamage]\nCanTarget.IronCurtained=no\nAutoTarget.IronCurtained=no\n",
+        ))
+        .expect("curtain targeting rules");
+        assert!(!rules.phobos_globals.can_target_iron_curtained);
+        assert!(
+            !rules.phobos_globals.can_target_ai_iron_curtained,
+            "the absent AI global keeps the stock refusal"
+        );
+        assert!(!rules.phobos_globals.auto_target_iron_curtained);
+        let plain = rules.weapon("Plain").unwrap();
+        assert_eq!(plain.phobos_can_target_iron_curtained, None);
+        assert_eq!(plain.phobos_auto_target_iron_curtained, None);
+        let locked = rules.weapon("Locked").unwrap();
+        assert_eq!(locked.phobos_can_target_iron_curtained, Some(false));
+        assert_eq!(locked.phobos_auto_target_iron_curtained, Some(true));
+
+        let defaults = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n[UNIT]\nStrength=100\nPrimary=Gun\n[Gun]\nDamage=1\n",
+        ))
+        .expect("default curtain rules");
+        assert!(defaults.phobos_globals.can_target_iron_curtained);
+        assert!(!defaults.phobos_globals.can_target_ai_iron_curtained);
+        assert!(defaults.phobos_globals.auto_target_iron_curtained);
     }
 }

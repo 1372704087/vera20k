@@ -73,6 +73,11 @@ pub(crate) struct FirerPart {
     locomotor_target: Option<u64>,
     /// The warp target, when a temporal link is held.
     temporal_target: Option<Option<u64>>,
+    /// Phobos `[CombatDamage] CanTarget[AI].IronCurtained=`.
+    #[cfg(feature = "phobos")]
+    can_target_iron_curtained: bool,
+    #[cfg(feature = "phobos")]
+    can_target_ai_iron_curtained: bool,
 }
 
 impl FirerPart {
@@ -108,6 +113,10 @@ impl FirerPart {
             firer_type: self.firer_type,
             target: target_facts,
             target_type,
+            #[cfg(feature = "phobos")]
+            can_target_iron_curtained: self.can_target_iron_curtained,
+            #[cfg(feature = "phobos")]
+            can_target_ai_iron_curtained: self.can_target_ai_iron_curtained,
         }
     }
 }
@@ -259,6 +268,10 @@ impl<'a> FireSubject<'a> {
                     rot: projectile.rot,
                 },
             ),
+            #[cfg(feature = "phobos")]
+            can_target_iron_curtained: weapon.phobos_can_target_iron_curtained,
+            #[cfg(feature = "phobos")]
+            auto_target_iron_curtained: weapon.phobos_auto_target_iron_curtained,
         }
     }
 
@@ -525,6 +538,10 @@ impl<'a> FireSubject<'a> {
                 .temporal
                 .has_link()
                 .then(|| firer.temporal.warp_target()),
+            #[cfg(feature = "phobos")]
+            can_target_iron_curtained: self.rules.phobos_globals.can_target_iron_curtained,
+            #[cfg(feature = "phobos")]
+            can_target_ai_iron_curtained: self.rules.phobos_globals.can_target_ai_iron_curtained,
         }
     }
 

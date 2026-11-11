@@ -3118,7 +3118,27 @@ fn retaliation_gate_world(
     source_category: EntityCategory,
     human: bool,
 ) -> (crate::sim::world::Simulation, RuleSet) {
-    let rules = RuleSet::from_ini(&IniFile::from_str(
+    retaliation_gate_world_with(
+        victim_type,
+        victim_category,
+        source_type,
+        source_category,
+        human,
+        "",
+    )
+}
+
+/// [`retaliation_gate_world`] with extra INI text placed after the ReturnGun
+/// keys (weapon overrides, then a `[CombatDamage]` block).
+fn retaliation_gate_world_with(
+    victim_type: &str,
+    victim_category: EntityCategory,
+    source_type: &str,
+    source_category: EntityCategory,
+    human: bool,
+    extra: &str,
+) -> (crate::sim::world::Simulation, RuleSet) {
+    let rules = RuleSet::from_ini(&IniFile::from_str(&format!(
         "[InfantryTypes]\n0=C4GUY\n1=E1\n\
          [VehicleTypes]\n0=SOURCE\n1=VICTIM\n\
          [AircraftTypes]\n\
@@ -3132,9 +3152,9 @@ fn retaliation_gate_world(
          [E1]\nStrength=125\nArmor=flak\nSpeed=4\nPrimary=ReturnGun\nOccupyWeapon=ReturnGun\n\
          [EMPBLDG]\nStrength=100\nArmor=concrete\nPrimary=ReturnGun\nEMPulseCannon=yes\n\
          [CAGAS]\nStrength=800\nArmor=wood\nCanBeOccupied=yes\nCanOccupyFire=yes\nMaxNumberOccupants=5\n\
-         [ReturnGun]\nDamage=1\nROF=50\nRange=8\nWarhead=ReturnWH\n\
+         [ReturnGun]\nDamage=1\nROF=50\nRange=8\nWarhead=ReturnWH\n{extra}\
          [ReturnWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
-    ))
+    )))
     .expect("retaliation gate fixture");
     let mut sim = crate::sim::world::Simulation::new();
     let victim_owner = sim.interner.intern("Victim");
@@ -3275,6 +3295,59 @@ fn gsi_04_07_should_retaliate_world_refusals() {
         false,
     );
     assert!(!should_retaliate(&sim, &rules, GATE_VICTIM, GATE_SOURCE));
+}
+
+/// Phobos `TechnoClass_ShouldRetaliate_IronCurtain` (`0x708AD0`,
+/// `Ext/Techno/Hooks.Firing.cpp:1226-1264`): a human's weapon override, else
+/// `[CombatDamage] AutoTarget.IronCurtained=`, can refuse retaliation at an
+/// iron-curtained source; a computer house keeps the stock answer.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_iron_curtained_source_gates_human_retaliation_by_weapon_and_global() {
+    use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
+    use crate::sim::timer::CdTimer;
+    let retaliates = |human, extra: &str| {
+        let (mut sim, rules) = retaliation_gate_world_with(
+            "VICTIM",
+            EntityCategory::Unit,
+            "SOURCE",
+            EntityCategory::Unit,
+            human,
+            extra,
+        );
+        sim.substrate
+            .entities
+            .get_mut(GATE_SOURCE)
+            .unwrap()
+            .invulnerability = Some(InvulnerabilityState::new(
+            CdTimer::started(0, 100),
+            InvulnKind::IronCurtain,
+        ));
+        combat_targeting::should_retaliate(&sim, &rules, GATE_VICTIM, GATE_SOURCE, None)
+    };
+    assert!(
+        retaliates(true, ""),
+        "the default global and an unset weapon retaliate"
+    );
+    assert!(!retaliates(
+        true,
+        "[CombatDamage]\nAutoTarget.IronCurtained=no\n"
+    ));
+    assert!(
+        retaliates(
+            true,
+            "AutoTarget.IronCurtained=yes\n[CombatDamage]\nAutoTarget.IronCurtained=no\n"
+        ),
+        "the weapon override beats the global"
+    );
+    assert!(!retaliates(true, "AutoTarget.IronCurtained=no\n"));
+    assert!(
+        retaliates(
+            false,
+            "[CombatDamage]\nCanTargetAI.IronCurtained=yes\nAutoTarget.IronCurtained=no\n"
+        ),
+        "the hook reads only human owners; the AI fire gate also passes here"
+    );
 }
 
 /// A garrisoned building fights back with its occupant's weapon: GetWeapon

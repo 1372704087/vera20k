@@ -556,7 +556,7 @@ pub(crate) fn walk_line_for_blocking_cell<'a>(
         let current = lookup(packed(sample));
         if shot.subject_to_ground
             && let CellRef::Real(real) = &current
-            && let Some(floor) = crate::util::lepton::ground_height_leptons(
+            && let Ok(floor) = crate::util::lepton::ground_height_leptons(
                 real.level,
                 real.slope_type,
                 sample[0],
@@ -776,8 +776,8 @@ mod tests {
             );
             let query = NativeCellQuery::canonical(&terrain);
             walk_line_for_blocking_cell(
-                (384, 384, z),
-                (7 * 256 + 128, 384, z),
+                (384, 384, i64::from(z)),
+                (7 * 256 + 128, 384, i64::from(z)),
                 LineOfFireShot {
                     subject_to_ground,
                     ..Default::default()

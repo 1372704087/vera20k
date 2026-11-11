@@ -1140,10 +1140,6 @@ pub struct ObjectType {
     /// unit leaves its factory through the roof animation.
     #[cfg(feature = "phobos")]
     pub phobos_exit_through_roof: crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof,
-    /// Phobos `Slaved.OwnerWhenMasterKilled=` (`Ext/InfantryType/Body.cpp:18`):
-    /// who a slave miner belongs to once its master dies.
-    #[cfg(feature = "phobos")]
-    pub phobos_slaved: crate::rules::phobos_slaved::PhobosSlaved,
     /// Phobos `OnlyUseLandSequences=` (`Ext/InfantryType/Body.cpp:32`, read
     /// from the **art** section): land sequences even in water.
     #[cfg(feature = "phobos")]
@@ -5325,8 +5321,6 @@ impl ObjectType {
                 crate::rules::phobos_exit_through_roof::PhobosExitThroughRoof::from_section(
                     section,
                 ),
-            #[cfg(feature = "phobos")]
-            phobos_slaved: crate::rules::phobos_slaved::PhobosSlaved::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_land_sequences:
                 crate::rules::phobos_land_sequences::PhobosLandSequences::from_section(section),

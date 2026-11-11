@@ -249,6 +249,7 @@ mod tests {
                     Some(object),
                     &rules,
                     &Default::default(),
+                    &Default::default(),
                     None,
                     None
                 ),
@@ -262,6 +263,7 @@ mod tests {
                     &mut mover,
                     Some(object),
                     &rules,
+                    &Default::default(),
                     &Default::default(),
                     None,
                     None
@@ -285,6 +287,7 @@ mod tests {
                     &mut mover,
                     rules.object("MTNK"),
                     &rules,
+                    &Default::default(),
                     &Default::default(),
                     None,
                     None
@@ -341,6 +344,7 @@ mod tests {
                 &mut entity,
                 rules.object("MTNK"),
                 &rules,
+                &Default::default(),
                 &Default::default(),
                 None,
                 None,

@@ -28,7 +28,7 @@
 //! ## Dependency rules
 //! - Part of rules/ — no dependencies on sim/, render/, ui/, etc.
 
-use crate::rules::ini_parser::IniFile;
+use crate::rules::ini_parser::{IniFile, IniSection};
 use crate::rules::phobos_shields::AffectedHouse;
 use crate::util::native_x87::NativeF64Bits;
 
@@ -50,6 +50,27 @@ fn one_f32() -> crate::util::native_x87::NativeF32Bits {
 /// A `Valueable<double>` global constructed 0.0, for serde defaults.
 fn zero_f64() -> NativeF64Bits {
     NativeF64Bits::POSITIVE_ZERO
+}
+
+/// `section.read_phobos_double` kept as raw bits so `PhobosGlobals` stays
+/// `Eq + Hash`; the parser and its failed-read fallback are unchanged.
+fn read_double_bits(section: &IniSection, key: &str, current: NativeF64Bits) -> NativeF64Bits {
+    NativeF64Bits::from_bits(
+        section
+            .read_phobos_double(key, f64::from_bits(current.bits()))
+            .to_bits(),
+    )
+}
+
+/// The `Nullable<double>` counterpart of [`read_double_bits`].
+fn read_nullable_double_bits(
+    section: &IniSection,
+    key: &str,
+    current: Option<NativeF64Bits>,
+) -> Option<NativeF64Bits> {
+    section
+        .read_phobos_nullable_double(key, current.map(|value| f64::from_bits(value.bits())))
+        .map(|value| NativeF64Bits::from_bits(value.to_bits()))
 }
 
 /// `[CombatDamage]` globals this port reads.
@@ -543,38 +564,38 @@ pub struct PhobosGlobals {
     /// the fallback for a warhead's own `DamageOwnerMultiplier=`
     /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:73-74`).
     #[serde(default = "one_f64")]
-    pub damage_owner_multiplier: f64,
+    pub damage_owner_multiplier: NativeF64Bits,
     /// `[CombatDamage] DamageAlliesMultiplier=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:341`, constructor `Ext/Rules/Body.h:771`).
     #[serde(default = "one_f64")]
-    pub damage_allies_multiplier: f64,
+    pub damage_allies_multiplier: NativeF64Bits,
     /// `[CombatDamage] DamageEnemiesMultiplier=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:342`, constructor `Ext/Rules/Body.h:772`); also
     /// the last fallback of the two berserk chains.
     #[serde(default = "one_f64")]
-    pub damage_enemies_multiplier: f64,
+    pub damage_enemies_multiplier: NativeF64Bits,
     /// `[CombatDamage] DamageOwnerMultiplier.NotAffectsEnemies=`,
     /// `Nullable<double>` (`Ext/Rules/Body.cpp:343`, `Body.h:773`): the owner
     /// column of a warhead whose `AffectsEnemies=no` when the warhead names
     /// no owner multiplier of its own.
     #[serde(default)]
-    pub damage_owner_multiplier_not_affects_enemies: Option<f64>,
+    pub damage_owner_multiplier_not_affects_enemies: Option<NativeF64Bits>,
     /// `[CombatDamage] DamageAlliesMultiplier.NotAffectsEnemies=`
     /// (`Ext/Rules/Body.cpp:344`, `Body.h:774`).
     #[serde(default)]
-    pub damage_allies_multiplier_not_affects_enemies: Option<f64>,
+    pub damage_allies_multiplier_not_affects_enemies: Option<NativeF64Bits>,
     /// `[CombatDamage] DamageOwnerMultiplier.Berzerk=`,
     /// `Nullable<double>` (`Ext/Rules/Body.cpp:345`, `Body.h:775`).
     #[serde(default)]
-    pub damage_owner_multiplier_berzerk: Option<f64>,
+    pub damage_owner_multiplier_berzerk: Option<NativeF64Bits>,
     /// `[CombatDamage] DamageAlliesMultiplier.Berzerk=`
     /// (`Ext/Rules/Body.cpp:346`, `Body.h:776`).
     #[serde(default)]
-    pub damage_allies_multiplier_berzerk: Option<f64>,
+    pub damage_allies_multiplier_berzerk: Option<NativeF64Bits>,
     /// `[CombatDamage] DamageEnemiesMultiplier.Berzerk=`
     /// (`Ext/Rules/Body.cpp:347`, `Body.h:777`).
     #[serde(default)]
-    pub damage_enemies_multiplier_berzerk: Option<f64>,
+    pub damage_enemies_multiplier_berzerk: Option<NativeF64Bits>,
     /// `[AudioVisual] RemoveMindControl.Silent=`, default `no`
     /// (`Ext/Rules/Body.cpp:597`, constructor `Ext/Rules/Body.h:998`): a
     /// warhead's `RemoveMindControl=` frees its victims without the
@@ -614,11 +635,11 @@ pub struct PhobosGlobals {
     /// `[General] VeteranReload=`, default **`1.0`**
     /// (`Ext/Rules/Body.cpp:388`, constructor `Ext/Rules/Body.h:808`).
     #[serde(default = "one_f64")]
-    pub veteran_reload: f64,
+    pub veteran_reload: NativeF64Bits,
     /// `[General] VeteranEmptyReload=`, `Nullable<double>`
     /// (`Ext/Rules/Body.cpp:389`, constructor `Ext/Rules/Body.h:809`).
     #[serde(default)]
-    pub veteran_empty_reload: Option<f64>,
+    pub veteran_empty_reload: Option<NativeF64Bits>,
     /// `[AudioVisual] IsVoiceCreatedGlobal=`, default `no`
     /// (`Ext/Rules/Body.cpp:306`, constructor `Ext/Rules/Body.h:738`): every
     /// produced object plays its `VoiceCreated=`.
@@ -660,9 +681,10 @@ fn no_queue_board_distance_default() -> i32 {
 }
 
 /// `1.0`, the constructor value of the three plain `[CombatDamage]` damage
-/// multipliers (`Ext/Rules/Body.h:770-772`).
-fn one_f64() -> f64 {
-    1.0
+/// multipliers (`Ext/Rules/Body.h:770-772`) and `[General] VeteranReload=`
+/// (`Ext/Rules/Body.h:808`), stored as bits so `PhobosGlobals` keeps `Eq`.
+fn one_f64() -> NativeF64Bits {
+    NativeF64Bits::ONE
 }
 
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
@@ -785,9 +807,9 @@ impl Default for PhobosGlobals {
             visual_scatter_max: visual_scatter_max_default(),
             auto_target_no_threat_buildings: false,
             auto_target_ai_no_threat_buildings: true,
-            damage_owner_multiplier: 1.0,
-            damage_allies_multiplier: 1.0,
-            damage_enemies_multiplier: 1.0,
+            damage_owner_multiplier: NativeF64Bits::ONE,
+            damage_allies_multiplier: NativeF64Bits::ONE,
+            damage_enemies_multiplier: NativeF64Bits::ONE,
             damage_owner_multiplier_not_affects_enemies: None,
             damage_allies_multiplier_not_affects_enemies: None,
             damage_owner_multiplier_berzerk: None,
@@ -800,7 +822,7 @@ impl Default for PhobosGlobals {
             no_queue_up_to_enter: false,
             no_queue_up_to_enter_board_distance: no_queue_board_distance_default(),
             no_queue_up_to_enter_buildings: None,
-            veteran_reload: 1.0,
+            veteran_reload: NativeF64Bits::ONE,
             veteran_empty_reload: None,
             is_voice_created_global: false,
             use_disguise_movement_speed: None,
@@ -956,9 +978,12 @@ impl PhobosGlobals {
         );
         // `Ext/Rules/Body.cpp:388-389`.
         globals.veteran_reload =
-            general.read_phobos_double("VeteranReload", globals.veteran_reload);
-        globals.veteran_empty_reload =
-            general.read_phobos_nullable_double("VeteranEmptyReload", globals.veteran_empty_reload);
+            read_double_bits(general, "VeteranReload", globals.veteran_reload);
+        globals.veteran_empty_reload = read_nullable_double_bits(
+            general,
+            "VeteranEmptyReload",
+            globals.veteran_empty_reload,
+        );
         // `Ext/Rules/Body.cpp:475`, a `Valueable<bool>` default `yes`.
         globals.hover_drownable = general.read_bool("HoverDrownable", globals.hover_drownable);
         globals.only_use_land_sequences =
@@ -1179,6 +1204,62 @@ impl PhobosGlobals {
     pub fn extra_threat_coefficient_distance_to_last_target(&self) -> f64 {
         f64::from_bits(self.extra_threat_coefficient_distance_to_last_target.bits())
     }
+
+    /// `[CombatDamage] DamageOwnerMultiplier=`.
+    pub fn damage_owner_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_owner_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier=`.
+    pub fn damage_allies_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_allies_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageEnemiesMultiplier=`.
+    pub fn damage_enemies_multiplier(&self) -> f64 {
+        f64::from_bits(self.damage_enemies_multiplier.bits())
+    }
+
+    /// `[CombatDamage] DamageOwnerMultiplier.NotAffectsEnemies=`.
+    pub fn damage_owner_multiplier_not_affects_enemies(&self) -> Option<f64> {
+        self.damage_owner_multiplier_not_affects_enemies
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier.NotAffectsEnemies=`.
+    pub fn damage_allies_multiplier_not_affects_enemies(&self) -> Option<f64> {
+        self.damage_allies_multiplier_not_affects_enemies
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageOwnerMultiplier.Berzerk=`.
+    pub fn damage_owner_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_owner_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageAlliesMultiplier.Berzerk=`.
+    pub fn damage_allies_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_allies_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[CombatDamage] DamageEnemiesMultiplier.Berzerk=`.
+    pub fn damage_enemies_multiplier_berzerk(&self) -> Option<f64> {
+        self.damage_enemies_multiplier_berzerk
+            .map(|value| f64::from_bits(value.bits()))
+    }
+
+    /// `[General] VeteranReload=`.
+    pub fn veteran_reload(&self) -> f64 {
+        f64::from_bits(self.veteran_reload.bits())
+    }
+
+    /// `[General] VeteranEmptyReload=`.
+    pub fn veteran_empty_reload(&self) -> Option<f64> {
+        self.veteran_empty_reload
+            .map(|value| f64::from_bits(value.bits()))
+    }
 }
 
 fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlobals {
@@ -1282,31 +1363,43 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         // multipliers, read in this order. The three plain values are
         // `Valueable<double>` 1.0; the five nullable columns stay unset until
         // a layer names them.
-        damage_owner_multiplier: section
-            .read_phobos_double("DamageOwnerMultiplier", defaults.damage_owner_multiplier),
-        damage_allies_multiplier: section
-            .read_phobos_double("DamageAlliesMultiplier", defaults.damage_allies_multiplier),
-        damage_enemies_multiplier: section.read_phobos_double(
+        damage_owner_multiplier: read_double_bits(
+            section,
+            "DamageOwnerMultiplier",
+            defaults.damage_owner_multiplier,
+        ),
+        damage_allies_multiplier: read_double_bits(
+            section,
+            "DamageAlliesMultiplier",
+            defaults.damage_allies_multiplier,
+        ),
+        damage_enemies_multiplier: read_double_bits(
+            section,
             "DamageEnemiesMultiplier",
             defaults.damage_enemies_multiplier,
         ),
-        damage_owner_multiplier_not_affects_enemies: section.read_phobos_nullable_double(
+        damage_owner_multiplier_not_affects_enemies: read_nullable_double_bits(
+            section,
             "DamageOwnerMultiplier.NotAffectsEnemies",
             defaults.damage_owner_multiplier_not_affects_enemies,
         ),
-        damage_allies_multiplier_not_affects_enemies: section.read_phobos_nullable_double(
+        damage_allies_multiplier_not_affects_enemies: read_nullable_double_bits(
+            section,
             "DamageAlliesMultiplier.NotAffectsEnemies",
             defaults.damage_allies_multiplier_not_affects_enemies,
         ),
-        damage_owner_multiplier_berzerk: section.read_phobos_nullable_double(
+        damage_owner_multiplier_berzerk: read_nullable_double_bits(
+            section,
             "DamageOwnerMultiplier.Berzerk",
             defaults.damage_owner_multiplier_berzerk,
         ),
-        damage_allies_multiplier_berzerk: section.read_phobos_nullable_double(
+        damage_allies_multiplier_berzerk: read_nullable_double_bits(
+            section,
             "DamageAlliesMultiplier.Berzerk",
             defaults.damage_allies_multiplier_berzerk,
         ),
-        damage_enemies_multiplier_berzerk: section.read_phobos_nullable_double(
+        damage_enemies_multiplier_berzerk: read_nullable_double_bits(
+            section,
             "DamageEnemiesMultiplier.Berzerk",
             defaults.damage_enemies_multiplier_berzerk,
         ),

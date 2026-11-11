@@ -215,14 +215,14 @@ fn the_visual_scatter_bounds_default_and_read_from_audio_visual() {
 #[test]
 fn the_damage_multiplier_globals_default_and_read_from_combat_damage() {
     let defaults = PhobosGlobals::default();
-    assert_eq!(defaults.damage_owner_multiplier, 1.0);
-    assert_eq!(defaults.damage_allies_multiplier, 1.0);
-    assert_eq!(defaults.damage_enemies_multiplier, 1.0);
-    assert_eq!(defaults.damage_owner_multiplier_not_affects_enemies, None);
-    assert_eq!(defaults.damage_allies_multiplier_not_affects_enemies, None);
-    assert_eq!(defaults.damage_owner_multiplier_berzerk, None);
-    assert_eq!(defaults.damage_allies_multiplier_berzerk, None);
-    assert_eq!(defaults.damage_enemies_multiplier_berzerk, None);
+    assert_eq!(defaults.damage_owner_multiplier(), 1.0);
+    assert_eq!(defaults.damage_allies_multiplier(), 1.0);
+    assert_eq!(defaults.damage_enemies_multiplier(), 1.0);
+    assert_eq!(defaults.damage_owner_multiplier_not_affects_enemies(), None);
+    assert_eq!(defaults.damage_allies_multiplier_not_affects_enemies(), None);
+    assert_eq!(defaults.damage_owner_multiplier_berzerk(), None);
+    assert_eq!(defaults.damage_allies_multiplier_berzerk(), None);
+    assert_eq!(defaults.damage_enemies_multiplier_berzerk(), None);
     assert_eq!(read(""), defaults);
 
     let set = read(
@@ -231,18 +231,18 @@ fn the_damage_multiplier_globals_default_and_read_from_combat_damage() {
          DamageAlliesMultiplier.NotAffectsEnemies=0.2\nDamageOwnerMultiplier.Berzerk=3\n\
          DamageAlliesMultiplier.Berzerk=4\nDamageEnemiesMultiplier.Berzerk=5\n",
     );
-    assert_eq!(set.damage_owner_multiplier, 0.5);
-    assert_eq!(set.damage_allies_multiplier, 0.25);
-    assert_eq!(set.damage_enemies_multiplier, 2.0);
-    assert_eq!(set.damage_owner_multiplier_not_affects_enemies, Some(0.1));
-    assert_eq!(set.damage_allies_multiplier_not_affects_enemies, Some(0.2));
-    assert_eq!(set.damage_owner_multiplier_berzerk, Some(3.0));
-    assert_eq!(set.damage_allies_multiplier_berzerk, Some(4.0));
-    assert_eq!(set.damage_enemies_multiplier_berzerk, Some(5.0));
+    assert_eq!(set.damage_owner_multiplier(), 0.5);
+    assert_eq!(set.damage_allies_multiplier(), 0.25);
+    assert_eq!(set.damage_enemies_multiplier(), 2.0);
+    assert_eq!(set.damage_owner_multiplier_not_affects_enemies(), Some(0.1));
+    assert_eq!(set.damage_allies_multiplier_not_affects_enemies(), Some(0.2));
+    assert_eq!(set.damage_owner_multiplier_berzerk(), Some(3.0));
+    assert_eq!(set.damage_allies_multiplier_berzerk(), Some(4.0));
+    assert_eq!(set.damage_enemies_multiplier_berzerk(), Some(5.0));
 
     // The keys belong to `[CombatDamage]`, not `[General]`.
     let wrong = read("[General]\nDamageEnemiesMultiplier=9\n");
-    assert_eq!(wrong.damage_enemies_multiplier, 1.0);
+    assert_eq!(wrong.damage_enemies_multiplier(), 1.0);
 }
 
 /// `[AudioVisual] RemoveMindControl.Silent=` and
@@ -305,8 +305,8 @@ fn the_board_queue_and_veteran_reload_globals() {
     assert!(!defaults.no_queue_up_to_enter);
     assert_eq!(defaults.no_queue_up_to_enter_board_distance, 384);
     assert_eq!(defaults.no_queue_up_to_enter_buildings, None);
-    assert_eq!(defaults.veteran_reload, 1.0);
-    assert_eq!(defaults.veteran_empty_reload, None);
+    assert_eq!(defaults.veteran_reload(), 1.0);
+    assert_eq!(defaults.veteran_empty_reload(), None);
     assert_eq!(read(""), defaults);
 
     let set = read(
@@ -316,8 +316,8 @@ fn the_board_queue_and_veteran_reload_globals() {
     assert!(set.no_queue_up_to_enter);
     assert_eq!(set.no_queue_up_to_enter_board_distance, 512);
     assert_eq!(set.no_queue_up_to_enter_buildings, Some(true));
-    assert_eq!(set.veteran_reload, 0.5);
-    assert_eq!(set.veteran_empty_reload, Some(2.0));
+    assert_eq!(set.veteran_reload(), 0.5);
+    assert_eq!(set.veteran_empty_reload(), Some(2.0));
 }
 
 /// `[General] UseDisguiseMovementSpeed=` (`Ext/Rules/Body.cpp:221`) and

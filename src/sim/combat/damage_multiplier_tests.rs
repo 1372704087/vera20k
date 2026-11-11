@@ -32,7 +32,7 @@ fn fixture(combat: &str, keys: &str) -> (Simulation, RuleSet, u64, u64) {
     (sim, rules, victim, attacker)
 }
 
-fn event(sim: &Simulation, victim: u64, attacker: u64, damage: i32) -> EntityDamageEvent {
+fn event(sim: &mut Simulation, victim: u64, attacker: u64, damage: i32) -> EntityDamageEvent {
     let source_house = sim.substrate.entities.get(attacker).map(|it| it.owner());
     EntityDamageEvent::area(
         victim,
@@ -48,8 +48,8 @@ fn event(sim: &Simulation, victim: u64, attacker: u64, damage: i32) -> EntityDam
 /// packet.
 #[test]
 fn the_enemy_column_scales_the_packet() {
-    let (sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=2\n");
-    let event = event(&sim, victim, attacker, 10);
+    let (mut sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=2\n");
+    let event = event(&mut sim, victim, attacker, 10);
     assert_eq!(apply(&sim, &rules, &event, 10), 20);
 }
 
@@ -62,7 +62,7 @@ fn the_owner_column_governs_a_same_house_hit() {
     let friendly = sim
         .spawn_object("MTNK", "Americans", 6, 4, 0, &rules)
         .expect("the friendly shooter spawns");
-    let event = event(&sim, victim, friendly, 10);
+    let event = event(&mut sim, victim, friendly, 10);
     assert_eq!(apply(&sim, &rules, &event, 10), 5);
 }
 
@@ -77,7 +77,7 @@ fn the_ally_column_governs_an_allied_hit() {
         "Americans".to_string(),
         ["Russians".to_string()].into_iter().collect(),
     )]));
-    let event = event(&sim, victim, attacker, 8);
+    let event = event(&mut sim, victim, attacker, 8);
     assert_eq!(apply(&sim, &rules, &event, 8), 2);
 }
 
@@ -89,7 +89,7 @@ fn the_berzerk_column_overrides_the_plain_enemy_column() {
         "",
         "DamageEnemiesMultiplier=2\nDamageEnemiesMultiplier.Berzerk=3\n",
     );
-    let event = event(&sim, victim, attacker, 10);
+    let event = event(&mut sim, victim, attacker, 10);
     assert_eq!(apply(&sim, &rules, &event, 10), 20);
     sim.substrate.entities.get_mut(attacker).unwrap().berserk =
         crate::sim::combat::BerserkState::for_test(true, 100);
@@ -101,8 +101,8 @@ fn the_berzerk_column_overrides_the_plain_enemy_column() {
 #[test]
 fn not_affects_enemies_swaps_the_owner_column_fallback() {
     let keys = "AffectsEnemies=no\n";
-    let (sim, rules, victim, _) = fixture("", keys);
-    assert_eq!(rules.phobos_globals.damage_owner_multiplier, 1.0);
+    let (mut sim, rules, victim, _) = fixture("", keys);
+    assert_eq!(rules.phobos_globals.damage_owner_multiplier(), 1.0);
     let owner = sim.substrate.entities.get(victim).unwrap().owner();
     let event = EntityDamageEvent::area(victim, 10, 0, 0, Some(owner), sim.interner.intern("WH"));
     assert_eq!(
@@ -111,7 +111,7 @@ fn not_affects_enemies_swaps_the_owner_column_fallback() {
         "the plain owner global is 1.0"
     );
 
-    let (sim, rules, victim, _) = fixture(
+    let (mut sim, rules, victim, _) = fixture(
         "DamageOwnerMultiplier.NotAffectsEnemies=0.5\n",
         "AffectsEnemies=no\n",
     );
@@ -128,7 +128,7 @@ fn the_health_terms_add_to_the_multiplier() {
         "",
         "DamageSourceHealthMultiplier=1\nDamageTargetHealthMultiplier=1\n",
     );
-    let event = event(&sim, victim, attacker, 10);
+    let event = event(&mut sim, victim, attacker, 10);
     // Full health on both sides: 1 + 1 + 1.
     assert_eq!(apply(&sim, &rules, &event, 10), 30);
     sim.substrate
@@ -151,8 +151,8 @@ fn the_health_terms_add_to_the_multiplier() {
 /// fractional hit still lands as one point.
 #[test]
 fn a_truncation_to_zero_keeps_the_sign() {
-    let (sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=0.4\n");
-    let event = event(&sim, victim, attacker, 1);
+    let (mut sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=0.4\n");
+    let event = event(&mut sim, victim, attacker, 1);
     assert_eq!(apply(&sim, &rules, &event, 1), 1);
     assert_eq!(apply(&sim, &rules, &event, -1), -1);
 }
@@ -160,13 +160,13 @@ fn a_truncation_to_zero_keeps_the_sign() {
 /// `:50`: a forced hit and a zero packet skip the block entirely.
 #[test]
 fn forced_and_zero_packets_skip_the_block() {
-    let (sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=2\n");
-    let mut forced = event(&sim, victim, attacker, 10);
+    let (mut sim, rules, victim, attacker) = fixture("", "DamageEnemiesMultiplier=2\n");
+    let mut forced = event(&mut sim, victim, attacker, 10);
     forced.receiver_flags = ReceiverCallFlags {
         ignore_defenses: true,
         arg6: false,
     };
     assert_eq!(apply(&sim, &rules, &forced, 10), 10);
-    let zero = event(&sim, victim, attacker, 0);
+    let zero = event(&mut sim, victim, attacker, 0);
     assert_eq!(apply(&sim, &rules, &zero, 0), 0);
 }

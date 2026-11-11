@@ -3755,14 +3755,14 @@ fn scale_reload_for_veterancy(
     let multiplier = if empty {
         object.phobos_techno_extras.veteran_empty_reload.unwrap_or(
             globals
-                .veteran_empty_reload
-                .unwrap_or(globals.veteran_reload),
+                .veteran_empty_reload()
+                .unwrap_or(globals.veteran_reload()),
         )
     } else {
         object
             .phobos_techno_extras
             .veteran_reload
-            .unwrap_or(globals.veteran_reload)
+            .unwrap_or(globals.veteran_reload())
     };
     // `GeneralUtils::SafeMultiply(int, double)`: the double product clamped to
     // the `i32` range, then `static_cast<int>` (truncation toward zero).

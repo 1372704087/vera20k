@@ -71,16 +71,16 @@ pub(crate) fn apply(
         // `:62-63`.
         (DamageRelation::Enemies, true) => values
             .enemies_berzerk
-            .or(globals.damage_enemies_multiplier_berzerk)
-            .unwrap_or(globals.damage_enemies_multiplier),
+            .or(globals.damage_enemies_multiplier_berzerk())
+            .unwrap_or(globals.damage_enemies_multiplier()),
         // `:69-70`.
         (DamageRelation::Enemies, false) => {
-            values.enemies.unwrap_or(globals.damage_enemies_multiplier)
+            values.enemies.unwrap_or(globals.damage_enemies_multiplier())
         }
         // `:64-65`.
         (DamageRelation::Allies, true) => values
             .allies_berzerk
-            .or(globals.damage_allies_multiplier_berzerk)
+            .or(globals.damage_allies_multiplier_berzerk())
             .unwrap_or_else(|| allies_column_fallback(globals, affects_enemies)),
         // `:71-72`.
         (DamageRelation::Allies, false) => values
@@ -89,7 +89,7 @@ pub(crate) fn apply(
         // `:66-67`.
         (DamageRelation::Owner, true) => values
             .owner_berzerk
-            .or(globals.damage_owner_multiplier_berzerk)
+            .or(globals.damage_owner_multiplier_berzerk())
             .unwrap_or_else(|| owner_column_fallback(globals, affects_enemies)),
         // `:73-74`.
         (DamageRelation::Owner, false) => values
@@ -135,11 +135,11 @@ fn allies_column_fallback(
     affects_enemies: bool,
 ) -> f64 {
     if affects_enemies {
-        globals.damage_allies_multiplier
+        globals.damage_allies_multiplier()
     } else {
         globals
-            .damage_allies_multiplier_not_affects_enemies
-            .unwrap_or(globals.damage_allies_multiplier)
+            .damage_allies_multiplier_not_affects_enemies()
+            .unwrap_or(globals.damage_allies_multiplier())
     }
 }
 
@@ -149,11 +149,11 @@ fn owner_column_fallback(
     affects_enemies: bool,
 ) -> f64 {
     if affects_enemies {
-        globals.damage_owner_multiplier
+        globals.damage_owner_multiplier()
     } else {
         globals
-            .damage_owner_multiplier_not_affects_enemies
-            .unwrap_or(globals.damage_owner_multiplier)
+            .damage_owner_multiplier_not_affects_enemies()
+            .unwrap_or(globals.damage_owner_multiplier())
     }
 }
 

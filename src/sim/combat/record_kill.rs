@@ -552,6 +552,13 @@ impl crate::sim::world::Simulation {
                 }
             }
         }
+        // Phobos `TechnoClass_RegisterDestruction_SaveKillerInfo` hook
+        // `0x702E4E` (`Ext/Techno/Hooks.cpp:667-686`): the dying object's
+        // `DropCrate=` places its fixed powerup at its location, before the
+        // kill bookkeeping. Runs on every RegisterDestruction entry, as the
+        // hook does.
+        #[cfg(feature = "phobos")]
+        self.drop_crate_on_destruction(victim_id, rules, context.registry(), context.effects());
         let Some(victim) = self.substrate.entities.get(victim_id) else {
             return;
         };

@@ -20,7 +20,7 @@ so an unknown name is a parse failure and leaves the nullable unset. VERA
 resolves the name against `crate::rules::powerups::POWERUP_NAMES`, the same
 nineteen names in the same slot order, and stores the slot index.
 
-## Behaviour (not yet consumed)
+## Behaviour
 
 `TechnoExt::GetDropCrateIndex` (`Ext/Techno/Body.Internal.cpp:275-299`) answers
 the type's slot when the instance has no per-instance override, else `-1`. Two
@@ -35,27 +35,39 @@ if (nSelectedPowerup >= 0)
 // 0x70337D, HouseClass::RegisterDestruction (the Chronoshift teleport path)
 ```
 
-`TryToCreateCrate` is `MapClass::Place_Crate @ 0x0056BEC0` with a fixed powerup
-slot, which VERA already owns as `sim::crates::place_crate`
-(`src/sim/crates.rs`): it snaps the cell, takes the first empty crate slot,
-places the overlay, arms `CrateRegen`, and writes the powerup byte the pickup
-reads as its stored selection.
+`TryToCreateCrate` (`Ext/Techno/Body.cpp:579-656`) converts the location to
+its cell and scans outward in rings of `currentRange = 0..10` — the upper line
+`y - r` left to right, the lower line `y + r`, then the left and right columns
+between them — calling `MapClass::PlacePowerupCrate @ 0x0056BEC0` at each cell
+until one accepts. VERA already owns that callee as
+`sim::crates::place_crate` (`src/sim/crates.rs`): it snaps the cell, takes the
+first empty crate slot, places the overlay, arms `CrateRegen`, and writes the
+powerup byte the pickup reads as its stored selection.
+
+VERA ports the destruction hook as
+`Simulation::drop_crate_on_destruction` (`src/sim/phobos_drop_crate.rs`),
+called from `Simulation::record_the_kill` before the kill bookkeeping — the
+`0x702E4E` position. It reproduces the ring scan over `place_crate`.
 
 ## Residual
 
-**The key is read; the destruction hook is not wired.** VERA has no
-`TechnoClass::RegisterDestruction` equivalent — a techno's death is a
-`KillRecord` plus the death-weapon/explosion arms, and the site that would
-place the crate has no `OverlayTypeRegistry` in scope. Wiring it means finding
-the single death transaction that owns both the victim's location and the
-overlay registry, then calling `place_crate(..., Some(slot as u8), effects)`,
-and modelling the per-instance `DropCrate`/`DropCrateType` override
-(`TechnoExt::DropCrate`, `Body.Internal.cpp:285-295`) that outranks the type
-key.
+**The per-instance override is unported.** `TechnoExt::DropCrate` /
+`DropCrateType` (`Ext/Techno/Body.Internal.cpp:285-295`) are written only by
+the Phobos trigger action `SetDropCrate=600`
+(`Ext/TAction/Body.cpp:690-720`), which VERA does not implement. Trigger: a
+map fires that action on a tagged techno. Effect: the type's `DropCrate=`
+decides instead of the action's parameter, and an action setting `0`
+("disable") is ignored. Frequency: mod-authored maps. Risk: a crate drops that
+the map meant to suppress or retype.
 
-Until then `DropCrate=` is inert.
+The `HouseClass::RegisterDestruction` (`0x70337D`) teleport call site has no
+separate VERA entry; a Chronoshift that destroys its target reaches the same
+`record_the_kill` transaction.
 
 ## Tests
 
 - `src/rules/phobos_techno_extras_tests.rs` —
   `drop_crate_resolves_a_powerup_slot_and_rejects_unknown_names`.
+- `src/sim/phobos_drop_crate_tests.rs` — through the production destruction
+  transaction: `drop_crate_places_its_powerup_on_the_death_cell` and
+  `an_unset_drop_crate_places_nothing`.

@@ -111,6 +111,8 @@ mod affects_underground_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod cloak_anim_tests;
 #[cfg(feature = "phobos")]
+pub(crate) mod phobos_drop_crate;
+#[cfg(feature = "phobos")]
 pub(crate) mod phobos_no_rearm;
 #[cfg(feature = "phobos")]
 pub(crate) mod phobos_start_facing;

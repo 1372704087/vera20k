@@ -103,6 +103,7 @@ Supported extensions:
 - [Auto-target own position](phobos-auto-target-own-position.md) (`AutoTargetOwnPosition` / `.Self` and the deprecated `AutoFire` aliases make the auto-target scan hold the unit or its cell; 4 keys)
 - [Sellable repack buildings](phobos-undeploys-into-sellable.md) (`UndeploysInto.Sellable` lets a non-ConYard repack building sell instead of packing up when it has no ArchiveTarget; 1 key)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
+- [Projectile AU](phobos-projectile-au.md) (`[Projectile] AU=yes` admits underground auto-target candidates)
 - [Ambient damage warhead](phobos-ambient-damage.md) (`AmbientDamage.Warhead` / `.IgnoreTarget` per weapon plus the `[General]` fallback: railgun and blast-wave ambient damage use an override warhead and can skip the primary target; 3 keys)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)
 - [Airstrike flare](phobos-airstrike-flare.md) (`LaserTargetColor` and `AirstrikeLineColor` per TechnoType, and the line depth fix)

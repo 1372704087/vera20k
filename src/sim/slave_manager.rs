@@ -1741,11 +1741,11 @@ impl Simulation {
         else {
             return None;
         };
-        let civilian = self.civilian_side_house(rules);
+        let neutral = self.civilian_side_house(rules);
         let killer_house = killer
             .and_then(|id| self.substrate.entities.get(id))
             .map(|entity| entity.owner());
-        let new_house = killer_house.or(house).or(civilian);
+        let default_new_house = killer_house.or(house).or(neutral);
         let mut first_freed = None;
         // 6B0B3C retains the initial count; 6B0B4C..56 rereads each live
         // node. Keep Techno+2D8 attached so a synchronous slave death in an
@@ -1758,14 +1758,45 @@ impl Simulation {
             else {
                 continue;
             };
-            let Some(entity) = self.substrate.entities.get_mut(slave) else {
+            let Some((in_limbo, type_ref)) = self
+                .substrate
+                .entities
+                .get(slave)
+                .map(|entity| (entity.lifecycle.in_limbo(), entity.type_ref()))
+            else {
                 continue;
             };
-            entity.slave.owner = None;
-            if entity.lifecycle.in_limbo() {
+            self.substrate.entities.get_mut(slave).unwrap().slave.owner = None;
+            if in_limbo {
                 self.slave_dies_inside(slave, killer, rules, registry, frame_effects);
                 continue;
             }
+            // Phobos `SlaveManagerClass_Killed` (`0x6B0B9C`/`0x6B0BA4`,
+            // `Ext/Techno/Hooks.Misc.cpp:31-74`): each freed slave's own
+            // InfantryType picks its owner; `Killer` keeps the vanilla arm.
+            #[cfg(feature = "phobos")]
+            let new_house = match self
+                .interner
+                .object_type(type_ref, rules)
+                .map(|object| object.phobos_slaved.owner_when_master_killed)
+                .unwrap_or_default()
+            {
+                crate::rules::phobos_slave::SlaveChangeOwnerType::Suicide => {
+                    self.slave_dies_unfreed(slave, rules, registry, frame_effects);
+                    continue;
+                }
+                crate::rules::phobos_slave::SlaveChangeOwnerType::Master => self
+                    .substrate
+                    .entities
+                    .get(slave)
+                    .map(|entity| entity.owner()),
+                crate::rules::phobos_slave::SlaveChangeOwnerType::Neutral => {
+                    neutral.or(default_new_house)
+                }
+                crate::rules::phobos_slave::SlaveChangeOwnerType::Killer => default_new_house,
+            };
+            #[cfg(not(feature = "phobos"))]
+            let new_house = default_new_house;
             let Some(new_house) = new_house else {
                 self.slave_dies_unfreed(slave, rules, registry, frame_effects);
                 continue;
@@ -1775,11 +1806,25 @@ impl Simulation {
             self.infantry_cheer(slave, true, rules, frame_effects);
             first_freed.get_or_insert(slave);
         }
-        if let (Some(slave), Some(sound)) = (first_freed, rules.general.slaves_free_sound.clone())
-            && let Some(entity) = self.substrate.entities.get(slave)
-        {
-            self.sound_events
-                .emit(SimSoundEvent::voc_at(sound, &entity.position));
+        // FreeSlaves' sound hook `0x6B0C2C` (`Hooks.Misc.cpp:8-21`) reads the
+        // first freed slave's type `SlavesFreeSound=` over the fixed
+        // `[AudioVisual]` value.
+        if let Some(slave) = first_freed {
+            #[cfg(feature = "phobos")]
+            let type_sound = self
+                .substrate
+                .entities
+                .get(slave)
+                .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
+                .and_then(|object| object.phobos_slaved.slaves_free_sound.clone());
+            #[cfg(not(feature = "phobos"))]
+            let type_sound: Option<String> = None;
+            if let Some(sound) = type_sound.or_else(|| rules.general.slaves_free_sound.clone())
+                && let Some(entity) = self.substrate.entities.get(slave)
+            {
+                self.sound_events
+                    .emit(SimSoundEvent::voc_at(sound, &entity.position));
+            }
         }
         // 6B0C67 clears the manager's owner only after callbacks and sound.
         self.substrate
@@ -1875,7 +1920,10 @@ impl Simulation {
             None,
             c4,
             crate::sim::combat::ReceiverCallFlags {
-                ignore_defenses: false,
+                // Phobos patch `0x6B0BF7` (`Hooks.Misc.cpp:76-78`) changes
+                // the native `push 0` to `push 1`: the suicide hit ignores
+                // armor defenses.
+                ignore_defenses: cfg!(feature = "phobos"),
                 arg6: false,
             },
         );

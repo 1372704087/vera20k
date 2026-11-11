@@ -1078,6 +1078,10 @@ pub struct ObjectType {
     /// animations.
     #[cfg(feature = "phobos")]
     pub phobos_warp_anim: crate::rules::phobos_warp_anim::WarpAnimRules,
+    /// Phobos InfantryType slave keys (`Ext/InfantryType/Body.cpp:18,31`):
+    /// the freed-slave owner choice and the per-type `SlavesFreeSound`.
+    #[cfg(feature = "phobos")]
+    pub phobos_slaved: crate::rules::phobos_slave::PhobosSlaved,
     /// Phobos `Ammo.*` deploy keys (`Ext/UnitType/Body.cpp:45-49`).
     #[cfg(feature = "phobos")]
     pub phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy,
@@ -5236,6 +5240,8 @@ impl ObjectType {
                 crate::rules::phobos_warp_in_weapon::WarpInWeaponRules::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_warp_anim: crate::rules::phobos_warp_anim::WarpAnimRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_slaved: crate::rules::phobos_slave::PhobosSlaved::from_section(section),
             #[cfg(feature = "phobos")]
             phobos_ammo_deploy: crate::rules::phobos_ammo_deploy::PhobosAmmoDeploy::from_section(
                 section,

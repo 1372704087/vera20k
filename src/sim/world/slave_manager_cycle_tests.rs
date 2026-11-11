@@ -939,3 +939,113 @@ fn area_guard_starts_an_idle_slave_miners_hunt_at_once() {
         assert!(miner.navigation.nav_com().is_some(), "human {human}");
     }
 }
+
+/// A two-slave scene whose `[SLAV]` section carries the Phobos slave keys.
+#[cfg(feature = "phobos")]
+fn freed_scene(slave_keys: &str) -> SlaveScene {
+    use crate::sim::world::slave_manager_oracle_tests::row_scene_edited;
+    row_scene_edited(
+        &serde_json::json!({
+            "name": "phobos-free",
+            "nodes": [
+                {"state": 3, "cell": [17, 12], "mission": "harvest"},
+                {"state": 1, "cell": [16, 14]},
+            ],
+            "ore": [],
+        }),
+        |text, _art| {
+            *text = text.replacen(
+                "[SLAV]\nStrength=125",
+                &format!("[SLAV]\n{slave_keys}Strength=125"),
+                1,
+            );
+            // The suicide arm damages with `C4Warhead=`.
+            text.push_str("[CombatDamage]\nC4Warhead=KILLWH\n");
+        },
+    )
+}
+
+#[cfg(feature = "phobos")]
+fn phobos_kill(s: &mut SlaveScene) -> u64 {
+    let russians = s.scene.sim.interner.intern("Russians");
+    s.scene
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            russians, 1, None, true, 0, 10,
+        ));
+    let killer = s
+        .scene
+        .sim
+        .spawn_object("MTNK", "Russians", 10, 20, 0, &s.scene.rules)
+        .expect("killer");
+    s.scene.sim.sound_events.clear_for_test();
+    let master = s.master;
+    kill(s, master, Some(killer));
+    killer
+}
+
+/// Phobos `Slaved.OwnerWhenMasterKilled=suicide`
+/// (`Ext/Techno/Hooks.Misc.cpp:31-48`): the freed slave is damaged to death
+/// with `C4Warhead` instead of changing owner.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_suicide_slave_dies_when_its_master_is_killed() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=suicide\n");
+    phobos_kill(&mut s);
+    for index in [0, 1] {
+        let slave = s
+            .scene
+            .sim
+            .substrate
+            .entities
+            .get(s.slaves[&index])
+            .unwrap();
+        assert!(
+            !slave.lifecycle.object_alive(),
+            "slave {index} dies instead of changing owner"
+        );
+        assert_eq!(slave.slave.owner(), None);
+    }
+}
+
+/// `Master` keeps the slave's current owner even when a killer exists.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_master_slave_keeps_its_house() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=master\n");
+    phobos_kill(&mut s);
+    let americans = s.scene.sim.interner.get("Americans").unwrap();
+    for index in [0, 1] {
+        let slave = s
+            .scene
+            .sim
+            .substrate
+            .entities
+            .get(s.slaves[&index])
+            .unwrap();
+        assert_eq!(slave.owner(), americans, "slave {index} keeps its house");
+        assert_eq!(slave.slave.owner(), None);
+    }
+}
+
+/// `FreeSlaves`' sound hook reads the first freed slave's type
+/// `SlavesFreeSound=` over `[AudioVisual] SlavesFreeSound=`.
+#[cfg(feature = "phobos")]
+#[test]
+fn the_first_freed_slaves_type_sound_wins_over_the_global() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=master\nSlavesFreeSound=SLAVSHOUT\n");
+    s.scene.rules.general.slaves_free_sound = Some("GLOBALTONE".to_string());
+    phobos_kill(&mut s);
+    let sounds: Vec<&str> = s
+        .scene
+        .sim
+        .sound_events
+        .iter()
+        .filter_map(|event| match event {
+            SimSoundEvent::VocAt { sound_id, .. } => Some(sound_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sounds, ["SLAVSHOUT"], "the type sound replaces the global");
+}

@@ -96,6 +96,7 @@ Supported extensions:
 - [Power plant enhancers](phobos-power-plant-enhancer.md) (`PowerPlantEnhancer.*` output boosts, `PowerPlant.DamageFactor` and placement range rings)
 - [Overpower thresholds](phobos-overpower.md) (`Overpower.KeepOnline` / `.ChargeWeapon` per building type and `ElectricAssaultLevel` per warhead drive the Tesla-charger power bypass and the overpowered weapon latch; 3 keys)
 - [Iron-curtained targeting](phobos-iron-curtain-targeting.md) (`CanTarget.IronCurtained` / `AutoTarget.IronCurtained` per weapon plus the `[CombatDamage]` human/AI fallbacks: firing, retaliation and auto-target gates; 5 keys)
+- [Freed-slave owner and sound](phobos-slave-freed.md) (`Slaved.OwnerWhenMasterKilled` picks killer/master/suicide/neutral per slave type, and a type `SlavesFreeSound` replaces the fixed release sound; 2 keys)
 - [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)

@@ -236,6 +236,8 @@ pub mod phobos_no_rearm;
 pub mod phobos_passengers_sync;
 #[cfg(feature = "phobos")]
 pub mod phobos_selection_flash;
+#[cfg(feature = "phobos")]
+pub mod phobos_slave;
 pub mod phobos_shields;
 #[cfg(any(feature = "ares", feature = "phobos"))]
 pub(crate) mod promotable;

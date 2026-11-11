@@ -163,6 +163,14 @@ Supported extensions:
 - [EMPulse extensions](phobos-empulse.md) (`EMPulse.WeaponIndex`/`.SuspendOthers`/`.Cannons`/`.TargetSelf`: Ares EMPulse cannon weapon slot, suspended superweapons and the self-target arm; 4 keys)
 - [Superweapon activation messages and sold EVA](phobos-sw-messages.md) (`Message.Activated.{Owner,Allies,Enemies}`, `EVA.Activated.*`, the `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair and `EVA.Sold`: launch and linked-grant announcements picked by the launching House's relation to the current player, plus a type's replacement sale line; 9 keys)
 
+## Unmapped-section audit
+
+The forty `###` sections of Phobos's `New-or-Enhanced-Logics.md` whose keys the
+coverage scanner could not resolve — the keys they really read, the VERA owner
+and a status each — are tabulated in the
+[unmapped-section audit](phobos-audit-unmapped-40.md). It records mapping state
+only; the sections there are not implemented by it.
+
 ## Original project and authors
 
 VERA20K implements the behavior in Rust. It does not load `Phobos.dll`, import

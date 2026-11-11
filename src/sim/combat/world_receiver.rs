@@ -1479,6 +1479,20 @@ pub(crate) fn commit_entities(
         {
             receiver_event.damage = 0;
         }
+        // Phobos `TechnoClass_ReceiveDamage_Shield @ 0x701900`'s second block
+        // (`Ext/Techno/Hooks.ReceiveDamage.cpp:48-82`): the damage multiplier
+        // rewrites `args->Damage` after the per-target effects and before the
+        // combat alert and the shield stage.
+        #[cfg(feature = "phobos")]
+        {
+            let scaled = super::damage_multiplier::apply(
+                world,
+                rules,
+                &receiver_event,
+                receiver_event.damage,
+            );
+            receiver_event.damage = scaled;
+        }
         let event = &receiver_event;
         // Phobos `Ext/Techno/Hooks.ReceiveDamage.cpp:86-140`, inside
         // `TechnoClass_ReceiveDamage_Shield @ 0x701900`: the combat alert

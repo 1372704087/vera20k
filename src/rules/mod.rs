@@ -149,6 +149,8 @@ pub mod phobos_create_unit;
 #[cfg(feature = "phobos")]
 pub mod phobos_crit;
 #[cfg(feature = "phobos")]
+pub mod phobos_damage_multiplier;
+#[cfg(feature = "phobos")]
 pub mod phobos_detonate_all_map;
 #[cfg(feature = "phobos")]
 pub mod phobos_drain_money_display;
@@ -269,6 +271,8 @@ pub mod phobos_turret_anim;
 pub mod phobos_units;
 #[cfg(feature = "phobos")]
 pub mod phobos_warhead_anim;
+#[cfg(feature = "phobos")]
+pub mod phobos_warhead_extras;
 #[cfg(feature = "phobos")]
 pub mod phobos_weapon_extras;
 #[cfg(feature = "phobos")]

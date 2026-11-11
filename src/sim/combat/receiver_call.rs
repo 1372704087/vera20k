@@ -709,6 +709,19 @@ pub(crate) fn wave_post_object_damage(
     #[cfg(feature = "phobos")] simulation: Option<&crate::sim::world::Simulation>,
 ) -> Option<i32> {
     let event = prepare_infantry_receiver(event, entities, rules, interner, terrain);
+    // The receiver runs the Phobos damage-multiplier block before the shield
+    // stage, so this preview of the shared per-cell damage applies it first
+    // (`Ext/Techno/Hooks.ReceiveDamage.cpp:48-82`).
+    #[cfg(feature = "phobos")]
+    let event = match simulation {
+        Some(simulation) => {
+            let mut scaled = event;
+            scaled.damage =
+                super::damage_multiplier::apply(simulation, rules, &scaled, scaled.damage);
+            scaled
+        }
+        None => event,
+    };
     // The shield hook writes its surviving value into the caller pointer
     // before Techno's body; preview the stage without committing it, because
     // the receiver commit that follows applies the absorption exactly once.

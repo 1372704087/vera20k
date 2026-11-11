@@ -531,6 +531,61 @@ pub struct PhobosGlobals {
     /// computer's half of the same gate.
     #[serde(default = "true_bool")]
     pub auto_target_ai_no_threat_buildings: bool,
+    /// `[CombatDamage] DamageOwnerMultiplier=`, `Valueable<double>` default
+    /// **`1.0`** (`Ext/Rules/Body.cpp:340`, constructor `Ext/Rules/Body.h:770`):
+    /// the fallback for a warhead's own `DamageOwnerMultiplier=`
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:73-74`).
+    #[serde(default = "one_f64")]
+    pub damage_owner_multiplier: f64,
+    /// `[CombatDamage] DamageAlliesMultiplier=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:341`, constructor `Ext/Rules/Body.h:771`).
+    #[serde(default = "one_f64")]
+    pub damage_allies_multiplier: f64,
+    /// `[CombatDamage] DamageEnemiesMultiplier=`, default **`1.0`**
+    /// (`Ext/Rules/Body.cpp:342`, constructor `Ext/Rules/Body.h:772`); also
+    /// the last fallback of the two berserk chains.
+    #[serde(default = "one_f64")]
+    pub damage_enemies_multiplier: f64,
+    /// `[CombatDamage] DamageOwnerMultiplier.NotAffectsEnemies=`,
+    /// `Nullable<double>` (`Ext/Rules/Body.cpp:343`, `Body.h:773`): the owner
+    /// column of a warhead whose `AffectsEnemies=no` when the warhead names
+    /// no owner multiplier of its own.
+    #[serde(default)]
+    pub damage_owner_multiplier_not_affects_enemies: Option<f64>,
+    /// `[CombatDamage] DamageAlliesMultiplier.NotAffectsEnemies=`
+    /// (`Ext/Rules/Body.cpp:344`, `Body.h:774`).
+    #[serde(default)]
+    pub damage_allies_multiplier_not_affects_enemies: Option<f64>,
+    /// `[CombatDamage] DamageOwnerMultiplier.Berzerk=`,
+    /// `Nullable<double>` (`Ext/Rules/Body.cpp:345`, `Body.h:775`).
+    #[serde(default)]
+    pub damage_owner_multiplier_berzerk: Option<f64>,
+    /// `[CombatDamage] DamageAlliesMultiplier.Berzerk=`
+    /// (`Ext/Rules/Body.cpp:346`, `Body.h:776`).
+    #[serde(default)]
+    pub damage_allies_multiplier_berzerk: Option<f64>,
+    /// `[CombatDamage] DamageEnemiesMultiplier.Berzerk=`
+    /// (`Ext/Rules/Body.cpp:347`, `Body.h:777`).
+    #[serde(default)]
+    pub damage_enemies_multiplier_berzerk: Option<f64>,
+    /// `[AudioVisual] RemoveMindControl.Silent=`, default `no`
+    /// (`Ext/Rules/Body.cpp:597`, constructor `Ext/Rules/Body.h:998`): a
+    /// warhead's `RemoveMindControl=` frees its victims without the
+    /// `MindClearedSound` (`Ext/CaptureManager/Body.cpp:141`).
+    #[serde(default)]
+    pub remove_mind_control_silent: bool,
+    /// `[CombatDamage] MergeBuildingDamage=`, default `no`
+    /// (`Ext/Rules/Body.cpp:503`, constructor `Ext/Rules/Body.h:918`): one
+    /// area detonation damages a building once, with its per-cell distance
+    /// multipliers summed (`Ext/WarheadType/Hooks.cpp:412-487`).
+    #[serde(default)]
+    pub merge_building_damage: bool,
+}
+
+/// `1.0`, the constructor value of the three plain `[CombatDamage]` damage
+/// multipliers (`Ext/Rules/Body.h:770-772`).
+fn one_f64() -> f64 {
+    1.0
 }
 
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
@@ -652,6 +707,16 @@ impl Default for PhobosGlobals {
             visual_scatter_max: visual_scatter_max_default(),
             auto_target_no_threat_buildings: false,
             auto_target_ai_no_threat_buildings: true,
+            damage_owner_multiplier: 1.0,
+            damage_allies_multiplier: 1.0,
+            damage_enemies_multiplier: 1.0,
+            damage_owner_multiplier_not_affects_enemies: None,
+            damage_allies_multiplier_not_affects_enemies: None,
+            damage_owner_multiplier_berzerk: None,
+            damage_allies_multiplier_berzerk: None,
+            damage_enemies_multiplier_berzerk: None,
+            remove_mind_control_silent: false,
+            merge_building_damage: false,
         }
     }
 }
@@ -708,6 +773,11 @@ impl PhobosGlobals {
             );
         // `Ext/Rules/Body.cpp:325-326`: the `VisualScatter=` radius pair,
         // read just ahead of the `CombatAlert*` block (`:355-364`).
+        // `Ext/Rules/Body.cpp:597`: an `[AudioVisual]` read, not CombatDamage.
+        globals.remove_mind_control_silent = audio_visual.read_bool(
+            "RemoveMindControl.Silent",
+            globals.remove_mind_control_silent,
+        );
         globals.visual_scatter_min =
             audio_visual.read_int("VisualScatter.Min", globals.visual_scatter_min);
         globals.visual_scatter_max =
@@ -1078,6 +1148,42 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "DriverKilled.KillPassengers",
             defaults.driver_killed_kill_passengers,
         ),
+        // `Ext/Rules/Body.cpp:340-347`: the eight `[CombatDamage]` damage
+        // multipliers, read in this order. The three plain values are
+        // `Valueable<double>` 1.0; the five nullable columns stay unset until
+        // a layer names them.
+        damage_owner_multiplier: section
+            .read_phobos_double("DamageOwnerMultiplier", defaults.damage_owner_multiplier),
+        damage_allies_multiplier: section
+            .read_phobos_double("DamageAlliesMultiplier", defaults.damage_allies_multiplier),
+        damage_enemies_multiplier: section.read_phobos_double(
+            "DamageEnemiesMultiplier",
+            defaults.damage_enemies_multiplier,
+        ),
+        damage_owner_multiplier_not_affects_enemies: section.read_phobos_nullable_double(
+            "DamageOwnerMultiplier.NotAffectsEnemies",
+            defaults.damage_owner_multiplier_not_affects_enemies,
+        ),
+        damage_allies_multiplier_not_affects_enemies: section.read_phobos_nullable_double(
+            "DamageAlliesMultiplier.NotAffectsEnemies",
+            defaults.damage_allies_multiplier_not_affects_enemies,
+        ),
+        damage_owner_multiplier_berzerk: section.read_phobos_nullable_double(
+            "DamageOwnerMultiplier.Berzerk",
+            defaults.damage_owner_multiplier_berzerk,
+        ),
+        damage_allies_multiplier_berzerk: section.read_phobos_nullable_double(
+            "DamageAlliesMultiplier.Berzerk",
+            defaults.damage_allies_multiplier_berzerk,
+        ),
+        damage_enemies_multiplier_berzerk: section.read_phobos_nullable_double(
+            "DamageEnemiesMultiplier.Berzerk",
+            defaults.damage_enemies_multiplier_berzerk,
+        ),
+        // `Ext/Rules/Body.cpp:503`: the merge switch, a `Valueable<bool>`
+        // default `no`.
+        merge_building_damage: section
+            .read_bool("MergeBuildingDamage", defaults.merge_building_damage),
         // The `[AudioVisual]` block belongs to `from_ini`; a `CombatDamage`
         // section leaves these at their constructor values.
         ..defaults

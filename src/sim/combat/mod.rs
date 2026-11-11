@@ -30,6 +30,8 @@ mod airburst;
 mod ares_warhead_effects;
 mod attack_target;
 pub(crate) mod base_defense_response;
+#[cfg(feature = "phobos")]
+pub(crate) mod building_sell;
 pub mod burst;
 pub(crate) mod cell_spread;
 #[cfg(feature = "phobos")]
@@ -42,6 +44,8 @@ pub(crate) mod crit;
 #[cfg(all(test, feature = "phobos"))]
 mod crit_tests;
 pub(crate) mod damage;
+#[cfg(feature = "phobos")]
+pub(crate) mod damage_multiplier;
 pub(crate) mod destruction_effects;
 pub(crate) mod detonation_anim;
 mod effects;

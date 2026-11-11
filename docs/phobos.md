@@ -167,6 +167,10 @@ Supported extensions:
 - [Projectile subject to ground](phobos-bullet-subject-to-ground.md) (`SubjectToGround` on a BulletType: the firing techno's obstacle scan stops where the projectile would pass below the cell floor; 1 key)
 - [Feedback weapon](phobos-feedback-weapon.md) (`FeedbackWeapon`: a second weapon detonated on the firer after the shot's muzzle block, skipping an open-topped passenger when its `FireInTransport=no`; 1 key)
 - [Visual scatter](phobos-visual-scatter.md) (`VisualScatter` plus the `[AudioVisual] VisualScatter.Min/Max` radius: a laser, bolt or beam drawn near the target while the shot keeps its real one; 1 key + 2 globals)
+- [Damage multipliers](phobos-damage-multiplier.md) (`DamageOwnerMultiplier`/`DamageAlliesMultiplier`/`DamageEnemiesMultiplier` and their `.Berzerk` variants, plus the two health-fraction terms: the receiver rescales its own packet by both Houses' relation and both objects' health; 8 warhead keys + 8 `[CombatDamage]` globals)
+- [Break mind control on impact](phobos-remove-mind-control.md) (`RemoveMindControl`/`.Silent`: a detonation frees its mind-controlled victims before every other per-target arm, so `ChangeOwner`/`Convert` see the real House; 2 warhead keys + 1 `[AudioVisual]` global)
+- [Sell or undeploy a building on impact](phobos-building-sell.md) (`BuildingSell`/`.IgnoreUnsellable` and `BuildingUndeploy`/`.Leave`: a hit building is sold, else packed up into its `UndeploysInto=` unit; 4 warhead keys)
+- [Merge area damage on a building](phobos-merge-building-damage.md) (`MergeBuildingDamage`: one detonation damages a building once with its per-cell distance multipliers summed, instead of once per foundation cell; 1 warhead key + 1 `[CombatDamage]` global)
 
 ## Original project and authors
 

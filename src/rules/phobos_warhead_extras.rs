@@ -1,0 +1,106 @@
+//! Phobos `WarheadTypeExt` per-target keys that no other warhead owner reads.
+//!
+//! Two groups, both consumed while a detonation walks the targets it reaches
+//! (`WarheadTypeExt::DetonateOnOneUnit`, `Ext/WarheadType/Detonate.cpp:197-231`):
+//!
+//! ```ini
+//! RemoveMindControl=            ; Valueable<bool>, no
+//! RemoveMindControl.Silent=     ; Nullable<bool>, unset
+//! BuildingSell=                 ; Valueable<bool>, no
+//! BuildingSell.IgnoreUnsellable=; Valueable<bool>, no
+//! BuildingUndeploy=             ; Valueable<bool>, no
+//! BuildingUndeploy.Leave=       ; Valueable<bool>, no
+//! ```
+//!
+//! plus `MergeBuildingDamage=`, a `Nullable<bool>` read at
+//! `Ext/WarheadType/Body.cpp:339` and consumed by the area-damage sweep
+//! (`Ext/WarheadType/Hooks.cpp:412-487`) rather than per target.
+//!
+//! Read order is `LoadFromINI`'s: `RemoveMindControl` and its `.Silent`
+//! (`Body.cpp:178-179`, declarations `Body.h:49-50`, constructor
+//! `Body.h:328-329`), `MergeBuildingDamage` (`:339`, `Body.h:184`, constructor
+//! `:463`) and the four sell/undeploy keys (`:362-365`, `Body.h:207-210`,
+//! constructor `:486-489`).
+//!
+//! Two keys have `[Rules]` fallbacks:
+//! - `MergeBuildingDamage` falls back to `[CombatDamage] MergeBuildingDamage`
+//!   (`Ext/Rules/Body.cpp:503`, constructor `Ext/Rules/Body.h:918`, default
+//!   `no`).
+//! - `RemoveMindControl.Silent` falls back to
+//!   `[AudioVisual] RemoveMindControl.Silent` (`Ext/Rules/Body.cpp:597`,
+//!   constructor `Ext/Rules/Body.h:998`, default `no`).
+//!
+//! ## Dependency rules
+//! - Part of rules/ — no dependency on sim/, render/, ui/, etc.
+
+use crate::rules::ini_parser::IniSection;
+
+/// The seven keys owned here.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct PhobosWarheadExtras {
+    /// `RemoveMindControl=` (`Body.cpp:178`), default `no`: a target this
+    /// warhead reaches is freed from mind control before every other
+    /// per-target effect (`Detonate.cpp:207-208`).
+    pub remove_mind_control: bool,
+    /// `RemoveMindControl.Silent=` (`Body.cpp:179`), `Nullable`: frees the
+    /// target without its `MindClearedSound`. `None` reads the
+    /// `[AudioVisual]` global.
+    pub remove_mind_control_silent: Option<bool>,
+    /// `MergeBuildingDamage=` (`Body.cpp:339`), `Nullable`: one building hit
+    /// by several cells of the same area damage takes a single receiver call
+    /// carrying the summed distance multipliers. `None` reads the
+    /// `[CombatDamage]` global.
+    pub merge_building_damage: Option<bool>,
+    /// `BuildingSell=` (`Body.cpp:362`), default `no`: a hit building is sold
+    /// (`Detonate.cpp:274-278`). It outranks `BuildingUndeploy=`.
+    pub building_sell: bool,
+    /// `BuildingSell.IgnoreUnsellable=` (`Body.cpp:363`), default `no`: sell
+    /// the building even when `CanBeSold()` refuses or it is strange.
+    pub building_sell_ignore_unsellable: bool,
+    /// `BuildingUndeploy=` (`Body.cpp:364`), default `no`: a hit building
+    /// packs up into its `UndeploysInto=` unit (`Detonate.cpp:304`).
+    pub building_undeploy: bool,
+    /// `BuildingUndeploy.Leave=` (`Body.cpp:365`), default `no`: the
+    /// undeployment leaves a building behind at the cell instead of nothing.
+    pub building_undeploy_leave: bool,
+}
+
+impl PhobosWarheadExtras {
+    /// Reads the seven keys in `LoadFromINI` order
+    /// (`Ext/WarheadType/Body.cpp:178-179`, `:339`, `:362-365`).
+    pub fn from_section(section: &IniSection) -> Self {
+        Self {
+            remove_mind_control: section.read_bool("RemoveMindControl", false),
+            remove_mind_control_silent: section
+                .read_phobos_nullable_bool("RemoveMindControl.Silent", None),
+            merge_building_damage: section.read_phobos_nullable_bool("MergeBuildingDamage", None),
+            building_sell: section.read_bool("BuildingSell", false),
+            building_sell_ignore_unsellable: section
+                .read_bool("BuildingSell.IgnoreUnsellable", false),
+            building_undeploy: section.read_bool("BuildingUndeploy", false),
+            building_undeploy_leave: section.read_bool("BuildingUndeploy.Leave", false),
+        }
+    }
+
+    /// `RemoveMindControl` or either sell/undeploy arm is set, so the
+    /// per-target walk must visit this warhead.
+    pub fn has_per_target_effect(&self) -> bool {
+        self.remove_mind_control || self.building_sell || self.building_undeploy
+    }
+
+    /// `RemoveMindControl_Silent.Get(RulesExt::Global()->RemoveMindControl_Silent)`
+    /// (`Detonate.cpp:478`).
+    pub fn mind_control_silent(&self, global: bool) -> bool {
+        self.remove_mind_control_silent.unwrap_or(global)
+    }
+
+    /// `MergeBuildingDamage.Get(RulesExt::Global()->MergeBuildingDamage)`
+    /// (`Ext/WarheadType/Hooks.cpp:414`).
+    pub fn merges_building_damage(&self, global: bool) -> bool {
+        self.merge_building_damage.unwrap_or(global)
+    }
+}
+
+#[cfg(test)]
+#[path = "phobos_warhead_extras_tests.rs"]
+mod tests;

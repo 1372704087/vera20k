@@ -32,9 +32,9 @@ use crate::sim::world::{CombatAlertVoice, SimSoundEvent, Simulation};
 /// One received hit's chance to raise the victim House's combat alert.
 ///
 /// `damage` is the receiver body's current value at the native hook point
-/// (after the Phobos damage-multiplier block, which VERA does not port; see
-/// the residual in `docs/phobos-combat-alert.md`) and `frame` is the current
-/// binary frame.
+/// (after [`super::damage_multiplier`], which owns the Phobos
+/// `Damage*Multiplier` block at `Ext/Techno/Hooks.ReceiveDamage.cpp:48-82`)
+/// and `frame` is the current binary frame.
 pub(crate) fn raise_combat_alert(
     world: &mut Simulation,
     rules: &RuleSet,

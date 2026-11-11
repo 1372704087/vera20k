@@ -500,6 +500,14 @@ pub(crate) struct AoECollector {
     /// [`crate::sim::scenario_session::ScenarioSession::truce_harvester_types`]:
     /// the `HarvesterUnit=` types while ScenarioFlags bit 0x800 is set.
     truce_harvesters: Vec<crate::sim::intern::InternedId>,
+    /// Phobos `MergeBuildingDamage.Get(RulesExt::Global()->MergeBuildingDamage)`
+    /// (`Ext/WarheadType/Hooks.cpp:414`), resolved once at collection start.
+    #[cfg(feature = "phobos")]
+    merge_building_damage: bool,
+    /// `Game::F2I(CellSpread * Unsorted::LeptonsPerCell)`, the merge loop's
+    /// own threshold (`Ext/WarheadType/Hooks.cpp:426`).
+    #[cfg(feature = "phobos")]
+    merge_spread_leptons: i32,
     pub result: AoEDamageResult,
 }
 
@@ -685,6 +693,14 @@ impl AoECollector {
             exact_impact,
             native_occupancy: native_occupancy.is_some(),
             truce_harvesters,
+            #[cfg(feature = "phobos")]
+            merge_building_damage: warhead
+                .phobos_extras
+                .merges_building_damage(rules.phobos_globals.merge_building_damage),
+            #[cfg(feature = "phobos")]
+            merge_spread_leptons: crate::util::native_x87::X87Chop53::ftol_f64_low_masked(
+                cell_spread * f64::from(crate::util::lepton::LEPTONS_PER_CELL_I32),
+            ),
             result,
         })
     }
@@ -853,6 +869,16 @@ impl AoECollector {
     ) -> AoEDamageResult {
         if self.native_occupancy {
             limit_records_per_object(&mut self.result, warhead);
+            #[cfg(feature = "phobos")]
+            if self.merge_building_damage {
+                merge_building_records(
+                    &mut self.result,
+                    entities,
+                    warhead,
+                    self.merge_spread_leptons,
+                    self.base_damage,
+                );
+            }
             return finalize_receiver_isolation_metadata(self.result, warhead);
         }
 
@@ -895,6 +921,16 @@ impl AoECollector {
         }
 
         limit_records_per_object(&mut self.result, warhead);
+        #[cfg(feature = "phobos")]
+        if self.merge_building_damage {
+            merge_building_records(
+                &mut self.result,
+                entities,
+                warhead,
+                self.merge_spread_leptons,
+                self.base_damage,
+            );
+        }
         finalize_receiver_isolation_metadata(self.result, warhead)
     }
 }
@@ -973,6 +1009,115 @@ pub(super) fn limit_records_per_object(result: &mut AoEDamageResult, warhead: &W
     }
     #[cfg(not(feature = "ares"))]
     let _ = (result, warhead);
+}
+
+/// Phobos `MergeBuildingDamage` (`Ext/WarheadType/Hooks.cpp:410-487`): one
+/// area detonation damages a building once.
+///
+/// The vanilla sweep appends one record per foundation cell a spread cell
+/// holds, so a 3x3 building inside a 2-cell spread takes nine receiver calls.
+/// Phobos first sums each building's own distance multiplier over its records
+/// (`:426-445`) and then issues a single call carrying
+/// `F2I(baseDamage * sum)` at distance 0 (`:447-478`), keeping the sign when
+/// the product truncates to zero.
+///
+/// The native loop re-checks aliveness, `InvisibleInGame`, health, the map and
+/// limbo state before that call; VERA leaves those to the receiver, which
+/// already refuses a dead or limboed building, so a merged record that would
+/// have been skipped only wastes the walk.
+///
+/// RESIDUAL: native runs the merged building pass as its own loop after the
+/// object sweep; VERA rewrites the first record in place so the receiver order
+/// (and every other record's position) is untouched. Only the relative order
+/// of a building's damage against another object's in the same transaction
+/// differs, which nothing in the receiver observes.
+#[cfg(feature = "phobos")]
+fn merge_building_records(
+    result: &mut AoEDamageResult,
+    entities: &EntityStore,
+    warhead: &WarheadType,
+    spread_leptons: i32,
+    base_damage: i32,
+) {
+    let is_building = |event: &EntityDamageEvent| {
+        entities
+            .get(event.target_id)
+            .is_some_and(|entity| entity.category() == EntityCategory::Structure)
+    };
+    // `const auto percentDifference = 1.0 - pWH->PercentAtMax;` (`:427`).
+    let percent_difference = 1.0 - warhead.percent_at_max_f64;
+    let spread = f64::from(spread_leptons);
+    let mut sums: Vec<(u64, f64)> = Vec::new();
+    for receiver in &result.receivers {
+        let AreaDamageReceiver::Entity(event) = receiver else {
+            continue;
+        };
+        if !is_building(event) {
+            continue;
+        }
+        // `if (group->Distance > cellSpread) continue;` (`:430-431`).
+        if event.distance_leptons > spread_leptons {
+            continue;
+        }
+        // `(cellSpread && percentDifference) ? 1.0 - (percentDifference *
+        // group->Distance / cellSpread) : 1.0` (`:434-436`).
+        let multiplier = if spread_leptons != 0 && percent_difference != 0.0 {
+            1.0 - (percent_difference * f64::from(event.distance_leptons) / spread)
+        } else {
+            1.0
+        };
+        // `MapBuildings[pBuilding] += multiplier > 0 ? multiplier : 0;`
+        // (`:437`).
+        let add = if multiplier > 0.0 { multiplier } else { 0.0 };
+        match sums.iter_mut().find(|(id, _)| *id == event.target_id) {
+            Some((_, sum)) => *sum += add,
+            None => sums.push((event.target_id, add)),
+        }
+    }
+    if sums.is_empty() {
+        return;
+    }
+    let mut emitted: Vec<u64> = Vec::new();
+    result.receivers.retain_mut(|receiver| {
+        let AreaDamageReceiver::Entity(event) = receiver else {
+            return true;
+        };
+        if !is_building(event) {
+            return true;
+        }
+        let Some((_, sum)) = sums.iter().find(|(id, _)| *id == event.target_id) else {
+            return true;
+        };
+        if emitted.contains(&event.target_id) {
+            return false;
+        }
+        emitted.push(event.target_id);
+        // `Game::F2I(baseDamage * MapBuildings[pBuilding])` and the sign
+        // fallback (`:466-469`).
+        let mut receive =
+            crate::util::native_x87::X87Chop53::ftol_f64_low_masked(f64::from(base_damage) * sum);
+        if receive == 0 && base_damage != 0 {
+            receive = base_damage.signum();
+        }
+        // `ReceiveDamage(&receiveDamage, 0, ...)` (`:471`): the multiplier is
+        // already folded in, so the record carries no distance.
+        let mut merged = *event;
+        merged.damage = receive;
+        merged.distance_leptons = 0;
+        *event = merged;
+        true
+    });
+    #[cfg(any(test, feature = "test-support"))]
+    {
+        result.hits = result
+            .receivers
+            .iter()
+            .filter_map(|receiver| match receiver {
+                AreaDamageReceiver::Entity(event) => Some(*event),
+                AreaDamageReceiver::Terrain(_) => None,
+            })
+            .collect();
+    }
 }
 
 #[cfg(any(test, feature = "test-support"))]
@@ -5230,3 +5375,7 @@ mod tests {
         assert_eq!(sim.state_hash(), before_hash);
     }
 }
+
+#[cfg(all(test, feature = "phobos"))]
+#[path = "aoe_merge_building_tests.rs"]
+mod merge_building_tests;

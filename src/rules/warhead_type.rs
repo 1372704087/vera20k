@@ -527,6 +527,18 @@ pub struct WarheadType {
     pub phobos_rocker_amplitude_multiplier: f64,
     #[cfg(feature = "phobos")]
     pub phobos_rocker_amplitude_override: Option<i32>,
+    /// Phobos `DamageOwnerMultiplier=` / `DamageAlliesMultiplier=` /
+    /// `DamageEnemiesMultiplier=` and their `.Berzerk` variants, plus the two
+    /// health-fraction terms (`Ext/WarheadType/Body.cpp:347-354`). The
+    /// consumer rewrites the receiver's damage before the shield stage
+    /// (`Ext/Techno/Hooks.ReceiveDamage.cpp:48-82`).
+    #[cfg(feature = "phobos")]
+    pub phobos_damage_multiplier: crate::rules::phobos_damage_multiplier::DamageMultiplierRules,
+    /// Phobos `RemoveMindControl`/`.Silent`, `MergeBuildingDamage` and the
+    /// four `BuildingSell`/`BuildingUndeploy` keys
+    /// (`Ext/WarheadType/Body.cpp:178-179`, `:339`, `:362-365`).
+    #[cfg(feature = "phobos")]
+    pub phobos_extras: crate::rules::phobos_warhead_extras::PhobosWarheadExtras,
     /// Phobos `UnlimboDetonate=` (`Ext/WarheadType/Body.cpp:420`,
     /// `Valueable<bool>`, constructor default `no` `Body.h:550`): a
     /// `LimboLaunch=` firer whose bullet detonates with this warhead
@@ -1000,6 +1012,13 @@ impl WarheadType {
             #[cfg(feature = "phobos")]
             phobos_rocker_amplitude_override: section
                 .read_phobos_nullable_int("Rocker.AmplitudeOverride", None),
+            #[cfg(feature = "phobos")]
+            phobos_damage_multiplier:
+                crate::rules::phobos_damage_multiplier::DamageMultiplierRules::from_section(section),
+            #[cfg(feature = "phobos")]
+            phobos_extras: crate::rules::phobos_warhead_extras::PhobosWarheadExtras::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             jumpjet_override: crate::rules::jumpjet_params::JumpjetOverride::from_section(section),
             #[cfg(feature = "phobos")]

@@ -1700,11 +1700,11 @@ pub struct ObjectType {
     /// every drawn type without it (`0x004821BD`).
     pub crate_goodie: bool,
     /// Phobos `CrateGoodie.RerollChance=` (`Valueable<double>`,
-    /// `Ext/UnitType/Body.cpp:76`, constructor 0.0): a `CrateGoodie=yes` type
-    /// passes the crate unit pick only while this is at least the
-    /// `RandomDouble()` draw (`Misc/Hooks.Crates.cpp:80-92`, hook `0x4821BD`).
+    /// `Ext/UnitType/Body.cpp:76`, constructor 0.0): the probability that a
+    /// drawn `CrateGoodie=yes` type rerolls and the pick draws again
+    /// (`Misc/Hooks.Crates.cpp:80-92`, hook `0x4821BD`).
     #[cfg(feature = "phobos")]
-    pub phobos_crate_goodie_reroll_chance: crate::util::native_x87::NativeF64Bits,
+    pub phobos_crate_goodie_reroll_chance: f64,
     /// UnitType+E1A, CarriesCrate (845DE0): ctor74715B clears it;
     /// ReadINI74771F..74773F uses ReadBool5295F0 with the current value.
     /// UnitReceiveDamage73838A also requires the appropriate Scenario flag.
@@ -5858,12 +5858,9 @@ impl ObjectType {
             crate_goodie: section.read_bool("CrateGoodie", false),
             #[cfg(feature = "phobos")]
             phobos_crate_goodie_reroll_chance: if category == ObjectCategory::Vehicle {
-                section.read_double_bits(
-                    "CrateGoodie.RerollChance",
-                    crate::util::native_x87::NativeF64Bits::from_bits(0.0_f64.to_bits()),
-                )
+                section.read_phobos_double("CrateGoodie.RerollChance", 0.0)
             } else {
-                crate::util::native_x87::NativeF64Bits::from_bits(0.0_f64.to_bits())
+                0.0
             },
             carries_crate: category == ObjectCategory::Vehicle
                 && section.read_bool("CarriesCrate", false),

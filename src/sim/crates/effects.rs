@@ -872,14 +872,14 @@ pub(super) fn choose_unit_crate_type<'r>(
         };
         // Phobos `CellClass_GoodieCheck_CrateGoodie` (`0x4821BD`,
         // `Misc/Hooks.Crates.cpp:80-92`): after the type's `CrateGoodie=`
-        // passes, a positive reroll chance rejects it when the draw is above
-        // the chance, before the base-unit gates read the same boolean.
+        // passes, a positive reroll chance rejects it while the draw is at or
+        // below the chance (accept only when `chance < RandomDouble()`),
+        // before the base-unit gates read the same boolean.
         #[cfg(feature = "phobos")]
         let goodie = candidate.crate_goodie
             && {
-                let chance =
-                    f64::from_bits(candidate.phobos_crate_goodie_reroll_chance.bits());
-                chance <= 0.0 || chance >= scenario_rng.random_double()
+                let chance = candidate.phobos_crate_goodie_reroll_chance;
+                chance <= 0.0 || chance < scenario_rng.random_double()
             };
         #[cfg(not(feature = "phobos"))]
         let goodie = candidate.crate_goodie;

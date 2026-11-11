@@ -62,49 +62,45 @@ VERA owns this formula as
 owners of `step` and `cap` differ. Tests:
 `src/sim/movement/parachute_descent.rs`'s `parabomb_rate_tests`.
 
-## Behaviour (partly not yet consumed)
+## Behaviour
 
 Three separate native arms make a parabomb:
 
 1. **`Unlimbo` becomes `SpawnParachuted`** (`Ext/Bullet/Hooks.cpp:573-583`,
    hooking `0x468684`): a `Parachuted=yes` bullet is born under its canopy
-   rather than flying.
+   rather than flying. `BulletClass_Unlimbo_Obstacles`
+   (`Ext/Bullet/Hooks.Obstacles.cpp:136-142`) clears its velocity.
 2. **The canopy anim** (`:585-608`, hooking `0x5F5A62` inside
    `ObjectClass::SpawnParachuted`): `BombParachute.Get([General] BombParachute)`
    constructs an `AnimClass` at the spawn coordinate, owned by the firing house
-   and remapped to its colour scheme, stored as the bullet's `Parachute`.
+   and remapped to its colour scheme.
 3. **The vanilla motion is skipped** (`:610-618`, hooking `0x467AB2`): when
    `HasParachute`, the `0x467AB2..0x467B1A` ordinary gravity/reflection commit
-   is bypassed outright and the descent is driven purely by `FallRate`, which
-   is exactly the block VERA's projectile AI calls its "ordinary scratch
-   gravity/reflection commit".
+   is bypassed outright and the descent is driven purely by `FallRate`.
+
+VERA consumes all three. `sim::world::Simulation::init_parabomb` runs from the
+Fire admission after the bullet type and firer house are known: it stores
+`Projectile::parabomb` (`ParabombState`: accumulated rate, `Parachuted.FallRate=`
+step and the resolved terminal rate), zeroes the velocity, keeps the Fire
+coordinate, and constructs the `BombParachute` (else `[General] BombParachute`)
+AnimClass through the shared anim owner with the firing house's remap. The
+bullet AI's parachute arm
+(`sim::projectile::ProjectileStore::advance_after_head`) accumulates the rate
+with `sim::movement::parachute_descent::parachuted_bullet_rate`, descends Z,
+skips the ordinary collision/gravity tail, and detonates when the new Z reaches
+the ground.
+
+`[General] BombParachute=` is published by the ordered rules type-reference
+owner as `RuleSet::general.bomb_parachute`; an unset type key reads it.
 
 ## Residual
 
-**The keys and the rate model are in place; the bullet is not yet parachuted.**
-Two owners are missing and one hook is not rewired:
-
-- **Per-bullet state.** `BulletExt::ParabombFallRate` (accumulated rate) and
-  `ObjectClass::Parachute` (the canopy `AnimId`) have no slot on VERA's
-  `Projectile`. Adding them means a `#[serde(default)]` field on
-  `Projectile`, which is safe for savegames but also touches the single
-  struct-literal constructor (`ProjectileStore::construct`) and the
-  `world_hash`/checksum projections.
-- **A motion arm.** The parachuted descent replaces the whole trajectory
-  dispatch (`ProjectileTrajectory::{Straight,Ballistic,Vertical}`), and must
-  also skip the `collides_at(..., ProjectileCollisionPhase::Ordinary)` tail
-  the same way `0x467AB2` skips `0x467B1A`. That match is exhaustive over the
-  trajectory enum and feeds the shared collision ladder; inserting a fourth
-  arm is a checksum-sensitive change to the projectile physics that is not
-  safe to land without a compile-and-run cycle.
-- **The canopy anim.** A bullet has no attached-anim owner in VERA (only
-  `awaited_anim`, the `NUKE` impact wait). The `BombParachute=` anim would
-  need one, plus the per-frame repositioning `ObjectClass::Update` does to
-  keep the canopy over its object.
-
-Until those land, `Parachuted=yes` bullets keep flying their ordinary
-trajectory and `BombParachute=` is inert. The rate formula is ready for the
-day they do.
+- **Canopy lifetime.** Native stores the bullet's canopy pointer; VERA lets
+  the AnimClass play at its constructed coordinate and retire on its own. The
+  canopy never follows the falling bullet in either implementation.
+- **`Inviso=` combination.** An `Inviso=yes` + `Parachuted=yes` type would
+  have its placement re-taken by the Inviso arm; no retail bullet combines
+  them.
 
 ## Tests
 
@@ -113,3 +109,13 @@ day they do.
   reset tokens.
 - `src/sim/movement/parachute_descent.rs` `parabomb_rate_tests` — the
   step/cap descent, including the saturating and overflow shapes.
+- `src/sim/projectile.rs` `a_parabomb_descends_by_its_fall_rate_and_grounds` —
+  the vertical descent, the terminal-rate cap, the skipped trajectory and the
+  ground detonation.
+- `src/sim/combat/phobos_bullet_init_tests.rs`
+  `a_parachuted_bullet_type_starts_its_descent_at_the_general_cap` — the Fire
+  admission state and the `Parachuted.MaxFallRate=` fallback, and
+  `a_parachuted_bullet_spawns_its_bomb_parachute_canopy` — the
+  `BombParachute=` canopy at the spawn coordinate with the firing House's
+  remap; `an_unset_parachuted_type_keeps_the_straight_trajectory` — an unset
+  `Parachuted=` admits no descent state and no canopy.

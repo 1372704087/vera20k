@@ -295,6 +295,19 @@ impl Simulation {
         } else {
             requested
         };
+        // Phobos `InfantryClass_DoAction_Water` (`Ext/Techno/Hooks.Misc.cpp:883-901`,
+        // hook 0x51D7E0): a type whose art sets `OnlyUseLandSequences=` — or
+        // whose unset key keeps `[General] OnlyUseLandSequences=` — returns
+        // SkipWaterSequences (0x51D842) and leaves every requested action
+        // unmapped. The water-state store and transition sound below are
+        // still on that path.
+        #[cfg(feature = "phobos")]
+        let only_land_sequences = rules
+            .object_by_handle(facts.handle)
+            .phobos_land_sequences
+            .only_land(rules.phobos_globals.only_use_land_sequences);
+        #[cfg(not(feature = "phobos"))]
+        let only_land_sequences = false;
         if facts.movement_zone == MovementZone::AmphibiousDestroyer {
             //51D7B0: virtual+1B8 is Abstract41BEA0, signed physical XYZ/256
             // packed to two WORDs. Map5657A0 retains one canonical Cell,
@@ -310,7 +323,7 @@ impl Simulation {
                 dummy.land_type()
             };
             let on_land = !matches!(land, 2 | 6) || on_bridge;
-            if !on_land {
+            if !on_land && !only_land_sequences {
                 //51D7DE..51D83D: only these requested records remap. Native
                 // does not recheck the mapped record's count before admission.
                 requested = match requested {

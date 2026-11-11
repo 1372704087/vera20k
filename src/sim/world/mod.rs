@@ -5675,6 +5675,94 @@ impl Simulation {
         stable_id
     }
 
+    /// Phobos `ObjectClass_Unlimbo_Parachuted_Wrapper`
+    /// (`Ext/Bullet/Hooks.cpp:573-583`, replacing the Bullet's Unlimbo at
+    /// `0x468684`) and its canopy hook (`:585-608`, `0x5F5A62`): a
+    /// `Parachuted=` BulletType is born under its canopy at the Fire
+    /// coordinate instead of flying. The bullet's velocity is cleared
+    /// (`Hooks.Obstacles.cpp:136-142`) and its `ParabombFallRate` starts at 0;
+    /// the `BombParachute=` AnimType (else `[General] BombParachute`) is
+    /// constructed there and remapped to the firing House.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn init_parabomb(&mut self, id: u64, rules: &RuleSet) {
+        let Some((keys, origin, source_id)) = self.projectiles.get(id).and_then(|projectile| {
+            let kind = projectile
+                .payload()
+                .projectile_type()
+                .and_then(|id| rules.projectile(self.interner.resolve(id)))?;
+            Some((
+                kind.phobos_parabomb.clone(),
+                projectile.launch_origin(),
+                projectile.source_id(),
+            ))
+        }) else {
+            return;
+        };
+        if !keys.parachuted {
+            return;
+        }
+        self.projectiles.begin_parabomb(
+            id,
+            crate::sim::projectile::ParabombState {
+                accumulated_rate: 0,
+                fall_rate_step: keys.fall_rate,
+                max_fall_rate: keys.max_fall_rate(rules.general.parachute_max_fall_rate),
+            },
+        );
+        let canopy = keys
+            .bomb_parachute
+            .or_else(|| rules.general.bomb_parachute.clone());
+        if let Some(canopy) = canopy {
+            self.spawn_parabomb_canopy(rules, &canopy, origin, source_id);
+        }
+    }
+
+    /// The `BombParachute` AnimClass construction (`Ext/Bullet/Hooks.cpp:585-608`):
+    /// `GameCreate<AnimClass>(pAnimType, coords)` at the spawn coordinate, its
+    /// owner the bullet Owner's House (or the retained `BulletExt::FirerHouse`)
+    /// and the Anim remapped to that House's colour scheme.
+    #[cfg(feature = "phobos")]
+    fn spawn_parabomb_canopy(
+        &mut self,
+        rules: &RuleSet,
+        canopy: &str,
+        coord: crate::sim::projectile::ProjectileCoord,
+        source_id: u64,
+    ) {
+        let type_name = self.interner.intern(canopy);
+        let world = crate::sim::anim_class::AnimWorldCoord {
+            x: coord.x,
+            y: coord.y,
+            z: coord.z,
+        };
+        let (rx, ry, sub_x, sub_y, level) = world.to_cell_sub_z();
+        let descriptor = crate::sim::components::AnimClassSpawnDescriptor {
+            delay: 0,
+            loop_count: 1,
+            draw_flags: 0x600,
+            z_adjust: 0,
+            reverse: false,
+            owner: None,
+            ..crate::sim::components::AnimClassSpawnDescriptor::new(
+                type_name, rx, ry, sub_x, sub_y, level,
+            )
+        };
+        match self.spawn_anim_at_world(rules, descriptor, world) {
+            Ok(anim_id) => {
+                let house = self
+                    .substrate
+                    .entities
+                    .get(source_id)
+                    .map(|owner| owner.owner());
+                if let Some(house) = house {
+                    self.substrate.anims.set_anim_house_remap(anim_id, house);
+                }
+            }
+            // An art type that never bound draws nothing natively either.
+            Err(error) => log::debug!("bomb parachute anim did not construct: {error}"),
+        }
+    }
+
     /// `BulletClass::Construct @ 0x004664C0`, `0x00466519..0x0046653B`: a
     /// `FirersPalette=` BulletType (`+0x2A9`) whose Owner (`+0xB0`) exists
     /// keeps the Owner's House colour scheme at `+0x114`; every other bullet

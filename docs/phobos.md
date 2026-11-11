@@ -210,13 +210,13 @@ Supported extensions:
 - [Drop a crate on death](phobos-drop-crate.md) (`DropCrate`: the `[Powerups]` slot a dying object leaves behind — read, not yet consumed; 1 type key)
 - [Damaged image changes](phobos-damaged-image.md) (`Image.ConditionRed`/`.ConditionYellow` and `WaterImage.*`: a Unit or Aircraft draws a replacement type in the yellow and red bands, with the water pair replacing the land pair on water; 4 type keys)
 - [Hover vehicle drown death](phobos-hover-drown.md) (`HoverDrownable`: a hover Unit that shut down over water takes the whole-health packet when it lands, and the type's key overrides `[General] HoverDrownable`; 1 type key + 1 `[General]` global)
-- [RA1 multi-turret / multi-barrel](phobos-turret-barrel.md) (`BarrelOverTurret`/`BarrelOffset`/`ExtraBarrelCount`/`ExtraTurretCount`/`BurstPerTurret` and the indexed offsets: per-turret and per-barrel draw transforms, recoil slots and burst cycling — read, not yet consumed; 5 type keys + 2 indexed lists)
-- [Parabombs](phobos-parabomb.md) (`Parachuted`/`.FallRate`/`.MaxFallRate` and `BombParachute`: a projectile that descends under a canopy at a step/cap fall rate — the keys and the rate model are in, the bullet's parachute state is not yet wired; 4 type keys)
+- [RA1 multi-turret / multi-barrel](phobos-turret-barrel.md) (`BarrelOverTurret`/`BarrelOffset`/`ExtraBarrelCount`/`ExtraTurretCount`/`BurstPerTurret` and the indexed offsets: `BurstPerTurret` cycles the extra-turret fire-origin pivot; the per-barrel/turret draw transforms and recoil slots stay residual; 5 type keys + 2 indexed lists)
+- [Parabombs](phobos-parabomb.md) (`Parachuted`/`.FallRate`/`.MaxFallRate` and `BombParachute`: a projectile born under a canopy that descends at a step/cap fall rate and detonates on the ground; 4 type keys)
 - [Return weapon](phobos-return-weapon.md) (`ReturnWeapon` and `ReturnWeapon.ApplyFirepowerMult`: a detonating bullet fires the named weapon back at its firer from the impact, with the firepower multiplier scaling `Damage=`; 2 type keys + 1 `[CombatDamage]` global)
 - [Damaged aircraft image changes](phobos-damaged-image.md) is shared by the Unit (`Image.Condition*`) and Aircraft (`WaterImage.Condition*`) readers — see that page.
 - [Roof production exit](phobos-exit-through-roof.md) (`ExitThroughRoof`: a produced unit leaves through the roof anim instead of the gate — read, not yet consumed; 1 type key)
 - [Slaves on master-killed](phobos-slaved.md) (`Slaved.OwnerWhenMasterKilled`: killer / master / suicide / neutral for a freed slave miner — read, not yet consumed; 1 type key)
-- [Land sequences in water](phobos-land-sequences.md) (`OnlyUseLandSequences` on the art section plus `[General]`: infantry keep land sequences in water — read, not yet consumed; 1 type key + 1 `[General]` global)
+- [Land sequences in water](phobos-land-sequences.md) (`OnlyUseLandSequences` on the art section plus `[General]`: infantry keep land sequences in water; 1 type key + 1 `[General]` global)
 - [Super-weapon sidebar tab](phobos-sw-tab-index.md) (`TabIndex`: which of the four sidebar tabs a super weapon cameo occupies, out-of-range resetting to `1`; 1 type key)
 
 ## Original project and authors

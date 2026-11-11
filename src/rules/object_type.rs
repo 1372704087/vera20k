@@ -183,11 +183,17 @@ impl InfantryPips {
 /// Every reached ReadINI pass reads all five from the ART section its Image
 /// names, each with its current value as the default
 /// (`InfantryTypeClass::ReadINI`, `0x005246A1..0x0052472D`), so a pass whose
-/// section lacks a key keeps the value an earlier pass read.
+/// section lacks a key keeps the value an earlier pass read. The Phobos
+/// `LoadFromINI` hook (`0x52473F`) then reads `OnlyUseLandSequences=` from
+/// that same ART section (`Ext/InfantryType/Body.cpp:32`), also with its
+/// current nullable value as the default.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct InfantryArt {
     crawls: bool,
     discharge_frames: [i32; 4],
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    phobos_land_sequences: crate::rules::phobos_land_sequences::PhobosLandSequences,
 }
 
 impl Default for InfantryArt {
@@ -195,6 +201,8 @@ impl Default for InfantryArt {
         Self {
             crawls: true,
             discharge_frames: [0; 4],
+            #[cfg(feature = "phobos")]
+            phobos_land_sequences: Default::default(),
         }
     }
 }
@@ -204,6 +212,12 @@ impl InfantryArt {
     pub(crate) fn read_pass(&mut self, section: &IniSection) {
         self.crawls = section.read_bool("Crawls", self.crawls);
         crate::rules::art_data::read_infantry_discharge_frames(section, &mut self.discharge_frames);
+        // Phobos `InfantryTypeExt::LoadFromINIFile` (`Ext/InfantryType/Body.cpp:32`):
+        // `OnlyUseLandSequences.Read(exArtINI, pArtSection, ...)`, `Nullable`.
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_land_sequences.read_pass(section);
+        }
     }
 }
 
@@ -4332,6 +4346,12 @@ impl ObjectType {
             self.secondary_fire_frame,
             self.secondary_prone_frame,
         ] = art.discharge_frames;
+        // The type's `OnlyUseLandSequences=` comes from the same per-pass ART
+        // reads (`Ext/InfantryType/Body.cpp:32`), never the rules section.
+        #[cfg(feature = "phobos")]
+        {
+            self.phobos_land_sequences = art.phobos_land_sequences;
+        }
     }
 
     pub(crate) fn project_infantry_sequence_bank(
@@ -5465,8 +5485,10 @@ impl ObjectType {
                     section,
                 ),
             #[cfg(feature = "phobos")]
-            phobos_land_sequences:
-                crate::rules::phobos_land_sequences::PhobosLandSequences::from_section(section),
+            // ART-layer key: read per pass from the Image's ART section
+            // (`Ext/InfantryType/Body.cpp:32`) and projected by
+            // `project_infantry_art`; a rules section never supplies it.
+            phobos_land_sequences: Default::default(),
             #[cfg(feature = "phobos")]
             ammo_shared: section.read_bool("Ammo.Shared", false),
             #[cfg(feature = "phobos")]

@@ -239,6 +239,10 @@ pub enum SpawnManagerMode {
 pub struct SpawnManagerState {
     /// Interned `Spawns=` child type name.
     spawn_type: InternedId,
+    /// Phobos `Spawns.Queue=` (`Ext/TechnoType/Body.cpp:1118`), interned and
+    /// with unknown names already dropped. Empty keeps the stock single type.
+    #[serde(default)]
+    spawn_queue: Vec<InternedId>,
     /// Which hardcoded rocket family the child belongs to, if any.
     missile_family: Option<MissileFamily>,
     /// `SpawnRegenRate=` in frames.
@@ -285,6 +289,12 @@ impl SpawnManagerState {
     /// The interned `Spawns=` child type.
     pub fn spawn_type(&self) -> InternedId {
         self.spawn_type
+    }
+
+    /// Phobos `Spawns.Queue=`: the type order the pool cycles through, empty
+    /// for a stock single-type pool.
+    pub fn spawn_queue(&self) -> &[InternedId] {
+        &self.spawn_queue
     }
 
     /// `SpawnRegenRate=` in frames.
@@ -347,6 +357,7 @@ impl SpawnManagerState {
     pub fn for_test(spawn_type: InternedId, slots: Vec<SpawnSlot>) -> Self {
         Self {
             spawn_type,
+            spawn_queue: Vec::new(),
             missile_family: None,
             regen_rate: 0,
             reload_rate: 0,
@@ -499,6 +510,23 @@ pub fn init_spawn_manager(
     )?;
 
     let missile_family = rules.missile_spawn.family_of(spawn_type_name);
+    // Phobos `Spawns.Queue=` (`Ext/TechnoType/Body.cpp:1118`): the queue's
+    // names resolve through AircraftType67BD30 like `Spawns=`; a name the
+    // rules do not know is dropped by the `ValueableVector` reader.
+    #[cfg(feature = "phobos")]
+    let spawn_queue: Vec<InternedId> = obj
+        .phobos_techno_extras
+        .spawns_queue
+        .iter()
+        .filter(|name| {
+            rules
+                .object_in_category(crate::rules::object_type::ObjectCategory::Aircraft, name)
+                .is_some()
+        })
+        .map(|name| interner.intern(name))
+        .collect();
+    #[cfg(not(feature = "phobos"))]
+    let spawn_queue: Vec<InternedId> = Vec::new();
     // The node flag and the post-launch wait: the three Rules families, and
     // in Ares builds a `Missile.Custom` type ([`RuleSet::spawn_missile_wait_frames`]).
     let kamikaze_wait_frames = rules.spawn_missile_wait_frames(spawn_type_name);
@@ -537,6 +565,7 @@ pub fn init_spawn_manager(
 
     Some(SpawnManagerState {
         spawn_type: interner.intern(spawn_type_name),
+        spawn_queue,
         missile_family,
         regen_rate: obj.spawn_regen_rate,
         reload_rate: obj.spawn_reload_rate,
@@ -834,8 +863,19 @@ trait SpawnHost {
     /// Case 6's rearm: Ammo from the type's `Ammo=`, Health and the estimate
     /// from its `Strength=` (`0x006B788F..0x006B78AA`).
     fn refill(&mut self, child: u64);
+    /// The child's type id, for Phobos' `Spawns.Queue=` alive subtraction
+    /// (`Ext/Techno/Hooks.Misc.cpp:199-207`).
+    #[cfg(feature = "phobos")]
+    fn child_type_id(&self, _child: u64) -> Option<InternedId> {
+        None
+    }
     /// Case 7's `CreateObject(owner's house)` (type vt+0x8C).
     fn create_child(&mut self) -> Option<u64>;
+    /// The same `CreateObject` for a chosen type: Phobos' `Spawns.Queue=`
+    /// passes the slot's queued AircraftType instead of the pool's `Spawns=`.
+    fn create_child_of(&mut self, _spawn_type: InternedId) -> Option<u64> {
+        self.create_child()
+    }
     /// The child's SpawnOwner (`+0x2D4`) set to the owner (`0x006B7947`).
     fn adopt(&mut self, child: u64);
     /// `UnInit` (vt+0xF8).
@@ -887,7 +927,7 @@ fn visit_slot(host: &mut impl SpawnHost, index: usize, frame: i32) {
     let Some(child) = slot.spawn else {
         // Only a regenerating node is without a unit.
         if slot.state == Regenerating && slot.timer.expired(frame) {
-            fill_slot(host, index);
+            fill_slot(host, index, false);
         }
         return;
     };
@@ -978,7 +1018,7 @@ fn visit_slot(host: &mut impl SpawnHost, index: usize, frame: i32) {
         }
         Regenerating => {
             if slot.timer.expired(frame) {
-                fill_slot(host, index);
+                fill_slot(host, index, false);
             }
         }
     }
@@ -1058,12 +1098,51 @@ fn launch_slot(host: &mut impl SpawnHost, index: usize, child: u64, frame: i32) 
 /// Case 7's body (`0x006B78D3..0x006B7953`), also the constructor's
 /// (`0x006B6D3C..0x006B6DA1`): a new child in limbo, flagged by the pool type,
 /// with the owner as its SpawnOwner.
-fn fill_slot(host: &mut impl SpawnHost, index: usize) {
+///
+/// Phobos adds two `Spawns.Queue=` hooks: `0x6B6D44` (the constructor, which
+/// builds slot `i` as `Spawns_Queue[i]` when the type has that many entries)
+/// and `0x6B78D3` (regeneration, which builds the first queued type no live
+/// node currently carries). `initial` selects between them.
+fn fill_slot(host: &mut impl SpawnHost, index: usize, initial: bool) {
     // RESIDUAL: case 7 assumes CreateObject succeeds and the constructor
     // leaves out a node whose CreateObject fails (`0x006B6D5A`); a VERA
     // construction that fails leaves the slot regenerating for the next pass.
     // Trigger: a `Spawns=` type VERA cannot construct (none in retail).
-    let Some(child) = host.create_child() else {
+    #[cfg(feature = "phobos")]
+    let spawn_type = {
+        let (default, queue, children) = {
+            let manager = host.manager_ref();
+            (
+                manager.spawn_type,
+                manager.spawn_queue.clone(),
+                manager
+                    .slots
+                    .iter()
+                    .filter_map(|slot| slot.spawn)
+                    .collect::<Vec<_>>(),
+            )
+        };
+        if queue.is_empty() {
+            default
+        } else if initial {
+            queue.get(index).copied().unwrap_or(default)
+        } else {
+            let alive: Vec<InternedId> = children
+                .iter()
+                .filter_map(|&child| host.child_type_id(child))
+                .collect();
+            queue
+                .into_iter()
+                .find(|queued| !alive.contains(queued))
+                .unwrap_or(default)
+        }
+    };
+    #[cfg(not(feature = "phobos"))]
+    let spawn_type = {
+        let _ = initial;
+        host.manager_ref().spawn_type
+    };
+    let Some(child) = host.create_child_of(spawn_type) else {
         return;
     };
     // `0x006B78F8..0x006B792C`: the node's IsSpawnMissile from the pool type.
@@ -1354,7 +1433,7 @@ pub(crate) fn commit_spawn_manager_pool(
         // `InitialSpawnsNumber` leaves the tail Dead with a started
         // `SpawnTimer`; only a slot whose timer already ran out materialises.
         if slot.spawn.is_none() && slot.timer.expired(frame) {
-            fill_slot(&mut host, index);
+            fill_slot(&mut host, index, true);
         }
     }
 }
@@ -2074,9 +2153,22 @@ impl SpawnHost for WorldSpawn<'_, '_> {
         }
     }
 
+    #[cfg(feature = "phobos")]
+    fn child_type_id(&self, child: u64) -> Option<InternedId> {
+        self.sim
+            .substrate
+            .entities
+            .get(child)
+            .map(|entity| entity.type_ref())
+    }
+
     fn create_child(&mut self) -> Option<u64> {
+        let spawn_type = self.manager_ref().spawn_type;
+        self.create_child_of(spawn_type)
+    }
+
+    fn create_child_of(&mut self, spawn_type: InternedId) -> Option<u64> {
         let rules = self.context.rules();
-        let spawn_type = self.manager().spawn_type;
         let owner = self.sim.substrate.entities.get(self.owner_id)?;
         let house = self.sim.interner.resolve(owner.owner()).to_string();
         let (rx, ry, z) = (owner.position.rx(), owner.position.ry(), owner.position.z());

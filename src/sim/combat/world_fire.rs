@@ -2870,6 +2870,39 @@ pub(super) fn emit_admitted_fire(
     if let Some(event) = out.fire_events.last().cloned() {
         crate::sim::world::damage_consequences::admit_muzzle_anim(world, rules, &event);
     }
+    // Phobos `TechnoClass_FireAt_FeedbackWeapon` (`0x6FF43F`,
+    // `Ext/Techno/Hooks.Firing.cpp:802-812`), at the end of the muzzle block
+    // and before Sonic (`0x006FF470`): the fired weapon's `FeedbackWeapon=`
+    // detonates through `WeaponTypeExt::DetonateAt(weapon, firer, firer)`.
+    // The shot takes the firer's `GetCoords()`, the firer as owner and
+    // target, the feedback weapon's `Damage=`/`Warhead=`/`Bright=` and no
+    // firing house (`DetonateAt`'s default). An open-topped passenger skips
+    // it unless the feedback weapon's own `FireInTransport=`.
+    #[cfg(feature = "phobos")]
+    if let Some(feedback_name) = weapon.phobos_feedback_weapon()
+        && let Some(feedback) = rules.weapon(feedback_name)
+    {
+        let in_open_transport = world
+            .substrate
+            .entities
+            .get(snap.stable_id)
+            .is_some_and(|firer| firer.passenger_role.in_open_transport());
+        if !(in_open_transport && !feedback.fire_in_transport)
+            && let Some(impact) = object_get_coords(world, snap.stable_id)
+            && let Some(detonation) = world.weapon_detonation_with_target(
+                feedback,
+                snap.stable_id,
+                crate::sim::projectile::ProjectileTarget::Entity(snap.stable_id),
+                snap.stable_id,
+                None,
+                [impact.x, impact.y, impact.z],
+                feedback.damage,
+                crate::sim::projectile::ProjectileDetonationReason::FeedbackWeapon,
+            )
+        {
+            world.commit_attach_effect_detonations(&[detonation], rules, overlay_registry, effects);
+        }
+    }
     // Sonic6FF470 precedes the independent later-effect ladder.
     if let Some(event) = out.fire_events.last().cloned()
         && weapon.is_sonic

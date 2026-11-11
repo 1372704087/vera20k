@@ -878,19 +878,21 @@ mod canopy_tests {
 mod parabomb_rate_tests {
     use super::parachuted_bullet_rate;
 
-    /// `ParabombFallRate` starts at `0` (`Ext/Bullet/Body.h:61`), so the
-    /// first frame computes `0 - step` and the cap holds the descent at the
-    /// terminal rate for as long as the step is positive.
+    /// Native: `fallRate = ParabombFallRate - Parachuted.FallRate;` then
+    /// `if (fallRate < maxFallRate) fallRate = maxFallRate;` with
+    /// `ParabombFallRate` starting at `0` (`Ext/Bullet/Body.h:61`). A step of
+    /// 1 therefore walks the rate one lepton per frame until it reaches the
+    /// cap, and the cap holds it there.
     #[test]
     fn the_accumulated_rate_reaches_the_cap_and_stays_there() {
         let mut rate = 0;
-        let frames: Vec<i32> = (0..4)
+        let frames: Vec<i32> = (0..8)
             .map(|_| {
                 rate = parachuted_bullet_rate(rate, 1, -7);
                 rate
             })
             .collect();
-        assert_eq!(frames, [-7, -7, -7, -7]);
+        assert_eq!(frames, [-1, -2, -3, -4, -5, -6, -7, -7]);
     }
 
     /// A slower step walks the rate down to the cap one frame at a time.
@@ -906,33 +908,44 @@ mod parabomb_rate_tests {
         assert_eq!(frames, [-3, -6, -7, -7, -7]);
     }
 
-    /// `Parachuted.MaxFallRate=` (`Nullable`) overrides the general cap; a
-    /// shallower cap lets the rate keep accelerating past the old bound.
+    /// The native `if (fallRate < maxFallRate) fallRate = maxFallRate;` is a
+    /// signed maximum: a rate already above (less negative than) the cap
+    /// keeps its step, while only a rate below the cap is raised to it. The
+    /// cap is not applied to the step before the subtraction.
     #[test]
     fn the_cap_is_the_only_brake() {
         assert_eq!(
             parachuted_bullet_rate(-4, 1, -7),
-            -7,
-            "the cap raises a rate below it"
+            -5,
+            "a rate above the cap is not raised to it"
         );
-        assert_eq!(parachuted_bullet_rate(-6, 1, -7), -7);
+        assert_eq!(
+            parachuted_bullet_rate(-6, 1, -7),
+            -7,
+            "the step lands exactly on the cap"
+        );
         assert_eq!(
             parachuted_bullet_rate(-8, 1, -7),
-            -9,
-            "above the cap the step still applies"
+            -7,
+            "a rate below the cap is raised to it"
         );
         assert_eq!(
             parachuted_bullet_rate(-8, 1, -100),
             -9,
-            "a shallower cap lets it fall faster"
+            "a deeper cap leaves the step unchanged"
         );
     }
 
     /// The native expression is `ParabombFallRate - Parachuted.FallRate` in
-    /// `int` arithmetic; `wrapping_sub` keeps that overflow behaviour.
+    /// `int` arithmetic; `wrapping_sub` keeps that overflow behaviour. An
+    /// overflow can wrap the rate above the cap, which the maximum then keeps.
     #[test]
     fn the_step_subtracts_with_native_int_overflow() {
-        assert_eq!(parachuted_bullet_rate(i32::MIN, 1, i32::MIN), i32::MIN);
+        assert_eq!(
+            parachuted_bullet_rate(i32::MIN, 1, i32::MIN),
+            i32::MAX,
+            "i32::MIN - 1 wraps to i32::MAX, above the i32::MIN cap"
+        );
         assert_eq!(parachuted_bullet_rate(0, i32::MIN, i32::MIN), i32::MIN);
     }
 }

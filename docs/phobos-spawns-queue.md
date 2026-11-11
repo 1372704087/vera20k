@@ -14,7 +14,7 @@ declaration `Ext/TechnoType/Body.h:334`, constructor `Body.h:768`. VERA reads it
 in `src/rules/phobos_techno_extras.rs`, owner
 `ObjectType::phobos_techno_extras.spawns_queue`.
 
-## Behaviour (not yet consumed)
+## Behaviour
 
 Two hooks, both in `Ext/Techno/Hooks.Misc.cpp`:
 
@@ -34,25 +34,22 @@ R->EAX(vec[0]->CreateObject(pOwner->Owner));
 So the init arm names the type per slot by index, and the regeneration arm
 picks the first listed type that no live node currently is.
 
+VERA stores the resolved queue on `SpawnManagerState::spawn_queue` (unknown
+names dropped, as the `ValueableVector` reader does) and `fill_slot`
+(`src/sim/spawn_manager.rs`) selects between the two arms through its
+`initial` flag: the constructor transaction uses `queue[index]`, a
+regenerating slot uses the first queue entry whose type no live slot carries,
+and both fall back to `Spawns=` when the queue is exhausted.
+
 ## Residual
 
-**The key is read and retained, but neither hook is wired.** VERA's
-`SpawnManagerState` carries one `spawn_type` for the whole manager and its
-`SpawnHost::create_child` builds that one type; `fill_slot`
-(`src/sim/spawn_manager.rs`) is the only construction site. Reproducing the two
-hooks needs three things this port does not have yet:
-
-1. a per-slot type override (init arm) and a manager-level queue (update arm)
-   on `SpawnManagerState`, threaded through `init_spawn_manager`'s pooled
-   `SpawnManagerState` construction;
-2. a `SpawnHost::create_child_of(type)` used by `fill_slot` in place of the
-   single `create_child()`, including the "first type not currently alive"
-   subtraction the update arm performs;
-3. the `InitialSpawnsNumber=` half of the same `0x6B6D44` hook, which is a
-   separate tracker entry and today leaves every slot regenerating.
-
-Until then a type with `Spawns.Queue=` builds its `Spawns=` type in every slot,
-and regenerates that same type.
+**`InitialSpawnsNumber=` is still unported** (the other half of the same
+`0x6B6D44` hook, `Ext/Techno/Hooks.Misc.cpp:170-178`). VERA's constructor
+fills every slot, so a type that lowers `InitialSpawnsNumber=` still starts
+with a full pool. Trigger: a rules set that authors `InitialSpawnsNumber=`
+below `SpawnsNumber=`. Effect: extra children exist from construction instead
+of starting `Dead` with a running regen timer. Frequency: mod-authored
+values only; retail authors none. Risk: pool size and launch cadence differ.
 
 ## Tests
 
@@ -60,3 +57,7 @@ and regenerates that same type.
   (`the_two_type_lists_split_on_commas_only` covers the same `ValueableVector`
   reader through the two `RadarJam*` lists, and `every_key_reads_on_its_own`
   covers `Spawns.Queue`'s own split).
+- `src/sim/spawn_manager_tests.rs` —
+  `spawns_queue_seeds_the_constructor_slots_in_order` (`0x6B6D44`) and
+  `spawns_queue_regeneration_skips_types_that_are_still_alive` (`0x6B78D3`,
+  including the `Spawns=` fallback once every queued type is alive).

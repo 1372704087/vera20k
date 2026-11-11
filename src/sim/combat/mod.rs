@@ -147,6 +147,8 @@ mod phobos_detonate_all_map_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_extra_warheads_tests;
 #[cfg(all(test, feature = "phobos"))]
+mod phobos_feedback_weapon_tests;
+#[cfg(all(test, feature = "phobos"))]
 mod phobos_unlimbo_detonate_tests;
 #[cfg(all(test, feature = "phobos"))]
 mod phobos_no_turret_tests;

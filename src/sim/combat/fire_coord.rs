@@ -306,7 +306,7 @@ pub fn turret_pivot_coordinate(
             0,
             0,
             0,
-            offset,
+            [offset, 0, 0],
             base.facings,
             0,
             base.locomotor_basis,
@@ -531,14 +531,24 @@ pub(crate) fn fire_coordinate(
     let hull_space = false;
     let (turret_offset, flh_facings) = if hull_space {
         (
-            0,
+            [0, 0, 0],
             crate::util::flh_transform::FlhFacings {
                 aim: base.facings.body,
                 ..base.facings
             },
         )
     } else {
-        (art.map_or(0, |art| art.turret_offset), base.facings)
+        // Phobos `TechnoClass_GetFLH` (`Ext/Techno/Hooks.Firing.cpp:1076-1084`)
+        // hands `GetFLHAbsoluteCoords` an extra-turret index when the firing
+        // Unit's `BurstPerTurret=` is positive, and
+        // `UnitTypeExt::ApplyTurretOffsetUnit` (`Ext/UnitType/Body.cpp:5-14`)
+        // translates the matrix by `ExtraTurretOffset<n>=` instead of the
+        // stock art `TurretOffset=`.
+        #[cfg(feature = "phobos")]
+        let offset = phobos_turret_pivot_offset(world, snap, obj, burst_index, art);
+        #[cfg(not(feature = "phobos"))]
+        let offset = [art.map_or(0, |art| art.turret_offset), 0, 0];
+        (offset, base.facings)
     };
     let flh_delta = flh_world_delta(
         turret_offset,
@@ -618,6 +628,57 @@ pub(crate) fn fire_coordinate(
     }
 }
 
+/// Phobos `TechnoClass_GetFLH` (`Ext/Techno/Hooks.Firing.cpp:1076-1084`):
+/// a Unit whose `BurstPerTurret=` is positive picks the turret pivot from the
+/// live `CurrentBurstIndex`:
+///
+/// ```text
+/// turretIndex = ((CurrentBurstIndex / BurstPerTurret) % (BurstPerTurret + 1)) - 1
+/// ```
+///
+/// `TechnoExt::GetFLHAbsoluteCoords` passes that index to
+/// `UnitTypeExt::ApplyTurretOffsetUnit` (`Ext/UnitType/Body.cpp:5-14`), which
+/// translates the matrix by `ExtraTurretOffset<n>=` when the index is
+/// non-negative and by the stock art `TurretOffset=` otherwise. Non-Units and
+/// a zero `BurstPerTurret=` keep the stock pivot; the type's reader only
+/// reads `BurstPerTurret=` when `ExtraTurretCount=` is positive.
+///
+/// Native indexes `ExtraTurretOffsets` unchecked, so a `BurstPerTurret=`
+/// larger than `ExtraTurretCount=` reads adjacent heap memory once the
+/// quotient passes the vector. VERA keeps the stock pivot for that index
+/// rather than inventing an offset.
+#[cfg(feature = "phobos")]
+fn phobos_turret_pivot_offset(
+    world: &Simulation,
+    snap: &FireSource,
+    obj: &ObjectType,
+    burst_index: u8,
+    art: Option<&ArtEntry>,
+) -> [i32; 3] {
+    let stock = [art.map_or(0, |art| art.turret_offset), 0, 0];
+    if snap.category != EntityCategory::Unit {
+        return stock;
+    }
+    let set = &obj.phobos_turret_barrel;
+    if set.burst_per_turret <= 0 {
+        return stock;
+    }
+    // The native divisor reads the full signed `CurrentBurstIndex`; the
+    // narrowed argument only stands in for a source without a stored entity.
+    let burst = world
+        .substrate
+        .entities
+        .get(snap.stable_id)
+        .map_or(i32::from(burst_index), |entity| entity.weapon_burst.index());
+    let divisor = set.burst_per_turret;
+    let index = ((burst / divisor) % divisor.wrapping_add(1)) - 1;
+    usize::try_from(index)
+        .ok()
+        .and_then(|index| set.extra_turret_offsets.get(index))
+        .copied()
+        .unwrap_or(stock)
+}
+
 /// Phobos `TechnoExt::GetFLHAbsoluteCoords` (`Ext/Techno/Body.Internal.cpp:80`,
 /// "reversed from `0x006F3D60`"): the world coordinate of an arbitrary FLH.
 /// Unlike [`fire_coordinate`] there is no weapon slot, burst mirror or
@@ -674,7 +735,7 @@ pub(crate) fn custom_flh_coordinate(
         flh.forward,
         flh.lateral,
         flh.height,
-        turret_offset,
+        [turret_offset, 0, 0],
         crate::util::flh_transform::FlhFacings {
             aim,
             body: base.facings.body,
@@ -1055,9 +1116,9 @@ fn coords_xy(
 }
 
 /// `TechnoClass::GetFLH @ 0x006F3AD0`'s transform of one FLH triple about
-/// the object's turret offset.
+/// the object's turret pivot.
 fn flh_world_delta(
-    turret_offset: i32,
+    turret_offset: [i32; 3],
     flh: crate::rules::flh::Flh,
     facings: crate::util::flh_transform::FlhFacings,
     burst_index: u8,
@@ -1151,7 +1212,9 @@ fn open_topped_port_coordinate(
         )
     };
     let delta = flh_world_delta(
-        turret_offset,
+        // The alternate-FLH path keeps the stock scalar `TurretOffset=`,
+        // which is the matrix pivot's X component.
+        [turret_offset, 0, 0],
         flh,
         facings,
         burst_parity,
@@ -2155,6 +2218,88 @@ mod tests {
         // North of it would be positive; native clamps to zero.
         assert_eq!(building_muzzle_z_adjust(-130, false), 0);
         assert_eq!(building_muzzle_z_adjust(-130, true), -200);
+    }
+    /// A Unit with the Phobos multi-turret block: `TurretOffset=50` in art,
+    /// two `ExtraTurretOffset<n>=` pivots and `BurstPerTurret=`.
+    #[cfg(feature = "phobos")]
+    fn turret_barrel_world(
+        extra_turret_count: i32,
+        burst_per_turret: i32,
+    ) -> (Simulation, RuleSet, FireSource) {
+        let art_ini = IniFile::from_str("[MTNK]\nTurretOffset=50\n");
+        let mut rules = RuleSet::from_ini_with_fixed_art_for_test(
+            &IniFile::from_str(&format!(
+                "[VehicleTypes]\n0=MTNK\n[MTNK]\nTurret=yes\n\
+                 ExtraTurretCount={extra_turret_count}\n\
+                 ExtraTurretOffset0=100,10,5\n\
+                 ExtraTurretOffset1=-100,0,7\n\
+                 BurstPerTurret={burst_per_turret}\n"
+            )),
+            &art_ini,
+        )
+        .unwrap();
+        rules.replace_art_registry_for_test(ArtRegistry::from_ini(&art_ini));
+        let world = Simulation::new();
+        let mut snap = source(EntityCategory::Unit);
+        snap.exact_z_leptons = Some(0);
+        snap.hull_facing = crate::sim::movement::FacingClass::new(0x3FFF, 0);
+        snap.barrel_facing = Some(crate::sim::movement::FacingClass::new(0x3FFF, 0));
+        (world, rules, snap)
+    }
+
+    /// Phobos `TechnoClass_GetFLH` (`Ext/Techno/Hooks.Firing.cpp:1076-1084`)
+    /// with `UnitTypeExt::ApplyTurretOffsetUnit` (`Ext/UnitType/Body.cpp:5-14`):
+    /// `BurstPerTurret=` cycles the matrix's pivot through 0 (the stock
+    /// `TurretOffset=`), then `ExtraTurretOffset0=`, `ExtraTurretOffset1=`, ….
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn burst_per_turret_cycles_the_extra_turret_pivot() {
+        let (world, rules, snap) = turret_barrel_world(2, 2);
+        let obj = rules.object("MTNK").unwrap();
+        let shot =
+            |burst: u8| fire_coordinate(&world, &rules, &snap, obj, 0, burst, Flh::default()).coord;
+        assert_eq!(
+            shot(0),
+            ProjectileCoord::new(X + 50, Y, 0),
+            "index -1 keeps the stock TurretOffset="
+        );
+        assert_eq!(
+            shot(2),
+            ProjectileCoord::new(X + 100, Y - 10, 5),
+            "the first extra turret pivot"
+        );
+        assert_eq!(
+            shot(4),
+            ProjectileCoord::new(X - 100, Y, 7),
+            "the second extra turret pivot"
+        );
+        assert_eq!(
+            shot(6),
+            ProjectileCoord::new(X + 50, Y, 0),
+            "the cycle wraps back to the stock pivot"
+        );
+    }
+
+    /// Native `ApplyTurretOffsetUnit` indexes `ExtraTurretOffsets[turIdx]`
+    /// unchecked; a `BurstPerTurret=` beyond `ExtraTurretCount=` reads past
+    /// the list. VERA keeps the stock pivot instead of an invented offset.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_burst_turret_index_past_the_authored_list_keeps_the_stock_pivot() {
+        let (world, rules, snap) = turret_barrel_world(1, 3);
+        let obj = rules.object("MTNK").unwrap();
+        let shot =
+            |burst: u8| fire_coordinate(&world, &rules, &snap, obj, 0, burst, Flh::default()).coord;
+        assert_eq!(
+            shot(3),
+            ProjectileCoord::new(X + 100, Y - 10, 5),
+            "((3 / 3) % 4) - 1 = 0 selects the one authored extra turret"
+        );
+        assert_eq!(
+            shot(6),
+            ProjectileCoord::new(X + 50, Y, 0),
+            "((6 / 3) % 4) - 1 = 1 is past the authored list"
+        );
     }
 }
 

@@ -13,8 +13,11 @@
 //! constructors `InfantryType/Body.h:44` and `Rules/Body.h:1017`.
 //!
 //! The type key is read from the **art** INI (`exArtINI, pArtSection`), not
-//! the rules INI — the same split VERA's art projection already models for
-//! the other `art`-only keys.
+//! the rules INI. VERA reads it at the per-pass fixed-ART owner
+//! (`InfantryArt::read_pass`, `src/rules/object_type.rs`, the
+//! `0x005246A1..0x0052472D` reads followed by the `0x52473F` hook) and
+//! projects it onto `ObjectType::phobos_land_sequences`; a rules section
+//! never supplies it.
 //!
 //! `InfantryClass_DoAction_Water` (`0x51D7E0`,
 //! `Ext/Techno/Hooks.Misc.cpp:883-901`):
@@ -40,18 +43,27 @@ use crate::rules::ini_parser::IniSection;
 
 /// `OnlyUseLandSequences` on an `InfantryType`'s art section, plus the
 /// `[General]` global it falls back to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 pub struct PhobosLandSequences {
     /// `OnlyUseLandSequences=`, `Nullable`: `None` keeps `[General]`.
     pub only_use_land_sequences: Option<bool>,
 }
 
 impl PhobosLandSequences {
+    /// One fresh read from an ART Image section
+    /// (`Ext/InfantryType/Body.cpp:32`).
     pub fn from_section(section: &IniSection) -> Self {
-        Self {
-            only_use_land_sequences: section
-                .read_phobos_nullable_bool("OnlyUseLandSequences", None),
-        }
+        let mut this = Self::default();
+        this.read_pass(section);
+        this
+    }
+
+    /// One reached pass's `Nullable` read with the current value as the
+    /// default, from the type Image's ART section. The per-pass owner calls
+    /// this from `InfantryArt::read_pass`.
+    pub fn read_pass(&mut self, section: &IniSection) {
+        self.only_use_land_sequences =
+            section.read_phobos_nullable_bool("OnlyUseLandSequences", self.only_use_land_sequences);
     }
 
     /// `OnlyUseLandSequences.Get(RulesExt::Global()->OnlyUseLandSequences)`

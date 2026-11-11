@@ -13,16 +13,19 @@ water.
 Read: `InfantryTypeExt::LoadFromINI` (`Ext/InfantryType/Body.cpp:32`) from the
 **art** INI (`exArtINI, pArtSection`), declaration `Ext/InfantryType/Body.h:19`,
 constructor `Body.h:44`; the global at `Ext/Rules/Body.cpp:622`, declaration
-`Ext/Rules/Body.h:520`, constructor `Body.h:1017`. VERA reads both in
-`src/rules/phobos_land_sequences.rs`, owner
-`ObjectType::phobos_land_sequences` plus
-`RuleSet::phobos_globals.only_use_land_sequences`. Tests:
-`src/rules/phobos_land_sequences_tests.rs`.
+`Ext/Rules/Body.h:520`, constructor `Body.h:1017`. VERA reads the type key in
+`InfantryArt::read_pass` (`src/rules/object_type.rs`, the per-pass fixed-ART
+reads at `0x005246A1..0x0052472D` followed by the `0x52473F` hook), from the
+same Image section as `Crawls=`, and projects it onto
+`ObjectType::phobos_land_sequences`; the global owner is
+`RuleSet::phobos_globals.only_use_land_sequences`. The type key is an
+**art**-section key: a rules section never supplies it, because
+`InfantryTypeExt::LoadFromINI` reads `exArtINI` only. Tests:
+`src/rules/phobos_land_sequences_tests.rs` and the water-action regression
+`src/sim/movement/infantry_water_action_tests.rs`
+(`only_use_land_sequences_skips_the_water_remap`).
 
-The type key is an **art**-section key, the same split VERA's art projection
-already models for the other art-only keys.
-
-## Behaviour (not yet consumed)
+## Behaviour
 
 `InfantryClass_DoAction_Water` (`0x51D7E0`,
 `Ext/Techno/Hooks.Misc.cpp:883-901`):
@@ -39,22 +42,18 @@ return Continue;                    // 0x51D7EC
 ```
 
 So `OnlyUseLandSequences` short-circuits the whole water-sequence selection:
-`Walk`/`Crawl` never become `Swim`, and the wet-attack arm never runs. The
+`Walk`/`Crawl` never become `Swim`, and the wet-attack arm never runs. VERA
+consumes it in `src/sim/movement/infantry_action.rs`'s water arm:
+`object.phobos_land_sequences.only_land(rules.phobos_globals.only_use_land_sequences)`
+keeps every requested action unmapped while the water-state store and the
+transition sound still run on the `SkipWaterSequences` path. The
 `SecondaryFireSequenceLandOnly` branch is a separate key and is not owned
 here.
 
 ## Residual
 
-**The keys are read; the water-sequence selector is not wired.** VERA's
-`rules::animation_sequence` already carries `Swim` / `WetAttack` / `WetIdle`
-as distinct sequence slots, but the owner that chooses between the land and
-water family for a walking/crawling infantry in water does not yet consult
-this key. Wiring it means passing
-`object.phobos_land_sequences.only_land(rules.phobos_globals.only_use_land_sequences)`
-into that selector's early-out.
-
-Until then `OnlyUseLandSequences=` is inert and infantry always take their
-water sequences in water.
+None for this key. The sibling `SecondaryFireSequenceLandOnly=` art key
+(`Ext/Techno/Hooks.Misc.cpp:897-899`) remains a separate unported mechanism.
 
 ## Tests
 
@@ -63,3 +62,7 @@ water sequences in water.
   `<default>` / `none` reset tokens.
 - `src/rules/phobos_globals_tests.rs` — the `[General]` key reads alongside
   the other `HoverDrownable`-block globals.
+- `src/sim/movement/infantry_water_action_tests.rs`
+  `only_use_land_sequences_skips_the_water_remap` — the stock water remap,
+  the `[General]` fallback, the type's art key, and an explicit type `no`
+  overriding a global `yes`, all through the production ART layer.

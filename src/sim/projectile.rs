@@ -1212,6 +1212,23 @@ pub struct ProjectileSpawn {
     pub collision: ProjectileCollisionPolicy,
 }
 
+/// Phobos parabomb descent state (`Ext/Bullet/Body.h:42,61` `ParabombFallRate`
+/// plus the type's resolved descent controls). A `Parachuted=` bullet is
+/// unlimboed under its canopy instead of flying (`Ext/Bullet/Hooks.cpp:573-583`)
+/// and its `BulletClass::AI` tail accumulates the fall rate
+/// (`:128-137`); the ordinary gravity/reflection commit is skipped
+/// (`:610-618`, hook 0x467AB2 -> 0x467B1A).
+#[cfg(feature = "phobos")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ParabombState {
+    /// `BulletExt::ParabombFallRate`, starts at 0 (`Body.h:61`).
+    pub accumulated_rate: i32,
+    /// `Parachuted.FallRate=`, the per-frame step (`Ext/BulletType/Body.cpp:80`).
+    pub fall_rate_step: i32,
+    /// `Parachuted.MaxFallRate.Get([General] ParachuteMaxFallRate)`.
+    pub max_fall_rate: i32,
+}
+
 /// Persistent state corresponding to one native `BulletClass` instance.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Projectile {
@@ -1287,6 +1304,11 @@ pub struct Projectile {
     #[serde(default)]
     pub(crate) phobos_trajectory:
         Option<crate::sim::world::phobos_trajectory::PhobosTrajectoryState>,
+    /// Phobos `Parachuted=` bullets: the descent state, `None` for an
+    /// ordinary flying bullet (`Ext/Bullet/Hooks.cpp:573-583`, `:128-137`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    parabomb: Option<ParabombState>,
     /// Bullet `+0x158`: set at a `NUKE` impact (`0x00467F3C`), cleared when
     /// the wait ends (`0x0046676A`).
     #[serde(default)]
@@ -1623,6 +1645,12 @@ impl Projectile {
     #[cfg(feature = "phobos")]
     pub fn detonate_on_interception(&self) -> bool {
         self.detonate_on_interception
+    }
+
+    /// Phobos `Parachuted=` descent state, `None` for a flying bullet.
+    #[cfg(feature = "phobos")]
+    pub fn parabomb(&self) -> Option<ParabombState> {
+        self.parabomb
     }
 
     /// Phobos `BulletExt::InterceptorTechnoType`, as its interned rules id.
@@ -2260,6 +2288,8 @@ impl ProjectileStore {
                 #[cfg(feature = "phobos")]
                 phobos_trajectory: None,
                 #[cfg(feature = "phobos")]
+                parabomb: None,
+                #[cfg(feature = "phobos")]
                 current_strength: 0,
                 #[cfg(feature = "phobos")]
                 intercepted_status: intercepted_status::NONE,
@@ -2465,6 +2495,23 @@ impl ProjectileStore {
     pub(crate) fn set_phobos_interceptor_target(&mut self, id: u64, value: Option<u64>) {
         if let Some(projectile) = self.get_mut(id) {
             projectile.interceptor_target = value;
+        }
+    }
+
+    /// Phobos `ObjectClass_Unlimbo_Parachuted_Wrapper`
+    /// (`Ext/Bullet/Hooks.cpp:573-583`, replacing `BulletClass`'s Unlimbo call
+    /// at `0x468684`): a `Parachuted=` bullet is born under its canopy instead
+    /// of flying. `BulletClass_Unlimbo_Obstacles` (`Hooks.Obstacles.cpp:136-142`)
+    /// then zeroes its velocity, and its `ParabombFallRate` starts at 0
+    /// (`Ext/Bullet/Body.h:61`). The Unlimbo placement (including the
+    /// BulletType `+6C` ground clamp) is already committed, so only the
+    /// motion state changes here.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn begin_parabomb(&mut self, id: u64, state: ParabombState) {
+        if let Some(projectile) = self.get_mut(id) {
+            projectile.velocity = ProjectileVelocity::new(0, 0, 0);
+            projectile.speed_leptons_per_frame = 0;
+            projectile.parabomb = Some(state);
         }
     }
 
@@ -2766,7 +2813,43 @@ impl ProjectileStore {
         let mut near_target = false;
 
         let mut ordinary_motion = None;
-        let mut candidate = if projectile.guidance.is_some() {
+        // Phobos `Parachuted=` bullets descend vertically by their accumulated
+        // `FallRate`; `BulletClass_AI_Parabomb` skips the ordinary
+        // gravity/reflection commit (`Ext/Bullet/Hooks.cpp:610-618`, hook
+        // 0x467AB2 -> 0x467B1A).
+        #[cfg(feature = "phobos")]
+        let parabomb = projectile.parabomb.is_some();
+        #[cfg(not(feature = "phobos"))]
+        let parabomb = false;
+        let mut candidate = if parabomb {
+            #[cfg(feature = "phobos")]
+            {
+                let state = projectile
+                    .parabomb
+                    .as_mut()
+                    .expect("checked parabomb state");
+                state.accumulated_rate =
+                    crate::sim::movement::parachute_descent::parachuted_bullet_rate(
+                        state.accumulated_rate,
+                        state.fall_rate_step,
+                        state.max_fall_rate,
+                    );
+                let rate = state.accumulated_rate;
+                let ground = projectile_ground_z(terrain, shared_cell_dummy, projectile.position);
+                let candidate = ProjectileCoord::new(
+                    projectile.position.x,
+                    projectile.position.y,
+                    projectile.position.z.wrapping_add(rate),
+                );
+                if candidate.z <= ground {
+                    impact_flag = true;
+                    impact_reason = ProjectileDetonationReason::Collision;
+                }
+                candidate
+            }
+            #[cfg(not(feature = "phobos"))]
+            unreachable!("parabomb is never set without the phobos feature")
+        } else if projectile.guidance.is_some() {
             let step = homing::step(
                 projectile,
                 target_position,
@@ -2853,7 +2936,8 @@ impl ProjectileStore {
         // Early returns preserve Bullet+E8 at tail entry. Ordinary scratch
         // gravity/reflection commits only at 467AB2; Vertical already
         // committed its ramp at 4672A3..4672B4 and skips that copyback.
-        if projectile.guidance.is_none()
+        if !parabomb
+            && projectile.guidance.is_none()
             && let Some(ProjectileCollisionResponse::Ordinary {
                 candidate: selected,
                 velocity,
@@ -3635,6 +3719,61 @@ mod tests {
         };
         assert_eq!(fall(false), -12.0);
         assert_eq!(fall(true), -3.0);
+    }
+
+    /// Phobos `Parachuted=` (`Ext/Bullet/Hooks.cpp:573-583`, `:128-137`): a
+    /// bullet born under a canopy steps its Z by the accumulated fall rate
+    /// and skips the ordinary trajectory tail (`:610-618`, hook `0x467AB2` ->
+    /// `0x467B1A`). The Straight trajectory's 64-lepton step never moves it
+    /// horizontally, and it detonates once the next Z reaches the ground.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn a_parabomb_descends_by_its_fall_rate_and_grounds() {
+        let mut store = ProjectileStore::new();
+        let mut shot = spawn(ProjectileTarget::Cell { rx: 20, ry: 0 });
+        shot.origin = ProjectileCoord::new(0, 0, 100);
+        shot.speed_leptons_per_frame = 64;
+        let id = store.spawn(1, shot);
+        store.begin_parabomb(
+            id,
+            ParabombState {
+                accumulated_rate: 0,
+                fall_rate_step: 3,
+                max_fall_rate: -7,
+            },
+        );
+
+        let mut descent = Vec::new();
+        let mut detonation = None;
+        for frame in 0..20 {
+            let result = store.advance(
+                frame,
+                &BTreeMap::new(),
+                None,
+                &SharedCellDummy::fresh(),
+                |_, _| None,
+            );
+            match result.detonations.as_slice() {
+                [] => descent.push(store.get(id).expect("still descending").position()),
+                [impact] => {
+                    assert_eq!(impact.projectile_id, id);
+                    assert_eq!(impact.reason, ProjectileDetonationReason::Collision);
+                    detonation = Some(impact.impact);
+                    break;
+                }
+                many => panic!("one impact expected, got {}", many.len()),
+            }
+        }
+        assert_eq!(
+            descent.iter().map(|coord| coord.z).collect::<Vec<_>>(),
+            [97, 91, 84, 77, 70, 63, 56, 49, 42, 35, 28, 21, 14, 7],
+            "0-3, then the -7 terminal rate; the trajectory never flies"
+        );
+        assert!(
+            descent.iter().all(|coord| (coord.x, coord.y) == (0, 0)),
+            "a parachuted bullet keeps its Fire X/Y"
+        );
+        assert_eq!(detonation, Some(ProjectileCoord::new(0, 0, 0)));
     }
 
     fn flat_32_by_32() -> ResolvedTerrainGrid {

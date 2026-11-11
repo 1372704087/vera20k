@@ -82,7 +82,10 @@ pub enum FlhBasis {
 ///    This matches the art-INI description of
 ///    an offset along the body centreline. `GetFLH` uses the raw value; note
 ///    that `render/vxl_raster.rs` divides the same field by 8 for its own
-///    purposes, and that scaling must not leak in here.
+///    purposes, and that scaling must not leak in here. The pivot is a
+///    triple: the stock art `TurretOffset=` fills X, while Phobos
+///    `ExtraTurretOffset<n>=` fills all three
+///    (`Ext/UnitType/Body.cpp:5-14`, `ApplyTurretOffsetUnit`).
 ///
 /// The caller supplies Drive/Ship/Hover slopes and rocking, and Fly yaw/pitch/bank,
 /// through the shared pre-camera matrix owners. Other locomotor tilt arms
@@ -91,7 +94,7 @@ pub fn native_flh_world_delta(
     forward: i32,
     lateral: i32,
     height: i32,
-    turret_offset: i32,
+    turret_offset: [i32; 3],
     facings: FlhFacings,
     burst_index: u8,
     basis: FlhBasis,
@@ -118,7 +121,14 @@ pub fn native_flh_world_delta(
             )
         }
     };
-    let matrix = translate_xyz(basis, [turret_offset as f32, 0., 0.]);
+    let matrix = translate_xyz(
+        basis,
+        [
+            turret_offset[0] as f32,
+            turret_offset[1] as f32,
+            turret_offset[2] as f32,
+        ],
+    );
     let (sin, cos) = native_sin_cos_by_step(relative_step)?;
     let matrix = rotate_z(matrix, sin, cos);
     let matrix = translate_xyz(

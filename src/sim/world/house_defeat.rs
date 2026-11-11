@@ -1068,6 +1068,17 @@ impl Simulation {
             .find(|&owner| self.house_type_is_civilian(owner, rules))
     }
 
+    /// YRpp `HouseClass::FindNeutral`: the first House whose type is the
+    /// `Neutral` country (`FindByCountryName`); none without one.
+    #[cfg(feature = "phobos")]
+    pub(crate) fn neutral_house(&self) -> Option<InternedId> {
+        let neutral = self.interner.get("Neutral")?;
+        self.houses
+            .in_order()
+            .find(|house| house.house_type_id() == neutral)
+            .map(|house| house.name())
+    }
+
     /// Installed Ares `HouseExt::GetHouseKind`10021310, the resolver Phobos'
     /// `HouseExt::GetHouseKind` shares. The random permission is the consumer's:
     /// KillDriver10052C31 and UnitDelivery pass it clear (`random_house` None),

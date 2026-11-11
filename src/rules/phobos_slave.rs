@@ -1,6 +1,6 @@
 //! Phobos InfantryType slave keys: `SlavesFreeSound=` and
-//! `Slaved.OwnerWhenMasterKilled=` (`Ext/InfantryType/Body.cpp:18,31`,
-//! declarations `Body.h:14,27`, constructors `Body.h:38-40`).
+//! `Slaved.OwnerWhenMasterKilled=` (`Ext/InfantryType/Body.cpp:18-19`,
+//! declarations `Body.h:13-14`, constructors `Body.h:38-39`).
 //!
 //! Consumers: `SlaveManagerClass::Killed` (`0x6B0B9C`/`0x6B0BA4`,
 //! `Ext/Techno/Hooks.Misc.cpp:31-74`) decides each freed slave's owner from
@@ -46,13 +46,16 @@ impl SlaveChangeOwnerType {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct PhobosSlaved {
     pub owner_when_master_killed: SlaveChangeOwnerType,
-    /// `SlavesFreeSound=` (`Nullable<VocClass>`): `None` inherits the fixed
-    /// `[AudioVisual] SlavesFreeSound=`.
-    pub slaves_free_sound: Option<String>,
+    /// `SlavesFreeSound=` (`NullableIdx<VocClass>`, constructed unset):
+    /// `None` is the unset key and plays the fixed
+    /// `[AudioVisual] SlavesFreeSound=`; `Some(None)` is an authored
+    /// `none`/`<none>` (explicit silence); `Some(Some(name))` is a cue.
+    pub slaves_free_sound: Option<Option<String>>,
 }
 
 impl PhobosSlaved {
     pub fn from_section(section: &IniSection) -> Self {
+        use crate::rules::ini_parser::is_native_none_type_name;
         Self {
             owner_when_master_killed: section.read_string_with(
                 "Slaved.OwnerWhenMasterKilled",
@@ -61,7 +64,8 @@ impl PhobosSlaved {
                 |current, raw| SlaveChangeOwnerType::parse(raw).unwrap_or(current),
             ),
             slaves_free_sound: section
-                .read_phobos_nullable_with("SlavesFreeSound", None, |raw| Some(raw.to_owned())),
+                .read_string_presence("SlavesFreeSound", 0x80)
+                .map(|raw| (!is_native_none_type_name(&raw)).then_some(raw)),
         }
     }
 

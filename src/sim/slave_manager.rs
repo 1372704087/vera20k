@@ -1741,10 +1741,20 @@ impl Simulation {
         else {
             return None;
         };
+        // Phobos' hook keys the last fallback on `HouseClass::FindNeutral`
+        // (the `Neutral` country), and its `0x6B0BA4` origin ignores an
+        // explicit House argument. The stock build keeps the
+        // Civilian-side/argument fallback.
+        #[cfg(feature = "phobos")]
+        let neutral = self.neutral_house();
+        #[cfg(not(feature = "phobos"))]
         let neutral = self.civilian_side_house(rules);
         let killer_house = killer
             .and_then(|id| self.substrate.entities.get(id))
             .map(|entity| entity.owner());
+        #[cfg(feature = "phobos")]
+        let default_new_house = killer_house.or(neutral);
+        #[cfg(not(feature = "phobos"))]
         let default_new_house = killer_house.or(house).or(neutral);
         let mut first_freed = None;
         // 6B0B3C retains the initial count; 6B0B4C..56 rereads each live
@@ -1818,8 +1828,11 @@ impl Simulation {
                 .and_then(|entity| self.interner.object_type(entity.type_ref(), rules))
                 .and_then(|object| object.phobos_slaved.slaves_free_sound.clone());
             #[cfg(not(feature = "phobos"))]
-            let type_sound: Option<String> = None;
-            if let Some(sound) = type_sound.or_else(|| rules.general.slaves_free_sound.clone())
+            let type_sound: Option<Option<String>> = None;
+            // `NullableIdx`: an authored `none` is explicit silence; an unset
+            // key plays the fixed `[AudioVisual]` sound.
+            let sound = type_sound.unwrap_or_else(|| rules.general.slaves_free_sound.clone());
+            if let Some(sound) = sound
                 && let Some(entity) = self.substrate.entities.get(slave)
             {
                 self.sound_events

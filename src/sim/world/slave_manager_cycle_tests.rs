@@ -1049,3 +1049,107 @@ fn the_first_freed_slaves_type_sound_wins_over_the_global() {
         .collect();
     assert_eq!(sounds, ["SLAVSHOUT"], "the type sound replaces the global");
 }
+
+/// `SlavesFreeSound=none` is `NullableIdx`' explicit silence: the global
+/// sound must not play.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_explicit_none_slave_sound_stays_silent() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=master\nSlavesFreeSound=none\n");
+    s.scene.rules.general.slaves_free_sound = Some("GLOBALTONE".to_string());
+    phobos_kill(&mut s);
+    assert!(
+        !s.scene
+            .sim
+            .sound_events
+            .iter()
+            .any(|event| matches!(event, SimSoundEvent::VocAt { .. }))
+    );
+}
+
+/// An unset type key falls back to `[AudioVisual] SlavesFreeSound=`.
+#[cfg(feature = "phobos")]
+#[test]
+fn an_unset_slave_sound_plays_the_global() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=master\n");
+    s.scene.rules.general.slaves_free_sound = Some("GLOBALTONE".to_string());
+    phobos_kill(&mut s);
+    let sounds: Vec<&str> = s
+        .scene
+        .sim
+        .sound_events
+        .iter()
+        .filter_map(|event| match event {
+            SimSoundEvent::VocAt { sound_id, .. } => Some(sound_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(sounds, ["GLOBALTONE"]);
+}
+
+/// The hook's `0x6B0BA4` origin (no killer) ignores an explicit House
+/// argument: without a Neutral House the slaves die.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_killerless_release_ignores_an_explicit_house() {
+    let mut s = freed_scene("");
+    let americans = s.scene.sim.interner.get("Americans").unwrap();
+    let master = s.master;
+    s.scene.sim.sound_events.clear_for_test();
+    s.scene.sim.free_slaves(
+        master,
+        None,
+        Some(americans),
+        &s.scene.rules,
+        Some(registry()),
+        crate::sim::world::FrameEffects::default(),
+    );
+    for index in [0, 1] {
+        let slave = s
+            .scene
+            .sim
+            .substrate
+            .entities
+            .get(s.slaves[&index])
+            .unwrap();
+        assert!(
+            !slave.lifecycle.object_alive(),
+            "slave {index} dies when no Neutral House exists"
+        );
+    }
+}
+
+/// `Neutral` hands the slave to the `Neutral` country's House.
+#[cfg(feature = "phobos")]
+#[test]
+fn a_neutral_slave_joins_the_neutral_country_house() {
+    let mut s = freed_scene("Slaved.OwnerWhenMasterKilled=neutral\n");
+    let neutral = s.scene.sim.interner.intern("Neutral");
+    let neutral_house = s.scene.sim.interner.intern("Neutrals");
+    s.scene
+        .sim
+        .houses
+        .register(crate::sim::house_state::HouseState::new(
+            neutral_house,
+            2,
+            Some(neutral),
+            false,
+            0,
+            10,
+        ));
+    phobos_kill(&mut s);
+    for index in [0, 1] {
+        let slave = s
+            .scene
+            .sim
+            .substrate
+            .entities
+            .get(s.slaves[&index])
+            .unwrap();
+        assert_eq!(
+            slave.owner(),
+            neutral_house,
+            "slave {index} joins the Neutral country house"
+        );
+    }
+}

@@ -126,7 +126,7 @@ pub(super) fn emit(world: &mut Simulation, rules: &RuleSet, detonation: &Project
                 .get(house)
                 .is_some_and(|state| state.is_defeated())
         })
-        .or_else(|| neutral_house(world));
+        .or_else(|| world.neutral_house());
     let Some(owner_house) = owner_house else {
         return;
     };
@@ -558,17 +558,6 @@ fn trig(angle: f64) -> (f64, f64) {
     let sin = X::store_f64(table.sin_from_table(radians)).expect("finite table sine");
     let cos = X::store_f64(table.cos_from_table(radians)).expect("finite table cosine");
     (f64::from_bits(sin.bits()), f64::from_bits(cos.bits()))
-}
-
-/// YRpp `HouseClass::FindNeutral`: the first House whose type is the
-/// `Neutral` country (`FindByCountryName`); none without one.
-fn neutral_house(world: &Simulation) -> Option<InternedId> {
-    let neutral = world.interner.get("Neutral")?;
-    world
-        .houses
-        .in_order()
-        .find(|house| house.house_type_id() == neutral)
-        .map(|house| house.name())
 }
 
 /// `CellRangeIterator<CellClass>`: a square of `floor(radius + 0.99) * 2 + 1`

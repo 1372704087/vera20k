@@ -6,14 +6,15 @@ master dies, and override the release sound.
 ```ini
 [SLAVE]                             ; InfantryType
 Slaved.OwnerWhenMasterKilled=killer ; killer|master|suicide|neutral, default killer
-SlavesFreeSound=                    ; Nullable<VoxClass>, unset inherits the rule
+SlavesFreeSound=                    ; NullableIdx<VocClass>, unset inherits the rule
 ```
 
-Readers: `Ext/InfantryType/Body.cpp:18,31`, declarations `Body.h:14,27`,
-constructor `Body.h:38-40`. `SlavesFreeSound` is nullable and falls back to
-`[AudioVisual] SlavesFreeSound=`; the enum spellings are the native
-`Killer`/`Master`/`Suicide`/`Neutral` values (`Utilities/Enum.h:178-184`), and
-an unknown spelling keeps the constructor value.
+Readers: `Ext/InfantryType/Body.cpp:18-19`, declarations `Body.h:13-14`,
+constructors `Body.h:38-39`. `SlavesFreeSound` is nullable and falls back to
+`[AudioVisual] SlavesFreeSound=`; `none`/`<none>` is an explicit silence. The
+enum spellings are the native `Killer`/`Master`/`Suicide`/`Neutral` values
+(`Utilities/Enum.h:178-184`), and an unknown spelling keeps the constructor
+value.
 
 ## Master death
 
@@ -21,13 +22,15 @@ an unknown spelling keeps the constructor value.
 (`Ext/Techno/Hooks.Misc.cpp:31-74`) run per enslaved infantry, before the
 vanilla owner change. For a slave type:
 
-- `killer` (default): the vanilla decision — the killer's House, else the
-  explicit House, else the neutral House, else death.
+- `killer` (default): the killer's House; without a killer, the `Neutral`
+  country's House (`HouseClass::FindNeutral`) else death — the hook's
+  `0x6B0BA4` origin ignores the explicit House argument.
 - `master`: the slave keeps its current owner (still re-owned, reset to Guard
   and cheered through the same tail).
 - `suicide`: the slave is damaged to death with `C4Warhead`; the vanilla
   0x6B0BDF arm.
-- `neutral`: the neutral House when one exists, else the `killer` decision.
+- `neutral`: the `Neutral` country's House when one exists, else the `killer`
+  decision.
 
 The vanilla free arm also gets a Phobos patch at `0x6B0BF7`
 (`Hooks.Misc.cpp:76-78`) changing the suicide hit's ignore-defense argument to
@@ -47,12 +50,15 @@ dies instead never becomes the sound's position source.
 
 ## Residuals
 
-- `neutral` needs a House whose type is civilian; the synthetic slave fixture
-  has none, so only the fallback-to-killer path is exercised. Trigger: a
-  `Slaved.OwnerWhenMasterKilled=neutral` type in a game with a civilian House.
-  Frequency: authored mods. Risk: owner assignment only.
-- The killer arm's last fallback uses `civilian_side_house`; in rules that
-  classify no House as civilian it answers absent, matching native's
-  `FindNeutral()` returning null.
+- The type `SlavesFreeSound` cue name is retained without a Vox-catalog
+  resolution, so an unknown authored name still emits a sound event the
+  playback layer drops; native `NullableIdx` keeps the unset state and plays
+  the global. Trigger: an unknown type sound name. Frequency: authored mods.
+  Risk: a silent cue.
+- The suicide test uses a `Verses=100%` warhead, so the `0x6B0BF7`
+  ignore-defense patch's effect on armor multipliers has no focused
+  regression; the flag is set under the feature.
+- `neutral` needs a House whose type is the `Neutral` country; the regression
+  registers one, and without it the arm falls back to `killer` as native does.
 - Retail rules author none of these keys; the defaults reproduce the stock
   killer/global-sound behavior.

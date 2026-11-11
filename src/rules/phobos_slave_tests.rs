@@ -23,7 +23,13 @@ fn the_slave_keys_default_and_parse() {
         suicide.owner_when_master_killed,
         SlaveChangeOwnerType::Suicide
     );
-    assert_eq!(suicide.slaves_free_sound.as_deref(), Some("SLAVSND"));
+    assert_eq!(suicide.slaves_free_sound, Some(Some("SLAVSND".to_string())));
+
+    // `NullableIdx`: an authored `none` is explicit silence, not a fallback.
+    for clearing in ["none", "<none>"] {
+        let value = read(&format!("SlavesFreeSound={clearing}\n"));
+        assert_eq!(value.slaves_free_sound, Some(None), "{clearing}");
+    }
 
     for (raw, expected) in [
         ("master", SlaveChangeOwnerType::Master),

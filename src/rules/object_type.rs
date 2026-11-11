@@ -2610,6 +2610,13 @@ pub struct ObjectType {
     /// AMMOCRAT (Ammo Crate).
     pub can_c4: bool,
 
+    /// Phobos `CanC4.AllowZeroDamage=` (`Valueable<bool>`,
+    /// `Ext/BuildingType/Body.cpp:194`, constructor false): a zero-damage
+    /// packet no longer bumps to 1 on a `CanC4=no` building, and the vanilla
+    /// `< 1` floor is skipped entirely (`0x5F5416`, hook replaced body).
+    #[cfg(feature = "phobos")]
+    pub phobos_can_c4_allow_zero_damage: bool,
+
     /// Phobos `AllowAirstrike=`: whether an `Airstrike=` warhead may designate
     /// this type. Unset keeps the vanilla rule at each call site — buildings
     /// follow `CanC4`, every other kind is targetable.
@@ -6164,6 +6171,9 @@ impl ObjectType {
             sabotage_cursor: section.read_bool("SabotageCursor", false),
             c4: category != ObjectCategory::Infantry && section.read_bool("C4", false),
             can_c4: section.read_bool("CanC4", category == ObjectCategory::Building),
+            #[cfg(feature = "phobos")]
+            phobos_can_c4_allow_zero_damage: category == ObjectCategory::Building
+                && section.read_bool("CanC4.AllowZeroDamage", false),
             #[cfg(feature = "phobos")]
             allow_airstrike: section.read_bool_value("AllowAirstrike"),
             eligible_for_delay_kill: section.read_bool("EligibleForDelayKill", false),

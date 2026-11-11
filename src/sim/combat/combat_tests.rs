@@ -13046,3 +13046,99 @@ fn phobos_rad_site_warhead_detonate_splashes_around_the_target() {
         "the direct receiver leaves the neighbour alone"
     );
 }
+
+/// Phobos `CanC4.AllowZeroDamage` (`Ext/BuildingType/Hooks.cpp:182-195`)
+/// replaces the `ObjectClass::ReceiveDamage` building minimum at `0x5F5416`:
+/// a zero packet is floored to 1 only while the key is off, and the vanilla
+/// `< 1` floor (which also covers healing packets) no longer runs.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_can_c4_allow_zero_damage_replaces_the_building_minimum() {
+    fn rules(allow: bool) -> RuleSet {
+        let allow = if allow {
+            "CanC4.AllowZeroDamage=yes\n"
+        } else {
+            ""
+        };
+        let ini = IniFile::from_str(&format!(
+            "[Clear]\nBuildable=yes\n\
+             [VehicleTypes]\n0=SOURCE\n\
+             [BuildingTypes]\n0=BRKS\n1=SAFE\n\
+             [SOURCE]\nStrength=100\nArmor=heavy\n\
+             [BRKS]\nStrength=500\nArmor=wood\nCanC4=no\n{allow}\
+             [SAFE]\nStrength=500\nArmor=wood\nCanC4=yes\n{allow}\
+             [Warheads]\n0=HITWH\n1=ZEROWH\n\
+             [HITWH]\nVerses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n\
+             [ZEROWH]\nVerses=0%,0%,0%,0%,0%,0%,0%,0%,0%,0%,0%\n",
+        ));
+        let art = IniFile::from_str("[BRKS]\nFoundation=1x1\n[SAFE]\nFoundation=1x1\n");
+        RuleSet::from_ini_with_fixed_art_for_test(&ini, &art).expect("CanC4 zero-damage rules")
+    }
+    let hit = |sim: &mut crate::sim::world::Simulation,
+               rules: &RuleSet,
+               source: u64,
+               target: u64,
+               warhead: &str,
+               damage: i32| {
+        let event = EntityDamageEvent::direct_receiver(
+            target,
+            damage,
+            0,
+            source,
+            None,
+            sim.interner.intern(warhead),
+            ReceiverCallFlags {
+                ignore_defenses: false,
+                arg6: false,
+            },
+        );
+        let _ = sim.commit_direct_damage_receiver(
+            rules,
+            None,
+            event,
+            crate::sim::world::FrameEffects::default(),
+        );
+    };
+    for (allow, brks_health) in [(false, 499), (true, 500)] {
+        let rules = rules(allow);
+        for (type_name, expected) in [("BRKS", brks_health), ("SAFE", 500)] {
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0xCA0C_4000);
+            let source = sim
+                .spawn_object("SOURCE", "Americans", 10, 10, 0, &rules)
+                .expect("source spawns");
+            let target = sim
+                .spawn_object(type_name, "Russians", 12, 10, 0, &rules)
+                .expect("building spawns");
+            // Raw damage 10 is non-zero, but Verses lowers it to 0, the
+            // packet the Object minimum actually sees.
+            hit(&mut sim, &rules, source, target, "ZEROWH", 10);
+            assert_eq!(
+                sim.substrate.entities.get(target).unwrap().health.current(),
+                expected,
+                "allow_zero={allow} {type_name}: a Verses-zeroed packet"
+            );
+        }
+    }
+    // The hook skips the entire vanilla floor, so a healing packet survives
+    // even with the key off, where vanilla would turn it into 1 damage.
+    let rules = rules(false);
+    let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0xCA0C_4001);
+    let source = sim
+        .spawn_object("SOURCE", "Americans", 10, 10, 0, &rules)
+        .expect("source spawns");
+    let target = sim
+        .spawn_object("BRKS", "Russians", 12, 10, 0, &rules)
+        .expect("building spawns");
+    sim.substrate
+        .entities
+        .get_mut(target)
+        .unwrap()
+        .health
+        .set_for_test(400);
+    hit(&mut sim, &rules, source, target, "HITWH", -50);
+    assert_eq!(
+        sim.substrate.entities.get(target).unwrap().health.current(),
+        450,
+        "the replaced body does not floor negative packets"
+    );
+}

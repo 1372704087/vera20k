@@ -98,6 +98,7 @@ Supported extensions:
 - [Iron-curtained targeting](phobos-iron-curtain-targeting.md) (`CanTarget.IronCurtained` / `AutoTarget.IronCurtained` per weapon plus the `[CombatDamage]` human/AI fallbacks: firing, retaliation and auto-target gates; 5 keys)
 - [Freed-slave owner and sound](phobos-slave-freed.md) (`Slaved.OwnerWhenMasterKilled` picks killer/master/suicide/neutral per slave type, and a type `SlavesFreeSound` replaces the fixed release sound; 2 keys)
 - [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
+- [Zero-damage C4 minimum](phobos-c4-zero-damage.md) (`CanC4.AllowZeroDamage` keeps a `CanC4=no` building from taking 1 point when `Verses` scales a non-zero hit to 0; negative packets bypass the floor; 1 key)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Ambient damage warhead](phobos-ambient-damage.md) (`AmbientDamage.Warhead` / `.IgnoreTarget` per weapon plus the `[General]` fallback: railgun and blast-wave ambient damage use an override warhead and can skip the primary target; 3 keys)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)

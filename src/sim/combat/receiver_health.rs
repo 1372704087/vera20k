@@ -251,7 +251,7 @@ pub(super) fn commit_receiver_health(
             object_packet: None,
         });
     }
-    let (strength, building_no_c4) = {
+    let (strength, building_no_c4, allow_zero_damage) = {
         let target = world.substrate.entities.get(target_id)?;
         let ty = world.interner.object_type(target.type_ref(), rules)?;
         if target.category() == EntityCategory::Structure {
@@ -262,9 +262,14 @@ pub(super) fn commit_receiver_health(
                 world.object_tech_level(ty),
             ));
         }
+        #[cfg(feature = "phobos")]
+        let allow_zero_damage = ty.phobos_can_c4_allow_zero_damage;
+        #[cfg(not(feature = "phobos"))]
+        let allow_zero_damage = false;
         (
             ty.strength,
             target.category() == EntityCategory::Structure && !ty.can_c4,
+            allow_zero_damage,
         )
     };
     let mut packet = receive_outcome.hp_delta;
@@ -284,6 +289,7 @@ pub(super) fn commit_receiver_health(
         strength,
         receive_outcome.apply_object_damage,
         building_no_c4,
+        allow_zero_damage,
         rules.general.condition_red,
         attacker_id != RAD_NO_ATTACKER,
     );

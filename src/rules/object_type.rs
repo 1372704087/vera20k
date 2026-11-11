@@ -1083,6 +1083,21 @@ pub struct ObjectType {
     /// `0x483CD4`, `0x440D01` and `0x445D87`). Read only for a BuildingType.
     #[cfg(feature = "phobos")]
     pub phobos_destroyable_obstacle: bool,
+    /// Phobos `AmphibiousEnter=` (`Ext/TechnoType/Body.cpp:1107`,
+    /// `Nullable<bool>` field `Body.h:342`): unset falls back to
+    /// `[General] AmphibiousEnter`. `yes` admits boarding a transport that sits
+    /// on water (`Ext/Techno/Hooks.Transport.cpp:252`, hook `0x73796B`).
+    #[cfg(feature = "phobos")]
+    pub phobos_amphibious_enter: Option<bool>,
+    /// Phobos `AmphibiousUnload=` (`Ext/TechnoType/Body.cpp:1108`,
+    /// `Nullable<bool>` field `Body.h:343`): unset falls back to
+    /// `[General] AmphibiousUnload`. `yes` lets the transport unload on water
+    /// when the passenger's own land row allows it, and uses that passenger's
+    /// SpeedType/MovementZone in the unload searches
+    /// (`Ext/Techno/Hooks.Transport.cpp:384-393`, hooks `0x7400B5`,
+    /// `0x70107A`, `0x73D769`, `0x73D7AB`, `0x740C9C`, `0x73DAD8`).
+    #[cfg(feature = "phobos")]
+    pub phobos_amphibious_unload: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -5306,6 +5321,10 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_destroyable_obstacle: category == ObjectCategory::Building
                 && section.read_bool("IsDestroyableObstacle", false),
+            #[cfg(feature = "phobos")]
+            phobos_amphibious_enter: section.read_phobos_nullable_bool("AmphibiousEnter", None),
+            #[cfg(feature = "phobos")]
+            phobos_amphibious_unload: section.read_phobos_nullable_bool("AmphibiousUnload", None),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

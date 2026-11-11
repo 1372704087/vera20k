@@ -172,6 +172,19 @@ pub struct PhobosGlobals {
     /// `RearApproach` and `FastScramble` keys
     /// (`rules::phobos_extended_aircraft_missions`).
     pub extended_aircraft_missions: bool,
+    /// `[General] AmphibiousEnter=`, default `no`
+    /// (`Ext/Rules/Body.cpp:197`, constructor `Ext/Rules/Body.h:654`): the
+    /// fallback for a transport type's key; `yes` admits boarding while the
+    /// transport sits on water (`Ext/Techno/Hooks.Transport.cpp:252`,
+    /// `0x73796B`).
+    pub amphibious_enter: bool,
+    /// `[General] AmphibiousUnload=`, default `no`
+    /// (`Ext/Rules/Body.cpp:198`, constructor `Ext/Rules/Body.h:655`): the
+    /// fallback for a transport type's key; water unload then asks the
+    /// passenger's own land row instead of refusing (`CanUnloadNow`,
+    /// `Ext/Techno/Hooks.Transport.cpp:384`, hooks `0x7400B5`, `0x70107A`,
+    /// `0x73D769`, `0x73D7AB`, `0x740C9C`, `0x73DAD8`).
+    pub amphibious_unload: bool,
     /// `[General] ExtendedAircraftMissions.UnlandDamage=`, default `0`
     /// (`Ext/Rules/Body.cpp:192`, `Ext/Rules/Body.h:98`): the damage an
     /// aircraft that cannot land takes, or the kill threshold when negative.
@@ -599,6 +612,8 @@ impl Default for PhobosGlobals {
             display_income_houses: AffectedHouse::ALL,
             extended_aircraft_missions: false,
             extended_aircraft_missions_unland_damage: 0,
+            amphibious_enter: false,
+            amphibious_unload: false,
             ambient_damage_ignore_target: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
@@ -946,6 +961,11 @@ impl PhobosGlobals {
             "ExtendedAircraftMissions.UnlandDamage",
             globals.extended_aircraft_missions_unland_damage,
         );
+        // The two `Amphibious*` `Valueable<bool>` globals
+        // (`Ext/Rules/Body.cpp:197-198`, constructor `Body.h:654-655`).
+        globals.amphibious_enter = general.read_bool("AmphibiousEnter", globals.amphibious_enter);
+        globals.amphibious_unload =
+            general.read_bool("AmphibiousUnload", globals.amphibious_unload);
         // The three `[General] Strafing.*` `Valueable<bool>` fallbacks
         // (`Ext/Rules/Body.cpp:264-266`, constructor `Body.h:706-708`).
         globals.strafing_simulate_burst =

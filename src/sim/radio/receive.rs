@@ -948,6 +948,45 @@ fn unit_receive(
     }
 }
 
+/// `CellClass+0xEC` Land of the cell at `(rx, ry)`, as a transport's
+/// `GetCell` reads it.
+fn land_type_at(sim: &Simulation, rx: u16, ry: u16) -> Option<i32> {
+    sim.resolved_terrain
+        .as_ref()
+        .and_then(|terrain| terrain.cell(rx, ry))
+        .map(|cell| i32::from(cell.land_type))
+}
+
+/// Whether `transport` sits on Water (`LandType 2`, `0x0073796B`).
+fn transport_on_water(sim: &Simulation, transport: &crate::sim::game_entity::GameEntity) -> bool {
+    land_type_at(sim, transport.position.rx(), transport.position.ry())
+        == Some(i32::from(
+            crate::rules::terrain_rules::LandType::Water.as_index(),
+        ))
+}
+
+/// Phobos `AmphibiousEnter=` (`Ext/TechnoType/Body.cpp:1107`,
+/// `Nullable<bool>`), else `[General] AmphibiousEnter`
+/// (`Ext/Rules/Body.cpp:197`).
+#[cfg(feature = "phobos")]
+fn transport_amphibious_enter(
+    rules: &RuleSet,
+    transport_type: &crate::rules::object_type::ObjectType,
+) -> bool {
+    transport_type
+        .phobos_amphibious_enter
+        .unwrap_or(rules.phobos_globals.amphibious_enter)
+}
+
+/// Without the `phobos` feature the key is not read.
+#[cfg(not(feature = "phobos"))]
+fn transport_amphibious_enter(
+    _rules: &RuleSet,
+    _transport_type: &crate::rules::object_type::ObjectType,
+) -> bool {
+    false
+}
+
 /// DOCKING, `UnitClass::Receive_Radio` case 0x0E (`0x007377D8..0x00737A95`),
 /// a passenger's question whether it may come aboard (the Infantry setter's
 /// Enter arm and every Mission_Enter dispatch ask it):
@@ -1040,17 +1079,14 @@ fn unit_docking(
             retained_zone(sender)
         };
         // `0x0073796B`: Land (`CellClass+0xEC`) of the cell holding its
-        // Location (vt+0x1B8) is Water (2).
-        let on_water = || {
-            let at = crate::sim::movement::ground_pose::position_world_coord(&transport.position);
-            sim.resolved_terrain.as_ref().is_some_and(|terrain| {
-                let cells = crate::map::resolved_terrain::NativeCellQuery::canonical(terrain);
-                let cell = cells.lookup(((at.x / 256) as i16, (at.y / 256) as i16));
-                cells.land_type(cell)
-                    == i32::from(crate::rules::terrain_rules::LandType::Water.as_index())
-            })
-        };
-        if transport_zone != sender_zone || on_water() {
+        // Location (vt+0x1B8) is Water (2). Phobos `AmphibiousEnter`
+        // (`Ext/Techno/Hooks.Transport.cpp:252`, hook `0x73796B`) admits
+        // boarding over water when the transport type's key, else
+        // `[General]`, is set.
+        let amphibious_enter = transport_amphibious_enter(rules, transport_type);
+        if transport_zone != sender_zone
+            || (!amphibious_enter && transport_on_water(sim, transport))
+        {
             let _ = sim.assign_destination_represented(
                 unit,
                 Some(NavTargetRef::object(from)),
@@ -1171,6 +1207,12 @@ pub(crate) fn unit_can_enter_radio(
         )
         || transport.is_warped_out()
     {
+        return RadioResponse::None;
+    }
+    // Phobos `AmphibiousEnter` in `CanEnterNow` (rewrite of `0x73758A`,
+    // `Ext/Techno/Hooks.Transport.cpp:231-253`): a transport on water refuses
+    // the boarding query unless the type key, else `[General]`, admits it.
+    if !transport_amphibious_enter(rules, transport_type) && transport_on_water(sim, transport) {
         return RadioResponse::None;
     }
     // GetCell+1BC -> ground CellClass::Look_up_building_in_cell47C520.
@@ -3412,6 +3454,84 @@ mod tests {
         assert!(!crate::sim::passenger::can_enter_transport(
             &sim, &rules, 2, 1
         ));
+    }
+
+    /// Phobos `AmphibiousEnter` (`Ext/Techno/Hooks.Transport.cpp:231-253`,
+    /// hooks `0x73758A`/`0x73796B`): a transport on water refuses the boarding
+    /// query unless the type key, else `[General]`, is set.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn amphibious_enter_admits_boarding_a_transport_on_water() {
+        use crate::map::resolved_terrain::{ResolvedTerrainGrid, test_flat_cell};
+        use crate::rules::ini_parser::IniFile;
+        use crate::sim::passenger::{PassengerCargo, PassengerRole};
+
+        let build = |general: &str| {
+            let rules = crate::rules::ruleset::RuleSet::from_ini(&IniFile::from_str(&format!(
+                "[General]\n{general}\
+                 [VehicleTypes]\n0=APC\n[APC]\nStrength=200\nPassengers=5\nSizeLimit=5\n\
+                 [InfantryTypes]\n0=E1\n[E1]\nStrength=100\nSize=1\n"
+            )))
+            .unwrap();
+            let mut sim = Simulation::with_seed(32);
+            let mut terrain = ResolvedTerrainGrid::from_cells(
+                4,
+                4,
+                (0..4)
+                    .flat_map(|y| (0..4).map(move |x| test_flat_cell(x, y)))
+                    .collect(),
+            );
+            terrain.cell_mut_for_test(2, 2).unwrap().land_type =
+                crate::rules::terrain_rules::LandType::Water.as_index();
+            sim.install_resolved_terrain_for_new_map(terrain);
+            let own = sim.intern("Americans");
+            let apc_type = sim.intern("APC");
+            let mut apc = GameEntity::new_at_frame_zero_for_test(
+                1,
+                2,
+                2,
+                128,
+                128,
+                own,
+                Health::new(200),
+                apc_type,
+                EntityCategory::Unit,
+                0,
+                5,
+                false,
+            );
+            apc.passenger_role = PassengerRole::transport(PassengerCargo::new(5, 0.0));
+            sim.substrate.entities.insert(apc);
+            let gi_type = sim.intern("E1");
+            sim.substrate
+                .entities
+                .insert(GameEntity::new_at_frame_zero_for_test(
+                    2,
+                    3,
+                    2,
+                    128,
+                    128,
+                    own,
+                    Health::new(100),
+                    gi_type,
+                    EntityCategory::Infantry,
+                    0,
+                    5,
+                    false,
+                ));
+            (sim, rules)
+        };
+
+        let (sim, rules) = build("");
+        assert_eq!(
+            super::can_load_query(&sim, 1, 2, &rules),
+            RadioResponse::None
+        );
+        let (sim, rules) = build("AmphibiousEnter=yes\n");
+        assert_eq!(
+            super::can_load_query(&sim, 1, 2, &rules),
+            RadioResponse::Roger
+        );
     }
 
     /// The aircraft receiver's transport arms need `Carryall=` (`+0xDFC`) or

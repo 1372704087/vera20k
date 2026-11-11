@@ -91,12 +91,16 @@ impl TechnoAmmo {
     }
 
     /// Phobos `WarheadTypeExt::ApplyAmmoModifier`
-    /// (`Ext/WarheadType/Detonate.cpp:923-932`): `clamp(Ammo + delta, 0,
-    /// type->Ammo)`. The maximum is the target type's live `Ammo=`, not the
-    /// constructor copy. Returns the new count.
+    /// (`Ext/WarheadType/Detonate.cpp:923-932`): `new = Ammo + current`,
+    /// then `new < 0 ? 0 : new`, then `new > maxAmmo ? maxAmmo : new`. The
+    /// maximum is the target type's live `Ammo=`, which is `-1` for a type
+    /// that leaves it unset, so a clamped store can be negative there.
+    /// Returns the new count.
     #[cfg(feature = "phobos")]
     pub(crate) fn apply_warhead_delta(&mut self, delta: i32, max_ammo: i32) -> i32 {
-        self.current = self.current.wrapping_add(delta).clamp(0, max_ammo);
+        let new = self.current.wrapping_add(delta);
+        let new = new.max(0);
+        self.current = if new > max_ammo { max_ammo } else { new };
         self.current
     }
 

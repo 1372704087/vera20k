@@ -1209,6 +1209,12 @@ pub(crate) fn unit_can_enter_radio(
     {
         return RadioResponse::None;
     }
+    // Phobos `CanEnterNow` (`Ext/Techno/Hooks.Transport.cpp:236`): a transport
+    // on a bridge refuses boarding.
+    #[cfg(feature = "phobos")]
+    if transport.on_bridge() {
+        return RadioResponse::None;
+    }
     // Phobos `AmphibiousEnter` in `CanEnterNow` (rewrite of `0x73758A`,
     // `Ext/Techno/Hooks.Transport.cpp:231-253`): a transport on water refuses
     // the boarding query unless the type key, else `[General]`, admits it.

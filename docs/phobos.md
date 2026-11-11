@@ -97,7 +97,6 @@ Supported extensions:
 - [Overpower thresholds](phobos-overpower.md) (`Overpower.KeepOnline` / `.ChargeWeapon` per building type and `ElectricAssaultLevel` per warhead drive the Tesla-charger power bypass and the overpowered weapon latch; 3 keys)
 - [Iron-curtained targeting](phobos-iron-curtain-targeting.md) (`CanTarget.IronCurtained` / `AutoTarget.IronCurtained` per weapon plus the `[CombatDamage]` human/AI fallbacks: firing, retaliation and auto-target gates; 5 keys)
 - [Berzerk targeting](phobos-berzerk-targeting.md) (`[CombatDamage] BerzerkTargeting=` limits the houses a berzerk firer may target)
-- [No-threat buildings](phobos-no-threat-buildings.md) (`AutoTarget[AI].NoThreatBuildings` / `AttackNoThreatBuildings` admit unarmed buildings to auto-target)
 - [Recount burst](phobos-recount-burst.md) (`RecountBurst` recounts a retained burst index on a weapon change or idle timeout)
 - [AI superweapon delay](phobos-ai-superweapon-delay.md) (`[General] AISuperWeaponDelay=` spaces a computer house's `AI_TryFireSW`)
 - [Reveal houses](phobos-reveal-houses.md) (`RevealHouses` per techno, country and `[AudioVisual]` filters which players a techno's sight reveals to)

@@ -247,19 +247,16 @@ pub(crate) fn detonate(
     let change_owner = warhead.phobos_change_owner;
     #[cfg(not(feature = "phobos"))]
     let change_owner = false;
-    // `RemoveMindControl`, the sell/undeploy arms
-    // (`Ext/WarheadType/Detonate.cpp:207-208,213-214`) and the per-target
-    // arms below all keep `PossibleCellSpreadDetonate` looping.
+    // `PossibleCellSpreadDetonate` (`Ext/WarheadType/Body.cpp:495-516`):
+    // the RemoveMindControl/sell/undeploy extras and the per-target arms
+    // below. CanKill and the Prevent*Escape arms are not members: they run in
+    // ReceiveDamage and the death arms, so they never force this loop.
     #[cfg(feature = "phobos")]
     let warhead_extras = warhead.phobos_extras.has_per_target_effect()
         || warhead.ammo != 0
         || warhead.remove_disguise
         || warhead.reverse_engineer
-        || warhead.taunt
-        || !warhead.can_kill
-        || warhead.prevent_crew_escape
-        || warhead.prevent_passenger_escape
-        || warhead.prevent_occupant_escape;
+        || warhead.taunt;
     #[cfg(not(feature = "phobos"))]
     let warhead_extras = false;
     if !(attach

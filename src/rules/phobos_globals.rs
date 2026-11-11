@@ -1221,14 +1221,6 @@ impl PhobosGlobals {
         // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
         globals.no_turret_track_target =
             general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
-        globals.auto_target_no_threat_buildings = general.read_bool(
-            "AutoTarget.NoThreatBuildings",
-            globals.auto_target_no_threat_buildings,
-        );
-        globals.auto_target_ai_no_threat_buildings = general.read_bool(
-            "AutoTargetAI.NoThreatBuildings",
-            globals.auto_target_ai_no_threat_buildings,
-        );
         globals.recount_burst = general.read_bool("RecountBurst", globals.recount_burst);
         globals.ai_superweapon_delay =
             general.read_phobos_nullable_int("AISuperWeaponDelay", globals.ai_superweapon_delay);

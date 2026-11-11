@@ -767,6 +767,21 @@ fn warhead_ammo_modifies_the_target_ammo_with_the_native_clamp() {
     assert_eq!(after("Ammo=-9\n"), 0, "negative clamps to zero");
     assert_eq!(after("Ammo=9\n"), 5, "clamped to the type's Ammo");
     assert_eq!(after(""), 2, "the default 0 is a no-op");
+    // A type that leaves `Ammo=` unset keeps the constructor's -1; the native
+    // upper clamp stores that -1 instead of asserting a 0..-1 range.
+    let (mut sim, rules, firer, target) = scene("", "Ammo=2\n", "", "", "Russians");
+    detonate_once(&mut sim, &rules, firer, target, Some(target));
+    assert_eq!(
+        sim.substrate
+            .entities
+            .get(target)
+            .unwrap()
+            .ammo()
+            .unwrap()
+            .current(),
+        -1,
+        "the unset Ammo=-1 upper clamp"
+    );
 }
 
 /// Phobos `WarheadTypeExt::ApplyRemoveDisguise`

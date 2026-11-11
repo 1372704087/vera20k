@@ -12239,6 +12239,41 @@ impl RuleSet {
         self.unit_shp_read_states.get(&object.id)
     }
 
+    /// Phobos `UnitTypeClass_ReadINI_TurretShape @ 0x747A2E`
+    /// (`Ext/TechnoType/Hooks.cpp:142-168`): the separate SHP turret stem for
+    /// a non-voxel turreted Vehicle, `<image>TUR`.
+    ///
+    /// VERA's body SHP source already applies the ART `Image=` redirect
+    /// ([`ArtRegistry::resolve_effective_image_id`]), so
+    /// `[General] ArtImageSwap` is read for parity but does not change this
+    /// base: the turret file tracks the body's actual source, not the type ID.
+    ///
+    /// [`ArtRegistry::resolve_effective_image_id`]: crate::rules::art_data::ArtRegistry::resolve_effective_image_id
+    pub fn unit_turret_shp_id(&self, type_id: &str) -> Option<String> {
+        let object = self.object(type_id)?;
+        if object.category != crate::rules::object_type::ObjectCategory::Vehicle
+            || !object.has_turret
+        {
+            return None;
+        }
+        let entry = self
+            .art()
+            .resolve_metadata_entry(&object.id, &object.image)?;
+        if entry.voxel {
+            return None;
+        }
+        let base = self
+            .art()
+            .resolve_effective_image_id(&object.id, &object.image);
+        Some(format!("{}TUR", base.to_ascii_uppercase()))
+    }
+
+    /// The `<image>TUR.SHP` file name for [`Self::unit_turret_shp_id`].
+    pub fn unit_turret_shp_file(&self, type_id: &str) -> Option<String> {
+        self.unit_turret_shp_id(type_id)
+            .map(|id| format!("{id}.SHP"))
+    }
+
     #[cfg(any(test, feature = "test-support"))]
     pub(crate) fn set_effect_frame_count_for_test(&mut self, name: &str, raw: u16, available: u16) {
         self.effect_assets.set_for_test(name, raw, available);

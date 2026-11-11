@@ -262,6 +262,13 @@ pub struct SequenceSet {
     /// body-frame counter on `GameEntity`.
     #[serde(default)]
     shp_vehicle_cadence: Option<FootBodyCadence>,
+    /// Phobos `UnitTypeExt::TurretShape`'s frame layout
+    /// (`Ext/Unit/Hooks.DrawIt.cpp:29-33`, `0x73C7AC`): one image per body
+    /// facing in the body SHP at `WalkFrames * Facings`, or frame 0 of the
+    /// separate `<image>TUR.SHP`. Present only for a non-voxel SHP UnitType
+    /// with `Turret=yes`.
+    #[serde(default)]
+    shp_vehicle_turret: Option<SequenceDef>,
 }
 
 /// Rules-owned divisors consumed by the shared Foot body counter.
@@ -294,6 +301,7 @@ impl SequenceSet {
             sequences: BTreeMap::new(),
             infantry_actions: None,
             shp_vehicle_cadence: None,
+            shp_vehicle_turret: None,
         }
     }
 
@@ -332,6 +340,18 @@ impl SequenceSet {
 
     pub fn shp_vehicle_cadence(&self) -> Option<FootBodyCadence> {
         self.shp_vehicle_cadence
+    }
+
+    /// Attach the SHP UnitType turret frame layout. The builder owns the
+    /// `WalkFrames * Facings` start; the renderer selects frame 0 instead
+    /// when `<image>TUR.SHP` is bound.
+    pub(crate) fn set_shp_vehicle_turret(&mut self, def: SequenceDef) {
+        self.shp_vehicle_turret = Some(def);
+    }
+
+    /// The SHP UnitType turret frame layout, when the type has one.
+    pub fn shp_vehicle_turret(&self) -> Option<&SequenceDef> {
+        self.shp_vehicle_turret.as_ref()
     }
 
     /// Add a sequence definition.
@@ -416,6 +436,7 @@ pub(crate) fn build_animation_sequence_catalog(
             crate::rules::shp_vehicle_sequence::build_shp_vehicle_sequences(
                 art,
                 cadence,
+                object.has_turret,
                 if object.category == crate::rules::object_type::ObjectCategory::Vehicle {
                     Some(
                         rules

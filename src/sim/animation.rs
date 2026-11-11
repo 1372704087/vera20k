@@ -491,6 +491,45 @@ pub fn resolve_shp_vehicle_body_frame(
     .ok()
 }
 
+/// Phobos `UnitClass_DrawAsSHP_DrawTurret` (`Ext/Unit/Hooks.DrawIt.cpp:29-41`,
+/// `0x73C7AC`) and `UnitClass_DrawSHP_FacingsB_TurretShape` (`0x73CCF4`): the
+/// turret image index. With a bound `<image>TUR.SHP` (`turret_shape`) the
+/// sequence starts at frame 0; otherwise the body SHP's
+/// `WalkFrames * Facings` block supplies it. The facing byte follows the
+/// body's eight-octant vehicle table, one turret image per body facing.
+pub fn resolve_shp_vehicle_turret_frame(
+    set: &SequenceSet,
+    turret_facing: u8,
+    turret_shape: bool,
+) -> Option<u16> {
+    let def = set.shp_vehicle_turret()?;
+    if def.frame_count == 0 {
+        return None;
+    }
+    let start_frame = if turret_shape {
+        0
+    } else {
+        i32::from(def.start_frame)
+    };
+    let slot = if def.facings == VEHICLE_FACING_SLOTS {
+        vehicle_facing_slot(turret_facing)
+    } else {
+        0
+    };
+    u16::try_from(resolve_shp_frame_parts(
+        start_frame,
+        i32::from(def.frame_count),
+        if def.facings <= 1 {
+            0
+        } else {
+            i32::from(def.facing_multiplier)
+        },
+        i32::from(slot),
+        0,
+    ))
+    .ok()
+}
+
 /// Advance a single animation by one reached native gameplay frame.
 ///
 /// Returns `Some(SequenceKind)` if the sequence completed with a `TransitionTo`

@@ -509,6 +509,17 @@ pub struct ObjectType {
     /// for the `[General]` random pick; unset follows the global.
     #[cfg(feature = "phobos")]
     pub phobos_destroy_anim_random: Option<bool>,
+    /// Phobos `AutoTargetOwnPosition=` (`Valueable<bool>`,
+    /// `Ext/TechnoType/Body.cpp:898-899`, constructor false; deprecated alias
+    /// `AutoFire=`): the auto-target scan sets the object itself or its cell as
+    /// the target (`Ext/Techno/Hooks.TargetEvaluation.cpp:8-22`).
+    #[cfg(feature = "phobos")]
+    pub phobos_auto_target_own_position: bool,
+    /// Phobos `AutoTargetOwnPosition.Self=` (`Valueable<bool>`,
+    /// `Ext/TechnoType/Body.cpp:904-905`, constructor false; deprecated alias
+    /// `AutoFire.TargetSelf=`): target the object rather than its cell.
+    #[cfg(feature = "phobos")]
+    pub phobos_auto_target_own_position_self: bool,
     /// `Trainable=` (TechnoType `+0xC8E`) — whether this object can gain
     /// veterancy from its kills.
     ///
@@ -5046,6 +5057,16 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_destroy_anim_random: section
                 .read_phobos_nullable_bool("DestroyAnim.Random", None),
+            #[cfg(feature = "phobos")]
+            phobos_auto_target_own_position: {
+                let value = section.read_bool("AutoFire", false);
+                section.read_bool("AutoTargetOwnPosition", value)
+            },
+            #[cfg(feature = "phobos")]
+            phobos_auto_target_own_position_self: {
+                let value = section.read_bool("AutoFire.TargetSelf", false);
+                section.read_bool("AutoTargetOwnPosition.Self", value)
+            },
             trainable: section.read_bool("Trainable", category != ObjectCategory::Building),
             burst_delays: std::array::from_fn(|index| {
                 if category == ObjectCategory::Vehicle {

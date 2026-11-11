@@ -174,6 +174,13 @@ pub(super) trait ScanHost {
     fn targeting_delay(&self, area_guard: bool) -> i32;
     /// The targeting timer (`+0x180` start, `+0x188` duration).
     fn arm_targeting_timer(&mut self, start: i32, duration: i32);
+    /// Phobos `TechnoClass_TargetSomethingNearby_AutoFire` (`0x7098B9`,
+    /// `Ext/Techno/Hooks.TargetEvaluation.cpp:8-22`): the type's auto-target
+    /// position as `SetTarget(self or its cell)`, or `None` to keep scanning.
+    #[cfg(feature = "phobos")]
+    fn phobos_auto_target(&self) -> Option<TargetKind> {
+        None
+    }
     /// `+0x2B4`.
     fn target(&self) -> Option<TargetKind>;
     /// `+0x50C`: the current target came from this object's passive scan.
@@ -226,6 +233,14 @@ pub(super) fn retaliate_and_scan<H: ScanHost>(host: &mut H, mask: ScanMission) -
     let draw = host.random_ranged(0, 2);
     let duration = host.targeting_delay(area_guard).wrapping_add(draw);
     host.arm_targeting_timer(frame, duration);
+
+    // Phobos replaces the first instructions of the held-target step: a type
+    // with `AutoTargetOwnPosition` sets itself or its cell and returns.
+    #[cfg(feature = "phobos")]
+    if let Some(target) = host.phobos_auto_target() {
+        host.assign_target(Some(target));
+        return host.target().is_some();
+    }
 
     if host.target().is_some() && host.passively_acquired() {
         let weapon = host.select_weapon(host.target());
@@ -746,6 +761,22 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
         if let Some(entity) = self.sim.substrate.entities.get_mut(self.id) {
             entity.passive_scan.arm_timer(start as u32, duration as u32);
         }
+    }
+
+    #[cfg(feature = "phobos")]
+    fn phobos_auto_target(&self) -> Option<TargetKind> {
+        let object = self
+            .sim
+            .interner
+            .object_type(self.entity().type_ref(), self.rules)?;
+        if !object.phobos_auto_target_own_position {
+            return None;
+        }
+        if object.phobos_auto_target_own_position_self {
+            return Some(TargetKind::Entity(self.id));
+        }
+        let (rx, ry) = self.sim.own_map_cell(self.id)?;
+        Some(TargetKind::Cell(rx, ry))
     }
 
     /// TarCom `+0x2B4`, as `Retaliate_And_Scan @ 0x00709820` reads it.
@@ -1601,5 +1632,82 @@ mod tests {
             compared.push(name);
         }
         assert_eq!(compared.len(), 35, "{compared:?}");
+    }
+
+    /// Phobos `TechnoClass_TargetSomethingNearby_AutoFire` (`0x7098B9`): a
+    /// type with `AutoTargetOwnPosition` sets itself or its cell after the
+    /// timer arming and its one `RandomRanged(0, 2)` draw, and the deprecated
+    /// `AutoFire` aliases follow the canonical keys.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_auto_target_own_position_sets_self_or_cell() {
+        let ini = crate::sim::arena_fixture::clear_ground_ini(
+            "[VehicleTypes]\n0=SELFUNIT\n1=CELLUNIT\n2=OFFUNIT\n3=ALIASUNIT\n4=OVERRIDE\n\
+             [SELFUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
+             AutoTargetOwnPosition=yes\nAutoTargetOwnPosition.Self=yes\n\
+             [CELLUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
+             AutoTargetOwnPosition=yes\n\
+             [OFFUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
+             [ALIASUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
+             AutoFire=yes\nAutoFire.TargetSelf=yes\n\
+             [OVERRIDE]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
+             AutoFire=yes\nAutoTargetOwnPosition=no\n\
+             [GUN]\nDamage=10\nROF=100\nRange=8\nSpeed=100\nProjectile=INVIS\nWarhead=WH\n\
+             [INVIS]\nInviso=yes\nAG=yes\nAA=no\n\
+             [WH]\nCellSpread=0\nPercentAtMax=1\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,100%,100%\n",
+        );
+        let rules = RuleSet::from_ini(&ini).expect("auto-target rules");
+        let self_type = rules.object("SELFUNIT").unwrap();
+        assert!(self_type.phobos_auto_target_own_position);
+        assert!(self_type.phobos_auto_target_own_position_self);
+        let alias_type = rules.object("ALIASUNIT").unwrap();
+        assert!(alias_type.phobos_auto_target_own_position);
+        assert!(alias_type.phobos_auto_target_own_position_self);
+        // The canonical key overrides the deprecated alias in both orders.
+        assert!(
+            !rules
+                .object("OVERRIDE")
+                .unwrap()
+                .phobos_auto_target_own_position
+        );
+        for (kind, expected) in [
+            // `SetTarget(self)` at `0x006FCEB8` converts the receiver itself
+            // into the cell under its location, so both Self arms store a
+            // cell; only `AutoTargetOwnPosition` decides whether one is set.
+            ("SELFUNIT", Some(TargetKind::Cell(10, 10))),
+            ("CELLUNIT", Some(TargetKind::Cell(10, 10))),
+            ("ALIASUNIT", Some(TargetKind::Cell(10, 10))),
+            ("OFFUNIT", None),
+            ("OVERRIDE", None),
+        ] {
+            let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0xA0F1);
+            sim.intern_rule_type_ids(&rules);
+            sim.resolve_type_handles(&rules);
+            let id = sim
+                .spawn_object(kind, "Russians", 10, 10, 0, &rules)
+                .expect("auto-target unit spawns");
+            let mut replay = sim.scenario_rng.clone();
+            let held = crate::sim::world::retaliate_and_scan(
+                &mut sim,
+                id,
+                &rules,
+                ScanMission::Guard,
+                ObjectAiCtx::default(),
+                None,
+            );
+            replay.next_range_i32_inclusive(0, 2);
+            assert_eq!(
+                sim.scenario_rng.state(),
+                replay.state(),
+                "{kind}: the arming draw precedes the hook"
+            );
+            assert_eq!(
+                sim.entities().get(id).unwrap().attack_target.target(),
+                expected,
+                "{kind}"
+            );
+            assert_eq!(held, expected.is_some(), "{kind}: held target");
+        }
     }
 }

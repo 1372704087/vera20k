@@ -152,6 +152,7 @@ impl<'a> Replay<'a> {
         let target = |value: &Value| reference(value).map(TargetKind::Entity);
         let manager = SpawnManagerState {
             spawn_type: crate::sim::intern::StringInterner::default().intern("SPAWN"),
+            spawn_queue: Vec::new(),
             missile_family: family,
             regen_rate: int(&manager["regen"]) as u32,
             reload_rate: int(&manager["reload"]) as u32,

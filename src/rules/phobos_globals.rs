@@ -171,6 +171,12 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:192`, `Ext/Rules/Body.h:98`): the damage an
     /// aircraft that cannot land takes, or the kill threshold when negative.
     pub extended_aircraft_missions_unland_damage: i32,
+    /// `[General] AmbientDamage.IgnoreTarget=`, default `no`
+    /// (`Ext/Rules/Body.cpp:268`, constructor `Ext/Rules/Body.h:710`): the
+    /// fallback for an unset weapon key; `yes` leaves the primary target out
+    /// of the railgun/blast-wave ambient damage.
+    #[serde(default)]
+    pub ambient_damage_ignore_target: bool,
     /// `[General] ForceWeapon.InRange.TechnoOnly=`, default **`yes`**
     /// (`Ext/Rules/Body.h:674`): the per-type fallback for the in-range
     /// force-weapon gate.
@@ -545,6 +551,7 @@ impl Default for PhobosGlobals {
             display_income_houses: AffectedHouse::ALL,
             extended_aircraft_missions: false,
             extended_aircraft_missions_unland_damage: 0,
+            ambient_damage_ignore_target: false,
             force_weapon_in_range_techno_only: true,
             force_weapon_in_range_apply_range_modifiers: false,
             force_aa_weapon_in_range_apply_range_modifiers: false,
@@ -709,6 +716,10 @@ impl PhobosGlobals {
             general.read_bool("Explodes.KillPassengers", globals.explodes_kill_passengers);
         globals.explodes_during_buildup =
             general.read_bool("Explodes.DuringBuildup", globals.explodes_during_buildup);
+        globals.ambient_damage_ignore_target = general.read_bool(
+            "AmbientDamage.IgnoreTarget",
+            globals.ambient_damage_ignore_target,
+        );
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,

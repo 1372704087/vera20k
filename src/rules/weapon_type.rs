@@ -431,6 +431,16 @@ pub struct WeaponType {
     /// unset booleans fall back to `[General] Strafing.*`.
     #[cfg(feature = "phobos")]
     pub(crate) phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules,
+    /// Phobos `AmbientDamage.Warhead=` (`Nullable<WarheadTypeClass*>`,
+    /// `Ext/WeaponType/Body.cpp:167`): the warhead the railgun and blast-wave
+    /// ambient damage uses; unset keeps the weapon's own warhead.
+    #[cfg(feature = "phobos")]
+    pub phobos_ambient_damage_warhead: Option<String>,
+    /// Phobos `AmbientDamage.IgnoreTarget=` (`Nullable<bool>`): leave the
+    /// primary target out of the ambient-damage list; unset uses the fixed
+    /// `[General] AmbientDamage.IgnoreTarget=`.
+    #[cfg(feature = "phobos")]
+    pub phobos_ambient_damage_ignore_target: Option<bool>,
     /// Phobos `CanTarget.IronCurtained=` (`Nullable<bool>`,
     /// `Ext/WeaponType/Body.cpp:118`): this weapon's override for shooting an
     /// iron-curtained target; `None` falls back to the human/AI
@@ -848,6 +858,15 @@ impl WeaponType {
             phobos_strafing: crate::rules::phobos_strafing::PhobosStrafingRules::from_section(
                 section,
             ),
+            #[cfg(feature = "phobos")]
+            phobos_ambient_damage_warhead: section.read_phobos_nullable_with(
+                "AmbientDamage.Warhead",
+                None,
+                |raw| Some(raw.to_owned()),
+            ),
+            #[cfg(feature = "phobos")]
+            phobos_ambient_damage_ignore_target: section
+                .read_phobos_nullable_bool("AmbientDamage.IgnoreTarget", None),
             #[cfg(feature = "phobos")]
             phobos_can_target_iron_curtained: section
                 .read_phobos_nullable_bool("CanTarget.IronCurtained", None),
@@ -1663,5 +1682,36 @@ mod tests {
         assert!(defaults.phobos_globals.can_target_iron_curtained);
         assert!(!defaults.phobos_globals.can_target_ai_iron_curtained);
         assert!(defaults.phobos_globals.auto_target_iron_curtained);
+    }
+
+    /// Phobos `AmbientDamage.Warhead` / `.IgnoreTarget` on a weapon and the
+    /// `[General] AmbientDamage.IgnoreTarget` fallback
+    /// (`Ext/WeaponType/Body.cpp:167`, `Ext/Rules/Body.cpp:268`).
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn ambient_damage_keys_read_with_their_fallbacks() {
+        use crate::rules::ruleset::RuleSet;
+        let rules = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n\
+             [UNIT]\nStrength=100\nPrimary=Gun\n\
+             [Gun]\nDamage=1\nAmbientDamage=10\n\
+             AmbientDamage.Warhead=AltWH\nAmbientDamage.IgnoreTarget=no\n\
+             [Warheads]\n0=WH\n1=AltWH\n[WH]\n[AltWH]\n\
+             [General]\nAmbientDamage.IgnoreTarget=yes\n",
+        ))
+        .expect("ambient damage rules");
+        let gun = rules.weapon("Gun").unwrap();
+        assert_eq!(gun.phobos_ambient_damage_warhead.as_deref(), Some("AltWH"));
+        assert_eq!(gun.phobos_ambient_damage_ignore_target, Some(false));
+        assert!(rules.phobos_globals.ambient_damage_ignore_target);
+
+        let defaults = RuleSet::from_ini(&IniFile::from_str(
+            "[VehicleTypes]\n0=UNIT\n[UNIT]\nStrength=100\nPrimary=Gun\n[Gun]\nDamage=1\n",
+        ))
+        .expect("default ambient rules");
+        let gun = defaults.weapon("Gun").unwrap();
+        assert_eq!(gun.phobos_ambient_damage_warhead, None);
+        assert_eq!(gun.phobos_ambient_damage_ignore_target, None);
+        assert!(!defaults.phobos_globals.ambient_damage_ignore_target);
     }
 }

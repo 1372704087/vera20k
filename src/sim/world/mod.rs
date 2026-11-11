@@ -2665,9 +2665,10 @@ impl Simulation {
             }
             crate::sim::combat::TargetKind::Cell(rx, ry) => self.wave_cell_target_position(rx, ry),
             #[cfg(feature = "phobos")]
-            crate::sim::combat::TargetKind::Bullet(id) => {
-                self.projectiles.get(id).map(|projectile| projectile.position())?
-            }
+            crate::sim::combat::TargetKind::Bullet(id) => self
+                .projectiles
+                .get(id)
+                .map(|projectile| projectile.position())?,
         };
         // Sonic 0x006FF465 and Magnetic 0x006FF63C pass the constructor
         // &[ESP+0x88], this target coordinate (0x006FE204), first and
@@ -2854,10 +2855,33 @@ impl Simulation {
                     break;
                 };
                 let raw_ambient_damage = weapon.ambient_damage;
-                let Some(warhead_name) = weapon.warhead.as_deref() else {
+                // Phobos `AmbientDamage.Warhead` (`0x75F39D`,
+                // `Ext/Techno/Hooks.WeaponEffects.cpp:175-186`): unset keeps
+                // the weapon's own warhead.
+                #[cfg(feature = "phobos")]
+                let ambient_warhead_name = weapon
+                    .phobos_ambient_damage_warhead
+                    .as_deref()
+                    .or(weapon.warhead.as_deref());
+                #[cfg(not(feature = "phobos"))]
+                let ambient_warhead_name = weapon.warhead.as_deref();
+                let Some(warhead_name) = ambient_warhead_name else {
                     break;
                 };
                 let warhead_ref = self.interner.intern(warhead_name);
+                // Phobos `AmbientDamage.IgnoreTarget` (`0x75F415`, `:175-186`):
+                // the wave's Target object takes no ambient damage.
+                #[cfg(feature = "phobos")]
+                let ambient_ignored_target = if weapon
+                    .phobos_ambient_damage_ignore_target
+                    .unwrap_or(rules.phobos_globals.ambient_damage_ignore_target)
+                {
+                    request.target
+                } else {
+                    None
+                };
+                #[cfg(not(feature = "phobos"))]
+                let ambient_ignored_target: Option<crate::sim::combat::TargetKind> = None;
                 let source_house = Some(firer.owner());
                 let mut shared_damage = raw_ambient_damage;
 
@@ -2893,6 +2917,8 @@ impl Simulation {
                     let receiver = match receiver_object {
                         CellObject::Entity(target_id) => {
                             let eligible = target_id != request.firer_id
+                                && ambient_ignored_target
+                                    != Some(crate::sim::combat::TargetKind::Entity(target_id))
                                 && self
                                     .substrate
                                     .entities

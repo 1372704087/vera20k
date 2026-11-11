@@ -9751,3 +9751,77 @@ fn deferred_voxel_delivery_keeps_constructor_identity_without_spending_again() {
     assert_eq!(sim.live_object_order_snapshot(), [id]);
     sim.debug_assert_logic_membership_consistent();
 }
+
+/// Phobos `AmbientDamage.Warhead` (`0x75F39D`) and `.IgnoreTarget`
+/// (`0x75F415`) on the blast wave: the override warhead's Verses scales the
+/// ambient hit, and the wave's Target object can be skipped; the `[General]`
+/// fallback is the per-weapon default.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_wave_ambient_damage_reads_the_warhead_and_ignore_target() {
+    fn wave_rules(weapon_keys: &str) -> RuleSet {
+        RuleSet::from_ini(&IniFile::from_str(&format!(
+            "[VehicleTypes]\n0=DLPH\n1=TARGET\n\n\
+             [DLPH]\nStrength=200\nArmor=light\nSpeed=8\nPrimary=SonicZap\n\n\
+             [TARGET]\nStrength=100\nArmor=wood\n\n\
+             [SonicZap]\nDamage=4\nROF=20\nRange=10\nProjectile=Sonic\nSpeed=100\n\
+             Warhead=SonicWH\nIsSonic=yes\n{weapon_keys}\n\n\
+             [Sonic]\nLevel=yes\n\n\
+             [SonicWH]\nWood=yes\n\
+             Verses=100%,100%,100%,100%,100%,100%,100%,100%,100%,0%,0%\n",
+        )))
+        .expect("Phobos Sonic Wave fixture")
+    }
+    const ALT: &str = "[AltWH]\nWood=yes\n\
+        Verses=50%,50%,50%,50%,50%,50%,50%,50%,50%,50%,50%\n\
+        [Warheads]\n0=SonicWH\n1=AltWH\n";
+    for (keys, target_health) in [
+        (
+            format!("AmbientDamage=10\nAmbientDamage.Warhead=AltWH\n{ALT}"),
+            95,
+        ),
+        (
+            format!(
+                "AmbientDamage=10\nAmbientDamage.Warhead=AltWH\n\
+                 AmbientDamage.IgnoreTarget=yes\n{ALT}"
+            ),
+            100,
+        ),
+    ] {
+        let rules = wave_rules(&keys);
+        let mut sim = crate::sim::arena_fixture::rival_arena(&rules, 0x5EED_A2E7);
+        let dolphin = sim
+            .spawn_object("DLPH", "Americans", 6, 10, 64, &rules)
+            .expect("dolphin");
+        let receiver = sim
+            .spawn_object("TARGET", "Russians", 7, 10, 0, &rules)
+            .expect("receiver");
+        let target = sim
+            .spawn_object("TARGET", "Russians", 12, 10, 0, &rules)
+            .expect("target");
+        let event = sonic_fire_event(&mut sim, &rules, dolphin, target);
+        admit_test_wave(&mut sim, &rules, &event);
+        let wave_id = sim.active_wave_links[&dolphin];
+        // The wave's recorded cells cover the receiver and the Target object.
+        let request = crate::sim::wave::WaveDamageRequest {
+            wave_id,
+            firer_id: dolphin,
+            recorded_cells: vec![
+                crate::sim::wave::WaveRecordedCell::real(7, 10),
+                crate::sim::wave::WaveRecordedCell::real(12, 10),
+            ],
+            wave_z: 0,
+            target: Some(TargetKind::Entity(target)),
+            ares_weapon: None,
+        };
+        sim.commit_logic_wave_damage_request(&rules, None, &request, FrameEffects::default());
+        let health =
+            |sim: &Simulation, id| sim.substrate.entities.get(id).unwrap().health.current();
+        assert_eq!(
+            health(&sim, receiver),
+            95,
+            "the override warhead's 50% Verses scales the ambient hit"
+        );
+        assert_eq!(health(&sim, target), target_health);
+    }
+}

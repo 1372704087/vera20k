@@ -166,6 +166,10 @@ pub(crate) struct MatchPresentationState {
     /// half of the weeds counter.
     #[cfg(feature = "phobos")]
     pub(crate) show_weeds_counter: bool,
+    /// Phobos `[Phobos] PriorityDeployFiltering=` (source default `yes`):
+    /// gates the `LowDeployPriority` filter in the selection-wide deploy walk.
+    #[cfg(feature = "phobos")]
+    pub(crate) priority_deploy_filtering: bool,
     /// Phobos placement preview SHP cache for the current placing type.
     #[cfg(feature = "phobos")]
     pub(crate) placement_preview_art:

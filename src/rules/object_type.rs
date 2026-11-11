@@ -1054,6 +1054,13 @@ pub struct ObjectType {
     /// Read only for a UnitType.
     #[cfg(feature = "phobos")]
     pub phobos_turret_response: Option<bool>,
+    /// Phobos `RecountBurst=` (`Ext/TechnoType/Body.cpp:1031`,
+    /// `Nullable<bool>`): unset falls back to `[General] RecountBurst=`. A
+    /// weapon change or idle timeout recounts the burst index and re-arms the
+    /// shot (`Ext/Techno/Body.Update.cpp:544-566`,
+    /// `Ext/Techno/Hooks.Firing.cpp:609-633`).
+    #[cfg(feature = "phobos")]
+    pub phobos_recount_burst: Option<bool>,
     /// Phobos `InitialStrength.Cloning=` (`Ext/BuildingType/Body.cpp:196`,
     /// `Valueable<PartialVector2D<double>>` field `Body.h:33`, constructor
     /// `{ { 1.0 } }` at `Body.h:169`): the percentage, or `min,max` range,
@@ -5264,6 +5271,8 @@ impl ObjectType {
             phobos_turret_response: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("TurretResponse", None))
                 .flatten(),
+            #[cfg(feature = "phobos")]
+            phobos_recount_burst: section.read_phobos_nullable_bool("RecountBurst", None),
             #[cfg(feature = "phobos")]
             phobos_initial_cloning: section.read_ares_partial_double_pair(
                 "InitialStrength.Cloning",

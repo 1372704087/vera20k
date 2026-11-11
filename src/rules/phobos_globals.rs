@@ -433,6 +433,13 @@ pub struct PhobosGlobals {
     /// it.
     #[serde(default = "true_bool")]
     pub auto_target_ai_no_threat_buildings: bool,
+    /// `[General] RecountBurst=`, default `no` (`Ext/Rules/Body.cpp:382`,
+    /// constructor `Ext/Rules/Body.h:803`): a weapon change or an idle timeout
+    /// recounts the retained burst index and re-arms the shot
+    /// (`Ext/Techno/Body.Update.cpp:544-566`,
+    /// `Ext/Techno/Hooks.Firing.cpp:609-633`).
+    #[serde(default)]
+    pub recount_burst: bool,
     /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
     /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
     /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
@@ -622,6 +629,7 @@ impl Default for PhobosGlobals {
             auto_target_iron_curtained: true,
             auto_target_no_threat_buildings: false,
             auto_target_ai_no_threat_buildings: true,
+            recount_burst: false,
             berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
@@ -880,6 +888,7 @@ impl PhobosGlobals {
             "AutoTargetAI.NoThreatBuildings",
             globals.auto_target_ai_no_threat_buildings,
         );
+        globals.recount_burst = general.read_bool("RecountBurst", globals.recount_burst);
         // The StartFacing pair (`Ext/Rules/Body.cpp:626-627`): a Valueable<int>
         // and a Valueable<bool>, both read with their constructor value.
         globals.building_start_facing =

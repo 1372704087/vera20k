@@ -98,6 +98,7 @@ Supported extensions:
 - [Iron-curtained targeting](phobos-iron-curtain-targeting.md) (`CanTarget.IronCurtained` / `AutoTarget.IronCurtained` per weapon plus the `[CombatDamage]` human/AI fallbacks: firing, retaliation and auto-target gates; 5 keys)
 - [Berzerk targeting](phobos-berzerk-targeting.md) (`[CombatDamage] BerzerkTargeting=` limits the houses a berzerk firer may target)
 - [No-threat buildings](phobos-no-threat-buildings.md) (`AutoTarget[AI].NoThreatBuildings` / `AttackNoThreatBuildings` admit unarmed buildings to auto-target)
+- [Recount burst](phobos-recount-burst.md) (`RecountBurst` recounts a retained burst index on a weapon change or idle timeout)
 - [Freed-slave owner and sound](phobos-slave-freed.md) (`Slaved.OwnerWhenMasterKilled` picks killer/master/suicide/neutral per slave type, and a type `SlavesFreeSound` replaces the fixed release sound; 2 keys)
 - [Warhead self-damage](phobos-allow-damage-on-self.md) (`AllowDamageOnSelf` per warhead and globally, and the airborne `DamageSelf` fix)
 - [Zero-damage C4 minimum](phobos-c4-zero-damage.md) (`CanC4.AllowZeroDamage` keeps a `CanC4=no` building from taking 1 point when `Verses` scales a non-zero hit to 0; negative packets bypass the floor; 1 key)

@@ -1001,6 +1001,12 @@ pub struct GameEntity {
     #[cfg(feature = "phobos")]
     #[serde(default)]
     pub(crate) phobos_prevent_crew_escape: bool,
+    /// Phobos `TechnoExt::LastWeaponType` (`Ext/Techno/Body.h:51`): the
+    /// weapon section the last `FireAt` used, compared by identity for
+    /// `RecountBurst` (`Ext/Techno/Hooks.Firing.cpp:611-632`).
+    #[cfg(feature = "phobos")]
+    #[serde(default)]
+    pub(crate) phobos_last_weapon_type: Option<crate::sim::intern::InternedId>,
     /// Phobos `TechnoExt::LastTargetCrd` (`Ext/Techno/Body.h:82`): the retained
     /// `GetCoords` of the object's last live target, `[0, 0, 0]`
     /// (`CoordStruct::Empty`) while unset. Written by
@@ -2844,6 +2850,8 @@ impl GameEntity {
             phobos_revert_on_exit_latch: false,
             #[cfg(feature = "phobos")]
             phobos_prevent_crew_escape: false,
+            #[cfg(feature = "phobos")]
+            phobos_last_weapon_type: None,
             #[cfg(feature = "phobos")]
             phobos_extra_threat_last_target_crd: [0; 3],
             #[cfg(feature = "phobos")]

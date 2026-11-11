@@ -933,16 +933,31 @@ pub(crate) fn sell_complete(
     id: u64,
     frame_effects: FrameEffects<'_>,
 ) -> bool {
-    let Some((owner, undeploys, type_id)) = sim.substrate.entities.get(id).and_then(|entity| {
-        let object = sim.object_type(entity.type_ref(), rules)?;
-        Some((entity.owner(), undeploys(rules, object), entity.type_ref()))
-    }) else {
+    let Some((owner, undeploys, type_id, archive)) =
+        sim.substrate.entities.get(id).and_then(|entity| {
+            let object = sim.object_type(entity.type_ref(), rules)?;
+            Some((
+                entity.owner(),
+                undeploys(rules, object),
+                entity.type_ref(),
+                sale_archive(entity),
+            ))
+        })
+    else {
         return false;
     };
     //449CB1 requests the House strip recheck before target/audio/conversion.
     sim.houses.request_house_tech_tree_recheck(owner);
     let _ = sim.assign_target_represented(id, None, rules, registry, frame_effects);
-    if !undeploys {
+    // Phobos `BuildingClass_Mi_Selling_EVASold_UndeploysInto` (`0x449CC1`,
+    // `Ext/Building/Hooks.Selling.cpp:70-76`): the announcement does not follow
+    // the conversion answer; a repack building with no ArchiveTarget still
+    // announces its sale.
+    #[cfg(feature = "phobos")]
+    let announce_sold = !undeploys || !archive;
+    #[cfg(not(feature = "phobos"))]
+    let announce_sold = !undeploys;
+    if announce_sold {
         sim.sound_events
             .emit(SimSoundEvent::StructureSold { owner, type_id });
     }

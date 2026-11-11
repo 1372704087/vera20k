@@ -298,3 +298,65 @@ fn guard_scan_refuses_a_candidate_strictly_below_minus_twenty_leptons() {
         "the gate reads the current height each scan"
     );
 }
+
+/// Phobos `TechnoClass_CanAutoTarget_AttackNoThreatBuildings`
+/// (`0x6F85CF`, `Ext/Techno/Hooks.cpp:1848-1865`): a human guard scan
+/// refuses an unarmed enemy building by default; the
+/// `[General] AutoTarget.NoThreatBuildings=` global, or the scanned weapon's
+/// `AttackNoThreatBuildings=`, admits it.
+#[cfg(feature = "phobos")]
+#[test]
+fn no_threat_building_gate_reads_the_global_and_weapon_override() {
+    use crate::rules::ini_parser::IniFile;
+    use crate::rules::process_owner::NativeScenarioRulesPrefix;
+    let Some(retail) = crate::rules::retail_ini_fixture::retail_battle_rules() else {
+        return;
+    };
+    let pick = |rules: &RuleSet| {
+        let mut sim = crate::sim::arena_fixture::rival_arena(rules, 1);
+        sim.intern_rule_type_ids(rules);
+        sim.resolve_type_handles(rules);
+        let tank = sim
+            .spawn_object("MTNK", "Americans", 16, 16, 64, rules)
+            .expect("scanner");
+        let building = sim
+            .spawn_object("GAPOWR", "Russians", 18, 16, 0, rules)
+            .expect("candidate");
+        crate::sim::arena_fixture::discover(&mut sim, building);
+        (
+            sim.greatest_threat_represented(rules, None, tank, ScanMission::Guard, None)
+                .and_then(crate::sim::combat::TargetKind::object_id),
+            building,
+        )
+    };
+    let (picked, _) = pick(&retail.rules);
+    assert_eq!(picked, None, "default refuses an unarmed power plant");
+
+    let mut admitted = retail.rules.clone();
+    admitted.phobos_globals.auto_target_no_threat_buildings = true;
+    let (picked, building) = pick(&admitted);
+    assert_eq!(picked, Some(building), "the human global admits it");
+
+    let Some((_, assets)) = crate::rules::retail_ini_fixture::retail_assets() else {
+        return;
+    };
+    let weapon = retail
+        .rules
+        .object("MTNK")
+        .and_then(|object| object.primary())
+        .expect("MTNK primary weapon");
+    let mut owner = crate::rules::retail_ini_fixture::retail_rules_owner(&assets);
+    let (rules, _, _, _) = owner
+        .load_scenario(
+            NativeScenarioRulesPrefix::Campaign(None),
+            &IniFile::from_str(&format!("[{weapon}]\nAttackNoThreatBuildings=yes\n")),
+        )
+        .unwrap()
+        .into_parts();
+    let (picked, building) = pick(&rules);
+    assert_eq!(
+        picked,
+        Some(building),
+        "the scanned weapon's override admits it"
+    );
+}

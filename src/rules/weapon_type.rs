@@ -453,6 +453,12 @@ pub struct WeaponType {
     /// `Hooks.Targeting.cpp:63`).
     #[cfg(feature = "phobos")]
     pub phobos_auto_target_iron_curtained: Option<bool>,
+    /// Phobos `AttackNoThreatBuildings=` (`Nullable<bool>`,
+    /// `Ext/WeaponType/Body.cpp:206`): whether this weapon's auto-target scan
+    /// admits an unarmed or `ThreatPosed=0` enemy building; `None` falls back
+    /// to the human/AI `[General]` global (`Ext/Techno/Hooks.cpp:1848-1865`).
+    #[cfg(feature = "phobos")]
+    pub phobos_attack_no_threat_buildings: Option<bool>,
 }
 
 impl WeaponType {
@@ -873,6 +879,9 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_auto_target_iron_curtained: section
                 .read_phobos_nullable_bool("AutoTarget.IronCurtained", None),
+            #[cfg(feature = "phobos")]
+            phobos_attack_no_threat_buildings: section
+                .read_phobos_nullable_bool("AttackNoThreatBuildings", None),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")

@@ -421,6 +421,18 @@ pub struct PhobosGlobals {
     /// (`Hooks.Firing.cpp:1246`, `Hooks.Targeting.cpp:63`).
     #[serde(default = "true_bool")]
     pub auto_target_iron_curtained: bool,
+    /// `[General] AutoTarget.NoThreatBuildings=`, default `no`
+    /// (`Ext/Rules/Body.cpp:517`, constructor `Ext/Rules/Body.h:931`): a human
+    /// house's human-controlled scanner may auto-target an unarmed
+    /// (`ThreatPosed == 0`) building (`Ext/Techno/Hooks.cpp:1848-1865`).
+    #[serde(default)]
+    pub auto_target_no_threat_buildings: bool,
+    /// `[General] AutoTargetAI.NoThreatBuildings=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:518`, constructor `Ext/Rules/Body.h:932`): the
+    /// computer-house fallback for the same gate; the stock AI already passes
+    /// it.
+    #[serde(default = "true_bool")]
+    pub auto_target_ai_no_threat_buildings: bool,
     /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
     /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
     /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
@@ -608,6 +620,8 @@ impl Default for PhobosGlobals {
             can_target_iron_curtained: true,
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
+            auto_target_no_threat_buildings: false,
+            auto_target_ai_no_threat_buildings: true,
             berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
@@ -858,6 +872,14 @@ impl PhobosGlobals {
         // `Valueable<bool>` (`Ext/Rules/Body.cpp:393`): no unset state.
         globals.no_turret_track_target =
             general.read_bool("NoTurret.TrackTarget", globals.no_turret_track_target);
+        globals.auto_target_no_threat_buildings = general.read_bool(
+            "AutoTarget.NoThreatBuildings",
+            globals.auto_target_no_threat_buildings,
+        );
+        globals.auto_target_ai_no_threat_buildings = general.read_bool(
+            "AutoTargetAI.NoThreatBuildings",
+            globals.auto_target_ai_no_threat_buildings,
+        );
         // The StartFacing pair (`Ext/Rules/Body.cpp:626-627`): a Valueable<int>
         // and a Valueable<bool>, both read with their constructor value.
         globals.building_start_facing =

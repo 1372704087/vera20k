@@ -2202,6 +2202,33 @@ fn aggressive_attack_move(ctx: &ScanContext<'_>) -> bool {
     }
 }
 
+/// Phobos `TechnoClass_CanAutoTarget_AttackNoThreatBuildings` (`0x6F85CF`,
+/// `Ext/Techno/Hooks.cpp:1848-1865`): the scanner's selected weapon's
+/// `AttackNoThreatBuildings=` overrides the human/AI
+/// `[General] AutoTarget[AI].NoThreatBuildings=`; true jumps past the
+/// unarmed/non-threatening building reject to `0x006F8604`.
+#[cfg(feature = "phobos")]
+fn attack_no_threat_buildings(
+    ctx: &ScanContext<'_>,
+    selected: Option<&SelectedWeapon<'_>>,
+) -> bool {
+    selected
+        .and_then(|selected| selected.weapon.phobos_attack_no_threat_buildings)
+        .unwrap_or(if ctx.standing.human {
+            ctx.rules.phobos_globals.auto_target_no_threat_buildings
+        } else {
+            ctx.rules.phobos_globals.auto_target_ai_no_threat_buildings
+        })
+}
+
+#[cfg(not(feature = "phobos"))]
+fn attack_no_threat_buildings(
+    _ctx: &ScanContext<'_>,
+    _selected: Option<&SelectedWeapon<'_>>,
+) -> bool {
+    false
+}
+
 /// `TechnoClass::Evaluate_Candidate @ 0x006F7CA0` — the gate ladder, in native
 /// order, followed by the score.
 ///
@@ -2779,6 +2806,7 @@ fn evaluate_candidate(
         && !vehicle_like(ctx, candidate, candidate_obj)
         && building
         && !ctx.engineer
+        && !attack_no_threat_buildings(ctx, selected.as_ref())
         && (!is_armed(
             candidate,
             candidate_obj,

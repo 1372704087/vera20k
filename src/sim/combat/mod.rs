@@ -32,6 +32,8 @@ mod attack_target;
 pub(crate) mod base_defense_response;
 #[cfg(feature = "phobos")]
 pub(crate) mod building_sell;
+#[cfg(feature = "phobos")]
+mod building_sell_leave;
 pub mod burst;
 pub(crate) mod cell_spread;
 #[cfg(feature = "phobos")]

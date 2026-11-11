@@ -69,3 +69,10 @@ pre-existing [`Simulation::free_unit`] keeps playing it.
 - `src/rules/phobos_warhead_extras_tests.rs` — the parse group.
 - `src/rules/phobos_globals_tests.rs` —
   `the_mind_control_silent_and_merge_building_damage_globals`.
+- `src/sim/combat/remove_mind_control_tests.rs` — the arm through the
+  production detonation path: `remove_mind_control_frees_the_victim`,
+  `an_unset_key_keeps_the_victim_controlled`,
+  `the_free_rings_the_mind_cleared_sound`,
+  `the_silent_variant_frees_without_the_feedback`,
+  `the_global_default_applies_when_the_warhead_is_unset`,
+  `an_uncontrolled_target_triggers_no_free`.

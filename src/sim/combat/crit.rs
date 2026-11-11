@@ -1123,3 +1123,7 @@ fn detonation_targets(
         .into_iter()
         .collect()
 }
+
+#[cfg(test)]
+#[path = "remove_mind_control_tests.rs"]
+mod tests;

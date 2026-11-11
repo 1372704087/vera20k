@@ -21,19 +21,23 @@ computer house may not.
 
 ## Firing
 
-Hook `0x6FC339` (`Ext/Techno/Hooks.Firing.cpp:313-369`) runs at the head of
-`TechnoClass::CanFire` and the installed jump `0x6FC22A -> 0x6FC24D` removes
-the stock T16 AI-only check. For a techno target the shot is `CannotFire` when
-the target is iron-curtained and the weapon's `CanTarget.IronCurtained`, else
-the owner's `CanTarget.IronCurtained` (human) or `CanTargetAI.IronCurtained`
-(AI), answers no.
+Hook `0x6FC339` (`Ext/Techno/Hooks.Firing.cpp:313-369`) runs after T21
+GetWeapon; the installed jump `0x6FC22A -> 0x6FC24D` removes the stock T16
+AI-only check entirely. In the hook, for a techno target, the shot is refused
+(`CannotFire`, native `5` = Illegal) when the target is iron-curtained and the
+weapon's `CanTarget.IronCurtained`, else the owner's
+`CanTarget.IronCurtained` (human) or `CanTargetAI.IronCurtained` (AI), answers
+no. Because the arm runs after T17/T19/T20/T21 and the hook's money/cell arms,
+an earlier refusal (a cloaked target's Cant, EMP, an empty selected slot)
+wins.
 
-VERA keeps this in `sim/combat/fire_error.rs::evaluate_fire_error`'s T16 slot:
-the weapon is fetched there under the feature, so the stock build keeps its
-instruction-shaped `!owner_is_human && iron_curtained` term while the Phobos
-build replaces it with the override/global chain. `FireFacts` carries the two
-globals through `fire_error_world`; `WeaponFacts` carries the two weapon
-overrides.
+VERA keeps this in `sim/combat/fire_error.rs::get_fire_error`: the stock build
+keeps its instruction-shaped T16 term, while the Phobos build drops it and
+evaluates the override/global chain right after T21, the money arm and
+`attach_effect_gate` (the modelled part of the hook's cell arm). `FirerFacts`
+carries the two globals and the mode-aware `IsControlledByHuman` answer
+(`HouseClass::IsControlledByHuman @ 0x0050B730`); `WeaponFacts` carries the
+weapon override.
 
 ## Retaliation and auto-target
 
@@ -44,10 +48,11 @@ weapon's `AutoTarget.IronCurtained`, else the global, says no. VERA evaluates
 it at the same point in `combat_targeting::should_retaliate`.
 
 Hook `0x6F7CE2` (`Hooks.Targeting.cpp:57-76`) sits in
-`TechnoClass::CanAutoTargetObject` right after SelectWeapon. A human scanner
+`TechnoClass::CanAutoTargetObject` right after SelectWeapon, inside the
+`mask & 0x18200` guard that also skips the fire-error probe. A human scanner
 answers false for a curtained candidate when the weapon override, else the
 global, says no; VERA performs it in `greatest_threat::evaluate_candidate`
-before the GetFireError probe (G2b).
+inside the same mask guard, before the GetFireError probe (G2b).
 
 ## Residuals
 
@@ -56,6 +61,11 @@ before the GetFireError probe (G2b).
   human-only ShouldRetaliate gate; that matches native.
 - `CanTarget.IronCurtained` governs explicit orders through the same CanFire
   gate; no separate order-time check exists natively.
+- The campaign `PlayerControl=` predicate is carried as a distinct fact but
+  has no focused regression: the fixtures cannot yet build a house with
+  `PlayerControl=yes, IsHuman=no`. Multiplayer is unaffected.
+- The mask-guarded auto-target placement has no focused regression; the
+  represented scan API takes a mission rather than a raw mask.
 - Retail rules author none of these keys; the regressions use synthetic rules
   and the defaults above.
 - The C4 planter tests now expect Phobos `GetBurstDelay(0) = 0` (the earlier

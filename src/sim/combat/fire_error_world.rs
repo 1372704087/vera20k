@@ -270,8 +270,6 @@ impl<'a> FireSubject<'a> {
             ),
             #[cfg(feature = "phobos")]
             can_target_iron_curtained: weapon.phobos_can_target_iron_curtained,
-            #[cfg(feature = "phobos")]
-            auto_target_iron_curtained: weapon.phobos_auto_target_iron_curtained,
         }
     }
 
@@ -421,6 +419,14 @@ impl<'a> FireSubject<'a> {
                 firer.owner(),
             )
             .is_some_and(|house| house.is_human()),
+            #[cfg(feature = "phobos")]
+            owner_controlled_by_human: crate::sim::house_state::house_state_for_owner_id(
+                &self.world.houses,
+                firer.owner(),
+            )
+            .is_some_and(|house| {
+                house.is_controlled_by_human(self.world.session.game_mode_nonzero())
+            }),
             #[cfg(feature = "phobos")]
             owner_money: crate::sim::credit_income::available_money(
                 &self.world.houses,

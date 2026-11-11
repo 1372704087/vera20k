@@ -279,7 +279,11 @@ fn an_iron_curtained_target_reads_the_weapon_and_owner_globals() {
     use crate::sim::combat::fire_error::FireError;
     use crate::sim::superweapon::invulnerability::{InvulnKind, InvulnerabilityState};
     use crate::sim::timer::CdTimer;
-    let error = |weapon_key: &str, global: Option<bool>, ai_global: Option<bool>, human: bool| {
+    let error = |weapon_key: &str,
+                 global: Option<bool>,
+                 ai_global: Option<bool>,
+                 human: bool,
+                 slot: i32| {
         let mut combat = String::from("[CombatDamage]\n");
         if let Some(value) = global {
             combat.push_str(&format!(
@@ -334,24 +338,27 @@ fn an_iron_curtained_target_reads_the_weapon_and_owner_globals() {
             firer: sim.substrate.entities.get(1).unwrap(),
             obj: rules.object("TANK").unwrap(),
             target: Some(crate::sim::combat::TargetKind::Entity(2)),
-            weapon_index: 0,
+            weapon_index: slot,
         }
         .fire_error(true)
     };
     // The stock split: AI refused, human allowed.
-    assert_eq!(error("", None, None, false), FireError::Illegal);
-    assert_ne!(error("", None, None, true), FireError::Illegal);
+    assert_eq!(error("", None, None, false, 0), FireError::Illegal);
+    assert_ne!(error("", None, None, true, 0), FireError::Illegal);
     // The AI global admits the shot.
-    assert_ne!(error("", None, Some(true), false), FireError::Illegal);
+    assert_ne!(error("", None, Some(true), false, 0), FireError::Illegal);
     // The human global refuses it.
-    assert_eq!(error("", Some(false), None, true), FireError::Illegal);
+    assert_eq!(error("", Some(false), None, true, 0), FireError::Illegal);
     // The weapon override beats either global.
     assert_ne!(
-        error("CanTarget.IronCurtained=yes\n", Some(false), None, true),
+        error("CanTarget.IronCurtained=yes\n", Some(false), None, true, 0),
         FireError::Illegal
     );
     assert_eq!(
-        error("CanTarget.IronCurtained=no\n", None, Some(true), false),
+        error("CanTarget.IronCurtained=no\n", None, Some(true), false, 0),
         FireError::Illegal
     );
+    // T21 resolves the selected slot before the curtain arm, so an empty
+    // slot answers Cant rather than Illegal.
+    assert_eq!(error("", None, None, false, 1), FireError::Cant);
 }

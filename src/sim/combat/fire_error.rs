@@ -210,9 +210,6 @@ pub(crate) struct WeaponFacts {
     /// Phobos `CanTarget.IronCurtained=`; `None` uses the owner's global.
     #[cfg(feature = "phobos")]
     pub can_target_iron_curtained: Option<bool>,
-    /// Phobos `AutoTarget.IronCurtained=`; `None` uses the global.
-    #[cfg(feature = "phobos")]
-    pub auto_target_iron_curtained: Option<bool>,
 }
 
 /// A WarheadTypeClass, as the tests read it against this target.
@@ -313,6 +310,10 @@ pub(crate) struct FirerFacts {
     pub temporal_gunner_weapon: bool,
     /// Owner `IsHumanPlayer` (`House+0x1EC`).
     pub owner_is_human: bool,
+    /// Phobos `HouseClass::IsControlledByHuman @ 0x0050B730`: the mode-aware
+    /// predicate its `0x6FC339` hook reads (`PlayerControl=` counts).
+    #[cfg(feature = "phobos")]
+    pub owner_controlled_by_human: bool,
     /// The owner's `Available_Money` (`0x004F6990`), read by the Phobos
     /// `0x6FC339` `TransactMoney<0` gate.
     #[cfg(feature = "phobos")]
@@ -425,6 +426,8 @@ impl Default for FirerFacts {
             #[cfg(feature = "ares")]
             temporal_gunner_weapon: false,
             owner_is_human: false,
+            #[cfg(feature = "phobos")]
+            owner_controlled_by_human: false,
             #[cfg(feature = "phobos")]
             owner_money: 0,
             paralyzed: false,
@@ -1078,24 +1081,13 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
 
     // T12..T18 `0x006FC1B6`: a techno target only.
     if kind.is_techno() {
-        // Phobos `TechnoClass_CanFire` (`0x6FC339`,
-        // `Ext/Techno/Hooks.Firing.cpp:340-369`) skips the stock T16
-        // iron-curtain check (`0x6FC22A` -> `0x6FC24D`) and applies the
-        // weapon/global gate instead. Defaults (human yes, AI no) preserve the
-        // stock split.
-        #[cfg(feature = "phobos")]
-        let iron_curtain_refuses = target.iron_curtained
-            && !query
-                .weapon(facts.weapon_index)
-                .and_then(|weapon| weapon.can_target_iron_curtained)
-                .unwrap_or(if firer.owner_is_human {
-                    facts.can_target_iron_curtained
-                } else {
-                    facts.can_target_ai_iron_curtained
-                });
-        // T16: a computer house never fires at the Iron Curtain.
+        // T16: a computer house never fires at the Iron Curtain. Phobos
+        // removes this check with the jump `0x6FC22A` -> `0x6FC24D` and
+        // applies its own arm after T21 (`0x6FC339`).
         #[cfg(not(feature = "phobos"))]
         let iron_curtain_refuses = !firer.owner_is_human && target.iron_curtained;
+        #[cfg(feature = "phobos")]
+        let iron_curtain_refuses = false;
         if target.in_limbo
             || (firer.berserk && target_type.berserk_friendly)
             || (firer_type.natural && target_type.unnatural)
@@ -1151,6 +1143,22 @@ fn techno(facts: &FireFacts, query: &mut impl FireQuery, check_range: bool) -> F
     // firer) right after the weapon exists and before the per-target arms.
     if !query.attach_effect_gate(facts.weapon_index) {
         return Cant;
+    }
+    // Phobos `TechnoClass_CanFire` (`0x6FC339`) iron-curtain arm
+    // (`Ext/Techno/Hooks.Firing.cpp:365-369`): after T21, the money arm and
+    // the cell/attach gate. `CannotFire` there is Illegal (`0x6FCB7E`).
+    #[cfg(feature = "phobos")]
+    if kind.is_techno()
+        && target.iron_curtained
+        && !weapon
+            .can_target_iron_curtained
+            .unwrap_or(if firer.owner_controlled_by_human {
+                facts.can_target_iron_curtained
+            } else {
+                facts.can_target_ai_iron_curtained
+            })
+    {
+        return Illegal;
     }
     // T22 (IonSensitive) asks `0x0053A130`, which is `XOR AL,AL; RET`.
     let warhead = weapon.warhead.unwrap_or_default();

@@ -159,8 +159,6 @@ fn weapon(slot: &Value, input: &Value) -> Option<WeaponFacts> {
         },
         #[cfg(feature = "phobos")]
         can_target_iron_curtained: None,
-        #[cfg(feature = "phobos")]
-        auto_target_iron_curtained: None,
     })
 }
 
@@ -266,6 +264,8 @@ fn facts(input: &Value) -> FireFacts {
             #[cfg(feature = "ares")]
             temporal_gunner_weapon: false,
             owner_is_human: flag(&f["owner_is_human"]),
+            #[cfg(feature = "phobos")]
+            owner_controlled_by_human: flag(&f["owner_is_human"]),
             // The native corpus carries no `TransactMoney` facts; zero money
             // and a zero amount leave the `0x6FC339` money arm a no-op.
             #[cfg(feature = "phobos")]
@@ -584,6 +584,17 @@ fn original_fire_error_rows() {
                     .iter()
                     .any(|arm| name.starts_with(arm))
             })
+        {
+            continue;
+        }
+        // Phobos removes the stock T16 block (jump `0x6FC22A` -> `0x6FC24D`)
+        // and refuses after T21 through CanTarget[AI].IronCurtained; the
+        // curtained rows therefore legitimately reach T17 first. The new
+        // gate has its own focused test.
+        if cfg!(feature = "phobos")
+            && row["input"]["name"]
+                .as_str()
+                .is_some_and(|name| name.starts_with("T16."))
         {
             continue;
         }

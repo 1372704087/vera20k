@@ -2290,11 +2290,30 @@ fn evaluate_candidate(
     // (`0x006F7CD7`). The probe asks SelectWeapon's index whatever GetWeapon
     // holds (`push ebx @ 0x006F7CE4`): GetFireError's own no-weapon term
     // (`0x006FC31C`) answers CANT, which this reject does not take.
-    if ctx.mask & 0x18200 == 0
-        && let Some(world) = ctx.fire_world
-        && probe_is_illegal(ctx, world, candidate, weapon_index)
-    {
-        return None;
+    if ctx.mask & 0x18200 == 0 {
+        // Phobos `TechnoClass_CanAutoTargetObject_IronCurtain` (`0x6F7CE2`,
+        // `Ext/Techno/Hooks.Targeting.cpp:57-76`): a human's weapon
+        // override, else the global, can refuse an iron-curtained candidate
+        // before the fire-error probe; the same mask guard skips it.
+        #[cfg(feature = "phobos")]
+        if ctx.standing.human
+            && let Some(world) = ctx.fire_world
+            && crate::sim::superweapon::invulnerability::is_invulnerable(
+                candidate.invulnerability.as_ref(),
+                world.session.binary_frame(),
+            )
+            && !selected
+                .as_ref()
+                .and_then(|weapon| weapon.weapon.phobos_auto_target_iron_curtained)
+                .unwrap_or(ctx.rules.phobos_globals.auto_target_iron_curtained)
+        {
+            return None;
+        }
+        if let Some(world) = ctx.fire_world
+            && probe_is_illegal(ctx, world, candidate, weapon_index)
+        {
+            return None;
+        }
     }
 
     // G3 sits between the fire-error probe and the verses gate.

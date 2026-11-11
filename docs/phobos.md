@@ -141,6 +141,7 @@ Supported extensions:
 - [Explodes keys](phobos-explodes.md) (`Explodes.KillPassengers` / `Explodes.DuringBuildup`: the death arm's passenger kill and a building's death weapon under Construction/Selling; 2 keys + 2 `[General]` globals)
 - [Extra warheads](phobos-extra-warheads.md) (`ExtraWarheads` and its damage, chance, roll, weight and full-detonation lists: warheads detonated after the weapon's own at the same impact; 6 keys)
 - [Projectile interception](phobos-interceptor.md) (`Interceptor.*` scans for enemy bullets, fires a dedicated slot and damages/replaces/deletes the intercepted projectile; 12 TechnoType keys + 4 BulletType keys + 3 globals)
+- [Base-center exclusion](phobos-ignore-for-base-center.md) (`IgnoreForBaseCenter` keeps a building out of the House's base-center math; 1 key)
 - [Cloned infantry strength](phobos-initial-cloning.md) (`InitialStrength.Cloning` scales a cloning vat's exiting clone to a percentage or `min,max` range of its own Strength; 1 key)
 - [Animation-created units](phobos-create-unit.md) (`CreateUnit.*` spawns a Techno at the anim's actual-effects frame, with the death-facing/turret inheritance, spawn height, parachute, pathfinding, mission and spawn-anim keys; 13 keys)
 - [Warhead shield modifiers](phobos-shield-warhead.md) (`Shield.*` on a warhead: attach/remove/replace, break, respawn/self-healing modifiers, the absorb/pass split and penetration; 39 keys)

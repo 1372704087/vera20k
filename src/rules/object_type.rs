@@ -905,6 +905,13 @@ pub struct ObjectType {
     /// the vt+0xA0 predicate the player's order paths ask.
     #[cfg(feature = "phobos")]
     pub phobos_no_manual_move: bool,
+    /// Phobos `IgnoreForBaseCenter` (`Ext/TechnoType/Body.cpp:810`, declared
+    /// `Body.h:77`, constructor `:515`): the techno does not count toward the
+    /// House's base center (`HouseClass::RecalcCenter` skip at
+    /// `Ext/House/Hooks.cpp:94-105`, `0x4FD1CD`/`0x4FD463`; the starting
+    /// techno skip at `:111-120`, `0x4AC534`).
+    #[cfg(feature = "phobos")]
+    pub phobos_ignore_for_base_center: bool,
     /// Phobos `FactoryPlant.AllowTypes` / `.DisallowTypes` / `.MaxCount`
     /// (`Ext/BuildingType/Body.cpp:224-226`, declarations `Body.h:74-76`,
     /// constructors `:199-201`): the restricted-plant settings.
@@ -5619,6 +5626,9 @@ impl ObjectType {
             // staging), so an absent, empty or invalid value keeps `false`.
             #[cfg(feature = "phobos")]
             phobos_no_manual_move: section.read_bool("NoManualMove", false),
+            // Constructor-false `Valueable<bool>` (`Body.h:77,515`).
+            #[cfg(feature = "phobos")]
+            phobos_ignore_for_base_center: section.read_bool("IgnoreForBaseCenter", false),
             // `BuildingTypeExt::LoadFromINI` reads these three only on a
             // BuildingType section; VERA's ObjectType reader is shared.
             #[cfg(feature = "phobos")]

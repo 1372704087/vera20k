@@ -63,6 +63,7 @@ Supported extensions:
 - [Deploy ammo](phobos-ammo-deploy.md) (`Ammo.AddOnDeploy`, `.DeployUnlock*` and `.AutoDeploy*` shape a vehicle deployer's ammo and deploy admission)
 - [Penetrates transport](phobos-penetrates-transport.md) (`PenetratesTransport.*` lets a warhead damage a transport's passengers)
 - [Warp-in weapon](phobos-warp-in-weapon.md) (`WarpInWeapon`, `WarpInMinRangeWeapon` and `.UseDistanceAsDamage` detonate at a teleport's arrival)
+- [Warp animation lists](phobos-chrono-warp-anims.md) (`WarpIn`, `WarpOut` and `Chronoshift.WarpIn/.WarpOut` pick a random endpoint animation before the `[General]` fallback)
 - [Missile cruise and takeoff](phobos-missile.md) (`Missile.Cruise`, `.TakeOffSeparation` and `.TakeOffAnim` on a rocket-flying AircraftType)
 - [Drop pods](phobos-drop-pod.md) (`DropPod.*` twelve per-type keys: descent angle/speed/height, trailer cadence and attachment, air/landing weapon, puff and ground anims)
 - [Extended aircraft missions](phobos-extended-aircraft-missions.md) (`ExtendedAircraftMissions` master switch and the `.SmoothMoving`/`.EarlyDescend`/`.RearApproach`/`.FastScramble`/`.UnlandDamage` per-type keys; smooth Move arrival, dock-return approach and descent, helipad scramble on destruction, and unlandable damage)

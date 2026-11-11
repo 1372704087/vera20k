@@ -881,3 +881,95 @@ fn warp_in_weapon_use_distance_as_damage_divides_by_256() {
         "a fraction of a cell truncates to no damage"
     );
 }
+
+/// Warp-animation rules: `[General] WarpOut` plus the type's `WarpIn`/
+/// `WarpOut` lists over one AnimType registry.
+fn warp_anim_rules(general_out: &str, warp_out: &str, warp_in: &str) -> RuleSet {
+    let mut rules = RuleSet::from_ini(&IniFile::from_str(&format!(
+        "[General]\nWarpOut={general_out}\n\n\
+         [Animations]\n0=WARPOUT\n1=TYPEOUT\n2=TYPEIN\n\n\
+         [VehicleTypes]\n0=CMON\n\
+         [CMON]\nStrength=100\nSpeed=4\nSensorsSight=1\n\
+         WarpOut={warp_out}\nWarpIn={warp_in}\n\
+         [Clear]\nFoot=100%\n"
+    )))
+    .unwrap();
+    let mut art = ArtRegistry::from_ini(&IniFile::from_str(
+        "[WARPOUT]\nFlat=yes\nTranslucent=yes\nRate=120\n\
+         [TYPEOUT]\nFlat=yes\nTranslucent=yes\nRate=120\n\
+         [TYPEIN]\nFlat=yes\nTranslucent=yes\nRate=120\n",
+    ));
+    for name in ["WARPOUT", "TYPEOUT", "TYPEIN"] {
+        art.bind_anim_frame_count_for_test(name, 13);
+    }
+    rules.replace_art_registry_for_test(art);
+    rules
+}
+
+/// The names of the warp anims the turn constructed, with cell, z and owner.
+fn warp_anims(
+    sim: &Simulation,
+) -> Vec<(String, u16, u16, u8, Option<crate::sim::intern::InternedId>)> {
+    let mut found: Vec<_> = sim
+        .anims()
+        .map(|(id, anim)| {
+            let (rx, ry, _, _, z) = anim.world_coord().to_cell_sub_z();
+            (
+                sim.interner.resolve(anim.type_id()).to_owned(),
+                rx,
+                ry,
+                z,
+                sim.anim(*id).and_then(|anim| anim.owner_house()),
+            )
+        })
+        .filter(|(name, ..)| matches!(name.as_str(), "WARPOUT" | "TYPEOUT" | "TYPEIN"))
+        .collect();
+    found.sort_by_key(|(name, rx, ry, z, _)| (name.clone(), *rx, *ry, *z));
+    found
+}
+
+/// Phobos `WarpOut`/`WarpIn`
+/// (`Ext/TechnoType/Hooks.Teleport.cpp:17-25,78-86`): the ordinary departure
+/// and arrival take their own type list instead of `[General] WarpOut`, and
+/// each spawned anim is owned by the teleporting object's house.
+#[test]
+fn warp_anim_lists_choose_each_endpoint_and_keep_the_object_house() {
+    let rules = warp_anim_rules("WARPOUT", "TYPEOUT", "TYPEIN");
+    let mut sim = relocating_chrono_unit((8, 9));
+    let owner = sim.substrate.entities.get(1).unwrap().owner();
+
+    sim.advance_live_object_turn(1, &rules, techno_ai::ObjectAiCtx::default())
+        .unwrap();
+
+    assert_eq!(
+        warp_anims(&sim),
+        vec![
+            ("TYPEIN".to_owned(), 8, 9, 0, Some(owner)),
+            ("TYPEOUT".to_owned(), 5, 5, 2, Some(owner)),
+        ],
+        "WarpOut at the origin and WarpIn at the arrival, house-owned"
+    );
+}
+
+/// `ValueableVector<AnimTypeClass*>` drops an unresolvable token at read time
+/// (`Utilities/TemplateDef.h:1947-1953`, `Parser.h:187-195`): only the
+/// resolvable `TYPEIN` remains, so `RandomRanged(0, 0)` picks it; a list with
+/// no resolvable name keeps `[General] WarpOut` and draws nothing.
+#[test]
+fn warp_anim_lists_drop_unknown_names_before_the_draw() {
+    let rules = warp_anim_rules("WARPOUT", "MISSING", "MISSING,TYPEIN");
+    let mut sim = relocating_chrono_unit((8, 9));
+
+    sim.advance_live_object_turn(1, &rules, techno_ai::ObjectAiCtx::default())
+        .unwrap();
+
+    let owner = sim.substrate.entities.get(1).unwrap().owner();
+    assert_eq!(
+        warp_anims(&sim),
+        vec![
+            ("TYPEIN".to_owned(), 8, 9, 0, Some(owner)),
+            ("WARPOUT".to_owned(), 5, 5, 2, None),
+        ],
+        "the unknown-only departure falls back to the general anim"
+    );
+}

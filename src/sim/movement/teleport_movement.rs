@@ -80,12 +80,100 @@ impl crate::sim::world::Simulation {
         }
     }
 
-    /// `AnimClass([General] WarpOut=, Location, 0, 1, 0x600, 0, 0)` at the
-    /// owner's exact Location (`+0x9C`), constructed inside the mover's own
-    /// turn: the ordinary warp's departure and arrival (`0x00719442`,
-    /// `0x00719791`) and the Chronosphere's states 2 and 5 (`0x00719873`,
-    /// `0x00719B7C`).
-    pub(crate) fn teleport_warp_out(&mut self, id: u64, rules: &crate::rules::ruleset::RuleSet) {
+    /// The four native warp-animation blocks
+    /// (`Ext/TechnoType/Hooks.Teleport.cpp:13-140`): select the type's Phobos
+    /// list for this endpoint, falling back to the unchanged `[General]`
+    /// animation. The caller passes which endpoint it is at.
+    pub(crate) fn teleport_warp_anim(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        kind: WarpAnimKind,
+    ) {
+        #[cfg(feature = "phobos")]
+        if self.spawn_phobos_warp_anim(id, rules, kind) {
+            return;
+        }
+        self.spawn_general_warp_anim(id, rules);
+    }
+
+    /// A random animation from the type's Phobos warp list
+    /// (`AnimExt::CreateRandomAnim(list, Location, nullptr, pLinked->Owner)`):
+    /// unresolvable tokens never reached the native vector, so only names the
+    /// loaded AnimType registry declares take part in
+    /// `RandomRanged(0, size - 1)`; a list with no resolvable name falls
+    /// through to the `[General]` animation without a draw. Answers whether a
+    /// list claimed the endpoint.
+    #[cfg(feature = "phobos")]
+    fn spawn_phobos_warp_anim(
+        &mut self,
+        id: u64,
+        rules: &crate::rules::ruleset::RuleSet,
+        kind: WarpAnimKind,
+    ) -> bool {
+        let (owner_house, location, names) = {
+            let Some(entity) = self.substrate.entities.get(id) else {
+                return false;
+            };
+            let Some(object) = self.interner.object_type(entity.type_ref(), rules) else {
+                return false;
+            };
+            let lists = &object.phobos_warp_anim;
+            let names = match kind {
+                WarpAnimKind::OrdinaryOut => &lists.warp_out,
+                WarpAnimKind::OrdinaryIn => &lists.warp_in,
+                WarpAnimKind::ChronoOut => {
+                    if lists.chronoshift_warp_out.is_empty() {
+                        &lists.warp_out
+                    } else {
+                        &lists.chronoshift_warp_out
+                    }
+                }
+                WarpAnimKind::ChronoIn => {
+                    if lists.chronoshift_warp_in.is_empty() {
+                        &lists.warp_in
+                    } else {
+                        &lists.chronoshift_warp_in
+                    }
+                }
+            }
+            .clone();
+            (
+                entity.owner(),
+                super::ground_pose::object_location(entity, self.resolved_terrain.as_ref()),
+                names,
+            )
+        };
+        let anims: Vec<&str> = names
+            .iter()
+            .map(String::as_str)
+            .filter(|name| rules.has_anim_type(name))
+            .collect();
+        if anims.is_empty() {
+            return false;
+        }
+        let pick = self
+            .scenario_rng
+            .next_range_i32_inclusive(0, anims.len() as i32 - 1) as usize;
+        let type_name = self.interner.intern(anims[pick]);
+        let world = crate::sim::anim_class::AnimWorldCoord {
+            x: location.x,
+            y: location.y,
+            z: location.z,
+        };
+        // `pLinked` is the house owner only: `CreateRandomAnim` passes a null
+        // invoker and no owner object.
+        self.spawn_owned_anim(rules, type_name, world, owner_house, None);
+        true
+    }
+
+    /// The pre-Phobos fallback: `AnimClass([General] WarpOut=, Location, 0, 1,
+    /// 0x600, 0, 0)` at the owner's exact Location (`+0x9C`), constructed
+    /// inside the mover's own turn: the ordinary warp's departure and arrival
+    /// (`0x00719442`, `0x00719791`) and the Chronosphere's states 2 and 5
+    /// (`0x00719873`, `0x00719B7C`). Kept unchanged for stock builds and for a
+    /// Phobos type whose lists resolve to nothing.
+    fn spawn_general_warp_anim(&mut self, id: u64, rules: &crate::rules::ruleset::RuleSet) {
         let Some(entity) = self.substrate.entities.get(id) else {
             return;
         };
@@ -114,6 +202,22 @@ impl crate::sim::world::Simulation {
             );
         }
     }
+}
+
+/// One of the four `Ext/TechnoType/Hooks.Teleport.cpp` warp-animation sites.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WarpAnimKind {
+    /// Ordinary departure `0x7193F6`: type `WarpOut` > `[General] WarpOut`.
+    OrdinaryOut,
+    /// Ordinary arrival `0x719742`: type `WarpIn` > `[General] WarpOut`
+    /// (VERA's existing fallback; native's is `[General] WarpIn`).
+    OrdinaryIn,
+    /// Chronosphere departure `0x719827`: `Chronoshift.WarpOut` > type
+    /// `WarpOut` > `[General] WarpOut`.
+    ChronoOut,
+    /// Chronosphere arrival `0x719B1E`: `Chronoshift.WarpIn` > type `WarpIn`
+    /// > `[General] WarpOut` (native's last fallback is `[General] WarpIn`).
+    ChronoIn,
 }
 
 impl crate::sim::world::Simulation {

@@ -682,6 +682,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Techno/Hooks.Misc.cpp:890`).
     #[serde(default)]
     pub only_use_land_sequences: bool,
+    /// `[General] AnimCraterDestroyTiberium=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:418`, constructor `Ext/Rules/Body.h:844`): the
+    /// fallback an AnimType's unset art `Crater.DestroyTiberium=` keeps for
+    /// `0x4250E1`'s `CellClass::Reduce_Tiberium(6)` call
+    /// (`Ext/Anim/Hooks.cpp:707`).
+    #[serde(default = "true_bool")]
+    pub anim_crater_destroy_tiberium: bool,
 }
 
 /// `RadarJamHouses=`'s constructor value (`Ext/Rules/Body.h:657`).
@@ -852,6 +859,7 @@ impl Default for PhobosGlobals {
             use_disguise_movement_speed: None,
             hover_drownable: true,
             only_use_land_sequences: false,
+            anim_crater_destroy_tiberium: true,
         }
     }
 }
@@ -970,6 +978,12 @@ impl PhobosGlobals {
         globals.ambient_damage_ignore_target = general.read_bool(
             "AmbientDamage.IgnoreTarget",
             globals.ambient_damage_ignore_target,
+        );
+        // `Ext/Rules/Body.cpp:418`: the AnimType ART key's `[General]`
+        // fallback, constructed true.
+        globals.anim_crater_destroy_tiberium = general.read_bool(
+            "AnimCraterDestroyTiberium",
+            globals.anim_crater_destroy_tiberium,
         );
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",

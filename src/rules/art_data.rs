@@ -434,6 +434,12 @@ pub struct AnimTypeRuntimeConfig {
     /// art.ini `ForceBigCraters=`, `AnimTypeClass+0x36E`, read by
     /// `AnimClass::Middle @ 0x00424F00`.
     pub force_big_craters: bool,
+    /// Phobos `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`,
+    /// `Ext/AnimType/Body.h:81`, a `Nullable<bool>`): unset keeps the
+    /// `[General] AnimCraterDestroyTiberium=` fallback; false makes
+    /// `0x4250E1` skip the crater's `CellClass::Reduce_Tiberium(6)` call.
+    #[cfg(feature = "phobos")]
+    pub crater_destroy_tiberium: Option<bool>,
     /// art.ini `Sticky=`, `AnimTypeClass+0x36F`.
     pub sticky: bool,
     /// art.ini `PsiWarning=`, `AnimTypeClass+0x373`, read by `AnimClass::AI`.
@@ -854,6 +860,9 @@ fn parse_anim_runtime_config(section: &IniSection) -> AnimTypeRuntimeConfig {
         scorch: section.read_bool("Scorch", false),
         crater: section.read_bool("Crater", false),
         force_big_craters: section.read_bool("ForceBigCraters", false),
+        #[cfg(feature = "phobos")]
+        crater_destroy_tiberium: section
+            .read_phobos_nullable_bool("Crater.DestroyTiberium", None),
         sticky: section.read_bool("Sticky", false),
         psi_warning: section.read_bool("PsiWarning", false),
         double_thick: section.read_bool("DoubleThick", false),

@@ -4388,12 +4388,20 @@ impl Simulation {
             .map_or((30, 30), |entry| {
                 (i32::from(entry.frame_width), i32::from(entry.frame_height))
             });
+        // 0x4250E1: the AnimType's Phobos key, else the `[General]` fallback.
+        #[cfg(feature = "phobos")]
+        let destroy_tiberium = config
+            .crater_destroy_tiberium
+            .unwrap_or(rules.phobos_globals.anim_crater_destroy_tiberium);
+        #[cfg(not(feature = "phobos"))]
+        let destroy_tiberium = true;
         let marks = crate::sim::combat::smudge_dispatch::AnimMiddleMarks {
             scorch: config.scorch,
             crater: config.crater,
             force_big_craters: config.force_big_craters,
             width,
             height,
+            destroy_tiberium,
         };
         let coord = crate::sim::smudge_grid::SimCoord {
             x: coord.x,
@@ -7349,6 +7357,77 @@ mod tests {
             sim.smudge_grid.as_ref().unwrap().cell(4, 4).type_id,
             Some(0)
         );
+    }
+
+    /// Phobos `Crater.DestroyTiberium=` (`Ext/Anim/Hooks.cpp:707`, hook
+    /// `0x4250E1`) resolved at Middle through the AnimType ART key and the
+    /// `[General] AnimCraterDestroyTiberium=` fallback: false leaves the
+    /// cell's ore untouched, true still reduces it by 6.
+    #[cfg(feature = "phobos")]
+    #[test]
+    fn phobos_crater_destroy_tiberium_controls_the_middle_frame_ore_reduction() {
+        use crate::sim::overlay_grid::OverlayGrid;
+
+        for (art_key, global, density, expected_data) in [
+            ("Crater.DestroyTiberium=no\n", true, 9, 9),
+            ("", false, 9, 9),
+            ("Crater.DestroyTiberium=yes\n", false, 9, 3),
+            ("", true, 9, 3),
+            // 6 covers or exceeds the density, so these rows exercise the
+            // clear plus neighbour reseed whose RNG the skipped call owns.
+            ("Crater.DestroyTiberium=no\n", true, 4, 4),
+            ("Crater.DestroyTiberium=yes\n", false, 4, 0),
+        ] {
+            let ini = IniFile::from_str(&format!(
+                "[General]\nAnimCraterDestroyTiberium={}\n\
+                 [InfantryTypes]\n[VehicleTypes]\n[AircraftTypes]\n[BuildingTypes]\n{}",
+                if global { "yes" } else { "no" },
+                crate::sim::tiberium::test_support::tiberium_rules_text(),
+            ));
+            let mut rules = RuleSet::from_ini(&ini).expect("rules");
+            let mut art = ArtRegistry::from_ini(&IniFile::from_str(&format!(
+                "[MARK]\nRate=900\nCrater=yes\n{art_key}"
+            )));
+            art.bind_anim_frame_count_for_test("MARK", 13);
+            rules.replace_art_registry_for_test(art);
+            rules.smudge_types =
+                crate::rules::smudge_type::SmudgeTypeRegistry::from_rules_ini(&IniFile::from_str(
+                    "[SmudgeTypes]\n0=CR1\n\
+                     [CR1]\nCrater=yes\nWidth=1\nHeight=1\n",
+                ));
+            let overlays =
+                crate::rules::overlay_types::OverlayTypeRegistry::from_ini(&ini, None);
+
+            let mut sim = Simulation::new();
+            let mut terrain = crate::map::resolved_terrain::test_flat_ground_grid(8);
+            for ry in 0..8 {
+                for rx in 0..8 {
+                    terrain.cell_mut_for_test(rx, ry).unwrap().accepts_smudge = true;
+                }
+            }
+            sim.resolved_terrain = Some(terrain);
+            let mut grid = OverlayGrid::new(8, 8);
+            grid.place_overlay(4, 4, overlays.id_for_name("TIB01").unwrap(), density);
+            sim.overlay_grid = Some(grid);
+            sim.smudge_grid = Some(crate::sim::smudge_grid::SmudgeGrid::new(8, 8));
+
+            let id = spawn_mark(&mut sim, &rules, 0);
+            for frame in 1..40 {
+                sim.session.set_binary_frame_for_test(frame);
+                sim.visit_anim(
+                    id,
+                    &rules,
+                    Some(&overlays),
+                    crate::sim::world::FrameEffects::default(),
+                )
+                .unwrap();
+            }
+            assert_eq!(
+                sim.overlay_grid.as_ref().unwrap().cell(4, 4).overlay_data,
+                expected_data,
+                "art_key={art_key:?} global={global} density={density}"
+            );
+        }
     }
 
     /// `AnimClass::Middle 0x00425057`: an anim 30 leptons or more above the

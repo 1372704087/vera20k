@@ -104,6 +104,7 @@ Supported extensions:
 - [Sellable repack buildings](phobos-undeploys-into-sellable.md) (`UndeploysInto.Sellable` lets a non-ConYard repack building sell instead of packing up when it has no ArchiveTarget; 1 key)
 - [Crate goodie reroll](phobos-crate-goodie-reroll.md) (`CrateGoodie.RerollChance` makes a crate unit candidate fail a `RandomDouble()` roll and draw again; 1 key)
 - [Refinery normal active anim](phobos-refinery-use-normal-active-anim.md) (`Refinery.UseNormalActiveAnim` makes a refinery use its normal ActiveAnim slots instead of the storage-fill tier anims; 1 key)
+- [Crater tiberium destroy](phobos-crater-destroy-tiberium.md) (`Crater.DestroyTiberium` / `[General] AnimCraterDestroyTiberium` keep a crater animation from reducing its cell's ore at the middle frame; 2 keys)
 - [Projectile gravity](phobos-projectile-gravity.md) (`[Projectile] Gravity=` per projectile type)
 - [Ambient damage warhead](phobos-ambient-damage.md) (`AmbientDamage.Warhead` / `.IgnoreTarget` per weapon plus the `[General]` fallback: railgun and blast-wave ambient damage use an override warhead and can skip the primary target; 3 keys)
 - [Warhead decloaking](phobos-decloak-damaged-targets.md) (`DecloakDamagedTargets` per warhead and globally)

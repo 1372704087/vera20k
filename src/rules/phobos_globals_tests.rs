@@ -29,6 +29,52 @@ fn the_force_weapon_globals_default_and_read_from_general() {
     assert!(set.force_aa_weapon_in_range_apply_range_modifiers);
 }
 
+/// `[General] AnimCraterDestroyTiberium=` (`Ext/Rules/Body.cpp:418`,
+/// constructor `Ext/Rules/Body.h:844`) defaults yes and is the fallback for an
+/// AnimType's unset art `Crater.DestroyTiberium=` (`Ext/AnimType/Body.cpp:126`).
+#[test]
+fn the_anim_crater_destroy_tiberium_fallback() {
+    assert!(PhobosGlobals::default().anim_crater_destroy_tiberium);
+    assert_eq!(read(""), PhobosGlobals::default());
+    assert!(!read("[General]\nAnimCraterDestroyTiberium=no\n").anim_crater_destroy_tiberium);
+    assert!(
+        read("[CombatDamage]\nAnimCraterDestroyTiberium=no\n").anim_crater_destroy_tiberium,
+        "a [General] read, not CombatDamage"
+    );
+    #[cfg(feature = "phobos")]
+    {
+        // Phobos reads under the AnimType's own section (pID), so an ART
+        // `Image=` redirect never supplies the key.
+        let art = IniFile::from_str(
+            "[MARK]\nCrater.DestroyTiberium=no\n[ALIAS]\nImage=MARK\nStart=1\n[PLAIN]\nStart=1\n",
+        );
+        let registry = crate::rules::art_data::ArtRegistry::from_ini(&art);
+        assert_eq!(
+            registry
+                .anim_runtime_config("MARK")
+                .unwrap()
+                .crater_destroy_tiberium,
+            Some(false)
+        );
+        assert_eq!(
+            registry
+                .anim_runtime_config("PLAIN")
+                .unwrap()
+                .crater_destroy_tiberium,
+            None
+        );
+        assert_eq!(
+            registry
+                .anim_runtime_config("ALIAS")
+                .unwrap()
+                .crater_destroy_tiberium,
+            None,
+            "the section's own Image= is not followed"
+        );
+        assert!(registry.anim_runtime_config("MISSING").is_none());
+    }
+}
+
 /// `[CombatDamage] PenetratesTransport.Level=`, default 10
 /// (`Ext/Rules/Body.h:945`).
 #[test]

@@ -453,9 +453,38 @@ pub struct WeaponType {
     /// `Hooks.Targeting.cpp:63`).
     #[cfg(feature = "phobos")]
     pub phobos_auto_target_iron_curtained: Option<bool>,
+    /// Phobos `FeedbackWeapon`, `VisualScatter` and
+    /// `AttackNoThreatBuildings` (`Ext/WeaponType/Body.cpp:124`, `:133`,
+    /// `:206`); see [`crate::rules::phobos_weapon_extras`].
+    #[cfg(feature = "phobos")]
+    pub(crate) phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras,
 }
 
 impl WeaponType {
+    /// Phobos `FeedbackWeapon=` (`Ext/WeaponType/Body.cpp:124`): the weapon
+    /// also detonated at the firer after a shot.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_feedback_weapon(&self) -> Option<&str> {
+        self.phobos_extras.feedback_weapon.as_deref()
+    }
+
+    /// Phobos `VisualScatter=` (`:133`), default `no`.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_visual_scatter(&self) -> bool {
+        self.phobos_extras.visual_scatter
+    }
+
+    /// Phobos `AttackNoThreatBuildings=` (`:206`) resolved against the
+    /// human/AI `[General]` pair.
+    #[cfg(feature = "phobos")]
+    pub fn phobos_attack_no_threat_buildings(
+        &self,
+        rules: &crate::rules::ruleset::RuleSet,
+        human: bool,
+    ) -> bool {
+        self.phobos_extras.attack_no_threat_buildings(rules, human)
+    }
+
     /// The weapon's warhead and projectile as its RuleSet resolved them;
     /// reads go through `RuleSet::weapon_warhead`/`weapon_projectile`, which
     /// check the resolving set.
@@ -873,6 +902,10 @@ impl WeaponType {
             #[cfg(feature = "phobos")]
             phobos_auto_target_iron_curtained: section
                 .read_phobos_nullable_bool("AutoTarget.IronCurtained", None),
+            #[cfg(feature = "phobos")]
+            phobos_extras: crate::rules::phobos_weapon_extras::PhobosWeaponExtras::from_section(
+                section,
+            ),
             #[cfg(feature = "phobos")]
             phobos_burst_delays: section
                 .read_ares_int_list("Burst.Delays")

@@ -147,6 +147,10 @@ pub(crate) struct LineOfFireParties {
 pub(crate) struct LineOfFireShot {
     pub subject_to_cliffs: bool,
     pub subject_to_walls: bool,
+    /// Phobos `BulletType SubjectToGround=` (`Ext/BulletType/Body.cpp:56`):
+    /// the walk stops at the first sample below its cell's floor
+    /// (`Ext/Bullet/Hooks.Obstacles.cpp:49`).
+    pub subject_to_ground: bool,
     /// Ares BulletTypeExt `SubjectToBuildings` (`+0x8`).
     #[cfg(feature = "ares")]
     pub subject_to_solid: bool,
@@ -154,24 +158,28 @@ pub(crate) struct LineOfFireShot {
 }
 
 impl LineOfFireShot {
-    /// `projectile`'s flags (`BulletType+0x296`, `+0x298`; Ares ext `+0x8`).
+    /// `projectile`'s flags (`BulletType+0x296`, `+0x298`; Ares ext `+0x8`;
+    /// Phobos `SubjectToGround`).
     pub(crate) fn of(projectile: Option<&ProjectileType>, parties: LineOfFireParties) -> Self {
         Self {
             subject_to_cliffs: projectile.is_some_and(|p| p.subject_to_cliffs),
             subject_to_walls: projectile.is_some_and(|p| p.subject_to_walls),
+            subject_to_ground: projectile.is_some_and(|p| p.phobos_subject_to_ground()),
             #[cfg(feature = "ares")]
             subject_to_solid: projectile.is_some_and(|p| p.bullet_type_ext.subject_to_solid),
             parties,
         }
     }
 
-    /// 0x004CC10B's gate; Ares `SubjectToAnything` adds the buildings.
+    /// 0x004CC10B's gate; Ares `SubjectToAnything` adds the buildings, and a
+    /// Phobos `SubjectToGround` projectile enters the walk on its own
+    /// (`Ext/Bullet/Hooks.Obstacles.cpp:34,67-72`).
     fn subject_to_anything(&self) -> bool {
         #[cfg(feature = "ares")]
         let solid = self.subject_to_solid;
         #[cfg(not(feature = "ares"))]
         let solid = false;
-        self.subject_to_cliffs || self.subject_to_walls || solid
+        self.subject_to_cliffs || self.subject_to_walls || self.subject_to_ground || solid
     }
 }
 
@@ -540,8 +548,26 @@ pub(crate) fn walk_line_for_blocking_cell<'a>(
         ) {
             return Some(hit);
         }
+        // Phobos `FindFirstObstacle`'s ground clause
+        // (`Ext/Bullet/Hooks.Obstacles.cpp:49`): after the cell predicate,
+        // a `SubjectToGround=` projectile stops at the first sample whose Z is
+        // below that cell's floor. The cell is the one the sample lands in,
+        // the native `pCellCur`.
+        let current = lookup(packed(sample));
+        if shot.subject_to_ground
+            && let CellRef::Real(real) = &current
+            && let Some(floor) = crate::util::lepton::ground_height_leptons(
+                real.level,
+                real.slope_type,
+                sample[0],
+                sample[1],
+            )
+            && sample[2] < floor
+        {
+            return Some(current);
+        }
         //4CC2C2 reads previous before XYZ accumulators advance.
-        previous = lookup(packed(sample));
+        previous = current;
         for i in 0..3 {
             offset[i] = offset[i].wrapping_add(delta[i]);
         }
@@ -735,6 +761,40 @@ mod tests {
                 "{name}: retained Dummy writes"
             );
         }
+    }
+
+    /// Phobos `BulletType SubjectToGround=` (`Ext/Bullet/Hooks.Obstacles.cpp:49`):
+    /// the sample below its cell's floor stops the walk, and only that sample;
+    /// without the key the stock walk never consults the floor.
+    #[test]
+    fn subject_to_ground_stops_the_walk_below_the_floor() {
+        let blocked = |z: i32, subject_to_ground: bool| {
+            let terrain = crate::map::resolved_terrain::test_grid(
+                8,
+                8,
+                crate::map::resolved_terrain::test_flat_cell,
+            );
+            let query = NativeCellQuery::canonical(&terrain);
+            walk_line_for_blocking_cell(
+                (384, 384, z),
+                (7 * 256 + 128, 384, z),
+                LineOfFireShot {
+                    subject_to_ground,
+                    ..Default::default()
+                },
+                RuleSet::empty_for_test(),
+                &query,
+                &StringInterner::new(),
+                &LineOfFireInputs::default(),
+            )
+            .is_some()
+        };
+        assert!(blocked(-16, true), "a sample under the floor blocks");
+        assert!(
+            !blocked(-16, false),
+            "the stock walk never looks at the floor"
+        );
+        assert!(!blocked(0, true), "level with the floor is not below it");
     }
 
     /// Ares `GetObstacle 1006E540` (`1006E5F5..1006E645`) raises a cell by 4

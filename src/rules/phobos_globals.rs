@@ -508,6 +508,18 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:364`, constructor `Body.h:792`).
     #[serde(default = "true_bool")]
     pub combat_alert_use_eva: bool,
+    /// `[General] AutoTarget.NoThreatBuildings=`, default `no`
+    /// (`Ext/Rules/Body.cpp:517`, constructor `Ext/Rules/Body.h:931`): whether
+    /// a **human** scanner may auto-target an enemy building that is unarmed
+    /// or poses no threat (`Ext/Techno/Hooks.cpp:1850-1852`). A weapon's own
+    /// `AttackNoThreatBuildings=` overrides it.
+    #[serde(default)]
+    pub auto_target_no_threat_buildings: bool,
+    /// `[General] AutoTargetAI.NoThreatBuildings=`, default **`yes`**
+    /// (`Ext/Rules/Body.cpp:518`, constructor `Ext/Rules/Body.h:932`): the
+    /// computer's half of the same gate.
+    #[serde(default = "true_bool")]
+    pub auto_target_ai_no_threat_buildings: bool,
 }
 
 /// `CombatAlert.Interval=`'s constructor value (`Ext/Rules/Body.h:787`).
@@ -615,6 +627,8 @@ impl Default for PhobosGlobals {
             combat_alert_use_feedback_voice: true,
             combat_alert_use_attack_voice: true,
             combat_alert_use_eva: true,
+            auto_target_no_threat_buildings: false,
+            auto_target_ai_no_threat_buildings: true,
         }
     }
 }
@@ -862,6 +876,16 @@ impl PhobosGlobals {
         );
         globals.vertical_aircraft_fix =
             general.read_bool("Vertical.AircraftFix", globals.vertical_aircraft_fix);
+        // `Ext/Rules/Body.cpp:517-518`, both `[General]` `Valueable<bool>`:
+        // a human scanner keeps `no`, the computer's scanners keep `yes`.
+        globals.auto_target_no_threat_buildings = general.read_bool(
+            "AutoTarget.NoThreatBuildings",
+            globals.auto_target_no_threat_buildings,
+        );
+        globals.auto_target_ai_no_threat_buildings = general.read_bool(
+            "AutoTargetAI.NoThreatBuildings",
+            globals.auto_target_ai_no_threat_buildings,
+        );
         // The `ExtendedAircraftMissions` pair (`Ext/Rules/Body.cpp:191-192`).
         // The switch is a `Valueable<bool>`; UnlandDamage a `Valueable<int>`,
         // both read with their constructor value as the default.

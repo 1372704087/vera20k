@@ -163,6 +163,8 @@ Supported extensions:
 - [Combat alerts](phobos-combat-alert.md) (`CombatAlert.*`: a throttled radar ping plus one feedback/attack/EVA line on a damaged human House's object; 6 type keys + 10 `[AudioVisual]` globals + 2 warhead keys)
 - [EMPulse extensions](phobos-empulse.md) (`EMPulse.WeaponIndex`/`.SuspendOthers`/`.Cannons`/`.TargetSelf`: Ares EMPulse cannon weapon slot, suspended superweapons and the self-target arm; 4 keys)
 - [Superweapon activation messages and sold EVA](phobos-sw-messages.md) (`Message.Activated.{Owner,Allies,Enemies}`, `EVA.Activated.*`, the `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair and `EVA.Sold`: launch and linked-grant announcements picked by the launching House's relation to the current player, plus a type's replacement sale line; 9 keys)
+- [Non-threatening building auto-target](phobos-attack-no-threat-buildings.md) (`AttackNoThreatBuildings`: a weapon's override, else the human/AI `[General]` pair, for auto-acquiring an unarmed or zero-threat enemy building; 1 key + 2 globals)
+- [Projectile subject to ground](phobos-bullet-subject-to-ground.md) (`SubjectToGround` on a BulletType: the firing techno's obstacle scan stops where the projectile would pass below the cell floor; 1 key)
 
 ## Original project and authors
 

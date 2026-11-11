@@ -817,6 +817,82 @@ pub(crate) fn apply_area_damage_in_run(
 /// per-target pass of a warhead without `CellSpread` visits. Stock never
 /// reads it.
 #[allow(clippy::too_many_arguments)]
+/// Phobos `MapClass_DamageArea_DamageUnderGround` (`0x4899DA`,
+/// `Ext/Bullet/Hooks.DetonateLogics.cpp:933-975`): for an
+/// `AffectsUnderground` warhead, walk the Underground-layer technos and call
+/// ReceiveDamage directly within `CellSpread * 256` leptons (3D distance;
+/// `CellSpread.Cylinder` is not read yet), skipping dead, Iron-Curtined,
+/// off-map and limbo objects. Returns whether any object was hit.
+#[cfg(feature = "phobos")]
+#[allow(clippy::too_many_arguments)]
+fn apply_underground_area_damage(
+    world: &mut Simulation,
+    run: &mut ReceiverRun,
+    rules: &RuleSet,
+    overlay_registry: Option<&OverlayTypeRegistry>,
+    impact: crate::sim::projectile::ProjectileCoord,
+    damage: i32,
+    warhead: &WarheadType,
+    origin: (u64, Option<InternedId>, InternedId),
+    effects: FrameEffects<'_>,
+) -> bool {
+    use crate::sim::movement::locomotor::MovementLayer;
+    if !warhead.phobos_anim.affects_underground || world.session.no_damage() {
+        return false;
+    }
+    let spread = warhead.cell_spread_f64 * 256.0;
+    let frame = world.session.binary_frame();
+    let terrain = world.resolved_terrain.as_ref();
+    let victims: Vec<(u64, i32)> = world
+        .substrate
+        .entities
+        .values_sorted()
+        .filter_map(|entity| {
+            if entity.locomotor.as_ref().map(|loco| loco.layer())
+                != Some(MovementLayer::Underground)
+            {
+                return None;
+            }
+            if !entity.lifecycle.object_alive()
+                || entity.lifecycle.in_limbo()
+                || entity.in_playfield()
+                || crate::sim::superweapon::invulnerability::is_invulnerable(
+                    entity.invulnerability.as_ref(),
+                    frame,
+                )
+            {
+                return None;
+            }
+            let coords = crate::sim::movement::ground_pose::object_get_coords(entity, terrain);
+            let dx = f64::from(coords.x.wrapping_sub(impact.x));
+            let dy = f64::from(coords.y.wrapping_sub(impact.y));
+            let dz = f64::from(coords.z.wrapping_sub(impact.z));
+            let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+            (distance <= spread).then_some((entity.stable_id(), distance as i32))
+        })
+        .collect();
+    if victims.is_empty() {
+        return false;
+    }
+    for (target, distance) in victims {
+        let event = crate::sim::combat::EntityDamageEvent::direct_receiver(
+            target,
+            damage,
+            distance,
+            origin.0,
+            origin.1,
+            origin.2,
+            crate::sim::combat::ReceiverCallFlags {
+                ignore_defenses: false,
+                arg6: false,
+            },
+        );
+        world.commit_direct_damage_receiver(rules, overlay_registry, event, effects);
+    }
+    let _ = run;
+    true
+}
+
 pub(crate) fn apply_area_damage_in_run_with_target(
     world: &mut Simulation,
     run: &mut ReceiverRun,
@@ -853,6 +929,24 @@ pub(crate) fn apply_area_damage_in_run_with_target(
     let _ = area_target;
     #[cfg(not(feature = "phobos"))]
     let crit_active = false;
+    // Phobos `MapClass_DamageArea_DamageUnderGround` (`0x4899DA`,
+    // `Ext/Bullet/Hooks.DetonateLogics.cpp:933-975`): before the collected
+    // surface receivers dispatch, an `AffectsUnderground` warhead damages
+    // every Underground-layer techno inside its CellSpread directly.
+    #[cfg(feature = "phobos")]
+    let underground_hit = apply_underground_area_damage(
+        world,
+        run,
+        rules,
+        overlay_registry,
+        impact,
+        damage,
+        warhead,
+        origin,
+        run.effects(),
+    );
+    #[cfg(not(feature = "phobos"))]
+    let underground_hit = false;
     let area = collect_area_at(
         world,
         rules,
@@ -875,6 +969,11 @@ pub(crate) fn apply_area_damage_in_run_with_target(
     let (nested, mut pings, area_result) =
         commit_area_with_dispatch(world, run, &area.aoe.receivers, rules, overlay_registry);
     effects.append(nested);
+    let area_result = if underground_hit && area_result == AreaDamageResult::NoReceiver {
+        AreaDamageResult::ReceiverDispatched
+    } else {
+        area_result
+    };
     let (tail, mut tail_pings) = continue_area_damage(
         world,
         run,

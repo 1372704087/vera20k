@@ -91,6 +91,14 @@ impl CloakStepTimer {
     }
 }
 
+/// A Phobos cloak/decloak anim edge (`0x7037F7`/`0x703736`), set by the
+/// transition and consumed by the world drain that spawns the anim.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub(crate) enum CloakAnimKind {
+    Cloak,
+    Decloak,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 /// Active `TechnoClass` cloak fields consumed by radar and tactical draw.
 ///
@@ -121,6 +129,10 @@ pub struct CloakRuntime {
     /// `BuildingClass::UpdateCloak @ 0x00454DB0` changes it
     /// ([`Self::step_building_fade`]). Other objects leave it 0.
     building_stage: u8,
+    /// A transition waiting for its Phobos anim; cleared when the world
+    /// drain spawns it.
+    #[serde(default)]
+    pending_anim: Option<CloakAnimKind>,
 }
 
 /// The state edge one [`CloakRuntime::step_building_fade`] visit reached.
@@ -417,6 +429,7 @@ impl CloakRuntime {
             step_timer: CloakStepTimer::started(current_frame, 0),
             recloak_delay: CdTimer::started(current_frame, 0),
             building_stage: 0,
+            pending_anim: None,
         }
     }
 

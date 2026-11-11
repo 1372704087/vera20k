@@ -49,15 +49,15 @@ AmphibiousUnload=yes
 - `sim::radio::receive`: `transport_amphibious_enter`, `transport_on_water`;
   the DOCKING water branch and the CAN_LOAD boarding gate.
 - `sim::transport_unload`: `transport_amphibious_unload`,
-  `first_passenger_type`; the PICK_EXIT water branch, the land-search seed and
-  the leave-position/exit-octant SpeedType and MovementZone.
+  `first_passenger_type`; the PICK_EXIT water branch, the land-search seed, the
+  failed-search CannotUnload arm (`0x73D7B7`) and the leave-position/exit-octant
+  SpeedType and MovementZone.
+- `sim::movement::track_turn::track_movement_gates`: the Drive/Ship
+  `Process_CheckUnload` pair (`0x4B08EF`, `0x69FFB6`).
 - `sim::deploy::Simulation::can_deploy_slash_unload` and
   `sim::world::Simulation::unit_self_deploy_site_refused`.
 
 ## Residuals
 
-- The Drive/Ship locomotor unload interruptions (`0x4B08EF`, `0x69FFB6`) and
-  the empty nearby-cell check (`0x73D7B7`) are not key-gated; VERA keeps its
-  existing process and `(0,0)` fallback.
 - `0x7400B5`'s water arm already passes in VERA; only the keyed land arm is
   changed, so the observable result is the same.

@@ -1154,12 +1154,21 @@ pub(crate) fn unit_mission_unload(
                     movement_zone,
                     bridge_aware_zone: false,
                 };
-                let cell = sim
-                    .nearby_passable_cell(
-                        seed,
-                        NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
-                    )
-                    .unwrap_or((0, 0));
+                let nearby = sim.nearby_passable_cell(
+                    seed,
+                    NearbyArgs::plain(wheel_land, NearbyFootprint::SINGLE),
+                );
+                // `0x73D7B7`: a failed search leaves packed CellStruct::Empty,
+                // and Phobos returns the CannotUnload arm (`0x73D87F`,
+                // `Ext/Techno/Hooks.Transport.cpp:691-698`) instead of
+                // setting (0,0) as the next destination.
+                #[cfg(feature = "phobos")]
+                let Some(cell) = nearby else {
+                    queue_guard(sim, id, rules);
+                    return unload_epilogue(&mut sim.scenario_rng, &sim.substrate, rules, id);
+                };
+                #[cfg(not(feature = "phobos"))]
+                let cell = nearby.unwrap_or((0, 0));
                 if let Some(terrain) = sim.resolved_terrain.as_ref() {
                     // This fresh lookup precedes the Unit setter. Retain its
                     // identity even if a later setter lookup restamps Dummy.

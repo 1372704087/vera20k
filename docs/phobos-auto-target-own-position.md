@@ -43,4 +43,11 @@ conversion.
 - Only `TechnoClass::Retaliate_And_Scan` is hooked; other Greatest_Threat
   callers (mission handlers, the TargetSomethingNearby sites outside this
   function) keep their native scans.
+- The `.Self` request goes through the production target setter, which
+  converts a self target with the raw Location cell (`0x6FCEB8` models this
+  with `position.rx/ry`). Native's conversion uses `MapClass::GetCellAt`,
+  which stamps the shared Dummy for out-of-map coordinates and differs from
+  the raw cell inside a tube. Trigger: an off-map or tunnelled self-target.
+  Frequency: pathological placements. Risk: a one-cell target difference
+  between the two arms.
 - Retail rules author neither key; the default reproduces the stock scan.

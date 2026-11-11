@@ -775,7 +775,12 @@ impl<'r> ScanHost for WorldScan<'_, 'r> {
         if object.phobos_auto_target_own_position_self {
             return Some(TargetKind::Entity(self.id));
         }
-        let (rx, ry) = self.sim.own_map_cell(self.id)?;
+        // `GetCell()` is ObjectClass::GetCell, `MapClass::GetCellAt @
+        // 0x005657A0` on Location; it needs no locomotor, so a zero-Speed or
+        // Structure receiver still answers its real or Dummy cell.
+        let location =
+            crate::sim::movement::ground_pose::position_world_coord(&self.entity().position);
+        let (rx, ry) = self.sim.packed_map_cell(location.x, location.y)?;
         Some(TargetKind::Cell(rx, ry))
     }
 
@@ -1642,7 +1647,7 @@ mod tests {
     #[test]
     fn phobos_auto_target_own_position_sets_self_or_cell() {
         let ini = crate::sim::arena_fixture::clear_ground_ini(
-            "[VehicleTypes]\n0=SELFUNIT\n1=CELLUNIT\n2=OFFUNIT\n3=ALIASUNIT\n4=OVERRIDE\n\
+            "[VehicleTypes]\n0=SELFUNIT\n1=CELLUNIT\n2=OFFUNIT\n3=ALIASUNIT\n4=OVERRIDE\n5=SLOWUNIT\n\
              [SELFUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
              AutoTargetOwnPosition=yes\nAutoTargetOwnPosition.Self=yes\n\
              [CELLUNIT]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
@@ -1652,6 +1657,8 @@ mod tests {
              AutoFire=yes\nAutoFire.TargetSelf=yes\n\
              [OVERRIDE]\nStrength=200\nArmor=heavy\nSpeed=4\nPrimary=GUN\n\
              AutoFire=yes\nAutoTargetOwnPosition=no\n\
+             [SLOWUNIT]\nStrength=200\nArmor=heavy\nPrimary=GUN\n\
+             AutoTargetOwnPosition=yes\n\
              [GUN]\nDamage=10\nROF=100\nRange=8\nSpeed=100\nProjectile=INVIS\nWarhead=WH\n\
              [INVIS]\nInviso=yes\nAG=yes\nAA=no\n\
              [WH]\nCellSpread=0\nPercentAtMax=1\n\
@@ -1678,6 +1685,9 @@ mod tests {
             ("SELFUNIT", Some(TargetKind::Cell(10, 10))),
             ("CELLUNIT", Some(TargetKind::Cell(10, 10))),
             ("ALIASUNIT", Some(TargetKind::Cell(10, 10))),
+            // A zero-Speed receiver constructs no locomotor; GetCell still
+            // answers its Location's cell.
+            ("SLOWUNIT", Some(TargetKind::Cell(10, 10))),
             ("OFFUNIT", None),
             ("OVERRIDE", None),
         ] {

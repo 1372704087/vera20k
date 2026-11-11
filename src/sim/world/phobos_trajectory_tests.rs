@@ -845,3 +845,43 @@ fn a_bullet_without_the_trajectory_keeps_the_stock_arms() {
             .is_stock()
     );
 }
+
+/// `ParabolaTrajectory::OnUnlimbo`'s ground reset (`:131-139`) repoints the
+/// bullet's Target at the foot's cell and sets its TargetCoords, but leaves
+/// `LastTargetCoord` at the pre-reset aim, so a later lead solve still
+/// predicts from it.
+#[test]
+fn a_ground_reset_keeps_the_last_target_coord() {
+    let mut scene = fixture(
+        "Trajectory=Parabola\nTrajectory.Speed=32\n\
+         Trajectory.Parabola.DetonationDistance=-1\n",
+    );
+    let target = scene
+        .sim
+        .spawn_object("TGT", "Americans", 26, 10, 0, &scene.rules)
+        .expect("target");
+    let id = fire(
+        &mut scene,
+        ProjectileTarget::Entity(target),
+        cell_center((22, 10)),
+        cell_center((22, 10)),
+    );
+    let projectile = scene.sim.projectiles.get(id).expect("bullet");
+    assert!(
+        matches!(
+            projectile.target(),
+            ProjectileTarget::Cell { rx: 26, ry: 10 }
+        ),
+        "the reset repoints the target at the foot's cell"
+    );
+    assert_eq!(
+        projectile.last_target_position(),
+        cell_center((22, 10)),
+        "LastTargetCoord keeps the pre-reset aim"
+    );
+    assert_eq!(
+        state_of(&scene, id).last_target_coord,
+        crate::sim::projectile::cell_ground_coord(scene.sim.resolved_terrain.as_ref(), 26, 10),
+        "the mutable TargetCoords becomes the cell's ground coordinate"
+    );
+}

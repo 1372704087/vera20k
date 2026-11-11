@@ -85,4 +85,10 @@ through `spawn_random_owned_anim` with the firer House (or the retained
   reset is the presentation trail owner's; VERA models the stock `UseLineTrail`
   line trail, not bullet laser trails. Frequency: data with trails. Risk:
   visual.
+- **Explode-coordinate snap hooks.** The Phobos `0x468E61`/`0x468E9F` gates on
+  `SnappedToTarget` are not modelled; see `phobos-trajectory-straight.md`.
+- **Bridge check and turning-point owner.** `ShouldSkipBridgeCheck`'s
+  `SubjectToGround` input has no field in the motion call, so a falling bomb
+  still takes the stock bridge arm; `TurningPointAnims` spawns without the
+  firer as `OwnerObject`. Both need their owner objects wired.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

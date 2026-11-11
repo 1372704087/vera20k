@@ -146,4 +146,15 @@ and the `GetCellsInRectangle` proximity scan.
   reader accepts only `Straight`/`Bombard`/`Parabola`
   (`PhobosTrajectory.cpp:27-49`), so no INI flag constructs a Sample instance;
   `Trajectory.Sample.TargetSnapDistance` is dormant and unported.
+- **Explode-coordinate snap hooks.** Phobos `0x468E61`/`0x468E9F`
+  (`Ext/Bullet/Hooks.cpp:415-476`) force the target-coordinate snap and skip
+  the later location set for a trajectory bullet whose `SnappedToTarget` is
+  false; `resolve_impact_coord` still runs the stock `0x20`/`0x2A` arms for
+  every bullet. Trigger: a trajectory hit inside the stock snap bounds without
+  a trajectory snap (for example `TargetSnapDistance=0`). Impact: the warhead
+  centre can move onto the target where native keeps the bullet's location.
+  Frequency: trajectory hits close to the target. Risk: aim/damage placement.
+  Settle with an impact-ladder row carrying the flag for both hooks.
+- **State hash field list.** `PhobosTrajectoryState::hash_state` names each
+  field; a new field must be added there or it silently escapes the hash.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

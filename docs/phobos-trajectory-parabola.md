@@ -75,4 +75,6 @@ when the geometry has no solution. The bounce ladder is
 
 ## Residuals (trigger · impact · frequency · risk)
 
+- **Explode-coordinate snap hooks.** The Phobos `0x468E61`/`0x468E9F` gates on
+  `SnappedToTarget` are not modelled; see `phobos-trajectory-straight.md`.
 - **Retail/visual parity untested** (no retail `ini/` in this checkout).

@@ -8111,11 +8111,12 @@ impl RulesPassProcessor {
                     // `Message.LinkedSWAcquired`/`EVA.LinkedSWAcquired` pair
                     // then the six `Message.Activated.*`/`EVA.Activated.*`
                     // keys (`Ext/SWType/Body.cpp:241-250`), read after the
-                    // `SW.Link` group and before `Detonate.*`.
-                    let messages =
-                        crate::rules::phobos_sw_messages::PhobosSuperWeaponMessages::from_section(
-                            &raw, _fixed_eva,
-                        );
+                    // `SW.Link` group and before `Detonate.*`. Absent keys
+                    // keep the earlier pass's values.
+                    let mut messages = self.family_mut(RulesTypeFamily::SuperWeapon)[index]
+                        .super_weapon_phobos_messages
+                        .clone();
+                    messages.read_pass(&raw, _fixed_eva);
                     self.family_mut(RulesTypeFamily::SuperWeapon)[index]
                         .super_weapon_phobos_messages = messages;
                     let mut detonate = self.family_mut(RulesTypeFamily::SuperWeapon)[index]

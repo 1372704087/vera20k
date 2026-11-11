@@ -147,7 +147,8 @@ fn sold_eva(sim: &Simulation) -> Vec<String> {
 /// the unit's `EVA.Sold` replaces the stock `EVA_UnitSold`; an absent key
 /// keeps the stock line. A blank key is dropped by the text parser, so it
 /// reads as absent; the reader's explicit-none arm serves retained
-/// projections that keep empty values.
+/// projections that keep empty values. Unit selling is an Ares capability
+/// (`production::foot_on_sold`), so this test needs both features.
 #[cfg(feature = "ares")]
 #[test]
 fn a_sold_unit_uses_the_types_eva_sold_override() {

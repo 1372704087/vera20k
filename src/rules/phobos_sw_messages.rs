@@ -71,20 +71,42 @@ pub struct PhobosSuperWeaponMessages {
 impl PhobosSuperWeaponMessages {
     /// The ordered reader of `Ext/SWType/Body.cpp:241-250`.
     ///
-    /// `Valueable<CSFText>` replaces its label whenever the key is present,
-    /// including an empty value; `read_ares_csf_label` cannot express that
-    /// (it keeps the previous label on an empty read), so the presence
-    /// primitive is used and the 31-byte `FixedString<0x20>` cut applied here.
+    /// `Valueable<CSFText>` replaces its label whenever the key is present;
+    /// `ValueableIdx`/`NullableIdx` keep the previous value when the key is
+    /// absent or names nothing. [`Self::from_section`] is the constructor
+    /// default plus one pass; a later rules layer calls [`Self::read_pass`] on
+    /// the retained value.
     pub(crate) fn from_section(section: &IniSection, eva: &EvaRegistry) -> Self {
-        Self {
-            linked_acquired: read_csf_label(section, "Message.LinkedSWAcquired"),
-            eva_linked_acquired: read_eva_index(section, "EVA.LinkedSWAcquired", eva).flatten(),
-            activated_owner: read_csf_label(section, "Message.Activated.Owner"),
-            activated_allies: read_csf_label(section, "Message.Activated.Allies"),
-            activated_enemies: read_csf_label(section, "Message.Activated.Enemies"),
-            eva_activated_owner: read_eva_index(section, "EVA.Activated.Owner", eva).flatten(),
-            eva_activated_allies: read_eva_index(section, "EVA.Activated.Allies", eva).flatten(),
-            eva_activated_enemies: read_eva_index(section, "EVA.Activated.Enemies", eva).flatten(),
+        let mut messages = Self::default();
+        messages.read_pass(section, eva);
+        messages
+    }
+
+    /// One `LoadFromINIFile` pass: present keys replace, absent keys retain.
+    pub(crate) fn read_pass(&mut self, section: &IniSection, eva: &EvaRegistry) {
+        if let Some(value) = read_csf_label_pass(section, "Message.LinkedSWAcquired") {
+            self.linked_acquired = value;
+        }
+        if let Some(value) = read_eva_index(section, "EVA.LinkedSWAcquired", eva) {
+            self.eva_linked_acquired = value;
+        }
+        if let Some(value) = read_csf_label_pass(section, "Message.Activated.Owner") {
+            self.activated_owner = value;
+        }
+        if let Some(value) = read_csf_label_pass(section, "Message.Activated.Allies") {
+            self.activated_allies = value;
+        }
+        if let Some(value) = read_csf_label_pass(section, "Message.Activated.Enemies") {
+            self.activated_enemies = value;
+        }
+        if let Some(value) = read_eva_index(section, "EVA.Activated.Owner", eva) {
+            self.eva_activated_owner = value;
+        }
+        if let Some(value) = read_eva_index(section, "EVA.Activated.Allies", eva) {
+            self.eva_activated_allies = value;
+        }
+        if let Some(value) = read_eva_index(section, "EVA.Activated.Enemies", eva) {
+            self.eva_activated_enemies = value;
         }
     }
 
@@ -118,16 +140,13 @@ impl PhobosSuperWeaponMessages {
 }
 
 /// `Valueable<CSFText>::Read` over `detail::read<CSFText>`: a present key
-/// replaces the label with at most 31 bytes (`FixedString<0x20>`), an empty
-/// one clears it, an absent one leaves the constructor's empty label. The
-/// ordered owner rebuilds the aggregate from the merged section, so an absent
-/// key answers the constructor default rather than a previous pass's label.
-fn read_csf_label(section: &IniSection, key: &str) -> String {
+/// replaces the label with at most 31 bytes (`FixedString<0x20>`); absent
+/// leaves the previous pass's label. The text parser drops `Key=`, so a blank
+/// key reads as absent (gamemd's `ReadString` length is 0 either way).
+fn read_csf_label_pass(section: &IniSection, key: &str) -> Option<String> {
     section
         .read_string_presence(key, 2048)
-        .map_or_else(String::new, |value| {
-            truncate_native_bytes(&value, 31).to_owned()
-        })
+        .map(|value| truncate_native_bytes(&value, 31).to_owned())
 }
 
 /// `ValueableIdx<VoxClass>` / `NullableIdx<VoxClass>::Read`: `None` when the

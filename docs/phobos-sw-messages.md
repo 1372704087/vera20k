@@ -107,6 +107,19 @@ empty value). The building path already carries its type in
 
 ## Residuals
 
+- **Listener predicate.** The activation column asks
+  `Simulation::house_is_human_player`, i.e. the session's persisted current
+  house, while native reads the listening client's `PlayerPtr`.
+  `Simulation::is_human_player_on` exists but is not exposed to the client.
+  Trigger: a client whose bound `PlayerPtr` differs from the persisted
+  current house. Impact: that client can pick the wrong
+  Owner/Allies/Enemies column. Frequency: multiplayer/viewer binds. Risk:
+  presentation-only.
+- **Sibling family readers.** `SW.Next`/`SW.Link` and the `LimboDelivery`/
+  `LimboKill` blocks still rebuild from the current pass's section
+  (`from_section`), so a later partial section resets keys it omits to their
+  constructor defaults. Pre-existing in those chains; this chain's message
+  block now retains per pass.
 - **Multiplayer current player.** Which House a client owns is client-local and
   the simulation is shared, so the column pick happens per client in the app.
   A client that does not receive the launch event (a network observer whose

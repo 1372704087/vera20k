@@ -4,7 +4,11 @@
 
 use super::*;
 use crate::rules::ini_parser::IniFile;
-use crate::rules::sound_ini::EvaRegistry;
+use crate::rules::native_processing::{
+    NativeRulesRegistryState, RulesLayerKind, RulesLayerStack, RulesProcessContext,
+};
+use crate::rules::ruleset::RuleSet;
+use crate::rules::sound_ini::{EvaRegistry, SoundRegistry};
 
 /// The `[DialogList]` catalog the references resolve against. Two of the three
 /// names exist so the unknown-name retention can be told apart from a
@@ -138,5 +142,45 @@ fn techno_eva_sold_reads_named_and_treats_blank_as_absent() {
     assert_eq!(
         object("NAMED").phobos_eva_sold(),
         Some(Some("EVA_StructureSold"))
+    );
+}
+
+/// A later rules pass that re-declares the superweapon section without the
+/// announcement keys keeps the root pass's labels: `Valueable`/
+/// `ValueableIdx` write only on a present key
+/// (`Ext/SWType/Body.cpp:241-250`).
+#[test]
+fn a_later_pass_keeps_announcement_keys_absent_from_its_section() {
+    let eva = EvaRegistry::from_ini(&IniFile::from_str(CATALOG));
+    let mut stack = RulesLayerStack::new(IniFile::from_str(
+        "[SuperWeaponTypes]\n0=RootSpecial\n\
+         [RootSpecial]\nType=PsychicReveal\n\
+         Message.Activated.Enemies=Msg:Enemy\n\
+         EVA.Activated.Enemies=EVA_UnitSold\n",
+    ));
+    stack.push(
+        RulesLayerKind::Scenario,
+        IniFile::from_str("[RootSpecial]\nRechargeTime=5\n"),
+    );
+    let processed = stack
+        .process_with_fixed_art_and_registry_state_recovering(
+            &IniFile::empty(),
+            NativeRulesRegistryState::default(),
+            RulesProcessContext::Ordinary,
+            &eva,
+            &SoundRegistry::default(),
+        )
+        .expect("rules parse");
+    let rules = RuleSet::from_processed_rules(&processed).expect("rules project");
+    let messages = rules
+        .phobos_super_weapon_messages("RootSpecial")
+        .expect("the type keeps its message entry");
+    assert_eq!(
+        messages.activated_message(PhobosActivatedAudience::Enemies),
+        "Msg:Enemy"
+    );
+    assert_eq!(
+        messages.activated_eva(PhobosActivatedAudience::Enemies),
+        Some("EVA_UnitSold")
     );
 }

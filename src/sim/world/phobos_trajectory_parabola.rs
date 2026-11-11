@@ -86,7 +86,6 @@ impl Simulation {
                     state.last_target_coord = cell_coords;
                     if let Some(projectile) = self.projectiles.get_mut(bullet_id) {
                         projectile.set_target(ProjectileTarget::Cell { rx, ry });
-                        projectile.set_last_target_position(cell_coords);
                     }
                     reset_target = true;
                 }

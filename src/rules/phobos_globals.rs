@@ -138,6 +138,13 @@ pub struct PhobosGlobals {
     /// (`Ext/Rules/Body.cpp:289`, constructor `Ext/Rules/Body.h:1056`): the
     /// fallback for a TechnoType's key.
     pub cloak_kick_out_parasite: bool,
+    /// `[AudioVisual] CloakAnims=`, `ValueableVector<AnimTypeClass*>`
+    /// (`Ext/Rules/Body.cpp:287`): the cloaking anim list fallback.
+    #[serde(default)]
+    pub cloak_anims: Vec<String>,
+    /// `[AudioVisual] DecloakAnims=` (`Ext/Rules/Body.cpp:288`).
+    #[serde(default)]
+    pub decloak_anims: Vec<String>,
     /// `[General] Sinkable.SquidGrab=`, default `yes`
     /// (`Ext/Rules/Body.cpp:485`, constructor `Ext/Rules/Body.h:900`): the
     /// fallback for a UnitType's key.
@@ -549,6 +556,8 @@ impl Default for PhobosGlobals {
             parasite_allow_water_exit: None,
             parasite_disable_particle_system: false,
             cloak_kick_out_parasite: false,
+            cloak_anims: Vec::new(),
+            decloak_anims: Vec::new(),
             sinkable_squid_grab: true,
             drain_money_display: false,
             drain_money_display_houses: AffectedHouse::ALL,
@@ -746,6 +755,14 @@ impl PhobosGlobals {
         );
         globals.cloak_kick_out_parasite =
             general.read_bool("Cloak.KickOutParasite", globals.cloak_kick_out_parasite);
+        globals.cloak_anims = audio_visual
+            .read_list("CloakAnims", 0x800)
+            .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+            .unwrap_or(globals.cloak_anims);
+        globals.decloak_anims = audio_visual
+            .read_list("DecloakAnims", 0x800)
+            .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+            .unwrap_or(globals.decloak_anims);
         globals.sinkable_squid_grab =
             general.read_bool("Sinkable.SquidGrab", globals.sinkable_squid_grab);
         globals.keep_range_allow_ai =

@@ -1036,6 +1036,14 @@ pub struct ObjectType {
     /// takes `[General]`.
     #[cfg(feature = "phobos")]
     pub phobos_cloak_kick_out_parasite: Option<bool>,
+    /// Phobos `CloakAnims=` / `DecloakAnims=`
+    /// (`Ext/TechnoType/Body.cpp:1203-1204`, `ValueableVector`): the
+    /// per-type cloak/decloak anim lists; empty falls back to
+    /// `[AudioVisual]`.
+    #[cfg(feature = "phobos")]
+    pub phobos_cloak_anims: Vec<String>,
+    #[cfg(feature = "phobos")]
+    pub phobos_decloak_anims: Vec<String>,
     /// Phobos `Sinkable.SquidGrab=` (`Ext/UnitType/Body.cpp:31`,
     /// `Nullable<bool>`): whether a grabbed Unit sinks instead of taking
     /// Strength damage; unset takes `[General]`. Read only for a UnitType.
@@ -5240,6 +5248,16 @@ impl ObjectType {
             #[cfg(feature = "phobos")]
             phobos_cloak_kick_out_parasite: section
                 .read_phobos_nullable_bool("Cloak.KickOutParasite", None),
+            #[cfg(feature = "phobos")]
+            phobos_cloak_anims: section
+                .read_list("CloakAnims", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
+            #[cfg(feature = "phobos")]
+            phobos_decloak_anims: section
+                .read_list("DecloakAnims", 0x800)
+                .map(|tokens| tokens.into_iter().map(str::to_owned).collect())
+                .unwrap_or_default(),
             #[cfg(feature = "phobos")]
             phobos_sinkable_squid_grab: (category == ObjectCategory::Vehicle)
                 .then(|| section.read_phobos_nullable_bool("Sinkable.SquidGrab", None))

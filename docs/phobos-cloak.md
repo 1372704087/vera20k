@@ -31,3 +31,32 @@ Reader `Ext/TechnoType/Body.cpp:1205`, global `Ext/Rules/Body.cpp:289`
 expiry owner. The Ares hooks (`10048280`/`100482D0`) use the same real-control
 model, so the two features agree; without either feature stock's constant true
 still releases the parasite.
+
+## CloakAnims / DecloakAnims
+
+```ini
+[AudioVisual]
+CloakAnims=                                ; ValueableVector<AnimTypeClass*>
+DecloakAnims=
+
+[SOMETECHNO]                               ; TechnoType
+CloakAnims=                                ; ValueableVector, empty -> [AudioVisual]
+DecloakAnims=
+```
+
+Readers `Ext/Rules/Body.cpp:287-288`, `Ext/TechnoType/Body.cpp:1203-1204`;
+consumers `TechnoClass_Cloak_CloakAnim @ 0x7037F7` and
+`TechnoClass_Uncloak_DecloakAnim @ 0x703736`
+(`Ext/Techno/Hooks.cpp:1405-1420`). The list is resolved type-first, else the
+`[AudioVisual]` fallback; one `RandomRanged(0, len-1)` pick
+(`AnimExt::CreateRandomAnim`, `Ext/Anim/Body.cpp:407-430`) spawns at the
+techno's center with the techno as invoker and its house as owner, attached
+as the anim's owner object.
+
+VERA: `rules::phobos_globals::{cloak_anims,decloak_anims}` and
+`ObjectType::{phobos_cloak_anims,phobos_decloak_anims}`;
+`CloakRuntime::pending_anim` records the transition edge in
+`StartCloaking`/`StartUncloaking`, and
+`Simulation::drain_cloak_anim` (run from `cloak_field_ai_step`) spawns it.
+The anim is spawned on the next AI visit after a transition that happens
+outside the cloak AI (one frame later than native; presentation only).

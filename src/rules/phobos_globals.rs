@@ -421,6 +421,11 @@ pub struct PhobosGlobals {
     /// (`Hooks.Firing.cpp:1246`, `Hooks.Targeting.cpp:63`).
     #[serde(default = "true_bool")]
     pub auto_target_iron_curtained: bool,
+    /// `[CombatDamage] BerzerkTargeting=`, default `all` (`:420`, constructor
+    /// `Body.h:846`, `Valueable<AffectedHouse>`): the houses a berzerk firer
+    /// may target (`Ext/Techno/Hooks.Firing.cpp:370`).
+    #[serde(default)]
+    pub berzerk_targeting: AffectedHouse,
     /// `[General] Strafing.SimulateBurst=`, default `no`
     /// (`Ext/Rules/Body.cpp:264`, constructor `Ext/Rules/Body.h:706`): the
     /// fallback for an unset weapon `Strafing.SimulateBurst`; `yes` alternates
@@ -603,6 +608,7 @@ impl Default for PhobosGlobals {
             can_target_iron_curtained: true,
             can_target_ai_iron_curtained: false,
             auto_target_iron_curtained: true,
+            berzerk_targeting: AffectedHouse::ALL,
             strafing_simulate_burst: false,
             strafing_use_ammo_per_shot: false,
             strafing_target_cell: false,
@@ -991,6 +997,11 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
         auto_target_iron_curtained: section.read_bool(
             "AutoTarget.IronCurtained",
             defaults.auto_target_iron_curtained,
+        ),
+        berzerk_targeting: crate::rules::phobos_shields::read_affected_house(
+            section,
+            "BerzerkTargeting",
+            defaults.berzerk_targeting,
         ),
         overload_particle_sys_count: section.read_int(
             "Overload.ParticleSysCount",

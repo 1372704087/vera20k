@@ -399,6 +399,10 @@ fn facts(input: &Value) -> FireFacts {
         can_target_iron_curtained: true,
         #[cfg(feature = "phobos")]
         can_target_ai_iron_curtained: false,
+        // The native corpus predates the Phobos rules: `all` keeps the
+        // berzerk arm a no-op.
+        #[cfg(feature = "phobos")]
+        berzerk_targeting: crate::rules::phobos_shields::AffectedHouse::ALL,
     }
 }
 

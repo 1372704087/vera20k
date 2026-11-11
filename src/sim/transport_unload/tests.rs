@@ -937,6 +937,54 @@ fn hover_transport_on_water_is_sent_to_a_raised_bank() {
 /// Original73D7B5 ->741970 ->514D90 controls: failed FNPC still passes
 /// Map(0,0), and the Unload setter's west-cell lookup may restamp that same
 /// Dummy before Foot reads its +4C. These states start stopped with no path.
+#[cfg(feature = "phobos")]
+#[test]
+fn phobos_failed_shore_search_takes_the_cannot_unload_arm() {
+    use crate::sim::world::FrameEffects;
+
+    let native = crate::test_fixture::json("tools/spatial_oracle/unit_unload_shore.json");
+    let row = &native.as_array().unwrap()[0];
+    let input = &row["input"];
+    let missing_zero = input["missing_zero"].as_bool().unwrap();
+    let missing_west = input["missing_west"].as_bool().unwrap();
+    let mut fx = Fixture::new(|_, _| true);
+    let lcrf = fx.spawn("LCRF", 10, 10, 0x40);
+    fx.board(lcrf, 2);
+    let allocated: Vec<_> = (0..MAP)
+        .flat_map(|y| (0..MAP).map(move |x| (x, y)))
+        .filter(|&cell| !(missing_zero && cell == (0, 0) || missing_west && cell == (9, 10)))
+        .collect();
+    fx.sim
+        .resolved_terrain
+        .as_mut()
+        .unwrap()
+        .test_set_native_allocated_cells(&allocated);
+    let frame = fx.frame();
+    let entity = fx.sim.substrate.entities.get_mut(lcrf).unwrap();
+    entity
+        .mission
+        .set_current_for_test(MissionId::from_known(MissionType::Unload), frame);
+    entity
+        .position
+        .set_exact_z_leptons_for_test(Some(input["height"].as_i64().unwrap() as i32));
+    assert_eq!(
+        super::unit_mission_unload(&mut fx.sim, &fx.rules, lcrf, None, FrameEffects::default()),
+        16,
+        "the CannotUnload arm returns the Unload mission epilogue"
+    );
+    let entity = fx.sim.substrate.entities.get(lcrf).unwrap();
+    assert_eq!(
+        entity.navigation.nav_com(),
+        None,
+        "no packed (0,0) destination is set"
+    );
+    assert!(entity.navigation.path_replay().remaining_directions().is_empty());
+}
+
+// Stock: the failed search passes packed (0,0); Phobos hook `0x73D7B7`
+// (`Ext/Techno/Hooks.Transport.cpp:679-686`) replaces it with the
+// CannotUnload arm, covered below.
+#[cfg(not(feature = "phobos"))]
 #[test]
 fn hover_unload_failed_shore_search_assigns_the_retained_fallback_cell() {
     use crate::sim::components::{DriveCoord, NavTargetRef};

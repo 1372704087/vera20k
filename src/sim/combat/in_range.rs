@@ -1428,7 +1428,7 @@ mod tests {
         let ini = IniFile::from_str(
             "[GUN_YES]\nCylinderRangefinding=yes\n\
              [GUN_NO]\nCylinderRangefinding=no\n\
-             [GUN_UNSET]\n",
+             [GUN_UNSET]\nDamage=1\n",
         );
         let weapon = |name: &str| {
             crate::rules::weapon_type::WeaponType::from_ini_section(

@@ -2058,9 +2058,10 @@ impl Simulation {
                 .houses
                 .get(&owner)
                 .and_then(|house| house.country())
-                .map(|country| self.interner.resolve(country));
+                .and_then(|country| self.interner.try_resolve(country));
             self.interner
-                .object_type(entity.type_ref(), rules)
+                .try_resolve(entity.type_ref())
+                .and_then(|name| rules.object(name))
                 .and_then(|object| object.phobos_reveal_houses)
                 .or_else(|| country.and_then(|country| rules.country_reveal_houses(country)))
                 .unwrap_or(rules.phobos_globals.reveal_houses)

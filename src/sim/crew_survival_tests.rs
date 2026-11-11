@@ -2747,7 +2747,7 @@ fn ares_fatal_aircraft_parachutes_crew_and_honors_explicit_no_crash() {
 #[test]
 fn prevent_crew_escape_latches_on_the_killing_hit_and_suppresses_crew() {
     let rules = rules();
-    let mut sim = sim_on_arena(5, &rules);
+    let mut sim = sim_with_houses(5);
     let mcv = spawn(&mut sim, &rules, "AMCV", "Americans", 10, 10);
     let plant = spawn(&mut sim, &rules, "GAPOWR", "Americans", 14, 14);
     let attacker = spawn(&mut sim, &rules, "AMCV", "Russians", 20, 10);
@@ -2814,7 +2814,7 @@ fn prevent_passenger_escape_kills_the_dying_transports_cargo() {
 #[test]
 fn prevent_occupant_escape_kills_a_dying_buildings_occupants() {
     let rules = rules();
-    let mut sim = sim_on_arena(5, &rules);
+    let mut sim = sim_with_houses(5);
     let plant = spawn(&mut sim, &rules, "YAPOWR", "Americans", 10, 10);
     let attacker = spawn(&mut sim, &rules, "AMCV", "Russians", 16, 10);
     let occupant = sim

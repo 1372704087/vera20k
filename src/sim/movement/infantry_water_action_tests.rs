@@ -591,6 +591,7 @@ fn physical_wet_death_advances_in_logic_and_uninitializes_without_animation() {
 /// request keeps its land record instead of becoming Swim. The type's art key
 /// wins over `[General] OnlyUseLandSequences=` when both are set, and the
 /// unset art key keeps the global.
+#[cfg(feature = "phobos")]
 #[test]
 fn only_use_land_sequences_skips_the_water_remap() {
     let input = json!({"zone": 3, "land": 2, "request": 3});

@@ -640,13 +640,12 @@ fn reveal_warhead_reveals_the_map_for_its_owner() {
     let revealed = |wh_ini: &str| {
         let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
         let house = sim.interner.intern("Americans");
+        // Reveal stores the firing House's map-clear byte (`+0x241`) before
+        // any client-map work, so no fog-viewer fixture is needed.
         sim.reset_shroud_for_owner(house, &rules);
-        assert!(
-            !sim.fog.is_cell_revealed(house, 0, 0),
-            "the shroud starts closed"
-        );
+        assert!(!sim.houses[&house].map_is_clear(), "the shroud starts closed");
         detonate_once(&mut sim, &rules, firer, target, Some(target));
-        sim.fog.is_cell_revealed(house, 0, 0)
+        sim.houses[&house].map_is_clear()
     };
     assert!(!revealed(""), "Reveal defaults to 0");
     assert!(
@@ -666,13 +665,16 @@ fn create_gap_reshrouds_the_map_for_non_allies() {
         let (mut sim, rules, firer, target) = scene("", wh_ini, "", "", "Russians");
         let americans = sim.interner.intern("Americans");
         let russians = sim.interner.intern("Russians");
+        // Reveal and Reshroud store each House's map-clear byte (`+0x241`)
+        // before any client-map work, so no fog-viewer fixture is needed.
         sim.reveal_map_for_owner(americans, &rules);
         sim.reveal_map_for_owner(russians, &rules);
-        assert!(sim.fog.is_cell_revealed(russians, 0, 0));
+        assert!(sim.houses[&americans].map_is_clear());
+        assert!(sim.houses[&russians].map_is_clear());
         detonate_once(&mut sim, &rules, firer, target, Some(target));
         (
-            sim.fog.is_cell_revealed(americans, 0, 0),
-            sim.fog.is_cell_revealed(russians, 0, 0),
+            sim.houses[&americans].map_is_clear(),
+            sim.houses[&russians].map_is_clear(),
         )
     };
     assert_eq!(maps(""), (true, true), "CreateGap defaults to 0");

@@ -1047,6 +1047,9 @@ impl PhobosGlobals {
             "AnimCraterDestroyTiberium",
             globals.anim_crater_destroy_tiberium,
         );
+        // `Ext/Rules/Body.cpp:525`: the weapon key's `[General]` fallback.
+        globals.cylinder_rangefinding =
+            general.read_bool("CylinderRangefinding", globals.cylinder_rangefinding);
         globals.force_weapon_in_range_techno_only = general.read_bool(
             "ForceWeapon.InRange.TechnoOnly",
             globals.force_weapon_in_range_techno_only,
@@ -1444,8 +1447,6 @@ fn section_settings(section: &crate::rules::ini_parser::IniSection) -> PhobosGlo
             "AutoTarget.IronCurtained",
             defaults.auto_target_iron_curtained,
         ),
-        cylinder_rangefinding: section
-            .read_bool("CylinderRangefinding", defaults.cylinder_rangefinding),
         berzerk_targeting: crate::rules::phobos_shields::read_affected_house(
             section,
             "BerzerkTargeting",
